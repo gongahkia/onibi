@@ -2,12 +2,13 @@ use std::path::PathBuf;
 
 use tokio::sync::broadcast;
 use yeokcham_core::OsKeystore;
-use yeokcham_daemon::{DaemonLifecycleError, DaemonRuntime};
+use yeokcham_daemon::{DaemonLifecycleError, DaemonRuntime, SenderOutbox};
 use yeokcham_protocol::ProtocolVersion;
 
+use crate::message::map_outbox_error;
 use crate::{
     RuntimeMode, SdkConfig, SdkContactError, SdkContactManager, SdkEvent, SdkEventEnvelope,
-    SdkIdentityManager,
+    SdkIdentityManager, SdkMessageError, SdkMessageSendRequest, SdkQueuedMessage,
 };
 
 pub struct SdkClient {
@@ -66,6 +67,31 @@ impl SdkClient {
         SdkContactManager::open(self, identity)
     }
 
+    pub fn send_message<K: OsKeystore>(
+        &mut self,
+        identity: &mut SdkIdentityManager<K>,
+        request: SdkMessageSendRequest,
+    ) -> Result<SdkQueuedMessage, SdkMessageError> {
+        if !self.is_running() {
+            return Err(SdkMessageError::ClientNotRunning);
+        }
+        if self.next_event_sequence == u64::MAX {
+            return Err(SdkMessageError::EventSequenceExhausted);
+        }
+        let _ = identity.load()?;
+        let mut outbox = SenderOutbox::open(&self.outbox_path(), identity.keystore_mut())
+            .map_err(|error| map_outbox_error(&error))?;
+        let (recipient, envelope, expiry) = request.into_parts();
+        outbox
+            .enqueue(recipient, envelope, expiry)
+            .map_err(|error| map_outbox_error(&error))?;
+        let message = outbox.messages().last().ok_or(SdkMessageError::State)?;
+        let queued = SdkQueuedMessage::from(message);
+        self.emit(SdkEvent::MessageQueued(message.identifier()))
+            .map_err(|_| SdkMessageError::EventSequenceExhausted)?;
+        Ok(queued)
+    }
+
     pub async fn shutdown_async(mut self) -> Result<(), SdkClientError> {
         tokio::task::spawn_blocking(move || self.shutdown())
             .await
@@ -86,6 +112,11 @@ impl SdkClient {
     pub(crate) fn contacts_path(&self) -> PathBuf {
         self.state_directory
             .join(yeokcham_daemon::CONTACTS_DATABASE_FILE)
+    }
+
+    fn outbox_path(&self) -> PathBuf {
+        self.state_directory
+            .join(yeokcham_daemon::OUTBOX_DATABASE_FILE)
     }
 }
 

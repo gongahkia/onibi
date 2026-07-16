@@ -14,7 +14,9 @@ use yeokcham_sdk::{
     SdkClientError, SdkConfig, SdkConfigError, SdkContactError, SdkContactStatus,
     SdkDeliveryProfileKind, SdkDeliveryProfilePolicy, SdkDeliveryProfilePolicyError,
     SdkDirectIpDisclosureAcknowledgement, SdkEvent, SdkIdentityError, SdkIdentityInitialization,
-    SdkIdentityManager, SdkLocalMeshPolicy, SdkLocalMeshTransportKind,
+    SdkIdentityManager, SdkLocalMeshPolicy, SdkLocalMeshTransportKind, SdkMessageEnvelope,
+    SdkMessageEnvelopeError, SdkMessageError, SdkMessageExpiry, SdkMessageExpiryError,
+    SdkMessageSendRequest,
 };
 
 static NEXT_TEST_PATH: AtomicU64 = AtomicU64::new(0);
@@ -409,6 +411,73 @@ fn delivery_profile_policy_rejects_empty_and_silent_profile_fallbacks() {
             .unwrap_err(),
         SdkDeliveryProfilePolicyError::LocalMeshDisallowed
     );
+}
+
+#[test]
+fn sdk_message_send_queues_a_validated_envelope_and_emits_an_event() {
+    let state_directory = state_directory();
+    let config = SdkConfig::new(state_directory.clone(), RuntimeMode::Embedded, 1).unwrap();
+    let mut identities = SdkIdentityManager::new(MemoryKeystore::default());
+    identities.create_or_load().unwrap();
+    let recipient = IdentityKeypair::generate().unwrap().public_key();
+    let envelope = SdkMessageEnvelope::new(vec![0xa1], vec![0xb2]).unwrap();
+    let expiry = SdkMessageExpiry::new(100, 60).unwrap();
+    let mut client = SdkClient::start(&config).unwrap();
+    let mut events = client.subscribe();
+
+    let queued = client
+        .send_message(
+            &mut identities,
+            SdkMessageSendRequest::new(recipient, envelope, expiry),
+        )
+        .unwrap();
+    let event = events.try_recv().unwrap();
+
+    assert_eq!(queued.recipient(), recipient);
+    assert_eq!(queued.expiry(), expiry);
+    match event.event() {
+        SdkEvent::MessageQueued(identifier) => {
+            assert_eq!(identifier.as_bytes(), queued.identifier().as_bytes());
+        }
+        event => panic!("unexpected SDK event: {event:?}"),
+    }
+    client.shutdown().unwrap();
+    fs::remove_dir_all(state_directory).unwrap();
+}
+
+#[test]
+fn sdk_message_send_rejects_invalid_input_and_missing_identity_before_outbox_creation() {
+    assert_eq!(
+        SdkMessageEnvelope::new(Vec::new(), vec![0xb2]).unwrap_err(),
+        SdkMessageEnvelopeError::InvalidEnvelope
+    );
+    assert_eq!(
+        SdkMessageExpiry::new(100, 0).unwrap_err(),
+        SdkMessageExpiryError::InvalidTtl
+    );
+    assert_eq!(
+        SdkMessageEnvelope::from_encoded(&[0x98, 0x02, 0x41, 0xa1, 0x41, 0xb2]).unwrap_err(),
+        SdkMessageEnvelopeError::NonCanonicalEncoding
+    );
+
+    let state_directory = state_directory();
+    let config = SdkConfig::new(state_directory.clone(), RuntimeMode::Embedded, 1).unwrap();
+    let mut identities = SdkIdentityManager::new(MemoryKeystore::default());
+    let recipient = IdentityKeypair::generate().unwrap().public_key();
+    let request = SdkMessageSendRequest::new(
+        recipient,
+        SdkMessageEnvelope::new(vec![0xa1], vec![0xb2]).unwrap(),
+        SdkMessageExpiry::new(100, 60).unwrap(),
+    );
+    let mut client = SdkClient::start(&config).unwrap();
+
+    assert!(matches!(
+        client.send_message(&mut identities, request),
+        Err(SdkMessageError::Identity(SdkIdentityError::NotInitialized))
+    ));
+    assert!(!state_directory.join("yeokcham-outbox.sqlite").exists());
+    client.shutdown().unwrap();
+    fs::remove_dir_all(state_directory).unwrap();
 }
 
 #[tokio::test]
