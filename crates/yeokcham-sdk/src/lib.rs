@@ -5,6 +5,7 @@ mod client;
 mod config;
 mod error;
 mod event;
+mod identity;
 mod version;
 
 pub use capability::{
@@ -18,4 +19,6 @@ pub use config::{
 };
 pub use error::SdkError;
 pub use event::{SdkEvent, SdkEventEnvelope, SdkEventError};
+pub use identity::{SdkIdentity, SdkIdentityError, SdkIdentityInitialization, SdkIdentityManager};
 pub use version::{SDK_API_VERSION, SDK_API_VERSION_MAJOR, SDK_API_VERSION_MINOR, SdkApiVersion};
+pub use yeokcham_core::IdentityPublicKey;

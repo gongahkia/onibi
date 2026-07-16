@@ -1,12 +1,15 @@
 use std::{
+    collections::BTreeMap,
     fs,
     path::PathBuf,
     sync::atomic::{AtomicU64, Ordering},
 };
 
+use yeokcham_core::{KeystoreEntryName, KeystoreSecret, OsKeystore};
 use yeokcham_sdk::{
     LocalDaemonEndpoint, MAX_SDK_EVENT_BUFFER_CAPACITY, RuntimeMode, SdkClient, SdkClientBuilder,
-    SdkClientError, SdkConfig, SdkConfigError, SdkEvent,
+    SdkClientError, SdkConfig, SdkConfigError, SdkEvent, SdkIdentityError,
+    SdkIdentityInitialization, SdkIdentityManager,
 };
 
 static NEXT_TEST_PATH: AtomicU64 = AtomicU64::new(0);
@@ -17,6 +20,49 @@ fn state_directory() -> PathBuf {
         "yeokcham-public-tokio-sdk-{}-{number}",
         std::process::id()
     ))
+}
+
+#[derive(Default)]
+struct MemoryKeystore {
+    entries: BTreeMap<String, Vec<u8>>,
+    corrupt_load: bool,
+    fail_store: bool,
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("memory keystore operation failed")]
+struct MemoryKeystoreError;
+
+impl OsKeystore for MemoryKeystore {
+    type Error = MemoryKeystoreError;
+
+    fn load(&self, entry: &KeystoreEntryName) -> Result<Option<KeystoreSecret>, Self::Error> {
+        if self.corrupt_load {
+            return Ok(Some(KeystoreSecret::new(vec![0]).unwrap()));
+        }
+        Ok(self
+            .entries
+            .get(entry.as_str())
+            .map(|secret| KeystoreSecret::new(secret.clone()).unwrap()))
+    }
+
+    fn store(
+        &mut self,
+        entry: &KeystoreEntryName,
+        secret: &KeystoreSecret,
+    ) -> Result<(), Self::Error> {
+        if self.fail_store {
+            return Err(MemoryKeystoreError);
+        }
+        self.entries
+            .insert(entry.as_str().to_owned(), secret.as_bytes().to_vec());
+        Ok(())
+    }
+
+    fn delete(&mut self, entry: &KeystoreEntryName) -> Result<(), Self::Error> {
+        self.entries.remove(entry.as_str());
+        Ok(())
+    }
 }
 
 #[test]
@@ -83,6 +129,48 @@ fn typed_builder_preserves_validation_at_the_build_boundary() {
             .build(),
         Err(SdkConfigError::InvalidEventBufferCapacity)
     );
+}
+
+#[test]
+fn identity_manager_exposes_one_public_identity_without_exposing_secret_state() {
+    let mut manager = SdkIdentityManager::new(MemoryKeystore::default());
+    let created = manager.create_or_load().unwrap();
+    let loaded = manager.load().unwrap();
+
+    assert_eq!(created.initialization(), SdkIdentityInitialization::Created);
+    assert_eq!(loaded.initialization(), SdkIdentityInitialization::Loaded);
+    assert_eq!(created.public_key(), loaded.public_key());
+    assert_eq!(
+        manager.create().unwrap_err(),
+        SdkIdentityError::AlreadyInitialized
+    );
+    assert_eq!(manager.into_inner().entries.len(), 1);
+}
+
+#[test]
+fn identity_manager_fails_closed_for_missing_corrupt_and_unwritable_state() {
+    let manager = SdkIdentityManager::new(MemoryKeystore::default());
+    assert_eq!(
+        manager.load().unwrap_err(),
+        SdkIdentityError::NotInitialized
+    );
+
+    let corrupt = MemoryKeystore {
+        corrupt_load: true,
+        ..MemoryKeystore::default()
+    };
+    let manager = SdkIdentityManager::new(corrupt);
+    assert_eq!(
+        manager.load().unwrap_err(),
+        SdkIdentityError::InvalidStoredIdentity
+    );
+
+    let mut manager = SdkIdentityManager::new(MemoryKeystore {
+        fail_store: true,
+        ..MemoryKeystore::default()
+    });
+    assert_eq!(manager.create().unwrap_err(), SdkIdentityError::Keystore);
+    assert!(manager.into_inner().entries.is_empty());
 }
 
 #[tokio::test]
