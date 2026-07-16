@@ -15,3 +15,8 @@
 - A successful asynchronous submission schedules one callback on a library-created background thread. The caller retains its callback context and must keep it valid until the callback runs.
 - Completion callbacks run without an internal C ABI client-registry lock and may synchronously call any C ABI function, including `yeokcham_client_release` for the submitted client. Callback-context synchronization remains the caller's responsibility.
 - `yeokcham_secret_buffer_zeroize` accepts only caller-owned writable bytes. Its buffer remains the caller's responsibility before and after the call.
+
+## Engine status mapping
+
+- SDK configuration failures map to `YEOKCHAM_STATUS_INVALID_INPUT`; exhausted SDK event sequence space maps to `YEOKCHAM_STATUS_RESOURCE_LIMIT`.
+- SDK mode, lifecycle, state, engine, and async-task failures map to `YEOKCHAM_STATUS_STATE` without exposing engine details.

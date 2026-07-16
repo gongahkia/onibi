@@ -269,6 +269,23 @@ mod tests {
         assert!(HEADER.contains("returns requested token only on exact pre-release match"));
     }
 
+    #[test]
+    fn engine_status_mapping_contract_is_documented() {
+        const CONTRACT: &str = include_str!("../README.md");
+        assert!(CONTRACT.contains("## Engine status mapping"));
+        assert!(
+            CONTRACT.contains("SDK configuration failures map to `YEOKCHAM_STATUS_INVALID_INPUT`")
+        );
+        assert!(CONTRACT.contains(
+            "exhausted SDK event sequence space maps to `YEOKCHAM_STATUS_RESOURCE_LIMIT`"
+        ));
+        assert!(
+            CONTRACT.contains(
+                "failures map to `YEOKCHAM_STATUS_STATE` without exposing engine details"
+            )
+        );
+    }
+
     extern "C" fn noop_completion(_: i32, _: *mut c_void) {}
 
     #[test]

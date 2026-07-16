@@ -7,7 +7,7 @@ use std::{
 
 use crate::{YEOKCHAM_ABI_NEGOTIATION_REJECTED, YEOKCHAM_ABI_VERSION};
 use crate::{YeokchamClient, YeokchamClientConfigBuilder, YeokchamStatus};
-use yeokcham_sdk::{RuntimeMode, SdkClient, SdkConfig};
+use yeokcham_sdk::{RuntimeMode, SdkClient, SdkClientError, SdkConfig};
 use zeroize::Zeroize;
 
 pub const MAX_C_ABI_CLIENT_CONFIG_BUILDERS: usize = 1024;
@@ -128,8 +128,9 @@ pub extern "C" fn yeokcham_client_start(client: *mut YeokchamClient) -> Yeokcham
     let Some(configuration) = client.configuration.clone() else {
         return YeokchamStatus::State;
     };
-    let Ok(runtime) = SdkClient::start(&configuration) else {
-        return YeokchamStatus::State;
+    let runtime = match SdkClient::start(&configuration) {
+        Ok(runtime) => runtime,
+        Err(error) => return map_sdk_client_error(&error),
     };
     client.runtime = Some(runtime);
     YeokchamStatus::Ok
@@ -150,9 +151,9 @@ pub extern "C" fn yeokcham_client_stop(client: *mut YeokchamClient) -> YeokchamS
     let Some(mut runtime) = client.runtime.take() else {
         return YeokchamStatus::State;
     };
-    if runtime.shutdown().is_err() {
+    if let Err(error) = runtime.shutdown() {
         client.runtime = Some(runtime);
-        return YeokchamStatus::State;
+        return map_sdk_client_error(&error);
     }
     YeokchamStatus::Ok
 }
@@ -347,12 +348,26 @@ fn is_active_client(client: *const YeokchamClient) -> Result<bool, YeokchamStatu
     Ok(clients.contains_key(&identifier))
 }
 
+fn map_sdk_client_error(error: &SdkClientError) -> YeokchamStatus {
+    match error {
+        SdkClientError::Configuration(_) => YeokchamStatus::InvalidInput,
+        SdkClientError::EventSequenceExhausted => YeokchamStatus::ResourceLimit,
+        SdkClientError::DaemonModeUnavailable
+        | SdkClientError::AlreadyRunning
+        | SdkClientError::NotRunning
+        | SdkClientError::State
+        | SdkClientError::Engine
+        | SdkClientError::AsyncTask => YeokchamStatus::State,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         CLIENT_TEST_LOCK, MAX_C_ABI_SECRET_BUFFER_BYTES, MAX_C_ABI_STATE_DIRECTORY_BYTES,
-        YeokchamStatus, yeokcham_client_complete_async, yeokcham_client_config_builder_build,
-        yeokcham_client_config_builder_create, yeokcham_client_config_builder_release,
+        SdkClientError, YeokchamStatus, map_sdk_client_error, yeokcham_client_complete_async,
+        yeokcham_client_config_builder_build, yeokcham_client_config_builder_create,
+        yeokcham_client_config_builder_release,
         yeokcham_client_config_builder_set_event_buffer_capacity,
         yeokcham_client_config_builder_set_state_directory, yeokcham_client_create,
         yeokcham_client_release, yeokcham_client_start, yeokcham_client_stop,
@@ -441,6 +456,73 @@ mod tests {
             yeokcham_client_stop(std::ptr::null_mut()),
             YeokchamStatus::InvalidInput
         );
+    }
+
+    #[test]
+    fn sdk_client_errors_have_stable_c_status_mappings() {
+        assert_eq!(
+            map_sdk_client_error(&SdkClientError::Configuration(
+                yeokcham_sdk::SdkConfigError::InvalidStateDirectory
+            )),
+            YeokchamStatus::InvalidInput
+        );
+        assert_eq!(
+            map_sdk_client_error(&SdkClientError::EventSequenceExhausted),
+            YeokchamStatus::ResourceLimit
+        );
+        for error in [
+            SdkClientError::DaemonModeUnavailable,
+            SdkClientError::AlreadyRunning,
+            SdkClientError::NotRunning,
+            SdkClientError::State,
+            SdkClientError::Engine,
+            SdkClientError::AsyncTask,
+        ] {
+            assert_eq!(map_sdk_client_error(&error), YeokchamStatus::State);
+        }
+    }
+
+    #[test]
+    fn client_start_maps_an_engine_state_directory_conflict_to_state() {
+        let _guard = CLIENT_TEST_LOCK.lock().unwrap();
+        let state_directory = std::env::temp_dir().join(format!(
+            "yeokcham-ffi-client-start-conflict-{}",
+            std::process::id()
+        ));
+        let state_directory = state_directory.to_string_lossy().into_owned();
+        let first = yeokcham_client_create();
+        let second = yeokcham_client_create();
+        for client in [first, second] {
+            let builder = yeokcham_client_config_builder_create();
+            assert_eq!(
+                unsafe {
+                    yeokcham_client_config_builder_set_state_directory(
+                        builder,
+                        state_directory.as_bytes().as_ptr(),
+                        state_directory.len(),
+                    )
+                },
+                YeokchamStatus::Ok
+            );
+            assert_eq!(
+                yeokcham_client_config_builder_set_event_buffer_capacity(builder, 8),
+                YeokchamStatus::Ok
+            );
+            assert_eq!(
+                yeokcham_client_config_builder_build(builder, client),
+                YeokchamStatus::Ok
+            );
+            assert_eq!(
+                yeokcham_client_config_builder_release(builder),
+                YeokchamStatus::Ok
+            );
+        }
+        assert_eq!(yeokcham_client_start(first), YeokchamStatus::Ok);
+        assert_eq!(yeokcham_client_start(second), YeokchamStatus::State);
+        assert_eq!(yeokcham_client_stop(first), YeokchamStatus::Ok);
+        assert_eq!(yeokcham_client_release(first), YeokchamStatus::Ok);
+        assert_eq!(yeokcham_client_release(second), YeokchamStatus::Ok);
+        std::fs::remove_dir_all(state_directory).unwrap();
     }
 
     extern "C" fn noop_completion(_: i32, _: *mut std::ffi::c_void) {}
