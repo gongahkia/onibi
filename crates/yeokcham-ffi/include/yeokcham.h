@@ -8,6 +8,7 @@
 #define YEOKCHAM_ABI_VERSION_MINOR UINT32_C(0)
 #define YEOKCHAM_ABI_VERSION UINT32_C(1)
 #define YEOKCHAM_ABI_NEGOTIATION_REJECTED UINT32_C(0)
+#define YEOKCHAM_MAX_ERROR_DETAIL_BYTES UINT32_C(64)
 
 typedef struct yeokcham_client yeokcham_client_t; // library-owned opaque client; release with yeokcham_client_release
 typedef struct yeokcham_client_config_builder yeokcham_client_config_builder_t; // library-owned configuration builder; release with yeokcham_client_config_builder_release
@@ -25,6 +26,12 @@ yeokcham_client_t *yeokcham_client_create(void); // null when client capacity is
 yeokcham_status_t yeokcham_client_release(yeokcham_client_t *client); // invalid input unless client is active
 yeokcham_status_t yeokcham_client_start(yeokcham_client_t *client); // requires a validated attached configuration
 yeokcham_status_t yeokcham_client_stop(yeokcham_client_t *client); // requires a running client
+yeokcham_status_t yeokcham_client_copy_last_error_detail(
+    const yeokcham_client_t *client,
+    uint8_t *buffer,
+    size_t buffer_capacity,
+    size_t *detail_length
+); // caller-owned writable buffer; query length with null buffer and zero capacity
 yeokcham_client_config_builder_t *yeokcham_client_config_builder_create(void); // null when builder capacity is exhausted
 yeokcham_status_t yeokcham_client_config_builder_release(yeokcham_client_config_builder_t *builder); // invalid input unless builder is active
 yeokcham_status_t yeokcham_client_config_builder_set_state_directory(

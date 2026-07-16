@@ -12,12 +12,14 @@ use zeroize::Zeroize;
 
 pub const MAX_C_ABI_CLIENT_CONFIG_BUILDERS: usize = 1024;
 pub const MAX_C_ABI_CLIENTS: usize = 1024;
+pub const MAX_C_ABI_ERROR_DETAIL_BYTES: usize = 64;
 pub const MAX_C_ABI_PENDING_COMPLETIONS: usize = 1024;
 pub const MAX_C_ABI_SECRET_BUFFER_BYTES: usize = 16 * 1024 * 1024;
 pub const MAX_C_ABI_STATE_DIRECTORY_BYTES: usize = 4096;
 
 struct ClientHandle {
     configuration: Option<SdkConfig>,
+    last_error_detail: Option<&'static [u8]>,
     runtime: Option<SdkClient>,
 }
 
@@ -85,6 +87,7 @@ pub extern "C" fn yeokcham_client_create() -> *mut YeokchamClient {
             identifier,
             ClientHandle {
                 configuration: None,
+                last_error_detail: None,
                 runtime: None,
             },
         )
@@ -130,9 +133,13 @@ pub extern "C" fn yeokcham_client_start(client: *mut YeokchamClient) -> Yeokcham
     };
     let runtime = match SdkClient::start(&configuration) {
         Ok(runtime) => runtime,
-        Err(error) => return map_sdk_client_error(&error),
+        Err(error) => {
+            client.last_error_detail = Some(sdk_client_error_detail(&error));
+            return map_sdk_client_error(&error);
+        }
     };
     client.runtime = Some(runtime);
+    client.last_error_detail = None;
     YeokchamStatus::Ok
 }
 
@@ -153,8 +160,42 @@ pub extern "C" fn yeokcham_client_stop(client: *mut YeokchamClient) -> YeokchamS
     };
     if let Err(error) = runtime.shutdown() {
         client.runtime = Some(runtime);
+        client.last_error_detail = Some(sdk_client_error_detail(&error));
         return map_sdk_client_error(&error);
     }
+    client.last_error_detail = None;
+    YeokchamStatus::Ok
+}
+
+#[unsafe(no_mangle)]
+#[allow(clippy::missing_safety_doc)]
+pub unsafe extern "C" fn yeokcham_client_copy_last_error_detail(
+    client: *const YeokchamClient,
+    buffer: *mut u8,
+    buffer_capacity: usize,
+    detail_length: *mut usize,
+) -> YeokchamStatus {
+    if detail_length.is_null() || (buffer.is_null() && buffer_capacity != 0) {
+        return YeokchamStatus::InvalidInput;
+    }
+    let identifier = client.addr();
+    if identifier == 0 {
+        return YeokchamStatus::InvalidInput;
+    }
+    let Ok(clients) = active_clients().lock() else {
+        return YeokchamStatus::State;
+    };
+    let Some(client) = clients.get(&identifier) else {
+        return YeokchamStatus::InvalidInput;
+    };
+    let Some(detail) = client.last_error_detail else {
+        return YeokchamStatus::State;
+    };
+    unsafe { detail_length.write(detail.len()) };
+    if buffer_capacity < detail.len() {
+        return YeokchamStatus::ResourceLimit;
+    }
+    unsafe { std::ptr::copy_nonoverlapping(detail.as_ptr(), buffer, detail.len()) };
     YeokchamStatus::Ok
 }
 
@@ -361,17 +402,31 @@ fn map_sdk_client_error(error: &SdkClientError) -> YeokchamStatus {
     }
 }
 
+fn sdk_client_error_detail(error: &SdkClientError) -> &'static [u8] {
+    match error {
+        SdkClientError::Configuration(_) => b"sdk_configuration",
+        SdkClientError::DaemonModeUnavailable => b"sdk_daemon_mode_unavailable",
+        SdkClientError::AlreadyRunning => b"sdk_already_running",
+        SdkClientError::NotRunning => b"sdk_not_running",
+        SdkClientError::State => b"sdk_state",
+        SdkClientError::Engine => b"sdk_engine",
+        SdkClientError::EventSequenceExhausted => b"sdk_event_sequence_exhausted",
+        SdkClientError::AsyncTask => b"sdk_async_task",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        CLIENT_TEST_LOCK, MAX_C_ABI_SECRET_BUFFER_BYTES, MAX_C_ABI_STATE_DIRECTORY_BYTES,
-        SdkClientError, YeokchamStatus, map_sdk_client_error, yeokcham_client_complete_async,
+        CLIENT_TEST_LOCK, MAX_C_ABI_ERROR_DETAIL_BYTES, MAX_C_ABI_SECRET_BUFFER_BYTES,
+        MAX_C_ABI_STATE_DIRECTORY_BYTES, SdkClientError, YeokchamStatus, map_sdk_client_error,
+        sdk_client_error_detail, yeokcham_client_complete_async,
         yeokcham_client_config_builder_build, yeokcham_client_config_builder_create,
         yeokcham_client_config_builder_release,
         yeokcham_client_config_builder_set_event_buffer_capacity,
-        yeokcham_client_config_builder_set_state_directory, yeokcham_client_create,
-        yeokcham_client_release, yeokcham_client_start, yeokcham_client_stop,
-        yeokcham_secret_buffer_zeroize,
+        yeokcham_client_config_builder_set_state_directory, yeokcham_client_copy_last_error_detail,
+        yeokcham_client_create, yeokcham_client_release, yeokcham_client_start,
+        yeokcham_client_stop, yeokcham_secret_buffer_zeroize,
     };
 
     #[test]
@@ -483,6 +538,29 @@ mod tests {
     }
 
     #[test]
+    fn sdk_client_error_details_are_bounded_redacted_tokens() {
+        for error in [
+            SdkClientError::Configuration(yeokcham_sdk::SdkConfigError::InvalidStateDirectory),
+            SdkClientError::DaemonModeUnavailable,
+            SdkClientError::AlreadyRunning,
+            SdkClientError::NotRunning,
+            SdkClientError::State,
+            SdkClientError::Engine,
+            SdkClientError::EventSequenceExhausted,
+            SdkClientError::AsyncTask,
+        ] {
+            let detail = sdk_client_error_detail(&error);
+            assert!(!detail.is_empty());
+            assert!(detail.len() <= MAX_C_ABI_ERROR_DETAIL_BYTES);
+            assert!(
+                detail
+                    .iter()
+                    .all(|byte| byte.is_ascii_lowercase() || *byte == b'_')
+            );
+        }
+    }
+
+    #[test]
     fn client_start_maps_an_engine_state_directory_conflict_to_state() {
         let _guard = CLIENT_TEST_LOCK.lock().unwrap();
         let state_directory = std::env::temp_dir().join(format!(
@@ -519,6 +597,56 @@ mod tests {
         }
         assert_eq!(yeokcham_client_start(first), YeokchamStatus::Ok);
         assert_eq!(yeokcham_client_start(second), YeokchamStatus::State);
+        let mut detail_length = 0;
+        assert_eq!(
+            unsafe {
+                yeokcham_client_copy_last_error_detail(
+                    second,
+                    std::ptr::null_mut(),
+                    0,
+                    &raw mut detail_length,
+                )
+            },
+            YeokchamStatus::ResourceLimit
+        );
+        assert_eq!(detail_length, b"sdk_already_running".len());
+        let mut short_buffer = [0xA5; 32];
+        assert_eq!(
+            unsafe {
+                yeokcham_client_copy_last_error_detail(
+                    second,
+                    short_buffer.as_mut_ptr(),
+                    detail_length - 1,
+                    &raw mut detail_length,
+                )
+            },
+            YeokchamStatus::ResourceLimit
+        );
+        assert!(short_buffer.iter().all(|byte| *byte == 0xA5));
+        let mut detail = [0; MAX_C_ABI_ERROR_DETAIL_BYTES];
+        assert_eq!(
+            unsafe {
+                yeokcham_client_copy_last_error_detail(
+                    second,
+                    detail.as_mut_ptr(),
+                    detail.len(),
+                    &raw mut detail_length,
+                )
+            },
+            YeokchamStatus::Ok
+        );
+        assert_eq!(&detail[..detail_length], b"sdk_already_running");
+        assert_eq!(
+            unsafe {
+                yeokcham_client_copy_last_error_detail(
+                    second,
+                    std::ptr::null_mut(),
+                    0,
+                    std::ptr::null_mut(),
+                )
+            },
+            YeokchamStatus::InvalidInput
+        );
         assert_eq!(yeokcham_client_stop(first), YeokchamStatus::Ok);
         assert_eq!(yeokcham_client_release(first), YeokchamStatus::Ok);
         assert_eq!(yeokcham_client_release(second), YeokchamStatus::Ok);

@@ -29,13 +29,14 @@ pub enum YeokchamStatus {
 }
 
 pub use c_abi::{
-    MAX_C_ABI_CLIENT_CONFIG_BUILDERS, MAX_C_ABI_CLIENTS, MAX_C_ABI_PENDING_COMPLETIONS,
-    MAX_C_ABI_SECRET_BUFFER_BYTES, MAX_C_ABI_STATE_DIRECTORY_BYTES, YeokchamCompletionCallback,
-    yeokcham_abi_negotiate, yeokcham_client_complete_async, yeokcham_client_config_builder_build,
-    yeokcham_client_config_builder_create, yeokcham_client_config_builder_release,
+    MAX_C_ABI_CLIENT_CONFIG_BUILDERS, MAX_C_ABI_CLIENTS, MAX_C_ABI_ERROR_DETAIL_BYTES,
+    MAX_C_ABI_PENDING_COMPLETIONS, MAX_C_ABI_SECRET_BUFFER_BYTES, MAX_C_ABI_STATE_DIRECTORY_BYTES,
+    YeokchamCompletionCallback, yeokcham_abi_negotiate, yeokcham_client_complete_async,
+    yeokcham_client_config_builder_build, yeokcham_client_config_builder_create,
+    yeokcham_client_config_builder_release,
     yeokcham_client_config_builder_set_event_buffer_capacity,
-    yeokcham_client_config_builder_set_state_directory, yeokcham_client_create,
-    yeokcham_client_release, yeokcham_client_start, yeokcham_client_stop,
+    yeokcham_client_config_builder_set_state_directory, yeokcham_client_copy_last_error_detail,
+    yeokcham_client_create, yeokcham_client_release, yeokcham_client_start, yeokcham_client_stop,
     yeokcham_secret_buffer_zeroize,
 };
 
@@ -68,6 +69,7 @@ mod tests {
         assert!(HEADER.contains("#define YEOKCHAM_ABI_VERSION_MINOR UINT32_C(0)"));
         assert!(HEADER.contains("#define YEOKCHAM_ABI_VERSION UINT32_C(1)"));
         assert!(HEADER.contains("#define YEOKCHAM_ABI_NEGOTIATION_REJECTED UINT32_C(0)"));
+        assert!(HEADER.contains("#define YEOKCHAM_MAX_ERROR_DETAIL_BYTES UINT32_C(64)"));
         assert!(HEADER.contains("typedef struct yeokcham_client yeokcham_client_t;"));
         assert!(HEADER.contains(
             "typedef struct yeokcham_client_config_builder yeokcham_client_config_builder_t;"
@@ -98,6 +100,7 @@ mod tests {
         assert!(HEADER.contains("yeokcham_client_release(yeokcham_client_t *client);"));
         assert!(HEADER.contains("yeokcham_client_start(yeokcham_client_t *client);"));
         assert!(HEADER.contains("yeokcham_client_stop(yeokcham_client_t *client);"));
+        assert!(HEADER.contains("yeokcham_client_copy_last_error_detail("));
         assert!(HEADER.contains("typedef void (*yeokcham_completion_callback_t)("));
         assert!(HEADER.contains("yeokcham_client_complete_async("));
         assert!(HEADER.contains("yeokcham_client_config_builder_create(void);"));
@@ -279,11 +282,10 @@ mod tests {
         assert!(CONTRACT.contains(
             "exhausted SDK event sequence space maps to `YEOKCHAM_STATUS_RESOURCE_LIMIT`"
         ));
-        assert!(
-            CONTRACT.contains(
-                "failures map to `YEOKCHAM_STATUS_STATE` without exposing engine details"
-            )
-        );
+        assert!(CONTRACT.contains(
+            "failures map to `YEOKCHAM_STATUS_STATE` without exposing raw engine details"
+        ));
+        assert!(CONTRACT.contains("The payload contains no engine strings, paths, or secrets"));
     }
 
     extern "C" fn noop_completion(_: i32, _: *mut c_void) {}

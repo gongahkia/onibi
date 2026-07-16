@@ -5,7 +5,8 @@ use std::ffi::c_void;
 use libfuzzer_sys::fuzz_target;
 use yeokcham_ffi::{
     YeokchamStatus, yeokcham_client_complete_async, yeokcham_client_config_builder_build,
-    yeokcham_client_release, yeokcham_client_start, yeokcham_client_stop,
+    yeokcham_client_copy_last_error_detail, yeokcham_client_release, yeokcham_client_start,
+    yeokcham_client_stop,
 };
 
 extern "C" fn completion(_: i32, _: *mut c_void) {}
@@ -43,6 +44,18 @@ fuzz_target!(|data: &[u8]| {
     );
     assert_eq!(
         yeokcham_client_config_builder_build(std::ptr::without_provenance(address), client),
+        YeokchamStatus::InvalidInput
+    );
+    let mut detail_length = 0;
+    assert_eq!(
+        unsafe {
+            yeokcham_client_copy_last_error_detail(
+                client,
+                std::ptr::null_mut(),
+                0,
+                &raw mut detail_length,
+            )
+        },
         YeokchamStatus::InvalidInput
     );
 });

@@ -19,4 +19,5 @@
 ## Engine status mapping
 
 - SDK configuration failures map to `YEOKCHAM_STATUS_INVALID_INPUT`; exhausted SDK event sequence space maps to `YEOKCHAM_STATUS_RESOURCE_LIMIT`.
-- SDK mode, lifecycle, state, engine, and async-task failures map to `YEOKCHAM_STATUS_STATE` without exposing engine details.
+- SDK mode, lifecycle, state, engine, and async-task failures map to `YEOKCHAM_STATUS_STATE` without exposing raw engine details.
+- `yeokcham_client_copy_last_error_detail` returns a bounded canonical ASCII token for the last SDK error on an active client. The caller owns its buffer; query the required length with a null buffer and zero capacity, then provide at least that capacity. The payload contains no engine strings, paths, or secrets.
