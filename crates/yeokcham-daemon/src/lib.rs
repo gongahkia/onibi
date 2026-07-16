@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod attachment_delivery;
+mod attachment_journal_store;
 mod bluetooth_transport;
 mod client_identity;
 mod client_state;
@@ -44,6 +45,7 @@ pub use attachment_delivery::{
     AttachmentDeliveryOrchestrator, AttachmentDeliveryOutcome, AttachmentDeliveryTransport,
     MAX_ATTACHMENT_DELIVERY_CHUNKS_PER_CYCLE,
 };
+pub use attachment_journal_store::{AttachmentJournalStoreError, AttachmentTransferJournalStore};
 pub use bluetooth_transport::{BluetoothTransport, BluetoothTransportError};
 pub use client_identity::{
     CLIENT_IDENTITY_KEY_ENTRY, ClientIdentity, ClientIdentityError, ClientIdentityInitialization,
