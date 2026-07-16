@@ -33,7 +33,7 @@ impl SdkApiVersion {
     #[must_use]
     pub const fn supports(self, required: Self) -> bool {
         if self.is_pre_release() || required.is_pre_release() {
-            return self == required;
+            return self.major == required.major && self.minor == required.minor;
         }
         self.major == required.major && self.minor >= required.minor
     }

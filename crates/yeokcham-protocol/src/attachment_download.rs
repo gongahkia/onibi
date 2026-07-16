@@ -123,11 +123,11 @@ impl AttachmentDownloadJournal {
                 .bool(chunk.downloaded)
                 .map_err(|_| AttachmentDownloadError::Encode)?;
         }
-        let encoded = encoder.into_writer();
-        if encoded.len() > MAX_ATTACHMENT_DOWNLOAD_JOURNAL_BYTES {
+        let output = encoder.into_writer();
+        if output.len() > MAX_ATTACHMENT_DOWNLOAD_JOURNAL_BYTES {
             return Err(AttachmentDownloadError::JournalTooLarge);
         }
-        Ok(encoded)
+        Ok(output)
     }
 
     pub fn decode(encoded: &[u8]) -> Result<Self, AttachmentDownloadError> {

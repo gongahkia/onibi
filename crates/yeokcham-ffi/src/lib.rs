@@ -100,11 +100,15 @@ mod tests {
             yeokcham_handle_release(handle),
             YeokchamStatus::InvalidInput
         );
-        assert!(MAX_C_ABI_HANDLES > 0);
+        const {
+            assert!(MAX_C_ABI_HANDLES > 0);
+        }
     }
 
     static CALLBACK_TEST_LOCK: Mutex<()> = Mutex::new(());
-    static COMPLETION_SENDER: OnceLock<Mutex<Option<mpsc::Sender<(i32, usize)>>>> = OnceLock::new();
+    type Completion = (i32, usize);
+    type CompletionSender = mpsc::Sender<Completion>;
+    static COMPLETION_SENDER: OnceLock<Mutex<Option<CompletionSender>>> = OnceLock::new();
 
     extern "C" fn record_completion(status: i32, context: *mut c_void) {
         let sender = COMPLETION_SENDER
@@ -141,7 +145,9 @@ mod tests {
         );
         assert_eq!(yeokcham_handle_release(handle), YeokchamStatus::Ok);
         *COMPLETION_SENDER.get().unwrap().lock().unwrap() = None;
-        assert!(MAX_C_ABI_PENDING_COMPLETIONS > 0);
+        const {
+            assert!(MAX_C_ABI_PENDING_COMPLETIONS > 0);
+        }
     }
 
     #[test]
@@ -179,19 +185,20 @@ mod tests {
     fn concurrent_handle_lifecycle_accepts_each_handle_once() {
         const WORKERS: usize = 32;
         let start = Arc::new(Barrier::new(WORKERS));
-        let workers: Vec<_> = (0..WORKERS)
-            .map(|_| {
-                let start = Arc::clone(&start);
-                thread::spawn(move || {
-                    start.wait();
-                    let handle = yeokcham_handle_create();
-                    !handle.is_null()
-                        && yeokcham_handle_release(handle) == YeokchamStatus::Ok
-                        && yeokcham_handle_release(handle) == YeokchamStatus::InvalidInput
+        assert!(
+            (0..WORKERS)
+                .map(|_| {
+                    let start = Arc::clone(&start);
+                    thread::spawn(move || {
+                        start.wait();
+                        let handle = yeokcham_handle_create();
+                        !handle.is_null()
+                            && yeokcham_handle_release(handle) == YeokchamStatus::Ok
+                            && yeokcham_handle_release(handle) == YeokchamStatus::InvalidInput
+                    })
                 })
-            })
-            .collect();
-        assert!(workers.into_iter().all(|worker| worker.join().unwrap()));
+                .all(|worker| worker.join().unwrap())
+        );
     }
 
     #[test]

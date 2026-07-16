@@ -179,11 +179,11 @@ impl X3dhPrekeyBundle {
             .map_err(|_| X3dhError::Encode)?
             .bytes(&prekeys)
             .map_err(|_| X3dhError::Encode)?;
-        let encoded = encoder.into_writer();
-        if encoded.len() > MAX_X3DH_PREKEY_BUNDLE_BYTES {
+        let output = encoder.into_writer();
+        if output.len() > MAX_X3DH_PREKEY_BUNDLE_BYTES {
             return Err(X3dhError::PayloadTooLarge);
         }
-        Ok(encoded)
+        Ok(output)
     }
 
     pub fn decode(encoded: &[u8]) -> Result<Self, X3dhError> {
@@ -270,11 +270,11 @@ impl X3dhInitialMessage {
                 .map_err(|_| X3dhError::Encode)?,
             None => encoder.null().map_err(|_| X3dhError::Encode)?,
         };
-        let encoded = encoder.into_writer();
-        if encoded.len() > MAX_X3DH_INITIAL_MESSAGE_BYTES {
+        let output = encoder.into_writer();
+        if output.len() > MAX_X3DH_INITIAL_MESSAGE_BYTES {
             return Err(X3dhError::PayloadTooLarge);
         }
-        Ok(encoded)
+        Ok(output)
     }
 
     pub fn decode(encoded: &[u8]) -> Result<Self, X3dhError> {

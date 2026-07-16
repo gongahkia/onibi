@@ -17,6 +17,7 @@ pub struct MaildropReplicationScheduler {
 
 impl MaildropReplicationScheduler {
     #[must_use]
+    #[allow(clippy::needless_pass_by_value)]
     pub fn new(selection: RelayReplicaSelection) -> Self {
         Self {
             pending: selection

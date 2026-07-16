@@ -157,11 +157,11 @@ impl RelayInvitation {
             .map_err(|_| RelayInvitationError::Encode)?
             .bytes(&self.signature)
             .map_err(|_| RelayInvitationError::Encode)?;
-        let encoded = encoder.into_writer();
-        if encoded.len() > MAX_RELAY_INVITATION_BYTES {
+        let output = encoder.into_writer();
+        if output.len() > MAX_RELAY_INVITATION_BYTES {
             return Err(RelayInvitationError::PayloadTooLarge);
         }
-        Ok(encoded)
+        Ok(output)
     }
 
     pub fn decode(encoded: &[u8]) -> Result<Self, RelayInvitationError> {

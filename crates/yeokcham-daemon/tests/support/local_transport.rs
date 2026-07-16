@@ -74,6 +74,7 @@ impl LocalTransport for InMemoryTransport {
         self.kind
     }
 
+    #[allow(clippy::manual_async_fn)]
     fn send_frame(
         &self,
         frame: &WireEnvelope,
@@ -90,6 +91,7 @@ impl LocalTransport for InMemoryTransport {
         }
     }
 
+    #[allow(clippy::manual_async_fn)]
     fn receive_frame(
         &self,
         limits: WireLimits,

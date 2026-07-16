@@ -79,7 +79,7 @@ impl LanPeerDiscovery {
             service
                 .get_addresses()
                 .iter()
-                .map(|address| address.to_ip_addr()),
+                .map(mdns_sd::ScopedIp::to_ip_addr),
         )
     }
 

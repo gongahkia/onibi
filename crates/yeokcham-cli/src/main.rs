@@ -503,7 +503,7 @@ fn decode_bounded_canonical_hex(
     encoded: &str,
     maximum_bytes: usize,
 ) -> Result<Vec<u8>, &'static str> {
-    if encoded.is_empty() || encoded.len() % 2 != 0 || encoded.len() / 2 > maximum_bytes {
+    if encoded.is_empty() || !encoded.len().is_multiple_of(2) || encoded.len() / 2 > maximum_bytes {
         return Err("hexadecimal input has an invalid length");
     }
     let mut output = vec![0; encoded.len() / 2];
@@ -1211,8 +1211,7 @@ mod tests {
             inspect_relay_profile(profile).unwrap(),
             format!("onion_service_public_key={onion_service_public_key}\nvirtual_port=4444\n")
         );
-        let mut binary = Vec::new();
-        binary.resize(profile.len() / 2, 0);
+        let mut binary = vec![0; profile.len() / 2];
         decode_canonical_hex(profile, &mut binary).unwrap();
         assert_eq!(
             TorMaildropProfileConfig::decode(&binary)
@@ -1475,7 +1474,7 @@ mod tests {
             } if source_revision == REVISION
                 && signing_key_name == "release_signing"
                 && artifact == [PathBuf::from("yeokcham")]
-                && output == PathBuf::from("release-manifest.cbor")
+                && output.as_path() == Path::new("release-manifest.cbor")
         ));
     }
 

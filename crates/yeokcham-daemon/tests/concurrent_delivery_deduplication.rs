@@ -109,7 +109,7 @@ async fn concurrent_delivery_acknowledgements_and_duplicates_are_exactly_once() 
             (deduplication, Some(identifier))
         }));
     }
-    for envelope in envelopes.iter().cloned() {
+    for envelope in envelopes {
         let inbox = Arc::clone(&inbox);
         deliveries.push(tokio::spawn(async move {
             tokio::task::yield_now().await;

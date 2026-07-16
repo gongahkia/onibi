@@ -1,3 +1,5 @@
+#![allow(clippy::similar_names)]
+
 mod support;
 
 use std::{sync::Arc, time::Duration};

@@ -118,11 +118,11 @@ impl AttachmentUploadJournal {
                 .bool(chunk.uploaded)
                 .map_err(|_| AttachmentUploadError::Encode)?;
         }
-        let encoded = encoder.into_writer();
-        if encoded.len() > MAX_ATTACHMENT_UPLOAD_JOURNAL_BYTES {
+        let output = encoder.into_writer();
+        if output.len() > MAX_ATTACHMENT_UPLOAD_JOURNAL_BYTES {
             return Err(AttachmentUploadError::JournalTooLarge);
         }
-        Ok(encoded)
+        Ok(output)
     }
 
     pub fn decode(encoded: &[u8]) -> Result<Self, AttachmentUploadError> {

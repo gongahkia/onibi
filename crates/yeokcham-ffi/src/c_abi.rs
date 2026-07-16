@@ -20,12 +20,15 @@ pub type YeokchamCompletionCallback = extern "C" fn(i32, *mut c_void);
 
 #[unsafe(no_mangle)]
 pub extern "C" fn yeokcham_abi_negotiate(requested_version: u32) -> u32 {
-    (requested_version == YEOKCHAM_ABI_VERSION)
-        .then_some(YEOKCHAM_ABI_VERSION)
-        .unwrap_or(0)
+    if requested_version == YEOKCHAM_ABI_VERSION {
+        YEOKCHAM_ABI_VERSION
+    } else {
+        0
+    }
 }
 
 #[unsafe(no_mangle)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C" fn yeokcham_secret_buffer_zeroize(
     buffer: *mut u8,
     length: usize,
@@ -148,11 +151,13 @@ mod tests {
             YeokchamStatus::InvalidInput
         );
         assert_eq!(
-            unsafe { yeokcham_secret_buffer_zeroize(&mut byte, 0) },
+            unsafe { yeokcham_secret_buffer_zeroize(&raw mut byte, 0) },
             YeokchamStatus::InvalidInput
         );
         assert_eq!(
-            unsafe { yeokcham_secret_buffer_zeroize(&mut byte, MAX_C_ABI_SECRET_BUFFER_BYTES + 1) },
+            unsafe {
+                yeokcham_secret_buffer_zeroize(&raw mut byte, MAX_C_ABI_SECRET_BUFFER_BYTES + 1)
+            },
             YeokchamStatus::ResourceLimit
         );
         assert_eq!(byte, 0xA5);

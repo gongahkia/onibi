@@ -15,6 +15,11 @@ const SKIPPED_KEY_FIELDS: u64 = 3;
 const ROOT_DERIVATION_OUTPUT_BYTES: usize = 64;
 const CHAIN_DERIVATION_OUTPUT_BYTES: usize = 64;
 
+type RootDerivation = (
+    Zeroizing<[u8; RATCHET_KEY_BYTES]>,
+    Zeroizing<[u8; RATCHET_KEY_BYTES]>,
+);
+
 pub struct DoubleRatchetState {
     root_key: Zeroizing<[u8; RATCHET_KEY_BYTES]>,
     sending_chain: Option<Zeroizing<[u8; RATCHET_KEY_BYTES]>>,
@@ -310,7 +315,7 @@ impl DoubleRatchetState {
         {
             return Err(DoubleRatchetError::NonCanonicalEncoding);
         }
-        if version == DOUBLE_RATCHET_STATE_SCHEMA_VERSION && &*state.encode()? != encoded {
+        if version == DOUBLE_RATCHET_STATE_SCHEMA_VERSION && *state.encode()? != encoded {
             return Err(DoubleRatchetError::NonCanonicalEncoding);
         }
         Ok(state)
@@ -361,13 +366,7 @@ fn derive_root(
     root: &[u8; RATCHET_KEY_BYTES],
     local: &X25519Prekey,
     remote: &X25519PrekeyPublicKey,
-) -> Result<
-    (
-        Zeroizing<[u8; RATCHET_KEY_BYTES]>,
-        Zeroizing<[u8; RATCHET_KEY_BYTES]>,
-    ),
-    DoubleRatchetError,
-> {
+) -> Result<RootDerivation, DoubleRatchetError> {
     let shared = local
         .shared_secret(remote.as_bytes())
         .map_err(|_| DoubleRatchetError::KeyAgreement)?;

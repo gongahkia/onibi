@@ -47,7 +47,7 @@ impl AttachmentSizeLimit {
         self.maximum_bytes
     }
 
-    fn validate(&self, plaintext_length: u64) -> Result<(), AttachmentManifestError> {
+    fn validate(self, plaintext_length: u64) -> Result<(), AttachmentManifestError> {
         if plaintext_length > self.maximum_bytes {
             return Err(AttachmentManifestError::AttachmentLimitExceeded {
                 maximum_bytes: self.maximum_bytes,
@@ -170,11 +170,11 @@ impl AttachmentManifest {
                 .bytes(hash.as_bytes())
                 .map_err(|_| AttachmentManifestError::Encode)?;
         }
-        let encoded = encoder.into_writer();
-        if encoded.len() > MAX_ENCODED_ATTACHMENT_MANIFEST_BYTES {
+        let output = encoder.into_writer();
+        if output.len() > MAX_ENCODED_ATTACHMENT_MANIFEST_BYTES {
             return Err(AttachmentManifestError::ManifestTooLarge);
         }
-        Ok(encoded)
+        Ok(output)
     }
 
     fn decode_plaintext(
@@ -299,11 +299,11 @@ impl EncryptedAttachmentManifest {
             .map_err(|_| AttachmentManifestError::Encode)?
             .bytes(&self.ciphertext)
             .map_err(|_| AttachmentManifestError::Encode)?;
-        let encoded = encoder.into_writer();
-        if encoded.len() > MAX_ENCODED_ATTACHMENT_MANIFEST_BYTES {
+        let output = encoder.into_writer();
+        if output.len() > MAX_ENCODED_ATTACHMENT_MANIFEST_BYTES {
             return Err(AttachmentManifestError::ManifestTooLarge);
         }
-        Ok(encoded)
+        Ok(output)
     }
 
     pub fn decode(encoded: &[u8]) -> Result<Self, AttachmentManifestError> {
@@ -509,8 +509,10 @@ mod tests {
     fn enforces_a_configurable_reference_attachment_cap() {
         let identifier = AttachmentIdentifier::from_bytes([0x22; 16]).unwrap();
         let key = AttachmentKey::derive(&[0x11; 32], identifier).unwrap();
-        let chunk_count =
-            (DEFAULT_REFERENCE_ATTACHMENT_MAX_BYTES as usize / ATTACHMENT_CHUNK_BYTES) + 1;
+        let chunk_count = (usize::try_from(DEFAULT_REFERENCE_ATTACHMENT_MAX_BYTES)
+            .expect("reference attachment size must fit usize")
+            / ATTACHMENT_CHUNK_BYTES)
+            + 1;
         let hashes = vec![crate::AttachmentChunkHash::from_bytes([0x44; 32]); chunk_count];
         let length = DEFAULT_REFERENCE_ATTACHMENT_MAX_BYTES + 1;
         assert_eq!(

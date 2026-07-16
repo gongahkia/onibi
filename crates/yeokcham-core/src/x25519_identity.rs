@@ -100,6 +100,7 @@ impl fmt::Debug for X25519IdentityKeypair {
     }
 }
 
+#[allow(clippy::redundant_pub_crate)]
 pub(crate) fn shared_secret(
     secret: &StaticSecret,
     peer: &[u8; X25519_KEY_BYTES],

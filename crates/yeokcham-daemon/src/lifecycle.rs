@@ -43,6 +43,7 @@ impl DaemonRuntime {
             .create(true)
             .read(true)
             .write(true)
+            .truncate(false)
             .open(&lock_path)
             .map_err(DaemonLifecycleError::LockOpen)?;
         match FileExt::try_lock_exclusive(&lock) {

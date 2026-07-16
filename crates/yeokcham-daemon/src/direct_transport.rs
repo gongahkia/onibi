@@ -145,11 +145,12 @@ impl DirectTransport {
         bind_address: SocketAddr,
         server_config: Option<ServerConfig>,
     ) -> Result<Self, DirectTransportError> {
-        let endpoint = match server_config {
-            Some(server_config) => Endpoint::server(server_config, bind_address),
-            None => Endpoint::client(bind_address),
-        }
-        .map_err(DirectTransportError::Bind)?;
+        let endpoint = server_config
+            .map_or_else(
+                || Endpoint::client(bind_address),
+                |server_config| Endpoint::server(server_config, bind_address),
+            )
+            .map_err(DirectTransportError::Bind)?;
         Ok(Self { endpoint })
     }
 
@@ -205,10 +206,10 @@ impl DirectTransport {
                 tokio::time::sleep(delay).await;
             }
         }
-        match last_error {
-            Some(error) => Err(error),
-            None => Err(DirectTransportError::InvalidConnectionAttemptCount),
-        }
+        last_error.map_or_else(
+            || Err(DirectTransportError::InvalidConnectionAttemptCount),
+            Err,
+        )
     }
 
     pub async fn reconnect(
@@ -331,7 +332,7 @@ impl DirectConnection {
         .map_err(DirectTransportError::WriteAuthenticationStream)?;
         send.finish()
             .map_err(DirectTransportError::FinishAuthenticationStream)?;
-        self.verify_peer_proof(
+        Self::verify_peer_proof(
             &receive
                 .read_to_end(DIRECT_PEER_PROOF_BYTES)
                 .await
@@ -356,7 +357,7 @@ impl DirectConnection {
             .read_to_end(DIRECT_PEER_PROOF_BYTES)
             .await
             .map_err(DirectTransportError::ReadAuthenticationStream)?;
-        self.verify_peer_proof(&encoded, &binding, expected_peer)?;
+        Self::verify_peer_proof(&encoded, &binding, expected_peer)?;
         let proof = DirectPeerProof::create(local_identity, &binding)
             .map_err(DirectTransportError::InvalidPeerProof)?;
         send.write_all(
@@ -382,7 +383,6 @@ impl DirectConnection {
     }
 
     fn verify_peer_proof(
-        &self,
         encoded: &[u8],
         binding: &[u8; DIRECT_PEER_AUTH_BINDING_BYTES],
         expected_peer: &IdentityPublicKey,
@@ -576,7 +576,7 @@ mod tests {
         let relay_partitioned = Arc::clone(&partitioned);
         let server_address = server.local_address().unwrap();
         let relay_task = tokio::spawn(async move {
-            let mut buffer = [0_u8; 65_535];
+            let mut buffer = vec![0_u8; 65_535];
             let mut client_address = None;
             let mut first_packet_tx = Some(first_packet_tx);
             loop {
@@ -619,7 +619,7 @@ mod tests {
         .await
         .unwrap();
         tokio::select! {
-            _ = tokio::time::sleep(Duration::from_millis(250)) => {
+            () = tokio::time::sleep(Duration::from_millis(250)) => {
                 partitioned.store(false, Ordering::Release);
             }
             _ = &mut reconnect => panic!("partitioned attempt completed"),

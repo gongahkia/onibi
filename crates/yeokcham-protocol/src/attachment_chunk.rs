@@ -147,11 +147,11 @@ impl EncryptedAttachmentChunk {
             .map_err(|_| AttachmentChunkError::Encode)?
             .bytes(&self.ciphertext)
             .map_err(|_| AttachmentChunkError::Encode)?;
-        let encoded = encoder.into_writer();
-        if encoded.len() > MAX_ENCODED_ATTACHMENT_CHUNK_BYTES {
+        let output = encoder.into_writer();
+        if output.len() > MAX_ENCODED_ATTACHMENT_CHUNK_BYTES {
             return Err(AttachmentChunkError::EncodedChunkTooLarge);
         }
-        Ok(encoded)
+        Ok(output)
     }
 
     pub fn hash(&self) -> Result<AttachmentChunkHash, AttachmentChunkError> {

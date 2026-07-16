@@ -1,3 +1,5 @@
+#![allow(clippy::similar_names)]
+
 use std::{
     collections::BTreeMap,
     convert::Infallible,
@@ -149,6 +151,7 @@ async fn two_nodes_authenticate_and_exchange_direct_frames() {
 }
 
 #[tokio::test]
+#[allow(clippy::too_many_lines)]
 async fn two_node_demo_delivers_a_deduplicated_message_and_signed_acknowledgement() {
     let outbox_path = database_path("outbox");
     let inbox_path = database_path("inbox");

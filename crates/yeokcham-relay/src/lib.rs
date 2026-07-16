@@ -474,22 +474,21 @@ impl RelayIdentity {
     pub fn load_or_generate<K: OsKeystore>(keystore: &mut K) -> Result<Self, RelayIdentityError> {
         let entry = KeystoreEntryName::new(RELAY_IDENTITY_KEY_ENTRY.to_owned())
             .map_err(|_| RelayIdentityError::InvalidKeyEntry)?;
-        let signing_keypair = match keystore
+        let signing_keypair = if let Some(secret) = keystore
             .load(&entry)
             .map_err(|_| RelayIdentityError::Keystore)?
         {
-            Some(secret) => RelaySigningKeypair::deserialize(secret.as_bytes())
-                .map_err(|_| RelayIdentityError::InvalidStoredKey)?,
-            None => {
-                let signing_keypair =
-                    RelaySigningKeypair::generate().map_err(|_| RelayIdentityError::Randomness)?;
-                let secret = KeystoreSecret::new(signing_keypair.serialize().to_vec())
-                    .map_err(|_| RelayIdentityError::InvalidStoredKey)?;
-                keystore
-                    .store(&entry, &secret)
-                    .map_err(|_| RelayIdentityError::Keystore)?;
-                signing_keypair
-            }
+            RelaySigningKeypair::deserialize(secret.as_bytes())
+                .map_err(|_| RelayIdentityError::InvalidStoredKey)?
+        } else {
+            let signing_keypair =
+                RelaySigningKeypair::generate().map_err(|_| RelayIdentityError::Randomness)?;
+            let secret = KeystoreSecret::new(signing_keypair.serialize().to_vec())
+                .map_err(|_| RelayIdentityError::InvalidStoredKey)?;
+            keystore
+                .store(&entry, &secret)
+                .map_err(|_| RelayIdentityError::Keystore)?;
+            signing_keypair
         };
         Ok(Self { signing_keypair })
     }
@@ -1018,13 +1017,13 @@ impl RelayDatabase {
                 return Err(RelayDatabaseError::CorruptBlobQuarantined);
             }
             envelopes.push(RelayEnvelope {
-                sequence: sequence as u64,
+                sequence: sequence.cast_unsigned(),
                 envelope: match envelope {
                     Ok(envelope) => envelope,
                     Err(_) => return Err(RelayDatabaseError::CorruptBlobQuarantined),
                 },
-                received_at: received_at as u64,
-                expires_at: expires_at as u64,
+                received_at: received_at.cast_unsigned(),
+                expires_at: expires_at.cast_unsigned(),
             });
         }
         Ok(envelopes)
@@ -1070,6 +1069,7 @@ impl RelayDatabase {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn quarantine_attachment_chunk(
         &mut self,
         mailbox_id: [u8; MAILBOX_IDENTIFIER_BYTES],

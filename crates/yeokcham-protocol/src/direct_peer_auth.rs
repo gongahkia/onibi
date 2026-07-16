@@ -53,11 +53,11 @@ impl DirectPeerProof {
             .map_err(|_| DirectPeerProofError::Encode)?
             .bytes(&self.signature)
             .map_err(|_| DirectPeerProofError::Encode)?;
-        let encoded = encoder.into_writer();
-        if encoded.len() != DIRECT_PEER_PROOF_BYTES {
+        let output = encoder.into_writer();
+        if output.len() != DIRECT_PEER_PROOF_BYTES {
             return Err(DirectPeerProofError::Encode);
         }
-        Ok(encoded)
+        Ok(output)
     }
 
     pub fn decode(encoded: &[u8]) -> Result<Self, DirectPeerProofError> {

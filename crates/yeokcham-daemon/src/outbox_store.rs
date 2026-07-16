@@ -145,6 +145,7 @@ impl fmt::Debug for OutboxMessage {
             .field("identifier", &self.identifier)
             .field("recipient", &self.recipient)
             .field("envelope", &"REDACTED")
+            .field("expiry", &self.expiry)
             .finish()
     }
 }
@@ -532,7 +533,7 @@ fn decode_outbox(
         return Err(SenderOutboxError::NonCanonicalEncoding);
     }
     if version != OUTBOX_STATE_SCHEMA_VERSION {
-        for message in messages.drain(..) {
+        for message in std::mem::take(&mut messages) {
             push_delivery_status(&mut statuses, message.identifier, DeliveryState::Expired);
         }
     }
@@ -710,7 +711,7 @@ mod tests {
         let actual = outbox
             .messages()
             .iter()
-            .map(|message| message.identifier())
+            .map(super::OutboxMessage::identifier)
             .collect::<Vec<_>>();
         let expected = pending
             .iter()

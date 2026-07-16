@@ -36,6 +36,7 @@ fn client_config(certificate: quinn::rustls::pki_types::CertificateDer<'static>)
 }
 
 #[tokio::test]
+#[allow(clippy::similar_names)]
 async fn authenticated_wifi_direct_adapters_conform_over_direct_quic() {
     let (node_b_tls, certificate) = server_config();
     let node_b = DirectTransport::bind("127.0.0.1:0".parse().unwrap(), Some(node_b_tls)).unwrap();

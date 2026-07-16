@@ -84,6 +84,7 @@ impl LocalMeshProfileConfig {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct LocalMeshProfileConstraints {
     bluetooth_allowed: bool,
     lan_allowed: bool,
@@ -92,6 +93,7 @@ pub struct LocalMeshProfileConstraints {
 }
 
 impl LocalMeshProfileConstraints {
+    #[allow(clippy::fn_params_excessive_bools)]
     pub fn new(
         lan_allowed: bool,
         wifi_hotspot_allowed: bool,
