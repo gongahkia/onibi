@@ -70,17 +70,25 @@ where
         &mut self,
         identifier: OneTimePrekeyId,
     ) -> Result<X25519Prekey, OneTimePrekeyStoreError<K::Error>> {
+        let prekey = self.load(identifier)?;
+        let entry = identifier.entry_name()?;
+        self.keystore
+            .delete(&entry)
+            .map_err(OneTimePrekeyStoreError::Keystore)?;
+        Ok(prekey)
+    }
+
+    pub fn load(
+        &self,
+        identifier: OneTimePrekeyId,
+    ) -> Result<X25519Prekey, OneTimePrekeyStoreError<K::Error>> {
         let entry = identifier.entry_name()?;
         let secret = self
             .keystore
             .load(&entry)
             .map_err(OneTimePrekeyStoreError::Keystore)?
             .ok_or(OneTimePrekeyStoreError::NotFound)?;
-        let prekey = X25519Prekey::deserialize(secret.as_bytes())?;
-        self.keystore
-            .delete(&entry)
-            .map_err(OneTimePrekeyStoreError::Keystore)?;
-        Ok(prekey)
+        Ok(X25519Prekey::deserialize(secret.as_bytes())?)
     }
 
     pub fn public(
@@ -212,6 +220,7 @@ mod tests {
 
         store.store(identifier, prekey).unwrap();
         assert_eq!(store.public(identifier).unwrap(), public_key);
+        assert_eq!(store.load(identifier).unwrap().public_key(), public_key);
         assert_eq!(store.take(identifier).unwrap().public_key(), public_key);
         assert!(matches!(
             store.take(identifier),

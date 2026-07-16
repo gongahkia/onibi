@@ -33,6 +33,7 @@ mod tor_socks;
 mod upnp;
 mod wifi_direct_transport;
 mod wifi_hotspot_transport;
+mod x3dh_session_service;
 
 use yeokcham_core::{Error, Result};
 use yeokcham_protocol::ProtocolVersion;
@@ -116,6 +117,9 @@ pub use tor_socks::{TorSocksConnector, TorSocksError, TorSocksTarget};
 pub use upnp::{MAX_UPNP_LEASE_SECONDS, UpnpMapping, UpnpMappingError, UpnpMappingRequest};
 pub use wifi_direct_transport::WifiDirectTransport;
 pub use wifi_hotspot_transport::WifiHotspotTransport;
+pub use x3dh_session_service::{
+    X3dhSessionEstablishmentError, X3dhSessionEstablishmentService, initiate_x3dh_session,
+};
 
 #[derive(Debug)]
 pub struct Daemon {

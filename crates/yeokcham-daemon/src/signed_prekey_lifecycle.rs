@@ -88,6 +88,10 @@ impl SignedPrekeyLifecycle {
     pub fn public(&self) -> SignedPrekeyPublic {
         self.signed_prekey.public()
     }
+
+    pub(crate) const fn signed_prekey(&self) -> &SignedPrekey {
+        &self.signed_prekey
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

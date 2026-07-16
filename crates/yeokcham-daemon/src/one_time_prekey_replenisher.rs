@@ -86,6 +86,34 @@ where
             .collect()
     }
 
+    pub fn load(
+        &self,
+        identifier: OneTimePrekeyId,
+    ) -> Result<X25519Prekey, OneTimePrekeyReplenisherError<K::Error>> {
+        if !self.available.contains(&identifier) {
+            return Err(OneTimePrekeyReplenisherError::UnavailableIdentifier);
+        }
+        self.prekeys
+            .load(identifier)
+            .map_err(OneTimePrekeyReplenisherError::Keystore)
+    }
+
+    pub fn take(
+        &mut self,
+        identifier: OneTimePrekeyId,
+    ) -> Result<X25519Prekey, OneTimePrekeyReplenisherError<K::Error>> {
+        if !self.available.remove(&identifier) {
+            return Err(OneTimePrekeyReplenisherError::UnavailableIdentifier);
+        }
+        if let Err(error) = self.persist() {
+            self.available.insert(identifier);
+            return Err(error);
+        }
+        self.prekeys
+            .take(identifier)
+            .map_err(OneTimePrekeyReplenisherError::Keystore)
+    }
+
     #[must_use]
     pub fn into_keystore(self) -> K {
         self.prekeys.into_inner()
@@ -134,6 +162,8 @@ where
     Identifier(#[source] OneTimePrekeyIdError),
     #[error("one-time prekey identifier space is exhausted")]
     IdentifierExhausted,
+    #[error("one-time prekey identifier is unavailable")]
+    UnavailableIdentifier,
     #[error("one-time prekey replenishment target exceeds the configured limit")]
     TargetTooLarge,
     #[error("one-time prekey inventory is invalid")]
