@@ -44,7 +44,7 @@ yeokcham_status_t yeokcham_client_complete_async(
     const yeokcham_client_t *client,
     yeokcham_completion_callback_t callback,
     void *context
-); // callback receives the completion status
+); // callback may reenter the ABI and release the submitted client
 uint32_t yeokcham_abi_negotiate(uint32_t requested_version); // call first; returns requested token only on exact pre-release match, else YEOKCHAM_ABI_NEGOTIATION_REJECTED
 yeokcham_status_t yeokcham_secret_buffer_zeroize(uint8_t *buffer, size_t length); // caller-owned writable bytes only
 

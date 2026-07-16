@@ -12,5 +12,5 @@
 - A client remains opaque. Exactly one `yeokcham_client_release` call accepts an active client; concurrent or later releases return `YEOKCHAM_STATUS_INVALID_INPUT`.
 - `yeokcham_client_complete_async` validates a client only while it is submitted. A caller may release that client after a successful submission.
 - A successful asynchronous submission schedules one callback on a library-created background thread. The caller retains its callback context and must keep it valid until the callback runs.
-- Completion callbacks may call the C ABI. Callback-context synchronization remains the caller's responsibility.
+- Completion callbacks run without an internal C ABI client-registry lock and may synchronously call any C ABI function, including `yeokcham_client_release` for the submitted client. Callback-context synchronization remains the caller's responsibility.
 - `yeokcham_secret_buffer_zeroize` accepts only caller-owned writable bytes. Its buffer remains the caller's responsibility before and after the call.

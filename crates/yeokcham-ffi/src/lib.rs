@@ -158,6 +158,15 @@ mod tests {
             .unwrap();
     }
 
+    extern "C" fn release_submitted_client(_: i32, context: *mut c_void) {
+        let status = yeokcham_client_release(context.cast());
+        let sender = COMPLETION_SENDER
+            .get_or_init(|| Mutex::new(None))
+            .lock()
+            .unwrap();
+        sender.as_ref().unwrap().send((status as i32, 0)).unwrap();
+    }
+
     #[test]
     fn active_clients_complete_asynchronously_once() {
         let _client_guard = CLIENT_TEST_LOCK.lock().unwrap();
@@ -185,6 +194,31 @@ mod tests {
         const {
             assert!(MAX_C_ABI_PENDING_COMPLETIONS > 0);
         }
+    }
+
+    #[test]
+    fn completion_callbacks_can_reenter_and_release_the_submitted_client() {
+        let _client_guard = CLIENT_TEST_LOCK.lock().unwrap();
+        let _callback_guard = CALLBACK_TEST_LOCK.lock().unwrap();
+        let (sender, receiver) = mpsc::channel();
+        *COMPLETION_SENDER
+            .get_or_init(|| Mutex::new(None))
+            .lock()
+            .unwrap() = Some(sender);
+        let client = yeokcham_client_create();
+        assert_eq!(
+            yeokcham_client_complete_async(client, Some(release_submitted_client), client.cast(),),
+            YeokchamStatus::Ok
+        );
+        assert_eq!(
+            receiver.recv_timeout(Duration::from_secs(1)),
+            Ok((YeokchamStatus::Ok as i32, 0))
+        );
+        assert_eq!(
+            yeokcham_client_release(client),
+            YeokchamStatus::InvalidInput
+        );
+        *COMPLETION_SENDER.get().unwrap().lock().unwrap() = None;
     }
 
     #[test]
@@ -288,5 +322,8 @@ mod tests {
         assert!(THREAD_SAFETY.contains("library-created background thread"));
         assert!(THREAD_SAFETY.contains("Callback-context synchronization"));
         assert!(THREAD_SAFETY.contains("A client remains opaque"));
+        assert!(THREAD_SAFETY.contains("may synchronously call any C ABI function"));
+        assert!(THREAD_SAFETY.contains("including `yeokcham_client_release`"));
+        assert!(HEADER.contains("callback may reenter the ABI and release the submitted client"));
     }
 }
