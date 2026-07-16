@@ -8,7 +8,7 @@ use yeokcham_protocol::ProtocolVersion;
 use crate::message::map_outbox_error;
 use crate::{
     RuntimeMode, SdkConfig, SdkContactError, SdkContactManager, SdkEvent, SdkEventEnvelope,
-    SdkIdentityManager, SdkMessageError, SdkMessageSendRequest, SdkQueuedMessage,
+    SdkEventStream, SdkIdentityManager, SdkMessageError, SdkMessageSendRequest, SdkQueuedMessage,
 };
 
 pub struct SdkClient {
@@ -43,8 +43,8 @@ impl SdkClient {
     }
 
     #[must_use]
-    pub fn subscribe(&self) -> broadcast::Receiver<SdkEventEnvelope> {
-        self.events.subscribe()
+    pub fn subscribe(&self) -> SdkEventStream {
+        SdkEventStream::new(self.events.subscribe())
     }
 
     #[must_use]
@@ -182,7 +182,7 @@ mod tests {
         let mut client = SdkClient::start(&config).unwrap();
         let mut events = client.subscribe();
         client.shutdown().unwrap();
-        let event = events.try_recv().unwrap();
+        let event = events.try_next().unwrap().unwrap();
         assert_eq!(event.sequence(), 2);
         assert_eq!(event.event(), SdkEvent::ClientStopped);
         std::fs::remove_dir_all(state_directory).unwrap();

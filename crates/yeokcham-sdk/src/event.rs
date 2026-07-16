@@ -1,3 +1,4 @@
+use tokio::sync::broadcast;
 use yeokcham_protocol::MessageIdentifier;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -38,6 +39,49 @@ impl SdkEventEnvelope {
 pub enum SdkEventError {
     #[error("SDK event sequence must be nonzero")]
     ZeroSequence,
+}
+
+pub struct SdkEventStream {
+    receiver: broadcast::Receiver<SdkEventEnvelope>,
+}
+
+impl SdkEventStream {
+    pub(crate) const fn new(receiver: broadcast::Receiver<SdkEventEnvelope>) -> Self {
+        Self { receiver }
+    }
+
+    pub async fn next(&mut self) -> Result<SdkEventEnvelope, SdkEventStreamError> {
+        self.receiver
+            .recv()
+            .await
+            .map_err(|error| map_receive_error(&error))
+    }
+
+    pub fn try_next(&mut self) -> Result<Option<SdkEventEnvelope>, SdkEventStreamError> {
+        match self.receiver.try_recv() {
+            Ok(event) => Ok(Some(event)),
+            Err(broadcast::error::TryRecvError::Empty) => Ok(None),
+            Err(broadcast::error::TryRecvError::Lagged(skipped)) => {
+                Err(SdkEventStreamError::Lagged(skipped))
+            }
+            Err(broadcast::error::TryRecvError::Closed) => Err(SdkEventStreamError::Closed),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+pub enum SdkEventStreamError {
+    #[error("SDK event stream lagged by {0} event(s)")]
+    Lagged(u64),
+    #[error("SDK event stream is closed")]
+    Closed,
+}
+
+fn map_receive_error(error: &broadcast::error::RecvError) -> SdkEventStreamError {
+    match error {
+        broadcast::error::RecvError::Lagged(skipped) => SdkEventStreamError::Lagged(*skipped),
+        broadcast::error::RecvError::Closed => SdkEventStreamError::Closed,
+    }
 }
 
 #[cfg(test)]

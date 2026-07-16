@@ -13,10 +13,10 @@ use yeokcham_sdk::{
     LocalDaemonEndpoint, MAX_SDK_EVENT_BUFFER_CAPACITY, RuntimeMode, SdkClient, SdkClientBuilder,
     SdkClientError, SdkConfig, SdkConfigError, SdkContactError, SdkContactStatus,
     SdkDeliveryProfileKind, SdkDeliveryProfilePolicy, SdkDeliveryProfilePolicyError,
-    SdkDirectIpDisclosureAcknowledgement, SdkEvent, SdkIdentityError, SdkIdentityInitialization,
-    SdkIdentityManager, SdkLocalMeshPolicy, SdkLocalMeshTransportKind, SdkMessageEnvelope,
-    SdkMessageEnvelopeError, SdkMessageError, SdkMessageExpiry, SdkMessageExpiryError,
-    SdkMessageSendRequest,
+    SdkDirectIpDisclosureAcknowledgement, SdkEvent, SdkEventStreamError, SdkIdentityError,
+    SdkIdentityInitialization, SdkIdentityManager, SdkLocalMeshPolicy, SdkLocalMeshTransportKind,
+    SdkMessageEnvelope, SdkMessageEnvelopeError, SdkMessageError, SdkMessageExpiry,
+    SdkMessageExpiryError, SdkMessageSendRequest,
 };
 
 static NEXT_TEST_PATH: AtomicU64 = AtomicU64::new(0);
@@ -81,7 +81,7 @@ fn embedded_sdk_lifecycle_is_available_through_the_public_crate() {
 
     assert!(client.is_running());
     client.shutdown().unwrap();
-    let event = events.try_recv().unwrap();
+    let event = events.try_next().unwrap().unwrap();
     assert_eq!(event.sequence(), 2);
     assert_eq!(event.event(), SdkEvent::ClientStopped);
     assert!(!client.is_running());
@@ -431,7 +431,7 @@ fn sdk_message_send_queues_a_validated_envelope_and_emits_an_event() {
             SdkMessageSendRequest::new(recipient, envelope, expiry),
         )
         .unwrap();
-    let event = events.try_recv().unwrap();
+    let event = events.try_next().unwrap().unwrap();
 
     assert_eq!(queued.recipient(), recipient);
     assert_eq!(queued.expiry(), expiry);
@@ -480,6 +480,28 @@ fn sdk_message_send_rejects_invalid_input_and_missing_identity_before_outbox_cre
     fs::remove_dir_all(state_directory).unwrap();
 }
 
+#[test]
+fn sdk_event_stream_reports_overflow_from_its_configured_bounded_buffer() {
+    let state_directory = state_directory();
+    let config = SdkConfig::new(state_directory.clone(), RuntimeMode::Embedded, 1).unwrap();
+    let mut identities = SdkIdentityManager::new(MemoryKeystore::default());
+    identities.create_or_load().unwrap();
+    let recipient = IdentityKeypair::generate().unwrap().public_key();
+    let request = SdkMessageSendRequest::new(
+        recipient,
+        SdkMessageEnvelope::new(vec![0xa1], vec![0xb2]).unwrap(),
+        SdkMessageExpiry::new(100, 60).unwrap(),
+    );
+    let mut client = SdkClient::start(&config).unwrap();
+    let mut events = client.subscribe();
+
+    client.send_message(&mut identities, request).unwrap();
+    client.shutdown().unwrap();
+
+    assert_eq!(events.try_next(), Err(SdkEventStreamError::Lagged(1)));
+    fs::remove_dir_all(state_directory).unwrap();
+}
+
 #[tokio::test]
 async fn async_sdk_lifecycle_runs_without_blocking_the_tokio_caller() {
     let state_directory = state_directory();
@@ -492,7 +514,7 @@ async fn async_sdk_lifecycle_runs_without_blocking_the_tokio_caller() {
     let mut events = client.subscribe();
 
     client.shutdown_async().await.unwrap();
-    let event = events.try_recv().unwrap();
+    let event = events.try_next().unwrap().unwrap();
     assert_eq!(event.sequence(), 2);
     assert_eq!(event.event(), SdkEvent::ClientStopped);
     fs::remove_dir_all(state_directory).unwrap();

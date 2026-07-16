@@ -29,7 +29,7 @@ pub use delivery_profile::{
     SdkLocalMeshTransportKind,
 };
 pub use error::SdkError;
-pub use event::{SdkEvent, SdkEventEnvelope, SdkEventError};
+pub use event::{SdkEvent, SdkEventEnvelope, SdkEventError, SdkEventStream, SdkEventStreamError};
 pub use identity::{SdkIdentity, SdkIdentityError, SdkIdentityInitialization, SdkIdentityManager};
 pub use message::{
     SdkMessageEnvelope, SdkMessageEnvelopeError, SdkMessageError, SdkMessageExpiry,
