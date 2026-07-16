@@ -1,0 +1,19 @@
+[package]
+name = "yeokcham-sdk"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+
+[dependencies]
+thiserror.workspace = true
+tokio.workspace = true
+yeokcham-daemon = { path = "../yeokcham-daemon" }
+yeokcham-protocol = { path = "../yeokcham-protocol" }
+
+[lints]
+workspace = true

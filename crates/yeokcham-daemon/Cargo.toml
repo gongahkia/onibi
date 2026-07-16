@@ -24,7 +24,9 @@ stunclient.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-socks.workspace = true
+tonic.workspace = true
 yeokcham-core = { path = "../yeokcham-core" }
+yeokcham-daemon-api = { path = "../yeokcham-daemon-api" }
 yeokcham-protocol = { path = "../yeokcham-protocol" }
 zeroize.workspace = true
 

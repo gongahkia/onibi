@@ -6,6 +6,8 @@ members = [
   "crates/yeokcham-relay",
   "crates/yeokcham-ffi",
   "crates/yeokcham-cli",
+  "crates/yeokcham-daemon-api",
+  "crates/yeokcham-sdk",
 ]
 resolver = "3"
 
@@ -31,6 +33,7 @@ keyring-core = "1.0.0"
 minicbor = { version = "2.2.2", features = ["std"] }
 mdns-sd = { version = "0.20.1", default-features = false }
 natpmp = "0.5.0"
+prost = "=0.14.4"
 quinn = { version = "0.11.11", default-features = false, features = ["runtime-tokio", "rustls-ring"] }
 proptest = "1.11.0"
 rusqlite = { version = "0.37.0", default-features = false, features = ["bundled"] }
@@ -42,6 +45,9 @@ security-framework = { version = "3.7.0", default-features = false }
 security-framework-sys = { version = "2.17.0", default-features = false }
 thiserror = "2.0.17"
 tokio = { version = "1.48.0", features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }
+tonic = { version = "=0.14.6", default-features = false, features = ["codegen", "router", "server", "transport"] }
+tonic-prost = "=0.14.6"
+tonic-prost-build = "=0.14.6"
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["fmt"] }
 windows-native-keyring-store = { version = "1.1.0", default-features = false }
