@@ -35,7 +35,8 @@ pub use c_abi::{
     yeokcham_client_config_builder_create, yeokcham_client_config_builder_release,
     yeokcham_client_config_builder_set_event_buffer_capacity,
     yeokcham_client_config_builder_set_state_directory, yeokcham_client_create,
-    yeokcham_client_release, yeokcham_secret_buffer_zeroize,
+    yeokcham_client_release, yeokcham_client_start, yeokcham_client_stop,
+    yeokcham_secret_buffer_zeroize,
 };
 
 #[cfg(test)]
@@ -95,6 +96,8 @@ mod tests {
         assert!(HEADER.contains("#define YEOKCHAM_STATUS_STATE INT32_C(4)"));
         assert!(HEADER.contains("yeokcham_client_t *yeokcham_client_create(void);"));
         assert!(HEADER.contains("yeokcham_client_release(yeokcham_client_t *client);"));
+        assert!(HEADER.contains("yeokcham_client_start(yeokcham_client_t *client);"));
+        assert!(HEADER.contains("yeokcham_client_stop(yeokcham_client_t *client);"));
         assert!(HEADER.contains("typedef void (*yeokcham_completion_callback_t)("));
         assert!(HEADER.contains("yeokcham_client_complete_async("));
         assert!(HEADER.contains("yeokcham_client_config_builder_create(void);"));

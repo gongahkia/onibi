@@ -7,7 +7,7 @@ use std::{
 
 use crate::{YEOKCHAM_ABI_NEGOTIATION_REJECTED, YEOKCHAM_ABI_VERSION};
 use crate::{YeokchamClient, YeokchamClientConfigBuilder, YeokchamStatus};
-use yeokcham_sdk::{RuntimeMode, SdkConfig};
+use yeokcham_sdk::{RuntimeMode, SdkClient, SdkConfig};
 use zeroize::Zeroize;
 
 pub const MAX_C_ABI_CLIENT_CONFIG_BUILDERS: usize = 1024;
@@ -18,6 +18,7 @@ pub const MAX_C_ABI_STATE_DIRECTORY_BYTES: usize = 4096;
 
 struct ClientHandle {
     configuration: Option<SdkConfig>,
+    runtime: Option<SdkClient>,
 }
 
 #[derive(Default)]
@@ -84,6 +85,7 @@ pub extern "C" fn yeokcham_client_create() -> *mut YeokchamClient {
             identifier,
             ClientHandle {
                 configuration: None,
+                runtime: None,
             },
         )
         .is_some()
@@ -104,6 +106,53 @@ pub extern "C" fn yeokcham_client_release(client: *mut YeokchamClient) -> Yeokch
     };
     if clients.remove(&identifier).is_none() {
         return YeokchamStatus::InvalidInput;
+    }
+    YeokchamStatus::Ok
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn yeokcham_client_start(client: *mut YeokchamClient) -> YeokchamStatus {
+    let identifier = client.addr();
+    if identifier == 0 {
+        return YeokchamStatus::InvalidInput;
+    }
+    let Ok(mut clients) = active_clients().lock() else {
+        return YeokchamStatus::State;
+    };
+    let Some(client) = clients.get_mut(&identifier) else {
+        return YeokchamStatus::InvalidInput;
+    };
+    if client.runtime.is_some() {
+        return YeokchamStatus::State;
+    }
+    let Some(configuration) = client.configuration.clone() else {
+        return YeokchamStatus::State;
+    };
+    let Ok(runtime) = SdkClient::start(&configuration) else {
+        return YeokchamStatus::State;
+    };
+    client.runtime = Some(runtime);
+    YeokchamStatus::Ok
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn yeokcham_client_stop(client: *mut YeokchamClient) -> YeokchamStatus {
+    let identifier = client.addr();
+    if identifier == 0 {
+        return YeokchamStatus::InvalidInput;
+    }
+    let Ok(mut clients) = active_clients().lock() else {
+        return YeokchamStatus::State;
+    };
+    let Some(client) = clients.get_mut(&identifier) else {
+        return YeokchamStatus::InvalidInput;
+    };
+    let Some(mut runtime) = client.runtime.take() else {
+        return YeokchamStatus::State;
+    };
+    if runtime.shutdown().is_err() {
+        client.runtime = Some(runtime);
+        return YeokchamStatus::State;
     }
     YeokchamStatus::Ok
 }
@@ -274,6 +323,9 @@ pub extern "C" fn yeokcham_client_config_builder_build(
     let Some(client) = clients.get_mut(&client_identifier) else {
         return YeokchamStatus::InvalidInput;
     };
+    if client.runtime.is_some() {
+        return YeokchamStatus::State;
+    }
     client.configuration = Some(configuration);
     YeokchamStatus::Ok
 }
@@ -303,7 +355,8 @@ mod tests {
         yeokcham_client_config_builder_create, yeokcham_client_config_builder_release,
         yeokcham_client_config_builder_set_event_buffer_capacity,
         yeokcham_client_config_builder_set_state_directory, yeokcham_client_create,
-        yeokcham_client_release, yeokcham_secret_buffer_zeroize,
+        yeokcham_client_release, yeokcham_client_start, yeokcham_client_stop,
+        yeokcham_secret_buffer_zeroize,
     };
 
     #[test]
@@ -341,12 +394,16 @@ mod tests {
         let _guard = CLIENT_TEST_LOCK.lock().unwrap();
         let client = yeokcham_client_create();
         let builder = yeokcham_client_config_builder_create();
-        let state_directory = b"/tmp/yeokcham-ffi-client";
+        let state_directory = std::env::temp_dir().join(format!(
+            "yeokcham-ffi-client-lifecycle-{}",
+            std::process::id()
+        ));
+        let state_directory = state_directory.to_string_lossy().into_owned();
         assert_eq!(
             unsafe {
                 yeokcham_client_config_builder_set_state_directory(
                     builder,
-                    state_directory.as_ptr(),
+                    state_directory.as_bytes().as_ptr(),
                     state_directory.len(),
                 )
             },
@@ -364,7 +421,26 @@ mod tests {
             yeokcham_client_config_builder_release(builder),
             YeokchamStatus::Ok
         );
+        assert_eq!(yeokcham_client_start(client), YeokchamStatus::Ok);
+        assert_eq!(yeokcham_client_start(client), YeokchamStatus::State);
+        assert_eq!(yeokcham_client_stop(client), YeokchamStatus::Ok);
+        assert_eq!(yeokcham_client_stop(client), YeokchamStatus::State);
         assert_eq!(yeokcham_client_release(client), YeokchamStatus::Ok);
+        std::fs::remove_dir_all(state_directory).unwrap();
+    }
+
+    #[test]
+    fn client_lifecycle_rejects_unconfigured_and_invalid_clients() {
+        let _guard = CLIENT_TEST_LOCK.lock().unwrap();
+        let client = yeokcham_client_create();
+        assert_eq!(yeokcham_client_start(client), YeokchamStatus::State);
+        assert_eq!(yeokcham_client_stop(client), YeokchamStatus::State);
+        assert_eq!(yeokcham_client_release(client), YeokchamStatus::Ok);
+        assert_eq!(yeokcham_client_start(client), YeokchamStatus::InvalidInput);
+        assert_eq!(
+            yeokcham_client_stop(std::ptr::null_mut()),
+            YeokchamStatus::InvalidInput
+        );
     }
 
     #[test]

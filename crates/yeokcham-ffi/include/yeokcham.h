@@ -23,6 +23,8 @@ typedef void (*yeokcham_completion_callback_t)(yeokcham_status_t status, void *c
 
 yeokcham_client_t *yeokcham_client_create(void); // null when client capacity is exhausted
 yeokcham_status_t yeokcham_client_release(yeokcham_client_t *client); // invalid input unless client is active
+yeokcham_status_t yeokcham_client_start(yeokcham_client_t *client); // requires a validated attached configuration
+yeokcham_status_t yeokcham_client_stop(yeokcham_client_t *client); // requires a running client
 yeokcham_client_config_builder_t *yeokcham_client_config_builder_create(void); // null when builder capacity is exhausted
 yeokcham_status_t yeokcham_client_config_builder_release(yeokcham_client_config_builder_t *builder); // invalid input unless builder is active
 yeokcham_status_t yeokcham_client_config_builder_set_state_directory(
