@@ -19,11 +19,12 @@ use std::{
     io::{self, Write},
     path::{Path, PathBuf},
 };
-use yeokcham_core::{
-    IdentityKeypair, IdentityPublicKey, KeystoreEntryName, KeystoreSecret, OsKeystore,
-};
+#[cfg(test)]
+use yeokcham_core::KeystoreSecret;
+use yeokcham_core::{IdentityKeypair, IdentityPublicKey, KeystoreEntryName, OsKeystore};
 use yeokcham_daemon::{
-    ClientStateDirectory, DaemonRuntime, MessageExpiry, RecipientInboxDeduplication, SenderOutbox,
+    ClientIdentity, ClientStateDirectory, DaemonRuntime, MessageExpiry,
+    RecipientInboxDeduplication, SenderOutbox,
 };
 use yeokcham_protocol::{
     AttachmentUploadJournal, CONTACT_INVITATION_BYTES, ContactInvitation, EncryptedAttachmentChunk,
@@ -99,14 +100,8 @@ enum Command {
 
 #[derive(Subcommand)]
 enum IdentityCommand {
-    Create {
-        #[arg(long, default_value = "identity_primary")]
-        name: String,
-    },
-    Show {
-        #[arg(long, default_value = "identity_primary")]
-        name: String,
-    },
+    Create,
+    Show,
 }
 
 #[derive(Subcommand)]
@@ -119,10 +114,7 @@ enum ContactCommand {
 
 #[derive(Subcommand)]
 enum ContactInvitationCommand {
-    Create {
-        #[arg(long, default_value = "identity_primary")]
-        name: String,
-    },
+    Create,
     Inspect {
         #[arg(long)]
         invitation: String,
@@ -211,23 +203,18 @@ fn main() -> Result<(), Box<dyn Error>> {
             yeokcham_protocol::ProtocolVersion::INITIAL.get()
         ),
         Command::Identity { command } => {
-            let name = match &command {
-                IdentityCommand::Create { name } | IdentityCommand::Show { name } => name.clone(),
-            };
-            let entry = KeystoreEntryName::new(name)?;
             let public_key = match command {
-                IdentityCommand::Create { .. } => create_system_identity(&entry)?,
-                IdentityCommand::Show { .. } => load_system_identity(&entry)?.public_key(),
+                IdentityCommand::Create => create_client_system_identity()?,
+                IdentityCommand::Show => load_client_system_identity()?.public_key(),
             };
             print!("{}", identity_record(&public_key));
         }
         Command::Contact { command } => match command {
             ContactCommand::Invitation { command } => match command {
-                ContactInvitationCommand::Create { name } => {
-                    let entry = KeystoreEntryName::new(name)?;
+                ContactInvitationCommand::Create => {
                     print!(
                         "{}",
-                        contact_invitation_record(&load_system_identity(&entry)?)?
+                        contact_invitation_record(load_client_system_identity()?.keypair())?
                     );
                 }
                 ContactInvitationCommand::Inspect { invitation } => {
@@ -371,7 +358,7 @@ fn sign_system_release_manifest(
     output: &Path,
 ) -> Result<String, Box<dyn Error>> {
     let entry = KeystoreEntryName::new(signing_key_name.to_owned())?;
-    let signing_key = load_system_identity(&entry)?;
+    let signing_key = load_system_signing_identity(&entry)?;
     sign_release_manifest(
         &signing_key,
         source_revision,
@@ -869,27 +856,49 @@ const fn hexadecimal_nibble(byte: u8) -> Option<u8> {
     }
 }
 
-fn create_system_identity(entry: &KeystoreEntryName) -> Result<IdentityPublicKey, Box<dyn Error>> {
+fn create_client_system_identity() -> Result<IdentityPublicKey, Box<dyn Error>> {
     #[cfg(target_os = "linux")]
     {
         let mut keystore = LinuxKeystore::new()?;
-        return create_identity(&mut keystore, entry);
+        return Ok(ClientIdentity::create(&mut keystore)?.public_key());
     }
     #[cfg(target_os = "macos")]
     {
         let mut keystore = MacOsKeystore::new();
-        return create_identity(&mut keystore, entry);
+        return Ok(ClientIdentity::create(&mut keystore)?.public_key());
     }
     #[cfg(target_os = "windows")]
     {
         let mut keystore = WindowsKeystore::new()?;
-        return create_identity(&mut keystore, entry);
+        return Ok(ClientIdentity::create(&mut keystore)?.public_key());
     }
     #[allow(unreachable_code)]
     Err("unsupported operating system keystore".into())
 }
 
-fn load_system_identity(entry: &KeystoreEntryName) -> Result<IdentityKeypair, Box<dyn Error>> {
+fn load_client_system_identity() -> Result<ClientIdentity, Box<dyn Error>> {
+    #[cfg(target_os = "linux")]
+    {
+        let keystore = LinuxKeystore::new()?;
+        return Ok(ClientIdentity::load(&keystore)?);
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let keystore = MacOsKeystore::new();
+        return Ok(ClientIdentity::load(&keystore)?);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let keystore = WindowsKeystore::new()?;
+        return Ok(ClientIdentity::load(&keystore)?);
+    }
+    #[allow(unreachable_code)]
+    Err("unsupported operating system keystore".into())
+}
+
+fn load_system_signing_identity(
+    entry: &KeystoreEntryName,
+) -> Result<IdentityKeypair, Box<dyn Error>> {
     #[cfg(target_os = "linux")]
     {
         let keystore = LinuxKeystore::new()?;
@@ -909,6 +918,7 @@ fn load_system_identity(entry: &KeystoreEntryName) -> Result<IdentityKeypair, Bo
     Err("unsupported operating system keystore".into())
 }
 
+#[cfg(test)]
 fn create_identity<K: OsKeystore>(
     keystore: &mut K,
     entry: &KeystoreEntryName,
@@ -994,14 +1004,15 @@ mod tests {
     use super::{
         Arguments, AttachmentCommand, Command, ContactCommand, ContactInvitation,
         ContactInvitationCommand, EncryptedMessageEnvelope, IdentityCommand, IdentityKeypair,
-        IdentityPublicKey, KeystoreEntryName, KeystoreSecret, MessageCommand, MessageExpiry,
-        OsKeystore, RecipientInboxDeduplication, RelayProfileCommand, ReleaseManifestCommand,
-        SenderOutbox, TorMaildropProfileConfig, TuiCommand, contact_invitation_record,
-        create_identity, dashboard_from_stores, decode_canonical_hex, decode_envelope, hexadecimal,
-        identity_record, inspect_contact_invitation, inspect_relay_profile, load_identity,
+        IdentityPublicKey, KeystoreEntryName, MessageCommand, MessageExpiry, OsKeystore,
+        RecipientInboxDeduplication, RelayProfileCommand, ReleaseManifestCommand, SenderOutbox,
+        TorMaildropProfileConfig, TuiCommand, contact_invitation_record, create_identity,
+        dashboard_from_stores, decode_canonical_hex, decode_envelope, hexadecimal, identity_record,
+        inspect_contact_invitation, inspect_relay_profile, load_identity,
         queue_attachment_submission, queue_message, relay_profile_record, release_metadata,
         render_dashboard, sign_release_manifest, validate_state_directory, verify_release_manifest,
     };
+    use yeokcham_core::KeystoreSecret;
     use yeokcham_daemon::{ATTACHMENT_UPLOAD_DIRECTORY, INBOX_DATABASE_FILE, OUTBOX_DATABASE_FILE};
     use yeokcham_protocol::{
         ATTACHMENT_CHUNK_BYTES, AttachmentIdentifier, AttachmentKey, AttachmentManifest,
@@ -1127,22 +1138,15 @@ mod tests {
         assert!(matches!(
             create.command,
             Command::Identity {
-                command: IdentityCommand::Create { name }
-            } if name == "identity_primary"
+                command: IdentityCommand::Create
+            }
         ));
-        let show = Arguments::try_parse_from([
-            "yeokcham",
-            "identity",
-            "show",
-            "--name",
-            "identity_secondary",
-        ])
-        .unwrap();
+        let show = Arguments::try_parse_from(["yeokcham", "identity", "show"]).unwrap();
         assert!(matches!(
             show.command,
             Command::Identity {
-                command: IdentityCommand::Show { name }
-            } if name == "identity_secondary"
+                command: IdentityCommand::Show
+            }
         ));
     }
 
@@ -1174,9 +1178,9 @@ mod tests {
             create.command,
             Command::Contact {
                 command: ContactCommand::Invitation {
-                    command: ContactInvitationCommand::Create { name }
+                    command: ContactInvitationCommand::Create
                 }
-            } if name == "identity_primary"
+            }
         ));
         let inspect = Arguments::try_parse_from([
             "yeokcham",

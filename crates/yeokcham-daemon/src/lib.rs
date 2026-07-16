@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod bluetooth_transport;
+mod client_identity;
 mod client_state;
 mod contact_store;
 mod daemon_config;
@@ -31,6 +32,9 @@ use yeokcham_core::{Error, Result};
 use yeokcham_protocol::ProtocolVersion;
 
 pub use bluetooth_transport::{BluetoothTransport, BluetoothTransportError};
+pub use client_identity::{
+    CLIENT_IDENTITY_KEY_ENTRY, ClientIdentity, ClientIdentityError, ClientIdentityInitialization,
+};
 pub use client_state::{
     ATTACHMENT_UPLOAD_DIRECTORY, CLIENT_STATE_DIRECTORY_LAYOUT_VERSION, CONTACTS_DATABASE_FILE,
     ClientStateDirectory, ClientStateDirectoryError, INBOX_DATABASE_FILE, OUTBOX_DATABASE_FILE,
