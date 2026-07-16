@@ -9,9 +9,10 @@ use yeokcham_protocol::{
 
 use crate::{EncryptedStateStore, StateDocument, StateDocumentError, StateStoreError};
 
-pub const OUTBOX_STATE_SCHEMA_VERSION: u8 = 4;
+pub const OUTBOX_STATE_SCHEMA_VERSION: u8 = 5;
 pub const MAX_OUTBOX_MESSAGES: usize = 256;
 pub const MAX_DELIVERY_STATE_HISTORY: usize = 1024;
+pub const MAX_DELIVERY_ATTEMPTS: u8 = 3;
 pub const MIN_MESSAGE_EXPIRY_SECONDS: u32 = 1;
 pub const MAX_MESSAGE_EXPIRY_SECONDS: u32 = MAX_RELAY_INVITATION_TTL_SECONDS;
 const OUTBOX_FIELDS: u64 = 3;
@@ -19,12 +20,15 @@ const OUTBOX_FIELDS_PREVIOUS: u64 = 2;
 const OUTBOX_STATE_SCHEMA_VERSION_V1: u8 = 1;
 const OUTBOX_STATE_SCHEMA_VERSION_V2: u8 = 2;
 const OUTBOX_STATE_SCHEMA_VERSION_V3: u8 = 3;
+const OUTBOX_STATE_SCHEMA_VERSION_V4: u8 = 4;
 const OUTBOX_MESSAGE_FIELDS_V1: u64 = 2;
 const OUTBOX_MESSAGE_FIELDS_V2_V3: u64 = 3;
-const OUTBOX_MESSAGE_FIELDS: u64 = 5;
+const OUTBOX_MESSAGE_FIELDS_V4: u64 = 5;
+const OUTBOX_MESSAGE_FIELDS: u64 = 6;
 const DELIVERY_STATUS_FIELDS: u64 = 2;
 const DELIVERED_STATE: u8 = 1;
 const EXPIRED_STATE: u8 = 2;
+const FAILED_STATE: u8 = 3;
 const IDENTITY_PUBLIC_KEY_BYTES: usize = 32;
 
 #[derive(Clone, Eq, PartialEq)]
@@ -33,6 +37,7 @@ pub struct OutboxMessage {
     recipient: IdentityPublicKey,
     envelope: EncryptedMessageEnvelope,
     expiry: MessageExpiry,
+    delivery_attempts: u8,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -96,6 +101,7 @@ pub enum DeliveryState {
     Unknown,
     Delivered,
     Expired,
+    Failed,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -136,6 +142,11 @@ impl OutboxMessage {
     pub const fn expiry(&self) -> MessageExpiry {
         self.expiry
     }
+
+    #[must_use]
+    pub const fn delivery_attempts(&self) -> u8 {
+        self.delivery_attempts
+    }
 }
 
 impl fmt::Debug for OutboxMessage {
@@ -146,6 +157,7 @@ impl fmt::Debug for OutboxMessage {
             .field("recipient", &self.recipient)
             .field("envelope", &"REDACTED")
             .field("expiry", &self.expiry)
+            .field("delivery_attempts", &self.delivery_attempts)
             .finish()
     }
 }
@@ -218,6 +230,7 @@ impl SenderOutbox {
             recipient,
             envelope,
             expiry,
+            delivery_attempts: 0,
         });
         if let Err(error) = self.persist() {
             self.messages.pop();
@@ -259,6 +272,39 @@ impl SenderOutbox {
             .position(|message| message.identifier == identifier)
             .ok_or(SenderOutboxError::UnknownMessageIdentifier)?;
         self.finalize(index, DeliveryState::Expired)
+    }
+
+    pub fn begin_delivery_attempt(
+        &mut self,
+        identifier: MessageIdentifier,
+    ) -> Result<u8, SenderOutboxError> {
+        let index = self
+            .messages
+            .iter()
+            .position(|message| message.identifier == identifier)
+            .ok_or(SenderOutboxError::UnknownMessageIdentifier)?;
+        let attempts = self.messages[index].delivery_attempts;
+        if attempts >= MAX_DELIVERY_ATTEMPTS {
+            return Err(SenderOutboxError::AttemptsExhausted);
+        }
+        self.messages[index].delivery_attempts += 1;
+        if let Err(error) = self.persist() {
+            self.messages[index].delivery_attempts = attempts;
+            return Err(error);
+        }
+        Ok(attempts + 1)
+    }
+
+    pub fn fail_delivery(
+        &mut self,
+        identifier: MessageIdentifier,
+    ) -> Result<OutboxMessage, SenderOutboxError> {
+        let index = self
+            .messages
+            .iter()
+            .position(|message| message.identifier == identifier)
+            .ok_or(SenderOutboxError::UnknownMessageIdentifier)?;
+        self.finalize(index, DeliveryState::Failed)
     }
 
     pub fn expire_due_deliveries(
@@ -331,6 +377,8 @@ pub enum SenderOutboxError {
     Acknowledgement(#[source] DeliveryAcknowledgementError),
     #[error("message identifier references no queued message")]
     UnknownMessageIdentifier,
+    #[error("sender outbox delivery attempts are exhausted")]
+    AttemptsExhausted,
     #[error("sender outbox state document is invalid")]
     InvalidState(#[source] minicbor::decode::Error),
     #[error("sender outbox state document violates storage bounds: {0}")]
@@ -355,6 +403,8 @@ pub enum SenderOutboxError {
     TooManyDeliveryStatuses,
     #[error("sender outbox state document contains an invalid delivery state")]
     InvalidDeliveryState,
+    #[error("sender outbox state document contains invalid delivery attempts")]
+    InvalidDeliveryAttempts,
     #[error("sender outbox state document has trailing bytes")]
     TrailingBytes,
     #[error("sender outbox state document is not canonical")]
@@ -372,6 +422,9 @@ fn encode_outbox(
         return Err(SenderOutboxError::TooManyDeliveryStatuses);
     }
     for (index, message) in messages.iter().enumerate() {
+        if message.delivery_attempts > MAX_DELIVERY_ATTEMPTS {
+            return Err(SenderOutboxError::InvalidDeliveryAttempts);
+        }
         if messages[..index]
             .iter()
             .any(|previous| previous.identifier == message.identifier)
@@ -419,6 +472,8 @@ fn encode_outbox(
             .u64(message.expiry.created_at())
             .map_err(|_| SenderOutboxError::Encode)?
             .u32(message.expiry.ttl_seconds())
+            .map_err(|_| SenderOutboxError::Encode)?
+            .u8(message.delivery_attempts)
             .map_err(|_| SenderOutboxError::Encode)?;
     }
     encoder
@@ -446,13 +501,16 @@ fn decode_outbox(
     }
     let version = decoder.u8().map_err(SenderOutboxError::InvalidState)?;
     if version != OUTBOX_STATE_SCHEMA_VERSION
+        && version != OUTBOX_STATE_SCHEMA_VERSION_V4
         && version != OUTBOX_STATE_SCHEMA_VERSION_V3
         && version != OUTBOX_STATE_SCHEMA_VERSION_V2
         && version != OUTBOX_STATE_SCHEMA_VERSION_V1
     {
         return Err(SenderOutboxError::UnsupportedSchemaVersion(version));
     }
-    if (version == OUTBOX_STATE_SCHEMA_VERSION || version == OUTBOX_STATE_SCHEMA_VERSION_V3)
+    if (version == OUTBOX_STATE_SCHEMA_VERSION
+        || version == OUTBOX_STATE_SCHEMA_VERSION_V4
+        || version == OUTBOX_STATE_SCHEMA_VERSION_V3)
         != (fields == Some(OUTBOX_FIELDS))
     {
         return Err(SenderOutboxError::InvalidShape);
@@ -467,44 +525,79 @@ fn decode_outbox(
     }
     let mut messages = Vec::with_capacity(count);
     for _ in 0..count {
-        let expected_fields = if version == OUTBOX_STATE_SCHEMA_VERSION {
-            OUTBOX_MESSAGE_FIELDS
-        } else if version == OUTBOX_STATE_SCHEMA_VERSION_V3
-            || version == OUTBOX_STATE_SCHEMA_VERSION_V2
-        {
-            OUTBOX_MESSAGE_FIELDS_V2_V3
-        } else {
-            OUTBOX_MESSAGE_FIELDS_V1
-        };
-        if decoder.array().map_err(SenderOutboxError::InvalidState)? != Some(expected_fields) {
-            return Err(SenderOutboxError::InvalidShape);
+        messages.push(decode_message(&mut decoder, version, &messages)?);
+    }
+    let mut statuses = if version == OUTBOX_STATE_SCHEMA_VERSION
+        || version == OUTBOX_STATE_SCHEMA_VERSION_V4
+        || version == OUTBOX_STATE_SCHEMA_VERSION_V3
+    {
+        decode_delivery_statuses(
+            &mut decoder,
+            &messages,
+            version == OUTBOX_STATE_SCHEMA_VERSION,
+        )?
+    } else {
+        Vec::new()
+    };
+    if decoder.position() != encoded.len() {
+        return Err(SenderOutboxError::TrailingBytes);
+    }
+    if version == OUTBOX_STATE_SCHEMA_VERSION && encode_outbox(&messages, &statuses)? != encoded {
+        return Err(SenderOutboxError::NonCanonicalEncoding);
+    }
+    if version != OUTBOX_STATE_SCHEMA_VERSION && version != OUTBOX_STATE_SCHEMA_VERSION_V4 {
+        for message in std::mem::take(&mut messages) {
+            push_delivery_status(&mut statuses, message.identifier, DeliveryState::Expired);
         }
-        let identifier = if version == OUTBOX_STATE_SCHEMA_VERSION
-            || version == OUTBOX_STATE_SCHEMA_VERSION_V3
-            || version == OUTBOX_STATE_SCHEMA_VERSION_V2
-        {
-            let identifier = decoder
-                .bytes()
-                .map_err(SenderOutboxError::InvalidState)?
-                .try_into()
-                .map_err(|_| SenderOutboxError::InvalidIdentifier)?;
-            MessageIdentifier::from_bytes(identifier)
-                .map_err(|_| SenderOutboxError::InvalidIdentifier)?
-        } else {
-            next_identifier(&messages, &[])?
-        };
-        let recipient: [u8; IDENTITY_PUBLIC_KEY_BYTES] = decoder
+    }
+    Ok((messages, statuses, version != OUTBOX_STATE_SCHEMA_VERSION))
+}
+
+fn decode_message(
+    decoder: &mut Decoder<'_>,
+    version: u8,
+    messages: &[OutboxMessage],
+) -> Result<OutboxMessage, SenderOutboxError> {
+    let expected_fields = if version == OUTBOX_STATE_SCHEMA_VERSION {
+        OUTBOX_MESSAGE_FIELDS
+    } else if version == OUTBOX_STATE_SCHEMA_VERSION_V4 {
+        OUTBOX_MESSAGE_FIELDS_V4
+    } else if version == OUTBOX_STATE_SCHEMA_VERSION_V3 || version == OUTBOX_STATE_SCHEMA_VERSION_V2
+    {
+        OUTBOX_MESSAGE_FIELDS_V2_V3
+    } else {
+        OUTBOX_MESSAGE_FIELDS_V1
+    };
+    if decoder.array().map_err(SenderOutboxError::InvalidState)? != Some(expected_fields) {
+        return Err(SenderOutboxError::InvalidShape);
+    }
+    let identifier = if version == OUTBOX_STATE_SCHEMA_VERSION
+        || version == OUTBOX_STATE_SCHEMA_VERSION_V4
+        || version == OUTBOX_STATE_SCHEMA_VERSION_V3
+        || version == OUTBOX_STATE_SCHEMA_VERSION_V2
+    {
+        let identifier = decoder
             .bytes()
             .map_err(SenderOutboxError::InvalidState)?
             .try_into()
-            .map_err(|_| SenderOutboxError::InvalidRecipient)?;
-        let recipient = IdentityPublicKey::from_bytes(recipient)
-            .map_err(|_| SenderOutboxError::InvalidRecipient)?;
-        let envelope = EncryptedMessageEnvelope::decode(
-            decoder.bytes().map_err(SenderOutboxError::InvalidState)?,
-        )
-        .map_err(|_| SenderOutboxError::InvalidEnvelope)?;
-        let expiry = if version == OUTBOX_STATE_SCHEMA_VERSION {
+            .map_err(|_| SenderOutboxError::InvalidIdentifier)?;
+        MessageIdentifier::from_bytes(identifier)
+            .map_err(|_| SenderOutboxError::InvalidIdentifier)?
+    } else {
+        next_identifier(messages, &[])?
+    };
+    let recipient: [u8; IDENTITY_PUBLIC_KEY_BYTES] = decoder
+        .bytes()
+        .map_err(SenderOutboxError::InvalidState)?
+        .try_into()
+        .map_err(|_| SenderOutboxError::InvalidRecipient)?;
+    let recipient = IdentityPublicKey::from_bytes(recipient)
+        .map_err(|_| SenderOutboxError::InvalidRecipient)?;
+    let envelope =
+        EncryptedMessageEnvelope::decode(decoder.bytes().map_err(SenderOutboxError::InvalidState)?)
+            .map_err(|_| SenderOutboxError::InvalidEnvelope)?;
+    let expiry =
+        if version == OUTBOX_STATE_SCHEMA_VERSION || version == OUTBOX_STATE_SCHEMA_VERSION_V4 {
             MessageExpiry::new(
                 decoder.u64().map_err(SenderOutboxError::InvalidState)?,
                 decoder.u32().map_err(SenderOutboxError::InvalidState)?,
@@ -513,31 +606,22 @@ fn decode_outbox(
         } else {
             MessageExpiry::legacy_expired()
         };
-        messages.push(OutboxMessage {
-            identifier,
-            recipient,
-            envelope,
-            expiry,
-        });
-    }
-    let mut statuses =
-        if version == OUTBOX_STATE_SCHEMA_VERSION || version == OUTBOX_STATE_SCHEMA_VERSION_V3 {
-            decode_delivery_statuses(&mut decoder, &messages)?
-        } else {
-            Vec::new()
-        };
-    if decoder.position() != encoded.len() {
-        return Err(SenderOutboxError::TrailingBytes);
-    }
-    if version == OUTBOX_STATE_SCHEMA_VERSION && encode_outbox(&messages, &statuses)? != encoded {
-        return Err(SenderOutboxError::NonCanonicalEncoding);
-    }
-    if version != OUTBOX_STATE_SCHEMA_VERSION {
-        for message in std::mem::take(&mut messages) {
-            push_delivery_status(&mut statuses, message.identifier, DeliveryState::Expired);
+    let delivery_attempts = if version == OUTBOX_STATE_SCHEMA_VERSION {
+        let attempts = decoder.u8().map_err(SenderOutboxError::InvalidState)?;
+        if attempts > MAX_DELIVERY_ATTEMPTS {
+            return Err(SenderOutboxError::InvalidDeliveryAttempts);
         }
-    }
-    Ok((messages, statuses, version != OUTBOX_STATE_SCHEMA_VERSION))
+        attempts
+    } else {
+        0
+    };
+    Ok(OutboxMessage {
+        identifier,
+        recipient,
+        envelope,
+        expiry,
+        delivery_attempts,
+    })
 }
 
 fn push_delivery_status(
@@ -554,6 +638,7 @@ fn push_delivery_status(
 fn decode_delivery_statuses(
     decoder: &mut Decoder<'_>,
     messages: &[OutboxMessage],
+    allow_failed: bool,
 ) -> Result<Vec<DeliveryStatus>, SenderOutboxError> {
     let count = decoder
         .array()
@@ -586,7 +671,10 @@ fn decode_delivery_statuses(
         {
             return Err(SenderOutboxError::DuplicateIdentifier);
         }
-        let state = decode_delivery_state(decoder.u8().map_err(SenderOutboxError::InvalidState)?)?;
+        let state = decode_delivery_state(
+            decoder.u8().map_err(SenderOutboxError::InvalidState)?,
+            allow_failed,
+        )?;
         statuses.push(DeliveryStatus { identifier, state });
     }
     Ok(statuses)
@@ -597,13 +685,18 @@ fn delivery_state_value(state: DeliveryState) -> Result<u8, SenderOutboxError> {
         DeliveryState::Unknown => Err(SenderOutboxError::InvalidDeliveryState),
         DeliveryState::Delivered => Ok(DELIVERED_STATE),
         DeliveryState::Expired => Ok(EXPIRED_STATE),
+        DeliveryState::Failed => Ok(FAILED_STATE),
     }
 }
 
-fn decode_delivery_state(value: u8) -> Result<DeliveryState, SenderOutboxError> {
+fn decode_delivery_state(
+    value: u8,
+    allow_failed: bool,
+) -> Result<DeliveryState, SenderOutboxError> {
     match value {
         DELIVERED_STATE => Ok(DeliveryState::Delivered),
         EXPIRED_STATE => Ok(DeliveryState::Expired),
+        FAILED_STATE if allow_failed => Ok(DeliveryState::Failed),
         _ => Err(SenderOutboxError::InvalidDeliveryState),
     }
 }

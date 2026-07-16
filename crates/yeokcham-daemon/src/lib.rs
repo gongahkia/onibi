@@ -89,9 +89,10 @@ pub use one_time_prekey_replenisher::{
     OneTimePrekeyReplenisherError,
 };
 pub use outbox_store::{
-    DeliveryState, DeliveryStatus, MAX_DELIVERY_STATE_HISTORY, MAX_MESSAGE_EXPIRY_SECONDS,
-    MAX_OUTBOX_MESSAGES, MIN_MESSAGE_EXPIRY_SECONDS, MessageExpiry, MessageExpiryError,
-    OUTBOX_STATE_SCHEMA_VERSION, OutboxMessage, SenderOutbox, SenderOutboxError,
+    DeliveryState, DeliveryStatus, MAX_DELIVERY_ATTEMPTS, MAX_DELIVERY_STATE_HISTORY,
+    MAX_MESSAGE_EXPIRY_SECONDS, MAX_OUTBOX_MESSAGES, MIN_MESSAGE_EXPIRY_SECONDS, MessageExpiry,
+    MessageExpiryError, OUTBOX_STATE_SCHEMA_VERSION, OutboxMessage, SenderOutbox,
+    SenderOutboxError,
 };
 pub use pending_contact_import::{PendingContactImportError, PendingContactImportService};
 pub use proximity_contact_invitation::{

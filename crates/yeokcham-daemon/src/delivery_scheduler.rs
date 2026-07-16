@@ -10,7 +10,7 @@ use tokio::{
 };
 use yeokcham_protocol::{DeliveryAcknowledgement, MessageIdentifier};
 
-use crate::{OutboxMessage, SenderOutbox, SenderOutboxError};
+use crate::{MAX_DELIVERY_ATTEMPTS, OutboxMessage, SenderOutbox, SenderOutboxError};
 
 pub const MIN_DELIVERY_SCHEDULE_INTERVAL: Duration = Duration::from_secs(1);
 pub const MAX_DELIVERY_SCHEDULE_INTERVAL: Duration = Duration::from_secs(3600);
@@ -29,6 +29,7 @@ pub enum DeliverySchedulerOutcome {
     Idle,
     Retrying(MessageIdentifier),
     Delivered(MessageIdentifier),
+    Failed(MessageIdentifier),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -81,19 +82,20 @@ impl BackgroundDeliveryScheduler {
             });
         };
         let identifier = message.identifier();
+        let attempts = outbox.begin_delivery_attempt(identifier)?;
         let outcome = match transport.deliver(&message).await {
             Ok(acknowledgement) if acknowledgement.message_identifier() != identifier => {
-                DeliverySchedulerOutcome::Retrying(identifier)
+                retry_outcome(outbox, identifier, attempts)?
             }
             Ok(acknowledgement) => match outbox.acknowledge_delivery(&acknowledgement) {
                 Ok(_) => DeliverySchedulerOutcome::Delivered(identifier),
                 Err(
                     SenderOutboxError::Acknowledgement(_)
                     | SenderOutboxError::UnknownMessageIdentifier,
-                ) => DeliverySchedulerOutcome::Retrying(identifier),
+                ) => retry_outcome(outbox, identifier, attempts)?,
                 Err(error) => return Err(error.into()),
             },
-            Err(_) => DeliverySchedulerOutcome::Retrying(identifier),
+            Err(_) => retry_outcome(outbox, identifier, attempts)?,
         };
         Ok(DeliverySchedulerCycle { expired, outcome })
     }
@@ -123,6 +125,19 @@ impl BackgroundDeliveryScheduler {
                 }
             }
         })
+    }
+}
+
+fn retry_outcome(
+    outbox: &mut SenderOutbox,
+    identifier: MessageIdentifier,
+    attempts: u8,
+) -> Result<DeliverySchedulerOutcome, SenderOutboxError> {
+    if attempts == MAX_DELIVERY_ATTEMPTS {
+        outbox.fail_delivery(identifier)?;
+        Ok(DeliverySchedulerOutcome::Failed(identifier))
+    } else {
+        Ok(DeliverySchedulerOutcome::Retrying(identifier))
     }
 }
 
