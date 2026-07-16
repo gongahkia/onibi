@@ -84,3 +84,37 @@ fn typed_builder_preserves_validation_at_the_build_boundary() {
         Err(SdkConfigError::InvalidEventBufferCapacity)
     );
 }
+
+#[tokio::test]
+async fn async_sdk_lifecycle_runs_without_blocking_the_tokio_caller() {
+    let state_directory = state_directory();
+    let config = SdkClientBuilder::new(state_directory.clone())
+        .embedded()
+        .event_buffer_capacity(1)
+        .build()
+        .unwrap();
+    let client = SdkClient::start_async(&config).await.unwrap();
+    let mut events = client.subscribe();
+
+    client.shutdown_async().await.unwrap();
+    let event = events.try_recv().unwrap();
+    assert_eq!(event.sequence(), 2);
+    assert_eq!(event.event(), SdkEvent::ClientStopped);
+    fs::remove_dir_all(state_directory).unwrap();
+}
+
+#[tokio::test]
+async fn async_start_rejects_daemon_mode_without_creating_state() {
+    let state_directory = state_directory();
+    let config = SdkClientBuilder::new(state_directory.clone())
+        .daemon(LocalDaemonEndpoint::new("/tmp/yeokcham.sock".to_owned()).unwrap())
+        .event_buffer_capacity(1)
+        .build()
+        .unwrap();
+
+    assert!(matches!(
+        SdkClient::start_async(&config).await,
+        Err(SdkClientError::DaemonModeUnavailable)
+    ));
+    assert!(!state_directory.exists());
+}

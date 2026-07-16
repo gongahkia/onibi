@@ -11,6 +11,13 @@ pub struct SdkClient {
 }
 
 impl SdkClient {
+    pub async fn start_async(config: &SdkConfig) -> Result<Self, SdkClientError> {
+        let config = config.clone();
+        tokio::task::spawn_blocking(move || Self::start(&config))
+            .await
+            .map_err(|_| SdkClientError::AsyncTask)?
+    }
+
     pub fn start(config: &SdkConfig) -> Result<Self, SdkClientError> {
         if !matches!(config.runtime_mode(), RuntimeMode::Embedded) {
             return Err(SdkClientError::DaemonModeUnavailable);
@@ -41,6 +48,12 @@ impl SdkClient {
         self.emit(SdkEvent::ClientStopped)
     }
 
+    pub async fn shutdown_async(mut self) -> Result<(), SdkClientError> {
+        tokio::task::spawn_blocking(move || self.shutdown())
+            .await
+            .map_err(|_| SdkClientError::AsyncTask)?
+    }
+
     fn emit(&mut self, event: SdkEvent) -> Result<(), SdkClientError> {
         let envelope = SdkEventEnvelope::new(self.next_event_sequence, event)
             .map_err(|_| SdkClientError::EventSequenceExhausted)?;
@@ -61,6 +74,8 @@ pub enum SdkClientError {
     Lifecycle(#[from] DaemonLifecycleError),
     #[error("SDK event sequence is exhausted")]
     EventSequenceExhausted,
+    #[error("SDK async lifecycle task failed")]
+    AsyncTask,
 }
 
 #[cfg(test)]
