@@ -6,6 +6,7 @@ mod c_abi;
 pub const YEOKCHAM_ABI_VERSION_MAJOR: u32 = 1;
 pub const YEOKCHAM_ABI_VERSION_MINOR: u32 = 0;
 pub const YEOKCHAM_ABI_VERSION: u32 = 1;
+pub const YEOKCHAM_ABI_NEGOTIATION_REJECTED: u32 = 0;
 
 #[repr(C)]
 pub struct YeokchamHandle {
@@ -31,10 +32,10 @@ pub use c_abi::{
 #[cfg(test)]
 mod tests {
     use super::{
-        MAX_C_ABI_HANDLES, MAX_C_ABI_PENDING_COMPLETIONS, YEOKCHAM_ABI_VERSION,
-        YEOKCHAM_ABI_VERSION_MAJOR, YEOKCHAM_ABI_VERSION_MINOR, YeokchamStatus,
-        yeokcham_abi_negotiate, yeokcham_handle_complete_async, yeokcham_handle_create,
-        yeokcham_handle_release,
+        MAX_C_ABI_HANDLES, MAX_C_ABI_PENDING_COMPLETIONS, YEOKCHAM_ABI_NEGOTIATION_REJECTED,
+        YEOKCHAM_ABI_VERSION, YEOKCHAM_ABI_VERSION_MAJOR, YEOKCHAM_ABI_VERSION_MINOR,
+        YeokchamStatus, yeokcham_abi_negotiate, yeokcham_handle_complete_async,
+        yeokcham_handle_create, yeokcham_handle_release,
     };
     use std::{
         ffi::c_void,
@@ -55,6 +56,7 @@ mod tests {
         assert!(HEADER.contains("#define YEOKCHAM_ABI_VERSION_MAJOR UINT32_C(1)"));
         assert!(HEADER.contains("#define YEOKCHAM_ABI_VERSION_MINOR UINT32_C(0)"));
         assert!(HEADER.contains("#define YEOKCHAM_ABI_VERSION UINT32_C(1)"));
+        assert!(HEADER.contains("#define YEOKCHAM_ABI_NEGOTIATION_REJECTED UINT32_C(0)"));
         assert!(HEADER.contains("typedef struct yeokcham_handle yeokcham_handle_t;"));
         assert!(HEADER.ends_with("#endif\n"));
     }
@@ -169,14 +171,32 @@ mod tests {
     }
 
     #[test]
-    fn version_negotiation_accepts_only_the_published_abi_version() {
+    fn pre_release_version_negotiation_accepts_only_the_published_abi_version() {
         assert_eq!(
             yeokcham_abi_negotiate(YEOKCHAM_ABI_VERSION),
             YEOKCHAM_ABI_VERSION
         );
-        assert_eq!(yeokcham_abi_negotiate(0), 0);
-        assert_eq!(yeokcham_abi_negotiate(YEOKCHAM_ABI_VERSION + 1), 0);
-        assert_eq!(yeokcham_abi_negotiate(u32::MAX), 0);
+        assert_eq!(
+            yeokcham_abi_negotiate(YEOKCHAM_ABI_NEGOTIATION_REJECTED),
+            YEOKCHAM_ABI_NEGOTIATION_REJECTED
+        );
+        assert_eq!(
+            yeokcham_abi_negotiate(YEOKCHAM_ABI_VERSION + 1),
+            YEOKCHAM_ABI_NEGOTIATION_REJECTED
+        );
+        assert_eq!(
+            yeokcham_abi_negotiate(u32::MAX),
+            YEOKCHAM_ABI_NEGOTIATION_REJECTED
+        );
+    }
+
+    #[test]
+    fn negotiation_contract_requires_exact_pre_release_compatibility() {
+        const CONTRACT: &str = include_str!("../README.md");
+        assert!(CONTRACT.contains("## ABI negotiation"));
+        assert!(CONTRACT.contains("must equal `YEOKCHAM_ABI_VERSION`"));
+        assert!(CONTRACT.contains("must not infer compatibility"));
+        assert!(HEADER.contains("returns requested token only on exact pre-release match"));
     }
 
     extern "C" fn noop_completion(_: i32, _: *mut c_void) {}

@@ -4,7 +4,7 @@ use std::{
     sync::{Mutex, OnceLock, atomic::AtomicUsize, atomic::Ordering},
 };
 
-use crate::YEOKCHAM_ABI_VERSION;
+use crate::{YEOKCHAM_ABI_NEGOTIATION_REJECTED, YEOKCHAM_ABI_VERSION};
 use crate::{YeokchamHandle, YeokchamStatus};
 use zeroize::Zeroize;
 
@@ -23,7 +23,7 @@ pub extern "C" fn yeokcham_abi_negotiate(requested_version: u32) -> u32 {
     if requested_version == YEOKCHAM_ABI_VERSION {
         YEOKCHAM_ABI_VERSION
     } else {
-        0
+        YEOKCHAM_ABI_NEGOTIATION_REJECTED
     }
 }
 

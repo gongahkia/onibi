@@ -1,5 +1,11 @@
 # C ABI v1
 
+## ABI negotiation
+
+- Call `yeokcham_abi_negotiate` before every other ABI function.
+- The requested token must equal `YEOKCHAM_ABI_VERSION`; negotiation returns that exact token when accepted and `YEOKCHAM_ABI_NEGOTIATION_REJECTED` when rejected.
+- The ABI is pre-release: consumers must not infer compatibility from either major or minor components and must renegotiate after every ABI update.
+
 ## Thread safety
 
 - `yeokcham_handle_create`, `yeokcham_handle_release`, `yeokcham_handle_complete_async`, and `yeokcham_abi_negotiate` may be called concurrently.
