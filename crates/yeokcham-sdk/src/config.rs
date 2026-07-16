@@ -109,16 +109,27 @@ impl SdkConfig {
         runtime_mode: RuntimeMode,
         event_buffer_capacity: usize,
     ) -> Result<Self, SdkConfigError> {
-        ClientStateDirectory::new(&state_directory)
-            .map_err(|_| SdkConfigError::InvalidStateDirectory)?;
-        if event_buffer_capacity == 0 || event_buffer_capacity > MAX_SDK_EVENT_BUFFER_CAPACITY {
-            return Err(SdkConfigError::InvalidEventBufferCapacity);
-        }
-        Ok(Self {
+        let config = Self {
             state_directory,
             runtime_mode,
             event_buffer_capacity,
-        })
+        };
+        config.validate()?;
+        Ok(config)
+    }
+
+    pub fn validate(&self) -> Result<(), SdkConfigError> {
+        let Self {
+            state_directory,
+            event_buffer_capacity,
+            ..
+        } = self;
+        ClientStateDirectory::new(state_directory)
+            .map_err(|_| SdkConfigError::InvalidStateDirectory)?;
+        if *event_buffer_capacity == 0 || *event_buffer_capacity > MAX_SDK_EVENT_BUFFER_CAPACITY {
+            return Err(SdkConfigError::InvalidEventBufferCapacity);
+        }
+        Ok(())
     }
 
     #[must_use]
@@ -216,6 +227,28 @@ mod tests {
         assert_eq!(
             LocalDaemonEndpoint::new("endpoint\n".to_owned()),
             Err(LocalDaemonEndpointError::InvalidValue)
+        );
+    }
+
+    #[test]
+    fn revalidates_configuration_before_runtime_startup() {
+        let invalid = SdkConfig {
+            state_directory: PathBuf::from("relative-state"),
+            runtime_mode: RuntimeMode::Embedded,
+            event_buffer_capacity: 1,
+        };
+        assert_eq!(
+            invalid.validate(),
+            Err(SdkConfigError::InvalidStateDirectory)
+        );
+        let invalid = SdkConfig {
+            state_directory: PathBuf::from("/state"),
+            runtime_mode: RuntimeMode::Embedded,
+            event_buffer_capacity: 0,
+        };
+        assert_eq!(
+            invalid.validate(),
+            Err(SdkConfigError::InvalidEventBufferCapacity)
         );
     }
 }

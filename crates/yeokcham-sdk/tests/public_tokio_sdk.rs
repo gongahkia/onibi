@@ -106,12 +106,13 @@ fn rejects_event_capacity_above_the_public_limit() {
     let state_directory = state_directory();
     assert_eq!(
         SdkConfig::new(
-            state_directory,
+            state_directory.clone(),
             RuntimeMode::Embedded,
             MAX_SDK_EVENT_BUFFER_CAPACITY + 1,
         ),
         Err(SdkConfigError::InvalidEventBufferCapacity)
     );
+    assert!(!state_directory.exists());
 }
 
 #[test]

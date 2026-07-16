@@ -28,6 +28,7 @@ impl SdkClient {
     }
 
     pub fn start(config: &SdkConfig) -> Result<Self, SdkClientError> {
+        config.validate()?;
         if !matches!(config.runtime_mode(), RuntimeMode::Embedded) {
             return Err(SdkClientError::DaemonModeUnavailable);
         }
@@ -145,6 +146,8 @@ impl SdkClient {
 
 #[derive(Debug, thiserror::Error)]
 pub enum SdkClientError {
+    #[error("SDK configuration is invalid")]
+    Configuration(#[from] crate::SdkConfigError),
     #[error("daemon SDK mode is not available yet")]
     DaemonModeUnavailable,
     #[error("SDK client lifecycle operation failed")]
