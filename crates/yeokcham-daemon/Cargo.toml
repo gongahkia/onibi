@@ -26,6 +26,7 @@ thiserror.workspace = true
 tokio.workspace = true
 tokio-socks.workspace = true
 tonic.workspace = true
+tracing.workspace = true
 yeokcham-core = { path = "../yeokcham-core" }
 yeokcham-daemon-api = { path = "../yeokcham-daemon-api" }
 yeokcham-protocol = { path = "../yeokcham-protocol" }
@@ -35,6 +36,7 @@ zeroize.workspace = true
 criterion.workspace = true
 proptest.workspace = true
 rcgen = "0.14.7"
+tracing-subscriber.workspace = true
 
 [[bench]]
 name = "local_transport"

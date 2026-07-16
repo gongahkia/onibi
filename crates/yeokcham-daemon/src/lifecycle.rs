@@ -47,11 +47,19 @@ impl DaemonRuntime {
             .open(&lock_path)
             .map_err(DaemonLifecycleError::LockOpen)?;
         match FileExt::try_lock_exclusive(&lock) {
-            Ok(()) => Ok(Self {
-                daemon,
-                lock_path,
-                lock: Some(lock),
-            }),
+            Ok(()) => {
+                tracing::info!(
+                    target: "yeokcham.daemon.lifecycle",
+                    event = "started",
+                    protocol_version = version.get(),
+                    "daemon lifecycle event"
+                );
+                Ok(Self {
+                    daemon,
+                    lock_path,
+                    lock: Some(lock),
+                })
+            }
             Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
                 Err(DaemonLifecycleError::AlreadyRunning)
             }
@@ -76,16 +84,28 @@ impl DaemonRuntime {
 
     pub fn shutdown(&mut self) -> Result<(), DaemonLifecycleError> {
         let lock = self.lock.take().ok_or(DaemonLifecycleError::NotRunning)?;
-        FileExt::unlock(&lock).map_err(DaemonLifecycleError::Lock)
+        FileExt::unlock(&lock).map_err(DaemonLifecycleError::Lock)?;
+        emit_stopped();
+        Ok(())
     }
 }
 
 impl Drop for DaemonRuntime {
     fn drop(&mut self) {
-        if let Some(lock) = &self.lock {
-            let _ = FileExt::unlock(lock);
+        if let Some(lock) = self.lock.take()
+            && FileExt::unlock(&lock).is_ok()
+        {
+            emit_stopped();
         }
     }
+}
+
+fn emit_stopped() {
+    tracing::info!(
+        target: "yeokcham.daemon.lifecycle",
+        event = "stopped",
+        "daemon lifecycle event"
+    );
 }
 
 #[derive(Debug, thiserror::Error)]
