@@ -3,6 +3,7 @@
 mod capability;
 mod client;
 mod config;
+mod contact;
 mod error;
 mod event;
 mod identity;
@@ -16,6 +17,9 @@ pub use config::{
     EventBufferConfigured, EventBufferNotConfigured, LocalDaemonEndpoint, LocalDaemonEndpointError,
     MAX_LOCAL_DAEMON_ENDPOINT_BYTES, MAX_SDK_EVENT_BUFFER_CAPACITY, RuntimeMode,
     RuntimeModeConfigured, RuntimeModeNotConfigured, SdkClientBuilder, SdkConfig, SdkConfigError,
+};
+pub use contact::{
+    SdkContact, SdkContactError, SdkContactManager, SdkContactStatus, SdkContactVerificationMethod,
 };
 pub use error::SdkError;
 pub use event::{SdkEvent, SdkEventEnvelope, SdkEventError};

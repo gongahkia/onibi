@@ -15,6 +15,10 @@ impl<K> SdkIdentityManager<K> {
     pub fn into_inner(self) -> K {
         self.keystore
     }
+
+    pub(crate) fn keystore_mut(&mut self) -> &mut K {
+        &mut self.keystore
+    }
 }
 
 impl<K: OsKeystore> SdkIdentityManager<K> {

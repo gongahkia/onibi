@@ -5,11 +5,12 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-use yeokcham_core::{KeystoreEntryName, KeystoreSecret, OsKeystore};
+use yeokcham_core::{IdentityKeypair, KeystoreEntryName, KeystoreSecret, OsKeystore};
+use yeokcham_protocol::{ContactInvitation, IdentityRotation};
 use yeokcham_sdk::{
     LocalDaemonEndpoint, MAX_SDK_EVENT_BUFFER_CAPACITY, RuntimeMode, SdkClient, SdkClientBuilder,
-    SdkClientError, SdkConfig, SdkConfigError, SdkEvent, SdkIdentityError,
-    SdkIdentityInitialization, SdkIdentityManager,
+    SdkClientError, SdkConfig, SdkConfigError, SdkContactError, SdkContactStatus, SdkEvent,
+    SdkIdentityError, SdkIdentityInitialization, SdkIdentityManager,
 };
 
 static NEXT_TEST_PATH: AtomicU64 = AtomicU64::new(0);
@@ -171,6 +172,82 @@ fn identity_manager_fails_closed_for_missing_corrupt_and_unwritable_state() {
     });
     assert_eq!(manager.create().unwrap_err(), SdkIdentityError::Keystore);
     assert!(manager.into_inner().entries.is_empty());
+}
+
+#[test]
+fn contact_manager_imports_lists_and_revokes_contacts_under_the_sdk_runtime_lock() {
+    let state_directory = state_directory();
+    let config = SdkConfig::new(state_directory.clone(), RuntimeMode::Embedded, 1).unwrap();
+    let mut identities = SdkIdentityManager::new(MemoryKeystore::default());
+    identities.create_or_load().unwrap();
+    let mut client = SdkClient::start(&config).unwrap();
+    let remote = IdentityKeypair::generate().unwrap();
+    let invitation = ContactInvitation::create(&remote)
+        .unwrap()
+        .encode()
+        .unwrap();
+    let replacement = IdentityKeypair::generate().unwrap();
+    let unknown = IdentityKeypair::generate().unwrap();
+    let unknown_rotation = IdentityRotation::create(&unknown, replacement.public_key())
+        .unwrap()
+        .encode()
+        .unwrap();
+
+    {
+        let mut contacts = client.contact_manager(&mut identities).unwrap();
+        let imported = contacts.import_invitation(&invitation).unwrap();
+        assert_eq!(imported.identity(), remote.public_key());
+        assert_eq!(imported.status(), SdkContactStatus::Pending);
+        assert_eq!(contacts.contact(&remote.public_key()), Some(imported));
+        assert_eq!(contacts.contacts().collect::<Vec<_>>(), vec![imported]);
+        assert_eq!(
+            contacts.apply_rotation(&unknown_rotation).unwrap_err(),
+            SdkContactError::UnknownContact
+        );
+        assert_eq!(
+            contacts.revoke(&remote.public_key()).unwrap().status(),
+            SdkContactStatus::Revoked
+        );
+    }
+    client.shutdown().unwrap();
+
+    let mut restarted = SdkClient::start(&config).unwrap();
+    {
+        let contacts = restarted.contact_manager(&mut identities).unwrap();
+        assert_eq!(contacts.contacts().count(), 1);
+        assert_eq!(
+            contacts.contact(&remote.public_key()).unwrap().status(),
+            SdkContactStatus::Revoked
+        );
+    }
+    restarted.shutdown().unwrap();
+    fs::remove_dir_all(state_directory).unwrap();
+}
+
+#[test]
+fn contact_manager_fails_closed_before_opening_state_for_missing_identity_or_bad_invitation() {
+    let state_directory = state_directory();
+    let config = SdkConfig::new(state_directory.clone(), RuntimeMode::Embedded, 1).unwrap();
+    let mut client = SdkClient::start(&config).unwrap();
+    let mut empty_identities = SdkIdentityManager::new(MemoryKeystore::default());
+
+    assert!(matches!(
+        client.contact_manager(&mut empty_identities),
+        Err(SdkContactError::Identity(SdkIdentityError::NotInitialized))
+    ));
+    assert!(!state_directory.join("yeokcham-contacts.sqlite").exists());
+
+    let mut identities = SdkIdentityManager::new(MemoryKeystore::default());
+    identities.create_or_load().unwrap();
+    let mut contacts = client.contact_manager(&mut identities).unwrap();
+    assert_eq!(
+        contacts.import_invitation(&[0xa1]).unwrap_err(),
+        SdkContactError::InvalidInvitation
+    );
+    assert_eq!(contacts.contacts().count(), 0);
+    drop(contacts);
+    client.shutdown().unwrap();
+    fs::remove_dir_all(state_directory).unwrap();
 }
 
 #[tokio::test]

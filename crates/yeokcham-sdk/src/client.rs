@@ -1,11 +1,18 @@
+use std::path::PathBuf;
+
 use tokio::sync::broadcast;
+use yeokcham_core::OsKeystore;
 use yeokcham_daemon::{DaemonLifecycleError, DaemonRuntime};
 use yeokcham_protocol::ProtocolVersion;
 
-use crate::{RuntimeMode, SdkConfig, SdkEvent, SdkEventEnvelope};
+use crate::{
+    RuntimeMode, SdkConfig, SdkContactError, SdkContactManager, SdkEvent, SdkEventEnvelope,
+    SdkIdentityManager,
+};
 
 pub struct SdkClient {
     runtime: DaemonRuntime,
+    state_directory: PathBuf,
     events: broadcast::Sender<SdkEventEnvelope>,
     next_event_sequence: u64,
 }
@@ -26,6 +33,7 @@ impl SdkClient {
         let (events, _) = broadcast::channel(config.event_buffer_capacity());
         let mut client = Self {
             runtime,
+            state_directory: config.state_directory().to_path_buf(),
             events,
             next_event_sequence: 1,
         };
@@ -48,6 +56,16 @@ impl SdkClient {
         self.emit(SdkEvent::ClientStopped)
     }
 
+    pub fn contact_manager<K: OsKeystore>(
+        &self,
+        identity: &mut SdkIdentityManager<K>,
+    ) -> Result<SdkContactManager<'_>, SdkContactError> {
+        if !self.is_running() {
+            return Err(SdkContactError::State);
+        }
+        SdkContactManager::open(self, identity)
+    }
+
     pub async fn shutdown_async(mut self) -> Result<(), SdkClientError> {
         tokio::task::spawn_blocking(move || self.shutdown())
             .await
@@ -63,6 +81,11 @@ impl SdkClient {
             .ok_or(SdkClientError::EventSequenceExhausted)?;
         let _ = self.events.send(envelope);
         Ok(())
+    }
+
+    pub(crate) fn contacts_path(&self) -> PathBuf {
+        self.state_directory
+            .join(yeokcham_daemon::CONTACTS_DATABASE_FILE)
     }
 }
 
