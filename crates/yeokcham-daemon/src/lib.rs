@@ -8,6 +8,7 @@ mod client_state;
 mod contact_lifecycle;
 mod contact_store;
 mod daemon_config;
+mod daemon_endpoint;
 mod delivery_scheduler;
 mod direct_transport;
 mod grpc_service;
@@ -65,6 +66,11 @@ pub use contact_store::{
 };
 pub use daemon_config::{
     DAEMON_CONFIG_SCHEMA_VERSION, DaemonConfig, DaemonConfigError, MAX_DAEMON_CONFIG_BYTES,
+};
+pub use daemon_endpoint::{
+    DAEMON_ENDPOINT_CONFIG_VERSION, DEFAULT_DAEMON_UNIX_SOCKET_NAME, DaemonEndpoint,
+    DaemonEndpointConfig, DaemonEndpointConfigError, MAX_DAEMON_ENDPOINT_CONFIG_BYTES,
+    MAX_DAEMON_ENDPOINT_NAME_BYTES,
 };
 pub use delivery_scheduler::{
     BackgroundDeliveryScheduler, DeliverySchedulerCycle, DeliverySchedulerError,

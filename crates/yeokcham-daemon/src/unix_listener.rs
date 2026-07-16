@@ -10,9 +10,9 @@ use std::{
 use tokio::net::{UnixListener, UnixStream};
 use tokio::runtime::Handle;
 
-use crate::DaemonRuntime;
+use crate::{DaemonEndpoint, DaemonEndpointConfig, DaemonRuntime};
 
-pub const DAEMON_UNIX_SOCKET_FILE: &str = "yeokcham-daemon.sock";
+pub use crate::DEFAULT_DAEMON_UNIX_SOCKET_NAME as DAEMON_UNIX_SOCKET_FILE;
 const DAEMON_UNIX_SOCKET_MODE: u32 = 0o600;
 
 pub struct DaemonUnixListener<'runtime> {
@@ -27,6 +27,8 @@ pub enum DaemonUnixListenerError {
     NotRunning,
     #[error("daemon Unix listener requires an active Tokio runtime")]
     RuntimeUnavailable,
+    #[error("daemon endpoint is not a Unix socket")]
+    UnsupportedEndpoint,
     #[error("daemon Unix socket path is already active")]
     AlreadyListening,
     #[error("daemon Unix socket path is not a socket")]
@@ -39,16 +41,24 @@ pub enum DaemonUnixListenerError {
 
 impl<'runtime> DaemonUnixListener<'runtime> {
     pub fn bind(runtime: &'runtime DaemonRuntime) -> Result<Self, DaemonUnixListenerError> {
+        let endpoint = DaemonEndpointConfig::unix_socket_default();
+        Self::bind_configured(runtime, &endpoint)
+    }
+
+    pub fn bind_configured(
+        runtime: &'runtime DaemonRuntime,
+        endpoint: &DaemonEndpointConfig,
+    ) -> Result<Self, DaemonUnixListenerError> {
         if !runtime.is_running() {
             return Err(DaemonUnixListenerError::NotRunning);
         }
         if Handle::try_current().is_err() {
             return Err(DaemonUnixListenerError::RuntimeUnavailable);
         }
-        let socket_path = runtime
-            .state_directory()
-            .root()
-            .join(DAEMON_UNIX_SOCKET_FILE);
+        let DaemonEndpoint::UnixSocket(socket_name) = endpoint.endpoint() else {
+            return Err(DaemonUnixListenerError::UnsupportedEndpoint);
+        };
+        let socket_path = runtime.state_directory().root().join(socket_name);
         prepare_socket_path(&socket_path)?;
         let listener = UnixListener::bind(&socket_path).map_err(DaemonUnixListenerError::Socket)?;
         if let Err(error) = fs::set_permissions(
@@ -142,6 +152,7 @@ mod tests {
     use tokio::net::UnixStream;
 
     use super::{DAEMON_UNIX_SOCKET_FILE, DaemonUnixListener, DaemonUnixListenerError};
+    use crate::DaemonEndpointConfig;
     use crate::DaemonRuntime;
     use yeokcham_protocol::ProtocolVersion;
 
@@ -156,11 +167,12 @@ mod tests {
     async fn binds_accepts_and_removes_a_mode_restricted_unix_socket() {
         let state_directory = state_directory();
         let mut runtime = DaemonRuntime::start(ProtocolVersion::INITIAL, &state_directory).unwrap();
-        let listener = DaemonUnixListener::bind(&runtime).unwrap();
-        assert_eq!(
-            listener.socket_path(),
-            state_directory.join(DAEMON_UNIX_SOCKET_FILE)
-        );
+        let endpoint = DaemonEndpointConfig::parse(
+            "endpoint_version = 1\nendpoint_kind = \"unix_socket\"\nendpoint_name = \"daemon.sock\"\n",
+        )
+        .unwrap();
+        let listener = DaemonUnixListener::bind_configured(&runtime, &endpoint).unwrap();
+        assert_eq!(listener.socket_path(), state_directory.join("daemon.sock"));
         assert_eq!(
             fs::metadata(listener.socket_path())
                 .unwrap()
@@ -169,6 +181,14 @@ mod tests {
                 & 0o777,
             0o600
         );
+        let pipe = DaemonEndpointConfig::parse(
+            "endpoint_version = 1\nendpoint_kind = \"windows_named_pipe\"\nendpoint_name = \"yeokcham-daemon\"\n",
+        )
+        .unwrap();
+        assert!(matches!(
+            DaemonUnixListener::bind_configured(&runtime, &pipe),
+            Err(DaemonUnixListenerError::UnsupportedEndpoint)
+        ));
 
         let connect = UnixStream::connect(listener.socket_path());
         let accept = listener.accept();
