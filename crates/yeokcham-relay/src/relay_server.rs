@@ -15,7 +15,8 @@ use yeokcham_relay_api::v1::{
 };
 
 use crate::{
-    MailboxCapability, MailboxQuota, RelayDatabase, RelayDatabaseError, SelfHostedRelayConfig,
+    EncryptedMessageEnvelope, MailboxCapability, MailboxQuota, RelayDatabase, RelayDatabaseError,
+    RelayRetentionPolicy, SelfHostedRelayConfig,
 };
 
 pub struct RelayServer {
@@ -38,7 +39,14 @@ impl RelayServer {
         let database = RelayDatabase::open(config.database_path())?;
         TcpListener::bind(config.listen_address())
             .await
-            .map(|listener| Self::from_listener(listener, database, config.mailbox_quota()))
+            .map(|listener| {
+                Self::from_listener(
+                    listener,
+                    database,
+                    config.mailbox_quota(),
+                    config.retention(),
+                )
+            })
             .map_err(RelayServerError::Listener)
     }
 
@@ -60,10 +68,15 @@ impl RelayServer {
             .map_err(RelayServerError::Transport)
     }
 
-    fn from_listener(listener: TcpListener, database: RelayDatabase, quota: MailboxQuota) -> Self {
+    fn from_listener(
+        listener: TcpListener,
+        database: RelayDatabase,
+        quota: MailboxQuota,
+        retention: RelayRetentionPolicy,
+    ) -> Self {
         Self {
             listener,
-            service: RelayGrpcService::new(database, quota),
+            service: RelayGrpcService::new(database, quota, retention),
         }
     }
 }
@@ -71,19 +84,28 @@ impl RelayServer {
 struct RelayGrpcService {
     database: Arc<Mutex<RelayDatabase>>,
     quota: MailboxQuota,
+    retention: RelayRetentionPolicy,
 }
 
 impl RelayGrpcService {
-    fn new(database: RelayDatabase, quota: MailboxQuota) -> Self {
+    fn new(database: RelayDatabase, quota: MailboxQuota, retention: RelayRetentionPolicy) -> Self {
         Self {
             database: Arc::new(Mutex::new(database)),
             quota,
+            retention,
         }
     }
 }
 
 fn unavailable<T>() -> Result<Response<T>, Status> {
     Err(Status::unimplemented("relay RPC is not implemented"))
+}
+
+fn current_unix_seconds() -> Result<u64, Status> {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| Status::internal("relay clock is unavailable"))
+        .map(|duration| duration.as_secs())
 }
 
 #[tonic::async_trait]
@@ -94,10 +116,7 @@ impl RelayService for RelayGrpcService {
     ) -> Result<Response<v1::RegisterMailboxResponse>, Status> {
         let capability = MailboxCapability::decode(&request.into_inner().mailbox_capability)
             .map_err(|_| Status::invalid_argument("mailbox capability is invalid"))?;
-        let created_at = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_err(|_| Status::internal("relay clock is unavailable"))?
-            .as_secs();
+        let created_at = current_unix_seconds()?;
         let mut database = self
             .database
             .lock()
@@ -113,9 +132,28 @@ impl RelayService for RelayGrpcService {
 
     async fn store_envelope(
         &self,
-        _request: Request<v1::StoreEnvelopeRequest>,
+        request: Request<v1::StoreEnvelopeRequest>,
     ) -> Result<Response<v1::StoreEnvelopeResponse>, Status> {
-        unavailable()
+        let request = request.into_inner();
+        let capability = MailboxCapability::decode(&request.mailbox_capability)
+            .map_err(|_| Status::invalid_argument("mailbox capability is invalid"))?;
+        let envelope = EncryptedMessageEnvelope::decode(&request.envelope)
+            .map_err(|_| Status::invalid_argument("envelope is invalid"))?;
+        let received_at = current_unix_seconds()?;
+        let mut database = self
+            .database
+            .lock()
+            .map_err(|_| Status::internal("relay database is unavailable"))?;
+        match database.insert_envelope(&capability, &envelope, received_at, self.retention) {
+            Ok(sequence) => Ok(Response::new(v1::StoreEnvelopeResponse { sequence })),
+            Err(RelayDatabaseError::InvalidCapability) => {
+                Err(Status::permission_denied("mailbox capability is invalid"))
+            }
+            Err(RelayDatabaseError::QuotaExceeded) => {
+                Err(Status::resource_exhausted("mailbox quota is exhausted"))
+            }
+            Err(_) => Err(Status::internal("envelope storage failed")),
+        }
     }
 
     async fn retrieve_envelopes(
@@ -170,12 +208,14 @@ mod tests {
 
     use rusqlite::Connection;
     use tokio::{net::TcpListener, sync::oneshot};
-    use tonic::Code;
+    use tonic::{Code, transport::Channel};
     use yeokcham_protocol::{
-        MAILBOX_CAPABILITY_TOKEN_BYTES, MAILBOX_IDENTIFIER_BYTES, MailboxCapability,
+        EncryptedMessageEnvelope, MAILBOX_CAPABILITY_TOKEN_BYTES, MAILBOX_IDENTIFIER_BYTES,
+        MailboxCapability,
     };
     use yeokcham_relay_api::v1::{
-        RegisterMailboxRequest, StoreEnvelopeRequest, relay_service_client::RelayServiceClient,
+        RegisterMailboxRequest, RetrieveEnvelopesRequest, StoreEnvelopeRequest,
+        relay_service_client::RelayServiceClient,
     };
 
     use super::{RelayServer, RelayServerError};
@@ -184,13 +224,14 @@ mod tests {
     static NEXT_TEST_PATH: AtomicU64 = AtomicU64::new(0);
 
     #[tokio::test]
-    async fn registers_canonical_mailboxes_over_the_generated_relay_contract() {
+    async fn registers_and_stores_canonical_mailboxes_over_the_generated_relay_contract() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let server = RelayServer::from_listener(
             listener,
             RelayDatabase::from_connection(Connection::open_in_memory().unwrap()).unwrap(),
-            MailboxQuota::new(1024).unwrap(),
+            MailboxQuota::new(5).unwrap(),
+            RelayRetentionPolicy::new(60).unwrap(),
         );
         let (shutdown_sender, shutdown_receiver) = oneshot::channel();
         let server = server.serve_until(async move {
@@ -200,44 +241,15 @@ mod tests {
             let mut client = RelayServiceClient::connect(format!("http://{address}"))
                 .await
                 .unwrap();
-            let capability = MailboxCapability::new(
-                [0x11; MAILBOX_IDENTIFIER_BYTES],
-                [0x22; MAILBOX_CAPABILITY_TOKEN_BYTES],
-            )
-            .unwrap()
-            .encode()
-            .unwrap();
-            client
-                .register_mailbox(RegisterMailboxRequest {
-                    mailbox_capability: capability.clone(),
-                })
-                .await
-                .unwrap();
+            let capability = capability(0x11, 0x22);
+            assert_registration_contract(&mut client, &capability).await;
+            assert_envelope_storage_contract(&mut client, &capability).await;
             assert_eq!(
                 client
-                    .register_mailbox(RegisterMailboxRequest {
-                        mailbox_capability: capability,
-                    })
-                    .await
-                    .unwrap_err()
-                    .code(),
-                Code::AlreadyExists
-            );
-            assert_eq!(
-                client
-                    .register_mailbox(RegisterMailboxRequest {
-                        mailbox_capability: vec![0],
-                    })
-                    .await
-                    .unwrap_err()
-                    .code(),
-                Code::InvalidArgument
-            );
-            assert_eq!(
-                client
-                    .store_envelope(StoreEnvelopeRequest {
+                    .retrieve_envelopes(RetrieveEnvelopesRequest {
                         mailbox_capability: vec![1; 53],
-                        envelope: vec![2],
+                        after_sequence: None,
+                        limit: 1,
                     })
                     .await
                     .unwrap_err()
@@ -249,6 +261,103 @@ mod tests {
         let (server, ()) = tokio::join!(server, client);
         assert!(server.is_ok());
         assert!(TcpListener::bind(address).await.is_ok());
+    }
+
+    fn capability(mailbox_byte: u8, token_byte: u8) -> Vec<u8> {
+        MailboxCapability::new(
+            [mailbox_byte; MAILBOX_IDENTIFIER_BYTES],
+            [token_byte; MAILBOX_CAPABILITY_TOKEN_BYTES],
+        )
+        .unwrap()
+        .encode()
+        .unwrap()
+    }
+
+    async fn assert_registration_contract(
+        client: &mut RelayServiceClient<Channel>,
+        encoded_capability: &[u8],
+    ) {
+        client
+            .register_mailbox(RegisterMailboxRequest {
+                mailbox_capability: encoded_capability.to_vec(),
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            client
+                .register_mailbox(RegisterMailboxRequest {
+                    mailbox_capability: encoded_capability.to_vec(),
+                })
+                .await
+                .unwrap_err()
+                .code(),
+            Code::AlreadyExists
+        );
+        assert_eq!(
+            client
+                .register_mailbox(RegisterMailboxRequest {
+                    mailbox_capability: vec![0],
+                })
+                .await
+                .unwrap_err()
+                .code(),
+            Code::InvalidArgument
+        );
+    }
+
+    async fn assert_envelope_storage_contract(
+        client: &mut RelayServiceClient<Channel>,
+        encoded_capability: &[u8],
+    ) {
+        let envelope = EncryptedMessageEnvelope::new(vec![1], vec![2])
+            .unwrap()
+            .encode()
+            .unwrap();
+        assert_eq!(
+            client
+                .store_envelope(StoreEnvelopeRequest {
+                    mailbox_capability: encoded_capability.to_vec(),
+                    envelope: envelope.clone(),
+                })
+                .await
+                .unwrap()
+                .into_inner()
+                .sequence,
+            0
+        );
+        assert_eq!(
+            client
+                .store_envelope(StoreEnvelopeRequest {
+                    mailbox_capability: encoded_capability.to_vec(),
+                    envelope: envelope.clone(),
+                })
+                .await
+                .unwrap_err()
+                .code(),
+            Code::ResourceExhausted
+        );
+        assert_eq!(
+            client
+                .store_envelope(StoreEnvelopeRequest {
+                    mailbox_capability: encoded_capability.to_vec(),
+                    envelope: vec![0],
+                })
+                .await
+                .unwrap_err()
+                .code(),
+            Code::InvalidArgument
+        );
+        assert_eq!(
+            client
+                .store_envelope(StoreEnvelopeRequest {
+                    mailbox_capability: capability(0x33, 0x44),
+                    envelope,
+                })
+                .await
+                .unwrap_err()
+                .code(),
+            Code::PermissionDenied
+        );
     }
 
     #[tokio::test]
