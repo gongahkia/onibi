@@ -104,6 +104,9 @@ fn validate_endpoint(endpoint: SocketAddr) -> Result<(), StunServerError> {
 #[cfg(test)]
 mod tests {
     use super::{StunServer, StunServerError, StunServers};
+    use tokio::net::UdpSocket;
+
+    const MAGIC_COOKIE: [u8; 4] = [0x21, 0x12, 0xa4, 0x42];
 
     fn server(address: &str) -> StunServer {
         StunServer::new(address.parse().unwrap()).unwrap()
@@ -139,5 +142,99 @@ mod tests {
             StunServer::new("0.0.0.0:3478".parse().unwrap()),
             Err(StunServerError::InvalidAddress)
         ));
+    }
+
+    #[tokio::test]
+    async fn discovers_an_external_address_through_a_stun_server() {
+        let external = "198.51.100.7:52345".parse().unwrap();
+        let (endpoint, responder) = start_stun_server(external).await;
+        let servers = StunServers::new(vec![StunServer::new(endpoint).unwrap()]).unwrap();
+
+        assert_eq!(
+            servers
+                .discover_external_address(local_bind())
+                .await
+                .unwrap(),
+            external
+        );
+        responder.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn skips_an_invalid_stun_mapping_and_uses_the_next_server() {
+        let (invalid_endpoint, invalid_responder) =
+            start_stun_server("0.0.0.0:3478".parse().unwrap()).await;
+        let external = "198.51.100.8:52346".parse().unwrap();
+        let (valid_endpoint, valid_responder) = start_stun_server(external).await;
+        let servers = StunServers::new(vec![
+            StunServer::new(invalid_endpoint).unwrap(),
+            StunServer::new(valid_endpoint).unwrap(),
+        ])
+        .unwrap();
+
+        assert_eq!(
+            servers
+                .discover_external_address(local_bind())
+                .await
+                .unwrap(),
+            external
+        );
+        invalid_responder.await.unwrap();
+        valid_responder.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn rejects_invalid_stun_mappings_when_no_server_succeeds() {
+        let (endpoint, responder) = start_stun_server("0.0.0.0:3478".parse().unwrap()).await;
+        let servers = StunServers::new(vec![StunServer::new(endpoint).unwrap()]).unwrap();
+
+        assert!(matches!(
+            servers.discover_external_address(local_bind()).await,
+            Err(StunServerError::DiscoveryFailed)
+        ));
+        responder.await.unwrap();
+    }
+
+    async fn start_stun_server(
+        external: std::net::SocketAddr,
+    ) -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
+        let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = socket.local_addr().unwrap();
+        let responder = tokio::spawn(async move {
+            let mut request = [0_u8; 256];
+            let (length, peer) = socket.recv_from(&mut request).await.unwrap();
+            let response = binding_success_response(&request[..length], external);
+            socket.send_to(&response, peer).await.unwrap();
+        });
+        (endpoint, responder)
+    }
+
+    fn local_bind() -> std::net::SocketAddr {
+        std::net::UdpSocket::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+    }
+
+    fn binding_success_response(request: &[u8], external: std::net::SocketAddr) -> Vec<u8> {
+        assert!(request.len() >= 20);
+        let port = external.port();
+        let external = match external.ip() {
+            std::net::IpAddr::V4(address) => address.octets(),
+            std::net::IpAddr::V6(_) => panic!("test STUN server requires IPv4"),
+        };
+        let mut response = vec![0; 32];
+        response[..2].copy_from_slice(&[0x01, 0x01]);
+        response[2..4].copy_from_slice(&12_u16.to_be_bytes());
+        response[4..8].copy_from_slice(&MAGIC_COOKIE);
+        response[8..20].copy_from_slice(&request[8..20]);
+        response[20..22].copy_from_slice(&[0x00, 0x20]);
+        response[22..24].copy_from_slice(&8_u16.to_be_bytes());
+        response[25] = 0x01;
+        response[26..28].copy_from_slice(&(port ^ 0x2112).to_be_bytes());
+        for (index, octet) in external.iter().enumerate() {
+            response[28 + index] = octet ^ MAGIC_COOKIE[index];
+        }
+        response
     }
 }
