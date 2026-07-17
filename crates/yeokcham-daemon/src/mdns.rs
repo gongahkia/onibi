@@ -190,11 +190,20 @@ fn encode_hex(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::net::{IpAddr, SocketAddr};
+    use std::{
+        net::{IpAddr, SocketAddr},
+        time::Duration,
+    };
 
+    use mdns_sd::{ServiceDaemon, ServiceEvent};
     use yeokcham_core::IdentityPublicKey;
+    use yeokcham_protocol::DirectProfileConfig;
 
-    use super::{LanPeerDiscoveryError, decode_identity, encode_identity, resolve_parts};
+    use super::{
+        LanPeerDiscovery, LanPeerDiscoveryError, decode_identity, encode_identity, resolve_parts,
+    };
+
+    const TEST_MDNS_PORT: u16 = 54_542;
 
     #[test]
     fn identity_txt_round_trips_canonically() {
@@ -257,5 +266,52 @@ mod tests {
             ),
             Err(LanPeerDiscoveryError::InvalidService)
         ));
+    }
+
+    #[test]
+    fn discovers_an_advertised_lan_peer() {
+        let advertiser = discovery_on_test_port();
+        let browser = discovery_on_test_port();
+        let events = browser.browse().unwrap();
+        let identity = test_identity();
+        let fullname = advertiser
+            .advertise(
+                identity,
+                DirectProfileConfig::new("127.0.0.1:4242".parse().unwrap()).unwrap(),
+            )
+            .unwrap();
+        let peer = (0..20)
+            .find_map(|_| match events.recv_timeout(Duration::from_millis(250)) {
+                Ok(ServiceEvent::ServiceResolved(service)) if service.fullname == fullname => {
+                    Some(LanPeerDiscovery::resolve(&service).unwrap())
+                }
+                Ok(_) | Err(_) => None,
+            })
+            .expect("mDNS browser did not resolve advertised peer");
+
+        assert_eq!(peer.identity(), identity);
+        assert!(
+            peer.endpoints()
+                .iter()
+                .any(|endpoint| endpoint.endpoint() == "127.0.0.1:4242".parse().unwrap())
+        );
+        advertiser.unadvertise(&fullname).unwrap();
+        browser.shutdown().unwrap();
+        advertiser.shutdown().unwrap();
+    }
+
+    fn discovery_on_test_port() -> LanPeerDiscovery {
+        LanPeerDiscovery {
+            daemon: ServiceDaemon::new_with_port(TEST_MDNS_PORT).unwrap(),
+        }
+    }
+
+    fn test_identity() -> IdentityPublicKey {
+        IdentityPublicKey::from_bytes([
+            0xd7, 0x5a, 0x98, 0x01, 0x82, 0xb1, 0x0a, 0xb7, 0xd5, 0x4b, 0xfe, 0xd3, 0xc9, 0x64,
+            0x07, 0x3a, 0x0e, 0xe1, 0x72, 0xf3, 0xda, 0xa6, 0x23, 0x25, 0xaf, 0x02, 0x1a, 0x68,
+            0xf7, 0x07, 0x51, 0x1a,
+        ])
+        .unwrap()
     }
 }
