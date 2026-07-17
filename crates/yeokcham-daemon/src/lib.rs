@@ -23,6 +23,7 @@ mod local_transport_availability;
 mod local_transport_reconnect;
 mod mdns;
 mod nat_pmp;
+mod native_transport_capability;
 mod one_time_prekey_replenisher;
 mod outbox_store;
 mod pending_contact_import;
@@ -114,6 +115,9 @@ pub use local_transport_reconnect::{
 pub use mdns::{LAN_MDNS_SERVICE_TYPE, LanPeer, LanPeerDiscovery, LanPeerDiscoveryError};
 pub use nat_pmp::{
     MAX_NAT_PMP_LEASE_SECONDS, NatPmpMapping, NatPmpMappingError, NatPmpMappingRequest,
+};
+pub use native_transport_capability::{
+    NativeTransportCapabilityProbe, NativeTransportCapabilityProbeError,
 };
 pub use one_time_prekey_replenisher::{
     InventoryError, ONE_TIME_PREKEY_INVENTORY_SCHEMA_VERSION, OneTimePrekeyReplenisher,
