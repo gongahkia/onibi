@@ -10,6 +10,8 @@ service DaemonService {
   rpc CreateOrLoadIdentity(CreateOrLoadIdentityRequest) returns (IdentityResponse);
   rpc ExportIdentityRecovery(ExportIdentityRecoveryRequest) returns (ExportIdentityRecoveryResponse);
   rpc ImportIdentityRecovery(ImportIdentityRecoveryRequest) returns (IdentityResponse);
+  rpc QueueAttachment(stream QueueAttachmentRequest) returns (AttachmentTransferResponse);
+  rpc GetAttachmentTransfer(GetAttachmentTransferRequest) returns (AttachmentTransferResponse);
   rpc ListContacts(ListContactsRequest) returns (ListContactsResponse);
   rpc GetContact(GetContactRequest) returns (GetContactResponse);
   rpc ImportContactInvitation(ImportContactInvitationRequest) returns (ContactResponse);
@@ -67,6 +69,24 @@ message ExportIdentityRecoveryResponse {
 message ImportIdentityRecoveryRequest {
   bytes archive = 1;
   bytes passphrase = 2;
+}
+
+message QueueAttachmentRequest {
+  oneof record {
+    bytes manifest = 1;
+    bytes chunk = 2;
+  }
+}
+
+message GetAttachmentTransferRequest {
+  bytes attachment_identifier = 1;
+}
+
+message AttachmentTransferResponse {
+  bytes attachment_identifier = 1;
+  uint32 chunk_count = 2;
+  bool complete = 3;
+  uint32 next_pending_index = 4;
 }
 
 message ListContactsRequest {}

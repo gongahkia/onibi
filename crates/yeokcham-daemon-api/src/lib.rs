@@ -8,13 +8,15 @@ pub mod v1 {
 #[cfg(test)]
 mod tests {
     use super::v1::{
-        ContactResponse, ContactStatus, ContactVerificationMethod, DaemonEvent, DaemonEventKind,
-        DeliveryProfileKind, DeliveryProfileResponse, DeliveryStatus,
-        ExportIdentityRecoveryRequest, ExportIdentityRecoveryResponse, GetDeliveryStatusRequest,
-        GetDeliveryStatusResponse, GetStatusResponse, IdentityInitialization, IdentityResponse,
-        ImportIdentityRecoveryRequest, LocalMeshTransportKind, SelectDeliveryProfileRequest,
+        AttachmentTransferResponse, ContactResponse, ContactStatus, ContactVerificationMethod,
+        DaemonEvent, DaemonEventKind, DeliveryProfileKind, DeliveryProfileResponse, DeliveryStatus,
+        ExportIdentityRecoveryRequest, ExportIdentityRecoveryResponse,
+        GetAttachmentTransferRequest, GetDeliveryStatusRequest, GetDeliveryStatusResponse,
+        GetStatusResponse, IdentityInitialization, IdentityResponse, ImportIdentityRecoveryRequest,
+        LocalMeshTransportKind, QueueAttachmentRequest, SelectDeliveryProfileRequest,
         SendMessageRequest, SendMessageResponse, ShutdownDaemonResponse, StartClientResponse,
         VerifyContactQrRequest, VerifyContactSafetyNumberRequest,
+        queue_attachment_request::Record as AttachmentRecord,
     };
 
     #[test]
@@ -76,6 +78,34 @@ mod tests {
         assert_eq!(archive.archive, vec![2; 122]);
         assert_eq!(import.archive, archive.archive);
         assert_eq!(import.passphrase, export.passphrase);
+    }
+
+    #[test]
+    fn generated_attachment_contract_preserves_every_field() {
+        let manifest = QueueAttachmentRequest {
+            record: Some(AttachmentRecord::Manifest(vec![1; 5])),
+        };
+        let chunk = QueueAttachmentRequest {
+            record: Some(AttachmentRecord::Chunk(vec![2; 6])),
+        };
+        let request = GetAttachmentTransferRequest {
+            attachment_identifier: vec![3; 16],
+        };
+        let response = AttachmentTransferResponse {
+            attachment_identifier: request.attachment_identifier,
+            chunk_count: 4,
+            complete: false,
+            next_pending_index: 2,
+        };
+        assert_eq!(
+            manifest.record,
+            Some(AttachmentRecord::Manifest(vec![1; 5]))
+        );
+        assert_eq!(chunk.record, Some(AttachmentRecord::Chunk(vec![2; 6])));
+        assert_eq!(response.attachment_identifier, vec![3; 16]);
+        assert_eq!(response.chunk_count, 4);
+        assert!(!response.complete);
+        assert_eq!(response.next_pending_index, 2);
     }
 
     #[test]

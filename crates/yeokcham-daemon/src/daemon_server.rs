@@ -33,8 +33,7 @@ impl<'runtime> DaemonServer<'runtime> {
         let listener = DaemonUnixListener::bind(runtime)?;
         let service = DaemonGrpcService::with_system_keystore(
             runtime.daemon().protocol_version(),
-            runtime.state_directory().contacts_path(),
-            runtime.state_directory().outbox_path(),
+            runtime.state_directory(),
         )?;
         Ok(Self::new(listener, auth, service))
     }
@@ -47,8 +46,7 @@ impl<'runtime> DaemonServer<'runtime> {
         let listener = DaemonUnixListener::bind_configured(runtime, endpoint)?;
         let service = DaemonGrpcService::with_system_keystore(
             runtime.daemon().protocol_version(),
-            runtime.state_directory().contacts_path(),
-            runtime.state_directory().outbox_path(),
+            runtime.state_directory(),
         )?;
         Ok(Self::new(listener, auth, service))
     }
@@ -64,8 +62,7 @@ impl<'runtime> DaemonServer<'runtime> {
         let listener = DaemonUnixListener::bind(runtime)?;
         let service = DaemonGrpcService::with_state_keystore(
             runtime.daemon().protocol_version(),
-            runtime.state_directory().contacts_path(),
-            runtime.state_directory().outbox_path(),
+            runtime.state_directory(),
             keystore,
         );
         Ok(Self::new(listener, auth, service))
@@ -134,18 +131,21 @@ mod tests {
         ContactVerificationMethod as RpcContactVerificationMethod, CreateIdentityRequest,
         CreateOrLoadIdentityRequest, DaemonEventKind as RpcDaemonEventKind,
         DeliveryProfileKind as RpcDeliveryProfileKind, DeliveryStatus as RpcDeliveryStatus,
-        ExportIdentityRecoveryRequest, GetContactRequest, GetDeliveryStatusRequest,
-        GetIdentityRequest, GetStatusResponse, IdentityInitialization, IdentityResponse,
-        ImportContactInvitationRequest, ImportIdentityRecoveryRequest, ListContactsRequest,
-        LocalMeshTransportKind as RpcLocalMeshTransportKind, RevokeContactRequest,
-        SelectDeliveryProfileRequest, SendMessageRequest, ShutdownDaemonRequest,
-        StartClientRequest, SubscribeEventsRequest, VerifyContactQrRequest,
-        VerifyContactSafetyNumberRequest, daemon_service_client::DaemonServiceClient,
+        ExportIdentityRecoveryRequest, GetAttachmentTransferRequest, GetContactRequest,
+        GetDeliveryStatusRequest, GetIdentityRequest, GetStatusResponse, IdentityInitialization,
+        IdentityResponse, ImportContactInvitationRequest, ImportIdentityRecoveryRequest,
+        ListContactsRequest, LocalMeshTransportKind as RpcLocalMeshTransportKind,
+        QueueAttachmentRequest, RevokeContactRequest, SelectDeliveryProfileRequest,
+        SendMessageRequest, ShutdownDaemonRequest, StartClientRequest, SubscribeEventsRequest,
+        VerifyContactQrRequest, VerifyContactSafetyNumberRequest,
+        daemon_service_client::DaemonServiceClient,
+        queue_attachment_request::Record as AttachmentRecord,
     };
     use yeokcham_protocol::{
-        ContactInvitation, EncryptedMessageEnvelope, IDENTITY_EXPORT_BYTES, IdentityRotation,
-        MESSAGE_IDENTIFIER_BYTES, MessageIdentifier, ProtocolVersion, QrVerificationPayload,
-        SafetyNumberFingerprint,
+        ATTACHMENT_CHUNK_BYTES, AttachmentIdentifier, AttachmentKey, AttachmentManifest,
+        ContactInvitation, EncryptedAttachmentChunk, EncryptedMessageEnvelope,
+        IDENTITY_EXPORT_BYTES, IdentityRotation, MESSAGE_IDENTIFIER_BYTES, MessageIdentifier,
+        ProtocolVersion, QrVerificationPayload, SafetyNumberFingerprint,
     };
 
     use super::DaemonServer;
@@ -475,6 +475,98 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn serves_authenticated_attachment_stream_and_persists_status() {
+        let state_directory = state_directory();
+        let mut runtime = DaemonRuntime::start(ProtocolVersion::INITIAL, &state_directory).unwrap();
+        let (auth, token) = DaemonLocalAuth::initialize().unwrap();
+        let server =
+            DaemonServer::bind_with_identity_keystore(&runtime, auth, MemoryKeystore::default())
+                .unwrap();
+        let socket_path = server.socket_path().to_path_buf();
+        let (shutdown_sender, shutdown_receiver) = oneshot::channel();
+
+        let server = server.serve_until(async move {
+            let _ = shutdown_receiver.await;
+        });
+        let client = async {
+            let (manifest, chunks) = attachment_submission_parts(2);
+            let mut client = contact_client(socket_path.clone()).await;
+            assert_eq!(
+                client
+                    .queue_attachment(attachment_stream(manifest.clone(), chunks.clone()))
+                    .await
+                    .unwrap_err()
+                    .code(),
+                Code::Unauthenticated
+            );
+            assert_eq!(
+                client
+                    .queue_attachment(authenticated_request(
+                        attachment_manifest_only_stream(manifest.clone()),
+                        &token,
+                    ))
+                    .await
+                    .unwrap_err()
+                    .code(),
+                Code::InvalidArgument
+            );
+            let queued = client
+                .queue_attachment(authenticated_request(
+                    attachment_stream(manifest.clone(), chunks.clone()),
+                    &token,
+                ))
+                .await
+                .unwrap()
+                .into_inner();
+            assert_eq!(queued.attachment_identifier.len(), 16);
+            assert_eq!(queued.chunk_count, 2);
+            assert!(!queued.complete);
+            assert_eq!(queued.next_pending_index, 0);
+            assert_eq!(
+                client
+                    .get_attachment_transfer(authenticated_request(
+                        GetAttachmentTransferRequest {
+                            attachment_identifier: vec![0; 15],
+                        },
+                        &token,
+                    ))
+                    .await
+                    .unwrap_err()
+                    .code(),
+                Code::InvalidArgument
+            );
+            let status = client
+                .get_attachment_transfer(authenticated_request(
+                    GetAttachmentTransferRequest {
+                        attachment_identifier: queued.attachment_identifier.clone(),
+                    },
+                    &token,
+                ))
+                .await
+                .unwrap()
+                .into_inner();
+            assert_eq!(status, queued);
+            assert_eq!(
+                client
+                    .queue_attachment(authenticated_request(
+                        attachment_stream(manifest, chunks),
+                        &token
+                    ))
+                    .await
+                    .unwrap_err()
+                    .code(),
+                Code::AlreadyExists
+            );
+            shutdown_sender.send(()).unwrap();
+        };
+        let (server, ()) = tokio::join!(server, client);
+        assert!(server.is_ok());
+        assert!(!socket_path.exists());
+        runtime.shutdown().unwrap();
+        fs::remove_dir_all(state_directory).unwrap();
+    }
+
+    #[tokio::test]
     async fn serves_authenticated_identity_recovery_round_trip() {
         let source_directory = state_directory();
         let target_directory = state_directory();
@@ -667,6 +759,56 @@ mod tests {
             .await
             .unwrap()
             .into_inner()
+    }
+
+    fn attachment_submission_parts(count: u32) -> (Vec<u8>, Vec<Vec<u8>>) {
+        let identifier = AttachmentIdentifier::from_bytes([0x22; 16]).unwrap();
+        let key = AttachmentKey::derive(&[0x11; 32], identifier).unwrap();
+        let chunks: Vec<_> = (0..count)
+            .map(|index| {
+                EncryptedAttachmentChunk::encrypt(
+                    identifier,
+                    index,
+                    &key.derive_chunk_key(index).unwrap(),
+                    &vec![u8::try_from(index).unwrap(); ATTACHMENT_CHUNK_BYTES],
+                )
+                .unwrap()
+            })
+            .collect();
+        let manifest = AttachmentManifest::new(
+            identifier,
+            u64::from(count) * u64::try_from(ATTACHMENT_CHUNK_BYTES).unwrap(),
+            chunks.iter().map(|chunk| chunk.hash().unwrap()).collect(),
+        )
+        .unwrap()
+        .encrypt(&key)
+        .unwrap();
+        (
+            manifest.encode().unwrap(),
+            chunks.iter().map(|chunk| chunk.encode().unwrap()).collect(),
+        )
+    }
+
+    fn attachment_stream(
+        manifest: Vec<u8>,
+        chunks: Vec<Vec<u8>>,
+    ) -> impl tokio_stream::Stream<Item = QueueAttachmentRequest> {
+        let mut records = Vec::with_capacity(chunks.len() + 1);
+        records.push(QueueAttachmentRequest {
+            record: Some(AttachmentRecord::Manifest(manifest)),
+        });
+        records.extend(chunks.into_iter().map(|chunk| QueueAttachmentRequest {
+            record: Some(AttachmentRecord::Chunk(chunk)),
+        }));
+        tokio_stream::iter(records)
+    }
+
+    fn attachment_manifest_only_stream(
+        manifest: Vec<u8>,
+    ) -> impl tokio_stream::Stream<Item = QueueAttachmentRequest> {
+        tokio_stream::iter([QueueAttachmentRequest {
+            record: Some(AttachmentRecord::Manifest(manifest)),
+        }])
     }
 
     async fn contact_client(socket_path: PathBuf) -> DaemonServiceClient<Channel> {

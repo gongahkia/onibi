@@ -12,27 +12,29 @@ use tokio_stream::{Stream, StreamExt, wrappers::BroadcastStream};
 use tonic::{Request, Response, Status};
 use yeokcham_core::{ED25519_PUBLIC_KEY_BYTES, IdentityPublicKey, OsKeystore};
 use yeokcham_daemon_api::v1::{
-    ApplyContactIdentityRotationRequest, ContactResponse, ContactStatus as RpcContactStatus,
-    ContactVerificationMethod as RpcContactVerificationMethod, CreateIdentityRequest,
-    CreateOrLoadIdentityRequest, DaemonEvent as RpcDaemonEvent,
+    ApplyContactIdentityRotationRequest, AttachmentTransferResponse, ContactResponse,
+    ContactStatus as RpcContactStatus, ContactVerificationMethod as RpcContactVerificationMethod,
+    CreateIdentityRequest, CreateOrLoadIdentityRequest, DaemonEvent as RpcDaemonEvent,
     DaemonEventKind as RpcDaemonEventKind, DeliveryProfileKind as RpcDeliveryProfileKind,
     DeliveryProfileResponse, DeliveryStatus as RpcDeliveryStatus, ExportIdentityRecoveryRequest,
-    ExportIdentityRecoveryResponse, GetContactRequest, GetContactResponse,
-    GetDeliveryStatusRequest, GetDeliveryStatusResponse, GetIdentityRequest, GetStatusRequest,
-    GetStatusResponse, IdentityInitialization, IdentityResponse, ImportContactInvitationRequest,
-    ImportIdentityRecoveryRequest, ListContactsRequest, ListContactsResponse,
-    LocalMeshTransportKind as RpcLocalMeshTransportKind, RevokeContactRequest,
-    SelectDeliveryProfileRequest, SendMessageRequest, SendMessageResponse, ShutdownDaemonRequest,
-    ShutdownDaemonResponse, StartClientRequest, StartClientResponse, SubscribeEventsRequest,
-    VerifyContactQrRequest, VerifyContactSafetyNumberRequest, daemon_service_server::DaemonService,
+    ExportIdentityRecoveryResponse, GetAttachmentTransferRequest, GetContactRequest,
+    GetContactResponse, GetDeliveryStatusRequest, GetDeliveryStatusResponse, GetIdentityRequest,
+    GetStatusRequest, GetStatusResponse, IdentityInitialization, IdentityResponse,
+    ImportContactInvitationRequest, ImportIdentityRecoveryRequest, ListContactsRequest,
+    ListContactsResponse, LocalMeshTransportKind as RpcLocalMeshTransportKind,
+    QueueAttachmentRequest, RevokeContactRequest, SelectDeliveryProfileRequest, SendMessageRequest,
+    SendMessageResponse, ShutdownDaemonRequest, ShutdownDaemonResponse, StartClientRequest,
+    StartClientResponse, SubscribeEventsRequest, VerifyContactQrRequest,
+    VerifyContactSafetyNumberRequest, daemon_service_server::DaemonService,
+    queue_attachment_request::Record as AttachmentRecord,
 };
 use yeokcham_protocol::{
-    CONTACT_INVITATION_BYTES, DeliveryProfile, DeliveryProfileConstraints, DirectProfileSelection,
-    EncryptedMessageEnvelope, IDENTITY_EXPORT_BYTES, IDENTITY_ROTATION_BYTES,
-    IdentityExportPassphrase, LocalMeshProfileConfig, LocalMeshProfileConstraints,
-    LocalMeshProfileSelection, LocalMeshTransportKind, MAX_MESSAGE_PAYLOAD_BYTES,
-    MESSAGE_IDENTIFIER_BYTES, MessageIdentifier, ProtocolVersion, QR_VERIFICATION_PAYLOAD_BYTES,
-    SAFETY_NUMBER_FINGERPRINT_BYTES,
+    ATTACHMENT_IDENTIFIER_BYTES, AttachmentIdentifier, CONTACT_INVITATION_BYTES, DeliveryProfile,
+    DeliveryProfileConstraints, DirectProfileSelection, EncryptedMessageEnvelope,
+    IDENTITY_EXPORT_BYTES, IDENTITY_ROTATION_BYTES, IdentityExportPassphrase,
+    LocalMeshProfileConfig, LocalMeshProfileConstraints, LocalMeshProfileSelection,
+    LocalMeshTransportKind, MAX_MESSAGE_PAYLOAD_BYTES, MESSAGE_IDENTIFIER_BYTES, MessageIdentifier,
+    ProtocolVersion, QR_VERIFICATION_PAYLOAD_BYTES, SAFETY_NUMBER_FINGERPRINT_BYTES,
 };
 
 #[cfg(target_os = "linux")]
@@ -43,9 +45,11 @@ use yeokcham_core::MacOsKeystore;
 use yeokcham_core::WindowsKeystore;
 
 use crate::{
-    ClientIdentity, ClientIdentityError, ClientIdentityInitialization, Contact,
-    ContactLifecycleError, ContactLifecycleService, ContactStatus as StoredContactStatus,
-    ContactStore, ContactStoreError, ContactVerificationMethod as StoredContactVerificationMethod,
+    AttachmentSubmissionStatus, AttachmentSubmissionStore, AttachmentSubmissionStoreError,
+    AttachmentUploadSubmission, ClientIdentity, ClientIdentityError, ClientIdentityInitialization,
+    ClientStateDirectory, Contact, ContactLifecycleError, ContactLifecycleService,
+    ContactStatus as StoredContactStatus, ContactStore, ContactStoreError,
+    ContactVerificationMethod as StoredContactVerificationMethod,
     DeliveryState as StoredDeliveryState, MessageExpiry, MessageExpiryError,
     PendingContactImportError, PendingContactImportService, QrContactVerificationError,
     QrContactVerificationService, SafetyNumberVerificationError, SafetyNumberVerificationService,
@@ -78,6 +82,7 @@ pub struct DaemonGrpcService {
     next_event_sequence: Arc<AtomicU64>,
     running: Arc<AtomicBool>,
     shutdown_signal: Arc<Notify>,
+    attachments: Arc<dyn DaemonAttachmentOperations>,
     identity: Arc<dyn DaemonIdentityOperations>,
     contacts: Arc<dyn DaemonContactOperations>,
     outbox: Arc<dyn DaemonOutboxOperations>,
@@ -94,6 +99,7 @@ impl DaemonGrpcService {
             next_event_sequence: Arc::new(AtomicU64::new(1)),
             running: Arc::new(AtomicBool::new(true)),
             shutdown_signal: Arc::new(Notify::new()),
+            attachments: Arc::new(UnavailableAttachmentOperations),
             identity: Arc::new(UnavailableIdentityOperations),
             contacts: Arc::new(UnavailableContactOperations),
             outbox: Arc::new(UnavailableOutboxOperations),
@@ -114,6 +120,7 @@ impl DaemonGrpcService {
             next_event_sequence: Arc::new(AtomicU64::new(1)),
             running: Arc::new(AtomicBool::new(true)),
             shutdown_signal: Arc::new(Notify::new()),
+            attachments: Arc::new(UnavailableAttachmentOperations),
             identity: Arc::new(KeystoreIdentityOperations { keystore }),
             contacts: Arc::new(UnavailableContactOperations),
             outbox: Arc::new(UnavailableOutboxOperations),
@@ -123,8 +130,7 @@ impl DaemonGrpcService {
     #[must_use]
     pub fn with_state_keystore<K>(
         version: ProtocolVersion,
-        contacts_path: PathBuf,
-        outbox_path: PathBuf,
+        state_directory: &ClientStateDirectory,
         keystore: K,
     ) -> Self
     where
@@ -139,17 +145,20 @@ impl DaemonGrpcService {
             next_event_sequence: Arc::new(AtomicU64::new(1)),
             running: Arc::new(AtomicBool::new(true)),
             shutdown_signal: Arc::new(Notify::new()),
+            attachments: Arc::new(StateAttachmentOperations {
+                store: AttachmentSubmissionStore::new(state_directory.clone()),
+            }),
             identity: Arc::new(KeystoreIdentityOperations {
                 keystore: Arc::clone(&keystore),
             }),
             contacts: Arc::new(KeystoreContactOperations {
                 keystore: Arc::clone(&keystore),
-                contacts_path,
+                contacts_path: state_directory.contacts_path(),
                 operation_lock: Mutex::new(()),
             }),
             outbox: Arc::new(KeystoreOutboxOperations {
                 keystore,
-                outbox_path,
+                outbox_path: state_directory.outbox_path(),
                 operation_lock: Mutex::new(()),
             }),
         }
@@ -157,32 +166,26 @@ impl DaemonGrpcService {
 
     pub fn with_system_keystore(
         version: ProtocolVersion,
-        contacts_path: PathBuf,
-        outbox_path: PathBuf,
+        state_directory: &ClientStateDirectory,
     ) -> Result<Self, DaemonGrpcServiceConfigurationError> {
         #[cfg(target_os = "linux")]
         {
             return LinuxKeystore::new()
-                .map(|keystore| {
-                    Self::with_state_keystore(version, contacts_path, outbox_path, keystore)
-                })
+                .map(|keystore| Self::with_state_keystore(version, state_directory, keystore))
                 .map_err(|_| DaemonGrpcServiceConfigurationError::SystemKeystoreUnavailable);
         }
         #[cfg(target_os = "macos")]
         {
             return Ok(Self::with_state_keystore(
                 version,
-                contacts_path,
-                outbox_path,
+                state_directory,
                 MacOsKeystore::new(),
             ));
         }
         #[cfg(target_os = "windows")]
         {
             return WindowsKeystore::new()
-                .map(|keystore| {
-                    Self::with_state_keystore(version, contacts_path, outbox_path, keystore)
-                })
+                .map(|keystore| Self::with_state_keystore(version, state_directory, keystore))
                 .map_err(|_| DaemonGrpcServiceConfigurationError::SystemKeystoreUnavailable);
         }
         #[allow(unreachable_code)]
@@ -235,6 +238,50 @@ pub enum DaemonGrpcServiceConfigurationError {
     SystemKeystoreUnavailable,
     #[error("daemon system keystore is unsupported on this platform")]
     UnsupportedPlatform,
+}
+
+trait DaemonAttachmentOperations: Send + Sync {
+    fn begin(&self, manifest: &[u8]) -> Result<AttachmentUploadSubmission, Status>;
+    fn status(
+        &self,
+        identifier: AttachmentIdentifier,
+    ) -> Result<AttachmentSubmissionStatus, Status>;
+}
+
+struct UnavailableAttachmentOperations;
+
+impl DaemonAttachmentOperations for UnavailableAttachmentOperations {
+    fn begin(&self, _manifest: &[u8]) -> Result<AttachmentUploadSubmission, Status> {
+        Err(attachment_unavailable())
+    }
+
+    fn status(
+        &self,
+        _identifier: AttachmentIdentifier,
+    ) -> Result<AttachmentSubmissionStatus, Status> {
+        Err(attachment_unavailable())
+    }
+}
+
+struct StateAttachmentOperations {
+    store: AttachmentSubmissionStore,
+}
+
+impl DaemonAttachmentOperations for StateAttachmentOperations {
+    fn begin(&self, manifest: &[u8]) -> Result<AttachmentUploadSubmission, Status> {
+        self.store
+            .begin(manifest)
+            .map_err(map_attachment_store_error)
+    }
+
+    fn status(
+        &self,
+        identifier: AttachmentIdentifier,
+    ) -> Result<AttachmentSubmissionStatus, Status> {
+        self.store
+            .status(identifier)
+            .map_err(map_attachment_store_error)
+    }
 }
 
 trait DaemonIdentityOperations: Send + Sync {
@@ -716,6 +763,53 @@ fn recovery_archive(archive: &[u8]) -> Result<(), Status> {
     Ok(())
 }
 
+fn attachment_identifier(encoded: &[u8]) -> Result<AttachmentIdentifier, Status> {
+    let bytes: [u8; ATTACHMENT_IDENTIFIER_BYTES] =
+        encoded.try_into().map_err(|_| attachment_invalid())?;
+    AttachmentIdentifier::from_bytes(bytes).map_err(|_| attachment_invalid())
+}
+
+fn attachment_response(status: AttachmentSubmissionStatus) -> AttachmentTransferResponse {
+    AttachmentTransferResponse {
+        attachment_identifier: status.identifier().as_bytes().to_vec(),
+        chunk_count: status.chunk_count(),
+        complete: status.complete(),
+        next_pending_index: status.next_pending_index().unwrap_or(0),
+    }
+}
+
+fn attachment_invalid() -> Status {
+    Status::invalid_argument("attachment submission is invalid")
+}
+
+fn attachment_unavailable() -> Status {
+    Status::unavailable("daemon attachment service is unavailable")
+}
+
+fn attachment_failure() -> Status {
+    Status::internal("daemon attachment operation failed")
+}
+
+fn map_attachment_store_error(error: AttachmentSubmissionStoreError) -> Status {
+    match error {
+        AttachmentSubmissionStoreError::InvalidManifest
+        | AttachmentSubmissionStoreError::InvalidChunk
+        | AttachmentSubmissionStoreError::IdentifierMismatch
+        | AttachmentSubmissionStoreError::ChunkOrder
+        | AttachmentSubmissionStoreError::TooManyChunks
+        | AttachmentSubmissionStoreError::EmptyAttachment => attachment_invalid(),
+        AttachmentSubmissionStoreError::AlreadyExists => {
+            Status::already_exists("attachment submission already exists")
+        }
+        AttachmentSubmissionStoreError::NotFound => {
+            Status::not_found("attachment submission does not exist")
+        }
+        AttachmentSubmissionStoreError::Io
+        | AttachmentSubmissionStoreError::InvalidDirectory
+        | AttachmentSubmissionStoreError::Journal => attachment_failure(),
+    }
+}
+
 fn contact_unavailable() -> Status {
     Status::unavailable("daemon contact service is unavailable")
 }
@@ -1106,6 +1200,46 @@ impl DaemonService for DaemonGrpcService {
             .map(Response::new)
     }
 
+    async fn queue_attachment(
+        &self,
+        request: Request<tonic::Streaming<QueueAttachmentRequest>>,
+    ) -> Result<Response<AttachmentTransferResponse>, Status> {
+        let mut stream = request.into_inner();
+        let first = stream
+            .message()
+            .await
+            .map_err(|_| attachment_invalid())?
+            .ok_or_else(attachment_invalid)?;
+        let Some(AttachmentRecord::Manifest(manifest)) = first.record else {
+            return Err(attachment_invalid());
+        };
+        let mut submission = self.attachments.begin(&manifest)?;
+        while let Some(record) = stream.message().await.map_err(|_| attachment_invalid())? {
+            let Some(AttachmentRecord::Chunk(chunk)) = record.record else {
+                return Err(attachment_invalid());
+            };
+            submission
+                .append_chunk(&chunk)
+                .map_err(map_attachment_store_error)?;
+        }
+        submission
+            .finish()
+            .map_err(map_attachment_store_error)
+            .map(attachment_response)
+            .map(Response::new)
+    }
+
+    async fn get_attachment_transfer(
+        &self,
+        request: Request<GetAttachmentTransferRequest>,
+    ) -> Result<Response<AttachmentTransferResponse>, Status> {
+        let identifier = attachment_identifier(&request.into_inner().attachment_identifier)?;
+        self.attachments
+            .status(identifier)
+            .map(attachment_response)
+            .map(Response::new)
+    }
+
     async fn list_contacts(
         &self,
         _request: Request<ListContactsRequest>,
@@ -1238,8 +1372,6 @@ impl DaemonService for DaemonGrpcService {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
     use tokio_stream::StreamExt;
     use tonic::{Code, Request};
     use yeokcham_core::IdentityKeypair;
@@ -1260,6 +1392,7 @@ mod tests {
         DAEMON_EVENT_VERSION, DaemonEvent, DaemonGrpcService, MAX_DAEMON_EVENT_BACKLOG,
         recovery_archive, recovery_passphrase, select_delivery_profile,
     };
+    use crate::ClientStateDirectory;
 
     #[derive(Debug, thiserror::Error)]
     #[error("sensitive keystore failure")]
@@ -1348,10 +1481,10 @@ mod tests {
 
     #[tokio::test]
     async fn contact_rpc_redacts_keystore_failures() {
+        let state_directory = ClientStateDirectory::new("/tmp/yeokcham-rpc-redaction").unwrap();
         let service = DaemonGrpcService::with_state_keystore(
             ProtocolVersion::INITIAL,
-            PathBuf::from("/tmp/yeokcham-contact-redaction"),
-            PathBuf::from("/tmp/yeokcham-outbox-redaction"),
+            &state_directory,
             FailingKeystore,
         );
         let error = service
@@ -1364,10 +1497,10 @@ mod tests {
 
     #[tokio::test]
     async fn message_rpc_redacts_keystore_failures() {
+        let state_directory = ClientStateDirectory::new("/tmp/yeokcham-rpc-redaction").unwrap();
         let service = DaemonGrpcService::with_state_keystore(
             ProtocolVersion::INITIAL,
-            PathBuf::from("/tmp/yeokcham-contact-redaction"),
-            PathBuf::from("/tmp/yeokcham-outbox-redaction"),
+            &state_directory,
             FailingKeystore,
         );
         let recipient = IdentityKeypair::generate().unwrap();

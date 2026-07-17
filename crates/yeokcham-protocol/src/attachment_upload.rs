@@ -30,7 +30,7 @@ impl AttachmentUploadJournal {
             .first()
             .ok_or(AttachmentUploadError::EmptyAttachment)?;
         let identifier = first.identifier();
-        let mut entries = Vec::with_capacity(chunks.len());
+        let mut hashes = Vec::with_capacity(chunks.len());
         for (expected_index, chunk) in chunks.iter().enumerate() {
             let expected_index =
                 u32::try_from(expected_index).map_err(|_| AttachmentUploadError::TooManyChunks)?;
@@ -40,11 +40,28 @@ impl AttachmentUploadJournal {
             if chunk.index() != expected_index {
                 return Err(AttachmentUploadError::InvalidChunkOrder);
             }
-            entries.push(AttachmentUploadChunk {
-                hash: chunk.hash().map_err(AttachmentUploadError::Chunk)?,
-                uploaded: false,
-            });
+            hashes.push(chunk.hash().map_err(AttachmentUploadError::Chunk)?);
         }
+        Self::from_chunk_hashes(identifier, hashes)
+    }
+
+    pub fn from_chunk_hashes(
+        identifier: AttachmentIdentifier,
+        hashes: Vec<AttachmentChunkHash>,
+    ) -> Result<Self, AttachmentUploadError> {
+        if hashes.is_empty() {
+            return Err(AttachmentUploadError::EmptyAttachment);
+        }
+        if hashes.len() > MAX_ATTACHMENT_UPLOAD_JOURNAL_BYTES / MIN_ENCODED_JOURNAL_CHUNK_BYTES {
+            return Err(AttachmentUploadError::TooManyChunks);
+        }
+        let entries = hashes
+            .into_iter()
+            .map(|hash| AttachmentUploadChunk {
+                hash,
+                uploaded: false,
+            })
+            .collect();
         Ok(Self {
             identifier,
             chunks: entries,

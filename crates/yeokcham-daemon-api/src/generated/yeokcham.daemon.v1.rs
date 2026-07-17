@@ -47,6 +47,37 @@ pub struct ImportIdentityRecoveryRequest {
     #[prost(bytes = "vec", tag = "2")]
     pub passphrase: ::prost::alloc::vec::Vec<u8>,
 }
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct QueueAttachmentRequest {
+    #[prost(oneof = "queue_attachment_request::Record", tags = "1, 2")]
+    pub record: ::core::option::Option<queue_attachment_request::Record>,
+}
+/// Nested message and enum types in `QueueAttachmentRequest`.
+pub mod queue_attachment_request {
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
+    pub enum Record {
+        #[prost(bytes, tag = "1")]
+        Manifest(::prost::alloc::vec::Vec<u8>),
+        #[prost(bytes, tag = "2")]
+        Chunk(::prost::alloc::vec::Vec<u8>),
+    }
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct GetAttachmentTransferRequest {
+    #[prost(bytes = "vec", tag = "1")]
+    pub attachment_identifier: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct AttachmentTransferResponse {
+    #[prost(bytes = "vec", tag = "1")]
+    pub attachment_identifier: ::prost::alloc::vec::Vec<u8>,
+    #[prost(uint32, tag = "2")]
+    pub chunk_count: u32,
+    #[prost(bool, tag = "3")]
+    pub complete: bool,
+    #[prost(uint32, tag = "4")]
+    pub next_pending_index: u32,
+}
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ListContactsRequest {}
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -681,6 +712,66 @@ pub mod daemon_service_client {
                 );
             self.inner.unary(req, path, codec).await
         }
+        pub async fn queue_attachment(
+            &mut self,
+            request: impl tonic::IntoStreamingRequest<
+                Message = super::QueueAttachmentRequest,
+            >,
+        ) -> std::result::Result<
+            tonic::Response<super::AttachmentTransferResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic_prost::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/yeokcham.daemon.v1.DaemonService/QueueAttachment",
+            );
+            let mut req = request.into_streaming_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "yeokcham.daemon.v1.DaemonService",
+                        "QueueAttachment",
+                    ),
+                );
+            self.inner.client_streaming(req, path, codec).await
+        }
+        pub async fn get_attachment_transfer(
+            &mut self,
+            request: impl tonic::IntoRequest<super::GetAttachmentTransferRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::AttachmentTransferResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic_prost::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/yeokcham.daemon.v1.DaemonService/GetAttachmentTransfer",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "yeokcham.daemon.v1.DaemonService",
+                        "GetAttachmentTransfer",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
         pub async fn list_contacts(
             &mut self,
             request: impl tonic::IntoRequest<super::ListContactsRequest>,
@@ -1076,6 +1167,20 @@ pub mod daemon_service_server {
             request: tonic::Request<super::ImportIdentityRecoveryRequest>,
         ) -> std::result::Result<
             tonic::Response<super::IdentityResponse>,
+            tonic::Status,
+        >;
+        async fn queue_attachment(
+            &self,
+            request: tonic::Request<tonic::Streaming<super::QueueAttachmentRequest>>,
+        ) -> std::result::Result<
+            tonic::Response<super::AttachmentTransferResponse>,
+            tonic::Status,
+        >;
+        async fn get_attachment_transfer(
+            &self,
+            request: tonic::Request<super::GetAttachmentTransferRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::AttachmentTransferResponse>,
             tonic::Status,
         >;
         async fn list_contacts(
@@ -1542,6 +1647,104 @@ pub mod daemon_service_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = ImportIdentityRecoverySvc(inner);
+                        let codec = tonic_prost::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/yeokcham.daemon.v1.DaemonService/QueueAttachment" => {
+                    #[allow(non_camel_case_types)]
+                    struct QueueAttachmentSvc<T: DaemonService>(pub Arc<T>);
+                    impl<
+                        T: DaemonService,
+                    > tonic::server::ClientStreamingService<
+                        super::QueueAttachmentRequest,
+                    > for QueueAttachmentSvc<T> {
+                        type Response = super::AttachmentTransferResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<
+                                tonic::Streaming<super::QueueAttachmentRequest>,
+                            >,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as DaemonService>::queue_attachment(&inner, request)
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = QueueAttachmentSvc(inner);
+                        let codec = tonic_prost::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.client_streaming(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/yeokcham.daemon.v1.DaemonService/GetAttachmentTransfer" => {
+                    #[allow(non_camel_case_types)]
+                    struct GetAttachmentTransferSvc<T: DaemonService>(pub Arc<T>);
+                    impl<
+                        T: DaemonService,
+                    > tonic::server::UnaryService<super::GetAttachmentTransferRequest>
+                    for GetAttachmentTransferSvc<T> {
+                        type Response = super::AttachmentTransferResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::GetAttachmentTransferRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as DaemonService>::get_attachment_transfer(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = GetAttachmentTransferSvc(inner);
                         let codec = tonic_prost::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
