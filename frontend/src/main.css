@@ -1011,30 +1011,6 @@
   flex-wrap: wrap;
 }
 
-.approval-trust-link {
-  flex: 1 0 100%;
-  height: auto;
-  min-height: 30px;
-  text-align: left;
-  white-space: normal;
-}
-
-.approval-trust-chip {
-  display: inline-flex;
-  align-items: center;
-  min-height: 20px;
-  margin-top: 6px;
-  border: 1px solid var(--button-active-border);
-  border-radius: 999px;
-  padding: 0 8px;
-  color: var(--page-fg);
-  font: 600 11px var(--mono-font);
-}
-
-.approval-trust-chip[hidden] {
-  display: none;
-}
-
 .tour-root {
   position: fixed;
   inset: 0;

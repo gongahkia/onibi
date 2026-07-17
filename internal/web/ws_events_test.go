@@ -106,7 +106,7 @@ func TestWSEventsStreamsAppEvents(t *testing.T) {
 	_ = readEventEnvelope(t, c) // server.hello
 	readEventsRecovery(t, c)
 	time.Sleep(20 * time.Millisecond)
-	bus.Publish(Event{Type: "toast", Payload: map[string]any{"message": "Trust policy not reloaded"}})
+	bus.Publish(Event{Type: "toast", Payload: map[string]any{"message": "Policy not reloaded"}})
 	env := readEventEnvelope(t, c)
 	if env.Type != "toast" {
 		t.Fatalf("type = %q", env.Type)
@@ -115,7 +115,7 @@ func TestWSEventsStreamsAppEvents(t *testing.T) {
 	if err := json.Unmarshal(env.Payload, &payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload["message"] != "Trust policy not reloaded" {
+	if payload["message"] != "Policy not reloaded" {
 		t.Fatalf("payload = %#v", payload)
 	}
 }

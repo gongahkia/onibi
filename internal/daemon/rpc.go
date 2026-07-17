@@ -102,8 +102,6 @@ func (d *Daemon) handleRPCRequest(ctx context.Context, ev intake.Event) (intake.
 		return intake.Response{SessionID: ev.Session, Text: action}, nil
 	case intake.TypeDemoApproval:
 		return d.handleDemoApprovalRequest(ctx, ev)
-	case intake.TypeTrust:
-		return d.handleTrustRPC(ctx, ev)
 	case intake.TypeSnapshot:
 		return d.handleSnapshotRPC(ctx, ev)
 	default:

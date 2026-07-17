@@ -35,7 +35,7 @@ Each tenant has exactly one `primary_owner`, zero or more `owner`s, zero or more
 | --- | --- | --- |
 | `primary_owner` | all tenant operations; owner management; ownership transfer; tenant policy, paired-host, and identity-rekey changes | transfer authority without the target's proof of possession |
 | `owner` | all host and session operations; invite, modify, and revoke `operator` and `viewer` memberships; issue narrower scopes | modify or revoke any owner; transfer primary ownership; change rekey, paired-host, or tenant policy |
-| `operator` | explicitly scoped approve, deny, edit, and interrupt actions | invite, revoke, change roles, modify trust, kill a host, change budgets, view unscoped sessions, or transfer ownership |
+| `operator` | explicitly scoped approve, deny, edit, and interrupt actions | invite, revoke, change roles, change tenant policy, kill a host, view unscoped sessions, or transfer ownership |
 | `viewer` | explicitly scoped read-only session and metadata observation | submit input, approve, deny, edit, interrupt, export, change policy, or access stored secret material |
 
 `primary_owner` may create an `owner` only after the target accepts a direct invitation. An owner can never create another owner. All authority changes require a fresh device proof from the affected principal.

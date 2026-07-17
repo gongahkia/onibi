@@ -60,6 +60,7 @@ test("shows compact loading, failed, and successful approval states", async () =
     }
   });
   expect(root.textContent).toContain("target: /tmp/onibi-test.txt");
+  expect(root.textContent).not.toContain("Auto-approve");
   expect(root.querySelector(".approval-input")?.tagName).toBe("DETAILS");
   expect(root.querySelector(".approval-diff")?.textContent).toBe("Loading diff...");
 

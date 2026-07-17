@@ -34,11 +34,6 @@ const steps: TourStep[] = [
     targets: ["#softkeys"]
   },
   {
-    title: "Trust policy",
-    body: "Eligible approvals can expose short-lived trust controls.",
-    targets: [".approval-trust-link", "#approval-overlay"]
-  },
-  {
     title: "Done",
     body: "Tour complete.",
     targets: ["#toolbar", "#softkeys", "#term"]

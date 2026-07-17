@@ -46,7 +46,7 @@ Side-by-side:
 | phone access | `herdr-remote` web app/PWA through a relay URL | built-in paired HTTPS/PWA cockpit |
 | agent state | first-class blocked/working/done/idle rollups | session list and approval status |
 | direct terminal | terminal/SSH/direct attach; herdr-remote phone terminal view | `/ws/pty` live terminal with typing, soft keys, resize, replay |
-| approvals | blocked-agent quick actions and Telegram inline approvals | owner approval queue, edit/deny/approve, runtime trust, hook enforcement |
+| approvals | blocked-agent quick actions and Telegram inline approvals | owner approval queue, edit/deny/approve, hook enforcement |
 | chat control | Telegram approval/notification surface in herdr-remote | explicitly enabled experimental Telegram/Slack/Matrix/Discord/Zulip/IRC/Signal text I/O plus capability-specific approvals |
 | extension model | CLI/socket API, integrations, plugins | adapters, intake socket, provider bridges, web event stream |
 
@@ -112,7 +112,7 @@ Core differences:
 | remote surface | claude.ai/code and Claude mobile app | paired PWA/browser cockpit plus optional experimental chat/notify bridges |
 | session host | existing Claude Code process | Onibi-managed tmux-backed process |
 | transport | outbound HTTPS through Anthropic | LAN/hotspot/Tailscale/Cloudflare/ngrok/chat transports |
-| enforcement | Claude Code permission flow | adapter hooks plus owner approval queue and runtime trust controls |
+| enforcement | Claude Code permission flow | adapter hooks plus owner approval queue |
 
 When to pick CCRC: choose Claude Code Remote Control when the workflow is Claude-only, the user already has eligible Claude access, and the priority is zero extra daemon setup with Anthropic-supported mobile/web continuity. Choose Onibi when you need one cockpit across multiple agents, open local transport choices, chat fallback, or hook enforcement that can apply outside Claude Code.
 

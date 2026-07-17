@@ -19,7 +19,6 @@ import (
 	"github.com/gongahkia/onibi/internal/intake"
 	"github.com/gongahkia/onibi/internal/pty"
 	"github.com/gongahkia/onibi/internal/store"
-	"github.com/gongahkia/onibi/internal/trust"
 	"github.com/gongahkia/onibi/internal/updatecheck"
 	"github.com/gongahkia/onibi/internal/web"
 )
@@ -44,7 +43,6 @@ type Daemon struct {
 	Queue         *approval.Queue
 	Sweeper       *approval.Sweeper
 	Events        *web.EventBus
-	Trust         *trust.Watcher
 	claudeBaseDir string
 	BufferSize    int
 
@@ -527,9 +525,6 @@ func (d *Daemon) Run(ctx context.Context) error {
 	}()
 
 	var wg sync.WaitGroup
-	if err := d.startTrustWatcher(ctx, &wg); err != nil {
-		return err
-	}
 	d.startAutoUpdateChecks(ctx, &wg)
 	if d.FleetLink != nil {
 		wg.Add(1)
@@ -572,7 +567,6 @@ func (d *Daemon) Run(ctx context.Context) error {
 			PTYHost:               d.EnsureWebPTYHost,
 			Handover:              d.HandoverSession,
 			Scroll:                d.ScrollSession,
-			TrustRuntime:          d.AddRuntimeTrustRule,
 			Snapshots:             d.WebSnapshots,
 			SnapshotRestore:       d.WebRestoreSnapshot,
 			SnapshotFork:          d.WebForkSnapshot,

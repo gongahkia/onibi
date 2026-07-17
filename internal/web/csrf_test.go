@@ -93,7 +93,6 @@ func TestCSRFAllMutatingEndpointsRejectMissing(t *testing.T) {
 		{http.MethodPost, "/snapshots/fork", `{"name":"snap","turn":1,"new_prompt":"go"}`},
 		{http.MethodPost, "/snapshots/snap/restore", `{"turn":1,"new_prompt":"go"}`},
 		{http.MethodPost, "/snapshots/snap/fork", `{"turn":1,"new_prompt":"go"}`},
-		{http.MethodPost, "/trust/runtime", `{"session_id":"s1","tool":"Edit"}`},
 		{http.MethodPost, "/fleet/revoke", `{"version":1,"host_id":"host-1"}`},
 		{http.MethodPost, "/attachments/images", `{"mime":"image/png","data":"iVBORw0KGgo="}`},
 	} {

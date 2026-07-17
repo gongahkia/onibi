@@ -25,17 +25,6 @@ schema_version = 1
 name = "example"
 default_agent = "claude"
 
-[trust]
-policy_file = "trust.toml"
-
-[[trust.rule]]
-effect = "auto_approve"
-expires = "never"
-[trust.rule.match]
-tool = "Read"
-path = "docs/**"
-agent = "claude"
-
 [transports]
 default = "tailscale"
 web = ["lan", "tailscale"]
@@ -58,18 +47,6 @@ auto_install = ["claude", "codex", "shell:zsh"]
 : Optional agent id used when `onibi up` starts in the workspace without an explicit agent. Valid values are installed agent adapter ids such as `claude`, `codex`, `gemini`, `goose`, `opencode`, `amp`, `copilot`, `pi`, or a third-party adapter id.
 
 Unknown top-level keys are invalid.
-
-## Trust
-
-`[trust]` configures project trust defaults.
-
-`trust.policy_file`
-: Optional path to a trust policy TOML file, relative to `.onibi/workspace.toml`. The usual value is `trust.toml`.
-
-`[[trust.rule]]`
-: Optional inline trust rules using the same rule model as `docs/trust-policies.md`.
-
-Use either `trust.policy_file`, inline `trust.rule` entries, or both. When both are present, file rules load first and inline rules append after them.
 
 ## Transports
 
@@ -98,11 +75,9 @@ Transport lists are preferences, not secrets. Provider tokens remain environment
 
 Auto-install is idempotent. It must verify existing hook hashes before writing and must not silently overwrite non-managed hooks.
 
-## Path Rules
+## Removed Policy State
 
-All relative paths are resolved from the directory containing `.onibi/workspace.toml`.
-
-Paths must stay inside the repository unless a future schema field explicitly allows a private external path. Portable workspace exports must omit machine-local absolute paths.
+Legacy `[trust]`, `[[trust.rule]]`, and `[budget]` tables are accepted and ignored. They are omitted when the workspace file is saved or exported. `.onibi/trust.toml` and `.onibi/budget.toml` are not read. Configure agent permissions in the native agent configuration; Onibi does not modify it.
 
 ## Validation
 
@@ -113,9 +88,7 @@ Validation must fail on:
 - unknown top-level table or key
 - unknown `default_agent` when adapter registry is available
 - unknown transport mode
-- invalid trust rule effect, expiry, or empty matcher
 - `hooks.auto_install` item with unknown adapter id
-- relative path escaping the workspace root
 
 Validation errors should include the file path and key path.
 

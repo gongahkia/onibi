@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -381,13 +380,6 @@ func exportWorkspaceBundle(entry onibiworkspace.DBEntry, dstRoot string) error {
 	if err := exportProjectWorkspaceFile(entry, filepath.Join(onibiDir, "workspace.toml")); err != nil {
 		return err
 	}
-	for _, name := range []string{"trust.toml"} {
-		src := filepath.Join(sourceRoot, ".onibi", name)
-		dst := filepath.Join(onibiDir, name)
-		if err := copyFileOrEmpty(src, dst); err != nil {
-			return err
-		}
-	}
 	return nil
 }
 
@@ -402,26 +394,6 @@ func exportProjectWorkspaceFile(entry onibiworkspace.DBEntry, dst string) error 
 		cfg.Transports.Default = indexEntry.DefaultTransport
 	}
 	return onibiworkspace.SaveProjectConfig(dst, cfg)
-}
-
-func copyFileOrEmpty(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return os.WriteFile(dst, nil, 0o644)
-		}
-		return err
-	}
-	defer in.Close()
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(out, in); err != nil {
-		_ = out.Close()
-		return err
-	}
-	return out.Close()
 }
 
 func projectFileFromArg(arg string) (onibiworkspace.ProjectFile, error) {

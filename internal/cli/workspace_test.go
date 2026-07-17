@@ -39,9 +39,6 @@ func TestWorkspaceExportWritesPortableBundle(t *testing.T) {
 	if err := os.MkdirAll(onibiDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(onibiDir, "trust.toml"), []byte("[[rule]]\neffect = \"auto_approve\"\nexpires = \"never\"\n[rule.match]\ntool = \"Read\"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
 	executeWorkspace(t, "add", "alpha", repo, "--ssh-key", "secret-key-ref", "--default-transport", "tailscale")
 	bundle := filepath.Join(t.TempDir(), "bundle")
 	out := executeWorkspace(t, "export", "alpha", bundle)
@@ -62,9 +59,6 @@ func TestWorkspaceExportWritesPortableBundle(t *testing.T) {
 		if !strings.Contains(text, want) {
 			t.Fatalf("workspace.toml missing %q:\n%s", want, text)
 		}
-	}
-	if _, err := os.Stat(filepath.Join(bundle, ".onibi", "trust.toml")); err != nil {
-		t.Fatal(err)
 	}
 }
 

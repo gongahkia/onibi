@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/gongahkia/onibi/internal/adapters"
-	"github.com/gongahkia/onibi/internal/trust"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -24,26 +23,8 @@ type ProjectConfig struct {
 	SchemaVersion int               `toml:"schema_version"`
 	Name          string            `toml:"name"`
 	DefaultAgent  string            `toml:"default_agent,omitempty"`
-	Trust         ProjectTrust      `toml:"trust,omitempty"`
 	Transports    ProjectTransports `toml:"transports,omitempty"`
 	Hooks         ProjectHooks      `toml:"hooks,omitempty"`
-}
-
-type ProjectTrust struct {
-	PolicyFile string             `toml:"policy_file,omitempty"`
-	Rule       []ProjectTrustRule `toml:"rule,omitempty"`
-}
-
-type ProjectTrustRule struct {
-	Effect  string            `toml:"effect"`
-	Expires string            `toml:"expires,omitempty"`
-	Match   ProjectTrustMatch `toml:"match,omitempty"`
-}
-
-type ProjectTrustMatch struct {
-	Tool  string `toml:"tool,omitempty"`
-	Path  string `toml:"path,omitempty"`
-	Agent string `toml:"agent,omitempty"`
 }
 
 type ProjectTransports struct {
@@ -97,7 +78,7 @@ func LoadProjectConfig(path string) (ProjectConfig, error) {
 	if err != nil {
 		return ProjectConfig{}, err
 	}
-	data, err = stripLegacyBudget(data)
+	data, err = stripLegacyPolicyTables(data)
 	if err != nil {
 		return ProjectConfig{}, fmt.Errorf("parse %s: %w", path, err)
 	}
@@ -112,12 +93,6 @@ func LoadProjectConfig(path string) (ProjectConfig, error) {
 		return ProjectConfig{}, fmt.Errorf("%s: %w", path, err)
 	}
 	cfg.Transports.Default = strings.ToLower(strings.TrimSpace(cfg.Transports.Default))
-	if err := validateProjectPaths(path, &cfg); err != nil {
-		return ProjectConfig{}, err
-	}
-	if err := validateProjectPolicies(path, &cfg); err != nil {
-		return ProjectConfig{}, err
-	}
 	if err := validateProjectAgents(path, &cfg); err != nil {
 		return ProjectConfig{}, err
 	}
@@ -138,12 +113,6 @@ func SaveProjectConfig(path string, cfg ProjectConfig) error {
 	if err := validateName(cfg.Name); err != nil {
 		return fmt.Errorf("%s: %w", path, err)
 	}
-	if err := validateProjectPaths(path, &cfg); err != nil {
-		return err
-	}
-	if err := validateProjectPolicies(path, &cfg); err != nil {
-		return err
-	}
 	if err := validateProjectAgents(path, &cfg); err != nil {
 		return err
 	}
@@ -160,12 +129,13 @@ func SaveProjectConfig(path string, cfg ProjectConfig) error {
 	return os.WriteFile(path, data, 0o644)
 }
 
-func stripLegacyBudget(data []byte) ([]byte, error) {
+func stripLegacyPolicyTables(data []byte) ([]byte, error) {
 	var raw map[string]any
 	if err := toml.Unmarshal(data, &raw); err != nil {
 		return nil, err
 	}
 	delete(raw, "budget")
+	delete(raw, "trust")
 	return toml.Marshal(raw)
 }
 
@@ -189,35 +159,6 @@ func validateProjectTransports(path string, transports *ProjectTransports) error
 				return fmt.Errorf("%s: %s[%d]: %w", path, key, i, err)
 			}
 		}
-	}
-	return nil
-}
-
-func validateProjectPaths(path string, cfg *ProjectConfig) error {
-	if cfg == nil {
-		return nil
-	}
-	return validateProjectRelativePath(path, "trust.policy_file", cfg.Trust.PolicyFile)
-}
-
-func validateProjectPolicies(path string, cfg *ProjectConfig) error {
-	if cfg == nil {
-		return nil
-	}
-	trustPolicy := trust.Policy{Rules: make([]trust.Rule, len(cfg.Trust.Rule))}
-	for i, rule := range cfg.Trust.Rule {
-		trustPolicy.Rules[i] = trust.Rule{
-			Effect:     trust.Effect(rule.Effect),
-			ExpiresRaw: rule.Expires,
-			Match: trust.Match{
-				Tool:  rule.Match.Tool,
-				Path:  rule.Match.Path,
-				Agent: rule.Match.Agent,
-			},
-		}
-	}
-	if err := trustPolicy.Validate(); err != nil {
-		return fmt.Errorf("%s: trust.rule: %w", path, err)
 	}
 	return nil
 }
@@ -263,34 +204,6 @@ func validateProjectHook(target string) error {
 		return fmt.Errorf("unsupported shell %q", shell)
 	}
 	return validateProjectAgent(target)
-}
-
-func validateProjectRelativePath(configPath, key, value string) error {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return nil
-	}
-	if filepath.IsAbs(value) {
-		return fmt.Errorf("%s: %s must be a relative path", configPath, key)
-	}
-	absConfigPath, err := filepath.Abs(configPath)
-	if err != nil {
-		return fmt.Errorf("%s: resolve workspace root: %w", configPath, err)
-	}
-	workspaceDir := filepath.Dir(absConfigPath)
-	workspaceRoot := workspaceDir
-	if filepath.Base(workspaceDir) == ".onibi" {
-		workspaceRoot = filepath.Dir(workspaceDir)
-	}
-	resolved := filepath.Clean(filepath.Join(workspaceDir, value))
-	rel, err := filepath.Rel(workspaceRoot, resolved)
-	if err != nil {
-		return fmt.Errorf("%s: %s resolve: %w", configPath, key, err)
-	}
-	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return fmt.Errorf("%s: %s must stay inside workspace root", configPath, key)
-	}
-	return nil
 }
 
 func validateTransportMode(mode string) error {

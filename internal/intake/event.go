@@ -18,7 +18,6 @@ const (
 	TypeSessionHide     = "session_hide"     // RPC: detach or end visible clients
 	TypeSessionControl  = "session_control"  // RPC: interrupt or kill a session
 	TypeDemoApproval    = "demo_approval"    // RPC: create a local fake approval
-	TypeTrust           = "trust"            // RPC: list and mutate trust rules
 	TypeSnapshot        = "snapshot"         // RPC: snapshot lifecycle
 	TypePing            = "ping"             // RPC: daemon health probe
 )
@@ -63,13 +62,6 @@ type Event struct {
 	InputJSON  string            `json:"input_json,omitempty"`
 	RawJSON    string            `json:"raw_json,omitempty"` // raw provider hook payload
 	Approval   *approval.Request `json:"approval,omitempty"` // validated provider-neutral v1 model
-
-	// trust RPC
-	TrustAction string `json:"trust_action,omitempty"`
-	TrustRoot   string `json:"trust_root,omitempty"`
-	TrustRuleID string `json:"trust_rule_id,omitempty"`
-	Effect      string `json:"effect,omitempty"`
-	Expires     string `json:"expires,omitempty"`
 
 	// snapshot RPC
 	SnapshotAction string `json:"snapshot_action,omitempty"`

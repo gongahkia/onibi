@@ -2,7 +2,7 @@
 
 Onibi workspaces separate team-shareable project defaults from user-private machine bindings.
 
-Use workspaces when a repo needs repeatable trust, transport, hook, or agent defaults, but each developer still needs their own checkout path and private SSH/key references.
+Use workspaces when a repo needs repeatable transport, hook, or agent defaults, but each developer still needs their own checkout path and private SSH/key references.
 
 ## Files
 
@@ -10,7 +10,6 @@ Committed project defaults live in:
 
 ```text
 <repo>/.onibi/workspace.toml
-<repo>/.onibi/trust.toml
 ```
 
 User-private bindings live outside the repo:
@@ -30,8 +29,7 @@ Project owner:
 ```bash
 mkdir -p .onibi
 $EDITOR .onibi/workspace.toml
-$EDITOR .onibi/trust.toml
-git add .onibi/workspace.toml .onibi/trust.toml
+git add .onibi/workspace.toml
 git commit -m "add Onibi workspace defaults"
 onibi workspace add my-repo "$(pwd)" --use
 ```
@@ -54,15 +52,12 @@ name = "my-repo"
 default_agent = "claude"
 ```
 
-## With Trust And Transport Defaults
+## With Transport Defaults
 
 ```toml
 schema_version = 1
 name = "my-repo"
 default_agent = "claude"
-
-[trust]
-policy_file = "trust.toml"
 
 [transports]
 default = "tailscale"
@@ -71,7 +66,9 @@ chat = ["telegram", "signal"]
 notify = ["pushover", "ntfy", "sms", "email"]
 ```
 
-Trust files use the format in `docs/trust-policies.md`.
+## Upgrade: Native Agent Permissions
+
+Onibi ignores legacy `.onibi/trust.toml` files and `[trust]` workspace tables. A legacy table is omitted the next time `workspace.toml` is saved or exported; the legacy file itself is left untouched. Onibi does not read or change native agent permission configuration. Configure permissions in each agent's own configuration.
 
 ## Private Index
 
@@ -108,7 +105,7 @@ onibi workspace add my-repo . --default-transport tailscale --ssh-key keychain:o
 onibi workspace import . --use
 ```
 
-`workspace export` writes a portable `.onibi/` bundle containing `workspace.toml` and `trust.toml`. It omits private index fields such as local paths and SSH key references.
+`workspace export` writes a portable `.onibi/` bundle containing `workspace.toml`. It omits private index fields such as local paths and SSH key references.
 
 `workspace import` and `workspace use <path>` accept a repo root, a `.onibi` directory, or a direct `workspace.toml` path.
 
@@ -128,7 +125,6 @@ CLI flags still win over workspace defaults. For example, `onibi up --transport 
 |---|---|
 | workspace name | absolute checkout path |
 | default agent | SSH key reference |
-| trust policy defaults | last seen timestamp |
 | transport preferences | user-specific machine binding |
 | hook auto-install preferences | never committed |
 

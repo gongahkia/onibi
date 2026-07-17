@@ -25,7 +25,7 @@ Codex additionally requires its user to review and trust the current non-managed
 
 ## Approval payload v1
 
-Certified adapters submit `onibi.approval.v1` over the local intake socket. The model contains `session_id`, `agent`, `tool`, and a JSON-object `input`. Onibi rejects unsupported schema versions and non-object inputs, canonicalizes the input, then derives `details` and `risk` itself. Provider-supplied risk, target, command, and path values are not trusted by policies or the fleet UI.
+Certified adapters submit `onibi.approval.v1` over the local intake socket. The model contains `session_id`, `agent`, `tool`, and a JSON-object `input`. Onibi rejects unsupported schema versions and non-object inputs, canonicalizes the input, then derives `details` and `risk` itself. Provider-supplied risk, target, command, and path values are not trusted by the fleet UI.
 
 Web approval responses expose a nested `approval` object with the version, scrubbed input, derived details, and derived risk. They do not expose the raw input. Legacy top-level fields remain for existing cockpit clients.
 

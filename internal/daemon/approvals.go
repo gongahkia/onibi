@@ -27,9 +27,6 @@ func (d *Daemon) handleApprovalRequest(ctx context.Context, ev intake.Event) (in
 		return intake.Response{Decision: "cancelled", Reason: "invalid approval payload"}, nil
 	}
 	d.appendEventOutput(s, ev)
-	if resp, ok := d.handleTrustApproval(ctx, s, ev); ok {
-		return resp, nil
-	}
 	unifiedDiff := approvalUnifiedDiff(ev)
 	approvalID, ch, err := d.Queue.RequestModel(ctx, req, unifiedDiff)
 	if err != nil {

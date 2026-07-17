@@ -19,6 +19,17 @@ type approvalResult struct {
 	err  error
 }
 
+func readApprovalEvent(t *testing.T, events <-chan approval.Event) approval.Event {
+	t.Helper()
+	select {
+	case ev := <-events:
+		return ev
+	case <-time.After(time.Second):
+		t.Fatal("approval event not delivered")
+		return approval.Event{}
+	}
+}
+
 func TestApprovalUnifiedDiffWriteScrubsBeforeDiff(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.env")
@@ -191,7 +202,7 @@ func TestApprovalTimeoutEventCancelsPendingApproval(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("timeout decision not delivered")
 	}
-	ev := readTrustApprovalEvent(t, events)
+	ev := readApprovalEvent(t, events)
 	if ev.Type != approval.EventDecided || ev.Decision.Verdict != approval.VerdictCancel {
 		t.Fatalf("approval event = %#v", ev)
 	}
@@ -293,7 +304,7 @@ func TestApprovalRequestConcurrentDecisionsOnlyOneWins(t *testing.T) {
 		})
 		result <- approvalResult{resp: resp, err: err}
 	}()
-	approvalEv := readTrustApprovalEvent(t, events)
+	approvalEv := readApprovalEvent(t, events)
 	errs := make(chan error, 2)
 	go func() {
 		errs <- d.Queue.Decide(t.Context(), approvalEv.Approval.ID, approval.VerdictApprove, "", "", 1)
@@ -334,7 +345,7 @@ func TestApprovalRequestConcurrentDecisionsOnlyOneWins(t *testing.T) {
 	}
 }
 
-func TestApprovalRequestNormalizesV1ModelBeforePolicies(t *testing.T) {
+func TestApprovalRequestNormalizesV1ModelBeforeQueue(t *testing.T) {
 	db := openDaemonTestDB(t)
 	d := New(Options{DB: db})
 	if err := d.Registry.Add(NewSession("s1", "claude", "claude", nil, 0)); err != nil {
@@ -363,7 +374,7 @@ func TestApprovalRequestNormalizesV1ModelBeforePolicies(t *testing.T) {
 		})
 		result <- approvalResult{resp: resp, err: err}
 	}()
-	requested := readTrustApprovalEvent(t, events)
+	requested := readApprovalEvent(t, events)
 	req, err := approval.RequestForApproval(requested.Approval)
 	if err != nil {
 		t.Fatal(err)
@@ -415,7 +426,7 @@ func TestClaudeApprovalDenyIsEnforcingAndAudited(t *testing.T) {
 		})
 		result <- approvalResult{resp: resp, err: err}
 	}()
-	requested := readTrustApprovalEvent(t, events)
+	requested := readApprovalEvent(t, events)
 	if err := d.Queue.Decide(t.Context(), requested.Approval.ID, approval.VerdictDeny, "", "owner denied", 9); err != nil {
 		t.Fatal(err)
 	}
@@ -466,7 +477,7 @@ func TestCodexApprovalDenyIsEnforcingAndAudited(t *testing.T) {
 		})
 		result <- approvalResult{resp: resp, err: err}
 	}()
-	requested := readTrustApprovalEvent(t, events)
+	requested := readApprovalEvent(t, events)
 	if err := d.Queue.Decide(t.Context(), requested.Approval.ID, approval.VerdictDeny, "", "owner denied", 9); err != nil {
 		t.Fatal(err)
 	}
@@ -517,7 +528,7 @@ func TestPiApprovalDenyIsEnforcingAndAudited(t *testing.T) {
 		})
 		result <- approvalResult{resp: resp, err: err}
 	}()
-	requested := readTrustApprovalEvent(t, events)
+	requested := readApprovalEvent(t, events)
 	if err := d.Queue.Decide(t.Context(), requested.Approval.ID, approval.VerdictDeny, "", "owner denied", 9); err != nil {
 		t.Fatal(err)
 	}
@@ -569,7 +580,7 @@ func TestApprovalRequestCancelsOnDaemonShutdown(t *testing.T) {
 		})
 		result <- approvalResult{resp: resp, err: err}
 	}()
-	approvalEv := readTrustApprovalEvent(t, events)
+	approvalEv := readApprovalEvent(t, events)
 	cancel()
 	select {
 	case got := <-result:
@@ -582,7 +593,7 @@ func TestApprovalRequestCancelsOnDaemonShutdown(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("approval did not return")
 	}
-	decidedEv := readTrustApprovalEvent(t, events)
+	decidedEv := readApprovalEvent(t, events)
 	if decidedEv.Type != approval.EventDecided || decidedEv.Decision.Verdict != approval.VerdictCancel || decidedEv.Decision.Reason != "daemon shutdown" {
 		t.Fatalf("approval event = %#v", decidedEv)
 	}
