@@ -25,6 +25,16 @@ pub const YEOKCHAM_QR_VERIFICATION_PAYLOAD_BYTES: usize =
     yeokcham_protocol::QR_VERIFICATION_PAYLOAD_BYTES;
 pub const YEOKCHAM_SAFETY_NUMBER_FINGERPRINT_BYTES: usize =
     yeokcham_protocol::SAFETY_NUMBER_FINGERPRINT_BYTES;
+pub const YEOKCHAM_MAX_LOCAL_MESH_TRANSPORTS: usize = 4;
+pub const YEOKCHAM_DELIVERY_PROFILE_DIRECT: u32 = 1;
+pub const YEOKCHAM_DELIVERY_PROFILE_TOR_MAILDROP: u32 = 2;
+pub const YEOKCHAM_DELIVERY_PROFILE_LOCAL_MESH: u32 = 3;
+pub const YEOKCHAM_LOCAL_MESH_TRANSPORT_LAN: u32 = 1;
+pub const YEOKCHAM_LOCAL_MESH_TRANSPORT_WIFI_HOTSPOT: u32 = 2;
+pub const YEOKCHAM_LOCAL_MESH_TRANSPORT_WIFI_DIRECT: u32 = 3;
+pub const YEOKCHAM_LOCAL_MESH_TRANSPORT_BLUETOOTH: u32 = 4;
+pub const YEOKCHAM_DIRECT_IP_DISCLOSURE_ACKNOWLEDGED: u32 = 1;
+pub const YEOKCHAM_DIRECT_IP_DISCLOSURE_WARNING: u32 = 1;
 
 #[repr(C)]
 pub struct YeokchamClient {
@@ -63,6 +73,22 @@ pub struct YeokchamContact {
     pub verification: u32,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[repr(C)]
+pub struct YeokchamDeliveryProfilePolicy {
+    pub direct_allowed: u32,
+    pub tor_maildrop_allowed: u32,
+    pub local_mesh_transport_count: u32,
+    pub local_mesh_transports: [u32; YEOKCHAM_MAX_LOCAL_MESH_TRANSPORTS],
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[repr(C)]
+pub struct YeokchamDeliveryProfile {
+    pub kind: u32,
+    pub direct_ip_disclosure_warning: u32,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(i32)]
 pub enum YeokchamStatus {
@@ -88,8 +114,9 @@ pub use c_abi::{
     yeokcham_client_copy_last_error_detail, yeokcham_client_create,
     yeokcham_client_identity_create, yeokcham_client_identity_load, yeokcham_client_release,
     yeokcham_client_start, yeokcham_client_stop, yeokcham_client_subscribe_events,
-    yeokcham_client_take_last_error_detail, yeokcham_event_subscription_poll,
-    yeokcham_event_subscription_release, yeokcham_secret_buffer_zeroize,
+    yeokcham_client_take_last_error_detail, yeokcham_delivery_profile_select,
+    yeokcham_event_subscription_poll, yeokcham_event_subscription_release,
+    yeokcham_secret_buffer_zeroize,
 };
 
 #[cfg(test)]
@@ -98,7 +125,9 @@ mod tests {
     use super::{
         MAX_C_ABI_CLIENTS, MAX_C_ABI_PENDING_COMPLETIONS, YEOKCHAM_ABI_NEGOTIATION_REJECTED,
         YEOKCHAM_ABI_VERSION, YEOKCHAM_ABI_VERSION_MAJOR, YEOKCHAM_ABI_VERSION_MINOR,
-        YEOKCHAM_IDENTITY_PUBLIC_KEY_BYTES, YEOKCHAM_QR_VERIFICATION_PAYLOAD_BYTES,
+        YEOKCHAM_DELIVERY_PROFILE_DIRECT, YEOKCHAM_DELIVERY_PROFILE_LOCAL_MESH,
+        YEOKCHAM_DELIVERY_PROFILE_TOR_MAILDROP, YEOKCHAM_IDENTITY_PUBLIC_KEY_BYTES,
+        YEOKCHAM_MAX_LOCAL_MESH_TRANSPORTS, YEOKCHAM_QR_VERIFICATION_PAYLOAD_BYTES,
         YEOKCHAM_SAFETY_NUMBER_FINGERPRINT_BYTES, YeokchamStatus, yeokcham_abi_negotiate,
         yeokcham_client_complete_async, yeokcham_client_create, yeokcham_client_release,
     };
@@ -141,6 +170,14 @@ mod tests {
         assert_eq!(YEOKCHAM_QR_VERIFICATION_PAYLOAD_BYTES, 70);
         assert!(HEADER.contains("#define YEOKCHAM_SAFETY_NUMBER_FINGERPRINT_BYTES UINT32_C(32)"));
         assert_eq!(YEOKCHAM_SAFETY_NUMBER_FINGERPRINT_BYTES, 32);
+        assert!(HEADER.contains("#define YEOKCHAM_MAX_LOCAL_MESH_TRANSPORTS UINT32_C(4)"));
+        assert_eq!(YEOKCHAM_MAX_LOCAL_MESH_TRANSPORTS, 4);
+        assert!(HEADER.contains("#define YEOKCHAM_DELIVERY_PROFILE_DIRECT UINT32_C(1)"));
+        assert_eq!(YEOKCHAM_DELIVERY_PROFILE_DIRECT, 1);
+        assert!(HEADER.contains("#define YEOKCHAM_DELIVERY_PROFILE_TOR_MAILDROP UINT32_C(2)"));
+        assert_eq!(YEOKCHAM_DELIVERY_PROFILE_TOR_MAILDROP, 2);
+        assert!(HEADER.contains("#define YEOKCHAM_DELIVERY_PROFILE_LOCAL_MESH UINT32_C(3)"));
+        assert_eq!(YEOKCHAM_DELIVERY_PROFILE_LOCAL_MESH, 3);
         assert!(HEADER.contains("typedef struct yeokcham_client yeokcham_client_t;"));
         assert!(HEADER.contains("typedef struct yeokcham_buffer yeokcham_buffer_t;"));
         assert!(
@@ -188,6 +225,7 @@ mod tests {
         assert!(HEADER.contains("yeokcham_client_contact_revoke("));
         assert!(HEADER.contains("yeokcham_client_contact_verify_qr("));
         assert!(HEADER.contains("yeokcham_client_contact_verify_safety_number("));
+        assert!(HEADER.contains("yeokcham_delivery_profile_select("));
         assert!(HEADER.contains("yeokcham_client_copy_last_error_detail("));
         assert!(HEADER.contains("yeokcham_client_take_last_error_detail("));
         assert!(HEADER.contains("yeokcham_buffer_data("));

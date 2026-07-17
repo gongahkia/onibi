@@ -27,6 +27,12 @@
 - SDK mode, lifecycle, state, engine, and async-task failures map to `YEOKCHAM_STATUS_STATE` without exposing raw engine details.
 - `yeokcham_client_copy_last_error_detail` returns a bounded canonical ASCII token for the last SDK error on an active client. The caller owns its buffer; query the required length with a null buffer and zero capacity, then provide at least that capacity. The payload contains no engine strings, paths, or secrets.
 
+## Delivery profiles
+
+- `yeokcham_delivery_profile_select` accepts a caller-owned `yeokcham_delivery_profile_policy_t`; each allow flag is exactly zero or one, and the local-mesh transport count is bounded by `YEOKCHAM_MAX_LOCAL_MESH_TRANSPORTS`.
+- Direct selection requires `YEOKCHAM_DIRECT_IP_DISCLOSURE_ACKNOWLEDGED`; Tor-maildrop requires zero acknowledgement and zero local-mesh transport; local-mesh requires zero acknowledgement and an allowed `YEOKCHAM_LOCAL_MESH_TRANSPORT_*` value.
+- The function clears `yeokcham_delivery_profile_t` before every failure. Invalid policy or selection input returns `YEOKCHAM_STATUS_INVALID_INPUT`; a policy-disallowed selection returns `YEOKCHAM_STATUS_STATE`.
+
 ## Library-owned buffers
 
 - `yeokcham_client_take_last_error_detail` transfers the redacted detail into an opaque library-owned buffer and writes a null output on failure. Read its bytes and length with `yeokcham_buffer_data` and `yeokcham_buffer_length`, then call `yeokcham_buffer_release` exactly once.

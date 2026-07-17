@@ -182,3 +182,38 @@ int yeokcham_c_embedded_client_lifecycle(
     }
     return 0;
 }
+
+int yeokcham_c_delivery_profile_operations(void) {
+    yeokcham_delivery_profile_policy_t policy = {
+        UINT32_C(1),
+        UINT32_C(1),
+        YEOKCHAM_MAX_LOCAL_MESH_TRANSPORTS,
+        {
+            YEOKCHAM_LOCAL_MESH_TRANSPORT_LAN,
+            YEOKCHAM_LOCAL_MESH_TRANSPORT_WIFI_HOTSPOT,
+            YEOKCHAM_LOCAL_MESH_TRANSPORT_WIFI_DIRECT,
+            YEOKCHAM_LOCAL_MESH_TRANSPORT_BLUETOOTH
+        }
+    };
+    yeokcham_delivery_profile_t profile = { UINT32_C(99), UINT32_C(99) };
+
+    if (yeokcham_delivery_profile_select(&policy, YEOKCHAM_DELIVERY_PROFILE_DIRECT, UINT32_C(0), YEOKCHAM_DIRECT_IP_DISCLOSURE_ACKNOWLEDGED, &profile) != YEOKCHAM_STATUS_OK) {
+        return 1;
+    }
+    if (profile.kind != YEOKCHAM_DELIVERY_PROFILE_DIRECT || profile.direct_ip_disclosure_warning != YEOKCHAM_DIRECT_IP_DISCLOSURE_WARNING) {
+        return 2;
+    }
+    if (yeokcham_delivery_profile_select(&policy, YEOKCHAM_DELIVERY_PROFILE_LOCAL_MESH, YEOKCHAM_LOCAL_MESH_TRANSPORT_BLUETOOTH, UINT32_C(0), &profile) != YEOKCHAM_STATUS_OK) {
+        return 3;
+    }
+    if (profile.kind != YEOKCHAM_DELIVERY_PROFILE_LOCAL_MESH || profile.direct_ip_disclosure_warning != 0) {
+        return 4;
+    }
+    if (yeokcham_delivery_profile_select(&policy, YEOKCHAM_DELIVERY_PROFILE_DIRECT, UINT32_C(0), UINT32_C(0), &profile) != YEOKCHAM_STATUS_INVALID_INPUT) {
+        return 5;
+    }
+    if (profile.kind != 0 || profile.direct_ip_disclosure_warning != 0) {
+        return 6;
+    }
+    return 0;
+}

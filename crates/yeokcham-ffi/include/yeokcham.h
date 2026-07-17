@@ -30,6 +30,16 @@
 #define YEOKCHAM_CONTACT_VERIFICATION_SAFETY_NUMBER UINT32_C(2)
 #define YEOKCHAM_QR_VERIFICATION_PAYLOAD_BYTES UINT32_C(70)
 #define YEOKCHAM_SAFETY_NUMBER_FINGERPRINT_BYTES UINT32_C(32)
+#define YEOKCHAM_MAX_LOCAL_MESH_TRANSPORTS UINT32_C(4)
+#define YEOKCHAM_DELIVERY_PROFILE_DIRECT UINT32_C(1)
+#define YEOKCHAM_DELIVERY_PROFILE_TOR_MAILDROP UINT32_C(2)
+#define YEOKCHAM_DELIVERY_PROFILE_LOCAL_MESH UINT32_C(3)
+#define YEOKCHAM_LOCAL_MESH_TRANSPORT_LAN UINT32_C(1)
+#define YEOKCHAM_LOCAL_MESH_TRANSPORT_WIFI_HOTSPOT UINT32_C(2)
+#define YEOKCHAM_LOCAL_MESH_TRANSPORT_WIFI_DIRECT UINT32_C(3)
+#define YEOKCHAM_LOCAL_MESH_TRANSPORT_BLUETOOTH UINT32_C(4)
+#define YEOKCHAM_DIRECT_IP_DISCLOSURE_ACKNOWLEDGED UINT32_C(1)
+#define YEOKCHAM_DIRECT_IP_DISCLOSURE_WARNING UINT32_C(1)
 
 typedef struct yeokcham_client yeokcham_client_t; // library-owned opaque client; release with yeokcham_client_release
 typedef struct yeokcham_client_config_builder yeokcham_client_config_builder_t; // library-owned configuration builder; release with yeokcham_client_config_builder_release
@@ -46,6 +56,16 @@ typedef struct yeokcham_contact {
     uint32_t status;
     uint32_t verification;
 } yeokcham_contact_t;
+typedef struct yeokcham_delivery_profile_policy {
+    uint32_t direct_allowed;
+    uint32_t tor_maildrop_allowed;
+    uint32_t local_mesh_transport_count;
+    uint32_t local_mesh_transports[YEOKCHAM_MAX_LOCAL_MESH_TRANSPORTS];
+} yeokcham_delivery_profile_policy_t;
+typedef struct yeokcham_delivery_profile {
+    uint32_t kind;
+    uint32_t direct_ip_disclosure_warning;
+} yeokcham_delivery_profile_t;
 
 typedef int32_t yeokcham_status_t;
 typedef void (*yeokcham_completion_callback_t)(yeokcham_status_t status, void *context);
@@ -94,6 +114,13 @@ yeokcham_status_t yeokcham_client_contact_verify_safety_number(
     const uint8_t fingerprint[YEOKCHAM_SAFETY_NUMBER_FINGERPRINT_BYTES],
     yeokcham_contact_t *contact
 ); // requires a running client with an identity; clears contact before any failure
+yeokcham_status_t yeokcham_delivery_profile_select(
+    const yeokcham_delivery_profile_policy_t *policy,
+    uint32_t kind,
+    uint32_t local_mesh_transport,
+    uint32_t direct_ip_disclosure_acknowledged,
+    yeokcham_delivery_profile_t *profile
+); // direct requires acknowledgement; tor requires zero acknowledgement and transport; local mesh requires zero acknowledgement and allowed transport; clears profile before failure
 yeokcham_status_t yeokcham_client_copy_last_error_detail(
     const yeokcham_client_t *client,
     uint8_t *buffer,

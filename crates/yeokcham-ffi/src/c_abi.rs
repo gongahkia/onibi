@@ -14,14 +14,16 @@ use crate::{
     YEOKCHAM_ABI_NEGOTIATION_REJECTED, YEOKCHAM_ABI_VERSION, YEOKCHAM_EVENT_CLIENT_STARTED,
     YEOKCHAM_EVENT_CLIENT_STOPPED, YEOKCHAM_EVENT_MESSAGE_DELIVERED,
     YEOKCHAM_EVENT_MESSAGE_DELIVERY_FAILED, YEOKCHAM_EVENT_MESSAGE_QUEUED, YeokchamBuffer,
-    YeokchamClient, YeokchamClientConfigBuilder, YeokchamContact, YeokchamEvent,
-    YeokchamEventSubscription, YeokchamStatus,
+    YeokchamClient, YeokchamClientConfigBuilder, YeokchamContact, YeokchamDeliveryProfile,
+    YeokchamDeliveryProfilePolicy, YeokchamEvent, YeokchamEventSubscription, YeokchamStatus,
 };
 use yeokcham_core::{IdentityPublicKey, KeystoreEntryName, KeystoreSecret, OsKeystore};
 use yeokcham_sdk::{
     RuntimeMode, SdkClient, SdkClientError, SdkConfig, SdkContact, SdkContactError,
-    SdkContactStatus, SdkContactVerificationMethod, SdkEvent, SdkEventEnvelope, SdkEventStream,
-    SdkEventStreamError, SdkIdentityError, SdkIdentityManager,
+    SdkContactStatus, SdkContactVerificationMethod, SdkDeliveryProfile, SdkDeliveryProfileKind,
+    SdkDeliveryProfilePolicy, SdkDeliveryProfilePolicyError, SdkDirectIpDisclosureAcknowledgement,
+    SdkEvent, SdkEventEnvelope, SdkEventStream, SdkEventStreamError, SdkIdentityError,
+    SdkIdentityManager, SdkLocalMeshPolicy, SdkLocalMeshTransportKind,
 };
 use zeroize::{Zeroize, Zeroizing};
 
@@ -528,6 +530,59 @@ pub unsafe extern "C" fn yeokcham_client_contact_verify_safety_number(
 
 #[unsafe(no_mangle)]
 #[allow(clippy::missing_safety_doc)]
+pub unsafe extern "C" fn yeokcham_delivery_profile_select(
+    policy: *const YeokchamDeliveryProfilePolicy,
+    kind: u32,
+    local_mesh_transport: u32,
+    direct_ip_disclosure_acknowledged: u32,
+    profile: *mut YeokchamDeliveryProfile,
+) -> YeokchamStatus {
+    if policy.is_null() || profile.is_null() {
+        return YeokchamStatus::InvalidInput;
+    }
+    unsafe { profile.write(YeokchamDeliveryProfile::default()) };
+    let policy = unsafe { *policy };
+    let policy = match c_delivery_profile_policy(policy) {
+        Ok(policy) => policy,
+        Err(status) => return status,
+    };
+    let result = match kind {
+        crate::YEOKCHAM_DELIVERY_PROFILE_DIRECT => {
+            if local_mesh_transport != 0
+                || direct_ip_disclosure_acknowledged
+                    != crate::YEOKCHAM_DIRECT_IP_DISCLOSURE_ACKNOWLEDGED
+            {
+                return YeokchamStatus::InvalidInput;
+            }
+            policy.select_direct(SdkDirectIpDisclosureAcknowledgement::acknowledge())
+        }
+        crate::YEOKCHAM_DELIVERY_PROFILE_TOR_MAILDROP => {
+            if local_mesh_transport != 0 || direct_ip_disclosure_acknowledged != 0 {
+                return YeokchamStatus::InvalidInput;
+            }
+            policy.select_tor_maildrop()
+        }
+        crate::YEOKCHAM_DELIVERY_PROFILE_LOCAL_MESH => {
+            if direct_ip_disclosure_acknowledged != 0 {
+                return YeokchamStatus::InvalidInput;
+            }
+            let Some(local_mesh_transport) = c_local_mesh_transport(local_mesh_transport) else {
+                return YeokchamStatus::InvalidInput;
+            };
+            policy.select_local_mesh(local_mesh_transport)
+        }
+        _ => return YeokchamStatus::InvalidInput,
+    };
+    let profile_value = match result {
+        Ok(profile_value) => profile_value,
+        Err(error) => return map_sdk_delivery_profile_policy_error(error),
+    };
+    unsafe { profile.write(c_delivery_profile(profile_value)) };
+    YeokchamStatus::Ok
+}
+
+#[unsafe(no_mangle)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C" fn yeokcham_client_copy_last_error_detail(
     client: *const YeokchamClient,
     buffer: *mut u8,
@@ -942,6 +997,85 @@ fn c_contact(contact: SdkContact) -> YeokchamContact {
     }
 }
 
+fn c_delivery_profile_policy(
+    policy: YeokchamDeliveryProfilePolicy,
+) -> Result<SdkDeliveryProfilePolicy, YeokchamStatus> {
+    let Some(direct_allowed) = c_boolean(policy.direct_allowed) else {
+        return Err(YeokchamStatus::InvalidInput);
+    };
+    let Some(tor_maildrop_allowed) = c_boolean(policy.tor_maildrop_allowed) else {
+        return Err(YeokchamStatus::InvalidInput);
+    };
+    let Ok(local_mesh_transport_count) = usize::try_from(policy.local_mesh_transport_count) else {
+        return Err(YeokchamStatus::InvalidInput);
+    };
+    if local_mesh_transport_count > crate::YEOKCHAM_MAX_LOCAL_MESH_TRANSPORTS {
+        return Err(YeokchamStatus::InvalidInput);
+    }
+    let mut local_mesh_transports =
+        [SdkLocalMeshTransportKind::Lan; crate::YEOKCHAM_MAX_LOCAL_MESH_TRANSPORTS];
+    for (transport, value) in local_mesh_transports
+        .iter_mut()
+        .zip(&policy.local_mesh_transports[..local_mesh_transport_count])
+    {
+        let Some(value) = c_local_mesh_transport(*value) else {
+            return Err(YeokchamStatus::InvalidInput);
+        };
+        *transport = value;
+    }
+    let local_mesh = if local_mesh_transport_count == 0 {
+        None
+    } else {
+        match SdkLocalMeshPolicy::new(&local_mesh_transports[..local_mesh_transport_count]) {
+            Ok(policy) => Some(policy),
+            Err(error) => return Err(map_sdk_delivery_profile_policy_error(error)),
+        }
+    };
+    SdkDeliveryProfilePolicy::new(direct_allowed, tor_maildrop_allowed, local_mesh)
+        .map_err(map_sdk_delivery_profile_policy_error)
+}
+
+const fn c_boolean(value: u32) -> Option<bool> {
+    match value {
+        0 => Some(false),
+        1 => Some(true),
+        _ => None,
+    }
+}
+
+const fn c_local_mesh_transport(value: u32) -> Option<SdkLocalMeshTransportKind> {
+    match value {
+        crate::YEOKCHAM_LOCAL_MESH_TRANSPORT_LAN => Some(SdkLocalMeshTransportKind::Lan),
+        crate::YEOKCHAM_LOCAL_MESH_TRANSPORT_WIFI_HOTSPOT => {
+            Some(SdkLocalMeshTransportKind::WifiHotspot)
+        }
+        crate::YEOKCHAM_LOCAL_MESH_TRANSPORT_WIFI_DIRECT => {
+            Some(SdkLocalMeshTransportKind::WifiDirect)
+        }
+        crate::YEOKCHAM_LOCAL_MESH_TRANSPORT_BLUETOOTH => {
+            Some(SdkLocalMeshTransportKind::Bluetooth)
+        }
+        _ => None,
+    }
+}
+
+const fn c_delivery_profile(profile: SdkDeliveryProfile) -> YeokchamDeliveryProfile {
+    let kind = match profile.kind() {
+        SdkDeliveryProfileKind::Direct => crate::YEOKCHAM_DELIVERY_PROFILE_DIRECT,
+        SdkDeliveryProfileKind::TorMaildrop => crate::YEOKCHAM_DELIVERY_PROFILE_TOR_MAILDROP,
+        SdkDeliveryProfileKind::LocalMesh => crate::YEOKCHAM_DELIVERY_PROFILE_LOCAL_MESH,
+    };
+    let direct_ip_disclosure_warning = if profile.has_direct_ip_disclosure_warning() {
+        crate::YEOKCHAM_DIRECT_IP_DISCLOSURE_WARNING
+    } else {
+        0
+    };
+    YeokchamDeliveryProfile {
+        kind,
+        direct_ip_disclosure_warning,
+    }
+}
+
 unsafe fn c_identity_public_key(identity: *const u8) -> Option<IdentityPublicKey> {
     if identity.is_null() {
         return None;
@@ -1106,6 +1240,23 @@ fn map_sdk_contact_error(error: &SdkContactError) -> YeokchamStatus {
     }
 }
 
+const fn map_sdk_delivery_profile_policy_error(
+    error: SdkDeliveryProfilePolicyError,
+) -> YeokchamStatus {
+    match error {
+        SdkDeliveryProfilePolicyError::NoAllowedProfiles
+        | SdkDeliveryProfilePolicyError::NoAllowedLocalMeshTransports
+        | SdkDeliveryProfilePolicyError::TooManyLocalMeshTransports => YeokchamStatus::InvalidInput,
+        SdkDeliveryProfilePolicyError::DirectDisallowed
+        | SdkDeliveryProfilePolicyError::TorMaildropDisallowed
+        | SdkDeliveryProfilePolicyError::LocalMeshDisallowed
+        | SdkDeliveryProfilePolicyError::LocalMeshTransportDisallowed
+        | SdkDeliveryProfilePolicyError::DirectToTorRequiresExplicitSelection => {
+            YeokchamStatus::State
+        }
+    }
+}
+
 fn sdk_contact_error_detail(error: &SdkContactError) -> &'static [u8] {
     match error {
         SdkContactError::Identity(_) => b"sdk_contact_identity",
@@ -1133,8 +1284,9 @@ mod tests {
         CLIENT_TEST_LOCK, MAX_C_ABI_BUFFERS, MAX_C_ABI_CALLBACK_WORKERS,
         MAX_C_ABI_ERROR_DETAIL_BYTES, MAX_C_ABI_EVENT_SUBSCRIPTIONS, MAX_C_ABI_PENDING_COMPLETIONS,
         MAX_C_ABI_SECRET_BUFFER_BYTES, MAX_C_ABI_STATE_DIRECTORY_BYTES, PENDING_COMPLETIONS,
-        SdkClientError, SdkEvent, SdkEventEnvelope, YeokchamContact, YeokchamEvent, YeokchamStatus,
-        c_event, map_sdk_client_error, sdk_client_error_detail, yeokcham_buffer_data,
+        SdkClientError, SdkEvent, SdkEventEnvelope, YeokchamContact, YeokchamDeliveryProfile,
+        YeokchamDeliveryProfilePolicy, YeokchamEvent, YeokchamStatus, c_event,
+        map_sdk_client_error, sdk_client_error_detail, yeokcham_buffer_data,
         yeokcham_buffer_length, yeokcham_buffer_release, yeokcham_client_complete_async,
         yeokcham_client_config_builder_build, yeokcham_client_config_builder_create,
         yeokcham_client_config_builder_release,
@@ -1145,8 +1297,9 @@ mod tests {
         yeokcham_client_copy_last_error_detail, yeokcham_client_create,
         yeokcham_client_identity_create, yeokcham_client_identity_load, yeokcham_client_release,
         yeokcham_client_start, yeokcham_client_stop, yeokcham_client_subscribe_events,
-        yeokcham_client_take_last_error_detail, yeokcham_event_subscription_poll,
-        yeokcham_event_subscription_release, yeokcham_secret_buffer_zeroize,
+        yeokcham_client_take_last_error_detail, yeokcham_delivery_profile_select,
+        yeokcham_event_subscription_poll, yeokcham_event_subscription_release,
+        yeokcham_secret_buffer_zeroize,
     };
 
     #[test]
@@ -1386,6 +1539,144 @@ mod tests {
         assert_eq!(yeokcham_client_stop(client), YeokchamStatus::Ok);
         assert_eq!(yeokcham_client_release(client), YeokchamStatus::Ok);
         std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn c_delivery_profile_operations_select_explicit_bounded_profiles() {
+        let max_local_mesh_transports =
+            u32::try_from(crate::YEOKCHAM_MAX_LOCAL_MESH_TRANSPORTS).unwrap();
+        let policy = YeokchamDeliveryProfilePolicy {
+            direct_allowed: 1,
+            tor_maildrop_allowed: 1,
+            local_mesh_transport_count: max_local_mesh_transports,
+            local_mesh_transports: [
+                crate::YEOKCHAM_LOCAL_MESH_TRANSPORT_LAN,
+                crate::YEOKCHAM_LOCAL_MESH_TRANSPORT_WIFI_HOTSPOT,
+                crate::YEOKCHAM_LOCAL_MESH_TRANSPORT_WIFI_DIRECT,
+                crate::YEOKCHAM_LOCAL_MESH_TRANSPORT_BLUETOOTH,
+            ],
+        };
+        let mut profile = YeokchamDeliveryProfile::default();
+
+        assert_eq!(
+            unsafe {
+                yeokcham_delivery_profile_select(
+                    &raw const policy,
+                    crate::YEOKCHAM_DELIVERY_PROFILE_DIRECT,
+                    0,
+                    crate::YEOKCHAM_DIRECT_IP_DISCLOSURE_ACKNOWLEDGED,
+                    &raw mut profile,
+                )
+            },
+            YeokchamStatus::Ok
+        );
+        assert_eq!(profile.kind, crate::YEOKCHAM_DELIVERY_PROFILE_DIRECT);
+        assert_eq!(
+            profile.direct_ip_disclosure_warning,
+            crate::YEOKCHAM_DIRECT_IP_DISCLOSURE_WARNING
+        );
+        assert_eq!(
+            unsafe {
+                yeokcham_delivery_profile_select(
+                    &raw const policy,
+                    crate::YEOKCHAM_DELIVERY_PROFILE_TOR_MAILDROP,
+                    0,
+                    0,
+                    &raw mut profile,
+                )
+            },
+            YeokchamStatus::Ok
+        );
+        assert_eq!(profile.kind, crate::YEOKCHAM_DELIVERY_PROFILE_TOR_MAILDROP);
+        assert_eq!(profile.direct_ip_disclosure_warning, 0);
+        assert_eq!(
+            unsafe {
+                yeokcham_delivery_profile_select(
+                    &raw const policy,
+                    crate::YEOKCHAM_DELIVERY_PROFILE_LOCAL_MESH,
+                    crate::YEOKCHAM_LOCAL_MESH_TRANSPORT_BLUETOOTH,
+                    0,
+                    &raw mut profile,
+                )
+            },
+            YeokchamStatus::Ok
+        );
+        assert_eq!(profile.kind, crate::YEOKCHAM_DELIVERY_PROFILE_LOCAL_MESH);
+        assert_eq!(profile.direct_ip_disclosure_warning, 0);
+    }
+
+    #[test]
+    fn c_delivery_profile_operations_reject_invalid_and_disallowed_selection() {
+        let max_local_mesh_transports =
+            u32::try_from(crate::YEOKCHAM_MAX_LOCAL_MESH_TRANSPORTS).unwrap();
+        let mut profile = YeokchamDeliveryProfile {
+            kind: u32::MAX,
+            direct_ip_disclosure_warning: u32::MAX,
+        };
+        let disallow_direct = YeokchamDeliveryProfilePolicy {
+            direct_allowed: 0,
+            tor_maildrop_allowed: 1,
+            local_mesh_transport_count: 0,
+            local_mesh_transports: [0; crate::YEOKCHAM_MAX_LOCAL_MESH_TRANSPORTS],
+        };
+        let unbounded = YeokchamDeliveryProfilePolicy {
+            direct_allowed: 1,
+            tor_maildrop_allowed: 1,
+            local_mesh_transport_count: max_local_mesh_transports + 1,
+            local_mesh_transports: [0; crate::YEOKCHAM_MAX_LOCAL_MESH_TRANSPORTS],
+        };
+
+        assert_eq!(
+            unsafe {
+                yeokcham_delivery_profile_select(
+                    &raw const disallow_direct,
+                    crate::YEOKCHAM_DELIVERY_PROFILE_DIRECT,
+                    0,
+                    crate::YEOKCHAM_DIRECT_IP_DISCLOSURE_ACKNOWLEDGED,
+                    &raw mut profile,
+                )
+            },
+            YeokchamStatus::State
+        );
+        assert_eq!(profile, YeokchamDeliveryProfile::default());
+        assert_eq!(
+            unsafe {
+                yeokcham_delivery_profile_select(
+                    &raw const disallow_direct,
+                    crate::YEOKCHAM_DELIVERY_PROFILE_DIRECT,
+                    0,
+                    0,
+                    &raw mut profile,
+                )
+            },
+            YeokchamStatus::InvalidInput
+        );
+        assert_eq!(profile, YeokchamDeliveryProfile::default());
+        assert_eq!(
+            unsafe {
+                yeokcham_delivery_profile_select(
+                    &raw const unbounded,
+                    crate::YEOKCHAM_DELIVERY_PROFILE_TOR_MAILDROP,
+                    0,
+                    0,
+                    &raw mut profile,
+                )
+            },
+            YeokchamStatus::InvalidInput
+        );
+        assert_eq!(profile, YeokchamDeliveryProfile::default());
+        assert_eq!(
+            unsafe {
+                yeokcham_delivery_profile_select(
+                    std::ptr::null(),
+                    crate::YEOKCHAM_DELIVERY_PROFILE_TOR_MAILDROP,
+                    0,
+                    0,
+                    &raw mut profile,
+                )
+            },
+            YeokchamStatus::InvalidInput
+        );
     }
 
     #[test]
@@ -2006,6 +2297,7 @@ mod tests {
 
     unsafe extern "C" {
         fn yeokcham_c_consumer_conformance() -> i32;
+        fn yeokcham_c_delivery_profile_operations() -> i32;
         fn yeokcham_c_embedded_client_lifecycle(
             state_directory: *const u8,
             state_directory_length: usize,
@@ -2016,6 +2308,11 @@ mod tests {
     fn c_consumer_conformance_passes() {
         let _guard = CLIENT_TEST_LOCK.lock().unwrap();
         assert_eq!(unsafe { yeokcham_c_consumer_conformance() }, 0);
+    }
+
+    #[test]
+    fn c_consumer_runs_delivery_profile_operations() {
+        assert_eq!(unsafe { yeokcham_c_delivery_profile_operations() }, 0);
     }
 
     #[test]
