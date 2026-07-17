@@ -3908,8 +3908,12 @@ dependencies = [
  "rusqlite",
  "sha2 0.11.0",
  "thiserror 2.0.18",
+ "tokio",
+ "tokio-stream",
+ "tonic",
  "yeokcham-core",
  "yeokcham-protocol",
+ "yeokcham-relay-api",
 ]
 
 [[package]]

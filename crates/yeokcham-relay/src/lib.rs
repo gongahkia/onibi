@@ -1,5 +1,7 @@
 #![forbid(unsafe_code)]
 
+mod relay_server;
+
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::net::SocketAddr;
@@ -16,6 +18,8 @@ use yeokcham_protocol::{
     MAILBOX_IDENTIFIER_BYTES, MAX_RELAY_INVITATION_TTL_SECONDS, MailboxCapability,
     RelayStorageReceipt,
 };
+
+pub use relay_server::{RelayServer, RelayServerError};
 
 pub const MAX_RELAY_RETENTION_TTL_SECONDS: u32 = MAX_RELAY_INVITATION_TTL_SECONDS;
 pub const MAX_MAILBOX_RETRIEVAL_ENVELOPES: u16 = 128;
