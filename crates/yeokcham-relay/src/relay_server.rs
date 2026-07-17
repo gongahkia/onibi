@@ -15,8 +15,8 @@ use yeokcham_relay_api::v1::{
 };
 
 use crate::{
-    EncryptedAttachmentChunk, EncryptedMessageEnvelope, MailboxCapability, MailboxQuota,
-    RelayDatabase, RelayDatabaseError, RelayRetentionPolicy, SelfHostedRelayConfig,
+    AttachmentIdentifier, EncryptedAttachmentChunk, EncryptedMessageEnvelope, MailboxCapability,
+    MailboxQuota, RelayDatabase, RelayDatabaseError, RelayRetentionPolicy, SelfHostedRelayConfig,
 };
 
 pub struct RelayServer {
@@ -263,9 +263,48 @@ impl RelayService for RelayGrpcService {
 
     async fn download_attachment_chunk(
         &self,
-        _request: Request<v1::DownloadAttachmentChunkRequest>,
+        request: Request<v1::DownloadAttachmentChunkRequest>,
     ) -> Result<Response<v1::DownloadAttachmentChunkResponse>, Status> {
-        unavailable()
+        let request = request.into_inner();
+        let capability = MailboxCapability::decode(&request.mailbox_capability)
+            .map_err(|_| Status::invalid_argument("mailbox capability is invalid"))?;
+        let identifier = AttachmentIdentifier::from_bytes(
+            request
+                .attachment_identifier
+                .as_slice()
+                .try_into()
+                .map_err(|_| Status::invalid_argument("attachment identifier is invalid"))?,
+        )
+        .map_err(|_| Status::invalid_argument("attachment identifier is invalid"))?;
+        let now = current_unix_seconds()?;
+        let chunk = {
+            let mut database = self
+                .database
+                .lock()
+                .map_err(|_| Status::internal("relay database is unavailable"))?;
+            match database.retrieve_attachment_chunk(
+                &capability,
+                identifier,
+                request.chunk_index,
+                now,
+            ) {
+                Ok(chunk) => chunk,
+                Err(RelayDatabaseError::InvalidCapability) => {
+                    return Err(Status::permission_denied("mailbox capability is invalid"));
+                }
+                Err(RelayDatabaseError::UnknownAttachmentChunk) => {
+                    return Err(Status::not_found("attachment chunk is unavailable"));
+                }
+                Err(RelayDatabaseError::TimestampOutOfRange) => {
+                    return Err(Status::invalid_argument("attachment download is invalid"));
+                }
+                Err(_) => return Err(Status::internal("attachment download failed")),
+            }
+        };
+        let chunk = chunk
+            .encode()
+            .map_err(|_| Status::internal("stored attachment chunk is invalid"))?;
+        Ok(Response::new(v1::DownloadAttachmentChunkResponse { chunk }))
     }
 
     async fn get_mailbox_quota(
@@ -299,8 +338,8 @@ mod tests {
         MAX_ENCODED_ATTACHMENT_CHUNK_BYTES, MailboxCapability,
     };
     use yeokcham_relay_api::v1::{
-        AcknowledgeEnvelopeRequest, RegisterMailboxRequest, RetrieveEnvelopesRequest,
-        StoreEnvelopeRequest, UploadAttachmentChunkRequest,
+        AcknowledgeEnvelopeRequest, DownloadAttachmentChunkRequest, RegisterMailboxRequest,
+        RetrieveEnvelopesRequest, StoreEnvelopeRequest, UploadAttachmentChunkRequest,
         relay_service_client::RelayServiceClient,
     };
 
@@ -663,6 +702,102 @@ mod tests {
         .unwrap()
         .encode()
         .unwrap()
+    }
+
+    #[tokio::test]
+    async fn downloads_canonical_attachment_chunks_over_the_generated_relay_contract() {
+        let chunk = attachment_chunk(0, 0x55);
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = RelayServer::from_listener(
+            listener,
+            RelayDatabase::from_connection(Connection::open_in_memory().unwrap()).unwrap(),
+            MailboxQuota::new(u64::try_from(chunk.len()).unwrap()).unwrap(),
+            RelayRetentionPolicy::new(60).unwrap(),
+        );
+        let (shutdown_sender, shutdown_receiver) = oneshot::channel();
+        let server = server.serve_until(async move {
+            let _ = shutdown_receiver.await;
+        });
+        let client = async {
+            let mut client = RelayServiceClient::connect(format!("http://{address}"))
+                .await
+                .unwrap();
+            let capability = capability(0x11, 0x22);
+            client
+                .register_mailbox(RegisterMailboxRequest {
+                    mailbox_capability: capability.clone(),
+                })
+                .await
+                .unwrap();
+            client
+                .upload_attachment_chunk(UploadAttachmentChunkRequest {
+                    mailbox_capability: capability.clone(),
+                    chunk: chunk.clone(),
+                })
+                .await
+                .unwrap();
+            assert_download_contract(&mut client, &capability, &chunk).await;
+            shutdown_sender.send(()).unwrap();
+        };
+        let (server, ()) = tokio::join!(server, client);
+        assert!(server.is_ok());
+    }
+
+    async fn assert_download_contract(
+        client: &mut RelayServiceClient<Channel>,
+        encoded_capability: &[u8],
+        chunk: &[u8],
+    ) {
+        assert_eq!(
+            client
+                .download_attachment_chunk(DownloadAttachmentChunkRequest {
+                    mailbox_capability: encoded_capability.to_vec(),
+                    attachment_identifier: vec![0x55; 16],
+                    chunk_index: 0,
+                })
+                .await
+                .unwrap()
+                .into_inner()
+                .chunk,
+            chunk
+        );
+        assert_eq!(
+            client
+                .download_attachment_chunk(DownloadAttachmentChunkRequest {
+                    mailbox_capability: encoded_capability.to_vec(),
+                    attachment_identifier: vec![0x55; 16],
+                    chunk_index: u32::MAX,
+                })
+                .await
+                .unwrap_err()
+                .code(),
+            Code::NotFound
+        );
+        assert_eq!(
+            client
+                .download_attachment_chunk(DownloadAttachmentChunkRequest {
+                    mailbox_capability: capability(0x33, 0x44),
+                    attachment_identifier: vec![0x55; 16],
+                    chunk_index: 0,
+                })
+                .await
+                .unwrap_err()
+                .code(),
+            Code::PermissionDenied
+        );
+        assert_eq!(
+            client
+                .download_attachment_chunk(DownloadAttachmentChunkRequest {
+                    mailbox_capability: encoded_capability.to_vec(),
+                    attachment_identifier: vec![0; 16],
+                    chunk_index: 0,
+                })
+                .await
+                .unwrap_err()
+                .code(),
+            Code::InvalidArgument
+        );
     }
 
     #[tokio::test]
