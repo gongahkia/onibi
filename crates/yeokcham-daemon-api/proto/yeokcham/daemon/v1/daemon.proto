@@ -14,6 +14,7 @@ service DaemonService {
   rpc VerifyContactSafetyNumber(VerifyContactSafetyNumberRequest) returns (ContactResponse);
   rpc ApplyContactIdentityRotation(ApplyContactIdentityRotationRequest) returns (ContactResponse);
   rpc RevokeContact(RevokeContactRequest) returns (ContactResponse);
+  rpc SendMessage(SendMessageRequest) returns (SendMessageResponse);
   rpc GetStatus(GetStatusRequest) returns (GetStatusResponse);
 }
 
@@ -75,6 +76,17 @@ message ApplyContactIdentityRotationRequest {
 
 message RevokeContactRequest {
   bytes identity = 1;
+}
+
+message SendMessageRequest {
+  bytes recipient = 1;
+  bytes envelope = 2;
+  uint64 created_at = 3;
+  uint32 ttl_seconds = 4;
+}
+
+message SendMessageResponse {
+  bytes message_identifier = 1;
 }
 
 enum ContactStatus {

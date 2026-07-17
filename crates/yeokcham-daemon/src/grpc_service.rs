@@ -14,12 +14,14 @@ use yeokcham_daemon_api::v1::{
     CreateOrLoadIdentityRequest, GetContactRequest, GetContactResponse, GetIdentityRequest,
     GetStatusRequest, GetStatusResponse, IdentityInitialization, IdentityResponse,
     ImportContactInvitationRequest, ListContactsRequest, ListContactsResponse,
-    RevokeContactRequest, StartClientRequest, StartClientResponse, VerifyContactQrRequest,
-    VerifyContactSafetyNumberRequest, daemon_service_server::DaemonService,
+    RevokeContactRequest, SendMessageRequest, SendMessageResponse, StartClientRequest,
+    StartClientResponse, VerifyContactQrRequest, VerifyContactSafetyNumberRequest,
+    daemon_service_server::DaemonService,
 };
 use yeokcham_protocol::{
-    CONTACT_INVITATION_BYTES, IDENTITY_ROTATION_BYTES, ProtocolVersion,
-    QR_VERIFICATION_PAYLOAD_BYTES, SAFETY_NUMBER_FINGERPRINT_BYTES,
+    CONTACT_INVITATION_BYTES, EncryptedMessageEnvelope, IDENTITY_ROTATION_BYTES,
+    MAX_MESSAGE_PAYLOAD_BYTES, ProtocolVersion, QR_VERIFICATION_PAYLOAD_BYTES,
+    SAFETY_NUMBER_FINGERPRINT_BYTES,
 };
 
 #[cfg(target_os = "linux")]
@@ -33,11 +35,13 @@ use crate::{
     ClientIdentity, ClientIdentityError, ClientIdentityInitialization, Contact,
     ContactLifecycleError, ContactLifecycleService, ContactStatus as StoredContactStatus,
     ContactStore, ContactStoreError, ContactVerificationMethod as StoredContactVerificationMethod,
-    PendingContactImportError, PendingContactImportService, QrContactVerificationError,
-    QrContactVerificationService, SafetyNumberVerificationError, SafetyNumberVerificationService,
+    MessageExpiry, MessageExpiryError, PendingContactImportError, PendingContactImportService,
+    QrContactVerificationError, QrContactVerificationService, SafetyNumberVerificationError,
+    SafetyNumberVerificationService, SenderOutbox, SenderOutboxError,
 };
 
 pub const MAX_DAEMON_CONTACTS_RESPONSE: usize = 65_536;
+pub const MAX_DAEMON_MESSAGE_ENVELOPE_BYTES: usize = MAX_MESSAGE_PAYLOAD_BYTES;
 
 #[derive(Clone)]
 pub struct DaemonGrpcService {
@@ -45,6 +49,7 @@ pub struct DaemonGrpcService {
     running: Arc<AtomicBool>,
     identity: Arc<dyn DaemonIdentityOperations>,
     contacts: Arc<dyn DaemonContactOperations>,
+    outbox: Arc<dyn DaemonOutboxOperations>,
 }
 
 impl DaemonGrpcService {
@@ -55,6 +60,7 @@ impl DaemonGrpcService {
             running: Arc::new(AtomicBool::new(true)),
             identity: Arc::new(UnavailableIdentityOperations),
             contacts: Arc::new(UnavailableContactOperations),
+            outbox: Arc::new(UnavailableOutboxOperations),
         }
     }
 
@@ -69,6 +75,7 @@ impl DaemonGrpcService {
             running: Arc::new(AtomicBool::new(true)),
             identity: Arc::new(KeystoreIdentityOperations { keystore }),
             contacts: Arc::new(UnavailableContactOperations),
+            outbox: Arc::new(UnavailableOutboxOperations),
         }
     }
 
@@ -76,6 +83,7 @@ impl DaemonGrpcService {
     pub fn with_state_keystore<K>(
         version: ProtocolVersion,
         contacts_path: PathBuf,
+        outbox_path: PathBuf,
         keystore: K,
     ) -> Self
     where
@@ -89,8 +97,13 @@ impl DaemonGrpcService {
                 keystore: Arc::clone(&keystore),
             }),
             contacts: Arc::new(KeystoreContactOperations {
-                keystore,
+                keystore: Arc::clone(&keystore),
                 contacts_path,
+                operation_lock: Mutex::new(()),
+            }),
+            outbox: Arc::new(KeystoreOutboxOperations {
+                keystore,
+                outbox_path,
                 operation_lock: Mutex::new(()),
             }),
         }
@@ -99,11 +112,14 @@ impl DaemonGrpcService {
     pub fn with_system_keystore(
         version: ProtocolVersion,
         contacts_path: PathBuf,
+        outbox_path: PathBuf,
     ) -> Result<Self, DaemonGrpcServiceConfigurationError> {
         #[cfg(target_os = "linux")]
         {
             return LinuxKeystore::new()
-                .map(|keystore| Self::with_state_keystore(version, contacts_path, keystore))
+                .map(|keystore| {
+                    Self::with_state_keystore(version, contacts_path, outbox_path, keystore)
+                })
                 .map_err(|_| DaemonGrpcServiceConfigurationError::SystemKeystoreUnavailable);
         }
         #[cfg(target_os = "macos")]
@@ -111,13 +127,16 @@ impl DaemonGrpcService {
             return Ok(Self::with_state_keystore(
                 version,
                 contacts_path,
+                outbox_path,
                 MacOsKeystore::new(),
             ));
         }
         #[cfg(target_os = "windows")]
         {
             return WindowsKeystore::new()
-                .map(|keystore| Self::with_state_keystore(version, contacts_path, keystore))
+                .map(|keystore| {
+                    Self::with_state_keystore(version, contacts_path, outbox_path, keystore)
+                })
                 .map_err(|_| DaemonGrpcServiceConfigurationError::SystemKeystoreUnavailable);
         }
         #[allow(unreachable_code)]
@@ -353,6 +372,86 @@ where
     }
 }
 
+trait DaemonOutboxOperations: Send + Sync {
+    fn queue(
+        &self,
+        encoded_recipient: &[u8],
+        encoded_envelope: &[u8],
+        created_at: u64,
+        ttl_seconds: u32,
+    ) -> Result<SendMessageResponse, Status>;
+}
+
+struct UnavailableOutboxOperations;
+
+impl DaemonOutboxOperations for UnavailableOutboxOperations {
+    fn queue(
+        &self,
+        _encoded_recipient: &[u8],
+        _encoded_envelope: &[u8],
+        _created_at: u64,
+        _ttl_seconds: u32,
+    ) -> Result<SendMessageResponse, Status> {
+        Err(outbox_unavailable())
+    }
+}
+
+struct KeystoreOutboxOperations<K> {
+    keystore: Arc<Mutex<K>>,
+    outbox_path: PathBuf,
+    operation_lock: Mutex<()>,
+}
+
+impl<K> KeystoreOutboxOperations<K>
+where
+    K: OsKeystore + Send,
+{
+    fn with_outbox<T>(
+        &self,
+        operation: impl FnOnce(&mut SenderOutbox) -> Result<T, Status>,
+    ) -> Result<T, Status> {
+        let operation_lock = self.operation_lock.lock().map_err(|_| outbox_failure())?;
+        let mut keystore = self.keystore.lock().map_err(|_| outbox_failure())?;
+        let mut outbox =
+            SenderOutbox::open(&self.outbox_path, &mut *keystore).map_err(|_| outbox_failure())?;
+        drop(keystore);
+        let result = operation(&mut outbox);
+        drop(operation_lock);
+        result
+    }
+}
+
+impl<K> DaemonOutboxOperations for KeystoreOutboxOperations<K>
+where
+    K: OsKeystore + Send,
+{
+    fn queue(
+        &self,
+        encoded_recipient: &[u8],
+        encoded_envelope: &[u8],
+        created_at: u64,
+        ttl_seconds: u32,
+    ) -> Result<SendMessageResponse, Status> {
+        let recipient = decode_message_recipient(encoded_recipient)?;
+        let envelope = decode_message_envelope(encoded_envelope)?;
+        let expiry =
+            MessageExpiry::new(created_at, ttl_seconds).map_err(map_message_expiry_error)?;
+        self.with_outbox(|outbox| {
+            outbox
+                .enqueue(recipient, envelope, expiry)
+                .map_err(|error| map_sender_outbox_error(&error))?;
+            let identifier = outbox
+                .messages()
+                .last()
+                .ok_or_else(outbox_failure)?
+                .identifier();
+            Ok(SendMessageResponse {
+                message_identifier: identifier.as_bytes().to_vec(),
+            })
+        })
+    }
+}
+
 impl<K> DaemonIdentityOperations for KeystoreIdentityOperations<K>
 where
     K: OsKeystore + Send,
@@ -429,6 +528,14 @@ fn contact_failure() -> Status {
     Status::internal("daemon contact operation failed")
 }
 
+fn outbox_unavailable() -> Status {
+    Status::unavailable("daemon message service is unavailable")
+}
+
+fn outbox_failure() -> Status {
+    Status::internal("daemon message operation failed")
+}
+
 fn map_contact_identity_error(error: &ClientIdentityError) -> Status {
     match error {
         ClientIdentityError::NotInitialized => {
@@ -449,6 +556,41 @@ fn decode_contact_identity(encoded: &[u8]) -> Result<IdentityPublicKey, Status> 
         .map_err(|_| Status::invalid_argument("contact identity is invalid"))?;
     IdentityPublicKey::from_bytes(bytes)
         .map_err(|_| Status::invalid_argument("contact identity is invalid"))
+}
+
+fn decode_message_recipient(encoded: &[u8]) -> Result<IdentityPublicKey, Status> {
+    let bytes: [u8; ED25519_PUBLIC_KEY_BYTES] = encoded
+        .try_into()
+        .map_err(|_| Status::invalid_argument("message recipient is invalid"))?;
+    IdentityPublicKey::from_bytes(bytes)
+        .map_err(|_| Status::invalid_argument("message recipient is invalid"))
+}
+
+fn decode_message_envelope(encoded: &[u8]) -> Result<EncryptedMessageEnvelope, Status> {
+    if encoded.len() > MAX_DAEMON_MESSAGE_ENVELOPE_BYTES {
+        return Err(Status::invalid_argument("message envelope is invalid"));
+    }
+    let envelope = EncryptedMessageEnvelope::decode(encoded)
+        .map_err(|_| Status::invalid_argument("message envelope is invalid"))?;
+    if envelope
+        .encode()
+        .map_err(|_| Status::invalid_argument("message envelope is invalid"))?
+        != encoded
+    {
+        return Err(Status::invalid_argument("message envelope is invalid"));
+    }
+    Ok(envelope)
+}
+
+fn map_message_expiry_error(_error: MessageExpiryError) -> Status {
+    Status::invalid_argument("message expiry is invalid")
+}
+
+fn map_sender_outbox_error(error: &SenderOutboxError) -> Status {
+    match error {
+        SenderOutboxError::QueueFull => Status::resource_exhausted("daemon outbox is full"),
+        _ => outbox_failure(),
+    }
 }
 
 fn contact_response(contact: Contact) -> ContactResponse {
@@ -637,6 +779,21 @@ impl DaemonService for DaemonGrpcService {
             .map(Response::new)
     }
 
+    async fn send_message(
+        &self,
+        request: Request<SendMessageRequest>,
+    ) -> Result<Response<SendMessageResponse>, Status> {
+        let request = request.into_inner();
+        self.outbox
+            .queue(
+                &request.recipient,
+                &request.envelope,
+                request.created_at,
+                request.ttl_seconds,
+            )
+            .map(Response::new)
+    }
+
     async fn get_status(
         &self,
         _request: Request<GetStatusRequest>,
@@ -655,12 +812,13 @@ mod tests {
     use std::path::PathBuf;
 
     use tonic::{Code, Request};
+    use yeokcham_core::IdentityKeypair;
     use yeokcham_core::{KeystoreEntryName, KeystoreSecret, OsKeystore};
     use yeokcham_daemon_api::v1::{
-        GetIdentityRequest, GetStatusRequest, ListContactsRequest, StartClientRequest,
-        daemon_service_server::DaemonService,
+        GetIdentityRequest, GetStatusRequest, ListContactsRequest, SendMessageRequest,
+        StartClientRequest, daemon_service_server::DaemonService,
     };
-    use yeokcham_protocol::ProtocolVersion;
+    use yeokcham_protocol::{EncryptedMessageEnvelope, ProtocolVersion};
 
     use super::DaemonGrpcService;
 
@@ -754,6 +912,7 @@ mod tests {
         let service = DaemonGrpcService::with_state_keystore(
             ProtocolVersion::INITIAL,
             PathBuf::from("/tmp/yeokcham-contact-redaction"),
+            PathBuf::from("/tmp/yeokcham-outbox-redaction"),
             FailingKeystore,
         );
         let error = service
@@ -762,5 +921,31 @@ mod tests {
             .unwrap_err();
         assert_eq!(error.code(), Code::Internal);
         assert_eq!(error.message(), "daemon contact operation failed");
+    }
+
+    #[tokio::test]
+    async fn message_rpc_redacts_keystore_failures() {
+        let service = DaemonGrpcService::with_state_keystore(
+            ProtocolVersion::INITIAL,
+            PathBuf::from("/tmp/yeokcham-contact-redaction"),
+            PathBuf::from("/tmp/yeokcham-outbox-redaction"),
+            FailingKeystore,
+        );
+        let recipient = IdentityKeypair::generate().unwrap();
+        let envelope = EncryptedMessageEnvelope::new(vec![0xa1], vec![0xb2])
+            .unwrap()
+            .encode()
+            .unwrap();
+        let error = service
+            .send_message(Request::new(SendMessageRequest {
+                recipient: recipient.public_key().as_bytes().to_vec(),
+                envelope,
+                created_at: 100,
+                ttl_seconds: 60,
+            }))
+            .await
+            .unwrap_err();
+        assert_eq!(error.code(), Code::Internal);
+        assert_eq!(error.message(), "daemon message operation failed");
     }
 }

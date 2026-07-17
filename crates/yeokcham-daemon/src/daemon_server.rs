@@ -34,6 +34,7 @@ impl<'runtime> DaemonServer<'runtime> {
         let service = DaemonGrpcService::with_system_keystore(
             runtime.daemon().protocol_version(),
             runtime.state_directory().contacts_path(),
+            runtime.state_directory().outbox_path(),
         )?;
         Ok(Self::new(listener, auth, service))
     }
@@ -47,6 +48,7 @@ impl<'runtime> DaemonServer<'runtime> {
         let service = DaemonGrpcService::with_system_keystore(
             runtime.daemon().protocol_version(),
             runtime.state_directory().contacts_path(),
+            runtime.state_directory().outbox_path(),
         )?;
         Ok(Self::new(listener, auth, service))
     }
@@ -63,6 +65,7 @@ impl<'runtime> DaemonServer<'runtime> {
         let service = DaemonGrpcService::with_state_keystore(
             runtime.daemon().protocol_version(),
             runtime.state_directory().contacts_path(),
+            runtime.state_directory().outbox_path(),
             keystore,
         );
         Ok(Self::new(listener, auth, service))
@@ -124,12 +127,12 @@ mod tests {
         ContactVerificationMethod as RpcContactVerificationMethod, CreateIdentityRequest,
         CreateOrLoadIdentityRequest, GetContactRequest, GetIdentityRequest, IdentityInitialization,
         ImportContactInvitationRequest, ListContactsRequest, RevokeContactRequest,
-        StartClientRequest, VerifyContactQrRequest, VerifyContactSafetyNumberRequest,
-        daemon_service_client::DaemonServiceClient,
+        SendMessageRequest, StartClientRequest, VerifyContactQrRequest,
+        VerifyContactSafetyNumberRequest, daemon_service_client::DaemonServiceClient,
     };
     use yeokcham_protocol::{
-        ContactInvitation, IdentityRotation, ProtocolVersion, QrVerificationPayload,
-        SafetyNumberFingerprint,
+        ContactInvitation, EncryptedMessageEnvelope, IdentityRotation, MESSAGE_IDENTIFIER_BYTES,
+        ProtocolVersion, QrVerificationPayload, SafetyNumberFingerprint,
     };
 
     use super::DaemonServer;
@@ -729,6 +732,107 @@ mod tests {
         };
         let (server, ()) = tokio::join!(server, client);
         assert!(server.is_ok());
+        assert!(!socket_path.exists());
+        runtime.shutdown().unwrap();
+        fs::remove_dir_all(state_directory).unwrap();
+    }
+
+    #[tokio::test]
+    async fn queues_authenticated_messages_with_bounded_inputs() {
+        let state_directory = state_directory();
+        let mut runtime = DaemonRuntime::start(ProtocolVersion::INITIAL, &state_directory).unwrap();
+        let recipient = IdentityKeypair::generate().unwrap();
+        let envelope = EncryptedMessageEnvelope::new(vec![0xa1], vec![0xb2])
+            .unwrap()
+            .encode()
+            .unwrap();
+        let (auth, token) = DaemonLocalAuth::initialize().unwrap();
+        let server =
+            DaemonServer::bind_with_identity_keystore(&runtime, auth, MemoryKeystore::default())
+                .unwrap();
+        let socket_path = server.socket_path().to_path_buf();
+        let outbox_path = runtime.state_directory().outbox_path();
+        let (shutdown_sender, shutdown_receiver) = oneshot::channel();
+
+        let server = server.serve_until(async move {
+            let _ = shutdown_receiver.await;
+        });
+        let client = async {
+            let mut client = contact_client(socket_path.clone()).await;
+            let request = SendMessageRequest {
+                recipient: recipient.public_key().as_bytes().to_vec(),
+                envelope: envelope.clone(),
+                created_at: 100,
+                ttl_seconds: 60,
+            };
+            assert_eq!(
+                client
+                    .send_message(Request::new(request.clone()))
+                    .await
+                    .unwrap_err()
+                    .code(),
+                Code::Unauthenticated
+            );
+            assert_eq!(
+                client
+                    .send_message(authenticated_request(
+                        SendMessageRequest {
+                            recipient: vec![0; 31],
+                            ..request.clone()
+                        },
+                        &token,
+                    ))
+                    .await
+                    .unwrap_err()
+                    .code(),
+                Code::InvalidArgument
+            );
+            assert_eq!(
+                client
+                    .send_message(authenticated_request(
+                        SendMessageRequest {
+                            envelope: vec![0; envelope.len()],
+                            ..request.clone()
+                        },
+                        &token,
+                    ))
+                    .await
+                    .unwrap_err()
+                    .code(),
+                Code::InvalidArgument
+            );
+            assert_eq!(
+                client
+                    .send_message(authenticated_request(
+                        SendMessageRequest {
+                            ttl_seconds: 0,
+                            ..request.clone()
+                        },
+                        &token,
+                    ))
+                    .await
+                    .unwrap_err()
+                    .code(),
+                Code::InvalidArgument
+            );
+            let first = client
+                .send_message(authenticated_request(request.clone(), &token))
+                .await
+                .unwrap()
+                .into_inner();
+            let second = client
+                .send_message(authenticated_request(request, &token))
+                .await
+                .unwrap()
+                .into_inner();
+            assert_eq!(first.message_identifier.len(), MESSAGE_IDENTIFIER_BYTES);
+            assert_eq!(second.message_identifier.len(), MESSAGE_IDENTIFIER_BYTES);
+            assert_ne!(first.message_identifier, second.message_identifier);
+            shutdown_sender.send(()).unwrap();
+        };
+        let (server, ()) = tokio::join!(server, client);
+        assert!(server.is_ok());
+        assert!(outbox_path.is_file());
         assert!(!socket_path.exists());
         runtime.shutdown().unwrap();
         fs::remove_dir_all(state_directory).unwrap();

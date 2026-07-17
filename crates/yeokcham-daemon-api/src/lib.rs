@@ -9,8 +9,8 @@ pub mod v1 {
 mod tests {
     use super::v1::{
         ContactResponse, ContactStatus, ContactVerificationMethod, GetStatusResponse,
-        IdentityInitialization, IdentityResponse, StartClientResponse, VerifyContactQrRequest,
-        VerifyContactSafetyNumberRequest,
+        IdentityInitialization, IdentityResponse, SendMessageRequest, SendMessageResponse,
+        StartClientResponse, VerifyContactQrRequest, VerifyContactSafetyNumberRequest,
     };
 
     #[test]
@@ -80,5 +80,23 @@ mod tests {
         assert_eq!(qr.payload, vec![1; 70]);
         assert_eq!(safety_number.identity, vec![2; 32]);
         assert_eq!(safety_number.fingerprint, vec![3; 32]);
+    }
+
+    #[test]
+    fn generated_message_send_contract_preserves_every_field() {
+        let request = SendMessageRequest {
+            recipient: vec![1; 32],
+            envelope: vec![2; 6],
+            created_at: 3,
+            ttl_seconds: 4,
+        };
+        let response = SendMessageResponse {
+            message_identifier: vec![5; 16],
+        };
+        assert_eq!(request.recipient, vec![1; 32]);
+        assert_eq!(request.envelope, vec![2; 6]);
+        assert_eq!(request.created_at, 3);
+        assert_eq!(request.ttl_seconds, 4);
+        assert_eq!(response.message_identifier, vec![5; 16]);
     }
 }
