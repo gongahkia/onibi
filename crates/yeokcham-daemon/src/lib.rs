@@ -18,6 +18,7 @@ mod grpc_service;
 mod inbox_deduplication;
 mod lan_transport;
 mod lifecycle;
+mod linux_wifi_hotspot_capability;
 mod local_auth;
 mod local_transport;
 mod local_transport_availability;
@@ -104,6 +105,9 @@ pub use inbox_deduplication::{
 };
 pub use lan_transport::LanDirectTransport;
 pub use lifecycle::{DAEMON_LOCK_FILE, DaemonLifecycleError, DaemonRuntime};
+pub use linux_wifi_hotspot_capability::{
+    LinuxWifiHotspotCapabilityProbe, MAX_LINUX_WIFI_HOTSPOT_PROBE_OUTPUT_BYTES,
+};
 pub use local_auth::{
     DaemonLocalAuth, DaemonLocalAuthError, DaemonLocalAuthInterceptor, DaemonLocalAuthToken,
     LOCAL_AUTH_TOKEN_BYTES, LOCAL_AUTH_TOKEN_METADATA_KEY, LOCAL_AUTH_TOKEN_VERSION,
