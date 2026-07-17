@@ -13,7 +13,10 @@ use tokio::{
     time::{self, MissedTickBehavior},
 };
 use tokio_stream::wrappers::TcpListenerStream;
-use tonic::{Request, Response, Status, transport::Server};
+use tonic::{
+    Request, Response, Status,
+    transport::{Server, ServerTlsConfig},
+};
 use yeokcham_core::RelaySigningKeypair;
 use yeokcham_relay_api::v1::{
     self,
@@ -32,6 +35,7 @@ pub struct RelayServer {
     service: RelayGrpcService,
     health: Option<RelayHealthServer>,
     metrics: Option<RelayMetricsServer>,
+    tls: Option<ServerTlsConfig>,
 }
 
 const RETENTION_GARBAGE_COLLECTION_INTERVAL: Duration = Duration::from_secs(60);
@@ -51,6 +55,8 @@ pub enum RelayServerError {
     Listener(#[source] io::Error),
     #[error("relay server stopped with a transport error")]
     Transport(#[source] tonic::transport::Error),
+    #[error("relay server TLS configuration is invalid")]
+    Tls(#[source] tonic::transport::Error),
     #[error("relay health listener could not start")]
     HealthListener(#[source] io::Error),
     #[error("relay metrics listener could not start")]
@@ -176,6 +182,12 @@ impl RelayServer {
             .map_err(RelayServerError::Listener)
     }
 
+    #[must_use]
+    pub fn with_tls_config(mut self, tls: ServerTlsConfig) -> Self {
+        self.tls = Some(tls);
+        self
+    }
+
     pub async fn serve_until<F>(self, shutdown: F) -> Result<(), RelayServerError>
     where
         F: Future<Output = ()>,
@@ -200,6 +212,7 @@ impl RelayServer {
             service,
             health,
             metrics,
+            tls,
         } = self;
         let database = Arc::clone(&service.database);
         let retention = service.retention;
@@ -242,7 +255,11 @@ impl RelayServer {
         let server_shutdown = shutdown_receiver.clone();
         let server_shutdown_sender = shutdown_sender.clone();
         let (server_shutdown_started_sender, mut server_shutdown_started) = oneshot::channel();
-        let server = Server::builder()
+        let mut builder = Server::builder();
+        if let Some(tls) = tls {
+            builder = builder.tls_config(tls).map_err(RelayServerError::Tls)?;
+        }
+        let server = builder
             .add_service(RelayServiceServer::new(service))
             .serve_with_incoming_shutdown(TcpListenerStream::new(listener), async move {
                 tokio::select! {
@@ -320,6 +337,7 @@ impl RelayServer {
             service: RelayGrpcService::new(database, quota, retention, relay, ingress_rate_limit),
             health: None,
             metrics: None,
+            tls: None,
         }
     }
 

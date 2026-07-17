@@ -17,11 +17,15 @@ sha2.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
-tonic.workspace = true
+tonic = { workspace = true, features = ["tls-ring"] }
 yeokcham-core = { path = "../yeokcham-core" }
 yeokcham-protocol = { path = "../yeokcham-protocol" }
 yeokcham-relay-api = { path = "../yeokcham-relay-api" }
 zeroize.workspace = true
+
+[dev-dependencies]
+rcgen = "0.14.7"
+yeokcham-daemon = { path = "../yeokcham-daemon" }
 
 [lints]
 workspace = true
