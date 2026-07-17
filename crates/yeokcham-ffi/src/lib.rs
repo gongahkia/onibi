@@ -49,6 +49,7 @@ pub const YEOKCHAM_MAX_ATTACHMENT_CHUNK_BYTES: usize =
 pub const YEOKCHAM_ATTACHMENT_DELIVERY_COMPLETE: u32 = 1;
 pub const YEOKCHAM_ATTACHMENT_DELIVERY_PENDING: u32 = 2;
 pub const YEOKCHAM_ATTACHMENT_DELIVERY_RETRYING: u32 = 3;
+pub const YEOKCHAM_MAX_CANCELLATION_DEADLINE_MILLISECONDS: u32 = 60_000;
 
 #[repr(C)]
 pub struct YeokchamClient {
@@ -72,6 +73,11 @@ pub struct YeokchamEventSubscription {
 
 #[repr(C)]
 pub struct YeokchamAttachmentTransfer {
+    _private: u8,
+}
+
+#[repr(C)]
+pub struct YeokchamCancellation {
     _private: u8,
 }
 
@@ -135,14 +141,16 @@ pub enum YeokchamStatus {
 
 pub use c_abi::{
     MAX_C_ABI_ATTACHMENT_TRANSFERS, MAX_C_ABI_BUFFERS, MAX_C_ABI_CALLBACK_WORKERS,
-    MAX_C_ABI_CLIENT_CONFIG_BUILDERS, MAX_C_ABI_CLIENTS, MAX_C_ABI_ERROR_DETAIL_BYTES,
-    MAX_C_ABI_EVENT_SUBSCRIPTIONS, MAX_C_ABI_PENDING_COMPLETIONS, MAX_C_ABI_SECRET_BUFFER_BYTES,
-    MAX_C_ABI_STATE_DIRECTORY_BYTES, YeokchamAttachmentUploadCallback, YeokchamCompletionCallback,
-    yeokcham_abi_negotiate, yeokcham_attachment_transfer_create,
-    yeokcham_attachment_transfer_release, yeokcham_attachment_transfer_run_cycle,
-    yeokcham_buffer_data, yeokcham_buffer_length, yeokcham_buffer_release,
-    yeokcham_client_complete_async, yeokcham_client_config_builder_build,
-    yeokcham_client_config_builder_create, yeokcham_client_config_builder_release,
+    MAX_C_ABI_CANCELLATIONS, MAX_C_ABI_CLIENT_CONFIG_BUILDERS, MAX_C_ABI_CLIENTS,
+    MAX_C_ABI_ERROR_DETAIL_BYTES, MAX_C_ABI_EVENT_SUBSCRIPTIONS, MAX_C_ABI_PENDING_COMPLETIONS,
+    MAX_C_ABI_SECRET_BUFFER_BYTES, MAX_C_ABI_STATE_DIRECTORY_BYTES,
+    YeokchamAttachmentUploadCallback, YeokchamCompletionCallback, yeokcham_abi_negotiate,
+    yeokcham_attachment_transfer_create, yeokcham_attachment_transfer_release,
+    yeokcham_attachment_transfer_run_cycle, yeokcham_buffer_data, yeokcham_buffer_length,
+    yeokcham_buffer_release, yeokcham_cancellation_cancel, yeokcham_cancellation_create,
+    yeokcham_cancellation_release, yeokcham_client_complete_async,
+    yeokcham_client_config_builder_build, yeokcham_client_config_builder_create,
+    yeokcham_client_config_builder_release,
     yeokcham_client_config_builder_set_event_buffer_capacity,
     yeokcham_client_config_builder_set_state_directory, yeokcham_client_contact_get,
     yeokcham_client_contact_import, yeokcham_client_contact_revoke,
@@ -152,23 +160,25 @@ pub use c_abi::{
     yeokcham_client_release, yeokcham_client_start, yeokcham_client_stop,
     yeokcham_client_subscribe_events, yeokcham_client_take_last_error_detail,
     yeokcham_delivery_profile_select, yeokcham_event_subscription_poll,
-    yeokcham_event_subscription_release, yeokcham_secret_buffer_zeroize,
+    yeokcham_event_subscription_release, yeokcham_event_subscription_wait,
+    yeokcham_secret_buffer_zeroize,
 };
 
 #[cfg(test)]
 mod tests {
     use super::c_abi::CLIENT_TEST_LOCK;
     use super::{
-        MAX_C_ABI_ATTACHMENT_TRANSFERS, MAX_C_ABI_CLIENTS, MAX_C_ABI_PENDING_COMPLETIONS,
-        YEOKCHAM_ABI_NEGOTIATION_REJECTED, YEOKCHAM_ABI_VERSION, YEOKCHAM_ABI_VERSION_MAJOR,
-        YEOKCHAM_ABI_VERSION_MINOR, YEOKCHAM_DELIVERY_PROFILE_DIRECT,
+        MAX_C_ABI_ATTACHMENT_TRANSFERS, MAX_C_ABI_CANCELLATIONS, MAX_C_ABI_CLIENTS,
+        MAX_C_ABI_PENDING_COMPLETIONS, YEOKCHAM_ABI_NEGOTIATION_REJECTED, YEOKCHAM_ABI_VERSION,
+        YEOKCHAM_ABI_VERSION_MAJOR, YEOKCHAM_ABI_VERSION_MINOR, YEOKCHAM_DELIVERY_PROFILE_DIRECT,
         YEOKCHAM_DELIVERY_PROFILE_LOCAL_MESH, YEOKCHAM_DELIVERY_PROFILE_TOR_MAILDROP,
         YEOKCHAM_IDENTITY_PUBLIC_KEY_BYTES, YEOKCHAM_MAX_ATTACHMENT_CHUNKS,
         YEOKCHAM_MAX_ATTACHMENT_CHUNKS_PER_CYCLE, YEOKCHAM_MAX_ATTACHMENT_MANIFEST_BYTES,
-        YEOKCHAM_MAX_LOCAL_MESH_TRANSPORTS, YEOKCHAM_MAX_MESSAGE_ENVELOPE_BYTES,
-        YEOKCHAM_MESSAGE_IDENTIFIER_BYTES, YEOKCHAM_QR_VERIFICATION_PAYLOAD_BYTES,
-        YEOKCHAM_SAFETY_NUMBER_FINGERPRINT_BYTES, YeokchamStatus, yeokcham_abi_negotiate,
-        yeokcham_client_complete_async, yeokcham_client_create, yeokcham_client_release,
+        YEOKCHAM_MAX_CANCELLATION_DEADLINE_MILLISECONDS, YEOKCHAM_MAX_LOCAL_MESH_TRANSPORTS,
+        YEOKCHAM_MAX_MESSAGE_ENVELOPE_BYTES, YEOKCHAM_MESSAGE_IDENTIFIER_BYTES,
+        YEOKCHAM_QR_VERIFICATION_PAYLOAD_BYTES, YEOKCHAM_SAFETY_NUMBER_FINGERPRINT_BYTES,
+        YeokchamStatus, yeokcham_abi_negotiate, yeokcham_client_complete_async,
+        yeokcham_client_create, yeokcham_client_release,
     };
     use std::{
         ffi::c_void,
@@ -232,6 +242,14 @@ mod tests {
             HEADER.contains("#define YEOKCHAM_MAX_ATTACHMENT_MANIFEST_BYTES UINT32_C(4194304)")
         );
         assert_eq!(YEOKCHAM_MAX_ATTACHMENT_MANIFEST_BYTES, 4 * 1024 * 1024);
+        assert!(HEADER.contains("#define YEOKCHAM_MAX_CANCELLATIONS UINT32_C(1024)"));
+        assert_eq!(MAX_C_ABI_CANCELLATIONS, 1_024);
+        assert!(
+            HEADER.contains(
+                "#define YEOKCHAM_MAX_CANCELLATION_DEADLINE_MILLISECONDS UINT32_C(60000)"
+            )
+        );
+        assert_eq!(YEOKCHAM_MAX_CANCELLATION_DEADLINE_MILLISECONDS, 60_000);
         assert!(HEADER.contains("typedef struct yeokcham_client yeokcham_client_t;"));
         assert!(HEADER.contains("typedef struct yeokcham_buffer yeokcham_buffer_t;"));
         assert!(
@@ -284,6 +302,10 @@ mod tests {
         assert!(HEADER.contains("yeokcham_attachment_transfer_create("));
         assert!(HEADER.contains("yeokcham_attachment_transfer_run_cycle("));
         assert!(HEADER.contains("yeokcham_attachment_transfer_release("));
+        assert!(HEADER.contains("yeokcham_cancellation_create(void);"));
+        assert!(HEADER.contains("yeokcham_cancellation_cancel("));
+        assert!(HEADER.contains("yeokcham_cancellation_release("));
+        assert!(HEADER.contains("yeokcham_event_subscription_wait("));
         assert!(HEADER.contains("yeokcham_client_copy_last_error_detail("));
         assert!(HEADER.contains("yeokcham_client_take_last_error_detail("));
         assert!(HEADER.contains("yeokcham_buffer_data("));

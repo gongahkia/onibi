@@ -9,6 +9,7 @@ use std::{
         atomic::{AtomicUsize, Ordering},
         mpsc::{self, SyncSender, TrySendError},
     },
+    time::Duration,
 };
 
 use crate::{
@@ -16,15 +17,16 @@ use crate::{
     YEOKCHAM_EVENT_CLIENT_STOPPED, YEOKCHAM_EVENT_MESSAGE_DELIVERED,
     YEOKCHAM_EVENT_MESSAGE_DELIVERY_FAILED, YEOKCHAM_EVENT_MESSAGE_QUEUED,
     YeokchamAttachmentDeliveryCycle, YeokchamAttachmentTransfer, YeokchamBuffer, YeokchamByteSlice,
-    YeokchamClient, YeokchamClientConfigBuilder, YeokchamContact, YeokchamDeliveryProfile,
-    YeokchamDeliveryProfilePolicy, YeokchamEvent, YeokchamEventSubscription, YeokchamStatus,
+    YeokchamCancellation, YeokchamClient, YeokchamClientConfigBuilder, YeokchamContact,
+    YeokchamDeliveryProfile, YeokchamDeliveryProfilePolicy, YeokchamEvent,
+    YeokchamEventSubscription, YeokchamStatus,
 };
 use yeokcham_core::{IdentityPublicKey, KeystoreEntryName, KeystoreSecret, OsKeystore};
 use yeokcham_sdk::{
-    RuntimeMode, SdkAttachmentChunk, SdkAttachmentDeliveryCycle, SdkAttachmentDeliveryOutcome,
-    SdkAttachmentDeliveryTransport, SdkAttachmentManifest, SdkAttachmentTransfer, SdkClient,
-    SdkClientError, SdkConfig, SdkContact, SdkContactError, SdkContactStatus,
-    SdkContactVerificationMethod, SdkDeliveryProfile, SdkDeliveryProfileKind,
+    CancellationToken, RuntimeMode, SdkAsyncPolicy, SdkAttachmentChunk, SdkAttachmentDeliveryCycle,
+    SdkAttachmentDeliveryOutcome, SdkAttachmentDeliveryTransport, SdkAttachmentManifest,
+    SdkAttachmentTransfer, SdkClient, SdkClientError, SdkConfig, SdkContact, SdkContactError,
+    SdkContactStatus, SdkContactVerificationMethod, SdkDeliveryProfile, SdkDeliveryProfileKind,
     SdkDeliveryProfilePolicy, SdkDeliveryProfilePolicyError, SdkDirectIpDisclosureAcknowledgement,
     SdkEvent, SdkEventEnvelope, SdkEventStream, SdkEventStreamError, SdkIdentityError,
     SdkIdentityManager, SdkLocalMeshPolicy, SdkLocalMeshTransportKind, SdkMessageEnvelope,
@@ -35,6 +37,7 @@ use zeroize::{Zeroize, Zeroizing};
 pub const MAX_C_ABI_CLIENT_CONFIG_BUILDERS: usize = 1024;
 pub const MAX_C_ABI_CLIENTS: usize = 1024;
 pub const MAX_C_ABI_ATTACHMENT_TRANSFERS: usize = 1024;
+pub const MAX_C_ABI_CANCELLATIONS: usize = 1024;
 pub const MAX_C_ABI_CALLBACK_WORKERS: usize = 4;
 pub const MAX_C_ABI_BUFFERS: usize = 1024;
 pub const MAX_C_ABI_EVENT_SUBSCRIPTIONS: usize = 1024;
@@ -90,6 +93,7 @@ impl OsKeystore for ClientKeystore {
 static ACTIVE_CLIENTS: OnceLock<Mutex<BTreeMap<usize, ClientHandle>>> = OnceLock::new();
 static ACTIVE_ATTACHMENT_TRANSFERS: OnceLock<Mutex<BTreeMap<usize, AttachmentTransferHandle>>> =
     OnceLock::new();
+static ACTIVE_CANCELLATIONS: OnceLock<Mutex<BTreeMap<usize, CancellationToken>>> = OnceLock::new();
 static ACTIVE_CLIENT_CONFIG_BUILDERS: OnceLock<Mutex<BTreeMap<usize, ClientConfigBuilder>>> =
     OnceLock::new();
 static ACTIVE_BUFFERS: OnceLock<Mutex<BTreeMap<usize, Vec<u8>>>> = OnceLock::new();
@@ -833,6 +837,56 @@ pub unsafe extern "C" fn yeokcham_attachment_transfer_release(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn yeokcham_cancellation_create() -> *mut YeokchamCancellation {
+    let Ok(mut cancellations) = active_cancellations().lock() else {
+        return std::ptr::null_mut();
+    };
+    if cancellations.len() >= MAX_C_ABI_CANCELLATIONS {
+        return std::ptr::null_mut();
+    }
+    let Some(identifier) = next_handle_identifier() else {
+        return std::ptr::null_mut();
+    };
+    cancellations.insert(identifier, CancellationToken::new());
+    std::ptr::without_provenance_mut(identifier)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn yeokcham_cancellation_cancel(
+    cancellation: *mut YeokchamCancellation,
+) -> YeokchamStatus {
+    let identifier = cancellation.addr();
+    if identifier == 0 {
+        return YeokchamStatus::InvalidInput;
+    }
+    let Ok(cancellations) = active_cancellations().lock() else {
+        return YeokchamStatus::State;
+    };
+    let Some(cancellation) = cancellations.get(&identifier) else {
+        return YeokchamStatus::InvalidInput;
+    };
+    cancellation.cancel();
+    YeokchamStatus::Ok
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn yeokcham_cancellation_release(
+    cancellation: *mut YeokchamCancellation,
+) -> YeokchamStatus {
+    let identifier = cancellation.addr();
+    if identifier == 0 {
+        return YeokchamStatus::InvalidInput;
+    }
+    let Ok(mut cancellations) = active_cancellations().lock() else {
+        return YeokchamStatus::State;
+    };
+    if cancellations.remove(&identifier).is_none() {
+        return YeokchamStatus::InvalidInput;
+    }
+    YeokchamStatus::Ok
+}
+
+#[unsafe(no_mangle)]
 #[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C" fn yeokcham_client_copy_last_error_detail(
     client: *const YeokchamClient,
@@ -1039,6 +1093,78 @@ pub unsafe extern "C" fn yeokcham_event_subscription_poll(
 }
 
 #[unsafe(no_mangle)]
+#[allow(clippy::missing_safety_doc)]
+pub unsafe extern "C" fn yeokcham_event_subscription_wait(
+    subscription: *mut YeokchamEventSubscription,
+    cancellation: *mut YeokchamCancellation,
+    deadline_milliseconds: u32,
+    event: *mut YeokchamEvent,
+    has_event: *mut u8,
+) -> YeokchamStatus {
+    if event.is_null() || has_event.is_null() {
+        return YeokchamStatus::InvalidInput;
+    }
+    unsafe {
+        std::ptr::write_bytes(event.cast::<u8>(), 0, std::mem::size_of::<YeokchamEvent>());
+        has_event.write(0);
+    }
+    if deadline_milliseconds == 0
+        || deadline_milliseconds > crate::YEOKCHAM_MAX_CANCELLATION_DEADLINE_MILLISECONDS
+    {
+        return YeokchamStatus::InvalidInput;
+    }
+    let cancellation_identifier = cancellation.addr();
+    if cancellation_identifier == 0 {
+        return YeokchamStatus::InvalidInput;
+    }
+    let cancellation = {
+        let Ok(cancellations) = active_cancellations().lock() else {
+            return YeokchamStatus::State;
+        };
+        let Some(cancellation) = cancellations.get(&cancellation_identifier) else {
+            return YeokchamStatus::InvalidInput;
+        };
+        cancellation.clone()
+    };
+    let Ok(policy) = SdkAsyncPolicy::new(Duration::from_millis(u64::from(deadline_milliseconds)))
+    else {
+        return YeokchamStatus::InvalidInput;
+    };
+    let subscription_identifier = subscription.addr();
+    if subscription_identifier == 0 {
+        return YeokchamStatus::InvalidInput;
+    }
+    let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()
+    else {
+        return YeokchamStatus::State;
+    };
+    let Ok(mut subscriptions) = active_event_subscriptions().lock() else {
+        return YeokchamStatus::State;
+    };
+    let Some(subscription) = subscriptions.get_mut(&subscription_identifier) else {
+        return YeokchamStatus::InvalidInput;
+    };
+    match runtime.block_on(subscription.next_with_policy(policy, &cancellation)) {
+        Ok(envelope) => {
+            let c_event = c_event(envelope);
+            unsafe {
+                event.write(c_event);
+                has_event.write(1);
+            }
+            YeokchamStatus::Ok
+        }
+        Err(SdkEventStreamError::Lagged(_)) => YeokchamStatus::ResourceLimit,
+        Err(
+            SdkEventStreamError::Cancelled
+            | SdkEventStreamError::DeadlineExceeded
+            | SdkEventStreamError::Closed,
+        ) => YeokchamStatus::State,
+    }
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn yeokcham_client_complete_async(
     client: *const YeokchamClient,
     callback: Option<YeokchamCompletionCallback>,
@@ -1210,6 +1336,10 @@ fn active_clients() -> &'static Mutex<BTreeMap<usize, ClientHandle>> {
 
 fn active_attachment_transfers() -> &'static Mutex<BTreeMap<usize, AttachmentTransferHandle>> {
     ACTIVE_ATTACHMENT_TRANSFERS.get_or_init(|| Mutex::new(BTreeMap::new()))
+}
+
+fn active_cancellations() -> &'static Mutex<BTreeMap<usize, CancellationToken>> {
+    ACTIVE_CANCELLATIONS.get_or_init(|| Mutex::new(BTreeMap::new()))
 }
 
 fn active_client_config_builders() -> &'static Mutex<BTreeMap<usize, ClientConfigBuilder>> {
@@ -1601,7 +1731,7 @@ mod tests {
     };
 
     use super::{
-        CLIENT_TEST_LOCK, MAX_C_ABI_BUFFERS, MAX_C_ABI_CALLBACK_WORKERS,
+        CLIENT_TEST_LOCK, MAX_C_ABI_BUFFERS, MAX_C_ABI_CALLBACK_WORKERS, MAX_C_ABI_CANCELLATIONS,
         MAX_C_ABI_ERROR_DETAIL_BYTES, MAX_C_ABI_EVENT_SUBSCRIPTIONS, MAX_C_ABI_PENDING_COMPLETIONS,
         MAX_C_ABI_SECRET_BUFFER_BYTES, MAX_C_ABI_STATE_DIRECTORY_BYTES, PENDING_COMPLETIONS,
         SdkClientError, SdkEvent, SdkEventEnvelope, YeokchamAttachmentDeliveryCycle,
@@ -1609,7 +1739,8 @@ mod tests {
         YeokchamEvent, YeokchamStatus, c_event, map_sdk_client_error, sdk_client_error_detail,
         yeokcham_attachment_transfer_create, yeokcham_attachment_transfer_release,
         yeokcham_attachment_transfer_run_cycle, yeokcham_buffer_data, yeokcham_buffer_length,
-        yeokcham_buffer_release, yeokcham_client_complete_async,
+        yeokcham_buffer_release, yeokcham_cancellation_cancel, yeokcham_cancellation_create,
+        yeokcham_cancellation_release, yeokcham_client_complete_async,
         yeokcham_client_config_builder_build, yeokcham_client_config_builder_create,
         yeokcham_client_config_builder_release,
         yeokcham_client_config_builder_set_event_buffer_capacity,
@@ -1622,7 +1753,7 @@ mod tests {
         yeokcham_client_stop, yeokcham_client_subscribe_events,
         yeokcham_client_take_last_error_detail, yeokcham_delivery_profile_select,
         yeokcham_event_subscription_poll, yeokcham_event_subscription_release,
-        yeokcham_secret_buffer_zeroize,
+        yeokcham_event_subscription_wait, yeokcham_secret_buffer_zeroize,
     };
 
     #[test]
@@ -2209,6 +2340,130 @@ mod tests {
         assert_eq!(yeokcham_client_stop(client), YeokchamStatus::Ok);
         assert_eq!(yeokcham_client_release(client), YeokchamStatus::Ok);
         std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn c_cancellation_interrupts_event_wait_and_clears_outputs() {
+        let _guard = CLIENT_TEST_LOCK.lock().unwrap();
+        let directory =
+            std::env::temp_dir().join(format!("yeokcham-ffi-cancellation-{}", std::process::id()));
+        let directory = directory.to_string_lossy().into_owned();
+        let client = yeokcham_client_create();
+        let builder = yeokcham_client_config_builder_create();
+        let mut event = YeokchamEvent {
+            version: u32::MAX,
+            sequence: u64::MAX,
+            kind: u32::MAX,
+            message_identifier: [u8::MAX; yeokcham_protocol::MESSAGE_IDENTIFIER_BYTES],
+        };
+        let mut has_event = 1;
+
+        assert_eq!(
+            unsafe {
+                yeokcham_client_config_builder_set_state_directory(
+                    builder,
+                    directory.as_bytes().as_ptr(),
+                    directory.len(),
+                )
+            },
+            YeokchamStatus::Ok
+        );
+        assert_eq!(
+            yeokcham_client_config_builder_set_event_buffer_capacity(builder, 8),
+            YeokchamStatus::Ok
+        );
+        assert_eq!(
+            yeokcham_client_config_builder_build(builder, client),
+            YeokchamStatus::Ok
+        );
+        assert_eq!(
+            yeokcham_client_config_builder_release(builder),
+            YeokchamStatus::Ok
+        );
+        assert_eq!(yeokcham_client_start(client), YeokchamStatus::Ok);
+        let subscription = yeokcham_client_subscribe_events(client);
+        let cancellation = yeokcham_cancellation_create();
+        assert!(!subscription.is_null());
+        assert!(!cancellation.is_null());
+        assert_eq!(
+            yeokcham_cancellation_cancel(cancellation),
+            YeokchamStatus::Ok
+        );
+        assert_eq!(
+            yeokcham_cancellation_cancel(cancellation),
+            YeokchamStatus::Ok
+        );
+        assert_eq!(
+            unsafe {
+                yeokcham_event_subscription_wait(
+                    subscription,
+                    cancellation,
+                    1,
+                    &raw mut event,
+                    &raw mut has_event,
+                )
+            },
+            YeokchamStatus::State
+        );
+        assert_eq!(event, YeokchamEvent::default());
+        assert_eq!(has_event, 0);
+        event = YeokchamEvent {
+            version: u32::MAX,
+            sequence: u64::MAX,
+            kind: u32::MAX,
+            message_identifier: [u8::MAX; yeokcham_protocol::MESSAGE_IDENTIFIER_BYTES],
+        };
+        has_event = 1;
+        assert_eq!(
+            unsafe {
+                yeokcham_event_subscription_wait(
+                    subscription,
+                    cancellation,
+                    0,
+                    &raw mut event,
+                    &raw mut has_event,
+                )
+            },
+            YeokchamStatus::InvalidInput
+        );
+        assert_eq!(event, YeokchamEvent::default());
+        assert_eq!(has_event, 0);
+        assert_eq!(
+            yeokcham_cancellation_release(cancellation),
+            YeokchamStatus::Ok
+        );
+        assert_eq!(
+            yeokcham_cancellation_release(cancellation),
+            YeokchamStatus::InvalidInput
+        );
+        assert_eq!(
+            yeokcham_event_subscription_release(subscription),
+            YeokchamStatus::Ok
+        );
+        assert_eq!(yeokcham_client_stop(client), YeokchamStatus::Ok);
+        assert_eq!(yeokcham_client_release(client), YeokchamStatus::Ok);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn c_cancellation_creation_fails_closed_at_capacity() {
+        let _guard = CLIENT_TEST_LOCK.lock().unwrap();
+        let cancellations = (0..MAX_C_ABI_CANCELLATIONS)
+            .map(|_| yeokcham_cancellation_create())
+            .collect::<Vec<_>>();
+
+        assert!(
+            cancellations
+                .iter()
+                .all(|cancellation| !cancellation.is_null())
+        );
+        assert!(yeokcham_cancellation_create().is_null());
+        for cancellation in cancellations {
+            assert_eq!(
+                yeokcham_cancellation_release(cancellation),
+                YeokchamStatus::Ok
+            );
+        }
     }
 
     fn attachment_transfer_parts() -> (Vec<u8>, Vec<u8>) {

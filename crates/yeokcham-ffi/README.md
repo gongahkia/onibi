@@ -45,6 +45,11 @@
 - `yeokcham_attachment_transfer_run_cycle` uploads no more than the configured 1–64 chunks through a synchronous callback. `YEOKCHAM_STATUS_OK` acknowledges an upload; any other callback status records a retry outcome without losing transfer state.
 - A transfer is unavailable to concurrent cycles or release while its upload callback is running. The cycle output is cleared before failure; release accepts exactly one idle active handle.
 
+## Cancellation
+
+- `yeokcham_cancellation_create` creates one bounded opaque cancellation handle. Cancellation is idempotent; release invalidates the handle but does not revoke an already-started wait.
+- `yeokcham_event_subscription_wait` blocks for at most `YEOKCHAM_MAX_CANCELLATION_DEADLINE_MILLISECONDS`, one event, or cancellation. Cancellation, deadline, and closure return `YEOKCHAM_STATUS_STATE`; lag returns `YEOKCHAM_STATUS_RESOURCE_LIMIT`.
+
 ## Library-owned buffers
 
 - `yeokcham_client_take_last_error_detail` transfers the redacted detail into an opaque library-owned buffer and writes a null output on failure. Read its bytes and length with `yeokcham_buffer_data` and `yeokcham_buffer_length`, then call `yeokcham_buffer_release` exactly once.

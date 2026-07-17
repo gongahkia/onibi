@@ -51,12 +51,15 @@
 #define YEOKCHAM_ATTACHMENT_DELIVERY_COMPLETE UINT32_C(1)
 #define YEOKCHAM_ATTACHMENT_DELIVERY_PENDING UINT32_C(2)
 #define YEOKCHAM_ATTACHMENT_DELIVERY_RETRYING UINT32_C(3)
+#define YEOKCHAM_MAX_CANCELLATIONS UINT32_C(1024)
+#define YEOKCHAM_MAX_CANCELLATION_DEADLINE_MILLISECONDS UINT32_C(60000)
 
 typedef struct yeokcham_client yeokcham_client_t; // library-owned opaque client; release with yeokcham_client_release
 typedef struct yeokcham_client_config_builder yeokcham_client_config_builder_t; // library-owned configuration builder; release with yeokcham_client_config_builder_release
 typedef struct yeokcham_buffer yeokcham_buffer_t; // library-owned opaque bytes; release with yeokcham_buffer_release
 typedef struct yeokcham_event_subscription yeokcham_event_subscription_t; // library-owned opaque stream; release with yeokcham_event_subscription_release
 typedef struct yeokcham_attachment_transfer yeokcham_attachment_transfer_t; // library-owned opaque transfer; release with yeokcham_attachment_transfer_release
+typedef struct yeokcham_cancellation yeokcham_cancellation_t; // library-owned opaque cancellation; release with yeokcham_cancellation_release
 typedef struct yeokcham_event {
     uint32_t version;
     uint64_t sequence;
@@ -166,6 +169,16 @@ yeokcham_status_t yeokcham_attachment_transfer_run_cycle(
     yeokcham_attachment_delivery_cycle_t *cycle
 ); // callback must synchronously return ok only after upload succeeds; clears cycle before any failure
 yeokcham_status_t yeokcham_attachment_transfer_release(yeokcham_attachment_transfer_t *transfer); // exactly one idle active release returns ok
+yeokcham_cancellation_t *yeokcham_cancellation_create(void); // null when cancellation capacity is exhausted
+yeokcham_status_t yeokcham_cancellation_cancel(yeokcham_cancellation_t *cancellation); // idempotently cancels one active handle
+yeokcham_status_t yeokcham_cancellation_release(yeokcham_cancellation_t *cancellation); // exactly one active release returns ok
+yeokcham_status_t yeokcham_event_subscription_wait(
+    yeokcham_event_subscription_t *subscription,
+    yeokcham_cancellation_t *cancellation,
+    uint32_t deadline_milliseconds,
+    yeokcham_event_t *event,
+    uint8_t *has_event
+); // blocks until one event, cancellation, or deadline; clears outputs before any failure or empty result
 yeokcham_status_t yeokcham_client_copy_last_error_detail(
     const yeokcham_client_t *client,
     uint8_t *buffer,
