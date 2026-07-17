@@ -3821,6 +3821,7 @@ dependencies = [
  "yeokcham-core",
  "yeokcham-daemon",
  "yeokcham-protocol",
+ "yeokcham-sdk",
 ]
 
 [[package]]

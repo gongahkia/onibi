@@ -34,6 +34,7 @@ use yeokcham_protocol::{
     QR_VERIFICATION_PAYLOAD_BYTES, SAFETY_NUMBER_FINGERPRINT_BYTES,
     TOR_ONION_SERVICE_PUBLIC_KEY_BYTES, TorMaildropProfileConfig,
 };
+use yeokcham_sdk::{SdkClient, SdkClientBuilder};
 
 use release_manifest::{ReleaseArtifact, SignedReleaseArtifactManifest};
 
@@ -945,8 +946,17 @@ fn append_dashboard_section(output: &mut String, title: &str, lines: &[String]) 
 
 fn load_system_dashboard(state_directory: &Path) -> Result<Dashboard, Box<dyn Error>> {
     validate_state_directory(state_directory)?;
-    let _runtime =
-        DaemonRuntime::start(yeokcham_protocol::ProtocolVersion::INITIAL, state_directory)?;
+    let mut client = start_embedded_tui_client(state_directory)?;
+    let dashboard = load_system_dashboard_with_keystore(state_directory);
+    if let Err(error) = client.shutdown() {
+        return Err(error.into());
+    }
+    dashboard
+}
+
+fn load_system_dashboard_with_keystore(
+    state_directory: &Path,
+) -> Result<Dashboard, Box<dyn Error>> {
     #[cfg(target_os = "linux")]
     {
         let mut keystore = LinuxKeystore::new()?;
@@ -964,6 +974,14 @@ fn load_system_dashboard(state_directory: &Path) -> Result<Dashboard, Box<dyn Er
     }
     #[allow(unreachable_code)]
     Err("unsupported operating system keystore".into())
+}
+
+fn start_embedded_tui_client(state_directory: &Path) -> Result<SdkClient, Box<dyn Error>> {
+    let config = SdkClientBuilder::new(state_directory.to_path_buf())
+        .embedded()
+        .event_buffer_capacity(1)
+        .build()?;
+    Ok(SdkClient::start(&config)?)
 }
 
 fn tui(state_directory: &Path, snapshot: bool) -> Result<(), Box<dyn Error>> {
@@ -1366,8 +1384,8 @@ mod tests {
         identity_record, import_contact_invitation, inspect_contact_invitation,
         inspect_relay_profile, load_identity, queue_attachment_submission, queue_message,
         relay_profile_record, release_metadata, render_dashboard, revoke_contact,
-        sign_release_manifest, validate_state_directory, verify_contact_qr,
-        verify_contact_safety_number, verify_release_manifest,
+        sign_release_manifest, start_embedded_tui_client, validate_state_directory,
+        verify_contact_qr, verify_contact_safety_number, verify_release_manifest,
     };
     use yeokcham_core::KeystoreSecret;
     use yeokcham_daemon::{ATTACHMENT_UPLOAD_DIRECTORY, INBOX_DATABASE_FILE, OUTBOX_DATABASE_FILE};
@@ -2118,6 +2136,21 @@ mod tests {
                 snapshot: true
             }) if state_directory.as_path() == Path::new("/state")
         ));
+    }
+
+    #[test]
+    fn tui_uses_an_embedded_sdk_runtime() {
+        let state_directory = std::env::temp_dir().join(format!(
+            "yeokcham-cli-tui-sdk-{}-{}",
+            std::process::id(),
+            NEXT_TEST_STATE_DIRECTORY.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&state_directory).unwrap();
+        let mut client = start_embedded_tui_client(&state_directory).unwrap();
+
+        assert!(client.is_running());
+        client.shutdown().unwrap();
+        fs::remove_dir_all(state_directory).unwrap();
     }
 
     #[test]

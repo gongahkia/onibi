@@ -23,6 +23,7 @@ thiserror.workspace = true
 yeokcham-core = { path = "../yeokcham-core" }
 yeokcham-daemon = { path = "../yeokcham-daemon" }
 yeokcham-protocol = { path = "../yeokcham-protocol" }
+yeokcham-sdk = { path = "../yeokcham-sdk" }
 
 [lints]
 workspace = true
