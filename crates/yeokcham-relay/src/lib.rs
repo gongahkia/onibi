@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+mod invite_provisioning;
 mod relay_server;
 
 use std::collections::{HashMap, VecDeque};
@@ -19,6 +20,9 @@ use yeokcham_protocol::{
     RelayStorageReceipt,
 };
 
+pub use invite_provisioning::{
+    MAX_RELAY_INVITE_PROVISION_ATTEMPTS, RelayInviteProvisioner, RelayInviteProvisioningError,
+};
 pub use relay_server::{RelayServer, RelayServerError};
 
 pub const MAX_RELAY_RETENTION_TTL_SECONDS: u32 = MAX_RELAY_INVITATION_TTL_SECONDS;

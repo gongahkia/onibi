@@ -11,6 +11,7 @@ publish = false
 default = []
 
 [dependencies]
+getrandom.workspace = true
 rusqlite.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
@@ -20,6 +21,7 @@ tonic.workspace = true
 yeokcham-core = { path = "../yeokcham-core" }
 yeokcham-protocol = { path = "../yeokcham-protocol" }
 yeokcham-relay-api = { path = "../yeokcham-relay-api" }
+zeroize.workspace = true
 
 [lints]
 workspace = true
