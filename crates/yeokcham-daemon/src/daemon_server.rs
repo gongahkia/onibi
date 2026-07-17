@@ -31,7 +31,10 @@ impl<'runtime> DaemonServer<'runtime> {
         auth: DaemonLocalAuth,
     ) -> Result<Self, DaemonServerError> {
         let listener = DaemonUnixListener::bind(runtime)?;
-        let service = DaemonGrpcService::with_system_keystore(runtime.daemon().protocol_version())?;
+        let service = DaemonGrpcService::with_system_keystore(
+            runtime.daemon().protocol_version(),
+            runtime.state_directory().contacts_path(),
+        )?;
         Ok(Self::new(listener, auth, service))
     }
 
@@ -41,7 +44,10 @@ impl<'runtime> DaemonServer<'runtime> {
         auth: DaemonLocalAuth,
     ) -> Result<Self, DaemonServerError> {
         let listener = DaemonUnixListener::bind_configured(runtime, endpoint)?;
-        let service = DaemonGrpcService::with_system_keystore(runtime.daemon().protocol_version())?;
+        let service = DaemonGrpcService::with_system_keystore(
+            runtime.daemon().protocol_version(),
+            runtime.state_directory().contacts_path(),
+        )?;
         Ok(Self::new(listener, auth, service))
     }
 
@@ -54,8 +60,9 @@ impl<'runtime> DaemonServer<'runtime> {
         K: OsKeystore + Send + 'static,
     {
         let listener = DaemonUnixListener::bind(runtime)?;
-        let service = DaemonGrpcService::with_identity_keystore(
+        let service = DaemonGrpcService::with_state_keystore(
             runtime.daemon().protocol_version(),
+            runtime.state_directory().contacts_path(),
             keystore,
         );
         Ok(Self::new(listener, auth, service))
@@ -104,18 +111,27 @@ mod tests {
 
     use hyper_util::rt::TokioIo;
     use tokio::{net::UnixStream, sync::oneshot};
-    use tonic::{Code, Request, transport::Endpoint};
-    use tower::service_fn;
-    use yeokcham_core::{KeystoreEntryName, KeystoreSecret, OsKeystore};
-    use yeokcham_daemon_api::v1::{
-        CreateIdentityRequest, CreateOrLoadIdentityRequest, GetIdentityRequest,
-        IdentityInitialization, StartClientRequest, daemon_service_client::DaemonServiceClient,
+    use tonic::{
+        Code, Request,
+        transport::{Channel, Endpoint},
     };
-    use yeokcham_protocol::ProtocolVersion;
+    use tower::service_fn;
+    use yeokcham_core::{
+        IdentityKeypair, IdentityPublicKey, KeystoreEntryName, KeystoreSecret, OsKeystore,
+    };
+    use yeokcham_daemon_api::v1::{
+        ApplyContactIdentityRotationRequest, ContactResponse, ContactStatus as RpcContactStatus,
+        ContactVerificationMethod as RpcContactVerificationMethod, CreateIdentityRequest,
+        CreateOrLoadIdentityRequest, GetContactRequest, GetIdentityRequest, IdentityInitialization,
+        ImportContactInvitationRequest, ListContactsRequest, RevokeContactRequest,
+        StartClientRequest, daemon_service_client::DaemonServiceClient,
+    };
+    use yeokcham_protocol::{ContactInvitation, IdentityRotation, ProtocolVersion};
 
     use super::DaemonServer;
     use crate::{
-        DaemonLocalAuth, DaemonLocalAuthToken, DaemonRuntime, LOCAL_AUTH_TOKEN_METADATA_KEY,
+        ClientIdentity, DaemonLocalAuth, DaemonLocalAuthToken, DaemonRuntime,
+        LOCAL_AUTH_TOKEN_METADATA_KEY,
     };
 
     static NEXT_TEST_PATH: AtomicU64 = AtomicU64::new(0);
@@ -297,6 +313,205 @@ mod tests {
         let (server, public_key) = tokio::join!(server, client);
         assert!(server.is_ok());
         assert_eq!(public_key.len(), 32);
+        assert!(!socket_path.exists());
+        runtime.shutdown().unwrap();
+        fs::remove_dir_all(state_directory).unwrap();
+    }
+
+    async fn contact_client(socket_path: PathBuf) -> DaemonServiceClient<Channel> {
+        let channel = Endpoint::from_static("http://[::]:50051")
+            .connect_with_connector(service_fn(move |_| {
+                let socket_path = socket_path.clone();
+                async move { UnixStream::connect(socket_path).await.map(TokioIo::new) }
+            }))
+            .await
+            .unwrap();
+        DaemonServiceClient::new(channel)
+    }
+
+    async fn import_and_load_pending_contact(
+        client: &mut DaemonServiceClient<Channel>,
+        token: &DaemonLocalAuthToken,
+        invitation: &[u8],
+        remote_identity: &IdentityPublicKey,
+    ) -> ContactResponse {
+        assert_eq!(
+            client
+                .list_contacts(Request::new(ListContactsRequest {}))
+                .await
+                .unwrap_err()
+                .code(),
+            Code::Unauthenticated
+        );
+        assert_eq!(
+            client
+                .get_contact(authenticated_request(
+                    GetContactRequest {
+                        identity: vec![0; 31],
+                    },
+                    token,
+                ))
+                .await
+                .unwrap_err()
+                .code(),
+            Code::InvalidArgument
+        );
+        assert!(
+            client
+                .list_contacts(authenticated_request(ListContactsRequest {}, token))
+                .await
+                .unwrap()
+                .into_inner()
+                .contacts
+                .is_empty()
+        );
+        assert_eq!(
+            client
+                .import_contact_invitation(authenticated_request(
+                    ImportContactInvitationRequest {
+                        invitation: vec![0; invitation.len() - 1],
+                    },
+                    token,
+                ))
+                .await
+                .unwrap_err()
+                .code(),
+            Code::InvalidArgument
+        );
+        let imported = client
+            .import_contact_invitation(authenticated_request(
+                ImportContactInvitationRequest {
+                    invitation: invitation.to_vec(),
+                },
+                token,
+            ))
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(imported.identity, remote_identity.as_bytes());
+        assert_eq!(
+            RpcContactStatus::try_from(imported.status),
+            Ok(RpcContactStatus::Pending)
+        );
+        assert_eq!(
+            RpcContactVerificationMethod::try_from(imported.verification_method),
+            Ok(RpcContactVerificationMethod::Unspecified)
+        );
+        let duplicate = client
+            .import_contact_invitation(authenticated_request(
+                ImportContactInvitationRequest {
+                    invitation: invitation.to_vec(),
+                },
+                token,
+            ))
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(duplicate, imported);
+        let loaded = client
+            .get_contact(authenticated_request(
+                GetContactRequest {
+                    identity: remote_identity.as_bytes().to_vec(),
+                },
+                token,
+            ))
+            .await
+            .unwrap()
+            .into_inner()
+            .contact
+            .unwrap();
+        assert_eq!(loaded, imported);
+        imported
+    }
+
+    async fn reject_pending_rotation_and_revoke_contact(
+        client: &mut DaemonServiceClient<Channel>,
+        token: &DaemonLocalAuthToken,
+        remote_identity: &IdentityPublicKey,
+        rotation: Vec<u8>,
+    ) {
+        assert_eq!(
+            client
+                .apply_contact_identity_rotation(authenticated_request(
+                    ApplyContactIdentityRotationRequest { rotation },
+                    token,
+                ))
+                .await
+                .unwrap_err()
+                .code(),
+            Code::FailedPrecondition
+        );
+        let revoked = client
+            .revoke_contact(authenticated_request(
+                RevokeContactRequest {
+                    identity: remote_identity.as_bytes().to_vec(),
+                },
+                token,
+            ))
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(
+            RpcContactStatus::try_from(revoked.status),
+            Ok(RpcContactStatus::Revoked)
+        );
+        assert_eq!(
+            RpcContactVerificationMethod::try_from(revoked.verification_method),
+            Ok(RpcContactVerificationMethod::Unspecified)
+        );
+        let contacts = client
+            .list_contacts(authenticated_request(ListContactsRequest {}, token))
+            .await
+            .unwrap()
+            .into_inner()
+            .contacts;
+        assert_eq!(contacts, vec![revoked]);
+    }
+
+    #[tokio::test]
+    async fn serves_authenticated_contact_lifecycle_with_bounded_inputs() {
+        let state_directory = state_directory();
+        let mut runtime = DaemonRuntime::start(ProtocolVersion::INITIAL, &state_directory).unwrap();
+        let mut keystore = MemoryKeystore::default();
+        ClientIdentity::create(&mut keystore).unwrap();
+        let remote = IdentityKeypair::generate().unwrap();
+        let invitation = ContactInvitation::create(&remote)
+            .unwrap()
+            .encode()
+            .unwrap();
+        let replacement = IdentityKeypair::generate().unwrap();
+        let rotation = IdentityRotation::create(&remote, replacement.public_key())
+            .unwrap()
+            .encode()
+            .unwrap();
+        let (auth, token) = DaemonLocalAuth::initialize().unwrap();
+        let server = DaemonServer::bind_with_identity_keystore(&runtime, auth, keystore).unwrap();
+        let socket_path = server.socket_path().to_path_buf();
+        let (shutdown_sender, shutdown_receiver) = oneshot::channel();
+
+        let server = server.serve_until(async move {
+            let _ = shutdown_receiver.await;
+        });
+        let client = async {
+            let mut client = contact_client(socket_path.clone()).await;
+            let _ = import_and_load_pending_contact(
+                &mut client,
+                &token,
+                &invitation,
+                &remote.public_key(),
+            )
+            .await;
+            reject_pending_rotation_and_revoke_contact(
+                &mut client,
+                &token,
+                &remote.public_key(),
+                rotation,
+            )
+            .await;
+            shutdown_sender.send(()).unwrap();
+        };
+        let (server, ()) = tokio::join!(server, client);
+        assert!(server.is_ok());
         assert!(!socket_path.exists());
         runtime.shutdown().unwrap();
         fs::remove_dir_all(state_directory).unwrap();

@@ -8,7 +8,8 @@ pub mod v1 {
 #[cfg(test)]
 mod tests {
     use super::v1::{
-        GetStatusResponse, IdentityInitialization, IdentityResponse, StartClientResponse,
+        ContactResponse, ContactStatus, ContactVerificationMethod, GetStatusResponse,
+        IdentityInitialization, IdentityResponse, StartClientResponse,
     };
 
     #[test]
@@ -45,6 +46,24 @@ mod tests {
         assert_eq!(
             IdentityInitialization::try_from(response.initialization),
             Ok(IdentityInitialization::Created)
+        );
+    }
+
+    #[test]
+    fn generated_contact_contract_preserves_every_field() {
+        let response = ContactResponse {
+            identity: vec![1; 32],
+            status: ContactStatus::Pending.into(),
+            verification_method: ContactVerificationMethod::Unspecified.into(),
+        };
+        assert_eq!(response.identity, vec![1; 32]);
+        assert_eq!(
+            ContactStatus::try_from(response.status),
+            Ok(ContactStatus::Pending)
+        );
+        assert_eq!(
+            ContactVerificationMethod::try_from(response.verification_method),
+            Ok(ContactVerificationMethod::Unspecified)
         );
     }
 }

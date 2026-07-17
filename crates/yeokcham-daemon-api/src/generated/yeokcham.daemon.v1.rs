@@ -24,6 +24,47 @@ pub struct IdentityResponse {
     pub initialization: i32,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ListContactsRequest {}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ListContactsResponse {
+    #[prost(message, repeated, tag = "1")]
+    pub contacts: ::prost::alloc::vec::Vec<ContactResponse>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct GetContactRequest {
+    #[prost(bytes = "vec", tag = "1")]
+    pub identity: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct GetContactResponse {
+    #[prost(message, optional, tag = "1")]
+    pub contact: ::core::option::Option<ContactResponse>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ImportContactInvitationRequest {
+    #[prost(bytes = "vec", tag = "1")]
+    pub invitation: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ApplyContactIdentityRotationRequest {
+    #[prost(bytes = "vec", tag = "1")]
+    pub rotation: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct RevokeContactRequest {
+    #[prost(bytes = "vec", tag = "1")]
+    pub identity: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ContactResponse {
+    #[prost(bytes = "vec", tag = "1")]
+    pub identity: ::prost::alloc::vec::Vec<u8>,
+    #[prost(enumeration = "ContactStatus", tag = "2")]
+    pub status: i32,
+    #[prost(enumeration = "ContactVerificationMethod", tag = "3")]
+    pub verification_method: i32,
+}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct GetStatusRequest {}
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct GetStatusResponse {
@@ -59,6 +100,67 @@ impl IdentityInitialization {
             "IDENTITY_INITIALIZATION_UNSPECIFIED" => Some(Self::Unspecified),
             "IDENTITY_INITIALIZATION_CREATED" => Some(Self::Created),
             "IDENTITY_INITIALIZATION_LOADED" => Some(Self::Loaded),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum ContactStatus {
+    Unspecified = 0,
+    Pending = 1,
+    Verified = 2,
+    Revoked = 3,
+}
+impl ContactStatus {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Unspecified => "CONTACT_STATUS_UNSPECIFIED",
+            Self::Pending => "CONTACT_STATUS_PENDING",
+            Self::Verified => "CONTACT_STATUS_VERIFIED",
+            Self::Revoked => "CONTACT_STATUS_REVOKED",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "CONTACT_STATUS_UNSPECIFIED" => Some(Self::Unspecified),
+            "CONTACT_STATUS_PENDING" => Some(Self::Pending),
+            "CONTACT_STATUS_VERIFIED" => Some(Self::Verified),
+            "CONTACT_STATUS_REVOKED" => Some(Self::Revoked),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum ContactVerificationMethod {
+    Unspecified = 0,
+    Qr = 1,
+    SafetyNumber = 2,
+}
+impl ContactVerificationMethod {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Unspecified => "CONTACT_VERIFICATION_METHOD_UNSPECIFIED",
+            Self::Qr => "CONTACT_VERIFICATION_METHOD_QR",
+            Self::SafetyNumber => "CONTACT_VERIFICATION_METHOD_SAFETY_NUMBER",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "CONTACT_VERIFICATION_METHOD_UNSPECIFIED" => Some(Self::Unspecified),
+            "CONTACT_VERIFICATION_METHOD_QR" => Some(Self::Qr),
+            "CONTACT_VERIFICATION_METHOD_SAFETY_NUMBER" => Some(Self::SafetyNumber),
             _ => None,
         }
     }
@@ -261,6 +363,142 @@ pub mod daemon_service_client {
                 );
             self.inner.unary(req, path, codec).await
         }
+        pub async fn list_contacts(
+            &mut self,
+            request: impl tonic::IntoRequest<super::ListContactsRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::ListContactsResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic_prost::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/yeokcham.daemon.v1.DaemonService/ListContacts",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new("yeokcham.daemon.v1.DaemonService", "ListContacts"),
+                );
+            self.inner.unary(req, path, codec).await
+        }
+        pub async fn get_contact(
+            &mut self,
+            request: impl tonic::IntoRequest<super::GetContactRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::GetContactResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic_prost::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/yeokcham.daemon.v1.DaemonService/GetContact",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new("yeokcham.daemon.v1.DaemonService", "GetContact"),
+                );
+            self.inner.unary(req, path, codec).await
+        }
+        pub async fn import_contact_invitation(
+            &mut self,
+            request: impl tonic::IntoRequest<super::ImportContactInvitationRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::ContactResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic_prost::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/yeokcham.daemon.v1.DaemonService/ImportContactInvitation",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "yeokcham.daemon.v1.DaemonService",
+                        "ImportContactInvitation",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
+        pub async fn apply_contact_identity_rotation(
+            &mut self,
+            request: impl tonic::IntoRequest<super::ApplyContactIdentityRotationRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::ContactResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic_prost::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/yeokcham.daemon.v1.DaemonService/ApplyContactIdentityRotation",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "yeokcham.daemon.v1.DaemonService",
+                        "ApplyContactIdentityRotation",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
+        pub async fn revoke_contact(
+            &mut self,
+            request: impl tonic::IntoRequest<super::RevokeContactRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::ContactResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic_prost::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/yeokcham.daemon.v1.DaemonService/RevokeContact",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new("yeokcham.daemon.v1.DaemonService", "RevokeContact"),
+                );
+            self.inner.unary(req, path, codec).await
+        }
         pub async fn get_status(
             &mut self,
             request: impl tonic::IntoRequest<super::GetStatusRequest>,
@@ -330,6 +568,32 @@ pub mod daemon_service_server {
             tonic::Response<super::IdentityResponse>,
             tonic::Status,
         >;
+        async fn list_contacts(
+            &self,
+            request: tonic::Request<super::ListContactsRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::ListContactsResponse>,
+            tonic::Status,
+        >;
+        async fn get_contact(
+            &self,
+            request: tonic::Request<super::GetContactRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::GetContactResponse>,
+            tonic::Status,
+        >;
+        async fn import_contact_invitation(
+            &self,
+            request: tonic::Request<super::ImportContactInvitationRequest>,
+        ) -> std::result::Result<tonic::Response<super::ContactResponse>, tonic::Status>;
+        async fn apply_contact_identity_rotation(
+            &self,
+            request: tonic::Request<super::ApplyContactIdentityRotationRequest>,
+        ) -> std::result::Result<tonic::Response<super::ContactResponse>, tonic::Status>;
+        async fn revoke_contact(
+            &self,
+            request: tonic::Request<super::RevokeContactRequest>,
+        ) -> std::result::Result<tonic::Response<super::ContactResponse>, tonic::Status>;
         async fn get_status(
             &self,
             request: tonic::Request<super::GetStatusRequest>,
@@ -583,6 +847,244 @@ pub mod daemon_service_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = CreateOrLoadIdentitySvc(inner);
+                        let codec = tonic_prost::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/yeokcham.daemon.v1.DaemonService/ListContacts" => {
+                    #[allow(non_camel_case_types)]
+                    struct ListContactsSvc<T: DaemonService>(pub Arc<T>);
+                    impl<
+                        T: DaemonService,
+                    > tonic::server::UnaryService<super::ListContactsRequest>
+                    for ListContactsSvc<T> {
+                        type Response = super::ListContactsResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::ListContactsRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as DaemonService>::list_contacts(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = ListContactsSvc(inner);
+                        let codec = tonic_prost::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/yeokcham.daemon.v1.DaemonService/GetContact" => {
+                    #[allow(non_camel_case_types)]
+                    struct GetContactSvc<T: DaemonService>(pub Arc<T>);
+                    impl<
+                        T: DaemonService,
+                    > tonic::server::UnaryService<super::GetContactRequest>
+                    for GetContactSvc<T> {
+                        type Response = super::GetContactResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::GetContactRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as DaemonService>::get_contact(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = GetContactSvc(inner);
+                        let codec = tonic_prost::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/yeokcham.daemon.v1.DaemonService/ImportContactInvitation" => {
+                    #[allow(non_camel_case_types)]
+                    struct ImportContactInvitationSvc<T: DaemonService>(pub Arc<T>);
+                    impl<
+                        T: DaemonService,
+                    > tonic::server::UnaryService<super::ImportContactInvitationRequest>
+                    for ImportContactInvitationSvc<T> {
+                        type Response = super::ContactResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<
+                                super::ImportContactInvitationRequest,
+                            >,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as DaemonService>::import_contact_invitation(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = ImportContactInvitationSvc(inner);
+                        let codec = tonic_prost::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/yeokcham.daemon.v1.DaemonService/ApplyContactIdentityRotation" => {
+                    #[allow(non_camel_case_types)]
+                    struct ApplyContactIdentityRotationSvc<T: DaemonService>(pub Arc<T>);
+                    impl<
+                        T: DaemonService,
+                    > tonic::server::UnaryService<
+                        super::ApplyContactIdentityRotationRequest,
+                    > for ApplyContactIdentityRotationSvc<T> {
+                        type Response = super::ContactResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<
+                                super::ApplyContactIdentityRotationRequest,
+                            >,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as DaemonService>::apply_contact_identity_rotation(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = ApplyContactIdentityRotationSvc(inner);
+                        let codec = tonic_prost::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/yeokcham.daemon.v1.DaemonService/RevokeContact" => {
+                    #[allow(non_camel_case_types)]
+                    struct RevokeContactSvc<T: DaemonService>(pub Arc<T>);
+                    impl<
+                        T: DaemonService,
+                    > tonic::server::UnaryService<super::RevokeContactRequest>
+                    for RevokeContactSvc<T> {
+                        type Response = super::ContactResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::RevokeContactRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as DaemonService>::revoke_contact(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = RevokeContactSvc(inner);
                         let codec = tonic_prost::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

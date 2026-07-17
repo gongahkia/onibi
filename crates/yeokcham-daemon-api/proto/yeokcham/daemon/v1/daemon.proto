@@ -7,6 +7,11 @@ service DaemonService {
   rpc CreateIdentity(CreateIdentityRequest) returns (IdentityResponse);
   rpc GetIdentity(GetIdentityRequest) returns (IdentityResponse);
   rpc CreateOrLoadIdentity(CreateOrLoadIdentityRequest) returns (IdentityResponse);
+  rpc ListContacts(ListContactsRequest) returns (ListContactsResponse);
+  rpc GetContact(GetContactRequest) returns (GetContactResponse);
+  rpc ImportContactInvitation(ImportContactInvitationRequest) returns (ContactResponse);
+  rpc ApplyContactIdentityRotation(ApplyContactIdentityRotationRequest) returns (ContactResponse);
+  rpc RevokeContact(RevokeContactRequest) returns (ContactResponse);
   rpc GetStatus(GetStatusRequest) returns (GetStatusResponse);
 }
 
@@ -33,6 +38,51 @@ enum IdentityInitialization {
 message IdentityResponse {
   bytes public_key = 1;
   IdentityInitialization initialization = 2;
+}
+
+message ListContactsRequest {}
+
+message ListContactsResponse {
+  repeated ContactResponse contacts = 1;
+}
+
+message GetContactRequest {
+  bytes identity = 1;
+}
+
+message GetContactResponse {
+  ContactResponse contact = 1;
+}
+
+message ImportContactInvitationRequest {
+  bytes invitation = 1;
+}
+
+message ApplyContactIdentityRotationRequest {
+  bytes rotation = 1;
+}
+
+message RevokeContactRequest {
+  bytes identity = 1;
+}
+
+enum ContactStatus {
+  CONTACT_STATUS_UNSPECIFIED = 0;
+  CONTACT_STATUS_PENDING = 1;
+  CONTACT_STATUS_VERIFIED = 2;
+  CONTACT_STATUS_REVOKED = 3;
+}
+
+enum ContactVerificationMethod {
+  CONTACT_VERIFICATION_METHOD_UNSPECIFIED = 0;
+  CONTACT_VERIFICATION_METHOD_QR = 1;
+  CONTACT_VERIFICATION_METHOD_SAFETY_NUMBER = 2;
+}
+
+message ContactResponse {
+  bytes identity = 1;
+  ContactStatus status = 2;
+  ContactVerificationMethod verification_method = 3;
 }
 
 message GetStatusRequest {}

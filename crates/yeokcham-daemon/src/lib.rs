@@ -86,7 +86,9 @@ pub use direct_transport::{
     DirectTransportError, MAX_DIRECT_CONCURRENT_STREAMS, MAX_DIRECT_CONNECTION_ATTEMPT_TIMEOUT,
     MAX_DIRECT_CONNECTION_ATTEMPTS, MAX_DIRECT_CONNECTION_WINDOW_BYTES, MAX_DIRECT_RETRY_BACKOFF,
 };
-pub use grpc_service::{DaemonGrpcService, DaemonGrpcServiceConfigurationError};
+pub use grpc_service::{
+    DaemonGrpcService, DaemonGrpcServiceConfigurationError, MAX_DAEMON_CONTACTS_RESPONSE,
+};
 pub use inbox_deduplication::{
     INBOX_DEDUPLICATION_SCHEMA_VERSION, InboxDeduplicationResult, InboxMessage,
     MAX_INBOX_DEDUPLICATION_ENTRIES, RecipientInboxDeduplication, RecipientInboxDeduplicationError,
