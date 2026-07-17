@@ -14,7 +14,6 @@ import {
   terminalFontSizeKey
 } from "./terminal";
 import type { TerminalThemeName } from "./terminal";
-import { AnomalyOverlay } from "./anomaly";
 import { ApprovalOverlay } from "./approval";
 import { EventsWS } from "./events";
 import type { EventEnvelope, ToastPayload } from "./events";
@@ -67,7 +66,6 @@ const ws = new TerminalWS();
 const events = new EventsWS();
 const approvalWakeLock = new ApprovalWakeLock();
 const approvals = new ApprovalOverlay(approvalRoot, approvalWakeLock);
-const anomalies = new AnomalyOverlay(approvalRoot);
 let relayE2E: RelayE2E | undefined;
 let sessionList: SessionsListView | undefined;
 let snapshots: SnapshotsPanel | undefined;
@@ -130,7 +128,6 @@ events.addEventListener("event", (event) => {
   const envelope = (event as CustomEvent<EventEnvelope>).detail;
   if (!viewerMode) {
     approvals.handleEnvelope(envelope);
-    anomalies.handleEnvelope(envelope);
   }
   sessionList?.handleEnvelope(envelope);
   fleetHome?.handleEnvelope(envelope);
@@ -152,7 +149,6 @@ async function boot(): Promise<void> {
     ws.setE2E(relayE2E);
     events.setE2E(relayE2E);
     approvals.setPostJSON(postJSON);
-    anomalies.setPostJSON(postJSON);
     const routeSession = routeSessionID();
     if (routeSession === null) {
       await showSessionsHome();

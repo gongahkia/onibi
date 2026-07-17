@@ -1035,18 +1035,6 @@
   display: none;
 }
 
-.anomaly-card .approval-title {
-  overflow-wrap: anywhere;
-}
-
-.anomaly-evidence {
-  box-sizing: border-box;
-  width: 100%;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  font-family: var(--mono-font);
-}
-
 .tour-root {
   position: fixed;
   inset: 0;

@@ -3,9 +3,6 @@ package approval
 import (
 	"encoding/json"
 	"strings"
-	"time"
-
-	"github.com/gongahkia/onibi/internal/anomaly"
 )
 
 type RiskLevel = string
@@ -21,26 +18,8 @@ type Risk struct {
 	Reasons []string  `json:"reasons,omitempty"`
 }
 
-type RiskEvent struct {
-	SessionID      string
-	Agent          string
-	Tool           string
-	InputJSON      string
-	Command        string
-	FilePath       string
-	CWD            string
-	At             time.Time
-	Turn           int
-	History        []anomaly.Action
-	AnomalyOptions anomaly.Options
-}
-
 func ClassifyRisk(tool, inputJSON string) Risk {
-	return ClassifyEventRisk(RiskEvent{Tool: tool, InputJSON: inputJSON})
-}
-
-func ClassifyEventRisk(ev RiskEvent) Risk {
-	return combineRisk(staticRisk(ev.Tool, ev.InputJSON), behaviorRisk(ev))
+	return staticRisk(tool, inputJSON)
 }
 
 func staticRisk(tool, inputJSON string) Risk {
@@ -76,63 +55,6 @@ func staticRisk(tool, inputJSON string) Risk {
 		}
 	}
 	return Risk{Level: level, Reasons: reasons}
-}
-
-func behaviorRisk(ev RiskEvent) Risk {
-	action := anomaly.Action{
-		SessionID: ev.SessionID,
-		Agent:     ev.Agent,
-		Tool:      ev.Tool,
-		InputJSON: ev.InputJSON,
-		Command:   ev.Command,
-		FilePath:  ev.FilePath,
-		CWD:       ev.CWD,
-		At:        ev.At,
-		Turn:      ev.Turn,
-	}
-	findings := anomaly.EvaluateOne(ev.History, action, ev.AnomalyOptions)
-	var reasons []string
-	for _, finding := range findings {
-		if finding.RuleName == anomaly.RuleExfilHost && !hasNetworkPolicy(ev.AnomalyOptions) {
-			continue
-		}
-		reasons = append(reasons, "anomaly: "+finding.RuleName)
-	}
-	if len(reasons) == 0 {
-		return Risk{Level: RiskLow}
-	}
-	return Risk{Level: RiskHigh, Reasons: dedupe(reasons)}
-}
-
-func hasNetworkPolicy(opts anomaly.Options) bool {
-	return strings.TrimSpace(opts.WorkspaceRoot) != "" || len(opts.NetworkAllowlist) > 0
-}
-
-func combineRisk(static, behavior Risk) Risk {
-	level := maxRiskLevel(static.Level, behavior.Level)
-	reasons := append(append([]string(nil), static.Reasons...), behavior.Reasons...)
-	return Risk{Level: level, Reasons: dedupe(reasons)}
-}
-
-func maxRiskLevel(a, b RiskLevel) RiskLevel {
-	if riskRank(b) > riskRank(a) {
-		return b
-	}
-	if a == "" {
-		return RiskLow
-	}
-	return a
-}
-
-func riskRank(level RiskLevel) int {
-	switch level {
-	case RiskHigh:
-		return 3
-	case RiskMedium:
-		return 2
-	default:
-		return 1
-	}
 }
 
 func bashRisk(cmd string) []string {

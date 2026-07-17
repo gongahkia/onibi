@@ -13,7 +13,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gongahkia/onibi/internal/anomaly"
 	"github.com/gongahkia/onibi/internal/approval"
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/fleet"
@@ -94,7 +93,6 @@ type Daemon struct {
 	notifyActionSigner    *web.ActionSigner
 	notified              map[string]bool // session id → already-fired turn-complete once
 	sessionActivityEvents map[string]time.Time
-	anomalyHistory        map[string][]anomaly.Action
 	started               time.Time
 	tailnetStatus         func(context.Context) ([]byte, error)
 	tailnetHealth         func(context.Context, string, fleet.Host) (bool, error)
@@ -281,7 +279,6 @@ func New(opts Options) *Daemon {
 		signalApprovals:         map[int64]string{},
 		notified:                map[string]bool{},
 		sessionActivityEvents:   map[string]time.Time{},
-		anomalyHistory:          map[string][]anomaly.Action{},
 		started:                 time.Now(),
 		ExitWhenIdle:            opts.ExitWhenIdle,
 		SkipRestore:             opts.SkipRestore,
@@ -576,7 +573,6 @@ func (d *Daemon) Run(ctx context.Context) error {
 			Handover:              d.HandoverSession,
 			Scroll:                d.ScrollSession,
 			TrustRuntime:          d.AddRuntimeTrustRule,
-			AnomalyAllow:          d.AddAnomalyAllowlistRule,
 			Snapshots:             d.WebSnapshots,
 			SnapshotRestore:       d.WebRestoreSnapshot,
 			SnapshotFork:          d.WebForkSnapshot,

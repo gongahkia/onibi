@@ -40,7 +40,6 @@ type Options struct {
 	Handover              func(context.Context, string, string) (string, error)
 	Scroll                func(context.Context, string, string) error
 	TrustRuntime          func(context.Context, TrustRuntimeRequest) (string, error)
-	AnomalyAllow          func(context.Context, AnomalyAllowlistRequest) (string, error)
 	Snapshots             func(context.Context) ([]Snapshot, error)
 	SnapshotRestore       func(context.Context, string) (SnapshotActionResult, error)
 	SnapshotFork          func(context.Context, SnapshotForkRequest) (SnapshotActionResult, error)
@@ -64,7 +63,6 @@ type Server struct {
 	handover              func(context.Context, string, string) (string, error)
 	scroll                func(context.Context, string, string) error
 	trustRuntime          func(context.Context, TrustRuntimeRequest) (string, error)
-	anomalyAllow          func(context.Context, AnomalyAllowlistRequest) (string, error)
 	snapshots             func(context.Context) ([]Snapshot, error)
 	snapshotRestore       func(context.Context, string) (SnapshotActionResult, error)
 	snapshotFork          func(context.Context, SnapshotForkRequest) (SnapshotActionResult, error)
@@ -97,7 +95,6 @@ func New(opts Options) *Server {
 		handover:              opts.Handover,
 		scroll:                opts.Scroll,
 		trustRuntime:          opts.TrustRuntime,
-		anomalyAllow:          opts.AnomalyAllow,
 		snapshots:             opts.Snapshots,
 		snapshotRestore:       opts.SnapshotRestore,
 		snapshotFork:          opts.SnapshotFork,
@@ -158,7 +155,6 @@ func (s *Server) Handler() http.Handler {
 		mux.HandleFunc("/gotify/approval/{id}/{verdict}", s.handleGotifyApprovalAction)
 	}
 	mux.HandleFunc("/trust/runtime", s.handleTrustRuntime)
-	mux.HandleFunc("/anomaly/allowlist", s.handleAnomalyAllowlist)
 	mux.HandleFunc("/", s.handleRoot)
 	return s.loggedHandler(s.e2eHTTPHandler(mux))
 }
