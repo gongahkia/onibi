@@ -37,6 +37,7 @@ minicbor = { version = "2.2.2", features = ["std"] }
 mdns-sd = { version = "0.20.1", default-features = false }
 natpmp = "0.5.0"
 prost = "=0.14.4"
+protoc-bin-vendored = "=3.2.0"
 quinn = { version = "0.11.11", default-features = false, features = ["runtime-tokio", "rustls-ring"] }
 proptest = "1.11.0"
 rusqlite = { version = "0.37.0", default-features = false, features = ["bundled"] }

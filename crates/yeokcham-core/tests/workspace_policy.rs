@@ -32,6 +32,26 @@ fn pins_toolchain_and_tracks_lockfile() {
 }
 
 #[test]
+fn grpc_codegen_uses_the_pinned_vendored_protobuf_compiler() {
+    let workspace_manifest = fs::read_to_string(workspace_file("Cargo.toml"))
+        .expect("workspace must include Cargo.toml");
+    assert!(workspace_manifest.contains("protoc-bin-vendored = \"=3.2.0\""));
+
+    for package in ["yeokcham-daemon-api", "yeokcham-relay-api"] {
+        let manifest = fs::read_to_string(workspace_file(&format!("crates/{package}/Cargo.toml")))
+            .expect("generated API crate must include Cargo.toml");
+        assert!(manifest.contains("protoc-bin-vendored.workspace = true"));
+
+        let build_script =
+            fs::read_to_string(workspace_file(&format!("crates/{package}/build.rs")))
+                .expect("generated API crate must include build.rs");
+        assert!(build_script.contains("protoc_bin_vendored::protoc_bin_path()?"));
+        assert!(build_script.contains("config.protoc_executable(protoc);"));
+        assert!(build_script.contains(".compile_with_config("));
+    }
+}
+
+#[test]
 fn workspace_features_are_explicitly_opt_in() {
     let policy = fs::read_to_string(workspace_file("FEATURES.md"))
         .expect("workspace must document feature policy");
