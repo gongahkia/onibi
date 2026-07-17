@@ -5,6 +5,7 @@ mod attachment_download;
 mod attachment_key;
 mod attachment_manifest;
 mod attachment_upload;
+mod ble_frame;
 mod contact_invitation;
 mod delivery_acknowledgement;
 mod delivery_profile;
@@ -64,6 +65,11 @@ pub use attachment_manifest::{
 pub use attachment_upload::{
     ATTACHMENT_UPLOAD_JOURNAL_SCHEMA_VERSION, AttachmentUploadError, AttachmentUploadJournal,
     MAX_ATTACHMENT_UPLOAD_JOURNAL_BYTES,
+};
+pub use ble_frame::{
+    BLE_FRAGMENT_HEADER_BYTES, BLE_FRAGMENT_PROTOCOL_VERSION, BleFragment, BleFragmentLimits,
+    BleFrameError, BleFrameReassembler, MAX_BLE_FRAGMENT_COUNT, MAX_BLE_WIRE_FRAME_BYTES,
+    MIN_BLE_GATT_CHARACTERISTIC_VALUE_BYTES,
 };
 pub use contact_invitation::{
     CONTACT_INVITATION_BYTES, CONTACT_INVITATION_NONCE_BYTES, CONTACT_INVITATION_SCHEMA_VERSION,
