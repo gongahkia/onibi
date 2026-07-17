@@ -3958,6 +3958,7 @@ name = "yeokcham-ffi"
 version = "0.1.0"
 dependencies = [
  "cc",
+ "tokio",
  "yeokcham-core",
  "yeokcham-protocol",
  "yeokcham-sdk",

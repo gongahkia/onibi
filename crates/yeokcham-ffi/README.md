@@ -39,6 +39,12 @@
 - It writes a 16-byte message identifier only after queueing succeeds and clears that output before every failure. Invalid message input returns `YEOKCHAM_STATUS_INVALID_INPUT`; a missing identity, stopped client, or unavailable outbox returns `YEOKCHAM_STATUS_STATE`; a full outbox returns `YEOKCHAM_STATUS_RESOURCE_LIMIT`.
 - Client-scoped failures expose only bounded redacted `sdk_message_*` error-detail tokens.
 
+## Attachments
+
+- `yeokcham_attachment_transfer_create` accepts one encoded manifest and at most 1,600 encoded chunks through caller-owned `yeokcham_byte_slice_t` descriptors; each manifest and chunk has an explicit ABI maximum.
+- `yeokcham_attachment_transfer_run_cycle` uploads no more than the configured 1–64 chunks through a synchronous callback. `YEOKCHAM_STATUS_OK` acknowledges an upload; any other callback status records a retry outcome without losing transfer state.
+- A transfer is unavailable to concurrent cycles or release while its upload callback is running. The cycle output is cleared before failure; release accepts exactly one idle active handle.
+
 ## Library-owned buffers
 
 - `yeokcham_client_take_last_error_detail` transfers the redacted detail into an opaque library-owned buffer and writes a null output on failure. Read its bytes and length with `yeokcham_buffer_data` and `yeokcham_buffer_length`, then call `yeokcham_buffer_release` exactly once.

@@ -42,11 +42,21 @@
 #define YEOKCHAM_DIRECT_IP_DISCLOSURE_WARNING UINT32_C(1)
 #define YEOKCHAM_MESSAGE_IDENTIFIER_BYTES UINT32_C(16)
 #define YEOKCHAM_MAX_MESSAGE_ENVELOPE_BYTES UINT32_C(1048544)
+#define YEOKCHAM_MAX_ATTACHMENT_TRANSFERS UINT32_C(1024)
+#define YEOKCHAM_ATTACHMENT_IDENTIFIER_BYTES UINT32_C(16)
+#define YEOKCHAM_MAX_ATTACHMENT_CHUNKS UINT32_C(1600)
+#define YEOKCHAM_MAX_ATTACHMENT_CHUNKS_PER_CYCLE UINT32_C(64)
+#define YEOKCHAM_MAX_ATTACHMENT_MANIFEST_BYTES UINT32_C(4194304)
+#define YEOKCHAM_MAX_ATTACHMENT_CHUNK_BYTES UINT32_C(65640)
+#define YEOKCHAM_ATTACHMENT_DELIVERY_COMPLETE UINT32_C(1)
+#define YEOKCHAM_ATTACHMENT_DELIVERY_PENDING UINT32_C(2)
+#define YEOKCHAM_ATTACHMENT_DELIVERY_RETRYING UINT32_C(3)
 
 typedef struct yeokcham_client yeokcham_client_t; // library-owned opaque client; release with yeokcham_client_release
 typedef struct yeokcham_client_config_builder yeokcham_client_config_builder_t; // library-owned configuration builder; release with yeokcham_client_config_builder_release
 typedef struct yeokcham_buffer yeokcham_buffer_t; // library-owned opaque bytes; release with yeokcham_buffer_release
 typedef struct yeokcham_event_subscription yeokcham_event_subscription_t; // library-owned opaque stream; release with yeokcham_event_subscription_release
+typedef struct yeokcham_attachment_transfer yeokcham_attachment_transfer_t; // library-owned opaque transfer; release with yeokcham_attachment_transfer_release
 typedef struct yeokcham_event {
     uint32_t version;
     uint64_t sequence;
@@ -68,9 +78,19 @@ typedef struct yeokcham_delivery_profile {
     uint32_t kind;
     uint32_t direct_ip_disclosure_warning;
 } yeokcham_delivery_profile_t;
+typedef struct yeokcham_byte_slice {
+    const uint8_t *data;
+    size_t length;
+} yeokcham_byte_slice_t;
+typedef struct yeokcham_attachment_delivery_cycle {
+    uint32_t uploaded;
+    uint32_t outcome;
+    uint32_t next_pending_index;
+} yeokcham_attachment_delivery_cycle_t;
 
 typedef int32_t yeokcham_status_t;
 typedef void (*yeokcham_completion_callback_t)(yeokcham_status_t status, void *context);
+typedef yeokcham_status_t (*yeokcham_attachment_upload_callback_t)(const uint8_t *manifest, size_t manifest_length, const uint8_t *chunk, size_t chunk_length, void *context);
 
 #define YEOKCHAM_STATUS_OK INT32_C(0)
 #define YEOKCHAM_STATUS_INVALID_INPUT INT32_C(1)
@@ -132,6 +152,20 @@ yeokcham_status_t yeokcham_client_message_send(
     uint32_t ttl_seconds,
     uint8_t message_identifier[YEOKCHAM_MESSAGE_IDENTIFIER_BYTES]
 ); // requires a running client with an identity and canonical bounded envelope; clears message_identifier before any failure
+yeokcham_attachment_transfer_t *yeokcham_attachment_transfer_create(
+    const uint8_t *manifest,
+    size_t manifest_length,
+    const yeokcham_byte_slice_t *chunks,
+    size_t chunk_count,
+    uint32_t maximum_chunks_per_cycle
+); // null for invalid bounded transfer input or transfer capacity exhaustion
+yeokcham_status_t yeokcham_attachment_transfer_run_cycle(
+    yeokcham_attachment_transfer_t *transfer,
+    yeokcham_attachment_upload_callback_t upload,
+    void *context,
+    yeokcham_attachment_delivery_cycle_t *cycle
+); // callback must synchronously return ok only after upload succeeds; clears cycle before any failure
+yeokcham_status_t yeokcham_attachment_transfer_release(yeokcham_attachment_transfer_t *transfer); // exactly one idle active release returns ok
 yeokcham_status_t yeokcham_client_copy_last_error_detail(
     const yeokcham_client_t *client,
     uint8_t *buffer,

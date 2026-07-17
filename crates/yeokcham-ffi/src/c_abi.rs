@@ -2,6 +2,7 @@ use std::{
     collections::BTreeMap,
     convert::Infallible,
     ffi::c_void,
+    future::{Future, ready},
     path::PathBuf,
     sync::{
         Arc, Mutex, OnceLock,
@@ -13,14 +14,17 @@ use std::{
 use crate::{
     YEOKCHAM_ABI_NEGOTIATION_REJECTED, YEOKCHAM_ABI_VERSION, YEOKCHAM_EVENT_CLIENT_STARTED,
     YEOKCHAM_EVENT_CLIENT_STOPPED, YEOKCHAM_EVENT_MESSAGE_DELIVERED,
-    YEOKCHAM_EVENT_MESSAGE_DELIVERY_FAILED, YEOKCHAM_EVENT_MESSAGE_QUEUED, YeokchamBuffer,
+    YEOKCHAM_EVENT_MESSAGE_DELIVERY_FAILED, YEOKCHAM_EVENT_MESSAGE_QUEUED,
+    YeokchamAttachmentDeliveryCycle, YeokchamAttachmentTransfer, YeokchamBuffer, YeokchamByteSlice,
     YeokchamClient, YeokchamClientConfigBuilder, YeokchamContact, YeokchamDeliveryProfile,
     YeokchamDeliveryProfilePolicy, YeokchamEvent, YeokchamEventSubscription, YeokchamStatus,
 };
 use yeokcham_core::{IdentityPublicKey, KeystoreEntryName, KeystoreSecret, OsKeystore};
 use yeokcham_sdk::{
-    RuntimeMode, SdkClient, SdkClientError, SdkConfig, SdkContact, SdkContactError,
-    SdkContactStatus, SdkContactVerificationMethod, SdkDeliveryProfile, SdkDeliveryProfileKind,
+    RuntimeMode, SdkAttachmentChunk, SdkAttachmentDeliveryCycle, SdkAttachmentDeliveryOutcome,
+    SdkAttachmentDeliveryTransport, SdkAttachmentManifest, SdkAttachmentTransfer, SdkClient,
+    SdkClientError, SdkConfig, SdkContact, SdkContactError, SdkContactStatus,
+    SdkContactVerificationMethod, SdkDeliveryProfile, SdkDeliveryProfileKind,
     SdkDeliveryProfilePolicy, SdkDeliveryProfilePolicyError, SdkDirectIpDisclosureAcknowledgement,
     SdkEvent, SdkEventEnvelope, SdkEventStream, SdkEventStreamError, SdkIdentityError,
     SdkIdentityManager, SdkLocalMeshPolicy, SdkLocalMeshTransportKind, SdkMessageEnvelope,
@@ -30,6 +34,7 @@ use zeroize::{Zeroize, Zeroizing};
 
 pub const MAX_C_ABI_CLIENT_CONFIG_BUILDERS: usize = 1024;
 pub const MAX_C_ABI_CLIENTS: usize = 1024;
+pub const MAX_C_ABI_ATTACHMENT_TRANSFERS: usize = 1024;
 pub const MAX_C_ABI_CALLBACK_WORKERS: usize = 4;
 pub const MAX_C_ABI_BUFFERS: usize = 1024;
 pub const MAX_C_ABI_EVENT_SUBSCRIPTIONS: usize = 1024;
@@ -83,6 +88,8 @@ impl OsKeystore for ClientKeystore {
 }
 
 static ACTIVE_CLIENTS: OnceLock<Mutex<BTreeMap<usize, ClientHandle>>> = OnceLock::new();
+static ACTIVE_ATTACHMENT_TRANSFERS: OnceLock<Mutex<BTreeMap<usize, AttachmentTransferHandle>>> =
+    OnceLock::new();
 static ACTIVE_CLIENT_CONFIG_BUILDERS: OnceLock<Mutex<BTreeMap<usize, ClientConfigBuilder>>> =
     OnceLock::new();
 static ACTIVE_BUFFERS: OnceLock<Mutex<BTreeMap<usize, Vec<u8>>>> = OnceLock::new();
@@ -96,6 +103,39 @@ static CALLBACK_QUEUE: OnceLock<Option<SyncSender<PendingCompletion>>> = OnceLoc
 pub static CLIENT_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 pub type YeokchamCompletionCallback = extern "C" fn(i32, *mut c_void);
+pub type YeokchamAttachmentUploadCallback =
+    extern "C" fn(*const u8, usize, *const u8, usize, *mut c_void) -> YeokchamStatus;
+
+enum AttachmentTransferHandle {
+    Ready(SdkAttachmentTransfer),
+    Running,
+}
+
+struct CAttachmentTransport {
+    callback: YeokchamAttachmentUploadCallback,
+    context: *mut c_void,
+}
+
+unsafe impl Send for CAttachmentTransport {}
+
+impl SdkAttachmentDeliveryTransport for CAttachmentTransport {
+    type Error = ();
+
+    fn upload_chunk(
+        &mut self,
+        manifest: &[u8],
+        chunk: &[u8],
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
+        let status = (self.callback)(
+            manifest.as_ptr(),
+            manifest.len(),
+            chunk.as_ptr(),
+            chunk.len(),
+            self.context,
+        );
+        ready((status == YeokchamStatus::Ok).then_some(()).ok_or(()))
+    }
+}
 
 struct PendingCompletion {
     callback: YeokchamCompletionCallback,
@@ -657,6 +697,143 @@ pub unsafe extern "C" fn yeokcham_client_message_send(
 
 #[unsafe(no_mangle)]
 #[allow(clippy::missing_safety_doc)]
+pub unsafe extern "C" fn yeokcham_attachment_transfer_create(
+    manifest: *const u8,
+    manifest_length: usize,
+    chunks: *const YeokchamByteSlice,
+    chunk_count: usize,
+    maximum_chunks_per_cycle: u32,
+) -> *mut YeokchamAttachmentTransfer {
+    if manifest.is_null()
+        || chunks.is_null()
+        || manifest_length == 0
+        || manifest_length > crate::YEOKCHAM_MAX_ATTACHMENT_MANIFEST_BYTES
+        || chunk_count == 0
+        || chunk_count > crate::YEOKCHAM_MAX_ATTACHMENT_CHUNKS
+    {
+        return std::ptr::null_mut();
+    }
+    let Ok(maximum_chunks_per_cycle) = usize::try_from(maximum_chunks_per_cycle) else {
+        return std::ptr::null_mut();
+    };
+    if maximum_chunks_per_cycle == 0
+        || maximum_chunks_per_cycle > crate::YEOKCHAM_MAX_ATTACHMENT_CHUNKS_PER_CYCLE
+    {
+        return std::ptr::null_mut();
+    }
+    let manifest = unsafe { std::slice::from_raw_parts(manifest, manifest_length) };
+    let Ok(manifest) = SdkAttachmentManifest::from_encoded(manifest) else {
+        return std::ptr::null_mut();
+    };
+    let chunks = unsafe { std::slice::from_raw_parts(chunks, chunk_count) };
+    let mut attachment_chunks = Vec::with_capacity(chunk_count);
+    for chunk in chunks {
+        if chunk.data.is_null()
+            || chunk.length == 0
+            || chunk.length > crate::YEOKCHAM_MAX_ATTACHMENT_CHUNK_BYTES
+        {
+            return std::ptr::null_mut();
+        }
+        let encoded = unsafe { std::slice::from_raw_parts(chunk.data, chunk.length) };
+        let Ok(chunk) = SdkAttachmentChunk::from_encoded(encoded) else {
+            return std::ptr::null_mut();
+        };
+        attachment_chunks.push(chunk);
+    }
+    let Ok(transfer) =
+        SdkAttachmentTransfer::new(manifest, attachment_chunks, maximum_chunks_per_cycle)
+    else {
+        return std::ptr::null_mut();
+    };
+    let Ok(mut transfers) = active_attachment_transfers().lock() else {
+        return std::ptr::null_mut();
+    };
+    if transfers.len() >= MAX_C_ABI_ATTACHMENT_TRANSFERS {
+        return std::ptr::null_mut();
+    }
+    let Some(identifier) = next_handle_identifier() else {
+        return std::ptr::null_mut();
+    };
+    transfers.insert(identifier, AttachmentTransferHandle::Ready(transfer));
+    std::ptr::without_provenance_mut(identifier)
+}
+
+#[unsafe(no_mangle)]
+#[allow(clippy::missing_safety_doc)]
+pub unsafe extern "C" fn yeokcham_attachment_transfer_run_cycle(
+    transfer: *mut YeokchamAttachmentTransfer,
+    upload: Option<YeokchamAttachmentUploadCallback>,
+    context: *mut c_void,
+    cycle: *mut YeokchamAttachmentDeliveryCycle,
+) -> YeokchamStatus {
+    if cycle.is_null() {
+        return YeokchamStatus::InvalidInput;
+    }
+    unsafe { cycle.write(YeokchamAttachmentDeliveryCycle::default()) };
+    let Some(upload) = upload else {
+        return YeokchamStatus::InvalidInput;
+    };
+    let identifier = transfer.addr();
+    if identifier == 0 {
+        return YeokchamStatus::InvalidInput;
+    }
+    let transfer = {
+        let Ok(mut transfers) = active_attachment_transfers().lock() else {
+            return YeokchamStatus::State;
+        };
+        let Some(transfer) = transfers.get_mut(&identifier) else {
+            return YeokchamStatus::InvalidInput;
+        };
+        match std::mem::replace(transfer, AttachmentTransferHandle::Running) {
+            AttachmentTransferHandle::Ready(transfer) => transfer,
+            AttachmentTransferHandle::Running => return YeokchamStatus::State,
+        }
+    };
+    let Ok(runtime) = tokio::runtime::Builder::new_current_thread().build() else {
+        return restore_attachment_transfer(identifier, transfer);
+    };
+    let mut transport = CAttachmentTransport {
+        callback: upload,
+        context,
+    };
+    let mut transfer = transfer;
+    let result = runtime.block_on(transfer.run_cycle(&mut transport));
+    let status = result.map_or(YeokchamStatus::State, |delivery_cycle| {
+        unsafe { cycle.write(c_attachment_delivery_cycle(delivery_cycle)) };
+        YeokchamStatus::Ok
+    });
+    let restore_status = restore_attachment_transfer(identifier, transfer);
+    if restore_status != YeokchamStatus::Ok {
+        unsafe { cycle.write(YeokchamAttachmentDeliveryCycle::default()) };
+        return restore_status;
+    }
+    status
+}
+
+#[unsafe(no_mangle)]
+#[allow(clippy::missing_safety_doc)]
+pub unsafe extern "C" fn yeokcham_attachment_transfer_release(
+    transfer: *mut YeokchamAttachmentTransfer,
+) -> YeokchamStatus {
+    let identifier = transfer.addr();
+    if identifier == 0 {
+        return YeokchamStatus::InvalidInput;
+    }
+    let Ok(mut transfers) = active_attachment_transfers().lock() else {
+        return YeokchamStatus::State;
+    };
+    match transfers.get(&identifier) {
+        None => YeokchamStatus::InvalidInput,
+        Some(AttachmentTransferHandle::Running) => YeokchamStatus::State,
+        Some(AttachmentTransferHandle::Ready(_)) => {
+            transfers.remove(&identifier);
+            YeokchamStatus::Ok
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C" fn yeokcham_client_copy_last_error_detail(
     client: *const YeokchamClient,
     buffer: *mut u8,
@@ -1031,6 +1208,10 @@ fn active_clients() -> &'static Mutex<BTreeMap<usize, ClientHandle>> {
     ACTIVE_CLIENTS.get_or_init(|| Mutex::new(BTreeMap::new()))
 }
 
+fn active_attachment_transfers() -> &'static Mutex<BTreeMap<usize, AttachmentTransferHandle>> {
+    ACTIVE_ATTACHMENT_TRANSFERS.get_or_init(|| Mutex::new(BTreeMap::new()))
+}
+
 fn active_client_config_builders() -> &'static Mutex<BTreeMap<usize, ClientConfigBuilder>> {
     ACTIVE_CLIENT_CONFIG_BUILDERS.get_or_init(|| Mutex::new(BTreeMap::new()))
 }
@@ -1068,6 +1249,43 @@ fn c_contact(contact: SdkContact) -> YeokchamContact {
         identity: *contact.identity().as_bytes(),
         status,
         verification,
+    }
+}
+
+fn restore_attachment_transfer(
+    identifier: usize,
+    transfer: SdkAttachmentTransfer,
+) -> YeokchamStatus {
+    let Ok(mut transfers) = active_attachment_transfers().lock() else {
+        return YeokchamStatus::State;
+    };
+    let Some(state) = transfers.get_mut(&identifier) else {
+        return YeokchamStatus::InvalidInput;
+    };
+    if !matches!(state, AttachmentTransferHandle::Running) {
+        return YeokchamStatus::State;
+    }
+    *state = AttachmentTransferHandle::Ready(transfer);
+    YeokchamStatus::Ok
+}
+
+fn c_attachment_delivery_cycle(
+    cycle: SdkAttachmentDeliveryCycle,
+) -> YeokchamAttachmentDeliveryCycle {
+    let (outcome, next_pending_index) = match cycle.outcome() {
+        SdkAttachmentDeliveryOutcome::Complete => (crate::YEOKCHAM_ATTACHMENT_DELIVERY_COMPLETE, 0),
+        SdkAttachmentDeliveryOutcome::Pending(index) => {
+            (crate::YEOKCHAM_ATTACHMENT_DELIVERY_PENDING, index)
+        }
+        SdkAttachmentDeliveryOutcome::Retrying(index) => {
+            (crate::YEOKCHAM_ATTACHMENT_DELIVERY_RETRYING, index)
+        }
+    };
+    YeokchamAttachmentDeliveryCycle {
+        uploaded: u32::try_from(cycle.uploaded())
+            .expect("attachment cycle upload count is bounded"),
+        outcome,
+        next_pending_index,
     }
 }
 
@@ -1370,21 +1588,28 @@ fn sdk_contact_error_detail(error: &SdkContactError) -> &'static [u8] {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::{
+        ffi::c_void,
+        sync::atomic::{AtomicUsize, Ordering},
+    };
 
     use yeokcham_core::{IdentityKeypair, IdentityPublicKey};
     use yeokcham_protocol::{
-        ContactInvitation, EncryptedMessageEnvelope, QrVerificationPayload, SafetyNumberFingerprint,
+        ATTACHMENT_CHUNK_BYTES, AttachmentIdentifier, AttachmentKey, AttachmentManifest,
+        ContactInvitation, EncryptedAttachmentChunk, EncryptedMessageEnvelope,
+        QrVerificationPayload, SafetyNumberFingerprint,
     };
 
     use super::{
         CLIENT_TEST_LOCK, MAX_C_ABI_BUFFERS, MAX_C_ABI_CALLBACK_WORKERS,
         MAX_C_ABI_ERROR_DETAIL_BYTES, MAX_C_ABI_EVENT_SUBSCRIPTIONS, MAX_C_ABI_PENDING_COMPLETIONS,
         MAX_C_ABI_SECRET_BUFFER_BYTES, MAX_C_ABI_STATE_DIRECTORY_BYTES, PENDING_COMPLETIONS,
-        SdkClientError, SdkEvent, SdkEventEnvelope, YeokchamContact, YeokchamDeliveryProfile,
-        YeokchamDeliveryProfilePolicy, YeokchamEvent, YeokchamStatus, c_event,
-        map_sdk_client_error, sdk_client_error_detail, yeokcham_buffer_data,
-        yeokcham_buffer_length, yeokcham_buffer_release, yeokcham_client_complete_async,
+        SdkClientError, SdkEvent, SdkEventEnvelope, YeokchamAttachmentDeliveryCycle,
+        YeokchamByteSlice, YeokchamContact, YeokchamDeliveryProfile, YeokchamDeliveryProfilePolicy,
+        YeokchamEvent, YeokchamStatus, c_event, map_sdk_client_error, sdk_client_error_detail,
+        yeokcham_attachment_transfer_create, yeokcham_attachment_transfer_release,
+        yeokcham_attachment_transfer_run_cycle, yeokcham_buffer_data, yeokcham_buffer_length,
+        yeokcham_buffer_release, yeokcham_client_complete_async,
         yeokcham_client_config_builder_build, yeokcham_client_config_builder_create,
         yeokcham_client_config_builder_release,
         yeokcham_client_config_builder_set_event_buffer_capacity,
@@ -1984,6 +2209,176 @@ mod tests {
         assert_eq!(yeokcham_client_stop(client), YeokchamStatus::Ok);
         assert_eq!(yeokcham_client_release(client), YeokchamStatus::Ok);
         std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    fn attachment_transfer_parts() -> (Vec<u8>, Vec<u8>) {
+        let identifier = AttachmentIdentifier::from_bytes([0x22; 16]).unwrap();
+        let key = AttachmentKey::derive(&[0x11; 32], identifier).unwrap();
+        let chunk = EncryptedAttachmentChunk::encrypt(
+            identifier,
+            0,
+            &key.derive_chunk_key(0).unwrap(),
+            &vec![0; ATTACHMENT_CHUNK_BYTES],
+        )
+        .unwrap();
+        let manifest = AttachmentManifest::new(
+            identifier,
+            u64::try_from(ATTACHMENT_CHUNK_BYTES).unwrap(),
+            vec![chunk.hash().unwrap()],
+        )
+        .unwrap()
+        .encrypt(&key)
+        .unwrap();
+        (manifest.encode().unwrap(), chunk.encode().unwrap())
+    }
+
+    extern "C" fn release_running_attachment_upload(
+        _: *const u8,
+        _: usize,
+        _: *const u8,
+        _: usize,
+        context: *mut c_void,
+    ) -> YeokchamStatus {
+        if unsafe { yeokcham_attachment_transfer_release(context.cast()) } == YeokchamStatus::State
+        {
+            YeokchamStatus::Ok
+        } else {
+            YeokchamStatus::State
+        }
+    }
+
+    extern "C" fn reject_attachment_upload(
+        _: *const u8,
+        _: usize,
+        _: *const u8,
+        _: usize,
+        _: *mut c_void,
+    ) -> YeokchamStatus {
+        YeokchamStatus::State
+    }
+
+    #[test]
+    fn c_attachment_transfer_runs_bounded_cycles_and_rejects_reentrant_release() {
+        let (manifest, chunk) = attachment_transfer_parts();
+        let chunks = [YeokchamByteSlice {
+            data: chunk.as_ptr(),
+            length: chunk.len(),
+        }];
+        let transfer = unsafe {
+            yeokcham_attachment_transfer_create(
+                manifest.as_ptr(),
+                manifest.len(),
+                chunks.as_ptr(),
+                chunks.len(),
+                1,
+            )
+        };
+        let mut cycle = YeokchamAttachmentDeliveryCycle::default();
+
+        assert!(!transfer.is_null());
+        assert_eq!(
+            unsafe {
+                yeokcham_attachment_transfer_run_cycle(
+                    transfer,
+                    Some(release_running_attachment_upload),
+                    transfer.cast(),
+                    &raw mut cycle,
+                )
+            },
+            YeokchamStatus::Ok
+        );
+        assert_eq!(cycle.uploaded, 1);
+        assert_eq!(cycle.outcome, crate::YEOKCHAM_ATTACHMENT_DELIVERY_COMPLETE);
+        assert_eq!(cycle.next_pending_index, 0);
+        assert_eq!(
+            unsafe { yeokcham_attachment_transfer_release(transfer) },
+            YeokchamStatus::Ok
+        );
+        assert_eq!(
+            unsafe { yeokcham_attachment_transfer_release(transfer) },
+            YeokchamStatus::InvalidInput
+        );
+    }
+
+    #[test]
+    fn c_attachment_transfer_retries_uploads_and_rejects_invalid_bounds() {
+        let (manifest, chunk) = attachment_transfer_parts();
+        let chunks = [YeokchamByteSlice {
+            data: chunk.as_ptr(),
+            length: chunk.len(),
+        }];
+        let too_many_chunks = vec![chunks[0]; crate::YEOKCHAM_MAX_ATTACHMENT_CHUNKS + 1];
+        let transfer = unsafe {
+            yeokcham_attachment_transfer_create(
+                manifest.as_ptr(),
+                manifest.len(),
+                chunks.as_ptr(),
+                chunks.len(),
+                1,
+            )
+        };
+        let mut cycle = YeokchamAttachmentDeliveryCycle {
+            uploaded: u32::MAX,
+            outcome: u32::MAX,
+            next_pending_index: u32::MAX,
+        };
+        let byte = 0;
+
+        assert!(!transfer.is_null());
+        assert_eq!(
+            unsafe {
+                yeokcham_attachment_transfer_run_cycle(
+                    transfer,
+                    Some(reject_attachment_upload),
+                    std::ptr::null_mut(),
+                    &raw mut cycle,
+                )
+            },
+            YeokchamStatus::Ok
+        );
+        assert_eq!(cycle.uploaded, 0);
+        assert_eq!(cycle.outcome, crate::YEOKCHAM_ATTACHMENT_DELIVERY_RETRYING);
+        assert_eq!(cycle.next_pending_index, 0);
+        assert_eq!(
+            unsafe {
+                yeokcham_attachment_transfer_create(
+                    &raw const byte,
+                    crate::YEOKCHAM_MAX_ATTACHMENT_MANIFEST_BYTES + 1,
+                    chunks.as_ptr(),
+                    chunks.len(),
+                    1,
+                )
+            },
+            std::ptr::null_mut()
+        );
+        assert_eq!(
+            unsafe {
+                yeokcham_attachment_transfer_create(
+                    manifest.as_ptr(),
+                    manifest.len(),
+                    too_many_chunks.as_ptr(),
+                    too_many_chunks.len(),
+                    1,
+                )
+            },
+            std::ptr::null_mut()
+        );
+        assert_eq!(
+            unsafe {
+                yeokcham_attachment_transfer_run_cycle(
+                    transfer,
+                    None,
+                    std::ptr::null_mut(),
+                    &raw mut cycle,
+                )
+            },
+            YeokchamStatus::InvalidInput
+        );
+        assert_eq!(cycle, YeokchamAttachmentDeliveryCycle::default());
+        assert_eq!(
+            unsafe { yeokcham_attachment_transfer_release(transfer) },
+            YeokchamStatus::Ok
+        );
     }
 
     #[test]

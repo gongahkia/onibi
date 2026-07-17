@@ -37,6 +37,18 @@ pub const YEOKCHAM_DIRECT_IP_DISCLOSURE_ACKNOWLEDGED: u32 = 1;
 pub const YEOKCHAM_DIRECT_IP_DISCLOSURE_WARNING: u32 = 1;
 pub const YEOKCHAM_MESSAGE_IDENTIFIER_BYTES: usize = yeokcham_protocol::MESSAGE_IDENTIFIER_BYTES;
 pub const YEOKCHAM_MAX_MESSAGE_ENVELOPE_BYTES: usize = yeokcham_protocol::MAX_MESSAGE_PAYLOAD_BYTES;
+pub const YEOKCHAM_ATTACHMENT_IDENTIFIER_BYTES: usize =
+    yeokcham_protocol::ATTACHMENT_IDENTIFIER_BYTES;
+pub const YEOKCHAM_MAX_ATTACHMENT_CHUNKS: usize = yeokcham_sdk::MAX_SDK_ATTACHMENT_CHUNKS;
+pub const YEOKCHAM_MAX_ATTACHMENT_CHUNKS_PER_CYCLE: usize =
+    yeokcham_sdk::MAX_SDK_ATTACHMENT_DELIVERY_CHUNKS_PER_CYCLE;
+pub const YEOKCHAM_MAX_ATTACHMENT_MANIFEST_BYTES: usize =
+    yeokcham_protocol::MAX_ENCODED_ATTACHMENT_MANIFEST_BYTES;
+pub const YEOKCHAM_MAX_ATTACHMENT_CHUNK_BYTES: usize =
+    yeokcham_protocol::MAX_ENCODED_ATTACHMENT_CHUNK_BYTES;
+pub const YEOKCHAM_ATTACHMENT_DELIVERY_COMPLETE: u32 = 1;
+pub const YEOKCHAM_ATTACHMENT_DELIVERY_PENDING: u32 = 2;
+pub const YEOKCHAM_ATTACHMENT_DELIVERY_RETRYING: u32 = 3;
 
 #[repr(C)]
 pub struct YeokchamClient {
@@ -56,6 +68,26 @@ pub struct YeokchamBuffer {
 #[repr(C)]
 pub struct YeokchamEventSubscription {
     _private: u8,
+}
+
+#[repr(C)]
+pub struct YeokchamAttachmentTransfer {
+    _private: u8,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(C)]
+pub struct YeokchamByteSlice {
+    pub data: *const u8,
+    pub length: usize,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[repr(C)]
+pub struct YeokchamAttachmentDeliveryCycle {
+    pub uploaded: u32,
+    pub outcome: u32,
+    pub next_pending_index: u32,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -102,13 +134,15 @@ pub enum YeokchamStatus {
 }
 
 pub use c_abi::{
-    MAX_C_ABI_BUFFERS, MAX_C_ABI_CALLBACK_WORKERS, MAX_C_ABI_CLIENT_CONFIG_BUILDERS,
-    MAX_C_ABI_CLIENTS, MAX_C_ABI_ERROR_DETAIL_BYTES, MAX_C_ABI_EVENT_SUBSCRIPTIONS,
-    MAX_C_ABI_PENDING_COMPLETIONS, MAX_C_ABI_SECRET_BUFFER_BYTES, MAX_C_ABI_STATE_DIRECTORY_BYTES,
-    YeokchamCompletionCallback, yeokcham_abi_negotiate, yeokcham_buffer_data,
-    yeokcham_buffer_length, yeokcham_buffer_release, yeokcham_client_complete_async,
-    yeokcham_client_config_builder_build, yeokcham_client_config_builder_create,
-    yeokcham_client_config_builder_release,
+    MAX_C_ABI_ATTACHMENT_TRANSFERS, MAX_C_ABI_BUFFERS, MAX_C_ABI_CALLBACK_WORKERS,
+    MAX_C_ABI_CLIENT_CONFIG_BUILDERS, MAX_C_ABI_CLIENTS, MAX_C_ABI_ERROR_DETAIL_BYTES,
+    MAX_C_ABI_EVENT_SUBSCRIPTIONS, MAX_C_ABI_PENDING_COMPLETIONS, MAX_C_ABI_SECRET_BUFFER_BYTES,
+    MAX_C_ABI_STATE_DIRECTORY_BYTES, YeokchamAttachmentUploadCallback, YeokchamCompletionCallback,
+    yeokcham_abi_negotiate, yeokcham_attachment_transfer_create,
+    yeokcham_attachment_transfer_release, yeokcham_attachment_transfer_run_cycle,
+    yeokcham_buffer_data, yeokcham_buffer_length, yeokcham_buffer_release,
+    yeokcham_client_complete_async, yeokcham_client_config_builder_build,
+    yeokcham_client_config_builder_create, yeokcham_client_config_builder_release,
     yeokcham_client_config_builder_set_event_buffer_capacity,
     yeokcham_client_config_builder_set_state_directory, yeokcham_client_contact_get,
     yeokcham_client_contact_import, yeokcham_client_contact_revoke,
@@ -125,10 +159,12 @@ pub use c_abi::{
 mod tests {
     use super::c_abi::CLIENT_TEST_LOCK;
     use super::{
-        MAX_C_ABI_CLIENTS, MAX_C_ABI_PENDING_COMPLETIONS, YEOKCHAM_ABI_NEGOTIATION_REJECTED,
-        YEOKCHAM_ABI_VERSION, YEOKCHAM_ABI_VERSION_MAJOR, YEOKCHAM_ABI_VERSION_MINOR,
-        YEOKCHAM_DELIVERY_PROFILE_DIRECT, YEOKCHAM_DELIVERY_PROFILE_LOCAL_MESH,
-        YEOKCHAM_DELIVERY_PROFILE_TOR_MAILDROP, YEOKCHAM_IDENTITY_PUBLIC_KEY_BYTES,
+        MAX_C_ABI_ATTACHMENT_TRANSFERS, MAX_C_ABI_CLIENTS, MAX_C_ABI_PENDING_COMPLETIONS,
+        YEOKCHAM_ABI_NEGOTIATION_REJECTED, YEOKCHAM_ABI_VERSION, YEOKCHAM_ABI_VERSION_MAJOR,
+        YEOKCHAM_ABI_VERSION_MINOR, YEOKCHAM_DELIVERY_PROFILE_DIRECT,
+        YEOKCHAM_DELIVERY_PROFILE_LOCAL_MESH, YEOKCHAM_DELIVERY_PROFILE_TOR_MAILDROP,
+        YEOKCHAM_IDENTITY_PUBLIC_KEY_BYTES, YEOKCHAM_MAX_ATTACHMENT_CHUNKS,
+        YEOKCHAM_MAX_ATTACHMENT_CHUNKS_PER_CYCLE, YEOKCHAM_MAX_ATTACHMENT_MANIFEST_BYTES,
         YEOKCHAM_MAX_LOCAL_MESH_TRANSPORTS, YEOKCHAM_MAX_MESSAGE_ENVELOPE_BYTES,
         YEOKCHAM_MESSAGE_IDENTIFIER_BYTES, YEOKCHAM_QR_VERIFICATION_PAYLOAD_BYTES,
         YEOKCHAM_SAFETY_NUMBER_FINGERPRINT_BYTES, YeokchamStatus, yeokcham_abi_negotiate,
@@ -185,6 +221,17 @@ mod tests {
         assert_eq!(YEOKCHAM_MESSAGE_IDENTIFIER_BYTES, 16);
         assert!(HEADER.contains("#define YEOKCHAM_MAX_MESSAGE_ENVELOPE_BYTES UINT32_C(1048544)"));
         assert_eq!(YEOKCHAM_MAX_MESSAGE_ENVELOPE_BYTES, 1_048_544);
+        assert!(HEADER.contains("#define YEOKCHAM_MAX_ATTACHMENT_TRANSFERS UINT32_C(1024)"));
+        assert_eq!(MAX_C_ABI_ATTACHMENT_TRANSFERS, 1_024);
+        assert!(HEADER.contains("#define YEOKCHAM_ATTACHMENT_IDENTIFIER_BYTES UINT32_C(16)"));
+        assert!(HEADER.contains("#define YEOKCHAM_MAX_ATTACHMENT_CHUNKS UINT32_C(1600)"));
+        assert_eq!(YEOKCHAM_MAX_ATTACHMENT_CHUNKS, 1_600);
+        assert!(HEADER.contains("#define YEOKCHAM_MAX_ATTACHMENT_CHUNKS_PER_CYCLE UINT32_C(64)"));
+        assert_eq!(YEOKCHAM_MAX_ATTACHMENT_CHUNKS_PER_CYCLE, 64);
+        assert!(
+            HEADER.contains("#define YEOKCHAM_MAX_ATTACHMENT_MANIFEST_BYTES UINT32_C(4194304)")
+        );
+        assert_eq!(YEOKCHAM_MAX_ATTACHMENT_MANIFEST_BYTES, 4 * 1024 * 1024);
         assert!(HEADER.contains("typedef struct yeokcham_client yeokcham_client_t;"));
         assert!(HEADER.contains("typedef struct yeokcham_buffer yeokcham_buffer_t;"));
         assert!(
@@ -234,6 +281,9 @@ mod tests {
         assert!(HEADER.contains("yeokcham_client_contact_verify_safety_number("));
         assert!(HEADER.contains("yeokcham_delivery_profile_select("));
         assert!(HEADER.contains("yeokcham_client_message_send("));
+        assert!(HEADER.contains("yeokcham_attachment_transfer_create("));
+        assert!(HEADER.contains("yeokcham_attachment_transfer_run_cycle("));
+        assert!(HEADER.contains("yeokcham_attachment_transfer_release("));
         assert!(HEADER.contains("yeokcham_client_copy_last_error_detail("));
         assert!(HEADER.contains("yeokcham_client_take_last_error_detail("));
         assert!(HEADER.contains("yeokcham_buffer_data("));
