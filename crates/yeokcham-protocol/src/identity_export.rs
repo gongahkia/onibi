@@ -40,7 +40,7 @@ impl IdentityExportPassphrase {
         Ok(Self(passphrase))
     }
 
-    fn as_bytes(&self) -> &[u8] {
+    pub(crate) fn as_bytes(&self) -> &[u8] {
         &self.0
     }
 }

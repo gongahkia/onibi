@@ -558,6 +558,8 @@ fn map_identity_error(error: &ClientIdentityError) -> Status {
         ClientIdentityError::InvalidKeyEntry
         | ClientIdentityError::Generation(_)
         | ClientIdentityError::InvalidStoredIdentity(_)
+        | ClientIdentityError::RecoveryExport(_)
+        | ClientIdentityError::RecoveryImport(_)
         | ClientIdentityError::KeystoreSecret(_)
         | ClientIdentityError::Keystore => identity_failure(),
     }
@@ -588,6 +590,8 @@ fn map_contact_identity_error(error: &ClientIdentityError) -> Status {
         | ClientIdentityError::InvalidKeyEntry
         | ClientIdentityError::Generation(_)
         | ClientIdentityError::InvalidStoredIdentity(_)
+        | ClientIdentityError::RecoveryExport(_)
+        | ClientIdentityError::RecoveryImport(_)
         | ClientIdentityError::KeystoreSecret(_)
         | ClientIdentityError::Keystore => contact_failure(),
     }

@@ -104,6 +104,8 @@ impl From<ClientIdentityError> for SdkIdentityError {
             ClientIdentityError::Generation(_) => Self::Generation,
             ClientIdentityError::InvalidStoredIdentity(_) => Self::InvalidStoredIdentity,
             ClientIdentityError::InvalidKeyEntry
+            | ClientIdentityError::RecoveryExport(_)
+            | ClientIdentityError::RecoveryImport(_)
             | ClientIdentityError::KeystoreSecret(_)
             | ClientIdentityError::Keystore => Self::Keystore,
         }

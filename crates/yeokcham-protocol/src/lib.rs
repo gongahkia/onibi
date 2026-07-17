@@ -34,6 +34,7 @@ mod relay_storage_receipt;
 mod safety_number;
 mod signed_prekey;
 mod signing;
+mod state_export;
 mod tor_maildrop_profile;
 mod version;
 mod wire;
@@ -149,6 +150,10 @@ pub use signed_prekey::{
     SignedPrekeyError, SignedPrekeyPublic, SignedPrekeyValidationError,
 };
 pub use signing::SigningInputError;
+pub use state_export::{
+    MAX_STATE_EXPORT_BYTES, MAX_STATE_EXPORT_PLAINTEXT_BYTES, STATE_EXPORT_FORMAT_VERSION,
+    STATE_EXPORT_SALT_BYTES, StateExportError, export_state, import_state,
+};
 pub use tor_maildrop_profile::{
     TOR_MAILDROP_PROFILE_CONFIG_SCHEMA_VERSION, TOR_ONION_SERVICE_PUBLIC_KEY_BYTES,
     TorMaildropProfileConfig, TorMaildropProfileConfigError,

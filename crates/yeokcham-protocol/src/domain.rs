@@ -4,6 +4,7 @@ const PREFIX: &[u8] = b"yeokcham/v1/";
 pub enum CryptoDomain {
     IdentityIdentifier,
     IdentityExportKey,
+    StateExportKey,
     ContactInvitationSignature,
     DirectPeerAuthentication,
     IdentityRotationSignature,
@@ -36,6 +37,7 @@ impl CryptoDomain {
     pub const ALL: &[Self] = &[
         Self::IdentityIdentifier,
         Self::IdentityExportKey,
+        Self::StateExportKey,
         Self::ContactInvitationSignature,
         Self::DirectPeerAuthentication,
         Self::IdentityRotationSignature,
@@ -69,6 +71,7 @@ impl CryptoDomain {
         let context: &[u8] = match self {
             Self::IdentityIdentifier => b"yeokcham/v1/identity-identifier",
             Self::IdentityExportKey => b"yeokcham/v1/identity-export-key",
+            Self::StateExportKey => b"yeokcham/v1/state-export-key",
             Self::ContactInvitationSignature => b"yeokcham/v1/contact-invitation-signature",
             Self::DirectPeerAuthentication => b"yeokcham/v1/direct-peer-authentication",
             Self::IdentityRotationSignature => b"yeokcham/v1/identity-rotation-signature",

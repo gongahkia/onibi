@@ -2,6 +2,9 @@ use yeokcham_core::{
     IdentityKeyError, IdentityKeypair, IdentityPublicKey, IdentitySerializationError,
     KeystoreEntryName, KeystoreSecret, KeystoreSecretError, OsKeystore,
 };
+use yeokcham_protocol::{
+    IdentityExportError, IdentityExportPassphrase, export_identity, import_identity,
+};
 
 pub const CLIENT_IDENTITY_KEY_ENTRY: &str = "yeokcham_client_identity_v1";
 
@@ -52,6 +55,36 @@ impl ClientIdentity {
         }
     }
 
+    pub fn export_recovery(
+        &self,
+        passphrase: &IdentityExportPassphrase,
+    ) -> Result<Vec<u8>, ClientIdentityError> {
+        export_identity(&self.keypair, passphrase).map_err(ClientIdentityError::RecoveryExport)
+    }
+
+    pub fn import_recovery<K: OsKeystore>(
+        keystore: &mut K,
+        encoded: &[u8],
+        passphrase: &IdentityExportPassphrase,
+    ) -> Result<Self, ClientIdentityError> {
+        let entry = identity_entry()?;
+        if keystore
+            .load(&entry)
+            .map_err(|_| ClientIdentityError::Keystore)?
+            .is_some()
+        {
+            return Err(ClientIdentityError::AlreadyInitialized);
+        }
+        let keypair =
+            import_identity(encoded, passphrase).map_err(ClientIdentityError::RecoveryImport)?;
+        let secret = KeystoreSecret::new(keypair.serialize().to_vec())
+            .map_err(ClientIdentityError::KeystoreSecret)?;
+        keystore
+            .store(&entry, &secret)
+            .map_err(|_| ClientIdentityError::Keystore)?;
+        Ok(Self { keypair })
+    }
+
     #[must_use]
     pub fn public_key(&self) -> IdentityPublicKey {
         self.keypair.public_key()
@@ -81,6 +114,10 @@ pub enum ClientIdentityError {
     Generation(#[source] IdentityKeyError),
     #[error("client identity stored material is invalid")]
     InvalidStoredIdentity(#[source] IdentitySerializationError),
+    #[error("client identity recovery export failed")]
+    RecoveryExport(#[source] IdentityExportError),
+    #[error("client identity recovery import failed")]
+    RecoveryImport(#[source] IdentityExportError),
     #[error("client identity secret cannot be stored")]
     KeystoreSecret(#[source] KeystoreSecretError),
     #[error("client identity keystore operation failed")]

@@ -7,7 +7,9 @@ use chacha20poly1305::{
 use getrandom::{SysRng, rand_core::TryRng};
 use rusqlite::{Connection, OptionalExtension, params};
 use yeokcham_core::{KeystoreEntryName, KeystoreSecret, OsKeystore};
-use yeokcham_protocol::CryptoDomain;
+use yeokcham_protocol::{
+    CryptoDomain, IdentityExportPassphrase, StateExportError, export_state, import_state,
+};
 use zeroize::Zeroizing;
 
 pub const MAX_STATE_DOCUMENT_BYTES: usize = 4 * 1024 * 1024;
@@ -35,13 +37,17 @@ pub struct StateDocument(Zeroizing<Vec<u8>>);
 
 impl StateDocument {
     pub fn new(value: Vec<u8>) -> Result<Self, StateDocumentError> {
+        Self::from_zeroizing(Zeroizing::new(value))
+    }
+
+    pub fn from_zeroizing(value: Zeroizing<Vec<u8>>) -> Result<Self, StateDocumentError> {
         if value.is_empty() {
             return Err(StateDocumentError::Empty);
         }
         if value.len() > MAX_STATE_DOCUMENT_BYTES {
             return Err(StateDocumentError::TooLarge);
         }
-        Ok(Self(Zeroizing::new(value)))
+        Ok(Self(value))
     }
 
     #[must_use]
@@ -111,6 +117,29 @@ impl EncryptedStateStore {
         transaction.commit()?;
         Ok(())
     }
+
+    pub fn export_recovery(
+        &self,
+        passphrase: &IdentityExportPassphrase,
+    ) -> Result<Vec<u8>, StateStoreError> {
+        let document = self.load()?.ok_or(StateStoreError::NoStateToExport)?;
+        export_state(document.as_bytes(), passphrase).map_err(StateStoreError::RecoveryExport)
+    }
+
+    pub fn import_recovery(
+        &mut self,
+        encoded: &[u8],
+        passphrase: &IdentityExportPassphrase,
+    ) -> Result<(), StateStoreError> {
+        if self.load()?.is_some() {
+            return Err(StateStoreError::StateImportDestinationNotEmpty);
+        }
+        let document = StateDocument::from_zeroizing(
+            import_state(encoded, passphrase).map_err(StateStoreError::RecoveryImport)?,
+        )
+        .map_err(StateStoreError::InvalidDocument)?;
+        self.replace(&document)
+    }
 }
 
 #[derive(Debug, Eq, PartialEq, thiserror::Error)]
@@ -147,6 +176,14 @@ pub enum StateStoreError {
     Authentication,
     #[error("state-store document is invalid: {0}")]
     InvalidDocument(StateDocumentError),
+    #[error("state-store has no state to export")]
+    NoStateToExport,
+    #[error("state-store recovery export failed")]
+    RecoveryExport(#[source] StateExportError),
+    #[error("state-store recovery import failed")]
+    RecoveryImport(#[source] StateExportError),
+    #[error("state-store recovery import would overwrite existing state")]
+    StateImportDestinationNotEmpty,
 }
 
 struct Metadata {
