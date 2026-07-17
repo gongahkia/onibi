@@ -3,10 +3,14 @@ use std::{
     io,
     net::SocketAddr,
     sync::{Arc, Mutex},
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use tokio::net::TcpListener;
+use tokio::{
+    net::TcpListener,
+    sync::watch,
+    time::{self, MissedTickBehavior},
+};
 use tokio_stream::wrappers::TcpListenerStream;
 use tonic::{Request, Response, Status, transport::Server};
 use yeokcham_core::RelaySigningKeypair;
@@ -25,6 +29,8 @@ pub struct RelayServer {
     service: RelayGrpcService,
 }
 
+const RETENTION_GARBAGE_COLLECTION_INTERVAL: Duration = Duration::from_secs(60);
+
 #[derive(Debug, thiserror::Error)]
 pub enum RelayServerError {
     #[error("relay server database could not start")]
@@ -33,6 +39,14 @@ pub enum RelayServerError {
     Listener(#[source] io::Error),
     #[error("relay server stopped with a transport error")]
     Transport(#[source] tonic::transport::Error),
+    #[error("relay retention garbage collection failed")]
+    GarbageCollection(#[source] RelayDatabaseError),
+    #[error("relay retention garbage collection database is unavailable")]
+    GarbageCollectionDatabaseUnavailable,
+    #[error("relay retention garbage collection clock is unavailable")]
+    GarbageCollectionClockUnavailable,
+    #[error("relay retention garbage collection task stopped unexpectedly")]
+    GarbageCollectionTask,
 }
 
 impl RelayServer {
@@ -66,11 +80,43 @@ impl RelayServer {
         F: Future<Output = ()>,
     {
         let Self { listener, service } = self;
-        Server::builder()
+        let database = Arc::clone(&service.database);
+        let retention = service.retention;
+        let (shutdown_sender, shutdown_receiver) = watch::channel(false);
+        let garbage_collection_shutdown = shutdown_receiver.clone();
+        let garbage_collection_sender = shutdown_sender.clone();
+        let garbage_collection = tokio::spawn(async move {
+            let result =
+                run_retention_garbage_collection(database, retention, garbage_collection_shutdown)
+                    .await;
+            if result.is_err() {
+                let _ = garbage_collection_sender.send(true);
+            }
+            result
+        });
+        let server_shutdown = shutdown_receiver.clone();
+        let server_shutdown_sender = shutdown_sender.clone();
+        let server = Server::builder()
             .add_service(RelayServiceServer::new(service))
-            .serve_with_incoming_shutdown(TcpListenerStream::new(listener), shutdown)
+            .serve_with_incoming_shutdown(TcpListenerStream::new(listener), async move {
+                tokio::select! {
+                    () = shutdown => {
+                        let _ = server_shutdown_sender.send(true);
+                    }
+                    () = wait_for_shutdown(server_shutdown) => {}
+                }
+            })
+            .await;
+        let _ = shutdown_sender.send(true);
+        let garbage_collection = garbage_collection
             .await
-            .map_err(RelayServerError::Transport)
+            .map_err(|_| RelayServerError::GarbageCollectionTask)?;
+        server.map_err(RelayServerError::Transport)?;
+        garbage_collection
+    }
+
+    pub fn garbage_collect_at(&self, now: u64) -> Result<(), RelayServerError> {
+        garbage_collect(&self.service.database, self.service.retention, now)
     }
 
     fn from_listener(
@@ -115,6 +161,58 @@ fn current_unix_seconds() -> Result<u64, Status> {
         .duration_since(UNIX_EPOCH)
         .map_err(|_| Status::internal("relay clock is unavailable"))
         .map(|duration| duration.as_secs())
+}
+
+async fn run_retention_garbage_collection(
+    database: Arc<Mutex<RelayDatabase>>,
+    retention: RelayRetentionPolicy,
+    mut shutdown: watch::Receiver<bool>,
+) -> Result<(), RelayServerError> {
+    let mut interval = time::interval(RETENTION_GARBAGE_COLLECTION_INTERVAL);
+    interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    loop {
+        if *shutdown.borrow() {
+            return Ok(());
+        }
+        tokio::select! {
+            result = shutdown.changed() => {
+                if result.is_err() || *shutdown.borrow() {
+                    return Ok(());
+                }
+            }
+            _ = interval.tick() => {
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map_err(|_| RelayServerError::GarbageCollectionClockUnavailable)?
+                    .as_secs();
+                garbage_collect(&database, retention, now)?;
+            }
+        }
+    }
+}
+
+async fn wait_for_shutdown(mut shutdown: watch::Receiver<bool>) {
+    if !*shutdown.borrow() {
+        let _ = shutdown.changed().await;
+    }
+}
+
+fn garbage_collect(
+    database: &Arc<Mutex<RelayDatabase>>,
+    retention: RelayRetentionPolicy,
+    now: u64,
+) -> Result<(), RelayServerError> {
+    let mut database = database
+        .lock()
+        .map_err(|_| RelayServerError::GarbageCollectionDatabaseUnavailable)?;
+    database
+        .garbage_collect_expired_attachment_chunks(now)
+        .map_err(RelayServerError::GarbageCollection)?;
+    database
+        .garbage_collect_expired_mailboxes(now, retention)
+        .map_err(RelayServerError::GarbageCollection)?;
+    drop(database);
+    Ok(())
 }
 
 #[tonic::async_trait]
@@ -1001,6 +1099,72 @@ mod tests {
         assert_eq!(receipt.mailbox_id(), &[0x11; MAILBOX_IDENTIFIER_BYTES]);
         assert_eq!(receipt.sequence(), 0);
         assert!(receipt.expires_at() > receipt.received_at());
+    }
+
+    #[tokio::test]
+    async fn runs_retention_garbage_collection_at_the_expiry_boundary() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let encoded_capability = capability(0x11, 0x22);
+        let capability = MailboxCapability::decode(&encoded_capability).unwrap();
+        let retention = RelayRetentionPolicy::new(10).unwrap();
+        let mut database =
+            RelayDatabase::from_connection(Connection::open_in_memory().unwrap()).unwrap();
+        database
+            .register_mailbox(&capability, MailboxQuota::new(5).unwrap(), 100)
+            .unwrap();
+        database
+            .insert_envelope(
+                &capability,
+                &EncryptedMessageEnvelope::new(vec![1], vec![2]).unwrap(),
+                100,
+                retention,
+            )
+            .unwrap();
+        let server = RelayServer::from_listener(
+            listener,
+            database,
+            MailboxQuota::new(5).unwrap(),
+            retention,
+            RelaySigningKeypair::generate().unwrap(),
+        );
+
+        server.garbage_collect_at(109).unwrap();
+        assert_eq!(
+            server
+                .service
+                .database
+                .lock()
+                .unwrap()
+                .retrieve_envelopes(&capability, None, 109, 1)
+                .unwrap()
+                .len(),
+            1
+        );
+        server.garbage_collect_at(110).unwrap();
+
+        let (shutdown_sender, shutdown_receiver) = oneshot::channel();
+        let server = server.serve_until(async move {
+            let _ = shutdown_receiver.await;
+        });
+        let client = async {
+            let mut client = RelayServiceClient::connect(format!("http://{address}"))
+                .await
+                .unwrap();
+            assert_eq!(
+                client
+                    .get_mailbox_quota(GetMailboxQuotaRequest {
+                        mailbox_capability: encoded_capability,
+                    })
+                    .await
+                    .unwrap_err()
+                    .code(),
+                Code::PermissionDenied
+            );
+            shutdown_sender.send(()).unwrap();
+        };
+        let (server, ()) = tokio::join!(server, client);
+        assert!(server.is_ok());
     }
 
     #[tokio::test]
