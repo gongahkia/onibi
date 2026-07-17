@@ -384,7 +384,11 @@ pub unsafe extern "C" fn yeokcham_event_subscription_poll(
             YeokchamStatus::Ok
         }
         Err(SdkEventStreamError::Lagged(_)) => YeokchamStatus::ResourceLimit,
-        Err(SdkEventStreamError::Closed) => YeokchamStatus::State,
+        Err(
+            SdkEventStreamError::Cancelled
+            | SdkEventStreamError::DeadlineExceeded
+            | SdkEventStreamError::Closed,
+        ) => YeokchamStatus::State,
     }
 }
 
