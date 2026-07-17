@@ -40,6 +40,9 @@ zeroize.workspace = true
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62.2", features = ["Networking_Connectivity", "Networking_NetworkOperators", "Win32_Foundation", "Win32_System_WinRT"] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+corewlan = "0.2.1"
+
 [dev-dependencies]
 criterion.workspace = true
 prost.workspace = true

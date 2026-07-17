@@ -686,6 +686,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
 
 [[package]]
+name = "corewlan"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8957911ca88421a2c9cdaf8577302d789bafdc602c2aa290c916317bab8831f0"
+dependencies = [
+ "bitflags 2.13.0",
+]
+
+[[package]]
 name = "cpufeatures"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4016,6 +4025,7 @@ name = "yeokcham-daemon"
 version = "0.1.0"
 dependencies = [
  "chacha20poly1305",
+ "corewlan",
  "criterion",
  "fs2",
  "getrandom 0.4.3",

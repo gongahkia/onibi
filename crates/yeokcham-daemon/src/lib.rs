@@ -25,6 +25,7 @@ mod local_auth;
 mod local_transport;
 mod local_transport_availability;
 mod local_transport_reconnect;
+mod macos_wifi_hotspot_capability;
 mod mdns;
 mod nat_pmp;
 mod native_transport_capability;
@@ -129,6 +130,7 @@ pub use local_transport_reconnect::{
     LocalTransportConnector, LocalTransportReconnectError, LocalTransportReconnectPolicy,
     LocalTransportReconnectPolicyError, MAX_LOCAL_TRANSPORT_RECONNECT_ATTEMPTS,
 };
+pub use macos_wifi_hotspot_capability::MacOsWifiHotspotCapabilityProbe;
 pub use mdns::{LAN_MDNS_SERVICE_TYPE, LanPeer, LanPeerDiscovery, LanPeerDiscoveryError};
 pub use nat_pmp::{
     MAX_NAT_PMP_LEASE_SECONDS, NatPmpMapping, NatPmpMappingError, NatPmpMappingRequest,
