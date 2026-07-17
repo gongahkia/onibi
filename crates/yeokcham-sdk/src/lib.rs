@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod async_policy;
+mod attachment;
 mod capability;
 mod client;
 mod config;
@@ -14,6 +15,12 @@ mod recovery;
 mod version;
 
 pub use async_policy::{MAX_SDK_ASYNC_DEADLINE, SdkAsyncPolicy, SdkAsyncPolicyError};
+pub use attachment::{
+    MAX_SDK_ATTACHMENT_CHUNKS, MAX_SDK_ATTACHMENT_DELIVERY_CHUNKS_PER_CYCLE, SdkAttachmentChunk,
+    SdkAttachmentDeliveryCycle, SdkAttachmentDeliveryOutcome, SdkAttachmentDeliveryTransport,
+    SdkAttachmentError, SdkAttachmentIdentifier, SdkAttachmentIdentifierError,
+    SdkAttachmentManifest, SdkAttachmentTransfer,
+};
 pub use capability::{
     TRANSPORT_KIND_COUNT, TransportAvailability, TransportCapability, TransportCapabilityError,
     TransportCapabilityMatrix, TransportKind,

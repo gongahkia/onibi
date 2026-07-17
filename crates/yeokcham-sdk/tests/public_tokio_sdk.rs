@@ -1,6 +1,7 @@
 use std::{
     collections::BTreeMap,
     fs,
+    future::{Future, ready},
     path::PathBuf,
     sync::{
         Arc,
@@ -11,11 +12,15 @@ use std::{
 
 use yeokcham_core::{IdentityKeypair, KeystoreEntryName, KeystoreSecret, OsKeystore};
 use yeokcham_protocol::{
-    ContactInvitation, IdentityRotation, QrVerificationPayload, SafetyNumberFingerprint,
+    ATTACHMENT_CHUNK_BYTES, AttachmentIdentifier, AttachmentKey, AttachmentManifest,
+    ContactInvitation, EncryptedAttachmentChunk, IdentityRotation, QrVerificationPayload,
+    SafetyNumberFingerprint,
 };
 use yeokcham_sdk::{
     CancellationToken, LocalDaemonEndpoint, MAX_SDK_ASYNC_DEADLINE, MAX_SDK_EVENT_BUFFER_CAPACITY,
-    RuntimeMode, SdkAsyncPolicy, SdkAsyncPolicyError, SdkClient, SdkClientBuilder, SdkClientError,
+    RuntimeMode, SdkAsyncPolicy, SdkAsyncPolicyError, SdkAttachmentChunk,
+    SdkAttachmentDeliveryOutcome, SdkAttachmentDeliveryTransport, SdkAttachmentError,
+    SdkAttachmentManifest, SdkAttachmentTransfer, SdkClient, SdkClientBuilder, SdkClientError,
     SdkConfig, SdkConfigError, SdkContactError, SdkContactStatus, SdkDeliveryProfileKind,
     SdkDeliveryProfilePolicy, SdkDeliveryProfilePolicyError, SdkDeliveryStatus,
     SdkDirectIpDisclosureAcknowledgement, SdkError, SdkEvent, SdkEventEnvelope, SdkEventStream,
@@ -42,6 +47,57 @@ struct MemoryKeystore {
     entries: BTreeMap<String, Vec<u8>>,
     corrupt_load: bool,
     fail_store: bool,
+}
+
+struct RecordingAttachmentTransport {
+    fail_at: Option<u32>,
+    uploaded: Vec<u32>,
+}
+
+impl SdkAttachmentDeliveryTransport for RecordingAttachmentTransport {
+    type Error = ();
+
+    fn upload_chunk(
+        &mut self,
+        manifest: &[u8],
+        chunk: &[u8],
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
+        assert!(!manifest.is_empty());
+        let index = EncryptedAttachmentChunk::decode(chunk).unwrap().index();
+        if self.fail_at == Some(index) {
+            return ready(Err(()));
+        }
+        self.uploaded.push(index);
+        ready(Ok(()))
+    }
+}
+
+fn attachment_transfer_parts(count: u32) -> (Vec<u8>, Vec<Vec<u8>>) {
+    let identifier = AttachmentIdentifier::from_bytes([0x22; 16]).unwrap();
+    let key = AttachmentKey::derive(&[0x11; 32], identifier).unwrap();
+    let chunks: Vec<_> = (0..count)
+        .map(|index| {
+            EncryptedAttachmentChunk::encrypt(
+                identifier,
+                index,
+                &key.derive_chunk_key(index).unwrap(),
+                &vec![u8::try_from(index).unwrap(); ATTACHMENT_CHUNK_BYTES],
+            )
+            .unwrap()
+        })
+        .collect();
+    let manifest = AttachmentManifest::new(
+        identifier,
+        u64::from(count) * u64::try_from(ATTACHMENT_CHUNK_BYTES).unwrap(),
+        chunks.iter().map(|chunk| chunk.hash().unwrap()).collect(),
+    )
+    .unwrap()
+    .encrypt(&key)
+    .unwrap();
+    (
+        manifest.encode().unwrap(),
+        chunks.iter().map(|chunk| chunk.encode().unwrap()).collect(),
+    )
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -307,6 +363,70 @@ fn identity_recovery_is_available_through_the_public_sdk_and_fails_closed() {
         SdkRecoveryError::InvalidArchive
     );
     assert_eq!(empty.load().unwrap_err(), SdkIdentityError::NotInitialized);
+}
+
+#[tokio::test]
+async fn attachment_transfer_is_bounded_resumable_and_available_through_the_public_sdk() {
+    let (manifest, chunks) = attachment_transfer_parts(3);
+    let manifest = SdkAttachmentManifest::from_encoded(&manifest).unwrap();
+    assert!(format!("{manifest:?}").contains("REDACTED"));
+    let chunks = chunks
+        .iter()
+        .map(|chunk| SdkAttachmentChunk::from_encoded(chunk))
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    let mut transfer = SdkAttachmentTransfer::new(manifest, chunks, 3).unwrap();
+    let mut failing = RecordingAttachmentTransport {
+        fail_at: Some(1),
+        uploaded: Vec::new(),
+    };
+
+    let retried = transfer.run_cycle(&mut failing).await.unwrap();
+    assert_eq!(retried.uploaded(), 1);
+    assert_eq!(retried.outcome(), SdkAttachmentDeliveryOutcome::Retrying(1));
+    assert_eq!(transfer.next_pending_index(), Some(1));
+    assert_eq!(failing.uploaded, vec![0]);
+
+    let mut resumed = RecordingAttachmentTransport {
+        fail_at: None,
+        uploaded: Vec::new(),
+    };
+    let complete = transfer.run_cycle(&mut resumed).await.unwrap();
+    assert_eq!(complete.uploaded(), 2);
+    assert_eq!(complete.outcome(), SdkAttachmentDeliveryOutcome::Complete);
+    assert!(transfer.is_complete());
+    assert_eq!(resumed.uploaded, vec![1, 2]);
+
+    let (manifest, chunks) = attachment_transfer_parts(1);
+    let manifest = SdkAttachmentManifest::from_encoded(&manifest).unwrap();
+    let chunks = chunks
+        .iter()
+        .map(|chunk| SdkAttachmentChunk::from_encoded(chunk))
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(
+        SdkAttachmentTransfer::new(manifest, chunks, 0).unwrap_err(),
+        SdkAttachmentError::InvalidCycleLimit
+    );
+    assert_eq!(
+        SdkAttachmentManifest::from_encoded(&[0]).unwrap_err(),
+        SdkAttachmentError::InvalidManifest
+    );
+    assert_eq!(
+        SdkAttachmentChunk::from_encoded(&[0]).unwrap_err(),
+        SdkAttachmentError::InvalidChunk
+    );
+
+    let (manifest, _) = attachment_transfer_parts(1);
+    assert_eq!(
+        SdkAttachmentTransfer::new(
+            SdkAttachmentManifest::from_encoded(&manifest).unwrap(),
+            Vec::new(),
+            1
+        )
+        .unwrap_err(),
+        SdkAttachmentError::InvalidTransfer
+    );
 }
 
 #[test]

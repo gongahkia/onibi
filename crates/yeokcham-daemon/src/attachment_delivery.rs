@@ -17,8 +17,8 @@ pub trait AttachmentChunkSource: Send {
     ) -> Result<EncryptedAttachmentChunk, Self::Error>;
 }
 
-pub trait AttachmentDeliveryTransport: Send + 'static {
-    type Error: Send + 'static;
+pub trait AttachmentDeliveryTransport: Send {
+    type Error: Send;
 
     fn upload_chunk(
         &mut self,
