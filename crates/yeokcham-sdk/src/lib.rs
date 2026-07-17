@@ -14,7 +14,8 @@ mod version;
 
 pub use async_policy::{MAX_SDK_ASYNC_DEADLINE, SdkAsyncPolicy, SdkAsyncPolicyError};
 pub use capability::{
-    TransportAvailability, TransportCapability, TransportCapabilityError, TransportKind,
+    TRANSPORT_KIND_COUNT, TransportAvailability, TransportCapability, TransportCapabilityError,
+    TransportCapabilityMatrix, TransportKind,
 };
 pub use client::{SdkClient, SdkClientError};
 pub use config::{

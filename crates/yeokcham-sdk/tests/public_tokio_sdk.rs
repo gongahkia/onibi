@@ -22,7 +22,8 @@ use yeokcham_sdk::{
     SdkEventStreamError, SdkIdentityError, SdkIdentityInitialization, SdkIdentityManager,
     SdkLocalMeshPolicy, SdkLocalMeshTransportKind, SdkMessageEnvelope, SdkMessageEnvelopeError,
     SdkMessageError, SdkMessageExpiry, SdkMessageExpiryError, SdkMessageIdentifier,
-    SdkMessageSendRequest,
+    SdkMessageSendRequest, TransportAvailability, TransportCapability, TransportCapabilityError,
+    TransportCapabilityMatrix, TransportKind,
 };
 
 static NEXT_TEST_PATH: AtomicU64 = AtomicU64::new(0);
@@ -198,6 +199,40 @@ fn typed_builder_preserves_validation_at_the_build_boundary() {
             .event_buffer_capacity(0)
             .build(),
         Err(SdkConfigError::InvalidEventBufferCapacity)
+    );
+}
+
+#[test]
+fn transport_capability_matrix_is_complete_at_the_public_boundary() {
+    let matrix = TransportCapabilityMatrix::new(vec![
+        TransportCapability::new(TransportKind::Lan, TransportAvailability::Available).unwrap(),
+        TransportCapability::new(TransportKind::Direct, TransportAvailability::Available).unwrap(),
+        TransportCapability::new(
+            TransportKind::WifiDirect,
+            TransportAvailability::Unsupported,
+        )
+        .unwrap(),
+        TransportCapability::new(
+            TransportKind::WifiHotspot,
+            TransportAvailability::PermissionDenied,
+        )
+        .unwrap(),
+        TransportCapability::new(TransportKind::Bluetooth, TransportAvailability::Unavailable)
+            .unwrap(),
+        TransportCapability::new(TransportKind::TorMaildrop, TransportAvailability::Available)
+            .unwrap(),
+    ])
+    .unwrap();
+    assert_eq!(
+        matrix.capability(TransportKind::WifiHotspot).availability(),
+        TransportAvailability::PermissionDenied
+    );
+    assert_eq!(
+        TransportCapabilityMatrix::new(vec![
+            TransportCapability::new(TransportKind::TorMaildrop, TransportAvailability::Available)
+                .unwrap(),
+        ]),
+        Err(TransportCapabilityError::IncompleteMatrix)
     );
 }
 
