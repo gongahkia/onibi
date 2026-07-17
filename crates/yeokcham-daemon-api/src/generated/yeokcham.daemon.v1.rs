@@ -11,6 +11,19 @@ pub struct StartClientResponse {
     pub running: bool,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct CreateIdentityRequest {}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct GetIdentityRequest {}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct CreateOrLoadIdentityRequest {}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct IdentityResponse {
+    #[prost(bytes = "vec", tag = "1")]
+    pub public_key: ::prost::alloc::vec::Vec<u8>,
+    #[prost(enumeration = "IdentityInitialization", tag = "2")]
+    pub initialization: i32,
+}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct GetStatusRequest {}
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct GetStatusResponse {
@@ -20,6 +33,35 @@ pub struct GetStatusResponse {
     pub api_minor: u32,
     #[prost(bool, tag = "3")]
     pub running: bool,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum IdentityInitialization {
+    Unspecified = 0,
+    Created = 1,
+    Loaded = 2,
+}
+impl IdentityInitialization {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Unspecified => "IDENTITY_INITIALIZATION_UNSPECIFIED",
+            Self::Created => "IDENTITY_INITIALIZATION_CREATED",
+            Self::Loaded => "IDENTITY_INITIALIZATION_LOADED",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "IDENTITY_INITIALIZATION_UNSPECIFIED" => Some(Self::Unspecified),
+            "IDENTITY_INITIALIZATION_CREATED" => Some(Self::Created),
+            "IDENTITY_INITIALIZATION_LOADED" => Some(Self::Loaded),
+            _ => None,
+        }
+    }
 }
 /// Generated client implementations.
 pub mod daemon_service_client {
@@ -138,6 +180,87 @@ pub mod daemon_service_client {
                 );
             self.inner.unary(req, path, codec).await
         }
+        pub async fn create_identity(
+            &mut self,
+            request: impl tonic::IntoRequest<super::CreateIdentityRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::IdentityResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic_prost::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/yeokcham.daemon.v1.DaemonService/CreateIdentity",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new("yeokcham.daemon.v1.DaemonService", "CreateIdentity"),
+                );
+            self.inner.unary(req, path, codec).await
+        }
+        pub async fn get_identity(
+            &mut self,
+            request: impl tonic::IntoRequest<super::GetIdentityRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::IdentityResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic_prost::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/yeokcham.daemon.v1.DaemonService/GetIdentity",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new("yeokcham.daemon.v1.DaemonService", "GetIdentity"),
+                );
+            self.inner.unary(req, path, codec).await
+        }
+        pub async fn create_or_load_identity(
+            &mut self,
+            request: impl tonic::IntoRequest<super::CreateOrLoadIdentityRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::IdentityResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic_prost::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/yeokcham.daemon.v1.DaemonService/CreateOrLoadIdentity",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "yeokcham.daemon.v1.DaemonService",
+                        "CreateOrLoadIdentity",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
         pub async fn get_status(
             &mut self,
             request: impl tonic::IntoRequest<super::GetStatusRequest>,
@@ -184,6 +307,27 @@ pub mod daemon_service_server {
             request: tonic::Request<super::StartClientRequest>,
         ) -> std::result::Result<
             tonic::Response<super::StartClientResponse>,
+            tonic::Status,
+        >;
+        async fn create_identity(
+            &self,
+            request: tonic::Request<super::CreateIdentityRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::IdentityResponse>,
+            tonic::Status,
+        >;
+        async fn get_identity(
+            &self,
+            request: tonic::Request<super::GetIdentityRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::IdentityResponse>,
+            tonic::Status,
+        >;
+        async fn create_or_load_identity(
+            &self,
+            request: tonic::Request<super::CreateOrLoadIdentityRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::IdentityResponse>,
             tonic::Status,
         >;
         async fn get_status(
@@ -300,6 +444,145 @@ pub mod daemon_service_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = StartClientSvc(inner);
+                        let codec = tonic_prost::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/yeokcham.daemon.v1.DaemonService/CreateIdentity" => {
+                    #[allow(non_camel_case_types)]
+                    struct CreateIdentitySvc<T: DaemonService>(pub Arc<T>);
+                    impl<
+                        T: DaemonService,
+                    > tonic::server::UnaryService<super::CreateIdentityRequest>
+                    for CreateIdentitySvc<T> {
+                        type Response = super::IdentityResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::CreateIdentityRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as DaemonService>::create_identity(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = CreateIdentitySvc(inner);
+                        let codec = tonic_prost::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/yeokcham.daemon.v1.DaemonService/GetIdentity" => {
+                    #[allow(non_camel_case_types)]
+                    struct GetIdentitySvc<T: DaemonService>(pub Arc<T>);
+                    impl<
+                        T: DaemonService,
+                    > tonic::server::UnaryService<super::GetIdentityRequest>
+                    for GetIdentitySvc<T> {
+                        type Response = super::IdentityResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::GetIdentityRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as DaemonService>::get_identity(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = GetIdentitySvc(inner);
+                        let codec = tonic_prost::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/yeokcham.daemon.v1.DaemonService/CreateOrLoadIdentity" => {
+                    #[allow(non_camel_case_types)]
+                    struct CreateOrLoadIdentitySvc<T: DaemonService>(pub Arc<T>);
+                    impl<
+                        T: DaemonService,
+                    > tonic::server::UnaryService<super::CreateOrLoadIdentityRequest>
+                    for CreateOrLoadIdentitySvc<T> {
+                        type Response = super::IdentityResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::CreateOrLoadIdentityRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as DaemonService>::create_or_load_identity(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = CreateOrLoadIdentitySvc(inner);
                         let codec = tonic_prost::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

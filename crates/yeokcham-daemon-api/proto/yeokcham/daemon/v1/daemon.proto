@@ -4,6 +4,9 @@ package yeokcham.daemon.v1;
 
 service DaemonService {
   rpc StartClient(StartClientRequest) returns (StartClientResponse);
+  rpc CreateIdentity(CreateIdentityRequest) returns (IdentityResponse);
+  rpc GetIdentity(GetIdentityRequest) returns (IdentityResponse);
+  rpc CreateOrLoadIdentity(CreateOrLoadIdentityRequest) returns (IdentityResponse);
   rpc GetStatus(GetStatusRequest) returns (GetStatusResponse);
 }
 
@@ -13,6 +16,23 @@ message StartClientResponse {
   uint32 api_major = 1;
   uint32 api_minor = 2;
   bool running = 3;
+}
+
+message CreateIdentityRequest {}
+
+message GetIdentityRequest {}
+
+message CreateOrLoadIdentityRequest {}
+
+enum IdentityInitialization {
+  IDENTITY_INITIALIZATION_UNSPECIFIED = 0;
+  IDENTITY_INITIALIZATION_CREATED = 1;
+  IDENTITY_INITIALIZATION_LOADED = 2;
+}
+
+message IdentityResponse {
+  bytes public_key = 1;
+  IdentityInitialization initialization = 2;
 }
 
 message GetStatusRequest {}
