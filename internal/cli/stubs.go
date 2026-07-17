@@ -112,34 +112,6 @@ func snapshotsCmd() *cobra.Command {
 	return cmd
 }
 
-func recordingsCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "recordings",
-		Short: "List, export, or delete session recordings",
-		RunE:  runRecordingsList,
-	}
-	list := &cobra.Command{
-		Use:   "list",
-		Short: "List session recordings",
-		RunE:  runRecordingsList,
-	}
-	export := &cobra.Command{
-		Use:   "export <session> <path>",
-		Short: "Export a session recording",
-		Args:  cobra.ExactArgs(2),
-		RunE:  runRecordingsExport,
-	}
-	del := &cobra.Command{
-		Use:     "delete <session>",
-		Aliases: []string{"rm", "remove"},
-		Short:   "Delete a session recording",
-		Args:    cobra.ExactArgs(1),
-		RunE:    runRecordingsDelete,
-	}
-	cmd.AddCommand(list, export, del)
-	return cmd
-}
-
 func addRunFlags(cmd *cobra.Command) {
 	cmd.Flags().String("name", "", "session label (defaults to agent name)")
 	cmd.Flags().Int("buffer", 0, "PTY output buffer size in bytes (default 64 KiB)")

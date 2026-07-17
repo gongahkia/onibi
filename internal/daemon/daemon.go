@@ -49,7 +49,6 @@ type Daemon struct {
 	Trust      *trust.Watcher
 	Budget     *budget.ClaudeParser
 	PiBudget   *budget.PiParser
-	Recorder   *web.Recorder
 	BufferSize int
 
 	TerminalDefault         string
@@ -156,7 +155,6 @@ type Options struct {
 	FleetLink               *FleetLink
 	Budget                  *budget.ClaudeParser
 	PiBudget                *budget.PiParser
-	Recorder                *web.Recorder
 	TailnetStatus           func(context.Context) ([]byte, error)
 	TailnetHealth           func(context.Context, string, fleet.Host) (bool, error)
 	SkipRestore             bool
@@ -286,10 +284,6 @@ func New(opts Options) *Daemon {
 	if piBudgetParser == nil {
 		piBudgetParser = budget.NewPiParser("")
 	}
-	recorder := opts.Recorder
-	if recorder == nil && strings.TrimSpace(opts.Paths.StateDir) != "" {
-		recorder = web.NewRecorder(filepath.Join(opts.Paths.StateDir, "recordings"))
-	}
 	d := &Daemon{
 		Paths:                   opts.Paths,
 		DB:                      opts.DB,
@@ -312,7 +306,6 @@ func New(opts Options) *Daemon {
 		anomalyHistory:          map[string][]anomaly.Action{},
 		Budget:                  budgetParser,
 		PiBudget:                piBudgetParser,
-		Recorder:                recorder,
 		started:                 time.Now(),
 		ExitWhenIdle:            opts.ExitWhenIdle,
 		SkipRestore:             opts.SkipRestore,
@@ -435,20 +428,9 @@ func (d *Daemon) spawnAgent(ctx context.Context, name, agent, bin string, args [
 		return nil, err
 	}
 	d.persistSessionStart(ctx, s, cwd)
-	d.startRecording(s)
-
 	go d.readLoop(s)
 	go d.waitHost(s)
 	return s, nil
-}
-
-func (d *Daemon) startRecording(s *Session) {
-	if d == nil || d.Recorder == nil || s == nil || s.Host == nil {
-		return
-	}
-	if err := d.Recorder.Record(context.Background(), s.ID, s.Host); err != nil {
-		d.Log.Warn("start recording", slog.String("session", s.ID), slog.Any("err", err))
-	}
 }
 
 func (d *Daemon) bufferSize() int {
@@ -625,8 +607,6 @@ func (d *Daemon) Run(ctx context.Context) error {
 			Snapshots:             d.WebSnapshots,
 			SnapshotRestore:       d.WebRestoreSnapshot,
 			SnapshotFork:          d.WebForkSnapshot,
-			RecordingList:         d.WebRecordings,
-			RecordingPath:         d.WebRecordingPath,
 			UploadDir:             filepath.Join(d.Paths.StateDir, "uploads"),
 			RelayKeys:             d.RelayKeys,
 			RequireE2E:            d.RequireWebE2E,

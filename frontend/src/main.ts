@@ -23,7 +23,6 @@ import { RelayE2E, relayE2EContentType } from "./e2e";
 import { saveLastSessionID, SessionsListView, SessionsPanel } from "./sessions";
 import { SnapshotsPanel } from "./snapshots";
 import { TimelinePanel } from "./timeline";
-import { RecordingPlayerPanel } from "./recording-player";
 import { refreshPushSubscription, subscribePushFromGesture } from "./push";
 import { startFirstRunTour } from "./tour";
 import { ApprovalWakeLock } from "./wake-lock";
@@ -63,7 +62,6 @@ const sessionListRoot = requireElement("session-list");
 const sessionsRoot = requireElement("sessions");
 const snapshotsRoot = requireElement("snapshots");
 const timelineRoot = requireElement("timeline");
-const recordingsRoot = requireElement("recordings");
 const softkeys = requireElement("softkeys");
 const toast = requireElement("toast");
 let theme = loadTheme();
@@ -79,7 +77,6 @@ let sessionList: SessionsListView | undefined;
 let sessions: SessionsPanel | undefined;
 let snapshots: SnapshotsPanel | undefined;
 let timeline: TimelinePanel | undefined;
-let recordings: RecordingPlayerPanel | undefined;
 let sharePanel: SharePanel | undefined;
 let agentsFeed: AgentsFeed | undefined;
 let pairedHosts: PairedHostsPanel | undefined;
@@ -189,7 +186,6 @@ async function boot(): Promise<void> {
       showToast
     );
     timeline = new TimelinePanel(timelineRoot, info.session_id);
-    recordings = new RecordingPlayerPanel(recordingsRoot, getJSON, getText, showToast);
     const imagePaste = viewerMode
       ? undefined
       : installImagePaste({
@@ -220,7 +216,6 @@ async function boot(): Promise<void> {
     const tools = new SessionToolsPanel(document.body, [
       { label: "Timeline", action: () => timeline?.toggle() },
       { label: "Snapshots", action: () => snapshots?.toggle() },
-      { label: "Recordings", action: () => recordings?.toggle() },
       ...(sharePanel === undefined ? [] : [{ label: "Share", action: () => sharePanel.open() }])
     ]);
     installControls(toolbar, agentsFeed, tools, interventionPanel);
@@ -332,14 +327,6 @@ async function getJSON<T>(path: string): Promise<T> {
     throw new Error(`${path} ${response.status}`);
   }
   return (await response.json()) as T;
-}
-
-async function getText(path: string): Promise<string> {
-  const response = await fetch(path, { credentials: "same-origin" });
-  if (!response.ok) {
-    throw new Error(`${path} ${response.status}`);
-  }
-  return response.text();
 }
 
 function wsURL(token: string): string {
@@ -565,7 +552,6 @@ function showListChrome(): void {
   sessionsRoot.hidden = true;
   snapshotsRoot.hidden = true;
   timelineRoot.hidden = true;
-  recordingsRoot.hidden = true;
   filesRoot.hidden = true;
   termEl.hidden = true;
   softkeys.hidden = true;

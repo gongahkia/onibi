@@ -5,22 +5,15 @@
     "isDynamicEntry": true
   },
   "index.html": {
-    "file": "assets/index-BcOMSkU3.js",
+    "file": "assets/index-DsTqoQ9L.js",
     "name": "index",
     "src": "index.html",
     "isEntry": true,
     "dynamicImports": [
-      "_diff2html-ui-slim-BUa9DSNl.js",
-      "node_modules/asciinema-player/dist/index.js"
+      "_diff2html-ui-slim-BUa9DSNl.js"
     ],
     "css": [
-      "assets/index-BnJ2R5Z-.css"
+      "assets/index-CCv08b9T.css"
     ]
-  },
-  "node_modules/asciinema-player/dist/index.js": {
-    "file": "assets/index-CjNe_PW5.js",
-    "name": "index",
-    "src": "node_modules/asciinema-player/dist/index.js",
-    "isDynamicEntry": true
   }
 }

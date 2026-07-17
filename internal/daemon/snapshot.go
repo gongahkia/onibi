@@ -197,7 +197,6 @@ func (d *Daemon) registerSnapshotSession(ctx context.Context, name string, resto
 		return nil, err
 	}
 	d.persistSessionStart(ctx, s, s.CWD)
-	d.startRecording(s)
 	go d.readLoop(s)
 	go d.waitHost(s)
 	return s, nil

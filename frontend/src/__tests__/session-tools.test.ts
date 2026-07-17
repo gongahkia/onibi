@@ -7,7 +7,6 @@ test("session tools exposes secondary actions through an accessible sheet", asyn
   const panel = new SessionToolsPanel(requireRoot(), [
     { label: "Timeline", action: () => actions.push("timeline") },
     { label: "Snapshots", action: () => actions.push("snapshots") },
-    { label: "Recordings", action: () => actions.push("recordings") },
     { label: "Share", action: () => actions.push("share") }
   ]);
   requireRoot().append(panel.element);
@@ -16,7 +15,7 @@ test("session tools exposes secondary actions through an accessible sheet", asyn
   const dialog = requireRoot().querySelector('[role="dialog"]');
   expect(dialog?.getAttribute("aria-modal")).toBe("true");
   expect(panel.element.getAttribute("aria-expanded")).toBe("true");
-  expect(buttons(dialog)).toEqual(["Close", "Timeline", "Snapshots", "Recordings", "Share"]);
+  expect(buttons(dialog)).toEqual(["Close", "Timeline", "Snapshots", "Share"]);
   click(dom, button(dialog, "Share"));
   expect(actions).toEqual(["share"]);
   expect(requireRoot().querySelector('[role="dialog"]')).toBeNull();

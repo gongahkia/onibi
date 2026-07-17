@@ -50,7 +50,6 @@ func (d *Daemon) AttachTmux(ctx context.Context, name, target string) (*Session,
 		return nil, err
 	}
 	d.persistTmuxSessionStart(ctx, s)
-	d.startRecording(s)
 	go d.captureTmuxLoop(ctx, ctrl, s)
 	return s, nil
 }
@@ -101,7 +100,6 @@ func (d *Daemon) StartTmuxSession(ctx context.Context, name, agent, bin string, 
 		}
 	}
 	d.audit(ctx, "session.start", s.ID, "", 0, fmt.Sprintf("agent=%s name=%s target=%s", s.Agent, s.Name, s.TmuxTarget))
-	d.startRecording(s)
 	go d.captureTmuxLoop(ctx, ctrl, s)
 	return s, nil
 }
@@ -292,7 +290,6 @@ func (d *Daemon) restoreTmuxSession(ctx context.Context, ctrl *tmux.Controller, 
 		return err
 	}
 	d.audit(ctx, "session.restore", s.ID, "", 0, "target="+s.TmuxTarget)
-	d.startRecording(s)
 	go d.captureTmuxLoop(ctx, ctrl, s)
 	return nil
 }
@@ -389,7 +386,6 @@ func (d *Daemon) EnsureWebPTYHost(ctx context.Context, id string) (*pty.Host, er
 		if err != nil {
 			return nil, err
 		}
-		d.startRecording(&Session{ID: s.ID, Host: host})
 		go func() {
 			_ = host.Wait()
 			d.clearWebAttachHost(s.ID, host)
