@@ -158,9 +158,48 @@ impl RelayService for RelayGrpcService {
 
     async fn retrieve_envelopes(
         &self,
-        _request: Request<v1::RetrieveEnvelopesRequest>,
+        request: Request<v1::RetrieveEnvelopesRequest>,
     ) -> Result<Response<v1::RetrieveEnvelopesResponse>, Status> {
-        unavailable()
+        let request = request.into_inner();
+        let capability = MailboxCapability::decode(&request.mailbox_capability)
+            .map_err(|_| Status::invalid_argument("mailbox capability is invalid"))?;
+        let limit = u16::try_from(request.limit)
+            .map_err(|_| Status::invalid_argument("retrieval limit is invalid"))?;
+        let now = current_unix_seconds()?;
+        let envelopes = {
+            let mut database = self
+                .database
+                .lock()
+                .map_err(|_| Status::internal("relay database is unavailable"))?;
+            match database.retrieve_envelopes(&capability, request.after_sequence, now, limit) {
+                Ok(envelopes) => envelopes,
+                Err(RelayDatabaseError::InvalidCapability) => {
+                    return Err(Status::permission_denied("mailbox capability is invalid"));
+                }
+                Err(
+                    RelayDatabaseError::InvalidRetrievalLimit
+                    | RelayDatabaseError::TimestampOutOfRange,
+                ) => {
+                    return Err(Status::invalid_argument("retrieval request is invalid"));
+                }
+                Err(_) => return Err(Status::internal("envelope retrieval failed")),
+            }
+        };
+        let envelopes = envelopes
+            .into_iter()
+            .map(|envelope| {
+                Ok(v1::RelayEnvelope {
+                    sequence: envelope.sequence(),
+                    envelope: envelope
+                        .envelope()
+                        .encode()
+                        .map_err(|_| Status::internal("stored envelope is invalid"))?,
+                    received_at: envelope.received_at(),
+                    expires_at: envelope.expires_at(),
+                })
+            })
+            .collect::<Result<Vec<_>, Status>>()?;
+        Ok(Response::new(v1::RetrieveEnvelopesResponse { envelopes }))
     }
 
     async fn acknowledge_envelope(
@@ -244,18 +283,7 @@ mod tests {
             let capability = capability(0x11, 0x22);
             assert_registration_contract(&mut client, &capability).await;
             assert_envelope_storage_contract(&mut client, &capability).await;
-            assert_eq!(
-                client
-                    .retrieve_envelopes(RetrieveEnvelopesRequest {
-                        mailbox_capability: vec![1; 53],
-                        after_sequence: None,
-                        limit: 1,
-                    })
-                    .await
-                    .unwrap_err()
-                    .code(),
-                Code::Unimplemented
-            );
+            assert_retrieval_contract(&mut client, &capability).await;
             shutdown_sender.send(()).unwrap();
         };
         let (server, ()) = tokio::join!(server, client);
@@ -309,10 +337,7 @@ mod tests {
         client: &mut RelayServiceClient<Channel>,
         encoded_capability: &[u8],
     ) {
-        let envelope = EncryptedMessageEnvelope::new(vec![1], vec![2])
-            .unwrap()
-            .encode()
-            .unwrap();
+        let envelope = envelope();
         assert_eq!(
             client
                 .store_envelope(StoreEnvelopeRequest {
@@ -358,6 +383,68 @@ mod tests {
                 .code(),
             Code::PermissionDenied
         );
+    }
+
+    async fn assert_retrieval_contract(
+        client: &mut RelayServiceClient<Channel>,
+        encoded_capability: &[u8],
+    ) {
+        let retrieved = client
+            .retrieve_envelopes(RetrieveEnvelopesRequest {
+                mailbox_capability: encoded_capability.to_vec(),
+                after_sequence: None,
+                limit: 1,
+            })
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(retrieved.envelopes.len(), 1);
+        assert_eq!(retrieved.envelopes[0].sequence, 0);
+        assert_eq!(retrieved.envelopes[0].envelope, envelope());
+        assert!(
+            client
+                .retrieve_envelopes(RetrieveEnvelopesRequest {
+                    mailbox_capability: encoded_capability.to_vec(),
+                    after_sequence: Some(0),
+                    limit: 1,
+                })
+                .await
+                .unwrap()
+                .into_inner()
+                .envelopes
+                .is_empty()
+        );
+        assert_eq!(
+            client
+                .retrieve_envelopes(RetrieveEnvelopesRequest {
+                    mailbox_capability: encoded_capability.to_vec(),
+                    after_sequence: None,
+                    limit: 0,
+                })
+                .await
+                .unwrap_err()
+                .code(),
+            Code::InvalidArgument
+        );
+        assert_eq!(
+            client
+                .retrieve_envelopes(RetrieveEnvelopesRequest {
+                    mailbox_capability: capability(0x33, 0x44),
+                    after_sequence: None,
+                    limit: 1,
+                })
+                .await
+                .unwrap_err()
+                .code(),
+            Code::PermissionDenied
+        );
+    }
+
+    fn envelope() -> Vec<u8> {
+        EncryptedMessageEnvelope::new(vec![1], vec![2])
+            .unwrap()
+            .encode()
+            .unwrap()
     }
 
     #[tokio::test]
