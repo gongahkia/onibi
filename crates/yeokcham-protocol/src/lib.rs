@@ -28,6 +28,7 @@ mod prekey_bundle;
 mod qr_verification;
 mod recipient_capability;
 mod relay_invitation;
+#[cfg(feature = "experimental-relay-replication")]
 mod relay_replica;
 mod relay_storage_receipt;
 mod safety_number;
@@ -135,6 +136,7 @@ pub use relay_invitation::{
     MAX_RELAY_INVITATION_BYTES, MAX_RELAY_INVITATION_TTL_SECONDS, RELAY_INVITATION_GRANT_ID_BYTES,
     RELAY_INVITATION_SCHEMA_VERSION, RelayInvitation, RelayInvitationError,
 };
+#[cfg(feature = "experimental-relay-replication")]
 pub use relay_replica::{MAX_RELAY_REPLICAS, RelayReplicaSelection, RelayReplicaSelectionError};
 pub use relay_storage_receipt::{
     RELAY_STORAGE_RECEIPT_SCHEMA_VERSION, RelayStorageReceipt, RelayStorageReceiptError,

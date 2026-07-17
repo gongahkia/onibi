@@ -30,6 +30,7 @@ mod proximity_contact_invitation;
 mod qr_contact_verification;
 mod ratchet_store;
 mod relay_tls;
+#[cfg(feature = "experimental-relay-replication")]
 mod replication_scheduler;
 mod safety_number_verification;
 mod signed_prekey_lifecycle;
@@ -131,6 +132,7 @@ pub use proximity_contact_invitation::{
 pub use qr_contact_verification::{QrContactVerificationError, QrContactVerificationService};
 pub use ratchet_store::{RatchetStore, RatchetStoreError};
 pub use relay_tls::{RELAY_TLS_PIN_BYTES, RelayTlsEndpoint, RelayTlsEndpointError, RelayTlsPin};
+#[cfg(feature = "experimental-relay-replication")]
 pub use replication_scheduler::{MaildropReplicationError, MaildropReplicationScheduler};
 pub use safety_number_verification::{
     SafetyNumberVerificationError, SafetyNumberVerificationService,

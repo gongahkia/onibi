@@ -9,6 +9,7 @@ publish = false
 
 [features]
 default = []
+experimental-relay-replication = ["yeokcham-protocol/experimental-relay-replication"]
 
 [dependencies]
 chacha20poly1305.workspace = true
