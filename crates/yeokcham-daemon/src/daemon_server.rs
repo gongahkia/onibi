@@ -144,6 +144,7 @@ mod tests {
     };
 
     use super::DaemonServer;
+    use crate::grpc_service::MAX_DAEMON_MESSAGE_ENVELOPE_BYTES;
     use crate::{
         ClientIdentity, DaemonLocalAuth, DaemonLocalAuthToken, DaemonRuntime,
         LOCAL_AUTH_TOKEN_METADATA_KEY,
@@ -826,6 +827,27 @@ mod tests {
         );
     }
 
+    async fn assert_oversized_message_envelope_is_rejected(
+        client: &mut DaemonServiceClient<Channel>,
+        token: &DaemonLocalAuthToken,
+        request: &SendMessageRequest,
+    ) {
+        assert_eq!(
+            client
+                .send_message(authenticated_request(
+                    SendMessageRequest {
+                        envelope: vec![0; MAX_DAEMON_MESSAGE_ENVELOPE_BYTES + 1],
+                        ..request.clone()
+                    },
+                    token,
+                ))
+                .await
+                .unwrap_err()
+                .code(),
+            Code::InvalidArgument
+        );
+    }
+
     #[tokio::test]
     async fn serves_authenticated_contact_lifecycle_with_bounded_inputs() {
         let state_directory = state_directory();
@@ -1015,6 +1037,7 @@ mod tests {
                     .code(),
                 Code::InvalidArgument
             );
+            assert_oversized_message_envelope_is_rejected(&mut client, &token, &request).await;
             assert_eq!(
                 client
                     .send_message(authenticated_request(
