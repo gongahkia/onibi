@@ -33,6 +33,12 @@
 - Direct selection requires `YEOKCHAM_DIRECT_IP_DISCLOSURE_ACKNOWLEDGED`; Tor-maildrop requires zero acknowledgement and zero local-mesh transport; local-mesh requires zero acknowledgement and an allowed `YEOKCHAM_LOCAL_MESH_TRANSPORT_*` value.
 - The function clears `yeokcham_delivery_profile_t` before every failure. Invalid policy or selection input returns `YEOKCHAM_STATUS_INVALID_INPUT`; a policy-disallowed selection returns `YEOKCHAM_STATUS_STATE`.
 
+## Messages
+
+- `yeokcham_client_message_send` accepts a canonical encoded encrypted envelope no larger than `YEOKCHAM_MAX_MESSAGE_ENVELOPE_BYTES`, a recipient public key, and a valid creation time and TTL.
+- It writes a 16-byte message identifier only after queueing succeeds and clears that output before every failure. Invalid message input returns `YEOKCHAM_STATUS_INVALID_INPUT`; a missing identity, stopped client, or unavailable outbox returns `YEOKCHAM_STATUS_STATE`; a full outbox returns `YEOKCHAM_STATUS_RESOURCE_LIMIT`.
+- Client-scoped failures expose only bounded redacted `sdk_message_*` error-detail tokens.
+
 ## Library-owned buffers
 
 - `yeokcham_client_take_last_error_detail` transfers the redacted detail into an opaque library-owned buffer and writes a null output on failure. Read its bytes and length with `yeokcham_buffer_data` and `yeokcham_buffer_length`, then call `yeokcham_buffer_release` exactly once.

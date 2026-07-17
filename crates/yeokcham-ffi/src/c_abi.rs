@@ -23,7 +23,8 @@ use yeokcham_sdk::{
     SdkContactStatus, SdkContactVerificationMethod, SdkDeliveryProfile, SdkDeliveryProfileKind,
     SdkDeliveryProfilePolicy, SdkDeliveryProfilePolicyError, SdkDirectIpDisclosureAcknowledgement,
     SdkEvent, SdkEventEnvelope, SdkEventStream, SdkEventStreamError, SdkIdentityError,
-    SdkIdentityManager, SdkLocalMeshPolicy, SdkLocalMeshTransportKind,
+    SdkIdentityManager, SdkLocalMeshPolicy, SdkLocalMeshTransportKind, SdkMessageEnvelope,
+    SdkMessageError, SdkMessageExpiry, SdkMessageSendRequest,
 };
 use zeroize::{Zeroize, Zeroizing};
 
@@ -578,6 +579,79 @@ pub unsafe extern "C" fn yeokcham_delivery_profile_select(
         Err(error) => return map_sdk_delivery_profile_policy_error(error),
     };
     unsafe { profile.write(c_delivery_profile(profile_value)) };
+    YeokchamStatus::Ok
+}
+
+#[unsafe(no_mangle)]
+#[allow(clippy::missing_safety_doc)]
+pub unsafe extern "C" fn yeokcham_client_message_send(
+    client: *mut YeokchamClient,
+    recipient: *const u8,
+    envelope: *const u8,
+    envelope_length: usize,
+    created_at: u64,
+    ttl_seconds: u32,
+    message_identifier: *mut u8,
+) -> YeokchamStatus {
+    if message_identifier.is_null() {
+        return YeokchamStatus::InvalidInput;
+    }
+    unsafe {
+        std::ptr::write_bytes(
+            message_identifier,
+            0,
+            yeokcham_protocol::MESSAGE_IDENTIFIER_BYTES,
+        );
+    };
+    let Some(recipient) = (unsafe { c_identity_public_key(recipient) }) else {
+        return YeokchamStatus::InvalidInput;
+    };
+    if envelope.is_null()
+        || envelope_length == 0
+        || envelope_length > crate::YEOKCHAM_MAX_MESSAGE_ENVELOPE_BYTES
+    {
+        return YeokchamStatus::InvalidInput;
+    }
+    let envelope = unsafe { std::slice::from_raw_parts(envelope, envelope_length) };
+    let Ok(envelope) = SdkMessageEnvelope::from_encoded(envelope) else {
+        return YeokchamStatus::InvalidInput;
+    };
+    let Ok(expiry) = SdkMessageExpiry::new(created_at, ttl_seconds) else {
+        return YeokchamStatus::InvalidInput;
+    };
+    let identifier = client.addr();
+    if identifier == 0 {
+        return YeokchamStatus::InvalidInput;
+    }
+    let Ok(mut clients) = active_clients().lock() else {
+        return YeokchamStatus::State;
+    };
+    let Some(client) = clients.get_mut(&identifier) else {
+        return YeokchamStatus::InvalidInput;
+    };
+    let Some(runtime) = client.runtime.as_mut() else {
+        client.last_error_detail = Some(b"sdk_message_client_not_running");
+        return YeokchamStatus::State;
+    };
+    let result = runtime.send_message(
+        &mut client.identity,
+        SdkMessageSendRequest::new(recipient, envelope, expiry),
+    );
+    let queued = match result {
+        Ok(queued) => queued,
+        Err(error) => {
+            client.last_error_detail = Some(sdk_message_error_detail(&error));
+            return map_sdk_message_error(&error);
+        }
+    };
+    unsafe {
+        std::ptr::copy_nonoverlapping(
+            queued.identifier().as_bytes().as_ptr(),
+            message_identifier,
+            yeokcham_protocol::MESSAGE_IDENTIFIER_BYTES,
+        );
+    };
+    client.last_error_detail = None;
     YeokchamStatus::Ok
 }
 
@@ -1257,6 +1331,27 @@ const fn map_sdk_delivery_profile_policy_error(
     }
 }
 
+const fn map_sdk_message_error(error: &SdkMessageError) -> YeokchamStatus {
+    match error {
+        SdkMessageError::EventSequenceExhausted | SdkMessageError::QueueFull => {
+            YeokchamStatus::ResourceLimit
+        }
+        SdkMessageError::Identity(_)
+        | SdkMessageError::ClientNotRunning
+        | SdkMessageError::State => YeokchamStatus::State,
+    }
+}
+
+const fn sdk_message_error_detail(error: &SdkMessageError) -> &'static [u8] {
+    match error {
+        SdkMessageError::Identity(_) => b"sdk_message_identity",
+        SdkMessageError::ClientNotRunning => b"sdk_message_client_not_running",
+        SdkMessageError::EventSequenceExhausted => b"sdk_message_event_sequence_exhausted",
+        SdkMessageError::QueueFull => b"sdk_message_queue_full",
+        SdkMessageError::State => b"sdk_message_state",
+    }
+}
+
 fn sdk_contact_error_detail(error: &SdkContactError) -> &'static [u8] {
     match error {
         SdkContactError::Identity(_) => b"sdk_contact_identity",
@@ -1278,7 +1373,9 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use yeokcham_core::{IdentityKeypair, IdentityPublicKey};
-    use yeokcham_protocol::{ContactInvitation, QrVerificationPayload, SafetyNumberFingerprint};
+    use yeokcham_protocol::{
+        ContactInvitation, EncryptedMessageEnvelope, QrVerificationPayload, SafetyNumberFingerprint,
+    };
 
     use super::{
         CLIENT_TEST_LOCK, MAX_C_ABI_BUFFERS, MAX_C_ABI_CALLBACK_WORKERS,
@@ -1295,8 +1392,9 @@ mod tests {
         yeokcham_client_contact_import, yeokcham_client_contact_revoke,
         yeokcham_client_contact_verify_qr, yeokcham_client_contact_verify_safety_number,
         yeokcham_client_copy_last_error_detail, yeokcham_client_create,
-        yeokcham_client_identity_create, yeokcham_client_identity_load, yeokcham_client_release,
-        yeokcham_client_start, yeokcham_client_stop, yeokcham_client_subscribe_events,
+        yeokcham_client_identity_create, yeokcham_client_identity_load,
+        yeokcham_client_message_send, yeokcham_client_release, yeokcham_client_start,
+        yeokcham_client_stop, yeokcham_client_subscribe_events,
         yeokcham_client_take_last_error_detail, yeokcham_delivery_profile_select,
         yeokcham_event_subscription_poll, yeokcham_event_subscription_release,
         yeokcham_secret_buffer_zeroize,
@@ -1677,6 +1775,215 @@ mod tests {
             },
             YeokchamStatus::InvalidInput
         );
+    }
+
+    #[test]
+    fn c_message_send_queues_a_canonical_bounded_envelope_and_emits_an_event() {
+        let _guard = CLIENT_TEST_LOCK.lock().unwrap();
+        let directory =
+            std::env::temp_dir().join(format!("yeokcham-ffi-message-{}", std::process::id()));
+        let directory = directory.to_string_lossy().into_owned();
+        let client = yeokcham_client_create();
+        let builder = yeokcham_client_config_builder_create();
+        let mut local_identity = [0; yeokcham_core::ED25519_PUBLIC_KEY_BYTES];
+        let recipient = IdentityKeypair::generate().unwrap().public_key();
+        let envelope = EncryptedMessageEnvelope::new(vec![0xa1], vec![0xb2])
+            .unwrap()
+            .encode()
+            .unwrap();
+        let mut message_identifier = [0xA5; yeokcham_protocol::MESSAGE_IDENTIFIER_BYTES];
+
+        assert_eq!(
+            unsafe {
+                yeokcham_client_config_builder_set_state_directory(
+                    builder,
+                    directory.as_bytes().as_ptr(),
+                    directory.len(),
+                )
+            },
+            YeokchamStatus::Ok
+        );
+        assert_eq!(
+            yeokcham_client_config_builder_set_event_buffer_capacity(builder, 8),
+            YeokchamStatus::Ok
+        );
+        assert_eq!(
+            yeokcham_client_config_builder_build(builder, client),
+            YeokchamStatus::Ok
+        );
+        assert_eq!(
+            yeokcham_client_config_builder_release(builder),
+            YeokchamStatus::Ok
+        );
+        assert_eq!(
+            unsafe { yeokcham_client_identity_create(client, local_identity.as_mut_ptr()) },
+            YeokchamStatus::Ok
+        );
+        assert_eq!(yeokcham_client_start(client), YeokchamStatus::Ok);
+        let subscription = yeokcham_client_subscribe_events(client);
+        assert!(!subscription.is_null());
+        assert_eq!(
+            unsafe {
+                yeokcham_client_message_send(
+                    client,
+                    recipient.as_bytes().as_ptr(),
+                    envelope.as_ptr(),
+                    envelope.len(),
+                    100,
+                    60,
+                    message_identifier.as_mut_ptr(),
+                )
+            },
+            YeokchamStatus::Ok
+        );
+        assert_ne!(
+            message_identifier,
+            [0; yeokcham_protocol::MESSAGE_IDENTIFIER_BYTES]
+        );
+        let mut event = YeokchamEvent::default();
+        let mut has_event = 0;
+        assert_eq!(
+            unsafe {
+                yeokcham_event_subscription_poll(subscription, &raw mut event, &raw mut has_event)
+            },
+            YeokchamStatus::Ok
+        );
+        assert_eq!(has_event, 1);
+        assert_eq!(event.kind, crate::YEOKCHAM_EVENT_MESSAGE_QUEUED);
+        assert_eq!(event.message_identifier, message_identifier);
+        assert_eq!(
+            yeokcham_event_subscription_release(subscription),
+            YeokchamStatus::Ok
+        );
+        assert_eq!(yeokcham_client_stop(client), YeokchamStatus::Ok);
+        assert_eq!(yeokcham_client_release(client), YeokchamStatus::Ok);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn c_message_send_rejects_invalid_and_oversized_input_after_clearing_output() {
+        let recipient = IdentityKeypair::generate().unwrap().public_key();
+        let byte = 0;
+        let mut message_identifier = [0xA5; yeokcham_protocol::MESSAGE_IDENTIFIER_BYTES];
+        let envelope = EncryptedMessageEnvelope::new(vec![0xa1], vec![0xb2])
+            .unwrap()
+            .encode()
+            .unwrap();
+
+        assert_eq!(
+            unsafe {
+                yeokcham_client_message_send(
+                    std::ptr::null_mut(),
+                    recipient.as_bytes().as_ptr(),
+                    &raw const byte,
+                    crate::YEOKCHAM_MAX_MESSAGE_ENVELOPE_BYTES + 1,
+                    100,
+                    60,
+                    message_identifier.as_mut_ptr(),
+                )
+            },
+            YeokchamStatus::InvalidInput
+        );
+        assert_eq!(
+            message_identifier,
+            [0; yeokcham_protocol::MESSAGE_IDENTIFIER_BYTES]
+        );
+        message_identifier.fill(0xA5);
+        assert_eq!(
+            unsafe {
+                yeokcham_client_message_send(
+                    std::ptr::null_mut(),
+                    recipient.as_bytes().as_ptr(),
+                    envelope.as_ptr(),
+                    envelope.len(),
+                    u64::MAX,
+                    1,
+                    message_identifier.as_mut_ptr(),
+                )
+            },
+            YeokchamStatus::InvalidInput
+        );
+        assert_eq!(
+            message_identifier,
+            [0; yeokcham_protocol::MESSAGE_IDENTIFIER_BYTES]
+        );
+    }
+
+    #[test]
+    fn c_message_send_redacts_missing_identity_failures() {
+        let _guard = CLIENT_TEST_LOCK.lock().unwrap();
+        let directory = std::env::temp_dir().join(format!(
+            "yeokcham-ffi-message-missing-identity-{}",
+            std::process::id()
+        ));
+        let directory = directory.to_string_lossy().into_owned();
+        let client = yeokcham_client_create();
+        let builder = yeokcham_client_config_builder_create();
+        let recipient = IdentityKeypair::generate().unwrap().public_key();
+        let envelope = EncryptedMessageEnvelope::new(vec![0xa1], vec![0xb2])
+            .unwrap()
+            .encode()
+            .unwrap();
+        let mut message_identifier = [0xA5; yeokcham_protocol::MESSAGE_IDENTIFIER_BYTES];
+        let mut detail = [0; MAX_C_ABI_ERROR_DETAIL_BYTES];
+        let mut detail_length = 0;
+
+        assert_eq!(
+            unsafe {
+                yeokcham_client_config_builder_set_state_directory(
+                    builder,
+                    directory.as_bytes().as_ptr(),
+                    directory.len(),
+                )
+            },
+            YeokchamStatus::Ok
+        );
+        assert_eq!(
+            yeokcham_client_config_builder_set_event_buffer_capacity(builder, 8),
+            YeokchamStatus::Ok
+        );
+        assert_eq!(
+            yeokcham_client_config_builder_build(builder, client),
+            YeokchamStatus::Ok
+        );
+        assert_eq!(
+            yeokcham_client_config_builder_release(builder),
+            YeokchamStatus::Ok
+        );
+        assert_eq!(yeokcham_client_start(client), YeokchamStatus::Ok);
+        assert_eq!(
+            unsafe {
+                yeokcham_client_message_send(
+                    client,
+                    recipient.as_bytes().as_ptr(),
+                    envelope.as_ptr(),
+                    envelope.len(),
+                    100,
+                    60,
+                    message_identifier.as_mut_ptr(),
+                )
+            },
+            YeokchamStatus::State
+        );
+        assert_eq!(
+            message_identifier,
+            [0; yeokcham_protocol::MESSAGE_IDENTIFIER_BYTES]
+        );
+        assert_eq!(
+            unsafe {
+                yeokcham_client_copy_last_error_detail(
+                    client,
+                    detail.as_mut_ptr(),
+                    detail.len(),
+                    &raw mut detail_length,
+                )
+            },
+            YeokchamStatus::Ok
+        );
+        assert_eq!(&detail[..detail_length], b"sdk_message_identity");
+        assert_eq!(yeokcham_client_stop(client), YeokchamStatus::Ok);
+        assert_eq!(yeokcham_client_release(client), YeokchamStatus::Ok);
+        std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

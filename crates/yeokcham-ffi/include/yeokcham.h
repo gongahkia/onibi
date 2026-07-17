@@ -40,6 +40,8 @@
 #define YEOKCHAM_LOCAL_MESH_TRANSPORT_BLUETOOTH UINT32_C(4)
 #define YEOKCHAM_DIRECT_IP_DISCLOSURE_ACKNOWLEDGED UINT32_C(1)
 #define YEOKCHAM_DIRECT_IP_DISCLOSURE_WARNING UINT32_C(1)
+#define YEOKCHAM_MESSAGE_IDENTIFIER_BYTES UINT32_C(16)
+#define YEOKCHAM_MAX_MESSAGE_ENVELOPE_BYTES UINT32_C(1048544)
 
 typedef struct yeokcham_client yeokcham_client_t; // library-owned opaque client; release with yeokcham_client_release
 typedef struct yeokcham_client_config_builder yeokcham_client_config_builder_t; // library-owned configuration builder; release with yeokcham_client_config_builder_release
@@ -121,6 +123,15 @@ yeokcham_status_t yeokcham_delivery_profile_select(
     uint32_t direct_ip_disclosure_acknowledged,
     yeokcham_delivery_profile_t *profile
 ); // direct requires acknowledgement; tor requires zero acknowledgement and transport; local mesh requires zero acknowledgement and allowed transport; clears profile before failure
+yeokcham_status_t yeokcham_client_message_send(
+    yeokcham_client_t *client,
+    const uint8_t recipient[YEOKCHAM_IDENTITY_PUBLIC_KEY_BYTES],
+    const uint8_t *envelope,
+    size_t envelope_length,
+    uint64_t created_at,
+    uint32_t ttl_seconds,
+    uint8_t message_identifier[YEOKCHAM_MESSAGE_IDENTIFIER_BYTES]
+); // requires a running client with an identity and canonical bounded envelope; clears message_identifier before any failure
 yeokcham_status_t yeokcham_client_copy_last_error_detail(
     const yeokcham_client_t *client,
     uint8_t *buffer,
