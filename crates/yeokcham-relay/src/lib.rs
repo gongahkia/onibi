@@ -37,6 +37,7 @@ const RELAY_IDENTITY_KEY_ENTRY: &str = "relay_identity_v1";
 
 pub const RELAY_HEALTH_PATH: &str = "/healthz";
 pub const RELAY_READINESS_PATH: &str = "/readyz";
+pub const RELAY_METRICS_PATH: &str = "/metrics";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RelayOperationalMetrics {
@@ -64,6 +65,59 @@ impl RelayOperationalMetrics {
 
 pub trait RelayMetricsEmitter {
     fn emit(&mut self, metrics: RelayOperationalMetrics);
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RelayMetricsEndpoint {
+    address: SocketAddr,
+}
+
+impl RelayMetricsEndpoint {
+    pub fn new(address: SocketAddr) -> Result<Self, RelayMetricsEndpointError> {
+        if address.port() == 0 {
+            return Err(RelayMetricsEndpointError::ZeroPort);
+        }
+        if !address.ip().is_loopback() {
+            return Err(RelayMetricsEndpointError::NonLoopbackAddress);
+        }
+        Ok(Self { address })
+    }
+
+    #[must_use]
+    pub const fn address(self) -> SocketAddr {
+        self.address
+    }
+
+    pub fn response(
+        &self,
+        path: &str,
+        database: &RelayDatabase,
+    ) -> Result<String, RelayMetricsEndpointError> {
+        if path != RELAY_METRICS_PATH {
+            return Err(RelayMetricsEndpointError::UnknownPath);
+        }
+        let metrics = database
+            .operational_metrics()
+            .map_err(|_| RelayMetricsEndpointError::Unavailable)?;
+        Ok(format!(
+            "# TYPE yeokcham_relay_registered_mailboxes gauge\nyeokcham_relay_registered_mailboxes {}\n# TYPE yeokcham_relay_stored_envelopes gauge\nyeokcham_relay_stored_envelopes {}\n# TYPE yeokcham_relay_stored_bytes gauge\nyeokcham_relay_stored_bytes {}\n",
+            metrics.registered_mailboxes(),
+            metrics.stored_envelopes(),
+            metrics.stored_bytes(),
+        ))
+    }
+}
+
+#[derive(Debug, Eq, PartialEq, thiserror::Error)]
+pub enum RelayMetricsEndpointError {
+    #[error("relay metrics endpoint port must be nonzero")]
+    ZeroPort,
+    #[error("relay metrics endpoint must bind to loopback")]
+    NonLoopbackAddress,
+    #[error("relay metrics endpoint path is unknown")]
+    UnknownPath,
+    #[error("relay metrics collection failed")]
+    Unavailable,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -782,10 +836,8 @@ impl RelayDatabase {
             .map_err(Into::into)
     }
 
-    pub fn emit_operational_metrics<E: RelayMetricsEmitter>(
-        &self,
-        emitter: &mut E,
-    ) -> Result<(), RelayDatabaseError> {
+    pub fn operational_metrics(&self) -> Result<RelayOperationalMetrics, RelayDatabaseError> {
+        self.schema_version()?;
         let registered_mailboxes = count_rows(&self.connection, "relay_mailboxes")?;
         let stored_envelopes = count_rows(&self.connection, "relay_envelopes")?;
         let stored_bytes = self.connection.query_row(
@@ -794,12 +846,19 @@ impl RelayDatabase {
             [],
             |row| row.get::<_, i64>(0),
         )?;
-        emitter.emit(RelayOperationalMetrics {
+        Ok(RelayOperationalMetrics {
             registered_mailboxes,
             stored_envelopes,
             stored_bytes: u64::try_from(stored_bytes)
                 .map_err(|_| RelayDatabaseError::InvalidMailboxRecord)?,
-        });
+        })
+    }
+
+    pub fn emit_operational_metrics<E: RelayMetricsEmitter>(
+        &self,
+        emitter: &mut E,
+    ) -> Result<(), RelayDatabaseError> {
+        emitter.emit(self.operational_metrics()?);
         Ok(())
     }
 
@@ -1959,13 +2018,13 @@ mod tests {
         MAX_RELAY_INGRESS_WINDOW_SECONDS, MAX_RELAY_RETENTION_TTL_SECONDS,
         MAX_SELF_HOSTED_RELAY_CONFIG_BYTES, MailboxIngress, MailboxIngressError, MailboxQuota,
         MailboxQuotaError, MailboxQuotaTracker, ProjectTestRelay, ProjectTestRelayError,
-        RELAY_HEALTH_PATH, RELAY_READINESS_PATH, RELAY_SCHEMA_VERSION, RateLimitedRelay,
-        RelayAttachmentGarbageCollection, RelayDatabase, RelayDatabaseError,
+        RELAY_HEALTH_PATH, RELAY_METRICS_PATH, RELAY_READINESS_PATH, RELAY_SCHEMA_VERSION,
+        RateLimitedRelay, RelayAttachmentGarbageCollection, RelayDatabase, RelayDatabaseError,
         RelayGarbageCollection, RelayHealthEndpoint, RelayHealthEndpointError, RelayIdentity,
         RelayIngressError, RelayIngressRateLimit, RelayIngressRateLimitError, RelayMetricsEmitter,
-        RelayOperationalMetrics, RelayRetentionPolicy, RelayRetentionPolicyError,
-        SELF_HOSTED_RELAY_CONFIG_SCHEMA_VERSION, SelfHostedRelayConfig, SelfHostedRelayConfigError,
-        SyntheticRelayTrafficProof,
+        RelayMetricsEndpoint, RelayMetricsEndpointError, RelayOperationalMetrics,
+        RelayRetentionPolicy, RelayRetentionPolicyError, SELF_HOSTED_RELAY_CONFIG_SCHEMA_VERSION,
+        SelfHostedRelayConfig, SelfHostedRelayConfigError, SyntheticRelayTrafficProof,
     };
     use rusqlite::Connection;
     use yeokcham_core::{KeystoreEntryName, KeystoreSecret, OsKeystore, RelaySigningKeypair};
@@ -2928,6 +2987,38 @@ ingress_window_seconds = 30
                 stored_envelopes: 1,
                 stored_bytes: 6,
             }]
+        );
+    }
+
+    #[test]
+    fn exposes_loopback_only_redacted_metrics_response() {
+        let database =
+            RelayDatabase::from_connection(Connection::open_in_memory().unwrap()).unwrap();
+        let endpoint = RelayMetricsEndpoint::new("127.0.0.1:8081".parse().unwrap()).unwrap();
+
+        assert_eq!(
+            endpoint.response(RELAY_METRICS_PATH, &database).unwrap(),
+            "# TYPE yeokcham_relay_registered_mailboxes gauge\nyeokcham_relay_registered_mailboxes 0\n# TYPE yeokcham_relay_stored_envelopes gauge\nyeokcham_relay_stored_envelopes 0\n# TYPE yeokcham_relay_stored_bytes gauge\nyeokcham_relay_stored_bytes 0\n"
+        );
+        assert_eq!(
+            endpoint.response(RELAY_HEALTH_PATH, &database),
+            Err(RelayMetricsEndpointError::UnknownPath)
+        );
+        assert_eq!(
+            RelayMetricsEndpoint::new("127.0.0.1:0".parse().unwrap()),
+            Err(RelayMetricsEndpointError::ZeroPort)
+        );
+        assert_eq!(
+            RelayMetricsEndpoint::new("192.0.2.1:8081".parse().unwrap()),
+            Err(RelayMetricsEndpointError::NonLoopbackAddress)
+        );
+        database
+            .connection
+            .execute_batch("DROP TABLE relay_schema_migrations")
+            .unwrap();
+        assert_eq!(
+            endpoint.response(RELAY_METRICS_PATH, &database),
+            Err(RelayMetricsEndpointError::Unavailable)
         );
     }
 
