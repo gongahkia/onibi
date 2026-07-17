@@ -1,5 +1,5 @@
 use crate::{
-    LocalDaemonEndpointError, SdkClientError, SdkConfigError, SdkContactError,
+    LocalDaemonEndpointError, SdkAsyncPolicyError, SdkClientError, SdkConfigError, SdkContactError,
     SdkDeliveryProfilePolicyError, SdkEventError, SdkEventStreamError, SdkIdentityError,
     SdkMessageEnvelopeError, SdkMessageError, SdkMessageExpiryError, SdkMessageIdentifierError,
     TransportCapabilityError,
@@ -7,6 +7,8 @@ use crate::{
 
 #[derive(Debug, Eq, PartialEq, thiserror::Error)]
 pub enum SdkError {
+    #[error("SDK async policy is invalid")]
+    AsyncPolicy(#[from] SdkAsyncPolicyError),
     #[error("SDK client operation failed")]
     Client(#[from] SdkClientError),
     #[error("SDK configuration is invalid")]
@@ -38,10 +40,14 @@ pub enum SdkError {
 #[cfg(test)]
 mod tests {
     use super::SdkError;
-    use crate::{SdkClientError, SdkMessageExpiryError};
+    use crate::{SdkAsyncPolicyError, SdkClientError, SdkMessageExpiryError};
 
     #[test]
     fn preserves_the_sdk_error_family_when_converted() {
+        assert_eq!(
+            SdkError::from(SdkAsyncPolicyError::ZeroDeadline),
+            SdkError::AsyncPolicy(SdkAsyncPolicyError::ZeroDeadline)
+        );
         assert_eq!(
             SdkError::from(SdkClientError::AlreadyRunning),
             SdkError::Client(SdkClientError::AlreadyRunning)

@@ -12,6 +12,7 @@ default = []
 [dependencies]
 thiserror.workspace = true
 tokio.workspace = true
+tokio-util.workspace = true
 yeokcham-core = { path = "../yeokcham-core" }
 yeokcham-daemon = { path = "../yeokcham-daemon" }
 yeokcham-protocol = { path = "../yeokcham-protocol" }

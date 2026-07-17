@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+mod async_policy;
 mod capability;
 mod client;
 mod config;
@@ -11,6 +12,7 @@ mod identity;
 mod message;
 mod version;
 
+pub use async_policy::{MAX_SDK_ASYNC_DEADLINE, SdkAsyncPolicy, SdkAsyncPolicyError};
 pub use capability::{
     TransportAvailability, TransportCapability, TransportCapabilityError, TransportKind,
 };
@@ -39,5 +41,6 @@ pub use message::{
     SdkMessageExpiry, SdkMessageExpiryError, SdkMessageIdentifier, SdkMessageIdentifierError,
     SdkMessageSendRequest, SdkQueuedMessage,
 };
+pub use tokio_util::sync::CancellationToken;
 pub use version::{SDK_API_VERSION, SDK_API_VERSION_MAJOR, SDK_API_VERSION_MINOR, SdkApiVersion};
 pub use yeokcham_core::IdentityPublicKey;

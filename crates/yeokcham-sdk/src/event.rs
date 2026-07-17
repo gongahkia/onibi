@@ -1,5 +1,8 @@
 use tokio::sync::broadcast;
+use tokio_util::sync::CancellationToken;
 use yeokcham_protocol::MessageIdentifier;
+
+use crate::SdkAsyncPolicy;
 
 pub const SDK_EVENT_ENVELOPE_VERSION: u32 = 1;
 
@@ -82,6 +85,19 @@ impl SdkEventStream {
             .map_err(|error| map_receive_error(&error))
     }
 
+    pub async fn next_with_policy(
+        &mut self,
+        policy: SdkAsyncPolicy,
+        cancellation: &CancellationToken,
+    ) -> Result<SdkEventEnvelope, SdkEventStreamError> {
+        tokio::select! {
+            biased;
+            () = cancellation.cancelled() => Err(SdkEventStreamError::Cancelled),
+            () = tokio::time::sleep(policy.deadline()) => Err(SdkEventStreamError::DeadlineExceeded),
+            event = self.receiver.recv() => event.map_err(|error| map_receive_error(&error)),
+        }
+    }
+
     pub fn try_next(&mut self) -> Result<Option<SdkEventEnvelope>, SdkEventStreamError> {
         match self.receiver.try_recv() {
             Ok(event) => Ok(Some(event)),
@@ -96,6 +112,10 @@ impl SdkEventStream {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum SdkEventStreamError {
+    #[error("SDK event stream wait was cancelled")]
+    Cancelled,
+    #[error("SDK event stream wait exceeded its deadline")]
+    DeadlineExceeded,
     #[error("SDK event stream lagged by {0} event(s)")]
     Lagged(u64),
     #[error("SDK event stream is closed")]

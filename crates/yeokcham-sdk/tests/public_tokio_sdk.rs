@@ -6,6 +6,7 @@ use std::{
         Arc,
         atomic::{AtomicU64, Ordering},
     },
+    time::Duration,
 };
 
 use yeokcham_core::{IdentityKeypair, KeystoreEntryName, KeystoreSecret, OsKeystore};
@@ -13,14 +14,15 @@ use yeokcham_protocol::{
     ContactInvitation, IdentityRotation, QrVerificationPayload, SafetyNumberFingerprint,
 };
 use yeokcham_sdk::{
-    LocalDaemonEndpoint, MAX_SDK_EVENT_BUFFER_CAPACITY, RuntimeMode, SdkClient, SdkClientBuilder,
-    SdkClientError, SdkConfig, SdkConfigError, SdkContactError, SdkContactStatus,
-    SdkDeliveryProfileKind, SdkDeliveryProfilePolicy, SdkDeliveryProfilePolicyError,
-    SdkDeliveryStatus, SdkDirectIpDisclosureAcknowledgement, SdkError, SdkEvent, SdkEventEnvelope,
-    SdkEventStream, SdkEventStreamError, SdkIdentityError, SdkIdentityInitialization,
-    SdkIdentityManager, SdkLocalMeshPolicy, SdkLocalMeshTransportKind, SdkMessageEnvelope,
-    SdkMessageEnvelopeError, SdkMessageError, SdkMessageExpiry, SdkMessageExpiryError,
-    SdkMessageIdentifier, SdkMessageSendRequest,
+    CancellationToken, LocalDaemonEndpoint, MAX_SDK_ASYNC_DEADLINE, MAX_SDK_EVENT_BUFFER_CAPACITY,
+    RuntimeMode, SdkAsyncPolicy, SdkAsyncPolicyError, SdkClient, SdkClientBuilder, SdkClientError,
+    SdkConfig, SdkConfigError, SdkContactError, SdkContactStatus, SdkDeliveryProfileKind,
+    SdkDeliveryProfilePolicy, SdkDeliveryProfilePolicyError, SdkDeliveryStatus,
+    SdkDirectIpDisclosureAcknowledgement, SdkError, SdkEvent, SdkEventEnvelope, SdkEventStream,
+    SdkEventStreamError, SdkIdentityError, SdkIdentityInitialization, SdkIdentityManager,
+    SdkLocalMeshPolicy, SdkLocalMeshTransportKind, SdkMessageEnvelope, SdkMessageEnvelopeError,
+    SdkMessageError, SdkMessageExpiry, SdkMessageExpiryError, SdkMessageIdentifier,
+    SdkMessageSendRequest,
 };
 
 static NEXT_TEST_PATH: AtomicU64 = AtomicU64::new(0);
@@ -631,4 +633,42 @@ async fn async_start_rejects_daemon_mode_without_creating_state() {
         Err(SdkClientError::DaemonModeUnavailable)
     ));
     assert!(!state_directory.exists());
+}
+
+#[tokio::test]
+async fn sdk_event_stream_applies_cancellation_and_deadline_policy() {
+    let state_directory = state_directory();
+    let config = SdkConfig::new(state_directory.clone(), RuntimeMode::Embedded, 1).unwrap();
+    let mut client = SdkClient::start(&config).unwrap();
+    let mut events = client.subscribe();
+    let policy = SdkAsyncPolicy::new(Duration::from_millis(20)).unwrap();
+    assert_eq!(
+        SdkAsyncPolicy::new(Duration::ZERO),
+        Err(SdkAsyncPolicyError::ZeroDeadline)
+    );
+    assert_eq!(
+        SdkAsyncPolicy::new(MAX_SDK_ASYNC_DEADLINE + Duration::from_nanos(1)),
+        Err(SdkAsyncPolicyError::DeadlineExceedsMaximum)
+    );
+
+    let cancelled = CancellationToken::new();
+    cancelled.cancel();
+    assert_eq!(
+        events.next_with_policy(policy, &cancelled).await,
+        Err(SdkEventStreamError::Cancelled)
+    );
+
+    let active = CancellationToken::new();
+    assert_eq!(
+        events.next_with_policy(policy, &active).await,
+        Err(SdkEventStreamError::DeadlineExceeded)
+    );
+
+    let task_token = CancellationToken::new();
+    let event_task =
+        tokio::spawn(async move { events.next_with_policy(policy, &task_token).await });
+    client.shutdown().unwrap();
+    let event = event_task.await.unwrap().unwrap();
+    assert_eq!(event.event(), SdkEvent::ClientStopped);
+    fs::remove_dir_all(state_directory).unwrap();
 }
