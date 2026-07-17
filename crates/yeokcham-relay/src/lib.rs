@@ -5,6 +5,7 @@ mod relay_server;
 
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
+use std::fs;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
@@ -29,6 +30,8 @@ pub const MAX_RELAY_RETENTION_TTL_SECONDS: u32 = MAX_RELAY_INVITATION_TTL_SECOND
 pub const MAX_MAILBOX_RETRIEVAL_ENVELOPES: u16 = 128;
 pub const MAX_RELAY_INGRESS_REQUESTS_PER_WINDOW: u16 = 1024;
 pub const MAX_RELAY_INGRESS_WINDOW_SECONDS: u32 = 3600;
+pub const SELF_HOSTED_RELAY_CONFIG_SCHEMA_VERSION: u8 = 1;
+pub const MAX_SELF_HOSTED_RELAY_CONFIG_BYTES: usize = 16 * 1024;
 pub const RELAY_SCHEMA_VERSION: u32 = 4;
 const RELAY_IDENTITY_KEY_ENTRY: &str = "relay_identity_v1";
 
@@ -457,7 +460,10 @@ impl SelfHostedRelayConfig {
         if listen_address.port() == 0 {
             return Err(SelfHostedRelayConfigError::ZeroListenPort);
         }
-        if !database_path.is_absolute() || database_path.parent().is_none() {
+        if database_path.as_os_str().as_encoded_bytes().contains(&0)
+            || !database_path.is_absolute()
+            || database_path.parent().is_none()
+        {
             return Err(SelfHostedRelayConfigError::InvalidDatabasePath);
         }
         Ok(Self {
@@ -498,14 +504,203 @@ impl SelfHostedRelayConfig {
     pub const fn ingress_rate_limit(&self) -> RelayIngressRateLimit {
         self.ingress_rate_limit
     }
+
+    pub fn load(path: &Path) -> Result<Self, SelfHostedRelayConfigError> {
+        let source = fs::read(path).map_err(SelfHostedRelayConfigError::Read)?;
+        if source.len() > MAX_SELF_HOSTED_RELAY_CONFIG_BYTES {
+            return Err(SelfHostedRelayConfigError::TooLarge);
+        }
+        let source =
+            std::str::from_utf8(&source).map_err(|_| SelfHostedRelayConfigError::InvalidUtf8)?;
+        Self::parse(source)
+    }
+
+    pub fn parse(source: &str) -> Result<Self, SelfHostedRelayConfigError> {
+        if source.len() > MAX_SELF_HOSTED_RELAY_CONFIG_BYTES {
+            return Err(SelfHostedRelayConfigError::TooLarge);
+        }
+        let mut schema_version = None;
+        let mut listen_address = None;
+        let mut database_path = None;
+        let mut mailbox_quota_bytes = None;
+        let mut retention_ttl_seconds = None;
+        let mut ingress_max_requests = None;
+        let mut ingress_window_seconds = None;
+        for line in source.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            let (key, value) = line
+                .split_once('=')
+                .ok_or(SelfHostedRelayConfigError::InvalidLine)?;
+            let key = key.trim();
+            let value = value.trim();
+            match key {
+                "config_version" => replace_once(
+                    &mut schema_version,
+                    parse_config_integer(value, SelfHostedRelayConfigError::InvalidSchemaVersion)?,
+                )?,
+                "listen_address" => replace_once(
+                    &mut listen_address,
+                    parse_config_string(value)?
+                        .parse()
+                        .map_err(|_| SelfHostedRelayConfigError::InvalidListenAddress)?,
+                )?,
+                "database_path" => replace_once(
+                    &mut database_path,
+                    PathBuf::from(parse_config_string(value)?),
+                )?,
+                "mailbox_quota_bytes" => replace_once(
+                    &mut mailbox_quota_bytes,
+                    parse_config_integer(value, SelfHostedRelayConfigError::InvalidMailboxQuota)?,
+                )?,
+                "retention_ttl_seconds" => replace_once(
+                    &mut retention_ttl_seconds,
+                    parse_config_integer(
+                        value,
+                        SelfHostedRelayConfigError::InvalidRetentionPolicy,
+                    )?,
+                )?,
+                "ingress_max_requests" => replace_once(
+                    &mut ingress_max_requests,
+                    parse_config_integer(
+                        value,
+                        SelfHostedRelayConfigError::InvalidIngressRateLimit,
+                    )?,
+                )?,
+                "ingress_window_seconds" => replace_once(
+                    &mut ingress_window_seconds,
+                    parse_config_integer(
+                        value,
+                        SelfHostedRelayConfigError::InvalidIngressRateLimit,
+                    )?,
+                )?,
+                _ => return Err(SelfHostedRelayConfigError::UnknownSetting),
+            }
+        }
+        let schema_version =
+            schema_version.ok_or(SelfHostedRelayConfigError::MissingSchemaVersion)?;
+        if schema_version != SELF_HOSTED_RELAY_CONFIG_SCHEMA_VERSION {
+            return Err(SelfHostedRelayConfigError::UnsupportedSchemaVersion(
+                schema_version,
+            ));
+        }
+        let listen_address =
+            listen_address.ok_or(SelfHostedRelayConfigError::MissingListenAddress)?;
+        let database_path = database_path.ok_or(SelfHostedRelayConfigError::MissingDatabasePath)?;
+        let quota = MailboxQuota::new(
+            mailbox_quota_bytes.ok_or(SelfHostedRelayConfigError::MissingMailboxQuota)?,
+        )
+        .map_err(|_| SelfHostedRelayConfigError::InvalidMailboxQuota)?;
+        let retention = RelayRetentionPolicy::new(
+            retention_ttl_seconds.ok_or(SelfHostedRelayConfigError::MissingRetentionPolicy)?,
+        )
+        .map_err(|_| SelfHostedRelayConfigError::InvalidRetentionPolicy)?;
+        let ingress_rate_limit = RelayIngressRateLimit::new(
+            ingress_max_requests.ok_or(SelfHostedRelayConfigError::MissingIngressRateLimit)?,
+            ingress_window_seconds.ok_or(SelfHostedRelayConfigError::MissingIngressRateLimit)?,
+        )
+        .map_err(|_| SelfHostedRelayConfigError::InvalidIngressRateLimit)?;
+        Self::new(listen_address, database_path, quota, retention)
+            .map_err(|_| SelfHostedRelayConfigError::InvalidRelayConfiguration)
+            .map(|config| config.with_ingress_rate_limit(ingress_rate_limit))
+    }
 }
 
-#[derive(Debug, Eq, PartialEq, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 pub enum SelfHostedRelayConfigError {
+    #[error("self-hosted relay configuration could not be read")]
+    Read(#[source] std::io::Error),
+    #[error("self-hosted relay configuration exceeds the configured limit")]
+    TooLarge,
+    #[error("self-hosted relay configuration is not valid UTF-8")]
+    InvalidUtf8,
+    #[error("self-hosted relay configuration has an invalid line")]
+    InvalidLine,
+    #[error("self-hosted relay configuration has an invalid string")]
+    InvalidString,
+    #[error("self-hosted relay configuration has an invalid schema version")]
+    InvalidSchemaVersion,
+    #[error("self-hosted relay configuration repeats a setting")]
+    DuplicateSetting,
+    #[error("self-hosted relay configuration has an unknown setting")]
+    UnknownSetting,
+    #[error("self-hosted relay configuration omits its schema version")]
+    MissingSchemaVersion,
+    #[error("self-hosted relay configuration schema version is unsupported: {0}")]
+    UnsupportedSchemaVersion(u8),
+    #[error("self-hosted relay configuration omits its listen address")]
+    MissingListenAddress,
+    #[error("self-hosted relay configuration listen address is invalid")]
+    InvalidListenAddress,
+    #[error("self-hosted relay configuration omits its database path")]
+    MissingDatabasePath,
+    #[error("self-hosted relay configuration omits its mailbox quota")]
+    MissingMailboxQuota,
+    #[error("self-hosted relay configuration mailbox quota is invalid")]
+    InvalidMailboxQuota,
+    #[error("self-hosted relay configuration omits its retention policy")]
+    MissingRetentionPolicy,
+    #[error("self-hosted relay configuration retention policy is invalid")]
+    InvalidRetentionPolicy,
+    #[error("self-hosted relay configuration omits its ingress rate limit")]
+    MissingIngressRateLimit,
+    #[error("self-hosted relay configuration ingress rate limit is invalid")]
+    InvalidIngressRateLimit,
+    #[error("self-hosted relay configuration is invalid")]
+    InvalidRelayConfiguration,
     #[error("self-hosted relay listen port must be nonzero")]
     ZeroListenPort,
     #[error("self-hosted relay database path must be absolute")]
     InvalidDatabasePath,
+}
+
+fn replace_once<T>(setting: &mut Option<T>, value: T) -> Result<(), SelfHostedRelayConfigError> {
+    if setting.replace(value).is_some() {
+        return Err(SelfHostedRelayConfigError::DuplicateSetting);
+    }
+    Ok(())
+}
+
+fn parse_config_integer<T>(
+    value: &str,
+    error: SelfHostedRelayConfigError,
+) -> Result<T, SelfHostedRelayConfigError>
+where
+    T: std::str::FromStr,
+{
+    if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err(error);
+    }
+    value.parse().map_err(|_| error)
+}
+
+fn parse_config_string(value: &str) -> Result<String, SelfHostedRelayConfigError> {
+    let value = value
+        .strip_prefix('"')
+        .and_then(|value| value.strip_suffix('"'))
+        .ok_or(SelfHostedRelayConfigError::InvalidString)?;
+    let mut output = String::with_capacity(value.len());
+    let mut characters = value.chars();
+    while let Some(character) = characters.next() {
+        if character == '"' {
+            return Err(SelfHostedRelayConfigError::InvalidString);
+        }
+        if character != '\\' {
+            output.push(character);
+            continue;
+        }
+        match characters.next() {
+            Some('"') => output.push('"'),
+            Some('\\') => output.push('\\'),
+            Some('n') => output.push('\n'),
+            Some('r') => output.push('\r'),
+            Some('t') => output.push('\t'),
+            _ => return Err(SelfHostedRelayConfigError::InvalidString),
+        }
+    }
+    Ok(output)
 }
 
 pub struct RelayIdentity {
@@ -1751,18 +1946,25 @@ pub enum RelayRetentionPolicyError {
 
 #[cfg(test)]
 mod tests {
-    use std::convert::Infallible;
+    use std::{
+        convert::Infallible,
+        fs,
+        path::PathBuf,
+        sync::atomic::{AtomicU64, Ordering},
+    };
 
     use super::{
         MAX_MAILBOX_RETRIEVAL_ENVELOPES, MAX_RELAY_INGRESS_REQUESTS_PER_WINDOW,
-        MAX_RELAY_INGRESS_WINDOW_SECONDS, MAX_RELAY_RETENTION_TTL_SECONDS, MailboxIngress,
-        MailboxIngressError, MailboxQuota, MailboxQuotaError, MailboxQuotaTracker,
-        ProjectTestRelay, ProjectTestRelayError, RELAY_HEALTH_PATH, RELAY_SCHEMA_VERSION,
-        RateLimitedRelay, RelayAttachmentGarbageCollection, RelayDatabase, RelayDatabaseError,
+        MAX_RELAY_INGRESS_WINDOW_SECONDS, MAX_RELAY_RETENTION_TTL_SECONDS,
+        MAX_SELF_HOSTED_RELAY_CONFIG_BYTES, MailboxIngress, MailboxIngressError, MailboxQuota,
+        MailboxQuotaError, MailboxQuotaTracker, ProjectTestRelay, ProjectTestRelayError,
+        RELAY_HEALTH_PATH, RELAY_SCHEMA_VERSION, RateLimitedRelay,
+        RelayAttachmentGarbageCollection, RelayDatabase, RelayDatabaseError,
         RelayGarbageCollection, RelayHealthEndpoint, RelayHealthEndpointError, RelayIdentity,
         RelayIngressError, RelayIngressRateLimit, RelayIngressRateLimitError, RelayMetricsEmitter,
         RelayOperationalMetrics, RelayRetentionPolicy, RelayRetentionPolicyError,
-        SelfHostedRelayConfig, SelfHostedRelayConfigError, SyntheticRelayTrafficProof,
+        SELF_HOSTED_RELAY_CONFIG_SCHEMA_VERSION, SelfHostedRelayConfig, SelfHostedRelayConfigError,
+        SyntheticRelayTrafficProof,
     };
     use rusqlite::Connection;
     use yeokcham_core::{KeystoreEntryName, KeystoreSecret, OsKeystore, RelaySigningKeypair};
@@ -1772,6 +1974,28 @@ mod tests {
         EncryptedAttachmentManifest, EncryptedMessageEnvelope, MAILBOX_CAPABILITY_TOKEN_BYTES,
         MAILBOX_IDENTIFIER_BYTES, MailboxCapability,
     };
+
+    static NEXT_CONFIG_PATH: AtomicU64 = AtomicU64::new(0);
+
+    fn config_path() -> PathBuf {
+        let number = NEXT_CONFIG_PATH.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir().join(format!(
+            "yeokcham-relay-config-{}-{number}.conf",
+            std::process::id()
+        ))
+    }
+
+    fn relay_config() -> &'static str {
+        r#"# self-hosted relay configuration
+config_version = 1
+listen_address = "127.0.0.1:9443"
+database_path = "/var/lib/yeokcham/relay.sqlite"
+mailbox_quota_bytes = 1024
+retention_ttl_seconds = 60
+ingress_max_requests = 2
+ingress_window_seconds = 30
+"#
+    }
 
     fn capability() -> MailboxCapability {
         capability_with(0x11, 0x22)
@@ -2560,7 +2784,7 @@ mod tests {
                 .ingress_rate_limit(),
             RelayIngressRateLimit::new(1, 60).unwrap()
         );
-        assert_eq!(
+        assert!(matches!(
             SelfHostedRelayConfig::new(
                 "127.0.0.1:0".parse().unwrap(),
                 "/var/lib/yeokcham/relay.sqlite".into(),
@@ -2569,8 +2793,8 @@ mod tests {
             )
             .unwrap_err(),
             SelfHostedRelayConfigError::ZeroListenPort
-        );
-        assert_eq!(
+        ));
+        assert!(matches!(
             SelfHostedRelayConfig::new(
                 "127.0.0.1:9443".parse().unwrap(),
                 "relay.sqlite".into(),
@@ -2579,7 +2803,69 @@ mod tests {
             )
             .unwrap_err(),
             SelfHostedRelayConfigError::InvalidDatabasePath
+        ));
+    }
+
+    #[test]
+    fn loads_a_typed_versioned_self_hosted_relay_configuration() {
+        let path = config_path();
+        fs::write(&path, relay_config()).unwrap();
+        let config = SelfHostedRelayConfig::load(&path).unwrap();
+
+        assert_eq!(config.listen_address(), "127.0.0.1:9443".parse().unwrap());
+        assert_eq!(
+            config.database_path(),
+            std::path::Path::new("/var/lib/yeokcham/relay.sqlite")
         );
+        assert_eq!(config.mailbox_quota(), MailboxQuota::new(1024).unwrap());
+        assert_eq!(config.retention(), RelayRetentionPolicy::new(60).unwrap());
+        assert_eq!(
+            config.ingress_rate_limit(),
+            RelayIngressRateLimit::new(2, 30).unwrap()
+        );
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn rejects_malformed_duplicate_unbounded_and_invalid_relay_configuration() {
+        assert!(matches!(
+            SelfHostedRelayConfig::parse(&format!("{}unknown = 1\n", relay_config())),
+            Err(SelfHostedRelayConfigError::UnknownSetting)
+        ));
+        assert!(matches!(
+            SelfHostedRelayConfig::parse(&format!("{}config_version = 1\n", relay_config())),
+            Err(SelfHostedRelayConfigError::DuplicateSetting)
+        ));
+        assert!(matches!(
+            SelfHostedRelayConfig::parse(
+                &relay_config().replace("config_version = 1", "config_version = 2")
+            ),
+            Err(SelfHostedRelayConfigError::UnsupportedSchemaVersion(2))
+        ));
+        assert!(matches!(
+            SelfHostedRelayConfig::parse(
+                &relay_config().replace("mailbox_quota_bytes = 1024", "mailbox_quota_bytes = 0")
+            ),
+            Err(SelfHostedRelayConfigError::InvalidMailboxQuota)
+        ));
+        assert!(matches!(
+            SelfHostedRelayConfig::parse(
+                &relay_config().replace("ingress_max_requests = 2", "ingress_max_requests = 0")
+            ),
+            Err(SelfHostedRelayConfigError::InvalidIngressRateLimit)
+        ));
+        assert!(matches!(
+            SelfHostedRelayConfig::parse(&relay_config().replace(
+                "database_path = \"/var/lib/yeokcham/relay.sqlite\"",
+                "database_path = \"relay.sqlite\""
+            )),
+            Err(SelfHostedRelayConfigError::InvalidRelayConfiguration)
+        ));
+        assert!(matches!(
+            SelfHostedRelayConfig::parse(&"x".repeat(MAX_SELF_HOSTED_RELAY_CONFIG_BYTES + 1)),
+            Err(SelfHostedRelayConfigError::TooLarge)
+        ));
+        assert_eq!(SELF_HOSTED_RELAY_CONFIG_SCHEMA_VERSION, 1);
     }
 
     #[test]
