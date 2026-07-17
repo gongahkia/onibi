@@ -9,8 +9,9 @@ pub mod v1 {
 mod tests {
     use super::v1::{
         ContactResponse, ContactStatus, ContactVerificationMethod, DeliveryProfileKind,
-        DeliveryProfileResponse, DeliveryStatus, GetDeliveryStatusRequest,
-        GetDeliveryStatusResponse, GetStatusResponse, IdentityInitialization, IdentityResponse,
+        DeliveryProfileResponse, DeliveryStatus, ExportIdentityRecoveryRequest,
+        ExportIdentityRecoveryResponse, GetDeliveryStatusRequest, GetDeliveryStatusResponse,
+        GetStatusResponse, IdentityInitialization, IdentityResponse, ImportIdentityRecoveryRequest,
         LocalMeshTransportKind, SelectDeliveryProfileRequest, SendMessageRequest,
         SendMessageResponse, ShutdownDaemonResponse, StartClientResponse, VerifyContactQrRequest,
         VerifyContactSafetyNumberRequest,
@@ -57,6 +58,24 @@ mod tests {
             IdentityInitialization::try_from(response.initialization),
             Ok(IdentityInitialization::Created)
         );
+    }
+
+    #[test]
+    fn generated_identity_recovery_contract_preserves_every_field() {
+        let export = ExportIdentityRecoveryRequest {
+            passphrase: vec![1; 3],
+        };
+        let archive = ExportIdentityRecoveryResponse {
+            archive: vec![2; 122],
+        };
+        let import = ImportIdentityRecoveryRequest {
+            archive: archive.archive.clone(),
+            passphrase: export.passphrase.clone(),
+        };
+        assert_eq!(export.passphrase, vec![1; 3]);
+        assert_eq!(archive.archive, vec![2; 122]);
+        assert_eq!(import.archive, archive.archive);
+        assert_eq!(import.passphrase, export.passphrase);
     }
 
     #[test]

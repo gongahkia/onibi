@@ -13,10 +13,11 @@ use yeokcham_daemon_api::v1::{
     ApplyContactIdentityRotationRequest, ContactResponse, ContactStatus as RpcContactStatus,
     ContactVerificationMethod as RpcContactVerificationMethod, CreateIdentityRequest,
     CreateOrLoadIdentityRequest, DeliveryProfileKind as RpcDeliveryProfileKind,
-    DeliveryProfileResponse, DeliveryStatus as RpcDeliveryStatus, GetContactRequest,
-    GetContactResponse, GetDeliveryStatusRequest, GetDeliveryStatusResponse, GetIdentityRequest,
-    GetStatusRequest, GetStatusResponse, IdentityInitialization, IdentityResponse,
-    ImportContactInvitationRequest, ListContactsRequest, ListContactsResponse,
+    DeliveryProfileResponse, DeliveryStatus as RpcDeliveryStatus, ExportIdentityRecoveryRequest,
+    ExportIdentityRecoveryResponse, GetContactRequest, GetContactResponse,
+    GetDeliveryStatusRequest, GetDeliveryStatusResponse, GetIdentityRequest, GetStatusRequest,
+    GetStatusResponse, IdentityInitialization, IdentityResponse, ImportContactInvitationRequest,
+    ImportIdentityRecoveryRequest, ListContactsRequest, ListContactsResponse,
     LocalMeshTransportKind as RpcLocalMeshTransportKind, RevokeContactRequest,
     SelectDeliveryProfileRequest, SendMessageRequest, SendMessageResponse, ShutdownDaemonRequest,
     ShutdownDaemonResponse, StartClientRequest, StartClientResponse, VerifyContactQrRequest,
@@ -24,10 +25,11 @@ use yeokcham_daemon_api::v1::{
 };
 use yeokcham_protocol::{
     CONTACT_INVITATION_BYTES, DeliveryProfile, DeliveryProfileConstraints, DirectProfileSelection,
-    EncryptedMessageEnvelope, IDENTITY_ROTATION_BYTES, LocalMeshProfileConfig,
-    LocalMeshProfileConstraints, LocalMeshProfileSelection, LocalMeshTransportKind,
-    MAX_MESSAGE_PAYLOAD_BYTES, MESSAGE_IDENTIFIER_BYTES, MessageIdentifier, ProtocolVersion,
-    QR_VERIFICATION_PAYLOAD_BYTES, SAFETY_NUMBER_FINGERPRINT_BYTES,
+    EncryptedMessageEnvelope, IDENTITY_EXPORT_BYTES, IDENTITY_ROTATION_BYTES,
+    IdentityExportPassphrase, LocalMeshProfileConfig, LocalMeshProfileConstraints,
+    LocalMeshProfileSelection, LocalMeshTransportKind, MAX_MESSAGE_PAYLOAD_BYTES,
+    MESSAGE_IDENTIFIER_BYTES, MessageIdentifier, ProtocolVersion, QR_VERIFICATION_PAYLOAD_BYTES,
+    SAFETY_NUMBER_FINGERPRINT_BYTES,
 };
 
 #[cfg(target_os = "linux")]
@@ -191,6 +193,15 @@ trait DaemonIdentityOperations: Send + Sync {
     fn create(&self) -> Result<IdentityResponse, Status>;
     fn load(&self) -> Result<IdentityResponse, Status>;
     fn create_or_load(&self) -> Result<IdentityResponse, Status>;
+    fn export_recovery(
+        &self,
+        passphrase: &IdentityExportPassphrase,
+    ) -> Result<ExportIdentityRecoveryResponse, Status>;
+    fn import_recovery(
+        &self,
+        archive: &[u8],
+        passphrase: &IdentityExportPassphrase,
+    ) -> Result<IdentityResponse, Status>;
 }
 
 struct UnavailableIdentityOperations;
@@ -209,6 +220,25 @@ impl DaemonIdentityOperations for UnavailableIdentityOperations {
     }
 
     fn create_or_load(&self) -> Result<IdentityResponse, Status> {
+        Err(Status::unavailable(
+            "daemon identity service is unavailable",
+        ))
+    }
+
+    fn export_recovery(
+        &self,
+        _passphrase: &IdentityExportPassphrase,
+    ) -> Result<ExportIdentityRecoveryResponse, Status> {
+        Err(Status::unavailable(
+            "daemon identity service is unavailable",
+        ))
+    }
+
+    fn import_recovery(
+        &self,
+        _archive: &[u8],
+        _passphrase: &IdentityExportPassphrase,
+    ) -> Result<IdentityResponse, Status> {
         Err(Status::unavailable(
             "daemon identity service is unavailable",
         ))
@@ -539,6 +569,33 @@ where
             })
             .map_err(|error| map_identity_error(&error))
     }
+
+    fn export_recovery(
+        &self,
+        passphrase: &IdentityExportPassphrase,
+    ) -> Result<ExportIdentityRecoveryResponse, Status> {
+        let keystore = self.keystore.lock().map_err(|_| identity_failure())?;
+        ClientIdentity::load(&*keystore)
+            .and_then(|identity| identity.export_recovery(passphrase))
+            .map(|archive| ExportIdentityRecoveryResponse { archive })
+            .map_err(|error| map_recovery_export_error(&error))
+    }
+
+    fn import_recovery(
+        &self,
+        archive: &[u8],
+        passphrase: &IdentityExportPassphrase,
+    ) -> Result<IdentityResponse, Status> {
+        let mut keystore = self.keystore.lock().map_err(|_| identity_failure())?;
+        ClientIdentity::import_recovery(&mut *keystore, archive, passphrase)
+            .map(|identity| {
+                identity_response(
+                    identity.public_key().as_bytes(),
+                    IdentityInitialization::Recovered,
+                )
+            })
+            .map_err(|error| map_recovery_import_error(&error))
+    }
 }
 
 fn identity_response(
@@ -567,6 +624,48 @@ fn map_identity_error(error: &ClientIdentityError) -> Status {
         | ClientIdentityError::KeystoreSecret(_)
         | ClientIdentityError::Keystore => identity_failure(),
     }
+}
+
+fn map_recovery_export_error(error: &ClientIdentityError) -> Status {
+    match error {
+        ClientIdentityError::NotInitialized => Status::not_found("daemon identity does not exist"),
+        ClientIdentityError::AlreadyInitialized
+        | ClientIdentityError::InvalidKeyEntry
+        | ClientIdentityError::Generation(_)
+        | ClientIdentityError::InvalidStoredIdentity(_)
+        | ClientIdentityError::RecoveryExport(_)
+        | ClientIdentityError::RecoveryImport(_)
+        | ClientIdentityError::KeystoreSecret(_)
+        | ClientIdentityError::Keystore => identity_failure(),
+    }
+}
+
+fn map_recovery_import_error(error: &ClientIdentityError) -> Status {
+    match error {
+        ClientIdentityError::AlreadyInitialized => Status::already_exists("daemon identity exists"),
+        ClientIdentityError::RecoveryImport(_) => {
+            Status::invalid_argument("recovery archive is invalid")
+        }
+        ClientIdentityError::NotInitialized
+        | ClientIdentityError::InvalidKeyEntry
+        | ClientIdentityError::Generation(_)
+        | ClientIdentityError::InvalidStoredIdentity(_)
+        | ClientIdentityError::RecoveryExport(_)
+        | ClientIdentityError::KeystoreSecret(_)
+        | ClientIdentityError::Keystore => identity_failure(),
+    }
+}
+
+fn recovery_passphrase(passphrase: Vec<u8>) -> Result<IdentityExportPassphrase, Status> {
+    IdentityExportPassphrase::new(passphrase)
+        .map_err(|_| Status::invalid_argument("recovery passphrase is invalid"))
+}
+
+fn recovery_archive(archive: &[u8]) -> Result<(), Status> {
+    if archive.len() != IDENTITY_EXPORT_BYTES {
+        return Err(Status::invalid_argument("recovery archive is invalid"));
+    }
+    Ok(())
 }
 
 fn contact_unavailable() -> Status {
@@ -906,6 +1005,28 @@ impl DaemonService for DaemonGrpcService {
         self.identity.create_or_load().map(Response::new)
     }
 
+    async fn export_identity_recovery(
+        &self,
+        request: Request<ExportIdentityRecoveryRequest>,
+    ) -> Result<Response<ExportIdentityRecoveryResponse>, Status> {
+        let passphrase = recovery_passphrase(request.into_inner().passphrase)?;
+        self.identity
+            .export_recovery(&passphrase)
+            .map(Response::new)
+    }
+
+    async fn import_identity_recovery(
+        &self,
+        request: Request<ImportIdentityRecoveryRequest>,
+    ) -> Result<Response<IdentityResponse>, Status> {
+        let request = request.into_inner();
+        recovery_archive(&request.archive)?;
+        let passphrase = recovery_passphrase(request.passphrase)?;
+        self.identity
+            .import_recovery(&request.archive, &passphrase)
+            .map(Response::new)
+    }
+
     async fn list_contacts(
         &self,
         _request: Request<ListContactsRequest>,
@@ -1032,9 +1153,14 @@ mod tests {
         SelectDeliveryProfileRequest, SendMessageRequest, StartClientRequest,
         daemon_service_server::DaemonService,
     };
-    use yeokcham_protocol::{EncryptedMessageEnvelope, ProtocolVersion};
+    use yeokcham_protocol::{
+        EncryptedMessageEnvelope, IDENTITY_EXPORT_BYTES, MAX_IDENTITY_EXPORT_PASSPHRASE_BYTES,
+        ProtocolVersion,
+    };
 
-    use super::{DaemonGrpcService, select_delivery_profile};
+    use super::{
+        DaemonGrpcService, recovery_archive, recovery_passphrase, select_delivery_profile,
+    };
 
     #[derive(Debug, thiserror::Error)]
     #[error("sensitive keystore failure")]
@@ -1237,5 +1363,20 @@ mod tests {
             disallowed.message(),
             "delivery profile selection is disallowed"
         );
+    }
+
+    #[test]
+    fn recovery_input_validation_is_bounded_and_redacted() {
+        for passphrase in [
+            Vec::new(),
+            vec![0; MAX_IDENTITY_EXPORT_PASSPHRASE_BYTES + 1],
+        ] {
+            let error = recovery_passphrase(passphrase).unwrap_err();
+            assert_eq!(error.code(), Code::InvalidArgument);
+            assert_eq!(error.message(), "recovery passphrase is invalid");
+        }
+        let error = recovery_archive(&[0; IDENTITY_EXPORT_BYTES - 1]).unwrap_err();
+        assert_eq!(error.code(), Code::InvalidArgument);
+        assert_eq!(error.message(), "recovery archive is invalid");
     }
 }

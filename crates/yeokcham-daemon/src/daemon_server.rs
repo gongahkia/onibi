@@ -133,17 +133,18 @@ mod tests {
         ApplyContactIdentityRotationRequest, ContactResponse, ContactStatus as RpcContactStatus,
         ContactVerificationMethod as RpcContactVerificationMethod, CreateIdentityRequest,
         CreateOrLoadIdentityRequest, DeliveryProfileKind as RpcDeliveryProfileKind,
-        DeliveryStatus as RpcDeliveryStatus, GetContactRequest, GetDeliveryStatusRequest,
-        GetIdentityRequest, GetStatusResponse, IdentityInitialization,
-        ImportContactInvitationRequest, ListContactsRequest,
-        LocalMeshTransportKind as RpcLocalMeshTransportKind, RevokeContactRequest,
-        SelectDeliveryProfileRequest, SendMessageRequest, ShutdownDaemonRequest,
-        StartClientRequest, VerifyContactQrRequest, VerifyContactSafetyNumberRequest,
-        daemon_service_client::DaemonServiceClient,
+        DeliveryStatus as RpcDeliveryStatus, ExportIdentityRecoveryRequest, GetContactRequest,
+        GetDeliveryStatusRequest, GetIdentityRequest, GetStatusResponse, IdentityInitialization,
+        IdentityResponse, ImportContactInvitationRequest, ImportIdentityRecoveryRequest,
+        ListContactsRequest, LocalMeshTransportKind as RpcLocalMeshTransportKind,
+        RevokeContactRequest, SelectDeliveryProfileRequest, SendMessageRequest,
+        ShutdownDaemonRequest, StartClientRequest, VerifyContactQrRequest,
+        VerifyContactSafetyNumberRequest, daemon_service_client::DaemonServiceClient,
     };
     use yeokcham_protocol::{
-        ContactInvitation, EncryptedMessageEnvelope, IdentityRotation, MESSAGE_IDENTIFIER_BYTES,
-        MessageIdentifier, ProtocolVersion, QrVerificationPayload, SafetyNumberFingerprint,
+        ContactInvitation, EncryptedMessageEnvelope, IDENTITY_EXPORT_BYTES, IdentityRotation,
+        MESSAGE_IDENTIFIER_BYTES, MessageIdentifier, ProtocolVersion, QrVerificationPayload,
+        SafetyNumberFingerprint,
     };
 
     use super::DaemonServer;
@@ -470,6 +471,148 @@ mod tests {
         assert!(!socket_path.exists());
         runtime.shutdown().unwrap();
         fs::remove_dir_all(state_directory).unwrap();
+    }
+
+    #[tokio::test]
+    async fn serves_authenticated_identity_recovery_round_trip() {
+        let source_directory = state_directory();
+        let target_directory = state_directory();
+        let mut source_runtime =
+            DaemonRuntime::start(ProtocolVersion::INITIAL, &source_directory).unwrap();
+        let mut target_runtime =
+            DaemonRuntime::start(ProtocolVersion::INITIAL, &target_directory).unwrap();
+        let (source_auth, source_token) = DaemonLocalAuth::initialize().unwrap();
+        let (target_auth, target_token) = DaemonLocalAuth::initialize().unwrap();
+        let source_server = DaemonServer::bind_with_identity_keystore(
+            &source_runtime,
+            source_auth,
+            MemoryKeystore::default(),
+        )
+        .unwrap();
+        let target_server = DaemonServer::bind_with_identity_keystore(
+            &target_runtime,
+            target_auth,
+            MemoryKeystore::default(),
+        )
+        .unwrap();
+        let source_socket = source_server.socket_path().to_path_buf();
+        let target_socket = target_server.socket_path().to_path_buf();
+        let (source_shutdown_sender, source_shutdown_receiver) = oneshot::channel();
+        let (target_shutdown_sender, target_shutdown_receiver) = oneshot::channel();
+
+        let source_server = source_server.serve_until(async move {
+            let _ = source_shutdown_receiver.await;
+        });
+        let target_server = target_server.serve_until(async move {
+            let _ = target_shutdown_receiver.await;
+        });
+        let client = async {
+            let passphrase = b"daemon recovery passphrase";
+            let mut source = contact_client(source_socket.clone()).await;
+            assert_eq!(
+                source
+                    .export_identity_recovery(Request::new(ExportIdentityRecoveryRequest {
+                        passphrase: passphrase.to_vec(),
+                    }))
+                    .await
+                    .unwrap_err()
+                    .code(),
+                Code::Unauthenticated
+            );
+            let created = source
+                .create_identity(authenticated_request(
+                    CreateIdentityRequest {},
+                    &source_token,
+                ))
+                .await
+                .unwrap()
+                .into_inner();
+            assert_eq!(
+                source
+                    .export_identity_recovery(authenticated_request(
+                        ExportIdentityRecoveryRequest {
+                            passphrase: Vec::new(),
+                        },
+                        &source_token,
+                    ))
+                    .await
+                    .unwrap_err()
+                    .code(),
+                Code::InvalidArgument
+            );
+            let archive = export_identity_recovery(&mut source, &source_token, passphrase).await;
+            assert_eq!(archive.len(), IDENTITY_EXPORT_BYTES);
+            let mut target = contact_client(target_socket.clone()).await;
+            assert_eq!(
+                target
+                    .import_identity_recovery(authenticated_request(
+                        ImportIdentityRecoveryRequest {
+                            archive: archive.clone(),
+                            passphrase: b"wrong passphrase".to_vec(),
+                        },
+                        &target_token,
+                    ))
+                    .await
+                    .unwrap_err()
+                    .code(),
+                Code::InvalidArgument
+            );
+            let recovered =
+                import_identity_recovery(&mut target, &target_token, archive, passphrase).await;
+            assert_eq!(recovered.public_key, created.public_key);
+            assert_eq!(
+                IdentityInitialization::try_from(recovered.initialization),
+                Ok(IdentityInitialization::Recovered)
+            );
+            source_shutdown_sender.send(()).unwrap();
+            target_shutdown_sender.send(()).unwrap();
+        };
+        let (source_server, target_server, ()) = tokio::join!(source_server, target_server, client);
+        assert!(source_server.is_ok());
+        assert!(target_server.is_ok());
+        assert!(!source_socket.exists());
+        assert!(!target_socket.exists());
+        source_runtime.shutdown().unwrap();
+        target_runtime.shutdown().unwrap();
+        fs::remove_dir_all(source_directory).unwrap();
+        fs::remove_dir_all(target_directory).unwrap();
+    }
+
+    async fn export_identity_recovery(
+        client: &mut DaemonServiceClient<Channel>,
+        token: &DaemonLocalAuthToken,
+        passphrase: &[u8],
+    ) -> Vec<u8> {
+        client
+            .export_identity_recovery(authenticated_request(
+                ExportIdentityRecoveryRequest {
+                    passphrase: passphrase.to_vec(),
+                },
+                token,
+            ))
+            .await
+            .unwrap()
+            .into_inner()
+            .archive
+    }
+
+    async fn import_identity_recovery(
+        client: &mut DaemonServiceClient<Channel>,
+        token: &DaemonLocalAuthToken,
+        archive: Vec<u8>,
+        passphrase: &[u8],
+    ) -> IdentityResponse {
+        client
+            .import_identity_recovery(authenticated_request(
+                ImportIdentityRecoveryRequest {
+                    archive,
+                    passphrase: passphrase.to_vec(),
+                },
+                token,
+            ))
+            .await
+            .unwrap()
+            .into_inner()
     }
 
     async fn contact_client(socket_path: PathBuf) -> DaemonServiceClient<Channel> {
