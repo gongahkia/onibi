@@ -21,6 +21,13 @@
 #define YEOKCHAM_EVENT_MESSAGE_DELIVERED UINT32_C(4)
 #define YEOKCHAM_EVENT_MESSAGE_DELIVERY_FAILED UINT32_C(5)
 #define YEOKCHAM_IDENTITY_PUBLIC_KEY_BYTES UINT32_C(32)
+#define YEOKCHAM_CONTACT_INVITATION_BYTES UINT32_C(136)
+#define YEOKCHAM_CONTACT_STATUS_PENDING UINT32_C(1)
+#define YEOKCHAM_CONTACT_STATUS_VERIFIED UINT32_C(2)
+#define YEOKCHAM_CONTACT_STATUS_REVOKED UINT32_C(3)
+#define YEOKCHAM_CONTACT_VERIFICATION_NONE UINT32_C(0)
+#define YEOKCHAM_CONTACT_VERIFICATION_QR UINT32_C(1)
+#define YEOKCHAM_CONTACT_VERIFICATION_SAFETY_NUMBER UINT32_C(2)
 
 typedef struct yeokcham_client yeokcham_client_t; // library-owned opaque client; release with yeokcham_client_release
 typedef struct yeokcham_client_config_builder yeokcham_client_config_builder_t; // library-owned configuration builder; release with yeokcham_client_config_builder_release
@@ -32,6 +39,11 @@ typedef struct yeokcham_event {
     uint32_t kind;
     uint8_t message_identifier[YEOKCHAM_EVENT_MESSAGE_IDENTIFIER_BYTES];
 } yeokcham_event_t;
+typedef struct yeokcham_contact {
+    uint8_t identity[YEOKCHAM_IDENTITY_PUBLIC_KEY_BYTES];
+    uint32_t status;
+    uint32_t verification;
+} yeokcham_contact_t;
 
 typedef int32_t yeokcham_status_t;
 typedef void (*yeokcham_completion_callback_t)(yeokcham_status_t status, void *context);
@@ -54,6 +66,21 @@ yeokcham_status_t yeokcham_client_identity_load(
     yeokcham_client_t *client,
     uint8_t public_key[YEOKCHAM_IDENTITY_PUBLIC_KEY_BYTES]
 ); // loads the handle-scoped identity and clears public_key before any failure
+yeokcham_status_t yeokcham_client_contact_import(
+    yeokcham_client_t *client,
+    const uint8_t invitation[YEOKCHAM_CONTACT_INVITATION_BYTES],
+    yeokcham_contact_t *contact
+); // requires a running client with an identity; clears contact before any failure
+yeokcham_status_t yeokcham_client_contact_get(
+    yeokcham_client_t *client,
+    const uint8_t identity[YEOKCHAM_IDENTITY_PUBLIC_KEY_BYTES],
+    yeokcham_contact_t *contact
+); // requires a running client with an identity; clears contact before any failure
+yeokcham_status_t yeokcham_client_contact_revoke(
+    yeokcham_client_t *client,
+    const uint8_t identity[YEOKCHAM_IDENTITY_PUBLIC_KEY_BYTES],
+    yeokcham_contact_t *contact
+); // requires a running client with an identity; clears contact before any failure
 yeokcham_status_t yeokcham_client_copy_last_error_detail(
     const yeokcham_client_t *client,
     uint8_t *buffer,

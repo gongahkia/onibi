@@ -14,12 +14,13 @@ use crate::{
     YEOKCHAM_ABI_NEGOTIATION_REJECTED, YEOKCHAM_ABI_VERSION, YEOKCHAM_EVENT_CLIENT_STARTED,
     YEOKCHAM_EVENT_CLIENT_STOPPED, YEOKCHAM_EVENT_MESSAGE_DELIVERED,
     YEOKCHAM_EVENT_MESSAGE_DELIVERY_FAILED, YEOKCHAM_EVENT_MESSAGE_QUEUED, YeokchamBuffer,
-    YeokchamClient, YeokchamClientConfigBuilder, YeokchamEvent, YeokchamEventSubscription,
-    YeokchamStatus,
+    YeokchamClient, YeokchamClientConfigBuilder, YeokchamContact, YeokchamEvent,
+    YeokchamEventSubscription, YeokchamStatus,
 };
-use yeokcham_core::{KeystoreEntryName, KeystoreSecret, OsKeystore};
+use yeokcham_core::{IdentityPublicKey, KeystoreEntryName, KeystoreSecret, OsKeystore};
 use yeokcham_sdk::{
-    RuntimeMode, SdkClient, SdkClientError, SdkConfig, SdkEvent, SdkEventEnvelope, SdkEventStream,
+    RuntimeMode, SdkClient, SdkClientError, SdkConfig, SdkContact, SdkContactError,
+    SdkContactStatus, SdkContactVerificationMethod, SdkEvent, SdkEventEnvelope, SdkEventStream,
     SdkEventStreamError, SdkIdentityError, SdkIdentityManager,
 };
 use zeroize::{Zeroize, Zeroizing};
@@ -293,6 +294,138 @@ pub unsafe extern "C" fn yeokcham_client_identity_load(
             yeokcham_core::ED25519_PUBLIC_KEY_BYTES,
         );
     };
+    client.last_error_detail = None;
+    YeokchamStatus::Ok
+}
+
+#[unsafe(no_mangle)]
+#[allow(clippy::missing_safety_doc)]
+pub unsafe extern "C" fn yeokcham_client_contact_import(
+    client: *mut YeokchamClient,
+    invitation: *const u8,
+    contact: *mut YeokchamContact,
+) -> YeokchamStatus {
+    if invitation.is_null() || contact.is_null() {
+        return YeokchamStatus::InvalidInput;
+    }
+    unsafe { contact.write(YeokchamContact::default()) };
+    let identifier = client.addr();
+    if identifier == 0 {
+        return YeokchamStatus::InvalidInput;
+    }
+    let invitation = unsafe {
+        std::slice::from_raw_parts(invitation, yeokcham_protocol::CONTACT_INVITATION_BYTES)
+    };
+    let Ok(mut clients) = active_clients().lock() else {
+        return YeokchamStatus::State;
+    };
+    let Some(client) = clients.get_mut(&identifier) else {
+        return YeokchamStatus::InvalidInput;
+    };
+    let Some(runtime) = client.runtime.as_ref() else {
+        client.last_error_detail = Some(b"sdk_contact_client_not_running");
+        return YeokchamStatus::State;
+    };
+    let result = runtime
+        .contact_manager(&mut client.identity)
+        .and_then(|mut contacts| contacts.import_invitation(invitation));
+    let contact_value = match result {
+        Ok(contact_value) => contact_value,
+        Err(error) => {
+            client.last_error_detail = Some(sdk_contact_error_detail(&error));
+            return map_sdk_contact_error(&error);
+        }
+    };
+    unsafe { contact.write(c_contact(contact_value)) };
+    client.last_error_detail = None;
+    YeokchamStatus::Ok
+}
+
+#[unsafe(no_mangle)]
+#[allow(clippy::missing_safety_doc)]
+pub unsafe extern "C" fn yeokcham_client_contact_get(
+    client: *mut YeokchamClient,
+    identity: *const u8,
+    contact: *mut YeokchamContact,
+) -> YeokchamStatus {
+    let Some(identity) = (unsafe { c_identity_public_key(identity) }) else {
+        return YeokchamStatus::InvalidInput;
+    };
+    if contact.is_null() {
+        return YeokchamStatus::InvalidInput;
+    }
+    unsafe { contact.write(YeokchamContact::default()) };
+    let identifier = client.addr();
+    if identifier == 0 {
+        return YeokchamStatus::InvalidInput;
+    }
+    let Ok(mut clients) = active_clients().lock() else {
+        return YeokchamStatus::State;
+    };
+    let Some(client) = clients.get_mut(&identifier) else {
+        return YeokchamStatus::InvalidInput;
+    };
+    let Some(runtime) = client.runtime.as_ref() else {
+        client.last_error_detail = Some(b"sdk_contact_client_not_running");
+        return YeokchamStatus::State;
+    };
+    let result = runtime
+        .contact_manager(&mut client.identity)
+        .map(|contacts| contacts.contact(&identity));
+    let Some(contact_value) = (match result {
+        Ok(contact_value) => contact_value,
+        Err(error) => {
+            client.last_error_detail = Some(sdk_contact_error_detail(&error));
+            return map_sdk_contact_error(&error);
+        }
+    }) else {
+        client.last_error_detail = Some(b"sdk_contact_not_found");
+        return YeokchamStatus::State;
+    };
+    unsafe { contact.write(c_contact(contact_value)) };
+    client.last_error_detail = None;
+    YeokchamStatus::Ok
+}
+
+#[unsafe(no_mangle)]
+#[allow(clippy::missing_safety_doc)]
+pub unsafe extern "C" fn yeokcham_client_contact_revoke(
+    client: *mut YeokchamClient,
+    identity: *const u8,
+    contact: *mut YeokchamContact,
+) -> YeokchamStatus {
+    let Some(identity) = (unsafe { c_identity_public_key(identity) }) else {
+        return YeokchamStatus::InvalidInput;
+    };
+    if contact.is_null() {
+        return YeokchamStatus::InvalidInput;
+    }
+    unsafe { contact.write(YeokchamContact::default()) };
+    let identifier = client.addr();
+    if identifier == 0 {
+        return YeokchamStatus::InvalidInput;
+    }
+    let Ok(mut clients) = active_clients().lock() else {
+        return YeokchamStatus::State;
+    };
+    let Some(client) = clients.get_mut(&identifier) else {
+        return YeokchamStatus::InvalidInput;
+    };
+    let Some(runtime) = client.runtime.as_ref() else {
+        client.last_error_detail = Some(b"sdk_contact_client_not_running");
+        return YeokchamStatus::State;
+    };
+    let result = runtime
+        .contact_manager(&mut client.identity)
+        .and_then(|mut contacts| contacts.revoke(&identity));
+    let contact_value = match result {
+        Ok(contact_value) => contact_value,
+        Err(error) => {
+            client.last_error_detail = Some(sdk_contact_error_detail(&error));
+            return map_sdk_contact_error(&error);
+        }
+    };
+    unsafe { contact.write(c_contact(contact_value)) };
     client.last_error_detail = None;
     YeokchamStatus::Ok
 }
@@ -693,6 +826,41 @@ fn next_handle_identifier() -> Option<usize> {
         .ok()
 }
 
+fn c_contact(contact: SdkContact) -> YeokchamContact {
+    let status = match contact.status() {
+        SdkContactStatus::Pending => crate::YEOKCHAM_CONTACT_STATUS_PENDING,
+        SdkContactStatus::Verified => crate::YEOKCHAM_CONTACT_STATUS_VERIFIED,
+        SdkContactStatus::Revoked => crate::YEOKCHAM_CONTACT_STATUS_REVOKED,
+    };
+    let verification = match contact.verification_method() {
+        None => crate::YEOKCHAM_CONTACT_VERIFICATION_NONE,
+        Some(SdkContactVerificationMethod::Qr) => crate::YEOKCHAM_CONTACT_VERIFICATION_QR,
+        Some(SdkContactVerificationMethod::SafetyNumber) => {
+            crate::YEOKCHAM_CONTACT_VERIFICATION_SAFETY_NUMBER
+        }
+    };
+    YeokchamContact {
+        identity: *contact.identity().as_bytes(),
+        status,
+        verification,
+    }
+}
+
+unsafe fn c_identity_public_key(identity: *const u8) -> Option<IdentityPublicKey> {
+    if identity.is_null() {
+        return None;
+    }
+    let mut bytes = [0; yeokcham_core::ED25519_PUBLIC_KEY_BYTES];
+    unsafe {
+        std::ptr::copy_nonoverlapping(
+            identity,
+            bytes.as_mut_ptr(),
+            yeokcham_core::ED25519_PUBLIC_KEY_BYTES,
+        );
+    };
+    IdentityPublicKey::from_bytes(bytes).ok()
+}
+
 fn c_event(envelope: SdkEventEnvelope) -> YeokchamEvent {
     let (kind, message_identifier) = match envelope.event() {
         SdkEvent::ClientStarted => (
@@ -826,26 +994,62 @@ fn sdk_identity_error_detail(error: &SdkIdentityError) -> &'static [u8] {
     }
 }
 
+fn map_sdk_contact_error(error: &SdkContactError) -> YeokchamStatus {
+    match error {
+        SdkContactError::InvalidInvitation
+        | SdkContactError::InvalidRotation
+        | SdkContactError::InvalidVerification => YeokchamStatus::InvalidInput,
+        SdkContactError::Identity(_)
+        | SdkContactError::SelfContact
+        | SdkContactError::UnknownContact
+        | SdkContactError::NotPending
+        | SdkContactError::NotVerified
+        | SdkContactError::ReplacementAlreadyKnown
+        | SdkContactError::AlreadyRevoked
+        | SdkContactError::State => YeokchamStatus::State,
+    }
+}
+
+fn sdk_contact_error_detail(error: &SdkContactError) -> &'static [u8] {
+    match error {
+        SdkContactError::Identity(_) => b"sdk_contact_identity",
+        SdkContactError::InvalidInvitation => b"sdk_contact_invalid_invitation",
+        SdkContactError::InvalidRotation => b"sdk_contact_invalid_rotation",
+        SdkContactError::SelfContact => b"sdk_contact_self",
+        SdkContactError::UnknownContact => b"sdk_contact_unknown",
+        SdkContactError::NotPending => b"sdk_contact_not_pending",
+        SdkContactError::NotVerified => b"sdk_contact_not_verified",
+        SdkContactError::ReplacementAlreadyKnown => b"sdk_contact_replacement_known",
+        SdkContactError::AlreadyRevoked => b"sdk_contact_already_revoked",
+        SdkContactError::InvalidVerification => b"sdk_contact_invalid_verification",
+        SdkContactError::State => b"sdk_contact_state",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use yeokcham_core::IdentityKeypair;
+    use yeokcham_protocol::ContactInvitation;
 
     use super::{
         CLIENT_TEST_LOCK, MAX_C_ABI_BUFFERS, MAX_C_ABI_CALLBACK_WORKERS,
         MAX_C_ABI_ERROR_DETAIL_BYTES, MAX_C_ABI_EVENT_SUBSCRIPTIONS, MAX_C_ABI_PENDING_COMPLETIONS,
         MAX_C_ABI_SECRET_BUFFER_BYTES, MAX_C_ABI_STATE_DIRECTORY_BYTES, PENDING_COMPLETIONS,
-        SdkClientError, SdkEvent, SdkEventEnvelope, YeokchamEvent, YeokchamStatus, c_event,
-        map_sdk_client_error, sdk_client_error_detail, yeokcham_buffer_data,
+        SdkClientError, SdkEvent, SdkEventEnvelope, YeokchamContact, YeokchamEvent, YeokchamStatus,
+        c_event, map_sdk_client_error, sdk_client_error_detail, yeokcham_buffer_data,
         yeokcham_buffer_length, yeokcham_buffer_release, yeokcham_client_complete_async,
         yeokcham_client_config_builder_build, yeokcham_client_config_builder_create,
         yeokcham_client_config_builder_release,
         yeokcham_client_config_builder_set_event_buffer_capacity,
-        yeokcham_client_config_builder_set_state_directory, yeokcham_client_copy_last_error_detail,
-        yeokcham_client_create, yeokcham_client_identity_create, yeokcham_client_identity_load,
-        yeokcham_client_release, yeokcham_client_start, yeokcham_client_stop,
-        yeokcham_client_subscribe_events, yeokcham_client_take_last_error_detail,
-        yeokcham_event_subscription_poll, yeokcham_event_subscription_release,
-        yeokcham_secret_buffer_zeroize,
+        yeokcham_client_config_builder_set_state_directory, yeokcham_client_contact_get,
+        yeokcham_client_contact_import, yeokcham_client_contact_revoke,
+        yeokcham_client_copy_last_error_detail, yeokcham_client_create,
+        yeokcham_client_identity_create, yeokcham_client_identity_load, yeokcham_client_release,
+        yeokcham_client_start, yeokcham_client_stop, yeokcham_client_subscribe_events,
+        yeokcham_client_take_last_error_detail, yeokcham_event_subscription_poll,
+        yeokcham_event_subscription_release, yeokcham_secret_buffer_zeroize,
     };
 
     #[test]
@@ -912,6 +1116,87 @@ mod tests {
             YeokchamStatus::InvalidInput
         );
         assert_eq!(yeokcham_client_release(client), YeokchamStatus::Ok);
+    }
+
+    #[test]
+    fn c_contact_operations_import_get_and_revoke_contacts() {
+        let _guard = CLIENT_TEST_LOCK.lock().unwrap();
+        let directory =
+            std::env::temp_dir().join(format!("yeokcham-ffi-contacts-{}", std::process::id()));
+        let directory = directory.to_string_lossy().into_owned();
+        let client = yeokcham_client_create();
+        let builder = yeokcham_client_config_builder_create();
+        let mut local_identity = [0; yeokcham_core::ED25519_PUBLIC_KEY_BYTES];
+        let remote = IdentityKeypair::generate().unwrap();
+        let invitation = ContactInvitation::create(&remote)
+            .unwrap()
+            .encode()
+            .unwrap();
+        let mut contact = YeokchamContact::default();
+
+        assert_eq!(
+            unsafe {
+                yeokcham_client_config_builder_set_state_directory(
+                    builder,
+                    directory.as_bytes().as_ptr(),
+                    directory.len(),
+                )
+            },
+            YeokchamStatus::Ok
+        );
+        assert_eq!(
+            yeokcham_client_config_builder_set_event_buffer_capacity(builder, 8),
+            YeokchamStatus::Ok
+        );
+        assert_eq!(
+            yeokcham_client_config_builder_build(builder, client),
+            YeokchamStatus::Ok
+        );
+        assert_eq!(
+            yeokcham_client_config_builder_release(builder),
+            YeokchamStatus::Ok
+        );
+        assert_eq!(
+            unsafe { yeokcham_client_identity_create(client, local_identity.as_mut_ptr()) },
+            YeokchamStatus::Ok
+        );
+        assert_eq!(yeokcham_client_start(client), YeokchamStatus::Ok);
+        assert_eq!(
+            unsafe {
+                yeokcham_client_contact_import(client, invitation.as_ptr(), &raw mut contact)
+            },
+            YeokchamStatus::Ok
+        );
+        assert_eq!(contact.identity, *remote.public_key().as_bytes());
+        assert_eq!(contact.status, crate::YEOKCHAM_CONTACT_STATUS_PENDING);
+        assert_eq!(
+            contact.verification,
+            crate::YEOKCHAM_CONTACT_VERIFICATION_NONE
+        );
+        assert_eq!(
+            unsafe {
+                yeokcham_client_contact_get(
+                    client,
+                    remote.public_key().as_bytes().as_ptr(),
+                    &raw mut contact,
+                )
+            },
+            YeokchamStatus::Ok
+        );
+        assert_eq!(
+            unsafe {
+                yeokcham_client_contact_revoke(
+                    client,
+                    remote.public_key().as_bytes().as_ptr(),
+                    &raw mut contact,
+                )
+            },
+            YeokchamStatus::Ok
+        );
+        assert_eq!(contact.status, crate::YEOKCHAM_CONTACT_STATUS_REVOKED);
+        assert_eq!(yeokcham_client_stop(client), YeokchamStatus::Ok);
+        assert_eq!(yeokcham_client_release(client), YeokchamStatus::Ok);
+        std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

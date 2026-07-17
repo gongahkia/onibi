@@ -14,6 +14,13 @@ pub const YEOKCHAM_EVENT_MESSAGE_QUEUED: u32 = 3;
 pub const YEOKCHAM_EVENT_MESSAGE_DELIVERED: u32 = 4;
 pub const YEOKCHAM_EVENT_MESSAGE_DELIVERY_FAILED: u32 = 5;
 pub const YEOKCHAM_IDENTITY_PUBLIC_KEY_BYTES: usize = yeokcham_core::ED25519_PUBLIC_KEY_BYTES;
+pub const YEOKCHAM_CONTACT_INVITATION_BYTES: usize = yeokcham_protocol::CONTACT_INVITATION_BYTES;
+pub const YEOKCHAM_CONTACT_STATUS_PENDING: u32 = 1;
+pub const YEOKCHAM_CONTACT_STATUS_VERIFIED: u32 = 2;
+pub const YEOKCHAM_CONTACT_STATUS_REVOKED: u32 = 3;
+pub const YEOKCHAM_CONTACT_VERIFICATION_NONE: u32 = 0;
+pub const YEOKCHAM_CONTACT_VERIFICATION_QR: u32 = 1;
+pub const YEOKCHAM_CONTACT_VERIFICATION_SAFETY_NUMBER: u32 = 2;
 
 #[repr(C)]
 pub struct YeokchamClient {
@@ -44,6 +51,14 @@ pub struct YeokchamEvent {
     pub message_identifier: [u8; yeokcham_protocol::MESSAGE_IDENTIFIER_BYTES],
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[repr(C)]
+pub struct YeokchamContact {
+    pub identity: [u8; yeokcham_core::ED25519_PUBLIC_KEY_BYTES],
+    pub status: u32,
+    pub verification: u32,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(i32)]
 pub enum YeokchamStatus {
@@ -63,12 +78,13 @@ pub use c_abi::{
     yeokcham_client_config_builder_build, yeokcham_client_config_builder_create,
     yeokcham_client_config_builder_release,
     yeokcham_client_config_builder_set_event_buffer_capacity,
-    yeokcham_client_config_builder_set_state_directory, yeokcham_client_copy_last_error_detail,
-    yeokcham_client_create, yeokcham_client_identity_create, yeokcham_client_identity_load,
-    yeokcham_client_release, yeokcham_client_start, yeokcham_client_stop,
-    yeokcham_client_subscribe_events, yeokcham_client_take_last_error_detail,
-    yeokcham_event_subscription_poll, yeokcham_event_subscription_release,
-    yeokcham_secret_buffer_zeroize,
+    yeokcham_client_config_builder_set_state_directory, yeokcham_client_contact_get,
+    yeokcham_client_contact_import, yeokcham_client_contact_revoke,
+    yeokcham_client_copy_last_error_detail, yeokcham_client_create,
+    yeokcham_client_identity_create, yeokcham_client_identity_load, yeokcham_client_release,
+    yeokcham_client_start, yeokcham_client_stop, yeokcham_client_subscribe_events,
+    yeokcham_client_take_last_error_detail, yeokcham_event_subscription_poll,
+    yeokcham_event_subscription_release, yeokcham_secret_buffer_zeroize,
 };
 
 #[cfg(test)]
