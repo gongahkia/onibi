@@ -12,16 +12,20 @@ use yeokcham_core::{ED25519_PUBLIC_KEY_BYTES, IdentityPublicKey, OsKeystore};
 use yeokcham_daemon_api::v1::{
     ApplyContactIdentityRotationRequest, ContactResponse, ContactStatus as RpcContactStatus,
     ContactVerificationMethod as RpcContactVerificationMethod, CreateIdentityRequest,
-    CreateOrLoadIdentityRequest, DeliveryStatus as RpcDeliveryStatus, GetContactRequest,
+    CreateOrLoadIdentityRequest, DeliveryProfileKind as RpcDeliveryProfileKind,
+    DeliveryProfileResponse, DeliveryStatus as RpcDeliveryStatus, GetContactRequest,
     GetContactResponse, GetDeliveryStatusRequest, GetDeliveryStatusResponse, GetIdentityRequest,
     GetStatusRequest, GetStatusResponse, IdentityInitialization, IdentityResponse,
     ImportContactInvitationRequest, ListContactsRequest, ListContactsResponse,
-    RevokeContactRequest, SendMessageRequest, SendMessageResponse, ShutdownDaemonRequest,
+    LocalMeshTransportKind as RpcLocalMeshTransportKind, RevokeContactRequest,
+    SelectDeliveryProfileRequest, SendMessageRequest, SendMessageResponse, ShutdownDaemonRequest,
     ShutdownDaemonResponse, StartClientRequest, StartClientResponse, VerifyContactQrRequest,
     VerifyContactSafetyNumberRequest, daemon_service_server::DaemonService,
 };
 use yeokcham_protocol::{
-    CONTACT_INVITATION_BYTES, EncryptedMessageEnvelope, IDENTITY_ROTATION_BYTES,
+    CONTACT_INVITATION_BYTES, DeliveryProfile, DeliveryProfileConstraints, DirectProfileSelection,
+    EncryptedMessageEnvelope, IDENTITY_ROTATION_BYTES, LocalMeshProfileConfig,
+    LocalMeshProfileConstraints, LocalMeshProfileSelection, LocalMeshTransportKind,
     MAX_MESSAGE_PAYLOAD_BYTES, MESSAGE_IDENTIFIER_BYTES, MessageIdentifier, ProtocolVersion,
     QR_VERIFICATION_PAYLOAD_BYTES, SAFETY_NUMBER_FINGERPRINT_BYTES,
 };
@@ -660,6 +664,122 @@ fn delivery_status_response(state: StoredDeliveryState) -> GetDeliveryStatusResp
     }
 }
 
+fn select_delivery_profile(
+    request: &SelectDeliveryProfileRequest,
+) -> Result<DeliveryProfileResponse, Status> {
+    let local_mesh =
+        delivery_profile_local_mesh_constraints(&request.allowed_local_mesh_transports)?;
+    let constraints = DeliveryProfileConstraints::new(
+        request.direct_allowed,
+        request.tor_maildrop_allowed,
+        local_mesh.is_some(),
+    )
+    .map_err(|_| delivery_profile_invalid())?;
+    let kind =
+        RpcDeliveryProfileKind::try_from(request.kind).map_err(|_| delivery_profile_invalid())?;
+    let selected_local_mesh = RpcLocalMeshTransportKind::try_from(request.local_mesh_transport)
+        .map_err(|_| delivery_profile_invalid())?;
+    let profile = match kind {
+        RpcDeliveryProfileKind::Direct => {
+            if selected_local_mesh != RpcLocalMeshTransportKind::Unspecified
+                || !request.direct_ip_disclosure_acknowledged
+            {
+                return Err(delivery_profile_invalid());
+            }
+            DeliveryProfile::direct(DirectProfileSelection::acknowledge_ip_disclosure())
+        }
+        RpcDeliveryProfileKind::TorMaildrop => {
+            if selected_local_mesh != RpcLocalMeshTransportKind::Unspecified
+                || request.direct_ip_disclosure_acknowledged
+            {
+                return Err(delivery_profile_invalid());
+            }
+            DeliveryProfile::tor_maildrop()
+        }
+        RpcDeliveryProfileKind::LocalMesh => {
+            if request.direct_ip_disclosure_acknowledged {
+                return Err(delivery_profile_invalid());
+            }
+            let transport = local_mesh_transport(selected_local_mesh)?;
+            let Some(local_mesh) = local_mesh else {
+                return Err(delivery_profile_disallowed());
+            };
+            local_mesh
+                .validate(LocalMeshProfileConfig::new(transport))
+                .map_err(|_| delivery_profile_disallowed())?;
+            DeliveryProfile::local_mesh(LocalMeshProfileSelection::select(transport))
+        }
+        RpcDeliveryProfileKind::Unspecified => return Err(delivery_profile_invalid()),
+    };
+    constraints
+        .validate(profile)
+        .map_err(|_| delivery_profile_disallowed())?;
+    Ok(DeliveryProfileResponse {
+        kind: kind.into(),
+        direct_ip_disclosure_warning: profile.privacy_warning().is_some(),
+    })
+}
+
+fn delivery_profile_local_mesh_constraints(
+    allowed: &[i32],
+) -> Result<Option<LocalMeshProfileConstraints>, Status> {
+    if allowed.is_empty() {
+        return Ok(None);
+    }
+    if allowed.len() > 4 {
+        return Err(delivery_profile_invalid());
+    }
+    let mut lan_allowed = false;
+    let mut wifi_hotspot_allowed = false;
+    let mut wifi_direct_allowed = false;
+    let mut bluetooth_allowed = false;
+    for &encoded_transport in allowed {
+        match RpcLocalMeshTransportKind::try_from(encoded_transport)
+            .map_err(|_| delivery_profile_invalid())?
+        {
+            RpcLocalMeshTransportKind::Lan if !lan_allowed => lan_allowed = true,
+            RpcLocalMeshTransportKind::WifiHotspot if !wifi_hotspot_allowed => {
+                wifi_hotspot_allowed = true;
+            }
+            RpcLocalMeshTransportKind::WifiDirect if !wifi_direct_allowed => {
+                wifi_direct_allowed = true;
+            }
+            RpcLocalMeshTransportKind::Bluetooth if !bluetooth_allowed => bluetooth_allowed = true,
+            RpcLocalMeshTransportKind::Unspecified
+            | RpcLocalMeshTransportKind::Lan
+            | RpcLocalMeshTransportKind::WifiHotspot
+            | RpcLocalMeshTransportKind::WifiDirect
+            | RpcLocalMeshTransportKind::Bluetooth => return Err(delivery_profile_invalid()),
+        }
+    }
+    LocalMeshProfileConstraints::new(
+        lan_allowed,
+        wifi_hotspot_allowed,
+        wifi_direct_allowed,
+        bluetooth_allowed,
+    )
+    .map(Some)
+    .map_err(|_| delivery_profile_invalid())
+}
+
+fn local_mesh_transport(kind: RpcLocalMeshTransportKind) -> Result<LocalMeshTransportKind, Status> {
+    match kind {
+        RpcLocalMeshTransportKind::Lan => Ok(LocalMeshTransportKind::Lan),
+        RpcLocalMeshTransportKind::WifiHotspot => Ok(LocalMeshTransportKind::WifiHotspot),
+        RpcLocalMeshTransportKind::WifiDirect => Ok(LocalMeshTransportKind::WifiDirect),
+        RpcLocalMeshTransportKind::Bluetooth => Ok(LocalMeshTransportKind::Bluetooth),
+        RpcLocalMeshTransportKind::Unspecified => Err(delivery_profile_invalid()),
+    }
+}
+
+fn delivery_profile_invalid() -> Status {
+    Status::invalid_argument("delivery profile selection is invalid")
+}
+
+fn delivery_profile_disallowed() -> Status {
+    Status::failed_precondition("delivery profile selection is disallowed")
+}
+
 fn contact_response(contact: Contact) -> ContactResponse {
     let status = match contact.status() {
         StoredContactStatus::Pending => RpcContactStatus::Pending,
@@ -878,6 +998,14 @@ impl DaemonService for DaemonGrpcService {
             .map(Response::new)
     }
 
+    async fn select_delivery_profile(
+        &self,
+        request: Request<SelectDeliveryProfileRequest>,
+    ) -> Result<Response<DeliveryProfileResponse>, Status> {
+        let request = request.into_inner();
+        select_delivery_profile(&request).map(Response::new)
+    }
+
     async fn get_status(
         &self,
         _request: Request<GetStatusRequest>,
@@ -899,12 +1027,14 @@ mod tests {
     use yeokcham_core::IdentityKeypair;
     use yeokcham_core::{KeystoreEntryName, KeystoreSecret, OsKeystore};
     use yeokcham_daemon_api::v1::{
-        GetIdentityRequest, GetStatusRequest, ListContactsRequest, SendMessageRequest,
-        StartClientRequest, daemon_service_server::DaemonService,
+        DeliveryProfileKind as RpcDeliveryProfileKind, GetIdentityRequest, GetStatusRequest,
+        ListContactsRequest, LocalMeshTransportKind as RpcLocalMeshTransportKind,
+        SelectDeliveryProfileRequest, SendMessageRequest, StartClientRequest,
+        daemon_service_server::DaemonService,
     };
     use yeokcham_protocol::{EncryptedMessageEnvelope, ProtocolVersion};
 
-    use super::DaemonGrpcService;
+    use super::{DaemonGrpcService, select_delivery_profile};
 
     #[derive(Debug, thiserror::Error)]
     #[error("sensitive keystore failure")]
@@ -1031,5 +1161,81 @@ mod tests {
             .unwrap_err();
         assert_eq!(error.code(), Code::Internal);
         assert_eq!(error.message(), "daemon message operation failed");
+    }
+
+    #[test]
+    fn delivery_profile_selection_requires_explicit_bounded_policy() {
+        let direct = select_delivery_profile(&SelectDeliveryProfileRequest {
+            direct_allowed: true,
+            tor_maildrop_allowed: false,
+            allowed_local_mesh_transports: Vec::new(),
+            kind: RpcDeliveryProfileKind::Direct.into(),
+            local_mesh_transport: RpcLocalMeshTransportKind::Unspecified.into(),
+            direct_ip_disclosure_acknowledged: true,
+        })
+        .unwrap();
+        assert_eq!(
+            RpcDeliveryProfileKind::try_from(direct.kind),
+            Ok(RpcDeliveryProfileKind::Direct)
+        );
+        assert!(direct.direct_ip_disclosure_warning);
+        let local_mesh = select_delivery_profile(&SelectDeliveryProfileRequest {
+            direct_allowed: false,
+            tor_maildrop_allowed: false,
+            allowed_local_mesh_transports: vec![RpcLocalMeshTransportKind::Lan.into()],
+            kind: RpcDeliveryProfileKind::LocalMesh.into(),
+            local_mesh_transport: RpcLocalMeshTransportKind::Lan.into(),
+            direct_ip_disclosure_acknowledged: false,
+        })
+        .unwrap();
+        assert_eq!(
+            RpcDeliveryProfileKind::try_from(local_mesh.kind),
+            Ok(RpcDeliveryProfileKind::LocalMesh)
+        );
+        assert!(!local_mesh.direct_ip_disclosure_warning);
+        for request in [
+            SelectDeliveryProfileRequest {
+                direct_allowed: true,
+                tor_maildrop_allowed: false,
+                allowed_local_mesh_transports: Vec::new(),
+                kind: RpcDeliveryProfileKind::Direct.into(),
+                local_mesh_transport: RpcLocalMeshTransportKind::Unspecified.into(),
+                direct_ip_disclosure_acknowledged: false,
+            },
+            SelectDeliveryProfileRequest {
+                direct_allowed: true,
+                tor_maildrop_allowed: false,
+                allowed_local_mesh_transports: vec![RpcLocalMeshTransportKind::Lan.into(); 5],
+                kind: RpcDeliveryProfileKind::Direct.into(),
+                local_mesh_transport: RpcLocalMeshTransportKind::Unspecified.into(),
+                direct_ip_disclosure_acknowledged: true,
+            },
+            SelectDeliveryProfileRequest {
+                direct_allowed: true,
+                tor_maildrop_allowed: false,
+                allowed_local_mesh_transports: vec![RpcLocalMeshTransportKind::Lan.into(); 2],
+                kind: RpcDeliveryProfileKind::Direct.into(),
+                local_mesh_transport: RpcLocalMeshTransportKind::Unspecified.into(),
+                direct_ip_disclosure_acknowledged: true,
+            },
+        ] {
+            let error = select_delivery_profile(&request).unwrap_err();
+            assert_eq!(error.code(), Code::InvalidArgument);
+            assert_eq!(error.message(), "delivery profile selection is invalid");
+        }
+        let disallowed = select_delivery_profile(&SelectDeliveryProfileRequest {
+            direct_allowed: false,
+            tor_maildrop_allowed: true,
+            allowed_local_mesh_transports: Vec::new(),
+            kind: RpcDeliveryProfileKind::Direct.into(),
+            local_mesh_transport: RpcLocalMeshTransportKind::Unspecified.into(),
+            direct_ip_disclosure_acknowledged: true,
+        })
+        .unwrap_err();
+        assert_eq!(disallowed.code(), Code::FailedPrecondition);
+        assert_eq!(
+            disallowed.message(),
+            "delivery profile selection is disallowed"
+        );
     }
 }

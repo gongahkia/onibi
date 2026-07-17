@@ -101,6 +101,28 @@ pub struct GetDeliveryStatusResponse {
     pub status: i32,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct SelectDeliveryProfileRequest {
+    #[prost(bool, tag = "1")]
+    pub direct_allowed: bool,
+    #[prost(bool, tag = "2")]
+    pub tor_maildrop_allowed: bool,
+    #[prost(enumeration = "LocalMeshTransportKind", repeated, tag = "3")]
+    pub allowed_local_mesh_transports: ::prost::alloc::vec::Vec<i32>,
+    #[prost(enumeration = "DeliveryProfileKind", tag = "4")]
+    pub kind: i32,
+    #[prost(enumeration = "LocalMeshTransportKind", tag = "5")]
+    pub local_mesh_transport: i32,
+    #[prost(bool, tag = "6")]
+    pub direct_ip_disclosure_acknowledged: bool,
+}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct DeliveryProfileResponse {
+    #[prost(enumeration = "DeliveryProfileKind", tag = "1")]
+    pub kind: i32,
+    #[prost(bool, tag = "2")]
+    pub direct_ip_disclosure_warning: bool,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ContactResponse {
     #[prost(bytes = "vec", tag = "1")]
     pub identity: ::prost::alloc::vec::Vec<u8>,
@@ -180,6 +202,73 @@ impl DeliveryStatus {
             "DELIVERY_STATUS_DELIVERED" => Some(Self::Delivered),
             "DELIVERY_STATUS_EXPIRED" => Some(Self::Expired),
             "DELIVERY_STATUS_FAILED" => Some(Self::Failed),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum DeliveryProfileKind {
+    Unspecified = 0,
+    Direct = 1,
+    TorMaildrop = 2,
+    LocalMesh = 3,
+}
+impl DeliveryProfileKind {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Unspecified => "DELIVERY_PROFILE_KIND_UNSPECIFIED",
+            Self::Direct => "DELIVERY_PROFILE_KIND_DIRECT",
+            Self::TorMaildrop => "DELIVERY_PROFILE_KIND_TOR_MAILDROP",
+            Self::LocalMesh => "DELIVERY_PROFILE_KIND_LOCAL_MESH",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "DELIVERY_PROFILE_KIND_UNSPECIFIED" => Some(Self::Unspecified),
+            "DELIVERY_PROFILE_KIND_DIRECT" => Some(Self::Direct),
+            "DELIVERY_PROFILE_KIND_TOR_MAILDROP" => Some(Self::TorMaildrop),
+            "DELIVERY_PROFILE_KIND_LOCAL_MESH" => Some(Self::LocalMesh),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum LocalMeshTransportKind {
+    Unspecified = 0,
+    Lan = 1,
+    WifiHotspot = 2,
+    WifiDirect = 3,
+    Bluetooth = 4,
+}
+impl LocalMeshTransportKind {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Unspecified => "LOCAL_MESH_TRANSPORT_KIND_UNSPECIFIED",
+            Self::Lan => "LOCAL_MESH_TRANSPORT_KIND_LAN",
+            Self::WifiHotspot => "LOCAL_MESH_TRANSPORT_KIND_WIFI_HOTSPOT",
+            Self::WifiDirect => "LOCAL_MESH_TRANSPORT_KIND_WIFI_DIRECT",
+            Self::Bluetooth => "LOCAL_MESH_TRANSPORT_KIND_BLUETOOTH",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "LOCAL_MESH_TRANSPORT_KIND_UNSPECIFIED" => Some(Self::Unspecified),
+            "LOCAL_MESH_TRANSPORT_KIND_LAN" => Some(Self::Lan),
+            "LOCAL_MESH_TRANSPORT_KIND_WIFI_HOTSPOT" => Some(Self::WifiHotspot),
+            "LOCAL_MESH_TRANSPORT_KIND_WIFI_DIRECT" => Some(Self::WifiDirect),
+            "LOCAL_MESH_TRANSPORT_KIND_BLUETOOTH" => Some(Self::Bluetooth),
             _ => None,
         }
     }
@@ -718,6 +807,35 @@ pub mod daemon_service_client {
                 );
             self.inner.unary(req, path, codec).await
         }
+        pub async fn select_delivery_profile(
+            &mut self,
+            request: impl tonic::IntoRequest<super::SelectDeliveryProfileRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::DeliveryProfileResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic_prost::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/yeokcham.daemon.v1.DaemonService/SelectDeliveryProfile",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "yeokcham.daemon.v1.DaemonService",
+                        "SelectDeliveryProfile",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
         pub async fn get_status(
             &mut self,
             request: impl tonic::IntoRequest<super::GetStatusRequest>,
@@ -840,6 +958,13 @@ pub mod daemon_service_server {
             request: tonic::Request<super::GetDeliveryStatusRequest>,
         ) -> std::result::Result<
             tonic::Response<super::GetDeliveryStatusResponse>,
+            tonic::Status,
+        >;
+        async fn select_delivery_profile(
+            &self,
+            request: tonic::Request<super::SelectDeliveryProfileRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::DeliveryProfileResponse>,
             tonic::Status,
         >;
         async fn get_status(
@@ -1567,6 +1692,55 @@ pub mod daemon_service_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = GetDeliveryStatusSvc(inner);
+                        let codec = tonic_prost::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/yeokcham.daemon.v1.DaemonService/SelectDeliveryProfile" => {
+                    #[allow(non_camel_case_types)]
+                    struct SelectDeliveryProfileSvc<T: DaemonService>(pub Arc<T>);
+                    impl<
+                        T: DaemonService,
+                    > tonic::server::UnaryService<super::SelectDeliveryProfileRequest>
+                    for SelectDeliveryProfileSvc<T> {
+                        type Response = super::DeliveryProfileResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::SelectDeliveryProfileRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as DaemonService>::select_delivery_profile(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = SelectDeliveryProfileSvc(inner);
                         let codec = tonic_prost::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

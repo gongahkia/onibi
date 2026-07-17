@@ -8,10 +8,11 @@ pub mod v1 {
 #[cfg(test)]
 mod tests {
     use super::v1::{
-        ContactResponse, ContactStatus, ContactVerificationMethod, DeliveryStatus,
-        GetDeliveryStatusRequest, GetDeliveryStatusResponse, GetStatusResponse,
-        IdentityInitialization, IdentityResponse, SendMessageRequest, SendMessageResponse,
-        ShutdownDaemonResponse, StartClientResponse, VerifyContactQrRequest,
+        ContactResponse, ContactStatus, ContactVerificationMethod, DeliveryProfileKind,
+        DeliveryProfileResponse, DeliveryStatus, GetDeliveryStatusRequest,
+        GetDeliveryStatusResponse, GetStatusResponse, IdentityInitialization, IdentityResponse,
+        LocalMeshTransportKind, SelectDeliveryProfileRequest, SendMessageRequest,
+        SendMessageResponse, ShutdownDaemonResponse, StartClientResponse, VerifyContactQrRequest,
         VerifyContactSafetyNumberRequest,
     };
 
@@ -121,5 +122,32 @@ mod tests {
             DeliveryStatus::try_from(response.status),
             Ok(DeliveryStatus::Queued)
         );
+    }
+
+    #[test]
+    fn generated_delivery_profile_contract_preserves_every_field() {
+        let request = SelectDeliveryProfileRequest {
+            direct_allowed: true,
+            tor_maildrop_allowed: false,
+            allowed_local_mesh_transports: vec![LocalMeshTransportKind::Lan.into()],
+            kind: DeliveryProfileKind::Direct.into(),
+            local_mesh_transport: LocalMeshTransportKind::Unspecified.into(),
+            direct_ip_disclosure_acknowledged: true,
+        };
+        let response = DeliveryProfileResponse {
+            kind: DeliveryProfileKind::Direct.into(),
+            direct_ip_disclosure_warning: true,
+        };
+        assert!(request.direct_allowed);
+        assert!(!request.tor_maildrop_allowed);
+        assert_eq!(
+            LocalMeshTransportKind::try_from(request.allowed_local_mesh_transports[0]),
+            Ok(LocalMeshTransportKind::Lan)
+        );
+        assert_eq!(
+            DeliveryProfileKind::try_from(response.kind),
+            Ok(DeliveryProfileKind::Direct)
+        );
+        assert!(response.direct_ip_disclosure_warning);
     }
 }

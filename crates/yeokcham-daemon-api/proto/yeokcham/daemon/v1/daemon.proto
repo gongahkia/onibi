@@ -17,6 +17,7 @@ service DaemonService {
   rpc RevokeContact(RevokeContactRequest) returns (ContactResponse);
   rpc SendMessage(SendMessageRequest) returns (SendMessageResponse);
   rpc GetDeliveryStatus(GetDeliveryStatusRequest) returns (GetDeliveryStatusResponse);
+  rpc SelectDeliveryProfile(SelectDeliveryProfileRequest) returns (DeliveryProfileResponse);
   rpc GetStatus(GetStatusRequest) returns (GetStatusResponse);
 }
 
@@ -111,6 +112,35 @@ enum DeliveryStatus {
 
 message GetDeliveryStatusResponse {
   DeliveryStatus status = 1;
+}
+
+enum DeliveryProfileKind {
+  DELIVERY_PROFILE_KIND_UNSPECIFIED = 0;
+  DELIVERY_PROFILE_KIND_DIRECT = 1;
+  DELIVERY_PROFILE_KIND_TOR_MAILDROP = 2;
+  DELIVERY_PROFILE_KIND_LOCAL_MESH = 3;
+}
+
+enum LocalMeshTransportKind {
+  LOCAL_MESH_TRANSPORT_KIND_UNSPECIFIED = 0;
+  LOCAL_MESH_TRANSPORT_KIND_LAN = 1;
+  LOCAL_MESH_TRANSPORT_KIND_WIFI_HOTSPOT = 2;
+  LOCAL_MESH_TRANSPORT_KIND_WIFI_DIRECT = 3;
+  LOCAL_MESH_TRANSPORT_KIND_BLUETOOTH = 4;
+}
+
+message SelectDeliveryProfileRequest {
+  bool direct_allowed = 1;
+  bool tor_maildrop_allowed = 2;
+  repeated LocalMeshTransportKind allowed_local_mesh_transports = 3;
+  DeliveryProfileKind kind = 4;
+  LocalMeshTransportKind local_mesh_transport = 5;
+  bool direct_ip_disclosure_acknowledged = 6;
+}
+
+message DeliveryProfileResponse {
+  DeliveryProfileKind kind = 1;
+  bool direct_ip_disclosure_warning = 2;
 }
 
 enum ContactStatus {

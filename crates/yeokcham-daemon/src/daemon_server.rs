@@ -132,11 +132,14 @@ mod tests {
     use yeokcham_daemon_api::v1::{
         ApplyContactIdentityRotationRequest, ContactResponse, ContactStatus as RpcContactStatus,
         ContactVerificationMethod as RpcContactVerificationMethod, CreateIdentityRequest,
-        CreateOrLoadIdentityRequest, DeliveryStatus as RpcDeliveryStatus, GetContactRequest,
-        GetDeliveryStatusRequest, GetIdentityRequest, GetStatusResponse, IdentityInitialization,
-        ImportContactInvitationRequest, ListContactsRequest, RevokeContactRequest,
-        SendMessageRequest, ShutdownDaemonRequest, StartClientRequest, VerifyContactQrRequest,
-        VerifyContactSafetyNumberRequest, daemon_service_client::DaemonServiceClient,
+        CreateOrLoadIdentityRequest, DeliveryProfileKind as RpcDeliveryProfileKind,
+        DeliveryStatus as RpcDeliveryStatus, GetContactRequest, GetDeliveryStatusRequest,
+        GetIdentityRequest, GetStatusResponse, IdentityInitialization,
+        ImportContactInvitationRequest, ListContactsRequest,
+        LocalMeshTransportKind as RpcLocalMeshTransportKind, RevokeContactRequest,
+        SelectDeliveryProfileRequest, SendMessageRequest, ShutdownDaemonRequest,
+        StartClientRequest, VerifyContactQrRequest, VerifyContactSafetyNumberRequest,
+        daemon_service_client::DaemonServiceClient,
     };
     use yeokcham_protocol::{
         ContactInvitation, EncryptedMessageEnvelope, IdentityRotation, MESSAGE_IDENTIFIER_BYTES,
@@ -379,6 +382,91 @@ mod tests {
         let (server, public_key) = tokio::join!(server, client);
         assert!(server.is_ok());
         assert_eq!(public_key.len(), 32);
+        assert!(!socket_path.exists());
+        runtime.shutdown().unwrap();
+        fs::remove_dir_all(state_directory).unwrap();
+    }
+
+    #[tokio::test]
+    async fn serves_authenticated_explicit_delivery_profile_selection() {
+        let state_directory = state_directory();
+        let mut runtime = DaemonRuntime::start(ProtocolVersion::INITIAL, &state_directory).unwrap();
+        let (auth, token) = DaemonLocalAuth::initialize().unwrap();
+        let server =
+            DaemonServer::bind_with_identity_keystore(&runtime, auth, MemoryKeystore::default())
+                .unwrap();
+        let socket_path = server.socket_path().to_path_buf();
+        let (shutdown_sender, shutdown_receiver) = oneshot::channel();
+
+        let server = server.serve_until(async move {
+            let _ = shutdown_receiver.await;
+        });
+        let client = async {
+            let mut client = contact_client(socket_path.clone()).await;
+            let direct = SelectDeliveryProfileRequest {
+                direct_allowed: true,
+                tor_maildrop_allowed: false,
+                allowed_local_mesh_transports: Vec::new(),
+                kind: RpcDeliveryProfileKind::Direct.into(),
+                local_mesh_transport: RpcLocalMeshTransportKind::Unspecified.into(),
+                direct_ip_disclosure_acknowledged: true,
+            };
+            assert_eq!(
+                client
+                    .select_delivery_profile(Request::new(direct.clone()))
+                    .await
+                    .unwrap_err()
+                    .code(),
+                Code::Unauthenticated
+            );
+            let selected = client
+                .select_delivery_profile(authenticated_request(direct.clone(), &token))
+                .await
+                .unwrap()
+                .into_inner();
+            assert_eq!(
+                RpcDeliveryProfileKind::try_from(selected.kind),
+                Ok(RpcDeliveryProfileKind::Direct)
+            );
+            assert!(selected.direct_ip_disclosure_warning);
+            let mesh = client
+                .select_delivery_profile(authenticated_request(
+                    SelectDeliveryProfileRequest {
+                        direct_allowed: false,
+                        tor_maildrop_allowed: false,
+                        allowed_local_mesh_transports: vec![RpcLocalMeshTransportKind::Lan.into()],
+                        kind: RpcDeliveryProfileKind::LocalMesh.into(),
+                        local_mesh_transport: RpcLocalMeshTransportKind::Lan.into(),
+                        direct_ip_disclosure_acknowledged: false,
+                    },
+                    &token,
+                ))
+                .await
+                .unwrap()
+                .into_inner();
+            assert_eq!(
+                RpcDeliveryProfileKind::try_from(mesh.kind),
+                Ok(RpcDeliveryProfileKind::LocalMesh)
+            );
+            assert!(!mesh.direct_ip_disclosure_warning);
+            assert_eq!(
+                client
+                    .select_delivery_profile(authenticated_request(
+                        SelectDeliveryProfileRequest {
+                            direct_ip_disclosure_acknowledged: false,
+                            ..direct
+                        },
+                        &token,
+                    ))
+                    .await
+                    .unwrap_err()
+                    .code(),
+                Code::InvalidArgument
+            );
+            shutdown_sender.send(()).unwrap();
+        };
+        let (server, ()) = tokio::join!(server, client);
+        assert!(server.is_ok());
         assert!(!socket_path.exists());
         runtime.shutdown().unwrap();
         fs::remove_dir_all(state_directory).unwrap();
