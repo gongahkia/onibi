@@ -22,7 +22,8 @@ use yeokcham_sdk::{
     SdkEventStreamError, SdkIdentityError, SdkIdentityInitialization, SdkIdentityManager,
     SdkLocalMeshPolicy, SdkLocalMeshTransportKind, SdkMessageEnvelope, SdkMessageEnvelopeError,
     SdkMessageError, SdkMessageExpiry, SdkMessageExpiryError, SdkMessageIdentifier,
-    SdkMessageSendRequest, TransportAvailability, TransportCapability, TransportCapabilityError,
+    SdkMessageSendRequest, SdkRecoveryArchive, SdkRecoveryError, SdkRecoveryPassphrase,
+    TransportAvailability, TransportCapability, TransportCapabilityError,
     TransportCapabilityMatrix, TransportKind,
 };
 
@@ -276,6 +277,36 @@ fn identity_manager_fails_closed_for_missing_corrupt_and_unwritable_state() {
     });
     assert_eq!(manager.create().unwrap_err(), SdkIdentityError::Keystore);
     assert!(manager.into_inner().entries.is_empty());
+}
+
+#[test]
+fn identity_recovery_is_available_through_the_public_sdk_and_fails_closed() {
+    let passphrase = SdkRecoveryPassphrase::new(b"SDK recovery passphrase".to_vec()).unwrap();
+    let mut source = SdkIdentityManager::new(MemoryKeystore::default());
+    let original = source.create().unwrap();
+    let archive = source.export_recovery(&passphrase).unwrap();
+    assert_eq!(
+        source.import_recovery(&archive, &passphrase).unwrap_err(),
+        SdkRecoveryError::Identity(SdkIdentityError::AlreadyInitialized)
+    );
+
+    let mut restored = SdkIdentityManager::new(MemoryKeystore::default());
+    let recovered = restored.import_recovery(&archive, &passphrase).unwrap();
+    assert_eq!(recovered.public_key(), original.public_key());
+    assert_eq!(
+        recovered.initialization(),
+        SdkIdentityInitialization::Recovered
+    );
+
+    let mut encoded = archive.into_bytes();
+    *encoded.last_mut().unwrap() ^= 0x01;
+    let tampered = SdkRecoveryArchive::from_bytes(encoded).unwrap();
+    let mut empty = SdkIdentityManager::new(MemoryKeystore::default());
+    assert_eq!(
+        empty.import_recovery(&tampered, &passphrase).unwrap_err(),
+        SdkRecoveryError::InvalidArchive
+    );
+    assert_eq!(empty.load().unwrap_err(), SdkIdentityError::NotInitialized);
 }
 
 #[test]

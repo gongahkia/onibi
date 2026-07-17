@@ -2,7 +2,7 @@ use crate::{
     LocalDaemonEndpointError, SdkAsyncPolicyError, SdkClientError, SdkConfigError, SdkContactError,
     SdkDeliveryProfilePolicyError, SdkEventError, SdkEventStreamError, SdkIdentityError,
     SdkMessageEnvelopeError, SdkMessageError, SdkMessageExpiryError, SdkMessageIdentifierError,
-    TransportCapabilityError,
+    SdkRecoveryError, TransportCapabilityError,
 };
 
 #[derive(Debug, Eq, PartialEq, thiserror::Error)]
@@ -33,6 +33,8 @@ pub enum SdkError {
     MessageIdentifier(#[from] SdkMessageIdentifierError),
     #[error("SDK message operation failed")]
     Message(#[from] SdkMessageError),
+    #[error("SDK recovery operation failed")]
+    Recovery(#[from] SdkRecoveryError),
     #[error("SDK transport capability is invalid")]
     TransportCapability(#[from] TransportCapabilityError),
 }
@@ -40,7 +42,7 @@ pub enum SdkError {
 #[cfg(test)]
 mod tests {
     use super::SdkError;
-    use crate::{SdkAsyncPolicyError, SdkClientError, SdkMessageExpiryError};
+    use crate::{SdkAsyncPolicyError, SdkClientError, SdkMessageExpiryError, SdkRecoveryError};
 
     #[test]
     fn preserves_the_sdk_error_family_when_converted() {
@@ -55,6 +57,10 @@ mod tests {
         assert_eq!(
             SdkError::from(SdkMessageExpiryError::TimestampOverflow),
             SdkError::MessageExpiry(SdkMessageExpiryError::TimestampOverflow)
+        );
+        assert_eq!(
+            SdkError::from(SdkRecoveryError::InvalidArchive),
+            SdkError::Recovery(SdkRecoveryError::InvalidArchive)
         );
     }
 }

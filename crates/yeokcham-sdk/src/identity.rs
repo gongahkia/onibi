@@ -1,6 +1,8 @@
 use yeokcham_core::{IdentityPublicKey, OsKeystore};
 use yeokcham_daemon::{ClientIdentity, ClientIdentityError, ClientIdentityInitialization};
 
+use crate::{SdkRecoveryArchive, SdkRecoveryError, SdkRecoveryPassphrase};
+
 pub struct SdkIdentityManager<K> {
     keystore: K,
 }
@@ -49,6 +51,36 @@ impl<K: OsKeystore> SdkIdentityManager<K> {
             })
             .map_err(SdkIdentityError::from)
     }
+
+    pub fn export_recovery(
+        &self,
+        passphrase: &SdkRecoveryPassphrase,
+    ) -> Result<SdkRecoveryArchive, SdkRecoveryError> {
+        ClientIdentity::load(&self.keystore)
+            .map_err(map_recovery_error)
+            .and_then(|identity| {
+                identity
+                    .export_recovery(passphrase.as_inner())
+                    .map(SdkRecoveryArchive::from_trusted_bytes)
+                    .map_err(map_recovery_error)
+            })
+    }
+
+    pub fn import_recovery(
+        &mut self,
+        archive: &SdkRecoveryArchive,
+        passphrase: &SdkRecoveryPassphrase,
+    ) -> Result<SdkIdentity, SdkRecoveryError> {
+        ClientIdentity::import_recovery(
+            &mut self.keystore,
+            archive.as_bytes(),
+            passphrase.as_inner(),
+        )
+        .map(|identity| {
+            SdkIdentity::new(identity.public_key(), SdkIdentityInitialization::Recovered)
+        })
+        .map_err(map_recovery_error)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -80,6 +112,7 @@ impl SdkIdentity {
 pub enum SdkIdentityInitialization {
     Created,
     Loaded,
+    Recovered,
 }
 
 #[derive(Debug, Eq, PartialEq, thiserror::Error)]
@@ -109,5 +142,13 @@ impl From<ClientIdentityError> for SdkIdentityError {
             | ClientIdentityError::KeystoreSecret(_)
             | ClientIdentityError::Keystore => Self::Keystore,
         }
+    }
+}
+
+fn map_recovery_error(error: ClientIdentityError) -> crate::SdkRecoveryError {
+    match error {
+        ClientIdentityError::RecoveryImport(_) => crate::SdkRecoveryError::InvalidArchive,
+        ClientIdentityError::RecoveryExport(_) => crate::SdkRecoveryError::Operation,
+        error => crate::SdkRecoveryError::Identity(error.into()),
     }
 }

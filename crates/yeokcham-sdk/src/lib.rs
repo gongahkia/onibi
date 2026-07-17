@@ -10,6 +10,7 @@ mod error;
 mod event;
 mod identity;
 mod message;
+mod recovery;
 mod version;
 
 pub use async_policy::{MAX_SDK_ASYNC_DEADLINE, SdkAsyncPolicy, SdkAsyncPolicyError};
@@ -41,6 +42,10 @@ pub use message::{
     SdkDeliveryStatus, SdkMessageEnvelope, SdkMessageEnvelopeError, SdkMessageError,
     SdkMessageExpiry, SdkMessageExpiryError, SdkMessageIdentifier, SdkMessageIdentifierError,
     SdkMessageSendRequest, SdkQueuedMessage,
+};
+pub use recovery::{
+    MAX_SDK_RECOVERY_PASSPHRASE_BYTES, SdkRecoveryArchive, SdkRecoveryArchiveError,
+    SdkRecoveryError, SdkRecoveryPassphrase, SdkRecoveryPassphraseError,
 };
 pub use tokio_util::sync::CancellationToken;
 pub use version::{SDK_API_VERSION, SDK_API_VERSION_MAJOR, SDK_API_VERSION_MINOR, SdkApiVersion};
