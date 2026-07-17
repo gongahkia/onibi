@@ -24,9 +24,9 @@ use yeokcham_core::KeystoreSecret;
 use yeokcham_core::{IdentityKeypair, IdentityPublicKey, KeystoreEntryName, OsKeystore};
 use yeokcham_daemon::{
     ClientIdentity, ClientIdentityInitialization, ClientStateDirectory, ContactLifecycleService,
-    ContactStatus, ContactStore, ContactVerificationMethod, DaemonRuntime, MessageExpiry,
-    PendingContactImportService, QrContactVerificationService, RecipientInboxDeduplication,
-    SafetyNumberVerificationService, SenderOutbox,
+    ContactStatus, ContactStore, ContactVerificationMethod, DaemonRuntime, InboxMessage,
+    MessageExpiry, PendingContactImportService, QrContactVerificationService,
+    RecipientInboxDeduplication, SafetyNumberVerificationService, SenderOutbox,
 };
 use yeokcham_protocol::{
     AttachmentUploadJournal, CONTACT_INVITATION_BYTES, ContactInvitation, EncryptedAttachmentChunk,
@@ -927,6 +927,7 @@ struct Dashboard {
     identity: Vec<String>,
     contacts: Vec<String>,
     inbox: Vec<String>,
+    inbox_messages: Vec<InboxMessage>,
     outbox: Vec<String>,
     delivery_state: Vec<String>,
 }
@@ -1076,20 +1077,23 @@ fn dashboard_from_stores(
             }
         },
     );
+    let inbox_messages = inbox.map_or_else(Vec::new, |inbox| {
+        let mut messages: Vec<_> = inbox.messages().collect();
+        messages.sort_unstable_by_key(|message| message.received_at());
+        messages
+    });
     let inbox = inbox.map_or_else(
         || vec!["no inbox state".to_owned()],
         |inbox| {
-            let mut messages: Vec<_> = inbox.messages().collect();
-            messages.sort_unstable_by_key(|message| message.received_at());
             let mut lines = vec![format!(
                 "deduplication_entries={} retained_messages={}",
                 inbox.len(),
-                messages.len()
+                inbox_messages.len()
             )];
-            if messages.is_empty() {
+            if inbox_messages.is_empty() {
                 lines.push("no retained message metadata".to_owned());
             } else {
-                for (index, message) in messages.iter().enumerate() {
+                for (index, message) in inbox_messages.iter().enumerate() {
                     lines.push(format!(
                         "message={} received_at={} encrypted_header_bytes={} ciphertext_bytes={}",
                         index + 1,
@@ -1139,6 +1143,7 @@ fn dashboard_from_stores(
         identity: vec!["status=unavailable".to_owned()],
         contacts,
         inbox,
+        inbox_messages,
         outbox: outbox_lines,
         delivery_state,
     }
@@ -1200,17 +1205,45 @@ impl TuiContactInput {
 
 struct TuiDashboard {
     dashboard: Dashboard,
+    screen: TuiScreen,
+    inbox_selection: usize,
     contact_input: Option<TuiContactInput>,
     notice: Option<&'static str>,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum TuiScreen {
+    Overview,
+    Inbox,
 }
 
 impl TuiDashboard {
     const fn new(dashboard: Dashboard) -> Self {
         Self {
             dashboard,
+            screen: TuiScreen::Overview,
+            inbox_selection: 0,
             contact_input: None,
             notice: None,
         }
+    }
+
+    fn select_next_inbox_message(&mut self) {
+        self.inbox_selection = self
+            .inbox_selection
+            .saturating_add(1)
+            .min(self.dashboard.inbox_messages.len().saturating_sub(1));
+    }
+
+    fn select_previous_inbox_message(&mut self) {
+        self.inbox_selection = self.inbox_selection.saturating_sub(1);
+    }
+
+    fn selected_inbox_message(&self) -> Option<InboxMessage> {
+        self.dashboard
+            .inbox_messages
+            .get(self.inbox_selection)
+            .copied()
     }
 }
 
@@ -1235,9 +1268,22 @@ fn dashboard_event_loop(
         {
             if dashboard.contact_input.is_some() {
                 handle_tui_contact_input(dashboard, state_directory, key.code)?;
+            } else if dashboard.screen == TuiScreen::Inbox {
+                match key.code {
+                    KeyCode::Char('q') => return Ok(()),
+                    KeyCode::Esc | KeyCode::Char('b') => dashboard.screen = TuiScreen::Overview,
+                    KeyCode::Up | KeyCode::Char('k') => dashboard.select_previous_inbox_message(),
+                    KeyCode::Down | KeyCode::Char('j') => dashboard.select_next_inbox_message(),
+                    _ => {}
+                }
             } else {
                 match key.code {
                     KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
+                    KeyCode::Char('b') => {
+                        dashboard.screen = TuiScreen::Inbox;
+                        dashboard.inbox_selection = 0;
+                        dashboard.notice = None;
+                    }
                     KeyCode::Char('i') => {
                         dashboard.contact_input =
                             Some(TuiContactInput::new(TuiContactInputKind::Invitation));
@@ -1340,6 +1386,9 @@ fn tui_safety_number_parts(input: &str) -> Result<(&str, &str), &'static str> {
 }
 
 fn render_tui_dashboard(output: &mut impl Write, dashboard: &TuiDashboard) -> std::io::Result<()> {
+    if dashboard.screen == TuiScreen::Inbox {
+        return render_tui_inbox(output, dashboard);
+    }
     queue!(
         output,
         MoveTo(0, 0),
@@ -1355,11 +1404,45 @@ fn render_tui_dashboard(output: &mut impl Write, dashboard: &TuiDashboard) -> st
     } else {
         queue!(
             output,
-            Print("i: import invitation; r: verify QR; s: verify safety number; q: exit.\n")
+            Print(
+                "b: inbox; i: import invitation; r: verify QR; s: verify safety number; q: exit.\n"
+            )
         )?;
     }
     if let Some(notice) = dashboard.notice {
         queue!(output, Print(format!("{notice}\n")))?;
+    }
+    output.flush()
+}
+
+fn render_tui_inbox(output: &mut impl Write, dashboard: &TuiDashboard) -> std::io::Result<()> {
+    queue!(
+        output,
+        MoveTo(0, 0),
+        Clear(ClearType::All),
+        Print("Inbox:\n")
+    )?;
+    let count = dashboard.dashboard.inbox_messages.len();
+    if let Some(message) = dashboard.selected_inbox_message() {
+        queue!(
+            output,
+            Print(format!(
+                "message={} of {} received_at={} encrypted_header_bytes={} ciphertext_bytes={}\n",
+                dashboard.inbox_selection + 1,
+                count,
+                message.received_at(),
+                message.encrypted_header_bytes(),
+                message.ciphertext_bytes()
+            )),
+            Print("content=unavailable\n"),
+            Print("Use Up/Down or j/k to select; b or Esc returns; q exits.\n")
+        )?;
+    } else {
+        queue!(
+            output,
+            Print("no retained message metadata\n"),
+            Print("b or Esc returns; q exits.\n")
+        )?;
     }
     output.flush()
 }
@@ -1662,14 +1745,14 @@ mod tests {
         IdentityPublicKey, KeystoreEntryName, MAX_TUI_CONTACT_INPUT_BYTES, MessageCommand,
         MessageExpiry, OsKeystore, RecipientInboxDeduplication, RelayProfileCommand,
         ReleaseManifestCommand, SenderOutbox, TorMaildropProfileConfig, TuiCommand,
-        TuiContactInput, TuiContactInputKind, apply_contact_rotation, contact_invitation_record,
-        create_identity, dashboard_from_stores, decode_canonical_hex, decode_envelope, hexadecimal,
-        identity_record, import_contact_invitation, initialize_tui_identity,
-        inspect_contact_invitation, inspect_relay_profile, load_identity,
+        TuiContactInput, TuiContactInputKind, TuiDashboard, TuiScreen, apply_contact_rotation,
+        contact_invitation_record, create_identity, dashboard_from_stores, decode_canonical_hex,
+        decode_envelope, hexadecimal, identity_record, import_contact_invitation,
+        initialize_tui_identity, inspect_contact_invitation, inspect_relay_profile, load_identity,
         queue_attachment_submission, queue_message, relay_profile_record, release_metadata,
-        render_dashboard, revoke_contact, sign_release_manifest, start_embedded_tui_client,
-        tui_safety_number_parts, validate_state_directory, verify_contact_qr,
-        verify_contact_safety_number, verify_release_manifest,
+        render_dashboard, render_tui_dashboard, revoke_contact, sign_release_manifest,
+        start_embedded_tui_client, tui_safety_number_parts, validate_state_directory,
+        verify_contact_qr, verify_contact_safety_number, verify_release_manifest,
     };
     use yeokcham_core::KeystoreSecret;
     use yeokcham_daemon::{
@@ -2398,6 +2481,8 @@ mod tests {
         )
         .unwrap();
         inbox.record_at(&delivered, 101).unwrap();
+        let second_inbox = EncryptedMessageEnvelope::new(vec![0xe1], vec![0xf2]).unwrap();
+        inbox.record_at(&second_inbox, 102).unwrap();
         let contacts =
             ContactStore::open(&state_directory.join(CONTACTS_DATABASE_FILE), &mut keystore)
                 .unwrap();
@@ -2420,6 +2505,22 @@ mod tests {
         assert!(rendered.contains("Inbox"));
         assert!(rendered.contains("Outbox"));
         assert!(rendered.contains("Delivery state"));
+
+        let mut tui = TuiDashboard::new(dashboard);
+        tui.screen = TuiScreen::Inbox;
+        tui.select_next_inbox_message();
+        assert_eq!(tui.inbox_selection, 1);
+        tui.select_next_inbox_message();
+        assert_eq!(tui.inbox_selection, 1);
+        tui.select_previous_inbox_message();
+        assert_eq!(tui.inbox_selection, 0);
+        tui.select_next_inbox_message();
+        let mut inbox_rendered = Vec::new();
+        render_tui_dashboard(&mut inbox_rendered, &tui).unwrap();
+        let inbox_rendered = String::from_utf8(inbox_rendered).unwrap();
+        assert!(inbox_rendered.contains("message=2 of 2 received_at=102"));
+        assert!(inbox_rendered.contains("content=unavailable"));
+        assert!(!inbox_rendered.contains("do-not-display-this-ciphertext"));
 
         drop(contacts);
         drop(inbox);
