@@ -63,7 +63,7 @@ zbus-secret-service-keyring-store = { version = "1.0.0", default-features = fals
 zeroize = { version = "=1.9.0", features = ["derive"] }
 
 [workspace.lints.rust]
-unsafe_code = "forbid"
+unsafe_code = "deny"
 unused_must_use = "deny"
 
 [workspace.lints.clippy]

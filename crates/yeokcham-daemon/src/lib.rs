@@ -1,4 +1,4 @@
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 
 mod attachment_delivery;
 mod attachment_journal_store;
@@ -51,6 +51,9 @@ mod wifi_direct_transport;
 mod wifi_hotspot_transport;
 #[cfg(windows)]
 mod windows_listener;
+#[cfg(windows)]
+mod windows_runtime;
+mod windows_wifi_hotspot_capability;
 mod x3dh_session_service;
 
 use yeokcham_core::{Error, Result};
@@ -181,6 +184,7 @@ pub use windows_listener::{
     DAEMON_WINDOWS_NAMED_PIPE_NAME, DaemonWindowsIncoming, DaemonWindowsListener,
     DaemonWindowsListenerError,
 };
+pub use windows_wifi_hotspot_capability::WindowsWifiHotspotCapabilityProbe;
 pub use x3dh_session_service::{
     X3dhSessionEstablishmentError, X3dhSessionEstablishmentService, initiate_x3dh_session,
 };

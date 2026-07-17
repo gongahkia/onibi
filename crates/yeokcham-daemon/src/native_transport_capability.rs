@@ -5,9 +5,11 @@ use std::{
 
 use yeokcham_protocol::LocalMeshTransportKind;
 
-use crate::{
-    LinuxWifiDirectCapabilityProbe, LinuxWifiHotspotCapabilityProbe, LocalTransportAvailability,
-};
+#[cfg(target_os = "linux")]
+use crate::LinuxWifiHotspotCapabilityProbe;
+#[cfg(target_os = "windows")]
+use crate::WindowsWifiHotspotCapabilityProbe;
+use crate::{LinuxWifiDirectCapabilityProbe, LocalTransportAvailability};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct NativeTransportCapabilityProbe {
@@ -40,10 +42,25 @@ impl NativeTransportCapabilityProbe {
                 }
                 Err(_) => LocalTransportAvailability::Unavailable,
             },
-            LocalMeshTransportKind::WifiHotspot => LinuxWifiHotspotCapabilityProbe::new().probe(),
+            LocalMeshTransportKind::WifiHotspot => probe_wifi_hotspot_capability(),
             LocalMeshTransportKind::WifiDirect => LinuxWifiDirectCapabilityProbe::new().probe(),
             LocalMeshTransportKind::Bluetooth => LocalTransportAvailability::Unavailable,
         }
+    }
+}
+
+fn probe_wifi_hotspot_capability() -> LocalTransportAvailability {
+    #[cfg(target_os = "linux")]
+    {
+        LinuxWifiHotspotCapabilityProbe::new().probe()
+    }
+    #[cfg(target_os = "windows")]
+    {
+        WindowsWifiHotspotCapabilityProbe::new().probe()
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+    {
+        LocalTransportAvailability::Unavailable
     }
 }
 
@@ -71,7 +88,7 @@ mod tests {
             probe.probe(LocalMeshTransportKind::Bluetooth),
             LocalTransportAvailability::Unavailable
         );
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
         assert_eq!(
             probe.probe(LocalMeshTransportKind::WifiHotspot),
             LocalTransportAvailability::Unavailable
