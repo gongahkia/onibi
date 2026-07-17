@@ -17,5 +17,11 @@ yeokcham-core = { path = "../yeokcham-core" }
 yeokcham-daemon = { path = "../yeokcham-daemon" }
 yeokcham-protocol = { path = "../yeokcham-protocol" }
 
+[dev-dependencies]
+hyper-util.workspace = true
+tonic.workspace = true
+tower.workspace = true
+yeokcham-daemon-api = { path = "../yeokcham-daemon-api" }
+
 [lints]
 workspace = true

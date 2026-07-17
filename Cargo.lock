@@ -4030,11 +4030,15 @@ dependencies = [
 name = "yeokcham-sdk"
 version = "0.1.0"
 dependencies = [
+ "hyper-util",
  "thiserror 2.0.18",
  "tokio",
  "tokio-util",
+ "tonic",
+ "tower",
  "yeokcham-core",
  "yeokcham-daemon",
+ "yeokcham-daemon-api",
  "yeokcham-protocol",
 ]
 
