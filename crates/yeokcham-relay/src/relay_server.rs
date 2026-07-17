@@ -309,9 +309,25 @@ impl RelayService for RelayGrpcService {
 
     async fn get_mailbox_quota(
         &self,
-        _request: Request<v1::GetMailboxQuotaRequest>,
+        request: Request<v1::GetMailboxQuotaRequest>,
     ) -> Result<Response<v1::GetMailboxQuotaResponse>, Status> {
-        unavailable()
+        let capability = MailboxCapability::decode(&request.into_inner().mailbox_capability)
+            .map_err(|_| Status::invalid_argument("mailbox capability is invalid"))?;
+        let database = self
+            .database
+            .lock()
+            .map_err(|_| Status::internal("relay database is unavailable"))?;
+        match database.mailbox_quota(&capability) {
+            Ok(quota) => Ok(Response::new(v1::GetMailboxQuotaResponse {
+                capacity_bytes: quota.quota().bytes(),
+                used_bytes: quota.used_bytes(),
+                remaining_bytes: quota.remaining_bytes(),
+            })),
+            Err(RelayDatabaseError::InvalidCapability) => {
+                Err(Status::permission_denied("mailbox capability is invalid"))
+            }
+            Err(_) => Err(Status::internal("mailbox quota lookup failed")),
+        }
     }
 
     async fn store_envelope_with_receipt(
@@ -338,8 +354,9 @@ mod tests {
         MAX_ENCODED_ATTACHMENT_CHUNK_BYTES, MailboxCapability,
     };
     use yeokcham_relay_api::v1::{
-        AcknowledgeEnvelopeRequest, DownloadAttachmentChunkRequest, RegisterMailboxRequest,
-        RetrieveEnvelopesRequest, StoreEnvelopeRequest, UploadAttachmentChunkRequest,
+        AcknowledgeEnvelopeRequest, DownloadAttachmentChunkRequest, GetMailboxQuotaRequest,
+        GetMailboxQuotaResponse, RegisterMailboxRequest, RetrieveEnvelopesRequest,
+        StoreEnvelopeRequest, UploadAttachmentChunkRequest,
         relay_service_client::RelayServiceClient,
     };
 
@@ -369,6 +386,7 @@ mod tests {
             let capability = capability(0x11, 0x22);
             assert_registration_contract(&mut client, &capability).await;
             assert_envelope_storage_contract(&mut client, &capability).await;
+            assert_quota_contract(&mut client, &capability).await;
             assert_retrieval_contract(&mut client, &capability).await;
             assert_acknowledgement_contract(&mut client, &capability).await;
             shutdown_sender.send(()).unwrap();
@@ -524,6 +542,46 @@ mod tests {
                 .unwrap_err()
                 .code(),
             Code::PermissionDenied
+        );
+    }
+
+    async fn assert_quota_contract(
+        client: &mut RelayServiceClient<Channel>,
+        encoded_capability: &[u8],
+    ) {
+        assert_eq!(
+            client
+                .get_mailbox_quota(GetMailboxQuotaRequest {
+                    mailbox_capability: encoded_capability.to_vec(),
+                })
+                .await
+                .unwrap()
+                .into_inner(),
+            GetMailboxQuotaResponse {
+                capacity_bytes: 5,
+                used_bytes: 5,
+                remaining_bytes: 0,
+            }
+        );
+        assert_eq!(
+            client
+                .get_mailbox_quota(GetMailboxQuotaRequest {
+                    mailbox_capability: capability(0x33, 0x44),
+                })
+                .await
+                .unwrap_err()
+                .code(),
+            Code::PermissionDenied
+        );
+        assert_eq!(
+            client
+                .get_mailbox_quota(GetMailboxQuotaRequest {
+                    mailbox_capability: vec![0],
+                })
+                .await
+                .unwrap_err()
+                .code(),
+            Code::InvalidArgument
         );
     }
 

@@ -722,6 +722,33 @@ impl RelayDatabase {
         Ok(())
     }
 
+    pub fn mailbox_quota(
+        &self,
+        capability: &MailboxCapability,
+    ) -> Result<MailboxQuotaTracker, RelayDatabaseError> {
+        let capability_digest = capability_digest(capability)?;
+        let (quota_bytes, used_bytes): (Vec<u8>, Vec<u8>) = self
+            .connection
+            .query_row(
+                "SELECT quota_bytes, used_bytes FROM relay_mailboxes
+                 WHERE mailbox_id = ?1 AND capability_digest = ?2",
+                params![
+                    capability.mailbox_id().as_slice(),
+                    capability_digest.as_slice(),
+                ],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?
+            .ok_or(RelayDatabaseError::InvalidCapability)?;
+        let quota = MailboxQuota::new(parse_u64(&quota_bytes)?)
+            .map_err(|_| RelayDatabaseError::InvalidMailboxRecord)?;
+        let mut tracker = MailboxQuotaTracker::new(quota);
+        tracker
+            .reserve(parse_u64(&used_bytes)?)
+            .map_err(|_| RelayDatabaseError::InvalidMailboxRecord)?;
+        Ok(tracker)
+    }
+
     pub fn insert_envelope(
         &mut self,
         capability: &MailboxCapability,
