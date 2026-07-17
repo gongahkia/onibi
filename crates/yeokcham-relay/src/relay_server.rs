@@ -15,8 +15,8 @@ use yeokcham_relay_api::v1::{
 };
 
 use crate::{
-    EncryptedMessageEnvelope, MailboxCapability, MailboxQuota, RelayDatabase, RelayDatabaseError,
-    RelayRetentionPolicy, SelfHostedRelayConfig,
+    EncryptedAttachmentChunk, EncryptedMessageEnvelope, MailboxCapability, MailboxQuota,
+    RelayDatabase, RelayDatabaseError, RelayRetentionPolicy, SelfHostedRelayConfig,
 };
 
 pub struct RelayServer {
@@ -230,9 +230,35 @@ impl RelayService for RelayGrpcService {
 
     async fn upload_attachment_chunk(
         &self,
-        _request: Request<v1::UploadAttachmentChunkRequest>,
+        request: Request<v1::UploadAttachmentChunkRequest>,
     ) -> Result<Response<v1::UploadAttachmentChunkResponse>, Status> {
-        unavailable()
+        let request = request.into_inner();
+        let capability = MailboxCapability::decode(&request.mailbox_capability)
+            .map_err(|_| Status::invalid_argument("mailbox capability is invalid"))?;
+        let chunk = EncryptedAttachmentChunk::decode(&request.chunk)
+            .map_err(|_| Status::invalid_argument("attachment chunk is invalid"))?;
+        let received_at = current_unix_seconds()?;
+        let mut database = self
+            .database
+            .lock()
+            .map_err(|_| Status::internal("relay database is unavailable"))?;
+        match database.store_attachment_chunk(&capability, &chunk, received_at, self.retention) {
+            Ok(stored) => Ok(Response::new(v1::UploadAttachmentChunkResponse { stored })),
+            Err(RelayDatabaseError::InvalidCapability) => {
+                Err(Status::permission_denied("mailbox capability is invalid"))
+            }
+            Err(RelayDatabaseError::QuotaExceeded) => {
+                Err(Status::resource_exhausted("mailbox quota is exhausted"))
+            }
+            Err(RelayDatabaseError::AttachmentChunkConflict) => Err(Status::already_exists(
+                "attachment chunk conflicts with stored chunk",
+            )),
+            Err(
+                RelayDatabaseError::InvalidAttachmentChunk
+                | RelayDatabaseError::TimestampOutOfRange,
+            ) => Err(Status::invalid_argument("attachment upload is invalid")),
+            Err(_) => Err(Status::internal("attachment upload failed")),
+        }
     }
 
     async fn download_attachment_chunk(
@@ -268,12 +294,14 @@ mod tests {
     use tokio::{net::TcpListener, sync::oneshot};
     use tonic::{Code, transport::Channel};
     use yeokcham_protocol::{
+        ATTACHMENT_CHUNK_BYTES, AttachmentIdentifier, AttachmentKey, EncryptedAttachmentChunk,
         EncryptedMessageEnvelope, MAILBOX_CAPABILITY_TOKEN_BYTES, MAILBOX_IDENTIFIER_BYTES,
-        MailboxCapability,
+        MAX_ENCODED_ATTACHMENT_CHUNK_BYTES, MailboxCapability,
     };
     use yeokcham_relay_api::v1::{
         AcknowledgeEnvelopeRequest, RegisterMailboxRequest, RetrieveEnvelopesRequest,
-        StoreEnvelopeRequest, relay_service_client::RelayServiceClient,
+        StoreEnvelopeRequest, UploadAttachmentChunkRequest,
+        relay_service_client::RelayServiceClient,
     };
 
     use super::{RelayServer, RelayServerError};
@@ -512,6 +540,129 @@ mod tests {
             .unwrap()
             .encode()
             .unwrap()
+    }
+
+    #[tokio::test]
+    async fn uploads_canonical_attachment_chunks_over_the_generated_relay_contract() {
+        let chunk = attachment_chunk(0, 0x55);
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = RelayServer::from_listener(
+            listener,
+            RelayDatabase::from_connection(Connection::open_in_memory().unwrap()).unwrap(),
+            MailboxQuota::new(u64::try_from(chunk.len()).unwrap()).unwrap(),
+            RelayRetentionPolicy::new(60).unwrap(),
+        );
+        let (shutdown_sender, shutdown_receiver) = oneshot::channel();
+        let server = server.serve_until(async move {
+            let _ = shutdown_receiver.await;
+        });
+        let client = async {
+            let mut client = RelayServiceClient::connect(format!("http://{address}"))
+                .await
+                .unwrap();
+            let capability = capability(0x11, 0x22);
+            client
+                .register_mailbox(RegisterMailboxRequest {
+                    mailbox_capability: capability.clone(),
+                })
+                .await
+                .unwrap();
+            assert_upload_contract(&mut client, &capability, &chunk).await;
+            shutdown_sender.send(()).unwrap();
+        };
+        let (server, ()) = tokio::join!(server, client);
+        assert!(server.is_ok());
+    }
+
+    async fn assert_upload_contract(
+        client: &mut RelayServiceClient<Channel>,
+        encoded_capability: &[u8],
+        chunk: &[u8],
+    ) {
+        assert!(
+            client
+                .upload_attachment_chunk(UploadAttachmentChunkRequest {
+                    mailbox_capability: encoded_capability.to_vec(),
+                    chunk: chunk.to_vec(),
+                })
+                .await
+                .unwrap()
+                .into_inner()
+                .stored
+        );
+        assert!(
+            !client
+                .upload_attachment_chunk(UploadAttachmentChunkRequest {
+                    mailbox_capability: encoded_capability.to_vec(),
+                    chunk: chunk.to_vec(),
+                })
+                .await
+                .unwrap()
+                .into_inner()
+                .stored
+        );
+        assert_eq!(
+            client
+                .upload_attachment_chunk(UploadAttachmentChunkRequest {
+                    mailbox_capability: encoded_capability.to_vec(),
+                    chunk: attachment_chunk(0, 0x66),
+                })
+                .await
+                .unwrap_err()
+                .code(),
+            Code::AlreadyExists
+        );
+        assert_eq!(
+            client
+                .upload_attachment_chunk(UploadAttachmentChunkRequest {
+                    mailbox_capability: encoded_capability.to_vec(),
+                    chunk: attachment_chunk(1, 0x77),
+                })
+                .await
+                .unwrap_err()
+                .code(),
+            Code::ResourceExhausted
+        );
+        assert_eq!(
+            client
+                .upload_attachment_chunk(UploadAttachmentChunkRequest {
+                    mailbox_capability: capability(0x33, 0x44),
+                    chunk: chunk.to_vec(),
+                })
+                .await
+                .unwrap_err()
+                .code(),
+            Code::PermissionDenied
+        );
+        assert_eq!(
+            client
+                .upload_attachment_chunk(UploadAttachmentChunkRequest {
+                    mailbox_capability: encoded_capability.to_vec(),
+                    chunk: vec![0; MAX_ENCODED_ATTACHMENT_CHUNK_BYTES + 1],
+                })
+                .await
+                .unwrap_err()
+                .code(),
+            Code::InvalidArgument
+        );
+    }
+
+    fn attachment_chunk(index: u32, byte: u8) -> Vec<u8> {
+        let identifier = AttachmentIdentifier::from_bytes([0x55; 16]).unwrap();
+        let key = AttachmentKey::derive(&[0x44; 32], identifier)
+            .unwrap()
+            .derive_chunk_key(index)
+            .unwrap();
+        EncryptedAttachmentChunk::encrypt(
+            identifier,
+            index,
+            &key,
+            &vec![byte; ATTACHMENT_CHUNK_BYTES],
+        )
+        .unwrap()
+        .encode()
+        .unwrap()
     }
 
     #[tokio::test]
