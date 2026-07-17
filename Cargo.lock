@@ -3913,6 +3913,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "yeokcham-relay-api"
+version = "0.1.0"
+dependencies = [
+ "prost",
+ "tokio",
+ "tokio-stream",
+ "tonic",
+ "tonic-prost",
+ "tonic-prost-build",
+]
+
+[[package]]
 name = "yeokcham-rust-integrator-example"
 version = "0.1.0"
 dependencies = [
