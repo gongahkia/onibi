@@ -37,6 +37,7 @@ mod state_store;
 mod stun;
 mod tor_runtime;
 mod tor_socks;
+mod tor_tonic;
 #[cfg(unix)]
 mod unix_listener;
 mod upnp;
@@ -149,6 +150,7 @@ pub use tor_runtime::{
     MAX_EXTERNAL_TOR_CONNECT_TIMEOUT,
 };
 pub use tor_socks::{TorSocksConnector, TorSocksError, TorSocksTarget};
+pub use tor_tonic::{TorSocksTonicConnector, TorSocksTonicConnectorError};
 #[cfg(unix)]
 pub use unix_listener::{DAEMON_UNIX_SOCKET_FILE, DaemonUnixListener, DaemonUnixListenerError};
 pub use upnp::{MAX_UPNP_LEASE_SECONDS, UpnpMapping, UpnpMappingError, UpnpMappingRequest};
