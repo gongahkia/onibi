@@ -35,6 +35,7 @@ mod safety_number_verification;
 mod signed_prekey_lifecycle;
 mod state_store;
 mod stun;
+mod tor_runtime;
 mod tor_socks;
 #[cfg(unix)]
 mod unix_listener;
@@ -142,6 +143,11 @@ pub use state_store::{
     StateDocumentError, StateStoreError,
 };
 pub use stun::{MAX_STUN_SERVERS, StunServer, StunServerError, StunServers};
+pub use tor_runtime::{
+    DEFAULT_EXTERNAL_TOR_CONNECT_TIMEOUT, DEFAULT_EXTERNAL_TOR_SOCKS_PORT, ExternalTorRuntime,
+    ExternalTorRuntimeConfig, ExternalTorRuntimeConfigError, ExternalTorRuntimeError,
+    MAX_EXTERNAL_TOR_CONNECT_TIMEOUT,
+};
 pub use tor_socks::{TorSocksConnector, TorSocksError, TorSocksTarget};
 #[cfg(unix)]
 pub use unix_listener::{DAEMON_UNIX_SOCKET_FILE, DaemonUnixListener, DaemonUnixListenerError};
