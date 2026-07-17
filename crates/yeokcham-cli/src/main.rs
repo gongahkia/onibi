@@ -23,13 +23,14 @@ use std::{
 use yeokcham_core::KeystoreSecret;
 use yeokcham_core::{IdentityKeypair, IdentityPublicKey, KeystoreEntryName, OsKeystore};
 use yeokcham_daemon::{
-    ClientIdentity, ClientIdentityInitialization, ClientStateDirectory, ContactLifecycleService,
-    ContactStatus, ContactStore, ContactVerificationMethod, DaemonRuntime, InboxMessage,
-    MessageExpiry, PendingContactImportService, QrContactVerificationService,
+    AttachmentSubmissionStore, ClientIdentity, ClientIdentityInitialization, ClientStateDirectory,
+    ContactLifecycleService, ContactStatus, ContactStore, ContactVerificationMethod, DaemonRuntime,
+    InboxMessage, MessageExpiry, PendingContactImportService, QrContactVerificationService,
     RecipientInboxDeduplication, SafetyNumberVerificationService, SenderOutbox,
 };
 use yeokcham_protocol::{
-    AttachmentUploadJournal, CONTACT_INVITATION_BYTES, ContactInvitation, EncryptedAttachmentChunk,
+    ATTACHMENT_IDENTIFIER_BYTES, AttachmentIdentifier, AttachmentUploadJournal,
+    CONTACT_INVITATION_BYTES, ContactInvitation, EncryptedAttachmentChunk,
     EncryptedAttachmentManifest, EncryptedMessageEnvelope, IDENTITY_ROTATION_BYTES,
     IdentityIdentifier, MAX_ENCODED_ATTACHMENT_CHUNK_BYTES, MAX_ENCODED_ATTACHMENT_MANIFEST_BYTES,
     QR_VERIFICATION_PAYLOAD_BYTES, SAFETY_NUMBER_FINGERPRINT_BYTES,
@@ -50,6 +51,7 @@ const MAX_PROTOCOL_VECTOR_BYTES: u64 = 16_384;
 const MAX_RELAY_PROFILE_BYTES: usize = 64;
 const MAX_ENCRYPTED_MESSAGE_SUBMISSION_BYTES: usize = 1024 * 1024;
 const MAX_TUI_CONTACT_INPUT_BYTES: usize = CONTACT_INVITATION_BYTES * 2;
+const MAX_TUI_ATTACHMENT_TRANSFERS: usize = 256;
 const PROTOCOL_V1_VECTORS: &str = include_str!("../../yeokcham-protocol/vectors/protocol-v1.txt");
 
 #[derive(Parser)]
@@ -926,6 +928,7 @@ fn queue_message<K: OsKeystore>(
 struct Dashboard {
     identity: Vec<String>,
     contacts: Vec<String>,
+    attachments: Vec<String>,
     inbox: Vec<String>,
     inbox_messages: Vec<InboxMessage>,
     outbox: Vec<String>,
@@ -937,6 +940,7 @@ impl Dashboard {
         let mut output = String::new();
         append_dashboard_section(&mut output, "Identity", &self.identity);
         append_dashboard_section(&mut output, "Contacts", &self.contacts);
+        append_dashboard_section(&mut output, "Attachments", &self.attachments);
         append_dashboard_section(&mut output, "Inbox", &self.inbox);
         append_dashboard_section(&mut output, "Outbox", &self.outbox);
         append_dashboard_section(&mut output, "Delivery state", &self.delivery_state);
@@ -1022,6 +1026,7 @@ fn load_dashboard<K: OsKeystore>(
     state_directory: &Path,
 ) -> Result<Dashboard, Box<dyn Error>> {
     let layout = ClientStateDirectory::new(state_directory)?;
+    let attachments = load_attachment_transfers(&layout)?;
     let inbox_path = layout.inbox_path();
     let outbox_path = layout.outbox_path();
     let contacts_path = layout.contacts_path();
@@ -1034,11 +1039,9 @@ fn load_dashboard<K: OsKeystore>(
     let contacts = state_file_exists(&contacts_path)?
         .then(|| ContactStore::open(&contacts_path, keystore))
         .transpose()?;
-    Ok(dashboard_from_stores(
-        contacts.as_ref(),
-        inbox.as_ref(),
-        outbox.as_ref(),
-    ))
+    let mut dashboard = dashboard_from_stores(contacts.as_ref(), inbox.as_ref(), outbox.as_ref());
+    dashboard.attachments = attachments;
+    Ok(dashboard)
 }
 
 fn state_file_exists(path: &Path) -> Result<bool, Box<dyn Error>> {
@@ -1142,11 +1145,79 @@ fn dashboard_from_stores(
     Dashboard {
         identity: vec!["status=unavailable".to_owned()],
         contacts,
+        attachments: vec!["no attachment transfers".to_owned()],
         inbox,
         inbox_messages,
         outbox: outbox_lines,
         delivery_state,
     }
+}
+
+fn load_attachment_transfers(layout: &ClientStateDirectory) -> Result<Vec<String>, Box<dyn Error>> {
+    let root = layout.attachment_uploads_path();
+    match fs::symlink_metadata(&root) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(vec!["no attachment transfers".to_owned()]);
+        }
+        Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
+            return Err("attachment transfer root is invalid".into());
+        }
+        Ok(_) => {}
+        Err(error) => return Err(error.into()),
+    }
+    let store = AttachmentSubmissionStore::new(layout.clone());
+    let mut identifiers = Vec::new();
+    for (index, entry) in fs::read_dir(&root)?.enumerate() {
+        if index >= MAX_TUI_ATTACHMENT_TRANSFERS {
+            return Err("attachment transfer count exceeds the configured limit".into());
+        }
+        let entry = entry?;
+        let name = entry
+            .file_name()
+            .into_string()
+            .map_err(|_| "attachment transfer name is invalid")?;
+        let metadata = fs::symlink_metadata(entry.path())?;
+        if metadata.file_type().is_symlink() || !metadata.is_dir() {
+            return Err("attachment transfer path is invalid".into());
+        }
+        if is_attachment_staging_name(&name) {
+            continue;
+        }
+        identifiers.push(decode_attachment_identifier(&name)?);
+    }
+    identifiers.sort_unstable_by_key(|identifier| *identifier.as_bytes());
+    if identifiers.is_empty() {
+        return Ok(vec!["no attachment transfers".to_owned()]);
+    }
+    identifiers
+        .into_iter()
+        .enumerate()
+        .map(|(index, identifier)| {
+            let status = store.status(identifier)?;
+            Ok(format!(
+                "transfer={} chunk_count={} complete={} next_pending_index={}",
+                index + 1,
+                status.chunk_count(),
+                status.complete(),
+                status
+                    .next_pending_index()
+                    .map_or_else(|| "none".to_owned(), |value| value.to_string())
+            ))
+        })
+        .collect()
+}
+
+fn decode_attachment_identifier(encoded: &str) -> Result<AttachmentIdentifier, Box<dyn Error>> {
+    let mut identifier = [0; ATTACHMENT_IDENTIFIER_BYTES];
+    decode_canonical_hex(encoded, &mut identifier)?;
+    Ok(AttachmentIdentifier::from_bytes(identifier)?)
+}
+
+fn is_attachment_staging_name(name: &str) -> bool {
+    name.strip_prefix('.')
+        .unwrap_or(name)
+        .strip_suffix(".pending")
+        .is_some_and(|identifier| decode_attachment_identifier(identifier).is_ok())
 }
 
 const fn contact_verification_label(method: Option<ContactVerificationMethod>) -> &'static str {
@@ -1215,6 +1286,7 @@ struct TuiDashboard {
 enum TuiScreen {
     Overview,
     Inbox,
+    Attachments,
 }
 
 impl TuiDashboard {
@@ -1276,12 +1348,22 @@ fn dashboard_event_loop(
                     KeyCode::Down | KeyCode::Char('j') => dashboard.select_next_inbox_message(),
                     _ => {}
                 }
+            } else if dashboard.screen == TuiScreen::Attachments {
+                match key.code {
+                    KeyCode::Char('q') => return Ok(()),
+                    KeyCode::Esc | KeyCode::Char('a') => dashboard.screen = TuiScreen::Overview,
+                    _ => {}
+                }
             } else {
                 match key.code {
                     KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
                     KeyCode::Char('b') => {
                         dashboard.screen = TuiScreen::Inbox;
                         dashboard.inbox_selection = 0;
+                        dashboard.notice = None;
+                    }
+                    KeyCode::Char('a') => {
+                        dashboard.screen = TuiScreen::Attachments;
                         dashboard.notice = None;
                     }
                     KeyCode::Char('i') => {
@@ -1389,6 +1471,9 @@ fn render_tui_dashboard(output: &mut impl Write, dashboard: &TuiDashboard) -> st
     if dashboard.screen == TuiScreen::Inbox {
         return render_tui_inbox(output, dashboard);
     }
+    if dashboard.screen == TuiScreen::Attachments {
+        return render_tui_attachments(output, dashboard);
+    }
     queue!(
         output,
         MoveTo(0, 0),
@@ -1405,7 +1490,7 @@ fn render_tui_dashboard(output: &mut impl Write, dashboard: &TuiDashboard) -> st
         queue!(
             output,
             Print(
-                "b: inbox; i: import invitation; r: verify QR; s: verify safety number; q: exit.\n"
+                "a: attachments; b: inbox; i: import invitation; r: verify QR; s: verify safety number; q: exit.\n"
             )
         )?;
     }
@@ -1444,6 +1529,23 @@ fn render_tui_inbox(output: &mut impl Write, dashboard: &TuiDashboard) -> std::i
             Print("b or Esc returns; q exits.\n")
         )?;
     }
+    output.flush()
+}
+
+fn render_tui_attachments(
+    output: &mut impl Write,
+    dashboard: &TuiDashboard,
+) -> std::io::Result<()> {
+    queue!(
+        output,
+        MoveTo(0, 0),
+        Clear(ClearType::All),
+        Print("Attachment transfers:\n")
+    )?;
+    for transfer in &dashboard.dashboard.attachments {
+        queue!(output, Print(format!("  {transfer}\n")))?;
+    }
+    queue!(output, Print("a or Esc returns; q exits.\n"))?;
     output.flush()
 }
 
@@ -1748,16 +1850,17 @@ mod tests {
         TuiContactInput, TuiContactInputKind, TuiDashboard, TuiScreen, apply_contact_rotation,
         contact_invitation_record, create_identity, dashboard_from_stores, decode_canonical_hex,
         decode_envelope, hexadecimal, identity_record, import_contact_invitation,
-        initialize_tui_identity, inspect_contact_invitation, inspect_relay_profile, load_identity,
-        queue_attachment_submission, queue_message, relay_profile_record, release_metadata,
-        render_dashboard, render_tui_dashboard, revoke_contact, sign_release_manifest,
-        start_embedded_tui_client, tui_safety_number_parts, validate_state_directory,
-        verify_contact_qr, verify_contact_safety_number, verify_release_manifest,
+        initialize_tui_identity, inspect_contact_invitation, inspect_relay_profile,
+        load_attachment_transfers, load_identity, queue_attachment_submission, queue_message,
+        relay_profile_record, release_metadata, render_dashboard, render_tui_attachments,
+        render_tui_dashboard, revoke_contact, sign_release_manifest, start_embedded_tui_client,
+        tui_safety_number_parts, validate_state_directory, verify_contact_qr,
+        verify_contact_safety_number, verify_release_manifest,
     };
     use yeokcham_core::KeystoreSecret;
     use yeokcham_daemon::{
         ATTACHMENT_UPLOAD_DIRECTORY, CONTACTS_DATABASE_FILE, ClientIdentityInitialization,
-        ContactStore, INBOX_DATABASE_FILE, OUTBOX_DATABASE_FILE,
+        ClientStateDirectory, ContactStore, INBOX_DATABASE_FILE, OUTBOX_DATABASE_FILE,
     };
     use yeokcham_protocol::{
         ATTACHMENT_CHUNK_BYTES, AttachmentIdentifier, AttachmentKey, AttachmentManifest,
@@ -2707,6 +2810,32 @@ mod tests {
         assert!(submission.join("manifest.cbor").is_file());
         assert!(submission.join("journal.cbor").is_file());
         assert!(submission.join("chunk-0.cbor").is_file());
+        let layout = ClientStateDirectory::new(&state_directory).unwrap();
+        let transfers = load_attachment_transfers(&layout).unwrap();
+        assert_eq!(
+            transfers,
+            ["transfer=1 chunk_count=1 complete=false next_pending_index=0"]
+        );
+        assert!(!transfers[0].contains(&hexadecimal(identifier.as_bytes())));
+        let root = state_directory.join(ATTACHMENT_UPLOAD_DIRECTORY);
+        fs::create_dir(root.join(format!(".{}.pending", hexadecimal(identifier.as_bytes()))))
+            .unwrap();
+        assert_eq!(load_attachment_transfers(&layout).unwrap(), transfers);
+        fs::remove_dir(root.join(format!(".{}.pending", hexadecimal(identifier.as_bytes()))))
+            .unwrap();
+        fs::create_dir(root.join("invalid.pending")).unwrap();
+        assert!(load_attachment_transfers(&layout).is_err());
+        fs::remove_dir(root.join("invalid.pending")).unwrap();
+        let mut dashboard = dashboard_from_stores(None, None, None);
+        dashboard.attachments = transfers;
+        let mut tui = TuiDashboard::new(dashboard);
+        tui.screen = TuiScreen::Attachments;
+        let mut rendered = Vec::new();
+        render_tui_attachments(&mut rendered, &tui).unwrap();
+        let rendered = String::from_utf8(rendered).unwrap();
+        assert!(rendered.contains("Attachment transfers"));
+        assert!(rendered.contains("chunk_count=1"));
+        assert!(!rendered.contains(&hexadecimal(identifier.as_bytes())));
         assert!(
             queue_attachment_submission(
                 &state_directory,
