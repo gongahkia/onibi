@@ -28,6 +28,8 @@
 #define YEOKCHAM_CONTACT_VERIFICATION_NONE UINT32_C(0)
 #define YEOKCHAM_CONTACT_VERIFICATION_QR UINT32_C(1)
 #define YEOKCHAM_CONTACT_VERIFICATION_SAFETY_NUMBER UINT32_C(2)
+#define YEOKCHAM_QR_VERIFICATION_PAYLOAD_BYTES UINT32_C(70)
+#define YEOKCHAM_SAFETY_NUMBER_FINGERPRINT_BYTES UINT32_C(32)
 
 typedef struct yeokcham_client yeokcham_client_t; // library-owned opaque client; release with yeokcham_client_release
 typedef struct yeokcham_client_config_builder yeokcham_client_config_builder_t; // library-owned configuration builder; release with yeokcham_client_config_builder_release
@@ -79,6 +81,17 @@ yeokcham_status_t yeokcham_client_contact_get(
 yeokcham_status_t yeokcham_client_contact_revoke(
     yeokcham_client_t *client,
     const uint8_t identity[YEOKCHAM_IDENTITY_PUBLIC_KEY_BYTES],
+    yeokcham_contact_t *contact
+); // requires a running client with an identity; clears contact before any failure
+yeokcham_status_t yeokcham_client_contact_verify_qr(
+    yeokcham_client_t *client,
+    const uint8_t payload[YEOKCHAM_QR_VERIFICATION_PAYLOAD_BYTES],
+    yeokcham_contact_t *contact
+); // requires a running client with an identity; clears contact before any failure
+yeokcham_status_t yeokcham_client_contact_verify_safety_number(
+    yeokcham_client_t *client,
+    const uint8_t identity[YEOKCHAM_IDENTITY_PUBLIC_KEY_BYTES],
+    const uint8_t fingerprint[YEOKCHAM_SAFETY_NUMBER_FINGERPRINT_BYTES],
     yeokcham_contact_t *contact
 ); // requires a running client with an identity; clears contact before any failure
 yeokcham_status_t yeokcham_client_copy_last_error_detail(

@@ -21,6 +21,10 @@ pub const YEOKCHAM_CONTACT_STATUS_REVOKED: u32 = 3;
 pub const YEOKCHAM_CONTACT_VERIFICATION_NONE: u32 = 0;
 pub const YEOKCHAM_CONTACT_VERIFICATION_QR: u32 = 1;
 pub const YEOKCHAM_CONTACT_VERIFICATION_SAFETY_NUMBER: u32 = 2;
+pub const YEOKCHAM_QR_VERIFICATION_PAYLOAD_BYTES: usize =
+    yeokcham_protocol::QR_VERIFICATION_PAYLOAD_BYTES;
+pub const YEOKCHAM_SAFETY_NUMBER_FINGERPRINT_BYTES: usize =
+    yeokcham_protocol::SAFETY_NUMBER_FINGERPRINT_BYTES;
 
 #[repr(C)]
 pub struct YeokchamClient {
@@ -80,6 +84,7 @@ pub use c_abi::{
     yeokcham_client_config_builder_set_event_buffer_capacity,
     yeokcham_client_config_builder_set_state_directory, yeokcham_client_contact_get,
     yeokcham_client_contact_import, yeokcham_client_contact_revoke,
+    yeokcham_client_contact_verify_qr, yeokcham_client_contact_verify_safety_number,
     yeokcham_client_copy_last_error_detail, yeokcham_client_create,
     yeokcham_client_identity_create, yeokcham_client_identity_load, yeokcham_client_release,
     yeokcham_client_start, yeokcham_client_stop, yeokcham_client_subscribe_events,
@@ -93,7 +98,8 @@ mod tests {
     use super::{
         MAX_C_ABI_CLIENTS, MAX_C_ABI_PENDING_COMPLETIONS, YEOKCHAM_ABI_NEGOTIATION_REJECTED,
         YEOKCHAM_ABI_VERSION, YEOKCHAM_ABI_VERSION_MAJOR, YEOKCHAM_ABI_VERSION_MINOR,
-        YEOKCHAM_IDENTITY_PUBLIC_KEY_BYTES, YeokchamStatus, yeokcham_abi_negotiate,
+        YEOKCHAM_IDENTITY_PUBLIC_KEY_BYTES, YEOKCHAM_QR_VERIFICATION_PAYLOAD_BYTES,
+        YEOKCHAM_SAFETY_NUMBER_FINGERPRINT_BYTES, YeokchamStatus, yeokcham_abi_negotiate,
         yeokcham_client_complete_async, yeokcham_client_create, yeokcham_client_release,
     };
     use std::{
@@ -130,6 +136,11 @@ mod tests {
         assert!(HEADER.contains("#define YEOKCHAM_EVENT_MESSAGE_DELIVERY_FAILED UINT32_C(5)"));
         assert!(HEADER.contains("#define YEOKCHAM_IDENTITY_PUBLIC_KEY_BYTES UINT32_C(32)"));
         assert_eq!(YEOKCHAM_IDENTITY_PUBLIC_KEY_BYTES, 32);
+        assert!(HEADER.contains("#define YEOKCHAM_CONTACT_INVITATION_BYTES UINT32_C(136)"));
+        assert!(HEADER.contains("#define YEOKCHAM_QR_VERIFICATION_PAYLOAD_BYTES UINT32_C(70)"));
+        assert_eq!(YEOKCHAM_QR_VERIFICATION_PAYLOAD_BYTES, 70);
+        assert!(HEADER.contains("#define YEOKCHAM_SAFETY_NUMBER_FINGERPRINT_BYTES UINT32_C(32)"));
+        assert_eq!(YEOKCHAM_SAFETY_NUMBER_FINGERPRINT_BYTES, 32);
         assert!(HEADER.contains("typedef struct yeokcham_client yeokcham_client_t;"));
         assert!(HEADER.contains("typedef struct yeokcham_buffer yeokcham_buffer_t;"));
         assert!(
@@ -172,6 +183,11 @@ mod tests {
         assert!(HEADER.contains("yeokcham_client_stop(yeokcham_client_t *client);"));
         assert!(HEADER.contains("yeokcham_client_identity_create("));
         assert!(HEADER.contains("yeokcham_client_identity_load("));
+        assert!(HEADER.contains("yeokcham_client_contact_import("));
+        assert!(HEADER.contains("yeokcham_client_contact_get("));
+        assert!(HEADER.contains("yeokcham_client_contact_revoke("));
+        assert!(HEADER.contains("yeokcham_client_contact_verify_qr("));
+        assert!(HEADER.contains("yeokcham_client_contact_verify_safety_number("));
         assert!(HEADER.contains("yeokcham_client_copy_last_error_detail("));
         assert!(HEADER.contains("yeokcham_client_take_last_error_detail("));
         assert!(HEADER.contains("yeokcham_buffer_data("));

@@ -432,6 +432,102 @@ pub unsafe extern "C" fn yeokcham_client_contact_revoke(
 
 #[unsafe(no_mangle)]
 #[allow(clippy::missing_safety_doc)]
+pub unsafe extern "C" fn yeokcham_client_contact_verify_qr(
+    client: *mut YeokchamClient,
+    payload: *const u8,
+    contact: *mut YeokchamContact,
+) -> YeokchamStatus {
+    if payload.is_null() || contact.is_null() {
+        return YeokchamStatus::InvalidInput;
+    }
+    unsafe { contact.write(YeokchamContact::default()) };
+    let identifier = client.addr();
+    if identifier == 0 {
+        return YeokchamStatus::InvalidInput;
+    }
+    let payload = unsafe {
+        std::slice::from_raw_parts(payload, yeokcham_protocol::QR_VERIFICATION_PAYLOAD_BYTES)
+    };
+    let Ok(mut clients) = active_clients().lock() else {
+        return YeokchamStatus::State;
+    };
+    let Some(client) = clients.get_mut(&identifier) else {
+        return YeokchamStatus::InvalidInput;
+    };
+    let Some(runtime) = client.runtime.as_ref() else {
+        client.last_error_detail = Some(b"sdk_contact_client_not_running");
+        return YeokchamStatus::State;
+    };
+    let result = runtime
+        .contact_manager(&mut client.identity)
+        .and_then(|mut contacts| contacts.verify_qr(payload));
+    let contact_value = match result {
+        Ok(contact_value) => contact_value,
+        Err(error) => {
+            client.last_error_detail = Some(sdk_contact_error_detail(&error));
+            return map_sdk_contact_error(&error);
+        }
+    };
+    unsafe { contact.write(c_contact(contact_value)) };
+    client.last_error_detail = None;
+    YeokchamStatus::Ok
+}
+
+#[unsafe(no_mangle)]
+#[allow(clippy::missing_safety_doc)]
+pub unsafe extern "C" fn yeokcham_client_contact_verify_safety_number(
+    client: *mut YeokchamClient,
+    identity: *const u8,
+    fingerprint: *const u8,
+    contact: *mut YeokchamContact,
+) -> YeokchamStatus {
+    if contact.is_null() {
+        return YeokchamStatus::InvalidInput;
+    }
+    unsafe { contact.write(YeokchamContact::default()) };
+    let Some(identity) = (unsafe { c_identity_public_key(identity) }) else {
+        return YeokchamStatus::InvalidInput;
+    };
+    if fingerprint.is_null() {
+        return YeokchamStatus::InvalidInput;
+    }
+    let identifier = client.addr();
+    if identifier == 0 {
+        return YeokchamStatus::InvalidInput;
+    }
+    let fingerprint = unsafe {
+        std::slice::from_raw_parts(
+            fingerprint,
+            yeokcham_protocol::SAFETY_NUMBER_FINGERPRINT_BYTES,
+        )
+    };
+    let Ok(mut clients) = active_clients().lock() else {
+        return YeokchamStatus::State;
+    };
+    let Some(client) = clients.get_mut(&identifier) else {
+        return YeokchamStatus::InvalidInput;
+    };
+    let Some(runtime) = client.runtime.as_ref() else {
+        client.last_error_detail = Some(b"sdk_contact_client_not_running");
+        return YeokchamStatus::State;
+    };
+    let result = runtime
+        .contact_manager(&mut client.identity)
+        .and_then(|mut contacts| contacts.verify_safety_number(&identity, fingerprint));
+    let contact_value = match result {
+        Ok(contact_value) => contact_value,
+        Err(error) => {
+            client.last_error_detail = Some(sdk_contact_error_detail(&error));
+            return map_sdk_contact_error(&error);
+        }
+    };
+    unsafe { contact.write(c_contact(contact_value)) };
+    client.last_error_detail = None;
+    YeokchamStatus::Ok
+}
+
+#[unsafe(no_mangle)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C" fn yeokcham_client_copy_last_error_detail(
     client: *const YeokchamClient,
     buffer: *mut u8,
@@ -1030,8 +1126,8 @@ fn sdk_contact_error_detail(error: &SdkContactError) -> &'static [u8] {
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use yeokcham_core::IdentityKeypair;
-    use yeokcham_protocol::ContactInvitation;
+    use yeokcham_core::{IdentityKeypair, IdentityPublicKey};
+    use yeokcham_protocol::{ContactInvitation, QrVerificationPayload, SafetyNumberFingerprint};
 
     use super::{
         CLIENT_TEST_LOCK, MAX_C_ABI_BUFFERS, MAX_C_ABI_CALLBACK_WORKERS,
@@ -1045,6 +1141,7 @@ mod tests {
         yeokcham_client_config_builder_set_event_buffer_capacity,
         yeokcham_client_config_builder_set_state_directory, yeokcham_client_contact_get,
         yeokcham_client_contact_import, yeokcham_client_contact_revoke,
+        yeokcham_client_contact_verify_qr, yeokcham_client_contact_verify_safety_number,
         yeokcham_client_copy_last_error_detail, yeokcham_client_create,
         yeokcham_client_identity_create, yeokcham_client_identity_load, yeokcham_client_release,
         yeokcham_client_start, yeokcham_client_stop, yeokcham_client_subscribe_events,
@@ -1119,7 +1216,7 @@ mod tests {
     }
 
     #[test]
-    fn c_contact_operations_import_get_and_revoke_contacts() {
+    fn c_contact_operations_import_verify_get_and_revoke_contacts() {
         let _guard = CLIENT_TEST_LOCK.lock().unwrap();
         let directory =
             std::env::temp_dir().join(format!("yeokcham-ffi-contacts-{}", std::process::id()));
@@ -1173,6 +1270,22 @@ mod tests {
             contact.verification,
             crate::YEOKCHAM_CONTACT_VERIFICATION_NONE
         );
+        let local_identity = IdentityPublicKey::from_bytes(local_identity).unwrap();
+        let qr_payload = QrVerificationPayload::new(local_identity, remote.public_key())
+            .unwrap()
+            .encode()
+            .unwrap();
+        assert_eq!(
+            unsafe {
+                yeokcham_client_contact_verify_qr(client, qr_payload.as_ptr(), &raw mut contact)
+            },
+            YeokchamStatus::Ok
+        );
+        assert_eq!(contact.status, crate::YEOKCHAM_CONTACT_STATUS_VERIFIED);
+        assert_eq!(
+            contact.verification,
+            crate::YEOKCHAM_CONTACT_VERIFICATION_QR
+        );
         assert_eq!(
             unsafe {
                 yeokcham_client_contact_get(
@@ -1194,6 +1307,82 @@ mod tests {
             YeokchamStatus::Ok
         );
         assert_eq!(contact.status, crate::YEOKCHAM_CONTACT_STATUS_REVOKED);
+        assert_eq!(yeokcham_client_stop(client), YeokchamStatus::Ok);
+        assert_eq!(yeokcham_client_release(client), YeokchamStatus::Ok);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn c_contact_operations_verify_safety_numbers() {
+        let _guard = CLIENT_TEST_LOCK.lock().unwrap();
+        let directory = std::env::temp_dir().join(format!(
+            "yeokcham-ffi-contact-safety-{}",
+            std::process::id()
+        ));
+        let directory = directory.to_string_lossy().into_owned();
+        let client = yeokcham_client_create();
+        let builder = yeokcham_client_config_builder_create();
+        let mut local_identity = [0; yeokcham_core::ED25519_PUBLIC_KEY_BYTES];
+        let remote = IdentityKeypair::generate().unwrap();
+        let invitation = ContactInvitation::create(&remote)
+            .unwrap()
+            .encode()
+            .unwrap();
+        let mut contact = YeokchamContact::default();
+
+        assert_eq!(
+            unsafe {
+                yeokcham_client_config_builder_set_state_directory(
+                    builder,
+                    directory.as_bytes().as_ptr(),
+                    directory.len(),
+                )
+            },
+            YeokchamStatus::Ok
+        );
+        assert_eq!(
+            yeokcham_client_config_builder_set_event_buffer_capacity(builder, 8),
+            YeokchamStatus::Ok
+        );
+        assert_eq!(
+            yeokcham_client_config_builder_build(builder, client),
+            YeokchamStatus::Ok
+        );
+        assert_eq!(
+            yeokcham_client_config_builder_release(builder),
+            YeokchamStatus::Ok
+        );
+        assert_eq!(
+            unsafe { yeokcham_client_identity_create(client, local_identity.as_mut_ptr()) },
+            YeokchamStatus::Ok
+        );
+        assert_eq!(yeokcham_client_start(client), YeokchamStatus::Ok);
+        assert_eq!(
+            unsafe {
+                yeokcham_client_contact_import(client, invitation.as_ptr(), &raw mut contact)
+            },
+            YeokchamStatus::Ok
+        );
+        let local_identity = IdentityPublicKey::from_bytes(local_identity).unwrap();
+        let fingerprint =
+            SafetyNumberFingerprint::derive(&local_identity, &remote.public_key()).unwrap();
+        assert_eq!(
+            unsafe {
+                yeokcham_client_contact_verify_safety_number(
+                    client,
+                    remote.public_key().as_bytes().as_ptr(),
+                    fingerprint.as_bytes().as_ptr(),
+                    &raw mut contact,
+                )
+            },
+            YeokchamStatus::Ok
+        );
+        assert_eq!(contact.identity, *remote.public_key().as_bytes());
+        assert_eq!(contact.status, crate::YEOKCHAM_CONTACT_STATUS_VERIFIED);
+        assert_eq!(
+            contact.verification,
+            crate::YEOKCHAM_CONTACT_VERIFICATION_SAFETY_NUMBER
+        );
         assert_eq!(yeokcham_client_stop(client), YeokchamStatus::Ok);
         assert_eq!(yeokcham_client_release(client), YeokchamStatus::Ok);
         std::fs::remove_dir_all(directory).unwrap();
