@@ -204,9 +204,28 @@ impl RelayService for RelayGrpcService {
 
     async fn acknowledge_envelope(
         &self,
-        _request: Request<v1::AcknowledgeEnvelopeRequest>,
+        request: Request<v1::AcknowledgeEnvelopeRequest>,
     ) -> Result<Response<v1::AcknowledgeEnvelopeResponse>, Status> {
-        unavailable()
+        let request = request.into_inner();
+        let capability = MailboxCapability::decode(&request.mailbox_capability)
+            .map_err(|_| Status::invalid_argument("mailbox capability is invalid"))?;
+        let mut database = self
+            .database
+            .lock()
+            .map_err(|_| Status::internal("relay database is unavailable"))?;
+        match database.acknowledge_envelope(&capability, request.sequence) {
+            Ok(()) => Ok(Response::new(v1::AcknowledgeEnvelopeResponse {})),
+            Err(RelayDatabaseError::InvalidCapability) => {
+                Err(Status::permission_denied("mailbox capability is invalid"))
+            }
+            Err(RelayDatabaseError::UnknownEnvelope) => {
+                Err(Status::not_found("mailbox envelope is unknown"))
+            }
+            Err(RelayDatabaseError::TimestampOutOfRange) => {
+                Err(Status::invalid_argument("envelope sequence is invalid"))
+            }
+            Err(_) => Err(Status::internal("envelope acknowledgement failed")),
+        }
     }
 
     async fn upload_attachment_chunk(
@@ -253,8 +272,8 @@ mod tests {
         MailboxCapability,
     };
     use yeokcham_relay_api::v1::{
-        RegisterMailboxRequest, RetrieveEnvelopesRequest, StoreEnvelopeRequest,
-        relay_service_client::RelayServiceClient,
+        AcknowledgeEnvelopeRequest, RegisterMailboxRequest, RetrieveEnvelopesRequest,
+        StoreEnvelopeRequest, relay_service_client::RelayServiceClient,
     };
 
     use super::{RelayServer, RelayServerError};
@@ -284,6 +303,7 @@ mod tests {
             assert_registration_contract(&mut client, &capability).await;
             assert_envelope_storage_contract(&mut client, &capability).await;
             assert_retrieval_contract(&mut client, &capability).await;
+            assert_acknowledgement_contract(&mut client, &capability).await;
             shutdown_sender.send(()).unwrap();
         };
         let (server, ()) = tokio::join!(server, client);
@@ -437,6 +457,53 @@ mod tests {
                 .unwrap_err()
                 .code(),
             Code::PermissionDenied
+        );
+    }
+
+    async fn assert_acknowledgement_contract(
+        client: &mut RelayServiceClient<Channel>,
+        encoded_capability: &[u8],
+    ) {
+        client
+            .acknowledge_envelope(AcknowledgeEnvelopeRequest {
+                mailbox_capability: encoded_capability.to_vec(),
+                sequence: 0,
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            client
+                .acknowledge_envelope(AcknowledgeEnvelopeRequest {
+                    mailbox_capability: encoded_capability.to_vec(),
+                    sequence: 0,
+                })
+                .await
+                .unwrap_err()
+                .code(),
+            Code::NotFound
+        );
+        assert_eq!(
+            client
+                .acknowledge_envelope(AcknowledgeEnvelopeRequest {
+                    mailbox_capability: capability(0x33, 0x44),
+                    sequence: 0,
+                })
+                .await
+                .unwrap_err()
+                .code(),
+            Code::PermissionDenied
+        );
+        assert_eq!(
+            client
+                .store_envelope(StoreEnvelopeRequest {
+                    mailbox_capability: encoded_capability.to_vec(),
+                    envelope: envelope(),
+                })
+                .await
+                .unwrap()
+                .into_inner()
+                .sequence,
+            0
         );
     }
 
