@@ -81,10 +81,16 @@ impl<'runtime> DaemonServer<'runtime> {
         F: Future<Output = ()>,
     {
         let incoming = self.listener.into_incoming()?;
+        let service_shutdown = self.service.clone();
         let service = DaemonServiceServer::with_interceptor(self.service, self.auth.interceptor());
         Server::builder()
             .add_service(service)
-            .serve_with_incoming_shutdown(incoming, shutdown)
+            .serve_with_incoming_shutdown(incoming, async move {
+                tokio::select! {
+                    () = shutdown => {}
+                    () = service_shutdown.wait_for_shutdown() => {}
+                }
+            })
             .await
             .map_err(DaemonServerError::Transport)
     }
@@ -128,7 +134,7 @@ mod tests {
         CreateOrLoadIdentityRequest, DeliveryStatus as RpcDeliveryStatus, GetContactRequest,
         GetDeliveryStatusRequest, GetIdentityRequest, IdentityInitialization,
         ImportContactInvitationRequest, ListContactsRequest, RevokeContactRequest,
-        SendMessageRequest, StartClientRequest, VerifyContactQrRequest,
+        SendMessageRequest, ShutdownDaemonRequest, StartClientRequest, VerifyContactQrRequest,
         VerifyContactSafetyNumberRequest, daemon_service_client::DaemonServiceClient,
     };
     use yeokcham_protocol::{
@@ -231,6 +237,44 @@ mod tests {
         assert!(status.running);
         assert!(!socket_path.exists());
         runtime.shutdown().unwrap();
+        fs::remove_dir_all(state_directory).unwrap();
+    }
+
+    #[tokio::test]
+    async fn serves_authenticated_graceful_shutdown_and_releases_the_socket() {
+        let state_directory = state_directory();
+        let mut runtime = DaemonRuntime::start(ProtocolVersion::INITIAL, &state_directory).unwrap();
+        let (auth, token) = DaemonLocalAuth::initialize().unwrap();
+        let server =
+            DaemonServer::bind_with_identity_keystore(&runtime, auth, MemoryKeystore::default())
+                .unwrap();
+        let socket_path = server.socket_path().to_path_buf();
+
+        let server = server.serve_until(std::future::pending());
+        let client = async {
+            let mut client = contact_client(socket_path.clone()).await;
+            assert_eq!(
+                client
+                    .shutdown_daemon(Request::new(ShutdownDaemonRequest {}))
+                    .await
+                    .unwrap_err()
+                    .code(),
+                Code::Unauthenticated
+            );
+            client
+                .shutdown_daemon(authenticated_request(ShutdownDaemonRequest {}, &token))
+                .await
+                .unwrap()
+                .into_inner()
+        };
+        let (server, response) = tokio::join!(server, client);
+        assert!(server.is_ok());
+        assert!(!response.running);
+        assert!(!socket_path.exists());
+        assert!(runtime.is_running());
+        runtime.shutdown().unwrap();
+        let restarted = DaemonRuntime::start(ProtocolVersion::INITIAL, &state_directory).unwrap();
+        drop(restarted);
         fs::remove_dir_all(state_directory).unwrap();
     }
 

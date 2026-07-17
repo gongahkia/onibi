@@ -11,7 +11,8 @@ mod tests {
         ContactResponse, ContactStatus, ContactVerificationMethod, DeliveryStatus,
         GetDeliveryStatusRequest, GetDeliveryStatusResponse, GetStatusResponse,
         IdentityInitialization, IdentityResponse, SendMessageRequest, SendMessageResponse,
-        StartClientResponse, VerifyContactQrRequest, VerifyContactSafetyNumberRequest,
+        ShutdownDaemonResponse, StartClientResponse, VerifyContactQrRequest,
+        VerifyContactSafetyNumberRequest,
     };
 
     #[test]
@@ -36,6 +37,12 @@ mod tests {
         assert_eq!(response.api_major, 0);
         assert_eq!(response.api_minor, 1);
         assert!(response.running);
+    }
+
+    #[test]
+    fn generated_shutdown_contract_preserves_every_field() {
+        let response = ShutdownDaemonResponse { running: false };
+        assert!(!response.running);
     }
 
     #[test]

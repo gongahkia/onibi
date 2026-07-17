@@ -11,6 +11,13 @@ pub struct StartClientResponse {
     pub running: bool,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ShutdownDaemonRequest {}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ShutdownDaemonResponse {
+    #[prost(bool, tag = "1")]
+    pub running: bool,
+}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct CreateIdentityRequest {}
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct GetIdentityRequest {}
@@ -352,6 +359,32 @@ pub mod daemon_service_client {
             req.extensions_mut()
                 .insert(
                     GrpcMethod::new("yeokcham.daemon.v1.DaemonService", "StartClient"),
+                );
+            self.inner.unary(req, path, codec).await
+        }
+        pub async fn shutdown_daemon(
+            &mut self,
+            request: impl tonic::IntoRequest<super::ShutdownDaemonRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::ShutdownDaemonResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic_prost::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/yeokcham.daemon.v1.DaemonService/ShutdownDaemon",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new("yeokcham.daemon.v1.DaemonService", "ShutdownDaemon"),
                 );
             self.inner.unary(req, path, codec).await
         }
@@ -733,6 +766,13 @@ pub mod daemon_service_server {
             tonic::Response<super::StartClientResponse>,
             tonic::Status,
         >;
+        async fn shutdown_daemon(
+            &self,
+            request: tonic::Request<super::ShutdownDaemonRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::ShutdownDaemonResponse>,
+            tonic::Status,
+        >;
         async fn create_identity(
             &self,
             request: tonic::Request<super::CreateIdentityRequest>,
@@ -916,6 +956,51 @@ pub mod daemon_service_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = StartClientSvc(inner);
+                        let codec = tonic_prost::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/yeokcham.daemon.v1.DaemonService/ShutdownDaemon" => {
+                    #[allow(non_camel_case_types)]
+                    struct ShutdownDaemonSvc<T: DaemonService>(pub Arc<T>);
+                    impl<
+                        T: DaemonService,
+                    > tonic::server::UnaryService<super::ShutdownDaemonRequest>
+                    for ShutdownDaemonSvc<T> {
+                        type Response = super::ShutdownDaemonResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::ShutdownDaemonRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as DaemonService>::shutdown_daemon(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = ShutdownDaemonSvc(inner);
                         let codec = tonic_prost::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

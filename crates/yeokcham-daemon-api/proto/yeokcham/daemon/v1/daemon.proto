@@ -4,6 +4,7 @@ package yeokcham.daemon.v1;
 
 service DaemonService {
   rpc StartClient(StartClientRequest) returns (StartClientResponse);
+  rpc ShutdownDaemon(ShutdownDaemonRequest) returns (ShutdownDaemonResponse);
   rpc CreateIdentity(CreateIdentityRequest) returns (IdentityResponse);
   rpc GetIdentity(GetIdentityRequest) returns (IdentityResponse);
   rpc CreateOrLoadIdentity(CreateOrLoadIdentityRequest) returns (IdentityResponse);
@@ -25,6 +26,12 @@ message StartClientResponse {
   uint32 api_major = 1;
   uint32 api_minor = 2;
   bool running = 3;
+}
+
+message ShutdownDaemonRequest {}
+
+message ShutdownDaemonResponse {
+  bool running = 1;
 }
 
 message CreateIdentityRequest {}

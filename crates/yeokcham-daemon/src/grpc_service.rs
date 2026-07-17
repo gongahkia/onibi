@@ -6,6 +6,7 @@ use std::{
     },
 };
 
+use tokio::sync::Notify;
 use tonic::{Request, Response, Status};
 use yeokcham_core::{ED25519_PUBLIC_KEY_BYTES, IdentityPublicKey, OsKeystore};
 use yeokcham_daemon_api::v1::{
@@ -15,9 +16,9 @@ use yeokcham_daemon_api::v1::{
     GetContactResponse, GetDeliveryStatusRequest, GetDeliveryStatusResponse, GetIdentityRequest,
     GetStatusRequest, GetStatusResponse, IdentityInitialization, IdentityResponse,
     ImportContactInvitationRequest, ListContactsRequest, ListContactsResponse,
-    RevokeContactRequest, SendMessageRequest, SendMessageResponse, StartClientRequest,
-    StartClientResponse, VerifyContactQrRequest, VerifyContactSafetyNumberRequest,
-    daemon_service_server::DaemonService,
+    RevokeContactRequest, SendMessageRequest, SendMessageResponse, ShutdownDaemonRequest,
+    ShutdownDaemonResponse, StartClientRequest, StartClientResponse, VerifyContactQrRequest,
+    VerifyContactSafetyNumberRequest, daemon_service_server::DaemonService,
 };
 use yeokcham_protocol::{
     CONTACT_INVITATION_BYTES, EncryptedMessageEnvelope, IDENTITY_ROTATION_BYTES,
@@ -49,6 +50,7 @@ pub const MAX_DAEMON_MESSAGE_ENVELOPE_BYTES: usize = MAX_MESSAGE_PAYLOAD_BYTES;
 pub struct DaemonGrpcService {
     version: ProtocolVersion,
     running: Arc<AtomicBool>,
+    shutdown_signal: Arc<Notify>,
     identity: Arc<dyn DaemonIdentityOperations>,
     contacts: Arc<dyn DaemonContactOperations>,
     outbox: Arc<dyn DaemonOutboxOperations>,
@@ -60,6 +62,7 @@ impl DaemonGrpcService {
         Self {
             version,
             running: Arc::new(AtomicBool::new(true)),
+            shutdown_signal: Arc::new(Notify::new()),
             identity: Arc::new(UnavailableIdentityOperations),
             contacts: Arc::new(UnavailableContactOperations),
             outbox: Arc::new(UnavailableOutboxOperations),
@@ -75,6 +78,7 @@ impl DaemonGrpcService {
         Self {
             version,
             running: Arc::new(AtomicBool::new(true)),
+            shutdown_signal: Arc::new(Notify::new()),
             identity: Arc::new(KeystoreIdentityOperations { keystore }),
             contacts: Arc::new(UnavailableContactOperations),
             outbox: Arc::new(UnavailableOutboxOperations),
@@ -95,6 +99,7 @@ impl DaemonGrpcService {
         Self {
             version,
             running: Arc::new(AtomicBool::new(true)),
+            shutdown_signal: Arc::new(Notify::new()),
             identity: Arc::new(KeystoreIdentityOperations {
                 keystore: Arc::clone(&keystore),
             }),
@@ -146,7 +151,19 @@ impl DaemonGrpcService {
     }
 
     pub fn shutdown(&self) {
-        self.running.store(false, Ordering::Release);
+        if self.running.swap(false, Ordering::AcqRel) {
+            self.shutdown_signal.notify_waiters();
+        }
+    }
+
+    pub async fn wait_for_shutdown(&self) {
+        while self.running.load(Ordering::Acquire) {
+            let notified = self.shutdown_signal.notified();
+            if !self.running.load(Ordering::Acquire) {
+                return;
+            }
+            notified.await;
+        }
     }
 
     fn status_response(&self) -> (u32, u32, bool) {
@@ -734,6 +751,14 @@ impl DaemonService for DaemonGrpcService {
             api_minor,
             running,
         }))
+    }
+
+    async fn shutdown_daemon(
+        &self,
+        _request: Request<ShutdownDaemonRequest>,
+    ) -> Result<Response<ShutdownDaemonResponse>, Status> {
+        self.shutdown();
+        Ok(Response::new(ShutdownDaemonResponse { running: false }))
     }
 
     async fn create_identity(
