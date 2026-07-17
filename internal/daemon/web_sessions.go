@@ -24,10 +24,6 @@ func (d *Daemon) WebSessions(ctx context.Context, opts web.SessionListOptions) (
 	}
 	out := make([]web.SessionSummary, 0, len(rows))
 	for _, row := range rows {
-		cost, _, err := d.SessionCost(ctx, row.ID)
-		if err != nil {
-			return nil, err
-		}
 		recoveryUpdatedAt := row.RecoveryUpdatedAt
 		if recoveryUpdatedAt.IsZero() {
 			recoveryUpdatedAt = row.StartedAt
@@ -42,8 +38,6 @@ func (d *Daemon) WebSessions(ctx context.Context, opts web.SessionListOptions) (
 			RecoveryState:         row.RecoveryState,
 			RecoveryReason:        row.RecoveryReason,
 			RecoveryUpdatedAt:     formatWebSessionTime(recoveryUpdatedAt),
-			TokensUsed:            cost.TotalTokens,
-			CostUSD:               cost.TotalUSD,
 			RoleRequired:          "owner",
 		})
 	}

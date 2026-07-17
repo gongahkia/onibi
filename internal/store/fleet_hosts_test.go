@@ -91,13 +91,12 @@ func TestFleetHostHeartbeatIsMonotonic(t *testing.T) {
 	}
 	defer db.Close()
 	host := testFleetHost()
-	host.Budget = fleet.BudgetReport{Date: host.LastSeenAt.Format("2006-01-02"), DailyTokens: 13, GlobalLimit: 10, OnOverrun: "interrupt"}
 	if err := db.FleetHostUpsert(context.Background(), host); err != nil {
 		t.Fatal(err)
 	}
-	beat := fleet.Heartbeat{Version: fleet.ProtocolVersion, OwnerID: host.OwnerID, HostID: host.ID, SentAt: host.LastSeenAt.Add(time.Second), BinaryVersion: "v1.2.0", Capabilities: []string{"approval.write", "session.read"}, Budget: fleet.BudgetReport{Date: host.LastSeenAt.Format("2006-01-02"), DailyTokens: 11, GlobalLimit: 10, OnOverrun: "interrupt"}, Signature: "signature"}
+	beat := fleet.Heartbeat{Version: fleet.ProtocolVersion, OwnerID: host.OwnerID, HostID: host.ID, SentAt: host.LastSeenAt.Add(time.Second), BinaryVersion: "v1.2.0", Capabilities: []string{"approval.write", "session.read"}, Signature: "signature"}
 	got, applied, err := db.FleetHostRecordHeartbeat(context.Background(), beat)
-	if err != nil || !applied || got.BinaryVersion != "v1.2.0" || got.Budget.DailyTokens != 13 {
+	if err != nil || !applied || got.BinaryVersion != "v1.2.0" {
 		t.Fatalf("host=%#v applied=%v err=%v", got, applied, err)
 	}
 	if _, applied, err := db.FleetHostRecordHeartbeat(context.Background(), beat); err != nil || applied {

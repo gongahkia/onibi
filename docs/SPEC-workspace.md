@@ -36,13 +36,6 @@ tool = "Read"
 path = "docs/**"
 agent = "claude"
 
-[budget.global]
-max_tokens_per_day = 100000
-
-[budget.session]
-max_tokens = 25000
-on_overrun = "interrupt"
-
 [transports]
 default = "tailscale"
 web = ["lan", "tailscale"]
@@ -77,20 +70,6 @@ Unknown top-level keys are invalid.
 : Optional inline trust rules using the same rule model as `docs/trust-policies.md`.
 
 Use either `trust.policy_file`, inline `trust.rule` entries, or both. When both are present, file rules load first and inline rules append after them.
-
-## Budget
-
-`[budget.global]` and `[budget.session]` use the same field names as `docs/budgets.md`.
-
-Supported fields:
-
-| field | type | values |
-|---|---|---|
-| `budget.global.max_tokens_per_day` | integer | `> 0`, omitted disables daily cap |
-| `budget.session.max_tokens` | integer | `> 0`, omitted disables session cap |
-| `budget.session.on_overrun` | string | `interrupt`, `kill`, or `warn` |
-
-If `budget.session.on_overrun` is omitted, Onibi uses `interrupt`.
 
 ## Transports
 
@@ -134,7 +113,6 @@ Validation must fail on:
 - unknown top-level table or key
 - unknown `default_agent` when adapter registry is available
 - unknown transport mode
-- unknown `budget.session.on_overrun`
 - invalid trust rule effect, expiry, or empty matcher
 - `hooks.auto_install` item with unknown adapter id
 - relative path escaping the workspace root

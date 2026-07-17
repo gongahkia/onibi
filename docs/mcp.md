@@ -131,8 +131,6 @@ Output:
     "started_at": "2026-06-29T12:00:00Z",
     "last_activity": "2026-06-29T12:01:00Z",
     "pending_approvals_count": 1,
-    "tokens_used": 0,
-    "cost_usd": 0,
     "role_required": "owner",
     "workspace": ""
   }

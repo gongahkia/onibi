@@ -438,10 +438,6 @@ func (s *Server) handleFleetHeartbeat(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "stale heartbeat", http.StatusConflict)
 		return
 	}
-	if err := s.evaluateFleetBudget(r.Context(), heartbeat.Budget.Date); err != nil {
-		http.Error(w, "fleet budget unavailable", http.StatusInternalServerError)
-		return
-	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"host": updated})
 }

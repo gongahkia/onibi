@@ -19,7 +19,6 @@ const (
 	TypeSessionControl  = "session_control"  // RPC: interrupt or kill a session
 	TypeDemoApproval    = "demo_approval"    // RPC: create a local fake approval
 	TypeTrust           = "trust"            // RPC: list and mutate trust rules
-	TypeBudget          = "budget"           // RPC: budget usage summary
 	TypeSnapshot        = "snapshot"         // RPC: snapshot lifecycle
 	TypePing            = "ping"             // RPC: daemon health probe
 )

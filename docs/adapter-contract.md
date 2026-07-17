@@ -23,15 +23,6 @@ The hooks intentionally allow if the daemon is unavailable or the local request 
 
 Codex additionally requires its user to review and trust the current non-managed hook definitions before they run. Its capability report sets `review_required: true`; Onibi can verify its hook file and recorded hash, but cannot verify Codex's persisted trust decision. Until Codex trusts the current definitions, Codex approval enforcement is unavailable.
 
-## Budget capability
-
-The contract reports `budget.token_telemetry`, `budget.session_enforcement`,
-and `budget.global_enforcement`. Claude and Pi have all three through their
-transcript usage sources. Codex has `global_enforcement: true`, but reports
-`interactive token telemetry unavailable`; Onibi does not represent its local
-session token cap as enforced. A fleet-wide global overrun still delivers an
-acknowledged interrupt or kill control to its hosted sessions.
-
 ## Approval payload v1
 
 Certified adapters submit `onibi.approval.v1` over the local intake socket. The model contains `session_id`, `agent`, `tool`, and a JSON-object `input`. Onibi rejects unsupported schema versions and non-object inputs, canonicalizes the input, then derives `details` and `risk` itself. Provider-supplied risk, target, command, and path values are not trusted by policies or the fleet UI.

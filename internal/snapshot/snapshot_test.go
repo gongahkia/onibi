@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gongahkia/onibi/internal/budget"
 	"github.com/gongahkia/onibi/internal/pty"
+	"github.com/gongahkia/onibi/internal/transcript"
 )
 
 type fakeSession struct {
@@ -112,7 +112,7 @@ func TestParseEnvHelpers(t *testing.T) {
 
 func writeClaudeTranscript(t *testing.T, base, cwd, name string, body []byte) string {
 	t.Helper()
-	key, err := budget.ClaudeProjectKey(cwd)
+	key, err := transcript.ClaudeProjectKey(cwd)
 	if err != nil {
 		t.Fatal(err)
 	}

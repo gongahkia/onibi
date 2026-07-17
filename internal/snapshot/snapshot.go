@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gongahkia/onibi/internal/budget"
 	"github.com/gongahkia/onibi/internal/pty"
+	"github.com/gongahkia/onibi/internal/transcript"
 )
 
 type Source interface {
@@ -199,12 +199,8 @@ func parsePSEnv(out []byte) []string {
 	return env
 }
 
-func currentClaudeTranscript(baseDir, sessionID, cwd string) (string, int64) {
-	path, err := budget.NewClaudeParser(baseDir).FindTranscript(budget.SessionRef{
-		SessionID: sessionID,
-		Agent:     "claude",
-		CWD:       cwd,
-	})
+func currentClaudeTranscript(baseDir, _ string, cwd string) (string, int64) {
+	path, err := transcript.FindClaude(baseDir, "", cwd)
 	if err != nil {
 		return "", 0
 	}

@@ -10,7 +10,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
-	"github.com/gongahkia/onibi/internal/budget"
+	"github.com/gongahkia/onibi/internal/transcript"
 )
 
 const transcriptResourceTemplate = "onibi://sessions/{id}/transcript"
@@ -45,11 +45,7 @@ func (s *Server) readTranscriptResource(ctx context.Context, req mcp.ReadResourc
 	if !strings.EqualFold(row.Agent, "claude") {
 		return nil, errors.New("transcript unavailable for agent " + row.Agent)
 	}
-	path, err := budget.NewClaudeParser(s.claudeBaseDir).FindTranscript(budget.SessionRef{
-		SessionID: sessionID,
-		Agent:     row.Agent,
-		CWD:       row.CWD,
-	})
+	path, err := transcript.FindClaude(s.claudeBaseDir, "", row.CWD)
 	if err != nil {
 		return nil, err
 	}

@@ -15,7 +15,6 @@ import (
 
 	"github.com/gongahkia/onibi/internal/anomaly"
 	"github.com/gongahkia/onibi/internal/approval"
-	"github.com/gongahkia/onibi/internal/budget"
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/fleet"
 	"github.com/gongahkia/onibi/internal/intake"
@@ -40,16 +39,15 @@ type Daemon struct {
 	DB    *store.DB
 	Log   *slog.Logger
 
-	Registry   *Registry
-	Intake     *intake.Server
-	Idle       *IdleDetector
-	Queue      *approval.Queue
-	Sweeper    *approval.Sweeper
-	Events     *web.EventBus
-	Trust      *trust.Watcher
-	Budget     *budget.ClaudeParser
-	PiBudget   *budget.PiParser
-	BufferSize int
+	Registry      *Registry
+	Intake        *intake.Server
+	Idle          *IdleDetector
+	Queue         *approval.Queue
+	Sweeper       *approval.Sweeper
+	Events        *web.EventBus
+	Trust         *trust.Watcher
+	claudeBaseDir string
+	BufferSize    int
 
 	TerminalDefault         string
 	WebAddr                 string
@@ -96,11 +94,6 @@ type Daemon struct {
 	notifyActionSigner    *web.ActionSigner
 	notified              map[string]bool // session id → already-fired turn-complete once
 	sessionActivityEvents map[string]time.Time
-	budgetDaily           map[string]int64
-	budgetDailyMicroCents map[string]int64
-	budgetDailyUnknown    map[string]bool
-	budgetCosts           map[string]budget.CostEvent
-	budgetOverruns        map[string]bool
 	anomalyHistory        map[string][]anomaly.Action
 	started               time.Time
 	tailnetStatus         func(context.Context) ([]byte, error)
@@ -153,8 +146,6 @@ type Options struct {
 	UpdateCheckTimeout      time.Duration
 	UpdateCheck             func(context.Context, updatecheck.Options) updatecheck.Result
 	FleetLink               *FleetLink
-	Budget                  *budget.ClaudeParser
-	PiBudget                *budget.PiParser
 	TailnetStatus           func(context.Context) ([]byte, error)
 	TailnetHealth           func(context.Context, string, fleet.Host) (bool, error)
 	SkipRestore             bool
@@ -276,14 +267,6 @@ func New(opts Options) *Daemon {
 	if opts.UpdateCheck == nil {
 		opts.UpdateCheck = updatecheck.Check
 	}
-	budgetParser := opts.Budget
-	if budgetParser == nil {
-		budgetParser = budget.NewClaudeParser("")
-	}
-	piBudgetParser := opts.PiBudget
-	if piBudgetParser == nil {
-		piBudgetParser = budget.NewPiParser("")
-	}
 	d := &Daemon{
 		Paths:                   opts.Paths,
 		DB:                      opts.DB,
@@ -298,14 +281,7 @@ func New(opts Options) *Daemon {
 		signalApprovals:         map[int64]string{},
 		notified:                map[string]bool{},
 		sessionActivityEvents:   map[string]time.Time{},
-		budgetDaily:             map[string]int64{},
-		budgetDailyMicroCents:   map[string]int64{},
-		budgetDailyUnknown:      map[string]bool{},
-		budgetCosts:             map[string]budget.CostEvent{},
-		budgetOverruns:          map[string]bool{},
 		anomalyHistory:          map[string][]anomaly.Action{},
-		Budget:                  budgetParser,
-		PiBudget:                piBudgetParser,
 		started:                 time.Now(),
 		ExitWhenIdle:            opts.ExitWhenIdle,
 		SkipRestore:             opts.SkipRestore,
@@ -362,7 +338,6 @@ func New(opts Options) *Daemon {
 	d.Sweeper = &approval.Sweeper{Queue: d.Queue, Log: opts.Log, Interval: opts.ApprovalSweepInterval}
 	if d.FleetLink != nil {
 		d.FleetLink.SetControlResultHandler(d.handleFleetControl)
-		d.FleetLink.SetBudgetReportProvider(d.FleetBudgetReport)
 	}
 
 	// intake server: fire-and-forget + approval RPC
@@ -602,7 +577,6 @@ func (d *Daemon) Run(ctx context.Context) error {
 			Scroll:                d.ScrollSession,
 			TrustRuntime:          d.AddRuntimeTrustRule,
 			AnomalyAllow:          d.AddAnomalyAllowlistRule,
-			SessionCost:           d.SessionCost,
 			Snapshots:             d.WebSnapshots,
 			SnapshotRestore:       d.WebRestoreSnapshot,
 			SnapshotFork:          d.WebForkSnapshot,
@@ -763,7 +737,6 @@ func (d *Daemon) handleEvent(ctx context.Context, ev intake.Event) error {
 			return nil
 		}
 		d.appendEventOutput(s, ev)
-		d.updateBudgetCost(ctx, s, ev)
 		return d.notifyTurnComplete(ctx, s.ID, ev.Type, ev.Text)
 	case intake.TypeAgentMessage:
 		s, reason := d.sessionForEvent(ev)
@@ -772,7 +745,6 @@ func (d *Daemon) handleEvent(ctx context.Context, ev intake.Event) error {
 			return nil
 		}
 		d.appendEventOutput(s, ev)
-		d.updateBudgetCost(ctx, s, ev)
 		return nil
 	case intake.TypeCmdDone:
 		return d.notifyCmdDone(ctx, ev)
@@ -802,7 +774,6 @@ func (d *Daemon) handleEvent(ctx context.Context, ev intake.Event) error {
 			return nil
 		}
 		d.appendEventOutput(s, ev)
-		d.updateBudgetCost(ctx, s, ev)
 		d.markSessionEnded(ctx, s)
 		return nil
 	default:

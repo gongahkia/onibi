@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gongahkia/onibi/internal/budget"
 	"github.com/gongahkia/onibi/internal/intake"
 	"github.com/gongahkia/onibi/internal/pty"
 	"github.com/gongahkia/onibi/internal/store"
+	"github.com/gongahkia/onibi/internal/transcript"
 )
 
 func TestSnapshotRPCTakeListDelete(t *testing.T) {
@@ -64,7 +64,8 @@ func TestSnapshotRPCRestoreAndForkRoundTrip(t *testing.T) {
 	root := t.TempDir()
 	claudeBase := t.TempDir()
 	transcript := writeDaemonClaudeTranscript(t, claudeBase, root)
-	d := New(Options{DB: db, Budget: budget.NewClaudeParser(claudeBase)})
+	d := New(Options{DB: db})
+	d.claudeBaseDir = claudeBase
 	src := NewSession("s1", "claude", "claude", pty.NewVirtualHost(nil, nil, nil), 128)
 	src.CWD = root
 	src.Cmd = "sleep 5"
@@ -129,7 +130,7 @@ func (d *Daemon) persistAndCheckSession(t *testing.T, s *Session) error {
 
 func writeDaemonClaudeTranscript(t *testing.T, base, cwd string) string {
 	t.Helper()
-	key, err := budget.ClaudeProjectKey(cwd)
+	key, err := transcript.ClaudeProjectKey(cwd)
 	if err != nil {
 		t.Fatal(err)
 	}

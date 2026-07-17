@@ -381,7 +381,7 @@ func exportWorkspaceBundle(entry onibiworkspace.DBEntry, dstRoot string) error {
 	if err := exportProjectWorkspaceFile(entry, filepath.Join(onibiDir, "workspace.toml")); err != nil {
 		return err
 	}
-	for _, name := range []string{"trust.toml", "budget.toml"} {
+	for _, name := range []string{"trust.toml"} {
 		src := filepath.Join(sourceRoot, ".onibi", name)
 		dst := filepath.Join(onibiDir, name)
 		if err := copyFileOrEmpty(src, dst); err != nil {

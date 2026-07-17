@@ -83,8 +83,6 @@ function session(): SessionSummary {
     started_at: "2026-07-08T00:00:00Z",
     last_activity: "2026-07-08T00:01:00Z",
     pending_approvals_count: 1,
-    tokens_used: 120,
-    cost_usd: 0.03,
     role_required: "owner"
   };
 }

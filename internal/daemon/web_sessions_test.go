@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gongahkia/onibi/internal/budget"
 	"github.com/gongahkia/onibi/internal/fleet"
 	"github.com/gongahkia/onibi/internal/store"
 	"github.com/gongahkia/onibi/internal/web"
@@ -33,15 +32,6 @@ func TestWebSessionsAggregatesActiveRows(t *testing.T) {
 	if _, _, err := d.Queue.Request(t.Context(), "s1", "claude", "Bash", `{"command":"ls"}`); err != nil {
 		t.Fatal(err)
 	}
-	d.mu.Lock()
-	d.budgetCosts["s1"] = budget.CostEvent{
-		SessionID:         "s1",
-		Model:             "claude-sonnet-4-6",
-		TotalInputTokens:  10,
-		TotalOutputTokens: 5,
-		TS:                time.Now().UTC(),
-	}
-	d.mu.Unlock()
 	rows, err := d.WebSessions(t.Context(), web.SessionListOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -50,7 +40,7 @@ func TestWebSessionsAggregatesActiveRows(t *testing.T) {
 		t.Fatalf("rows = %#v", rows)
 	}
 	first := rows[0]
-	if first.ID != "s1" || first.Agent != "claude" || first.CWD != "/tmp/repo" || first.PendingApprovalsCount != 1 || first.RecoveryState != fleet.SessionRecoveryHealthy || first.TokensUsed != 15 || first.RoleRequired != "owner" {
+	if first.ID != "s1" || first.Agent != "claude" || first.CWD != "/tmp/repo" || first.PendingApprovalsCount != 1 || first.RecoveryState != fleet.SessionRecoveryHealthy || first.RoleRequired != "owner" {
 		t.Fatalf("first = %#v", first)
 	}
 	if first.StartedAt == "" || first.LastActivity == "" || first.RecoveryUpdatedAt == "" {

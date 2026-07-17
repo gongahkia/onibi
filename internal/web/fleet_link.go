@@ -311,7 +311,7 @@ func (s *Server) applyFleetHeartbeat(ctx context.Context, hostID, ownerID string
 	if !applied {
 		return errors.New("stale fleet heartbeat")
 	}
-	return s.evaluateFleetBudget(ctx, heartbeat.Budget.Date)
+	return nil
 }
 
 func (s *Server) applyFleetControlResult(ctx context.Context, hostID, ownerID string, frame fleet.LinkFrame) error {
@@ -348,11 +348,6 @@ func (s *Server) applyFleetControlResult(ctx context.Context, hostID, ownerID st
 	}
 	if !applied {
 		return errors.New("fleet control result was not applied")
-	}
-	if isFleetBudgetCommand(command.ID) {
-		if err := s.db.AuditAppend(ctx, "budget.global.action", command.SessionID, "", 0, "host="+hostID+" action="+command.Action+" state="+string(result.State)); err != nil {
-			return err
-		}
 	}
 	return nil
 }

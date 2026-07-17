@@ -59,17 +59,16 @@ func RequestForApproval(a Approval) (Request, error) {
 }
 
 type Payload struct {
-	Version       string         `json:"version"`
-	ID            string         `json:"id"`
-	SessionID     string         `json:"session_id"`
-	Agent         string         `json:"agent"`
-	Tool          string         `json:"tool"`
-	State         string         `json:"state"`
-	ScrubbedInput string         `json:"scrubbed_input"`
-	Details       Details        `json:"details"`
-	Risk          Risk           `json:"risk"`
-	UnifiedDiff   string         `json:"unified_diff,omitempty"`
-	BudgetWarn    *BudgetWarning `json:"budget_warning,omitempty"`
+	Version       string  `json:"version"`
+	ID            string  `json:"id"`
+	SessionID     string  `json:"session_id"`
+	Agent         string  `json:"agent"`
+	Tool          string  `json:"tool"`
+	State         string  `json:"state"`
+	ScrubbedInput string  `json:"scrubbed_input"`
+	Details       Details `json:"details"`
+	Risk          Risk    `json:"risk"`
+	UnifiedDiff   string  `json:"unified_diff,omitempty"`
 }
 
 func PayloadForApproval(a Approval) (Payload, error) {
@@ -92,6 +91,5 @@ func PayloadForApproval(a Approval) (Payload, error) {
 		},
 		Risk:        req.Risk,
 		UnifiedDiff: a.UnifiedDiff,
-		BudgetWarn:  cloneBudgetWarning(a.BudgetWarn),
 	}, nil
 }

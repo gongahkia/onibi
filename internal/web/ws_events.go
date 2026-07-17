@@ -254,7 +254,7 @@ func (s *Server) handleWSEvents(w http.ResponseWriter, r *http.Request) {
 
 func sessionsStatusRefreshEvent(typ string) bool {
 	switch typ {
-	case "session.started", "session.ended", "session.activity", "cost.updated":
+	case "session.started", "session.ended", "session.activity":
 		return true
 	default:
 		return false
@@ -355,18 +355,6 @@ func approvalEventPayload(ev approval.Event) map[string]any {
 		}
 		if a.UnifiedDiff != "" {
 			payload["unified_diff"] = a.UnifiedDiff
-		}
-		if a.BudgetWarn != nil {
-			payload["budget_warning"] = map[string]any{
-				"scope":            a.BudgetWarn.Scope,
-				"current_tokens":   a.BudgetWarn.CurrentTokens,
-				"predicted_tokens": a.BudgetWarn.PredictedTokens,
-				"projected_tokens": a.BudgetWarn.ProjectedTokens,
-				"limit_tokens":     a.BudgetWarn.LimitTokens,
-				"remaining_tokens": a.BudgetWarn.RemainingTokens,
-				"on_overrun":       a.BudgetWarn.OnOverrun,
-				"message":          a.BudgetWarn.Message,
-			}
 		}
 		if model.Details.FilePath != "" {
 			payload["file_path"] = model.Details.FilePath

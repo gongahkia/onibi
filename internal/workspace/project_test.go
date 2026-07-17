@@ -103,7 +103,7 @@ func TestProjectConfigAcceptsPrivateTailscaleTransport(t *testing.T) {
 	}
 }
 
-func TestProjectConfigValidatesInlineTrustAndBudget(t *testing.T) {
+func TestProjectConfigValidatesInlineTrust(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "workspace.toml")
 	for name, tc := range map[string]struct {
 		body string
@@ -125,14 +125,6 @@ func TestProjectConfigValidatesInlineTrustAndBudget(t *testing.T) {
 			body: "schema_version = 1\nname = \"alpha\"\n[[trust.rule]]\neffect = \"auto_approve\"\nexpires = \"never\"\n[trust.rule.match]\nuser = \"alice\"\n",
 			want: "strict mode",
 		},
-		"negative budget": {
-			body: "schema_version = 1\nname = \"alpha\"\n[budget.global]\nmax_tokens_per_day = -1\n",
-			want: "must be >= 0",
-		},
-		"invalid overrun": {
-			body: "schema_version = 1\nname = \"alpha\"\n[budget.session]\non_overrun = \"pause\"\n",
-			want: "must be one of interrupt, kill, warn",
-		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if err := os.WriteFile(path, []byte(tc.body), 0o600); err != nil {
@@ -146,9 +138,9 @@ func TestProjectConfigValidatesInlineTrustAndBudget(t *testing.T) {
 	}
 }
 
-func TestProjectConfigAcceptsInlineTrustAndBudget(t *testing.T) {
+func TestProjectConfigIgnoresLegacyBudget(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "workspace.toml")
-	body := "schema_version = 1\nname = \"alpha\"\n[[trust.rule]]\neffect = \"auto_approve\"\nexpires = \"5m\"\n[trust.rule.match]\ntool = \"Read\"\n[budget.global]\nmax_tokens_per_day = 1000\n[budget.session]\nmax_tokens = 100\non_overrun = \"kill\"\n"
+	body := "schema_version = 1\nname = \"alpha\"\n[budget.global]\nmax_tokens_per_day = 1000\n[budget.session]\nmax_tokens = 100\non_overrun = \"kill\"\n"
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -156,8 +148,15 @@ func TestProjectConfigAcceptsInlineTrustAndBudget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := cfg.Budget.Session.OnOverrun; got != "kill" {
-		t.Fatalf("on_overrun = %q", got)
+	if err := SaveProjectConfig(path, cfg); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(saved), "budget") {
+		t.Fatalf("legacy config retained: %s", saved)
 	}
 }
 

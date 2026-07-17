@@ -20,7 +20,7 @@ import { EventsWS } from "./events";
 import type { EventEnvelope, ToastPayload } from "./events";
 import { SoftKeyBar } from "./softkeys";
 import { RelayE2E, relayE2EContentType } from "./e2e";
-import { saveLastSessionID, SessionsListView, SessionsPanel } from "./sessions";
+import { saveLastSessionID, SessionsListView } from "./sessions";
 import { SnapshotsPanel } from "./snapshots";
 import { refreshPushSubscription, subscribePushFromGesture } from "./push";
 import { startFirstRunTour } from "./tour";
@@ -57,7 +57,6 @@ const splash = requireElement("splash");
 const approvalRoot = requireElement("approval-overlay");
 const toolbar = requireElement("toolbar");
 const sessionListRoot = requireElement("session-list");
-const sessionsRoot = requireElement("sessions");
 const snapshotsRoot = requireElement("snapshots");
 const softkeys = requireElement("softkeys");
 const toast = requireElement("toast");
@@ -71,7 +70,6 @@ const approvals = new ApprovalOverlay(approvalRoot, approvalWakeLock);
 const anomalies = new AnomalyOverlay(approvalRoot);
 let relayE2E: RelayE2E | undefined;
 let sessionList: SessionsListView | undefined;
-let sessions: SessionsPanel | undefined;
 let snapshots: SnapshotsPanel | undefined;
 let sharePanel: SharePanel | undefined;
 let pairedHosts: PairedHostsPanel | undefined;
@@ -137,7 +135,6 @@ events.addEventListener("event", (event) => {
   sessionList?.handleEnvelope(envelope);
   fleetHome?.handleEnvelope(envelope);
   approvalInbox?.handleEnvelope(envelope);
-  sessions?.handleEnvelope(envelope);
   snapshots?.handleEnvelope(envelope);
 });
 events.addEventListener("toast", (event) => {
@@ -169,7 +166,6 @@ async function boot(): Promise<void> {
     refreshPushOnOpen();
     saveLastSessionID(info.session_id);
     showTerminalChrome(viewerMode);
-    sessions = new SessionsPanel(sessionsRoot, info.session_id, getJSON);
     snapshots = new SnapshotsPanel(
       snapshotsRoot,
       info.session_id,
@@ -534,7 +530,6 @@ function hideToast(): void {
 
 function showListChrome(): void {
   toolbar.hidden = true;
-  sessionsRoot.hidden = true;
   snapshotsRoot.hidden = true;
   filesRoot.hidden = true;
   termEl.hidden = true;

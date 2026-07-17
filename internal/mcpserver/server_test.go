@@ -14,9 +14,9 @@ import (
 	mcpserverlib "github.com/mark3labs/mcp-go/server"
 
 	"github.com/gongahkia/onibi/internal/approval"
-	"github.com/gongahkia/onibi/internal/budget"
 	"github.com/gongahkia/onibi/internal/intake"
 	"github.com/gongahkia/onibi/internal/store"
+	"github.com/gongahkia/onibi/internal/transcript"
 )
 
 func TestNewDoesNotPanic(t *testing.T) {
@@ -423,7 +423,7 @@ func TestListSessionsToolShape(t *testing.T) {
 	if got.ID != "active" || got.Agent != "codex" || got.CWD != "/tmp/repo" || got.PendingApprovalsCount != 1 {
 		t.Fatalf("session = %+v", got)
 	}
-	if got.StartedAt == "" || got.LastActivity == "" || got.RoleRequired != "owner" || got.TokensUsed != 0 || got.CostUSD != 0 || got.Workspace != "" {
+	if got.StartedAt == "" || got.LastActivity == "" || got.RoleRequired != "owner" || got.Workspace != "" {
 		t.Fatalf("session metadata = %+v", got)
 	}
 }
@@ -577,7 +577,7 @@ func newMCPTestDB(t *testing.T) *store.DB {
 
 func writeMCPClaudeTranscript(t *testing.T, base, cwd, body string) string {
 	t.Helper()
-	key, err := budget.ClaudeProjectKey(cwd)
+	key, err := transcript.ClaudeProjectKey(cwd)
 	if err != nil {
 		t.Fatal(err)
 	}

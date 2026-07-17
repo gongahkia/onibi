@@ -41,7 +41,6 @@ type Options struct {
 	Scroll                func(context.Context, string, string) error
 	TrustRuntime          func(context.Context, TrustRuntimeRequest) (string, error)
 	AnomalyAllow          func(context.Context, AnomalyAllowlistRequest) (string, error)
-	SessionCost           func(context.Context, string) (SessionCost, bool, error)
 	Snapshots             func(context.Context) ([]Snapshot, error)
 	SnapshotRestore       func(context.Context, string) (SnapshotActionResult, error)
 	SnapshotFork          func(context.Context, SnapshotForkRequest) (SnapshotActionResult, error)
@@ -66,7 +65,6 @@ type Server struct {
 	scroll                func(context.Context, string, string) error
 	trustRuntime          func(context.Context, TrustRuntimeRequest) (string, error)
 	anomalyAllow          func(context.Context, AnomalyAllowlistRequest) (string, error)
-	sessionCost           func(context.Context, string) (SessionCost, bool, error)
 	snapshots             func(context.Context) ([]Snapshot, error)
 	snapshotRestore       func(context.Context, string) (SnapshotActionResult, error)
 	snapshotFork          func(context.Context, SnapshotForkRequest) (SnapshotActionResult, error)
@@ -100,7 +98,6 @@ func New(opts Options) *Server {
 		scroll:                opts.Scroll,
 		trustRuntime:          opts.TrustRuntime,
 		anomalyAllow:          opts.AnomalyAllow,
-		sessionCost:           opts.SessionCost,
 		snapshots:             opts.Snapshots,
 		snapshotRestore:       opts.SnapshotRestore,
 		snapshotFork:          opts.SnapshotFork,
@@ -127,7 +124,6 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/attachments/images", s.handleImageAttachment)
 	mux.HandleFunc("/push/vapid-public-key", s.handlePushVAPIDPublicKey)
 	mux.HandleFunc("/push/subscribe", s.handlePushSubscribe)
-	mux.HandleFunc("/sessions/{id}/cost", s.handleSessionCost)
 	mux.HandleFunc("/fleet/hosts", s.handleFleetHosts)
 	mux.HandleFunc("/fleet/status", s.handleFleetStatus)
 	mux.HandleFunc("/fleet/enroll/challenge", s.handleFleetEnrollmentChallenge)
@@ -223,21 +219,6 @@ type healthzResponse struct {
 	Version        string `json:"version"`
 	E2E            bool   `json:"e2e"`
 	KeyVerifierHex string `json:"key_verifier_hex,omitempty"`
-}
-
-type SessionCost struct {
-	SessionID         string  `json:"session_id"`
-	Model             string  `json:"model,omitempty"`
-	InputTokens       int64   `json:"input_tokens"`
-	OutputTokens      int64   `json:"output_tokens"`
-	TotalInputTokens  int64   `json:"total_input_tokens"`
-	TotalOutputTokens int64   `json:"total_output_tokens"`
-	TotalTokens       int64   `json:"total_tokens"`
-	DailyTokens       int64   `json:"daily_tokens"`
-	CostKnown         bool    `json:"cost_known"`
-	TotalMicroCents   int64   `json:"total_micro_cents,omitempty"`
-	TotalUSD          float64 `json:"total_usd,omitempty"`
-	UpdatedAt         string  `json:"updated_at,omitempty"`
 }
 
 func (s *Server) healthzKeyVerifierHex(r *http.Request) (string, bool, error) {
@@ -420,38 +401,6 @@ func (s *Server) handleSessionInfo(w http.ResponseWriter, r *http.Request) {
 		"role":       auth.Role,
 		"csrf_token": csrfTokenForSession(auth.ID),
 	})
-}
-
-func (s *Server) handleSessionCost(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		return
-	}
-	if _, ok := s.requireHTTPAuth(w, r); !ok {
-		return
-	}
-	id := r.PathValue("id")
-	if id == "" || !containsSessionID(s.activeSessionIDs(), id) {
-		http.Error(w, "session not found", http.StatusNotFound)
-		return
-	}
-	cost := SessionCost{SessionID: id}
-	if s.sessionCost != nil {
-		got, ok, err := s.sessionCost(r.Context(), id)
-		if err != nil {
-			s.log.Warn("web session cost failed", "request_id", requestID(r), "session_id", id, "err", err)
-			http.Error(w, "session cost unavailable", http.StatusInternalServerError)
-			return
-		}
-		if ok {
-			cost = got
-			if cost.SessionID == "" {
-				cost.SessionID = id
-			}
-		}
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(cost)
 }
 
 func (s *Server) activeSessionIDs() []string {

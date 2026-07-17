@@ -35,9 +35,6 @@ func TestCertifiedContractsMatchV1AgentAllowlist(t *testing.T) {
 		if !c.Lifecycle.SessionStart || !c.Lifecycle.Activity || !c.Lifecycle.ApprovalRequest || !c.Lifecycle.TurnComplete || c.Recovery.PendingApproval == "" {
 			t.Fatalf("lifecycle/recovery contract=%+v %+v", c.Lifecycle, c.Recovery)
 		}
-		if !c.Budget.GlobalEnforcement || ((agent == capability.AgentClaude || agent == capability.AgentPi) && (!c.Budget.TokenTelemetry || !c.Budget.SessionEnforcement || c.Budget.NonEnforcingReason != "")) || (agent == capability.AgentCodex && (c.Budget.TokenTelemetry || c.Budget.SessionEnforcement || c.Budget.NonEnforcingReason == "")) {
-			t.Fatalf("budget contract=%+v", c.Budget)
-		}
 		if !c.Audit.DecisionRecorded || !c.Audit.PayloadHashOnly || c.Audit.RawPayloadRecorded {
 			t.Fatalf("audit contract=%+v", c.Audit)
 		}

@@ -17,6 +17,11 @@ import (
 	"github.com/gongahkia/onibi/internal/pty"
 )
 
+type approvalResult struct {
+	resp intake.Response
+	err  error
+}
+
 func TestApprovalUnifiedDiffWriteScrubsBeforeDiff(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.env")

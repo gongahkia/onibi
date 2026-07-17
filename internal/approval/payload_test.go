@@ -80,7 +80,7 @@ func TestDecisionAuditHashesCanonicalInputOnly(t *testing.T) {
 		Agent:     "pi",
 		Tool:      "Bash",
 		Input:     []byte(`{"command":"deploy --token raw-sensitive-value"}`),
-	}, "", nil)
+	}, "")
 	if err != nil {
 		t.Fatal(err)
 	}

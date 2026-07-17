@@ -209,7 +209,7 @@ func (s *Server) handleApproval(ctx context.Context, c net.Conn, ev Event) {
 }
 
 func isRPCType(typ string) bool {
-	return typ == TypeSessionInput || typ == TypeSessionPeek || typ == TypeSessionNew || typ == TypeSessionShow || typ == TypeSessionHide || typ == TypeSessionControl || typ == TypeDemoApproval || typ == TypeTrust || typ == TypeBudget || typ == TypeSnapshot || typ == TypePing
+	return typ == TypeSessionInput || typ == TypeSessionPeek || typ == TypeSessionNew || typ == TypeSessionShow || typ == TypeSessionHide || typ == TypeSessionControl || typ == TypeDemoApproval || typ == TypeTrust || typ == TypeSnapshot || typ == TypePing
 }
 
 func writeResponse(c net.Conn, r Response) error {

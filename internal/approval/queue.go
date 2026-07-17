@@ -110,11 +110,7 @@ func (q *Queue) Request(ctx context.Context, sessionID, agent, tool, inputJSON s
 	if len(unifiedDiff) > 0 {
 		diff = unifiedDiff[0]
 	}
-	return q.RequestModel(ctx, Request{SessionID: sessionID, Agent: agent, Tool: tool, Input: json.RawMessage(inputJSON)}, diff, nil)
-}
-
-func (q *Queue) RequestWithBudgetWarning(ctx context.Context, sessionID, agent, tool, inputJSON, unifiedDiff string, warn *BudgetWarning) (string, <-chan Decision, error) {
-	return q.RequestModel(ctx, Request{SessionID: sessionID, Agent: agent, Tool: tool, Input: json.RawMessage(inputJSON)}, unifiedDiff, warn)
+	return q.RequestModel(ctx, Request{SessionID: sessionID, Agent: agent, Tool: tool, Input: json.RawMessage(inputJSON)}, diff)
 }
 
 func (q *Queue) RequestSilent(ctx context.Context, sessionID, agent, tool, inputJSON string) (string, <-chan Decision, error) {
@@ -122,18 +118,18 @@ func (q *Queue) RequestSilent(ctx context.Context, sessionID, agent, tool, input
 	if err != nil {
 		return "", nil, err
 	}
-	return q.request(ctx, req, "", nil, false)
+	return q.request(ctx, req, "", false)
 }
 
-func (q *Queue) RequestModel(ctx context.Context, req Request, unifiedDiff string, warn *BudgetWarning) (string, <-chan Decision, error) {
+func (q *Queue) RequestModel(ctx context.Context, req Request, unifiedDiff string) (string, <-chan Decision, error) {
 	req, err := NormalizeRequest(req)
 	if err != nil {
 		return "", nil, err
 	}
-	return q.request(ctx, req, unifiedDiff, warn, true)
+	return q.request(ctx, req, unifiedDiff, true)
 }
 
-func (q *Queue) request(ctx context.Context, req Request, unifiedDiff string, warn *BudgetWarning, publish bool) (string, <-chan Decision, error) {
+func (q *Queue) request(ctx context.Context, req Request, unifiedDiff string, publish bool) (string, <-chan Decision, error) {
 	id, err := newID()
 	if err != nil {
 		return "", nil, err
@@ -163,7 +159,6 @@ func (q *Queue) request(ctx context.Context, req Request, unifiedDiff string, wa
 				Tool:        req.Tool,
 				InputJSON:   string(req.Input),
 				UnifiedDiff: unifiedDiff,
-				BudgetWarn:  cloneBudgetWarning(warn),
 				State:       StatePending,
 				CreatedAt:   now,
 				ExpiresAt:   exp,
@@ -172,14 +167,6 @@ func (q *Queue) request(ctx context.Context, req Request, unifiedDiff string, wa
 		})
 	}
 	return id, ch, nil
-}
-
-func cloneBudgetWarning(warn *BudgetWarning) *BudgetWarning {
-	if warn == nil {
-		return nil
-	}
-	cp := *warn
-	return &cp
 }
 
 // SetMessage records a legacy rendered-message target.

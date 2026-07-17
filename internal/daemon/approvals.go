@@ -20,6 +20,8 @@ import (
 
 const anomalyRequestedEvent = "anomaly.requested"
 
+var errNoSessionProcessGroup = errors.New("session has no process group")
+
 var signalAnomalyProcessGroup = signalSessionProcessGroup
 
 type anomalyEvent struct {
@@ -50,17 +52,13 @@ func (d *Daemon) handleApprovalRequest(ctx context.Context, ev intake.Event) (in
 	}
 	d.appendEventOutput(s, ev)
 	hit := d.detectApprovalAnomaly(ctx, s, ev)
-	budgetWarn := d.budgetWarningForApproval(ctx, s, ev)
-	if budgetWarn == nil && hit == nil {
+	if hit == nil {
 		if resp, ok := d.handleTrustApproval(ctx, s, ev); ok {
 			return resp, nil
 		}
-	} else if budgetWarn != nil {
-		d.audit(ctx, "budget.warn", s.ID, "", 0, fmt.Sprintf("scope=%s projected=%d limit=%d action=%s", budgetWarn.Scope, budgetWarn.ProjectedTokens, budgetWarn.LimitTokens, budgetWarn.OnOverrun))
-		d.publishToast(budgetWarn.Message)
 	}
 	unifiedDiff := approvalUnifiedDiff(ev)
-	approvalID, ch, err := d.Queue.RequestModel(ctx, req, unifiedDiff, budgetWarn)
+	approvalID, ch, err := d.Queue.RequestModel(ctx, req, unifiedDiff)
 	if err != nil {
 		return intake.Response{Decision: "cancelled", Reason: err.Error()}, nil
 	}
@@ -137,7 +135,7 @@ func (d *Daemon) detectApprovalAnomaly(ctx context.Context, s *Session, ev intak
 }
 
 func (d *Daemon) recordApprovalAnomalyAction(ctx context.Context, s *Session, ev intake.Event) (anomaly.Action, []anomaly.Action, anomaly.Options) {
-	root := budgetRoot(s, ev)
+	root := workspaceRoot(s, ev)
 	opts := anomaly.Options{WorkspaceRoot: root}
 	if root != "" {
 		loaded, err := anomaly.LoadOptions(root)
@@ -170,6 +168,31 @@ func (d *Daemon) recordApprovalAnomalyAction(ctx context.Context, s *Session, ev
 	d.anomalyHistory[key] = next
 	d.mu.Unlock()
 	return action, history, opts
+}
+
+func workspaceRoot(s *Session, ev intake.Event) string {
+	root := strings.TrimSpace(ev.CWD)
+	if root == "" && s != nil {
+		root = strings.TrimSpace(s.CWD)
+	}
+	if root == "" {
+		return ""
+	}
+	return filepath.Clean(root)
+}
+
+func signalSessionProcessGroup(s *Session, sig syscall.Signal) error {
+	if s == nil || s.Host == nil || s.Host.Cmd == nil || s.Host.Cmd.Process == nil {
+		return errNoSessionProcessGroup
+	}
+	pgid, err := syscall.Getpgid(s.Host.Cmd.Process.Pid)
+	if err != nil {
+		return err
+	}
+	if pgid <= 0 {
+		return errNoSessionProcessGroup
+	}
+	return syscall.Kill(-pgid, sig)
 }
 
 func (d *Daemon) pauseSessionForAnomaly(ctx context.Context, s *Session, finding anomaly.Finding) error {

@@ -261,14 +261,13 @@ func KeyRotationSigningPayload(challenge KeyRotationChallenge) []byte {
 }
 
 type Heartbeat struct {
-	Version       uint16       `json:"version"`
-	OwnerID       string       `json:"owner_id"`
-	HostID        string       `json:"host_id"`
-	SentAt        time.Time    `json:"sent_at"`
-	BinaryVersion string       `json:"binary_version"`
-	Capabilities  []string     `json:"capabilities"`
-	Budget        BudgetReport `json:"budget,omitempty"`
-	Signature     string       `json:"signature"`
+	Version       uint16    `json:"version"`
+	OwnerID       string    `json:"owner_id"`
+	HostID        string    `json:"host_id"`
+	SentAt        time.Time `json:"sent_at"`
+	BinaryVersion string    `json:"binary_version"`
+	Capabilities  []string  `json:"capabilities"`
+	Signature     string    `json:"signature"`
 }
 
 func (h Heartbeat) Validate() error {
@@ -283,12 +282,6 @@ func (h Heartbeat) Validate() error {
 			return fmt.Errorf("invalid fleet capability %q", capability)
 		}
 	}
-	if err := h.Budget.Validate(); err != nil {
-		return err
-	}
-	if !h.Budget.Empty() && h.Budget.Date != h.SentAt.UTC().Format("2006-01-02") {
-		return errors.New("fleet budget report date must match heartbeat UTC day")
-	}
 	return nil
 }
 
@@ -301,7 +294,6 @@ func HeartbeatSigningPayload(heartbeat Heartbeat) []byte {
 		heartbeat.SentAt.UTC().Format(time.RFC3339Nano),
 		strings.TrimSpace(heartbeat.BinaryVersion),
 		strings.Join(capabilities, ","),
-		BudgetReportSigningPayload(heartbeat.Budget),
 	}, "\n"))
 }
 
@@ -438,19 +430,18 @@ func validSSHUser(user string) bool {
 }
 
 type Host struct {
-	ID              string       `json:"id"`
-	OwnerID         string       `json:"owner_id"`
-	DisplayName     string       `json:"display_name"`
-	IdentityPublic  string       `json:"identity_public"`
-	Endpoint        Endpoint     `json:"endpoint"`
-	ProtocolVersion uint16       `json:"protocol_version"`
-	BinaryVersion   string       `json:"binary_version"`
-	Capabilities    []string     `json:"capabilities"`
-	Budget          BudgetReport `json:"budget,omitempty"`
-	State           HostState    `json:"state"`
-	RegisteredAt    time.Time    `json:"registered_at"`
-	LastSeenAt      time.Time    `json:"last_seen_at,omitempty"`
-	RevokedAt       *time.Time   `json:"revoked_at,omitempty"`
+	ID              string     `json:"id"`
+	OwnerID         string     `json:"owner_id"`
+	DisplayName     string     `json:"display_name"`
+	IdentityPublic  string     `json:"identity_public"`
+	Endpoint        Endpoint   `json:"endpoint"`
+	ProtocolVersion uint16     `json:"protocol_version"`
+	BinaryVersion   string     `json:"binary_version"`
+	Capabilities    []string   `json:"capabilities"`
+	State           HostState  `json:"state"`
+	RegisteredAt    time.Time  `json:"registered_at"`
+	LastSeenAt      time.Time  `json:"last_seen_at,omitempty"`
+	RevokedAt       *time.Time `json:"revoked_at,omitempty"`
 }
 
 func (h Host) Validate() error {
@@ -495,9 +486,6 @@ func (h Host) Validate() error {
 			return fmt.Errorf("invalid fleet capability %q", capability)
 		}
 	}
-	if err := h.Budget.Validate(); err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -507,7 +495,6 @@ func (h Host) Normalized() Host {
 	h.Endpoint.URL = strings.TrimSpace(h.Endpoint.URL)
 	h.BinaryVersion = strings.TrimSpace(h.BinaryVersion)
 	h.Capabilities = normalizedCapabilities(h.Capabilities)
-	h.Budget = h.Budget.Normalized()
 	h.RegisteredAt = h.RegisteredAt.UTC()
 	h.LastSeenAt = h.LastSeenAt.UTC()
 	if h.RevokedAt != nil {

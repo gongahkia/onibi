@@ -419,31 +419,9 @@ func TestSessionInfoEventsTokenSkipsSessionSelection(t *testing.T) {
 	}
 }
 
-func TestSessionCostEndpointReturnsResolverPayload(t *testing.T) {
-	db, err := store.OpenEphemeral(filepath.Join(t.TempDir(), "onibi.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	srv := New(Options{
-		DB:         db,
-		SessionIDs: func() []string { return []string{"s1"} },
-		SessionCost: func(ctx context.Context, id string) (SessionCost, bool, error) {
-			if id != "s1" {
-				return SessionCost{}, false, nil
-			}
-			return SessionCost{
-				SessionID:         id,
-				Model:             "claude-sonnet-4-6",
-				TotalInputTokens:  10,
-				TotalOutputTokens: 5,
-				TotalTokens:       15,
-				DailyTokens:       25,
-				CostKnown:         true,
-				TotalMicroCents:   10500,
-			}, true, nil
-		},
-	})
+func TestSessionCostEndpointIsUnavailable(t *testing.T) {
+	srv, cleanup := testServer(t)
+	defer cleanup()
 	rr := httptest.NewRecorder()
 	if _, err := srv.CreateOwnerSession(context.Background(), rr, "test device"); err != nil {
 		t.Fatal(err)
@@ -452,15 +430,8 @@ func TestSessionCostEndpointReturnsResolverPayload(t *testing.T) {
 	req.AddCookie(rr.Result().Cookies()[0])
 	w := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
+	if w.Code != http.StatusNotFound {
 		t.Fatalf("status = %d body = %q", w.Code, w.Body.String())
-	}
-	var got SessionCost
-	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
-		t.Fatal(err)
-	}
-	if got.SessionID != "s1" || got.TotalTokens != 15 || got.DailyTokens != 25 || !got.CostKnown {
-		t.Fatalf("cost = %#v", got)
 	}
 }
 
@@ -478,8 +449,6 @@ func TestSessionsEndpointReturnsResolverRows(t *testing.T) {
 			StartedAt:             "2026-06-30T00:00:00Z",
 			LastActivity:          "2026-06-30T00:01:00Z",
 			PendingApprovalsCount: 2,
-			TokensUsed:            120,
-			CostUSD:               0.03,
 			RoleRequired:          "owner",
 		}}, nil
 	}
@@ -499,7 +468,7 @@ func TestSessionsEndpointReturnsResolverRows(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || got[0].ID != "s1" || got[0].HostID != "host-work-mac" || got[0].PendingApprovalsCount != 2 || got[0].TokensUsed != 120 || got[0].RoleRequired != "owner" {
+	if len(got) != 1 || got[0].ID != "s1" || got[0].HostID != "host-work-mac" || got[0].PendingApprovalsCount != 2 || got[0].RoleRequired != "owner" {
 		t.Fatalf("sessions = %#v", got)
 	}
 	if !gotOpts.IncludeRemote {

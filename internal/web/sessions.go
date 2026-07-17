@@ -25,8 +25,6 @@ type SessionSummary struct {
 	RecoveryState         fleet.SessionRecoveryState `json:"recovery_state,omitempty"`
 	RecoveryReason        string                     `json:"recovery_reason,omitempty"`
 	RecoveryUpdatedAt     string                     `json:"recovery_updated_at,omitempty"`
-	TokensUsed            int64                      `json:"tokens_used"`
-	CostUSD               float64                    `json:"cost_usd"`
 	RoleRequired          string                     `json:"role_required"`
 	Remote                bool                       `json:"remote,omitempty"`
 	PeerName              string                     `json:"peer_name,omitempty"`

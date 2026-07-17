@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gongahkia/onibi/internal/budget"
 	"github.com/gongahkia/onibi/internal/intake"
 	"github.com/gongahkia/onibi/internal/snapshot"
 	"github.com/gongahkia/onibi/internal/store"
+	"github.com/gongahkia/onibi/internal/transcript"
 )
 
 func (d *Daemon) handleSnapshotRPC(ctx context.Context, ev intake.Event) (intake.Response, error) {
@@ -43,7 +43,7 @@ func (d *Daemon) handleSnapshotTake(ctx context.Context, ev intake.Event) (intak
 	if err != nil {
 		return intake.Response{}, err
 	}
-	snap, err := snapshot.TakeContext(ctx, s, snapshot.Options{})
+	snap, err := snapshot.TakeContext(ctx, s, snapshot.Options{ClaudeBaseDir: d.claudeBaseDir})
 	if err != nil {
 		return intake.Response{}, err
 	}
@@ -165,12 +165,8 @@ func (d *Daemon) loadSnapshot(ctx context.Context, name string) (snapshot.Snapsh
 	return snap, entry, nil
 }
 
-func (d *Daemon) findClaudeTranscript(sessionID, cwd string) string {
-	parser := d.Budget
-	if parser == nil {
-		parser = budget.NewClaudeParser("")
-	}
-	path, err := parser.FindTranscript(budget.SessionRef{SessionID: sessionID, Agent: "claude", CWD: cwd})
+func (d *Daemon) findClaudeTranscript(_ string, cwd string) string {
+	path, err := transcript.FindClaude(d.claudeBaseDir, "", cwd)
 	if err != nil {
 		return ""
 	}

@@ -24,7 +24,6 @@ type AdapterContract struct {
 	Approval     ApprovalContract     `json:"approval"`
 	Lifecycle    LifecycleContract    `json:"lifecycle"`
 	Recovery     RecoveryContract     `json:"recovery"`
-	Budget       BudgetContract       `json:"budget"`
 	Audit        AuditContract        `json:"audit"`
 }
 
@@ -58,13 +57,6 @@ type LifecycleContract struct {
 type RecoveryContract struct {
 	HookReloadInstruction string `json:"hook_reload_instruction"`
 	PendingApproval       string `json:"pending_approval"`
-}
-
-type BudgetContract struct {
-	TokenTelemetry     bool   `json:"token_telemetry"`
-	SessionEnforcement bool   `json:"session_enforcement"`
-	GlobalEnforcement  bool   `json:"global_enforcement"`
-	NonEnforcingReason string `json:"non_enforcing_reason,omitempty"`
 }
 
 type AuditContract struct {
@@ -112,20 +104,12 @@ func certifiedContract(agent string, sessionExit, reviewRequired bool, reload st
 			HookReloadInstruction: reload,
 			PendingApproval:       "persisted; parked hook waiters are not reattached after daemon restart",
 		},
-		Budget: budgetContract(agent),
 		Audit: AuditContract{
 			DecisionRecorded:   true,
 			PayloadHashOnly:    true,
 			RawPayloadRecorded: false,
 		},
 	}
-}
-
-func budgetContract(agent string) BudgetContract {
-	if agent == capability.AgentClaude || agent == capability.AgentPi {
-		return BudgetContract{TokenTelemetry: true, SessionEnforcement: true, GlobalEnforcement: true}
-	}
-	return BudgetContract{GlobalEnforcement: true, NonEnforcingReason: "interactive token telemetry unavailable"}
 }
 
 func ContractFor(name string) (AdapterContract, bool) {

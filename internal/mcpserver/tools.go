@@ -14,9 +14,9 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 
 	"github.com/gongahkia/onibi/internal/approval"
-	"github.com/gongahkia/onibi/internal/budget"
 	"github.com/gongahkia/onibi/internal/intake"
 	"github.com/gongahkia/onibi/internal/store"
+	"github.com/gongahkia/onibi/internal/transcript"
 )
 
 type listSessionsInput struct {
@@ -24,16 +24,14 @@ type listSessionsInput struct {
 }
 
 type listSessionsRow struct {
-	ID                    string  `json:"id"`
-	Agent                 string  `json:"agent"`
-	CWD                   string  `json:"cwd"`
-	StartedAt             string  `json:"started_at"`
-	LastActivity          string  `json:"last_activity"`
-	PendingApprovalsCount int     `json:"pending_approvals_count"`
-	TokensUsed            int64   `json:"tokens_used"`
-	CostUSD               float64 `json:"cost_usd"`
-	RoleRequired          string  `json:"role_required"`
-	Workspace             string  `json:"workspace"`
+	ID                    string `json:"id"`
+	Agent                 string `json:"agent"`
+	CWD                   string `json:"cwd"`
+	StartedAt             string `json:"started_at"`
+	LastActivity          string `json:"last_activity"`
+	PendingApprovalsCount int    `json:"pending_approvals_count"`
+	RoleRequired          string `json:"role_required"`
+	Workspace             string `json:"workspace"`
 }
 
 type killSessionInput struct {
@@ -122,12 +120,10 @@ var listSessionsOutputSchema = json.RawMessage(`{
       "started_at":{"type":"string"},
       "last_activity":{"type":"string"},
       "pending_approvals_count":{"type":"integer"},
-      "tokens_used":{"type":"integer"},
-      "cost_usd":{"type":"number"},
       "role_required":{"type":"string"},
       "workspace":{"type":"string"}
     },
-    "required":["id","agent","cwd","started_at","last_activity","pending_approvals_count","tokens_used","cost_usd","role_required","workspace"]
+    "required":["id","agent","cwd","started_at","last_activity","pending_approvals_count","role_required","workspace"]
   }
 }`)
 
@@ -383,11 +379,7 @@ func (s *Server) fetchTranscript(ctx context.Context, in fetchTranscriptInput) (
 	if !strings.EqualFold(row.Agent, "claude") {
 		return nil, fmt.Errorf("transcript unavailable for agent %q", row.Agent)
 	}
-	path, err := budget.NewClaudeParser(s.claudeBaseDir).FindTranscript(budget.SessionRef{
-		SessionID: sessionID,
-		Agent:     row.Agent,
-		CWD:       row.CWD,
-	})
+	path, err := transcript.FindClaude(s.claudeBaseDir, "", row.CWD)
 	if err != nil {
 		return nil, err
 	}
@@ -425,8 +417,6 @@ func (s *Server) listSessionRows(ctx context.Context, in listSessionsInput) ([]l
 			StartedAt:             formatSessionTime(row.StartedAt),
 			LastActivity:          formatSessionTime(row.LastActivity),
 			PendingApprovalsCount: pending[row.ID],
-			TokensUsed:            0,
-			CostUSD:               0,
 			RoleRequired:          "owner",
 			Workspace:             "",
 		})

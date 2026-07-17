@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/gongahkia/onibi/internal/adapters"
-	"github.com/gongahkia/onibi/internal/budget"
 	"github.com/gongahkia/onibi/internal/trust"
 	"github.com/pelletier/go-toml/v2"
 )
@@ -26,7 +25,6 @@ type ProjectConfig struct {
 	Name          string            `toml:"name"`
 	DefaultAgent  string            `toml:"default_agent,omitempty"`
 	Trust         ProjectTrust      `toml:"trust,omitempty"`
-	Budget        ProjectBudget     `toml:"budget,omitempty"`
 	Transports    ProjectTransports `toml:"transports,omitempty"`
 	Hooks         ProjectHooks      `toml:"hooks,omitempty"`
 }
@@ -46,20 +44,6 @@ type ProjectTrustMatch struct {
 	Tool  string `toml:"tool,omitempty"`
 	Path  string `toml:"path,omitempty"`
 	Agent string `toml:"agent,omitempty"`
-}
-
-type ProjectBudget struct {
-	Global  ProjectGlobalBudget  `toml:"global,omitempty"`
-	Session ProjectSessionBudget `toml:"session,omitempty"`
-}
-
-type ProjectGlobalBudget struct {
-	MaxTokensPerDay int `toml:"max_tokens_per_day,omitempty"`
-}
-
-type ProjectSessionBudget struct {
-	MaxTokens int    `toml:"max_tokens,omitempty"`
-	OnOverrun string `toml:"on_overrun,omitempty"`
 }
 
 type ProjectTransports struct {
@@ -112,6 +96,10 @@ func LoadProjectConfig(path string) (ProjectConfig, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return ProjectConfig{}, err
+	}
+	data, err = stripLegacyBudget(data)
+	if err != nil {
+		return ProjectConfig{}, fmt.Errorf("parse %s: %w", path, err)
 	}
 	var cfg ProjectConfig
 	if err := toml.NewDecoder(bytes.NewReader(data)).DisallowUnknownFields().Decode(&cfg); err != nil {
@@ -172,6 +160,15 @@ func SaveProjectConfig(path string, cfg ProjectConfig) error {
 	return os.WriteFile(path, data, 0o644)
 }
 
+func stripLegacyBudget(data []byte) ([]byte, error) {
+	var raw map[string]any
+	if err := toml.Unmarshal(data, &raw); err != nil {
+		return nil, err
+	}
+	delete(raw, "budget")
+	return toml.Marshal(raw)
+}
+
 func validateProjectTransports(path string, transports *ProjectTransports) error {
 	if transports == nil {
 		return nil
@@ -221,15 +218,6 @@ func validateProjectPolicies(path string, cfg *ProjectConfig) error {
 	}
 	if err := trustPolicy.Validate(); err != nil {
 		return fmt.Errorf("%s: trust.rule: %w", path, err)
-	}
-	budgetPolicy := budget.DefaultPolicy()
-	budgetPolicy.Global.MaxTokensPerDay = int64(cfg.Budget.Global.MaxTokensPerDay)
-	budgetPolicy.Session.MaxTokens = int64(cfg.Budget.Session.MaxTokens)
-	if cfg.Budget.Session.OnOverrun != "" {
-		budgetPolicy.Session.OnOverrun = budget.OverrunAction(cfg.Budget.Session.OnOverrun)
-	}
-	if err := budgetPolicy.Validate(); err != nil {
-		return fmt.Errorf("%s: budget: %w", path, err)
 	}
 	return nil
 }
