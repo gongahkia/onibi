@@ -132,13 +132,14 @@ mod tests {
     use yeokcham_daemon_api::v1::{
         ApplyContactIdentityRotationRequest, ContactResponse, ContactStatus as RpcContactStatus,
         ContactVerificationMethod as RpcContactVerificationMethod, CreateIdentityRequest,
-        CreateOrLoadIdentityRequest, DeliveryProfileKind as RpcDeliveryProfileKind,
-        DeliveryStatus as RpcDeliveryStatus, ExportIdentityRecoveryRequest, GetContactRequest,
-        GetDeliveryStatusRequest, GetIdentityRequest, GetStatusResponse, IdentityInitialization,
-        IdentityResponse, ImportContactInvitationRequest, ImportIdentityRecoveryRequest,
-        ListContactsRequest, LocalMeshTransportKind as RpcLocalMeshTransportKind,
-        RevokeContactRequest, SelectDeliveryProfileRequest, SendMessageRequest,
-        ShutdownDaemonRequest, StartClientRequest, VerifyContactQrRequest,
+        CreateOrLoadIdentityRequest, DaemonEventKind as RpcDaemonEventKind,
+        DeliveryProfileKind as RpcDeliveryProfileKind, DeliveryStatus as RpcDeliveryStatus,
+        ExportIdentityRecoveryRequest, GetContactRequest, GetDeliveryStatusRequest,
+        GetIdentityRequest, GetStatusResponse, IdentityInitialization, IdentityResponse,
+        ImportContactInvitationRequest, ImportIdentityRecoveryRequest, ListContactsRequest,
+        LocalMeshTransportKind as RpcLocalMeshTransportKind, RevokeContactRequest,
+        SelectDeliveryProfileRequest, SendMessageRequest, ShutdownDaemonRequest,
+        StartClientRequest, SubscribeEventsRequest, VerifyContactQrRequest,
         VerifyContactSafetyNumberRequest, daemon_service_client::DaemonServiceClient,
     };
     use yeokcham_protocol::{
@@ -576,6 +577,59 @@ mod tests {
         target_runtime.shutdown().unwrap();
         fs::remove_dir_all(source_directory).unwrap();
         fs::remove_dir_all(target_directory).unwrap();
+    }
+
+    #[tokio::test]
+    async fn serves_authenticated_ordered_event_stream() {
+        let state_directory = state_directory();
+        let mut runtime = DaemonRuntime::start(ProtocolVersion::INITIAL, &state_directory).unwrap();
+        let (auth, token) = DaemonLocalAuth::initialize().unwrap();
+        let server =
+            DaemonServer::bind_with_identity_keystore(&runtime, auth, MemoryKeystore::default())
+                .unwrap();
+        let socket_path = server.socket_path().to_path_buf();
+        let server = server.serve_until(std::future::pending());
+        let client = async {
+            let mut client = contact_client(socket_path.clone()).await;
+            assert_eq!(
+                client
+                    .subscribe_events(Request::new(SubscribeEventsRequest {}))
+                    .await
+                    .unwrap_err()
+                    .code(),
+                Code::Unauthenticated
+            );
+            let mut events = client
+                .subscribe_events(authenticated_request(SubscribeEventsRequest {}, &token))
+                .await
+                .unwrap()
+                .into_inner();
+            client
+                .start_client(authenticated_request(StartClientRequest {}, &token))
+                .await
+                .unwrap();
+            let started = events.message().await.unwrap().unwrap();
+            assert_eq!(started.sequence, 1);
+            assert_eq!(
+                RpcDaemonEventKind::try_from(started.kind),
+                Ok(RpcDaemonEventKind::ClientStarted)
+            );
+            client
+                .shutdown_daemon(authenticated_request(ShutdownDaemonRequest {}, &token))
+                .await
+                .unwrap();
+            let stopped = events.message().await.unwrap().unwrap();
+            assert_eq!(stopped.sequence, 2);
+            assert_eq!(
+                RpcDaemonEventKind::try_from(stopped.kind),
+                Ok(RpcDaemonEventKind::ClientStopped)
+            );
+        };
+        let (server, ()) = tokio::join!(server, client);
+        assert!(server.is_ok());
+        assert!(!socket_path.exists());
+        runtime.shutdown().unwrap();
+        fs::remove_dir_all(state_directory).unwrap();
     }
 
     async fn export_identity_recovery(

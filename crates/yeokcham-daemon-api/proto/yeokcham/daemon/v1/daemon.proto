@@ -20,6 +20,7 @@ service DaemonService {
   rpc SendMessage(SendMessageRequest) returns (SendMessageResponse);
   rpc GetDeliveryStatus(GetDeliveryStatusRequest) returns (GetDeliveryStatusResponse);
   rpc SelectDeliveryProfile(SelectDeliveryProfileRequest) returns (DeliveryProfileResponse);
+  rpc SubscribeEvents(SubscribeEventsRequest) returns (stream DaemonEvent);
   rpc GetStatus(GetStatusRequest) returns (GetStatusResponse);
 }
 
@@ -157,6 +158,22 @@ message SelectDeliveryProfileRequest {
 message DeliveryProfileResponse {
   DeliveryProfileKind kind = 1;
   bool direct_ip_disclosure_warning = 2;
+}
+
+message SubscribeEventsRequest {}
+
+enum DaemonEventKind {
+  DAEMON_EVENT_KIND_UNSPECIFIED = 0;
+  DAEMON_EVENT_KIND_CLIENT_STARTED = 1;
+  DAEMON_EVENT_KIND_CLIENT_STOPPED = 2;
+  DAEMON_EVENT_KIND_MESSAGE_QUEUED = 3;
+}
+
+message DaemonEvent {
+  uint32 version = 1;
+  uint64 sequence = 2;
+  DaemonEventKind kind = 3;
+  bytes message_identifier = 4;
 }
 
 enum ContactStatus {

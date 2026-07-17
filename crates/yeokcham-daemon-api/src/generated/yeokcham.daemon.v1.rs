@@ -139,6 +139,19 @@ pub struct DeliveryProfileResponse {
     #[prost(bool, tag = "2")]
     pub direct_ip_disclosure_warning: bool,
 }
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct SubscribeEventsRequest {}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct DaemonEvent {
+    #[prost(uint32, tag = "1")]
+    pub version: u32,
+    #[prost(uint64, tag = "2")]
+    pub sequence: u64,
+    #[prost(enumeration = "DaemonEventKind", tag = "3")]
+    pub kind: i32,
+    #[prost(bytes = "vec", tag = "4")]
+    pub message_identifier: ::prost::alloc::vec::Vec<u8>,
+}
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ContactResponse {
     #[prost(bytes = "vec", tag = "1")]
@@ -289,6 +302,38 @@ impl LocalMeshTransportKind {
             "LOCAL_MESH_TRANSPORT_KIND_WIFI_HOTSPOT" => Some(Self::WifiHotspot),
             "LOCAL_MESH_TRANSPORT_KIND_WIFI_DIRECT" => Some(Self::WifiDirect),
             "LOCAL_MESH_TRANSPORT_KIND_BLUETOOTH" => Some(Self::Bluetooth),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum DaemonEventKind {
+    Unspecified = 0,
+    ClientStarted = 1,
+    ClientStopped = 2,
+    MessageQueued = 3,
+}
+impl DaemonEventKind {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Unspecified => "DAEMON_EVENT_KIND_UNSPECIFIED",
+            Self::ClientStarted => "DAEMON_EVENT_KIND_CLIENT_STARTED",
+            Self::ClientStopped => "DAEMON_EVENT_KIND_CLIENT_STOPPED",
+            Self::MessageQueued => "DAEMON_EVENT_KIND_MESSAGE_QUEUED",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "DAEMON_EVENT_KIND_UNSPECIFIED" => Some(Self::Unspecified),
+            "DAEMON_EVENT_KIND_CLIENT_STARTED" => Some(Self::ClientStarted),
+            "DAEMON_EVENT_KIND_CLIENT_STOPPED" => Some(Self::ClientStopped),
+            "DAEMON_EVENT_KIND_MESSAGE_QUEUED" => Some(Self::MessageQueued),
             _ => None,
         }
     }
@@ -914,6 +959,35 @@ pub mod daemon_service_client {
                 );
             self.inner.unary(req, path, codec).await
         }
+        pub async fn subscribe_events(
+            &mut self,
+            request: impl tonic::IntoRequest<super::SubscribeEventsRequest>,
+        ) -> std::result::Result<
+            tonic::Response<tonic::codec::Streaming<super::DaemonEvent>>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic_prost::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/yeokcham.daemon.v1.DaemonService/SubscribeEvents",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "yeokcham.daemon.v1.DaemonService",
+                        "SubscribeEvents",
+                    ),
+                );
+            self.inner.server_streaming(req, path, codec).await
+        }
         pub async fn get_status(
             &mut self,
             request: impl tonic::IntoRequest<super::GetStatusRequest>,
@@ -1057,6 +1131,19 @@ pub mod daemon_service_server {
             request: tonic::Request<super::SelectDeliveryProfileRequest>,
         ) -> std::result::Result<
             tonic::Response<super::DeliveryProfileResponse>,
+            tonic::Status,
+        >;
+        /// Server streaming response type for the SubscribeEvents method.
+        type SubscribeEventsStream: tonic::codegen::tokio_stream::Stream<
+                Item = std::result::Result<super::DaemonEvent, tonic::Status>,
+            >
+            + std::marker::Send
+            + 'static;
+        async fn subscribe_events(
+            &self,
+            request: tonic::Request<super::SubscribeEventsRequest>,
+        ) -> std::result::Result<
+            tonic::Response<Self::SubscribeEventsStream>,
             tonic::Status,
         >;
         async fn get_status(
@@ -1942,6 +2029,54 @@ pub mod daemon_service_server {
                                 max_encoding_message_size,
                             );
                         let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/yeokcham.daemon.v1.DaemonService/SubscribeEvents" => {
+                    #[allow(non_camel_case_types)]
+                    struct SubscribeEventsSvc<T: DaemonService>(pub Arc<T>);
+                    impl<
+                        T: DaemonService,
+                    > tonic::server::ServerStreamingService<
+                        super::SubscribeEventsRequest,
+                    > for SubscribeEventsSvc<T> {
+                        type Response = super::DaemonEvent;
+                        type ResponseStream = T::SubscribeEventsStream;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::ResponseStream>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::SubscribeEventsRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as DaemonService>::subscribe_events(&inner, request)
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = SubscribeEventsSvc(inner);
+                        let codec = tonic_prost::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.server_streaming(method, req).await;
                         Ok(res)
                     };
                     Box::pin(fut)

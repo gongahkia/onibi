@@ -8,13 +8,13 @@ pub mod v1 {
 #[cfg(test)]
 mod tests {
     use super::v1::{
-        ContactResponse, ContactStatus, ContactVerificationMethod, DeliveryProfileKind,
-        DeliveryProfileResponse, DeliveryStatus, ExportIdentityRecoveryRequest,
-        ExportIdentityRecoveryResponse, GetDeliveryStatusRequest, GetDeliveryStatusResponse,
-        GetStatusResponse, IdentityInitialization, IdentityResponse, ImportIdentityRecoveryRequest,
-        LocalMeshTransportKind, SelectDeliveryProfileRequest, SendMessageRequest,
-        SendMessageResponse, ShutdownDaemonResponse, StartClientResponse, VerifyContactQrRequest,
-        VerifyContactSafetyNumberRequest,
+        ContactResponse, ContactStatus, ContactVerificationMethod, DaemonEvent, DaemonEventKind,
+        DeliveryProfileKind, DeliveryProfileResponse, DeliveryStatus,
+        ExportIdentityRecoveryRequest, ExportIdentityRecoveryResponse, GetDeliveryStatusRequest,
+        GetDeliveryStatusResponse, GetStatusResponse, IdentityInitialization, IdentityResponse,
+        ImportIdentityRecoveryRequest, LocalMeshTransportKind, SelectDeliveryProfileRequest,
+        SendMessageRequest, SendMessageResponse, ShutdownDaemonResponse, StartClientResponse,
+        VerifyContactQrRequest, VerifyContactSafetyNumberRequest,
     };
 
     #[test]
@@ -168,5 +168,22 @@ mod tests {
             Ok(DeliveryProfileKind::Direct)
         );
         assert!(response.direct_ip_disclosure_warning);
+    }
+
+    #[test]
+    fn generated_event_contract_preserves_every_field() {
+        let event = DaemonEvent {
+            version: 1,
+            sequence: 2,
+            kind: DaemonEventKind::MessageQueued.into(),
+            message_identifier: vec![3; 16],
+        };
+        assert_eq!(event.version, 1);
+        assert_eq!(event.sequence, 2);
+        assert_eq!(
+            DaemonEventKind::try_from(event.kind),
+            Ok(DaemonEventKind::MessageQueued)
+        );
+        assert_eq!(event.message_identifier, vec![3; 16]);
     }
 }

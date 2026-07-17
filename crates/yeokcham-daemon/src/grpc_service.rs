@@ -1,18 +1,21 @@
 use std::{
     path::PathBuf,
+    pin::Pin,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
 };
 
-use tokio::sync::Notify;
+use tokio::sync::{Notify, broadcast};
+use tokio_stream::{Stream, StreamExt, wrappers::BroadcastStream};
 use tonic::{Request, Response, Status};
 use yeokcham_core::{ED25519_PUBLIC_KEY_BYTES, IdentityPublicKey, OsKeystore};
 use yeokcham_daemon_api::v1::{
     ApplyContactIdentityRotationRequest, ContactResponse, ContactStatus as RpcContactStatus,
     ContactVerificationMethod as RpcContactVerificationMethod, CreateIdentityRequest,
-    CreateOrLoadIdentityRequest, DeliveryProfileKind as RpcDeliveryProfileKind,
+    CreateOrLoadIdentityRequest, DaemonEvent as RpcDaemonEvent,
+    DaemonEventKind as RpcDaemonEventKind, DeliveryProfileKind as RpcDeliveryProfileKind,
     DeliveryProfileResponse, DeliveryStatus as RpcDeliveryStatus, ExportIdentityRecoveryRequest,
     ExportIdentityRecoveryResponse, GetContactRequest, GetContactResponse,
     GetDeliveryStatusRequest, GetDeliveryStatusResponse, GetIdentityRequest, GetStatusRequest,
@@ -20,8 +23,8 @@ use yeokcham_daemon_api::v1::{
     ImportIdentityRecoveryRequest, ListContactsRequest, ListContactsResponse,
     LocalMeshTransportKind as RpcLocalMeshTransportKind, RevokeContactRequest,
     SelectDeliveryProfileRequest, SendMessageRequest, SendMessageResponse, ShutdownDaemonRequest,
-    ShutdownDaemonResponse, StartClientRequest, StartClientResponse, VerifyContactQrRequest,
-    VerifyContactSafetyNumberRequest, daemon_service_server::DaemonService,
+    ShutdownDaemonResponse, StartClientRequest, StartClientResponse, SubscribeEventsRequest,
+    VerifyContactQrRequest, VerifyContactSafetyNumberRequest, daemon_service_server::DaemonService,
 };
 use yeokcham_protocol::{
     CONTACT_INVITATION_BYTES, DeliveryProfile, DeliveryProfileConstraints, DirectProfileSelection,
@@ -50,11 +53,29 @@ use crate::{
 };
 
 pub const MAX_DAEMON_CONTACTS_RESPONSE: usize = 65_536;
+pub const MAX_DAEMON_EVENT_BACKLOG: usize = 256;
 pub const MAX_DAEMON_MESSAGE_ENVELOPE_BYTES: usize = MAX_MESSAGE_PAYLOAD_BYTES;
+pub const DAEMON_EVENT_VERSION: u32 = 1;
+
+#[derive(Clone, Copy)]
+enum DaemonEvent {
+    ClientStarted,
+    ClientStopped,
+    MessageQueued([u8; MESSAGE_IDENTIFIER_BYTES]),
+}
+
+#[derive(Clone, Copy)]
+struct DaemonEventEnvelope {
+    sequence: u64,
+    event: DaemonEvent,
+}
 
 #[derive(Clone)]
 pub struct DaemonGrpcService {
     version: ProtocolVersion,
+    client_started: Arc<AtomicBool>,
+    events: broadcast::Sender<DaemonEventEnvelope>,
+    next_event_sequence: Arc<AtomicU64>,
     running: Arc<AtomicBool>,
     shutdown_signal: Arc<Notify>,
     identity: Arc<dyn DaemonIdentityOperations>,
@@ -65,8 +86,12 @@ pub struct DaemonGrpcService {
 impl DaemonGrpcService {
     #[must_use]
     pub fn new(version: ProtocolVersion) -> Self {
+        let (events, _) = broadcast::channel(MAX_DAEMON_EVENT_BACKLOG);
         Self {
             version,
+            client_started: Arc::new(AtomicBool::new(false)),
+            events,
+            next_event_sequence: Arc::new(AtomicU64::new(1)),
             running: Arc::new(AtomicBool::new(true)),
             shutdown_signal: Arc::new(Notify::new()),
             identity: Arc::new(UnavailableIdentityOperations),
@@ -81,8 +106,12 @@ impl DaemonGrpcService {
         K: OsKeystore + Send + 'static,
     {
         let keystore = Arc::new(Mutex::new(keystore));
+        let (events, _) = broadcast::channel(MAX_DAEMON_EVENT_BACKLOG);
         Self {
             version,
+            client_started: Arc::new(AtomicBool::new(false)),
+            events,
+            next_event_sequence: Arc::new(AtomicU64::new(1)),
             running: Arc::new(AtomicBool::new(true)),
             shutdown_signal: Arc::new(Notify::new()),
             identity: Arc::new(KeystoreIdentityOperations { keystore }),
@@ -102,8 +131,12 @@ impl DaemonGrpcService {
         K: OsKeystore + Send + 'static,
     {
         let keystore = Arc::new(Mutex::new(keystore));
+        let (events, _) = broadcast::channel(MAX_DAEMON_EVENT_BACKLOG);
         Self {
             version,
+            client_started: Arc::new(AtomicBool::new(false)),
+            events,
+            next_event_sequence: Arc::new(AtomicU64::new(1)),
             running: Arc::new(AtomicBool::new(true)),
             shutdown_signal: Arc::new(Notify::new()),
             identity: Arc::new(KeystoreIdentityOperations {
@@ -156,9 +189,13 @@ impl DaemonGrpcService {
         Err(DaemonGrpcServiceConfigurationError::UnsupportedPlatform)
     }
 
-    pub fn shutdown(&self) {
+    #[must_use]
+    pub fn shutdown(&self) -> bool {
         if self.running.swap(false, Ordering::AcqRel) {
             self.shutdown_signal.notify_waiters();
+            true
+        } else {
+            false
         }
     }
 
@@ -178,6 +215,17 @@ impl DaemonGrpcService {
             0,
             self.running.load(Ordering::Acquire),
         )
+    }
+
+    fn emit(&self, event: DaemonEvent) -> Result<(), Status> {
+        let sequence = self
+            .next_event_sequence
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |sequence| {
+                sequence.checked_add(1)
+            })
+            .map_err(|_| Status::resource_exhausted("daemon event sequence is exhausted"))?;
+        let _ = self.events.send(DaemonEventEnvelope { sequence, event });
+        Ok(())
     }
 }
 
@@ -763,6 +811,22 @@ fn delivery_status_response(state: StoredDeliveryState) -> GetDeliveryStatusResp
     }
 }
 
+fn daemon_event_response(event: DaemonEventEnvelope) -> RpcDaemonEvent {
+    let (kind, message_identifier) = match event.event {
+        DaemonEvent::ClientStarted => (RpcDaemonEventKind::ClientStarted, Vec::new()),
+        DaemonEvent::ClientStopped => (RpcDaemonEventKind::ClientStopped, Vec::new()),
+        DaemonEvent::MessageQueued(identifier) => {
+            (RpcDaemonEventKind::MessageQueued, identifier.to_vec())
+        }
+    };
+    RpcDaemonEvent {
+        version: DAEMON_EVENT_VERSION,
+        sequence: event.sequence,
+        kind: kind.into(),
+        message_identifier,
+    }
+}
+
 fn select_delivery_profile(
     request: &SelectDeliveryProfileRequest,
 ) -> Result<DeliveryProfileResponse, Status> {
@@ -964,11 +1028,24 @@ fn map_contact_store_error(error: &ContactStoreError) -> Status {
 
 #[tonic::async_trait]
 impl DaemonService for DaemonGrpcService {
+    type SubscribeEventsStream =
+        Pin<Box<dyn Stream<Item = Result<RpcDaemonEvent, Status>> + Send + 'static>>;
+
     async fn start_client(
         &self,
         _request: Request<StartClientRequest>,
     ) -> Result<Response<StartClientResponse>, Status> {
         let (api_major, api_minor, running) = self.status_response();
+        if running
+            && self
+                .client_started
+                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+            && let Err(error) = self.emit(DaemonEvent::ClientStarted)
+        {
+            self.client_started.store(false, Ordering::Release);
+            return Err(error);
+        }
         Ok(Response::new(StartClientResponse {
             api_major,
             api_minor,
@@ -980,7 +1057,9 @@ impl DaemonService for DaemonGrpcService {
         &self,
         _request: Request<ShutdownDaemonRequest>,
     ) -> Result<Response<ShutdownDaemonResponse>, Status> {
-        self.shutdown();
+        if self.shutdown() && self.client_started.swap(false, Ordering::AcqRel) {
+            self.emit(DaemonEvent::ClientStopped)?;
+        }
         Ok(Response::new(ShutdownDaemonResponse { running: false }))
     }
 
@@ -1100,14 +1179,19 @@ impl DaemonService for DaemonGrpcService {
         request: Request<SendMessageRequest>,
     ) -> Result<Response<SendMessageResponse>, Status> {
         let request = request.into_inner();
-        self.outbox
-            .queue(
-                &request.recipient,
-                &request.envelope,
-                request.created_at,
-                request.ttl_seconds,
-            )
-            .map(Response::new)
+        let response = self.outbox.queue(
+            &request.recipient,
+            &request.envelope,
+            request.created_at,
+            request.ttl_seconds,
+        )?;
+        let identifier: [u8; MESSAGE_IDENTIFIER_BYTES] = response
+            .message_identifier
+            .as_slice()
+            .try_into()
+            .map_err(|_| Status::internal("daemon message operation failed"))?;
+        self.emit(DaemonEvent::MessageQueued(identifier))?;
+        Ok(Response::new(response))
     }
 
     async fn get_delivery_status(
@@ -1127,6 +1211,18 @@ impl DaemonService for DaemonGrpcService {
         select_delivery_profile(&request).map(Response::new)
     }
 
+    async fn subscribe_events(
+        &self,
+        _request: Request<SubscribeEventsRequest>,
+    ) -> Result<Response<Self::SubscribeEventsStream>, Status> {
+        let stream = BroadcastStream::new(self.events.subscribe()).map(|event| {
+            event
+                .map(daemon_event_response)
+                .map_err(|_| Status::resource_exhausted("daemon event stream lagged"))
+        });
+        Ok(Response::new(Box::pin(stream)))
+    }
+
     async fn get_status(
         &self,
         _request: Request<GetStatusRequest>,
@@ -1144,13 +1240,15 @@ impl DaemonService for DaemonGrpcService {
 mod tests {
     use std::path::PathBuf;
 
+    use tokio_stream::StreamExt;
     use tonic::{Code, Request};
     use yeokcham_core::IdentityKeypair;
     use yeokcham_core::{KeystoreEntryName, KeystoreSecret, OsKeystore};
     use yeokcham_daemon_api::v1::{
-        DeliveryProfileKind as RpcDeliveryProfileKind, GetIdentityRequest, GetStatusRequest,
-        ListContactsRequest, LocalMeshTransportKind as RpcLocalMeshTransportKind,
-        SelectDeliveryProfileRequest, SendMessageRequest, StartClientRequest,
+        DaemonEventKind as RpcDaemonEventKind, DeliveryProfileKind as RpcDeliveryProfileKind,
+        GetIdentityRequest, GetStatusRequest, ListContactsRequest,
+        LocalMeshTransportKind as RpcLocalMeshTransportKind, SelectDeliveryProfileRequest,
+        SendMessageRequest, ShutdownDaemonRequest, StartClientRequest, SubscribeEventsRequest,
         daemon_service_server::DaemonService,
     };
     use yeokcham_protocol::{
@@ -1159,7 +1257,8 @@ mod tests {
     };
 
     use super::{
-        DaemonGrpcService, recovery_archive, recovery_passphrase, select_delivery_profile,
+        DAEMON_EVENT_VERSION, DaemonEvent, DaemonGrpcService, MAX_DAEMON_EVENT_BACKLOG,
+        recovery_archive, recovery_passphrase, select_delivery_profile,
     };
 
     #[derive(Debug, thiserror::Error)]
@@ -1199,7 +1298,7 @@ mod tests {
         assert_eq!(running.api_major, u32::from(ProtocolVersion::INITIAL.get()));
         assert_eq!(running.api_minor, 0);
         assert!(running.running);
-        service.shutdown();
+        let _ = service.shutdown();
         let stopped = service
             .get_status(Request::new(GetStatusRequest {}))
             .await
@@ -1224,7 +1323,7 @@ mod tests {
             assert_eq!(response.api_minor, 0);
             assert!(response.running);
         }
-        service.shutdown();
+        let _ = service.shutdown();
         assert!(
             !service
                 .start_client(Request::new(StartClientRequest {}))
@@ -1378,5 +1477,54 @@ mod tests {
         let error = recovery_archive(&[0; IDENTITY_EXPORT_BYTES - 1]).unwrap_err();
         assert_eq!(error.code(), Code::InvalidArgument);
         assert_eq!(error.message(), "recovery archive is invalid");
+    }
+
+    #[tokio::test]
+    async fn event_stream_is_ordered_and_lifecycle_bounded() {
+        let service = DaemonGrpcService::new(ProtocolVersion::INITIAL);
+        let mut events = service
+            .subscribe_events(Request::new(SubscribeEventsRequest {}))
+            .await
+            .unwrap()
+            .into_inner();
+        service
+            .start_client(Request::new(StartClientRequest {}))
+            .await
+            .unwrap();
+        service
+            .shutdown_daemon(Request::new(ShutdownDaemonRequest {}))
+            .await
+            .unwrap();
+        let started = events.next().await.unwrap().unwrap();
+        let stopped = events.next().await.unwrap().unwrap();
+        assert_eq!(started.version, DAEMON_EVENT_VERSION);
+        assert_eq!(started.sequence, 1);
+        assert_eq!(
+            RpcDaemonEventKind::try_from(started.kind),
+            Ok(RpcDaemonEventKind::ClientStarted)
+        );
+        assert!(started.message_identifier.is_empty());
+        assert_eq!(stopped.sequence, 2);
+        assert_eq!(
+            RpcDaemonEventKind::try_from(stopped.kind),
+            Ok(RpcDaemonEventKind::ClientStopped)
+        );
+        assert!(stopped.message_identifier.is_empty());
+    }
+
+    #[tokio::test]
+    async fn event_stream_reports_lag_without_silent_gaps() {
+        let service = DaemonGrpcService::new(ProtocolVersion::INITIAL);
+        let mut events = service
+            .subscribe_events(Request::new(SubscribeEventsRequest {}))
+            .await
+            .unwrap()
+            .into_inner();
+        for _ in 0..=MAX_DAEMON_EVENT_BACKLOG {
+            service.emit(DaemonEvent::ClientStarted).unwrap();
+        }
+        let error = events.next().await.unwrap().unwrap_err();
+        assert_eq!(error.code(), Code::ResourceExhausted);
+        assert_eq!(error.message(), "daemon event stream lagged");
     }
 }
