@@ -900,4 +900,67 @@ mod tests {
         runtime.shutdown().unwrap();
         fs::remove_dir_all(state_directory).unwrap();
     }
+
+    #[tokio::test]
+    async fn maps_daemon_failures_to_authenticated_grpc_statuses() {
+        let state_directory = state_directory();
+        let mut runtime = DaemonRuntime::start(ProtocolVersion::INITIAL, &state_directory).unwrap();
+        let (auth, token) = DaemonLocalAuth::initialize().unwrap();
+        let server =
+            DaemonServer::bind_with_identity_keystore(&runtime, auth, MemoryKeystore::default())
+                .unwrap();
+        let socket_path = server.socket_path().to_path_buf();
+        let (shutdown_sender, shutdown_receiver) = oneshot::channel();
+
+        let server = server.serve_until(async move {
+            let _ = shutdown_receiver.await;
+        });
+        let client = async {
+            let mut client = contact_client(socket_path.clone()).await;
+            assert_eq!(
+                client
+                    .list_contacts(authenticated_request(ListContactsRequest {}, &token))
+                    .await
+                    .unwrap_err()
+                    .code(),
+                Code::FailedPrecondition
+            );
+            assert_eq!(
+                client
+                    .send_message(authenticated_request(
+                        SendMessageRequest {
+                            recipient: vec![0; 31],
+                            envelope: vec![0xa1],
+                            created_at: 100,
+                            ttl_seconds: 60,
+                        },
+                        &token,
+                    ))
+                    .await
+                    .unwrap_err()
+                    .code(),
+                Code::InvalidArgument
+            );
+            let identifier = MessageIdentifier::generate().unwrap();
+            assert_eq!(
+                client
+                    .get_delivery_status(authenticated_request(
+                        GetDeliveryStatusRequest {
+                            message_identifier: identifier.as_bytes().to_vec(),
+                        },
+                        &token,
+                    ))
+                    .await
+                    .unwrap_err()
+                    .code(),
+                Code::NotFound
+            );
+            shutdown_sender.send(()).unwrap();
+        };
+        let (server, ()) = tokio::join!(server, client);
+        assert!(server.is_ok());
+        assert!(!socket_path.exists());
+        runtime.shutdown().unwrap();
+        fs::remove_dir_all(state_directory).unwrap();
+    }
 }
