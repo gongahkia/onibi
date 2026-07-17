@@ -5,9 +5,9 @@ use std::ffi::c_void;
 use libfuzzer_sys::fuzz_target;
 use yeokcham_ffi::{
     YeokchamEvent, YeokchamStatus, yeokcham_client_complete_async,
-    yeokcham_client_config_builder_build,
-    yeokcham_client_copy_last_error_detail, yeokcham_client_release, yeokcham_client_start,
-    yeokcham_client_stop, yeokcham_client_subscribe_events, yeokcham_client_take_last_error_detail,
+    yeokcham_client_config_builder_build, yeokcham_client_copy_last_error_detail,
+    yeokcham_client_release, yeokcham_client_start, yeokcham_client_stop,
+    yeokcham_client_subscribe_events, yeokcham_client_take_last_error_detail,
     yeokcham_event_subscription_poll,
 };
 
@@ -28,20 +28,10 @@ fuzz_target!(|data: &[u8]| {
         yeokcham_client_release(client),
         YeokchamStatus::InvalidInput
     );
+    assert_eq!(yeokcham_client_start(client), YeokchamStatus::InvalidInput);
+    assert_eq!(yeokcham_client_stop(client), YeokchamStatus::InvalidInput);
     assert_eq!(
-        yeokcham_client_start(client),
-        YeokchamStatus::InvalidInput
-    );
-    assert_eq!(
-        yeokcham_client_stop(client),
-        YeokchamStatus::InvalidInput
-    );
-    assert_eq!(
-        yeokcham_client_complete_async(
-            client,
-            Some(completion),
-            std::ptr::null_mut(),
-        ),
+        yeokcham_client_complete_async(client, Some(completion), std::ptr::null_mut(),),
         YeokchamStatus::InvalidInput
     );
     assert_eq!(
