@@ -9,7 +9,7 @@ use std::{
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
-    sync::watch,
+    sync::{oneshot, watch},
     time::{self, MissedTickBehavior},
 };
 use tokio_stream::wrappers::TcpListenerStream;
@@ -35,6 +35,7 @@ pub struct RelayServer {
 }
 
 const RETENTION_GARBAGE_COLLECTION_INTERVAL: Duration = Duration::from_secs(60);
+pub const DEFAULT_RELAY_GRACEFUL_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(30);
 const OBSERVABILITY_REQUEST_TIMEOUT: Duration = Duration::from_secs(1);
 const MAX_OBSERVABILITY_REQUEST_BYTES: usize = 1024;
 const HEALTHY_RESPONSE: &[u8] = b"HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\ncontent-length: 3\r\nconnection: close\r\n\r\nok\n";
@@ -66,6 +67,12 @@ pub enum RelayServerError {
     HealthTask,
     #[error("relay metrics task stopped unexpectedly")]
     MetricsTask,
+    #[error("relay graceful shutdown timeout must be nonzero")]
+    ZeroGracefulShutdownTimeout,
+    #[error("relay graceful shutdown signal stopped unexpectedly")]
+    GracefulShutdownSignal,
+    #[error("relay graceful shutdown exceeded its drain deadline")]
+    GracefulShutdownTimeout,
 }
 
 impl RelayServer {
@@ -173,6 +180,21 @@ impl RelayServer {
     where
         F: Future<Output = ()>,
     {
+        self.serve_until_with_drain_timeout(shutdown, DEFAULT_RELAY_GRACEFUL_SHUTDOWN_TIMEOUT)
+            .await
+    }
+
+    pub async fn serve_until_with_drain_timeout<F>(
+        self,
+        shutdown: F,
+        drain_timeout: Duration,
+    ) -> Result<(), RelayServerError>
+    where
+        F: Future<Output = ()>,
+    {
+        if drain_timeout.is_zero() {
+            return Err(RelayServerError::ZeroGracefulShutdownTimeout);
+        }
         let Self {
             listener,
             service,
@@ -219,6 +241,7 @@ impl RelayServer {
         });
         let server_shutdown = shutdown_receiver.clone();
         let server_shutdown_sender = shutdown_sender.clone();
+        let (server_shutdown_started_sender, mut server_shutdown_started) = oneshot::channel();
         let server = Server::builder()
             .add_service(RelayServiceServer::new(service))
             .serve_with_incoming_shutdown(TcpListenerStream::new(listener), async move {
@@ -228,8 +251,23 @@ impl RelayServer {
                     }
                     () = wait_for_shutdown(server_shutdown) => {}
                 }
-            })
-            .await;
+                let _ = server_shutdown_started_sender.send(());
+            });
+        tokio::pin!(server);
+        let server = tokio::select! {
+            result = &mut server => Ok(result),
+            result = &mut server_shutdown_started => {
+                match result {
+                    Ok(()) => time::timeout(drain_timeout, &mut server)
+                        .await
+                        .map_or_else(
+                            |_| Err(RelayServerError::GracefulShutdownTimeout),
+                            Ok,
+                        ),
+                    Err(_) => Err(RelayServerError::GracefulShutdownSignal),
+                }
+            }
+        };
         let _ = shutdown_sender.send(true);
         let garbage_collection = garbage_collection
             .await
@@ -242,6 +280,7 @@ impl RelayServer {
             Some(metrics) => metrics.await.map_err(|_| RelayServerError::MetricsTask)?,
             None => Ok(()),
         };
+        let server = server?;
         server.map_err(RelayServerError::Transport)?;
         garbage_collection.and(health).and(metrics)
     }
@@ -860,6 +899,7 @@ mod tests {
         net::SocketAddr,
         path::PathBuf,
         sync::atomic::{AtomicU64, Ordering},
+        time::Duration,
     };
 
     use rusqlite::Connection;
@@ -1709,6 +1749,70 @@ mod tests {
         };
         let (server, ()) = tokio::join!(server, client);
         assert!(server.is_ok());
+    }
+
+    #[tokio::test]
+    async fn gracefully_stops_and_releases_all_relay_listeners() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let relay_address = listener.local_addr().unwrap();
+        let health_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let health = RelayHealthEndpoint::new(health_listener.local_addr().unwrap()).unwrap();
+        let health_address = health.address();
+        let metrics_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let metrics = RelayMetricsEndpoint::new(metrics_listener.local_addr().unwrap()).unwrap();
+        let metrics_address = metrics.address();
+        let server = RelayServer::from_listener(
+            listener,
+            RelayDatabase::from_connection(Connection::open_in_memory().unwrap()).unwrap(),
+            MailboxQuota::new(5).unwrap(),
+            RelayRetentionPolicy::new(60).unwrap(),
+            RelaySigningKeypair::generate().unwrap(),
+        )
+        .with_health_listener(health_listener, health)
+        .with_metrics_listener(metrics_listener, metrics);
+        let (shutdown_sender, shutdown_receiver) = oneshot::channel();
+        let server = server.serve_until(async move {
+            let _ = shutdown_receiver.await;
+        });
+        let client = async {
+            assert!(
+                health_response(health_address, "GET /healthz HTTP/1.1\r\n\r\n")
+                    .await
+                    .starts_with("HTTP/1.1 200 OK")
+            );
+            assert!(
+                health_response(metrics_address, "GET /metrics HTTP/1.1\r\n\r\n")
+                    .await
+                    .starts_with("HTTP/1.1 200 OK")
+            );
+            shutdown_sender.send(()).unwrap();
+        };
+        let (server, ()) = tokio::join!(server, client);
+        assert!(server.is_ok());
+        TcpListener::bind(relay_address).await.unwrap();
+        TcpListener::bind(health_address).await.unwrap();
+        TcpListener::bind(metrics_address).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn rejects_a_zero_graceful_shutdown_timeout_without_leaking_the_listener() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = RelayServer::from_listener(
+            listener,
+            RelayDatabase::from_connection(Connection::open_in_memory().unwrap()).unwrap(),
+            MailboxQuota::new(5).unwrap(),
+            RelayRetentionPolicy::new(60).unwrap(),
+            RelaySigningKeypair::generate().unwrap(),
+        );
+
+        assert!(matches!(
+            server
+                .serve_until_with_drain_timeout(std::future::pending(), Duration::ZERO)
+                .await,
+            Err(RelayServerError::ZeroGracefulShutdownTimeout)
+        ));
+        TcpListener::bind(address).await.unwrap();
     }
 
     async fn health_response(address: SocketAddr, request: &str) -> String {
