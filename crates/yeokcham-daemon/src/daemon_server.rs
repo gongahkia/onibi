@@ -122,6 +122,7 @@ mod tests {
     use tokio::{net::UnixStream, sync::oneshot};
     use tonic::{
         Code, Request,
+        client::Grpc,
         transport::{Channel, Endpoint},
     };
     use tower::service_fn;
@@ -132,7 +133,7 @@ mod tests {
         ApplyContactIdentityRotationRequest, ContactResponse, ContactStatus as RpcContactStatus,
         ContactVerificationMethod as RpcContactVerificationMethod, CreateIdentityRequest,
         CreateOrLoadIdentityRequest, DeliveryStatus as RpcDeliveryStatus, GetContactRequest,
-        GetDeliveryStatusRequest, GetIdentityRequest, IdentityInitialization,
+        GetDeliveryStatusRequest, GetIdentityRequest, GetStatusResponse, IdentityInitialization,
         ImportContactInvitationRequest, ListContactsRequest, RevokeContactRequest,
         SendMessageRequest, ShutdownDaemonRequest, StartClientRequest, VerifyContactQrRequest,
         VerifyContactSafetyNumberRequest, daemon_service_client::DaemonServiceClient,
@@ -149,6 +150,18 @@ mod tests {
     };
 
     static NEXT_TEST_PATH: AtomicU64 = AtomicU64::new(0);
+
+    #[derive(Clone, PartialEq, prost::Message)]
+    struct FutureGetStatusRequest {
+        #[prost(uint32, tag = "99")]
+        future_field: u32,
+    }
+
+    #[derive(Clone, PartialEq, prost::Message)]
+    struct OversizedFutureGetStatusRequest {
+        #[prost(bytes = "vec", tag = "99")]
+        future_field: Vec<u8>,
+    }
 
     fn state_directory() -> PathBuf {
         let number = NEXT_TEST_PATH.fetch_add(1, Ordering::Relaxed);
@@ -371,14 +384,109 @@ mod tests {
     }
 
     async fn contact_client(socket_path: PathBuf) -> DaemonServiceClient<Channel> {
-        let channel = Endpoint::from_static("http://[::]:50051")
+        DaemonServiceClient::new(daemon_channel(socket_path).await)
+    }
+
+    async fn daemon_channel(socket_path: PathBuf) -> Channel {
+        Endpoint::from_static("http://[::]:50051")
             .connect_with_connector(service_fn(move |_| {
                 let socket_path = socket_path.clone();
                 async move { UnixStream::connect(socket_path).await.map(TokioIo::new) }
             }))
             .await
-            .unwrap();
-        DaemonServiceClient::new(channel)
+            .unwrap()
+    }
+
+    async fn raw_get_status<RequestMessage>(
+        client: &mut Grpc<Channel>,
+        request: Request<RequestMessage>,
+        path: &'static str,
+    ) -> Result<tonic::Response<GetStatusResponse>, tonic::Status>
+    where
+        RequestMessage: prost::Message + Send + Sync + 'static,
+    {
+        client
+            .ready()
+            .await
+            .map_err(|_| tonic::Status::unavailable("daemon gRPC client is unavailable"))?;
+        client
+            .unary(
+                request,
+                tonic::codegen::http::uri::PathAndQuery::from_static(path),
+                tonic_prost::ProstCodec::<RequestMessage, GetStatusResponse>::default(),
+            )
+            .await
+    }
+
+    #[tokio::test]
+    async fn daemon_grpc_schema_accepts_future_fields_and_rejects_invalid_boundaries() {
+        const GET_STATUS_PATH: &str = "/yeokcham.daemon.v1.DaemonService/GetStatus";
+        const UNKNOWN_STATUS_PATH: &str = "/yeokcham.daemon.v1.DaemonService/GetStatusV2";
+        const MAX_GRPC_MESSAGE_BYTES: usize = 4 * 1024 * 1024;
+
+        let state_directory = state_directory();
+        let mut runtime = DaemonRuntime::start(ProtocolVersion::INITIAL, &state_directory).unwrap();
+        let (auth, token) = DaemonLocalAuth::initialize().unwrap();
+        let server =
+            DaemonServer::bind_with_identity_keystore(&runtime, auth, MemoryKeystore::default())
+                .unwrap();
+        let socket_path = server.socket_path().to_path_buf();
+        let (shutdown_sender, shutdown_receiver) = oneshot::channel();
+
+        let server = server.serve_until(async move {
+            let _ = shutdown_receiver.await;
+        });
+        let client = async {
+            let mut client = Grpc::new(daemon_channel(socket_path.clone()).await);
+            let response = raw_get_status(
+                &mut client,
+                authenticated_request(
+                    FutureGetStatusRequest {
+                        future_field: u32::MAX,
+                    },
+                    &token,
+                ),
+                GET_STATUS_PATH,
+            )
+            .await
+            .unwrap()
+            .into_inner();
+            assert_eq!(
+                response.api_major,
+                u32::from(ProtocolVersion::INITIAL.get())
+            );
+            assert_eq!(response.api_minor, 0);
+            assert!(response.running);
+
+            let oversized = raw_get_status(
+                &mut client,
+                authenticated_request(
+                    OversizedFutureGetStatusRequest {
+                        future_field: vec![0; MAX_GRPC_MESSAGE_BYTES],
+                    },
+                    &token,
+                ),
+                GET_STATUS_PATH,
+            )
+            .await
+            .unwrap_err();
+            assert_eq!(oversized.code(), Code::OutOfRange);
+
+            let unknown = raw_get_status(
+                &mut client,
+                authenticated_request(FutureGetStatusRequest { future_field: 0 }, &token),
+                UNKNOWN_STATUS_PATH,
+            )
+            .await
+            .unwrap_err();
+            assert_eq!(unknown.code(), Code::Unimplemented);
+            shutdown_sender.send(()).unwrap();
+        };
+        let (server, ()) = tokio::join!(server, client);
+        assert!(server.is_ok());
+        assert!(!socket_path.exists());
+        runtime.shutdown().unwrap();
+        fs::remove_dir_all(state_directory).unwrap();
     }
 
     async fn import_and_load_pending_contact(
