@@ -1,4 +1,10 @@
-use std::{future::Future, io, net::SocketAddr};
+use std::{
+    future::Future,
+    io,
+    net::SocketAddr,
+    sync::{Arc, Mutex},
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use tokio::net::TcpListener;
 use tokio_stream::wrappers::TcpListenerStream;
@@ -8,10 +14,13 @@ use yeokcham_relay_api::v1::{
     relay_service_server::{RelayService, RelayServiceServer},
 };
 
-use crate::{RelayDatabase, RelayDatabaseError, SelfHostedRelayConfig};
+use crate::{
+    MailboxCapability, MailboxQuota, RelayDatabase, RelayDatabaseError, SelfHostedRelayConfig,
+};
 
 pub struct RelayServer {
     listener: TcpListener,
+    service: RelayGrpcService,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -26,10 +35,10 @@ pub enum RelayServerError {
 
 impl RelayServer {
     pub async fn bind(config: &SelfHostedRelayConfig) -> Result<Self, RelayServerError> {
-        let _ = RelayDatabase::open(config.database_path())?;
+        let database = RelayDatabase::open(config.database_path())?;
         TcpListener::bind(config.listen_address())
             .await
-            .map(Self::from_listener)
+            .map(|listener| Self::from_listener(listener, database, config.mailbox_quota()))
             .map_err(RelayServerError::Listener)
     }
 
@@ -43,19 +52,35 @@ impl RelayServer {
     where
         F: Future<Output = ()>,
     {
+        let Self { listener, service } = self;
         Server::builder()
-            .add_service(RelayServiceServer::new(RelayGrpcService))
-            .serve_with_incoming_shutdown(TcpListenerStream::new(self.listener), shutdown)
+            .add_service(RelayServiceServer::new(service))
+            .serve_with_incoming_shutdown(TcpListenerStream::new(listener), shutdown)
             .await
             .map_err(RelayServerError::Transport)
     }
 
-    const fn from_listener(listener: TcpListener) -> Self {
-        Self { listener }
+    fn from_listener(listener: TcpListener, database: RelayDatabase, quota: MailboxQuota) -> Self {
+        Self {
+            listener,
+            service: RelayGrpcService::new(database, quota),
+        }
     }
 }
 
-struct RelayGrpcService;
+struct RelayGrpcService {
+    database: Arc<Mutex<RelayDatabase>>,
+    quota: MailboxQuota,
+}
+
+impl RelayGrpcService {
+    fn new(database: RelayDatabase, quota: MailboxQuota) -> Self {
+        Self {
+            database: Arc::new(Mutex::new(database)),
+            quota,
+        }
+    }
+}
 
 fn unavailable<T>() -> Result<Response<T>, Status> {
     Err(Status::unimplemented("relay RPC is not implemented"))
@@ -65,9 +90,25 @@ fn unavailable<T>() -> Result<Response<T>, Status> {
 impl RelayService for RelayGrpcService {
     async fn register_mailbox(
         &self,
-        _request: Request<v1::RegisterMailboxRequest>,
+        request: Request<v1::RegisterMailboxRequest>,
     ) -> Result<Response<v1::RegisterMailboxResponse>, Status> {
-        unavailable()
+        let capability = MailboxCapability::decode(&request.into_inner().mailbox_capability)
+            .map_err(|_| Status::invalid_argument("mailbox capability is invalid"))?;
+        let created_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|_| Status::internal("relay clock is unavailable"))?
+            .as_secs();
+        let mut database = self
+            .database
+            .lock()
+            .map_err(|_| Status::internal("relay database is unavailable"))?;
+        match database.register_mailbox(&capability, self.quota, created_at) {
+            Ok(()) => Ok(Response::new(v1::RegisterMailboxResponse {})),
+            Err(RelayDatabaseError::MailboxAlreadyRegistered) => {
+                Err(Status::already_exists("mailbox is already registered"))
+            }
+            Err(_) => Err(Status::internal("mailbox registration failed")),
+        }
     }
 
     async fn store_envelope(
@@ -127,20 +168,30 @@ mod tests {
         sync::atomic::{AtomicU64, Ordering},
     };
 
+    use rusqlite::Connection;
     use tokio::{net::TcpListener, sync::oneshot};
     use tonic::Code;
-    use yeokcham_relay_api::v1::{StoreEnvelopeRequest, relay_service_client::RelayServiceClient};
+    use yeokcham_protocol::{
+        MAILBOX_CAPABILITY_TOKEN_BYTES, MAILBOX_IDENTIFIER_BYTES, MailboxCapability,
+    };
+    use yeokcham_relay_api::v1::{
+        RegisterMailboxRequest, StoreEnvelopeRequest, relay_service_client::RelayServiceClient,
+    };
 
     use super::{RelayServer, RelayServerError};
-    use crate::{MailboxQuota, RelayRetentionPolicy, SelfHostedRelayConfig};
+    use crate::{MailboxQuota, RelayDatabase, RelayRetentionPolicy, SelfHostedRelayConfig};
 
     static NEXT_TEST_PATH: AtomicU64 = AtomicU64::new(0);
 
     #[tokio::test]
-    async fn serves_the_generated_relay_contract_and_releases_the_listener() {
+    async fn registers_canonical_mailboxes_over_the_generated_relay_contract() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
-        let server = RelayServer::from_listener(listener);
+        let server = RelayServer::from_listener(
+            listener,
+            RelayDatabase::from_connection(Connection::open_in_memory().unwrap()).unwrap(),
+            MailboxQuota::new(1024).unwrap(),
+        );
         let (shutdown_sender, shutdown_receiver) = oneshot::channel();
         let server = server.serve_until(async move {
             let _ = shutdown_receiver.await;
@@ -149,6 +200,39 @@ mod tests {
             let mut client = RelayServiceClient::connect(format!("http://{address}"))
                 .await
                 .unwrap();
+            let capability = MailboxCapability::new(
+                [0x11; MAILBOX_IDENTIFIER_BYTES],
+                [0x22; MAILBOX_CAPABILITY_TOKEN_BYTES],
+            )
+            .unwrap()
+            .encode()
+            .unwrap();
+            client
+                .register_mailbox(RegisterMailboxRequest {
+                    mailbox_capability: capability.clone(),
+                })
+                .await
+                .unwrap();
+            assert_eq!(
+                client
+                    .register_mailbox(RegisterMailboxRequest {
+                        mailbox_capability: capability,
+                    })
+                    .await
+                    .unwrap_err()
+                    .code(),
+                Code::AlreadyExists
+            );
+            assert_eq!(
+                client
+                    .register_mailbox(RegisterMailboxRequest {
+                        mailbox_capability: vec![0],
+                    })
+                    .await
+                    .unwrap_err()
+                    .code(),
+                Code::InvalidArgument
+            );
             assert_eq!(
                 client
                     .store_envelope(StoreEnvelopeRequest {
