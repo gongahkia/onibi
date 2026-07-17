@@ -155,7 +155,6 @@ After `./bin/onibi up` and phone pairing:
 - [`docs/ghostty-parity.md`](./docs/ghostty-parity.md): Ghostty/web cockpit visual parity smoke.
 - [`docs/terminal-fidelity.md`](./docs/terminal-fidelity.md): iPhone Safari terminal application smoke matrix.
 - [`docs/branding.md`](./docs/branding.md): Onibi and Ghostty naming boundaries.
-- [`docs/files-panel.md`](./docs/files-panel.md): file tree/view/edit security model.
 - [`docs/sharing.md`](./docs/sharing.md): read-only viewer sharing threat model and TTL guidance.
 - [`docs/team-setup.md`](./docs/team-setup.md): one-owner, one-viewer workspace sharing walkthrough.
 - [`docs/tap-integrity.md`](./docs/tap-integrity.md): Homebrew tap checksum and GPG verification.

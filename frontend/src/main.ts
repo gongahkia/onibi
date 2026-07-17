@@ -24,7 +24,6 @@ import { saveLastSessionID, SessionsListView, SessionsPanel } from "./sessions";
 import { SnapshotsPanel } from "./snapshots";
 import { TimelinePanel } from "./timeline";
 import { RecordingPlayerPanel } from "./recording-player";
-import { FilesPanel } from "./files";
 import { refreshPushSubscription, subscribePushFromGesture } from "./push";
 import { startFirstRunTour } from "./tour";
 import { ApprovalWakeLock } from "./wake-lock";
@@ -65,7 +64,6 @@ const sessionsRoot = requireElement("sessions");
 const snapshotsRoot = requireElement("snapshots");
 const timelineRoot = requireElement("timeline");
 const recordingsRoot = requireElement("recordings");
-const filesRoot = requireElement("files");
 const softkeys = requireElement("softkeys");
 const toast = requireElement("toast");
 let theme = loadTheme();
@@ -192,15 +190,6 @@ async function boot(): Promise<void> {
     );
     timeline = new TimelinePanel(timelineRoot, info.session_id);
     recordings = new RecordingPlayerPanel(recordingsRoot, getJSON, getText, showToast);
-    const filesPanel = new FilesPanel(
-      filesRoot,
-      info.session_id,
-      getJSON,
-      putJSON,
-      () => theme,
-      showToast,
-      viewerMode
-    );
     const imagePaste = viewerMode
       ? undefined
       : installImagePaste({
@@ -232,7 +221,6 @@ async function boot(): Promise<void> {
       { label: "Timeline", action: () => timeline?.toggle() },
       { label: "Snapshots", action: () => snapshots?.toggle() },
       { label: "Recordings", action: () => recordings?.toggle() },
-      { label: "Files", action: () => filesPanel.toggle() },
       ...(sharePanel === undefined ? [] : [{ label: "Share", action: () => sharePanel.open() }])
     ]);
     installControls(toolbar, agentsFeed, tools, interventionPanel);
@@ -475,12 +463,8 @@ async function postJSON(path: string, body: Record<string, unknown>): Promise<Re
   return sendJSON("POST", path, body);
 }
 
-async function putJSON(path: string, body: Record<string, unknown>): Promise<Response> {
-  return sendJSON("PUT", path, body);
-}
-
 async function uploadImage(request: ImageUploadRequest): Promise<string> {
-  const response = await postJSON("/files/upload", request);
+  const response = await postJSON("/attachments/images", request);
   if (!response.ok) {
     throw new Error((await response.text()).trim() || `upload ${response.status}`);
   }
