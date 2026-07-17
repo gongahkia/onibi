@@ -14,10 +14,13 @@ use yeokcham_daemon_api::v1::{
     CreateOrLoadIdentityRequest, GetContactRequest, GetContactResponse, GetIdentityRequest,
     GetStatusRequest, GetStatusResponse, IdentityInitialization, IdentityResponse,
     ImportContactInvitationRequest, ListContactsRequest, ListContactsResponse,
-    RevokeContactRequest, StartClientRequest, StartClientResponse,
-    daemon_service_server::DaemonService,
+    RevokeContactRequest, StartClientRequest, StartClientResponse, VerifyContactQrRequest,
+    VerifyContactSafetyNumberRequest, daemon_service_server::DaemonService,
 };
-use yeokcham_protocol::{CONTACT_INVITATION_BYTES, IDENTITY_ROTATION_BYTES, ProtocolVersion};
+use yeokcham_protocol::{
+    CONTACT_INVITATION_BYTES, IDENTITY_ROTATION_BYTES, ProtocolVersion,
+    QR_VERIFICATION_PAYLOAD_BYTES, SAFETY_NUMBER_FINGERPRINT_BYTES,
+};
 
 #[cfg(target_os = "linux")]
 use yeokcham_core::LinuxKeystore;
@@ -30,7 +33,8 @@ use crate::{
     ClientIdentity, ClientIdentityError, ClientIdentityInitialization, Contact,
     ContactLifecycleError, ContactLifecycleService, ContactStatus as StoredContactStatus,
     ContactStore, ContactStoreError, ContactVerificationMethod as StoredContactVerificationMethod,
-    PendingContactImportError, PendingContactImportService,
+    PendingContactImportError, PendingContactImportService, QrContactVerificationError,
+    QrContactVerificationService, SafetyNumberVerificationError, SafetyNumberVerificationService,
 };
 
 pub const MAX_DAEMON_CONTACTS_RESPONSE: usize = 65_536;
@@ -177,6 +181,12 @@ trait DaemonContactOperations: Send + Sync {
     fn list(&self) -> Result<Vec<ContactResponse>, Status>;
     fn get(&self, encoded_identity: &[u8]) -> Result<ContactResponse, Status>;
     fn import(&self, encoded_invitation: &[u8]) -> Result<ContactResponse, Status>;
+    fn verify_qr(&self, encoded_payload: &[u8]) -> Result<ContactResponse, Status>;
+    fn verify_safety_number(
+        &self,
+        encoded_identity: &[u8],
+        encoded_fingerprint: &[u8],
+    ) -> Result<ContactResponse, Status>;
     fn apply_rotation(&self, encoded_rotation: &[u8]) -> Result<ContactResponse, Status>;
     fn revoke(&self, encoded_identity: &[u8]) -> Result<ContactResponse, Status>;
 }
@@ -193,6 +203,18 @@ impl DaemonContactOperations for UnavailableContactOperations {
     }
 
     fn import(&self, _encoded_invitation: &[u8]) -> Result<ContactResponse, Status> {
+        Err(contact_unavailable())
+    }
+
+    fn verify_qr(&self, _encoded_payload: &[u8]) -> Result<ContactResponse, Status> {
+        Err(contact_unavailable())
+    }
+
+    fn verify_safety_number(
+        &self,
+        _encoded_identity: &[u8],
+        _encoded_fingerprint: &[u8],
+    ) -> Result<ContactResponse, Status> {
         Err(contact_unavailable())
     }
 
@@ -272,6 +294,37 @@ where
                 .import_encoded(encoded_invitation)
                 .map(contact_response)
                 .map_err(map_pending_contact_import_error)
+        })
+    }
+
+    fn verify_qr(&self, encoded_payload: &[u8]) -> Result<ContactResponse, Status> {
+        if encoded_payload.len() != QR_VERIFICATION_PAYLOAD_BYTES {
+            return Err(Status::invalid_argument(
+                "QR verification payload is invalid",
+            ));
+        }
+        self.with_contacts(|local_identity, contacts| {
+            QrContactVerificationService::new(local_identity, contacts)
+                .verify_encoded(encoded_payload)
+                .map(contact_response)
+                .map_err(map_qr_contact_verification_error)
+        })
+    }
+
+    fn verify_safety_number(
+        &self,
+        encoded_identity: &[u8],
+        encoded_fingerprint: &[u8],
+    ) -> Result<ContactResponse, Status> {
+        let identity = decode_contact_identity(encoded_identity)?;
+        let fingerprint: &[u8; SAFETY_NUMBER_FINGERPRINT_BYTES] = encoded_fingerprint
+            .try_into()
+            .map_err(|_| Status::invalid_argument("safety number is invalid"))?;
+        self.with_contacts(|local_identity, contacts| {
+            SafetyNumberVerificationService::new(local_identity, contacts)
+                .verify(&identity, fingerprint)
+                .map(contact_response)
+                .map_err(map_safety_number_verification_error)
         })
     }
 
@@ -427,6 +480,24 @@ fn map_pending_contact_import_error(error: PendingContactImportError) -> Status 
     }
 }
 
+fn map_qr_contact_verification_error(error: QrContactVerificationError) -> Status {
+    match error {
+        QrContactVerificationError::Payload(_) => {
+            Status::invalid_argument("QR verification payload is invalid")
+        }
+        QrContactVerificationError::ContactStore(error) => map_contact_store_error(&error),
+    }
+}
+
+fn map_safety_number_verification_error(error: SafetyNumberVerificationError) -> Status {
+    match error {
+        SafetyNumberVerificationError::InvalidFingerprintLength => {
+            Status::invalid_argument("safety number is invalid")
+        }
+        SafetyNumberVerificationError::ContactStore(error) => map_contact_store_error(&error),
+    }
+}
+
 fn map_contact_lifecycle_error(error: ContactLifecycleError) -> Status {
     match error {
         ContactLifecycleError::IdentityRotation(_) => {
@@ -526,6 +597,25 @@ impl DaemonService for DaemonGrpcService {
     ) -> Result<Response<ContactResponse>, Status> {
         self.contacts
             .import(&request.into_inner().invitation)
+            .map(Response::new)
+    }
+
+    async fn verify_contact_qr(
+        &self,
+        request: Request<VerifyContactQrRequest>,
+    ) -> Result<Response<ContactResponse>, Status> {
+        self.contacts
+            .verify_qr(&request.into_inner().payload)
+            .map(Response::new)
+    }
+
+    async fn verify_contact_safety_number(
+        &self,
+        request: Request<VerifyContactSafetyNumberRequest>,
+    ) -> Result<Response<ContactResponse>, Status> {
+        let request = request.into_inner();
+        self.contacts
+            .verify_safety_number(&request.identity, &request.fingerprint)
             .map(Response::new)
     }
 

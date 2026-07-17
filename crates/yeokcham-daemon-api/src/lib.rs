@@ -9,7 +9,8 @@ pub mod v1 {
 mod tests {
     use super::v1::{
         ContactResponse, ContactStatus, ContactVerificationMethod, GetStatusResponse,
-        IdentityInitialization, IdentityResponse, StartClientResponse,
+        IdentityInitialization, IdentityResponse, StartClientResponse, VerifyContactQrRequest,
+        VerifyContactSafetyNumberRequest,
     };
 
     #[test]
@@ -65,5 +66,19 @@ mod tests {
             ContactVerificationMethod::try_from(response.verification_method),
             Ok(ContactVerificationMethod::Unspecified)
         );
+    }
+
+    #[test]
+    fn generated_contact_verification_contract_preserves_every_field() {
+        let qr = VerifyContactQrRequest {
+            payload: vec![1; 70],
+        };
+        let safety_number = VerifyContactSafetyNumberRequest {
+            identity: vec![2; 32],
+            fingerprint: vec![3; 32],
+        };
+        assert_eq!(qr.payload, vec![1; 70]);
+        assert_eq!(safety_number.identity, vec![2; 32]);
+        assert_eq!(safety_number.fingerprint, vec![3; 32]);
     }
 }

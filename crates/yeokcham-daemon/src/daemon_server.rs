@@ -124,9 +124,13 @@ mod tests {
         ContactVerificationMethod as RpcContactVerificationMethod, CreateIdentityRequest,
         CreateOrLoadIdentityRequest, GetContactRequest, GetIdentityRequest, IdentityInitialization,
         ImportContactInvitationRequest, ListContactsRequest, RevokeContactRequest,
-        StartClientRequest, daemon_service_client::DaemonServiceClient,
+        StartClientRequest, VerifyContactQrRequest, VerifyContactSafetyNumberRequest,
+        daemon_service_client::DaemonServiceClient,
     };
-    use yeokcham_protocol::{ContactInvitation, IdentityRotation, ProtocolVersion};
+    use yeokcham_protocol::{
+        ContactInvitation, IdentityRotation, ProtocolVersion, QrVerificationPayload,
+        SafetyNumberFingerprint,
+    };
 
     use super::DaemonServer;
     use crate::{
@@ -334,6 +338,7 @@ mod tests {
         token: &DaemonLocalAuthToken,
         invitation: &[u8],
         remote_identity: &IdentityPublicKey,
+        expected_contact_count: usize,
     ) -> ContactResponse {
         assert_eq!(
             client
@@ -356,14 +361,15 @@ mod tests {
                 .code(),
             Code::InvalidArgument
         );
-        assert!(
+        assert_eq!(
             client
                 .list_contacts(authenticated_request(ListContactsRequest {}, token))
                 .await
                 .unwrap()
                 .into_inner()
                 .contacts
-                .is_empty()
+                .len(),
+            expected_contact_count
         );
         assert_eq!(
             client
@@ -468,6 +474,141 @@ mod tests {
         assert_eq!(contacts, vec![revoked]);
     }
 
+    async fn verify_qr_contact(
+        client: &mut DaemonServiceClient<Channel>,
+        token: &DaemonLocalAuthToken,
+        payload: &[u8],
+        remote_identity: &IdentityPublicKey,
+    ) -> ContactResponse {
+        assert_eq!(
+            client
+                .verify_contact_qr(Request::new(VerifyContactQrRequest {
+                    payload: payload.to_vec(),
+                }))
+                .await
+                .unwrap_err()
+                .code(),
+            Code::Unauthenticated
+        );
+        assert_eq!(
+            client
+                .verify_contact_qr(authenticated_request(
+                    VerifyContactQrRequest {
+                        payload: vec![0; payload.len() - 1],
+                    },
+                    token,
+                ))
+                .await
+                .unwrap_err()
+                .code(),
+            Code::InvalidArgument
+        );
+        assert_eq!(
+            client
+                .verify_contact_qr(authenticated_request(
+                    VerifyContactQrRequest {
+                        payload: vec![0; payload.len()],
+                    },
+                    token,
+                ))
+                .await
+                .unwrap_err()
+                .code(),
+            Code::InvalidArgument
+        );
+        let verified = client
+            .verify_contact_qr(authenticated_request(
+                VerifyContactQrRequest {
+                    payload: payload.to_vec(),
+                },
+                token,
+            ))
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(verified.identity, remote_identity.as_bytes());
+        assert_eq!(
+            RpcContactStatus::try_from(verified.status),
+            Ok(RpcContactStatus::Verified)
+        );
+        assert_eq!(
+            RpcContactVerificationMethod::try_from(verified.verification_method),
+            Ok(RpcContactVerificationMethod::Qr)
+        );
+        verified
+    }
+
+    async fn verify_safety_number_contact(
+        client: &mut DaemonServiceClient<Channel>,
+        token: &DaemonLocalAuthToken,
+        remote_identity: &IdentityPublicKey,
+        fingerprint: &[u8],
+    ) -> ContactResponse {
+        assert_eq!(
+            client
+                .verify_contact_safety_number(authenticated_request(
+                    VerifyContactSafetyNumberRequest {
+                        identity: vec![0; 31],
+                        fingerprint: fingerprint.to_vec(),
+                    },
+                    token,
+                ))
+                .await
+                .unwrap_err()
+                .code(),
+            Code::InvalidArgument
+        );
+        assert_eq!(
+            client
+                .verify_contact_safety_number(authenticated_request(
+                    VerifyContactSafetyNumberRequest {
+                        identity: remote_identity.as_bytes().to_vec(),
+                        fingerprint: vec![0; fingerprint.len() - 1],
+                    },
+                    token,
+                ))
+                .await
+                .unwrap_err()
+                .code(),
+            Code::InvalidArgument
+        );
+        let mut mismatch = fingerprint.to_vec();
+        mismatch[0] ^= 1;
+        let error = client
+            .verify_contact_safety_number(authenticated_request(
+                VerifyContactSafetyNumberRequest {
+                    identity: remote_identity.as_bytes().to_vec(),
+                    fingerprint: mismatch,
+                },
+                token,
+            ))
+            .await
+            .unwrap_err();
+        assert_eq!(error.code(), Code::Internal);
+        assert_eq!(error.message(), "daemon contact operation failed");
+        let verified = client
+            .verify_contact_safety_number(authenticated_request(
+                VerifyContactSafetyNumberRequest {
+                    identity: remote_identity.as_bytes().to_vec(),
+                    fingerprint: fingerprint.to_vec(),
+                },
+                token,
+            ))
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(verified.identity, remote_identity.as_bytes());
+        assert_eq!(
+            RpcContactStatus::try_from(verified.status),
+            Ok(RpcContactStatus::Verified)
+        );
+        assert_eq!(
+            RpcContactVerificationMethod::try_from(verified.verification_method),
+            Ok(RpcContactVerificationMethod::SafetyNumber)
+        );
+        verified
+    }
+
     #[tokio::test]
     async fn serves_authenticated_contact_lifecycle_with_bounded_inputs() {
         let state_directory = state_directory();
@@ -499,6 +640,7 @@ mod tests {
                 &token,
                 &invitation,
                 &remote.public_key(),
+                0,
             )
             .await;
             reject_pending_rotation_and_revoke_contact(
@@ -508,6 +650,81 @@ mod tests {
                 rotation,
             )
             .await;
+            shutdown_sender.send(()).unwrap();
+        };
+        let (server, ()) = tokio::join!(server, client);
+        assert!(server.is_ok());
+        assert!(!socket_path.exists());
+        runtime.shutdown().unwrap();
+        fs::remove_dir_all(state_directory).unwrap();
+    }
+
+    #[tokio::test]
+    async fn serves_authenticated_contact_verification_with_bounded_inputs() {
+        let state_directory = state_directory();
+        let mut runtime = DaemonRuntime::start(ProtocolVersion::INITIAL, &state_directory).unwrap();
+        let mut keystore = MemoryKeystore::default();
+        let local_identity = ClientIdentity::create(&mut keystore).unwrap().public_key();
+        let qr_remote = IdentityKeypair::generate().unwrap();
+        let qr_invitation = ContactInvitation::create(&qr_remote)
+            .unwrap()
+            .encode()
+            .unwrap();
+        let qr_payload = QrVerificationPayload::new(local_identity, qr_remote.public_key())
+            .unwrap()
+            .encode()
+            .unwrap();
+        let safety_remote = IdentityKeypair::generate().unwrap();
+        let safety_invitation = ContactInvitation::create(&safety_remote)
+            .unwrap()
+            .encode()
+            .unwrap();
+        let safety_fingerprint =
+            SafetyNumberFingerprint::derive(&local_identity, &safety_remote.public_key()).unwrap();
+        let (auth, token) = DaemonLocalAuth::initialize().unwrap();
+        let server = DaemonServer::bind_with_identity_keystore(&runtime, auth, keystore).unwrap();
+        let socket_path = server.socket_path().to_path_buf();
+        let (shutdown_sender, shutdown_receiver) = oneshot::channel();
+
+        let server = server.serve_until(async move {
+            let _ = shutdown_receiver.await;
+        });
+        let client = async {
+            let mut client = contact_client(socket_path.clone()).await;
+            let _ = import_and_load_pending_contact(
+                &mut client,
+                &token,
+                &qr_invitation,
+                &qr_remote.public_key(),
+                0,
+            )
+            .await;
+            let verified_qr =
+                verify_qr_contact(&mut client, &token, &qr_payload, &qr_remote.public_key()).await;
+            let _ = import_and_load_pending_contact(
+                &mut client,
+                &token,
+                &safety_invitation,
+                &safety_remote.public_key(),
+                1,
+            )
+            .await;
+            let verified_safety = verify_safety_number_contact(
+                &mut client,
+                &token,
+                &safety_remote.public_key(),
+                safety_fingerprint.as_bytes(),
+            )
+            .await;
+            let contacts = client
+                .list_contacts(authenticated_request(ListContactsRequest {}, &token))
+                .await
+                .unwrap()
+                .into_inner()
+                .contacts;
+            assert_eq!(contacts.len(), 2);
+            assert!(contacts.contains(&verified_qr));
+            assert!(contacts.contains(&verified_safety));
             shutdown_sender.send(()).unwrap();
         };
         let (server, ()) = tokio::join!(server, client);

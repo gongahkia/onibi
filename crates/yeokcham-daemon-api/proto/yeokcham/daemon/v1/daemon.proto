@@ -10,6 +10,8 @@ service DaemonService {
   rpc ListContacts(ListContactsRequest) returns (ListContactsResponse);
   rpc GetContact(GetContactRequest) returns (GetContactResponse);
   rpc ImportContactInvitation(ImportContactInvitationRequest) returns (ContactResponse);
+  rpc VerifyContactQr(VerifyContactQrRequest) returns (ContactResponse);
+  rpc VerifyContactSafetyNumber(VerifyContactSafetyNumberRequest) returns (ContactResponse);
   rpc ApplyContactIdentityRotation(ApplyContactIdentityRotationRequest) returns (ContactResponse);
   rpc RevokeContact(RevokeContactRequest) returns (ContactResponse);
   rpc GetStatus(GetStatusRequest) returns (GetStatusResponse);
@@ -56,6 +58,15 @@ message GetContactResponse {
 
 message ImportContactInvitationRequest {
   bytes invitation = 1;
+}
+
+message VerifyContactQrRequest {
+  bytes payload = 1;
+}
+
+message VerifyContactSafetyNumberRequest {
+  bytes identity = 1;
+  bytes fingerprint = 2;
 }
 
 message ApplyContactIdentityRotationRequest {

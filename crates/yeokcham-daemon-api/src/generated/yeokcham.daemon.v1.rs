@@ -46,6 +46,18 @@ pub struct ImportContactInvitationRequest {
     pub invitation: ::prost::alloc::vec::Vec<u8>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct VerifyContactQrRequest {
+    #[prost(bytes = "vec", tag = "1")]
+    pub payload: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct VerifyContactSafetyNumberRequest {
+    #[prost(bytes = "vec", tag = "1")]
+    pub identity: ::prost::alloc::vec::Vec<u8>,
+    #[prost(bytes = "vec", tag = "2")]
+    pub fingerprint: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ApplyContactIdentityRotationRequest {
     #[prost(bytes = "vec", tag = "1")]
     pub rotation: ::prost::alloc::vec::Vec<u8>,
@@ -444,6 +456,64 @@ pub mod daemon_service_client {
                 );
             self.inner.unary(req, path, codec).await
         }
+        pub async fn verify_contact_qr(
+            &mut self,
+            request: impl tonic::IntoRequest<super::VerifyContactQrRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::ContactResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic_prost::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/yeokcham.daemon.v1.DaemonService/VerifyContactQr",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "yeokcham.daemon.v1.DaemonService",
+                        "VerifyContactQr",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
+        pub async fn verify_contact_safety_number(
+            &mut self,
+            request: impl tonic::IntoRequest<super::VerifyContactSafetyNumberRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::ContactResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic_prost::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/yeokcham.daemon.v1.DaemonService/VerifyContactSafetyNumber",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "yeokcham.daemon.v1.DaemonService",
+                        "VerifyContactSafetyNumber",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
         pub async fn apply_contact_identity_rotation(
             &mut self,
             request: impl tonic::IntoRequest<super::ApplyContactIdentityRotationRequest>,
@@ -585,6 +655,14 @@ pub mod daemon_service_server {
         async fn import_contact_invitation(
             &self,
             request: tonic::Request<super::ImportContactInvitationRequest>,
+        ) -> std::result::Result<tonic::Response<super::ContactResponse>, tonic::Status>;
+        async fn verify_contact_qr(
+            &self,
+            request: tonic::Request<super::VerifyContactQrRequest>,
+        ) -> std::result::Result<tonic::Response<super::ContactResponse>, tonic::Status>;
+        async fn verify_contact_safety_number(
+            &self,
+            request: tonic::Request<super::VerifyContactSafetyNumberRequest>,
         ) -> std::result::Result<tonic::Response<super::ContactResponse>, tonic::Status>;
         async fn apply_contact_identity_rotation(
             &self,
@@ -988,6 +1066,104 @@ pub mod daemon_service_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = ImportContactInvitationSvc(inner);
+                        let codec = tonic_prost::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/yeokcham.daemon.v1.DaemonService/VerifyContactQr" => {
+                    #[allow(non_camel_case_types)]
+                    struct VerifyContactQrSvc<T: DaemonService>(pub Arc<T>);
+                    impl<
+                        T: DaemonService,
+                    > tonic::server::UnaryService<super::VerifyContactQrRequest>
+                    for VerifyContactQrSvc<T> {
+                        type Response = super::ContactResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::VerifyContactQrRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as DaemonService>::verify_contact_qr(&inner, request)
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = VerifyContactQrSvc(inner);
+                        let codec = tonic_prost::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/yeokcham.daemon.v1.DaemonService/VerifyContactSafetyNumber" => {
+                    #[allow(non_camel_case_types)]
+                    struct VerifyContactSafetyNumberSvc<T: DaemonService>(pub Arc<T>);
+                    impl<
+                        T: DaemonService,
+                    > tonic::server::UnaryService<
+                        super::VerifyContactSafetyNumberRequest,
+                    > for VerifyContactSafetyNumberSvc<T> {
+                        type Response = super::ContactResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<
+                                super::VerifyContactSafetyNumberRequest,
+                            >,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as DaemonService>::verify_contact_safety_number(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = VerifyContactSafetyNumberSvc(inner);
                         let codec = tonic_prost::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
