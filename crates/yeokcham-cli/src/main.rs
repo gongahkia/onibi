@@ -23,9 +23,10 @@ use std::{
 use yeokcham_core::KeystoreSecret;
 use yeokcham_core::{IdentityKeypair, IdentityPublicKey, KeystoreEntryName, OsKeystore};
 use yeokcham_daemon::{
-    ClientIdentity, ClientStateDirectory, ContactLifecycleService, ContactStatus, ContactStore,
-    DaemonRuntime, MessageExpiry, PendingContactImportService, QrContactVerificationService,
-    RecipientInboxDeduplication, SafetyNumberVerificationService, SenderOutbox,
+    ClientIdentity, ClientIdentityInitialization, ClientStateDirectory, ContactLifecycleService,
+    ContactStatus, ContactStore, DaemonRuntime, MessageExpiry, PendingContactImportService,
+    QrContactVerificationService, RecipientInboxDeduplication, SafetyNumberVerificationService,
+    SenderOutbox,
 };
 use yeokcham_protocol::{
     AttachmentUploadJournal, CONTACT_INVITATION_BYTES, ContactInvitation, EncryptedAttachmentChunk,
@@ -922,6 +923,7 @@ fn queue_message<K: OsKeystore>(
 }
 
 struct Dashboard {
+    identity: Vec<String>,
     inbox: Vec<String>,
     outbox: Vec<String>,
     delivery_state: Vec<String>,
@@ -930,10 +932,26 @@ struct Dashboard {
 impl Dashboard {
     fn snapshot(&self) -> String {
         let mut output = String::new();
+        append_dashboard_section(&mut output, "Identity", &self.identity);
         append_dashboard_section(&mut output, "Inbox", &self.inbox);
         append_dashboard_section(&mut output, "Outbox", &self.outbox);
         append_dashboard_section(&mut output, "Delivery state", &self.delivery_state);
         output
+    }
+
+    fn with_identity(
+        mut self,
+        identity: IdentityPublicKey,
+        initialization: ClientIdentityInitialization,
+    ) -> Self {
+        self.identity = vec![
+            format!("status={}", identity_initialization_label(initialization)),
+            format!(
+                "identifier={}",
+                hexadecimal(IdentityIdentifier::derive(&identity).as_bytes())
+            ),
+        ];
+        self
     }
 }
 
@@ -985,7 +1003,8 @@ fn start_embedded_tui_client(state_directory: &Path) -> Result<SdkClient, Box<dy
 }
 
 fn tui(state_directory: &Path, snapshot: bool) -> Result<(), Box<dyn Error>> {
-    let dashboard = load_system_dashboard(state_directory)?;
+    let (identity, initialization) = create_or_load_client_system_identity()?;
+    let dashboard = load_system_dashboard(state_directory)?.with_identity(identity, initialization);
     if snapshot {
         print!("{}", dashboard.snapshot());
     } else {
@@ -1083,6 +1102,7 @@ fn dashboard_from_stores(
         None => vec!["no outbox state".to_owned()],
     };
     Dashboard {
+        identity: vec!["status=unavailable".to_owned()],
         inbox,
         outbox: outbox_lines,
         delivery_state,
@@ -1249,6 +1269,41 @@ fn create_client_system_identity() -> Result<IdentityPublicKey, Box<dyn Error>> 
     Err("unsupported operating system keystore".into())
 }
 
+fn create_or_load_client_system_identity()
+-> Result<(IdentityPublicKey, ClientIdentityInitialization), Box<dyn Error>> {
+    #[cfg(target_os = "linux")]
+    {
+        let mut keystore = LinuxKeystore::new()?;
+        return initialize_tui_identity(&mut keystore);
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let mut keystore = MacOsKeystore::new();
+        return initialize_tui_identity(&mut keystore);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let mut keystore = WindowsKeystore::new()?;
+        return initialize_tui_identity(&mut keystore);
+    }
+    #[allow(unreachable_code)]
+    Err("unsupported operating system keystore".into())
+}
+
+fn initialize_tui_identity<K: OsKeystore>(
+    keystore: &mut K,
+) -> Result<(IdentityPublicKey, ClientIdentityInitialization), Box<dyn Error>> {
+    let (identity, initialization) = ClientIdentity::create_or_load(keystore)?;
+    Ok((identity.public_key(), initialization))
+}
+
+fn identity_initialization_label(initialization: ClientIdentityInitialization) -> &'static str {
+    match initialization {
+        ClientIdentityInitialization::Created => "created",
+        ClientIdentityInitialization::Loaded => "loaded",
+    }
+}
+
 fn load_client_system_identity() -> Result<ClientIdentity, Box<dyn Error>> {
     #[cfg(target_os = "linux")]
     {
@@ -1381,14 +1436,18 @@ mod tests {
         RecipientInboxDeduplication, RelayProfileCommand, ReleaseManifestCommand, SenderOutbox,
         TorMaildropProfileConfig, TuiCommand, apply_contact_rotation, contact_invitation_record,
         create_identity, dashboard_from_stores, decode_canonical_hex, decode_envelope, hexadecimal,
-        identity_record, import_contact_invitation, inspect_contact_invitation,
-        inspect_relay_profile, load_identity, queue_attachment_submission, queue_message,
-        relay_profile_record, release_metadata, render_dashboard, revoke_contact,
-        sign_release_manifest, start_embedded_tui_client, validate_state_directory,
-        verify_contact_qr, verify_contact_safety_number, verify_release_manifest,
+        identity_record, import_contact_invitation, initialize_tui_identity,
+        inspect_contact_invitation, inspect_relay_profile, load_identity,
+        queue_attachment_submission, queue_message, relay_profile_record, release_metadata,
+        render_dashboard, revoke_contact, sign_release_manifest, start_embedded_tui_client,
+        validate_state_directory, verify_contact_qr, verify_contact_safety_number,
+        verify_release_manifest,
     };
     use yeokcham_core::KeystoreSecret;
-    use yeokcham_daemon::{ATTACHMENT_UPLOAD_DIRECTORY, INBOX_DATABASE_FILE, OUTBOX_DATABASE_FILE};
+    use yeokcham_daemon::{
+        ATTACHMENT_UPLOAD_DIRECTORY, ClientIdentityInitialization, INBOX_DATABASE_FILE,
+        OUTBOX_DATABASE_FILE,
+    };
     use yeokcham_protocol::{
         ATTACHMENT_CHUNK_BYTES, AttachmentIdentifier, AttachmentKey, AttachmentManifest,
         DeliveryAcknowledgement, EncryptedAttachmentChunk, IdentityRotation, QrVerificationPayload,
@@ -2101,6 +2160,7 @@ mod tests {
         let dashboard = dashboard_from_stores(Some(&inbox), Some(&outbox));
         let snapshot = dashboard.snapshot();
         assert!(snapshot.contains("Inbox:\n"));
+        assert!(snapshot.contains("Identity:\n"));
         assert!(snapshot.contains("Outbox:\n"));
         assert!(snapshot.contains("Delivery state:\n"));
         assert!(snapshot.contains("received_at=101"));
@@ -2151,6 +2211,23 @@ mod tests {
         assert!(client.is_running());
         client.shutdown().unwrap();
         fs::remove_dir_all(state_directory).unwrap();
+    }
+
+    #[test]
+    fn tui_identity_flow_creates_then_reuses_the_client_identity() {
+        let mut keystore = InMemoryKeystore::default();
+        let (first, first_initialization) = initialize_tui_identity(&mut keystore).unwrap();
+        let (second, second_initialization) = initialize_tui_identity(&mut keystore).unwrap();
+
+        assert_eq!(first, second);
+        assert_eq!(first_initialization, ClientIdentityInitialization::Created);
+        assert_eq!(second_initialization, ClientIdentityInitialization::Loaded);
+        let snapshot = dashboard_from_stores(None, None)
+            .with_identity(first, first_initialization)
+            .snapshot();
+        assert!(snapshot.contains("Identity:\n"));
+        assert!(snapshot.contains("status=created"));
+        assert!(snapshot.contains("identifier="));
     }
 
     #[test]
