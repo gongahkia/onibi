@@ -970,16 +970,6 @@ fn append_dashboard_section(output: &mut String, title: &str, lines: &[String]) 
     }
 }
 
-fn load_system_dashboard(state_directory: &Path) -> Result<Dashboard, Box<dyn Error>> {
-    validate_state_directory(state_directory)?;
-    let mut client = start_embedded_tui_client(state_directory)?;
-    let dashboard = load_system_dashboard_with_keystore(state_directory);
-    if let Err(error) = client.shutdown() {
-        return Err(error.into());
-    }
-    dashboard
-}
-
 fn load_system_dashboard_with_keystore(
     state_directory: &Path,
 ) -> Result<Dashboard, Box<dyn Error>> {
@@ -1012,11 +1002,23 @@ fn start_embedded_tui_client(state_directory: &Path) -> Result<SdkClient, Box<dy
 
 fn tui(state_directory: &Path, snapshot: bool) -> Result<(), Box<dyn Error>> {
     let (identity, initialization) = create_or_load_client_system_identity()?;
-    let dashboard = load_system_dashboard(state_directory)?.with_identity(identity, initialization);
+    validate_state_directory(state_directory)?;
+    let mut client = start_embedded_tui_client(state_directory)?;
+    let dashboard = match load_system_dashboard_with_keystore(state_directory) {
+        Ok(dashboard) => dashboard.with_identity(identity, initialization),
+        Err(error) => {
+            let _ = client.shutdown();
+            return Err(error);
+        }
+    };
     if snapshot {
         print!("{}", dashboard.snapshot());
+        client.shutdown()?;
     } else {
-        run_dashboard(dashboard, state_directory)?;
+        let result = run_dashboard(dashboard, state_directory, client.is_running());
+        let shutdown = client.shutdown();
+        result?;
+        shutdown?;
     }
     Ok(())
 }
@@ -1278,8 +1280,10 @@ struct TuiDashboard {
     dashboard: Dashboard,
     screen: TuiScreen,
     inbox_selection: usize,
+    runtime_running: bool,
     contact_input: Option<TuiContactInput>,
     notice: Option<&'static str>,
+    last_error: Option<&'static str>,
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -1287,16 +1291,19 @@ enum TuiScreen {
     Overview,
     Inbox,
     Attachments,
+    Status,
 }
 
 impl TuiDashboard {
-    const fn new(dashboard: Dashboard) -> Self {
+    const fn new(dashboard: Dashboard, runtime_running: bool) -> Self {
         Self {
             dashboard,
             screen: TuiScreen::Overview,
             inbox_selection: 0,
+            runtime_running,
             contact_input: None,
             notice: None,
+            last_error: None,
         }
     }
 
@@ -1319,12 +1326,16 @@ impl TuiDashboard {
     }
 }
 
-fn run_dashboard(dashboard: Dashboard, state_directory: &Path) -> Result<(), Box<dyn Error>> {
+fn run_dashboard(
+    dashboard: Dashboard,
+    state_directory: &Path,
+    runtime_running: bool,
+) -> Result<(), Box<dyn Error>> {
     let _restore = TerminalRestoreGuard;
     terminal::enable_raw_mode()?;
     let mut output = io::stdout();
     execute!(output, EnterAlternateScreen, Hide)?;
-    let mut dashboard = TuiDashboard::new(dashboard);
+    let mut dashboard = TuiDashboard::new(dashboard, runtime_running);
     dashboard_event_loop(&mut output, &mut dashboard, state_directory)
 }
 
@@ -1354,6 +1365,12 @@ fn dashboard_event_loop(
                     KeyCode::Esc | KeyCode::Char('a') => dashboard.screen = TuiScreen::Overview,
                     _ => {}
                 }
+            } else if dashboard.screen == TuiScreen::Status {
+                match key.code {
+                    KeyCode::Char('q') => return Ok(()),
+                    KeyCode::Esc | KeyCode::Char('o') => dashboard.screen = TuiScreen::Overview,
+                    _ => {}
+                }
             } else {
                 match key.code {
                     KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
@@ -1364,6 +1381,10 @@ fn dashboard_event_loop(
                     }
                     KeyCode::Char('a') => {
                         dashboard.screen = TuiScreen::Attachments;
+                        dashboard.notice = None;
+                    }
+                    KeyCode::Char('o') => {
+                        dashboard.screen = TuiScreen::Status;
                         dashboard.notice = None;
                     }
                     KeyCode::Char('i') => {
@@ -1401,6 +1422,7 @@ fn handle_tui_contact_input(
         KeyCode::Esc => {
             dashboard.contact_input = None;
             dashboard.notice = Some("contact action cancelled");
+            dashboard.last_error = None;
         }
         KeyCode::Backspace => {
             input.value.pop();
@@ -1412,17 +1434,19 @@ fn handle_tui_contact_input(
                 .take()
                 .ok_or("contact input is unavailable")?;
             if submit_tui_contact_input(state_directory, &input).is_ok() {
-                match load_system_dashboard(state_directory) {
-                    Ok(updated) => {
-                        let identity = dashboard.dashboard.identity.clone();
-                        dashboard.dashboard = updated;
-                        dashboard.dashboard.identity = identity;
-                        dashboard.notice = Some("contact updated");
-                    }
-                    Err(_) => dashboard.notice = Some("contact state refresh failed"),
+                if let Ok(updated) = load_system_dashboard_with_keystore(state_directory) {
+                    let identity = dashboard.dashboard.identity.clone();
+                    dashboard.dashboard = updated;
+                    dashboard.dashboard.identity = identity;
+                    dashboard.notice = Some("contact updated");
+                    dashboard.last_error = None;
+                } else {
+                    dashboard.notice = None;
+                    dashboard.last_error = Some("contact state refresh failed");
                 }
             } else {
-                dashboard.notice = Some("contact update failed");
+                dashboard.notice = None;
+                dashboard.last_error = Some("contact update failed");
             }
         }
         _ => {}
@@ -1434,19 +1458,64 @@ fn submit_tui_contact_input(
     state_directory: &Path,
     input: &TuiContactInput,
 ) -> Result<(), Box<dyn Error>> {
+    let local_identity = load_client_system_identity()?.public_key();
+    #[cfg(target_os = "linux")]
+    {
+        let mut keystore = LinuxKeystore::new()?;
+        return submit_tui_contact_input_with_keystore(
+            state_directory,
+            &local_identity,
+            input,
+            &mut keystore,
+        );
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let mut keystore = MacOsKeystore::new();
+        return submit_tui_contact_input_with_keystore(
+            state_directory,
+            &local_identity,
+            input,
+            &mut keystore,
+        );
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let mut keystore = WindowsKeystore::new()?;
+        return submit_tui_contact_input_with_keystore(
+            state_directory,
+            &local_identity,
+            input,
+            &mut keystore,
+        );
+    }
+    #[allow(unreachable_code)]
+    Err("unsupported operating system keystore".into())
+}
+
+fn submit_tui_contact_input_with_keystore<K: OsKeystore>(
+    state_directory: &Path,
+    local_identity: &IdentityPublicKey,
+    input: &TuiContactInput,
+    keystore: &mut K,
+) -> Result<(), Box<dyn Error>> {
     match input.kind {
         TuiContactInputKind::Invitation => {
-            let _ = import_system_contact_invitation(state_directory, &input.value)?;
+            let _ =
+                import_contact_invitation(state_directory, local_identity, &input.value, keystore)?;
         }
         TuiContactInputKind::QrVerification => {
-            let _ = verify_system_contact_qr(state_directory, &input.value)?;
+            let _ = verify_contact_qr(state_directory, local_identity, &input.value, keystore)?;
         }
         TuiContactInputKind::SafetyNumberVerification => {
             let (contact_public_key, safety_number) = tui_safety_number_parts(&input.value)?;
-            let _ = verify_system_contact_safety_number(
+            let remote_identity = decode_identity_public_key(contact_public_key)?;
+            let _ = verify_contact_safety_number(
                 state_directory,
-                contact_public_key,
+                local_identity,
+                &remote_identity,
                 safety_number,
+                keystore,
             )?;
         }
     }
@@ -1474,6 +1543,9 @@ fn render_tui_dashboard(output: &mut impl Write, dashboard: &TuiDashboard) -> st
     if dashboard.screen == TuiScreen::Attachments {
         return render_tui_attachments(output, dashboard);
     }
+    if dashboard.screen == TuiScreen::Status {
+        return render_tui_status(output, dashboard);
+    }
     queue!(
         output,
         MoveTo(0, 0),
@@ -1490,7 +1562,7 @@ fn render_tui_dashboard(output: &mut impl Write, dashboard: &TuiDashboard) -> st
         queue!(
             output,
             Print(
-                "a: attachments; b: inbox; i: import invitation; r: verify QR; s: verify safety number; q: exit.\n"
+                "a: attachments; b: inbox; o: status; i: import invitation; r: verify QR; s: verify safety number; q: exit.\n"
             )
         )?;
     }
@@ -1546,6 +1618,29 @@ fn render_tui_attachments(
         queue!(output, Print(format!("  {transfer}\n")))?;
     }
     queue!(output, Print("a or Esc returns; q exits.\n"))?;
+    output.flush()
+}
+
+fn render_tui_status(output: &mut impl Write, dashboard: &TuiDashboard) -> std::io::Result<()> {
+    queue!(
+        output,
+        MoveTo(0, 0),
+        Clear(ClearType::All),
+        Print("Operational status:\n"),
+        Print(format!(
+            "embedded_runtime={}\n",
+            if dashboard.runtime_running {
+                "running"
+            } else {
+                "unavailable"
+            }
+        )),
+        Print(format!(
+            "last_error={}\n",
+            dashboard.last_error.unwrap_or("none")
+        )),
+        Print("o or Esc returns; q exits.\n")
+    )?;
     output.flush()
 }
 
@@ -1853,14 +1948,16 @@ mod tests {
         initialize_tui_identity, inspect_contact_invitation, inspect_relay_profile,
         load_attachment_transfers, load_identity, queue_attachment_submission, queue_message,
         relay_profile_record, release_metadata, render_dashboard, render_tui_attachments,
-        render_tui_dashboard, revoke_contact, sign_release_manifest, start_embedded_tui_client,
-        tui_safety_number_parts, validate_state_directory, verify_contact_qr,
-        verify_contact_safety_number, verify_release_manifest,
+        render_tui_dashboard, render_tui_status, revoke_contact, sign_release_manifest,
+        start_embedded_tui_client, submit_tui_contact_input_with_keystore, tui_safety_number_parts,
+        validate_state_directory, verify_contact_qr, verify_contact_safety_number,
+        verify_release_manifest,
     };
     use yeokcham_core::KeystoreSecret;
     use yeokcham_daemon::{
         ATTACHMENT_UPLOAD_DIRECTORY, CONTACTS_DATABASE_FILE, ClientIdentityInitialization,
-        ClientStateDirectory, ContactStore, INBOX_DATABASE_FILE, OUTBOX_DATABASE_FILE,
+        ClientStateDirectory, ContactStatus, ContactStore, INBOX_DATABASE_FILE,
+        OUTBOX_DATABASE_FILE,
     };
     use yeokcham_protocol::{
         ATTACHMENT_CHUNK_BYTES, AttachmentIdentifier, AttachmentKey, AttachmentManifest,
@@ -2609,7 +2706,7 @@ mod tests {
         assert!(rendered.contains("Outbox"));
         assert!(rendered.contains("Delivery state"));
 
-        let mut tui = TuiDashboard::new(dashboard);
+        let mut tui = TuiDashboard::new(dashboard, true);
         tui.screen = TuiScreen::Inbox;
         tui.select_next_inbox_message();
         assert_eq!(tui.inbox_selection, 1);
@@ -2697,6 +2794,58 @@ mod tests {
         assert!(tui_safety_number_parts("contact").is_err());
         assert!(tui_safety_number_parts("contact safety extra").is_err());
         assert!(tui_safety_number_parts(" contact").is_err());
+    }
+
+    #[test]
+    fn tui_contact_input_updates_state_without_restarting_the_embedded_runtime() {
+        let state_directory = std::env::temp_dir().join(format!(
+            "yeokcham-cli-tui-contact-{}-{}",
+            std::process::id(),
+            NEXT_TEST_STATE_DIRECTORY.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&state_directory).unwrap();
+        let local_identity = IdentityKeypair::generate().unwrap();
+        let remote_identity = IdentityKeypair::generate().unwrap();
+        let input = TuiContactInput {
+            kind: TuiContactInputKind::Invitation,
+            value: hexadecimal(
+                &ContactInvitation::create(&remote_identity)
+                    .unwrap()
+                    .encode()
+                    .unwrap(),
+            ),
+        };
+        let mut keystore = InMemoryKeystore::default();
+
+        submit_tui_contact_input_with_keystore(
+            &state_directory,
+            &local_identity.public_key(),
+            &input,
+            &mut keystore,
+        )
+        .unwrap();
+        let contacts =
+            ContactStore::open(&state_directory.join(CONTACTS_DATABASE_FILE), &mut keystore)
+                .unwrap();
+        assert_eq!(contacts.contacts().len(), 1);
+        assert_eq!(contacts.contacts()[0].status(), ContactStatus::Pending);
+
+        fs::remove_dir_all(state_directory).unwrap();
+    }
+
+    #[test]
+    fn tui_status_exposes_only_runtime_and_generic_error_state() {
+        let mut tui = TuiDashboard::new(dashboard_from_stores(None, None, None), true);
+        tui.screen = TuiScreen::Status;
+        tui.last_error = Some("contact update failed");
+        let mut rendered = Vec::new();
+
+        render_tui_status(&mut rendered, &tui).unwrap();
+
+        let rendered = String::from_utf8(rendered).unwrap();
+        assert!(rendered.contains("embedded_runtime=running"));
+        assert!(rendered.contains("last_error=contact update failed"));
+        assert!(!rendered.contains("ciphertext"));
     }
 
     #[test]
@@ -2828,7 +2977,7 @@ mod tests {
         fs::remove_dir(root.join("invalid.pending")).unwrap();
         let mut dashboard = dashboard_from_stores(None, None, None);
         dashboard.attachments = transfers;
-        let mut tui = TuiDashboard::new(dashboard);
+        let mut tui = TuiDashboard::new(dashboard, true);
         tui.screen = TuiScreen::Attachments;
         let mut rendered = Vec::new();
         render_tui_attachments(&mut rendered, &tui).unwrap();
