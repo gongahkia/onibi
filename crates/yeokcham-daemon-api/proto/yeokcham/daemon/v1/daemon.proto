@@ -15,6 +15,7 @@ service DaemonService {
   rpc ApplyContactIdentityRotation(ApplyContactIdentityRotationRequest) returns (ContactResponse);
   rpc RevokeContact(RevokeContactRequest) returns (ContactResponse);
   rpc SendMessage(SendMessageRequest) returns (SendMessageResponse);
+  rpc GetDeliveryStatus(GetDeliveryStatusRequest) returns (GetDeliveryStatusResponse);
   rpc GetStatus(GetStatusRequest) returns (GetStatusResponse);
 }
 
@@ -87,6 +88,22 @@ message SendMessageRequest {
 
 message SendMessageResponse {
   bytes message_identifier = 1;
+}
+
+message GetDeliveryStatusRequest {
+  bytes message_identifier = 1;
+}
+
+enum DeliveryStatus {
+  DELIVERY_STATUS_UNSPECIFIED = 0;
+  DELIVERY_STATUS_QUEUED = 1;
+  DELIVERY_STATUS_DELIVERED = 2;
+  DELIVERY_STATUS_EXPIRED = 3;
+  DELIVERY_STATUS_FAILED = 4;
+}
+
+message GetDeliveryStatusResponse {
+  DeliveryStatus status = 1;
 }
 
 enum ContactStatus {

@@ -125,14 +125,15 @@ mod tests {
     use yeokcham_daemon_api::v1::{
         ApplyContactIdentityRotationRequest, ContactResponse, ContactStatus as RpcContactStatus,
         ContactVerificationMethod as RpcContactVerificationMethod, CreateIdentityRequest,
-        CreateOrLoadIdentityRequest, GetContactRequest, GetIdentityRequest, IdentityInitialization,
+        CreateOrLoadIdentityRequest, DeliveryStatus as RpcDeliveryStatus, GetContactRequest,
+        GetDeliveryStatusRequest, GetIdentityRequest, IdentityInitialization,
         ImportContactInvitationRequest, ListContactsRequest, RevokeContactRequest,
         SendMessageRequest, StartClientRequest, VerifyContactQrRequest,
         VerifyContactSafetyNumberRequest, daemon_service_client::DaemonServiceClient,
     };
     use yeokcham_protocol::{
         ContactInvitation, EncryptedMessageEnvelope, IdentityRotation, MESSAGE_IDENTIFIER_BYTES,
-        ProtocolVersion, QrVerificationPayload, SafetyNumberFingerprint,
+        MessageIdentifier, ProtocolVersion, QrVerificationPayload, SafetyNumberFingerprint,
     };
 
     use super::DaemonServer;
@@ -612,6 +613,67 @@ mod tests {
         verified
     }
 
+    async fn assert_queued_delivery_status(
+        client: &mut DaemonServiceClient<Channel>,
+        token: &DaemonLocalAuthToken,
+        message_identifier: &[u8],
+    ) {
+        assert_eq!(
+            client
+                .get_delivery_status(authenticated_request(
+                    GetDeliveryStatusRequest {
+                        message_identifier: vec![0; MESSAGE_IDENTIFIER_BYTES - 1],
+                    },
+                    token,
+                ))
+                .await
+                .unwrap_err()
+                .code(),
+            Code::InvalidArgument
+        );
+        assert_eq!(
+            client
+                .get_delivery_status(authenticated_request(
+                    GetDeliveryStatusRequest {
+                        message_identifier: vec![0; MESSAGE_IDENTIFIER_BYTES],
+                    },
+                    token,
+                ))
+                .await
+                .unwrap_err()
+                .code(),
+            Code::InvalidArgument
+        );
+        let unknown = MessageIdentifier::generate().unwrap();
+        assert_eq!(
+            client
+                .get_delivery_status(authenticated_request(
+                    GetDeliveryStatusRequest {
+                        message_identifier: unknown.as_bytes().to_vec(),
+                    },
+                    token,
+                ))
+                .await
+                .unwrap_err()
+                .code(),
+            Code::NotFound
+        );
+        let status = client
+            .get_delivery_status(authenticated_request(
+                GetDeliveryStatusRequest {
+                    message_identifier: message_identifier.to_vec(),
+                },
+                token,
+            ))
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(
+            RpcDeliveryStatus::try_from(status.status),
+            Ok(RpcDeliveryStatus::Queued)
+        );
+    }
+
     #[tokio::test]
     async fn serves_authenticated_contact_lifecycle_with_bounded_inputs() {
         let state_directory = state_directory();
@@ -820,6 +882,7 @@ mod tests {
                 .await
                 .unwrap()
                 .into_inner();
+            assert_queued_delivery_status(&mut client, &token, &first.message_identifier).await;
             let second = client
                 .send_message(authenticated_request(request, &token))
                 .await

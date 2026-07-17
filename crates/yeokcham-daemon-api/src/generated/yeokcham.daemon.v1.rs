@@ -84,6 +84,16 @@ pub struct SendMessageResponse {
     pub message_identifier: ::prost::alloc::vec::Vec<u8>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct GetDeliveryStatusRequest {
+    #[prost(bytes = "vec", tag = "1")]
+    pub message_identifier: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct GetDeliveryStatusResponse {
+    #[prost(enumeration = "DeliveryStatus", tag = "1")]
+    pub status: i32,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ContactResponse {
     #[prost(bytes = "vec", tag = "1")]
     pub identity: ::prost::alloc::vec::Vec<u8>,
@@ -128,6 +138,41 @@ impl IdentityInitialization {
             "IDENTITY_INITIALIZATION_UNSPECIFIED" => Some(Self::Unspecified),
             "IDENTITY_INITIALIZATION_CREATED" => Some(Self::Created),
             "IDENTITY_INITIALIZATION_LOADED" => Some(Self::Loaded),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum DeliveryStatus {
+    Unspecified = 0,
+    Queued = 1,
+    Delivered = 2,
+    Expired = 3,
+    Failed = 4,
+}
+impl DeliveryStatus {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Unspecified => "DELIVERY_STATUS_UNSPECIFIED",
+            Self::Queued => "DELIVERY_STATUS_QUEUED",
+            Self::Delivered => "DELIVERY_STATUS_DELIVERED",
+            Self::Expired => "DELIVERY_STATUS_EXPIRED",
+            Self::Failed => "DELIVERY_STATUS_FAILED",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "DELIVERY_STATUS_UNSPECIFIED" => Some(Self::Unspecified),
+            "DELIVERY_STATUS_QUEUED" => Some(Self::Queued),
+            "DELIVERY_STATUS_DELIVERED" => Some(Self::Delivered),
+            "DELIVERY_STATUS_EXPIRED" => Some(Self::Expired),
+            "DELIVERY_STATUS_FAILED" => Some(Self::Failed),
             _ => None,
         }
     }
@@ -611,6 +656,35 @@ pub mod daemon_service_client {
                 );
             self.inner.unary(req, path, codec).await
         }
+        pub async fn get_delivery_status(
+            &mut self,
+            request: impl tonic::IntoRequest<super::GetDeliveryStatusRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::GetDeliveryStatusResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic_prost::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/yeokcham.daemon.v1.DaemonService/GetDeliveryStatus",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "yeokcham.daemon.v1.DaemonService",
+                        "GetDeliveryStatus",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
         pub async fn get_status(
             &mut self,
             request: impl tonic::IntoRequest<super::GetStatusRequest>,
@@ -719,6 +793,13 @@ pub mod daemon_service_server {
             request: tonic::Request<super::SendMessageRequest>,
         ) -> std::result::Result<
             tonic::Response<super::SendMessageResponse>,
+            tonic::Status,
+        >;
+        async fn get_delivery_status(
+            &self,
+            request: tonic::Request<super::GetDeliveryStatusRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::GetDeliveryStatusResponse>,
             tonic::Status,
         >;
         async fn get_status(
@@ -1355,6 +1436,52 @@ pub mod daemon_service_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = SendMessageSvc(inner);
+                        let codec = tonic_prost::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/yeokcham.daemon.v1.DaemonService/GetDeliveryStatus" => {
+                    #[allow(non_camel_case_types)]
+                    struct GetDeliveryStatusSvc<T: DaemonService>(pub Arc<T>);
+                    impl<
+                        T: DaemonService,
+                    > tonic::server::UnaryService<super::GetDeliveryStatusRequest>
+                    for GetDeliveryStatusSvc<T> {
+                        type Response = super::GetDeliveryStatusResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::GetDeliveryStatusRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as DaemonService>::get_delivery_status(&inner, request)
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = GetDeliveryStatusSvc(inner);
                         let codec = tonic_prost::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

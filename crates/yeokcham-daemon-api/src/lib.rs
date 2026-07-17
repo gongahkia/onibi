@@ -8,7 +8,8 @@ pub mod v1 {
 #[cfg(test)]
 mod tests {
     use super::v1::{
-        ContactResponse, ContactStatus, ContactVerificationMethod, GetStatusResponse,
+        ContactResponse, ContactStatus, ContactVerificationMethod, DeliveryStatus,
+        GetDeliveryStatusRequest, GetDeliveryStatusResponse, GetStatusResponse,
         IdentityInitialization, IdentityResponse, SendMessageRequest, SendMessageResponse,
         StartClientResponse, VerifyContactQrRequest, VerifyContactSafetyNumberRequest,
     };
@@ -98,5 +99,20 @@ mod tests {
         assert_eq!(request.created_at, 3);
         assert_eq!(request.ttl_seconds, 4);
         assert_eq!(response.message_identifier, vec![5; 16]);
+    }
+
+    #[test]
+    fn generated_delivery_status_contract_preserves_every_field() {
+        let request = GetDeliveryStatusRequest {
+            message_identifier: vec![1; 16],
+        };
+        let response = GetDeliveryStatusResponse {
+            status: DeliveryStatus::Queued.into(),
+        };
+        assert_eq!(request.message_identifier, vec![1; 16]);
+        assert_eq!(
+            DeliveryStatus::try_from(response.status),
+            Ok(DeliveryStatus::Queued)
+        );
     }
 }

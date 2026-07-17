@@ -11,7 +11,8 @@ use yeokcham_core::{ED25519_PUBLIC_KEY_BYTES, IdentityPublicKey, OsKeystore};
 use yeokcham_daemon_api::v1::{
     ApplyContactIdentityRotationRequest, ContactResponse, ContactStatus as RpcContactStatus,
     ContactVerificationMethod as RpcContactVerificationMethod, CreateIdentityRequest,
-    CreateOrLoadIdentityRequest, GetContactRequest, GetContactResponse, GetIdentityRequest,
+    CreateOrLoadIdentityRequest, DeliveryStatus as RpcDeliveryStatus, GetContactRequest,
+    GetContactResponse, GetDeliveryStatusRequest, GetDeliveryStatusResponse, GetIdentityRequest,
     GetStatusRequest, GetStatusResponse, IdentityInitialization, IdentityResponse,
     ImportContactInvitationRequest, ListContactsRequest, ListContactsResponse,
     RevokeContactRequest, SendMessageRequest, SendMessageResponse, StartClientRequest,
@@ -20,8 +21,8 @@ use yeokcham_daemon_api::v1::{
 };
 use yeokcham_protocol::{
     CONTACT_INVITATION_BYTES, EncryptedMessageEnvelope, IDENTITY_ROTATION_BYTES,
-    MAX_MESSAGE_PAYLOAD_BYTES, ProtocolVersion, QR_VERIFICATION_PAYLOAD_BYTES,
-    SAFETY_NUMBER_FINGERPRINT_BYTES,
+    MAX_MESSAGE_PAYLOAD_BYTES, MESSAGE_IDENTIFIER_BYTES, MessageIdentifier, ProtocolVersion,
+    QR_VERIFICATION_PAYLOAD_BYTES, SAFETY_NUMBER_FINGERPRINT_BYTES,
 };
 
 #[cfg(target_os = "linux")]
@@ -35,9 +36,10 @@ use crate::{
     ClientIdentity, ClientIdentityError, ClientIdentityInitialization, Contact,
     ContactLifecycleError, ContactLifecycleService, ContactStatus as StoredContactStatus,
     ContactStore, ContactStoreError, ContactVerificationMethod as StoredContactVerificationMethod,
-    MessageExpiry, MessageExpiryError, PendingContactImportError, PendingContactImportService,
-    QrContactVerificationError, QrContactVerificationService, SafetyNumberVerificationError,
-    SafetyNumberVerificationService, SenderOutbox, SenderOutboxError,
+    DeliveryState as StoredDeliveryState, MessageExpiry, MessageExpiryError,
+    PendingContactImportError, PendingContactImportService, QrContactVerificationError,
+    QrContactVerificationService, SafetyNumberVerificationError, SafetyNumberVerificationService,
+    SenderOutbox, SenderOutboxError,
 };
 
 pub const MAX_DAEMON_CONTACTS_RESPONSE: usize = 65_536;
@@ -380,6 +382,10 @@ trait DaemonOutboxOperations: Send + Sync {
         created_at: u64,
         ttl_seconds: u32,
     ) -> Result<SendMessageResponse, Status>;
+    fn delivery_status(
+        &self,
+        encoded_identifier: &[u8],
+    ) -> Result<GetDeliveryStatusResponse, Status>;
 }
 
 struct UnavailableOutboxOperations;
@@ -392,6 +398,13 @@ impl DaemonOutboxOperations for UnavailableOutboxOperations {
         _created_at: u64,
         _ttl_seconds: u32,
     ) -> Result<SendMessageResponse, Status> {
+        Err(outbox_unavailable())
+    }
+
+    fn delivery_status(
+        &self,
+        _encoded_identifier: &[u8],
+    ) -> Result<GetDeliveryStatusResponse, Status> {
         Err(outbox_unavailable())
     }
 }
@@ -448,6 +461,19 @@ where
             Ok(SendMessageResponse {
                 message_identifier: identifier.as_bytes().to_vec(),
             })
+        })
+    }
+
+    fn delivery_status(
+        &self,
+        encoded_identifier: &[u8],
+    ) -> Result<GetDeliveryStatusResponse, Status> {
+        let identifier = decode_message_identifier(encoded_identifier)?;
+        self.with_outbox(|outbox| {
+            outbox
+                .delivery_state(identifier)
+                .map(delivery_status_response)
+                .ok_or_else(|| Status::not_found("message does not exist"))
         })
     }
 }
@@ -566,6 +592,14 @@ fn decode_message_recipient(encoded: &[u8]) -> Result<IdentityPublicKey, Status>
         .map_err(|_| Status::invalid_argument("message recipient is invalid"))
 }
 
+fn decode_message_identifier(encoded: &[u8]) -> Result<MessageIdentifier, Status> {
+    let bytes: [u8; MESSAGE_IDENTIFIER_BYTES] = encoded
+        .try_into()
+        .map_err(|_| Status::invalid_argument("message identifier is invalid"))?;
+    MessageIdentifier::from_bytes(bytes)
+        .map_err(|_| Status::invalid_argument("message identifier is invalid"))
+}
+
 fn decode_message_envelope(encoded: &[u8]) -> Result<EncryptedMessageEnvelope, Status> {
     if encoded.len() > MAX_DAEMON_MESSAGE_ENVELOPE_BYTES {
         return Err(Status::invalid_argument("message envelope is invalid"));
@@ -590,6 +624,18 @@ fn map_sender_outbox_error(error: &SenderOutboxError) -> Status {
     match error {
         SenderOutboxError::QueueFull => Status::resource_exhausted("daemon outbox is full"),
         _ => outbox_failure(),
+    }
+}
+
+fn delivery_status_response(state: StoredDeliveryState) -> GetDeliveryStatusResponse {
+    let status = match state {
+        StoredDeliveryState::Unknown => RpcDeliveryStatus::Queued,
+        StoredDeliveryState::Delivered => RpcDeliveryStatus::Delivered,
+        StoredDeliveryState::Expired => RpcDeliveryStatus::Expired,
+        StoredDeliveryState::Failed => RpcDeliveryStatus::Failed,
+    };
+    GetDeliveryStatusResponse {
+        status: status.into(),
     }
 }
 
@@ -791,6 +837,15 @@ impl DaemonService for DaemonGrpcService {
                 request.created_at,
                 request.ttl_seconds,
             )
+            .map(Response::new)
+    }
+
+    async fn get_delivery_status(
+        &self,
+        request: Request<GetDeliveryStatusRequest>,
+    ) -> Result<Response<GetDeliveryStatusResponse>, Status> {
+        self.outbox
+            .delivery_status(&request.into_inner().message_identifier)
             .map(Response::new)
     }
 
