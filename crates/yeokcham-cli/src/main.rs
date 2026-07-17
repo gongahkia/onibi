@@ -24,9 +24,9 @@ use yeokcham_core::KeystoreSecret;
 use yeokcham_core::{IdentityKeypair, IdentityPublicKey, KeystoreEntryName, OsKeystore};
 use yeokcham_daemon::{
     ClientIdentity, ClientIdentityInitialization, ClientStateDirectory, ContactLifecycleService,
-    ContactStatus, ContactStore, DaemonRuntime, MessageExpiry, PendingContactImportService,
-    QrContactVerificationService, RecipientInboxDeduplication, SafetyNumberVerificationService,
-    SenderOutbox,
+    ContactStatus, ContactStore, ContactVerificationMethod, DaemonRuntime, MessageExpiry,
+    PendingContactImportService, QrContactVerificationService, RecipientInboxDeduplication,
+    SafetyNumberVerificationService, SenderOutbox,
 };
 use yeokcham_protocol::{
     AttachmentUploadJournal, CONTACT_INVITATION_BYTES, ContactInvitation, EncryptedAttachmentChunk,
@@ -49,6 +49,7 @@ use yeokcham_core::WindowsKeystore;
 const MAX_PROTOCOL_VECTOR_BYTES: u64 = 16_384;
 const MAX_RELAY_PROFILE_BYTES: usize = 64;
 const MAX_ENCRYPTED_MESSAGE_SUBMISSION_BYTES: usize = 1024 * 1024;
+const MAX_TUI_CONTACT_INPUT_BYTES: usize = CONTACT_INVITATION_BYTES * 2;
 const PROTOCOL_V1_VECTORS: &str = include_str!("../../yeokcham-protocol/vectors/protocol-v1.txt");
 
 #[derive(Parser)]
@@ -924,6 +925,7 @@ fn queue_message<K: OsKeystore>(
 
 struct Dashboard {
     identity: Vec<String>,
+    contacts: Vec<String>,
     inbox: Vec<String>,
     outbox: Vec<String>,
     delivery_state: Vec<String>,
@@ -933,6 +935,7 @@ impl Dashboard {
     fn snapshot(&self) -> String {
         let mut output = String::new();
         append_dashboard_section(&mut output, "Identity", &self.identity);
+        append_dashboard_section(&mut output, "Contacts", &self.contacts);
         append_dashboard_section(&mut output, "Inbox", &self.inbox);
         append_dashboard_section(&mut output, "Outbox", &self.outbox);
         append_dashboard_section(&mut output, "Delivery state", &self.delivery_state);
@@ -1008,7 +1011,7 @@ fn tui(state_directory: &Path, snapshot: bool) -> Result<(), Box<dyn Error>> {
     if snapshot {
         print!("{}", dashboard.snapshot());
     } else {
-        run_dashboard(&dashboard)?;
+        run_dashboard(dashboard, state_directory)?;
     }
     Ok(())
 }
@@ -1020,13 +1023,21 @@ fn load_dashboard<K: OsKeystore>(
     let layout = ClientStateDirectory::new(state_directory)?;
     let inbox_path = layout.inbox_path();
     let outbox_path = layout.outbox_path();
+    let contacts_path = layout.contacts_path();
     let inbox = state_file_exists(&inbox_path)?
         .then(|| RecipientInboxDeduplication::open(&inbox_path, keystore))
         .transpose()?;
     let outbox = state_file_exists(&outbox_path)?
         .then(|| SenderOutbox::open(&outbox_path, keystore))
         .transpose()?;
-    Ok(dashboard_from_stores(inbox.as_ref(), outbox.as_ref()))
+    let contacts = state_file_exists(&contacts_path)?
+        .then(|| ContactStore::open(&contacts_path, keystore))
+        .transpose()?;
+    Ok(dashboard_from_stores(
+        contacts.as_ref(),
+        inbox.as_ref(),
+        outbox.as_ref(),
+    ))
 }
 
 fn state_file_exists(path: &Path) -> Result<bool, Box<dyn Error>> {
@@ -1039,9 +1050,32 @@ fn state_file_exists(path: &Path) -> Result<bool, Box<dyn Error>> {
 }
 
 fn dashboard_from_stores(
+    contacts: Option<&ContactStore>,
     inbox: Option<&RecipientInboxDeduplication>,
     outbox: Option<&SenderOutbox>,
 ) -> Dashboard {
+    let contacts = contacts.map_or_else(
+        || vec!["no contacts state".to_owned()],
+        |contacts| {
+            let mut contacts = contacts.contacts().to_vec();
+            contacts.sort_unstable_by_key(|contact| *contact.identity().as_bytes());
+            if contacts.is_empty() {
+                vec!["no contacts".to_owned()]
+            } else {
+                contacts
+                    .iter()
+                    .map(|contact| {
+                        format!(
+                            "contact={} status={} verification={}",
+                            hexadecimal(contact.identity().as_bytes()),
+                            contact_status_label(contact.status()),
+                            contact_verification_label(contact.verification_method())
+                        )
+                    })
+                    .collect()
+            }
+        },
+    );
     let inbox = inbox.map_or_else(
         || vec!["no inbox state".to_owned()],
         |inbox| {
@@ -1103,9 +1137,18 @@ fn dashboard_from_stores(
     };
     Dashboard {
         identity: vec!["status=unavailable".to_owned()],
+        contacts,
         inbox,
         outbox: outbox_lines,
         delivery_state,
+    }
+}
+
+const fn contact_verification_label(method: Option<ContactVerificationMethod>) -> &'static str {
+    match method {
+        None => "none",
+        Some(ContactVerificationMethod::Qr) => "qr",
+        Some(ContactVerificationMethod::SafetyNumber) => "safety_number",
     }
 }
 
@@ -1118,26 +1161,210 @@ impl Drop for TerminalRestoreGuard {
     }
 }
 
-fn run_dashboard(dashboard: &Dashboard) -> std::io::Result<()> {
-    let _restore = TerminalRestoreGuard;
-    terminal::enable_raw_mode()?;
-    let mut output = io::stdout();
-    execute!(output, EnterAlternateScreen, Hide)?;
-    dashboard_event_loop(&mut output, dashboard)
+#[derive(Clone, Copy)]
+enum TuiContactInputKind {
+    Invitation,
+    QrVerification,
+    SafetyNumberVerification,
 }
 
-fn dashboard_event_loop(output: &mut impl Write, dashboard: &Dashboard) -> std::io::Result<()> {
-    loop {
-        render_dashboard(output, dashboard)?;
-        if let Event::Key(key) = event::read()?
-            && key.kind == KeyEventKind::Press
-            && matches!(key.code, KeyCode::Char('q') | KeyCode::Esc)
-        {
-            return Ok(());
+impl TuiContactInputKind {
+    const fn prompt(self) -> &'static str {
+        match self {
+            Self::Invitation => "Invitation hexadecimal",
+            Self::QrVerification => "QR verification hexadecimal",
+            Self::SafetyNumberVerification => "Contact public key and safety number hexadecimal",
         }
     }
 }
 
+struct TuiContactInput {
+    kind: TuiContactInputKind,
+    value: String,
+}
+
+impl TuiContactInput {
+    const fn new(kind: TuiContactInputKind) -> Self {
+        Self {
+            kind,
+            value: String::new(),
+        }
+    }
+
+    fn push(&mut self, character: char) {
+        if self.value.len() + character.len_utf8() <= MAX_TUI_CONTACT_INPUT_BYTES {
+            self.value.push(character);
+        }
+    }
+}
+
+struct TuiDashboard {
+    dashboard: Dashboard,
+    contact_input: Option<TuiContactInput>,
+    notice: Option<&'static str>,
+}
+
+impl TuiDashboard {
+    const fn new(dashboard: Dashboard) -> Self {
+        Self {
+            dashboard,
+            contact_input: None,
+            notice: None,
+        }
+    }
+}
+
+fn run_dashboard(dashboard: Dashboard, state_directory: &Path) -> Result<(), Box<dyn Error>> {
+    let _restore = TerminalRestoreGuard;
+    terminal::enable_raw_mode()?;
+    let mut output = io::stdout();
+    execute!(output, EnterAlternateScreen, Hide)?;
+    let mut dashboard = TuiDashboard::new(dashboard);
+    dashboard_event_loop(&mut output, &mut dashboard, state_directory)
+}
+
+fn dashboard_event_loop(
+    output: &mut impl Write,
+    dashboard: &mut TuiDashboard,
+    state_directory: &Path,
+) -> Result<(), Box<dyn Error>> {
+    loop {
+        render_tui_dashboard(output, dashboard)?;
+        if let Event::Key(key) = event::read()?
+            && key.kind == KeyEventKind::Press
+        {
+            if dashboard.contact_input.is_some() {
+                handle_tui_contact_input(dashboard, state_directory, key.code)?;
+            } else {
+                match key.code {
+                    KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
+                    KeyCode::Char('i') => {
+                        dashboard.contact_input =
+                            Some(TuiContactInput::new(TuiContactInputKind::Invitation));
+                        dashboard.notice = None;
+                    }
+                    KeyCode::Char('r') => {
+                        dashboard.contact_input =
+                            Some(TuiContactInput::new(TuiContactInputKind::QrVerification));
+                        dashboard.notice = None;
+                    }
+                    KeyCode::Char('s') => {
+                        dashboard.contact_input = Some(TuiContactInput::new(
+                            TuiContactInputKind::SafetyNumberVerification,
+                        ));
+                        dashboard.notice = None;
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+}
+
+fn handle_tui_contact_input(
+    dashboard: &mut TuiDashboard,
+    state_directory: &Path,
+    key: KeyCode,
+) -> Result<(), Box<dyn Error>> {
+    let Some(input) = dashboard.contact_input.as_mut() else {
+        return Ok(());
+    };
+    match key {
+        KeyCode::Esc => {
+            dashboard.contact_input = None;
+            dashboard.notice = Some("contact action cancelled");
+        }
+        KeyCode::Backspace => {
+            input.value.pop();
+        }
+        KeyCode::Char(character) => input.push(character),
+        KeyCode::Enter => {
+            let input = dashboard
+                .contact_input
+                .take()
+                .ok_or("contact input is unavailable")?;
+            if submit_tui_contact_input(state_directory, &input).is_ok() {
+                match load_system_dashboard(state_directory) {
+                    Ok(updated) => {
+                        let identity = dashboard.dashboard.identity.clone();
+                        dashboard.dashboard = updated;
+                        dashboard.dashboard.identity = identity;
+                        dashboard.notice = Some("contact updated");
+                    }
+                    Err(_) => dashboard.notice = Some("contact state refresh failed"),
+                }
+            } else {
+                dashboard.notice = Some("contact update failed");
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn submit_tui_contact_input(
+    state_directory: &Path,
+    input: &TuiContactInput,
+) -> Result<(), Box<dyn Error>> {
+    match input.kind {
+        TuiContactInputKind::Invitation => {
+            let _ = import_system_contact_invitation(state_directory, &input.value)?;
+        }
+        TuiContactInputKind::QrVerification => {
+            let _ = verify_system_contact_qr(state_directory, &input.value)?;
+        }
+        TuiContactInputKind::SafetyNumberVerification => {
+            let (contact_public_key, safety_number) = tui_safety_number_parts(&input.value)?;
+            let _ = verify_system_contact_safety_number(
+                state_directory,
+                contact_public_key,
+                safety_number,
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn tui_safety_number_parts(input: &str) -> Result<(&str, &str), &'static str> {
+    let (contact_public_key, safety_number) = input
+        .split_once(' ')
+        .ok_or("safety verification requires a contact public key and safety number")?;
+    if contact_public_key.is_empty()
+        || safety_number.is_empty()
+        || safety_number.contains(' ')
+        || contact_public_key.contains(' ')
+    {
+        return Err("safety verification input is invalid");
+    }
+    Ok((contact_public_key, safety_number))
+}
+
+fn render_tui_dashboard(output: &mut impl Write, dashboard: &TuiDashboard) -> std::io::Result<()> {
+    queue!(
+        output,
+        MoveTo(0, 0),
+        Clear(ClearType::All),
+        Print(dashboard.dashboard.snapshot())
+    )?;
+    if let Some(input) = &dashboard.contact_input {
+        queue!(
+            output,
+            Print(format!("{}: {}\n", input.kind.prompt(), input.value)),
+            Print("Enter submits; Esc cancels.\n")
+        )?;
+    } else {
+        queue!(
+            output,
+            Print("i: import invitation; r: verify QR; s: verify safety number; q: exit.\n")
+        )?;
+    }
+    if let Some(notice) = dashboard.notice {
+        queue!(output, Print(format!("{notice}\n")))?;
+    }
+    output.flush()
+}
+
+#[cfg(test)]
 fn render_dashboard(output: &mut impl Write, dashboard: &Dashboard) -> std::io::Result<()> {
     queue!(
         output,
@@ -1432,21 +1659,22 @@ mod tests {
     use super::{
         Arguments, AttachmentCommand, Command, ContactCommand, ContactInvitation,
         ContactInvitationCommand, EncryptedMessageEnvelope, IdentityCommand, IdentityKeypair,
-        IdentityPublicKey, KeystoreEntryName, MessageCommand, MessageExpiry, OsKeystore,
-        RecipientInboxDeduplication, RelayProfileCommand, ReleaseManifestCommand, SenderOutbox,
-        TorMaildropProfileConfig, TuiCommand, apply_contact_rotation, contact_invitation_record,
+        IdentityPublicKey, KeystoreEntryName, MAX_TUI_CONTACT_INPUT_BYTES, MessageCommand,
+        MessageExpiry, OsKeystore, RecipientInboxDeduplication, RelayProfileCommand,
+        ReleaseManifestCommand, SenderOutbox, TorMaildropProfileConfig, TuiCommand,
+        TuiContactInput, TuiContactInputKind, apply_contact_rotation, contact_invitation_record,
         create_identity, dashboard_from_stores, decode_canonical_hex, decode_envelope, hexadecimal,
         identity_record, import_contact_invitation, initialize_tui_identity,
         inspect_contact_invitation, inspect_relay_profile, load_identity,
         queue_attachment_submission, queue_message, relay_profile_record, release_metadata,
         render_dashboard, revoke_contact, sign_release_manifest, start_embedded_tui_client,
-        validate_state_directory, verify_contact_qr, verify_contact_safety_number,
-        verify_release_manifest,
+        tui_safety_number_parts, validate_state_directory, verify_contact_qr,
+        verify_contact_safety_number, verify_release_manifest,
     };
     use yeokcham_core::KeystoreSecret;
     use yeokcham_daemon::{
-        ATTACHMENT_UPLOAD_DIRECTORY, ClientIdentityInitialization, INBOX_DATABASE_FILE,
-        OUTBOX_DATABASE_FILE,
+        ATTACHMENT_UPLOAD_DIRECTORY, CONTACTS_DATABASE_FILE, ClientIdentityInitialization,
+        ContactStore, INBOX_DATABASE_FILE, OUTBOX_DATABASE_FILE,
     };
     use yeokcham_protocol::{
         ATTACHMENT_CHUNK_BYTES, AttachmentIdentifier, AttachmentKey, AttachmentManifest,
@@ -2123,7 +2351,21 @@ mod tests {
         ));
         fs::create_dir(&state_directory).unwrap();
         let mut keystore = InMemoryKeystore::default();
+        let local_identity = IdentityKeypair::generate().unwrap();
         let recipient = IdentityKeypair::generate().unwrap();
+        let invitation = hexadecimal(
+            &ContactInvitation::create(&recipient)
+                .unwrap()
+                .encode()
+                .unwrap(),
+        );
+        import_contact_invitation(
+            &state_directory,
+            &local_identity.public_key(),
+            &invitation,
+            &mut keystore,
+        )
+        .unwrap();
         let delivered =
             EncryptedMessageEnvelope::new(vec![0xa1], b"do-not-display-this-ciphertext".to_vec())
                 .unwrap();
@@ -2156,9 +2398,13 @@ mod tests {
         )
         .unwrap();
         inbox.record_at(&delivered, 101).unwrap();
+        let contacts =
+            ContactStore::open(&state_directory.join(CONTACTS_DATABASE_FILE), &mut keystore)
+                .unwrap();
 
-        let dashboard = dashboard_from_stores(Some(&inbox), Some(&outbox));
+        let dashboard = dashboard_from_stores(Some(&contacts), Some(&inbox), Some(&outbox));
         let snapshot = dashboard.snapshot();
+        assert!(snapshot.contains("Contacts:\n"));
         assert!(snapshot.contains("Inbox:\n"));
         assert!(snapshot.contains("Identity:\n"));
         assert!(snapshot.contains("Outbox:\n"));
@@ -2166,6 +2412,7 @@ mod tests {
         assert!(snapshot.contains("received_at=101"));
         assert!(snapshot.contains("state=Delivered"));
         assert!(snapshot.contains("expires_at=162"));
+        assert!(snapshot.contains("status=pending verification=none"));
         assert!(!snapshot.contains("do-not-display-this-ciphertext"));
         let mut rendered = Vec::new();
         render_dashboard(&mut rendered, &dashboard).unwrap();
@@ -2174,6 +2421,7 @@ mod tests {
         assert!(rendered.contains("Outbox"));
         assert!(rendered.contains("Delivery state"));
 
+        drop(contacts);
         drop(inbox);
         drop(outbox);
         fs::remove_dir_all(state_directory).unwrap();
@@ -2222,12 +2470,29 @@ mod tests {
         assert_eq!(first, second);
         assert_eq!(first_initialization, ClientIdentityInitialization::Created);
         assert_eq!(second_initialization, ClientIdentityInitialization::Loaded);
-        let snapshot = dashboard_from_stores(None, None)
+        let snapshot = dashboard_from_stores(None, None, None)
             .with_identity(first, first_initialization)
             .snapshot();
         assert!(snapshot.contains("Identity:\n"));
         assert!(snapshot.contains("status=created"));
         assert!(snapshot.contains("identifier="));
+    }
+
+    #[test]
+    fn tui_contact_input_is_bounded_and_safety_verification_requires_two_fields() {
+        let mut input = TuiContactInput::new(TuiContactInputKind::Invitation);
+        for _ in 0..=MAX_TUI_CONTACT_INPUT_BYTES {
+            input.push('a');
+        }
+        assert_eq!(input.value.len(), MAX_TUI_CONTACT_INPUT_BYTES);
+
+        assert_eq!(
+            tui_safety_number_parts("contact safety"),
+            Ok(("contact", "safety"))
+        );
+        assert!(tui_safety_number_parts("contact").is_err());
+        assert!(tui_safety_number_parts("contact safety extra").is_err());
+        assert!(tui_safety_number_parts(" contact").is_err());
     }
 
     #[test]
