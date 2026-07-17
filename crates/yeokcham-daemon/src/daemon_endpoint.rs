@@ -2,6 +2,7 @@ use std::{fs, path::Path};
 
 pub const DAEMON_ENDPOINT_CONFIG_VERSION: u8 = 1;
 pub const DEFAULT_DAEMON_UNIX_SOCKET_NAME: &str = "yeokcham-daemon.sock";
+pub const DEFAULT_DAEMON_WINDOWS_NAMED_PIPE_NAME: &str = "yeokcham-daemon";
 pub const MAX_DAEMON_ENDPOINT_CONFIG_BYTES: usize = 1024;
 pub const MAX_DAEMON_ENDPOINT_NAME_BYTES: usize = 64;
 
@@ -85,6 +86,15 @@ impl DaemonEndpointConfig {
     }
 
     #[must_use]
+    pub fn windows_named_pipe_default() -> Self {
+        Self {
+            endpoint: DaemonEndpoint::WindowsNamedPipe(
+                DEFAULT_DAEMON_WINDOWS_NAMED_PIPE_NAME.to_owned(),
+            ),
+        }
+    }
+
+    #[must_use]
     pub const fn endpoint(&self) -> &DaemonEndpoint {
         &self.endpoint
     }
@@ -164,8 +174,9 @@ mod tests {
     };
 
     use super::{
-        DAEMON_ENDPOINT_CONFIG_VERSION, DEFAULT_DAEMON_UNIX_SOCKET_NAME, DaemonEndpoint,
-        DaemonEndpointConfig, DaemonEndpointConfigError, MAX_DAEMON_ENDPOINT_CONFIG_BYTES,
+        DAEMON_ENDPOINT_CONFIG_VERSION, DEFAULT_DAEMON_UNIX_SOCKET_NAME,
+        DEFAULT_DAEMON_WINDOWS_NAMED_PIPE_NAME, DaemonEndpoint, DaemonEndpointConfig,
+        DaemonEndpointConfigError, MAX_DAEMON_ENDPOINT_CONFIG_BYTES,
         MAX_DAEMON_ENDPOINT_NAME_BYTES,
     };
 
@@ -201,6 +212,10 @@ mod tests {
         assert_eq!(
             DaemonEndpointConfig::unix_socket_default().endpoint(),
             &DaemonEndpoint::UnixSocket(DEFAULT_DAEMON_UNIX_SOCKET_NAME.to_owned())
+        );
+        assert_eq!(
+            DaemonEndpointConfig::windows_named_pipe_default().endpoint(),
+            &DaemonEndpoint::WindowsNamedPipe(DEFAULT_DAEMON_WINDOWS_NAMED_PIPE_NAME.to_owned())
         );
     }
 

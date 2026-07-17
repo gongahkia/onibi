@@ -49,6 +49,8 @@ mod unix_listener;
 mod upnp;
 mod wifi_direct_transport;
 mod wifi_hotspot_transport;
+#[cfg(windows)]
+mod windows_listener;
 mod x3dh_session_service;
 
 use yeokcham_core::{Error, Result};
@@ -82,9 +84,9 @@ pub use daemon_config::{
     DAEMON_CONFIG_SCHEMA_VERSION, DaemonConfig, DaemonConfigError, MAX_DAEMON_CONFIG_BYTES,
 };
 pub use daemon_endpoint::{
-    DAEMON_ENDPOINT_CONFIG_VERSION, DEFAULT_DAEMON_UNIX_SOCKET_NAME, DaemonEndpoint,
-    DaemonEndpointConfig, DaemonEndpointConfigError, MAX_DAEMON_ENDPOINT_CONFIG_BYTES,
-    MAX_DAEMON_ENDPOINT_NAME_BYTES,
+    DAEMON_ENDPOINT_CONFIG_VERSION, DEFAULT_DAEMON_UNIX_SOCKET_NAME,
+    DEFAULT_DAEMON_WINDOWS_NAMED_PIPE_NAME, DaemonEndpoint, DaemonEndpointConfig,
+    DaemonEndpointConfigError, MAX_DAEMON_ENDPOINT_CONFIG_BYTES, MAX_DAEMON_ENDPOINT_NAME_BYTES,
 };
 #[cfg(unix)]
 pub use daemon_server::{DaemonServer, DaemonServerError};
@@ -174,6 +176,11 @@ pub use unix_listener::{DAEMON_UNIX_SOCKET_FILE, DaemonUnixListener, DaemonUnixL
 pub use upnp::{MAX_UPNP_LEASE_SECONDS, UpnpMapping, UpnpMappingError, UpnpMappingRequest};
 pub use wifi_direct_transport::WifiDirectTransport;
 pub use wifi_hotspot_transport::WifiHotspotTransport;
+#[cfg(windows)]
+pub use windows_listener::{
+    DAEMON_WINDOWS_NAMED_PIPE_NAME, DaemonWindowsIncoming, DaemonWindowsListener,
+    DaemonWindowsListenerError,
+};
 pub use x3dh_session_service::{
     X3dhSessionEstablishmentError, X3dhSessionEstablishmentService, initiate_x3dh_session,
 };
