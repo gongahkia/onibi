@@ -21,6 +21,8 @@
 #define YEOKCHAM_EVENT_MESSAGE_DELIVERED UINT32_C(4)
 #define YEOKCHAM_EVENT_MESSAGE_DELIVERY_FAILED UINT32_C(5)
 #define YEOKCHAM_IDENTITY_PUBLIC_KEY_BYTES UINT32_C(32)
+#define YEOKCHAM_RECOVERY_ARCHIVE_BYTES UINT32_C(122)
+#define YEOKCHAM_MAX_RECOVERY_PASSPHRASE_BYTES UINT32_C(1024)
 #define YEOKCHAM_CONTACT_INVITATION_BYTES UINT32_C(136)
 #define YEOKCHAM_CONTACT_STATUS_PENDING UINT32_C(1)
 #define YEOKCHAM_CONTACT_STATUS_VERIFIED UINT32_C(2)
@@ -113,6 +115,20 @@ yeokcham_status_t yeokcham_client_identity_load(
     yeokcham_client_t *client,
     uint8_t public_key[YEOKCHAM_IDENTITY_PUBLIC_KEY_BYTES]
 ); // loads the handle-scoped identity and clears public_key before any failure
+yeokcham_status_t yeokcham_client_identity_export_recovery(
+    yeokcham_client_t *client,
+    const uint8_t *passphrase,
+    size_t passphrase_length,
+    yeokcham_buffer_t **archive
+); // requires a nonempty bounded passphrase and handle identity; nulls archive before any failure; release the opaque encrypted archive buffer
+yeokcham_status_t yeokcham_client_identity_import_recovery(
+    yeokcham_client_t *client,
+    const uint8_t *archive,
+    size_t archive_length,
+    const uint8_t *passphrase,
+    size_t passphrase_length,
+    uint8_t public_key[YEOKCHAM_IDENTITY_PUBLIC_KEY_BYTES]
+); // requires exactly YEOKCHAM_RECOVERY_ARCHIVE_BYTES and a nonempty bounded passphrase; clears public_key before any failure
 yeokcham_status_t yeokcham_client_contact_import(
     yeokcham_client_t *client,
     const uint8_t invitation[YEOKCHAM_CONTACT_INVITATION_BYTES],

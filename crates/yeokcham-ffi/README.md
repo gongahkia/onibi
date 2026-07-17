@@ -15,6 +15,8 @@
 - A successful asynchronous submission queues one callback for four library-created background workers. The caller retains its callback context and must keep it valid until the callback runs.
 - Completion callbacks run without an internal C ABI client-registry lock and may synchronously call any C ABI function, including `yeokcham_client_release` for the submitted client. Callback-context synchronization remains the caller's responsibility.
 - `yeokcham_secret_buffer_zeroize` accepts only caller-owned writable bytes. Its buffer remains the caller's responsibility before and after the call.
+- `yeokcham_client_identity_export_recovery` requires a handle-scoped identity and a nonempty passphrase no larger than `YEOKCHAM_MAX_RECOVERY_PASSPHRASE_BYTES`; it returns an opaque encrypted archive buffer that the caller releases.
+- `yeokcham_client_identity_import_recovery` accepts exactly `YEOKCHAM_RECOVERY_ARCHIVE_BYTES` and writes the recovered identity public key only after successful authentication.
 
 ## Callback backpressure
 

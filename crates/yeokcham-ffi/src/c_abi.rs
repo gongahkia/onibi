@@ -30,7 +30,8 @@ use yeokcham_sdk::{
     SdkDeliveryProfilePolicy, SdkDeliveryProfilePolicyError, SdkDirectIpDisclosureAcknowledgement,
     SdkEvent, SdkEventEnvelope, SdkEventStream, SdkEventStreamError, SdkIdentityError,
     SdkIdentityManager, SdkLocalMeshPolicy, SdkLocalMeshTransportKind, SdkMessageEnvelope,
-    SdkMessageError, SdkMessageExpiry, SdkMessageSendRequest,
+    SdkMessageError, SdkMessageExpiry, SdkMessageSendRequest, SdkRecoveryArchive, SdkRecoveryError,
+    SdkRecoveryPassphrase,
 };
 use zeroize::{Zeroize, Zeroizing};
 
@@ -96,7 +97,7 @@ static ACTIVE_ATTACHMENT_TRANSFERS: OnceLock<Mutex<BTreeMap<usize, AttachmentTra
 static ACTIVE_CANCELLATIONS: OnceLock<Mutex<BTreeMap<usize, CancellationToken>>> = OnceLock::new();
 static ACTIVE_CLIENT_CONFIG_BUILDERS: OnceLock<Mutex<BTreeMap<usize, ClientConfigBuilder>>> =
     OnceLock::new();
-static ACTIVE_BUFFERS: OnceLock<Mutex<BTreeMap<usize, Vec<u8>>>> = OnceLock::new();
+static ACTIVE_BUFFERS: OnceLock<Mutex<BTreeMap<usize, Zeroizing<Vec<u8>>>>> = OnceLock::new();
 static ACTIVE_EVENT_SUBSCRIPTIONS: OnceLock<Mutex<BTreeMap<usize, SdkEventStream>>> =
     OnceLock::new();
 static NEXT_HANDLE_IDENTIFIER: AtomicUsize = AtomicUsize::new(1);
@@ -341,6 +342,115 @@ pub unsafe extern "C" fn yeokcham_client_identity_load(
             yeokcham_core::ED25519_PUBLIC_KEY_BYTES,
         );
     };
+    client.last_error_detail = None;
+    YeokchamStatus::Ok
+}
+
+#[unsafe(no_mangle)]
+#[allow(clippy::missing_safety_doc)]
+pub unsafe extern "C" fn yeokcham_client_identity_export_recovery(
+    client: *mut YeokchamClient,
+    passphrase: *const u8,
+    passphrase_length: usize,
+    archive: *mut *mut YeokchamBuffer,
+) -> YeokchamStatus {
+    if archive.is_null() {
+        return YeokchamStatus::InvalidInput;
+    }
+    unsafe { archive.write(std::ptr::null_mut()) };
+    if passphrase.is_null()
+        || passphrase_length == 0
+        || passphrase_length > yeokcham_sdk::MAX_SDK_RECOVERY_PASSPHRASE_BYTES
+    {
+        return YeokchamStatus::InvalidInput;
+    }
+    let identifier = client.addr();
+    if identifier == 0 {
+        return YeokchamStatus::InvalidInput;
+    }
+    let passphrase = unsafe { std::slice::from_raw_parts(passphrase, passphrase_length) };
+    let Ok(passphrase) = SdkRecoveryPassphrase::new(passphrase.to_vec()) else {
+        return YeokchamStatus::InvalidInput;
+    };
+    let Ok(mut clients) = active_clients().lock() else {
+        return YeokchamStatus::State;
+    };
+    let Some(client) = clients.get_mut(&identifier) else {
+        return YeokchamStatus::InvalidInput;
+    };
+    let archive_value = match client.identity.export_recovery(&passphrase) {
+        Ok(archive_value) => archive_value,
+        Err(error) => {
+            client.last_error_detail = Some(sdk_recovery_error_detail(&error));
+            return map_sdk_recovery_error(&error);
+        }
+    };
+    let archive_buffer = match allocate_buffer(archive_value.as_bytes()) {
+        Ok(archive_buffer) => archive_buffer,
+        Err(status) => {
+            client.last_error_detail = Some(b"sdk_recovery_buffer");
+            return status;
+        }
+    };
+    client.last_error_detail = None;
+    unsafe { archive.write(archive_buffer) };
+    YeokchamStatus::Ok
+}
+
+#[unsafe(no_mangle)]
+#[allow(clippy::missing_safety_doc)]
+pub unsafe extern "C" fn yeokcham_client_identity_import_recovery(
+    client: *mut YeokchamClient,
+    archive: *const u8,
+    archive_length: usize,
+    passphrase: *const u8,
+    passphrase_length: usize,
+    public_key: *mut u8,
+) -> YeokchamStatus {
+    if public_key.is_null() {
+        return YeokchamStatus::InvalidInput;
+    }
+    unsafe { std::ptr::write_bytes(public_key, 0, yeokcham_core::ED25519_PUBLIC_KEY_BYTES) };
+    if archive.is_null()
+        || archive_length != yeokcham_protocol::IDENTITY_EXPORT_BYTES
+        || passphrase.is_null()
+        || passphrase_length == 0
+        || passphrase_length > yeokcham_sdk::MAX_SDK_RECOVERY_PASSPHRASE_BYTES
+    {
+        return YeokchamStatus::InvalidInput;
+    }
+    let identifier = client.addr();
+    if identifier == 0 {
+        return YeokchamStatus::InvalidInput;
+    }
+    let archive = unsafe { std::slice::from_raw_parts(archive, archive_length) };
+    let Ok(archive) = SdkRecoveryArchive::from_bytes(archive.to_vec()) else {
+        return YeokchamStatus::InvalidInput;
+    };
+    let passphrase = unsafe { std::slice::from_raw_parts(passphrase, passphrase_length) };
+    let Ok(passphrase) = SdkRecoveryPassphrase::new(passphrase.to_vec()) else {
+        return YeokchamStatus::InvalidInput;
+    };
+    let Ok(mut clients) = active_clients().lock() else {
+        return YeokchamStatus::State;
+    };
+    let Some(client) = clients.get_mut(&identifier) else {
+        return YeokchamStatus::InvalidInput;
+    };
+    let identity = match client.identity.import_recovery(&archive, &passphrase) {
+        Ok(identity) => identity,
+        Err(error) => {
+            client.last_error_detail = Some(sdk_recovery_error_detail(&error));
+            return map_sdk_recovery_error(&error);
+        }
+    };
+    unsafe {
+        std::ptr::copy_nonoverlapping(
+            identity.public_key().as_bytes().as_ptr(),
+            public_key,
+            yeokcham_core::ED25519_PUBLIC_KEY_BYTES,
+        );
+    }
     client.last_error_detail = None;
     YeokchamStatus::Ok
 }
@@ -974,7 +1084,7 @@ pub extern "C" fn yeokcham_buffer_length(buffer: *const YeokchamBuffer) -> usize
     let Ok(buffers) = active_buffers().lock() else {
         return 0;
     };
-    buffers.get(&identifier).map_or(0, Vec::len)
+    buffers.get(&identifier).map_or(0, |buffer| buffer.len())
 }
 
 #[unsafe(no_mangle)]
@@ -1346,7 +1456,7 @@ fn active_client_config_builders() -> &'static Mutex<BTreeMap<usize, ClientConfi
     ACTIVE_CLIENT_CONFIG_BUILDERS.get_or_init(|| Mutex::new(BTreeMap::new()))
 }
 
-fn active_buffers() -> &'static Mutex<BTreeMap<usize, Vec<u8>>> {
+fn active_buffers() -> &'static Mutex<BTreeMap<usize, Zeroizing<Vec<u8>>>> {
     ACTIVE_BUFFERS.get_or_init(|| Mutex::new(BTreeMap::new()))
 }
 
@@ -1549,7 +1659,10 @@ fn allocate_buffer(bytes: &[u8]) -> Result<*mut YeokchamBuffer, YeokchamStatus> 
         return Err(YeokchamStatus::ResourceLimit);
     }
     let identifier = next_handle_identifier().ok_or(YeokchamStatus::ResourceLimit)?;
-    if buffers.insert(identifier, bytes.to_vec()).is_some() {
+    if buffers
+        .insert(identifier, Zeroizing::new(bytes.to_vec()))
+        .is_some()
+    {
         return Err(YeokchamStatus::ResourceLimit);
     }
     let buffer = std::ptr::without_provenance_mut(identifier);
@@ -1643,6 +1756,21 @@ fn sdk_identity_error_detail(error: &SdkIdentityError) -> &'static [u8] {
         SdkIdentityError::Generation => b"sdk_identity_generation",
         SdkIdentityError::InvalidStoredIdentity => b"sdk_identity_invalid_stored",
         SdkIdentityError::Keystore => b"sdk_identity_keystore",
+    }
+}
+
+const fn map_sdk_recovery_error(error: &SdkRecoveryError) -> YeokchamStatus {
+    match error {
+        SdkRecoveryError::InvalidArchive => YeokchamStatus::InvalidInput,
+        SdkRecoveryError::Identity(_) | SdkRecoveryError::Operation => YeokchamStatus::State,
+    }
+}
+
+const fn sdk_recovery_error_detail(error: &SdkRecoveryError) -> &'static [u8] {
+    match error {
+        SdkRecoveryError::Identity(_) => b"sdk_recovery_identity",
+        SdkRecoveryError::InvalidArchive => b"sdk_recovery_invalid_archive",
+        SdkRecoveryError::Operation => b"sdk_recovery_operation",
     }
 }
 
@@ -1748,7 +1876,8 @@ mod tests {
         yeokcham_client_contact_import, yeokcham_client_contact_revoke,
         yeokcham_client_contact_verify_qr, yeokcham_client_contact_verify_safety_number,
         yeokcham_client_copy_last_error_detail, yeokcham_client_create,
-        yeokcham_client_identity_create, yeokcham_client_identity_load,
+        yeokcham_client_identity_create, yeokcham_client_identity_export_recovery,
+        yeokcham_client_identity_import_recovery, yeokcham_client_identity_load,
         yeokcham_client_message_send, yeokcham_client_release, yeokcham_client_start,
         yeokcham_client_stop, yeokcham_client_subscribe_events,
         yeokcham_client_take_last_error_detail, yeokcham_delivery_profile_select,
@@ -1820,6 +1949,135 @@ mod tests {
             YeokchamStatus::InvalidInput
         );
         assert_eq!(yeokcham_client_release(client), YeokchamStatus::Ok);
+    }
+
+    fn export_c_recovery(client: *mut crate::YeokchamClient, passphrase: &[u8]) -> Vec<u8> {
+        let mut archive = std::ptr::null_mut();
+        assert_eq!(
+            unsafe {
+                yeokcham_client_identity_export_recovery(
+                    client,
+                    passphrase.as_ptr(),
+                    passphrase.len(),
+                    &raw mut archive,
+                )
+            },
+            YeokchamStatus::Ok
+        );
+        assert!(!archive.is_null());
+        assert_eq!(
+            yeokcham_buffer_length(archive),
+            yeokcham_protocol::IDENTITY_EXPORT_BYTES
+        );
+        let archive_bytes = unsafe {
+            std::slice::from_raw_parts(
+                yeokcham_buffer_data(archive),
+                yeokcham_buffer_length(archive),
+            )
+        }
+        .to_vec();
+        assert_eq!(yeokcham_buffer_release(archive), YeokchamStatus::Ok);
+        archive_bytes
+    }
+
+    #[test]
+    fn c_identity_recovery_exports_imports_and_rejects_invalid_archives() {
+        let _guard = CLIENT_TEST_LOCK.lock().unwrap();
+        let source = yeokcham_client_create();
+        let target = yeokcham_client_create();
+        let passphrase = b"ffi recovery passphrase";
+        let mut source_key = [0; yeokcham_core::ED25519_PUBLIC_KEY_BYTES];
+        let mut recovered_key = [0xA5; yeokcham_core::ED25519_PUBLIC_KEY_BYTES];
+        let mut loaded_key = [0; yeokcham_core::ED25519_PUBLIC_KEY_BYTES];
+        let mut rejected_archive = std::ptr::without_provenance_mut(1);
+        let too_long = vec![0xA5; yeokcham_sdk::MAX_SDK_RECOVERY_PASSPHRASE_BYTES + 1];
+
+        assert!(!source.is_null());
+        assert!(!target.is_null());
+        assert_eq!(
+            unsafe { yeokcham_client_identity_create(source, source_key.as_mut_ptr()) },
+            YeokchamStatus::Ok
+        );
+        assert_eq!(
+            unsafe {
+                yeokcham_client_identity_export_recovery(
+                    source,
+                    too_long.as_ptr(),
+                    too_long.len(),
+                    &raw mut rejected_archive,
+                )
+            },
+            YeokchamStatus::InvalidInput
+        );
+        assert!(rejected_archive.is_null());
+        let archive_bytes = export_c_recovery(source, passphrase);
+        let mut tampered_archive = archive_bytes.clone();
+        tampered_archive[0] ^= 1;
+
+        assert_eq!(
+            unsafe {
+                yeokcham_client_identity_import_recovery(
+                    target,
+                    tampered_archive.as_ptr(),
+                    tampered_archive.len(),
+                    passphrase.as_ptr(),
+                    passphrase.len(),
+                    recovered_key.as_mut_ptr(),
+                )
+            },
+            YeokchamStatus::InvalidInput
+        );
+        assert_eq!(recovered_key, [0; yeokcham_core::ED25519_PUBLIC_KEY_BYTES]);
+        let mut detail = [0; MAX_C_ABI_ERROR_DETAIL_BYTES];
+        let mut detail_length = 0;
+        assert_eq!(
+            unsafe {
+                yeokcham_client_copy_last_error_detail(
+                    target,
+                    detail.as_mut_ptr(),
+                    detail.len(),
+                    &raw mut detail_length,
+                )
+            },
+            YeokchamStatus::Ok
+        );
+        assert_eq!(&detail[..detail_length], b"sdk_recovery_invalid_archive");
+        recovered_key.fill(0xA5);
+        assert_eq!(
+            unsafe {
+                yeokcham_client_identity_import_recovery(
+                    target,
+                    archive_bytes.as_ptr(),
+                    archive_bytes.len() - 1,
+                    passphrase.as_ptr(),
+                    passphrase.len(),
+                    recovered_key.as_mut_ptr(),
+                )
+            },
+            YeokchamStatus::InvalidInput
+        );
+        assert_eq!(recovered_key, [0; yeokcham_core::ED25519_PUBLIC_KEY_BYTES]);
+        assert_eq!(
+            unsafe {
+                yeokcham_client_identity_import_recovery(
+                    target,
+                    archive_bytes.as_ptr(),
+                    archive_bytes.len(),
+                    passphrase.as_ptr(),
+                    passphrase.len(),
+                    recovered_key.as_mut_ptr(),
+                )
+            },
+            YeokchamStatus::Ok
+        );
+        assert_eq!(recovered_key, source_key);
+        assert_eq!(
+            unsafe { yeokcham_client_identity_load(target, loaded_key.as_mut_ptr()) },
+            YeokchamStatus::Ok
+        );
+        assert_eq!(loaded_key, source_key);
+        assert_eq!(yeokcham_client_release(source), YeokchamStatus::Ok);
+        assert_eq!(yeokcham_client_release(target), YeokchamStatus::Ok);
     }
 
     #[test]
@@ -3259,6 +3517,7 @@ mod tests {
             state_directory: *const u8,
             state_directory_length: usize,
         ) -> i32;
+        fn yeokcham_c_recovery_operations() -> i32;
     }
 
     #[test]
@@ -3270,6 +3529,12 @@ mod tests {
     #[test]
     fn c_consumer_runs_delivery_profile_operations() {
         assert_eq!(unsafe { yeokcham_c_delivery_profile_operations() }, 0);
+    }
+
+    #[test]
+    fn c_consumer_runs_recovery_operations() {
+        let _guard = CLIENT_TEST_LOCK.lock().unwrap();
+        assert_eq!(unsafe { yeokcham_c_recovery_operations() }, 0);
     }
 
     #[test]

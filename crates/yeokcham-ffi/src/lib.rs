@@ -14,6 +14,9 @@ pub const YEOKCHAM_EVENT_MESSAGE_QUEUED: u32 = 3;
 pub const YEOKCHAM_EVENT_MESSAGE_DELIVERED: u32 = 4;
 pub const YEOKCHAM_EVENT_MESSAGE_DELIVERY_FAILED: u32 = 5;
 pub const YEOKCHAM_IDENTITY_PUBLIC_KEY_BYTES: usize = yeokcham_core::ED25519_PUBLIC_KEY_BYTES;
+pub const YEOKCHAM_RECOVERY_ARCHIVE_BYTES: usize = yeokcham_protocol::IDENTITY_EXPORT_BYTES;
+pub const YEOKCHAM_MAX_RECOVERY_PASSPHRASE_BYTES: usize =
+    yeokcham_sdk::MAX_SDK_RECOVERY_PASSPHRASE_BYTES;
 pub const YEOKCHAM_CONTACT_INVITATION_BYTES: usize = yeokcham_protocol::CONTACT_INVITATION_BYTES;
 pub const YEOKCHAM_CONTACT_STATUS_PENDING: u32 = 1;
 pub const YEOKCHAM_CONTACT_STATUS_VERIFIED: u32 = 2;
@@ -156,9 +159,10 @@ pub use c_abi::{
     yeokcham_client_contact_import, yeokcham_client_contact_revoke,
     yeokcham_client_contact_verify_qr, yeokcham_client_contact_verify_safety_number,
     yeokcham_client_copy_last_error_detail, yeokcham_client_create,
-    yeokcham_client_identity_create, yeokcham_client_identity_load, yeokcham_client_message_send,
-    yeokcham_client_release, yeokcham_client_start, yeokcham_client_stop,
-    yeokcham_client_subscribe_events, yeokcham_client_take_last_error_detail,
+    yeokcham_client_identity_create, yeokcham_client_identity_export_recovery,
+    yeokcham_client_identity_import_recovery, yeokcham_client_identity_load,
+    yeokcham_client_message_send, yeokcham_client_release, yeokcham_client_start,
+    yeokcham_client_stop, yeokcham_client_subscribe_events, yeokcham_client_take_last_error_detail,
     yeokcham_delivery_profile_select, yeokcham_event_subscription_poll,
     yeokcham_event_subscription_release, yeokcham_event_subscription_wait,
     yeokcham_secret_buffer_zeroize,
@@ -175,10 +179,11 @@ mod tests {
         YEOKCHAM_IDENTITY_PUBLIC_KEY_BYTES, YEOKCHAM_MAX_ATTACHMENT_CHUNKS,
         YEOKCHAM_MAX_ATTACHMENT_CHUNKS_PER_CYCLE, YEOKCHAM_MAX_ATTACHMENT_MANIFEST_BYTES,
         YEOKCHAM_MAX_CANCELLATION_DEADLINE_MILLISECONDS, YEOKCHAM_MAX_LOCAL_MESH_TRANSPORTS,
-        YEOKCHAM_MAX_MESSAGE_ENVELOPE_BYTES, YEOKCHAM_MESSAGE_IDENTIFIER_BYTES,
-        YEOKCHAM_QR_VERIFICATION_PAYLOAD_BYTES, YEOKCHAM_SAFETY_NUMBER_FINGERPRINT_BYTES,
-        YeokchamStatus, yeokcham_abi_negotiate, yeokcham_client_complete_async,
-        yeokcham_client_create, yeokcham_client_release,
+        YEOKCHAM_MAX_MESSAGE_ENVELOPE_BYTES, YEOKCHAM_MAX_RECOVERY_PASSPHRASE_BYTES,
+        YEOKCHAM_MESSAGE_IDENTIFIER_BYTES, YEOKCHAM_QR_VERIFICATION_PAYLOAD_BYTES,
+        YEOKCHAM_RECOVERY_ARCHIVE_BYTES, YEOKCHAM_SAFETY_NUMBER_FINGERPRINT_BYTES, YeokchamStatus,
+        yeokcham_abi_negotiate, yeokcham_client_complete_async, yeokcham_client_create,
+        yeokcham_client_release,
     };
     use std::{
         ffi::c_void,
@@ -214,6 +219,10 @@ mod tests {
         assert!(HEADER.contains("#define YEOKCHAM_EVENT_MESSAGE_DELIVERY_FAILED UINT32_C(5)"));
         assert!(HEADER.contains("#define YEOKCHAM_IDENTITY_PUBLIC_KEY_BYTES UINT32_C(32)"));
         assert_eq!(YEOKCHAM_IDENTITY_PUBLIC_KEY_BYTES, 32);
+        assert!(HEADER.contains("#define YEOKCHAM_RECOVERY_ARCHIVE_BYTES UINT32_C(122)"));
+        assert_eq!(YEOKCHAM_RECOVERY_ARCHIVE_BYTES, 122);
+        assert!(HEADER.contains("#define YEOKCHAM_MAX_RECOVERY_PASSPHRASE_BYTES UINT32_C(1024)"));
+        assert_eq!(YEOKCHAM_MAX_RECOVERY_PASSPHRASE_BYTES, 1_024);
         assert!(HEADER.contains("#define YEOKCHAM_CONTACT_INVITATION_BYTES UINT32_C(136)"));
         assert!(HEADER.contains("#define YEOKCHAM_QR_VERIFICATION_PAYLOAD_BYTES UINT32_C(70)"));
         assert_eq!(YEOKCHAM_QR_VERIFICATION_PAYLOAD_BYTES, 70);

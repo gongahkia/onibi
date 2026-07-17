@@ -217,3 +217,53 @@ int yeokcham_c_delivery_profile_operations(void) {
     }
     return 0;
 }
+
+int yeokcham_c_recovery_operations(void) {
+    const uint8_t passphrase[] = "C recovery passphrase";
+    uint8_t source_identity[YEOKCHAM_IDENTITY_PUBLIC_KEY_BYTES];
+    uint8_t recovered_identity[YEOKCHAM_IDENTITY_PUBLIC_KEY_BYTES];
+    yeokcham_client_t *source = yeokcham_client_create();
+    yeokcham_client_t *target = yeokcham_client_create();
+    yeokcham_buffer_t *archive = NULL;
+    size_t index;
+    int result = 1;
+
+    if (source == NULL || target == NULL) {
+        goto cleanup;
+    }
+    if (yeokcham_client_identity_create(source, source_identity) != YEOKCHAM_STATUS_OK) {
+        result = 2;
+        goto cleanup;
+    }
+    if (yeokcham_client_identity_export_recovery(source, passphrase, sizeof(passphrase) - UINT32_C(1), &archive) != YEOKCHAM_STATUS_OK || archive == NULL) {
+        result = 3;
+        goto cleanup;
+    }
+    if (yeokcham_buffer_data(archive) == NULL || yeokcham_buffer_length(archive) != YEOKCHAM_RECOVERY_ARCHIVE_BYTES) {
+        result = 4;
+        goto cleanup;
+    }
+    if (yeokcham_client_identity_import_recovery(target, yeokcham_buffer_data(archive), yeokcham_buffer_length(archive), passphrase, sizeof(passphrase) - UINT32_C(1), recovered_identity) != YEOKCHAM_STATUS_OK) {
+        result = 5;
+        goto cleanup;
+    }
+    for (index = 0; index < YEOKCHAM_IDENTITY_PUBLIC_KEY_BYTES; ++index) {
+        if (source_identity[index] != recovered_identity[index]) {
+            result = 6;
+            goto cleanup;
+        }
+    }
+    result = 0;
+
+cleanup:
+    if (archive != NULL && yeokcham_buffer_release(archive) != YEOKCHAM_STATUS_OK && result == 0) {
+        result = 7;
+    }
+    if (source != NULL && yeokcham_client_release(source) != YEOKCHAM_STATUS_OK && result == 0) {
+        result = 8;
+    }
+    if (target != NULL && yeokcham_client_release(target) != YEOKCHAM_STATUS_OK && result == 0) {
+        result = 9;
+    }
+    return result;
+}
