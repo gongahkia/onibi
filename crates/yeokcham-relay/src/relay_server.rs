@@ -7,6 +7,7 @@ use std::{
 };
 
 use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
     sync::watch,
     time::{self, MissedTickBehavior},
@@ -21,16 +22,24 @@ use yeokcham_relay_api::v1::{
 
 use crate::{
     AttachmentIdentifier, EncryptedAttachmentChunk, EncryptedMessageEnvelope, MailboxCapability,
-    MailboxQuota, RelayDatabase, RelayDatabaseError, RelayIngressError, RelayIngressRateLimit,
-    RelayIngressRateLimiter, RelayRetentionPolicy, SelfHostedRelayConfig,
+    MailboxQuota, RELAY_HEALTH_PATH, RELAY_READINESS_PATH, RelayDatabase, RelayDatabaseError,
+    RelayHealthEndpoint, RelayIngressError, RelayIngressRateLimit, RelayIngressRateLimiter,
+    RelayRetentionPolicy, SelfHostedRelayConfig,
 };
 
 pub struct RelayServer {
     listener: TcpListener,
     service: RelayGrpcService,
+    health: Option<RelayHealthServer>,
 }
 
 const RETENTION_GARBAGE_COLLECTION_INTERVAL: Duration = Duration::from_secs(60);
+const HEALTH_REQUEST_TIMEOUT: Duration = Duration::from_secs(1);
+const MAX_HEALTH_REQUEST_BYTES: usize = 1024;
+const HEALTHY_RESPONSE: &[u8] = b"HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\ncontent-length: 3\r\nconnection: close\r\n\r\nok\n";
+const UNHEALTHY_RESPONSE: &[u8] = b"HTTP/1.1 503 Service Unavailable\r\ncontent-type: text/plain\r\ncontent-length: 12\r\nconnection: close\r\n\r\nunavailable\n";
+const NOT_FOUND_RESPONSE: &[u8] = b"HTTP/1.1 404 Not Found\r\ncontent-type: text/plain\r\ncontent-length: 10\r\nconnection: close\r\n\r\nnot found\n";
+const BAD_REQUEST_RESPONSE: &[u8] = b"HTTP/1.1 400 Bad Request\r\ncontent-type: text/plain\r\ncontent-length: 12\r\nconnection: close\r\n\r\nbad request\n";
 
 #[derive(Debug, thiserror::Error)]
 pub enum RelayServerError {
@@ -40,6 +49,8 @@ pub enum RelayServerError {
     Listener(#[source] io::Error),
     #[error("relay server stopped with a transport error")]
     Transport(#[source] tonic::transport::Error),
+    #[error("relay health listener could not start")]
+    HealthListener(#[source] io::Error),
     #[error("relay retention garbage collection failed")]
     GarbageCollection(#[source] RelayDatabaseError),
     #[error("relay retention garbage collection database is unavailable")]
@@ -48,6 +59,8 @@ pub enum RelayServerError {
     GarbageCollectionClockUnavailable,
     #[error("relay retention garbage collection task stopped unexpectedly")]
     GarbageCollectionTask,
+    #[error("relay health task stopped unexpectedly")]
+    HealthTask,
 }
 
 impl RelayServer {
@@ -71,6 +84,29 @@ impl RelayServer {
             .map_err(RelayServerError::Listener)
     }
 
+    pub async fn bind_with_health(
+        config: &SelfHostedRelayConfig,
+        relay: RelaySigningKeypair,
+        endpoint: RelayHealthEndpoint,
+    ) -> Result<Self, RelayServerError> {
+        let database = RelayDatabase::open(config.database_path())?;
+        let listener = TcpListener::bind(config.listen_address())
+            .await
+            .map_err(RelayServerError::Listener)?;
+        let health_listener = TcpListener::bind(endpoint.address())
+            .await
+            .map_err(RelayServerError::HealthListener)?;
+        Ok(Self::from_listener_with_ingress_rate_limit(
+            listener,
+            database,
+            config.mailbox_quota(),
+            config.retention(),
+            relay,
+            config.ingress_rate_limit(),
+        )
+        .with_health_listener(health_listener, endpoint))
+    }
+
     pub fn local_addr(&self) -> Result<SocketAddr, RelayServerError> {
         self.listener
             .local_addr()
@@ -81,7 +117,11 @@ impl RelayServer {
     where
         F: Future<Output = ()>,
     {
-        let Self { listener, service } = self;
+        let Self {
+            listener,
+            service,
+            health,
+        } = self;
         let database = Arc::clone(&service.database);
         let retention = service.retention;
         let (shutdown_sender, shutdown_receiver) = watch::channel(false);
@@ -95,6 +135,18 @@ impl RelayServer {
                 let _ = garbage_collection_sender.send(true);
             }
             result
+        });
+        let health = health.map(|RelayHealthServer { listener, endpoint }| {
+            let database = Arc::clone(&service.database);
+            let shutdown = shutdown_receiver.clone();
+            let sender = shutdown_sender.clone();
+            tokio::spawn(async move {
+                let result = serve_health_endpoint(listener, endpoint, database, shutdown).await;
+                if result.is_err() {
+                    let _ = sender.send(true);
+                }
+                result
+            })
         });
         let server_shutdown = shutdown_receiver.clone();
         let server_shutdown_sender = shutdown_sender.clone();
@@ -113,8 +165,12 @@ impl RelayServer {
         let garbage_collection = garbage_collection
             .await
             .map_err(|_| RelayServerError::GarbageCollectionTask)?;
+        let health = match health {
+            Some(health) => health.await.map_err(|_| RelayServerError::HealthTask)?,
+            None => Ok(()),
+        };
         server.map_err(RelayServerError::Transport)?;
-        garbage_collection
+        garbage_collection.and(health)
     }
 
     pub fn garbage_collect_at(&self, now: u64) -> Result<(), RelayServerError> {
@@ -150,8 +206,23 @@ impl RelayServer {
         Self {
             listener,
             service: RelayGrpcService::new(database, quota, retention, relay, ingress_rate_limit),
+            health: None,
         }
     }
+
+    fn with_health_listener(
+        mut self,
+        listener: TcpListener,
+        endpoint: RelayHealthEndpoint,
+    ) -> Self {
+        self.health = Some(RelayHealthServer { listener, endpoint });
+        self
+    }
+}
+
+struct RelayHealthServer {
+    listener: TcpListener,
+    endpoint: RelayHealthEndpoint,
 }
 
 struct RelayGrpcService {
@@ -267,6 +338,91 @@ fn garbage_collect(
         .map_err(RelayServerError::GarbageCollection)?;
     drop(database);
     Ok(())
+}
+
+async fn serve_health_endpoint(
+    listener: TcpListener,
+    endpoint: RelayHealthEndpoint,
+    database: Arc<Mutex<RelayDatabase>>,
+    mut shutdown: watch::Receiver<bool>,
+) -> Result<(), RelayServerError> {
+    loop {
+        if *shutdown.borrow() {
+            return Ok(());
+        }
+        tokio::select! {
+            result = shutdown.changed() => {
+                if result.is_err() || *shutdown.borrow() {
+                    return Ok(());
+                }
+            }
+            accepted = listener.accept() => {
+                let (stream, _) = accepted.map_err(RelayServerError::HealthListener)?;
+                let _ = time::timeout(
+                    HEALTH_REQUEST_TIMEOUT,
+                    respond_to_health_request(stream, &endpoint, &database),
+                )
+                .await;
+            }
+        }
+    }
+}
+
+async fn respond_to_health_request(
+    mut stream: tokio::net::TcpStream,
+    endpoint: &RelayHealthEndpoint,
+    database: &Arc<Mutex<RelayDatabase>>,
+) -> Result<(), io::Error> {
+    let mut request = [0; MAX_HEALTH_REQUEST_BYTES];
+    let mut length = 0;
+    while length < request.len() {
+        let read = stream.read(&mut request[length..]).await?;
+        if read == 0 {
+            break;
+        }
+        length += read;
+        if request[..length]
+            .windows(4)
+            .any(|window| window == b"\r\n\r\n")
+        {
+            break;
+        }
+    }
+    let response = health_response(&request[..length], endpoint, database);
+    stream.write_all(response).await
+}
+
+fn health_response(
+    request: &[u8],
+    endpoint: &RelayHealthEndpoint,
+    database: &Arc<Mutex<RelayDatabase>>,
+) -> &'static [u8] {
+    let Some(path) = health_request_path(request) else {
+        return BAD_REQUEST_RESPONSE;
+    };
+    if path != RELAY_HEALTH_PATH && path != RELAY_READINESS_PATH {
+        return NOT_FOUND_RESPONSE;
+    }
+    let Ok(database) = database.lock() else {
+        return UNHEALTHY_RESPONSE;
+    };
+    endpoint
+        .response(path, &database)
+        .map_or_else(|_| UNHEALTHY_RESPONSE, |_| HEALTHY_RESPONSE)
+}
+
+fn health_request_path(request: &[u8]) -> Option<&str> {
+    let request = std::str::from_utf8(request).ok()?;
+    let line = request.split("\r\n").next()?;
+    let mut fields = line.split_ascii_whitespace();
+    if fields.next()? != "GET" {
+        return None;
+    }
+    let path = fields.next()?;
+    if !matches!(fields.next()?, "HTTP/1.0" | "HTTP/1.1") || fields.next().is_some() {
+        return None;
+    }
+    Some(path)
 }
 
 #[tonic::async_trait]
@@ -542,12 +698,17 @@ impl RelayService for RelayGrpcService {
 mod tests {
     use std::{
         fs,
+        net::SocketAddr,
         path::PathBuf,
         sync::atomic::{AtomicU64, Ordering},
     };
 
     use rusqlite::Connection;
-    use tokio::{net::TcpListener, sync::oneshot};
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::{TcpListener, TcpStream},
+        sync::oneshot,
+    };
     use tonic::{Code, transport::Channel};
     use yeokcham_core::RelaySigningKeypair;
     use yeokcham_protocol::{
@@ -564,8 +725,8 @@ mod tests {
 
     use super::{RelayServer, RelayServerError};
     use crate::{
-        MailboxQuota, RelayDatabase, RelayIngressRateLimit, RelayRetentionPolicy,
-        SelfHostedRelayConfig,
+        MailboxQuota, RelayDatabase, RelayHealthEndpoint, RelayIngressRateLimit,
+        RelayRetentionPolicy, SelfHostedRelayConfig,
     };
 
     static NEXT_TEST_PATH: AtomicU64 = AtomicU64::new(0);
@@ -1232,6 +1393,95 @@ mod tests {
         assert_eq!(receipt.mailbox_id(), &[0x11; MAILBOX_IDENTIFIER_BYTES]);
         assert_eq!(receipt.sequence(), 0);
         assert!(receipt.expires_at() > receipt.received_at());
+    }
+
+    #[tokio::test]
+    async fn serves_loopback_health_and_readiness_endpoints() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let health_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let health = RelayHealthEndpoint::new(health_listener.local_addr().unwrap()).unwrap();
+        let address = health.address();
+        let server = RelayServer::from_listener(
+            listener,
+            RelayDatabase::from_connection(Connection::open_in_memory().unwrap()).unwrap(),
+            MailboxQuota::new(5).unwrap(),
+            RelayRetentionPolicy::new(60).unwrap(),
+            RelaySigningKeypair::generate().unwrap(),
+        )
+        .with_health_listener(health_listener, health);
+        let (shutdown_sender, shutdown_receiver) = oneshot::channel();
+        let server = server.serve_until(async move {
+            let _ = shutdown_receiver.await;
+        });
+        let client = async {
+            assert!(
+                health_response(address, "GET /healthz HTTP/1.1\r\n\r\n")
+                    .await
+                    .starts_with("HTTP/1.1 200 OK")
+            );
+            assert!(
+                health_response(address, "GET /readyz HTTP/1.1\r\n\r\n")
+                    .await
+                    .starts_with("HTTP/1.1 200 OK")
+            );
+            assert!(
+                health_response(address, "GET /unknown HTTP/1.1\r\n\r\n")
+                    .await
+                    .starts_with("HTTP/1.1 404 Not Found")
+            );
+            assert!(
+                health_response(address, "POST /healthz HTTP/1.1\r\n\r\n")
+                    .await
+                    .starts_with("HTTP/1.1 400 Bad Request")
+            );
+            shutdown_sender.send(()).unwrap();
+        };
+        let (server, ()) = tokio::join!(server, client);
+        assert!(server.is_ok());
+    }
+
+    #[tokio::test]
+    async fn reports_unavailable_health_for_an_unhealthy_database() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let health_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let health = RelayHealthEndpoint::new(health_listener.local_addr().unwrap()).unwrap();
+        let address = health.address();
+        let database =
+            RelayDatabase::from_connection(Connection::open_in_memory().unwrap()).unwrap();
+        database
+            .connection
+            .execute_batch("DROP TABLE relay_schema_migrations")
+            .unwrap();
+        let server = RelayServer::from_listener(
+            listener,
+            database,
+            MailboxQuota::new(5).unwrap(),
+            RelayRetentionPolicy::new(60).unwrap(),
+            RelaySigningKeypair::generate().unwrap(),
+        )
+        .with_health_listener(health_listener, health);
+        let (shutdown_sender, shutdown_receiver) = oneshot::channel();
+        let server = server.serve_until(async move {
+            let _ = shutdown_receiver.await;
+        });
+        let client = async {
+            assert!(
+                health_response(address, "GET /healthz HTTP/1.1\r\n\r\n")
+                    .await
+                    .starts_with("HTTP/1.1 503 Service Unavailable")
+            );
+            shutdown_sender.send(()).unwrap();
+        };
+        let (server, ()) = tokio::join!(server, client);
+        assert!(server.is_ok());
+    }
+
+    async fn health_response(address: SocketAddr, request: &str) -> String {
+        let mut stream = TcpStream::connect(address).await.unwrap();
+        stream.write_all(request.as_bytes()).await.unwrap();
+        let mut response = Vec::new();
+        stream.read_to_end(&mut response).await.unwrap();
+        String::from_utf8(response).unwrap()
     }
 
     #[tokio::test]

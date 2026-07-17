@@ -36,6 +36,7 @@ pub const RELAY_SCHEMA_VERSION: u32 = 4;
 const RELAY_IDENTITY_KEY_ENTRY: &str = "relay_identity_v1";
 
 pub const RELAY_HEALTH_PATH: &str = "/healthz";
+pub const RELAY_READINESS_PATH: &str = "/readyz";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RelayOperationalMetrics {
@@ -91,7 +92,7 @@ impl RelayHealthEndpoint {
         path: &str,
         database: &RelayDatabase,
     ) -> Result<&'static str, RelayHealthEndpointError> {
-        if path != RELAY_HEALTH_PATH {
+        if path != RELAY_HEALTH_PATH && path != RELAY_READINESS_PATH {
             return Err(RelayHealthEndpointError::UnknownPath);
         }
         database
@@ -1958,7 +1959,7 @@ mod tests {
         MAX_RELAY_INGRESS_WINDOW_SECONDS, MAX_RELAY_RETENTION_TTL_SECONDS,
         MAX_SELF_HOSTED_RELAY_CONFIG_BYTES, MailboxIngress, MailboxIngressError, MailboxQuota,
         MailboxQuotaError, MailboxQuotaTracker, ProjectTestRelay, ProjectTestRelayError,
-        RELAY_HEALTH_PATH, RELAY_SCHEMA_VERSION, RateLimitedRelay,
+        RELAY_HEALTH_PATH, RELAY_READINESS_PATH, RELAY_SCHEMA_VERSION, RateLimitedRelay,
         RelayAttachmentGarbageCollection, RelayDatabase, RelayDatabaseError,
         RelayGarbageCollection, RelayHealthEndpoint, RelayHealthEndpointError, RelayIdentity,
         RelayIngressError, RelayIngressRateLimit, RelayIngressRateLimitError, RelayMetricsEmitter,
@@ -2876,8 +2877,20 @@ ingress_window_seconds = 30
 
         assert_eq!(endpoint.response(RELAY_HEALTH_PATH, &database), Ok("ok\n"));
         assert_eq!(
+            endpoint.response(RELAY_READINESS_PATH, &database),
+            Ok("ok\n")
+        );
+        assert_eq!(
             endpoint.response("/metrics", &database),
             Err(RelayHealthEndpointError::UnknownPath)
+        );
+        database
+            .connection
+            .execute_batch("DROP TABLE relay_schema_migrations")
+            .unwrap();
+        assert_eq!(
+            endpoint.response(RELAY_HEALTH_PATH, &database),
+            Err(RelayHealthEndpointError::Unhealthy)
         );
         assert_eq!(
             RelayHealthEndpoint::new("192.0.2.1:8080".parse().unwrap()),
