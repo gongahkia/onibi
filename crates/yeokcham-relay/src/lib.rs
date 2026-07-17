@@ -280,6 +280,14 @@ pub struct RelayIngressRateLimit {
 }
 
 impl RelayIngressRateLimit {
+    #[must_use]
+    pub const fn reference() -> Self {
+        Self {
+            max_requests: MAX_RELAY_INGRESS_REQUESTS_PER_WINDOW,
+            window_seconds: MAX_RELAY_INGRESS_WINDOW_SECONDS,
+        }
+    }
+
     pub fn new(max_requests: u16, window_seconds: u32) -> Result<Self, RelayIngressRateLimitError> {
         if max_requests == 0 || max_requests > MAX_RELAY_INGRESS_REQUESTS_PER_WINDOW {
             return Err(RelayIngressRateLimitError::InvalidMaxRequests);
@@ -362,6 +370,17 @@ impl RelayIngressRateLimiter {
         self.latest_timestamp = Some(now);
         Ok(())
     }
+
+    pub(crate) fn admit_capability(
+        &mut self,
+        capability: &MailboxCapability,
+        now: u64,
+    ) -> Result<(), RelayIngressError> {
+        self.admit(
+            capability_digest(capability).map_err(RelayIngressError::Database)?,
+            now,
+        )
+    }
 }
 
 pub struct RateLimitedRelay {
@@ -425,6 +444,7 @@ pub struct SelfHostedRelayConfig {
     database_path: PathBuf,
     mailbox_quota: MailboxQuota,
     retention: RelayRetentionPolicy,
+    ingress_rate_limit: RelayIngressRateLimit,
 }
 
 impl SelfHostedRelayConfig {
@@ -445,7 +465,17 @@ impl SelfHostedRelayConfig {
             database_path,
             mailbox_quota,
             retention,
+            ingress_rate_limit: RelayIngressRateLimit::reference(),
         })
+    }
+
+    #[must_use]
+    pub const fn with_ingress_rate_limit(
+        mut self,
+        ingress_rate_limit: RelayIngressRateLimit,
+    ) -> Self {
+        self.ingress_rate_limit = ingress_rate_limit;
+        self
     }
 
     #[must_use]
@@ -463,6 +493,10 @@ impl SelfHostedRelayConfig {
     #[must_use]
     pub const fn retention(&self) -> RelayRetentionPolicy {
         self.retention
+    }
+    #[must_use]
+    pub const fn ingress_rate_limit(&self) -> RelayIngressRateLimit {
+        self.ingress_rate_limit
     }
 }
 
@@ -2516,6 +2550,16 @@ mod tests {
         );
         assert_eq!(config.mailbox_quota(), quota);
         assert_eq!(config.retention(), retention);
+        assert_eq!(
+            config.ingress_rate_limit(),
+            RelayIngressRateLimit::reference()
+        );
+        assert_eq!(
+            config
+                .with_ingress_rate_limit(RelayIngressRateLimit::new(1, 60).unwrap())
+                .ingress_rate_limit(),
+            RelayIngressRateLimit::new(1, 60).unwrap()
+        );
         assert_eq!(
             SelfHostedRelayConfig::new(
                 "127.0.0.1:0".parse().unwrap(),

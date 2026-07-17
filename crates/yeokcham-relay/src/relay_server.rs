@@ -21,7 +21,8 @@ use yeokcham_relay_api::v1::{
 
 use crate::{
     AttachmentIdentifier, EncryptedAttachmentChunk, EncryptedMessageEnvelope, MailboxCapability,
-    MailboxQuota, RelayDatabase, RelayDatabaseError, RelayRetentionPolicy, SelfHostedRelayConfig,
+    MailboxQuota, RelayDatabase, RelayDatabaseError, RelayIngressError, RelayIngressRateLimit,
+    RelayIngressRateLimiter, RelayRetentionPolicy, SelfHostedRelayConfig,
 };
 
 pub struct RelayServer {
@@ -58,12 +59,13 @@ impl RelayServer {
         TcpListener::bind(config.listen_address())
             .await
             .map(|listener| {
-                Self::from_listener(
+                Self::from_listener_with_ingress_rate_limit(
                     listener,
                     database,
                     config.mailbox_quota(),
                     config.retention(),
                     relay,
+                    config.ingress_rate_limit(),
                 )
             })
             .map_err(RelayServerError::Listener)
@@ -119,6 +121,7 @@ impl RelayServer {
         garbage_collect(&self.service.database, self.service.retention, now)
     }
 
+    #[cfg(test)]
     fn from_listener(
         listener: TcpListener,
         database: RelayDatabase,
@@ -126,9 +129,27 @@ impl RelayServer {
         retention: RelayRetentionPolicy,
         relay: RelaySigningKeypair,
     ) -> Self {
+        Self::from_listener_with_ingress_rate_limit(
+            listener,
+            database,
+            quota,
+            retention,
+            relay,
+            RelayIngressRateLimit::reference(),
+        )
+    }
+
+    fn from_listener_with_ingress_rate_limit(
+        listener: TcpListener,
+        database: RelayDatabase,
+        quota: MailboxQuota,
+        retention: RelayRetentionPolicy,
+        relay: RelaySigningKeypair,
+        ingress_rate_limit: RelayIngressRateLimit,
+    ) -> Self {
         Self {
             listener,
-            service: RelayGrpcService::new(database, quota, retention, relay),
+            service: RelayGrpcService::new(database, quota, retention, relay, ingress_rate_limit),
         }
     }
 }
@@ -138,6 +159,7 @@ struct RelayGrpcService {
     quota: MailboxQuota,
     retention: RelayRetentionPolicy,
     relay: RelaySigningKeypair,
+    ingress: Arc<Mutex<RelayIngressRateLimiter>>,
 }
 
 impl RelayGrpcService {
@@ -146,12 +168,44 @@ impl RelayGrpcService {
         quota: MailboxQuota,
         retention: RelayRetentionPolicy,
         relay: RelaySigningKeypair,
+        ingress_rate_limit: RelayIngressRateLimit,
     ) -> Self {
         Self {
             database: Arc::new(Mutex::new(database)),
             quota,
             retention,
             relay,
+            ingress: Arc::new(Mutex::new(RelayIngressRateLimiter::new(ingress_rate_limit))),
+        }
+    }
+
+    fn admit_ingress(&self, capability: &MailboxCapability, now: u64) -> Result<(), Status> {
+        {
+            let database = self
+                .database
+                .lock()
+                .map_err(|_| Status::internal("relay database is unavailable"))?;
+            match database.mailbox_quota(capability) {
+                Ok(_) => {}
+                Err(RelayDatabaseError::InvalidCapability) => {
+                    return Err(Status::permission_denied("mailbox capability is invalid"));
+                }
+                Err(_) => return Err(Status::internal("relay ingress authorization failed")),
+            }
+        }
+        let mut ingress = self
+            .ingress
+            .lock()
+            .map_err(|_| Status::internal("relay ingress limiter is unavailable"))?;
+        match ingress.admit_capability(capability, now) {
+            Ok(()) => Ok(()),
+            Err(RelayIngressError::RateLimited) => Err(Status::resource_exhausted(
+                "relay ingress rate limit is exhausted",
+            )),
+            Err(RelayIngressError::TimestampRegression) => {
+                Err(Status::unavailable("relay ingress clock is unavailable"))
+            }
+            Err(_) => Err(Status::internal("relay ingress admission failed")),
         }
     }
 }
@@ -244,9 +298,10 @@ impl RelayService for RelayGrpcService {
         let request = request.into_inner();
         let capability = MailboxCapability::decode(&request.mailbox_capability)
             .map_err(|_| Status::invalid_argument("mailbox capability is invalid"))?;
+        let received_at = current_unix_seconds()?;
+        self.admit_ingress(&capability, received_at)?;
         let envelope = EncryptedMessageEnvelope::decode(&request.envelope)
             .map_err(|_| Status::invalid_argument("envelope is invalid"))?;
-        let received_at = current_unix_seconds()?;
         let mut database = self
             .database
             .lock()
@@ -342,9 +397,10 @@ impl RelayService for RelayGrpcService {
         let request = request.into_inner();
         let capability = MailboxCapability::decode(&request.mailbox_capability)
             .map_err(|_| Status::invalid_argument("mailbox capability is invalid"))?;
+        let received_at = current_unix_seconds()?;
+        self.admit_ingress(&capability, received_at)?;
         let chunk = EncryptedAttachmentChunk::decode(&request.chunk)
             .map_err(|_| Status::invalid_argument("attachment chunk is invalid"))?;
-        let received_at = current_unix_seconds()?;
         let mut database = self
             .database
             .lock()
@@ -444,9 +500,10 @@ impl RelayService for RelayGrpcService {
         let request = request.into_inner();
         let capability = MailboxCapability::decode(&request.mailbox_capability)
             .map_err(|_| Status::invalid_argument("mailbox capability is invalid"))?;
+        let received_at = current_unix_seconds()?;
+        self.admit_ingress(&capability, received_at)?;
         let envelope = EncryptedMessageEnvelope::decode(&request.envelope)
             .map_err(|_| Status::invalid_argument("envelope is invalid"))?;
-        let received_at = current_unix_seconds()?;
         let receipt = {
             let mut database = self
                 .database
@@ -505,7 +562,10 @@ mod tests {
     };
 
     use super::{RelayServer, RelayServerError};
-    use crate::{MailboxQuota, RelayDatabase, RelayRetentionPolicy, SelfHostedRelayConfig};
+    use crate::{
+        MailboxQuota, RelayDatabase, RelayIngressRateLimit, RelayRetentionPolicy,
+        SelfHostedRelayConfig,
+    };
 
     static NEXT_TEST_PATH: AtomicU64 = AtomicU64::new(0);
 
@@ -1099,6 +1159,78 @@ mod tests {
         assert_eq!(receipt.mailbox_id(), &[0x11; MAILBOX_IDENTIFIER_BYTES]);
         assert_eq!(receipt.sequence(), 0);
         assert!(receipt.expires_at() > receipt.received_at());
+    }
+
+    #[tokio::test]
+    async fn enforces_ingress_limits_over_the_generated_relay_contract() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = RelayServer::from_listener_with_ingress_rate_limit(
+            listener,
+            RelayDatabase::from_connection(Connection::open_in_memory().unwrap()).unwrap(),
+            MailboxQuota::new(10).unwrap(),
+            RelayRetentionPolicy::new(60).unwrap(),
+            RelaySigningKeypair::generate().unwrap(),
+            RelayIngressRateLimit::new(1, 60).unwrap(),
+        );
+        let (shutdown_sender, shutdown_receiver) = oneshot::channel();
+        let server = server.serve_until(async move {
+            let _ = shutdown_receiver.await;
+        });
+        let client = async {
+            let mut client = RelayServiceClient::connect(format!("http://{address}"))
+                .await
+                .unwrap();
+            let first = capability(0x11, 0x22);
+            let second = capability(0x33, 0x44);
+            for capability in [&first, &second] {
+                client
+                    .register_mailbox(RegisterMailboxRequest {
+                        mailbox_capability: capability.clone(),
+                    })
+                    .await
+                    .unwrap();
+            }
+            client
+                .store_envelope(StoreEnvelopeRequest {
+                    mailbox_capability: first.clone(),
+                    envelope: envelope(),
+                })
+                .await
+                .unwrap();
+            assert_eq!(
+                client
+                    .store_envelope(StoreEnvelopeRequest {
+                        mailbox_capability: first,
+                        envelope: envelope(),
+                    })
+                    .await
+                    .unwrap_err()
+                    .code(),
+                Code::ResourceExhausted
+            );
+            client
+                .store_envelope(StoreEnvelopeRequest {
+                    mailbox_capability: second,
+                    envelope: envelope(),
+                })
+                .await
+                .unwrap();
+            assert_eq!(
+                client
+                    .store_envelope(StoreEnvelopeRequest {
+                        mailbox_capability: capability(0x55, 0x66),
+                        envelope: envelope(),
+                    })
+                    .await
+                    .unwrap_err()
+                    .code(),
+                Code::PermissionDenied
+            );
+            shutdown_sender.send(()).unwrap();
+        };
+        let (server, ()) = tokio::join!(server, client);
+        assert!(server.is_ok());
     }
 
     #[tokio::test]
