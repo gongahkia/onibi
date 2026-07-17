@@ -22,14 +22,12 @@ import { SoftKeyBar } from "./softkeys";
 import { RelayE2E, relayE2EContentType } from "./e2e";
 import { saveLastSessionID, SessionsListView, SessionsPanel } from "./sessions";
 import { SnapshotsPanel } from "./snapshots";
-import { TimelinePanel } from "./timeline";
 import { refreshPushSubscription, subscribePushFromGesture } from "./push";
 import { startFirstRunTour } from "./tour";
 import { ApprovalWakeLock } from "./wake-lock";
 import { installImagePaste } from "./image-paste";
 import type { ImageUploadRequest } from "./image-paste";
 import { SharePanel } from "./share";
-import { AgentsFeed } from "./agents-feed";
 import { PairedHostsPanel } from "./paired-hosts-panel";
 import { FleetHostsPanel } from "./fleet-hosts";
 import { ApprovalInboxPanel } from "./approval-inbox";
@@ -61,7 +59,6 @@ const toolbar = requireElement("toolbar");
 const sessionListRoot = requireElement("session-list");
 const sessionsRoot = requireElement("sessions");
 const snapshotsRoot = requireElement("snapshots");
-const timelineRoot = requireElement("timeline");
 const softkeys = requireElement("softkeys");
 const toast = requireElement("toast");
 let theme = loadTheme();
@@ -76,9 +73,7 @@ let relayE2E: RelayE2E | undefined;
 let sessionList: SessionsListView | undefined;
 let sessions: SessionsPanel | undefined;
 let snapshots: SnapshotsPanel | undefined;
-let timeline: TimelinePanel | undefined;
 let sharePanel: SharePanel | undefined;
-let agentsFeed: AgentsFeed | undefined;
 let pairedHosts: PairedHostsPanel | undefined;
 let fleetHosts: FleetHostsPanel | undefined;
 let approvalInbox: ApprovalInboxPanel | undefined;
@@ -143,9 +138,7 @@ events.addEventListener("event", (event) => {
   fleetHome?.handleEnvelope(envelope);
   approvalInbox?.handleEnvelope(envelope);
   sessions?.handleEnvelope(envelope);
-  agentsFeed?.handleEnvelope(envelope);
   snapshots?.handleEnvelope(envelope);
-  timeline?.handleEnvelope(envelope);
 });
 events.addEventListener("toast", (event) => {
   const payload = (event as CustomEvent<EventEnvelope<ToastPayload>>).detail.payload;
@@ -185,7 +178,6 @@ async function boot(): Promise<void> {
       navigateToSession,
       showToast
     );
-    timeline = new TimelinePanel(timelineRoot, info.session_id);
     const imagePaste = viewerMode
       ? undefined
       : installImagePaste({
@@ -212,14 +204,11 @@ async function boot(): Promise<void> {
             }
           }
         );
-    agentsFeed = viewerMode ? undefined : new AgentsFeed(getJSON, navigateToSession);
     const tools = new SessionToolsPanel(document.body, [
-      { label: "Timeline", action: () => timeline?.toggle() },
       { label: "Snapshots", action: () => snapshots?.toggle() },
       ...(sharePanel === undefined ? [] : [{ label: "Share", action: () => sharePanel.open() }])
     ]);
-    installControls(toolbar, agentsFeed, tools, interventionPanel);
-    void agentsFeed?.load();
+    installControls(toolbar, tools, interventionPanel);
     new SoftKeyBar({
       root: softkeys,
       sendBytes: (data) => ws.sendBinary(data),
@@ -341,7 +330,6 @@ function eventsURL(token: string): string {
 
 function installControls(
   root: HTMLElement,
-  agents: AgentsFeed | undefined,
   tools: SessionToolsPanel,
   intervention: InterventionPanel | undefined
 ): void {
@@ -350,9 +338,6 @@ function installControls(
     tools.element,
     controlButton("PUSH", () => enablePush())
   ];
-  if (agents !== undefined) {
-    controls.unshift(agents.element);
-  }
   if (intervention !== undefined) {
     controls.unshift(intervention.element);
   }
@@ -551,7 +536,6 @@ function showListChrome(): void {
   toolbar.hidden = true;
   sessionsRoot.hidden = true;
   snapshotsRoot.hidden = true;
-  timelineRoot.hidden = true;
   filesRoot.hidden = true;
   termEl.hidden = true;
   softkeys.hidden = true;

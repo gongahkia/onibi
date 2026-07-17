@@ -1,5 +1,5 @@
 import { JSDOM } from "jsdom";
-import type { SessionsStatusPayload } from "../agents-feed";
+import type { SessionsStatusPayload } from "../session-status";
 
 test("session picker renders loading, failure, and prioritized sessions", async () => {
   const dom = installDOM('<main id="root"></main>');

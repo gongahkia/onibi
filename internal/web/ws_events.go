@@ -34,10 +34,8 @@ type eventsRecoveryFrame struct {
 }
 
 const (
-	timelineEntryEvent          = "timeline.entry"
-	sessionsStatusEvent         = "sessions.status"
-	defaultTimelineReplayEvents = 200
-	sessionsStatusMinInterval   = 500 * time.Millisecond
+	sessionsStatusEvent       = "sessions.status"
+	sessionsStatusMinInterval = 500 * time.Millisecond
 )
 
 func (s *Server) handleWSEvents(w http.ResponseWriter, r *http.Request) {
@@ -156,11 +154,6 @@ func (s *Server) handleWSEvents(w http.ResponseWriter, r *http.Request) {
 		if err := writeSessionsStatus(true); err != nil {
 			return err
 		}
-		n, err := s.writeTimelineReplay(ctx, c, &writeMu, wsE2E, reqID, sessionID)
-		if err != nil {
-			return err
-		}
-		eventsSent += n
 		return nil
 	}
 	if attach.LastSeq == 0 || appReplay.Snapshot {
@@ -261,7 +254,7 @@ func (s *Server) handleWSEvents(w http.ResponseWriter, r *http.Request) {
 
 func sessionsStatusRefreshEvent(typ string) bool {
 	switch typ {
-	case "session.started", "session.ended", "session.activity", "cost.updated", timelineEntryEvent:
+	case "session.started", "session.ended", "session.activity", "cost.updated":
 		return true
 	default:
 		return false
@@ -322,26 +315,6 @@ func (s *Server) watchWSEventsFrames(ctx context.Context, c *websocket.Conn, cod
 		cancel()
 		return
 	}
-}
-
-func (s *Server) writeTimelineReplay(ctx context.Context, c *websocket.Conn, writeMu *sync.Mutex, codec wsCodec, reqID, sessionID string) (int, error) {
-	if s.timeline == nil {
-		return 0, nil
-	}
-	entries, err := s.timeline(ctx, defaultTimelineReplayEvents)
-	if err != nil {
-		s.log.Warn("web timeline replay failed", "request_id", reqID, "session_id", sessionID, "err", err)
-		return 0, nil
-	}
-	sent := 0
-	for _, entry := range entries {
-		if err := writeEvent(ctx, c, writeMu, codec, timelineEntryEvent, entry); err != nil {
-			s.log.Warn("web events write failed", "request_id", reqID, "session_id", sessionID, "event_type", timelineEntryEvent, "err", err)
-			return sent, err
-		}
-		sent++
-	}
-	return sent, nil
 }
 
 func writeEvent(ctx context.Context, c *websocket.Conn, mu *sync.Mutex, codec wsCodec, typ string, payload any) error {

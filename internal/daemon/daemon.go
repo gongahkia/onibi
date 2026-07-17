@@ -603,7 +603,6 @@ func (d *Daemon) Run(ctx context.Context) error {
 			TrustRuntime:          d.AddRuntimeTrustRule,
 			AnomalyAllow:          d.AddAnomalyAllowlistRule,
 			SessionCost:           d.SessionCost,
-			Timeline:              d.WebTimeline,
 			Snapshots:             d.WebSnapshots,
 			SnapshotRestore:       d.WebRestoreSnapshot,
 			SnapshotFork:          d.WebForkSnapshot,

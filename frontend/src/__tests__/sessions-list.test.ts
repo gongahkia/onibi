@@ -52,6 +52,29 @@ test("session dashboard exposes recovery and disables attachment", async () => {
   dom.window.close();
 });
 
+test("session dashboard refreshes pending approvals from events", async () => {
+  const dom = installDOM('<main id="sessions"></main>');
+  const { SessionsListView } = await import("../sessions");
+  const root = requireRoot();
+  let rows = [{ ...session(), pending_approvals_count: 0 }];
+  let requests = 0;
+  const view = new SessionsListView(
+    root,
+    async () => {
+      requests += 1;
+      return rows;
+    },
+    () => {}
+  );
+  await view.load();
+  rows = [{ ...session(), pending_approvals_count: 2 }];
+  view.handleEnvelope({ type: "approval.requested", ts: "2026-07-08T00:01:01Z", payload: {} });
+  await settle();
+  expect(requests).toBe(2);
+  expect(root.textContent).toContain("2 pending");
+  dom.window.close();
+});
+
 function session(): SessionSummary {
   return {
     id: "s1",

@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/gongahkia/onibi/internal/fleet"
-	"github.com/gongahkia/onibi/internal/timeline"
 )
 
 type SessionListOptions struct {
@@ -137,10 +136,6 @@ func (s *Server) sessionsStatus(ctx context.Context, opts SessionListOptions, no
 	if err != nil {
 		return SessionsStatusResponse{}, err
 	}
-	latest, err := s.latestTimelineBySession(ctx)
-	if err != nil {
-		return SessionsStatusResponse{}, err
-	}
 	out := SessionsStatusResponse{
 		GeneratedAt: now.UTC().Format(time.RFC3339Nano),
 		Sessions:    make([]SessionStatus, 0, len(rows)),
@@ -154,7 +149,7 @@ func (s *Server) sessionsStatus(ctx context.Context, opts SessionListOptions, no
 		},
 	}
 	for _, row := range rows {
-		state := deriveSessionState(row, latest[row.ID], now)
+		state := deriveSessionState(row, now)
 		out.Counts[state]++
 		out.Sessions = append(out.Sessions, SessionStatus{
 			ID:                    row.ID,
@@ -176,29 +171,7 @@ func (s *Server) sessionsStatus(ctx context.Context, opts SessionListOptions, no
 	return out, nil
 }
 
-func (s *Server) latestTimelineBySession(ctx context.Context) (map[string]*timeline.TimelineEvent, error) {
-	out := map[string]*timeline.TimelineEvent{}
-	if s.timeline == nil {
-		return out, nil
-	}
-	events, err := s.timeline(ctx, defaultTimelineReplayEvents)
-	if err != nil {
-		return nil, err
-	}
-	for i := range events {
-		ev := events[i]
-		if ev.SessionID == "" {
-			continue
-		}
-		current := out[ev.SessionID]
-		if current == nil || timelineEventAfter(ev, *current) {
-			out[ev.SessionID] = &ev
-		}
-	}
-	return out, nil
-}
-
-func deriveSessionState(row SessionSummary, latest *timeline.TimelineEvent, now time.Time) SessionState {
+func deriveSessionState(row SessionSummary, now time.Time) SessionState {
 	switch row.RecoveryState {
 	case fleet.SessionRecoveryFailed, fleet.SessionRecoveryOrphaned, fleet.SessionRecoveryTerminated:
 		return SessionStateFailed
@@ -208,34 +181,10 @@ func deriveSessionState(row SessionSummary, latest *timeline.TimelineEvent, now 
 	if row.PendingApprovalsCount > 0 {
 		return SessionStateAwaitingApproval
 	}
-	if latest != nil {
-		switch latest.Kind {
-		case timeline.KindAnomaly:
-			return SessionStateBlocked
-		case timeline.KindToolCall:
-			if timelineEventRecent(*latest, now, sessionWorkingWindow) {
-				return SessionStateWorking
-			}
-		}
-	}
 	if ts, ok := parseWebTime(row.LastActivity); ok && !now.Before(ts) && now.Sub(ts) <= sessionWorkingWindow {
 		return SessionStateWorking
 	}
 	return SessionStateIdle
-}
-
-func timelineEventAfter(a, b timeline.TimelineEvent) bool {
-	at, aok := parseWebTime(a.TS)
-	bt, bok := parseWebTime(b.TS)
-	if aok && bok {
-		return at.After(bt)
-	}
-	return a.Offset > b.Offset
-}
-
-func timelineEventRecent(ev timeline.TimelineEvent, now time.Time, window time.Duration) bool {
-	ts, ok := parseWebTime(ev.TS)
-	return ok && !now.Before(ts) && now.Sub(ts) <= window
 }
 
 func parseWebTime(raw string) (time.Time, bool) {

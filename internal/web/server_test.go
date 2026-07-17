@@ -22,7 +22,6 @@ import (
 	"github.com/gongahkia/onibi/internal/fleet"
 	"github.com/gongahkia/onibi/internal/pty"
 	"github.com/gongahkia/onibi/internal/store"
-	"github.com/gongahkia/onibi/internal/timeline"
 )
 
 func TestCertGenerateOrLoadRoundTrip(t *testing.T) {
@@ -521,19 +520,10 @@ func TestSessionsStatusEndpointDerivesStates(t *testing.T) {
 		return []SessionSummary{
 			{ID: "await", Agent: "claude", LastActivity: old, PendingApprovalsCount: 1, RoleRequired: "owner"},
 			{ID: "work", Agent: "codex", LastActivity: recent, RoleRequired: "owner"},
-			{ID: "block", Agent: "shell", LastActivity: old, RoleRequired: "owner"},
 			{ID: "idle", Agent: "opencode", LastActivity: old, RoleRequired: "owner"},
 			{ID: "recover", Agent: "pi", LastActivity: recent, PendingApprovalsCount: 1, RecoveryState: fleet.SessionRecoveryRecovering, RoleRequired: "owner"},
 			{ID: "failed", Agent: "pi", LastActivity: recent, PendingApprovalsCount: 1, RecoveryState: fleet.SessionRecoveryFailed, RoleRequired: "owner"},
 		}, nil
-	}
-	srv.timeline = func(context.Context, int) ([]timeline.TimelineEvent, error) {
-		return []timeline.TimelineEvent{{
-			Kind:      timeline.KindAnomaly,
-			SessionID: "block",
-			TS:        now.Add(-time.Minute).Format(time.RFC3339Nano),
-			Offset:    12,
-		}}, nil
 	}
 	rr := httptest.NewRecorder()
 	_, err := srv.CreateOwnerSession(context.Background(), rr, "test device")
@@ -555,10 +545,10 @@ func TestSessionsStatusEndpointDerivesStates(t *testing.T) {
 	for _, row := range got.Sessions {
 		states[row.ID] = row.State
 	}
-	if states["await"] != SessionStateAwaitingApproval || states["work"] != SessionStateWorking || states["block"] != SessionStateBlocked || states["idle"] != SessionStateIdle || states["recover"] != SessionStateRecovering || states["failed"] != SessionStateFailed {
+	if states["await"] != SessionStateAwaitingApproval || states["work"] != SessionStateWorking || states["idle"] != SessionStateIdle || states["recover"] != SessionStateRecovering || states["failed"] != SessionStateFailed {
 		t.Fatalf("states = %#v", states)
 	}
-	if got.Counts[SessionStateAwaitingApproval] != 1 || got.Counts[SessionStateWorking] != 1 || got.Counts[SessionStateBlocked] != 1 || got.Counts[SessionStateIdle] != 1 || got.Counts[SessionStateRecovering] != 1 || got.Counts[SessionStateFailed] != 1 {
+	if got.Counts[SessionStateAwaitingApproval] != 1 || got.Counts[SessionStateWorking] != 1 || got.Counts[SessionStateIdle] != 1 || got.Counts[SessionStateRecovering] != 1 || got.Counts[SessionStateFailed] != 1 {
 		t.Fatalf("counts = %#v", got.Counts)
 	}
 }
@@ -568,15 +558,13 @@ func TestDeriveSessionStateIsConsistentForCertifiedAdapters(t *testing.T) {
 	old := now.Add(-10 * time.Minute).Format(time.RFC3339Nano)
 	recent := now.Add(-time.Second).Format(time.RFC3339Nano)
 	cases := []struct {
-		name   string
-		row    SessionSummary
-		latest *timeline.TimelineEvent
-		want   SessionState
+		name string
+		row  SessionSummary
+		want SessionState
 	}{
 		{name: "idle", row: SessionSummary{LastActivity: old}, want: SessionStateIdle},
 		{name: "working", row: SessionSummary{LastActivity: recent}, want: SessionStateWorking},
 		{name: "awaiting approval", row: SessionSummary{LastActivity: old, PendingApprovalsCount: 1}, want: SessionStateAwaitingApproval},
-		{name: "blocked", row: SessionSummary{LastActivity: recent}, latest: &timeline.TimelineEvent{Kind: timeline.KindAnomaly}, want: SessionStateBlocked},
 		{name: "recovering overrides approval", row: SessionSummary{LastActivity: recent, PendingApprovalsCount: 1, RecoveryState: fleet.SessionRecoveryReconnecting}, want: SessionStateRecovering},
 		{name: "failed overrides approval", row: SessionSummary{LastActivity: recent, PendingApprovalsCount: 1, RecoveryState: fleet.SessionRecoveryFailed}, want: SessionStateFailed},
 	}
@@ -585,7 +573,7 @@ func TestDeriveSessionStateIsConsistentForCertifiedAdapters(t *testing.T) {
 			t.Run(agent+"/"+tc.name, func(t *testing.T) {
 				row := tc.row
 				row.Agent = agent
-				if got := deriveSessionState(row, tc.latest, now); got != tc.want {
+				if got := deriveSessionState(row, now); got != tc.want {
 					t.Fatalf("state = %q, want %q", got, tc.want)
 				}
 			})

@@ -20,7 +20,7 @@ The link pairs the viewer into `/s/<session-id>`. Each claimed viewer device has
 
 ## Threat Model
 
-Viewers can see the live PTY stream. That includes command output, prompts, terminal scrollback sent through replay, editor contents visible in the terminal, file panel read views, snapshots, timeline details, and any secret printed while they are attached.
+Viewers can see the live PTY stream. That includes command output, prompts, terminal scrollback sent through replay, editor contents visible in the terminal, snapshots, and any secret printed while they are attached.
 
 Viewers cannot steer the session through the current web control surface:
 

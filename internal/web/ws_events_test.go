@@ -18,7 +18,6 @@ import (
 	"github.com/gongahkia/onibi/internal/approval"
 	e2ecrypto "github.com/gongahkia/onibi/internal/e2e"
 	"github.com/gongahkia/onibi/internal/store"
-	"github.com/gongahkia/onibi/internal/timeline"
 )
 
 func TestWSEventsStreamsApprovalRequestAndDecision(t *testing.T) {
@@ -373,54 +372,6 @@ func TestWSEventsDuplicateAttachClosesConnection(t *testing.T) {
 	_, _, err := c.Read(ctx)
 	if err == nil {
 		t.Fatal("duplicate attach did not close connection")
-	}
-}
-
-func TestWSEventsReplaysAndStreamsTimelineEntries(t *testing.T) {
-	db, err := store.OpenEphemeral(filepath.Join(t.TempDir(), "onibi.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	bus := NewEventBus()
-	srv := New(Options{
-		DB:       db,
-		EventBus: bus,
-		Timeline: func(context.Context, int) ([]timeline.TimelineEvent, error) {
-			return []timeline.TimelineEvent{{
-				Kind:      timeline.KindTurn,
-				SessionID: "s1",
-				Turn:      1,
-				Role:      "assistant",
-				Summary:   "hello",
-			}}, nil
-		},
-	})
-	c := dialEventsForTest(t, srv)
-	_ = readEventEnvelope(t, c) // server.hello
-	env := readEventEnvelope(t, c)
-	if env.Type != timelineEntryEvent {
-		t.Fatalf("type = %q", env.Type)
-	}
-	var replay timeline.TimelineEvent
-	if err := json.Unmarshal(env.Payload, &replay); err != nil {
-		t.Fatal(err)
-	}
-	if replay.Kind != timeline.KindTurn || replay.Summary != "hello" {
-		t.Fatalf("replay = %#v", replay)
-	}
-	readEventsRecovery(t, c)
-	bus.Publish(Event{Type: timelineEntryEvent, Payload: timeline.TimelineEvent{Kind: timeline.KindCost, SessionID: "s1", InputTokens: 2}})
-	env = readEventEnvelope(t, c)
-	if env.Type != timelineEntryEvent {
-		t.Fatalf("live type = %q", env.Type)
-	}
-	var live timeline.TimelineEvent
-	if err := json.Unmarshal(env.Payload, &live); err != nil {
-		t.Fatal(err)
-	}
-	if live.Kind != timeline.KindCost || live.InputTokens != 2 {
-		t.Fatalf("live = %#v", live)
 	}
 }
 

@@ -1,4 +1,4 @@
-import type { SessionsStatusPayload, SessionStatus } from "./agents-feed";
+import type { SessionsStatusPayload, SessionStatus } from "./session-status";
 
 type FetchJSON = <T>(path: string) => Promise<T>;
 

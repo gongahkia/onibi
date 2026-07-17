@@ -72,15 +72,15 @@ export class SessionsListView {
   }
 
   handleEnvelope(envelope: EventEnvelope): void {
-    if (envelope.type === "session.started") {
-      const payload = envelope.payload as { session_id?: string };
-      if (
-        payload.session_id !== undefined &&
-        payload.session_id !== "" &&
-        !this.rows.some((row) => row.id === payload.session_id)
-      ) {
-        void this.load();
-      }
+    if (
+      envelope.type === "session.started" ||
+      envelope.type === "session.ended" ||
+      envelope.type === "session.activity" ||
+      envelope.type === "approval.requested" ||
+      envelope.type === "approval.decided" ||
+      envelope.type === "approval.expired"
+    ) {
+      void this.load();
       return;
     }
     if (envelope.type !== "cost.updated") {

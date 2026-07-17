@@ -18,7 +18,6 @@ import (
 	"github.com/gongahkia/onibi/internal/buildinfo"
 	"github.com/gongahkia/onibi/internal/pty"
 	"github.com/gongahkia/onibi/internal/store"
-	"github.com/gongahkia/onibi/internal/timeline"
 	webstatic "github.com/gongahkia/onibi/internal/web/static"
 )
 
@@ -43,7 +42,6 @@ type Options struct {
 	TrustRuntime          func(context.Context, TrustRuntimeRequest) (string, error)
 	AnomalyAllow          func(context.Context, AnomalyAllowlistRequest) (string, error)
 	SessionCost           func(context.Context, string) (SessionCost, bool, error)
-	Timeline              func(context.Context, int) ([]timeline.TimelineEvent, error)
 	Snapshots             func(context.Context) ([]Snapshot, error)
 	SnapshotRestore       func(context.Context, string) (SnapshotActionResult, error)
 	SnapshotFork          func(context.Context, SnapshotForkRequest) (SnapshotActionResult, error)
@@ -69,7 +67,6 @@ type Server struct {
 	trustRuntime          func(context.Context, TrustRuntimeRequest) (string, error)
 	anomalyAllow          func(context.Context, AnomalyAllowlistRequest) (string, error)
 	sessionCost           func(context.Context, string) (SessionCost, bool, error)
-	timeline              func(context.Context, int) ([]timeline.TimelineEvent, error)
 	snapshots             func(context.Context) ([]Snapshot, error)
 	snapshotRestore       func(context.Context, string) (SnapshotActionResult, error)
 	snapshotFork          func(context.Context, SnapshotForkRequest) (SnapshotActionResult, error)
@@ -104,7 +101,6 @@ func New(opts Options) *Server {
 		trustRuntime:          opts.TrustRuntime,
 		anomalyAllow:          opts.AnomalyAllow,
 		sessionCost:           opts.SessionCost,
-		timeline:              opts.Timeline,
 		snapshots:             opts.Snapshots,
 		snapshotRestore:       opts.SnapshotRestore,
 		snapshotFork:          opts.SnapshotFork,

@@ -44,7 +44,7 @@ Side-by-side:
 | session runtime | Herdr background server with persistent panes | Onibi-managed tmux-backed PTYs |
 | primary UI | terminal multiplexer, SSH attach, direct terminal attach | phone-first browser cockpit with live xterm.js |
 | phone access | `herdr-remote` web app/PWA through a relay URL | built-in paired HTTPS/PWA cockpit |
-| agent state | first-class blocked/working/done/idle rollups | session list, timeline, approvals, anomaly/push events |
+| agent state | first-class blocked/working/done/idle rollups | session list and approval status |
 | direct terminal | terminal/SSH/direct attach; herdr-remote phone terminal view | `/ws/pty` live terminal with typing, soft keys, resize, replay |
 | approvals | blocked-agent quick actions and Telegram inline approvals | owner approval queue, edit/deny/approve, runtime trust, hook enforcement |
 | chat control | Telegram approval/notification surface in herdr-remote | explicitly enabled experimental Telegram/Slack/Matrix/Discord/Zulip/IRC/Signal text I/O plus capability-specific approvals |
@@ -53,7 +53,7 @@ Side-by-side:
 Four differentiators:
 
 1. **Session hosting.** Herdr also hosts persistent PTY panes, but users adopt Herdr as the multiplexer and add `herdr-remote` when they want phone/browser access. Onibi bundles the session host and phone cockpit in one daemon flow: `onibi up` creates or attaches the managed session, serves the cockpit, and owns pairing/auth.
-2. **Real live terminal.** Herdr has real terminal panes and direct attach; current `herdr-remote` docs also show a phone terminal view. Onibi's distinction is that the live browser terminal is the default product surface, with xterm.js, mobile soft keys, resize/replay behavior, file/timeline panels, and handoff controls built around one session id.
+2. **Real live terminal.** Herdr has real terminal panes and direct attach; current `herdr-remote` docs also show a phone terminal view. Onibi's distinction is that the live browser terminal is the default product surface, with xterm.js, mobile soft keys, resize/replay behavior, snapshot support, and handoff controls built around one session id.
 3. **Hook-based enforcement.** Herdr integrations primarily report session identity, lifecycle state, or both; its remote surface exposes approval actions for blocked agents. Onibi's approval path is the enforcement boundary: provider hooks send blocking requests to the Onibi queue, and deny/edit decisions feed back through the hook contract before tool execution continues.
 4. **Chat control surface.** `herdr-remote` documents Telegram inline approvals and notifications. When explicitly enabled, Onibi's experimental chat bridges can route provider text into the hosted session; notify-only providers stay approval/alert-only, and each capability has separate evidence requirements.
 
@@ -74,7 +74,7 @@ Codex Remote is the first-party path for using Codex away from the host machine.
 
 That is the best fit for existing Codex users who want the official ChatGPT/Codex flow. Setup starts in the Codex App, pairs a phone by QR code, and then exposes host projects and Codex threads inside ChatGPT mobile. It also inherits OpenAI account, workspace, admin, MFA/SSO/passkey, and plan behavior. Current Codex docs list Codex in ChatGPT plans and note that API-key sign-in leaves some cloud features unavailable.
 
-Onibi chooses a different source of truth. It hosts the terminal session locally under the user's OS account, then exposes a browser cockpit, WebSocket PTY stream, owner approval queue, snapshots, file panel, timeline, and handoff controls. Codex can be one hosted agent, but the same session model also covers Claude Code, OpenCode, Goose, Copilot CLI, Gemini, Amp, Pi, and plain shell/TUI work. Public relay modes are optional transports, and Onibi's Cloudflare relay path documents its app-layer E2E frame protocol in `docs/SPEC-e2e.md`.
+Onibi chooses a different source of truth. It hosts the terminal session locally under the user's OS account, then exposes a browser cockpit, WebSocket PTY stream, owner approval queue, snapshots, and handoff controls. Codex can be one hosted agent, but the same session model also covers Claude Code, OpenCode, Goose, Copilot CLI, Gemini, Amp, Pi, and plain shell/TUI work. Public relay modes are optional transports, and Onibi's Cloudflare relay path documents its app-layer E2E frame protocol in `docs/SPEC-e2e.md`.
 
 Core differences:
 
@@ -85,7 +85,7 @@ Core differences:
 | host model | Codex App host or SSH host reached through Codex | Onibi-managed tmux-backed local session |
 | mobile surface | ChatGPT mobile / Codex App remote control | PWA/browser cockpit plus optional experimental chat/notify bridges |
 | relay model | OpenAI secure relay for authorized devices | LAN/hotspot/Tailscale/Cloudflare/ngrok plus optional experimental provider transports; Cloudflare path has documented app-layer E2E |
-| controls | prompts, approvals, outputs, diffs, terminal output, screenshots | terminal I/O, approvals, files, snapshots, timeline, handoff, sharing, push |
+| controls | prompts, approvals, outputs, diffs, terminal output, screenshots | terminal I/O, approvals, snapshots, handoff, sharing, push |
 
 Honest tradeoff: pick Codex Remote when the work is already Codex-first and you want the lowest-friction, first-party ChatGPT mobile integration. It should win on account integration, Codex-specific continuity, and official support. Pick Onibi when the durable object is a local terminal session and you need one cockpit across multiple agents, non-OpenAI tools, local-first hosting, open transport docs, and chat-control fallbacks.
 
@@ -126,7 +126,7 @@ OpenCode Mobile is a focused phone control surface for OpenCode work. Its site d
 
 That is a strong fit when OpenCode is the only agent in scope. OpenCode Mobile can optimize for one server protocol, one workspace model, and a compact task/diff/log workflow. The current site links to `alvarolorentedev/opencode-mobile`, an Apache-2.0 Expo/React Native app for connecting to an OpenCode server, so it is the closer OSS-native choice for users who want an OpenCode-first mobile app.
 
-Onibi is broader and heavier. It hosts managed tmux-backed sessions and exposes a live xterm.js cockpit over the browser. The session can be a plain shell, Claude Code, Codex, OpenCode, Goose, or another supported adapter. The same owner session routes terminal I/O, web approvals, snapshots, file browsing, timeline events, web push, chat bridges, and Mac/phone handoff. Public relays are transports; the daemon remains the source of truth for session lifetime and approval enforcement.
+Onibi is broader and heavier. It hosts managed tmux-backed sessions and exposes a live xterm.js cockpit over the browser. The session can be a plain shell, Claude Code, Codex, OpenCode, Goose, or another supported adapter. The same owner session routes terminal I/O, web approvals, snapshots, web push, chat bridges, and Mac/phone handoff. Public relays are transports; the daemon remains the source of truth for session lifetime and approval enforcement.
 
 Core differences:
 
@@ -167,7 +167,7 @@ Sources checked:
 
 sshx is a fast collaborative terminal-sharing tool. Its README describes a secure web-based shared terminal, a one-command curl installer, browser collaboration, E2E encryption, nearest-server routing, automatic reconnection, and predictive echo. The same README says self-hosted deployments are not supported at the moment.
 
-That makes sshx the better fit for quick collaborative terminal sharing or CI debugging where a browser URL is the product. Onibi is heavier: it hosts named sessions, keeps owner/viewer roles, provides approval and file/timeline/snapshot surfaces, and supports several transports instead of only terminal sharing through the sshx mesh.
+That makes sshx the better fit for quick collaborative terminal sharing or CI debugging where a browser URL is the product. Onibi is heavier: it hosts named sessions, keeps owner/viewer roles, provides approval and snapshot surfaces, and supports several transports instead of only terminal sharing through the sshx mesh.
 
 Honest tradeoff: pick sshx for instant web terminal collaboration. Pick Onibi when the remote surface must understand coding-agent approvals, phone handoff, chat input, and long-lived session state.
 

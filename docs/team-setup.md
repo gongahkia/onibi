@@ -79,7 +79,7 @@ The viewer can see:
 - terminal replay sent while attaching
 - visible editor, prompt, command output, and shell text
 - file panel read views exposed to the cockpit
-- timeline, snapshot, and session details available to a paired viewer
+- snapshot and session details available to a paired viewer
 - any secret printed in the terminal while attached
 
 The viewer cannot:

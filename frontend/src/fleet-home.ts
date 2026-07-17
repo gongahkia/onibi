@@ -1,5 +1,5 @@
 import type { EventEnvelope } from "./events";
-import type { SessionsStatusPayload } from "./agents-feed";
+import type { SessionsStatusPayload } from "./session-status";
 import type { FleetHost, FleetSession, FleetStatus } from "./fleet-hosts";
 
 type FetchJSON = <T>(path: string) => Promise<T>;
