@@ -63,7 +63,7 @@ Branding note: Onibi is not affiliated with the [Ghostty](https://ghostty.org) t
 - `onibi show` / `onibi hide` for tmux-backed session visibility.
 - Experimental chat text control: after `experimental.providers=true`, Telegram, Matrix, Slack, Discord, Zulip, IRC, and Signal can route terminal text; approvals support provider-native actions where available.
 - Experimental notify-only approvals: Pushover, ntfy, Gotify, APNs, SMS, and email publish approval alerts without terminal text input after the same explicit opt-in.
-- [`docs/comparison.md`](./docs/comparison.md) covers tradeoffs against remote-agent and terminal-sharing tools.
+- [`docs/comparison.md`](./docs/comparison.md) states Onibi's focused scope and alternatives.
 
 ## Roadmap
 
@@ -134,7 +134,6 @@ After `./bin/onibi up` and phone pairing:
 - `internal/intake` receives hook events from `onibi-notify` over a same-UID Unix socket.
 - `internal/approval` owns the approval queue and decision state machine.
 - `frontend/` contains the xterm.js cockpit.
-- [`docs/comparison.md`](./docs/comparison.md) compares Onibi's session-hosting architecture with Herdr, Codex Remote, CCRC, and OpenCode Mobile.
 
 ## Docs
 
@@ -151,7 +150,7 @@ After `./bin/onibi up` and phone pairing:
 - [`docs/ssh-transport.md`](./docs/ssh-transport.md): SSH remote bootstrap, tunnel, service, and teardown model.
 - [`docs/transport-smoke.md`](./docs/transport-smoke.md): real-device transport smoke checklist.
 - [`docs/ws-events-protocol.md`](./docs/ws-events-protocol.md): WebSocket event protocol.
-- [`docs/comparison.md`](./docs/comparison.md): positioning against remote-agent and terminal-sharing tools.
+- [`docs/comparison.md`](./docs/comparison.md): focused product positioning and alternatives.
 - [`docs/ghostty-parity.md`](./docs/ghostty-parity.md): Ghostty/web cockpit visual parity smoke.
 - [`docs/terminal-fidelity.md`](./docs/terminal-fidelity.md): iPhone Safari terminal application smoke matrix.
 - [`docs/branding.md`](./docs/branding.md): Onibi and Ghostty naming boundaries.
