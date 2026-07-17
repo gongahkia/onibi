@@ -541,6 +541,7 @@ impl RelayService for RelayGrpcService {
 #[cfg(test)]
 mod tests {
     use std::{
+        fs,
         path::PathBuf,
         sync::atomic::{AtomicU64, Ordering},
     };
@@ -609,6 +610,78 @@ mod tests {
         .unwrap()
         .encode()
         .unwrap()
+    }
+
+    #[tokio::test]
+    async fn serves_generated_rpc_after_migrating_a_v1_relay_database() {
+        let number = NEXT_TEST_PATH.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "yeokcham-relay-v1-{}-{number}.sqlite",
+            std::process::id()
+        ));
+        let connection = Connection::open(&path).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE relay_schema_migrations(
+                     version INTEGER PRIMARY KEY CHECK(version > 0)
+                 ) STRICT;
+                 INSERT INTO relay_schema_migrations(version) VALUES (1);
+                 CREATE TABLE relay_mailboxes(
+                     mailbox_id BLOB PRIMARY KEY NOT NULL CHECK(length(mailbox_id) = 16),
+                     capability_token BLOB NOT NULL CHECK(length(capability_token) = 32),
+                     quota_bytes BLOB NOT NULL CHECK(length(quota_bytes) = 8),
+                     used_bytes BLOB NOT NULL CHECK(length(used_bytes) = 8),
+                     created_at INTEGER NOT NULL CHECK(created_at >= 0)
+                 ) STRICT;
+                 CREATE TABLE relay_envelopes(
+                     mailbox_id BLOB NOT NULL CHECK(length(mailbox_id) = 16),
+                     sequence INTEGER NOT NULL CHECK(sequence >= 0),
+                     ciphertext BLOB NOT NULL CHECK(length(ciphertext) > 0),
+                     received_at INTEGER NOT NULL CHECK(received_at >= 0),
+                     expires_at INTEGER NOT NULL CHECK(expires_at > received_at),
+                     PRIMARY KEY(mailbox_id, sequence),
+                     FOREIGN KEY(mailbox_id) REFERENCES relay_mailboxes(mailbox_id) ON DELETE CASCADE
+                 ) STRICT;",
+            )
+            .unwrap();
+        drop(connection);
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = RelayServer::from_listener(
+            listener,
+            RelayDatabase::open(&path).unwrap(),
+            MailboxQuota::new(5).unwrap(),
+            RelayRetentionPolicy::new(60).unwrap(),
+            RelaySigningKeypair::generate().unwrap(),
+        );
+        let (shutdown_sender, shutdown_receiver) = oneshot::channel();
+        let server = server.serve_until(async move {
+            let _ = shutdown_receiver.await;
+        });
+        let client = async {
+            let mut client = RelayServiceClient::connect(format!("http://{address}"))
+                .await
+                .unwrap();
+            let capability = capability(0x11, 0x22);
+            client
+                .register_mailbox(RegisterMailboxRequest {
+                    mailbox_capability: capability.clone(),
+                })
+                .await
+                .unwrap();
+            let stored = client
+                .store_envelope(StoreEnvelopeRequest {
+                    mailbox_capability: capability,
+                    envelope: envelope(),
+                })
+                .await;
+            let _ = shutdown_sender.send(());
+            stored
+        };
+        let (server, stored) = tokio::join!(server, client);
+        assert!(server.is_ok(), "{server:?}");
+        assert_eq!(stored.unwrap().into_inner().sequence, 0);
+        fs::remove_file(path).unwrap();
     }
 
     async fn assert_registration_contract(
