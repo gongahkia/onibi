@@ -13,6 +13,7 @@ pub const YEOKCHAM_EVENT_CLIENT_STOPPED: u32 = 2;
 pub const YEOKCHAM_EVENT_MESSAGE_QUEUED: u32 = 3;
 pub const YEOKCHAM_EVENT_MESSAGE_DELIVERED: u32 = 4;
 pub const YEOKCHAM_EVENT_MESSAGE_DELIVERY_FAILED: u32 = 5;
+pub const YEOKCHAM_IDENTITY_PUBLIC_KEY_BYTES: usize = yeokcham_core::ED25519_PUBLIC_KEY_BYTES;
 
 #[repr(C)]
 pub struct YeokchamClient {
@@ -63,7 +64,8 @@ pub use c_abi::{
     yeokcham_client_config_builder_release,
     yeokcham_client_config_builder_set_event_buffer_capacity,
     yeokcham_client_config_builder_set_state_directory, yeokcham_client_copy_last_error_detail,
-    yeokcham_client_create, yeokcham_client_release, yeokcham_client_start, yeokcham_client_stop,
+    yeokcham_client_create, yeokcham_client_identity_create, yeokcham_client_identity_load,
+    yeokcham_client_release, yeokcham_client_start, yeokcham_client_stop,
     yeokcham_client_subscribe_events, yeokcham_client_take_last_error_detail,
     yeokcham_event_subscription_poll, yeokcham_event_subscription_release,
     yeokcham_secret_buffer_zeroize,
@@ -75,8 +77,8 @@ mod tests {
     use super::{
         MAX_C_ABI_CLIENTS, MAX_C_ABI_PENDING_COMPLETIONS, YEOKCHAM_ABI_NEGOTIATION_REJECTED,
         YEOKCHAM_ABI_VERSION, YEOKCHAM_ABI_VERSION_MAJOR, YEOKCHAM_ABI_VERSION_MINOR,
-        YeokchamStatus, yeokcham_abi_negotiate, yeokcham_client_complete_async,
-        yeokcham_client_create, yeokcham_client_release,
+        YEOKCHAM_IDENTITY_PUBLIC_KEY_BYTES, YeokchamStatus, yeokcham_abi_negotiate,
+        yeokcham_client_complete_async, yeokcham_client_create, yeokcham_client_release,
     };
     use std::{
         ffi::c_void,
@@ -110,6 +112,8 @@ mod tests {
         assert!(HEADER.contains("#define YEOKCHAM_EVENT_MESSAGE_QUEUED UINT32_C(3)"));
         assert!(HEADER.contains("#define YEOKCHAM_EVENT_MESSAGE_DELIVERED UINT32_C(4)"));
         assert!(HEADER.contains("#define YEOKCHAM_EVENT_MESSAGE_DELIVERY_FAILED UINT32_C(5)"));
+        assert!(HEADER.contains("#define YEOKCHAM_IDENTITY_PUBLIC_KEY_BYTES UINT32_C(32)"));
+        assert_eq!(YEOKCHAM_IDENTITY_PUBLIC_KEY_BYTES, 32);
         assert!(HEADER.contains("typedef struct yeokcham_client yeokcham_client_t;"));
         assert!(HEADER.contains("typedef struct yeokcham_buffer yeokcham_buffer_t;"));
         assert!(
@@ -150,6 +154,8 @@ mod tests {
         assert!(HEADER.contains("yeokcham_client_release(yeokcham_client_t *client);"));
         assert!(HEADER.contains("yeokcham_client_start(yeokcham_client_t *client);"));
         assert!(HEADER.contains("yeokcham_client_stop(yeokcham_client_t *client);"));
+        assert!(HEADER.contains("yeokcham_client_identity_create("));
+        assert!(HEADER.contains("yeokcham_client_identity_load("));
         assert!(HEADER.contains("yeokcham_client_copy_last_error_detail("));
         assert!(HEADER.contains("yeokcham_client_take_last_error_detail("));
         assert!(HEADER.contains("yeokcham_buffer_data("));

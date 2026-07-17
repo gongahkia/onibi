@@ -16,6 +16,7 @@ default = []
 [dependencies]
 yeokcham-protocol = { path = "../yeokcham-protocol" }
 yeokcham-sdk = { path = "../yeokcham-sdk" }
+yeokcham-core = { path = "../yeokcham-core" }
 zeroize.workspace = true
 
 [build-dependencies]

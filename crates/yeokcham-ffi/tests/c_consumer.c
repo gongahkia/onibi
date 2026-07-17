@@ -3,8 +3,11 @@
 int yeokcham_c_consumer_conformance(void) {
     uint8_t secret[] = {0xa5, 0x5a, 0x11};
     const uint8_t state_directory[] = "/tmp/yeokcham-ffi-c-consumer";
+    uint8_t created_identity[YEOKCHAM_IDENTITY_PUBLIC_KEY_BYTES];
+    uint8_t loaded_identity[YEOKCHAM_IDENTITY_PUBLIC_KEY_BYTES];
     yeokcham_client_t *client;
     yeokcham_client_config_builder_t *builder;
+    size_t index;
 
     if (yeokcham_abi_negotiate(YEOKCHAM_ABI_VERSION) != YEOKCHAM_ABI_VERSION) {
         return 1;
@@ -43,6 +46,28 @@ int yeokcham_c_consumer_conformance(void) {
     }
     if (secret[0] != 0 || secret[1] != 0 || secret[2] != 0) {
         return 12;
+    }
+    for (index = 0; index < YEOKCHAM_IDENTITY_PUBLIC_KEY_BYTES; ++index) {
+        created_identity[index] = UINT8_C(0xa5);
+    }
+    if (yeokcham_client_identity_load(client, created_identity) != YEOKCHAM_STATUS_STATE) {
+        return 15;
+    }
+    for (index = 0; index < YEOKCHAM_IDENTITY_PUBLIC_KEY_BYTES; ++index) {
+        if (created_identity[index] != 0) {
+            return 16;
+        }
+    }
+    if (yeokcham_client_identity_create(client, created_identity) != YEOKCHAM_STATUS_OK) {
+        return 17;
+    }
+    if (yeokcham_client_identity_load(client, loaded_identity) != YEOKCHAM_STATUS_OK) {
+        return 18;
+    }
+    for (index = 0; index < YEOKCHAM_IDENTITY_PUBLIC_KEY_BYTES; ++index) {
+        if (created_identity[index] != loaded_identity[index]) {
+            return 19;
+        }
     }
     if (yeokcham_client_release(client) != YEOKCHAM_STATUS_OK) {
         return 13;

@@ -20,6 +20,7 @@
 #define YEOKCHAM_EVENT_MESSAGE_QUEUED UINT32_C(3)
 #define YEOKCHAM_EVENT_MESSAGE_DELIVERED UINT32_C(4)
 #define YEOKCHAM_EVENT_MESSAGE_DELIVERY_FAILED UINT32_C(5)
+#define YEOKCHAM_IDENTITY_PUBLIC_KEY_BYTES UINT32_C(32)
 
 typedef struct yeokcham_client yeokcham_client_t; // library-owned opaque client; release with yeokcham_client_release
 typedef struct yeokcham_client_config_builder yeokcham_client_config_builder_t; // library-owned configuration builder; release with yeokcham_client_config_builder_release
@@ -45,6 +46,14 @@ yeokcham_client_t *yeokcham_client_create(void); // null when client capacity is
 yeokcham_status_t yeokcham_client_release(yeokcham_client_t *client); // invalid input unless client is active
 yeokcham_status_t yeokcham_client_start(yeokcham_client_t *client); // requires a validated attached configuration
 yeokcham_status_t yeokcham_client_stop(yeokcham_client_t *client); // requires a running client
+yeokcham_status_t yeokcham_client_identity_create(
+    yeokcham_client_t *client,
+    uint8_t public_key[YEOKCHAM_IDENTITY_PUBLIC_KEY_BYTES]
+); // creates one handle-scoped identity and clears public_key before any failure
+yeokcham_status_t yeokcham_client_identity_load(
+    yeokcham_client_t *client,
+    uint8_t public_key[YEOKCHAM_IDENTITY_PUBLIC_KEY_BYTES]
+); // loads the handle-scoped identity and clears public_key before any failure
 yeokcham_status_t yeokcham_client_copy_last_error_detail(
     const yeokcham_client_t *client,
     uint8_t *buffer,

@@ -1,5 +1,6 @@
 use std::{
     collections::BTreeMap,
+    convert::Infallible,
     ffi::c_void,
     path::PathBuf,
     sync::{
@@ -16,11 +17,12 @@ use crate::{
     YeokchamClient, YeokchamClientConfigBuilder, YeokchamEvent, YeokchamEventSubscription,
     YeokchamStatus,
 };
+use yeokcham_core::{KeystoreEntryName, KeystoreSecret, OsKeystore};
 use yeokcham_sdk::{
     RuntimeMode, SdkClient, SdkClientError, SdkConfig, SdkEvent, SdkEventEnvelope, SdkEventStream,
-    SdkEventStreamError,
+    SdkEventStreamError, SdkIdentityError, SdkIdentityManager,
 };
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 pub const MAX_C_ABI_CLIENT_CONFIG_BUILDERS: usize = 1024;
 pub const MAX_C_ABI_CLIENTS: usize = 1024;
@@ -34,6 +36,7 @@ pub const MAX_C_ABI_STATE_DIRECTORY_BYTES: usize = 4096;
 
 struct ClientHandle {
     configuration: Option<SdkConfig>,
+    identity: SdkIdentityManager<ClientKeystore>,
     last_error_detail: Option<&'static [u8]>,
     runtime: Option<SdkClient>,
 }
@@ -42,6 +45,37 @@ struct ClientHandle {
 struct ClientConfigBuilder {
     state_directory: Option<PathBuf>,
     event_buffer_capacity: Option<usize>,
+}
+
+#[derive(Default)]
+struct ClientKeystore(BTreeMap<String, Zeroizing<Vec<u8>>>);
+
+impl OsKeystore for ClientKeystore {
+    type Error = Infallible;
+
+    fn load(&self, entry: &KeystoreEntryName) -> Result<Option<KeystoreSecret>, Self::Error> {
+        Ok(self
+            .0
+            .get(entry.as_str())
+            .and_then(|secret| KeystoreSecret::new(secret.to_vec()).ok()))
+    }
+
+    fn store(
+        &mut self,
+        entry: &KeystoreEntryName,
+        secret: &KeystoreSecret,
+    ) -> Result<(), Self::Error> {
+        self.0.insert(
+            entry.as_str().to_owned(),
+            Zeroizing::new(secret.as_bytes().to_vec()),
+        );
+        Ok(())
+    }
+
+    fn delete(&mut self, entry: &KeystoreEntryName) -> Result<(), Self::Error> {
+        self.0.remove(entry.as_str());
+        Ok(())
+    }
 }
 
 static ACTIVE_CLIENTS: OnceLock<Mutex<BTreeMap<usize, ClientHandle>>> = OnceLock::new();
@@ -106,6 +140,7 @@ pub extern "C" fn yeokcham_client_create() -> *mut YeokchamClient {
             identifier,
             ClientHandle {
                 configuration: None,
+                identity: SdkIdentityManager::new(ClientKeystore::default()),
                 last_error_detail: None,
                 runtime: None,
             },
@@ -182,6 +217,82 @@ pub extern "C" fn yeokcham_client_stop(client: *mut YeokchamClient) -> YeokchamS
         client.last_error_detail = Some(sdk_client_error_detail(&error));
         return map_sdk_client_error(&error);
     }
+    client.last_error_detail = None;
+    YeokchamStatus::Ok
+}
+
+#[unsafe(no_mangle)]
+#[allow(clippy::missing_safety_doc)]
+pub unsafe extern "C" fn yeokcham_client_identity_create(
+    client: *mut YeokchamClient,
+    public_key: *mut u8,
+) -> YeokchamStatus {
+    if public_key.is_null() {
+        return YeokchamStatus::InvalidInput;
+    }
+    unsafe { std::ptr::write_bytes(public_key, 0, yeokcham_core::ED25519_PUBLIC_KEY_BYTES) };
+    let identifier = client.addr();
+    if identifier == 0 {
+        return YeokchamStatus::InvalidInput;
+    }
+    let Ok(mut clients) = active_clients().lock() else {
+        return YeokchamStatus::State;
+    };
+    let Some(client) = clients.get_mut(&identifier) else {
+        return YeokchamStatus::InvalidInput;
+    };
+    let identity = match client.identity.create() {
+        Ok(identity) => identity,
+        Err(error) => {
+            client.last_error_detail = Some(sdk_identity_error_detail(&error));
+            return map_sdk_identity_error(&error);
+        }
+    };
+    unsafe {
+        std::ptr::copy_nonoverlapping(
+            identity.public_key().as_bytes().as_ptr(),
+            public_key,
+            yeokcham_core::ED25519_PUBLIC_KEY_BYTES,
+        );
+    };
+    client.last_error_detail = None;
+    YeokchamStatus::Ok
+}
+
+#[unsafe(no_mangle)]
+#[allow(clippy::missing_safety_doc)]
+pub unsafe extern "C" fn yeokcham_client_identity_load(
+    client: *mut YeokchamClient,
+    public_key: *mut u8,
+) -> YeokchamStatus {
+    if public_key.is_null() {
+        return YeokchamStatus::InvalidInput;
+    }
+    unsafe { std::ptr::write_bytes(public_key, 0, yeokcham_core::ED25519_PUBLIC_KEY_BYTES) };
+    let identifier = client.addr();
+    if identifier == 0 {
+        return YeokchamStatus::InvalidInput;
+    }
+    let Ok(mut clients) = active_clients().lock() else {
+        return YeokchamStatus::State;
+    };
+    let Some(client) = clients.get_mut(&identifier) else {
+        return YeokchamStatus::InvalidInput;
+    };
+    let identity = match client.identity.load() {
+        Ok(identity) => identity,
+        Err(error) => {
+            client.last_error_detail = Some(sdk_identity_error_detail(&error));
+            return map_sdk_identity_error(&error);
+        }
+    };
+    unsafe {
+        std::ptr::copy_nonoverlapping(
+            identity.public_key().as_bytes().as_ptr(),
+            public_key,
+            yeokcham_core::ED25519_PUBLIC_KEY_BYTES,
+        );
+    };
     client.last_error_detail = None;
     YeokchamStatus::Ok
 }
@@ -695,6 +806,26 @@ fn sdk_client_error_detail(error: &SdkClientError) -> &'static [u8] {
     }
 }
 
+fn map_sdk_identity_error(error: &SdkIdentityError) -> YeokchamStatus {
+    match error {
+        SdkIdentityError::AlreadyInitialized
+        | SdkIdentityError::NotInitialized
+        | SdkIdentityError::Generation
+        | SdkIdentityError::InvalidStoredIdentity
+        | SdkIdentityError::Keystore => YeokchamStatus::State,
+    }
+}
+
+fn sdk_identity_error_detail(error: &SdkIdentityError) -> &'static [u8] {
+    match error {
+        SdkIdentityError::AlreadyInitialized => b"sdk_identity_already_initialized",
+        SdkIdentityError::NotInitialized => b"sdk_identity_not_initialized",
+        SdkIdentityError::Generation => b"sdk_identity_generation",
+        SdkIdentityError::InvalidStoredIdentity => b"sdk_identity_invalid_stored",
+        SdkIdentityError::Keystore => b"sdk_identity_keystore",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -710,10 +841,11 @@ mod tests {
         yeokcham_client_config_builder_release,
         yeokcham_client_config_builder_set_event_buffer_capacity,
         yeokcham_client_config_builder_set_state_directory, yeokcham_client_copy_last_error_detail,
-        yeokcham_client_create, yeokcham_client_release, yeokcham_client_start,
-        yeokcham_client_stop, yeokcham_client_subscribe_events,
-        yeokcham_client_take_last_error_detail, yeokcham_event_subscription_poll,
-        yeokcham_event_subscription_release, yeokcham_secret_buffer_zeroize,
+        yeokcham_client_create, yeokcham_client_identity_create, yeokcham_client_identity_load,
+        yeokcham_client_release, yeokcham_client_start, yeokcham_client_stop,
+        yeokcham_client_subscribe_events, yeokcham_client_take_last_error_detail,
+        yeokcham_event_subscription_poll, yeokcham_event_subscription_release,
+        yeokcham_secret_buffer_zeroize,
     };
 
     #[test]
@@ -744,6 +876,42 @@ mod tests {
             YeokchamStatus::ResourceLimit
         );
         assert_eq!(byte, 0xA5);
+    }
+
+    #[test]
+    fn c_identity_operations_create_and_load_one_redacted_handle_identity() {
+        let _guard = CLIENT_TEST_LOCK.lock().unwrap();
+        let client = yeokcham_client_create();
+        let mut public_key = [0xA5; yeokcham_core::ED25519_PUBLIC_KEY_BYTES];
+        let mut loaded_key = [0; yeokcham_core::ED25519_PUBLIC_KEY_BYTES];
+
+        assert!(!client.is_null());
+
+        assert_eq!(
+            unsafe { yeokcham_client_identity_load(client, public_key.as_mut_ptr()) },
+            YeokchamStatus::State
+        );
+        assert_eq!(public_key, [0; yeokcham_core::ED25519_PUBLIC_KEY_BYTES]);
+        assert_eq!(
+            unsafe { yeokcham_client_identity_create(client, public_key.as_mut_ptr()) },
+            YeokchamStatus::Ok
+        );
+        assert_ne!(public_key, [0; yeokcham_core::ED25519_PUBLIC_KEY_BYTES]);
+        assert_eq!(
+            unsafe { yeokcham_client_identity_load(client, loaded_key.as_mut_ptr()) },
+            YeokchamStatus::Ok
+        );
+        assert_eq!(loaded_key, public_key);
+        assert_eq!(
+            unsafe { yeokcham_client_identity_create(client, loaded_key.as_mut_ptr()) },
+            YeokchamStatus::State
+        );
+        assert_eq!(loaded_key, [0; yeokcham_core::ED25519_PUBLIC_KEY_BYTES]);
+        assert_eq!(
+            unsafe { yeokcham_client_identity_load(client, std::ptr::null_mut()) },
+            YeokchamStatus::InvalidInput
+        );
+        assert_eq!(yeokcham_client_release(client), YeokchamStatus::Ok);
     }
 
     #[test]
