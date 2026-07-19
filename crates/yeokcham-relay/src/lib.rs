@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod invite_provisioning;
+mod relay_runner;
 mod relay_server;
 
 use std::collections::{HashMap, VecDeque};
@@ -23,6 +24,12 @@ use yeokcham_protocol::{
 
 pub use invite_provisioning::{
     MAX_RELAY_INVITE_PROVISION_ATTEMPTS, RelayInviteProvisioner, RelayInviteProvisioningError,
+};
+pub use relay_runner::{
+    DEFAULT_RELAY_HEALTH_ADDRESS, DEFAULT_RELAY_METRICS_ADDRESS,
+    MAX_RELAY_GRACEFUL_SHUTDOWN_TIMEOUT, RelayHealthcheckError, RelayIdentityFileError,
+    RelayIdentityFileGenerationError, RelayRuntimeConfig, RelayRuntimeConfigError,
+    RelayRuntimeError, check_relay_health, generate_relay_identity_file,
 };
 pub use relay_server::{RelayServer, RelayServerError};
 

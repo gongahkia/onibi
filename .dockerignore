@@ -1,0 +1,9 @@
+.git
+target
+**/target
+fuzz
+**/*.sqlite
+**/*.sqlite-shm
+**/*.sqlite-wal
+**/*.key
+.env

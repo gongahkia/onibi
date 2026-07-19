@@ -11,11 +11,12 @@ publish = false
 default = []
 
 [dependencies]
+clap.workspace = true
 getrandom.workspace = true
 rusqlite.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["signal"] }
 tokio-stream.workspace = true
 tonic = { workspace = true, features = ["tls-ring"] }
 yeokcham-core = { path = "../yeokcham-core" }
