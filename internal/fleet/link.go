@@ -105,6 +105,7 @@ type ControlResult struct {
 	HostID      string       `json:"host_id"`
 	State       CommandState `json:"state"`
 	Error       string       `json:"error,omitempty"`
+	Result      string       `json:"result,omitempty"`
 	CompletedAt time.Time    `json:"completed_at"`
 }
 
@@ -112,7 +113,7 @@ func (r ControlResult) Validate() error {
 	if r.Version != ProtocolVersion {
 		return fmt.Errorf("fleet control result version %d is incompatible with %d", r.Version, ProtocolVersion)
 	}
-	if !validID(r.ID) || !validID(r.OwnerID) || !validID(r.HostID) || !r.State.Terminal() || r.CompletedAt.IsZero() || len(r.Error) > 512 || (r.State == CommandSucceeded && strings.TrimSpace(r.Error) != "") || (r.State != CommandSucceeded && strings.TrimSpace(r.Error) == "") {
+	if !validID(r.ID) || !validID(r.OwnerID) || !validID(r.HostID) || !r.State.Terminal() || r.CompletedAt.IsZero() || len(r.Error) > 512 || len(r.Result) > 512 || (r.State == CommandSucceeded && strings.TrimSpace(r.Error) != "") || (r.State != CommandSucceeded && strings.TrimSpace(r.Error) == "") {
 		return errors.New("invalid fleet control result")
 	}
 	return nil

@@ -78,7 +78,7 @@ func upCmd() *cobra.Command {
 	cmd.Flags().String("shell", "", "shell executable for local cockpit session")
 	cmd.Flags().Bool("no-login-shell", false, "start shell without login argv")
 	cmd.Flags().String("cwd", "", "working directory for spawned shell")
-	cmd.Flags().Bool("visible", false, "open the managed session in Ghostty immediately")
+	cmd.Flags().Bool("visible", false, "open Ghostty on macOS or print manual tmux attach")
 	cmd.Flags().Bool("detach", false, "start the background service and return")
 	cmd.Flags().Bool("first-run", false, "run guided onboarding before starting the cockpit")
 	cmd.Flags().Bool("no-qr", false, "print pairing URL without QR")

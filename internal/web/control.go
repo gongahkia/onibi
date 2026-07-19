@@ -150,9 +150,8 @@ func (s *Server) submitControl(ctx context.Context, req controlRequest) (store.C
 		}
 		return command, nil
 	}
-	err = s.executeLocalControl(ctx, command, req)
+	result, err := s.executeLocalControl(ctx, command, req)
 	state := fleet.CommandSucceeded
-	result := ""
 	if err != nil {
 		state = fleet.CommandFailed
 		result = controlError(err)
@@ -163,34 +162,33 @@ func (s *Server) submitControl(ctx context.Context, req controlRequest) (store.C
 	return s.db.ControlCommand(ctx, command.ID)
 }
 
-func (s *Server) executeLocalControl(ctx context.Context, command store.ControlCommand, req controlRequest) error {
+func (s *Server) executeLocalControl(ctx context.Context, command store.ControlCommand, req controlRequest) (string, error) {
 	if command.Action == "handover" {
 		if s.handover == nil {
-			return errors.New("handover unavailable")
+			return "", errors.New("handover unavailable")
 		}
-		_, err := s.handover(ctx, command.SessionID, req.Target)
-		return err
+		return s.handover(ctx, command.SessionID, req.Target)
 	}
 	host, ok := s.hostForSession(ctx, command.SessionID)
 	if !ok {
-		return errors.New("session not found")
+		return "", errors.New("session not found")
 	}
 	switch command.Action {
 	case "interrupt":
-		return signalHost(host, syscall.SIGINT)
+		return "", signalHost(host, syscall.SIGINT)
 	case "kill":
-		return signalHost(host, syscall.SIGKILL)
+		return "", signalHost(host, syscall.SIGKILL)
 	case "input":
 		if strings.TrimSpace(req.Input) == "" {
-			return errors.New("control input required")
+			return "", errors.New("control input required")
 		}
 		if _, err := host.Write([]byte(req.Input)); err != nil {
-			return err
+			return "", err
 		}
 		_, err := host.Write([]byte{'\n'})
-		return err
+		return "", err
 	default:
-		return errors.New("bad action")
+		return "", errors.New("bad action")
 	}
 }
 

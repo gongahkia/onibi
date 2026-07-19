@@ -79,7 +79,7 @@ echo "$ONIBI_SESSION_ID"
 
 If either is empty, the hook cannot route approval requests to the current web cockpit.
 
-## Handover Does Not Open On Mac
+## Handover Does Not Open On macOS
 
 Tap `MAC` again and check the toast. If it fails, run:
 
@@ -87,7 +87,7 @@ Tap `MAC` again and check the toast. If it fails, run:
 ./bin/onibi show
 ```
 
-With one active managed session, `show` targets it by default. If the command prints a `tmux attach-session` hint, run that hint manually in Ghostty.
+With one active managed session, `show` targets it by default. If Ghostty is missing or launching fails, the error includes a `tmux attach-session` command; run it manually in Ghostty. On Linux, this manual command is the intended handover behavior.
 
 ## Handover Back To Phone Reconnects
 

@@ -98,6 +98,9 @@ func TestControlCommandsCoverInputHandoverAndKill(t *testing.T) {
 		if err != nil || command.State != fleet.CommandSucceeded {
 			t.Fatalf("request=%#v command=%#v err=%v", req, command, err)
 		}
+		if req.Action == "handover" && command.Result != "ready" {
+			t.Fatalf("handover result=%q", command.Result)
+		}
 	}
 	for _, want := range [][]byte{[]byte("pwd"), []byte{'\n'}} {
 		select {

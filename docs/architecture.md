@@ -64,13 +64,13 @@ ONIBI_SOCK=/path/to/onibi.sock
 ONIBI_SESSION_ID=<managed-session-id>
 ```
 
-The phone view is a web PTY attach client for that tmux session. `MAC` closes the web attach client and opens the same tmux session in Ghostty on macOS. `PHONE` detaches visible tmux clients and creates a fresh web attach client for Safari.
+The phone view is a web PTY attach client for that tmux session. `MAC` closes the web attach client and opens the same tmux session in Ghostty on macOS. On Linux, it returns a quoted `tmux attach-session` command to run manually in Ghostty and never launches a desktop terminal. `PHONE` detaches visible tmux clients and creates a fresh web attach client for Safari.
 
 Soft keys send normal terminal escape sequences or control actions:
 
 | control | behavior |
 |---|---|
-| `MAC` | opens the current managed tmux session in Ghostty on macOS |
+| `MAC` | opens the current managed tmux session in Ghostty on macOS; prints a manual `tmux attach-session` command on Linux |
 | `PHONE` | returns the current managed tmux session to the phone web PTY |
 | `ESC` | writes byte `0x1b` |
 | `UP` | writes `\x1b[A` |

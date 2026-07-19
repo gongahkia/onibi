@@ -23,7 +23,7 @@ the gate exits non-zero.
 | ngrok | lifecycle start, pair, loss, reconnect, shutdown | Safari over LTE against active HTTPS tunnel. |
 | Session recovery | tmux restore, orphan retention, relay reattach, session-status replay | Background Safari, restore transport, confirm no duplicate input. |
 | Approvals | Claude, Codex, Pi deny enforcement; WebSocket decision delivery | Trigger one approval; approve or deny reaches the host once. |
-| Intervention | input, interrupt, handover, kill; duplicate command rejection | Send input or interrupt; confirm acknowledged command state. |
+| Intervention | input, interrupt, handover, kill; duplicate command rejection; Ghostty launch/failure hint on macOS | On Linux, confirm `MAC` returns manual `tmux attach-session` and launches no desktop terminal. |
 
 For every physical row, use `scripts/iphone-transport-smoke.sh` and retain its
 0600 JSON artifact. It requires setup, pairing, approval, intervention,

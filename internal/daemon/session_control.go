@@ -99,9 +99,8 @@ func (d *Daemon) handleFleetControl(ctx context.Context, control fleet.Control) 
 		command, _ = d.DB.ControlCommand(ctx, command.ID)
 		return fleetControlResult(control, command)
 	}
-	err = d.executeFleetControl(ctx, command, payload)
+	message, err := d.executeFleetControl(ctx, command, payload)
 	state := fleet.CommandSucceeded
-	message := ""
 	if err != nil {
 		state = fleet.CommandFailed
 		message = fleetControlError(err)
@@ -118,33 +117,36 @@ func (d *Daemon) handleFleetControl(ctx context.Context, control fleet.Control) 
 	return fleetControlResult(control, command)
 }
 
-func (d *Daemon) executeFleetControl(ctx context.Context, command store.ControlCommand, payload fleet.ControlPayload) error {
+func (d *Daemon) executeFleetControl(ctx context.Context, command store.ControlCommand, payload fleet.ControlPayload) (string, error) {
 	switch command.Action {
 	case "interrupt", "kill":
-		return d.ControlSession(ctx, command.SessionID, command.Action)
+		return "", d.ControlSession(ctx, command.SessionID, command.Action)
 	case "input":
 		if strings.TrimSpace(payload.Input) == "" {
-			return errors.New("control input required")
+			return "", errors.New("control input required")
 		}
 		_, err := d.SendSessionTextAndCapture(ctx, command.SessionID, payload.Input, true)
-		return err
+		return "", err
 	case "handover":
 		if strings.TrimSpace(payload.Target) == "" {
-			return errors.New("handover target required")
+			return "", errors.New("handover target required")
 		}
-		_, err := d.HandoverSession(ctx, command.SessionID, payload.Target)
-		return err
+		return d.HandoverSession(ctx, command.SessionID, payload.Target)
 	default:
-		return errors.New("unsupported control action")
+		return "", errors.New("unsupported control action")
 	}
 }
 
 func fleetControlResult(control fleet.Control, command store.ControlCommand) fleet.ControlResult {
-	result := fleet.ControlResult{Version: fleet.ProtocolVersion, ID: control.ID, OwnerID: control.OwnerID, HostID: control.HostID, State: command.State, Error: command.Result, CompletedAt: command.CompletedAt}
+	result := fleet.ControlResult{Version: fleet.ProtocolVersion, ID: control.ID, OwnerID: control.OwnerID, HostID: control.HostID, State: command.State, CompletedAt: command.CompletedAt}
 	if !result.State.Terminal() {
 		result.State = fleet.CommandTimedOut
 		result.Error = "command recovery required"
 		result.CompletedAt = time.Now().UTC()
+	} else if result.State == fleet.CommandSucceeded {
+		result.Result = command.Result
+	} else {
+		result.Error = command.Result
 	}
 	return result
 }

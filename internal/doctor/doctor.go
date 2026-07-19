@@ -307,6 +307,10 @@ func (r *runner) checkGhostty() {
 		return
 	}
 	cap := daemon.ProbeGhostty(r.ctx)
+	if !cap.Supported {
+		r.add("ghostty", Pass, cap.Detail)
+		return
+	}
 	if strings.EqualFold(strings.TrimSpace(cfg.Terminal.Default), "ghostty") && !cap.Installed {
 		r.add("ghostty", Warn, "terminal.default=ghostty but Ghostty was not found")
 		return

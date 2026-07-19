@@ -145,6 +145,10 @@ Expected:
 
 Stop with `Ctrl-C` after pairing and a simple terminal command.
 
+### Desktop Handover
+
+On macOS, tap `MAC` and confirm Ghostty opens the managed tmux session. If Ghostty is missing or launch fails, retain the displayed manual `tmux attach-session` command.
+
 ### Doctor After Upgrade
 
 ```bash
@@ -271,6 +275,10 @@ Expected:
 - Output prints the local CA profile path.
 - Output prints a `https://<lan-ip>:8443/pair/<token>` URL and QR.
 - Phone browser pairs over the same LAN or hotspot.
+
+### Desktop Handover
+
+Tap `MAC` and retain the displayed `tmux attach-session` command. Confirm no desktop terminal opens, then run that command manually in Ghostty.
 
 Stop with `Ctrl-C` after pairing and a simple terminal command.
 

@@ -59,6 +59,19 @@ test("intervention panel renders loading, pending failure, and confirmed input",
   await waitFor(() => status(confirmedRoot) === "Short input confirmed.");
   expect(status(confirmedRoot)).toBe("Short input confirmed.");
   expect(posts).toContainEqual({ session_id: "s1", action: "input", input: "pwd" });
+
+  response = json({
+    ok: true,
+    command_id: "c3",
+    state: "succeeded",
+    result:
+      "Automatic Ghostty handover is macOS-only. Run: /usr/bin/tmux attach-session -t onibi-s1"
+  });
+  buttonIn(confirmedRoot, "Handoff Mac").click();
+  await waitFor(() =>
+    status(confirmedRoot).startsWith("Automatic Ghostty handover is macOS-only.")
+  );
+  expect(status(confirmedRoot)).toContain("tmux attach-session -t onibi-s1");
   dom.window.close();
 });
 

@@ -102,7 +102,7 @@ func (d *DB) ControlCommandMarkDispatched(ctx context.Context, id string, at tim
 }
 
 func (d *DB) ControlCommandComplete(ctx context.Context, id string, state fleet.CommandState, result string, at time.Time) (bool, error) {
-	if !state.Terminal() || (state == fleet.CommandSucceeded && strings.TrimSpace(result) != "") || (state != fleet.CommandSucceeded && strings.TrimSpace(result) == "") || len(result) > 512 || at.IsZero() {
+	if !state.Terminal() || (state != fleet.CommandSucceeded && strings.TrimSpace(result) == "") || len(result) > 512 || at.IsZero() {
 		return false, errors.New("invalid terminal control command")
 	}
 	res, err := d.sql.ExecContext(ctx,

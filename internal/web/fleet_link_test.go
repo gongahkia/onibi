@@ -101,7 +101,7 @@ func TestFleetLinkAuthenticatesHeartbeatAndDeliversControl(t *testing.T) {
 		t.Fatalf("result control=%#v err=%v", resultControl, err)
 	}
 	completed := time.Now().UTC()
-	result := fleet.ControlResult{Version: fleet.ProtocolVersion, ID: command.ID, OwnerID: host.OwnerID, HostID: host.ID, State: fleet.CommandSucceeded, CompletedAt: completed}
+	result := fleet.ControlResult{Version: fleet.ProtocolVersion, ID: command.ID, OwnerID: host.OwnerID, HostID: host.ID, State: fleet.CommandSucceeded, Result: "Run: tmux attach-session -t onibi-s1", CompletedAt: completed}
 	resultBody, err := json.Marshal(result)
 	if err != nil {
 		t.Fatal(err)
@@ -118,6 +118,9 @@ func TestFleetLinkAuthenticatesHeartbeatAndDeliversControl(t *testing.T) {
 			t.Fatal(err)
 		}
 		if stored.State == fleet.CommandSucceeded {
+			if stored.Result != "Run: tmux attach-session -t onibi-s1" {
+				t.Fatalf("command result=%q", stored.Result)
+			}
 			break
 		}
 		if time.Now().After(deadline) {

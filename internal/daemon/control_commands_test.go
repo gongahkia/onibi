@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -47,6 +48,30 @@ func TestFleetControlDuplicateDoesNotReplay(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("interrupt calls=%d all=%#v", count, runner.calls)
+	}
+}
+
+func TestFleetControlLinuxHandoverReturnsManualAttach(t *testing.T) {
+	setTerminalGOOS(t, "linux")
+	db, err := store.OpenEphemeral(filepath.Join(t.TempDir(), "control.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	d := New(Options{DB: db, TerminalDefault: "auto"})
+	s := NewSession("s1", "shell", "shell", nil, 0)
+	s.Transport = "tmux"
+	s.TmuxTarget = "onibi-s1"
+	if err := d.Registry.Add(s); err != nil {
+		t.Fatal(err)
+	}
+	payload, err := json.Marshal(fleet.ControlPayload{SessionID: s.ID, Target: "mac"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := d.handleFleetControl(context.Background(), fleet.Control{Version: fleet.ProtocolVersion, ID: "control-linux", OwnerID: "owner-1", HostID: "host-1", Command: "handover", Payload: payload, ExpiresAt: time.Now().UTC().Add(time.Minute)})
+	if result.State != fleet.CommandSucceeded || result.Error != "" || !strings.Contains(result.Result, "tmux attach-session -t onibi-s1") {
+		t.Fatalf("result=%#v", result)
 	}
 }
 

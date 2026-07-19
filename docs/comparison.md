@@ -2,7 +2,7 @@
 
 Onibi is a personal, self-hosted remote cockpit for local managed terminal sessions. It pairs a phone PWA to the user's host, keeps the session local, and routes explicit owner approve, deny, and edit decisions through the approval queue.
 
-On macOS, Ghostty is the supported automatic desktop handover target. Onibi is not a Ghostty clone, controller, or affiliated product.
+On macOS, Ghostty is the supported automatic desktop handover target. Linux handover prints a manual `tmux attach-session` command and never launches a desktop terminal. Onibi is not a Ghostty clone, controller, or affiliated product.
 
 ## When Onibi Fits
 

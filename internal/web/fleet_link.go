@@ -336,13 +336,17 @@ func (s *Server) applyFleetControlResult(ctx context.Context, hostID, ownerID st
 	if command.HostID != hostID {
 		return errors.New("fleet control result host mismatch")
 	}
+	message := result.Error
+	if result.State == fleet.CommandSucceeded {
+		message = result.Result
+	}
 	if command.State.Terminal() {
-		if command.State == result.State && command.Result == result.Error {
+		if command.State == result.State && command.Result == message {
 			return nil
 		}
 		return errors.New("fleet control result conflicts with terminal command")
 	}
-	applied, err := s.db.ControlCommandComplete(ctx, result.ID, result.State, result.Error, result.CompletedAt)
+	applied, err := s.db.ControlCommandComplete(ctx, result.ID, result.State, message, result.CompletedAt)
 	if err != nil {
 		return err
 	}

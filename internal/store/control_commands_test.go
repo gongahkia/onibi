@@ -35,6 +35,23 @@ func TestControlCommandPersistsPayloadAndTerminalState(t *testing.T) {
 	}
 }
 
+func TestControlCommandPersistsSuccessfulResult(t *testing.T) {
+	db := openTemp(t)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Second)
+	command, created, err := db.ControlCommandCreate(ctx, ControlCommand{ID: "control-result", HostID: "host-1", SessionID: "s1", Action: "handover", State: fleet.CommandPending, CreatedAt: now, ExpiresAt: now.Add(time.Minute)})
+	if err != nil || !created {
+		t.Fatalf("command=%#v created=%v err=%v", command, created, err)
+	}
+	if applied, err := db.ControlCommandComplete(ctx, command.ID, fleet.CommandSucceeded, "Run: tmux attach-session -t onibi-s1", now.Add(time.Second)); err != nil || !applied {
+		t.Fatalf("complete applied=%v err=%v", applied, err)
+	}
+	stored, err := db.ControlCommand(ctx, command.ID)
+	if err != nil || stored.Result != "Run: tmux attach-session -t onibi-s1" {
+		t.Fatalf("stored=%#v err=%v", stored, err)
+	}
+}
+
 func TestControlCommandsExpireWithoutReplay(t *testing.T) {
 	db := openTemp(t)
 	ctx := context.Background()

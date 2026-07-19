@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"runtime"
@@ -19,6 +20,7 @@ var terminalOutputCommand = func(ctx context.Context, name string, args ...strin
 
 var lookTerminalPath = exec.LookPath
 var findMacAppPath = macAppPath
+var terminalGOOS = runtime.GOOS
 
 func (d *Daemon) launchVisibleTerminal(ctx context.Context, target string) (string, error) {
 	return launchTerminal(ctx, d.TerminalDefault, target)
@@ -32,8 +34,11 @@ func launchTerminal(ctx context.Context, preference, target string) (string, err
 	attach := tmuxAttachShell(target)
 	switch strings.ToLower(strings.TrimSpace(preference)) {
 	case "", "auto", "ghostty":
+		if terminalGOOS != "darwin" {
+			return "Automatic Ghostty handover is macOS-only. Run: " + attach, nil
+		}
 		if err := launchGhostty(ctx, target); err != nil {
-			return "Ghostty launch failed. Run: " + attach, err
+			return "", fmt.Errorf("Ghostty handover failed. Run: %s: %w", attach, err)
 		}
 		return "Opened Ghostty for " + target + ".", nil
 	case "none":
@@ -44,11 +49,11 @@ func launchTerminal(ctx context.Context, preference, target string) (string, err
 }
 
 func launchGhostty(ctx context.Context, target string) error {
-	if runtime.GOOS != "darwin" {
+	if terminalGOOS != "darwin" {
 		return errors.New("ghostty auto-launch is macOS-only")
 	}
 	if _, err := lookTerminalPath("ghostty"); err != nil {
-		if _, statErr := os.Stat("/Applications/Ghostty.app"); statErr != nil {
+		if _, ok := findMacAppPath("Ghostty.app"); !ok {
 			return err
 		}
 	}
@@ -155,7 +160,7 @@ type GhosttyCapability struct {
 }
 
 func ProbeGhostty(ctx context.Context) GhosttyCapability {
-	c := GhosttyCapability{Supported: runtime.GOOS == "darwin"}
+	c := GhosttyCapability{Supported: terminalGOOS == "darwin"}
 	if !c.Supported {
 		c.Detail = "Ghostty handoff is macOS-only; use tmux attach manually"
 		return c

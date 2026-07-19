@@ -185,7 +185,7 @@ export class InterventionPanel {
       if (label === "Short input") {
         this.input.value = "";
       }
-      this.setStatus(`${label} confirmed.`);
+      this.setStatus(command.result?.trim() || `${label} confirmed.`);
       if (target !== undefined) {
         this.handoverConfirmed?.(target);
       }

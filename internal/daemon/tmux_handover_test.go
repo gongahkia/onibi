@@ -57,6 +57,28 @@ func TestHandoverMacClosesWebAttachAndReturnsAttachHint(t *testing.T) {
 	}
 }
 
+func TestHandoverLinuxReturnsManualAttachWithoutLauncher(t *testing.T) {
+	setTerminalGOOS(t, "linux")
+	oldRun := runTerminalCommand
+	t.Cleanup(func() { runTerminalCommand = oldRun })
+	var launches atomic.Int32
+	runTerminalCommand = func(context.Context, string, ...string) error {
+		launches.Add(1)
+		return nil
+	}
+	d := New(Options{TerminalDefault: "auto"})
+	s := NewSession("s1", "shell", "shell", nil, 0)
+	s.Transport = "tmux"
+	s.TmuxTarget = "onibi-s1"
+	if err := d.Registry.Add(s); err != nil {
+		t.Fatal(err)
+	}
+	msg, err := d.HandoverSession(context.Background(), s.ID, "mac")
+	if err != nil || !strings.Contains(msg, "tmux attach-session -t onibi-s1") || launches.Load() != 0 {
+		t.Fatalf("msg=%q err=%v launches=%d", msg, err, launches.Load())
+	}
+}
+
 func TestEnsureWebPTYHostCoalescesConcurrentAttaches(t *testing.T) {
 	runner := &tmuxRunner{}
 	oldController := newTmuxController
