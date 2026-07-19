@@ -13,8 +13,6 @@ Playable embeds live on the docs landing page: [`docs/index.html#demo`](docs/ind
 
 ## Cockpit Visuals
 
-![Phone cockpit portrait with Ghostty theme and soft-key bar](docs/assets/ghostty-parity-browser-portrait.png)
-
 ![Approval card with inline diff](docs/assets/approval-diff-card.svg)
 
 Verification status:

@@ -16,7 +16,7 @@ Onibi runs local shells and coding agents in managed tmux-backed sessions, then 
 
 v0.3.0 is the web-cockpit pivot. First run no longer starts by asking for a Telegram bot. It starts local, installs hooks, prints a QR pair URL, and lets the user choose a transport category only when they need one. LAN/hotspot remains the default path; Tailscale, Cloudflare, ngrok, chat, and notify-only providers are explicit choices.
 
-The phone cockpit has the pieces that made this worth a release: live xterm.js PTY streaming, Ghostty terminfo defaults, a Ghostty-shaped theme, soft keys for mobile terminal work, `MAC`/`PHONE` handover, owner-gated approval cards, device management, and restart-aware status checks.
+The phone cockpit has the pieces that made this worth a release: live xterm.js PTY streaming, `xterm-ghostty` terminfo, soft keys for mobile terminal work, `MAC`/`PHONE` handover, owner-gated approval cards, device management, and restart-aware status checks.
 
 Branding note: Onibi is not affiliated with the [Ghostty](https://ghostty.org) terminal emulator project; see [Branding](branding.md).
 

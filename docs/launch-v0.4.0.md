@@ -18,7 +18,7 @@ That is the safety story I wanted before adding more remote surfaces. MCP client
 
 Also landed in v0.4:
 
-- Terminal fidelity: `xterm-ghostty` terminfo, a Ghostty-default theme, JetBrains Mono, Sixel/IIP rendering, Kitty graphics transcoding, and [`docs/ghostty-parity.md`](ghostty-parity.md) parity smokes against native Ghostty captures.
+- Terminal fidelity: `xterm-ghostty` terminfo, JetBrains Mono, Sixel/IIP rendering, and Kitty graphics transcoding.
 - Cloudflare relay hardening: Quick Tunnel moved from public tunnel to app-layer E2E for terminal bytes, event payloads, control requests, approval decisions, and input; see [`docs/SPEC-e2e.md`](SPEC-e2e.md).
 - Remote hosts: [`onibi up --ssh`](ssh-transport.md) can bootstrap a user service on an SSH host, start loopback-only Onibi remotely, and keep phone pairing through a local SSH tunnel.
 - Positioning and hardening: comparison docs, threat model coverage, adapter registry work, and release checks now make remaining risk easier to audit.
