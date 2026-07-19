@@ -55,7 +55,7 @@ Expected: `onibi` is absent before install on a true fresh machine.
 
 ## macOS 14+
 
-Assumptions: stock user account, Terminal.app or equivalent, Homebrew present or
+Assumptions: stock user account with a shell, Homebrew present or
 allowed to be installed interactively. Homebrew defaults are `/opt/homebrew` on
 Apple Silicon and `/usr/local` on Intel.
 

@@ -19,7 +19,6 @@ var terminalOutputCommand = func(ctx context.Context, name string, args ...strin
 
 var lookTerminalPath = exec.LookPath
 var findMacAppPath = macAppPath
-var findMacApp = macAppExists
 
 func (d *Daemon) launchVisibleTerminal(ctx context.Context, target string) (string, error) {
 	return launchTerminal(ctx, d.TerminalDefault, target)
@@ -32,32 +31,11 @@ func launchTerminal(ctx context.Context, preference, target string) (string, err
 	}
 	attach := tmuxAttachShell(target)
 	switch strings.ToLower(strings.TrimSpace(preference)) {
-	case "", "auto":
-		if launchGhostty(ctx, target) == nil {
-			return "Opened Ghostty for " + target + ".", nil
-		}
-		if launchITerm2(ctx, target) == nil {
-			return "Opened iTerm2 for " + target + ".", nil
-		}
-		if launchTerminalApp(ctx, target) == nil {
-			return "Opened Terminal.app for " + target + ".", nil
-		}
-		return "No terminal launcher available. Run: " + attach, nil
-	case "ghostty":
+	case "", "auto", "ghostty":
 		if err := launchGhostty(ctx, target); err != nil {
 			return "Ghostty launch failed. Run: " + attach, err
 		}
 		return "Opened Ghostty for " + target + ".", nil
-	case "iterm", "iterm2":
-		if err := launchITerm2(ctx, target); err != nil {
-			return "iTerm2 launch failed. Run: " + attach, err
-		}
-		return "Opened iTerm2 for " + target + ".", nil
-	case "terminal":
-		if err := launchTerminalApp(ctx, target); err != nil {
-			return "Terminal.app launch failed. Run: " + attach, err
-		}
-		return "Opened Terminal.app for " + target + ".", nil
 	case "none":
 		return "Run: " + attach, nil
 	default:
@@ -115,35 +93,6 @@ func ghosttyTitleMarker(target string) string {
 	return "onibi:" + target
 }
 
-func launchITerm2(ctx context.Context, target string) error {
-	if runtime.GOOS != "darwin" {
-		return errors.New("iTerm2 auto-launch is macOS-only")
-	}
-	if _, err := lookTerminalPath("osascript"); err != nil {
-		return err
-	}
-	if !findMacApp("iTerm.app", "iTerm2.app") {
-		return errors.New("iTerm2 not found")
-	}
-	script := `tell application "iTerm2"` + "\n" +
-		`create window with default profile command ` + appleScriptQuote(tmuxAttachShell(target)) + "\n" +
-		`activate` + "\n" +
-		`end tell`
-	return runTerminalCommand(ctx, "osascript", "-e", script)
-}
-
-func launchTerminalApp(ctx context.Context, target string) error {
-	if runtime.GOOS != "darwin" {
-		return errors.New("terminal.app is macOS-only")
-	}
-	if _, err := lookTerminalPath("osascript"); err != nil {
-		return err
-	}
-	script := `tell application "Terminal" to do script ` + appleScriptQuote(tmuxAttachShell(target)) + "\n" +
-		`tell application "Terminal" to activate`
-	return runTerminalCommand(ctx, "osascript", "-e", script)
-}
-
 func tmuxAttachArgs(target string) []string {
 	return []string{tmuxPath(), "attach-session", "-t", target}
 }
@@ -173,11 +122,6 @@ func shellQuote(s string) string {
 		return s
 	}
 	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
-}
-
-func macAppExists(names ...string) bool {
-	_, ok := macAppPath(names...)
-	return ok
 }
 
 func macAppPath(names ...string) (string, bool) {
@@ -233,7 +177,7 @@ func ProbeGhostty(ctx context.Context) GhosttyCapability {
 	}
 	switch {
 	case !c.Installed:
-		c.Detail = "Ghostty not found; Onibi will fall back to iTerm2, Terminal.app, or manual tmux attach"
+		c.Detail = "Ghostty not found; use tmux attach manually"
 	case c.AppleScript:
 		c.Detail = "Ghostty installed; AppleScript handoff can focus existing Onibi tmux windows"
 	default:

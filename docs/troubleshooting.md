@@ -87,7 +87,7 @@ Tap `MAC` again and check the toast. If it fails, run:
 ./bin/onibi show
 ```
 
-With one active managed session, `show` targets it by default. If the command only prints a `tmux attach-session` hint, run that hint manually and check your configured terminal in `onibi config show`.
+With one active managed session, `show` targets it by default. If the command prints a `tmux attach-session` hint, run that hint manually in Ghostty.
 
 ## Handover Back To Phone Reconnects
 

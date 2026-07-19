@@ -42,7 +42,7 @@ If a managed Wi-Fi blocks device-to-device traffic, connect the Mac to the iPhon
 ## What Makes This Different
 
 - Host-local sessions: Onibi creates and owns tmux-backed PTYs instead of only monitoring another app's session.
-- Same session everywhere: drive one live session from mobile Safari, a visible Mac terminal, chat transports, or local MCP clients.
+- Same session everywhere: drive one live session from mobile Safari, Ghostty on macOS, chat transports, or local MCP clients.
 - Approval enforcement: supported hooks can block risky tool calls before execution, including Claude Code `PreToolUse` deny flows.
 - Terminal fidelity: live xterm.js over WebSocket, `xterm-ghostty` terminfo, a Ghostty-inspired theme, JetBrains Mono, Sixel/IIP rendering, Kitty graphics transcoding to IIP, and a [terminal fidelity smoke matrix](./docs/terminal-fidelity.md).
 

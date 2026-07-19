@@ -45,7 +45,7 @@ func newSessionCmd() *cobra.Command {
 func showCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "show [id|name]",
-		Short: "Open a visible terminal for a tmux-backed session",
+		Short: "Open a tmux-backed session in Ghostty",
 		Args:  cobra.MaximumNArgs(1),
 		RunE:  runShowSession,
 	}
