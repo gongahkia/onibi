@@ -83,7 +83,7 @@ for tarball in "${artifacts[@]}"; do
     *"_${host_os}_${host_label}.tar.gz")
       "$install_dir/onibi" version
       HOME="$home" XDG_DATA_HOME="$home/.local/share" XDG_RUNTIME_DIR="$runtime" \
-        "$install_dir/onibi" status --json --no-doctor --no-hooks --no-update >/dev/null
+        "$install_dir/onibi" status --json --no-doctor --no-hooks >/dev/null
       HOME="$home" XDG_DATA_HOME="$home/.local/share" XDG_RUNTIME_DIR="$runtime" \
         "$install_dir/onibi" doctor --mode preflight --offline
       ;;

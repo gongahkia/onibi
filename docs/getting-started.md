@@ -154,7 +154,6 @@ Example edit test:
 ```bash
 ./bin/onibi up
 ./bin/onibi doctor
-./bin/onibi update-check
 ./bin/onibi doctor --fix
 ./bin/onibi doctor --release --offline
 ./bin/onibi adapters

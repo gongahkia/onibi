@@ -112,7 +112,7 @@ for screenshot in "${screenshots[@]}"; do
 done
 
 for os in macos ubuntu; do
-  require_regex "onibi status --json --no-doctor --no-hooks --no-update >\"\\\$ONIBI_SMOKE_DIR/${os}-status-initial\\.json\"" "$doc"
+  require_regex "onibi status --json --no-doctor --no-hooks >\"\\\$ONIBI_SMOKE_DIR/${os}-status-initial\\.json\"" "$doc"
   require_text "onibi install-hooks --dry-run 2>&1 | tee \"\$ONIBI_SMOKE_DIR/${os}-hooks-dry-run.txt\"" "$doc"
   require_text "onibi doctor --mode preflight --offline --color=never 2>&1 | tee \"\$ONIBI_SMOKE_DIR/${os}-doctor-preflight.txt\"" "$doc"
   require_text "onibi up --transport=lan --log-file \"\$ONIBI_SMOKE_DIR/${os}-up.log\" 2>&1 | tee \"\$ONIBI_SMOKE_DIR/${os}-up.txt\"" "$doc"

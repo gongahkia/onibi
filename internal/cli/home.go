@@ -21,7 +21,6 @@ func runRootLanding(cmd *cobra.Command, _ []string) error {
 		{"Pair", "onibi pair", "mint another phone QR"},
 		{"Integrate", "onibi install-hooks --interactive", "install agent/shell hooks"},
 		{"Check", "onibi status", "show daemon, devices, hooks, and doctor summary"},
-		{"Update", "onibi update-check", "check local source or latest release"},
 		{"Repair", "onibi doctor --fix", "apply safe local fixes"},
 	}
 	if err := renderTable(cmd.OutOrStdout(), rows); err != nil {
@@ -43,8 +42,7 @@ func quickstartCmd() *cobra.Command {
 				{"1", "onibi status", "inspect local state"},
 				{"2", "onibi up", "start the web cockpit and pair a device"},
 				{"3", "onibi install-hooks --interactive", "connect agents/shells"},
-				{"4", "onibi update-check", "check local source or latest release"},
-				{"5", "onibi doctor --fix", "apply safe local fixes"},
+				{"4", "onibi doctor --fix", "apply safe local fixes"},
 			}
 			return renderTable(cmd.OutOrStdout(), rows)
 		},

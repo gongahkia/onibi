@@ -49,6 +49,10 @@ returns the rendered installer.
 
 The Homebrew tap is a personal tap, so verify release signatures and checksums before treating tap metadata as trusted on a sensitive machine.
 
+## Updates
+
+Update Onibi with its package manager. Onibi does not check for or install updates itself. Legacy `update:` configuration is ignored and does not modify package-manager or agent configuration.
+
 Use [`tap-integrity.md`](./tap-integrity.md) to download `checksums.txt`, verify `checksums.txt.sig` with the published GPG fingerprint, compare the cask `sha256`, and only then install from the tap.
 
 Cosign verification is also available on tagged releases:

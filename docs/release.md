@@ -19,24 +19,20 @@ go test -race -count=1 ./...
 go vet ./...
 staticcheck ./...
 make build
-./bin/onibi update-check --repo .
 ./bin/onibi doctor --after-upgrade --offline
 ./bin/onibi doctor --release --offline
 scripts/macos-release-gate.sh
 make macos-scenario-gate
-make upgrade-recovery-gate
 make security-regression-gate
 goreleaser release --snapshot --clean
 scripts/release-smoke.sh dist
 scripts/reproducible-build.sh
 ```
 
-The macOS, macOS-scenario, upgrade-recovery, and
-security-regression gates are release-blocking. The scenario gate covers fleet
+The macOS, macOS-scenario, and security-regression gates are release-blocking. The scenario gate covers fleet
 enrollment, every web transport, recovery, approvals, and intervention; its
 real-iPhone evidence set is defined in
-[`release-scenario-matrix.md`](./release-scenario-matrix.md). The scenario,
-upgrade-recovery, and security-regression gates write
+[`release-scenario-matrix.md`](./release-scenario-matrix.md). The scenario and security-regression gates write
 `metadata.json`, `test.log`, and `summary.json` under `artifacts/` for CI upload.
 Linux is beta-only; run
 [`linux-beta.md`](./linux-beta.md) separately and do not substitute Linux
@@ -96,18 +92,9 @@ The release workflow also passes GoReleaser artifact hashes to the SLSA generic
 generator on tag pushes. The generator signs provenance with GitHub OIDC and
 uploads it to the same GitHub release.
 
-The release workflow exports the imported GPG public key and GoReleaser embeds
-it into the `onibi` binary through `buildinfo.ReleasePublicKeyB64`. `onibi
-update` refuses to apply a release unless `checksums.txt.sig` verifies with that
-embedded key, the selected archive hash matches `checksums.txt`, and, on macOS,
-the extracted binary passes `codesign --verify`.
-
-`onibi update-check` prints release-archive upgrade commands that always verify
-the selected tarball against `checksums.txt` before install. If
-`ONIBI_RELEASE_GPG_KEY` contains the public signing key and `gpg` is available,
-the same command also verifies `checksums.txt.sig` before extracting binaries.
-The machine-readable `onibi update-check --json` contract is documented in
-[`docs/update-check-schema.md`](./update-check-schema.md).
+Install and update release artifacts through Homebrew or the package-manager
+instructions published with the release. Verify release checksums and signatures
+as described in [`tap-integrity.md`](./tap-integrity.md).
 
 `scripts/install.sh` is the curl installer template. Publish it only after
 replacing `__ONIBI_RELEASE_GPG_KEY_B64__` with the same base64 public key used by

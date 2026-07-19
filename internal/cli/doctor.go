@@ -9,12 +9,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/gongahkia/onibi/internal/buildinfo"
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/daemon"
 	"github.com/gongahkia/onibi/internal/doctor"
 	"github.com/gongahkia/onibi/internal/secrets"
-	"github.com/gongahkia/onibi/internal/updatecheck"
 )
 
 func runDoctor(cmd *cobra.Command, _ []string) error {
@@ -120,7 +118,7 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 	}
 	report := doctor.Run(ctx, opts)
 	if release {
-		report = augmentReleaseDoctorReport(ctx, paths, report, !offline)
+		report = augmentReleaseDoctorReport(ctx, paths, report)
 	}
 	if asJSON {
 		enc := json.NewEncoder(cmd.OutOrStdout())
@@ -234,35 +232,12 @@ func printExplainLine(cmd *cobra.Command, label, value string) {
 
 var doctorOptionsHook func(*doctor.Options)
 
-func augmentReleaseDoctorReport(ctx context.Context, paths config.Paths, report doctor.Report, checkGitHub bool) doctor.Report {
-	res := updateCheckRun(ctx, updatecheck.Options{
-		CurrentVersion: buildinfo.Version,
-		CurrentCommit:  buildinfo.Commit,
-		CheckGitHub:    checkGitHub,
-		Timeout:        updateCheckTimeout,
-	})
-	checks := make([]doctor.Check, 0, len(report.Checks)+2)
-	checks = append(checks, updateDoctorCheck(res), telegramOptionalDoctorCheck(ctx, paths))
+func augmentReleaseDoctorReport(ctx context.Context, paths config.Paths, report doctor.Report) doctor.Report {
+	checks := make([]doctor.Check, 0, len(report.Checks)+1)
+	checks = append(checks, telegramOptionalDoctorCheck(ctx, paths))
 	checks = append(checks, report.Checks...)
 	report.Checks = checks
 	return report
-}
-
-func updateDoctorCheck(res updatecheck.Result) doctor.Check {
-	st := doctor.Fail
-	if res.Status == updatecheck.StatusCurrent {
-		st = doctor.Pass
-	}
-	c := doctor.Check{Name: "update check", Status: st, Detail: res.Detail, Code: "update_check"}
-	if st != doctor.Pass {
-		c.Next = valueOrDefault(res.Command, "onibi update-check")
-		c.Impact = "Release may not be using the expected Onibi build."
-		c.SafeFix = "run the printed update command and rerun onibi doctor --release"
-		c.ManualFix = "verify installed binary version, source checkout, and release tag manually"
-		c.Retry = "onibi doctor --release"
-		c.Blocks = []string{"release"}
-	}
-	return c
 }
 
 func telegramOptionalDoctorCheck(ctx context.Context, paths config.Paths) doctor.Check {

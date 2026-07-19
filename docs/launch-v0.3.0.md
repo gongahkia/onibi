@@ -22,7 +22,7 @@ Branding note: Onibi is not affiliated with the [Ghostty](https://ghostty.org) t
 
 Telegram did not disappear. It became an optional bridge. `onibi telegram setup` stores the BotFather token, `onibi up --transport=telegram` starts chat-native text control, and approval cards support approve/deny/edit callbacks. That keeps chat useful without making third-party setup the default onboarding path.
 
-The release also tightens operational surfaces: `onibi status` includes update-check state and next actions, `onibi doctor --release` bundles upgrade/hook/cert/service/runtime checks, `doctor --fix` only repairs existing Onibi-managed hooks, and `uninstall --dry-run --json` prints a machine-readable destructive-action plan before anything is removed.
+The release also tightens operational surfaces: `onibi doctor --release` bundles upgrade/hook/cert/service/runtime checks, `doctor --fix` only repairs existing Onibi-managed hooks, and `uninstall --dry-run --json` prints a machine-readable destructive-action plan before anything is removed.
 
 This is a draft announcement, not a publication note. Release/signing/Homebrew/device validation should stay in the release checklist until those gates pass.
 

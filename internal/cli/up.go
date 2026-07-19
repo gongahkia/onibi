@@ -294,8 +294,6 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 		RequireWebE2E:           webtransport.IsRelayMode(cfg.Transport.Mode),
 		ProviderOutput:          daemonProviderOutputPolicy(cfg),
 		ProviderOutputOverrides: daemonProviderOutputOverrides(cfg),
-		UpdateAuto:              cfg.Update.Auto,
-		UpdateChannel:           cfg.Update.Channel,
 		FleetLink:               fleetLink,
 		SkipRestore:             true,
 	})

@@ -14,7 +14,6 @@ import (
 	"github.com/gongahkia/onibi/internal/daemon"
 	"github.com/gongahkia/onibi/internal/doctor"
 	"github.com/gongahkia/onibi/internal/store"
-	"github.com/gongahkia/onibi/internal/updatecheck"
 )
 
 type cliStatusReport struct {
@@ -29,7 +28,6 @@ type cliStatusReport struct {
 	Integrations cliIntegrationCount `json:"integrations"`
 	Notify       cliNotifySummary    `json:"notify"`
 	Doctor       cliDoctorSummary    `json:"doctor"`
-	Update       *cliUpdateSummary   `json:"update,omitempty"`
 	Terminal     cliTerminalSummary  `json:"terminal"`
 	Next         []string            `json:"next"`
 }
@@ -80,13 +78,6 @@ type cliNotifySummary struct {
 	LastAt     string `json:"last_at,omitempty"`
 }
 
-type cliUpdateSummary struct {
-	Status  string `json:"status"`
-	Source  string `json:"source"`
-	Detail  string `json:"detail"`
-	Command string `json:"command,omitempty"`
-}
-
 type cliTerminalSummary struct {
 	Default string                   `json:"default"`
 	Ghostty daemon.GhosttyCapability `json:"ghostty"`
@@ -107,8 +98,6 @@ func statusCmd() *cobra.Command {
 	cmd.Flags().Bool("compact", false, "print one-line human output")
 	cmd.Flags().Bool("no-doctor", false, "skip doctor summary")
 	cmd.Flags().Bool("no-hooks", false, "skip integration scan")
-	cmd.Flags().Bool("no-update", false, "skip update check")
-	cmd.Flags().Bool("refresh-update", false, "ignore cached update check")
 	return cmd
 }
 
@@ -208,10 +197,6 @@ func buildCLIStatus(cmd *cobra.Command) (cliStatusReport, error) {
 	if skipDoctor, _ := cmd.Flags().GetBool("no-doctor"); !skipDoctor {
 		report.Doctor = summarizeDoctor(doctor.Run(cmd.Context(), doctor.Options{Paths: paths, Offline: true, Mode: "preflight"}))
 	}
-	if skipUpdate, _ := cmd.Flags().GetBool("no-update"); !skipUpdate {
-		refreshUpdate, _ := cmd.Flags().GetBool("refresh-update")
-		report.Update = summarizeUpdate(cachedUpdateCheck(cmd.Context(), db, refreshUpdate))
-	}
 	report.Next = statusNextActions(report)
 	return report, nil
 }
@@ -227,9 +212,6 @@ func renderCLIStatus(cmd *cobra.Command, report cliStatusReport) error {
 		{"transport", style.status("INFO"), report.Config.Transport},
 		{"shell", style.status("INFO"), report.Config.Shell},
 		{"ghostty", style.status(statusStyleForGhostty(report.Terminal.Ghostty)), report.Terminal.Ghostty.Detail},
-	}
-	if report.Update != nil {
-		runtimeRows = append(runtimeRows, []string{"update", style.status(statusStyleForUpdate(report.Update.Status)), report.Update.Detail})
 	}
 	if err := renderTable(cmd.OutOrStdout(), runtimeRows); err != nil {
 		return err
@@ -258,12 +240,8 @@ func renderCLIStatus(cmd *cobra.Command, report cliStatusReport) error {
 }
 
 func renderCLIStatusCompact(cmd *cobra.Command, report cliStatusReport) {
-	update := "skipped"
-	if report.Update != nil {
-		update = report.Update.Status
-	}
 	fmt.Fprintf(cmd.OutOrStdout(),
-		"daemon=%s sessions=%d devices=%d notify_recent=%d notify_errors=%d integrations=%d issues=%d doctor_warn=%d doctor_fail=%d update=%s next=%q\n",
+		"daemon=%s sessions=%d devices=%d notify_recent=%d notify_errors=%d integrations=%d issues=%d doctor_warn=%d doctor_fail=%d next=%q\n",
 		strings.ToLower(report.Daemon.Status),
 		report.Sessions.Active,
 		report.Devices.Active,
@@ -273,7 +251,6 @@ func renderCLIStatusCompact(cmd *cobra.Command, report cliStatusReport) {
 		report.Integrations.Issues,
 		report.Doctor.Warn,
 		report.Doctor.Fail,
-		update,
 		strings.Join(report.Next, ";"),
 	)
 }
@@ -371,26 +348,6 @@ func summarizeDoctor(report doctor.Report) cliDoctorSummary {
 	return out
 }
 
-func summarizeUpdate(res updatecheck.Result) *cliUpdateSummary {
-	return &cliUpdateSummary{
-		Status:  string(res.Status),
-		Source:  string(res.Source),
-		Detail:  res.Detail,
-		Command: res.Command,
-	}
-}
-
-func statusStyleForUpdate(status string) string {
-	switch updatecheck.Status(status) {
-	case updatecheck.StatusCurrent:
-		return "PASS"
-	case updatecheck.StatusOutdated, updatecheck.StatusUnavailable:
-		return "WARN"
-	default:
-		return "INFO"
-	}
-}
-
 func statusStyleForGhostty(cap daemon.GhosttyCapability) string {
 	if cap.Installed && cap.AppleScript {
 		return "PASS"
@@ -434,12 +391,6 @@ func statusNextActions(report cliStatusReport) []string {
 	}
 	if report.Doctor.Warn > 0 || report.Doctor.Fail > 0 {
 		next = appendUnique(next, "onibi doctor --explain")
-	}
-	if report.Update != nil && report.Update.Status != string(updatecheck.StatusCurrent) {
-		next = appendUnique(next, "onibi update-check")
-		if report.Update.Source == string(updatecheck.SourceLocal) {
-			next = appendUnique(next, "onibi doctor --after-upgrade --offline")
-		}
 	}
 	if len(next) == 0 {
 		next = append(next, "onibi up")

@@ -29,9 +29,6 @@ func TestLoadMissingUsesDefaults(t *testing.T) {
 	if cfg.Daemon.MaxSubscribers != 32 {
 		t.Fatalf("max subscribers = %d", cfg.Daemon.MaxSubscribers)
 	}
-	if cfg.Update.Auto || cfg.Update.Channel != "stable" {
-		t.Fatalf("update defaults = %#v", cfg.Update)
-	}
 }
 
 func TestLoadPartialTracksExplicitKeys(t *testing.T) {
@@ -47,7 +44,7 @@ func TestLoadPartialTracksExplicitKeys(t *testing.T) {
 	if !meta.Exists {
 		t.Fatal("config file not loaded")
 	}
-	if !meta.Explicit["daemon.turn_idle_threshold"] || !meta.Explicit["daemon.max_subscribers"] || !meta.Explicit["shell.min_duration"] || !meta.Explicit["shell.default"] || !meta.Explicit["shell.login"] || !meta.Explicit["web.listen_addr"] || !meta.Explicit["transport.mode"] || !meta.Explicit["terminal.default"] || !meta.Explicit["update.auto"] || !meta.Explicit["update.channel"] {
+	if !meta.Explicit["daemon.turn_idle_threshold"] || !meta.Explicit["daemon.max_subscribers"] || !meta.Explicit["shell.min_duration"] || !meta.Explicit["shell.default"] || !meta.Explicit["shell.login"] || !meta.Explicit["web.listen_addr"] || !meta.Explicit["transport.mode"] || !meta.Explicit["terminal.default"] {
 		t.Fatalf("explicit map missing keys: %#v", meta.Explicit)
 	}
 	if meta.Explicit["daemon.approval_timeout"] {
@@ -68,8 +65,8 @@ func TestLoadPartialTracksExplicitKeys(t *testing.T) {
 	if cfg.Terminal.Default != "iterm" {
 		t.Fatalf("terminal.default = %s", cfg.Terminal.Default)
 	}
-	if !cfg.Update.Auto || cfg.Update.Channel != "stable" {
-		t.Fatalf("update config = %#v", cfg.Update)
+	if meta.Explicit["update.auto"] || meta.Explicit["update.channel"] {
+		t.Fatalf("legacy update config retained: %#v", meta.Explicit)
 	}
 	if cfg.Web.ListenAddr != ":9443" || cfg.Transport.Mode != "auto" {
 		t.Fatalf("web/transport config = %#v %#v", cfg.Web, cfg.Transport)
@@ -128,18 +125,6 @@ func TestSetValidates(t *testing.T) {
 	}
 	if got, _ := Get(cfg, "terminal.default"); got != "iterm2" {
 		t.Fatalf("terminal.default = %s", got)
-	}
-	if err := Set(&cfg, "update.auto", "true"); err != nil {
-		t.Fatal(err)
-	}
-	if got, _ := Get(cfg, "update.auto"); got != "true" {
-		t.Fatalf("update.auto = %s", got)
-	}
-	if err := Set(&cfg, "update.channel", "stable"); err != nil {
-		t.Fatal(err)
-	}
-	if got, _ := Get(cfg, "update.channel"); got != "stable" {
-		t.Fatalf("update.channel = %s", got)
 	}
 	if err := Set(&cfg, "provider.output.max_chunks", "3"); err != nil {
 		t.Fatal(err)
@@ -234,10 +219,10 @@ func TestTerminalDefaultRejectsUnsupportedValue(t *testing.T) {
 	}
 }
 
-func TestUpdateChannelRejectsUnsupportedValue(t *testing.T) {
+func TestUpdateConfigKeysAreRemoved(t *testing.T) {
 	cfg := Default()
 	err := Set(&cfg, "update.channel", "beta")
-	if err == nil || !strings.Contains(err.Error(), "update.channel must be stable") {
+	if err == nil || !strings.Contains(err.Error(), "unknown config key") {
 		t.Fatalf("unexpected err: %v", err)
 	}
 }
@@ -295,27 +280,6 @@ func TestSaveLoadTerminalDefault(t *testing.T) {
 	}
 	if loaded.Terminal.Default != "iterm2" {
 		t.Fatalf("terminal.default = %s", loaded.Terminal.Default)
-	}
-}
-
-func TestSaveLoadUpdateConfig(t *testing.T) {
-	paths := testPaths(t)
-	cfg := Default()
-	if err := Set(&cfg, "update.auto", "true"); err != nil {
-		t.Fatal(err)
-	}
-	if err := Save(paths.Config, cfg); err != nil {
-		t.Fatal(err)
-	}
-	loaded, meta, err := Load(paths)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !meta.Explicit["update.auto"] || !meta.Explicit["update.channel"] {
-		t.Fatalf("explicit map missing update keys: %#v", meta.Explicit)
-	}
-	if !loaded.Update.Auto || loaded.Update.Channel != "stable" {
-		t.Fatalf("update config = %#v", loaded.Update)
 	}
 }
 

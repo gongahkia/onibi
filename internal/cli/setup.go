@@ -100,8 +100,7 @@ func printSetupNextActions(cmd *cobra.Command) {
 		{"2", "onibi up", "choose category/provider, start control surface"},
 		{"3", "onibi install-hooks --interactive", "connect agents/shells"},
 		{"4", "onibi hooks --show --all", "verify hook drift"},
-		{"5", "onibi update-check", "check local source or latest release"},
-		{"6", "onibi doctor --fix", "apply safe local fixes"},
+		{"5", "onibi doctor --fix", "apply safe local fixes"},
 	})
 }
 

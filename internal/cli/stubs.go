@@ -134,32 +134,6 @@ func setupCmd() *cobra.Command {
 	return cmd
 }
 
-func updateCheckCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:     "update-check",
-		Aliases: []string{"check-update"},
-		Short:   "Check whether Onibi has an available update",
-		RunE:    runUpdateCheck,
-	}
-	cmd.Flags().String("repo", "", "local Onibi repo path")
-	cmd.Flags().Bool("no-github", false, "skip GitHub release check")
-	cmd.Flags().Bool("json", false, "print JSON")
-	return cmd
-}
-
-func updateCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "update",
-		Short: "Check or apply an Onibi release update",
-		Args:  cobra.ExactArgs(0),
-		RunE:  runUpdate,
-	}
-	cmd.Flags().String("channel", "stable", "release channel: stable or beta")
-	cmd.Flags().Bool("check-only", false, "print latest release without applying it")
-	cmd.Flags().Bool("rollback", false, "restore the previous self-update binary")
-	return cmd
-}
-
 func demoCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "demo",

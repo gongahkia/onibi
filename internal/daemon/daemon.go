@@ -19,7 +19,6 @@ import (
 	"github.com/gongahkia/onibi/internal/intake"
 	"github.com/gongahkia/onibi/internal/pty"
 	"github.com/gongahkia/onibi/internal/store"
-	"github.com/gongahkia/onibi/internal/updatecheck"
 	"github.com/gongahkia/onibi/internal/web"
 )
 
@@ -69,11 +68,6 @@ type Daemon struct {
 	Email                   EmailOptions
 	ProviderOutput          ProviderOutputPolicy
 	ProviderOutputOverrides ProviderOutputOverrides
-	UpdateAuto              bool
-	UpdateChannel           string
-	UpdateCheckInterval     time.Duration
-	UpdateCheckTimeout      time.Duration
-	UpdateCheck             func(context.Context, updatecheck.Options) updatecheck.Result
 	FleetLink               *FleetLink
 
 	mu                    sync.Mutex
@@ -136,11 +130,6 @@ type Options struct {
 	Email                   EmailOptions
 	ProviderOutput          ProviderOutputPolicy
 	ProviderOutputOverrides ProviderOutputOverrides
-	UpdateAuto              bool
-	UpdateChannel           string
-	UpdateCheckInterval     time.Duration
-	UpdateCheckTimeout      time.Duration
-	UpdateCheck             func(context.Context, updatecheck.Options) updatecheck.Result
 	FleetLink               *FleetLink
 	TailnetStatus           func(context.Context) ([]byte, error)
 	TailnetHealth           func(context.Context, string, fleet.Host) (bool, error)
@@ -251,18 +240,6 @@ func New(opts Options) *Daemon {
 	if opts.Log == nil {
 		opts.Log = slog.Default()
 	}
-	if opts.UpdateChannel = strings.ToLower(strings.TrimSpace(opts.UpdateChannel)); opts.UpdateChannel == "" {
-		opts.UpdateChannel = "stable"
-	}
-	if opts.UpdateCheckInterval <= 0 {
-		opts.UpdateCheckInterval = autoUpdateCheckInterval
-	}
-	if opts.UpdateCheckTimeout <= 0 {
-		opts.UpdateCheckTimeout = autoUpdateCheckTimeout
-	}
-	if opts.UpdateCheck == nil {
-		opts.UpdateCheck = updatecheck.Check
-	}
 	d := &Daemon{
 		Paths:                   opts.Paths,
 		DB:                      opts.DB,
@@ -304,11 +281,6 @@ func New(opts Options) *Daemon {
 		Email:                   opts.Email,
 		ProviderOutput:          opts.ProviderOutput.normalized(),
 		ProviderOutputOverrides: opts.ProviderOutputOverrides,
-		UpdateAuto:              opts.UpdateAuto,
-		UpdateChannel:           opts.UpdateChannel,
-		UpdateCheckInterval:     opts.UpdateCheckInterval,
-		UpdateCheckTimeout:      opts.UpdateCheckTimeout,
-		UpdateCheck:             opts.UpdateCheck,
 		FleetLink:               opts.FleetLink,
 		tailnetStatus:           tailnetStatusOrDefault(opts.TailnetStatus),
 		tailnetHealth:           tailnetHealthOrDefault(opts.TailnetHealth),
@@ -525,7 +497,6 @@ func (d *Daemon) Run(ctx context.Context) error {
 	}()
 
 	var wg sync.WaitGroup
-	d.startAutoUpdateChecks(ctx, &wg)
 	if d.FleetLink != nil {
 		wg.Add(1)
 		go func() {

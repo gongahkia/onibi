@@ -83,7 +83,7 @@ Expected:
 ### Initialize State
 
 ```bash
-onibi status --json --no-doctor --no-hooks --no-update >"$ONIBI_SMOKE_DIR/macos-status-initial.json"
+onibi status --json --no-doctor --no-hooks >"$ONIBI_SMOKE_DIR/macos-status-initial.json"
 ```
 
 Expected: command exits `0` and creates the local state directory.
@@ -221,7 +221,7 @@ Expected:
 ### Initialize State
 
 ```bash
-onibi status --json --no-doctor --no-hooks --no-update >"$ONIBI_SMOKE_DIR/ubuntu-status-initial.json"
+onibi status --json --no-doctor --no-hooks >"$ONIBI_SMOKE_DIR/ubuntu-status-initial.json"
 ```
 
 Expected: command exits `0` and creates `~/.local/share/onibi`.

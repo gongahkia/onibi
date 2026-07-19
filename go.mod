@@ -4,15 +4,11 @@ go 1.26.4
 
 require (
 	github.com/99designs/keyring v1.2.2
-	github.com/ProtonMail/go-crypto v1.4.1
 	github.com/SherClockHolmes/webpush-go v1.4.0
-	github.com/bmatcuk/doublestar/v4 v4.10.0
 	github.com/coder/websocket v1.8.15
 	github.com/creack/pty v1.1.24
-	github.com/fsnotify/fsnotify v1.9.0
 	github.com/jaguilar/vt100 v0.0.0-20201024211400-81de19cb81a4
 	github.com/mark3labs/mcp-go v0.55.1
-	github.com/minio/selfupdate v0.6.0
 	github.com/pelletier/go-toml/v2 v2.4.2
 	github.com/pkg/sftp v1.13.9
 	github.com/sideshow/apns2 v0.25.0
@@ -28,10 +24,8 @@ require (
 )
 
 require (
-	aead.dev/minisign v0.2.0 // indirect
 	filippo.io/edwards25519 v1.2.0 // indirect
 	github.com/99designs/go-keychain v0.0.0-20191008050251-8e49817e8af4 // indirect
-	github.com/cloudflare/circl v1.6.3 // indirect
 	github.com/danieljoos/wincred v1.1.2 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/dvsekhvalnov/jose2go v1.8.0 // indirect

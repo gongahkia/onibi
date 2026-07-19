@@ -29,7 +29,7 @@ onibi up
 ```
 
 `onibi up` prompts first for a category (`Web URL`, `Chat`, or `Notify-only`) and then for a supported provider. Use `onibi up --transport=<mode>` to skip the picker. Supported modes are `lan`, `tailscale`, `tailscale-private`, `wireguard`, `zerotier`, `cloudflare-quick`, `cloudflare-named`, `ngrok`, `telegram`, `matrix`, `slack`, `discord`, `zulip`, `irc`, `signal`, `pushover`, `ntfy`, `gotify`, `apns`, `sms`, `email`, and `auto`.
-Run `onibi status`, `onibi update-check`, and `onibi doctor --fix` when validating an install or upgrade. Source-build setup lives in [`CONTRIBUTING.md`](./CONTRIBUTING.md).
+Run `onibi status` and `onibi doctor --fix` when validating an install. Update Onibi through its package manager. Source-build setup lives in [`CONTRIBUTING.md`](./CONTRIBUTING.md).
 
 On iPhone:
 
@@ -88,7 +88,6 @@ The v0.3 to v1.0 release arc is tracked in [`docs/roadmap.md`](./docs/roadmap.md
 ./bin/onibi hooks --show --all
 ./bin/onibi adapters
 ./bin/onibi doctor
-./bin/onibi update-check
 ./bin/onibi uninstall --dry-run
 ./bin/onibi logo
 ```
@@ -103,7 +102,7 @@ Useful CLI flags:
 - `pair`: `--host <host>`, `--port <port>`, `--copy`, `--no-qr`, `--fallbacks=false`, `--json`.
 - `share`: `--ttl <duration>`, `--max-viewers <n>`, `--copy`, `--no-qr`, `--fallbacks=false`, `--json`.
 - `install-hooks`: no args auto-detects agent config dirs and shell RC files; `--all` installs detected hooks without prompting; `--dry-run` prints the plan.
-- `status`: `--compact`, `--watch`, `--interval <duration>`, `--timeout <duration>`, `--no-doctor`, `--no-hooks`, `--no-update`, `--refresh-update`, `--json`, `--strict`.
+- `status`: `--compact`, `--watch`, `--interval <duration>`, `--timeout <duration>`, `--no-doctor`, `--no-hooks`, `--json`, `--strict`.
 - `doctor`: `--fix`, `--release`, `--after-upgrade`, `--explain`, `--offline`, `--json`.
 - `uninstall`: `--service`, `--hooks`, `--agent <name>`, `--shell <name>`, `--state`, `--yes`, `--dry-run`, `--json`.
 
@@ -162,7 +161,6 @@ After `./bin/onibi up` and phone pairing:
 - [`docs/adapter-contract.md`](./docs/adapter-contract.md): v1-certified Claude, Codex, and Pi adapter capabilities and limits.
 - [`docs/adapter-contract.md#approval-payload-v1`](./docs/adapter-contract.md#approval-payload-v1): provider-neutral approval payload and redaction boundary.
 - [`docs/roadmap.md`](./docs/roadmap.md): v0.3 to v1.0 milestone framing.
-- [`docs/update-check-schema.md`](./docs/update-check-schema.md): machine-readable `update-check --json` contract.
 
 ## Security
 

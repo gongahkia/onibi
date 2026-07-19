@@ -78,21 +78,19 @@ func runRun(cmd *cobra.Command, args []string) error {
 	logger := logging.New(io.MultiWriter(cmd.ErrOrStderr(), logFile), level)
 
 	d := daemon.New(daemon.Options{
-		Paths:                 paths,
-		DB:                    db,
-		Log:                   logger,
-		ExitWhenIdle:          len(args) > 0,
-		ApprovalTTL:           approvalTTL,
-		ApprovalSweepInterval: cfg.Daemon.ApprovalSweepInterval.Std(),
+		Paths:                  paths,
+		DB:                     db,
+		Log:                    logger,
+		ExitWhenIdle:           len(args) > 0,
+		ApprovalTTL:            approvalTTL,
+		ApprovalSweepInterval:  cfg.Daemon.ApprovalSweepInterval.Std(),
 		ApprovalMaxSubscribers: cfg.Daemon.MaxSubscribers,
-		IdleThreshold:         cfg.Daemon.TurnIdleThreshold.Std(),
-		IdleInterval:          cfg.Daemon.TurnIdleInterval.Std(),
-		BufferSize:            cfg.Daemon.PTYBufferBytes,
-		TerminalDefault:       cfg.Terminal.Default,
-		WebAddr:               cfg.Web.ListenAddr,
-		WebCertDir:            certDir(paths, cfg),
-		UpdateAuto:            cfg.Update.Auto,
-		UpdateChannel:         cfg.Update.Channel,
+		IdleThreshold:          cfg.Daemon.TurnIdleThreshold.Std(),
+		IdleInterval:           cfg.Daemon.TurnIdleInterval.Std(),
+		BufferSize:             cfg.Daemon.PTYBufferBytes,
+		TerminalDefault:        cfg.Terminal.Default,
+		WebAddr:                cfg.Web.ListenAddr,
+		WebCertDir:             certDir(paths, cfg),
 	})
 
 	if attachTmux != "" {

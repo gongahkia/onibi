@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/gongahkia/onibi/internal/doctor"
-	"github.com/gongahkia/onibi/internal/updatecheck"
 	"github.com/gongahkia/onibi/internal/web"
 )
 
@@ -181,11 +180,8 @@ func TestDoctorFixDoesNotInstallHooksOnFreshState(t *testing.T) {
 	}
 }
 
-func TestDoctorReleaseModeIncludesUpdateTelegramAndAfterUpgrade(t *testing.T) {
+func TestDoctorReleaseModeIncludesTelegramAndAfterUpgrade(t *testing.T) {
 	withDotenvDoctor(t)
-	withFakeUpdateCheck(t, func() updatecheck.Result {
-		return updatecheck.Result{Status: updatecheck.StatusCurrent, Source: updatecheck.SourceGitHub, Detail: "current"}
-	})
 	out, _, err := executeRootAllowError(t, "doctor", "--mode", "release", "--json", "--color", "never")
 	if err != nil && !strings.Contains(err.Error(), "doctor failed") {
 		t.Fatalf("execute release doctor: %v\n%s", err, out.String())
@@ -194,7 +190,7 @@ func TestDoctorReleaseModeIncludesUpdateTelegramAndAfterUpgrade(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
 		t.Fatalf("json: %v\n%s", err, out.String())
 	}
-	for _, want := range []string{"update check", "telegram optional", "after-upgrade hooks"} {
+	for _, want := range []string{"telegram optional", "after-upgrade hooks"} {
 		if !hasDoctorCheck(report, want) {
 			t.Fatalf("missing %q in %#v", want, report.Checks)
 		}
@@ -212,42 +208,9 @@ func TestTelegramOptionalDoctorUsesEnvToken(t *testing.T) {
 	}
 }
 
-func TestDoctorReleaseModeFailsOnBlockedUpdate(t *testing.T) {
-	withDotenvDoctor(t)
-	withFakeUpdateCheck(t, func() updatecheck.Result {
-		return updatecheck.Result{Status: updatecheck.StatusUnavailable, Source: updatecheck.SourceNone, Detail: "cannot verify"}
-	})
-	out, _, err := executeRootAllowError(t, "doctor", "--release", "--json", "--color", "never")
-	if err == nil || !strings.Contains(err.Error(), "doctor failed") {
-		t.Fatalf("expected release doctor failure, got err=%v\n%s", err, out.String())
-	}
-	var report doctor.Report
-	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
-		t.Fatalf("json: %v\n%s", err, out.String())
-	}
-	for _, check := range report.Checks {
-		if check.Name == "update check" {
-			if check.Status != doctor.Fail || !containsString(check.Blocks, "release") {
-				t.Fatalf("update check = %+v", check)
-			}
-			return
-		}
-	}
-	t.Fatalf("missing update check: %#v", report.Checks)
-}
-
 func hasDoctorCheck(report doctor.Report, name string) bool {
 	for _, check := range report.Checks {
 		if check.Name == name {
-			return true
-		}
-	}
-	return false
-}
-
-func containsString(vals []string, want string) bool {
-	for _, val := range vals {
-		if val == want {
 			return true
 		}
 	}
