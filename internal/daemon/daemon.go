@@ -62,7 +62,6 @@ type Daemon struct {
 	Signal                  SignalOptions
 	Pushover                PushoverOptions
 	Ntfy                    NtfyOptions
-	Gotify                  GotifyOptions
 	ProviderOutput          ProviderOutputPolicy
 	ProviderOutputOverrides ProviderOutputOverrides
 	FleetLink               *FleetLink
@@ -121,7 +120,6 @@ type Options struct {
 	Signal                  SignalOptions
 	Pushover                PushoverOptions
 	Ntfy                    NtfyOptions
-	Gotify                  GotifyOptions
 	ProviderOutput          ProviderOutputPolicy
 	ProviderOutputOverrides ProviderOutputOverrides
 	FleetLink               *FleetLink
@@ -193,13 +191,6 @@ type NtfyOptions struct {
 	ActionBaseURL string
 }
 
-type GotifyOptions struct {
-	BaseURL       string
-	AppToken      string
-	ClientToken   string
-	ActionBaseURL string
-}
-
 // New constructs a daemon, wiring intake + registry + idle detector +
 // approval queue + local web cockpit.
 func New(opts Options) *Daemon {
@@ -241,7 +232,6 @@ func New(opts Options) *Daemon {
 		Signal:                  opts.Signal,
 		Pushover:                opts.Pushover,
 		Ntfy:                    opts.Ntfy,
-		Gotify:                  opts.Gotify,
 		ProviderOutput:          opts.ProviderOutput.normalized(),
 		ProviderOutputOverrides: opts.ProviderOutputOverrides,
 		FleetLink:               opts.FleetLink,
@@ -469,7 +459,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 			}
 		}()
 	}
-	if (strings.TrimSpace(d.Ntfy.ActionBaseURL) != "" || strings.TrimSpace(d.Gotify.ActionBaseURL) != "") && d.notifyActionSigner == nil {
+	if strings.TrimSpace(d.Ntfy.ActionBaseURL) != "" && d.notifyActionSigner == nil {
 		signer, err := web.NewActionSigner(nil)
 		if err != nil {
 			return err
@@ -531,7 +521,6 @@ func (d *Daemon) Run(ctx context.Context) error {
 		d.startSignalBridge(ctx, &wg, cancel)
 		d.startPushoverNotifier(ctx, &wg)
 		d.startNtfyNotifier(ctx, &wg)
-		d.startGotifyNotifier(ctx, &wg)
 	}
 	d.startWebPushNotifier(ctx, &wg)
 

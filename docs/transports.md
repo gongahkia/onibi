@@ -27,7 +27,6 @@ Deferred experimental provider transports are:
 - `irc`: IRC DM control with SASL auth, intended for libera.chat-style registered bot nicks.
 - `pushover`: notify-only approval alerts.
 - `ntfy`: topic alerts with optional signed approval actions.
-- `gotify`: self-hosted alerts with optional signed approval deep-links.
 - `signal`: local `signal-cli` JSON-RPC chat control.
 
 Before selecting any provider transport, explicitly enable its experimental profile once:
@@ -371,18 +370,6 @@ onibi up --transport=ntfy
 ```
 
 The ntfy topic is treated as a secret; short, repeated, single-class, or guessable topics are rejected. When `ONIBI_NTFY_ACTION_BASE_URL` is set, approval alerts include two ntfy `http` action buttons for Approve/Deny. The action URLs are HMAC-signed, single-use, and expire after 5 minutes. JSON stream subscribe uses `<topic>/json`, replays with `since`, and reconnects with the last message id. As of the 2026-07-10 docs check, official ntfy publish/subscribe docs cover HTTPS, authenticated topics, access tokens, click/actions fields, and JSON streams, while native client E2E remains tracked upstream in ntfy issue #69; Onibi does not claim native ntfy password E2E via `X-Message-Encryption`. References: <https://docs.ntfy.sh/publish/>, <https://docs.ntfy.sh/subscribe/api/>, <https://github.com/binwiederhier/ntfy/issues/69>.
-
-Gotify:
-
-```bash
-ONIBI_GOTIFY_URL=https://gotify.example
-ONIBI_GOTIFY_APP_TOKEN=...
-ONIBI_GOTIFY_CLIENT_TOKEN=...
-ONIBI_GOTIFY_ACTION_BASE_URL=https://<reachable-onibi-web-origin>
-onibi up --transport=gotify
-```
-
-Create a Gotify application token for sending and a client token for receiving. Gotify sends approval notifications through `POST /message` with the app token. When `ONIBI_GOTIFY_ACTION_BASE_URL` is set, messages include `client::notification.click.url` pointing at a signed Onibi approval page; that page is single-use, expires after 5 minutes, and renders Approve/Deny POST actions. The optional client token enables `/stream` WebSocket receive checks with reconnect backoff. Send/retry/error audit rows are written for every approval push.
 
 ## Coverage status
 

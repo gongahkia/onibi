@@ -31,7 +31,7 @@ func TestProvidersReportAllProvidersUnconfigured(t *testing.T) {
 	paths := doctorTestPaths(t, "lan")
 	clearProviderEnv(t)
 	report := Providers(t.Context(), Options{Paths: paths, Offline: true, PreferDotenv: true})
-	want := []string{"telegram", "matrix", "slack", "discord", "zulip", "irc", "signal", "pushover", "ntfy", "gotify"}
+	want := []string{"telegram", "matrix", "slack", "discord", "zulip", "irc", "signal", "pushover", "ntfy"}
 	if len(report.Providers) != len(want) {
 		t.Fatalf("providers = %#v", report.Providers)
 	}
@@ -70,7 +70,6 @@ func TestProvidersMissingDetailsPerProvider(t *testing.T) {
 		"signal":   "ONIBI_SIGNAL_RPC_URL",
 		"pushover": "ONIBI_PUSHOVER_TOKEN",
 		"ntfy":     "ONIBI_NTFY_TOPIC",
-		"gotify":   "ONIBI_GOTIFY_URL",
 	}
 	for name, detail := range want {
 		row := providerNamed(t, report, name)
@@ -157,14 +156,6 @@ func TestProvidersReachabilityFakeAPIs(t *testing.T) {
 	}))
 	defer ntfySrv.Close()
 	t.Setenv("ONIBI_NTFY_BASE_URL", ntfySrv.URL)
-	gotifySrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet || !strings.HasPrefix(r.URL.Path, "/message") {
-			t.Fatalf("gotify request = %s %s", r.Method, r.URL.Path)
-		}
-		writeDoctorJSON(t, w, map[string]any{"messages": []any{}})
-	}))
-	defer gotifySrv.Close()
-	t.Setenv("ONIBI_GOTIFY_URL", gotifySrv.URL)
 	report := Providers(t.Context(), Options{Paths: paths, PreferDotenv: true})
 	for _, row := range report.Providers {
 		if row.Reachable != ReachableYes {
@@ -392,44 +383,6 @@ func TestDoctorNtfyProviderPublishSubscribeFakeAPI(t *testing.T) {
 	}
 }
 
-func TestDoctorGotifyProviderSendWSFakeAPI(t *testing.T) {
-	paths := doctorTestPaths(t, "gotify")
-	t.Setenv("ONIBI_DOCTOR_LIVE", "1")
-	t.Setenv("ONIBI_GOTIFY_URL", "placeholder")
-	t.Setenv("ONIBI_GOTIFY_APP_TOKEN", "app-token")
-	t.Setenv("ONIBI_GOTIFY_CLIENT_TOKEN", "client-token")
-	published := make(chan string, 1)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/message"):
-			writeDoctorJSON(t, w, map[string]any{"messages": []any{}})
-		case strings.HasPrefix(r.URL.Path, "/stream"):
-			conn, err := websocket.Accept(w, r, nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer conn.CloseNow()
-			body := <-published
-			_ = conn.Write(r.Context(), websocket.MessageText, []byte(body))
-		case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/message"):
-			var body map[string]any
-			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-				t.Fatal(err)
-			}
-			published <- body["message"].(string)
-			writeDoctorJSON(t, w, map[string]any{"id": 1})
-		default:
-			t.Fatalf("request = %s %s", r.Method, r.URL.Path)
-		}
-	}))
-	defer srv.Close()
-	t.Setenv("ONIBI_GOTIFY_URL", srv.URL)
-	check := checkNamed(t, Run(t.Context(), Options{Paths: paths}), "transport provider")
-	if check.Status != Pass || !strings.Contains(check.Detail, "send, WebSocket") {
-		t.Fatalf("check = %#v", check)
-	}
-}
-
 func TestDoctorSignalProviderFakeAPI(t *testing.T) {
 	paths := doctorTestPaths(t, "signal")
 	t.Setenv("ONIBI_DOCTOR_LIVE", "1")
@@ -607,9 +560,6 @@ func configureEnvProviders(t *testing.T) {
 	t.Setenv("ONIBI_PUSHOVER_TOKEN", "push-token")
 	t.Setenv("ONIBI_PUSHOVER_USER_KEY", "user-key")
 	t.Setenv("ONIBI_NTFY_TOPIC", "AbcdefGhij1234567890_Z")
-	t.Setenv("ONIBI_GOTIFY_URL", "https://gotify.example")
-	t.Setenv("ONIBI_GOTIFY_APP_TOKEN", "app-token")
-	t.Setenv("ONIBI_GOTIFY_CLIENT_TOKEN", "client-token")
 }
 
 func clearProviderEnv(t *testing.T) {
@@ -648,9 +598,6 @@ func clearProviderEnv(t *testing.T) {
 		"ONIBI_NTFY_TOPIC",
 		"ONIBI_NTFY_BASE_URL",
 		"ONIBI_NTFY_TOKEN",
-		"ONIBI_GOTIFY_URL",
-		"ONIBI_GOTIFY_APP_TOKEN",
-		"ONIBI_GOTIFY_CLIENT_TOKEN",
 		"ONIBI_DOCTOR_LIVE",
 	} {
 		t.Setenv(name, "")

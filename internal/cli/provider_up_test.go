@@ -60,7 +60,7 @@ func TestProviderOptionsFromEnvRejectsMissing(t *testing.T) {
 	if !isEnvChatTransport("matrix") || !isEnvChatTransport("slack") || !isEnvChatTransport("discord") || !isEnvChatTransport("zulip") || !isEnvChatTransport("irc") || !isEnvChatTransport("signal") {
 		t.Fatal("chat transport classification failed")
 	}
-	if !isNotifyTransport("pushover") || !isNotifyTransport("ntfy") || !isNotifyTransport("gotify") {
+	if !isNotifyTransport("pushover") || !isNotifyTransport("ntfy") {
 		t.Fatal("notify transport classification failed")
 	}
 }

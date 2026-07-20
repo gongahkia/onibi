@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/gongahkia/onibi/internal/approval"
-	"github.com/gongahkia/onibi/internal/gotify"
 	"github.com/gongahkia/onibi/internal/ntfy"
 	"github.com/gongahkia/onibi/internal/pushover"
 	"github.com/gongahkia/onibi/internal/web"
@@ -120,69 +119,6 @@ func TestNtfyActionsRetryAudit(t *testing.T) {
 			seen[row.Action] = true
 		}
 		if seen["notify.ntfy.retry"] && seen["notify.ntfy.sent"] {
-			return
-		}
-		select {
-		case <-deadline:
-			t.Fatalf("audit rows = %#v", rows)
-		default:
-			time.Sleep(10 * time.Millisecond)
-		}
-	}
-}
-
-func TestGotifyActionURLRetryAudit(t *testing.T) {
-	db := openDaemonTestDB(t)
-	d := New(Options{DB: db, Gotify: GotifyOptions{ActionBaseURL: "https://onibi.example"}})
-	signer, err := web.NewActionSigner([]byte("01234567890123456789012345678901"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	d.notifyActionSigner = signer
-	gotURLs := make(chan string, 1)
-	calls := 0
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls++
-		if calls == 1 {
-			http.Error(w, "try again", http.StatusBadGateway)
-			return
-		}
-		var msg gotify.Message
-		if err := json.NewDecoder(r.Body).Decode(&msg); err != nil {
-			t.Fatal(err)
-		}
-		notification := msg.Extras["client::notification"].(map[string]any)
-		click := notification["click"].(map[string]any)
-		gotURLs <- click["url"].(string)
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
-	id, _, err := d.Queue.Request(t.Context(), "s1", "claude", "Bash", `{"command":"ls"}`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	go d.runGotifyNotifier(ctx, gotify.New(srv.URL, "app", "client"))
-	select {
-	case got := <-gotURLs:
-		if !strings.Contains(got, "https://onibi.example/gotify/approval/"+id) {
-			t.Fatalf("url = %q", got)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for gotify send")
-	}
-	deadline := time.After(2 * time.Second)
-	for {
-		rows, err := db.AuditAll(t.Context())
-		if err != nil {
-			t.Fatal(err)
-		}
-		seen := map[string]bool{}
-		for _, row := range rows {
-			seen[row.Action] = true
-		}
-		if seen["notify.gotify.retry"] && seen["notify.gotify.sent"] {
 			return
 		}
 		select {

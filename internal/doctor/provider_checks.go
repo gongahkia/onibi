@@ -9,7 +9,6 @@ import (
 
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/daemon"
-	"github.com/gongahkia/onibi/internal/gotify"
 	"github.com/gongahkia/onibi/internal/irc"
 	"github.com/gongahkia/onibi/internal/matrix"
 	"github.com/gongahkia/onibi/internal/ntfy"
@@ -50,9 +49,6 @@ var (
 	newNtfyClient = func(baseURL, topic, token string) *ntfy.Client {
 		return ntfy.New(baseURL, topic, token)
 	}
-	newGotifyClient = func(baseURL, appToken, clientToken string) *gotify.Client {
-		return gotify.New(baseURL, appToken, clientToken)
-	}
 	newZulipClient = func(baseURL, email, apiKey string) *zulip.Client {
 		return zulip.New(baseURL, email, apiKey)
 	}
@@ -76,7 +72,6 @@ func Providers(ctx context.Context, opts Options) ProviderReport {
 		providerSignal(ctx, opts, pa),
 		providerPushover(ctx, opts, pa),
 		providerNtfy(ctx, opts, pa),
-		providerGotify(ctx, opts, pa),
 	}
 	return ProviderReport{Providers: rows}
 }
@@ -359,47 +354,6 @@ func providerNtfy(ctx context.Context, opts Options, pa map[string]string) Provi
 	return row
 }
 
-func providerGotify(ctx context.Context, opts Options, pa map[string]string) ProviderRow {
-	row := providerRow("gotify", pa)
-	missing := missingEnv("ONIBI_GOTIFY_URL", "ONIBI_GOTIFY_APP_TOKEN")
-	row.Configured = len(missing) == 0
-	if !row.Configured {
-		row.Detail = "missing " + strings.Join(missing, ", ")
-		row.Fix = []string{"set ONIBI_GOTIFY_URL and ONIBI_GOTIFY_APP_TOKEN", "optionally set ONIBI_GOTIFY_CLIENT_TOKEN for read-side validation"}
-		return row
-	}
-	row.Detail = "env present"
-	clientToken := strings.TrimSpace(os.Getenv("ONIBI_GOTIFY_CLIENT_TOKEN"))
-	if opts.Offline {
-		return row
-	}
-	if clientToken == "" && !doctorLiveProbe() {
-		row.Detail = "env present; set ONIBI_GOTIFY_CLIENT_TOKEN or ONIBI_DOCTOR_LIVE=1 for reachability"
-		return row
-	}
-	withProviderTimeout(ctx, func(ctx context.Context) {
-		c := newGotifyClient(os.Getenv("ONIBI_GOTIFY_URL"), os.Getenv("ONIBI_GOTIFY_APP_TOKEN"), clientToken)
-		if clientToken != "" {
-			if err := c.Validate(ctx); err != nil {
-				row.Reachable = ReachableNo
-				row.Detail = "validate failed: " + err.Error()
-				return
-			}
-			row.Reachable = ReachableYes
-			row.Detail = "client token validation ok"
-			return
-		}
-		if err := c.Send(ctx, gotify.Message{Title: "Onibi doctor", Message: "onibi doctor gotify probe", Priority: 1}); err != nil {
-			row.Reachable = ReachableNo
-			row.Detail = "send probe failed: " + err.Error()
-			return
-		}
-		row.Reachable = ReachableYes
-		row.Detail = "send probe ok"
-	})
-	return row
-}
-
 func providerRow(name string, pa map[string]string) ProviderRow {
 	return ProviderRow{Name: name, Reachable: ReachableSkipped, LastAuditTimestamp: pa[name]}
 }
@@ -444,7 +398,7 @@ func providerAudit(ctx context.Context, paths config.Paths) map[string]string {
 	}
 	out := map[string]string{}
 	for _, e := range entries {
-		for _, name := range []string{"telegram", "matrix", "slack", "discord", "zulip", "irc", "signal", "pushover", "ntfy", "gotify"} {
+		for _, name := range []string{"telegram", "matrix", "slack", "discord", "zulip", "irc", "signal", "pushover", "ntfy"} {
 			if providerAuditMatch(name, e) {
 				out[name] = e.TS.UTC().Format(time.RFC3339)
 			}
@@ -470,8 +424,6 @@ func providerAuditMatch(name string, e store.AuditEntry) bool {
 		return strings.Contains(action, "notify.pushover")
 	case "ntfy":
 		return strings.Contains(action, "notify.ntfy")
-	case "gotify":
-		return strings.Contains(action, "notify.gotify")
 	default:
 		return strings.Contains(action, name) || strings.Contains(detail, "provider="+name)
 	}

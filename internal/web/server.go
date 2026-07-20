@@ -148,8 +148,6 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/approval/{id}", s.handleApproval)
 	if s.experimentalProviders {
 		mux.HandleFunc("/ntfy/approval/{id}/{verdict}", s.handleNtfyApprovalAction)
-		mux.HandleFunc("/gotify/approval/{id}", s.handleGotifyApprovalPage)
-		mux.HandleFunc("/gotify/approval/{id}/{verdict}", s.handleGotifyApprovalAction)
 	}
 	mux.HandleFunc("/", s.handleRoot)
 	return s.loggedHandler(s.e2eHTTPHandler(mux))

@@ -146,7 +146,6 @@ ONIBI_LIVE_IRC=1 ONIBI_IRC_NICK=onibi-bot ONIBI_IRC_USERNAME=onibi-bot ONIBI_IRC
 - IRC: required bot/owner env and SASL connect to the configured server.
 - Signal: required local daemon env and `/api/v1/check` when `ONIBI_DOCTOR_LIVE=1`.
 - Matrix: account ownership power, joined-room state, and encrypted-room refusal.
-- Gotify: token validation; set `ONIBI_DOCTOR_LIVE=1` for send/WS probe.
 - ntfy: topic secrecy validation; set `ONIBI_DOCTOR_LIVE=1` for publish/WebSocket subscribe probe.
 
 ## Provider output policy
@@ -191,18 +190,6 @@ ONIBI_LIVE_NTFY=1 ONIBI_NTFY_TOPIC=<20+ char random secret> ONIBI_NTFY_STREAM=1 
 - Confirm publish and JSON stream subscribe receive the same approval text.
 - With `ONIBI_NTFY_ACTION_BASE_URL` set to a reachable Onibi web origin, confirm ntfy web/Android render Approve/Deny actions.
 - Confirm short, repeated, single-class, or guessable topics are rejected before startup.
-
-Gotify:
-
-```bash
-ONIBI_LIVE_GOTIFY=1 ONIBI_GOTIFY_URL=... ONIBI_GOTIFY_APP_TOKEN=... ONIBI_GOTIFY_CLIENT_TOKEN=... ONIBI_GOTIFY_STREAM=1 go test ./internal/gotify -run LiveGotify
-```
-
-- Confirm REST send creates an approval notification.
-- Confirm WebSocket subscribe receives the message stream.
-- With `ONIBI_GOTIFY_ACTION_BASE_URL` set to a reachable Onibi web origin, tap the notification/link and confirm the signed approval page renders Approve/Deny.
-- Confirm startup validates the optional client token.
-- Confirm no terminal input path is exposed.
 
 Signal:
 

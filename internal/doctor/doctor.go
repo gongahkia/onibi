@@ -22,7 +22,6 @@ import (
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/daemon"
 	"github.com/gongahkia/onibi/internal/discord"
-	"github.com/gongahkia/onibi/internal/gotify"
 	"github.com/gongahkia/onibi/internal/irc"
 	"github.com/gongahkia/onibi/internal/matrix"
 	"github.com/gongahkia/onibi/internal/ntfy"
@@ -370,8 +369,6 @@ func (r *runner) checkTransportProvider() {
 			return
 		}
 		r.checkNtfyProvider(topic)
-	case "gotify":
-		r.checkGotifyProvider()
 	case "signal":
 		r.checkSignalProvider()
 	default:
@@ -639,52 +636,6 @@ func (r *runner) checkNtfyProvider(topic string) {
 		return
 	}
 	r.add("transport provider", Pass, "ntfy live API ok: publish + WebSocket subscribe")
-}
-
-func (r *runner) checkGotifyProvider() {
-	if missing := missingEnv("ONIBI_GOTIFY_URL", "ONIBI_GOTIFY_APP_TOKEN"); len(missing) > 0 {
-		r.add("transport provider", Warn, "Gotify missing "+strings.Join(missing, ", "))
-		return
-	}
-	if r.opts.Offline {
-		r.add("transport provider", Pass, "Gotify env present; live validation skipped offline")
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.ctx, 8*time.Second)
-	defer cancel()
-	c := gotify.New(os.Getenv("ONIBI_GOTIFY_URL"), os.Getenv("ONIBI_GOTIFY_APP_TOKEN"), os.Getenv("ONIBI_GOTIFY_CLIENT_TOKEN"))
-	if err := c.Validate(ctx); err != nil {
-		r.add("transport provider", Warn, "Gotify token validation failed: "+err.Error())
-		return
-	}
-	if !doctorLiveProbe() {
-		r.add("transport provider", Pass, "Gotify token validation ok; set ONIBI_DOCTOR_LIVE=1 for send/WS probe")
-		return
-	}
-	body := fmt.Sprintf("onibi doctor gotify probe %d", time.Now().UnixNano())
-	var conn *websocket.Conn
-	var err error
-	if strings.TrimSpace(os.Getenv("ONIBI_GOTIFY_CLIENT_TOKEN")) != "" {
-		conn, err = c.SubscribeWS(ctx)
-		if err != nil {
-			r.add("transport provider", Warn, "Gotify WebSocket subscribe failed: "+err.Error())
-			return
-		}
-		defer conn.CloseNow()
-	}
-	if err := c.Send(ctx, gotify.Message{Title: "Onibi doctor", Message: body, Priority: 1}); err != nil {
-		r.add("transport provider", Warn, "Gotify send probe failed: "+err.Error())
-		return
-	}
-	if conn != nil {
-		if err := waitWebsocketContains(ctx, conn, body); err != nil {
-			r.add("transport provider", Warn, "Gotify WebSocket did not receive probe: "+err.Error())
-			return
-		}
-		r.add("transport provider", Pass, "Gotify live API ok: token, send, WebSocket")
-		return
-	}
-	r.add("transport provider", Pass, "Gotify live API ok: token + send; set ONIBI_GOTIFY_CLIENT_TOKEN for WS")
 }
 
 func (r *runner) checkSignalProvider() {

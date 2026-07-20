@@ -10,7 +10,6 @@ import (
 	"sync"
 
 	"github.com/gongahkia/onibi/internal/discord"
-	"github.com/gongahkia/onibi/internal/gotify"
 	"github.com/gongahkia/onibi/internal/irc"
 	"github.com/gongahkia/onibi/internal/matrix"
 	"github.com/gongahkia/onibi/internal/ntfy"
@@ -139,17 +138,6 @@ func (d *Daemon) startNtfyNotifier(ctx context.Context, wg *sync.WaitGroup) {
 	go func() {
 		defer wg.Done()
 		d.runNtfyNotifier(ctx, ntfy.New(d.Ntfy.BaseURL, d.Ntfy.Topic, d.Ntfy.Token))
-	}()
-}
-
-func (d *Daemon) startGotifyNotifier(ctx context.Context, wg *sync.WaitGroup) {
-	if strings.TrimSpace(d.Gotify.AppToken) == "" {
-		return
-	}
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		d.runGotifyNotifier(ctx, gotify.New(d.Gotify.BaseURL, d.Gotify.AppToken, d.Gotify.ClientToken))
 	}()
 }
 

@@ -174,7 +174,6 @@ provider-specific live evidence and review.
 | Signal | partial | partial | yes | yes | partial | partial | no | partial |
 | Pushover | yes | partial | notify-only | no | no | no | yes | partial |
 | ntfy | yes | partial | notify-only | no | yes | partial | no | partial |
-| Gotify | yes | partial | notify-only | no | yes | partial | no | partial |
 
 <!-- markdownlint-enable MD013 -->
 
@@ -224,12 +223,6 @@ notify-only `chatout.Provider` adapter. Password E2E is not implemented because
 the 2026-07-10 official ntfy publish/subscribe docs do not verify
 `X-Message-Encryption` support; upstream E2E is tracked in
 <https://github.com/binwiederhier/ntfy/issues/69>.
-
-Gotify sends REST messages, adds optional signed approval deep-links through
-`client::notification.click.url`, and can receive `/stream` WebSocket messages
-with reconnect backoff. It also has a local notify-only `chatout.Provider`
-adapter. Native buttons are not available in Gotify; the signed approval page is
-the callback workaround.
 
 ## Capability-specific conformance
 

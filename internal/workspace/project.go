@@ -208,9 +208,9 @@ func validateProjectHook(target string) error {
 
 func validateTransportMode(mode string) error {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case "lan", "tailscale", "tailscale-private", "wireguard", "zerotier", "cloudflare-quick", "cloudflare-named", "ngrok", "telegram", "matrix", "slack", "discord", "zulip", "irc", "signal", "pushover", "ntfy", "gotify", "auto":
+	case "lan", "tailscale", "tailscale-private", "wireguard", "zerotier", "cloudflare-quick", "cloudflare-named", "ngrok", "telegram", "matrix", "slack", "discord", "zulip", "irc", "signal", "pushover", "ntfy", "auto":
 		return nil
-	case "email", "sms", "apns":
+	case "email", "sms", "apns", "gotify":
 		return fmt.Errorf("transport %q is no longer supported; use web push or telegram", mode)
 	default:
 		return fmt.Errorf("unknown transport %q", mode)

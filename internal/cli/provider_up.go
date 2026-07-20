@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -12,7 +11,6 @@ import (
 
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/daemon"
-	gotifyapi "github.com/gongahkia/onibi/internal/gotify"
 	"github.com/gongahkia/onibi/internal/store"
 )
 
@@ -24,13 +22,6 @@ func runEnvProviderUp(cmd *cobra.Command, paths config.Paths, db *store.DB, cfg 
 	opts, label, err := providerOptionsFromEnv(mode)
 	if err != nil {
 		return err
-	}
-	if mode == "gotify" {
-		ctx, cancel := context.WithTimeout(cmd.Context(), 5*time.Second)
-		defer cancel()
-		if err := gotifyapi.New(opts.Gotify.BaseURL, opts.Gotify.AppToken, opts.Gotify.ClientToken).Validate(ctx); err != nil {
-			return err
-		}
 	}
 	d := daemon.New(daemon.Options{
 		Paths:                   paths,
@@ -53,7 +44,6 @@ func runEnvProviderUp(cmd *cobra.Command, paths config.Paths, db *store.DB, cfg 
 		Signal:                  opts.Signal,
 		Pushover:                opts.Pushover,
 		Ntfy:                    opts.Ntfy,
-		Gotify:                  opts.Gotify,
 		ProviderOutput:          daemonProviderOutputPolicy(cfg),
 		ProviderOutputOverrides: daemonProviderOutputOverrides(cfg),
 		SkipRestore:             true,
@@ -91,7 +81,6 @@ type envProviderOptions struct {
 	Signal   daemon.SignalOptions
 	Pushover daemon.PushoverOptions
 	Ntfy     daemon.NtfyOptions
-	Gotify   daemon.GotifyOptions
 }
 
 func providerOptionsFromEnv(mode string) (envProviderOptions, string, error) {
@@ -183,12 +172,6 @@ func providerOptionsFromEnv(mode string) (envProviderOptions, string, error) {
 			return opts, "", fmt.Errorf("ntfy requires ONIBI_NTFY_TOPIC")
 		}
 		return opts, "ntfy", nil
-	case "gotify":
-		opts.Gotify = daemon.GotifyOptions{BaseURL: envRequired("ONIBI_GOTIFY_URL"), AppToken: envRequired("ONIBI_GOTIFY_APP_TOKEN"), ClientToken: strings.TrimSpace(os.Getenv("ONIBI_GOTIFY_CLIENT_TOKEN")), ActionBaseURL: strings.TrimSpace(os.Getenv("ONIBI_GOTIFY_ACTION_BASE_URL"))}
-		if opts.Gotify.BaseURL == "" || opts.Gotify.AppToken == "" {
-			return opts, "", fmt.Errorf("gotify requires ONIBI_GOTIFY_URL and ONIBI_GOTIFY_APP_TOKEN")
-		}
-		return opts, "Gotify", nil
 	default:
 		return opts, "", fmt.Errorf("unsupported env provider %q", mode)
 	}
@@ -205,7 +188,7 @@ func isEnvChatTransport(mode string) bool {
 
 func isNotifyTransport(mode string) bool {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case "pushover", "ntfy", "gotify":
+	case "pushover", "ntfy":
 		return true
 	default:
 		return false
@@ -219,10 +202,6 @@ func envProviderActionWebAddr(mode string, opts envProviderOptions, listenAddr s
 	switch strings.ToLower(strings.TrimSpace(mode)) {
 	case "ntfy":
 		if strings.TrimSpace(opts.Ntfy.ActionBaseURL) != "" {
-			return listenAddr
-		}
-	case "gotify":
-		if strings.TrimSpace(opts.Gotify.ActionBaseURL) != "" {
 			return listenAddr
 		}
 	}

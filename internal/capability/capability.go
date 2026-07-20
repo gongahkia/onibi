@@ -33,7 +33,6 @@ var deferredProviderTransports = []string{
 	"signal",
 	"pushover",
 	"ntfy",
-	"gotify",
 }
 
 func V1Agents() []string { return append([]string(nil), v1Agents...) }
