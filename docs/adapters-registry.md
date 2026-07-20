@@ -13,7 +13,7 @@ onibi adapters add ./adapter.toml
 
 | Adapter | Manifest | Notes |
 |---|---|---|
-| Aider example | [`examples/aider-adapter/aider.toml`](../examples/aider-adapter/aider.toml) | Demonstrates a third-party manifest and Aider config helper scripts. |
+| Aider post-edit event example | [`examples/aider-adapter/aider.toml`](../examples/aider-adapter/aider.toml) | Non-certified, non-enforcing post-edit test event only; it has no native tool-approval boundary. |
 
 ## Official Adapter Deny Verification
 

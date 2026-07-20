@@ -149,21 +149,26 @@ func TestAdaptersValidateManifestReportsLineNumber(t *testing.T) {
 	}
 }
 
-func TestExampleAiderAdapterValidatesAddsAndInstalls(t *testing.T) {
+func TestExampleAiderAdapterIsNonCertifiedPostEditOnly(t *testing.T) {
 	home, _, _ := hooksCLIFixture(t)
 	t.Setenv("ONIBI_ADAPTERS_DIR", filepath.Join(home, ".config", "onibi", "adapters"))
 	path := filepath.Join("..", "..", "examples", "aider-adapter", "aider.toml")
 	executeRoot(t, "adapters", "validate", path, "--color", "never")
 	executeRoot(t, "adapters", "add", path, "--color", "never")
+	if _, ok := adapters.ContractFor("aider"); ok {
+		t.Fatal("aider example has a certified contract")
+	}
 	executeRoot(t, "install-hooks", "--agent", "aider", "--color", "never")
 	for _, want := range []string{
 		filepath.Join(home, ".config", "onibi", "aider", "aider.onibi.conf.yml"),
 		filepath.Join(home, ".local", "bin", "onibi-aider-event"),
-		filepath.Join(home, ".local", "bin", "onibi-aider-approval"),
 	} {
 		if _, err := os.Stat(want); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if _, err := os.Stat(filepath.Join(home, ".local", "bin", "onibi-aider-approval")); !os.IsNotExist(err) {
+		t.Fatalf("unexpected approval helper: %v", err)
 	}
 }
 

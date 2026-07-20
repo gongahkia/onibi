@@ -1,34 +1,29 @@
 name = "aider"
 version = "1.0.0"
 kind = "agent"
-cmd_pattern = { PreToolUse = "*" }
+cmd_pattern = { AiderTestCompleted = "*" }
 min_onibi_version = "0.3.0"
 
 hook_install = [
   '''mkdir -p "$HOME/.config/onibi/aider" "$HOME/.local/bin"''',
   '''printf '%s\n' '#!/bin/sh' 'if [ -z "${ONIBI_SESSION_ID:-}" ]; then exit 0; fi' 'exec "${ONIBI_NOTIFY_BIN:-onibi-notify}" --agent aider --format shell --type agent_message --text "aider check completed"' > "$HOME/.local/bin/onibi-aider-event"''',
-  '''printf '%s\n' '#!/bin/sh' 'if [ -z "${ONIBI_SESSION_ID:-}" ]; then exit 0; fi' 'exec "${ONIBI_NOTIFY_BIN:-onibi-notify}" --agent aider --format shell --type approval_request --wait --response onibi-json' > "$HOME/.local/bin/onibi-aider-approval"''',
-  '''chmod 700 "$HOME/.local/bin/onibi-aider-event" "$HOME/.local/bin/onibi-aider-approval"''',
+  '''chmod 700 "$HOME/.local/bin/onibi-aider-event"''',
   '''printf '%s\n' 'auto-test: true' 'test-cmd: onibi-aider-event' > "$HOME/.config/onibi/aider/aider.onibi.conf.yml"'''
 ]
 
 hook_uninstall = [
-  '''rm -f "$HOME/.local/bin/onibi-aider-event" "$HOME/.local/bin/onibi-aider-approval" "$HOME/.config/onibi/aider/aider.onibi.conf.yml"'''
+  '''rm -f "$HOME/.local/bin/onibi-aider-event" "$HOME/.config/onibi/aider/aider.onibi.conf.yml"'''
 ]
 
 hook_verify = [
   '''test -x "$HOME/.local/bin/onibi-aider-event"''',
-  '''test -x "$HOME/.local/bin/onibi-aider-approval"''',
   '''test -f "$HOME/.config/onibi/aider/aider.onibi.conf.yml"'''
 ]
 
 hook_adopt = [
   '''test -x "$HOME/.local/bin/onibi-aider-event"''',
-  '''test -x "$HOME/.local/bin/onibi-aider-approval"''',
   '''test -f "$HOME/.config/onibi/aider/aider.onibi.conf.yml"'''
 ]
 
 [risk_overrides]
-Edit = "medium"
-Shell = "high"
-Write = "high"
+AiderTestCompleted = "low"

@@ -1,16 +1,17 @@
-# Aider Adapter Example
+# Aider Post-Edit Event Example (Non-Certified)
 
-This example shows how to package a third-party adapter manifest for Aider.
+This example is non-certified and non-enforcing. It reports configured post-edit test completion; it does not intercept, inspect, approve, deny, or edit Aider tool actions.
 
-Official Aider docs support `.aider.conf.yml` config files and `--test-cmd` with `--auto-test` after edits:
+Evidence reviewed on 2026-07-20: Aider documents `.aider.conf.yml`, `--test-cmd`, and `--auto-test` after edits:
 
 - https://aider.chat/docs/config/aider_conf.html
 - https://aider.chat/docs/usage/lint-test.html
 
-No official Aider native `PreToolUse` hook surface was found in those docs. This example therefore installs two helper scripts:
+No documented API in those sources provides synchronous pre-tool interception or approval-decision mapping. The generated config therefore installs one post-edit event helper only:
 
 - `~/.local/bin/onibi-aider-event`: fire-and-forget Onibi event for Aider test runs.
-- `~/.local/bin/onibi-aider-approval`: blocking Onibi approval helper for custom wrappers or manual preflight checks.
+
+It does not satisfy the [certified adapter contract](../../docs/adapter-contract.md), and must not be presented as approval enforcement.
 
 ## Install
 
@@ -25,7 +26,6 @@ The install step writes:
 ```text
 ~/.config/onibi/aider/aider.onibi.conf.yml
 ~/.local/bin/onibi-aider-event
-~/.local/bin/onibi-aider-approval
 ```
 
 Use the generated Aider config explicitly:
@@ -33,19 +33,6 @@ Use the generated Aider config explicitly:
 ```sh
 aider --config ~/.config/onibi/aider/aider.onibi.conf.yml
 ```
-
-## Sample Approval Flow
-
-Run Aider from an Onibi-managed terminal so `ONIBI_SESSION_ID` and `ONIBI_SOCK` are set.
-
-For a custom preflight approval, pipe a normalized tool payload to the helper:
-
-```sh
-printf '%s\n' '{"tool_name":"Edit","input":{"file_path":"demo.py","new_string":"print(42)"}}' \
-  | onibi-aider-approval
-```
-
-Onibi shows an approval card. Approve exits 0; deny exits non-zero through `onibi-notify`.
 
 ## Uninstall
 
