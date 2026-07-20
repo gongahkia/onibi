@@ -34,6 +34,7 @@ type page struct {
 	Description string
 	Body        htmltemplate.HTML
 	Stylesheet  string
+	Responsive  string
 	Favicon     string
 	Home        string
 	Source      string
@@ -52,6 +53,7 @@ var (
   <meta name="description" content="{{.Description}}">
   <link rel="icon" href="{{.Favicon}}" type="image/svg+xml">
   <link rel="stylesheet" href="{{.Stylesheet}}">
+	<link rel="stylesheet" href="{{.Responsive}}">
   <title>{{.Title}} · Onibi</title>
 </head>
 <body>
@@ -101,6 +103,7 @@ func renderDocs(root string, check bool) error {
 			Description: description(doc.Title),
 			Body:        doc.Body,
 			Stylesheet:  relativeLink(doc.Output, "assets/site.css"),
+			Responsive:  relativeLink(doc.Output, "assets/responsive.css"),
 			Favicon:     relativeLink(doc.Output, "favicon.svg"),
 			Home:        relativeLink(doc.Output, "index.html"),
 			Source:      relativeLink(doc.Output, doc.Source),
