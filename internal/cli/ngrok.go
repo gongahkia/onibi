@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -171,4 +172,15 @@ func promptNgrokAuthtoken(cmd *cobra.Command) (string, error) {
 
 func validNgrokAuthtoken(token string) bool {
 	return len(strings.TrimSpace(token)) >= 20
+}
+
+func envSet(name string) bool {
+	return strings.TrimSpace(os.Getenv(name)) != ""
+}
+
+func errorString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }

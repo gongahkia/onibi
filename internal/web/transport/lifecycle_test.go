@@ -49,7 +49,6 @@ func TestTransportConformance(t *testing.T) {
 		{mode: ModeWireGuard, url: "https://100.64.0.2:8443", kind: fleet.EndpointMesh},
 		{mode: ModeZeroTier, url: "https://10.147.20.4:8443", kind: fleet.EndpointMesh},
 		{mode: ModeCloudflareQuick, url: "https://quick.trycloudflare.com", kind: fleet.EndpointRelay},
-		{mode: ModeCloudflareNamed, url: "https://named.example.test", kind: fleet.EndpointRelay},
 		{mode: ModeNgrok, url: "https://demo.ngrok-free.app", kind: fleet.EndpointRelay},
 	} {
 		t.Run(string(tc.mode), func(t *testing.T) {
@@ -108,8 +107,6 @@ func conformanceProviderFactory(mode Mode, provider Provider) ProviderFactory {
 		return ProviderFactory{ZeroTier: func() Provider { return provider }}
 	case ModeCloudflareQuick:
 		return ProviderFactory{CloudflareQuick: func() Provider { return provider }}
-	case ModeCloudflareNamed:
-		return ProviderFactory{CloudflareNamed: func() Provider { return provider }}
 	case ModeNgrok:
 		return ProviderFactory{Ngrok: func() Provider { return provider }}
 	default:

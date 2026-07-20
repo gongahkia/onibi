@@ -17,7 +17,11 @@ onibi doctor --transport=cloudflare-quick
 onibi up --transport=cloudflare-quick
 ```
 
-Onibi starts a child `cloudflared tunnel --url https://localhost:<port> --no-tls-verify` process, accepts only an HTTPS `trycloudflare.com` origin printed by that process, and stops when the child exits. It does not create, configure, or manage a Cloudflare account, domain, named tunnel, route, or token.
+Onibi starts a child `cloudflared tunnel --url https://localhost:<port> --no-tls-verify` process, accepts only an HTTPS `trycloudflare.com` origin printed by that process, and stops when the child exits. It does not create, configure, or manage a Cloudflare account, domain, route, or token.
+
+## Upgrade
+
+`cloudflare-named` has been removed. Change `transport.mode` to `cloudflare-quick` or a private transport; Onibi rejects the old value before cockpit or tunnel startup and does not fall back. Previously configured Cloudflare API-token state is ignored and left untouched; remove it with the secret-store or environment-management tool that created it.
 
 ## Relay E2E
 

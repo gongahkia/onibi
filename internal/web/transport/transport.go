@@ -24,7 +24,6 @@ const (
 	ModeZeroTier         Mode = "zerotier"
 	ModeTelegram         Mode = "telegram"
 	ModeCloudflareQuick  Mode = "cloudflare-quick"
-	ModeCloudflareNamed  Mode = "cloudflare-named"
 	ModeNgrok            Mode = "ngrok"
 	ModeAuto             Mode = "auto"
 )
@@ -97,7 +96,6 @@ type ProviderFactory struct {
 	WireGuard        func() Provider
 	ZeroTier         func() Provider
 	CloudflareQuick  func() Provider
-	CloudflareNamed  func() Provider
 	Ngrok            func() Provider
 }
 
@@ -112,6 +110,9 @@ type Resolved struct {
 }
 
 func resolveTransport(ctx context.Context, opts ResolverOptions) (Resolved, error) {
+	if strings.EqualFold(strings.TrimSpace(opts.Mode), "cloudflare-named") {
+		return Resolved{}, fmt.Errorf("transport %q has been removed; choose cloudflare-quick or a private transport", opts.Mode)
+	}
 	mode := NormalizeMode(opts.Mode)
 	if mode == "" {
 		mode = ModeLAN
@@ -134,8 +135,6 @@ func resolveTransport(ctx context.Context, opts ResolverOptions) (Resolved, erro
 		return startProvider(ctx, mode, opts.Port, providerOrDefault(opts.Providers.ZeroTier, func() Provider { return NewZeroTierFromEnv() }))
 	case ModeCloudflareQuick:
 		return startProvider(ctx, mode, opts.Port, providerOrDefault(opts.Providers.CloudflareQuick, func() Provider { return NewCloudflareQuick() }))
-	case ModeCloudflareNamed:
-		return startProvider(ctx, mode, opts.Port, providerOrDefault(opts.Providers.CloudflareNamed, func() Provider { return NewCloudflareNamedFromEnv() }))
 	case ModeNgrok:
 		return startProvider(ctx, mode, opts.Port, providerOrDefault(opts.Providers.Ngrok, func() Provider { return NewNgrokFromEnv() }))
 	case ModeAuto:
@@ -172,8 +171,6 @@ func NormalizeMode(mode string) Mode {
 		return ModeTelegram
 	case ModeCloudflareQuick:
 		return ModeCloudflareQuick
-	case ModeCloudflareNamed:
-		return ModeCloudflareNamed
 	case ModeNgrok:
 		return ModeNgrok
 	case ModeAuto:
@@ -184,12 +181,12 @@ func NormalizeMode(mode string) Mode {
 }
 
 func SupportedModeList() string {
-	return "lan, lan-loopback, tailscale, tailscale-private, wireguard, zerotier, cloudflare-quick, cloudflare-named, ngrok, auto"
+	return "lan, lan-loopback, tailscale, tailscale-private, wireguard, zerotier, cloudflare-quick, ngrok, auto"
 }
 
 func IsRelayMode(mode string) bool {
 	switch NormalizeMode(mode) {
-	case ModeTailscale, ModeCloudflareQuick, ModeCloudflareNamed, ModeNgrok:
+	case ModeTailscale, ModeCloudflareQuick, ModeNgrok:
 		return true
 	default:
 		return false

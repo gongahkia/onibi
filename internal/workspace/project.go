@@ -200,8 +200,10 @@ func validateProjectHook(target string) error {
 
 func validateTransportMode(mode string) error {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case "lan", "tailscale", "tailscale-private", "wireguard", "zerotier", "cloudflare-quick", "cloudflare-named", "ngrok", "telegram", "auto":
+	case "lan", "tailscale", "tailscale-private", "wireguard", "zerotier", "cloudflare-quick", "ngrok", "telegram", "auto":
 		return nil
+	case "cloudflare-named":
+		return fmt.Errorf("transport %q has been removed; use cloudflare-quick or a private transport", mode)
 	case "email", "sms", "apns", "gotify", "ntfy", "pushover", "signal", "irc", "zulip", "discord", "slack", "matrix":
 		return fmt.Errorf("transport %q is no longer supported; use web push or telegram", mode)
 	default:

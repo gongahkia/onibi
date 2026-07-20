@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"context"
 	"strings"
 	"testing"
 )
@@ -11,5 +12,12 @@ func TestSupportedModeListExcludesDeferredProviders(t *testing.T) {
 		if strings.Contains(got, provider) {
 			t.Fatalf("supported modes expose deferred provider %q: %s", provider, got)
 		}
+	}
+}
+
+func TestResolveRejectsRemovedCloudflareNamed(t *testing.T) {
+	_, err := Resolve(context.Background(), ResolverOptions{Mode: "cloudflare-named", Port: 8443})
+	if err == nil || !strings.Contains(err.Error(), "has been removed") {
+		t.Fatalf("err = %v", err)
 	}
 }

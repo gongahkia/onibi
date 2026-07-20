@@ -18,7 +18,6 @@ var v1WebTransports = []string{
 	"wireguard",
 	"zerotier",
 	"cloudflare-quick",
-	"cloudflare-named",
 	"ngrok",
 	"auto",
 }

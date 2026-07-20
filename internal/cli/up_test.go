@@ -323,9 +323,6 @@ func TestRuntimeTransportHealthIncludesNgrok(t *testing.T) {
 			t.Fatalf("%s runtime health disabled", mode)
 		}
 	}
-	if requiresRuntimeTransportHealth(webtransport.ModeCloudflareNamed) {
-		t.Fatal("cloudflare named unexpectedly requires runtime health")
-	}
 }
 
 func TestUnsafeCloudflareNoE2EFlagRemoved(t *testing.T) {

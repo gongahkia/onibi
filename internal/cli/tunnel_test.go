@@ -64,8 +64,15 @@ func TestTunnelSupportsTailscalePrivate(t *testing.T) {
 	}
 }
 
-func TestTunnelRejectsNamedCloudflareTransport(t *testing.T) {
+func TestTunnelRejectsRemovedCloudflareNamedTransport(t *testing.T) {
 	if tunnelTransportSupported("cloudflare-named") {
 		t.Fatal("cloudflare-named should not support ad-hoc web tunnels")
+	}
+}
+
+func TestCloudflareCommandRemoved(t *testing.T) {
+	_, _, err := executeRootAllowError(t, "cloudflare", "status", "--color", "never")
+	if err == nil || !strings.Contains(err.Error(), "unknown command") {
+		t.Fatalf("unexpected err: %v", err)
 	}
 }

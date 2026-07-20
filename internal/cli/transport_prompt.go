@@ -78,9 +78,8 @@ func pairTransportChoices(current string) []pairTransportChoice {
 		{key: "4", mode: "wireguard", label: "WireGuard", detail: "self-hosted mesh VPN", coverage: "unit + interface probe + live opt-in", command: "onibi up --transport=wireguard", active: current == "wireguard"},
 		{key: "5", mode: "zerotier", label: "ZeroTier", detail: "self-hosted mesh overlay", coverage: "unit + CLI probe + live opt-in", command: "onibi up --transport=zerotier", active: current == "zerotier"},
 		{key: "6", mode: "cloudflare-quick", label: "Cloudflare Quick", detail: "temporary trycloudflare URL", coverage: "unit + fake process + live opt-in", command: "onibi up --transport=cloudflare-quick", active: current == "cloudflare-quick"},
-		{key: "7", mode: "cloudflare-named", label: "Cloudflare Named", detail: "configured public hostname", coverage: "unit + fake process + live opt-in", command: "onibi up --transport=cloudflare-named", active: current == "cloudflare-named"},
-		{key: "8", mode: "ngrok", label: "ngrok", detail: "dev/demo public URL", coverage: "unit + fake agent API + live opt-in", command: "onibi up --transport=ngrok", active: current == "ngrok"},
-		{key: "9", mode: "auto", label: "Auto", detail: "try Tailscale Funnel, fallback LAN", coverage: "Tailscale Funnel -> LAN only", command: "onibi up --transport=auto", active: current == "auto"},
+		{key: "7", mode: "ngrok", label: "ngrok", detail: "dev/demo public URL", coverage: "unit + fake agent API + live opt-in", command: "onibi up --transport=ngrok", active: current == "ngrok"},
+		{key: "8", mode: "auto", label: "Auto", detail: "try Tailscale Funnel, fallback LAN", coverage: "Tailscale Funnel -> LAN only", command: "onibi up --transport=auto", active: current == "auto"},
 	}
 }
 

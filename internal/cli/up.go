@@ -54,7 +54,6 @@ var newTransportProviders = func() webtransport.ProviderFactory {
 		WireGuard:        func() webtransport.Provider { return webtransport.NewWireGuardFromEnv() },
 		ZeroTier:         func() webtransport.Provider { return webtransport.NewZeroTierFromEnv() },
 		CloudflareQuick:  func() webtransport.Provider { return webtransport.NewCloudflareQuick() },
-		CloudflareNamed:  func() webtransport.Provider { return webtransport.NewCloudflareNamedFromEnv() },
 		Ngrok:            func() webtransport.Provider { return webtransport.NewNgrokFromEnv() },
 	}
 }
@@ -581,7 +580,7 @@ func cleanupPairTransport(logger *slog.Logger, pt webtransport.Resolved) {
 		logger.Info("pair transport cleanup audit", "transport", pt.Mode, "action", "tailscale funnel --bg off")
 	case webtransport.ModeTailscalePrivate:
 		logger.Info("pair transport cleanup audit", "transport", pt.Mode, "action", "tailscale serve --bg off")
-	case webtransport.ModeCloudflareQuick, webtransport.ModeCloudflareNamed:
+	case webtransport.ModeCloudflareQuick:
 		logger.Info("pair transport cleanup audit", "transport", pt.Mode, "action", "cloudflared process kill")
 	case webtransport.ModeNgrok:
 		logger.Info("pair transport cleanup audit", "transport", pt.Mode, "action", "ngrok tunnel shutdown")

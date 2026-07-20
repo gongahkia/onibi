@@ -74,7 +74,6 @@ See [`docs/roadmap.md`](./docs/roadmap.md) for the focused product boundary.
 ./bin/onibi show
 ./bin/onibi hide --headless
 ./bin/onibi pair
-./bin/onibi cloudflare setup
 ./bin/onibi devices
 ./bin/onibi unpair <device-id>
 ./bin/onibi install-hooks --interactive
