@@ -64,7 +64,7 @@ var wireGuardBindHost = func(ctx context.Context) (string, error) {
 var zeroTierBindHost = func(ctx context.Context) (string, error) {
 	return webtransport.NewZeroTierFromEnv().BindHost(ctx)
 }
-var privateTransportHealthInterval = 5 * time.Second
+var runtimeTransportHealthInterval = 5 * time.Second
 
 func upCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -418,18 +418,18 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 	fmt.Fprintln(cmd.OutOrStdout(), "Waiting for pairing. Press Ctrl-C to stop.")
 	logger.Info("onibi up ready", "uptime_ms", time.Since(started).Milliseconds())
 
-	var privateTransportHealthC <-chan time.Time
-	var privateTransportTicker *time.Ticker
+	var runtimeTransportHealthC <-chan time.Time
+	var runtimeTransportTicker *time.Ticker
 	if requiresRuntimeTransportHealth(pairTransport.Mode) {
-		privateTransportTicker = time.NewTicker(privateTransportHealthInterval)
-		defer privateTransportTicker.Stop()
-		privateTransportHealthC = privateTransportTicker.C
+		runtimeTransportTicker = time.NewTicker(runtimeTransportHealthInterval)
+		defer runtimeTransportTicker.Stop()
+		runtimeTransportHealthC = runtimeTransportTicker.C
 	}
 	for {
 		select {
-		case <-privateTransportHealthC:
+		case <-runtimeTransportHealthC:
 			if err := pairTransport.Health(ctx); err != nil {
-				logger.Error("private transport health failed; stopping", "transport", pairTransport.Mode, "err", err)
+				logger.Error("transport health failed; stopping", "transport", pairTransport.Mode, "err", err)
 				return fmt.Errorf("%s transport health: %w", pairTransport.Mode, err)
 			}
 		case notice, ok := <-firstRunPairCh:
@@ -478,7 +478,7 @@ func isPrivateMeshTransport(mode webtransport.Mode) bool {
 }
 
 func requiresRuntimeTransportHealth(mode webtransport.Mode) bool {
-	return isPrivateMeshTransport(mode) || mode == webtransport.ModeNgrok
+	return isPrivateMeshTransport(mode) || mode == webtransport.ModeNgrok || mode == webtransport.ModeCloudflareQuick
 }
 
 func validatePrivatePairTransport(listenAddr string, pairTransport webtransport.Resolved) error {

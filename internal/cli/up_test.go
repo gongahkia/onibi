@@ -318,11 +318,13 @@ func TestUpHelpDocumentsPublicRelayE2ERequirement(t *testing.T) {
 }
 
 func TestRuntimeTransportHealthIncludesNgrok(t *testing.T) {
-	if !requiresRuntimeTransportHealth(webtransport.ModeNgrok) {
-		t.Fatal("ngrok runtime health disabled")
+	for _, mode := range []webtransport.Mode{webtransport.ModeNgrok, webtransport.ModeCloudflareQuick} {
+		if !requiresRuntimeTransportHealth(mode) {
+			t.Fatalf("%s runtime health disabled", mode)
+		}
 	}
-	if requiresRuntimeTransportHealth(webtransport.ModeCloudflareQuick) {
-		t.Fatal("cloudflare quick unexpectedly requires runtime health")
+	if requiresRuntimeTransportHealth(webtransport.ModeCloudflareNamed) {
+		t.Fatal("cloudflare named unexpectedly requires runtime health")
 	}
 }
 

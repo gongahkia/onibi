@@ -4,9 +4,9 @@ Status: frozen for Q0 implementation.
 
 ## Scope
 
-This protocol protects Onibi traffic when a third-party HTTPS relay is used, starting with Cloudflare Quick Tunnel. The relay may terminate TLS and proxy requests, but it must not learn terminal bytes, approval payloads, control messages, or typed input.
+This protocol protects Onibi traffic when a third-party HTTPS relay is used, including Cloudflare Quick Tunnel and ngrok. The relay may terminate TLS and proxy requests, but it must not learn terminal bytes, approval payloads, control messages, or typed input.
 
-Local LAN and Tailscale modes can use the same framing, but E2E is mandatory for `--transport=cloudflare-quick`.
+Local LAN and Tailscale modes can use the same framing, but E2E is mandatory for `--transport=cloudflare-quick` and `--transport=ngrok`.
 
 References:
 
@@ -158,7 +158,7 @@ For HTTP responses, the server uses the request `stream_id`, `dir=s2c`, and `seq
    - `session_verifier = HKDF-SHA256(K_pair, salt=session_id, info="onibi-e2e-session-verifier-v1", L=32)`
 7. Client sends `session_verifier` in the first encrypted WebSocket hello. Server constant-time compares it before accepting PTY/events traffic.
 
-The raw key is not persisted. If the daemon restarts, Cloudflare Quick Tunnel E2E sessions must be re-paired.
+The raw key is not persisted. If the daemon restarts, relay E2E sessions must be re-paired.
 
 ## Channel Bindings
 
@@ -177,7 +177,7 @@ Plain `/healthz` may report whether E2E is required and the hex session verifier
 
 ## Failure Behavior
 
-- Missing `#k=`: Cloudflare Quick Tunnel UI refuses to attach and asks the user to rescan the QR.
+- Missing `#k=`: the public-relay UI refuses to attach and asks the user to rescan the QR.
 - Bad key length: client refuses before any network send.
 - Bad verifier: server rejects pairing or WS attach with 401.
 - AES-GCM auth failure: reject frame/request, audit sanitized reason, never surface decrypted partial data.
@@ -188,7 +188,7 @@ Plain `/healthz` may report whether E2E is required and the hex session verifier
 
 Protected against:
 
-- Cloudflare relay reading PTY bytes, typed input, approval payloads, or control requests.
+- Public relay reading PTY bytes, typed input, approval payloads, or control requests.
 - Passive network observers reading Onibi payloads.
 - Relay replay of already accepted request/frame tuples.
 - Server-side persistence leaking raw relay keys.
@@ -198,7 +198,7 @@ Not protected against:
 - Same-user local malware or a debugger on the laptop.
 - A malicious browser extension reading page memory after pairing.
 - A stolen unlocked phone with an active paired session.
-- Traffic metadata: host, timing, byte lengths, connection count, and request paths remain visible to Cloudflare.
+- Traffic metadata: host, timing, byte lengths, connection count, and request paths remain visible to the public relay.
 - Relay dropping, delaying, reordering, or denying traffic.
 - Bugs in browser WebCrypto or Go crypto implementations.
 
@@ -212,5 +212,5 @@ Not protected against:
 - [x] HTTP replay cache uses a 10 minute TTL: `internal/web/e2e.go` has `e2eHTTPReplayTTL = 10 * time.Minute`; `internal/web/e2e_test.go` covers replay, expiry, and cache bounds.
 - [x] Sequence gaps/replay are rejected: `internal/web/e2e.go` tracks expected WebSocket sequence; `internal/envelope/relay.go` rejects unexpected `seq`; `internal/web/e2e_test.go` covers replay rejection.
 - [x] Bad verifier rejects pairing or attach with unauthorized: `internal/web/pair.go` constant-time compares `pair_verifier` before token consumption; `internal/web/auth.go` constant-time compares `verify_token`; `internal/web/pair_test.go`, `internal/web/e2e_test.go`, and `internal/web/ws_pty_test.go` cover rejection.
-- [x] Tagged-release relay E2E gate and no plaintext bypass: `internal/cli/up_test.go` verifies Cloudflare Quick is a relay mode and the removed `--unsafe-cloudflare-no-e2e` flag is rejected; `scripts/release-e2e-gate.sh` is wired as the release assertion.
+- [x] Tagged-release relay E2E gate and no plaintext bypass: `internal/cli/up_test.go` verifies Cloudflare Quick and ngrok are relay modes and the removed `--unsafe-cloudflare-no-e2e` flag is rejected; `scripts/release-e2e-gate.sh` is wired as the release assertion.
 - [x] Encrypted pair-confirm gate: `internal/web/pair.go` serves a fragment-reading confirm page at `GET /pair/<token>` and consumes the token only after encrypted `POST /pair/confirm`; the response is sealed on the same stream with `dir=s2c`; `internal/web/pair_test.go` verifies bad pair verifier rejection before successful token claim.

@@ -28,3 +28,10 @@ Network reachability is not authorization. Onibi does not provide remote-host ma
 2. Start `onibi up --transport=ngrok`, scan the new QR on iPhone Safari and Chrome over LTE, and verify terminal input, output, approval allow, and approval deny.
 3. Open the pair URL after removing `#k=`; it must not attach.
 4. Stop the Agent API tunnel; Onibi must stop on its next health check. Restart it, scan its new QR, and repeat a terminal command.
+
+## Cloudflare Quick
+
+1. Run `onibi doctor --transport=cloudflare-quick`; confirm `cloudflared` is available and no account or named-tunnel configuration is required.
+2. Start `onibi up --transport=cloudflare-quick`, scan the new QR on iPhone Safari and Chrome over LTE, and verify terminal input, output, approval allow, and approval deny.
+3. Open the pair URL after removing `#k=`; it must not attach.
+4. Stop `cloudflared`; Onibi must stop on its next health check. Restart it, scan its new QR, and repeat a terminal command.
