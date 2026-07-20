@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -96,65 +95,6 @@ func TestPairTokenExpiredFails(t *testing.T) {
 	}
 	if ct := resp.Header.Get("Content-Type"); !strings.Contains(ct, "text/html") {
 		t.Fatalf("content-type = %q", ct)
-	}
-}
-
-func TestViewerPairTokenCreatesViewerSession(t *testing.T) {
-	srv, cleanup := testServer(t)
-	defer cleanup()
-	token, err := setup.NewViewerToken(context.Background(), srv.db, "s1", time.Hour, 2)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ts := httptest.NewServer(srv.Handler())
-	defer ts.Close()
-	client := noRedirectClient()
-
-	resp, err := client.Get(ts.URL + "/pair/" + token)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d", resp.StatusCode)
-	}
-	if !strings.Contains(string(body), "/s/s1") {
-		t.Fatalf("body missing session redirect: %q", string(body))
-	}
-	cookies := resp.Cookies()
-	if len(cookies) != 1 {
-		t.Fatalf("cookies = %#v", cookies)
-	}
-	session, ok, err := srv.db.WebSession(context.Background(), cookies[0].Value)
-	if err != nil || !ok {
-		t.Fatalf("web session ok=%v err=%v", ok, err)
-	}
-	if session.Role != store.PairRoleViewer {
-		t.Fatalf("role = %q, want viewer", session.Role)
-	}
-	if session.ShareSessionID != "s1" || session.ShareExpiresAt.IsZero() {
-		t.Fatalf("viewer share binding = %#v", session)
-	}
-
-	resp2, err := client.Get(ts.URL + "/pair/" + token)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp2.Body.Close()
-	if resp2.StatusCode != http.StatusOK {
-		t.Fatalf("second status = %d", resp2.StatusCode)
-	}
-	resp3, err := client.Get(ts.URL + "/pair/" + token)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp3.Body.Close()
-	if resp3.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("third status = %d", resp3.StatusCode)
 	}
 }
 

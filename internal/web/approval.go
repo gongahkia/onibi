@@ -25,7 +25,7 @@ func (s *Server) handleApproval(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	ownerSessionID, ok := s.requireOwnerHTTPAuth(w, r)
+	ownerSessionID, ok := s.requireHTTPAuth(w, r)
 	if !ok {
 		return
 	}
@@ -95,7 +95,7 @@ func (s *Server) handleApproval(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleApprovalGet(w http.ResponseWriter, r *http.Request, started time.Time) {
-	if _, ok := s.requireOwnerHTTPAuth(w, r); !ok {
+	if _, ok := s.requireHTTPAuth(w, r); !ok {
 		return
 	}
 	if s.approvalQueue == nil {

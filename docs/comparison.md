@@ -17,4 +17,4 @@ Supported adapters and transport boundaries are documented in [the adapter contr
 
 For a vendor-native remote workflow, use that vendor's first-party documentation: [OpenAI Codex remote connections](https://learn.chatgpt.com/docs/remote-connections) or [Claude Code Remote Control](https://code.claude.com/docs/en/remote-control).
 
-Choose a terminal-sharing or multiplexer tool when its session model is the product you need. Onibi does not maintain competitor feature matrices, pricing comparisons, or parity claims.
+Choose a terminal multiplexer or remote-terminal tool when its session model is the product you need. Onibi does not maintain competitor feature matrices, pricing comparisons, or parity claims.

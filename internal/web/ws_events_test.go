@@ -134,7 +134,6 @@ func TestSessionsStatusWSEventReplay(t *testing.T) {
 				Agent:                 "claude",
 				LastActivity:          time.Now().UTC().Format(time.RFC3339Nano),
 				PendingApprovalsCount: 1,
-				RoleRequired:          "owner",
 			}}, nil
 		},
 	})

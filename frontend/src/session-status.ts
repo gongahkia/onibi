@@ -14,7 +14,6 @@ export type SessionStatus = {
   recovery_state?: SessionRecoveryState;
   recovery_reason?: string;
   recovery_updated_at?: string;
-  role_required: string;
 };
 
 export type SessionsStatusPayload = {

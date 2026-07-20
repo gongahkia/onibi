@@ -32,7 +32,7 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 		writeControlError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	ownerSessionID, ok := s.requireOwnerHTTPAuth(w, r)
+	ownerSessionID, ok := s.requireHTTPAuth(w, r)
 	if !ok {
 		return
 	}

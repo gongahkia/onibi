@@ -257,9 +257,6 @@ func firstRunNewestOwnerSession(ctx context.Context, db *store.DB) (store.WebSes
 	var newest store.WebSession
 	count := 0
 	for _, session := range sessions {
-		if session.Role != store.PairRoleOwner {
-			continue
-		}
 		count++
 		if newest.SessionID == "" || session.CreatedAt.After(newest.CreatedAt) {
 			newest = session

@@ -8,21 +8,17 @@ import (
 )
 
 type WebSession struct {
-	SessionID      string
-	DeviceLabel    string
-	Role           string
-	ShareSessionID string
-	ShareExpiresAt time.Time
-	CreatedAt      time.Time
-	LastSeenAt     time.Time
-	Revoked        bool
-	RevokedReason  string
+	SessionID     string
+	DeviceLabel   string
+	CreatedAt     time.Time
+	LastSeenAt    time.Time
+	Revoked       bool
+	RevokedReason string
 }
 
 const (
 	WebSessionReasonMissing    = "session-missing"
 	WebSessionReasonRevoked    = "session-revoked"
-	WebSessionReasonExpired    = "session-expired"
 	WebSessionReasonStoreRekey = "store-rekey"
 )
 
@@ -31,17 +27,23 @@ type WebSessionStatus struct {
 	Reason string
 }
 
-func (d *DB) ListWebSessions(ctx context.Context, includeRevoked bool) ([]WebSession, error) {
-	where := "WHERE revoked = 0 AND (share_expires_at = 0 OR share_expires_at > ?)"
-	args := []any{time.Now().Unix()}
-	if includeRevoked {
-		where = ""
-		args = nil
+func (d *DB) legacyOwnerClause() string {
+	if d.webSessionsHaveRole {
+		return " AND role = 'owner'"
 	}
+	return ""
+}
+
+func (d *DB) ListWebSessions(ctx context.Context, includeRevoked bool) ([]WebSession, error) {
+	where := "WHERE 1 = 1"
+	if !includeRevoked {
+		where += " AND revoked = 0"
+	}
+	where += d.legacyOwnerClause()
 	rows, err := d.sql.QueryContext(ctx,
-		`SELECT cookie_hash, cookie_enc, user_agent_enc, role, share_session_id, share_expires_at, created_at, last_seen_at, revoked, revoked_reason
+		`SELECT cookie_hash, cookie_enc, user_agent_enc, created_at, last_seen_at, revoked, revoked_reason
 		   FROM web_sessions `+where+`
-		  ORDER BY revoked ASC, last_seen_at DESC`, args...)
+		  ORDER BY revoked ASC, last_seen_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -50,11 +52,10 @@ func (d *DB) ListWebSessions(ctx context.Context, includeRevoked bool) ([]WebSes
 	for rows.Next() {
 		var s WebSession
 		var hash string
-		var role string
 		var sessionEnc, labelEnc []byte
-		var created, last, shareExpiresAt int64
+		var created, last int64
 		var revoked int
-		if err := rows.Scan(&hash, &sessionEnc, &labelEnc, &role, &s.ShareSessionID, &shareExpiresAt, &created, &last, &revoked, &s.RevokedReason); err != nil {
+		if err := rows.Scan(&hash, &sessionEnc, &labelEnc, &created, &last, &revoked, &s.RevokedReason); err != nil {
 			return nil, err
 		}
 		sessionID, err := d.openString(ctx, "web_sessions", hash, "cookie_enc", sessionEnc)
@@ -67,10 +68,6 @@ func (d *DB) ListWebSessions(ctx context.Context, includeRevoked bool) ([]WebSes
 		}
 		s.SessionID = sessionID
 		s.DeviceLabel = label
-		s.Role = role
-		if shareExpiresAt > 0 {
-			s.ShareExpiresAt = time.Unix(shareExpiresAt, 0)
-		}
 		s.CreatedAt = time.Unix(created, 0)
 		s.LastSeenAt = time.Unix(last, 0)
 		s.Revoked = revoked != 0
@@ -80,7 +77,9 @@ func (d *DB) ListWebSessions(ctx context.Context, includeRevoked bool) ([]WebSes
 }
 
 func (d *DB) RevokeWebSession(ctx context.Context, sessionID string) (bool, error) {
-	res, err := d.sql.ExecContext(ctx, `UPDATE web_sessions SET revoked = 1, revoked_reason = ? WHERE cookie_hash = ? AND revoked = 0`, WebSessionReasonRevoked, lookupHash(sessionID))
+	res, err := d.sql.ExecContext(ctx,
+		`UPDATE web_sessions SET revoked = 1, revoked_reason = ? WHERE cookie_hash = ? AND revoked = 0`+d.legacyOwnerClause(),
+		WebSessionReasonRevoked, lookupHash(sessionID))
 	if err != nil {
 		return false, err
 	}
@@ -89,54 +88,18 @@ func (d *DB) RevokeWebSession(ctx context.Context, sessionID string) (bool, erro
 		return false, err
 	}
 	return n == 1, nil
-}
-
-func (d *DB) RevokeWebSessionWithRole(ctx context.Context, sessionID, role string) (bool, error) {
-	res, err := d.sql.ExecContext(ctx, `UPDATE web_sessions SET revoked = 1, revoked_reason = ? WHERE cookie_hash = ? AND role = ? AND revoked = 0`, WebSessionReasonRevoked, lookupHash(sessionID), role)
-	if err != nil {
-		return false, err
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return false, err
-	}
-	return n == 1, nil
-}
-
-func (d *DB) RevokeWebSessionsByRole(ctx context.Context, role string) (int64, error) {
-	res, err := d.sql.ExecContext(ctx, `UPDATE web_sessions SET revoked = 1, revoked_reason = ? WHERE role = ? AND revoked = 0`, WebSessionReasonRevoked, role)
-	if err != nil {
-		return 0, err
-	}
-	return res.RowsAffected()
-}
-
-func (d *DB) WebSessionRole(ctx context.Context, sessionID string) (string, bool, error) {
-	var role string
-	err := d.sql.QueryRowContext(ctx,
-		`SELECT role FROM web_sessions
-		  WHERE cookie_hash = ? AND revoked = 0 AND (share_expires_at = 0 OR share_expires_at > ?)`,
-		lookupHash(sessionID), time.Now().Unix()).Scan(&role)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", false, nil
-	}
-	if err != nil {
-		return "", false, err
-	}
-	return role, true, nil
 }
 
 func (d *DB) WebSession(ctx context.Context, sessionID string) (WebSession, bool, error) {
 	hash := lookupHash(sessionID)
 	row := d.sql.QueryRowContext(ctx,
-		`SELECT cookie_enc, user_agent_enc, role, share_session_id, share_expires_at, created_at, last_seen_at, revoked, revoked_reason
-		   FROM web_sessions WHERE cookie_hash = ?`, hash)
+		`SELECT cookie_enc, user_agent_enc, created_at, last_seen_at, revoked, revoked_reason
+		   FROM web_sessions WHERE cookie_hash = ?`+d.legacyOwnerClause(), hash)
 	var s WebSession
-	var role string
 	var sessionEnc, labelEnc []byte
-	var created, last, shareExpiresAt int64
+	var created, last int64
 	var revoked int
-	err := row.Scan(&sessionEnc, &labelEnc, &role, &s.ShareSessionID, &shareExpiresAt, &created, &last, &revoked, &s.RevokedReason)
+	err := row.Scan(&sessionEnc, &labelEnc, &created, &last, &revoked, &s.RevokedReason)
 	if errors.Is(err, sql.ErrNoRows) {
 		return WebSession{}, false, nil
 	}
@@ -153,10 +116,6 @@ func (d *DB) WebSession(ctx context.Context, sessionID string) (WebSession, bool
 	}
 	s.SessionID = openedSessionID
 	s.DeviceLabel = label
-	s.Role = role
-	if shareExpiresAt > 0 {
-		s.ShareExpiresAt = time.Unix(shareExpiresAt, 0)
-	}
 	s.CreatedAt = time.Unix(created, 0)
 	s.LastSeenAt = time.Unix(last, 0)
 	s.Revoked = revoked != 0

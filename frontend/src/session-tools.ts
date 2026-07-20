@@ -24,7 +24,7 @@ export class SessionToolsPanel {
       return;
     }
     const modal = document.createElement("div");
-    modal.className = "share-modal";
+    modal.className = "modal-overlay";
     modal.addEventListener("click", (event) => {
       if (event.target === modal) {
         this.close();
@@ -37,14 +37,14 @@ export class SessionToolsPanel {
       }
     });
     const sheet = document.createElement("section");
-    sheet.className = "share-form session-tools-form";
+    sheet.className = "modal-sheet session-tools-form";
     sheet.setAttribute("role", "dialog");
     sheet.setAttribute("aria-modal", "true");
     sheet.setAttribute("aria-label", "session tools");
     const header = document.createElement("div");
-    header.className = "share-header";
+    header.className = "modal-header";
     const title = document.createElement("div");
-    title.className = "share-title";
+    title.className = "modal-title";
     title.textContent = "session tools";
     const close = button("Close");
     close.addEventListener("click", () => this.close());

@@ -72,7 +72,6 @@ func (s *Server) handleWSPTY(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ownerSessionID := auth.ID
-	readOnly := auth.Role == store.PairRoleViewer
 	sessionKey, err := s.e2eSessionKey(ownerSessionID)
 	if err != nil {
 		s.log.Warn("web pty e2e unavailable", "request_id", requestID(r), "err", err, "remote", remoteHost(r.RemoteAddr))
@@ -88,12 +87,10 @@ func (s *Server) handleWSPTY(w http.ResponseWriter, r *http.Request) {
 	defer c.CloseNow()
 	reqID := requestID(r)
 	remote := remoteHost(r.RemoteAddr)
-	userAgent := trimForLog(r.UserAgent(), 160)
 	var sessionID string
-	viewerAttached := false
 	var bytesIn atomic.Uint64
 	var bytesOut atomic.Uint64
-	s.log.Info("web pty ws accepted", "request_id", reqID, "remote", remote, "role", auth.Role)
+	s.log.Info("web pty ws accepted", "request_id", reqID, "remote", remote)
 	defer func() {
 		s.log.Info("web pty ws closed",
 			"request_id", reqID,
@@ -103,9 +100,6 @@ func (s *Server) handleWSPTY(w http.ResponseWriter, r *http.Request) {
 			"bytes_from_client", bytesIn.Load(),
 			"bytes_to_client", bytesOut.Load(),
 		)
-		if viewerAttached {
-			s.auditViewerEvent(context.Background(), "viewer.detach", sessionID, ownerSessionID, remote, userAgent)
-		}
 	}()
 	c.SetReadLimit(1 << 20)
 
@@ -135,10 +129,6 @@ func (s *Server) handleWSPTY(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.log.Info("web pty attached", "request_id", reqID, "session_id", attach.SessionID, "last_seq", attach.LastSeq, "attach_latency_ms", time.Since(started).Milliseconds())
-	if readOnly {
-		s.auditViewerEvent(context.Background(), "viewer.attach", sessionID, ownerSessionID, remote, userAgent)
-		viewerAttached = true
-	}
 
 	replay, ch, unsub := host.SubscribeFrom(ctx, pty.DefaultSubscriberBuffer, attach.LastSeq)
 	defer unsub()
@@ -200,7 +190,7 @@ func (s *Server) handleWSPTY(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		bytesIn.Add(uint64(len(p)))
-		if err := handlePTYClientFrame(host, typ, p, wsE2E, readOnly); err != nil {
+		if err := handlePTYClientFrame(host, typ, p, wsE2E); err != nil {
 			s.log.Warn("web pty client frame rejected", "request_id", reqID, "session_id", attach.SessionID, "message_type", typ.String(), "bytes", len(p), "err", err)
 			_ = c.Close(websocket.StatusPolicyViolation, "invalid frame")
 			return
@@ -241,7 +231,7 @@ func websocketAttachTimeout() time.Duration {
 	return timeout
 }
 
-func handlePTYClientFrame(host *pty.Host, typ websocket.MessageType, p []byte, codec wsCodec, readOnly bool) error {
+func handlePTYClientFrame(host *pty.Host, typ websocket.MessageType, p []byte, codec wsCodec) error {
 	var err error
 	if codec != nil {
 		typ, p, err = codec.decrypt(typ, p)
@@ -251,9 +241,6 @@ func handlePTYClientFrame(host *pty.Host, typ websocket.MessageType, p []byte, c
 	}
 	switch typ {
 	case websocket.MessageBinary:
-		if readOnly {
-			return nil
-		}
 		_, err := host.Write(p)
 		return err
 	case websocket.MessageText:
@@ -264,9 +251,6 @@ func handlePTYClientFrame(host *pty.Host, typ websocket.MessageType, p []byte, c
 			if frame.Type == "attach" {
 				return errors.New("web: duplicate attach")
 			}
-		}
-		if readOnly {
-			return nil
 		}
 		_, err := host.Write(p)
 		return err

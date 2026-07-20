@@ -26,7 +26,6 @@ import { startFirstRunTour } from "./tour";
 import { ApprovalWakeLock } from "./wake-lock";
 import { installImagePaste } from "./image-paste";
 import type { ImageUploadRequest } from "./image-paste";
-import { SharePanel } from "./share";
 import { ApprovalInboxPanel } from "./approval-inbox";
 import { TerminalStatus } from "./terminal-status";
 import { InterventionPanel } from "./intervention-panel";
@@ -36,16 +35,12 @@ type SessionInfo = {
   session_id: string;
   ws_token: string;
   csrf_token: string;
-  role: SessionRole;
 };
 
 type EventsInfo = {
   ws_token: string;
   csrf_token: string;
-  role: SessionRole;
 };
-
-type SessionRole = "owner" | "viewer";
 
 const termEl = requireElement("term");
 const splash = requireElement("splash");
@@ -65,11 +60,9 @@ const approvals = new ApprovalOverlay(approvalRoot, approvalWakeLock);
 let relayE2E: RelayE2E | undefined;
 let sessionList: SessionsListView | undefined;
 let snapshots: SnapshotsPanel | undefined;
-let sharePanel: SharePanel | undefined;
 let approvalInbox: ApprovalInboxPanel | undefined;
 let interventionPanel: InterventionPanel | undefined;
 let terminalInputEnabled = false;
-let viewerMode = false;
 let csrfToken = "";
 const terminalStatus = new TerminalStatus();
 
@@ -115,9 +108,7 @@ ws.addEventListener("recovered", (event) => {
 });
 events.addEventListener("event", (event) => {
   const envelope = (event as CustomEvent<EventEnvelope>).detail;
-  if (!viewerMode) {
-    approvals.handleEnvelope(envelope);
-  }
+  approvals.handleEnvelope(envelope);
   sessionList?.handleEnvelope(envelope);
   approvalInbox?.handleEnvelope(envelope);
   snapshots?.handleEnvelope(envelope);
@@ -144,12 +135,11 @@ async function boot(): Promise<void> {
     }
     const info = await sessionInfo(routeSession);
     csrfToken = info.csrf_token;
-    viewerMode = info.role === "viewer";
-    terminalInputEnabled = !viewerMode;
+    terminalInputEnabled = true;
     await relayE2E?.bindSession(info.ws_token);
     refreshPushOnOpen();
     saveLastSessionID(info.session_id);
-    showTerminalChrome(viewerMode);
+    showTerminalChrome();
     snapshots = new SnapshotsPanel(
       snapshotsRoot,
       info.session_id,
@@ -158,35 +148,27 @@ async function boot(): Promise<void> {
       navigateToSession,
       showToast
     );
-    const imagePaste = viewerMode
-      ? undefined
-      : installImagePaste({
-          root: termEl,
-          uploadImage,
-          sendText: (path) => ws.sendText(path),
-          showToast,
-          focus: () => term.focus()
-        });
-    sharePanel = viewerMode
-      ? undefined
-      : new SharePanel(document.body, info.session_id, getJSON, postJSON, showToast);
-    interventionPanel = viewerMode
-      ? undefined
-      : new InterventionPanel(
-          document.body,
-          info.session_id,
-          postJSON,
-          getJSON,
-          () => term.focus(),
-          (target) => {
-            if (target === "mac") {
-              ws.close();
-            }
-          }
-        );
+    const imagePaste = installImagePaste({
+      root: termEl,
+      uploadImage,
+      sendText: (path) => ws.sendText(path),
+      showToast,
+      focus: () => term.focus()
+    });
+    interventionPanel = new InterventionPanel(
+      document.body,
+      info.session_id,
+      postJSON,
+      getJSON,
+      () => term.focus(),
+      (target) => {
+        if (target === "mac") {
+          ws.close();
+        }
+      }
+    );
     const tools = new SessionToolsPanel(document.body, [
-      { label: "Snapshots", action: () => snapshots?.toggle() },
-      ...(sharePanel === undefined ? [] : [{ label: "Share", action: () => sharePanel.open() }])
+      { label: "Snapshots", action: () => snapshots?.toggle() }
     ]);
     installControls(toolbar, tools, interventionPanel);
     new SoftKeyBar({
@@ -201,20 +183,17 @@ async function boot(): Promise<void> {
       decreaseFontSize: () => changeTerminalFontSize(-1),
       increaseFontSize: () => changeTerminalFontSize(1),
       pasteImage: () => imagePaste?.pasteFromClipboard() ?? Promise.resolve(false),
-      readOnly: viewerMode
+      readOnly: false
     });
     connectTerminal(info);
     events.connect(eventsURL(info.ws_token));
-    if (!viewerMode) {
-      startFirstRunTour();
-    }
+    startFirstRunTour();
   } catch {
     splash.textContent = "session unavailable";
   }
 }
 
 async function showSessionsHome(): Promise<void> {
-  viewerMode = false;
   terminalInputEnabled = false;
   showListChrome();
   approvalInbox = new ApprovalInboxPanel(document.body, getJSON, postJSON, showToast);
@@ -252,7 +231,6 @@ async function connectSessionListEvents(): Promise<void> {
   try {
     const info = await getJSON<EventsInfo>("/session-info?events=1");
     csrfToken = info.csrf_token;
-    viewerMode = info.role === "viewer";
     await relayE2E?.bindSession(info.ws_token);
     events.connect(eventsURL(info.ws_token));
   } catch {
@@ -491,11 +469,11 @@ function showListChrome(): void {
   sessionListRoot.hidden = false;
 }
 
-function showTerminalChrome(readOnly: boolean): void {
+function showTerminalChrome(): void {
   toolbar.hidden = false;
   termEl.hidden = false;
   softkeys.hidden = false;
-  approvalRoot.hidden = readOnly;
+  approvalRoot.hidden = false;
   sessionListRoot.hidden = true;
 }
 

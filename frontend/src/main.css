@@ -456,7 +456,7 @@
   overflow-wrap: anywhere;
 }
 
-.share-modal {
+.modal-overlay {
   position: fixed;
   inset: 0;
   z-index: 15;
@@ -468,7 +468,7 @@
   background: rgba(0, 0, 0, 0.42);
 }
 
-.share-form {
+.modal-sheet {
   display: grid;
   gap: 8px;
   width: min(100%, 420px);
@@ -498,17 +498,14 @@
   text-align: left;
 }
 
-.share-header,
-.share-controls,
-.share-url-row,
-.share-viewer-row {
+.modal-header {
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
 }
 
-.share-title {
+.modal-title {
   flex: 1 1 auto;
   min-width: 0;
   color: var(--page-fg);
@@ -518,99 +515,15 @@
   white-space: nowrap;
 }
 
-.share-controls {
-  flex-wrap: wrap;
-}
-
-.share-field {
-  display: grid;
-  gap: 3px;
-  color: var(--muted-fg);
-  font-size: 11px;
-}
-
-.share-select,
-.share-url {
-  box-sizing: border-box;
-  border: 1px solid var(--button-border);
-  border-radius: 2px;
-  background: var(--panel-solid-bg);
-  color: var(--page-fg);
-  font: 12px var(--mono-font);
-}
-
-.share-select {
-  min-width: 82px;
-  min-height: 30px;
-  padding: 0 8px;
-}
-
-.share-result {
-  display: grid;
-  gap: 8px;
-  justify-items: center;
-}
-
-.share-qr {
-  width: min(220px, 64vw);
-  aspect-ratio: 1;
-  border: 8px solid #fff;
-  border-radius: 2px;
-  background: #fff;
-}
-
-.share-url-row {
-  width: 100%;
-}
-
-.share-url {
-  flex: 1 1 auto;
-  min-width: 0;
-  min-height: 30px;
-  padding: 0 8px;
-}
-
-.share-meta,
-.share-status,
-.share-empty,
-.share-viewer-meta {
+.modal-status,
+.modal-empty {
   color: var(--muted-fg);
   font-size: 11px;
   overflow-wrap: anywhere;
 }
 
-.share-viewers {
-  display: grid;
-  gap: 6px;
-}
-
-.share-viewer-row {
-  min-height: 44px;
-  box-sizing: border-box;
-  border: 1px solid var(--button-border);
-  border-radius: 2px;
-  background: var(--button-bg);
-  padding: 7px 8px;
-}
-
-.share-viewer-main {
-  display: grid;
-  gap: 3px;
-  min-width: 0;
-  flex: 1 1 auto;
-}
-
-.share-viewer-id {
-  min-width: 0;
-  color: var(--page-fg);
-  font: 700 12px var(--mono-font);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.share-status,
-.share-empty {
+.modal-status,
+.modal-empty {
   min-height: 16px;
 }
 

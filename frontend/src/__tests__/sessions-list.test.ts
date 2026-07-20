@@ -82,8 +82,7 @@ function session(): SessionSummary {
     cwd: "/tmp/repo",
     started_at: "2026-07-08T00:00:00Z",
     last_activity: "2026-07-08T00:01:00Z",
-    pending_approvals_count: 1,
-    role_required: "owner"
+    pending_approvals_count: 1
   };
 }
 

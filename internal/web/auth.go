@@ -10,8 +10,6 @@ import (
 	"errors"
 	"net/http"
 	"time"
-
-	"github.com/gongahkia/onibi/internal/store"
 )
 
 const (
@@ -25,13 +23,11 @@ var (
 	errAuthMissingCookie = errors.New("missing_owner_cookie")
 	errAuthEmptyCookie   = errors.New("empty_owner_cookie")
 	errAuthInvalidCookie = errors.New("invalid_owner_session")
-	errAuthForbiddenRole = errors.New("forbidden_session_role")
 	errAuthBadVerifier   = errors.New("bad_relay_verifier")
 )
 
 type authenticatedSession struct {
-	ID   string
-	Role string
+	ID string
 }
 
 func (s *Server) CreateOwnerSession(ctx context.Context, w http.ResponseWriter, deviceLabel string) (string, error) {
@@ -42,37 +38,7 @@ func (s *Server) CreateOwnerSession(ctx context.Context, w http.ResponseWriter, 
 	if err != nil {
 		return "", err
 	}
-	if err := s.db.PutWebSessionWithRole(ctx, sessionID, deviceLabel, "owner", time.Now()); err != nil {
-		return "", err
-	}
-	setOwnerCookie(w, sessionID)
-	return sessionID, nil
-}
-
-func (s *Server) CreateWebSession(ctx context.Context, w http.ResponseWriter, deviceLabel, role string) (string, error) {
-	if s.db == nil {
-		return "", errors.New("web: db is required")
-	}
-	sessionID, err := newSessionID()
-	if err != nil {
-		return "", err
-	}
-	if err := s.db.PutWebSessionWithRole(ctx, sessionID, deviceLabel, role, time.Now()); err != nil {
-		return "", err
-	}
-	setOwnerCookie(w, sessionID)
-	return sessionID, nil
-}
-
-func (s *Server) CreateViewerSession(ctx context.Context, w http.ResponseWriter, deviceLabel, shareSessionID string, shareExpiresAt time.Time) (string, error) {
-	if s.db == nil {
-		return "", errors.New("web: db is required")
-	}
-	sessionID, err := newSessionID()
-	if err != nil {
-		return "", err
-	}
-	if err := s.db.PutViewerWebSession(ctx, sessionID, deviceLabel, shareSessionID, shareExpiresAt, time.Now()); err != nil {
+	if err := s.db.PutWebSession(ctx, sessionID, deviceLabel, time.Now()); err != nil {
 		return "", err
 	}
 	setOwnerCookie(w, sessionID)
@@ -108,21 +74,6 @@ func (s *Server) requireHTTPAuthInfo(w http.ResponseWriter, r *http.Request) (au
 		return authenticatedSession{}, false
 	}
 	return auth, true
-}
-
-func (s *Server) requireOwnerHTTPAuth(w http.ResponseWriter, r *http.Request) (string, bool) {
-	auth, err := s.authenticate(r)
-	if err != nil {
-		s.log.Warn("web http auth failed", "request_id", requestID(r), "reason", err.Error(), "cookie_present", ownerCookiePresent(r), "path", safeRequestPath(r.URL.Path), "remote", remoteHost(r.RemoteAddr))
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return "", false
-	}
-	if auth.Role != store.PairRoleOwner {
-		s.log.Warn("web http auth forbidden", "request_id", requestID(r), "reason", errAuthForbiddenRole.Error(), "role", auth.Role, "path", safeRequestPath(r.URL.Path), "remote", remoteHost(r.RemoteAddr))
-		http.Error(w, "forbidden", http.StatusForbidden)
-		return "", false
-	}
-	return auth.ID, true
 }
 
 func (s *Server) requireCSRF(w http.ResponseWriter, r *http.Request, sessionID string) bool {
@@ -185,14 +136,7 @@ func (s *Server) authenticate(r *http.Request) (authenticatedSession, error) {
 	if !ok {
 		return authenticatedSession{}, errAuthInvalidCookie
 	}
-	role, ok, err := s.db.WebSessionRole(r.Context(), cookie.Value)
-	if err != nil {
-		return authenticatedSession{}, err
-	}
-	if !ok {
-		return authenticatedSession{}, errAuthInvalidCookie
-	}
-	return authenticatedSession{ID: cookie.Value, Role: role}, nil
+	return authenticatedSession{ID: cookie.Value}, nil
 }
 
 func ownerCookiePresent(r *http.Request) bool {

@@ -5,8 +5,7 @@ test("session tools exposes secondary actions through an accessible sheet", asyn
   const { SessionToolsPanel } = await import("../session-tools");
   const actions: string[] = [];
   const panel = new SessionToolsPanel(requireRoot(), [
-    { label: "Snapshots", action: () => actions.push("snapshots") },
-    { label: "Share", action: () => actions.push("share") }
+    { label: "Snapshots", action: () => actions.push("snapshots") }
   ]);
   requireRoot().append(panel.element);
   expect(requireRoot().textContent).toBe("MORE");
@@ -14,9 +13,9 @@ test("session tools exposes secondary actions through an accessible sheet", asyn
   const dialog = requireRoot().querySelector('[role="dialog"]');
   expect(dialog?.getAttribute("aria-modal")).toBe("true");
   expect(panel.element.getAttribute("aria-expanded")).toBe("true");
-  expect(buttons(dialog)).toEqual(["Close", "Snapshots", "Share"]);
-  click(dom, button(dialog, "Share"));
-  expect(actions).toEqual(["share"]);
+  expect(buttons(dialog)).toEqual(["Close", "Snapshots"]);
+  click(dom, button(dialog, "Snapshots"));
+  expect(actions).toEqual(["snapshots"]);
   expect(requireRoot().querySelector('[role="dialog"]')).toBeNull();
   expect(panel.element.getAttribute("aria-expanded")).toBe("false");
   dom.window.close();
@@ -28,12 +27,12 @@ test("session tools closes with Escape", async () => {
   const panel = new SessionToolsPanel(requireRoot(), [{ label: "Snapshots", action: () => {} }]);
   requireRoot().append(panel.element);
   click(dom, panel.element);
-  const modal = requireRoot().querySelector(".share-modal");
+  const modal = requireRoot().querySelector(".modal-overlay");
   if (!(modal instanceof dom.window.HTMLElement)) {
     throw new Error("missing tools sheet");
   }
   modal.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-  expect(requireRoot().querySelector(".share-modal")).toBeNull();
+  expect(requireRoot().querySelector(".modal-overlay")).toBeNull();
   expect(panel.element.getAttribute("aria-expanded")).toBe("false");
   dom.window.close();
 });

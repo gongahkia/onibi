@@ -53,8 +53,6 @@ func unpairCmd() *cobra.Command {
 		Args:  cobra.MaximumNArgs(1),
 		RunE:  runUnpair,
 	}
-	cmd.Flags().Bool("viewer", false, "revoke only a viewer device")
-	cmd.Flags().Bool("all-viewers", false, "revoke all viewer devices")
 	return cmd
 }
 
@@ -147,7 +145,7 @@ func runDevices(cmd *cobra.Command, _ []string) error {
 		return json.NewEncoder(cmd.OutOrStdout()).Encode(devices)
 	}
 	style := styleFor(cmd)
-	table := [][]string{tableHeader(style, "DEVICE ID", "ROLE", "LABEL", "CREATED", "LAST SEEN", "STATE")}
+	table := [][]string{tableHeader(style, "DEVICE ID", "LABEL", "CREATED", "LAST SEEN", "STATE")}
 	for _, d := range devices {
 		state := style.green("active")
 		if d.Revoked {
@@ -155,7 +153,6 @@ func runDevices(cmd *cobra.Command, _ []string) error {
 		}
 		table = append(table, []string{
 			d.SessionID,
-			d.Role,
 			d.DeviceLabel,
 			formatDeviceTime(d.CreatedAt),
 			formatDeviceTime(d.LastSeenAt),
@@ -171,22 +168,6 @@ func runUnpair(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	defer db.Close()
-	viewerOnly, _ := cmd.Flags().GetBool("viewer")
-	allViewers, _ := cmd.Flags().GetBool("all-viewers")
-	if viewerOnly && allViewers {
-		return errors.New("--viewer and --all-viewers are mutually exclusive")
-	}
-	if allViewers {
-		if len(args) != 0 {
-			return errors.New("--all-viewers does not take a device id")
-		}
-		n, err := db.RevokeWebSessionsByRole(cmd.Context(), store.PairRoleViewer)
-		if err != nil {
-			return err
-		}
-		fmt.Fprintf(cmd.OutOrStdout(), "%s Revoked %d viewer device(s)\n", styleFor(cmd).green("[OK]"), n)
-		return nil
-	}
 	id := ""
 	if len(args) == 1 {
 		id = strings.TrimSpace(args[0])
@@ -199,12 +180,7 @@ func runUnpair(cmd *cobra.Command, args []string) error {
 	if id == "" {
 		return errors.New("device id required")
 	}
-	var ok bool
-	if viewerOnly {
-		ok, err = db.RevokeWebSessionWithRole(cmd.Context(), id, store.PairRoleViewer)
-	} else {
-		ok, err = db.RevokeWebSession(cmd.Context(), id)
-	}
+	ok, err := db.RevokeWebSession(cmd.Context(), id)
 	if err != nil {
 		return err
 	}

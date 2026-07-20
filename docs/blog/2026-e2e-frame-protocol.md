@@ -53,14 +53,12 @@ logs.
 The browser imports the raw key into Web Crypto as an HKDF input and immediately
 removes the fragment with `history.replaceState`. That does not make the phone
 memory secret from the phone. It only avoids leaving the key visible in the
-location bar and avoids accidental onward sharing of a live URL with `#k=...`
+location bar and avoids accidental reuse of a live URL with `#k=...`
 still attached.
 
-This pattern is borrowed from sshx's terminal-sharing model: a public session
-identifier is sent to a relay while the browser-side fragment carries material
-the relay should not see. sshx advertises end-to-end encrypted terminal sharing
-with the server unable to read typing data.[^sshx] Onibi keeps the same broad
-idea, but binds it to a single-user owner session and to Onibi's approval model.
+The public session identifier reaches the relay while the browser-side fragment
+carries the material the relay must not receive. Onibi binds that split to one
+owner session and its approval model.
 
 ## Key Schedule
 
@@ -252,7 +250,6 @@ payloads, typed input, and control bodies cross that relay as authenticated
 ciphertext, while the documented metadata remains visible.
 
 [^mdn-fragment]: MDN Web Docs, "URI fragment", <https://developer.mozilla.org/en-US/docs/Web/URI/Reference/Fragment>.
-[^sshx]: sshx project README, <https://github.com/ekzhang/sshx>.
 [^rfc5869]: RFC 5869, "HMAC-based Extract-and-Expand Key Derivation Function (HKDF)", <https://www.rfc-editor.org/info/rfc5869/>.
 [^rfc5116]: RFC 5116, "An Interface and Algorithms for Authenticated Encryption", <https://www.rfc-editor.org/info/rfc5116/>.
 [^nist-gcm]: NIST SP 800-38D, "Recommendation for Block Cipher Modes of Operation: Galois/Counter Mode (GCM) and GMAC", <https://csrc.nist.gov/pubs/sp/800/38/d/final>.

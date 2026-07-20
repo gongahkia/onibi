@@ -7,13 +7,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/url"
 	"strconv"
 
 	e2ecrypto "github.com/gongahkia/onibi/internal/e2e"
 	"github.com/gongahkia/onibi/internal/envelope"
 	"github.com/gongahkia/onibi/internal/setup"
-	"github.com/gongahkia/onibi/internal/store"
 )
 
 func (s *Server) handlePair(w http.ResponseWriter, r *http.Request) {
@@ -36,18 +34,12 @@ func (s *Server) handlePair(w http.ResponseWriter, r *http.Request) {
 		pairConfirmPage(w, token)
 		return
 	}
-	claim, err := setup.Claim(r.Context(), s.db, token)
-	if err != nil {
+	if err := setup.Consume(r.Context(), s.db, token); err != nil {
 		s.log.Warn("web pair failed", "request_id", requestID(r), "reason", err.Error(), "remote", remoteHost(r.RemoteAddr), "user_agent", trimForLog(r.UserAgent(), 160))
 		pairFailed(w)
 		return
 	}
-	var sessionID string
-	if claim.Role == store.PairRoleViewer {
-		sessionID, err = s.CreateViewerSession(r.Context(), w, r.UserAgent(), claim.SessionID, claim.ExpiresAt)
-	} else {
-		sessionID, err = s.CreateWebSession(r.Context(), w, r.UserAgent(), claim.Role)
-	}
+	sessionID, err := s.CreateOwnerSession(r.Context(), w, r.UserAgent())
 	if err != nil {
 		s.log.Error("web pair session create failed", "request_id", requestID(r), "err", err, "remote", remoteHost(r.RemoteAddr))
 		http.Error(w, "pair failed", http.StatusInternalServerError)
@@ -64,8 +56,8 @@ func (s *Server) handlePair(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	s.log.Info("web pair accepted", "request_id", requestID(r), "remote", remoteHost(r.RemoteAddr), "role", claim.Role, "user_agent", trimForLog(r.UserAgent(), 160))
-	pairAccepted(w, claim.SessionID)
+	s.log.Info("web pair accepted", "request_id", requestID(r), "remote", remoteHost(r.RemoteAddr), "user_agent", trimForLog(r.UserAgent(), 160))
+	pairAccepted(w)
 }
 
 type pairConfirmRequest struct {
@@ -139,18 +131,12 @@ func (s *Server) handlePairConfirm(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad verifier", http.StatusUnauthorized)
 		return
 	}
-	claim, err := setup.Claim(r.Context(), s.db, token)
-	if err != nil {
+	if err := setup.Consume(r.Context(), s.db, token); err != nil {
 		s.log.Warn("web pair confirm failed", "request_id", requestID(r), "reason", err.Error(), "remote", remoteHost(r.RemoteAddr))
 		pairFailed(w)
 		return
 	}
-	var sessionID string
-	if claim.Role == store.PairRoleViewer {
-		sessionID, err = s.CreateViewerSession(r.Context(), w, r.UserAgent(), claim.SessionID, claim.ExpiresAt)
-	} else {
-		sessionID, err = s.CreateWebSession(r.Context(), w, r.UserAgent(), claim.Role)
-	}
+	sessionID, err := s.CreateOwnerSession(r.Context(), w, r.UserAgent())
 	if err != nil {
 		s.log.Error("web pair confirm session create failed", "request_id", requestID(r), "err", err, "remote", remoteHost(r.RemoteAddr))
 		http.Error(w, "pair failed", http.StatusInternalServerError)
@@ -165,11 +151,7 @@ func (s *Server) handlePairConfirm(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "relay key missing", http.StatusUnauthorized)
 		return
 	}
-	redirect := "/"
-	if claim.SessionID != "" {
-		redirect = "/s/" + url.PathEscape(claim.SessionID)
-	}
-	plain, err = json.Marshal(pairConfirmResponse{SessionID: sessionID, Redirect: redirect})
+	plain, err = json.Marshal(pairConfirmResponse{SessionID: sessionID, Redirect: "/"})
 	if err != nil {
 		http.Error(w, "pair failed", http.StatusInternalServerError)
 		return
@@ -182,7 +164,7 @@ func (s *Server) handlePairConfirm(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", e2eContentType)
-	s.log.Info("web pair accepted", "request_id", requestID(r), "remote", remoteHost(r.RemoteAddr), "role", claim.Role, "user_agent", trimForLog(r.UserAgent(), 160))
+	s.log.Info("web pair accepted", "request_id", requestID(r), "remote", remoteHost(r.RemoteAddr), "user_agent", trimForLog(r.UserAgent(), 160))
 	_, _ = w.Write(sealed)
 }
 
@@ -192,15 +174,11 @@ func pairFailed(w http.ResponseWriter) {
 	_, _ = fmt.Fprint(w, "pair token expired or already used")
 }
 
-func pairAccepted(w http.ResponseWriter, sessionID string) {
+func pairAccepted(w http.ResponseWriter) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	target := "/"
-	if sessionID != "" {
-		target = "/s/" + url.PathEscape(sessionID)
-	}
-	_, _ = fmt.Fprintf(w, `<!doctype html><title>Onibi paired</title><body><p>Paired. Opening Onibi...</p><script>const h=location.hash;location.replace(h.startsWith("#/")?h.slice(1):(h?"/"+h:%s))</script><p><a href="/">Open Onibi</a></p></body>`, strconv.Quote(target))
+	_, _ = fmt.Fprintf(w, `<!doctype html><title>Onibi paired</title><body><p>Paired. Opening Onibi...</p><script>location.replace(%s)</script><p><a href="/">Open Onibi</a></p></body>`, strconv.Quote("/"))
 }
 
 func pairConfirmPage(w http.ResponseWriter, token string) {

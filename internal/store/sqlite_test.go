@@ -268,89 +268,26 @@ INSERT INTO workspaces(name) VALUES ('legacy-workspace');
 	}
 }
 
-func TestViewerRoleDefaultsToOwner(t *testing.T) {
+func TestFreshSchemaHasNoViewerState(t *testing.T) {
 	db := openTemp(t)
-	ctx := context.Background()
-	if err := db.PutPairingToken(ctx, "role-token", time.Minute); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.PutWebSession(ctx, "role-session", "iPhone", time.Unix(10, 0)); err != nil {
-		t.Fatal(err)
-	}
 	for _, tc := range []struct {
 		table string
-		col   string
-		hash  string
+		cols  []string
 	}{
-		{"pairing_tokens", "token_hash", lookupHash("role-token")},
-		{"web_sessions", "cookie_hash", lookupHash("role-session")},
+		{"pairing_tokens", []string{"role", "session_id", "max_uses", "use_count"}},
+		{"web_sessions", []string{"role", "share_session_id", "share_expires_at"}},
 	} {
-		var role string
-		if err := db.sql.QueryRowContext(ctx, `SELECT role FROM `+tc.table+` WHERE `+tc.col+` = ?`, tc.hash).Scan(&role); err != nil {
-			t.Fatal(err)
+		got := tableColumns(t, db, tc.table)
+		for _, column := range tc.cols {
+			if slices.Contains(got, column) {
+				t.Fatalf("fresh %s has removed column %q: %#v", tc.table, column, got)
+			}
 		}
-		if role != "owner" {
-			t.Fatalf("%s role = %q, want owner", tc.table, role)
-		}
-	}
-	if _, err := db.sql.ExecContext(ctx, `INSERT INTO web_sessions(cookie_hash, cookie_enc, user_agent_enc, role, created_at, last_seen_at, revoked) VALUES ('bad', x'01', x'02', 'admin', 1, 1, 0)`); err == nil {
-		t.Fatal("invalid web session role accepted")
 	}
 }
 
-func TestViewerPairingTokenClaimsUntilMaxUses(t *testing.T) {
-	db := openTemp(t)
-	ctx := context.Background()
-	if err := db.PutViewerPairingToken(ctx, "viewer-token", "s1", time.Hour, 2); err != nil {
-		t.Fatal(err)
-	}
-	for i := 0; i < 2; i++ {
-		claim, ok, err := db.ClaimPairingToken(ctx, "viewer-token")
-		if err != nil || !ok {
-			t.Fatalf("claim %d ok=%v err=%v", i+1, ok, err)
-		}
-		if claim.Role != PairRoleViewer || claim.SessionID != "s1" {
-			t.Fatalf("claim = %#v", claim)
-		}
-	}
-	if _, ok, err := db.ClaimPairingToken(ctx, "viewer-token"); err != nil || ok {
-		t.Fatalf("third claim ok=%v err=%v", ok, err)
-	}
-}
-
-func TestViewerRoleMigrationBackfillsOwner(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "role-upgrade.sqlite")
-	raw, err := sql.Open("sqlite", path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = raw.Exec(`
-CREATE TABLE schema_version (version INTEGER PRIMARY KEY);
-CREATE TABLE pairing_tokens (
-  token_hash TEXT PRIMARY KEY,
-  token_enc BLOB NOT NULL,
-  created_at INTEGER NOT NULL,
-  expires_at INTEGER NOT NULL,
-  consumed INTEGER NOT NULL DEFAULT 0
-);
-CREATE TABLE web_sessions (
-  cookie_hash TEXT PRIMARY KEY,
-  cookie_enc BLOB NOT NULL,
-  user_agent_enc BLOB NOT NULL,
-  key_verifier_enc BLOB,
-  created_at INTEGER NOT NULL,
-  last_seen_at INTEGER NOT NULL,
-  revoked INTEGER NOT NULL DEFAULT 0
-);
-INSERT INTO pairing_tokens(token_hash, token_enc, created_at, expires_at, consumed) VALUES ('pair-hash', x'01', 1, 2, 0);
-INSERT INTO web_sessions(cookie_hash, cookie_enc, user_agent_enc, created_at, last_seen_at, revoked) VALUES ('session-hash', x'02', x'03', 1, 2, 0);
-`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := raw.Close(); err != nil {
-		t.Fatal(err)
-	}
+func TestLegacyViewerStateIsIgnored(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "viewer-upgrade.sqlite")
 	key := make([]byte, 32)
 	for i := range key {
 		key[i] = byte(i + 1)
@@ -359,25 +296,49 @@ INSERT INTO web_sessions(cookie_hash, cookie_enc, user_agent_enc, created_at, la
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = db.Close() })
-	for _, tc := range []struct {
-		table string
-		col   string
-		hash  string
-	}{
-		{"pairing_tokens", "token_hash", "pair-hash"},
-		{"web_sessions", "cookie_hash", "session-hash"},
-	} {
-		if cols := tableColumns(t, db, tc.table); !slices.Contains(cols, "role") {
-			t.Fatalf("%s missing role: %#v", tc.table, cols)
-		}
-		var role string
-		if err := db.sql.QueryRowContext(context.Background(), `SELECT role FROM `+tc.table+` WHERE `+tc.col+` = ?`, tc.hash).Scan(&role); err != nil {
+	ctx := context.Background()
+	for _, token := range []string{"owner-token", "viewer-token"} {
+		if err := db.PutPairingToken(ctx, token, time.Hour); err != nil {
 			t.Fatal(err)
 		}
-		if role != "owner" {
-			t.Fatalf("%s migrated role = %q, want owner", tc.table, role)
+	}
+	for _, id := range []string{"owner-session", "viewer-session"} {
+		if err := db.PutWebSession(ctx, id, id, time.Now()); err != nil {
+			t.Fatal(err)
 		}
+	}
+	for _, statement := range []string{
+		`ALTER TABLE pairing_tokens ADD COLUMN role TEXT NOT NULL DEFAULT 'owner'`,
+		`ALTER TABLE web_sessions ADD COLUMN role TEXT NOT NULL DEFAULT 'owner'`,
+		`UPDATE pairing_tokens SET role = 'viewer' WHERE token_hash = '` + lookupHash("viewer-token") + `'`,
+		`UPDATE web_sessions SET role = 'viewer' WHERE cookie_hash = '` + lookupHash("viewer-session") + `'`,
+	} {
+		if _, err := db.sql.ExecContext(ctx, statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	db, err = Open(path, WithStoreKey(key))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if ok, err := db.ConsumePairingToken(ctx, "owner-token"); err != nil || !ok {
+		t.Fatalf("owner token ok=%v err=%v", ok, err)
+	}
+	if ok, err := db.ConsumePairingToken(ctx, "viewer-token"); err != nil || ok {
+		t.Fatalf("legacy viewer token ok=%v err=%v", ok, err)
+	}
+	if ok, err := db.WebSessionValid(ctx, "owner-session"); err != nil || !ok {
+		t.Fatalf("owner session ok=%v err=%v", ok, err)
+	}
+	if ok, err := db.WebSessionValid(ctx, "viewer-session"); err != nil || ok {
+		t.Fatalf("legacy viewer session ok=%v err=%v", ok, err)
+	}
+	if sessions, err := db.ListWebSessions(ctx, true); err != nil || len(sessions) != 1 || sessions[0].SessionID != "owner-session" {
+		t.Fatalf("visible owner sessions=%#v err=%v", sessions, err)
 	}
 }
 

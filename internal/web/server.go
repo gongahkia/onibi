@@ -112,8 +112,6 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/attachments/images", s.handleImageAttachment)
 	mux.HandleFunc("/push/vapid-public-key", s.handlePushVAPIDPublicKey)
 	mux.HandleFunc("/push/subscribe", s.handlePushSubscribe)
-	mux.HandleFunc("/share", s.handleShare)
-	mux.HandleFunc("/share/revoke", s.handleShareRevoke)
 	mux.HandleFunc("/snapshots", s.handleSnapshots)
 	mux.HandleFunc("/snapshots/restore", s.handleSnapshotRestore)
 	mux.HandleFunc("/snapshots/fork", s.handleSnapshotFork)
@@ -343,7 +341,6 @@ func (s *Server) handleSessionInfo(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]string{
 			"ws_token":   auth.ID,
-			"role":       auth.Role,
 			"csrf_token": csrfTokenForSession(auth.ID),
 		})
 		return
@@ -368,7 +365,6 @@ func (s *Server) handleSessionInfo(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]string{
 		"session_id": sessionID,
 		"ws_token":   auth.ID,
-		"role":       auth.Role,
 		"csrf_token": csrfTokenForSession(auth.ID),
 	})
 }

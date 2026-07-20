@@ -40,7 +40,7 @@ export class ApprovalInboxPanel {
     this.approveArmedID = "";
     this.modal?.remove();
     this.modal = document.createElement("div");
-    this.modal.className = "share-modal";
+    this.modal.className = "modal-overlay";
     this.modal.addEventListener("click", (event) => {
       if (event.target === this.modal) {
         this.close();
@@ -113,11 +113,11 @@ export class ApprovalInboxPanel {
       return;
     }
     const shell = document.createElement("section");
-    shell.className = "share-form approval-inbox-form";
+    shell.className = "modal-sheet approval-inbox-form";
     const header = document.createElement("div");
-    header.className = "share-header";
+    header.className = "modal-header";
     const title = document.createElement("div");
-    title.className = "share-title";
+    title.className = "modal-title";
     title.textContent = "approval inbox";
     const reload = button("Reload", "secondary");
     reload.addEventListener("click", () => void this.load());
@@ -232,14 +232,14 @@ function sourceValue(label: string, value: string): HTMLElement {
 
 function empty(message: string): HTMLElement {
   const el = document.createElement("div");
-  el.className = "share-empty";
+  el.className = "modal-empty";
   el.textContent = message;
   return el;
 }
 
 function statusLine(message: string): HTMLElement {
   const el = document.createElement("div");
-  el.className = "share-status";
+  el.className = "modal-status";
   el.textContent = message;
   return el;
 }

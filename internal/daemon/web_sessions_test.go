@@ -34,7 +34,7 @@ func TestWebSessionsAggregatesActiveRows(t *testing.T) {
 		t.Fatalf("rows = %#v", rows)
 	}
 	first := rows[0]
-	if first.ID != "s1" || first.Agent != "claude" || first.CWD != "/tmp/repo" || first.PendingApprovalsCount != 1 || first.RecoveryState != store.SessionRecoveryHealthy || first.RoleRequired != "owner" {
+	if first.ID != "s1" || first.Agent != "claude" || first.CWD != "/tmp/repo" || first.PendingApprovalsCount != 1 || first.RecoveryState != store.SessionRecoveryHealthy {
 		t.Fatalf("first = %#v", first)
 	}
 	if first.StartedAt == "" || first.LastActivity == "" || first.RecoveryUpdatedAt == "" {

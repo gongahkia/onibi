@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"time"
 )
 
 type RekeyImpact struct {
@@ -77,10 +76,10 @@ func (d *DB) VerifyEncryptedState(ctx context.Context) error {
 
 func (d *DB) RekeyImpact(ctx context.Context) (RekeyImpact, error) {
 	var out RekeyImpact
-	if err := countInt(ctx, d.sql, `SELECT COUNT(*) FROM web_sessions WHERE revoked = 0 AND (share_expires_at = 0 OR share_expires_at > ?)`, []any{time.Now().Unix()}, &out.ActiveWebSessions); err != nil {
+	if err := countInt(ctx, d.sql, `SELECT COUNT(*) FROM web_sessions WHERE revoked = 0`+d.legacyOwnerClause(), nil, &out.ActiveWebSessions); err != nil {
 		return RekeyImpact{}, err
 	}
-	if err := countInt(ctx, d.sql, `SELECT COUNT(*) FROM web_sessions WHERE revoked = 0`, nil, &out.WebSessionsToRevoke); err != nil {
+	if err := countInt(ctx, d.sql, `SELECT COUNT(*) FROM web_sessions WHERE revoked = 0`+d.legacyOwnerClause(), nil, &out.WebSessionsToRevoke); err != nil {
 		return RekeyImpact{}, err
 	}
 	if err := countInt(ctx, d.sql, `SELECT COUNT(*) FROM web_sessions`, nil, &out.WebSessionsToReseal); err != nil {

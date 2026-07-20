@@ -354,8 +354,21 @@ func TestSessionInfoReturnsSinglePTYHost(t *testing.T) {
 	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
 		t.Fatal(err)
 	}
-	if got["session_id"] != "local-shell" || got["ws_token"] == "" || got["role"] != store.PairRoleOwner {
+	if got["session_id"] != "local-shell" || got["ws_token"] == "" || got["role"] != "" {
 		t.Fatalf("session-info = %#v", got)
+	}
+}
+
+func TestShareRoutesAreAbsent(t *testing.T) {
+	srv, cleanup := testServer(t)
+	defer cleanup()
+	for _, method := range []string{http.MethodGet, http.MethodPost} {
+		req := httptest.NewRequest(method, "/share", nil)
+		w := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(w, req)
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("%s /share status=%d", method, w.Code)
+		}
 	}
 }
 
@@ -379,32 +392,7 @@ func TestSessionInfoReturnsSingleSessionIDWithoutHost(t *testing.T) {
 	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
 		t.Fatal(err)
 	}
-	if got["session_id"] != "s1" || got["ws_token"] == "" || got["role"] != store.PairRoleOwner {
-		t.Fatalf("session-info = %#v", got)
-	}
-}
-
-func TestSessionInfoReturnsViewerRole(t *testing.T) {
-	srv, cleanup := testServer(t)
-	defer cleanup()
-	srv.sessionIDs = func() []string { return []string{"s1"} }
-	rr := httptest.NewRecorder()
-	_, err := srv.CreateWebSession(context.Background(), rr, "viewer", store.PairRoleViewer)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req := httptest.NewRequest(http.MethodGet, "/session-info?session_id=s1", nil)
-	req.AddCookie(rr.Result().Cookies()[0])
-	w := httptest.NewRecorder()
-	srv.handleSessionInfo(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d body = %q", w.Code, w.Body.String())
-	}
-	got := map[string]string{}
-	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
-		t.Fatal(err)
-	}
-	if got["role"] != store.PairRoleViewer || got["session_id"] != "s1" || got["ws_token"] == "" {
+	if got["session_id"] != "s1" || got["ws_token"] == "" || got["role"] != "" {
 		t.Fatalf("session-info = %#v", got)
 	}
 }
@@ -429,7 +417,7 @@ func TestSessionInfoEventsTokenSkipsSessionSelection(t *testing.T) {
 	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
 		t.Fatal(err)
 	}
-	if got["ws_token"] != ownerSessionID || got["session_id"] != "" || got["role"] != store.PairRoleOwner {
+	if got["ws_token"] != ownerSessionID || got["session_id"] != "" || got["role"] != "" {
 		t.Fatalf("session-info = %#v", got)
 	}
 }
@@ -461,7 +449,6 @@ func TestSessionsEndpointReturnsResolverRows(t *testing.T) {
 			StartedAt:             "2026-06-30T00:00:00Z",
 			LastActivity:          "2026-06-30T00:01:00Z",
 			PendingApprovalsCount: 2,
-			RoleRequired:          "owner",
 		}}, nil
 	}
 	rr := httptest.NewRecorder()
@@ -480,7 +467,7 @@ func TestSessionsEndpointReturnsResolverRows(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || got[0].ID != "s1" || got[0].PendingApprovalsCount != 2 || got[0].RoleRequired != "owner" {
+	if len(got) != 1 || got[0].ID != "s1" || got[0].PendingApprovalsCount != 2 {
 		t.Fatalf("sessions = %#v", got)
 	}
 }
@@ -493,11 +480,11 @@ func TestSessionsStatusEndpointDerivesStates(t *testing.T) {
 	recent := now.Add(-time.Second).Format(time.RFC3339Nano)
 	srv.sessionList = func(context.Context) ([]SessionSummary, error) {
 		return []SessionSummary{
-			{ID: "await", Agent: "claude", LastActivity: old, PendingApprovalsCount: 1, RoleRequired: "owner"},
-			{ID: "work", Agent: "codex", LastActivity: recent, RoleRequired: "owner"},
-			{ID: "idle", Agent: "opencode", LastActivity: old, RoleRequired: "owner"},
-			{ID: "recover", Agent: "pi", LastActivity: recent, PendingApprovalsCount: 1, RecoveryState: store.SessionRecoveryRecovering, RoleRequired: "owner"},
-			{ID: "failed", Agent: "pi", LastActivity: recent, PendingApprovalsCount: 1, RecoveryState: store.SessionRecoveryFailed, RoleRequired: "owner"},
+			{ID: "await", Agent: "claude", LastActivity: old, PendingApprovalsCount: 1},
+			{ID: "work", Agent: "codex", LastActivity: recent},
+			{ID: "idle", Agent: "opencode", LastActivity: old},
+			{ID: "recover", Agent: "pi", LastActivity: recent, PendingApprovalsCount: 1, RecoveryState: store.SessionRecoveryRecovering},
+			{ID: "failed", Agent: "pi", LastActivity: recent, PendingApprovalsCount: 1, RecoveryState: store.SessionRecoveryFailed},
 		}, nil
 	}
 	rr := httptest.NewRecorder()
@@ -768,26 +755,6 @@ func TestControlActionMapping(t *testing.T) {
 	}
 }
 
-func TestControlRejectsViewer(t *testing.T) {
-	srv, cleanup := testServer(t)
-	defer cleanup()
-	srv.scroll = func(context.Context, string, string) error {
-		t.Fatal("scroll resolver should not be called")
-		return nil
-	}
-	rr := httptest.NewRecorder()
-	if _, err := srv.CreateWebSession(context.Background(), rr, "viewer", store.PairRoleViewer); err != nil {
-		t.Fatal(err)
-	}
-	req := httptest.NewRequest(http.MethodPost, "/control", strings.NewReader(`{"session_id":"s1","action":"page_up"}`))
-	req.AddCookie(rr.Result().Cookies()[0])
-	w := httptest.NewRecorder()
-	srv.handleControl(w, req)
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("status = %d body = %q", w.Code, w.Body.String())
-	}
-}
-
 func TestControlErrorsAreJSON(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
@@ -892,26 +859,6 @@ func TestHandoverCallsResolver(t *testing.T) {
 	}
 	if !called {
 		t.Fatal("handover resolver was not called")
-	}
-}
-
-func TestHandoverRejectsViewer(t *testing.T) {
-	srv, cleanup := testServer(t)
-	defer cleanup()
-	srv.handover = func(context.Context, string, string) (string, error) {
-		t.Fatal("handover resolver should not be called")
-		return "", nil
-	}
-	rr := httptest.NewRecorder()
-	if _, err := srv.CreateWebSession(context.Background(), rr, "viewer", store.PairRoleViewer); err != nil {
-		t.Fatal(err)
-	}
-	req := httptest.NewRequest(http.MethodPost, "/handover", strings.NewReader(`{"session_id":"s1","target":"mac"}`))
-	req.AddCookie(rr.Result().Cookies()[0])
-	w := httptest.NewRecorder()
-	srv.handleHandover(w, req)
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("status = %d body = %q", w.Code, w.Body.String())
 	}
 }
 

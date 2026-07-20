@@ -20,7 +20,6 @@ type SessionSummary struct {
 	RecoveryState         store.SessionRecoveryState `json:"recovery_state,omitempty"`
 	RecoveryReason        string                     `json:"recovery_reason,omitempty"`
 	RecoveryUpdatedAt     string                     `json:"recovery_updated_at,omitempty"`
-	RoleRequired          string                     `json:"role_required"`
 }
 
 type SessionState string
@@ -52,7 +51,6 @@ type SessionStatus struct {
 	RecoveryState         store.SessionRecoveryState `json:"recovery_state,omitempty"`
 	RecoveryReason        string                     `json:"recovery_reason,omitempty"`
 	RecoveryUpdatedAt     string                     `json:"recovery_updated_at,omitempty"`
-	RoleRequired          string                     `json:"role_required"`
 }
 
 func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
@@ -130,7 +128,6 @@ func (s *Server) sessionsStatus(ctx context.Context, now time.Time) (SessionsSta
 			RecoveryState:         row.RecoveryState,
 			RecoveryReason:        row.RecoveryReason,
 			RecoveryUpdatedAt:     row.RecoveryUpdatedAt,
-			RoleRequired:          row.RoleRequired,
 		})
 	}
 	return out, nil

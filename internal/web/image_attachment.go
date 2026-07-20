@@ -41,7 +41,7 @@ func (s *Server) handleImageAttachment(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	ownerSessionID, ok := s.requireOwnerHTTPAuth(w, r)
+	ownerSessionID, ok := s.requireHTTPAuth(w, r)
 	if !ok {
 		return
 	}

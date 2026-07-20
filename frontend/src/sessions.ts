@@ -12,7 +12,6 @@ export type SessionSummary = {
   recovery_state?: SessionRecoveryState;
   recovery_reason?: string;
   recovery_updated_at?: string;
-  role_required: string;
 };
 
 type SessionRecoveryState =
@@ -273,7 +272,6 @@ function sessionMeta(row: SessionSummary): string {
     parts.push(`${row.pending_approvals_count} pending`);
   }
   parts.push(formatWhen(row.last_activity));
-  parts.push(row.role_required);
   return parts.join(" / ");
 }
 

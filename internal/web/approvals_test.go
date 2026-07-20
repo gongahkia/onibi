@@ -60,34 +60,6 @@ func TestPendingApprovalsAggregatesAcrossSessions(t *testing.T) {
 	}
 }
 
-func TestApprovalEndpointRejectsViewer(t *testing.T) {
-	srv, cleanup := testApprovalInboxServer(t)
-	defer cleanup()
-	id, _, err := srv.approvalQueue.Request(context.Background(), "s1", "claude", "Bash", `{"command":"ls"}`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	rr := httptest.NewRecorder()
-	if _, err := srv.CreateWebSession(context.Background(), rr, "viewer", store.PairRoleViewer); err != nil {
-		t.Fatal(err)
-	}
-	for _, tc := range []struct {
-		method string
-		body   string
-	}{
-		{http.MethodGet, ""},
-		{http.MethodPost, `{"verdict":"approve"}`},
-	} {
-		req := httptest.NewRequest(tc.method, "/approval/"+id, strings.NewReader(tc.body))
-		req.AddCookie(rr.Result().Cookies()[0])
-		w := httptest.NewRecorder()
-		srv.Handler().ServeHTTP(w, req)
-		if w.Code != http.StatusForbidden {
-			t.Fatalf("%s status = %d body = %q", tc.method, w.Code, w.Body.String())
-		}
-	}
-}
-
 func TestApprovalEndpointTerminalStates(t *testing.T) {
 	ctx := context.Background()
 	for _, tc := range []struct {

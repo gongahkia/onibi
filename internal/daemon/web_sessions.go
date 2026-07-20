@@ -37,7 +37,6 @@ func (d *Daemon) WebSessions(ctx context.Context) ([]web.SessionSummary, error) 
 			RecoveryState:         row.RecoveryState,
 			RecoveryReason:        row.RecoveryReason,
 			RecoveryUpdatedAt:     formatWebSessionTime(recoveryUpdatedAt),
-			RoleRequired:          "owner",
 		})
 	}
 	return out, nil

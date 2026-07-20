@@ -170,64 +170,6 @@ func TestWSPTYResizeFrameResizesHost(t *testing.T) {
 	t.Fatal("resize did not reach PTY")
 }
 
-func TestWSPTYViewerInputFramesAreDropped(t *testing.T) {
-	host := spawnPTYForTest(t, "cat")
-	c := dialPTYForTestWithRole(t, host, store.PairRoleViewer)
-	writeWSJSONForTest(t, c, ptyAttachFrame{Type: "attach", SessionID: "s1", LastSeq: 0})
-	_ = readPTYRecoveryForTest(t, c)
-	writeWSBinaryForTest(t, c, []byte("viewer-blocked\n"))
-
-	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
-	defer cancel()
-	_, p, err := c.Read(ctx)
-	if err == nil {
-		t.Fatalf("viewer input reached pty: %q", p)
-	}
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("viewer ws closed instead of dropping input: %v", err)
-	}
-}
-
-func TestWSPTYViewerAttachDetachAudited(t *testing.T) {
-	srv, cleanup := testServer(t)
-	defer cleanup()
-	host := spawnPTYForTest(t, "cat")
-	srv.ptyHosts = func() map[string]*pty.Host {
-		return map[string]*pty.Host{"s1": host}
-	}
-	rr := httptest.NewRecorder()
-	viewerID, err := srv.CreateWebSession(context.Background(), rr, "viewer", store.PairRoleViewer)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ts := httptest.NewServer(srv.Handler())
-	defer ts.Close()
-
-	u := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws/pty?token=" + viewerID
-	header := http.Header{}
-	header.Add("Cookie", rr.Result().Cookies()[0].String())
-	header.Set("User-Agent", "ViewerAgent/1.0")
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	c, _, err := websocket.Dial(ctx, u, &websocket.DialOptions{
-		Subprotocols: []string{ptySubprotocol},
-		HTTPHeader:   header,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer c.CloseNow()
-	writeWSJSONForTest(t, c, ptyAttachFrame{Type: "attach", SessionID: "s1", LastSeq: 0})
-
-	attach := waitForAuditAction(t, srv.db, "viewer.attach")
-	assertViewerAuditEntry(t, attach, "s1", viewerID)
-	if err := c.Close(websocket.StatusNormalClosure, "done"); err != nil {
-		t.Fatal(err)
-	}
-	detach := waitForAuditAction(t, srv.db, "viewer.detach")
-	assertViewerAuditEntry(t, detach, "s1", viewerID)
-}
-
 func TestWSPTYE2EReplayClosesPolicyViolation(t *testing.T) {
 	db, err := store.OpenEphemeral(filepath.Join(t.TempDir(), "onibi.db"))
 	if err != nil {
@@ -428,10 +370,6 @@ func spawnPTYForTestWithTimeout(t *testing.T, script string, timeout time.Durati
 }
 
 func dialPTYForTest(t *testing.T, host *pty.Host) *websocket.Conn {
-	return dialPTYForTestWithRole(t, host, store.PairRoleOwner)
-}
-
-func dialPTYForTestWithRole(t *testing.T, host *pty.Host, role string) *websocket.Conn {
 	t.Helper()
 	srv, cleanup := testServer(t)
 	t.Cleanup(cleanup)
@@ -439,7 +377,7 @@ func dialPTYForTestWithRole(t *testing.T, host *pty.Host, role string) *websocke
 		return map[string]*pty.Host{"s1": host}
 	}
 	rr := httptest.NewRecorder()
-	ownerSessionID, err := srv.CreateWebSession(context.Background(), rr, "test device", role)
+	ownerSessionID, err := srv.CreateOwnerSession(context.Background(), rr, "test device")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -518,37 +456,6 @@ func readPTYRecoveryForTest(t *testing.T, c *websocket.Conn) ptyRecoveryFrame {
 		t.Fatalf("recovery frame = %#v", frame)
 	}
 	return frame
-}
-
-func waitForAuditAction(t *testing.T, db *store.DB, action string) store.AuditEntry {
-	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		rows, err := db.AuditRecent(context.Background(), 20)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, row := range rows {
-			if row.Action == action {
-				return row
-			}
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	t.Fatalf("timed out waiting for audit action %s", action)
-	return store.AuditEntry{}
-}
-
-func assertViewerAuditEntry(t *testing.T, entry store.AuditEntry, sessionID, viewerID string) {
-	t.Helper()
-	if entry.SessionID != sessionID {
-		t.Fatalf("session_id = %q", entry.SessionID)
-	}
-	for _, want := range []string{"viewer_id=" + viewerID, "remote=", `user_agent="ViewerAgent/1.0"`} {
-		if !strings.Contains(entry.Detail, want) {
-			t.Fatalf("audit detail %q missing %q", entry.Detail, want)
-		}
-	}
 }
 
 func withWSPingConfig(t *testing.T, interval, timeout time.Duration) {
