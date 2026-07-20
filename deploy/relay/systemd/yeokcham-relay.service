@@ -1,0 +1,37 @@
+[Unit]
+Description=Yeokcham secure courier relay
+Wants=network-online.target
+After=network-online.target
+ConditionPathExists=/etc/yeokcham/relay.identity
+
+[Service]
+Type=exec
+DynamicUser=yes
+StateDirectory=yeokcham
+StateDirectoryMode=0750
+UMask=0077
+LoadCredential=relay-identity:/etc/yeokcham/relay.identity
+ExecStart=/usr/bin/yeokcham-relay run --config /etc/yeokcham/relay.conf --identity ${CREDENTIALS_DIRECTORY}/relay-identity --health-address 127.0.0.1:8080 --metrics-address 127.0.0.1:9090
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=35s
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectHome=yes
+ProtectSystem=strict
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target
