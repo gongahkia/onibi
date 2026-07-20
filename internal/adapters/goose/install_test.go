@@ -46,7 +46,7 @@ func TestInstallWritesOpenPluginsSchemaCleanHooks(t *testing.T) {
 		hook := group["hooks"].([]any)[0].(map[string]any)
 		for k := range hook {
 			switch k {
-			case "type", "command":
+			case "type", "command", "timeout":
 			default:
 				t.Fatalf("%s hook has Open Plugins-unknown key %q", ev, k)
 			}
@@ -55,21 +55,28 @@ func TestInstallWritesOpenPluginsSchemaCleanHooks(t *testing.T) {
 		if !strings.Contains(cmd, common.VersionEnv+"=\""+common.IntegrationVersion+"\"") {
 			t.Fatalf("%s command missing version env: %s", ev, cmd)
 		}
+		if got, _ := hook["timeout"].(float64); int(got) != eventSpecForName(ev).timeout {
+			t.Fatalf("%s timeout = %v", ev, hook["timeout"])
+		}
 	}
 	if got := installedVersion(path); got != common.IntegrationVersion {
 		t.Fatalf("installedVersion = %q", got)
 	}
 }
 
-func TestAdapterGooseDenyNotifyOnly(t *testing.T) {
+func TestAdapterGooseDenyBlocksTool(t *testing.T) {
 	target := denytest.Target(t, Agent)
-	h := hook(denytest.DenyNotify(t), eventSpec{event: "PreToolUse", typ: "agent_message"})
+	h := hook(denytest.DenyNotify(t), eventSpec{event: "PreToolUse", typ: "approval_request", wait: true, response: "provider", timeout: 360})
 	cmd := h["command"].(string)
-	if strings.Contains(cmd, "approval_request") || strings.Contains(cmd, "--wait") {
-		t.Fatalf("goose unexpectedly installed blocking deny hook: %s", cmd)
+	if !strings.Contains(cmd, "approval_request") || !strings.Contains(cmd, "--wait") || !strings.Contains(cmd, "--response provider") {
+		t.Fatalf("goose missing native approval command: %s", cmd)
 	}
-	if !strings.Contains(cmd, "--type agent_message") {
-		t.Fatalf("goose PreToolUse hook is not notify-only: %s", cmd)
+	res := denytest.RunHook(t, cmd, `{"event":"PreToolUse","session_id":"deny-test","tool_name":"developer__shell","tool_input":{"command":"touch denied"}}`)
+	if res.Code != 0 || !strings.Contains(res.Stdout, `"decision":"block"`) {
+		t.Fatalf("goose deny result = %+v", res)
+	}
+	if !strings.Contains(res.Stdout, `"reason":"deny fixture"`) {
+		t.Fatalf("goose deny reason = %+v", res)
 	}
 	denytest.AssertNotCreated(t, target)
 }
@@ -146,6 +153,15 @@ func eventNames() []string {
 		out = append(out, e.event)
 	}
 	return out
+}
+
+func eventSpecForName(name string) eventSpec {
+	for _, e := range events {
+		if e.event == name {
+			return e
+		}
+	}
+	return eventSpec{}
 }
 
 func hasObservedProblem(rows []common.ObservedHook, want string) bool {

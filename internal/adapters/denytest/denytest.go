@@ -50,6 +50,7 @@ case " $* " in
   *" --response onibi-json "*) printf '{"decision":"deny","reason":"deny fixture"}\n'; exit 0 ;;
   *" --format gemini "*) printf '{"decision":"deny","reason":"deny fixture"}\n'; exit 0 ;;
   *" --format copilot "*) printf '{"permissionDecision":"deny","permissionDecisionReason":"deny fixture"}\n'; exit 0 ;;
+  *" --format goose "*) printf '{"decision":"block","reason":"deny fixture"}\n'; exit 0 ;;
 esac
 printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"deny fixture"}}\n'
 printf 'deny fixture\n' >&2

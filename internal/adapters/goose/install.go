@@ -31,22 +31,25 @@ func init() {
 }
 
 type eventSpec struct {
-	event string
-	typ   string
+	event    string
+	typ      string
+	wait     bool
+	response string
+	timeout  int
 }
 
 var events = []eventSpec{
-	{event: "SessionStart", typ: "agent_message"},
-	{event: "SessionEnd", typ: "session_exited"},
-	{event: "UserPromptSubmit", typ: "agent_message"},
-	{event: "PreToolUse", typ: "agent_message"},
-	{event: "PostToolUse", typ: "agent_message"},
-	{event: "PostToolUseFailure", typ: "agent_message"},
-	{event: "BeforeReadFile", typ: "agent_message"},
-	{event: "AfterFileEdit", typ: "agent_message"},
-	{event: "BeforeShellExecution", typ: "agent_message"},
-	{event: "AfterShellExecution", typ: "agent_message"},
-	{event: "Stop", typ: "agent_done"},
+	{event: "SessionStart", typ: "agent_message", timeout: 30},
+	{event: "SessionEnd", typ: "session_exited", timeout: 30},
+	{event: "UserPromptSubmit", typ: "agent_message", timeout: 30},
+	{event: "PreToolUse", typ: "approval_request", wait: true, response: "provider", timeout: 360},
+	{event: "PostToolUse", typ: "agent_message", timeout: 30},
+	{event: "PostToolUseFailure", typ: "agent_message", timeout: 30},
+	{event: "BeforeReadFile", typ: "agent_message", timeout: 30},
+	{event: "AfterFileEdit", typ: "agent_message", timeout: 30},
+	{event: "BeforeShellExecution", typ: "agent_message", timeout: 30},
+	{event: "AfterShellExecution", typ: "agent_message", timeout: 30},
+	{event: "Stop", typ: "agent_done", timeout: 30},
 }
 
 func HooksPath() (string, error) {
@@ -108,9 +111,9 @@ func Uninstall(ctx context.Context, db *store.DB) error {
 func Status(ctx context.Context, db *store.DB) common.Info {
 	path, err := HooksPath()
 	if err != nil {
-		return common.Info{Name: Agent, Support: "event-bridge", BundledVersion: common.IntegrationVersion, Message: err.Error()}
+		return common.Info{Name: Agent, Support: "blocking", BundledVersion: common.IntegrationVersion, Message: err.Error()}
 	}
-	info := common.Info{Name: Agent, Support: "event-bridge", BundledVersion: common.IntegrationVersion, InstallPath: path}
+	info := common.Info{Name: Agent, Support: "blocking", BundledVersion: common.IntegrationVersion, InstallPath: path}
 	body, err := ManagedBody(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -128,7 +131,7 @@ func Status(ctx context.Context, db *store.DB) common.Info {
 	version := installedVersion(path)
 	info.InstalledVersion = common.VersionPtr(version)
 	info.Outdated = version != common.IntegrationVersion
-	common.ApplyManagedStatus(ctx, db, &info, Agent, path, body, "Goose lifecycle hooks installed", "onibi install-hooks --agent goose")
+	common.ApplyManagedStatus(ctx, db, &info, Agent, path, body, "Goose approval hooks installed", "onibi install-hooks --agent goose")
 	return info
 }
 
@@ -171,6 +174,7 @@ func ExpectedHooks(notifyBin string) ([]common.ExpectedHook, error) {
 			Event:   e.event,
 			Type:    "command",
 			Command: cmd,
+			Timeout: e.timeout,
 		})
 	}
 	return out, nil
@@ -225,6 +229,7 @@ func ObservedHooks() ([]common.ObservedHook, error) {
 					Matcher:  matcher,
 					Type:     typ,
 					Command:  cmd,
+					Timeout:  intValue(hm["timeout"]),
 					Managed:  isManaged(hm),
 					Problems: append(groupProblems, hookSchemaProblems(hm)...),
 				})
@@ -249,7 +254,8 @@ func BackupPath(ctx context.Context, db *store.DB) string {
 func hook(notifyBin string, e eventSpec) map[string]any {
 	return map[string]any{
 		"type":    "command",
-		"command": common.VersionedCommand(notifyBin, Agent, Agent, e.typ, false, ""),
+		"command": common.VersionedCommand(notifyBin, Agent, Agent, e.typ, e.wait, e.response),
+		"timeout": e.timeout,
 	}
 }
 
@@ -336,6 +342,17 @@ func asSlice(v any) []any {
 	return nil
 }
 
+func intValue(v any) int {
+	switch n := v.(type) {
+	case int:
+		return n
+	case float64:
+		return int(n)
+	default:
+		return 0
+	}
+}
+
 func groupSchemaProblems(m map[string]any) []string {
 	var problems []string
 	for k := range m {
@@ -352,7 +369,7 @@ func hookSchemaProblems(m map[string]any) []string {
 	var problems []string
 	for k := range m {
 		switch k {
-		case "type", "command", "prompt":
+		case "type", "command", "prompt", "timeout":
 		default:
 			problems = append(problems, "schema-invalid: unknown hook field "+k)
 		}

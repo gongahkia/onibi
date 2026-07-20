@@ -42,6 +42,9 @@ func TestCertifiedContractsMatchV1AgentAllowlist(t *testing.T) {
 	if _, ok := ContractFor("opencode"); ok {
 		t.Fatal("deferred adapter has a certified contract")
 	}
+	if _, ok := ContractFor("goose"); ok {
+		t.Fatal("Goose has no edited-input response and is not certified")
+	}
 	if _, ok := ContractFor(" CODEX "); !ok {
 		t.Fatal("contract lookup must normalize names")
 	}

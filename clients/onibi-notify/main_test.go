@@ -37,6 +37,10 @@ func TestParseHookPayloadSnakeAndCamel(t *testing.T) {
 	if p.ProviderSessionID != "pi-session" {
 		t.Fatalf("provider session = %q", p.ProviderSessionID)
 	}
+	p = parseHookPayload([]byte(`{"event":"PreToolUse","session_id":"goose-session","working_dir":"/tmp/goose","tool_name":"developer__shell","tool_input":{"command":"pwd"}}`))
+	if p.CWD != "/tmp/goose" || p.Tool != "developer__shell" || !strings.Contains(p.InputJSON, "pwd") {
+		t.Fatalf("bad goose payload: %+v", p)
+	}
 }
 
 func TestParseHookPayloadProviderTargets(t *testing.T) {
@@ -122,6 +126,15 @@ func TestProviderResponses(t *testing.T) {
 	geminiHSO := gemini["hookSpecificOutput"].(map[string]any)
 	if gemini["decision"] != "allow" || geminiHSO["hookEventName"] != "BeforeTool" {
 		t.Fatalf("bad gemini edit response: %s", out)
+	}
+
+	out, errOut, code = providerResponse("goose", intake.Response{Decision: "deny", Reason: "no"})
+	if out != "" || code != 2 || errOut != "no\n" {
+		t.Fatalf("bad goose deny: code=%d stdout=%q stderr=%q", code, out, errOut)
+	}
+	out, errOut, code = providerResponse("goose", intake.Response{Decision: "edited", UpdatedInput: `{"command":"echo ok"}`})
+	if out != "" || code != 2 || !strings.Contains(errOut, "cannot apply edited tool input") {
+		t.Fatalf("bad goose edit: code=%d stdout=%q stderr=%q", code, out, errOut)
 	}
 	toolInput := geminiHSO["tool_input"].(map[string]any)
 	if toolInput["command"] != "echo ok" {

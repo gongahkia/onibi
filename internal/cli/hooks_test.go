@@ -379,7 +379,7 @@ func TestHooksMatrixIncludesAgents(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &rows); err != nil {
 		t.Fatalf("json: %v\n%s", err, out.String())
 	}
-	if row, ok := matrixRow(rows, "goose"); !ok || row.Support != "event-bridge" {
+	if row, ok := matrixRow(rows, "goose"); !ok || row.Support != "blocking" {
 		t.Fatalf("goose row = %+v ok=%v", row, ok)
 	}
 	if row, ok := matrixRow(rows, "codex"); !ok || row.Support != "blocking" || row.NextAction == "" {

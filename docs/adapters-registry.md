@@ -26,7 +26,7 @@ onibi adapters add ./adapter.toml
 | Gemini | `BeforeTool` command hook | Yes | `TestAdapterGeminiDenyBlocksTool` | Deny emits provider JSON `decision=deny`; fixture writes only if provider output allows. |
 | OpenCode | `tool.execute.before` plugin hook | Yes | `TestAdapterOpenCodeDenyBlocksTool` | Deny throws before fixture write. |
 | Pi | `tool_call` extension hook | Yes | `TestAdapterPiDenyBlocksTool` | Deny returns `{ block: true }`; fixture writes only if the hook allows. |
-| Goose | `PreToolUse` event bridge | No - notify-only | `TestAdapterGooseDenyNotifyOnly` | Current adapter sends `agent_message`; it does not wait for an approval decision. |
+| Goose | `PreToolUse` native blocking hook | Yes - deny only | `TestAdapterGooseDenyBlocksTool` | Native approve/deny uses Goose's documented exit-2 block signal. Edited input is denied because Goose has no documented input-replacement response; Goose remains non-certified. |
 
 ## Community Adapters
 

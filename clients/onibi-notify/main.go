@@ -282,7 +282,7 @@ func parseHookPayload(raw []byte) hookPayload {
 	p.EventName = getString(m, "hook_event_name", "hookEventName", "eventName", "event")
 	p.SessionID = getString(m, "session_id", "sessionId", "sessionID")
 	p.ProviderSessionID = firstNonEmpty(getString(m, "provider_session_id", "providerSessionId"), p.SessionID, nestedString(m, "session", "id"))
-	p.CWD = firstNonEmpty(getString(m, "cwd", "directory"), nestedString(m, "project", "root"))
+	p.CWD = firstNonEmpty(getString(m, "cwd", "directory", "working_dir", "workingDir"), nestedString(m, "project", "root"))
 	p.Tool = getString(m, "tool_name", "toolName", "tool", "name")
 	input := firstValue(m, "tool_input", "toolInput", "toolArgs", "input", "args")
 	if input == nil {
@@ -310,8 +310,25 @@ func providerResponse(format string, resp intake.Response) (string, string, int)
 		return geminiResponse(resp)
 	case "copilot":
 		return copilotResponse(resp)
+	case "goose":
+		return gooseResponse(resp)
 	default:
 		return hookSpecificResponse("PreToolUse", resp)
+	}
+}
+
+func gooseResponse(resp intake.Response) (string, string, int) {
+	switch resp.Decision {
+	case "approve", "cancelled":
+		return "", "", 0
+	case "deny":
+		return "", firstNonEmpty(resp.Reason, "denied by owner via Onibi") + "\n", 2
+	case "expired":
+		return "", "approval expired\n", 2
+	case "edited":
+		return "", "Goose cannot apply edited tool input; denied by Onibi\n", 2
+	default:
+		return "", "", 0
 	}
 }
 
