@@ -11,12 +11,22 @@ pub const MAX_LINUX_NETWORK_MANAGER_PROBE_OUTPUT_BYTES: usize = 16_384;
 
 #[cfg(target_os = "linux")]
 pub fn nmcli_device_show(fields: &str) -> Option<Vec<u8>> {
+    run_command("nmcli", &["--terse", "--fields", fields, "device", "show"])
+}
+
+#[cfg(target_os = "linux")]
+pub fn bluetoothctl_show() -> Option<Vec<u8>> {
+    run_command("bluetoothctl", &["show"])
+}
+
+#[cfg(target_os = "linux")]
+fn run_command(command: &str, args: &[&str]) -> Option<Vec<u8>> {
     const PROBE_TIMEOUT: Duration = Duration::from_secs(2);
     const WAIT_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
     let deadline = Instant::now() + PROBE_TIMEOUT;
-    let Ok(mut child) = Command::new("nmcli")
-        .args(["--terse", "--fields", fields, "device", "show"])
+    let Ok(mut child) = Command::new(command)
+        .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())

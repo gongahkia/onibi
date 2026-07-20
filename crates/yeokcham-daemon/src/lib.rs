@@ -3,6 +3,7 @@
 mod attachment_delivery;
 mod attachment_journal_store;
 mod attachment_submission_store;
+mod bluetooth_capability;
 mod bluetooth_transport;
 mod client_identity;
 mod client_state;
@@ -18,6 +19,7 @@ mod grpc_service;
 mod inbox_deduplication;
 mod lan_transport;
 mod lifecycle;
+mod linux_bluetooth_capability;
 mod linux_network_manager;
 mod linux_wifi_direct_capability;
 mod linux_wifi_hotspot_capability;
@@ -26,6 +28,7 @@ mod local_mesh_session;
 mod local_transport;
 mod local_transport_availability;
 mod local_transport_reconnect;
+mod macos_bluetooth_capability;
 mod macos_wifi_hotspot_capability;
 mod mdns;
 mod message_session_store;
@@ -54,6 +57,7 @@ mod upnp;
 mod wifi_direct_transport;
 mod wifi_group_lifecycle;
 mod wifi_hotspot_transport;
+mod windows_bluetooth_capability;
 #[cfg(windows)]
 mod windows_listener;
 #[cfg(windows)]
@@ -74,6 +78,7 @@ pub use attachment_submission_store::{
     AttachmentSubmissionStatus, AttachmentSubmissionStore, AttachmentSubmissionStoreError,
     AttachmentUploadSubmission, MAX_DAEMON_ATTACHMENT_CHUNKS, MAX_DAEMON_ATTACHMENT_MANIFEST_BYTES,
 };
+pub use bluetooth_capability::{BluetoothCapabilityProbe, BluetoothCapabilityStatus};
 pub use bluetooth_transport::{BluetoothTransport, BluetoothTransportError};
 pub use client_identity::{
     CLIENT_IDENTITY_KEY_ENTRY, ClientIdentity, ClientIdentityError, ClientIdentityInitialization,
@@ -118,6 +123,7 @@ pub use inbox_deduplication::{
 };
 pub use lan_transport::LanDirectTransport;
 pub use lifecycle::{DAEMON_LOCK_FILE, DaemonLifecycleError, DaemonRuntime};
+pub use linux_bluetooth_capability::LinuxBluetoothCapabilityProbe;
 pub use linux_wifi_direct_capability::LinuxWifiDirectCapabilityProbe;
 pub use linux_wifi_hotspot_capability::{
     LinuxWifiHotspotCapabilityProbe, MAX_LINUX_WIFI_HOTSPOT_PROBE_OUTPUT_BYTES,
@@ -138,6 +144,7 @@ pub use local_transport_reconnect::{
     LocalTransportConnector, LocalTransportReconnectError, LocalTransportReconnectPolicy,
     LocalTransportReconnectPolicyError, MAX_LOCAL_TRANSPORT_RECONNECT_ATTEMPTS,
 };
+pub use macos_bluetooth_capability::MacOsBluetoothCapabilityProbe;
 pub use macos_wifi_hotspot_capability::MacOsWifiHotspotCapabilityProbe;
 pub use mdns::{LAN_MDNS_SERVICE_TYPE, LanPeer, LanPeerDiscovery, LanPeerDiscoveryError};
 pub use message_session_store::{MessageSessionStore, MessageSessionStoreError};
@@ -197,6 +204,7 @@ pub use upnp::{MAX_UPNP_LEASE_SECONDS, UpnpMapping, UpnpMappingError, UpnpMappin
 pub use wifi_direct_transport::WifiDirectTransport;
 pub use wifi_group_lifecycle::{ManagedWifiGroup, WifiGroupLifecycle};
 pub use wifi_hotspot_transport::WifiHotspotTransport;
+pub use windows_bluetooth_capability::WindowsBluetoothCapabilityProbe;
 #[cfg(windows)]
 pub use windows_listener::{
     DAEMON_WINDOWS_NAMED_PIPE_NAME, DaemonWindowsIncoming, DaemonWindowsListener,

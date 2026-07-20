@@ -11,7 +11,10 @@ use crate::LinuxWifiHotspotCapabilityProbe;
 use crate::MacOsWifiHotspotCapabilityProbe;
 #[cfg(target_os = "windows")]
 use crate::WindowsWifiHotspotCapabilityProbe;
-use crate::{LinuxWifiDirectCapabilityProbe, LocalTransportAvailability};
+use crate::{
+    BluetoothCapabilityProbe, BluetoothCapabilityStatus, LinuxWifiDirectCapabilityProbe,
+    LocalTransportAvailability,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct NativeTransportCapabilityProbe {
@@ -46,8 +49,15 @@ impl NativeTransportCapabilityProbe {
             },
             LocalMeshTransportKind::WifiHotspot => probe_wifi_hotspot_capability(),
             LocalMeshTransportKind::WifiDirect => LinuxWifiDirectCapabilityProbe::new().probe(),
-            LocalMeshTransportKind::Bluetooth => LocalTransportAvailability::Unavailable,
+            LocalMeshTransportKind::Bluetooth => {
+                self.probe_bluetooth().local_transport_availability()
+            }
         }
+    }
+
+    #[must_use]
+    pub fn probe_bluetooth(self) -> BluetoothCapabilityStatus {
+        BluetoothCapabilityProbe::new().probe()
     }
 }
 
@@ -81,18 +91,29 @@ mod tests {
     use yeokcham_protocol::LocalMeshTransportKind;
 
     use super::{NativeTransportCapabilityProbe, NativeTransportCapabilityProbeError};
-    use crate::LocalTransportAvailability;
+    use crate::{BluetoothCapabilityStatus, LocalTransportAvailability};
 
     #[test]
-    fn probes_lan_socket_capability_and_fails_closed_for_unimplemented_backends() {
+    fn probes_lan_socket_capability_and_maps_bluetooth_status_conservatively() {
         let probe = NativeTransportCapabilityProbe::new("127.0.0.1:0".parse().unwrap()).unwrap();
         assert_eq!(
             probe.probe(LocalMeshTransportKind::Lan),
             LocalTransportAvailability::Available
         );
+        let bluetooth_status = probe.probe_bluetooth();
+        assert!(matches!(
+            bluetooth_status,
+            BluetoothCapabilityStatus::Available
+                | BluetoothCapabilityStatus::PermissionDenied
+                | BluetoothCapabilityStatus::PermissionNotDetermined
+                | BluetoothCapabilityStatus::PoweredOff
+                | BluetoothCapabilityStatus::Unsupported
+                | BluetoothCapabilityStatus::Unavailable
+                | BluetoothCapabilityStatus::Indeterminate
+        ));
         assert_eq!(
             probe.probe(LocalMeshTransportKind::Bluetooth),
-            LocalTransportAvailability::Unavailable
+            bluetooth_status.local_transport_availability()
         );
         #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
         assert_eq!(

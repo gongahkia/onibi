@@ -39,9 +39,10 @@ yeokcham-protocol = { path = "../yeokcham-protocol" }
 zeroize.workspace = true
 
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.62.2", features = ["Networking_Connectivity", "Networking_NetworkOperators", "Win32_Foundation", "Win32_System_WinRT"] }
+windows = { version = "0.62.2", features = ["Devices_Bluetooth", "Devices_Enumeration", "Devices_Radios", "Networking_Connectivity", "Networking_NetworkOperators", "Win32_Foundation", "Win32_System_WinRT"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+corebluetooth = "0.1.0"
 corewlan = "0.2.1"
 
 [dev-dependencies]
