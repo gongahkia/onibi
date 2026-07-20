@@ -19,7 +19,7 @@ Verify the daemon:
 zerotier-cli info
 ```
 
-The status must be `ONLINE`.
+The status must be `ONLINE` or `TUNNELED`; `TUNNELED` uses ZeroTier's TCP fallback.
 
 Join a network if needed:
 
@@ -36,7 +36,7 @@ zerotier-cli listnetworks -j
 
 The selected network must report status `OK` and show an assigned IP.
 
-When more than one network is joined, pin the one Onibi should use:
+When more than one joined network has a routable address, Onibi fails closed until you pin the one it should use:
 
 ```bash
 export ONIBI_ZEROTIER_NETWORK=<network-id-or-name>
@@ -49,7 +49,7 @@ onibi doctor --transport=zerotier
 onibi up --transport=zerotier
 ```
 
-Onibi binds the web listener to the selected ZeroTier IP only, then prints a pair URL over that IP.
+Onibi binds the web listener to the selected ZeroTier IP only, includes that exact IP in the local HTTPS certificate SAN, then prints a pair URL over that IP. It does not join or leave networks, authorize members, alter controller policy, or change routes.
 
 ## Phone
 
@@ -64,5 +64,7 @@ The Onibi local HTTPS profile is still required. Install and fully trust `onibi-
 3. Confirm the printed URL uses the ZeroTier IP.
 4. Open the QR from the phone while ZeroTier is active.
 5. Use the phone terminal for a shell command and a full-screen program such as `vim`.
+
+While `onibi up` is running, it rechecks ZeroTier membership, interface, and selected address. If any changes, Onibi stops rather than minting or retaining a stale endpoint; restore the selected network and restart `onibi up`.
 
 If pairing fails, first confirm the phone can reach the laptop ZeroTier IP with another service, and verify both devices are authorized in the ZeroTier network.

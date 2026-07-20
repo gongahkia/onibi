@@ -38,6 +38,28 @@ func TestZerotierUsesConfiguredNetwork(t *testing.T) {
 	}
 }
 
+func TestZerotierRequiresNetworkOverrideWhenMultipleNetworksAreReady(t *testing.T) {
+	zt := testZeroTier(`[
+{"id":"8056c2e21c000002","name":"prod","status":"OK","portDeviceName":"ztprod","assignedAddresses":["10.147.20.5/24"]},
+{"id":"8056c2e21c000001","name":"dev","status":"OK","portDeviceName":"ztdev","assignedAddresses":["10.147.20.4/24"]}
+]`, nil)
+	_, err := zt.BindHost(context.Background())
+	if err == nil || !strings.Contains(err.Error(), ZeroTierNetworkEnv) || !strings.Contains(err.Error(), "8056c2e21c000001 (dev)") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestZerotierSelectsAssignedAddressDeterministically(t *testing.T) {
+	zt := testZeroTier(`[{"id":"8056c2e21c000001","name":"dev","status":"OK","portDeviceName":"ztdev","assignedAddresses":["10.147.20.9/24","fd00:147::9/64","10.147.20.4/24"]}]`, nil)
+	host, err := zt.BindHost(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if host != "10.147.20.4" {
+		t.Fatalf("host=%q", host)
+	}
+}
+
 func TestZerotierFallsBackToInterfaceAddress(t *testing.T) {
 	zt := testZeroTier(`[{"id":"8056c2e21c000001","name":"dev","status":"OK","portDeviceName":"ztdev","assignedAddresses":[]}]`, map[string][]net.Addr{
 		"ztdev": {mustAddr(t, "10.99.0.5/24")},
@@ -59,6 +81,17 @@ func TestZerotierRejectsOfflineDaemon(t *testing.T) {
 	err := zt.Check(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "OFFLINE") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestZerotierAcceptsTunneledDaemon(t *testing.T) {
+	zt := testZeroTier(`[{"id":"8056c2e21c000001","name":"dev","status":"OK","assignedAddresses":["10.147.20.4/24"]}]`, nil)
+	zt.runner = &fakeTSRunner{outputs: map[string][]byte{
+		"zerotier-cli info":            []byte("200 info deadbeef 1.14.2 TUNNELED\n"),
+		"zerotier-cli listnetworks -j": []byte(`[{"id":"8056c2e21c000001","name":"dev","status":"OK","assignedAddresses":["10.147.20.4/24"]}]`),
+	}}
+	if err := zt.Check(context.Background()); err != nil {
+		t.Fatal(err)
 	}
 }
 

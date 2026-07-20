@@ -15,6 +15,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/gongahkia/onibi/internal/web/transport"
@@ -49,12 +50,16 @@ func LocalCertPaths(certDir string) CertPaths {
 }
 
 func GenerateOrLoadCert(certDir string) (tls.Certificate, error) {
+	return GenerateOrLoadCertForHosts(certDir)
+}
+
+func GenerateOrLoadCertForHosts(certDir string, hosts ...string) (tls.Certificate, error) {
 	if err := os.MkdirAll(certDir, 0o700); err != nil {
 		return tls.Certificate{}, fmt.Errorf("mkdir cert dir: %w", err)
 	}
 	paths := LocalCertPaths(certDir)
 	now := time.Now()
-	lanIPs := transport.DetectLANIPs()
+	lanIPs := certIPs(hosts)
 	caCert, caKey, err := loadOrCreateCA(paths, now)
 	if err != nil {
 		return tls.Certificate{}, err
@@ -63,6 +68,35 @@ func GenerateOrLoadCert(certDir string) (tls.Certificate, error) {
 		return cert, nil
 	}
 	return createServerCert(paths, caCert, caKey, lanIPs, now)
+}
+
+func certIPs(hosts []string) []net.IP {
+	seen := map[string]bool{}
+	var ips []net.IP
+	for _, ip := range append(transport.DetectLANIPs(), explicitCertIPs(hosts)...) {
+		if ip == nil || ip.IsUnspecified() || ip.IsLoopback() || ip.IsMulticast() || ip.IsLinkLocalUnicast() {
+			continue
+		}
+		if ip4 := ip.To4(); ip4 != nil {
+			ip = ip4
+		}
+		if !seen[ip.String()] {
+			seen[ip.String()] = true
+			ips = append(ips, append(net.IP(nil), ip...))
+		}
+	}
+	return ips
+}
+
+func explicitCertIPs(hosts []string) []net.IP {
+	var ips []net.IP
+	for _, host := range hosts {
+		host = strings.Trim(strings.TrimSpace(host), "[]")
+		if ip := net.ParseIP(host); ip != nil {
+			ips = append(ips, ip)
+		}
+	}
+	return ips
 }
 
 func loadOrCreateCA(paths CertPaths, now time.Time) (*x509.Certificate, *ecdsa.PrivateKey, error) {

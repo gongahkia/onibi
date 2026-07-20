@@ -268,6 +268,35 @@ func TestApplyZeroTierListenAddrFormatsIPv6(t *testing.T) {
 	}
 }
 
+func TestZeroTierPairTransportRejectsEndpointChange(t *testing.T) {
+	err := validateZeroTierPairTransport("10.147.20.4:9443", webtransport.Resolved{Mode: webtransport.ModeZeroTier, BaseURL: "https://10.147.20.5:9443"})
+	if err == nil || !strings.Contains(err.Error(), "endpoint changed") {
+		t.Fatalf("err=%v", err)
+	}
+	if err := validateZeroTierPairTransport("[fd00:147::4]:9443", webtransport.Resolved{Mode: webtransport.ModeZeroTier, BaseURL: "https://[fd00:147::4]:9443"}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestListenCertHostsAndWebHealthURLUseSelectedListener(t *testing.T) {
+	if got := listenCertHosts("10.147.20.4:9443"); len(got) != 1 || got[0] != "10.147.20.4" {
+		t.Fatalf("cert hosts=%q", got)
+	}
+	for _, tc := range []struct {
+		listen string
+		want   string
+	}{
+		{listen: "10.147.20.4:9443", want: "https://10.147.20.4:9443/healthz"},
+		{listen: "[fd00:147::4]:9443", want: "https://[fd00:147::4]:9443/healthz"},
+		{listen: ":9443", want: "https://127.0.0.1:9443/healthz"},
+	} {
+		got, err := webHealthURL(tc.listen)
+		if err != nil || got != tc.want {
+			t.Fatalf("listen=%q url=%q err=%v", tc.listen, got, err)
+		}
+	}
+}
+
 func TestCloudflareQuickForcesRelayE2E(t *testing.T) {
 	if !webtransport.IsRelayMode("cloudflare-quick") {
 		t.Fatal("cloudflare-quick did not require relay e2e")

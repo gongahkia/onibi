@@ -81,6 +81,22 @@ func TestCertGenerateOrLoadRoundTrip(t *testing.T) {
 	}
 }
 
+func TestCertIncludesExplicitListenHost(t *testing.T) {
+	cert, err := GenerateOrLoadCertForHosts(t.TempDir(), "10.147.20.4", "[fd00:147::4]")
+	if err != nil {
+		t.Fatal(err)
+	}
+	leaf, err := x509.ParseCertificate(cert.Certificate[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, host := range []string{"10.147.20.4", "fd00:147::4"} {
+		if !hasIP(leaf, host) {
+			t.Fatalf("certificate missing %s: %#v", host, leaf.IPAddresses)
+		}
+	}
+}
+
 func TestCertRegeneratesTruncatedServerCert(t *testing.T) {
 	dir := t.TempDir()
 	cert1, err := GenerateOrLoadCert(dir)

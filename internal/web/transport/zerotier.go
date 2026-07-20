@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -169,6 +170,12 @@ func (z *ZeroTier) resolveHost(ctx context.Context) (string, string, string, err
 		return "", "", "", errors.New("zerotier-cli listnetworks returned no networks")
 	}
 	want := strings.TrimSpace(z.Network)
+	type candidate struct {
+		host    string
+		network string
+		iface   string
+	}
+	var candidates []candidate
 	for _, network := range networks {
 		if want != "" && !network.matches(want) {
 			continue
@@ -181,11 +188,28 @@ func (z *ZeroTier) resolveHost(ctx context.Context) (string, string, string, err
 		}
 		host, iface, ok := z.hostForNetwork(network)
 		if ok {
-			return host, network.display(), iface, nil
+			candidates = append(candidates, candidate{host: host, network: network.display(), iface: iface})
+			continue
 		}
 		if want != "" {
 			return "", "", "", fmt.Errorf("zerotier network %q has no routable IP address", network.display())
 		}
+	}
+	if len(candidates) == 1 {
+		return candidates[0].host, candidates[0].network, candidates[0].iface, nil
+	}
+	if len(candidates) > 1 {
+		sort.Slice(candidates, func(i, j int) bool {
+			if candidates[i].network != candidates[j].network {
+				return candidates[i].network < candidates[j].network
+			}
+			return candidates[i].host < candidates[j].host
+		})
+		networks := make([]string, 0, len(candidates))
+		for _, candidate := range candidates {
+			networks = append(networks, candidate.network)
+		}
+		return "", "", "", fmt.Errorf("multiple ZeroTier networks have routable addresses (%s); set %s to a network ID", strings.Join(networks, ", "), ZeroTierNetworkEnv)
 	}
 	if want != "" {
 		return "", "", "", fmt.Errorf("zerotier network %q is not joined with a routable IP address", want)
@@ -203,8 +227,8 @@ func (z *ZeroTier) checkOnline(ctx context.Context) error {
 		return fmt.Errorf("zerotier-cli info returned unexpected output: %q", strings.TrimSpace(string(out)))
 	}
 	status := fields[len(fields)-1]
-	if !strings.EqualFold(status, "ONLINE") {
-		return fmt.Errorf("zerotier-one status is %q, want ONLINE", status)
+	if !strings.EqualFold(status, "ONLINE") && !strings.EqualFold(status, "TUNNELED") {
+		return fmt.Errorf("zerotier-one status is %q, want ONLINE or TUNNELED", status)
 	}
 	return nil
 }
@@ -253,23 +277,15 @@ func (z *ZeroTier) hostForInterface(name string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	var ipv6 string
+	var ips []net.IP
 	for _, addr := range got {
 		ip := addrIP(addr)
 		if ip == nil || !isRoutableLANHost(ip.String()) {
 			continue
 		}
-		if ip4 := ip.To4(); ip4 != nil {
-			return ip4.String(), true
-		}
-		if ipv6 == "" {
-			ipv6 = ip.String()
-		}
+		ips = append(ips, ip)
 	}
-	if ipv6 != "" {
-		return ipv6, true
-	}
-	return "", false
+	return preferredZeroTierIP(ips)
 }
 
 func (z *ZeroTier) run(ctx context.Context, args ...string) ([]byte, error) {
@@ -373,23 +389,46 @@ func zeroTierStatusIndex(fields []string) int {
 }
 
 func hostFromAssignedAddresses(addresses []string) (string, bool) {
-	var ipv6 string
+	var ips []net.IP
 	for _, raw := range addresses {
 		for _, part := range strings.Split(raw, ",") {
 			ip := ipFromZeroTierAddress(part)
 			if ip == nil || !isRoutableLANHost(ip.String()) {
 				continue
 			}
-			if ip4 := ip.To4(); ip4 != nil {
-				return ip4.String(), true
-			}
-			if ipv6 == "" {
-				ipv6 = ip.String()
-			}
+			ips = append(ips, ip)
 		}
 	}
-	if ipv6 != "" {
-		return ipv6, true
+	return preferredZeroTierIP(ips)
+}
+
+func preferredZeroTierIP(ips []net.IP) (string, bool) {
+	var ipv4, ipv6 []net.IP
+	seen := map[string]bool{}
+	for _, ip := range ips {
+		if ip == nil || !isRoutableLANHost(ip.String()) {
+			continue
+		}
+		if ip4 := ip.To4(); ip4 != nil {
+			ip = ip4
+			if !seen[ip.String()] {
+				seen[ip.String()] = true
+				ipv4 = append(ipv4, ip)
+			}
+			continue
+		}
+		if !seen[ip.String()] {
+			seen[ip.String()] = true
+			ipv6 = append(ipv6, ip)
+		}
+	}
+	sort.Slice(ipv4, func(i, j int) bool { return bytes.Compare(ipv4[i].To16(), ipv4[j].To16()) < 0 })
+	sort.Slice(ipv6, func(i, j int) bool { return bytes.Compare(ipv6[i].To16(), ipv6[j].To16()) < 0 })
+	if len(ipv4) > 0 {
+		return ipv4[0].String(), true
+	}
+	if len(ipv6) > 0 {
+		return ipv6[0].String(), true
 	}
 	return "", false
 }

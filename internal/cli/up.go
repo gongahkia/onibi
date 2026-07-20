@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -63,6 +64,7 @@ var wireGuardBindHost = func(ctx context.Context) (string, error) {
 var zeroTierBindHost = func(ctx context.Context) (string, error) {
 	return webtransport.NewZeroTierFromEnv().BindHost(ctx)
 }
+var zeroTierHealthInterval = 5 * time.Second
 
 func upCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -252,7 +254,7 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 	}
 	certDir := certDir(paths, cfg)
 	phase = time.Now()
-	cert, err := web.GenerateOrLoadCert(certDir)
+	cert, err := web.GenerateOrLoadCertForHosts(certDir, listenCertHosts(cfg.Web.ListenAddr)...)
 	if err != nil {
 		return err
 	}
@@ -317,7 +319,7 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 	errCh := make(chan error, 1)
 	phase = time.Now()
 	go func() { errCh <- d.Run(ctx) }()
-	if err := waitForWebHealth(ctx, port, errCh, logger); err != nil {
+	if err := waitForWebHealth(ctx, cfg.Web.ListenAddr, errCh, logger); err != nil {
 		return err
 	}
 	logPhase(logger, "servers_ready", phase, "socket_path", paths.Socket)
@@ -328,6 +330,14 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 		return err
 	}
 	defer cleanupPairTransport(logger, pairTransport)
+	if err := validateZeroTierPairTransport(cfg.Web.ListenAddr, pairTransport); err != nil {
+		return err
+	}
+	if pairTransport.Mode == webtransport.ModeZeroTier {
+		if err := pairTransport.Health(ctx); err != nil {
+			return fmt.Errorf("zerotier transport health: %w", err)
+		}
+	}
 	logPhase(logger, "pair_transport_ready", phase,
 		"transport", pairTransport.Mode,
 		"base_url", pairTransport.RedactedBaseURL(),
@@ -408,8 +418,20 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 	fmt.Fprintln(cmd.OutOrStdout(), "Waiting for pairing. Press Ctrl-C to stop.")
 	logger.Info("onibi up ready", "uptime_ms", time.Since(started).Milliseconds())
 
+	var zeroTierHealthC <-chan time.Time
+	var zeroTierTicker *time.Ticker
+	if pairTransport.Mode == webtransport.ModeZeroTier {
+		zeroTierTicker = time.NewTicker(zeroTierHealthInterval)
+		defer zeroTierTicker.Stop()
+		zeroTierHealthC = zeroTierTicker.C
+	}
 	for {
 		select {
+		case <-zeroTierHealthC:
+			if err := pairTransport.Health(ctx); err != nil {
+				logger.Error("zerotier transport health failed; stopping", "err", err)
+				return fmt.Errorf("zerotier transport health: %w", err)
+			}
 		case notice, ok := <-firstRunPairCh:
 			if !ok {
 				firstRunPairCh = nil
@@ -441,6 +463,48 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 			return err
 		}
 	}
+}
+
+func listenCertHosts(addr string) []string {
+	host, _, err := net.SplitHostPort(strings.TrimSpace(addr))
+	if err != nil || host == "" {
+		return nil
+	}
+	return []string{host}
+}
+
+func validateZeroTierPairTransport(listenAddr string, pairTransport webtransport.Resolved) error {
+	if pairTransport.Mode != webtransport.ModeZeroTier {
+		return nil
+	}
+	listenHost, _, err := net.SplitHostPort(strings.TrimSpace(listenAddr))
+	if err != nil {
+		return fmt.Errorf("parse zerotier listen address: %w", err)
+	}
+	targets := pairTransport.TargetURLs()
+	if len(targets) != 1 {
+		return errors.New("zerotier transport produced no single target")
+	}
+	target, err := url.Parse(targets[0])
+	if err != nil {
+		return fmt.Errorf("parse zerotier transport target: %w", err)
+	}
+	if target.Hostname() == "" {
+		return errors.New("zerotier transport target has no host")
+	}
+	if !sameListenHost(listenHost, target.Hostname()) {
+		return fmt.Errorf("zerotier endpoint changed from %s to %s; restart onibi up", listenHost, target.Hostname())
+	}
+	return nil
+}
+
+func sameListenHost(a, b string) bool {
+	aIP := net.ParseIP(strings.Trim(a, "[]"))
+	bIP := net.ParseIP(strings.Trim(b, "[]"))
+	if aIP != nil && bIP != nil {
+		return aIP.Equal(bIP)
+	}
+	return strings.EqualFold(strings.Trim(a, "[]"), strings.Trim(b, "[]"))
 }
 
 func webPairURLs(token string, port int, lanHosts []string, fallback string) []string {
@@ -657,7 +721,7 @@ func shellWorkingDir(cmd *cobra.Command) (string, bool, error) {
 	return abs, true, nil
 }
 
-func waitForWebHealth(ctx context.Context, port int, errCh <-chan error, logger *slog.Logger) error {
+func waitForWebHealth(ctx context.Context, listenAddr string, errCh <-chan error, logger *slog.Logger) error {
 	client := &http.Client{
 		Timeout: 250 * time.Millisecond,
 		Transport: &http.Transport{
@@ -670,7 +734,10 @@ func waitForWebHealth(ctx context.Context, port int, errCh <-chan error, logger 
 	defer tick.Stop()
 	started := time.Now()
 	attempts := 0
-	healthURL := fmt.Sprintf("https://127.0.0.1:%d/healthz", port)
+	healthURL, err := webHealthURL(listenAddr)
+	if err != nil {
+		return err
+	}
 	for {
 		select {
 		case <-ctx.Done():
@@ -697,6 +764,17 @@ func waitForWebHealth(ctx context.Context, port int, errCh <-chan error, logger 
 			}
 		}
 	}
+}
+
+func webHealthURL(listenAddr string) (string, error) {
+	host, port, err := net.SplitHostPort(strings.TrimSpace(listenAddr))
+	if err != nil {
+		return "", fmt.Errorf("parse web listen address: %w", err)
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		host = "127.0.0.1"
+	}
+	return "https://" + net.JoinHostPort(host, port) + "/healthz", nil
 }
 
 func logPhase(logger *slog.Logger, phase string, started time.Time, attrs ...any) {
