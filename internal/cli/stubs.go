@@ -339,14 +339,6 @@ func tailLogCmd() *cobra.Command {
 	return cmd
 }
 
-func mcpCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "mcp",
-		Short: "Run the Onibi MCP server on stdio",
-		RunE:  runMCP,
-	}
-}
-
 func versionCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",

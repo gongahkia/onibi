@@ -46,7 +46,7 @@ func Root() *cobra.Command {
 
 	addGrouped(root, "start", quickstartCmd(), setupCmd(), upCmd(), tunnelCmd(), profileCmd(), pairCmd(), ngrokCmd(), logoCmd())
 	addGrouped(root, "control", runCmd(), wrapCmd(), newSessionCmd(), showCmd(), hideCmd(), shareCmd(), snapshotCmd(), restoreCmd(), forkCmd(), snapshotsCmd(), shellCmd(), demoCmd(), projectCmd())
-	addGrouped(root, "integrate", adaptersCmd(), installHooksCmd(), hooksCmd(), mcpCmd(), completionCmd())
+	addGrouped(root, "integrate", adaptersCmd(), installHooksCmd(), hooksCmd(), completionCmd())
 	addGrouped(root, "inspect", statusCmd(), devicesCmd(), sessionsCmd(), pingCmd(), doctorCmd(), logCmd(), tailLogCmd(), versionCmd())
 	addGrouped(root, "maintain", configCmd(), storeCmd(), pushCmd(), unpairCmd(), installServiceCmd(), uninstallServiceCmd(), uninstallCmd(), supportBundleCmd())
 	root.AddCommand(experimentalCmd())

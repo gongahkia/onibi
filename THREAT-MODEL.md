@@ -39,7 +39,6 @@ Detailed controls live in [`docs/security.md`](docs/security.md). Relay E2E deta
 - `onibi doctor` reports hook drift and state permission problems.
 - `onibi doctor` verifies the encrypted store key is present and can decrypt existing encrypted SQLite rows.
 - `/control` actions operate on the hosted PTY process, not arbitrary system processes.
-- `onibi mcp` exposes local stdio tools through the same Unix socket and peer-UID checks as hooks.
 
 ## Non-Defenses
 

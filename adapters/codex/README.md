@@ -31,7 +31,6 @@ Events:
 Limits:
 
 - `PreToolUse` is a guardrail, not a complete enforcement boundary.
-- Current Codex docs say `PreToolUse` matchers filter by tool name and support `Bash`, `apply_patch`, and MCP tool names.
 - For `apply_patch`, matchers may use `apply_patch`, `Edit`, or `Write`, but hook input still reports `tool_name: "apply_patch"`.
 - Onibi installs through Codex hook config (`~/.codex/hooks.json` or `$ONIBI_CODEX_HOOKS`) and uses the documented hook event names.
 
