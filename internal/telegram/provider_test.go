@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -181,6 +182,53 @@ func TestProviderConnectPollsUpdates(t *testing.T) {
 	defer mu.Unlock()
 	if len(paths) < 2 || !strings.HasSuffix(paths[0], "/deleteWebhook") || !strings.HasSuffix(paths[1], "/getUpdates") {
 		t.Fatalf("paths = %#v", paths)
+	}
+}
+
+func TestProviderReconnectsAfterPollFailure(t *testing.T) {
+	var polls int
+	var retries []time.Duration
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/deleteWebhook"):
+			writeTG(t, w, true)
+		case strings.HasSuffix(r.URL.Path, "/getUpdates"):
+			polls++
+			if polls == 1 {
+				w.WriteHeader(http.StatusBadGateway)
+				writeTG(t, w, false)
+				return
+			}
+			writeTG(t, w, []Update{{UpdateID: 6, Message: &Message{Chat: Chat{ID: 42}, Text: "recovered"}}})
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+	c := NewClient(testToken)
+	c.BaseURL = srv.URL
+	c.RetrySleep = func(_ context.Context, d time.Duration) error {
+		retries = append(retries, d)
+		return nil
+	}
+	p := NewProvider(c, 42)
+	p.Timeout = 1
+	if err := p.OnInboundText(func(text string, _ chatout.Sender) {
+		if text != "recovered" {
+			t.Errorf("text = %q", text)
+		}
+		cancel()
+	}); err != nil {
+		t.Fatal(err)
+	}
+	err := p.Connect(ctx)
+	if err == nil || !strings.Contains(err.Error(), "context canceled") {
+		t.Fatalf("connect err = %v", err)
+	}
+	if polls != 2 || !slices.Equal(retries, []time.Duration{ReconnectBackoffInitial}) {
+		t.Fatalf("polls=%d retries=%v", polls, retries)
 	}
 }
 
