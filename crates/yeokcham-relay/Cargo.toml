@@ -10,6 +10,10 @@ publish = false
 [features]
 default = []
 
+[[bin]]
+name = "yeokcham-relay-service"
+path = "src/windows_service.rs"
+
 [dependencies]
 clap.workspace = true
 getrandom.workspace = true
@@ -23,6 +27,9 @@ yeokcham-core = { path = "../yeokcham-core" }
 yeokcham-protocol = { path = "../yeokcham-protocol" }
 yeokcham-relay-api = { path = "../yeokcham-relay-api" }
 zeroize.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-service = "0.8.1"
 
 [dev-dependencies]
 rcgen = "0.14.7"

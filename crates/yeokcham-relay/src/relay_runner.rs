@@ -299,8 +299,12 @@ fn ensure_read_only_identity_file(metadata: &fs::Metadata) -> Result<(), RelayId
 }
 
 #[cfg(not(unix))]
-fn ensure_read_only_identity_file(_: &fs::Metadata) -> Result<(), RelayIdentityFileError> {
-    Ok(())
+fn ensure_read_only_identity_file(metadata: &fs::Metadata) -> Result<(), RelayIdentityFileError> {
+    if metadata.permissions().readonly() {
+        Ok(())
+    } else {
+        Err(RelayIdentityFileError::Writable)
+    }
 }
 
 #[cfg(test)]
