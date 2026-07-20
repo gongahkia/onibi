@@ -114,6 +114,10 @@ async fn persists_bounded_attempts_then_advances_past_an_exhausted_message() {
         (first_identifier, second_identifier)
     };
     let mut outbox = SenderOutbox::open(&path, &mut keystore).unwrap();
+    assert_eq!(
+        outbox.delivery_state(first_identifier),
+        Some(DeliveryState::Attempted)
+    );
     for attempt in 2..=MAX_DELIVERY_ATTEMPTS {
         let cycle = scheduler
             .run_cycle(&mut outbox, &mut transport, 101)

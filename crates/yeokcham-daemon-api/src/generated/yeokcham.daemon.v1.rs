@@ -243,6 +243,7 @@ pub enum DeliveryStatus {
     Delivered = 2,
     Expired = 3,
     Failed = 4,
+    Attempted = 5,
 }
 impl DeliveryStatus {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -256,6 +257,7 @@ impl DeliveryStatus {
             Self::Delivered => "DELIVERY_STATUS_DELIVERED",
             Self::Expired => "DELIVERY_STATUS_EXPIRED",
             Self::Failed => "DELIVERY_STATUS_FAILED",
+            Self::Attempted => "DELIVERY_STATUS_ATTEMPTED",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -266,6 +268,7 @@ impl DeliveryStatus {
             "DELIVERY_STATUS_DELIVERED" => Some(Self::Delivered),
             "DELIVERY_STATUS_EXPIRED" => Some(Self::Expired),
             "DELIVERY_STATUS_FAILED" => Some(Self::Failed),
+            "DELIVERY_STATUS_ATTEMPTED" => Some(Self::Attempted),
             _ => None,
         }
     }

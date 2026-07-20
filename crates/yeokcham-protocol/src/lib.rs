@@ -28,6 +28,7 @@ mod message_payload;
 mod negotiation;
 mod prekey_bundle;
 mod qr_verification;
+mod ratchet_message;
 mod recipient_capability;
 mod relay_invitation;
 #[cfg(feature = "experimental-relay-replication")]
@@ -142,6 +143,13 @@ pub use prekey_bundle::{
 pub use qr_verification::{
     QR_VERIFICATION_PAYLOAD_BYTES, QR_VERIFICATION_SCHEMA_VERSION, QrVerificationError,
     QrVerificationPayload,
+};
+pub use ratchet_message::{
+    MAX_RATCHET_MESSAGE_CIPHERTEXT_BYTES, MAX_RATCHET_MESSAGE_ENVELOPE_BYTES,
+    MAX_RATCHET_MESSAGE_SESSION_BYTES, RATCHET_MESSAGE_ENVELOPE_SCHEMA_VERSION,
+    RATCHET_MESSAGE_HEADER_SCHEMA_VERSION, RATCHET_MESSAGE_NONCE_BYTES,
+    RATCHET_MESSAGE_SESSION_SCHEMA_VERSION, RatchetMessageEnvelope, RatchetMessageError,
+    RatchetMessageHeader, RatchetMessageSession,
 };
 pub use recipient_capability::{
     RECIPIENT_CAPABILITY_SCHEMA_VERSION, RecipientCapability, RecipientCapabilityError,

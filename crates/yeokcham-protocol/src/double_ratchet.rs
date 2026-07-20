@@ -70,6 +70,47 @@ impl DoubleRatchetState {
         })
     }
 
+    pub fn initialize_responder(
+        root_key: [u8; RATCHET_KEY_BYTES],
+        initial_local_ratchet: &X25519Prekey,
+        remote_ratchet: X25519PrekeyPublicKey,
+    ) -> Result<Self, DoubleRatchetError> {
+        if root_key.iter().all(|byte| *byte == 0) {
+            return Err(DoubleRatchetError::InvalidRootKey);
+        }
+        let (root_key, receiving_chain) =
+            derive_root(&root_key, initial_local_ratchet, &remote_ratchet)?;
+        let local_ratchet = X25519Prekey::generate().map_err(|_| DoubleRatchetError::Randomness)?;
+        let (root_key, sending_chain) = derive_root(&root_key, &local_ratchet, &remote_ratchet)?;
+        Ok(Self {
+            root_key,
+            sending_chain: Some(sending_chain),
+            receiving_chain: Some(receiving_chain),
+            local_ratchet,
+            remote_ratchet,
+            sending_count: 0,
+            receiving_count: 0,
+            previous_sending_count: 0,
+            skipped_message_keys: Vec::new(),
+            retired_remote_ratchets: Vec::new(),
+        })
+    }
+
+    #[must_use]
+    pub fn local_ratchet_public(&self) -> X25519PrekeyPublicKey {
+        self.local_ratchet.public_key()
+    }
+
+    #[must_use]
+    pub const fn sending_count(&self) -> u32 {
+        self.sending_count
+    }
+
+    #[must_use]
+    pub const fn previous_sending_count(&self) -> u32 {
+        self.previous_sending_count
+    }
+
     pub fn ratchet_receive(
         &mut self,
         remote_ratchet: X25519PrekeyPublicKey,

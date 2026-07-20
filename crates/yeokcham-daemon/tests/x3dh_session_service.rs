@@ -82,17 +82,22 @@ fn establishes_matching_sessions_and_consumes_the_selected_one_time_prekey() {
         X25519IdentityBinding::create(&initiator_signing, &initiator_exchange).unwrap();
     let (initial, initiated) =
         initiate_x3dh_session(&initiator_exchange, initiator_binding, &bundle).unwrap();
-    let responded = X3dhSessionEstablishmentService::new(
-        &responder_exchange,
-        &responder_binding,
-        &signed_prekey,
-        &mut one_time_prekeys,
-    )
-    .respond(&initial)
-    .unwrap();
-    assert_eq!(initiated.root_key(), responded.root_key());
-    assert_eq!(initiated.associated_data(), responded.associated_data());
-    assert_eq!(initiated.used_one_time_prekey(), initial.one_time_prekey());
+    {
+        let mut service = X3dhSessionEstablishmentService::new(
+            &responder_exchange,
+            &responder_binding,
+            &signed_prekey,
+            &mut one_time_prekeys,
+        );
+        let responded = service.respond(&initial).unwrap();
+        assert_eq!(initiated.root_key(), responded.root_key());
+        assert_eq!(initiated.associated_data(), responded.associated_data());
+        assert_eq!(initiated.used_one_time_prekey(), initial.one_time_prekey());
+        assert!(matches!(
+            service.respond(&initial),
+            Err(X3dhSessionEstablishmentError::OneTimePrekey(_))
+        ));
+    }
     assert_eq!(one_time_prekeys.available().len(), 0);
     drop(one_time_prekeys);
     fs::remove_dir_all(path.parent().unwrap()).unwrap();

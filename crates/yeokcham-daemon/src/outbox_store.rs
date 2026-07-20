@@ -98,7 +98,8 @@ pub enum MessageExpiryError {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DeliveryState {
-    Unknown,
+    Queued,
+    Attempted,
     Delivered,
     Expired,
     Failed,
@@ -200,8 +201,14 @@ impl SenderOutbox {
     pub fn delivery_state(&self, identifier: MessageIdentifier) -> Option<DeliveryState> {
         self.messages
             .iter()
-            .any(|message| message.identifier == identifier)
-            .then_some(DeliveryState::Unknown)
+            .find(|message| message.identifier == identifier)
+            .map(|message| {
+                if message.delivery_attempts == 0 {
+                    DeliveryState::Queued
+                } else {
+                    DeliveryState::Attempted
+                }
+            })
             .or_else(|| {
                 self.statuses
                     .iter()
@@ -433,7 +440,10 @@ fn encode_outbox(
         }
     }
     for (index, status) in statuses.iter().enumerate() {
-        if status.state == DeliveryState::Unknown {
+        if matches!(
+            status.state,
+            DeliveryState::Queued | DeliveryState::Attempted
+        ) {
             return Err(SenderOutboxError::InvalidDeliveryState);
         }
         if messages
@@ -682,7 +692,9 @@ fn decode_delivery_statuses(
 
 fn delivery_state_value(state: DeliveryState) -> Result<u8, SenderOutboxError> {
     match state {
-        DeliveryState::Unknown => Err(SenderOutboxError::InvalidDeliveryState),
+        DeliveryState::Queued | DeliveryState::Attempted => {
+            Err(SenderOutboxError::InvalidDeliveryState)
+        }
         DeliveryState::Delivered => Ok(DELIVERED_STATE),
         DeliveryState::Expired => Ok(EXPIRED_STATE),
         DeliveryState::Failed => Ok(FAILED_STATE),
@@ -867,7 +879,7 @@ mod tests {
         assert_eq!(restored.next().unwrap().expiry(), expiry);
         assert_eq!(
             restored.delivery_state(identifier),
-            Some(DeliveryState::Unknown)
+            Some(DeliveryState::Queued)
         );
         assert!(restored.expire_due_deliveries(159).unwrap().is_empty());
         assert_eq!(
@@ -1019,7 +1031,7 @@ mod tests {
     }
 
     #[test]
-    fn persists_unknown_delivered_and_expired_delivery_states() {
+    fn persists_queued_delivered_and_expired_delivery_states() {
         let path = path("delivery-states");
         let mut keystore = MemoryKeystore::default();
         let delivered_recipient = IdentityKeypair::generate().unwrap();
@@ -1044,7 +1056,7 @@ mod tests {
             let expired_identifier = outbox.messages()[1].identifier();
             assert_eq!(
                 outbox.delivery_state(delivered_identifier),
-                Some(DeliveryState::Unknown)
+                Some(DeliveryState::Queued)
             );
             let acknowledgement =
                 DeliveryAcknowledgement::create(&delivered_recipient, delivered_identifier, 100)
@@ -1326,7 +1338,7 @@ mod tests {
                     .unwrap();
                 identifiers.push(outbox.messages().last().unwrap().identifier());
             }
-            let mut states = vec![DeliveryState::Unknown; identifiers.len()];
+            let mut states = vec![DeliveryState::Queued; identifiers.len()];
             let mut pending = (0..identifiers.len()).collect::<Vec<_>>();
 
             for action in actions {

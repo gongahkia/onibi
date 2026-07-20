@@ -357,7 +357,7 @@ mod tests {
         assert_eq!(calls.load(Ordering::Relaxed), 1);
         assert_eq!(
             outbox.delivery_state(identifier),
-            Some(DeliveryState::Unknown)
+            Some(DeliveryState::Attempted)
         );
         std::fs::remove_file(path).unwrap();
     }
@@ -388,7 +388,7 @@ mod tests {
         );
         assert_eq!(
             outbox.delivery_state(identifier),
-            Some(DeliveryState::Unknown)
+            Some(DeliveryState::Attempted)
         );
         std::fs::remove_file(path).unwrap();
     }

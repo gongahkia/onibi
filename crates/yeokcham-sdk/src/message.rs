@@ -209,6 +209,7 @@ pub enum SdkMessageError {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SdkDeliveryStatus {
     Queued,
+    Attempted,
     Delivered,
     Expired,
     Failed,
@@ -216,7 +217,8 @@ pub enum SdkDeliveryStatus {
 
 pub const fn map_delivery_state(state: DeliveryState) -> SdkDeliveryStatus {
     match state {
-        DeliveryState::Unknown => SdkDeliveryStatus::Queued,
+        DeliveryState::Queued => SdkDeliveryStatus::Queued,
+        DeliveryState::Attempted => SdkDeliveryStatus::Attempted,
         DeliveryState::Delivered => SdkDeliveryStatus::Delivered,
         DeliveryState::Expired => SdkDeliveryStatus::Expired,
         DeliveryState::Failed => SdkDeliveryStatus::Failed,

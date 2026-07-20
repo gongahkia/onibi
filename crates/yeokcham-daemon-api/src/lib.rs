@@ -171,6 +171,10 @@ mod tests {
             DeliveryStatus::try_from(response.status),
             Ok(DeliveryStatus::Queued)
         );
+        assert_eq!(
+            DeliveryStatus::try_from(DeliveryStatus::Attempted as i32),
+            Ok(DeliveryStatus::Attempted)
+        );
     }
 
     #[test]

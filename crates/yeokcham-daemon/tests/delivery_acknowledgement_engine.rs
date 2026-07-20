@@ -180,11 +180,11 @@ async fn rejects_an_acknowledgement_for_a_different_queued_message() {
         assert_eq!(outbox.messages().len(), 2);
         assert_eq!(
             outbox.delivery_state(first_identifier),
-            Some(DeliveryState::Unknown)
+            Some(DeliveryState::Attempted)
         );
         assert_eq!(
             outbox.delivery_state(second_identifier),
-            Some(DeliveryState::Unknown)
+            Some(DeliveryState::Queued)
         );
         (first_identifier, second_identifier)
     };
@@ -192,11 +192,11 @@ async fn rejects_an_acknowledgement_for_a_different_queued_message() {
     assert_eq!(outbox.messages().len(), 2);
     assert_eq!(
         outbox.delivery_state(first_identifier),
-        Some(DeliveryState::Unknown)
+        Some(DeliveryState::Attempted)
     );
     assert_eq!(
         outbox.delivery_state(second_identifier),
-        Some(DeliveryState::Unknown)
+        Some(DeliveryState::Queued)
     );
     drop(outbox);
     fs::remove_dir_all(path.parent().unwrap()).unwrap();

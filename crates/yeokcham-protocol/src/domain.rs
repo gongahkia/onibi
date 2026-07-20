@@ -18,6 +18,7 @@ pub enum CryptoDomain {
     RatchetRootKey,
     RatchetChainKey,
     RatchetMessageKey,
+    RatchetMessageAead,
     EnvelopeEncryptionKey,
     EnvelopeSignature,
     DeliveryAcknowledgementSignature,
@@ -51,6 +52,7 @@ impl CryptoDomain {
         Self::RatchetRootKey,
         Self::RatchetChainKey,
         Self::RatchetMessageKey,
+        Self::RatchetMessageAead,
         Self::EnvelopeEncryptionKey,
         Self::EnvelopeSignature,
         Self::DeliveryAcknowledgementSignature,
@@ -85,6 +87,7 @@ impl CryptoDomain {
             Self::RatchetRootKey => b"yeokcham/v1/ratchet-root-key",
             Self::RatchetChainKey => b"yeokcham/v1/ratchet-chain-key",
             Self::RatchetMessageKey => b"yeokcham/v1/ratchet-message-key",
+            Self::RatchetMessageAead => b"yeokcham/v1/ratchet-message-aead",
             Self::EnvelopeEncryptionKey => b"yeokcham/v1/envelope-encryption-key",
             Self::EnvelopeSignature => b"yeokcham/v1/envelope-signature",
             Self::DeliveryAcknowledgementSignature => {

@@ -116,7 +116,7 @@ fn persists_delivered_expired_and_pending_outbox_lifecycle_states() {
     );
     assert_eq!(
         outbox.delivery_state(pending_identifier),
-        Some(DeliveryState::Unknown)
+        Some(DeliveryState::Queued)
     );
     drop(outbox);
     fs::remove_dir_all(path.parent().unwrap()).unwrap();
@@ -151,7 +151,7 @@ fn rejects_an_untrusted_acknowledgement_without_removing_the_message() {
     assert_eq!(outbox.next().unwrap().identifier(), identifier);
     assert_eq!(
         outbox.delivery_state(identifier),
-        Some(DeliveryState::Unknown)
+        Some(DeliveryState::Queued)
     );
     drop(outbox);
     fs::remove_dir_all(path.parent().unwrap()).unwrap();

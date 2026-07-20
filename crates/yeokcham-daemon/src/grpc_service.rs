@@ -895,7 +895,8 @@ fn map_sender_outbox_error(error: &SenderOutboxError) -> Status {
 
 fn delivery_status_response(state: StoredDeliveryState) -> GetDeliveryStatusResponse {
     let status = match state {
-        StoredDeliveryState::Unknown => RpcDeliveryStatus::Queued,
+        StoredDeliveryState::Queued => RpcDeliveryStatus::Queued,
+        StoredDeliveryState::Attempted => RpcDeliveryStatus::Attempted,
         StoredDeliveryState::Delivered => RpcDeliveryStatus::Delivered,
         StoredDeliveryState::Expired => RpcDeliveryStatus::Expired,
         StoredDeliveryState::Failed => RpcDeliveryStatus::Failed,

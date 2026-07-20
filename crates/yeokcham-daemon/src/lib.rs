@@ -28,6 +28,7 @@ mod local_transport_availability;
 mod local_transport_reconnect;
 mod macos_wifi_hotspot_capability;
 mod mdns;
+mod message_session_store;
 mod nat_pmp;
 mod native_transport_capability;
 mod one_time_prekey_replenisher;
@@ -137,6 +138,7 @@ pub use local_transport_reconnect::{
 };
 pub use macos_wifi_hotspot_capability::MacOsWifiHotspotCapabilityProbe;
 pub use mdns::{LAN_MDNS_SERVICE_TYPE, LanPeer, LanPeerDiscovery, LanPeerDiscoveryError};
+pub use message_session_store::{MessageSessionStore, MessageSessionStoreError};
 pub use nat_pmp::{
     MAX_NAT_PMP_LEASE_SECONDS, NatPmpMapping, NatPmpMappingError, NatPmpMappingRequest,
 };
