@@ -1,36 +1,41 @@
 <!doctype html>
 <html lang="en">
   <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-    <meta name="theme-color" content="#282C34">
-    <meta name="mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-title" content="Onibi">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-    <link rel="icon" href="/icons/onibi-32.png" sizes="32x32" type="image/png">
-    <link rel="manifest" href="/manifest.webmanifest">
-    <link rel="apple-touch-icon" sizes="512x512" href="/icons/onibi-512.png">
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no"
+    />
+    <meta name="theme-color" content="#090b0f" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Onibi" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" href="/icons/onibi-32.png" sizes="32x32" type="image/png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" sizes="512x512" href="/icons/onibi-512.png" />
     <title>Onibi</title>
     <style>
       :root {
-        --page-bg: #282C34;
-        --page-fg: #FFFFFF;
-        --chrome-bg: rgba(40, 44, 52, 0.78);
-        --chrome-border: #4a515e;
-        --button-bg: #1d1f21;
-        --button-fg: #FFFFFF;
-        --button-border: #666666;
-        --button-active-bg: #7AA6DA;
-        --button-active-border: #81A2BE;
-        --muted-fg: #C5C8C6;
-        --panel-bg: rgba(29, 31, 33, 0.96);
-        --panel-solid-bg: #1D1F21;
+        --page-bg: #090b0f;
+        --page-fg: #d7dde8;
+        --chrome-bg: rgba(9, 11, 15, 0.72);
+        --chrome-border: #222a38;
+        --button-bg: #151a24;
+        --button-fg: #d7dde8;
+        --button-border: #303a4d;
+        --button-active-bg: #1f6feb;
+        --button-active-border: #388bfd;
+        --muted-fg: #8d98aa;
+        --panel-bg: rgba(13, 17, 23, 0.96);
+        --panel-solid-bg: #05070a;
         --softkey-height: 52px;
         --visual-viewport-height: 100dvh;
         --keyboard-bottom: 0px;
-        --mono-font: "JetBrainsMono Nerd Font", "JetBrainsMono Nerd Font Mono", "JetBrains Mono", Menlo, Monaco, monospace;
+        --mono-font:
+          "JetBrainsMono Nerd Font", "JetBrainsMono Nerd Font Mono", "JetBrains Mono", Menlo,
+          Monaco, monospace;
       }
       :root[data-theme="dark"] {
         --page-bg: #090b0f;
@@ -46,48 +51,6 @@
         --panel-bg: rgba(13, 17, 23, 0.96);
         --panel-solid-bg: #05070a;
       }
-      :root[data-theme="catppuccin-mocha"] {
-        --page-bg: #1E1E2E;
-        --page-fg: #CDD6F4;
-        --chrome-bg: rgba(30, 30, 46, 0.78);
-        --chrome-border: #45475A;
-        --button-bg: #313244;
-        --button-fg: #CDD6F4;
-        --button-border: #585B70;
-        --button-active-bg: #89B4FA;
-        --button-active-border: #89B4FA;
-        --muted-fg: #A6ADC8;
-        --panel-bg: rgba(17, 17, 27, 0.96);
-        --panel-solid-bg: #11111B;
-      }
-      :root[data-theme="tokyo-night"] {
-        --page-bg: #1A1B26;
-        --page-fg: #C0CAF5;
-        --chrome-bg: rgba(26, 27, 38, 0.78);
-        --chrome-border: #414868;
-        --button-bg: #15161E;
-        --button-fg: #C0CAF5;
-        --button-border: #414868;
-        --button-active-bg: #7AA2F7;
-        --button-active-border: #8DB0FF;
-        --muted-fg: #A9B1D6;
-        --panel-bg: rgba(21, 22, 30, 0.96);
-        --panel-solid-bg: #15161E;
-      }
-      :root[data-theme="solarized-dark"] {
-        --page-bg: #002B36;
-        --page-fg: #839496;
-        --chrome-bg: rgba(0, 43, 54, 0.78);
-        --chrome-border: #073642;
-        --button-bg: #073642;
-        --button-fg: #EEE8D5;
-        --button-border: #335E69;
-        --button-active-bg: #268BD2;
-        --button-active-border: #2AA198;
-        --muted-fg: #93A1A1;
-        --panel-bg: rgba(0, 43, 54, 0.96);
-        --panel-solid-bg: #073642;
-      }
       :root[data-theme="light"] {
         --page-bg: #f6f8fa;
         --page-fg: #18202b;
@@ -102,7 +65,9 @@
         --panel-bg: rgba(255, 255, 255, 0.96);
         --panel-solid-bg: #ffffff;
       }
-      html, body, #term {
+      html,
+      body,
+      #term {
         width: 100%;
         height: var(--visual-viewport-height, 100dvh);
         margin: 0;
@@ -118,7 +83,8 @@
       }
       #term {
         box-sizing: border-box;
-        padding: calc(env(safe-area-inset-top) + 44px) env(safe-area-inset-right) calc(env(safe-area-inset-bottom) + var(--softkey-height)) env(safe-area-inset-left);
+        padding: calc(env(safe-area-inset-top) + 44px) env(safe-area-inset-right)
+          calc(env(safe-area-inset-bottom) + var(--softkey-height)) env(safe-area-inset-left);
         overscroll-behavior: contain;
         touch-action: none;
       }
@@ -274,11 +240,18 @@
         position: fixed;
         left: max(10px, env(safe-area-inset-left));
         right: max(10px, env(safe-area-inset-right));
-        bottom: calc(var(--keyboard-bottom) + max(10px, env(safe-area-inset-bottom)) + var(--softkey-height));
+        bottom: calc(
+          var(--keyboard-bottom) + max(10px, env(safe-area-inset-bottom)) + var(--softkey-height)
+        );
         z-index: 10;
         display: grid;
         gap: 8px;
-        max-height: min(60dvh, calc(var(--visual-viewport-height) - env(safe-area-inset-top) - var(--softkey-height) - 64px));
+        max-height: min(
+          60dvh,
+          calc(
+            var(--visual-viewport-height) - env(safe-area-inset-top) - var(--softkey-height) - 64px
+          )
+        );
         overflow-y: auto;
         overscroll-behavior: contain;
       }
@@ -421,7 +394,7 @@
         display: none;
       }
     </style>
-    <script type="module" crossorigin src="/assets/index-ofh5_OKQ.js"></script>
+    <script type="module" crossorigin src="/assets/index-BLvoRqbg.js"></script>
     <link rel="stylesheet" crossorigin href="/assets/index-CHvCproQ.css">
   </head>
   <body>

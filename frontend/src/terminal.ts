@@ -2,21 +2,10 @@ import { FitAddon } from "@xterm/addon-fit";
 import { ImageAddon } from "@xterm/addon-image";
 import { Terminal } from "@xterm/xterm";
 import type { IDisposable, ITheme } from "@xterm/xterm";
-import { catppuccinMochaTheme } from "./themes/catppuccin-mocha";
-import { ghosttyDefaultTheme } from "./themes/ghostty-default";
-import { solarizedDarkTheme } from "./themes/solarized-dark";
-import { tokyoNightTheme } from "./themes/tokyo-night";
 import type { TerminalWS } from "./ws";
 import "@xterm/xterm/css/xterm.css";
 
-export const terminalThemeNames = [
-  "ghostty-default",
-  "catppuccin-mocha",
-  "tokyo-night",
-  "solarized-dark",
-  "dark",
-  "light"
-] as const;
+export const terminalThemeNames = ["dark", "light"] as const;
 export type TerminalThemeName = (typeof terminalThemeNames)[number];
 
 export type TerminalHandle = {
@@ -26,16 +15,13 @@ export type TerminalHandle = {
 
 const terminalFont = `"JetBrainsMono Nerd Font", "JetBrainsMono Nerd Font Mono", "JetBrains Mono", Menlo, Monaco, monospace`;
 export const terminalFontSizeKey = "onibi-font-size";
+export const terminalThemeKey = "onibi-theme";
 export const defaultTerminalFontSize = 14;
 const minTerminalFontSize = 10;
 const maxTerminalFontSize = 22;
 let loggedCrampedPortrait = false;
 
 const themes: Record<TerminalThemeName, ITheme> = {
-  "ghostty-default": ghosttyDefaultTheme,
-  "catppuccin-mocha": catppuccinMochaTheme,
-  "tokyo-night": tokyoNightTheme,
-  "solarized-dark": solarizedDarkTheme,
   dark: {
     background: "#090b0f",
     foreground: "#d7dde8",
@@ -82,23 +68,28 @@ const themes: Record<TerminalThemeName, ITheme> = {
   }
 };
 
-export const defaultTerminalTheme: TerminalThemeName = "ghostty-default";
+export const defaultTerminalTheme: TerminalThemeName = "dark";
 
 export function isTerminalThemeName(value: string | null): value is TerminalThemeName {
   return terminalThemeNames.includes(value as TerminalThemeName);
 }
 
 const themeLabels: Record<TerminalThemeName, string> = {
-  "ghostty-default": "Ghostty",
-  "catppuccin-mocha": "Mocha",
-  "tokyo-night": "Tokyo",
-  "solarized-dark": "Solarized",
   dark: "Dark",
   light: "Light"
 };
 
 export function terminalThemeLabel(theme: TerminalThemeName): string {
   return themeLabels[theme];
+}
+
+export function loadStoredTerminalTheme(storage: Storage): TerminalThemeName {
+  const stored = storage.getItem(terminalThemeKey);
+  if (isTerminalThemeName(stored)) {
+    return stored;
+  }
+  storage.setItem(terminalThemeKey, defaultTerminalTheme);
+  return defaultTerminalTheme;
 }
 
 export function createTerminal(

@@ -6,12 +6,12 @@ import {
   clampTerminalFontSize,
   createTerminal,
   defaultTerminalFontSize,
-  defaultTerminalTheme,
   installTouchScroll,
   installViewportResize,
-  isTerminalThemeName,
+  loadStoredTerminalTheme,
   logCrampedPortraitCols,
-  terminalFontSizeKey
+  terminalFontSizeKey,
+  terminalThemeKey
 } from "./terminal";
 import type { TerminalThemeName } from "./terminal";
 import { ApprovalOverlay } from "./approval";
@@ -468,7 +468,7 @@ async function sendJSON(
 
 function setTheme(next: TerminalThemeName): void {
   theme = next;
-  window.localStorage.setItem("onibi-theme", next);
+  window.localStorage.setItem(terminalThemeKey, next);
   applyDocumentTheme(next);
   applyTerminalTheme(term, next);
 }
@@ -485,8 +485,7 @@ function changeTerminalFontSize(delta: number): void {
 }
 
 function loadTheme(): TerminalThemeName {
-  const stored = window.localStorage.getItem("onibi-theme");
-  return isTerminalThemeName(stored) ? stored : defaultTerminalTheme;
+  return loadStoredTerminalTheme(window.localStorage);
 }
 
 function applyDocumentTheme(next: TerminalThemeName): void {
@@ -500,19 +499,7 @@ function documentThemeColor(next: TerminalThemeName): string {
   if (next === "light") {
     return "#f6f8fa";
   }
-  if (next === "dark") {
-    return "#090b0f";
-  }
-  if (next === "catppuccin-mocha") {
-    return "#1E1E2E";
-  }
-  if (next === "tokyo-night") {
-    return "#1A1B26";
-  }
-  if (next === "solarized-dark") {
-    return "#002B36";
-  }
-  return "#282C34";
+  return "#090b0f";
 }
 
 function showToast(message: string): void {

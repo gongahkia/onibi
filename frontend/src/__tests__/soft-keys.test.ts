@@ -21,7 +21,7 @@ test("emits terminal escape sequences from soft keys", async () => {
     focus: () => {
       focused += 1;
     },
-    getTheme: () => "ghostty-default",
+    getTheme: () => "dark",
     setTheme: () => {},
     decreaseFontSize: () => {},
     increaseFontSize: () => {}
@@ -35,6 +35,9 @@ test("emits terminal escape sequences from soft keys", async () => {
   expect(sent).toEqual([[0x1b], [0x1b, 0x5b, 0x31, 0x3b, 0x35, 0x43], [0x1b, 0x09]]);
   expect(pageUp).toBe(1);
   expect(focused).toBeGreaterThan(0);
+  expect(
+    Array.from(root.querySelectorAll(".softkey-theme option")).map((option) => option.textContent)
+  ).toEqual(["Dark", "Light"]);
   dom.window.close();
 });
 
@@ -53,7 +56,7 @@ test("keeps essential soft keys visible and supports keyboard activation", async
     pageUp: () => {},
     pageDown: () => {},
     focus: () => {},
-    getTheme: () => "ghostty-default",
+    getTheme: () => "dark",
     setTheme: () => {},
     decreaseFontSize: () => {},
     increaseFontSize: () => {}
