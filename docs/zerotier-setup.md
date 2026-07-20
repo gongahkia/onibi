@@ -31,10 +31,10 @@ Verify membership and authorization:
 
 ```bash
 zerotier-cli listnetworks
-zerotier-cli listnetworks -j
+zerotier-cli -j listnetworks
 ```
 
-The selected network must report status `OK` and show an assigned IP.
+The selected network must report status `OK` and show an assigned IP. When the CLI reports `portDeviceName`, Onibi also verifies that interface currently holds the selected assigned IP.
 
 When more than one joined network has a routable address, Onibi fails closed until you pin the one it should use:
 

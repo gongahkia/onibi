@@ -33,9 +33,9 @@
 </code></pre>
 <p>Verify membership and authorization:</p>
 <pre><code class="language-bash">zerotier-cli listnetworks
-zerotier-cli listnetworks -j
+zerotier-cli -j listnetworks
 </code></pre>
-<p>The selected network must report status <code>OK</code> and show an assigned IP.</p>
+<p>The selected network must report status <code>OK</code> and show an assigned IP. When the CLI reports <code>portDeviceName</code>, Onibi also verifies that interface currently holds the selected assigned IP.</p>
 <p>When more than one joined network has a routable address, Onibi fails closed until you pin the one it should use:</p>
 <pre><code class="language-bash">export ONIBI_ZEROTIER_NETWORK=&lt;network-id-or-name&gt;
 </code></pre>

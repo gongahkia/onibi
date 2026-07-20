@@ -193,14 +193,14 @@ func TestDoctorTailscaleSkippedForLAN(t *testing.T) {
 
 func TestDoctorZeroTierPassesWithJoinedNetwork(t *testing.T) {
 	paths := doctorTestPaths(t, "zerotier")
-	t.Setenv(transport.ZeroTierBinEnv, fakeZeroTier(t, `[{"id":"8056c2e21c000001","name":"dev","status":"OK","portDeviceName":"ztdev","assignedAddresses":["10.147.20.4/24"]}]`))
+	t.Setenv(transport.ZeroTierBinEnv, fakeZeroTier(t, `[{"id":"8056c2e21c000001","name":"dev","status":"OK","assignedAddresses":["10.147.20.4/24"]}]`))
 
 	report := Run(context.Background(), Options{Paths: paths})
 	check := checkNamed(t, report, "zerotier")
 	if check.Status != Pass {
 		t.Fatalf("zerotier check = %#v", check)
 	}
-	if !strings.Contains(check.Detail, "10.147.20.4") || !strings.Contains(check.Detail, "ztdev") {
+	if !strings.Contains(check.Detail, "10.147.20.4") || !strings.Contains(check.Detail, "8056c2e21c000001") {
 		t.Fatalf("detail = %q", check.Detail)
 	}
 }
@@ -300,7 +300,7 @@ func fakeZeroTier(t *testing.T, networksJSON string) string {
 	path := filepath.Join(t.TempDir(), "zerotier-cli")
 	body := "#!/bin/sh\ncase \"$*\" in\n" +
 		"\"info\") echo '200 info deadbeef 1.14.2 ONLINE'\n;;\n" +
-		"\"listnetworks -j\") cat <<'JSON'\n" + networksJSON + "\nJSON\n;;\n" +
+		"\"-j listnetworks\") cat <<'JSON'\n" + networksJSON + "\nJSON\n;;\n" +
 		"*) echo unexpected zerotier args: \"$*\" >&2; exit 2;;\n" +
 		"esac\n"
 	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {

@@ -88,7 +88,7 @@ func TestZerotierAcceptsTunneledDaemon(t *testing.T) {
 	zt := testZeroTier(`[{"id":"8056c2e21c000001","name":"dev","status":"OK","assignedAddresses":["10.147.20.4/24"]}]`, nil)
 	zt.runner = &fakeTSRunner{outputs: map[string][]byte{
 		"zerotier-cli info":            []byte("200 info deadbeef 1.14.2 TUNNELED\n"),
-		"zerotier-cli listnetworks -j": []byte(`[{"id":"8056c2e21c000001","name":"dev","status":"OK","assignedAddresses":["10.147.20.4/24"]}]`),
+		"zerotier-cli -j listnetworks": []byte(`[{"id":"8056c2e21c000001","name":"dev","status":"OK","assignedAddresses":["10.147.20.4/24"]}]`),
 	}}
 	if err := zt.Check(context.Background()); err != nil {
 		t.Fatal(err)
@@ -102,14 +102,23 @@ func TestZerotierParsesTextListNetworks(t *testing.T) {
 			"zerotier-cli listnetworks": []byte("200 listnetworks 8056c2e21c000001 my cool network 92:99:aa:bb:cc:dd OK PRIVATE ztdev 10.147.20.4/24\n"),
 		},
 		errs: map[string]error{
-			"zerotier-cli listnetworks -j": errors.New("unknown option"),
+			"zerotier-cli -j listnetworks": errors.New("unknown option"),
 		},
 	}
 	zt := &ZeroTier{
-		Bin:            "zerotier-cli",
-		runner:         r,
-		lookPath:       func(string) (string, error) { return "/usr/bin/zerotier-cli", nil },
-		interfaceAddrs: func(string) ([]net.Addr, error) { return nil, errors.New("unused") },
+		Bin:      "zerotier-cli",
+		runner:   r,
+		lookPath: func(string) (string, error) { return "/usr/bin/zerotier-cli", nil },
+		interfaceAddrs: func(name string) ([]net.Addr, error) {
+			switch name {
+			case "ztdev":
+				return []net.Addr{mustAddr(t, "10.147.20.4/24")}, nil
+			case "ztprod":
+				return []net.Addr{mustAddr(t, "fd00:147::4/64")}, nil
+			default:
+				return nil, errors.New("unknown interface")
+			}
+		},
 	}
 	host, err := zt.BindHost(context.Background())
 	if err != nil {
@@ -117,6 +126,16 @@ func TestZerotierParsesTextListNetworks(t *testing.T) {
 	}
 	if host != "10.147.20.4" || zt.NetworkID() != "8056c2e21c000001 (my cool network)" || zt.InterfaceName() != "ztdev" {
 		t.Fatalf("host=%q network=%q iface=%q", host, zt.NetworkID(), zt.InterfaceName())
+	}
+}
+
+func TestZerotierRejectsAssignedAddressMissingFromInterface(t *testing.T) {
+	zt := testZeroTier(`[{"id":"8056c2e21c000001","name":"dev","status":"OK","portDeviceName":"ztdev","assignedAddresses":["10.147.20.4/24"]}]`, map[string][]net.Addr{
+		"ztdev": {mustAddr(t, "10.147.20.5/24")},
+	})
+	_, err := zt.BindHost(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "does not contain assigned address") {
+		t.Fatalf("err=%v", err)
 	}
 }
 
@@ -143,10 +162,19 @@ func TestResolveZerotierStartsProvider(t *testing.T) {
 func TestZeroTierLifecycleDetectsNetworkChangeAndRecovers(t *testing.T) {
 	runner := &zeroTierStateRunner{networks: `[{"id":"8056c2e21c000001","name":"dev","status":"OK","portDeviceName":"ztdev","assignedAddresses":["10.147.20.4/24"]}]`}
 	zt := &ZeroTier{
-		Bin:            "zerotier-cli",
-		runner:         runner,
-		lookPath:       func(string) (string, error) { return "/usr/bin/zerotier-cli", nil },
-		interfaceAddrs: func(string) ([]net.Addr, error) { return nil, errors.New("unused") },
+		Bin:      "zerotier-cli",
+		runner:   runner,
+		lookPath: func(string) (string, error) { return "/usr/bin/zerotier-cli", nil },
+		interfaceAddrs: func(name string) ([]net.Addr, error) {
+			switch name {
+			case "ztdev":
+				return []net.Addr{mustAddr(t, "10.147.20.4/24")}, nil
+			case "ztprod":
+				return []net.Addr{mustAddr(t, "fd00:147::4/64")}, nil
+			default:
+				return nil, errors.New("unknown interface")
+			}
+		},
 	}
 	session := NewLifecycle(ResolverOptions{Mode: string(ModeZeroTier), Port: 8443, Providers: ProviderFactory{ZeroTier: func() Provider { return zt }}})
 	if _, err := session.Start(t.Context()); err != nil {
@@ -189,7 +217,7 @@ func (r *zeroTierStateRunner) Run(_ context.Context, _ string, args ...string) (
 	switch strings.Join(args, " ") {
 	case "info":
 		return []byte("200 info deadbeef 1.14.2 ONLINE\n"), nil
-	case "listnetworks -j":
+	case "-j listnetworks":
 		r.mu.Lock()
 		defer r.mu.Unlock()
 		return []byte(r.networks), nil
@@ -207,12 +235,23 @@ func (r *zeroTierStateRunner) SetNetworks(networks string) {
 func testZeroTier(networks string, addrs map[string][]net.Addr) *ZeroTier {
 	if addrs == nil {
 		addrs = map[string][]net.Addr{}
+		parsed, err := parseZeroTierNetworksJSON([]byte(networks))
+		if err != nil {
+			panic(err)
+		}
+		for _, network := range parsed {
+			host, ok := hostFromAssignedAddresses(network.AssignedAddresses)
+			if !ok || network.PortDeviceName == "" {
+				continue
+			}
+			addrs[network.PortDeviceName] = []net.Addr{&net.IPNet{IP: net.ParseIP(host)}}
+		}
 	}
 	return &ZeroTier{
 		Bin: "zerotier-cli",
 		runner: &fakeTSRunner{outputs: map[string][]byte{
 			"zerotier-cli info":            []byte("200 info deadbeef 1.14.2 ONLINE\n"),
-			"zerotier-cli listnetworks -j": []byte(networks),
+			"zerotier-cli -j listnetworks": []byte(networks),
 		}},
 		lookPath: func(string) (string, error) { return "/usr/bin/zerotier-cli", nil },
 		interfaceAddrs: func(name string) ([]net.Addr, error) {

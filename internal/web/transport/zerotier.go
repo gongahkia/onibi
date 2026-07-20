@@ -176,6 +176,7 @@ func (z *ZeroTier) resolveHost(ctx context.Context) (string, string, string, err
 		iface   string
 	}
 	var candidates []candidate
+	var firstHealthErr error
 	for _, network := range networks {
 		if want != "" && !network.matches(want) {
 			continue
@@ -186,13 +187,16 @@ func (z *ZeroTier) resolveHost(ctx context.Context) (string, string, string, err
 			}
 			continue
 		}
-		host, iface, ok := z.hostForNetwork(network)
-		if ok {
+		host, iface, err := z.hostForNetwork(network)
+		if err == nil {
 			candidates = append(candidates, candidate{host: host, network: network.display(), iface: iface})
 			continue
 		}
 		if want != "" {
-			return "", "", "", fmt.Errorf("zerotier network %q has no routable IP address", network.display())
+			return "", "", "", fmt.Errorf("zerotier network %q is not healthy: %w", network.display(), err)
+		}
+		if firstHealthErr == nil {
+			firstHealthErr = fmt.Errorf("zerotier network %q is not healthy: %w", network.display(), err)
 		}
 	}
 	if len(candidates) == 1 {
@@ -214,6 +218,9 @@ func (z *ZeroTier) resolveHost(ctx context.Context) (string, string, string, err
 	if want != "" {
 		return "", "", "", fmt.Errorf("zerotier network %q is not joined with a routable IP address", want)
 	}
+	if firstHealthErr != nil {
+		return "", "", "", firstHealthErr
+	}
 	return "", "", "", errors.New("no ZeroTier network with status OK and a routable IP address")
 }
 
@@ -234,7 +241,7 @@ func (z *ZeroTier) checkOnline(ctx context.Context) error {
 }
 
 func (z *ZeroTier) zeroTierNetworks(ctx context.Context) ([]zeroTierNetwork, error) {
-	out, jsonErr := z.run(ctx, "listnetworks", "-j")
+	out, jsonErr := z.run(ctx, "-j", "listnetworks")
 	if jsonErr == nil {
 		networks, err := parseZeroTierNetworksJSON(out)
 		if err == nil {
@@ -243,11 +250,11 @@ func (z *ZeroTier) zeroTierNetworks(ctx context.Context) ([]zeroTierNetwork, err
 		if textNetworks, textErr := parseZeroTierNetworksText(out); textErr == nil {
 			return textNetworks, nil
 		}
-		return nil, fmt.Errorf("parse zerotier-cli listnetworks -j: %w", err)
+		return nil, fmt.Errorf("parse zerotier-cli -j listnetworks: %w", err)
 	}
 	out, err := z.run(ctx, "listnetworks")
 	if err != nil {
-		return nil, fmt.Errorf("zerotier-cli listnetworks -j: %v; zerotier-cli listnetworks: %w", jsonErr, err)
+		return nil, fmt.Errorf("zerotier-cli -j listnetworks: %v; zerotier-cli listnetworks: %w", jsonErr, err)
 	}
 	networks, err := parseZeroTierNetworksText(out)
 	if err != nil {
@@ -256,16 +263,46 @@ func (z *ZeroTier) zeroTierNetworks(ctx context.Context) ([]zeroTierNetwork, err
 	return networks, nil
 }
 
-func (z *ZeroTier) hostForNetwork(network zeroTierNetwork) (string, string, bool) {
-	if host, ok := hostFromAssignedAddresses(network.AssignedAddresses); ok {
-		return host, strings.TrimSpace(network.PortDeviceName), true
-	}
+func (z *ZeroTier) hostForNetwork(network zeroTierNetwork) (string, string, error) {
 	iface := strings.TrimSpace(network.PortDeviceName)
+	if host, ok := hostFromAssignedAddresses(network.AssignedAddresses); ok {
+		if iface == "" {
+			return host, "", nil
+		}
+		if err := z.verifyInterfaceAddress(iface, host); err != nil {
+			return "", "", err
+		}
+		return host, iface, nil
+	}
 	if iface == "" {
-		return "", "", false
+		return "", "", errors.New("no routable assigned address or interface")
 	}
 	host, ok := z.hostForInterface(iface)
-	return host, iface, ok
+	if !ok {
+		return "", "", fmt.Errorf("interface %s has no routable address", iface)
+	}
+	return host, iface, nil
+}
+
+func (z *ZeroTier) verifyInterfaceAddress(name, host string) error {
+	want := net.ParseIP(host)
+	if want == nil {
+		return fmt.Errorf("invalid assigned address %q", host)
+	}
+	addrs := z.interfaceAddrs
+	if addrs == nil {
+		addrs = defaultInterfaceAddrs
+	}
+	got, err := addrs(name)
+	if err != nil {
+		return err
+	}
+	for _, addr := range got {
+		if ip := addrIP(addr); ip != nil && ip.Equal(want) {
+			return nil
+		}
+	}
+	return fmt.Errorf("interface %s does not contain assigned address %s", name, host)
 }
 
 func (z *ZeroTier) hostForInterface(name string) (string, bool) {

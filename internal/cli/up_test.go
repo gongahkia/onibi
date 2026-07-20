@@ -240,8 +240,8 @@ func TestUpHelpDocumentsPublicRelayE2ERequirement(t *testing.T) {
 	}
 }
 
-func TestRuntimeTransportHealthIncludesNgrok(t *testing.T) {
-	for _, mode := range []webtransport.Mode{webtransport.ModeNgrok, webtransport.ModeCloudflareQuick} {
+func TestRuntimeTransportHealthIncludesProtectedTransports(t *testing.T) {
+	for _, mode := range []webtransport.Mode{webtransport.ModeWireGuard, webtransport.ModeZeroTier, webtransport.ModeNgrok, webtransport.ModeCloudflareQuick} {
 		if !requiresRuntimeTransportHealth(mode) {
 			t.Fatalf("%s runtime health disabled", mode)
 		}
