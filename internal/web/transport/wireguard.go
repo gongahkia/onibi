@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -146,14 +147,29 @@ func (w *WireGuard) resolveHost(ctx context.Context) (string, string, error) {
 		}
 		interfaces = []string{iface}
 	}
+	type candidate struct {
+		host  string
+		iface string
+	}
+	var candidates []candidate
 	for _, name := range interfaces {
 		host, ok := w.hostForInterface(name)
 		if ok {
-			return host, name, nil
+			candidates = append(candidates, candidate{host: host, iface: name})
 		}
+	}
+	if len(candidates) == 1 {
+		return candidates[0].host, candidates[0].iface, nil
 	}
 	if iface != "" {
 		return "", "", fmt.Errorf("wireguard interface %q has no routable IP address", iface)
+	}
+	if len(candidates) > 1 {
+		interfaces := make([]string, 0, len(candidates))
+		for _, candidate := range candidates {
+			interfaces = append(interfaces, candidate.iface)
+		}
+		return "", "", fmt.Errorf("multiple WireGuard interfaces have routable addresses (%s); set %s", strings.Join(interfaces, ", "), WireGuardInterfaceEnv)
 	}
 	return "", "", errors.New("no WireGuard interface with a routable IP address")
 }
@@ -173,6 +189,7 @@ func (w *WireGuard) wireGuardInterfaces(ctx context.Context) ([]string, error) {
 		seen[name] = true
 		names = append(names, name)
 	}
+	sort.Strings(names)
 	if len(names) == 0 {
 		return nil, errors.New("wg show interfaces returned no WireGuard interfaces")
 	}
@@ -188,23 +205,15 @@ func (w *WireGuard) hostForInterface(name string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	var ipv6 string
+	var ips []net.IP
 	for _, addr := range got {
 		ip := addrIP(addr)
 		if ip == nil || !isRoutableLANHost(ip.String()) {
 			continue
 		}
-		if ip4 := ip.To4(); ip4 != nil {
-			return ip4.String(), true
-		}
-		if ipv6 == "" {
-			ipv6 = ip.String()
-		}
+		ips = append(ips, ip)
 	}
-	if ipv6 != "" {
-		return ipv6, true
-	}
-	return "", false
+	return preferredPrivateIP(ips)
 }
 
 func (w *WireGuard) run(ctx context.Context, args ...string) ([]byte, error) {

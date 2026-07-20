@@ -285,7 +285,7 @@ func (z *ZeroTier) hostForInterface(name string) (string, bool) {
 		}
 		ips = append(ips, ip)
 	}
-	return preferredZeroTierIP(ips)
+	return preferredPrivateIP(ips)
 }
 
 func (z *ZeroTier) run(ctx context.Context, args ...string) ([]byte, error) {
@@ -399,10 +399,10 @@ func hostFromAssignedAddresses(addresses []string) (string, bool) {
 			ips = append(ips, ip)
 		}
 	}
-	return preferredZeroTierIP(ips)
+	return preferredPrivateIP(ips)
 }
 
-func preferredZeroTierIP(ips []net.IP) (string, bool) {
+func preferredPrivateIP(ips []net.IP) (string, bool) {
 	var ipv4, ipv6 []net.IP
 	seen := map[string]bool{}
 	for _, ip := range ips {

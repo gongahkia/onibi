@@ -8,11 +8,12 @@ import (
 	"testing"
 )
 
-func TestWireGuardEnableUsesFirstRoutableInterfaceIP(t *testing.T) {
+func TestWireGuardEnableUsesConfiguredRoutableInterfaceIP(t *testing.T) {
 	wg := testWireGuard("wg0 utun7\n", map[string][]net.Addr{
 		"wg0":   {mustAddr(t, "fe80::1/64"), mustAddr(t, "10.8.0.2/24")},
 		"utun7": {mustAddr(t, "fd00::2/64")},
 	})
+	wg.Interface = "wg0"
 	if err := wg.Enable(context.Background(), 8443); err != nil {
 		t.Fatal(err)
 	}
@@ -22,6 +23,30 @@ func TestWireGuardEnableUsesFirstRoutableInterfaceIP(t *testing.T) {
 	}
 	if got != "https://10.8.0.2:8443" || wg.InterfaceName() != "wg0" {
 		t.Fatalf("url=%q iface=%q", got, wg.InterfaceName())
+	}
+}
+
+func TestWireGuardRequiresInterfaceOverrideWhenMultipleRoutable(t *testing.T) {
+	wg := testWireGuard("utun7 wg0\n", map[string][]net.Addr{
+		"wg0":   {mustAddr(t, "10.8.0.2/24")},
+		"utun7": {mustAddr(t, "fd00::2/64")},
+	})
+	err := wg.Check(context.Background())
+	if err == nil || !strings.Contains(err.Error(), WireGuardInterfaceEnv) {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestWireGuardUsesDeterministicPreferredAddress(t *testing.T) {
+	wg := testWireGuard("wg0\n", map[string][]net.Addr{
+		"wg0": {mustAddr(t, "10.8.0.9/24"), mustAddr(t, "fd00::9/64"), mustAddr(t, "10.8.0.2/24")},
+	})
+	host, err := wg.BindHost(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if host != "10.8.0.2" {
+		t.Fatalf("host=%q", host)
 	}
 }
 
@@ -77,12 +102,13 @@ func TestResolveWireGuardStartsProvider(t *testing.T) {
 	}
 }
 
-func TestWireGuardLifecycleDetectsEndpointChangeAndRecovers(t *testing.T) {
+func TestWireGuardLifecycleFailsClosedWhenSelectedEndpointChanges(t *testing.T) {
 	addrs := map[string][]net.Addr{
 		"wg0":   {mustAddr(t, "10.8.0.2/24")},
 		"utun7": {mustAddr(t, "fd00::2/64")},
 	}
 	wg := testWireGuard("wg0 utun7\n", addrs)
+	wg.Interface = "wg0"
 	session := NewLifecycle(ResolverOptions{Mode: string(ModeWireGuard), Port: 8443, Providers: ProviderFactory{WireGuard: func() Provider { return wg }}})
 	if _, err := session.Start(t.Context()); err != nil {
 		t.Fatal(err)
@@ -101,11 +127,8 @@ func TestWireGuardLifecycleDetectsEndpointChangeAndRecovers(t *testing.T) {
 	if _, err := session.Health(t.Context()); err == nil {
 		t.Fatal("expected endpoint health failure")
 	}
-	if _, err := session.Reconnect(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	if report, err := session.Health(t.Context()); err != nil || !report.Healthy || len(report.Targets) != 1 || report.Targets[0] != "https://[fd00::2]:8443" {
-		t.Fatalf("recovered health=%#v err=%v", report, err)
+	if _, err := session.Reconnect(t.Context()); err == nil {
+		t.Fatal("expected reconnect failure")
 	}
 	if err := session.Shutdown(t.Context()); err != nil {
 		t.Fatal(err)
@@ -114,7 +137,7 @@ func TestWireGuardLifecycleDetectsEndpointChangeAndRecovers(t *testing.T) {
 		t.Fatalf("interface after shutdown=%q", wg.InterfaceName())
 	}
 	diagnostics := session.Diagnostics()
-	if len(diagnostics) != 1 || diagnostics[0].Operation != "health" || diagnostics[0].Code != DiagActivationLag {
+	if len(diagnostics) != 2 || diagnostics[0].Operation != "health" || diagnostics[1].Operation != "reconnect" {
 		t.Fatalf("diagnostics=%#v", diagnostics)
 	}
 }

@@ -27,7 +27,7 @@ ifconfig wg0
 
 On Linux, use `ip addr show wg0` if `ifconfig` is not installed.
 
-When more than one interface is active, pin the one Onibi should use:
+If more than one WireGuard interface has a routable address, Onibi fails closed until you pin one:
 
 ```bash
 export ONIBI_WIREGUARD_INTERFACE=wg0
@@ -40,7 +40,7 @@ onibi doctor --transport=wireguard
 onibi up --transport=wireguard
 ```
 
-Onibi binds the web listener to the selected WireGuard IP only, then prints a pair URL over that IP.
+Onibi binds the web listener to the selected WireGuard IP only, includes that exact IP in the local HTTPS certificate, and prints a pair URL over that IP. It does not modify WireGuard configurations, keys, peers, or routes.
 
 ## Phone
 
@@ -55,5 +55,7 @@ The Onibi local HTTPS profile is still required. Install and fully trust `onibi-
 3. Confirm the printed URL uses the WireGuard IP.
 4. Open the QR from the phone while the tunnel is active.
 5. Use the phone terminal for a shell command and a full-screen program such as `vim`.
+
+While `onibi up` waits, it rechecks the selected WireGuard interface and address every five seconds. If either changes or becomes unavailable, Onibi stops; restore the tunnel and restart `onibi up` to mint a new pairing URL.
 
 If pairing fails, first confirm the phone can reach the laptop WireGuard IP with another service. WireGuard itself does not expose a connected control session; `wg show` and the latest handshake/transfer counters are the useful local diagnostics.

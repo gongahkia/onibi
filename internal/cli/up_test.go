@@ -268,13 +268,15 @@ func TestApplyZeroTierListenAddrFormatsIPv6(t *testing.T) {
 	}
 }
 
-func TestZeroTierPairTransportRejectsEndpointChange(t *testing.T) {
-	err := validateZeroTierPairTransport("10.147.20.4:9443", webtransport.Resolved{Mode: webtransport.ModeZeroTier, BaseURL: "https://10.147.20.5:9443"})
-	if err == nil || !strings.Contains(err.Error(), "endpoint changed") {
-		t.Fatalf("err=%v", err)
-	}
-	if err := validateZeroTierPairTransport("[fd00:147::4]:9443", webtransport.Resolved{Mode: webtransport.ModeZeroTier, BaseURL: "https://[fd00:147::4]:9443"}); err != nil {
-		t.Fatal(err)
+func TestPrivatePairTransportRejectsEndpointChange(t *testing.T) {
+	for _, mode := range []webtransport.Mode{webtransport.ModeWireGuard, webtransport.ModeZeroTier} {
+		err := validatePrivatePairTransport("10.147.20.4:9443", webtransport.Resolved{Mode: mode, BaseURL: "https://10.147.20.5:9443"})
+		if err == nil || !strings.Contains(err.Error(), "endpoint changed") {
+			t.Fatalf("mode=%s err=%v", mode, err)
+		}
+		if err := validatePrivatePairTransport("[fd00:147::4]:9443", webtransport.Resolved{Mode: mode, BaseURL: "https://[fd00:147::4]:9443"}); err != nil {
+			t.Fatalf("mode=%s err=%v", mode, err)
+		}
 	}
 }
 

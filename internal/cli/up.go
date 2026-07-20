@@ -64,7 +64,7 @@ var wireGuardBindHost = func(ctx context.Context) (string, error) {
 var zeroTierBindHost = func(ctx context.Context) (string, error) {
 	return webtransport.NewZeroTierFromEnv().BindHost(ctx)
 }
-var zeroTierHealthInterval = 5 * time.Second
+var privateTransportHealthInterval = 5 * time.Second
 
 func upCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -330,12 +330,12 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 		return err
 	}
 	defer cleanupPairTransport(logger, pairTransport)
-	if err := validateZeroTierPairTransport(cfg.Web.ListenAddr, pairTransport); err != nil {
+	if err := validatePrivatePairTransport(cfg.Web.ListenAddr, pairTransport); err != nil {
 		return err
 	}
-	if pairTransport.Mode == webtransport.ModeZeroTier {
+	if isPrivateMeshTransport(pairTransport.Mode) {
 		if err := pairTransport.Health(ctx); err != nil {
-			return fmt.Errorf("zerotier transport health: %w", err)
+			return fmt.Errorf("%s transport health: %w", pairTransport.Mode, err)
 		}
 	}
 	logPhase(logger, "pair_transport_ready", phase,
@@ -418,19 +418,19 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 	fmt.Fprintln(cmd.OutOrStdout(), "Waiting for pairing. Press Ctrl-C to stop.")
 	logger.Info("onibi up ready", "uptime_ms", time.Since(started).Milliseconds())
 
-	var zeroTierHealthC <-chan time.Time
-	var zeroTierTicker *time.Ticker
-	if pairTransport.Mode == webtransport.ModeZeroTier {
-		zeroTierTicker = time.NewTicker(zeroTierHealthInterval)
-		defer zeroTierTicker.Stop()
-		zeroTierHealthC = zeroTierTicker.C
+	var privateTransportHealthC <-chan time.Time
+	var privateTransportTicker *time.Ticker
+	if isPrivateMeshTransport(pairTransport.Mode) {
+		privateTransportTicker = time.NewTicker(privateTransportHealthInterval)
+		defer privateTransportTicker.Stop()
+		privateTransportHealthC = privateTransportTicker.C
 	}
 	for {
 		select {
-		case <-zeroTierHealthC:
+		case <-privateTransportHealthC:
 			if err := pairTransport.Health(ctx); err != nil {
-				logger.Error("zerotier transport health failed; stopping", "err", err)
-				return fmt.Errorf("zerotier transport health: %w", err)
+				logger.Error("private transport health failed; stopping", "transport", pairTransport.Mode, "err", err)
+				return fmt.Errorf("%s transport health: %w", pairTransport.Mode, err)
 			}
 		case notice, ok := <-firstRunPairCh:
 			if !ok {
@@ -473,27 +473,32 @@ func listenCertHosts(addr string) []string {
 	return []string{host}
 }
 
-func validateZeroTierPairTransport(listenAddr string, pairTransport webtransport.Resolved) error {
-	if pairTransport.Mode != webtransport.ModeZeroTier {
+func isPrivateMeshTransport(mode webtransport.Mode) bool {
+	return mode == webtransport.ModeWireGuard || mode == webtransport.ModeZeroTier
+}
+
+func validatePrivatePairTransport(listenAddr string, pairTransport webtransport.Resolved) error {
+	if !isPrivateMeshTransport(pairTransport.Mode) {
 		return nil
 	}
+	provider := string(pairTransport.Mode)
 	listenHost, _, err := net.SplitHostPort(strings.TrimSpace(listenAddr))
 	if err != nil {
-		return fmt.Errorf("parse zerotier listen address: %w", err)
+		return fmt.Errorf("parse %s listen address: %w", provider, err)
 	}
 	targets := pairTransport.TargetURLs()
 	if len(targets) != 1 {
-		return errors.New("zerotier transport produced no single target")
+		return fmt.Errorf("%s transport produced no single target", provider)
 	}
 	target, err := url.Parse(targets[0])
 	if err != nil {
-		return fmt.Errorf("parse zerotier transport target: %w", err)
+		return fmt.Errorf("parse %s transport target: %w", provider, err)
 	}
 	if target.Hostname() == "" {
-		return errors.New("zerotier transport target has no host")
+		return fmt.Errorf("%s transport target has no host", provider)
 	}
 	if !sameListenHost(listenHost, target.Hostname()) {
-		return fmt.Errorf("zerotier endpoint changed from %s to %s; restart onibi up", listenHost, target.Hostname())
+		return fmt.Errorf("%s endpoint changed from %s to %s; restart onibi up", provider, listenHost, target.Hostname())
 	}
 	return nil
 }
