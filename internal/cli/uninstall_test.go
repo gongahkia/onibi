@@ -11,7 +11,7 @@ func TestUninstallDryRunShowsAllHookInspection(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	out, _ := executeRoot(t, "uninstall", "--dry-run", "--color", "never")
 	got := out.String()
-	for _, want := range []string{"inspect hooks", "onibi hooks --show --all", "remove hooks", "all supported agents and shells"} {
+	for _, want := range []string{"inspect hooks", "onibi hooks --show --all", "remove hooks", "all supported agents", "remove legacy shell hook blocks"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("output missing %q:\n%s", want, got)
 		}
@@ -20,12 +20,20 @@ func TestUninstallDryRunShowsAllHookInspection(t *testing.T) {
 
 func TestUninstallDryRunShowsTargetedHookInspection(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	out, _ := executeRoot(t, "uninstall", "--dry-run", "--agent", "codex", "--shell", "zsh", "--color", "never")
+	out, _ := executeRoot(t, "uninstall", "--dry-run", "--agent", "codex", "--color", "never")
 	got := out.String()
-	for _, want := range []string{"onibi hooks --show --agent codex", "onibi hooks --show --shell zsh", "agent:codex", "shell:zsh"} {
+	for _, want := range []string{"onibi hooks --show --agent codex", "agent:codex"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("output missing %q:\n%s", want, got)
 		}
+	}
+}
+
+func TestUninstallRejectsShellFlag(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	_, _, err := executeRootAllowError(t, "uninstall", "--dry-run", "--shell", "zsh", "--color", "never")
+	if err == nil || !strings.Contains(err.Error(), "unknown flag: --shell") {
+		t.Fatalf("err = %v", err)
 	}
 }
 

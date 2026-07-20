@@ -40,7 +40,7 @@ func runFirstRunWizard(cmd *cobra.Command, paths config.Paths, db *store.DB) err
 	if err != nil {
 		return err
 	}
-	if err := firstRunInstallHookTargets(cmd, db, selected, cfg.Shell.MinDuration.Std().Milliseconds()); err != nil {
+	if err := firstRunInstallHookTargets(cmd, db, selected); err != nil {
 		return err
 	}
 
@@ -99,7 +99,7 @@ func firstRunDetectedHookTargets(cmd *cobra.Command, db *store.DB) ([]hookTarget
 func firstRunSelectHookTargets(cmd *cobra.Command, sc *bufio.Scanner, targets []hookTarget) ([]hookTarget, error) {
 	out := cmd.OutOrStdout()
 	if len(targets) == 0 {
-		fmt.Fprintln(out, "No detected agent config dirs or shell RC files. Skipping hook install.")
+		fmt.Fprintln(out, "No detected agent config dirs. Skipping hook install.")
 		return nil, nil
 	}
 	style := styleFor(cmd)
@@ -171,7 +171,7 @@ func firstRunHookIndex(raw string, targets []hookTarget) (int, bool) {
 	return 0, false
 }
 
-func firstRunInstallHookTargets(cmd *cobra.Command, db *store.DB, targets []hookTarget, shellMinMS int64) error {
+func firstRunInstallHookTargets(cmd *cobra.Command, db *store.DB, targets []hookTarget) error {
 	if len(targets) == 0 {
 		return nil
 	}
@@ -183,17 +183,9 @@ func firstRunInstallHookTargets(cmd *cobra.Command, db *store.DB, targets []hook
 		return err
 	}
 	for _, target := range targets {
-		if target.Kind == "agent" {
-			if err := installOneAgent(cmd, db, notifyBin, target.Name, false); err != nil {
-				return err
-			}
-			continue
-		}
-		if err := adapters.InstallShell(cmd.Context(), db, notifyBin, target.Name, shellMinMS); err != nil {
+		if err := installOneAgent(cmd, db, notifyBin, target.Name, false); err != nil {
 			return err
 		}
-		info := adapters.ShellStatus(cmd.Context(), db, target.Name)
-		fmt.Fprintf(cmd.OutOrStdout(), "%s Installed %s shell hook into %s\n", styleFor(cmd).green("[OK]"), target.Name, info.InstallPath)
 	}
 	return nil
 }

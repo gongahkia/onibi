@@ -26,9 +26,8 @@ func uninstallCmd() *cobra.Command {
 	}
 	cmd.Flags().Bool("service", false, "remove LaunchAgent/systemd user unit")
 	cmd.Flags().Bool("hooks", false, "remove Onibi-managed hooks")
-	cmd.Flags().Bool("all-hooks", false, "remove all supported agent and shell hooks")
+	cmd.Flags().Bool("all-hooks", false, "remove all supported agent hooks")
 	cmd.Flags().String("agent", "", "remove one agent hook")
-	cmd.Flags().String("shell", "", "remove one shell hook")
 	cmd.Flags().Bool("state", false, "remove local state, logs, sqlite, config, and fallback .env")
 	cmd.Flags().Bool("yes", false, "skip destructive confirmation")
 	cmd.Flags().Bool("dry-run", false, "print planned actions only")
@@ -47,7 +46,6 @@ func runUninstall(cmd *cobra.Command, _ []string) error {
 	hooksFlag, _ := cmd.Flags().GetBool("hooks")
 	allHooks, _ := cmd.Flags().GetBool("all-hooks")
 	agent, _ := cmd.Flags().GetString("agent")
-	sh, _ := cmd.Flags().GetString("shell")
 	stateFlag, _ := cmd.Flags().GetBool("state")
 	yes, _ := cmd.Flags().GetBool("yes")
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
@@ -56,7 +54,7 @@ func runUninstall(cmd *cobra.Command, _ []string) error {
 	if asJSON && !dryRun {
 		return errors.New("--json requires --dry-run")
 	}
-	if !serviceFlag && !hooksFlag && !allHooks && agent == "" && sh == "" && !stateFlag {
+	if !serviceFlag && !hooksFlag && !allHooks && agent == "" && !stateFlag {
 		serviceFlag = true
 		hooksFlag = true
 		allHooks = true
@@ -64,10 +62,10 @@ func runUninstall(cmd *cobra.Command, _ []string) error {
 	if allHooks {
 		hooksFlag = true
 	}
-	if agent != "" || sh != "" {
+	if agent != "" {
 		hooksFlag = true
 	}
-	if hooksFlag && agent == "" && sh == "" {
+	if hooksFlag && agent == "" {
 		allHooks = true
 	}
 
@@ -75,7 +73,7 @@ func runUninstall(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	plan := buildUninstallPlan(paths, serviceFlag, hooksFlag, allHooks, agent, sh, stateFlag)
+	plan := buildUninstallPlan(paths, serviceFlag, hooksFlag, allHooks, agent, stateFlag)
 	if asJSON {
 		enc := json.NewEncoder(cmd.OutOrStdout())
 		enc.SetIndent("", "  ")
@@ -111,7 +109,7 @@ func runUninstall(cmd *cobra.Command, _ []string) error {
 		fmt.Fprintf(cmd.OutOrStdout(), "%s Uninstalled service %s\n", styleFor(cmd).green("[OK]"), path)
 	}
 	if hooksFlag {
-		if err := uninstallHooks(ctx, cmd, paths, allHooks, agent, sh); err != nil {
+		if err := uninstallHooks(ctx, cmd, paths, allHooks, agent); err != nil {
 			return err
 		}
 	}
@@ -127,23 +125,21 @@ func runUninstall(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-func buildUninstallPlan(paths config.Paths, serviceFlag, hooksFlag, allHooks bool, agent, sh string, stateFlag bool) []uninstallPlanItem {
+func buildUninstallPlan(paths config.Paths, serviceFlag, hooksFlag, allHooks bool, agent string, stateFlag bool) []uninstallPlanItem {
 	var plan []uninstallPlanItem
 	if serviceFlag {
 		plan = append(plan, uninstallPlanItem{Action: "remove service", Target: "LaunchAgent/systemd user unit", Risk: "medium"})
 	}
 	if hooksFlag {
-		for _, inspect := range uninstallHookInspectCommands(allHooks, agent, sh) {
+		for _, inspect := range uninstallHookInspectCommands(allHooks, agent) {
 			plan = append(plan, uninstallPlanItem{Action: "inspect hooks", Target: inspect, Risk: "low"})
 		}
 		if allHooks {
-			plan = append(plan, uninstallPlanItem{Action: "remove hooks", Target: "all supported agents and shells", Risk: "medium"})
+			plan = append(plan, uninstallPlanItem{Action: "remove hooks", Target: "all supported agents", Risk: "medium"})
+			plan = append(plan, uninstallPlanItem{Action: "remove legacy shell hook blocks", Target: "Onibi-marked zsh/bash/fish blocks only", Risk: "low"})
 		} else {
 			if agent != "" {
 				plan = append(plan, uninstallPlanItem{Action: "remove hook", Target: "agent:" + agent, Risk: "medium"})
-			}
-			if sh != "" {
-				plan = append(plan, uninstallPlanItem{Action: "remove hook", Target: "shell:" + sh, Risk: "medium"})
 			}
 		}
 	}
@@ -191,7 +187,7 @@ func confirmUninstall(cmd *cobra.Command, stateFlag bool) (bool, error) {
 	return strings.TrimSpace(line) == phrase, nil
 }
 
-func uninstallHookInspectCommands(allHooks bool, agent, sh string) []string {
+func uninstallHookInspectCommands(allHooks bool, agent string) []string {
 	if allHooks {
 		return []string{"onibi hooks --show --all"}
 	}
@@ -199,13 +195,10 @@ func uninstallHookInspectCommands(allHooks bool, agent, sh string) []string {
 	if agent != "" {
 		out = append(out, "onibi hooks --show --agent "+agent)
 	}
-	if sh != "" {
-		out = append(out, "onibi hooks --show --shell "+sh)
-	}
 	return out
 }
 
-func uninstallHooks(ctx context.Context, cmd *cobra.Command, paths config.Paths, all bool, agent, sh string) error {
+func uninstallHooks(ctx context.Context, cmd *cobra.Command, paths config.Paths, all bool, agent string) error {
 	if err := paths.EnsureDirs(); err != nil {
 		return err
 	}
@@ -228,14 +221,12 @@ func uninstallHooks(ctx context.Context, cmd *cobra.Command, paths config.Paths,
 				return err
 			}
 		}
-		for _, name := range adapters.ShellNames() {
-			if !adapters.ShellStatus(ctx, db, name).Installed {
-				continue
-			}
-			if err := adapters.UninstallShell(ctx, db, name); err != nil {
-				return err
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%s Uninstalled %s shell hook\n", styleFor(cmd).green("[OK]"), name)
+		removed, err := adapters.CleanupLegacyShellHooks()
+		if err != nil {
+			return err
+		}
+		if removed > 0 {
+			fmt.Fprintf(cmd.OutOrStdout(), "%s Removed %d legacy shell hook block(s)\n", styleFor(cmd).green("[OK]"), removed)
 		}
 		return nil
 	}
@@ -243,12 +234,6 @@ func uninstallHooks(ctx context.Context, cmd *cobra.Command, paths config.Paths,
 		if err := uninstallAgentHook(ctx, cmd, db, agent); err != nil {
 			return err
 		}
-	}
-	if sh != "" {
-		if err := adapters.UninstallShell(ctx, db, sh); err != nil {
-			return err
-		}
-		fmt.Fprintf(cmd.OutOrStdout(), "%s Uninstalled %s shell hook\n", styleFor(cmd).green("[OK]"), sh)
 	}
 	return nil
 }

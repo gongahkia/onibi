@@ -59,9 +59,8 @@ type Daemon struct {
 }
 
 type Shell struct {
-	MinDuration Duration `yaml:"min_duration" json:"min_duration"`
-	Default     string   `yaml:"default" json:"default"`
-	Login       bool     `yaml:"login" json:"login"`
+	Default string `yaml:"default" json:"default"`
+	Login   bool   `yaml:"login" json:"login"`
 }
 
 type Terminal struct {
@@ -124,9 +123,8 @@ func Default() Config {
 			MaxSubscribers:        32,
 		},
 		Shell: Shell{
-			MinDuration: Duration(5 * time.Second),
-			Default:     "auto",
-			Login:       true,
+			Default: "auto",
+			Login:   true,
 		},
 		Web:       Web{ListenAddr: ":8443"},
 		Transport: Transport{Mode: "lan"},
@@ -207,7 +205,6 @@ func (c Config) Validate() error {
 		{"daemon.approval_sweep_interval", c.Daemon.ApprovalSweepInterval.Std(), time.Second, 5 * time.Minute},
 		{"daemon.turn_idle_threshold", c.Daemon.TurnIdleThreshold.Std(), time.Second, 30 * time.Minute},
 		{"daemon.turn_idle_interval", c.Daemon.TurnIdleInterval.Std(), 100 * time.Millisecond, 10 * time.Second},
-		{"shell.min_duration", c.Shell.MinDuration.Std(), 0, 24 * time.Hour},
 	}
 	for _, x := range checks {
 		if x.got < x.min || x.got > x.max {
@@ -373,12 +370,6 @@ func Set(cfg *Config, key, value string) error {
 			return fmt.Errorf("daemon.max_subscribers must be integer")
 		}
 		cfg.Daemon.MaxSubscribers = n
-	case "shell.min_duration":
-		d, err := ParseDuration(value)
-		if err != nil {
-			return err
-		}
-		cfg.Shell.MinDuration = Duration(d)
 	case "shell.default":
 		cfg.Shell.Default = strings.TrimSpace(value)
 	case "shell.login":
@@ -443,8 +434,6 @@ func Get(cfg Config, key string) (string, error) {
 		return strconv.Itoa(cfg.Daemon.PTYBufferBytes), nil
 	case "daemon.max_subscribers":
 		return strconv.Itoa(cfg.Daemon.MaxSubscribers), nil
-	case "shell.min_duration":
-		return cfg.Shell.MinDuration.String(), nil
 	case "shell.default":
 		return cfg.Shell.Default, nil
 	case "shell.login":
@@ -486,7 +475,6 @@ func Keys(cfg Config, meta LoadMeta) []KeyInfo {
 		{"daemon.max_subscribers", strconv.Itoa(def.Daemon.MaxSubscribers), strconv.Itoa(cfg.Daemon.MaxSubscribers), meta.Explicit["daemon.max_subscribers"], "maximum approval event subscribers"},
 		{"shell.default", def.Shell.Default, cfg.Shell.Default, meta.Explicit["shell.default"], "shell launched by `onibi shell`: auto, shell name, or absolute path"},
 		{"shell.login", strconv.FormatBool(def.Shell.Login), strconv.FormatBool(cfg.Shell.Login), meta.Explicit["shell.login"], "start `onibi shell` as login+interactive when supported"},
-		{"shell.min_duration", def.Shell.MinDuration.String(), cfg.Shell.MinDuration.String(), meta.Explicit["shell.min_duration"], "shell command duration before hooks notify"},
 		{"terminal.default", def.Terminal.Default, cfg.Terminal.Default, meta.Explicit["terminal.default"], "visible session handover: auto/ghostty opens Ghostty on macOS; otherwise manual tmux attach"},
 		{"transport.mode", def.Transport.Mode, cfg.Transport.Mode, meta.Explicit["transport.mode"], "v1 web transport: lan, tailscale, tailscale-private, wireguard, zerotier, cloudflare-quick, cloudflare-named, ngrok, or auto"},
 		{"transport.saddr", def.Transport.SAddr, cfg.Transport.SAddr, meta.Explicit["transport.saddr"], "optional transport service address"},
@@ -531,9 +519,9 @@ type rawDaemon struct {
 }
 
 type rawShell struct {
-	MinDuration *Duration `yaml:"min_duration"`
-	Default     *string   `yaml:"default"`
-	Login       *bool     `yaml:"login"`
+	LegacyMinDuration *Duration `yaml:"min_duration"`
+	Default           *string   `yaml:"default"`
+	Login             *bool     `yaml:"login"`
 }
 
 type rawTerminal struct {
@@ -600,10 +588,6 @@ func applyRaw(cfg *Config, meta *LoadMeta, raw rawConfig) {
 	if raw.Daemon.MaxSubscribers != nil {
 		cfg.Daemon.MaxSubscribers = *raw.Daemon.MaxSubscribers
 		meta.Explicit["daemon.max_subscribers"] = true
-	}
-	if raw.Shell.MinDuration != nil {
-		cfg.Shell.MinDuration = *raw.Shell.MinDuration
-		meta.Explicit["shell.min_duration"] = true
 	}
 	if raw.Shell.Default != nil {
 		cfg.Shell.Default = strings.TrimSpace(*raw.Shell.Default)

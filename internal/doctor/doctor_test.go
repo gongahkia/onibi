@@ -101,6 +101,22 @@ func TestDoctorAfterUpgradeReportsDurableStateRecovery(t *testing.T) {
 	}
 }
 
+func TestDoctorAfterUpgradeRemovesLegacyShellHook(t *testing.T) {
+	paths := doctorTestPaths(t, "lan")
+	zshrc := filepath.Join(os.Getenv("HOME"), ".zshrc")
+	block := "# >>> onibi managed shell hook\nlegacy\n# <<< onibi managed shell hook\n"
+	if err := os.WriteFile(zshrc, []byte("before\n"+block+"after\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	report := Run(context.Background(), Options{Paths: paths, AfterUpgrade: true})
+	if check := checkNamed(t, report, "after-upgrade hooks"); check.Status != Pass || !strings.Contains(check.Detail, "removed 1") {
+		t.Fatalf("after-upgrade hooks = %#v", check)
+	}
+	if got, err := os.ReadFile(zshrc); err != nil || string(got) != "before\nafter\n" {
+		t.Fatalf("zshrc = %q err=%v", got, err)
+	}
+}
+
 func TestDoctorAfterUpgradeFailsWhenDurableStateCannotRecover(t *testing.T) {
 	paths := doctorTestPaths(t, "lan")
 	report := Run(context.Background(), Options{Paths: paths, AfterUpgrade: true})

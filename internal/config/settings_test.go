@@ -44,20 +44,20 @@ func TestLoadPartialTracksExplicitKeys(t *testing.T) {
 	if !meta.Exists {
 		t.Fatal("config file not loaded")
 	}
-	if !meta.Explicit["daemon.turn_idle_threshold"] || !meta.Explicit["daemon.max_subscribers"] || !meta.Explicit["shell.min_duration"] || !meta.Explicit["shell.default"] || !meta.Explicit["shell.login"] || !meta.Explicit["web.listen_addr"] || !meta.Explicit["transport.mode"] || !meta.Explicit["terminal.default"] {
+	if !meta.Explicit["daemon.turn_idle_threshold"] || !meta.Explicit["daemon.max_subscribers"] || !meta.Explicit["shell.default"] || !meta.Explicit["shell.login"] || !meta.Explicit["web.listen_addr"] || !meta.Explicit["transport.mode"] || !meta.Explicit["terminal.default"] {
 		t.Fatalf("explicit map missing keys: %#v", meta.Explicit)
 	}
 	if meta.Explicit["daemon.approval_timeout"] {
 		t.Fatal("defaulted approval timeout marked explicit")
+	}
+	if meta.Explicit["shell.min_duration"] {
+		t.Fatal("legacy shell min duration marked explicit")
 	}
 	if cfg.Daemon.TurnIdleThreshold.Std() != 7*time.Second {
 		t.Fatalf("turn idle threshold = %s", cfg.Daemon.TurnIdleThreshold)
 	}
 	if cfg.Daemon.MaxSubscribers != 7 {
 		t.Fatalf("max subscribers = %d", cfg.Daemon.MaxSubscribers)
-	}
-	if cfg.Shell.MinDuration.Std() != 12*time.Second {
-		t.Fatalf("shell min duration = %s", cfg.Shell.MinDuration)
 	}
 	if cfg.Shell.Default != "zsh" || cfg.Shell.Login {
 		t.Fatalf("shell config = %#v", cfg.Shell)

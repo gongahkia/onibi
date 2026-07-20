@@ -20,11 +20,11 @@ func TestCommandRequiresManagedSession(t *testing.T) {
 }
 
 func TestUnguardedCommandHasNoSessionGuard(t *testing.T) {
-	cmd := UnguardedCommand("/tmp/onibi-notify", "shell", "shell", "cmd_done", false, "")
+	cmd := UnguardedCommand("/tmp/onibi-notify", "codex", "codex", "agent_done", false, "")
 	if strings.Contains(cmd, "ONIBI_SESSION_ID") {
 		t.Fatalf("unguarded command = %s", cmd)
 	}
-	if !strings.Contains(cmd, "--agent shell") {
+	if !strings.Contains(cmd, "--agent codex") {
 		t.Fatalf("command = %s", cmd)
 	}
 }

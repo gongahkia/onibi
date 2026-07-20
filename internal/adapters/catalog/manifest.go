@@ -44,7 +44,7 @@ func ValidateManifest(m Manifest) error {
 		return fmt.Errorf("adapter %q invalid version %q", name, m.Version)
 	}
 	switch m.Kind {
-	case KindAgent, KindShell:
+	case KindAgent:
 	default:
 		return fmt.Errorf("adapter %q invalid kind %q", name, m.Kind)
 	}

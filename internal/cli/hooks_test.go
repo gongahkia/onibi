@@ -37,16 +37,11 @@ func TestInstallHooksAutoDetectDryRun(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(home, ".config", "codex"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	zshrc := filepath.Join(home, ".zshrc")
-	if err := os.WriteFile(zshrc, []byte("# zsh\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
 	out, _ := executeRoot(t, "install-hooks", "--dry-run", "--color", "never")
 	got := out.String()
 	for _, want := range []string{
 		"[PLAN] Install agent claude hook:",
 		"[PLAN] Install agent codex hook:",
-		"[PLAN] Install shell zsh hook:",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("dry-run missing %q:\n%s", want, got)
@@ -58,9 +53,6 @@ func TestInstallHooksAutoDetectDryRun(t *testing.T) {
 	if _, err := os.Stat(hooksPath); !os.IsNotExist(err) {
 		t.Fatalf("dry-run wrote codex hooks: %v", err)
 	}
-	if b, err := os.ReadFile(zshrc); err != nil || strings.Contains(string(b), "onibi managed shell hook") {
-		t.Fatalf("dry-run changed zshrc: err=%v body=%s", err, b)
-	}
 }
 
 func TestInstallHooksAutoDetectAllInstallsPresent(t *testing.T) {
@@ -68,26 +60,15 @@ func TestInstallHooksAutoDetectAllInstallsPresent(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	zshrc := filepath.Join(home, ".zshrc")
-	if err := os.WriteFile(zshrc, []byte("# zsh\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
 	out, _ := executeRoot(t, "install-hooks", "--all", "--color", "never")
 	got := out.String()
-	for _, want := range []string{"Installed claude hooks", "Installed zsh shell hook"} {
+	for _, want := range []string{"Installed claude hooks"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("output missing %q:\n%s", want, got)
 		}
 	}
 	if _, err := os.Stat(filepath.Join(home, ".claude", "settings.json")); err != nil {
 		t.Fatal(err)
-	}
-	b, err := os.ReadFile(zshrc)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(b), "onibi managed shell hook") {
-		t.Fatalf("zsh hook missing:\n%s", b)
 	}
 }
 
@@ -102,6 +83,19 @@ func TestInstallHooksAutoDetectPrompts(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(home, ".claude", "settings.json")); !os.IsNotExist(err) {
 		t.Fatalf("prompt no wrote claude settings: %v", err)
+	}
+}
+
+func TestShellHookFlagsRejected(t *testing.T) {
+	hooksCLIFixture(t)
+	for _, args := range [][]string{
+		{"install-hooks", "--shell", "zsh", "--color", "never"},
+		{"hooks", "--show", "--shell", "zsh", "--color", "never"},
+	} {
+		_, _, err := executeRootAllowError(t, args...)
+		if err == nil || !strings.Contains(err.Error(), "unknown flag: --shell") {
+			t.Fatalf("args=%v err=%v", args, err)
+		}
 	}
 }
 
@@ -342,46 +336,6 @@ func TestHooksShowPiJSONReportsExtensionPathAndReload(t *testing.T) {
 	}
 }
 
-func TestHooksShowShellJSONReportsPreviewBackupAndThreshold(t *testing.T) {
-	home, _, _ := hooksCLIFixture(t)
-	zshrc := filepath.Join(home, ".zshrc")
-	if err := os.WriteFile(zshrc, []byte("# user zshrc\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	executeRoot(t, "install-hooks", "--shell", "zsh", "--color", "never")
-	out, _ := executeRoot(t, "hooks", "--show", "--shell", "zsh", "--json", "--color", "never")
-	var report hooksShowReport
-	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
-		t.Fatalf("json: %v\n%s", err, out.String())
-	}
-	if report.Agent != "shell:zsh" || report.ConfigPath != zshrc {
-		t.Fatalf("bad shell report: %+v", report)
-	}
-	if report.Record == nil || report.BackupPath == "" {
-		t.Fatalf("missing record/backup: %+v", report)
-	}
-	if report.ThresholdMS == nil || *report.ThresholdMS != 5000 {
-		t.Fatalf("threshold = %v", report.ThresholdMS)
-	}
-	for _, want := range []string{"add-zsh-hook preexec", "add-zsh-hook precmd", "onibi-notify"} {
-		if !strings.Contains(report.Preview, want) {
-			t.Fatalf("preview missing %q:\n%s", want, report.Preview)
-		}
-	}
-	notes := strings.Join(report.Compatibility, "\n")
-	for _, want := range []string{"oh-my-zsh", "plugin order"} {
-		if !strings.Contains(notes, want) {
-			t.Fatalf("compatibility missing %q: %+v", want, report.Compatibility)
-		}
-	}
-	if !strings.Contains(report.EditCommand, "onibi config --set shell.min_duration <duration>") {
-		t.Fatalf("bad edit command: %q", report.EditCommand)
-	}
-	if !hasDrift(report.Drift, "cmd_done", "ok", "") {
-		t.Fatalf("missing shell drift row: %+v", report.Drift)
-	}
-}
-
 func TestHooksShowCodexReportsSchemaInvalidAndTamperDrift(t *testing.T) {
 	_, hooksPath, _ := hooksCLIFixture(t)
 	executeRoot(t, "install-hooks", "--agent", "codex", "--color", "never")
@@ -418,7 +372,7 @@ func TestHooksShowCodexReportsSchemaInvalidAndTamperDrift(t *testing.T) {
 	}
 }
 
-func TestHooksMatrixIncludesAgentsAndShells(t *testing.T) {
+func TestHooksMatrixIncludesAgents(t *testing.T) {
 	hooksCLIFixture(t)
 	out, _ := executeRoot(t, "hooks", "--matrix", "--json", "--color", "never")
 	var rows []hooksMatrixRow
@@ -431,8 +385,8 @@ func TestHooksMatrixIncludesAgentsAndShells(t *testing.T) {
 	if row, ok := matrixRow(rows, "codex"); !ok || row.Support != "blocking" || row.NextAction == "" {
 		t.Fatalf("codex row = %+v ok=%v", row, ok)
 	}
-	if row, ok := matrixRow(rows, "shell:zsh"); !ok || row.Support != "event-bridge" || row.ConfigSchemaStatus != "n/a" {
-		t.Fatalf("shell row = %+v ok=%v", row, ok)
+	if _, ok := matrixRow(rows, "shell:zsh"); ok {
+		t.Fatalf("unexpected shell row: %+v", rows)
 	}
 }
 
@@ -471,8 +425,8 @@ func TestHooksShowAllComparesBundledAndObservedVersions(t *testing.T) {
 	if report.ObservedVersion != common.IntegrationVersion || report.BundledVersion != common.IntegrationVersion || report.VersionStatus != "ok" {
 		t.Fatalf("version compare = %+v", report)
 	}
-	if _, ok := hooksReport(reports, "shell:zsh"); !ok {
-		t.Fatalf("missing shell report: %+v", reports)
+	if _, ok := hooksReport(reports, "shell:zsh"); ok {
+		t.Fatalf("unexpected shell report: %+v", reports)
 	}
 }
 

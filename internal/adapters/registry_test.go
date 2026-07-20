@@ -84,26 +84,6 @@ func TestDetectedNamesForBuiltinAdapters(t *testing.T) {
 	}
 }
 
-func TestDetectedShellNames(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	if err := os.WriteFile(filepath.Join(home, ".bashrc"), []byte("# bash\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(home, ".config", "fish"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	got := setOf(DetectedShellNames())
-	for _, want := range []string{"bash", "fish"} {
-		if !got[want] {
-			t.Fatalf("missing detected shell %q in %v", want, got)
-		}
-	}
-	if got["zsh"] {
-		t.Fatalf("unexpected zsh detection: %v", got)
-	}
-}
-
 func TestRegistryAdaptersInstallAndVerify(t *testing.T) {
 	db, notify := adapterRegistryFixture(t)
 
@@ -168,37 +148,6 @@ func TestStatusReportsAdoptableWhenHashMissing(t *testing.T) {
 	info := a.Status(context.Background(), db)
 	if !info.Installed || !info.Managed || !info.Adoptable || info.HashRecorded || info.Next == "" {
 		t.Fatalf("bad status: %+v", info)
-	}
-}
-
-func TestShellInstallVerifyUninstall(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("HOME", dir)
-	db, err := store.Open(filepath.Join(dir, "test.sqlite"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-	notify := filepath.Join(dir, "onibi-notify")
-	if err := os.WriteFile(notify, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := InstallShell(context.Background(), db, notify, "zsh", 5000); err != nil {
-		t.Fatal(err)
-	}
-	if err := VerifyShell(context.Background(), db, "zsh"); err != nil {
-		t.Fatalf("fresh zsh hook must verify: %v", err)
-	}
-	info := ShellStatus(context.Background(), db, "zsh")
-	if !info.Installed || info.InstallPath != filepath.Join(dir, ".zshrc") {
-		t.Fatalf("bad shell status: %+v", info)
-	}
-	if err := UninstallShell(context.Background(), db, "zsh"); err != nil {
-		t.Fatal(err)
-	}
-	if got, _ := os.ReadFile(filepath.Join(dir, ".zshrc")); string(got) != "" {
-		t.Fatalf("expected hook removed, got %q", string(got))
 	}
 }
 

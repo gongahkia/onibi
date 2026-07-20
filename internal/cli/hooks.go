@@ -42,12 +42,10 @@ func runHooks(cmd *cobra.Command, args []string) error {
 // runInstallHooks implements `onibi install-hooks --agent <name>`.
 func runInstallHooks(cmd *cobra.Command, _ []string) error {
 	agent, _ := cmd.Flags().GetString("agent")
-	sh, _ := cmd.Flags().GetString("shell")
 	all, _ := cmd.Flags().GetBool("all")
 	interactive, _ := cmd.Flags().GetBool("interactive")
 	uninstall, _ := cmd.Flags().GetBool("uninstall")
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
-
 	paths, err := config.DefaultPaths()
 	if err != nil {
 		return err
@@ -55,11 +53,6 @@ func runInstallHooks(cmd *cobra.Command, _ []string) error {
 	if err := paths.EnsureDirs(); err != nil {
 		return err
 	}
-	cfg, _, err := config.Load(paths)
-	if err != nil {
-		return err
-	}
-	shellMinMS := cfg.Shell.MinDuration.Std().Milliseconds()
 	db, err := openDefaultDB()
 	if err != nil {
 		return err
@@ -68,7 +61,6 @@ func runInstallHooks(cmd *cobra.Command, _ []string) error {
 	if err := adapters.LoadExternalManifests(); err != nil {
 		return err
 	}
-
 	notifyBin := ""
 	if dryRun {
 		notifyBin = "/usr/bin/onibi-notify"
@@ -78,30 +70,9 @@ func runInstallHooks(cmd *cobra.Command, _ []string) error {
 			return err
 		}
 	}
-
-	if sh != "" {
-		if dryRun {
-			return printShellHookPlan(cmd, sh, notifyBin, shellMinMS, uninstall)
-		}
-		if uninstall {
-			if err := adapters.UninstallShell(cmd.Context(), db, sh); err != nil {
-				return err
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%s Uninstalled %s shell hook\n", styleFor(cmd).green("[OK]"), sh)
-			return nil
-		}
-		if err := adapters.InstallShell(cmd.Context(), db, notifyBin, sh, shellMinMS); err != nil {
-			return err
-		}
-		info := adapters.ShellStatus(cmd.Context(), db, sh)
-		fmt.Fprintf(cmd.OutOrStdout(), "%s Installed %s shell hook into %s\n", styleFor(cmd).green("[OK]"), sh, info.InstallPath)
-		return nil
-	}
-
 	if interactive {
-		return runDetectedHooks(cmd, db, notifyBin, uninstall, shellMinMS, true, dryRun)
+		return runDetectedHooks(cmd, db, notifyBin, uninstall, true, dryRun)
 	}
-
 	if all {
 		if uninstall {
 			if dryRun {
@@ -119,25 +90,23 @@ func runInstallHooks(cmd *cobra.Command, _ []string) error {
 			}
 			return nil
 		}
-		return runDetectedHooks(cmd, db, notifyBin, false, shellMinMS, false, dryRun)
+		return runDetectedHooks(cmd, db, notifyBin, false, false, dryRun)
 	}
-
 	if agent == "" {
-		return runDetectedHooks(cmd, db, notifyBin, uninstall, shellMinMS, true, dryRun)
+		return runDetectedHooks(cmd, db, notifyBin, uninstall, true, dryRun)
 	}
 	if dryRun {
 		return printAgentHookPlan(cmd, db, agent, uninstall)
 	}
 	return installOneAgent(cmd, db, notifyBin, agent, uninstall)
 }
-
-func runDetectedHooks(cmd *cobra.Command, db *store.DB, notifyBin string, uninstall bool, shellMinMS int64, prompt bool, dryRun bool) error {
-	targets, err := detectedHookTargets(cmd, db, notifyBin, shellMinMS)
+func runDetectedHooks(cmd *cobra.Command, db *store.DB, notifyBin string, uninstall, prompt, dryRun bool) error {
+	targets, err := detectedHookTargets(cmd, db)
 	if err != nil {
 		return err
 	}
 	if len(targets) == 0 {
-		return errors.New("no detected agent config dirs or shell rc files; use --agent, --shell, or create a supported config dir")
+		return errors.New("no detected agent config dirs; use --agent or create a supported config dir")
 	}
 	if dryRun {
 		for _, target := range targets {
@@ -148,30 +117,15 @@ func runDetectedHooks(cmd *cobra.Command, db *store.DB, notifyBin string, uninst
 	br := bufio.NewReader(cmd.InOrStdin())
 	for _, target := range targets {
 		if prompt {
-			fmt.Fprintf(cmd.OutOrStdout(), "%s %s %s hook? [Y/n] ", action(uninstall), target.Kind, target.Name)
+			fmt.Fprintf(cmd.OutOrStdout(), "%s agent %s hook? [Y/n] ", action(uninstall), target.Name)
 			line, _ := br.ReadString('\n')
 			if strings.EqualFold(strings.TrimSpace(line), "n") {
 				continue
 			}
 		}
-		if target.Kind == "agent" {
-			if err := installOneAgent(cmd, db, notifyBin, target.Name, uninstall); err != nil {
-				return err
-			}
-			continue
-		}
-		if uninstall {
-			if err := adapters.UninstallShell(cmd.Context(), db, target.Name); err != nil {
-				return err
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%s Uninstalled %s shell hook\n", styleFor(cmd).green("[OK]"), target.Name)
-			continue
-		}
-		if err := adapters.InstallShell(cmd.Context(), db, notifyBin, target.Name, shellMinMS); err != nil {
+		if err := installOneAgent(cmd, db, notifyBin, target.Name, uninstall); err != nil {
 			return err
 		}
-		info := adapters.ShellStatus(cmd.Context(), db, target.Name)
-		fmt.Fprintf(cmd.OutOrStdout(), "%s Installed %s shell hook into %s\n", styleFor(cmd).green("[OK]"), target.Name, info.InstallPath)
 	}
 	return nil
 }
@@ -182,7 +136,7 @@ type hookTarget struct {
 	Path string
 }
 
-func detectedHookTargets(cmd *cobra.Command, db *store.DB, notifyBin string, shellMinMS int64) ([]hookTarget, error) {
+func detectedHookTargets(cmd *cobra.Command, db *store.DB) ([]hookTarget, error) {
 	var targets []hookTarget
 	for _, name := range adapters.DetectedNames() {
 		target, err := agentHookTarget(cmd, db, name)
@@ -191,16 +145,8 @@ func detectedHookTargets(cmd *cobra.Command, db *store.DB, notifyBin string, she
 		}
 		targets = append(targets, target)
 	}
-	for _, sh := range adapters.DetectedShellNames() {
-		info, err := adapters.ShellPreview(sh, notifyBin, shellMinMS)
-		if err != nil {
-			return nil, err
-		}
-		targets = append(targets, hookTarget{Kind: "shell", Name: sh, Path: info.Path})
-	}
 	return targets, nil
 }
-
 func agentHookTarget(cmd *cobra.Command, db *store.DB, name string) (hookTarget, error) {
 	a, ok := adapters.Get(name)
 	if !ok {
@@ -219,15 +165,6 @@ func printAgentHookPlan(cmd *cobra.Command, db *store.DB, name string, uninstall
 	return nil
 }
 
-func printShellHookPlan(cmd *cobra.Command, sh, notifyBin string, shellMinMS int64, uninstall bool) error {
-	info, err := adapters.ShellPreview(sh, notifyBin, shellMinMS)
-	if err != nil {
-		return err
-	}
-	printHookTargetPlan(cmd, hookTarget{Kind: "shell", Name: sh, Path: info.Path}, uninstall)
-	return nil
-}
-
 func printHookTargetPlan(cmd *cobra.Command, target hookTarget, uninstall bool) {
 	verb := "Install"
 	if uninstall {
@@ -237,8 +174,8 @@ func printHookTargetPlan(cmd *cobra.Command, target hookTarget, uninstall bool) 
 	fmt.Fprintf(cmd.OutOrStdout(), "[PLAN] %s %s %s hook: %s\n", verb, target.Kind, target.Name, path)
 }
 
-func runInteractiveHooks(cmd *cobra.Command, db *store.DB, notifyBin string, uninstall bool, shellMinMS int64) error {
-	return runDetectedHooks(cmd, db, notifyBin, uninstall, shellMinMS, true, false)
+func runInteractiveHooks(cmd *cobra.Command, db *store.DB, notifyBin string, uninstall bool) error {
+	return runDetectedHooks(cmd, db, notifyBin, uninstall, true, false)
 }
 
 func installOneAgent(cmd *cobra.Command, db *store.DB, notifyBin, name string, uninstall bool) error {
@@ -317,14 +254,10 @@ type hooksMatrixRow struct {
 
 func runHooksShow(cmd *cobra.Command, _ []string) error {
 	agent, _ := cmd.Flags().GetString("agent")
-	sh, _ := cmd.Flags().GetString("shell")
 	all, _ := cmd.Flags().GetBool("all")
 	asJSON, _ := cmd.Flags().GetBool("json")
-	if agent == "" && sh == "" && !all {
-		return errors.New("--agent, --shell, or --all required")
-	}
-	if sh != "" && (agent != "" || all) {
-		return errors.New("--shell cannot be combined with --agent or --all")
+	if agent == "" && !all {
+		return errors.New("--agent or --all required")
 	}
 	db, err := openDefaultDB()
 	if err != nil {
@@ -333,22 +266,9 @@ func runHooksShow(cmd *cobra.Command, _ []string) error {
 	defer db.Close()
 	notifyBin := hooksShowNotifyBin()
 	var reports []hooksShowReport
-	if sh != "" {
-		report, err := buildShellHooksShowReport(cmd, db, sh, notifyBin)
-		if err != nil {
-			return err
-		}
-		reports = append(reports, report)
-	} else if all {
+	if all {
 		for _, name := range adapters.Names() {
 			report, err := buildHooksShowReport(cmd, db, name, notifyBin)
-			if err != nil {
-				return err
-			}
-			reports = append(reports, report)
-		}
-		for _, name := range adapters.ShellNames() {
-			report, err := buildShellHooksShowReport(cmd, db, name, notifyBin)
 			if err != nil {
 				return err
 			}
@@ -377,7 +297,6 @@ func runHooksShow(cmd *cobra.Command, _ []string) error {
 	}
 	return nil
 }
-
 func runHooksMatrix(cmd *cobra.Command, _ []string) error {
 	asJSON, _ := cmd.Flags().GetBool("json")
 	db, err := openDefaultDB()
@@ -423,10 +342,6 @@ func buildHooksMatrix(cmd *cobra.Command, db *store.DB, notifyBin string) ([]hoo
 			return nil, err
 		}
 		rows = append(rows, matrixRowFromInfo(info, &report, "onibi install-hooks --agent "+name))
-	}
-	for _, sh := range adapters.ShellNames() {
-		info := adapters.ShellStatus(cmd.Context(), db, sh)
-		rows = append(rows, matrixRowFromInfo(info, nil, "onibi install-hooks --shell "+sh))
 	}
 	return rows, nil
 }
@@ -481,9 +396,6 @@ func manualStep(report *hooksShowReport) string {
 }
 
 func schemaStatus(info common.Info, report *hooksShowReport) string {
-	if strings.HasPrefix(info.Name, "shell:") {
-		return "n/a"
-	}
 	if report != nil {
 		for _, row := range report.Drift {
 			if row.Status == "schema-invalid" {
@@ -609,66 +521,6 @@ func buildHooksShowReport(cmd *cobra.Command, db *store.DB, name, notifyBin stri
 		report.TrustInstructions = a.TrustInstructions()
 	}
 	report.Drift = hookDriftRows(info, report.Expected, report.Observed)
-	return report, nil
-}
-
-func buildShellHooksShowReport(cmd *cobra.Command, db *store.DB, name, notifyBin string) (hooksShowReport, error) {
-	paths, err := config.DefaultPaths()
-	if err != nil {
-		return hooksShowReport{}, err
-	}
-	cfg, _, err := config.Load(paths)
-	if err != nil {
-		return hooksShowReport{}, err
-	}
-	minMS := cfg.Shell.MinDuration.Std().Milliseconds()
-	preview, err := adapters.ShellPreview(name, notifyBin, minMS)
-	if err != nil {
-		return hooksShowReport{}, err
-	}
-	info := adapters.ShellStatus(cmd.Context(), db, name)
-	thresholdMS := preview.MinMS
-	report := hooksShowReport{
-		Agent:           "shell:" + name,
-		Support:         info.Support,
-		ConfigPath:      info.InstallPath,
-		ObservedVersion: installedVersionString(info),
-		BundledVersion:  info.BundledVersion,
-		VersionStatus:   versionStatus(info),
-		BackupPath:      adapters.ShellBackupPath(cmd.Context(), db, name),
-		Preview:         preview.Block,
-		ThresholdMS:     &thresholdMS,
-		EditCommand:     preview.EditCommand,
-		Compatibility:   preview.CompatibilityNotes,
-		Expected:        []common.ExpectedHook{},
-		Observed:        []common.ObservedHook{},
-		Message:         info.Message,
-	}
-	if report.ConfigPath == "" {
-		report.ConfigPath = preview.Path
-	}
-	if report.Support == "" {
-		report.Support = adapters.ShellStatus(cmd.Context(), db, name).Support
-	}
-	if report.ConfigPath != "" {
-		if rec, ok, err := common.RecordFor(cmd.Context(), db, report.Agent, report.ConfigPath); err != nil {
-			return hooksShowReport{}, err
-		} else if ok {
-			report.Record = &hookRecordView{Path: rec.Path, SHA256: rec.SHA256, Version: rec.Version, InstalledAt: rec.InstalledAt}
-		}
-		if report.BackupPath == "" {
-			if backup, ok, err := common.LatestBackup(cmd.Context(), db, report.Agent, report.ConfigPath); err != nil {
-				return hooksShowReport{}, err
-			} else if ok {
-				report.BackupPath = backup.BackupPath
-			}
-		}
-	}
-	detail := info.Message
-	if detail == "" {
-		detail = info.InstallPath
-	}
-	report.Drift = []hookDrift{{Event: "cmd_done", Status: driftSummary(info, nil), InstalledCommand: "shell hook block", Detail: detail}}
 	return report, nil
 }
 

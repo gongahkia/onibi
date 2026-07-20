@@ -95,7 +95,7 @@ Useful CLI flags:
 - `install-hooks`: installs supported agent hooks; `--all` installs detected agent hooks without prompting; `--dry-run` prints the plan.
 - `status`: `--compact`, `--watch`, `--interval <duration>`, `--timeout <duration>`, `--no-doctor`, `--no-hooks`, `--json`, `--strict`.
 - `doctor`: `--fix`, `--release`, `--explain`, `--offline`, `--json`.
-- `uninstall`: `--service`, `--hooks`, `--agent <name>`, `--shell <name>`, `--state`, `--yes`, `--dry-run`, `--json`.
+- `uninstall`: `--service`, `--hooks`, `--agent <name>`, `--state`, `--yes`, `--dry-run`, `--json`.
 
 ## Current Test Flow
 

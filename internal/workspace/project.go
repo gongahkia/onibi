@@ -195,14 +195,6 @@ func validateProjectHook(target string) error {
 	if strings.TrimSpace(target) != target || target == "" {
 		return fmt.Errorf("invalid hook %q", target)
 	}
-	if shell, ok := strings.CutPrefix(target, "shell:"); ok {
-		for _, candidate := range adapters.ShellNames() {
-			if shell == candidate {
-				return nil
-			}
-		}
-		return fmt.Errorf("unsupported shell %q", shell)
-	}
 	return validateProjectAgent(target)
 }
 

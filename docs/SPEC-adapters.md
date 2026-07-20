@@ -35,7 +35,7 @@ Write = "high"
 : Adapter manifest version. Must be semantic version text: `MAJOR.MINOR.PATCH`, optionally with prerelease/build metadata.
 
 `kind`
-: Adapter kind. Valid values are `agent` and `shell`.
+: Adapter kind. The only valid value is `agent`.
 
 `cmd_pattern`
 : TOML inline table or table mapping provider event names to glob patterns. For `PreToolUse`, the glob matches the tool name before Onibi chooses approval routing. Glob syntax is Go `path.Match` style: `*`, `?`, and character classes. Pattern matching is exact after provider normalization; use `*` to match every tool.
@@ -129,5 +129,3 @@ The in-tree adapters remain the reference implementations for provider-specific 
 | `goose` | `agent` | Installs Goose lifecycle hooks and forwards tool events. |
 | `opencode` | `agent` | Installs an OpenCode plugin and reports blocking tool calls. |
 | `pi` | `agent` | Installs a Pi Coding Agent extension and reports blocking tool calls. |
-
-Shell support is separate from this eight-adapter set and is represented by `kind = "shell"` manifests.

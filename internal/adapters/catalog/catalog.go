@@ -16,7 +16,6 @@ type Kind string
 
 const (
 	KindAgent Kind = "agent"
-	KindShell Kind = "shell"
 )
 
 type Adapter struct {
@@ -104,7 +103,7 @@ func (r *memoryRegistry) Register(m Manifest) error {
 		return errors.New("adapter manifest name required")
 	}
 	switch m.Kind {
-	case KindAgent, KindShell:
+	case KindAgent:
 	default:
 		return fmt.Errorf("adapter %q has invalid kind %q", name, m.Kind)
 	}

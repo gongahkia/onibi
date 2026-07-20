@@ -658,7 +658,14 @@ func (r *runner) checkHooks() {
 }
 
 func (r *runner) checkAfterUpgradeHooks() {
-	r.add("after-upgrade hooks", Pass, "no legacy transport checks")
+	removed, err := adapters.CleanupLegacyShellHooks()
+	if err != nil {
+		r.add("after-upgrade hooks", Warn, "legacy shell hook cleanup failed: "+err.Error())
+	} else if removed > 0 {
+		r.add("after-upgrade hooks", Pass, fmt.Sprintf("removed %d legacy shell hook block(s)", removed))
+	} else {
+		r.add("after-upgrade hooks", Pass, "no legacy shell hook blocks found")
+	}
 	for _, check := range r.checks {
 		if (check.Name == "store key" || check.Name == "sqlite db") && check.Status == Fail {
 			r.add("after-upgrade durable state", Fail, "encrypted store recovery failed; restore state before continuing")

@@ -241,8 +241,8 @@ func TestProjectConfigValidatesAgentsAndHooks(t *testing.T) {
 			body: "schema_version = 1\nname = \"alpha\"\n[hooks]\nauto_install = [\"unknown-agent\"]\n",
 			want: "hooks.auto_install[0]",
 		},
-		"unknown hook shell": {
-			body: "schema_version = 1\nname = \"alpha\"\n[hooks]\nauto_install = [\"shell:unknown\"]\n",
+		"unknown hook target": {
+			body: "schema_version = 1\nname = \"alpha\"\n[hooks]\nauto_install = [\"unknown-target\"]\n",
 			want: "hooks.auto_install[0]",
 		},
 	} {
@@ -260,7 +260,7 @@ func TestProjectConfigValidatesAgentsAndHooks(t *testing.T) {
 
 func TestProjectConfigAcceptsKnownAgentsAndHooks(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "workspace.toml")
-	body := "schema_version = 1\nname = \"alpha\"\ndefault_agent = \"claude\"\n[hooks]\nauto_install = [\"codex\", \"shell:zsh\"]\n"
+	body := "schema_version = 1\nname = \"alpha\"\ndefault_agent = \"claude\"\n[hooks]\nauto_install = [\"codex\"]\n"
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}

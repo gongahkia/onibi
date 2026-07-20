@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/gongahkia/onibi/internal/adapters"
-	"github.com/gongahkia/onibi/internal/config"
 )
 
 type FixReport struct {
@@ -150,36 +149,6 @@ func (f *fixer) fixHookHashes() {
 				f.err("adopt "+name+" hook", err)
 			} else {
 				f.add("adopted " + name + " hook hash")
-			}
-		}
-	}
-	shellMinMS := int64(5000)
-	if cfg, _, err := config.Load(f.opts.Paths); err == nil {
-		shellMinMS = cfg.Shell.MinDuration.Std().Milliseconds()
-	}
-	for _, name := range adapters.ShellNames() {
-		info := adapters.ShellStatus(f.ctx, db, name)
-		if info.Tampered {
-			f.err("refuse shell "+name+" hook", fmt.Errorf("managed hook tampered; uninstall and reinstall manually"))
-			continue
-		}
-		if info.Outdated && info.Installed && info.Managed && info.HashRecorded {
-			bin, ok := notify()
-			if !ok {
-				continue
-			}
-			if err := adapters.InstallShell(f.ctx, db, bin, name, shellMinMS); err != nil {
-				f.err("reinstall shell "+name+" hook", err)
-			} else {
-				f.add("reinstalled shell " + name + " hook")
-			}
-			continue
-		}
-		if info.Adoptable && !info.Tampered {
-			if err := adapters.AdoptShell(f.ctx, db, name); err != nil {
-				f.err("adopt shell "+name+" hook", err)
-			} else {
-				f.add("adopted shell " + name + " hook hash")
 			}
 		}
 	}

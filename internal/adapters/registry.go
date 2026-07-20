@@ -2,7 +2,6 @@
 package adapters
 
 import (
-	"context"
 	"fmt"
 	"sort"
 	"strings"
@@ -11,14 +10,12 @@ import (
 	"github.com/gongahkia/onibi/internal/adapters/catalog"
 	_ "github.com/gongahkia/onibi/internal/adapters/claude"
 	_ "github.com/gongahkia/onibi/internal/adapters/codex"
-	"github.com/gongahkia/onibi/internal/adapters/common"
 	_ "github.com/gongahkia/onibi/internal/adapters/copilot"
 	_ "github.com/gongahkia/onibi/internal/adapters/gemini"
 	_ "github.com/gongahkia/onibi/internal/adapters/goose"
 	_ "github.com/gongahkia/onibi/internal/adapters/opencode"
 	_ "github.com/gongahkia/onibi/internal/adapters/pi"
 	"github.com/gongahkia/onibi/internal/adapters/shell"
-	"github.com/gongahkia/onibi/internal/store"
 )
 
 type Adapter = catalog.Adapter
@@ -78,46 +75,7 @@ func Get(name string) (Adapter, bool) {
 	return m.Adapter, true
 }
 
-func InstallShell(ctx context.Context, db *store.DB, notifyBin, name string, minMS int64) error {
-	return shell.Install(ctx, db, notifyBin, strings.ToLower(strings.TrimSpace(name)), minMS)
-}
-
-func UninstallShell(ctx context.Context, db *store.DB, name string) error {
-	return shell.Uninstall(ctx, db, strings.ToLower(strings.TrimSpace(name)))
-}
-
-func ShellStatus(ctx context.Context, db *store.DB, name string) common.Info {
-	return shell.Status(ctx, db, strings.ToLower(strings.TrimSpace(name)))
-}
-
-func VerifyShell(ctx context.Context, db *store.DB, name string) error {
-	return shell.VerifyHash(ctx, db, strings.ToLower(strings.TrimSpace(name)))
-}
-
-func AdoptShell(ctx context.Context, db *store.DB, name string) error {
-	return shell.Adopt(ctx, db, strings.ToLower(strings.TrimSpace(name)))
-}
-
-func ShellPreview(name, notifyBin string, minMS int64) (shell.PreviewInfo, error) {
-	return shell.Preview(strings.ToLower(strings.TrimSpace(name)), notifyBin, minMS)
-}
-
-func ShellBackupPath(ctx context.Context, db *store.DB, name string) string {
-	return shell.BackupPath(ctx, db, strings.ToLower(strings.TrimSpace(name)))
-}
-
-func ShellNames() []string { return shell.Supported() }
-
-func DetectedShellNames() []string {
-	var out []string
-	for _, name := range ShellNames() {
-		if shell.DetectPresence(name) {
-			out = append(out, name)
-		}
-	}
-	sort.Strings(out)
-	return out
-}
+func CleanupLegacyShellHooks() (int, error) { return shell.CleanupLegacy() }
 
 func Unsupported(name string) error {
 	return fmt.Errorf("adapter %q not supported; available: %s", name, strings.Join(Names(), ", "))

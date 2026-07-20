@@ -64,18 +64,14 @@ func runSetupComplete(cmd *cobra.Command, paths config.Paths, db *store.DB) erro
 		}
 		fmt.Fprintln(cmd.OutOrStdout(), "Service installed.")
 	}
-	if askYesNo(cmd, br, "Auto-detect and install agent/shell hooks? [Y/n] ", true) {
+	if askYesNo(cmd, br, "Auto-detect and install agent hooks? [Y/n] ", true) {
 		notifyBin, err := locateNotifyBinary()
 		if err != nil {
 			if err := handleMissingNotifyBinary(cmd, br, err); err != nil {
 				return err
 			}
 		} else {
-			cfg, _, err := config.Load(paths)
-			if err != nil {
-				return err
-			}
-			if err := runInteractiveHooks(cmd, db, notifyBin, false, cfg.Shell.MinDuration.Std().Milliseconds()); err != nil {
+			if err := runInteractiveHooks(cmd, db, notifyBin, false); err != nil {
 				return err
 			}
 		}
@@ -98,7 +94,7 @@ func printSetupNextActions(cmd *cobra.Command) {
 	_ = renderTable(cmd.OutOrStdout(), [][]string{
 		{"1", "onibi status", "inspect local state"},
 		{"2", "onibi up", "choose category/provider, start control surface"},
-		{"3", "onibi install-hooks --interactive", "connect agents/shells"},
+		{"3", "onibi install-hooks --interactive", "connect agents"},
 		{"4", "onibi hooks --show --all", "verify hook drift"},
 		{"5", "onibi doctor --fix", "apply safe local fixes"},
 	})

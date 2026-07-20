@@ -231,14 +231,13 @@ func installHooksCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "install-hooks",
 		Aliases: []string{"integrate"},
-		Short:   "Install agent and/or shell hooks",
+		Short:   "Install agent hooks",
 		RunE:    runInstallHooks,
 	}
 	cmd.Flags().String("agent", "", "agent name (claude, codex, opencode, goose, gemini, copilot, pi, amp)")
-	cmd.Flags().String("shell", "", "shell name (zsh, bash, fish)")
-	cmd.Flags().Bool("all", false, "install every detected agent and shell hook without prompting")
-	cmd.Flags().Bool("interactive", false, "prompt for each detected agent/shell")
-	cmd.Flags().Bool("uninstall", false, "remove Onibi-managed hooks for the selected agent/shell")
+	cmd.Flags().Bool("all", false, "install every detected agent hook without prompting")
+	cmd.Flags().Bool("interactive", false, "prompt for each detected agent")
+	cmd.Flags().Bool("uninstall", false, "remove Onibi-managed hooks for the selected agent")
 	cmd.Flags().Bool("dry-run", false, "print hook install plan without changing files")
 	return cmd
 }
@@ -253,8 +252,7 @@ func hooksCmd() *cobra.Command {
 	cmd.Flags().Bool("show", false, "show hook config, records, backups, and drift")
 	cmd.Flags().Bool("matrix", false, "show hook compatibility matrix")
 	cmd.Flags().String("agent", "", "agent name")
-	cmd.Flags().String("shell", "", "shell name")
-	cmd.Flags().Bool("all", false, "show every supported agent and shell hook with --show")
+	cmd.Flags().Bool("all", false, "show every supported agent hook with --show")
 	cmd.Flags().Bool("json", false, "print JSON")
 	show := &cobra.Command{
 		Hidden: true,
@@ -263,8 +261,7 @@ func hooksCmd() *cobra.Command {
 		RunE:   runHooksShow,
 	}
 	show.Flags().String("agent", "", "agent name")
-	show.Flags().String("shell", "", "shell name")
-	show.Flags().Bool("all", false, "show every supported agent and shell hook")
+	show.Flags().Bool("all", false, "show every supported agent hook")
 	show.Flags().Bool("json", false, "print JSON")
 	matrix := &cobra.Command{
 		Hidden: true,

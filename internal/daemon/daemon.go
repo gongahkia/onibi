@@ -537,8 +537,6 @@ func (d *Daemon) handleEvent(ctx context.Context, ev intake.Event) error {
 		}
 		d.appendEventOutput(s, ev)
 		return nil
-	case intake.TypeCmdDone:
-		return d.notifyCmdDone(ctx, ev)
 	case intake.TypeApprovalTimeout:
 		s, reason := d.sessionForEvent(ev)
 		if s == nil {
@@ -659,16 +657,6 @@ func (d *Daemon) appendEventOutput(s *Session, ev intake.Event) {
 		_, _ = s.Buf.Write([]byte(b.String()))
 		d.touchSession(context.Background(), s)
 	}
-}
-
-func (d *Daemon) notifyCmdDone(ctx context.Context, ev intake.Event) error {
-	_ = ctx
-	cmd := strings.TrimSpace(ev.Cmd)
-	if cmd == "" {
-		cmd = "(unknown command)"
-	}
-	d.Log.Info("command done", slog.Int("status", ev.Status), slog.Duration("elapsed", time.Duration(ev.Elapsed)*time.Millisecond), slog.String("cmd", cmd))
-	return nil
 }
 
 func shortID(s string) string {

@@ -7,7 +7,6 @@ const (
 	TypeAgentDone       = "agent_done"       // turn complete, no input awaited
 	TypeAgentAwaiting   = "agent_awaiting"   // agent is blocked on user input
 	TypeAgentMessage    = "agent_message"    // arbitrary status message
-	TypeCmdDone         = "cmd_done"         // shell command finished (zsh precmd hook)
 	TypeSessionExited   = "session_exited"   // host process exited
 	TypeApprovalRequest = "approval_request" // Phase 3: tool-call blocked
 	TypeApprovalTimeout = "approval_timeout" // hook-side approval RPC timeout
@@ -36,7 +35,7 @@ type Event struct {
 	EventName         string `json:"event_name,omitempty"`          // provider lifecycle event name
 	ProviderSessionID string `json:"provider_session_id,omitempty"` // provider-native session id
 
-	// cmd_done / session_exited
+	// session_exited
 	Status  int    `json:"status,omitempty"` // exit code
 	Cmd     string `json:"cmd,omitempty"`    // command line
 	Elapsed int64  `json:"elapsed_ms,omitempty"`

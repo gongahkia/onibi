@@ -58,10 +58,6 @@ func runAdapters(cmd *cobra.Command, _ []string) error {
 		info := a.Status(cmd.Context(), db)
 		rows = append(rows, statusFromInfo(info, agentDetected(name)))
 	}
-	for _, sh := range adapters.ShellNames() {
-		info := adapters.ShellStatus(cmd.Context(), db, sh)
-		rows = append(rows, statusFromInfo(info, shellDetected(sh)))
-	}
 	if asJSON {
 		enc := json.NewEncoder(cmd.OutOrStdout())
 		enc.SetIndent("", "  ")
@@ -315,11 +311,6 @@ func agentDetected(name string) bool {
 		return false
 	}
 	_, err := exec.LookPath(bin)
-	return err == nil
-}
-
-func shellDetected(name string) bool {
-	_, err := exec.LookPath(name)
 	return err == nil
 }
 

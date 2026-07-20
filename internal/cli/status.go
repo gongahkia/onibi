@@ -317,19 +317,6 @@ func countIntegrations(cmd *cobra.Command, db *store.DB) cliIntegrationCount {
 			out.Issues++
 		}
 	}
-	for _, name := range adapters.ShellNames() {
-		info := adapters.ShellStatus(cmd.Context(), db, name)
-		out.Total++
-		if info.Installed {
-			out.Installed++
-		}
-		if shellDetected(name) {
-			out.Detected++
-		}
-		if info.Installed && (info.Tampered || info.Outdated) {
-			out.Issues++
-		}
-	}
 	return out
 }
 
