@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Getting Started documentation for Onibi, a single-user local coding-agent host.">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/site.css">
+  <title>Getting Started · Onibi</title>
+</head>
+<body>
+  <a class="skip-link" href="#content">Skip to content</a>
+  <header class="site-header"><div class="site-header-inner"><a class="brand" href="index.html">Onibi <span>docs</span></a><nav class="top-nav" aria-label="Primary"><a href="getting-started.html" aria-current="page">Getting Started</a><a href="security.html">Security</a><a href="transports.html">Transports</a><a href="web-push.html">Web Push</a><a href="https://github.com/gongahkia/onibi">GitHub</a></nav></div></header>
+  <div class="docs-shell">
+    <aside class="docs-sidebar"><p class="sidebar-label">Documentation</p><nav aria-label="All documentation"><a href="architecture.html">Architecture</a><a href="branding.html">Branding</a><a href="adapter-contract.html">Certified adapter contract</a><a href="cloudflare-quick-setup.html">Cloudflare Quick Setup</a><a href="adapters-registry.html">Community Adapter Registry</a><a href="fresh-machine-smoke.html">Fresh Machine Smoke</a><a href="getting-started.html" aria-current="page">Getting Started</a><a href="tap-integrity.html">Homebrew Tap Integrity</a><a href="blog/2026-e2e-frame-protocol.html">How Onibi&#39;s E2E Frame Protocol Works</a><a href="install.html">Installer Publication</a><a href="linux-beta.html">Linux Beta Matrix</a><a href="SPEC-adapters.html">Onibi Adapter Manifest Spec</a><a href="SPEC-e2e.html">Onibi E2E Relay Protocol v1</a><a href="pwa-install.html">PWA Install</a><a href="comparison.html">Positioning</a><a href="roadmap.html">Product Scope</a><a href="release.html">Release</a><a href="security.html">Security</a><a href="snapshots.html">Snapshots</a><a href="terminal-fidelity.html">Terminal Fidelity Smoke Matrix</a><a href="transport-smoke.html">Transport Smoke</a><a href="transports.html">Transports</a><a href="troubleshooting.html">Troubleshooting</a><a href="web-push.html">Web Push</a><a href="ws-events-protocol.html">WebSocket events protocol</a><a href="wireguard-setup.html">WireGuard Setup</a><a href="zerotier-setup.html">ZeroTier Setup</a><a href="ios-cert-install.html">iOS Local Certificate Trust</a><a href="iphone-transport-smoke.html">iPhone transport smoke runner</a><a href="ngrok-setup.html">ngrok Setup</a></nav></aside>
+    <main id="content" class="prose"><div class="article-meta"><a href="index.html">Documentation</a><span>/</span><a href="getting-started.md">Markdown source</a></div><h1>Getting Started</h1>
+<p>This guide takes a fresh machine from no Onibi state to one working LAN web cockpit session.</p>
+<p>For release sign-off on a stock macOS user and stock Ubuntu VM, use <a href="./fresh-machine-smoke.html"><code>fresh-machine-smoke.md</code></a>. This guide is the shorter source-build path.</p>
+<h2>1. Prerequisites</h2>
+<p>You need:</p>
+<ul>
+<li>macOS or Linux.</li>
+<li>Go 1.26.4 or newer when building from source.</li>
+<li><code>git</code>, <code>make</code>, and a local shell.</li>
+<li>A phone browser on the same reachable network as the Mac, or an iPhone hotspot.</li>
+<li>Optional: Claude Code installed if you want approval overlay tests.</li>
+</ul>
+<p>Onibi stores local state in:</p>
+<pre><code class="language-bash"># macOS
+~/Library/Application\ Support/onibi/
+
+# Linux
+~/.local/share/onibi/
+</code></pre>
+<p>The phone cockpit is served over local HTTPS. The daemon also opens a same-UID Unix socket for approval hooks.</p>
+<h2>2. Install</h2>
+<p>Build from source:</p>
+<pre><code class="language-bash">git clone https://github.com/gongahkia/onibi
+cd onibi
+make build
+</code></pre>
+<p>Confirm the binary works:</p>
+<pre><code class="language-bash">./bin/onibi version
+./bin/onibi doctor
+</code></pre>
+<p>Install Claude hooks when testing Claude approvals:</p>
+<pre><code class="language-bash">./bin/onibi install-hooks --agent claude
+./bin/onibi hooks --show --agent claude
+</code></pre>
+<p>For a new machine with multiple supported agents already configured, preview and install detected hooks:</p>
+<pre><code class="language-bash">./bin/onibi install-hooks --dry-run
+./bin/onibi install-hooks --all
+</code></pre>
+<p>Claude may require you to open <code>/hooks</code> and trust the printed Onibi hook commands.</p>
+<h2>3. Pair The Phone</h2>
+<p>Start Onibi:</p>
+<pre><code class="language-bash">./bin/onibi up
+</code></pre>
+<p>Onibi prints:</p>
+<ul>
+<li>A local CA profile path, usually <code>onibi-local-ca.mobileconfig</code>.</li>
+<li>A LAN or hotspot pair URL.</li>
+<li>A QR code for the pair URL.</li>
+</ul>
+<p>On iPhone:</p>
+<ol start="1">
+<li>Install the printed CA profile if Safari warns about trust.</li>
+<li>Enable full trust for the Onibi local CA in iOS certificate trust settings.</li>
+<li>Restart <code>./bin/onibi up</code>.</li>
+<li>Scan the new QR.</li>
+</ol>
+<p>If pairing returns <code>Forbidden owner cookie is missing</code>, the browser did not complete trusted local HTTPS setup. Install and fully trust the profile, restart Onibi, then scan the new QR. Do not reuse an old QR.</p>
+<p>Network rule:</p>
+<ul>
+<li>Same Wi-Fi works only when the network allows client-to-client traffic.</li>
+<li>Managed Wi-Fi may block pairing or WebSockets.</li>
+<li>iPhone hotspot is the current recommended fallback.</li>
+</ul>
+<h2>4. Use The Cockpit</h2>
+<p>After pairing, Safari opens the terminal cockpit.</p>
+<p>Soft keys:</p>
+<div class="table-wrap"><table><thead><tr><th>key</th><th>sends</th></tr></thead><tbody><tr><td><code>Esc</code></td><td>Escape, useful for vim</td></tr><tr><td><code>Tab</code></td><td>Tab</td></tr><tr><td><code>Ctrl</code></td><td>one-shot Ctrl modifier</td></tr><tr><td><code>Alt</code></td><td>one-shot Alt modifier</td></tr><tr><td><code>↑</code> / <code>↓</code> / <code>←</code> / <code>→</code></td><td>arrows; long-press repeats</td></tr><tr><td><code>^C</code> / <code>^D</code> / <code>^Z</code></td><td>Ctrl-C, Ctrl-D, Ctrl-Z</td></tr><tr><td><code>Paste</code></td><td>reads the iOS clipboard and sends it to the PTY</td></tr></tbody></table></div>
+<p>iOS Safari shows a clipboard permission prompt the first time <code>Paste</code> reads the clipboard. Image paste accepts PNG, JPEG, and WebP files up to 2MB, stores them under the local Onibi uploads directory, and inserts the local path into the terminal. SVG image paste is rejected. The top <code>INT</code> control sends SIGINT to the hosted process; <code>KILL</code> terminates it.</p>
+<p>Basic smoke:</p>
+<pre><code class="language-bash">vim /tmp/onibi-smoke.txt
+</code></pre>
+<p>Type text, tap <code>ESC</code>, then type <code>:wq</code>.</p>
+<h2>5. Test Claude Approvals</h2>
+<p>Start Claude from the Onibi cockpit shell:</p>
+<pre><code class="language-bash">claude
+</code></pre>
+<p>Ask Claude to create a temp file. When the approval card appears on the phone:</p>
+<ul>
+<li><code>Approve</code> lets the original tool input run.</li>
+<li><code>Deny</code> blocks it.</li>
+<li><code>Edit</code> lets you submit modified JSON input.</li>
+</ul>
+<p>While an approval card is pending, supported mobile browsers may request a screen wake lock so the phone does not sleep before you decide. This can increase battery use. To opt out in Safari or Chrome dev tools, run:</p>
+<pre><code class="language-js">localStorage.setItem(&#34;onibi:wake-lock&#34;, &#34;off&#34;)
+</code></pre>
+<p>Example edit test:</p>
+<ol start="1">
+<li>Ask Claude to run <code>touch /tmp/onibi-original &amp;&amp; echo original</code>.</li>
+<li>Tap <code>Edit</code>.</li>
+<li>Replace the Bash input with <code>{&#34;command&#34;:&#34;touch /tmp/onibi-edited &amp;&amp; echo edited&#34;}</code>.</li>
+<li>Submit the edit.</li>
+<li>Verify <code>/tmp/onibi-original</code> is absent and <code>/tmp/onibi-edited</code> exists.</li>
+</ol>
+<h2>6. Common Commands</h2>
+<pre><code class="language-bash">./bin/onibi up
+./bin/onibi doctor
+./bin/onibi doctor --fix
+./bin/onibi doctor --release --offline
+./bin/onibi adapters
+./bin/onibi hooks --show --agent claude
+./bin/onibi install-hooks --agent claude
+</code></pre>
+<h2>7. Clean Reset</h2>
+<p>Stop <code>onibi up</code>, inspect the uninstall plan, then remove hooks/service/state:</p>
+<pre><code class="language-bash">./bin/onibi uninstall --dry-run --service --hooks --all-hooks --state
+./bin/onibi uninstall --dry-run --json --service --hooks --all-hooks --state
+./bin/onibi uninstall --yes --service --hooks --all-hooks --state
+</code></pre>
+<p>Then pair again:</p>
+<pre><code class="language-bash">./bin/onibi up
+</code></pre>
+</main>
+  </div>
+  <footer class="site-footer"><a href="index.html">Onibi documentation</a><a href="https://github.com/gongahkia/onibi">GitHub</a></footer>
+</body>
+</html>

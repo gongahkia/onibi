@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Release documentation for Onibi, a single-user local coding-agent host.">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/site.css">
+  <title>Release · Onibi</title>
+</head>
+<body>
+  <a class="skip-link" href="#content">Skip to content</a>
+  <header class="site-header"><div class="site-header-inner"><a class="brand" href="index.html">Onibi <span>docs</span></a><nav class="top-nav" aria-label="Primary"><a href="getting-started.html">Getting Started</a><a href="security.html">Security</a><a href="transports.html">Transports</a><a href="web-push.html">Web Push</a><a href="https://github.com/gongahkia/onibi">GitHub</a></nav></div></header>
+  <div class="docs-shell">
+    <aside class="docs-sidebar"><p class="sidebar-label">Documentation</p><nav aria-label="All documentation"><a href="architecture.html">Architecture</a><a href="branding.html">Branding</a><a href="adapter-contract.html">Certified adapter contract</a><a href="cloudflare-quick-setup.html">Cloudflare Quick Setup</a><a href="adapters-registry.html">Community Adapter Registry</a><a href="fresh-machine-smoke.html">Fresh Machine Smoke</a><a href="getting-started.html">Getting Started</a><a href="tap-integrity.html">Homebrew Tap Integrity</a><a href="blog/2026-e2e-frame-protocol.html">How Onibi&#39;s E2E Frame Protocol Works</a><a href="install.html">Installer Publication</a><a href="linux-beta.html">Linux Beta Matrix</a><a href="SPEC-adapters.html">Onibi Adapter Manifest Spec</a><a href="SPEC-e2e.html">Onibi E2E Relay Protocol v1</a><a href="pwa-install.html">PWA Install</a><a href="comparison.html">Positioning</a><a href="roadmap.html">Product Scope</a><a href="release.html" aria-current="page">Release</a><a href="security.html">Security</a><a href="snapshots.html">Snapshots</a><a href="terminal-fidelity.html">Terminal Fidelity Smoke Matrix</a><a href="transport-smoke.html">Transport Smoke</a><a href="transports.html">Transports</a><a href="troubleshooting.html">Troubleshooting</a><a href="web-push.html">Web Push</a><a href="ws-events-protocol.html">WebSocket events protocol</a><a href="wireguard-setup.html">WireGuard Setup</a><a href="zerotier-setup.html">ZeroTier Setup</a><a href="ios-cert-install.html">iOS Local Certificate Trust</a><a href="iphone-transport-smoke.html">iPhone transport smoke runner</a><a href="ngrok-setup.html">ngrok Setup</a></nav></aside>
+    <main id="content" class="prose"><div class="article-meta"><a href="index.html">Documentation</a><span>/</span><a href="release.md">Markdown source</a></div><h1>Release</h1>
+<p>Onibi is release-ready when local artifacts, checksums, install paths, signing, notarization, and Homebrew install pass. Public macOS release tags must fail if Apple signing secrets are unavailable.</p>
+<h2>Local Snapshot</h2>
+<p>Install local release prerequisites first:</p>
+<pre><code class="language-sh">brew install goreleaser syft cosign
+</code></pre>
+<p>CI already installs <code>syft</code> and <code>cosign</code> before GoReleaser release jobs.</p>
+<pre><code class="language-sh">go test -race -count=1 ./...
+go vet ./...
+staticcheck ./...
+make build
+./bin/onibi doctor --release --offline
+scripts/macos-release-gate.sh
+make macos-scenario-gate
+make security-regression-gate
+goreleaser release --snapshot --clean
+scripts/release-smoke.sh dist
+scripts/reproducible-build.sh
+</code></pre>
+<p>The macOS, macOS-scenario, and security-regression gates are release-blocking. The scenario gate covers the local web cockpit, recovery, approvals, and intervention. The scenario and security-regression gates write <code>metadata.json</code>, <code>test.log</code>, and <code>summary.json</code> under <code>artifacts/</code> for CI upload. Linux is beta-only; run <a href="./linux-beta.html"><code>linux-beta.md</code></a> separately and do not substitute Linux evidence for the macOS gate. The real-machine install walkthrough is <a href="./fresh-machine-smoke.html"><code>fresh-machine-smoke.md</code></a>. Run it on a stock macOS 14+ user and a stock Ubuntu 24.04 VM before closing release-readiness issues.</p>
+<p>CI runs the <code>reproducible-build</code> job on every push and pull request. It installs GoReleaser, runs two fixed-input <code>goreleaser build --snapshot --single-target</code> passes from the same commit, and fails with the differing artifact path and both SHA256 values if any binary differs.</p>
+<p>Expected artifacts:</p>
+<ul>
+<li><code>dist/checksums.txt</code></li>
+<li><code>dist/checksums.txt.sig</code> on signed releases</li>
+<li><code>dist/checksums.txt.sigstore.json</code> on signed releases</li>
+<li><code>dist/*.tar.gz.sigstore.json</code> on signed releases</li>
+<li><code>multiple.intoto.jsonl</code> on tagged releases after SLSA provenance upload</li>
+<li><code>dist/*.sbom.*</code></li>
+<li><code>dist/onibi_*_darwin_*</code></li>
+<li><code>dist/onibi_*_linux_*</code></li>
+</ul>
+<h2>Homebrew Tap</h2>
+<p>GoReleaser publishes a cask to <code>gongahkia/homebrew-onibi</code> when <code>HOMEBREW_TAP_TOKEN</code> is set. Test from the tap checkout:</p>
+<pre><code class="language-sh">brew install --cask ./Casks/onibi.rb
+onibi version
+onibi doctor --mode preflight --offline
+onibi hooks --show --all --json &gt;/tmp/onibi-hooks.json
+</code></pre>
+<h2>Notarization</h2>
+<p>GoReleaser is configured to sign/notarize only when these env vars are set:</p>
+<ul>
+<li><code>MACOS_SIGN_P12</code></li>
+<li><code>MACOS_SIGN_PASSWORD</code></li>
+<li><code>MACOS_NOTARY_ISSUER_ID</code></li>
+<li><code>MACOS_NOTARY_KEY_ID</code></li>
+<li><code>MACOS_NOTARY_KEY</code></li>
+<li><code>GPG_PRIVATE_KEY</code></li>
+<li><code>GPG_PASSPHRASE</code></li>
+</ul>
+<p>Release artifacts include SBOMs and SHA256 checksums. Tagged public releases sign <code>checksums.txt</code> with the imported GPG key. Tagged public releases also sign <code>checksums.txt</code> and each release archive with keyless cosign through the GitHub Actions OIDC identity for <code>.github/workflows/release.yml</code>. GoReleaser publishes those bundles as <code>*.sigstore.json</code> assets. There is no <code>docs/cosign.pub</code> for this mode; verify the bundle against the workflow identity and GitHub OIDC issuer instead. The release workflow also passes GoReleaser artifact hashes to the SLSA generic generator on tag pushes. The generator signs provenance with GitHub OIDC and uploads it to the same GitHub release.</p>
+<p>Install and update release artifacts through Homebrew or the package-manager instructions published with the release. Verify release checksums and signatures as described in <a href="./tap-integrity.html"><code>tap-integrity.md</code></a>.</p>
+<p><code>scripts/install.sh</code> is the curl installer template. Publish it only after replacing <code>__ONIBI_RELEASE_GPG_KEY_B64__</code> with the same base64 public key used by the release workflow. The unrendered template fails closed instead of installing without signature verification. Use <code>scripts/prepare-install-pages.sh &lt;pages-dir&gt;</code> to render the dedicated <code>get.onibi.sh</code> Pages payload with <code>index.html</code>, <code>CNAME</code>, and <code>.nojekyll</code>.</p>
+<p>No release notes may claim notarization passed unless the tagged release was built with those values and verified on a clean Mac using <code>scripts/manual-e2e-release.md</code>.</p>
+</main>
+  </div>
+  <footer class="site-footer"><a href="index.html">Onibi documentation</a><a href="https://github.com/gongahkia/onibi">GitHub</a></footer>
+</body>
+</html>

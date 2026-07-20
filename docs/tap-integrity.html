@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Homebrew Tap Integrity documentation for Onibi, a single-user local coding-agent host.">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/site.css">
+  <title>Homebrew Tap Integrity · Onibi</title>
+</head>
+<body>
+  <a class="skip-link" href="#content">Skip to content</a>
+  <header class="site-header"><div class="site-header-inner"><a class="brand" href="index.html">Onibi <span>docs</span></a><nav class="top-nav" aria-label="Primary"><a href="getting-started.html">Getting Started</a><a href="security.html">Security</a><a href="transports.html">Transports</a><a href="web-push.html">Web Push</a><a href="https://github.com/gongahkia/onibi">GitHub</a></nav></div></header>
+  <div class="docs-shell">
+    <aside class="docs-sidebar"><p class="sidebar-label">Documentation</p><nav aria-label="All documentation"><a href="architecture.html">Architecture</a><a href="branding.html">Branding</a><a href="adapter-contract.html">Certified adapter contract</a><a href="cloudflare-quick-setup.html">Cloudflare Quick Setup</a><a href="adapters-registry.html">Community Adapter Registry</a><a href="fresh-machine-smoke.html">Fresh Machine Smoke</a><a href="getting-started.html">Getting Started</a><a href="tap-integrity.html" aria-current="page">Homebrew Tap Integrity</a><a href="blog/2026-e2e-frame-protocol.html">How Onibi&#39;s E2E Frame Protocol Works</a><a href="install.html">Installer Publication</a><a href="linux-beta.html">Linux Beta Matrix</a><a href="SPEC-adapters.html">Onibi Adapter Manifest Spec</a><a href="SPEC-e2e.html">Onibi E2E Relay Protocol v1</a><a href="pwa-install.html">PWA Install</a><a href="comparison.html">Positioning</a><a href="roadmap.html">Product Scope</a><a href="release.html">Release</a><a href="security.html">Security</a><a href="snapshots.html">Snapshots</a><a href="terminal-fidelity.html">Terminal Fidelity Smoke Matrix</a><a href="transport-smoke.html">Transport Smoke</a><a href="transports.html">Transports</a><a href="troubleshooting.html">Troubleshooting</a><a href="web-push.html">Web Push</a><a href="ws-events-protocol.html">WebSocket events protocol</a><a href="wireguard-setup.html">WireGuard Setup</a><a href="zerotier-setup.html">ZeroTier Setup</a><a href="ios-cert-install.html">iOS Local Certificate Trust</a><a href="iphone-transport-smoke.html">iPhone transport smoke runner</a><a href="ngrok-setup.html">ngrok Setup</a></nav></aside>
+    <main id="content" class="prose"><div class="article-meta"><a href="index.html">Documentation</a><span>/</span><a href="tap-integrity.md">Markdown source</a></div><h1>Homebrew Tap Integrity</h1>
+<p><code>gongahkia/homebrew-onibi</code> is a personal tap. Treat it as a convenience index over GitHub release assets, not as an independent trust root.</p>
+<h2>Trust Inputs</h2>
+<p>Use these inputs before installing from the tap on a sensitive machine:</p>
+<ul>
+<li>GitHub release tag: <code>vX.Y.Z</code></li>
+<li>release assets: <code>checksums.txt</code>, <code>checksums.txt.sig</code>, and the selected <code>onibi_*</code> archive</li>
+<li>release signing fingerprint: the exact <code>GPG_FINGERPRINT</code> printed by the release workflow and copied into the release notes</li>
+<li>tap cask: <code>gongahkia/homebrew-onibi/Casks/onibi.rb</code></li>
+</ul>
+<p>This repository does not currently commit the release signing fingerprint. If a release does not publish the fingerprint next to <code>checksums.txt.sig</code>, I cannot verify that release signing identity from this repo alone.</p>
+<h2>Download Release Assets</h2>
+<pre><code class="language-bash">tag=vX.Y.Z
+repo=gongahkia/onibi
+
+mkdir -p /tmp/onibi-verify
+cd /tmp/onibi-verify
+
+gh release download &#34;$tag&#34; --repo &#34;$repo&#34; --pattern &#39;checksums.txt*&#39;
+gh release view &#34;$tag&#34; --repo &#34;$repo&#34; --json assets --jq &#39;.assets[].name&#39;
+gh release download &#34;$tag&#34; --repo &#34;$repo&#34; --pattern &#39;onibi_*_darwin_arm64.tar.gz&#39;
+</code></pre>
+<p>Replace the archive pattern with the exact platform asset you plan to install.</p>
+<h2>Verify The GPG Signature</h2>
+<p>Import the release public key from the release notes, a maintainer-published key URL, or the rendered <code>get.onibi.sh</code> installer key material. Then compare its fingerprint out of band:</p>
+<pre><code class="language-bash">gpg --show-keys --fingerprint onibi-release.asc
+gpg --import onibi-release.asc
+gpg --verify checksums.txt.sig checksums.txt
+</code></pre>
+<p>The fingerprint must match the release note value exactly. Do not continue if the key is missing, unpublished, or only identified by a short key ID.</p>
+<h2>Verify The Archive Checksum</h2>
+<p>macOS:</p>
+<pre><code class="language-bash">asset=onibi_vX.Y.Z_darwin_arm64.tar.gz
+grep &#34;  $asset$&#34; checksums.txt &gt;checksum.line
+shasum -a 256 -c checksum.line
+</code></pre>
+<p>Linux:</p>
+<pre><code class="language-bash">asset=onibi_vX.Y.Z_linux_amd64.tar.gz
+grep &#34;  $asset$&#34; checksums.txt &gt;checksum.line
+sha256sum -c checksum.line
+</code></pre>
+<h2>Compare The Tap</h2>
+<pre><code class="language-bash">brew tap gongahkia/onibi
+tap=&#34;$(brew --repo gongahkia/onibi)&#34;
+sed -n &#39;/url /p;/sha256 /p&#39; &#34;$tap/Casks/onibi.rb&#34;
+</code></pre>
+<p>Confirm:</p>
+<ul>
+<li>the cask URL points at the same GitHub release tag</li>
+<li>the cask asset name matches the verified archive</li>
+<li>the cask <code>sha256</code> equals the checksum line verified above</li>
+</ul>
+<p>Only then install:</p>
+<pre><code class="language-bash">brew install --cask &#34;$tap/Casks/onibi.rb&#34;
+onibi version
+onibi doctor --mode preflight --offline
+</code></pre>
+<h2>Compromise Model</h2>
+<p>If the tap is compromised but the GitHub release assets and signing key are not, the signed <code>checksums.txt</code> verification should catch a changed cask URL or SHA256.</p>
+<p>If the GitHub release, signing key, or maintainer account is compromised, tap checksum verification does not protect you. Use <a href="../scripts/reproducible-build.sh"><code>scripts/reproducible-build.sh</code></a> and the release checklist in <a href="./release.html"><code>docs/release.md</code></a> as a separate build reproducibility check.</p>
+<h2>Follow-Up</h2>
+<p>The out-of-tree <code>gongahkia/homebrew-onibi</code> README should link back to this document the next time the tap repository is updated.</p>
+</main>
+  </div>
+  <footer class="site-footer"><a href="index.html">Onibi documentation</a><a href="https://github.com/gongahkia/onibi">GitHub</a></footer>
+</body>
+</html>

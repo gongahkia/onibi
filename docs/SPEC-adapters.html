@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Onibi Adapter Manifest Spec documentation for Onibi, a single-user local coding-agent host.">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/site.css">
+  <title>Onibi Adapter Manifest Spec · Onibi</title>
+</head>
+<body>
+  <a class="skip-link" href="#content">Skip to content</a>
+  <header class="site-header"><div class="site-header-inner"><a class="brand" href="index.html">Onibi <span>docs</span></a><nav class="top-nav" aria-label="Primary"><a href="getting-started.html">Getting Started</a><a href="security.html">Security</a><a href="transports.html">Transports</a><a href="web-push.html">Web Push</a><a href="https://github.com/gongahkia/onibi">GitHub</a></nav></div></header>
+  <div class="docs-shell">
+    <aside class="docs-sidebar"><p class="sidebar-label">Documentation</p><nav aria-label="All documentation"><a href="architecture.html">Architecture</a><a href="branding.html">Branding</a><a href="adapter-contract.html">Certified adapter contract</a><a href="cloudflare-quick-setup.html">Cloudflare Quick Setup</a><a href="adapters-registry.html">Community Adapter Registry</a><a href="fresh-machine-smoke.html">Fresh Machine Smoke</a><a href="getting-started.html">Getting Started</a><a href="tap-integrity.html">Homebrew Tap Integrity</a><a href="blog/2026-e2e-frame-protocol.html">How Onibi&#39;s E2E Frame Protocol Works</a><a href="install.html">Installer Publication</a><a href="linux-beta.html">Linux Beta Matrix</a><a href="SPEC-adapters.html" aria-current="page">Onibi Adapter Manifest Spec</a><a href="SPEC-e2e.html">Onibi E2E Relay Protocol v1</a><a href="pwa-install.html">PWA Install</a><a href="comparison.html">Positioning</a><a href="roadmap.html">Product Scope</a><a href="release.html">Release</a><a href="security.html">Security</a><a href="snapshots.html">Snapshots</a><a href="terminal-fidelity.html">Terminal Fidelity Smoke Matrix</a><a href="transport-smoke.html">Transport Smoke</a><a href="transports.html">Transports</a><a href="troubleshooting.html">Troubleshooting</a><a href="web-push.html">Web Push</a><a href="ws-events-protocol.html">WebSocket events protocol</a><a href="wireguard-setup.html">WireGuard Setup</a><a href="zerotier-setup.html">ZeroTier Setup</a><a href="ios-cert-install.html">iOS Local Certificate Trust</a><a href="iphone-transport-smoke.html">iPhone transport smoke runner</a><a href="ngrok-setup.html">ngrok Setup</a></nav></aside>
+    <main id="content" class="prose"><div class="article-meta"><a href="index.html">Documentation</a><span>/</span><a href="SPEC-adapters.md">Markdown source</a></div><h1>Onibi Adapter Manifest Spec</h1>
+<p>Version: 1</p>
+<p>This document defines the third-party adapter manifest consumed by <code>onibi adapters add</code> and <code>onibi adapters validate</code>.</p>
+<h2>Manifest File</h2>
+<p>Adapter manifests are TOML files. File names are advisory; the adapter identity is <code>name</code>.</p>
+<p>Required top-level keys:</p>
+<pre><code class="language-toml">name = &#34;example&#34;
+version = &#34;1.0.0&#34;
+kind = &#34;agent&#34;
+cmd_pattern = { &#34;PreToolUse&#34; = &#34;Edit&#34; }
+hook_install = [&#34;mkdir -p ~/.example&#34;, &#34;example hooks install&#34;]
+hook_verify = [&#34;example hooks verify&#34;]
+hook_adopt = [&#34;example hooks adopt&#34;]
+hook_uninstall = [&#34;example hooks uninstall&#34;]
+min_onibi_version = &#34;0.3.0&#34;
+
+[risk_overrides]
+Edit = &#34;medium&#34;
+Write = &#34;high&#34;
+</code></pre>
+<h2>Keys</h2>
+<p><code>name</code> : Stable adapter ID. Must match <code>^[a-z0-9][a-z0-9_-]{0,63}$</code>. Names are case-sensitive in manifests and normalized to lowercase by the CLI. In-tree adapter names are reserved.</p>
+<p><code>version</code> : Adapter manifest version. Must be semantic version text: <code>MAJOR.MINOR.PATCH</code>, optionally with prerelease/build metadata.</p>
+<p><code>kind</code> : Adapter kind. The only valid value is <code>agent</code>.</p>
+<p><code>cmd_pattern</code> : TOML inline table or table mapping provider event names to glob patterns. For <code>PreToolUse</code>, the glob matches the tool name before Onibi chooses approval routing. Glob syntax is Go <code>path.Match</code> style: <code>*</code>, <code>?</code>, and character classes. Pattern matching is exact after provider normalization; use <code>*</code> to match every tool.</p>
+<p><code>hook_install</code> : Array of shell command strings executed by <code>onibi install-hooks</code> or <code>onibi adapters add</code> when installing this adapter.</p>
+<p><code>hook_uninstall</code> : Array of shell command strings executed when uninstalling this adapter.</p>
+<p><code>hook_verify</code> : Optional array of shell command strings executed when verifying this adapter. Onibi also verifies the recorded manifest provenance hash when the adapter was installed or adopted through Onibi.</p>
+<p><code>hook_adopt</code> : Optional array of shell command strings executed when adopting this adapter. Onibi records the installed manifest path and hash as adapter provenance after these commands complete.</p>
+<p><code>risk_overrides</code> : Table mapping tool name globs to risk levels. Valid levels are <code>low</code>, <code>medium</code>, <code>high</code>, and <code>critical</code>. First match wins after sorting keys lexicographically.</p>
+<p><code>min_onibi_version</code> : Minimum Onibi version required to load the adapter. Versions compare as semantic versions. Development versions may load only when their base version satisfies the constraint.</p>
+<h2>Compatibility</h2>
+<p>Onibi refuses to load an adapter when <code>min_onibi_version</code> is greater than the running daemon version. The error must include both versions, for example:</p>
+<pre><code class="language-text">adapter &#34;example&#34; requires Onibi &gt;= 9.0.0, running v0.3.0
+</code></pre>
+<p>For development builds, Onibi compares the numeric base. For example, <code>v2-dev</code> compares as <code>2.0.0</code>.</p>
+<h2>Command Restrictions</h2>
+<p>Hook commands are intentionally restricted. A manifest command is rejected if it contains:</p>
+<ul>
+<li>command substitution: <code> `...` </code> or <code>$()</code></li>
+<li>shell redirection to device files under <code>/dev</code></li>
+<li>process substitution: <code>&lt;(...)</code> or <code>&gt;(...)</code></li>
+<li>network fetch commands: <code>curl</code>, <code>wget</code>, <code>nc</code>, <code>ncat</code>, <code>socat</code></li>
+<li>privilege escalation commands: <code>sudo</code>, <code>su</code>, <code>doas</code></li>
+<li>destructive broad deletes: <code>rm -rf /</code>, <code>rm -rf ~</code>, or <code>rm -rf $HOME</code></li>
+</ul>
+<p>Commands may write only under:</p>
+<ul>
+<li>the provider&#39;s documented config path</li>
+<li><code>$HOME/.config/onibi</code></li>
+<li><code>$HOME/.local/share/onibi</code></li>
+<li>the explicit adapter install directory chosen by the user</li>
+</ul>
+<h2>Runtime Contract</h2>
+<p>Adapter hooks must call <code>onibi-notify</code> or <code>onibi</code> with stable JSON input. For approval-capable hooks, the adapter must preserve:</p>
+<ul>
+<li>agent name</li>
+<li>event type</li>
+<li>tool name</li>
+<li>original provider payload or a lossless normalized payload</li>
+<li>session ID when the provider exposes it</li>
+</ul>
+<p><code>PreToolUse</code> hooks that require blocking approval must wait for Onibi&#39;s decision and return the provider-specific allow or deny response.</p>
+<h2>Validation</h2>
+<p>Validation must fail on:</p>
+<ul>
+<li>missing required key</li>
+<li>unknown <code>kind</code></li>
+<li>invalid adapter <code>name</code></li>
+<li>invalid <code>version</code> or <code>min_onibi_version</code></li>
+<li>empty <code>cmd_pattern</code></li>
+<li>empty <code>hook_install</code></li>
+<li>empty <code>hook_uninstall</code></li>
+<li>unknown risk level</li>
+<li>restricted command token</li>
+<li>duplicate adapter name</li>
+</ul>
+<p>Validation output should include the manifest path and line number when the TOML parser exposes one.</p>
+<h2>Appendix: In-Tree Reference Adapters</h2>
+<p>The in-tree adapters remain the reference implementations for provider-specific hook behavior:</p>
+<div class="table-wrap"><table><thead><tr><th>Adapter</th><th>Kind</th><th>Reference behavior</th></tr></thead><tbody><tr><td><code>amp</code></td><td><code>agent</code></td><td>Installs an Amp TypeScript plugin with native <code>tool.call</code> approval handling. It is non-certified pending authenticated live evidence and a provider-version floor.</td></tr><tr><td><code>claude</code></td><td><code>agent</code></td><td>Installs Claude Code lifecycle hooks, including blocking <code>PreToolUse</code>.</td></tr><tr><td><code>codex</code></td><td><code>agent</code></td><td>Installs Codex hook JSON for lifecycle and blocking tool approvals.</td></tr><tr><td><code>copilot</code></td><td><code>agent</code></td><td>Installs GitHub Copilot CLI lifecycle and <code>preToolUse</code> approval hooks. It is non-certified pending authenticated live evidence and a provider-version floor.</td></tr><tr><td><code>gemini</code></td><td><code>agent</code></td><td>Installs Gemini CLI lifecycle hooks and native <code>BeforeTool</code> approval/edit handling. It is non-certified pending authenticated live evidence and a provider-version floor.</td></tr><tr><td><code>goose</code></td><td><code>agent</code></td><td>Installs Goose lifecycle hooks and native deny-only tool approvals; no edited-input response, so it is non-certified.</td></tr><tr><td><code>opencode</code></td><td><code>agent</code></td><td>Installs an OpenCode plugin with mutable <code>tool.execute.before</code> approvals. It is non-certified pending authenticated live evidence and a provider-version floor.</td></tr><tr><td><code>pi</code></td><td><code>agent</code></td><td>Installs a Pi Coding Agent extension and reports blocking tool calls.</td></tr></tbody></table></div>
+</main>
+  </div>
+  <footer class="site-footer"><a href="index.html">Onibi documentation</a><a href="https://github.com/gongahkia/onibi">GitHub</a></footer>
+</body>
+</html>

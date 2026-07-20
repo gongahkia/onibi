@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="WireGuard Setup documentation for Onibi, a single-user local coding-agent host.">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/site.css">
+  <title>WireGuard Setup · Onibi</title>
+</head>
+<body>
+  <a class="skip-link" href="#content">Skip to content</a>
+  <header class="site-header"><div class="site-header-inner"><a class="brand" href="index.html">Onibi <span>docs</span></a><nav class="top-nav" aria-label="Primary"><a href="getting-started.html">Getting Started</a><a href="security.html">Security</a><a href="transports.html">Transports</a><a href="web-push.html">Web Push</a><a href="https://github.com/gongahkia/onibi">GitHub</a></nav></div></header>
+  <div class="docs-shell">
+    <aside class="docs-sidebar"><p class="sidebar-label">Documentation</p><nav aria-label="All documentation"><a href="architecture.html">Architecture</a><a href="branding.html">Branding</a><a href="adapter-contract.html">Certified adapter contract</a><a href="cloudflare-quick-setup.html">Cloudflare Quick Setup</a><a href="adapters-registry.html">Community Adapter Registry</a><a href="fresh-machine-smoke.html">Fresh Machine Smoke</a><a href="getting-started.html">Getting Started</a><a href="tap-integrity.html">Homebrew Tap Integrity</a><a href="blog/2026-e2e-frame-protocol.html">How Onibi&#39;s E2E Frame Protocol Works</a><a href="install.html">Installer Publication</a><a href="linux-beta.html">Linux Beta Matrix</a><a href="SPEC-adapters.html">Onibi Adapter Manifest Spec</a><a href="SPEC-e2e.html">Onibi E2E Relay Protocol v1</a><a href="pwa-install.html">PWA Install</a><a href="comparison.html">Positioning</a><a href="roadmap.html">Product Scope</a><a href="release.html">Release</a><a href="security.html">Security</a><a href="snapshots.html">Snapshots</a><a href="terminal-fidelity.html">Terminal Fidelity Smoke Matrix</a><a href="transport-smoke.html">Transport Smoke</a><a href="transports.html">Transports</a><a href="troubleshooting.html">Troubleshooting</a><a href="web-push.html">Web Push</a><a href="ws-events-protocol.html">WebSocket events protocol</a><a href="wireguard-setup.html" aria-current="page">WireGuard Setup</a><a href="zerotier-setup.html">ZeroTier Setup</a><a href="ios-cert-install.html">iOS Local Certificate Trust</a><a href="iphone-transport-smoke.html">iPhone transport smoke runner</a><a href="ngrok-setup.html">ngrok Setup</a></nav></aside>
+    <main id="content" class="prose"><div class="article-meta"><a href="index.html">Documentation</a><span>/</span><a href="wireguard-setup.md">Markdown source</a></div><h1>WireGuard Setup</h1>
+<p>WireGuard mode is for users who already run their own VPN or want a self-hosted alternative to Tailscale Private, Cloudflare, and ngrok.</p>
+<h2>Requirements</h2>
+<ul>
+<li>WireGuard is configured and connected on the laptop.</li>
+<li>The phone has a WireGuard peer profile installed and connected.</li>
+<li>The laptop has <code>wg</code> available on <code>PATH</code>, or <code>ONIBI_WIREGUARD_BIN</code> points at it.</li>
+<li>The WireGuard interface has a routable VPN IP before <code>onibi up</code> starts.</li>
+</ul>
+<p>WireGuard&#39;s upstream quick start documents <code>wg show</code> and <code>wg show interfaces</code>: <a href="https://www.wireguard.com/quickstart/">https://www.wireguard.com/quickstart/</a>.</p>
+<h2>Laptop</h2>
+<p>Verify the active interface:</p>
+<pre><code class="language-bash">wg show interfaces
+</code></pre>
+<p>Verify the address:</p>
+<pre><code class="language-bash">ifconfig wg0
+</code></pre>
+<p>On Linux, use <code>ip addr show wg0</code> if <code>ifconfig</code> is not installed.</p>
+<p>If more than one WireGuard interface has a routable address, Onibi fails closed until you pin one:</p>
+<pre><code class="language-bash">export ONIBI_WIREGUARD_INTERFACE=wg0
+</code></pre>
+<p>Start Onibi:</p>
+<pre><code class="language-bash">onibi doctor --transport=wireguard
+onibi up --transport=wireguard
+</code></pre>
+<p>Onibi binds the web listener to the selected WireGuard IP only, includes that exact IP in the local HTTPS certificate, and prints a pair URL over that IP. It does not modify WireGuard configurations, keys, peers, or routes.</p>
+<h2>Phone</h2>
+<p>Install the official WireGuard app, import the phone peer profile, and activate the tunnel before scanning the Onibi QR.</p>
+<p>The Onibi local HTTPS profile is still required. Install and fully trust <code>onibi-local-ca.mobileconfig</code> once, then restart <code>onibi up</code> so the generated server certificate includes the active WireGuard IP.</p>
+<h2>Smoke</h2>
+<ol start="1">
+<li>Run <code>onibi doctor --transport=wireguard</code>.</li>
+<li>Run <code>onibi up --transport=wireguard</code>.</li>
+<li>Confirm the printed URL uses the WireGuard IP.</li>
+<li>Open the QR from the phone while the tunnel is active.</li>
+<li>Use the phone terminal for a shell command and a full-screen program such as <code>vim</code>.</li>
+</ol>
+<p>While <code>onibi up</code> waits, it rechecks the selected WireGuard interface and address every five seconds. If either changes or becomes unavailable, Onibi stops; restore the tunnel and restart <code>onibi up</code> to mint a new pairing URL.</p>
+<p>If pairing fails, first confirm the phone can reach the laptop WireGuard IP with another service. WireGuard itself does not expose a connected control session; <code>wg show</code> and the latest handshake/transfer counters are the useful local diagnostics.</p>
+</main>
+  </div>
+  <footer class="site-footer"><a href="index.html">Onibi documentation</a><a href="https://github.com/gongahkia/onibi">GitHub</a></footer>
+</body>
+</html>

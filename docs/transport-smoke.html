@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Transport Smoke documentation for Onibi, a single-user local coding-agent host.">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/site.css">
+  <title>Transport Smoke · Onibi</title>
+</head>
+<body>
+  <a class="skip-link" href="#content">Skip to content</a>
+  <header class="site-header"><div class="site-header-inner"><a class="brand" href="index.html">Onibi <span>docs</span></a><nav class="top-nav" aria-label="Primary"><a href="getting-started.html">Getting Started</a><a href="security.html">Security</a><a href="transports.html">Transports</a><a href="web-push.html">Web Push</a><a href="https://github.com/gongahkia/onibi">GitHub</a></nav></div></header>
+  <div class="docs-shell">
+    <aside class="docs-sidebar"><p class="sidebar-label">Documentation</p><nav aria-label="All documentation"><a href="architecture.html">Architecture</a><a href="branding.html">Branding</a><a href="adapter-contract.html">Certified adapter contract</a><a href="cloudflare-quick-setup.html">Cloudflare Quick Setup</a><a href="adapters-registry.html">Community Adapter Registry</a><a href="fresh-machine-smoke.html">Fresh Machine Smoke</a><a href="getting-started.html">Getting Started</a><a href="tap-integrity.html">Homebrew Tap Integrity</a><a href="blog/2026-e2e-frame-protocol.html">How Onibi&#39;s E2E Frame Protocol Works</a><a href="install.html">Installer Publication</a><a href="linux-beta.html">Linux Beta Matrix</a><a href="SPEC-adapters.html">Onibi Adapter Manifest Spec</a><a href="SPEC-e2e.html">Onibi E2E Relay Protocol v1</a><a href="pwa-install.html">PWA Install</a><a href="comparison.html">Positioning</a><a href="roadmap.html">Product Scope</a><a href="release.html">Release</a><a href="security.html">Security</a><a href="snapshots.html">Snapshots</a><a href="terminal-fidelity.html">Terminal Fidelity Smoke Matrix</a><a href="transport-smoke.html" aria-current="page">Transport Smoke</a><a href="transports.html">Transports</a><a href="troubleshooting.html">Troubleshooting</a><a href="web-push.html">Web Push</a><a href="ws-events-protocol.html">WebSocket events protocol</a><a href="wireguard-setup.html">WireGuard Setup</a><a href="zerotier-setup.html">ZeroTier Setup</a><a href="ios-cert-install.html">iOS Local Certificate Trust</a><a href="iphone-transport-smoke.html">iPhone transport smoke runner</a><a href="ngrok-setup.html">ngrok Setup</a></nav></aside>
+    <main id="content" class="prose"><div class="article-meta"><a href="index.html">Documentation</a><span>/</span><a href="transport-smoke.md">Markdown source</a></div><h1>Transport Smoke</h1>
+<p>Default CI is hermetic. Run this checklist on the actual Mac and paired phone before claiming transport readiness.</p>
+<h2>LAN and hotspot</h2>
+<ol start="1">
+<li>Run <code>onibi up --transport=lan</code>.</li>
+<li>Install and fully trust the printed local CA profile on the phone.</li>
+<li>Scan the single-use pair QR and confirm the terminal loads.</li>
+<li>Send text, <code>Esc</code>, arrows, <code>Ctrl-C</code>, and paste; confirm the managed terminal receives each input.</li>
+<li>Trigger one Claude Code approval, approve it, then trigger another and deny it.</li>
+<li>Stop Onibi and confirm the pair URL no longer works.</li>
+</ol>
+<p>Repeat with an iPhone hotspot when the normal Wi-Fi blocks device-to-device traffic.</p>
+<h2>Tailscale Private and other web paths</h2>
+<ol start="1">
+<li>Confirm the phone can reach the selected network endpoint.</li>
+<li>Start Onibi with the selected <code>--transport</code> mode and scan the newly printed pair URL.</li>
+<li>Repeat the terminal and approval checks above.</li>
+<li>Confirm a user without the pair URL and owner session cannot operate the cockpit.</li>
+</ol>
+<p>Network reachability is not authorization. Onibi does not provide remote-host management, fleet enrollment, chat bridges, notification providers, or team control through these paths.</p>
+<h2>ngrok</h2>
+<ol start="1">
+<li>Run <code>onibi doctor --transport=ngrok</code>; confirm binary/auth readiness, loopback Agent API configuration, and required relay E2E. Tunnel health is checked during <code>onibi up</code>.</li>
+<li>Start <code>onibi up --transport=ngrok</code>, scan the new QR on iPhone Safari and Chrome over LTE, and verify terminal input, output, approval allow, and approval deny.</li>
+<li>Open the pair URL after removing <code>#k=</code>; it must not attach.</li>
+<li>Stop the Agent API tunnel; Onibi must stop on its next health check. Restart it, scan its new QR, and repeat a terminal command.</li>
+</ol>
+<h2>Cloudflare Quick</h2>
+<ol start="1">
+<li>Run <code>onibi doctor --transport=cloudflare-quick</code>; confirm <code>cloudflared</code> is available and no account configuration is required.</li>
+<li>Start <code>onibi up --transport=cloudflare-quick</code>, scan the new QR on iPhone Safari and Chrome over LTE, and verify terminal input, output, approval allow, and approval deny.</li>
+<li>Open the pair URL after removing <code>#k=</code>; it must not attach.</li>
+<li>Stop <code>cloudflared</code>; Onibi must stop on its next health check. Restart it, scan its new QR, and repeat a terminal command.</li>
+</ol>
+</main>
+  </div>
+  <footer class="site-footer"><a href="index.html">Onibi documentation</a><a href="https://github.com/gongahkia/onibi">GitHub</a></footer>
+</body>
+</html>

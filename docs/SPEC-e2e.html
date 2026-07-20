@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Onibi E2E Relay Protocol v1 documentation for Onibi, a single-user local coding-agent host.">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/site.css">
+  <title>Onibi E2E Relay Protocol v1 · Onibi</title>
+</head>
+<body>
+  <a class="skip-link" href="#content">Skip to content</a>
+  <header class="site-header"><div class="site-header-inner"><a class="brand" href="index.html">Onibi <span>docs</span></a><nav class="top-nav" aria-label="Primary"><a href="getting-started.html">Getting Started</a><a href="security.html">Security</a><a href="transports.html">Transports</a><a href="web-push.html">Web Push</a><a href="https://github.com/gongahkia/onibi">GitHub</a></nav></div></header>
+  <div class="docs-shell">
+    <aside class="docs-sidebar"><p class="sidebar-label">Documentation</p><nav aria-label="All documentation"><a href="architecture.html">Architecture</a><a href="branding.html">Branding</a><a href="adapter-contract.html">Certified adapter contract</a><a href="cloudflare-quick-setup.html">Cloudflare Quick Setup</a><a href="adapters-registry.html">Community Adapter Registry</a><a href="fresh-machine-smoke.html">Fresh Machine Smoke</a><a href="getting-started.html">Getting Started</a><a href="tap-integrity.html">Homebrew Tap Integrity</a><a href="blog/2026-e2e-frame-protocol.html">How Onibi&#39;s E2E Frame Protocol Works</a><a href="install.html">Installer Publication</a><a href="linux-beta.html">Linux Beta Matrix</a><a href="SPEC-adapters.html">Onibi Adapter Manifest Spec</a><a href="SPEC-e2e.html" aria-current="page">Onibi E2E Relay Protocol v1</a><a href="pwa-install.html">PWA Install</a><a href="comparison.html">Positioning</a><a href="roadmap.html">Product Scope</a><a href="release.html">Release</a><a href="security.html">Security</a><a href="snapshots.html">Snapshots</a><a href="terminal-fidelity.html">Terminal Fidelity Smoke Matrix</a><a href="transport-smoke.html">Transport Smoke</a><a href="transports.html">Transports</a><a href="troubleshooting.html">Troubleshooting</a><a href="web-push.html">Web Push</a><a href="ws-events-protocol.html">WebSocket events protocol</a><a href="wireguard-setup.html">WireGuard Setup</a><a href="zerotier-setup.html">ZeroTier Setup</a><a href="ios-cert-install.html">iOS Local Certificate Trust</a><a href="iphone-transport-smoke.html">iPhone transport smoke runner</a><a href="ngrok-setup.html">ngrok Setup</a></nav></aside>
+    <main id="content" class="prose"><div class="article-meta"><a href="index.html">Documentation</a><span>/</span><a href="SPEC-e2e.md">Markdown source</a></div><h1>Onibi E2E Relay Protocol v1</h1>
+<p>Status: frozen for Q0 implementation.</p>
+<h2>Scope</h2>
+<p>This protocol protects Onibi traffic when a third-party HTTPS relay is used, including Cloudflare Quick Tunnel and ngrok. The relay may terminate TLS and proxy requests, but it must not learn terminal bytes, approval payloads, control messages, or typed input.</p>
+<p>Local LAN and Tailscale Private modes can use the same framing, but E2E is mandatory for <code>--transport=cloudflare-quick</code> and <code>--transport=ngrok</code>.</p>
+<p>References:</p>
+<ul>
+<li>MDN Web Crypto <code>SubtleCrypto.deriveKey()</code> documents HKDF key derivation into AES-GCM keys: <a href="https://developer.mozilla.org/en-US/docs/Web/API/SubtleCrypto/deriveKey">https://developer.mozilla.org/en-US/docs/Web/API/SubtleCrypto/deriveKey</a>.</li>
+<li>MDN Web Crypto <code>AesGcmParams</code> documents AES-GCM IV uniqueness, 96-bit IV guidance, authentication tags, and additional authenticated data: <a href="https://developer.mozilla.org/en-US/docs/Web/API/AesGcmParams">https://developer.mozilla.org/en-US/docs/Web/API/AesGcmParams</a>.</li>
+<li>Cloudflare Quick Tunnels create random <code>trycloudflare.com</code> subdomains and proxy that public hostname to a local service: <a href="https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/trycloudflare/">https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/trycloudflare/</a>.</li>
+</ul>
+<h2>URL Bootstrap</h2>
+<p>QR shape:</p>
+<pre><code class="language-text">https://&lt;id&gt;.trycloudflare.com/pair/&lt;pair-token&gt;#k=&lt;key&gt;
+</code></pre>
+<p><code>&lt;key&gt;</code> is base64url without padding over 32 random bytes. Encoded length is 43 characters.</p>
+<p>The key lives only in the URL fragment. Browsers do not send fragments in HTTP requests, so Cloudflare and the Onibi HTTP handler do not receive <code>k</code> via URL, headers, logs, or request bodies. The frontend must parse <code>location.hash</code>, import the raw key into WebCrypto, then immediately remove the fragment with <code>history.replaceState</code>.</p>
+<p>The server may keep the raw key only in volatile memory while the pair token is live and while the bound owner session is active. SQLite stores only commitments/verifiers, never the raw key.</p>
+<h2>Key Schedule</h2>
+<p>Inputs:</p>
+<ul>
+<li><code>K_pair</code>: 32-byte random bootstrap key from <code>#k=</code>.</li>
+<li><code>session_id</code>: owner web session id created after successful <code>/pair/&lt;pair-token&gt;</code>.</li>
+<li><code>stream_id</code>: 16-byte random value per HTTP request or WebSocket connection, encoded base64url.</li>
+<li><code>dir</code>: <code>c2s</code> or <code>s2c</code>.</li>
+<li><code>channel</code>: one of <code>http:&lt;METHOD&gt;:&lt;PATH&gt;</code>, <code>ws:pty</code>, <code>ws:events</code>.</li>
+</ul>
+<p>Session base:</p>
+<pre><code class="language-text">K_session = HKDF-SHA256(
+  IKM  = K_pair,
+  salt = session_id,
+  info = &#34;onibi-e2e-v1&#34;,
+  L    = 32
+)
+</code></pre>
+<p>Per-stream AES key:</p>
+<pre><code class="language-text">K_stream = HKDF-SHA256(
+  IKM  = K_session,
+  salt = stream_id,
+  info = &#34;onibi-e2e-stream-v1:&#34; || channel || &#34;:&#34; || dir,
+  L    = 32
+)
+</code></pre>
+<p>Per-stream nonce prefix:</p>
+<pre><code class="language-text">nonce_prefix = HKDF-SHA256(
+  IKM  = K_session,
+  salt = stream_id,
+  info = &#34;onibi-e2e-nonce-v1:&#34; || channel || &#34;:&#34; || dir,
+  L    = 4
+)
+</code></pre>
+<p>Frame IV:</p>
+<pre><code class="language-text">iv = nonce_prefix || uint64_be(seq)
+</code></pre>
+<p><code>seq</code> starts at 0 for each <code>(session_id, stream_id, channel, dir)</code> and increments by 1 per encrypted frame. Reusing a <code>(stream_id, dir, seq)</code> tuple is a protocol error because it reuses an AES-GCM IV.</p>
+<p>Pair-confirm traffic is pre-session traffic. It derives a pre-session base key:</p>
+<pre><code class="language-text">K_pair_confirm = HKDF-SHA256(
+  IKM  = K_pair,
+  salt = pair_token,
+  info = &#34;onibi-e2e-pair-confirm-v1&#34;,
+  L    = 32
+)
+</code></pre>
+<p>For pair-confirm only, replace <code>K_session</code> with <code>K_pair_confirm</code> in the <code>K_stream</code> and <code>nonce_prefix</code> derivations above. Pair-confirm uses <code>session_id = pair_token</code>, <code>channel = http:POST:/pair/confirm</code>, a fresh <code>stream_id</code>, <code>dir = c2s</code>, and the same IV/frame rules below.</p>
+<h2>Frame</h2>
+<p>All encrypted WebSocket frames are sent as text frames containing JSON. Encrypted HTTP request and response bodies use the same JSON frame with <code>Content-Type: application/onibi-e2e+json</code>.</p>
+<pre><code class="language-json">{
+  &#34;v&#34;: &#34;onibi.e2e.v1&#34;,
+  &#34;sid&#34;: &#34;&lt;session_id&gt;&#34;,
+  &#34;st&#34;: &#34;&lt;stream_id&gt;&#34;,
+  &#34;ch&#34;: &#34;ws:pty&#34;,
+  &#34;dir&#34;: &#34;c2s&#34;,
+  &#34;seq&#34;: 0,
+  &#34;iv&#34;: &#34;&lt;base64url 12-byte IV&gt;&#34;,
+  &#34;t&#34;: &#34;binary&#34;,
+  &#34;ct&#34;: &#34;&lt;base64url ciphertext+tag&gt;&#34;
+}
+</code></pre>
+<p>Fields:</p>
+<ul>
+<li><code>v</code>: protocol version.</li>
+<li><code>sid</code>: owner session id.</li>
+<li><code>st</code>: stream id.</li>
+<li><code>ch</code>: channel.</li>
+<li><code>dir</code>: direction.</li>
+<li><code>seq</code>: uint64 sequence number.</li>
+<li><code>iv</code>: 12-byte AES-GCM IV, base64url without padding.</li>
+<li><code>t</code>: plaintext type, <code>text</code> or <code>binary</code>.</li>
+<li><code>ct</code>: AES-256-GCM output, ciphertext followed by the 16-byte authentication tag, base64url without padding.</li>
+</ul>
+<p>AAD is canonical UTF-8:</p>
+<pre><code class="language-text">v || &#34;\n&#34; ||
+sid || &#34;\n&#34; ||
+st || &#34;\n&#34; ||
+ch || &#34;\n&#34; ||
+dir || &#34;\n&#34; ||
+decimal(seq) || &#34;\n&#34; ||
+iv || &#34;\n&#34; ||
+t
+</code></pre>
+<p>Receivers must reconstruct AAD from frame fields, not trust any duplicated in-band value. Receivers must decode <code>iv</code>, require exactly 12 bytes, and reject frames where <code>iv != nonce_prefix || uint64_be(seq)</code>. AES-GCM authentication failure closes the WebSocket with policy violation or returns HTTP 400.</p>
+<h2>Replay Defense</h2>
+<p>For WebSockets, each side keeps the next expected <code>seq</code> for <code>(session_id, stream_id, channel, dir)</code>. A frame is accepted only when <code>seq == expected</code>; accepted frames increment <code>expected</code>. Lower, repeated, skipped, or non-numeric sequence values are rejected and close the socket.</p>
+<p>For HTTP requests, clients generate a fresh <code>stream_id</code> per request and use <code>seq=0</code>. The server keeps a bounded replay cache of recently accepted <code>(session_id, stream_id, channel, dir, seq)</code> tuples for at least 10 minutes. A duplicate tuple is rejected with HTTP 409. Implementation: <code>internal/web/e2e.go</code> enforces this in <code>Server.acceptE2EHTTPReplay</code> with <code>e2eHTTPReplayTTL = 10 * time.Minute</code> and <code>e2eHTTPReplayLimit = 4096</code>.</p>
+<p>For HTTP responses, the server uses the request <code>stream_id</code>, <code>dir=s2c</code>, and <code>seq=0</code>.</p>
+<h2>Pairing And Verifier Flow</h2>
+<ol start="1">
+<li>Server mints <code>&lt;pair-token&gt;</code> with existing single-use token semantics and generates <code>K_pair</code> in memory.</li>
+<li>Server stores <code>pair_commit = HMAC-SHA256(K_pair, &#34;onibi relay key commitment v1&#34;)</code> in SQLite and keeps raw <code>K_pair</code> only in volatile memory.</li>
+<li>QR encodes <code>/pair/&lt;pair-token&gt;#k=&lt;base64url(K_pair)&gt;</code>.</li>
+<li>Client opens <code>/pair/&lt;pair-token&gt;</code>, reads <code>K_pair</code> from fragment, derives <code>pair_verifier</code>, and sends it inside the encrypted pair-confirm request body.</li>
+</ol>
+<ul>
+<li><code>pair_verifier = HKDF-SHA256(K_pair, salt=&lt;pair-token&gt;, info=&#34;onibi-e2e-pair-verifier-v1&#34;, L=32)</code></li>
+</ul>
+<ol start="5">
+<li>Server decrypts pair-confirm, constant-time compares the verifier, consumes the single-use pair token, creates <code>session_id</code>, and binds <code>K_pair</code> to that session in volatile memory.</li>
+<li>Server stores:</li>
+</ol>
+<ul>
+<li><code>session_commit = HMAC-SHA256(K_pair, &#34;onibi relay key commitment v1:&#34; || session_id)</code></li>
+<li><code>session_verifier = HKDF-SHA256(K_pair, salt=session_id, info=&#34;onibi-e2e-session-verifier-v1&#34;, L=32)</code></li>
+</ul>
+<ol start="7">
+<li>Client sends <code>session_verifier</code> in the first encrypted WebSocket hello. Server constant-time compares it before accepting PTY/events traffic.</li>
+</ol>
+<p>The raw key is not persisted. If the daemon restarts, relay E2E sessions must be re-paired.</p>
+<h2>Channel Bindings</h2>
+<p>HTTP channels:</p>
+<ul>
+<li><code>http:POST:/control</code></li>
+<li><code>http:POST:/approval/&lt;id&gt;</code></li>
+<li>future state-changing endpoints must add explicit channel strings before shipping.</li>
+</ul>
+<p>WebSocket channels:</p>
+<ul>
+<li><code>ws:pty</code></li>
+<li><code>ws:events</code></li>
+</ul>
+<p>Plain <code>/healthz</code> may report whether E2E is required and the hex session verifier commitment. It must not expose raw keys, stream ids, ciphertext plaintext, or decrypted payloads.</p>
+<h2>Failure Behavior</h2>
+<ul>
+<li>Missing <code>#k=</code>: the public-relay UI refuses to attach and asks the user to rescan the QR.</li>
+<li>Bad key length: client refuses before any network send.</li>
+<li>Bad verifier: server rejects pairing or WS attach with 401.</li>
+<li>AES-GCM auth failure: reject frame/request, audit sanitized reason, never surface decrypted partial data.</li>
+<li>Replay or sequence gap: reject and require reconnect.</li>
+<li>Volatile key missing after daemon restart: require fresh <code>onibi pair</code>.</li>
+</ul>
+<h2>Threat Model</h2>
+<p>Protected against:</p>
+<ul>
+<li>Public relay reading PTY bytes, typed input, approval payloads, or control requests.</li>
+<li>Passive network observers reading Onibi payloads.</li>
+<li>Relay replay of already accepted request/frame tuples.</li>
+<li>Server-side persistence leaking raw relay keys.</li>
+</ul>
+<p>Not protected against:</p>
+<ul>
+<li>Same-user local malware or a debugger on the laptop.</li>
+<li>A malicious browser extension reading page memory after pairing.</li>
+<li>A stolen unlocked phone with an active paired session.</li>
+<li>Traffic metadata: host, timing, byte lengths, connection count, and request paths remain visible to the public relay.</li>
+<li>Relay dropping, delaying, reordering, or denying traffic.</li>
+<li>Bugs in browser WebCrypto or Go crypto implementations.</li>
+</ul>
+<h2>Implementation Gates</h2>
+<ul>
+<li>[x] Fragment-keyed bootstrap (<code>#k=</code>) stays out of relay requests: <code>internal/cli/up.go</code> appends <code>#k=&lt;base64url&gt;</code>, <code>frontend/src/e2e.ts</code> reads <code>location.hash</code>, imports exactly 32 bytes, and removes the fragment with <code>history.replaceState</code>; <code>internal/cli/up_test.go</code> checks the pre-fragment URL does not contain the key.</li>
+<li>[x] Volatile-only raw key storage: <code>internal/web/relay_keys.go</code> stores raw keys only in <code>RelayKeys.pairs</code> and <code>RelayKeys.sessions</code>; SQLite stores <code>relay_key_commitment:*</code> strings and <code>web_sessions.key_verifier_enc</code>; <code>internal/web/e2e_test.go</code> checks the commitment does not contain the raw key.</li>
+<li>[x] HKDF-SHA256 key schedule: <code>internal/e2e/e2e.go</code> derives <code>K_session</code>; <code>internal/envelope/relay.go</code> derives per-stream keys/nonces; <code>frontend/src/e2e.ts</code> mirrors both with WebCrypto HKDF.</li>
+<li>[x] Per-frame IV is <code>nonce_prefix || uint64_be(seq)</code>: <code>internal/envelope/relay.go</code> builds and verifies the IV; <code>frontend/src/e2e.ts</code> mirrors <code>uint64BE</code>.</li>
+<li>[x] AAD is reconstructed from frame fields: <code>internal/envelope/relay.go</code> uses <code>RelayAAD(frame)</code> on seal/open; <code>frontend/src/e2e.ts</code> reconstructs the same field list before encrypt/decrypt.</li>
+<li>[x] HTTP replay cache uses a 10 minute TTL: <code>internal/web/e2e.go</code> has <code>e2eHTTPReplayTTL = 10 * time.Minute</code>; <code>internal/web/e2e_test.go</code> covers replay, expiry, and cache bounds.</li>
+<li>[x] Sequence gaps/replay are rejected: <code>internal/web/e2e.go</code> tracks expected WebSocket sequence; <code>internal/envelope/relay.go</code> rejects unexpected <code>seq</code>; <code>internal/web/e2e_test.go</code> covers replay rejection.</li>
+<li>[x] Bad verifier rejects pairing or attach with unauthorized: <code>internal/web/pair.go</code> constant-time compares <code>pair_verifier</code> before token consumption; <code>internal/web/auth.go</code> constant-time compares <code>verify_token</code>; <code>internal/web/pair_test.go</code>, <code>internal/web/e2e_test.go</code>, and <code>internal/web/ws_pty_test.go</code> cover rejection.</li>
+<li>[x] Tagged-release relay E2E gate and no plaintext bypass: <code>internal/cli/up_test.go</code> verifies Cloudflare Quick and ngrok are relay modes and the removed <code>--unsafe-cloudflare-no-e2e</code> flag is rejected; <code>scripts/release-e2e-gate.sh</code> is wired as the release assertion.</li>
+<li>[x] Encrypted pair-confirm gate: <code>internal/web/pair.go</code> serves a fragment-reading confirm page at <code>GET /pair/&lt;token&gt;</code> and consumes the token only after encrypted <code>POST /pair/confirm</code>; the response is sealed on the same stream with <code>dir=s2c</code>; <code>internal/web/pair_test.go</code> verifies bad pair verifier rejection before successful token claim.</li>
+</ul>
+</main>
+  </div>
+  <footer class="site-footer"><a href="index.html">Onibi documentation</a><a href="https://github.com/gongahkia/onibi">GitHub</a></footer>
+</body>
+</html>

@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Fresh Machine Smoke documentation for Onibi, a single-user local coding-agent host.">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/site.css">
+  <title>Fresh Machine Smoke · Onibi</title>
+</head>
+<body>
+  <a class="skip-link" href="#content">Skip to content</a>
+  <header class="site-header"><div class="site-header-inner"><a class="brand" href="index.html">Onibi <span>docs</span></a><nav class="top-nav" aria-label="Primary"><a href="getting-started.html">Getting Started</a><a href="security.html">Security</a><a href="transports.html">Transports</a><a href="web-push.html">Web Push</a><a href="https://github.com/gongahkia/onibi">GitHub</a></nav></div></header>
+  <div class="docs-shell">
+    <aside class="docs-sidebar"><p class="sidebar-label">Documentation</p><nav aria-label="All documentation"><a href="architecture.html">Architecture</a><a href="branding.html">Branding</a><a href="adapter-contract.html">Certified adapter contract</a><a href="cloudflare-quick-setup.html">Cloudflare Quick Setup</a><a href="adapters-registry.html">Community Adapter Registry</a><a href="fresh-machine-smoke.html" aria-current="page">Fresh Machine Smoke</a><a href="getting-started.html">Getting Started</a><a href="tap-integrity.html">Homebrew Tap Integrity</a><a href="blog/2026-e2e-frame-protocol.html">How Onibi&#39;s E2E Frame Protocol Works</a><a href="install.html">Installer Publication</a><a href="linux-beta.html">Linux Beta Matrix</a><a href="SPEC-adapters.html">Onibi Adapter Manifest Spec</a><a href="SPEC-e2e.html">Onibi E2E Relay Protocol v1</a><a href="pwa-install.html">PWA Install</a><a href="comparison.html">Positioning</a><a href="roadmap.html">Product Scope</a><a href="release.html">Release</a><a href="security.html">Security</a><a href="snapshots.html">Snapshots</a><a href="terminal-fidelity.html">Terminal Fidelity Smoke Matrix</a><a href="transport-smoke.html">Transport Smoke</a><a href="transports.html">Transports</a><a href="troubleshooting.html">Troubleshooting</a><a href="web-push.html">Web Push</a><a href="ws-events-protocol.html">WebSocket events protocol</a><a href="wireguard-setup.html">WireGuard Setup</a><a href="zerotier-setup.html">ZeroTier Setup</a><a href="ios-cert-install.html">iOS Local Certificate Trust</a><a href="iphone-transport-smoke.html">iPhone transport smoke runner</a><a href="ngrok-setup.html">ngrok Setup</a></nav></aside>
+    <main id="content" class="prose"><div class="article-meta"><a href="index.html">Documentation</a><span>/</span><a href="fresh-machine-smoke.md">Markdown source</a></div><h1>Fresh Machine Smoke</h1>
+<p>This runbook records the release dry-run for a stock macOS user and a stock Debian/Ubuntu user. It is intentionally command-first: copy each command, save stdout/stderr, and attach screenshots before closing the release-readiness issue.</p>
+<p>Current verification status: real macOS and Ubuntu VM output/screenshots are not captured in this repo yet.</p>
+<p>Reference docs checked:</p>
+<ul>
+<li>Homebrew install prefixes and shell setup: <a href="https://docs.brew.sh/Installation">https://docs.brew.sh/Installation</a></li>
+<li>Homebrew uninstall path: <a href="https://docs.brew.sh/FAQ">https://docs.brew.sh/FAQ</a></li>
+<li>Ubuntu package-management model for local packages/dependencies: <a href="https://ubuntu.com/server/docs/how-to/software/package-management/">https://ubuntu.com/server/docs/how-to/software/package-management/</a></li>
+</ul>
+<h2>Artifacts To Capture</h2>
+<div class="table-wrap"><table><thead><tr><th>file</th><th>source</th></tr></thead><tbody><tr><td><code>docs/assets/fresh-machine/macos-install.png</code></td><td>terminal after install</td></tr><tr><td><code>docs/assets/fresh-machine/macos-doctor-preflight.png</code></td><td><code>onibi doctor --mode preflight --offline</code></td></tr><tr><td><code>docs/assets/fresh-machine/macos-up.png</code></td><td><code>onibi up</code> printing pair URL/QR</td></tr><tr><td><code>docs/assets/fresh-machine/macos-uninstall.png</code></td><td>uninstall plan + final command</td></tr><tr><td><code>docs/assets/fresh-machine/ubuntu-install.png</code></td><td>terminal after install</td></tr><tr><td><code>docs/assets/fresh-machine/ubuntu-doctor-preflight.png</code></td><td><code>onibi doctor --mode preflight --offline</code></td></tr><tr><td><code>docs/assets/fresh-machine/ubuntu-up.png</code></td><td><code>onibi up</code> printing pair URL/QR</td></tr><tr><td><code>docs/assets/fresh-machine/ubuntu-uninstall.png</code></td><td>uninstall plan + final command</td></tr></tbody></table></div>
+<p>Do not replace this table with prose. The release note needs one file per state.</p>
+<h2>Common Inputs</h2>
+<p>Set these once per run:</p>
+<pre><code class="language-bash">export ONIBI_SMOKE_DATE=&#34;$(date -u +%Y-%m-%dT%H:%M:%SZ)&#34;
+export ONIBI_SMOKE_DIR=&#34;$HOME/onibi-fresh-smoke-$ONIBI_SMOKE_DATE&#34;
+mkdir -p &#34;$ONIBI_SMOKE_DIR&#34;
+</code></pre>
+<p>Record machine details:</p>
+<pre><code class="language-bash">{
+  date -u
+  uname -a
+  id
+  command -v onibi || true
+} | tee &#34;$ONIBI_SMOKE_DIR/machine.txt&#34;
+</code></pre>
+<p>Expected: <code>onibi</code> is absent before install on a true fresh machine.</p>
+<h2>macOS 14+</h2>
+<p>Assumptions: stock user account with a shell, Homebrew present or allowed to be installed interactively. Homebrew defaults are <code>/opt/homebrew</code> on Apple Silicon and <code>/usr/local</code> on Intel.</p>
+<h3>Install</h3>
+<p>If <code>brew</code> is missing, install Homebrew first:</p>
+<pre><code class="language-bash">/bin/bash -c &#34;$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)&#34;
+eval &#34;$(/opt/homebrew/bin/brew shellenv)&#34; 2&gt;/dev/null || eval &#34;$(/usr/local/bin/brew shellenv)&#34;
+</code></pre>
+<p>Install Onibi from the tap:</p>
+<pre><code class="language-bash">brew install gongahkia/onibi/onibi 2&gt;&amp;1 | tee &#34;$ONIBI_SMOKE_DIR/macos-install.txt&#34;
+onibi version | tee &#34;$ONIBI_SMOKE_DIR/macos-version.txt&#34;
+</code></pre>
+<p>Expected:</p>
+<ul>
+<li><code>onibi version</code> prints a version and commit.</li>
+<li><code>which onibi</code> resolves under the Homebrew prefix.</li>
+</ul>
+<h3>Initialize State</h3>
+<pre><code class="language-bash">onibi status --json --no-doctor --no-hooks &gt;&#34;$ONIBI_SMOKE_DIR/macos-status-initial.json&#34;
+</code></pre>
+<p>Expected: command exits <code>0</code> and creates the local state directory.</p>
+<h3>Hooks Install</h3>
+<p>Preview first:</p>
+<pre><code class="language-bash">onibi install-hooks --dry-run 2&gt;&amp;1 | tee &#34;$ONIBI_SMOKE_DIR/macos-hooks-dry-run.txt&#34;
+</code></pre>
+<p>If supported agents are present on the machine:</p>
+<pre><code class="language-bash">onibi install-hooks --all 2&gt;&amp;1 | tee &#34;$ONIBI_SMOKE_DIR/macos-hooks-install.txt&#34;
+onibi hooks --show --all 2&gt;&amp;1 | tee &#34;$ONIBI_SMOKE_DIR/macos-hooks-show.txt&#34;
+</code></pre>
+<p>Expected:</p>
+<ul>
+<li>No destructive shell changes in dry-run output.</li>
+<li>Installed hooks reference the Homebrew <code>onibi-notify</code> path.</li>
+</ul>
+<h3>Doctor Before Pairing</h3>
+<pre><code class="language-bash">onibi doctor --mode preflight --offline --color=never 2&gt;&amp;1 | tee &#34;$ONIBI_SMOKE_DIR/macos-doctor-preflight.txt&#34;
+</code></pre>
+<p>Expected shape before <code>onibi up</code> has generated certs or started a service:</p>
+<pre><code class="language-text">[PASS] state dir: ...
+[PASS] store key: present
+[PASS] sqlite db: ...
+[PASS] transport: lan
+[WARN] local certs: not generated; run onibi up
+[WARN] unix socket: not running
+[WARN] service: not installed
+[PASS] hooks: ...
+</code></pre>
+<p><code>WARN</code> for local certs/socket/service is acceptable at this step.</p>
+<h3>Up And Pair</h3>
+<p>Use LAN first. Use an iPhone hotspot when managed Wi-Fi blocks peer traffic.</p>
+<pre><code class="language-bash">onibi up --transport=lan --log-file &#34;$ONIBI_SMOKE_DIR/macos-up.log&#34; 2&gt;&amp;1 | tee &#34;$ONIBI_SMOKE_DIR/macos-up.txt&#34;
+</code></pre>
+<p>Expected:</p>
+<ul>
+<li>Output prints the local CA profile path.</li>
+<li>Output prints a <code>https://&lt;lan-ip&gt;:8443/pair/&lt;token&gt;</code> URL and QR.</li>
+<li>Phone Safari can pair after the local CA profile is installed and fully trusted.</li>
+</ul>
+<p>Stop with <code>Ctrl-C</code> after pairing and a simple terminal command.</p>
+<h3>Desktop Handover</h3>
+<p>On macOS, tap <code>MAC</code> and confirm Ghostty opens the managed tmux session. If Ghostty is missing or launch fails, retain the displayed manual <code>tmux attach-session</code> command.</p>
+<h3>Uninstall</h3>
+<pre><code class="language-bash">onibi uninstall --dry-run --service --hooks --all-hooks --state 2&gt;&amp;1 | tee &#34;$ONIBI_SMOKE_DIR/macos-uninstall-dry-run.txt&#34;
+onibi uninstall --yes --service --hooks --all-hooks --state 2&gt;&amp;1 | tee &#34;$ONIBI_SMOKE_DIR/macos-uninstall.txt&#34;
+brew uninstall onibi 2&gt;&amp;1 | tee &#34;$ONIBI_SMOKE_DIR/macos-brew-uninstall.txt&#34;
+</code></pre>
+<p>Optional Homebrew removal for a throwaway machine:</p>
+<pre><code class="language-bash">/bin/bash -c &#34;$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/uninstall.sh)&#34;
+</code></pre>
+<p>Expected: Onibi state, hooks, service files, and binaries are removed.</p>
+<h2>Debian/Ubuntu 24.04</h2>
+<p>Assumptions: an x86_64 Ubuntu 24.04 VM and a non-root user account. <code>sudo</code> is used only for distro packages when the base VM lacks required tools. If the VM policy forbids <code>sudo</code>, preinstall <code>curl</code>, <code>tar</code>, <code>gpg</code>, <code>ca-certificates</code>, and <code>tmux</code> in the image.</p>
+<p>Linux is beta-only and is not a substitute for the macOS phone-cockpit validation in this runbook.</p>
+<h3>Install</h3>
+<p>Install prerequisites:</p>
+<pre><code class="language-bash">sudo apt update
+sudo apt install -y ca-certificates curl gnupg tar tmux
+</code></pre>
+<p>Install from the rendered release installer after <code>get.onibi.sh</code> is published:</p>
+<pre><code class="language-bash">curl -fsSL https://get.onibi.sh | sh 2&gt;&amp;1 | tee &#34;$ONIBI_SMOKE_DIR/ubuntu-install.txt&#34;
+export PATH=&#34;$HOME/.local/bin:$PATH&#34;
+onibi version | tee &#34;$ONIBI_SMOKE_DIR/ubuntu-version.txt&#34;
+</code></pre>
+<p>If the installer endpoint is not published, use a release tarball instead:</p>
+<pre><code class="language-bash">tag=vX.Y.Z
+arch=&#34;$(uname -m)&#34;
+case &#34;$arch&#34; in x86_64) ;; *) echo &#34;fresh-machine lifecycle smoke requires x86_64, got $arch&#34; &gt;&amp;2; exit 1 ;; esac
+curl -fL -o /tmp/onibi.tgz &#34;https://github.com/gongahkia/onibi/releases/download/$tag/onibi_${tag#v}_linux_${arch}.tar.gz&#34;
+mkdir -p &#34;$HOME/.local/bin&#34;
+tar -xzf /tmp/onibi.tgz -C &#34;$HOME/.local/bin&#34; onibi onibi-notify
+</code></pre>
+<p>Expected:</p>
+<ul>
+<li><code>onibi version</code> prints a version and commit.</li>
+<li><code>command -v onibi</code> resolves under <code>$HOME/.local/bin</code>.</li>
+</ul>
+<h3>Initialize State</h3>
+<pre><code class="language-bash">onibi status --json --no-doctor --no-hooks &gt;&#34;$ONIBI_SMOKE_DIR/ubuntu-status-initial.json&#34;
+</code></pre>
+<p>Expected: command exits <code>0</code> and creates <code>~/.local/share/onibi</code>.</p>
+<h3>Hooks Install</h3>
+<pre><code class="language-bash">onibi install-hooks --dry-run 2&gt;&amp;1 | tee &#34;$ONIBI_SMOKE_DIR/ubuntu-hooks-dry-run.txt&#34;
+</code></pre>
+<p>If supported agents are present:</p>
+<pre><code class="language-bash">onibi install-hooks --all 2&gt;&amp;1 | tee &#34;$ONIBI_SMOKE_DIR/ubuntu-hooks-install.txt&#34;
+onibi hooks --show --all 2&gt;&amp;1 | tee &#34;$ONIBI_SMOKE_DIR/ubuntu-hooks-show.txt&#34;
+</code></pre>
+<p>Expected: installed hooks reference <code>$HOME/.local/bin/onibi-notify</code>.</p>
+<h3>Doctor Before Pairing</h3>
+<pre><code class="language-bash">onibi doctor --mode preflight --offline --color=never 2&gt;&amp;1 | tee &#34;$ONIBI_SMOKE_DIR/ubuntu-doctor-preflight.txt&#34;
+</code></pre>
+<p>Expected shape before <code>onibi up</code>:</p>
+<pre><code class="language-text">[PASS] state dir: ...
+[PASS] store key: present
+[PASS] sqlite db: ...
+[PASS] transport: lan
+[WARN] local certs: not generated; run onibi up
+[WARN] unix socket: not running
+[WARN] service: not installed
+[PASS] hooks: ...
+</code></pre>
+<h3>Up And Pair</h3>
+<pre><code class="language-bash">onibi up --transport=lan --log-file &#34;$ONIBI_SMOKE_DIR/ubuntu-up.log&#34; 2&gt;&amp;1 | tee &#34;$ONIBI_SMOKE_DIR/ubuntu-up.txt&#34;
+</code></pre>
+<p>Expected:</p>
+<ul>
+<li>Output prints the local CA profile path.</li>
+<li>Output prints a <code>https://&lt;lan-ip&gt;:8443/pair/&lt;token&gt;</code> URL and QR.</li>
+<li>Phone browser pairs over the same LAN or hotspot.</li>
+</ul>
+<p>Stop with <code>Ctrl-C</code> after pairing and a simple terminal command.</p>
+<h3>Uninstall</h3>
+<pre><code class="language-bash">onibi uninstall --dry-run --service --hooks --all-hooks --state 2&gt;&amp;1 | tee &#34;$ONIBI_SMOKE_DIR/ubuntu-uninstall-dry-run.txt&#34;
+onibi uninstall --yes --service --hooks --all-hooks --state 2&gt;&amp;1 | tee &#34;$ONIBI_SMOKE_DIR/ubuntu-uninstall.txt&#34;
+rm -f &#34;$HOME/.local/bin/onibi&#34; &#34;$HOME/.local/bin/onibi-notify&#34;
+</code></pre>
+<p>Expected: <code>command -v onibi</code> fails after opening a new shell or removing the path entry.</p>
+<h2>Release Artifact Smoke</h2>
+<p>Before real-machine runs, keep running the local artifact gate:</p>
+<pre><code class="language-bash">goreleaser release --snapshot --clean
+scripts/release-smoke.sh dist
+scripts/fresh-machine-doc-check.sh
+</code></pre>
+<p><code>scripts/release-smoke.sh</code> verifies checksums, archive membership, host-platform binary execution and preflight doctor in an isolated HOME. <code>scripts/fresh-machine-doc-check.sh</code> verifies this runbook still names every required screenshot, transcript command, platform section, and release reference. After the real macOS and Ubuntu runs, use:</p>
+<pre><code class="language-bash">scripts/fresh-machine-doc-check.sh --require-artifacts --smoke-dir &#34;$ONIBI_SMOKE_DIR&#34;
+</code></pre>
+<p>That stricter mode fails until the repo contains real PNG screenshots and the run directory contains the expected transcripts.</p>
+<h2>Close Criteria</h2>
+<p>Do not close the tracking issue until all are true:</p>
+<ul>
+<li>macOS transcript files exist under the run directory and screenshots are added.</li>
+<li>Ubuntu transcript files exist under the run directory and screenshots are added.</li>
+<li>The uninstall step proves no Onibi binary, service, hook, or state remains.</li>
+</ul>
+</main>
+  </div>
+  <footer class="site-footer"><a href="index.html">Onibi documentation</a><a href="https://github.com/gongahkia/onibi">GitHub</a></footer>
+</body>
+</html>

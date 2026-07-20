@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Web Push documentation for Onibi, a single-user local coding-agent host.">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/site.css">
+  <title>Web Push · Onibi</title>
+</head>
+<body>
+  <a class="skip-link" href="#content">Skip to content</a>
+  <header class="site-header"><div class="site-header-inner"><a class="brand" href="index.html">Onibi <span>docs</span></a><nav class="top-nav" aria-label="Primary"><a href="getting-started.html">Getting Started</a><a href="security.html">Security</a><a href="transports.html">Transports</a><a href="web-push.html" aria-current="page">Web Push</a><a href="https://github.com/gongahkia/onibi">GitHub</a></nav></div></header>
+  <div class="docs-shell">
+    <aside class="docs-sidebar"><p class="sidebar-label">Documentation</p><nav aria-label="All documentation"><a href="architecture.html">Architecture</a><a href="branding.html">Branding</a><a href="adapter-contract.html">Certified adapter contract</a><a href="cloudflare-quick-setup.html">Cloudflare Quick Setup</a><a href="adapters-registry.html">Community Adapter Registry</a><a href="fresh-machine-smoke.html">Fresh Machine Smoke</a><a href="getting-started.html">Getting Started</a><a href="tap-integrity.html">Homebrew Tap Integrity</a><a href="blog/2026-e2e-frame-protocol.html">How Onibi&#39;s E2E Frame Protocol Works</a><a href="install.html">Installer Publication</a><a href="linux-beta.html">Linux Beta Matrix</a><a href="SPEC-adapters.html">Onibi Adapter Manifest Spec</a><a href="SPEC-e2e.html">Onibi E2E Relay Protocol v1</a><a href="pwa-install.html">PWA Install</a><a href="comparison.html">Positioning</a><a href="roadmap.html">Product Scope</a><a href="release.html">Release</a><a href="security.html">Security</a><a href="snapshots.html">Snapshots</a><a href="terminal-fidelity.html">Terminal Fidelity Smoke Matrix</a><a href="transport-smoke.html">Transport Smoke</a><a href="transports.html">Transports</a><a href="troubleshooting.html">Troubleshooting</a><a href="web-push.html" aria-current="page">Web Push</a><a href="ws-events-protocol.html">WebSocket events protocol</a><a href="wireguard-setup.html">WireGuard Setup</a><a href="zerotier-setup.html">ZeroTier Setup</a><a href="ios-cert-install.html">iOS Local Certificate Trust</a><a href="iphone-transport-smoke.html">iPhone transport smoke runner</a><a href="ngrok-setup.html">ngrok Setup</a></nav></aside>
+    <main id="content" class="prose"><div class="article-meta"><a href="index.html">Documentation</a><span>/</span><a href="web-push.md">Markdown source</a></div><h1>Web Push</h1>
+<p>Onibi web push sends approval notifications to the installed phone web app. Browser tabs are not enough on iOS. Install steps live in <a href="./pwa-install.html"><code>pwa-install.md</code></a>.</p>
+<h2>Prerequisites</h2>
+<ul>
+<li>HTTPS must be valid end-to-end for the app, <code>/manifest.webmanifest</code>, and <code>/sw.js</code>. Do not depend on an HTTP to HTTPS redirect for the service worker path.</li>
+<li>The manifest must use <code>display: &#34;standalone&#34;</code>.</li>
+<li>The user must add Onibi to the Home Screen and launch it from the installed icon.</li>
+<li><code>Notification.requestPermission()</code> must run from a user tap. In Onibi, tap <code>PUSH</code> in the cockpit toolbar.</li>
+<li><code>PushManager</code> must exist in the installed app. Safari tabs on iOS do not expose it.</li>
+</ul>
+<h2>Flow</h2>
+<ol start="1">
+<li>Pair the browser as owner.</li>
+<li>Add the app to the Home Screen; see <a href="./pwa-install.html"><code>pwa-install.md</code></a>.</li>
+<li>Open Onibi from the Home Screen icon.</li>
+<li>Tap <code>PUSH</code>.</li>
+</ol>
+<p>The client fetches <code>GET /push/vapid-public-key</code>, requests notification permission, calls:</p>
+<pre><code class="language-js">registration.pushManager.subscribe({
+  userVisibleOnly: true,
+  applicationServerKey
+})
+</code></pre>
+<p>Then it posts the subscription JSON to <code>POST /push/subscribe</code>.</p>
+<p>The daemon stores:</p>
+<div class="table-wrap"><table><thead><tr><th>item</th><th>storage</th></tr></thead><tbody><tr><td>VAPID keypair</td><td>OS secret item <code>onibi.push.vapid.v1</code></td></tr><tr><td>VAPID public key</td><td>KV key <code>push_vapid_pub</code></td></tr><tr><td>push endpoint</td><td>encrypted <code>push_subscriptions.endpoint_enc</code></td></tr><tr><td>push <code>p256dh</code> key</td><td>encrypted <code>push_subscriptions.p256dh_enc</code></td></tr><tr><td>push <code>auth</code> key</td><td>encrypted <code>push_subscriptions.auth_enc</code></td></tr></tbody></table></div>
+<p>On each approval request, Onibi sends a Web Push payload with TTL <code>30</code>, urgency <code>high</code>, and a deep link to <code>/s/&lt;session_id&gt;?approval=&lt;id&gt;</code>. <code>410 Gone</code> responses delete the subscription.</p>
+<h2>VAPID Rotation</h2>
+<p>Rotate VAPID keys annually, when a machine is decommissioned, or immediately after any suspected compromise of the local OS account, keychain, fallback secret file, or Onibi state directory. The VAPID key authorizes Onibi to send to browser push endpoints; a stolen private key can send notifications to devices that subscribed under that public key.</p>
+<p>Onibi stores the current VAPID keypair in the OS secret backend as <code>onibi.push.vapid.v1</code>, with dotenv fallback on hosts without a usable keychain or Secret Service. SQLite keeps the public key in <code>push_vapid_pub</code> so the installed web app can subscribe, plus encrypted subscription endpoints and browser keys.</p>
+<p>Run:</p>
+<pre><code class="language-sh">onibi push rotate
+</code></pre>
+<p>Rotation generates a fresh VAPID keypair, updates <code>push_vapid_pub</code>, and deletes all existing <code>push_subscriptions</code> rows. Existing browser subscriptions were created for the old public key, so reopen the installed Home Screen app and tap <code>PUSH</code> to subscribe again. The app also compares the browser subscription key against <code>/push/vapid-public-key</code> on refresh and replaces stale subscriptions after rotation.</p>
+<p>Check state with:</p>
+<pre><code class="language-sh">onibi doctor --push
+</code></pre>
+<p>The push doctor verifies the keyring VAPID item, the SQLite public key, legacy DB-stored private key migration state, and subscription count.</p>
+<h2>iOS Constraints</h2>
+<ul>
+<li>No silent push: every service-worker <code>push</code> event must call <code>showNotification()</code>.</li>
+<li>No background sync: do not rely on deferred sync to repair subscriptions.</li>
+<li>Service workers can be unreliable after reboot. Onibi refreshes the subscription on app open when the user previously enabled push.</li>
+<li>EU DMA caveat: if the installed standalone web app path is unavailable or <code>PushManager</code> is absent, browser push is unsupported on that device.</li>
+</ul>
+<h2>Troubleshooting</h2>
+<p>No notification:</p>
+<ul>
+<li>Confirm the app was launched from the Home Screen, not a Safari tab.</li>
+<li>Confirm notification permission is granted in iOS Settings.</li>
+<li>Open the app once after reboot to refresh the subscription.</li>
+<li>Check <code>GET /push/vapid-public-key</code> returns <code>{&#34;key&#34;:&#34;...&#34;}</code>.</li>
+<li>Check <code>POST /push/subscribe</code> returns <code>204</code>.</li>
+<li>Check daemon logs for Web Push send errors.</li>
+<li>If logs show <code>410 Gone</code>, the subscription was deleted; reopen the installed app and tap <code>PUSH</code>.</li>
+</ul>
+<p>Permission prompt never appears:</p>
+<ul>
+<li>Confirm the <code>PUSH</code> button was tapped in the installed app.</li>
+<li>Confirm <code>window.matchMedia(&#34;(display-mode: standalone)&#34;).matches</code> is true.</li>
+<li>Confirm <code>PushManager</code> exists in the app context.</li>
+</ul>
+<p>Service worker missing:</p>
+<ul>
+<li>Confirm <code>/sw.js</code> is served over HTTPS with no redirect.</li>
+<li>Confirm the trusted local CA profile is installed and fully trusted on iPhone.</li>
+</ul>
+</main>
+  </div>
+  <footer class="site-footer"><a href="index.html">Onibi documentation</a><a href="https://github.com/gongahkia/onibi">GitHub</a></footer>
+</body>
+</html>

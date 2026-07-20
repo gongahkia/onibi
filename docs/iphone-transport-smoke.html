@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="iPhone transport smoke runner documentation for Onibi, a single-user local coding-agent host.">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/site.css">
+  <title>iPhone transport smoke runner · Onibi</title>
+</head>
+<body>
+  <a class="skip-link" href="#content">Skip to content</a>
+  <header class="site-header"><div class="site-header-inner"><a class="brand" href="index.html">Onibi <span>docs</span></a><nav class="top-nav" aria-label="Primary"><a href="getting-started.html">Getting Started</a><a href="security.html">Security</a><a href="transports.html">Transports</a><a href="web-push.html">Web Push</a><a href="https://github.com/gongahkia/onibi">GitHub</a></nav></div></header>
+  <div class="docs-shell">
+    <aside class="docs-sidebar"><p class="sidebar-label">Documentation</p><nav aria-label="All documentation"><a href="architecture.html">Architecture</a><a href="branding.html">Branding</a><a href="adapter-contract.html">Certified adapter contract</a><a href="cloudflare-quick-setup.html">Cloudflare Quick Setup</a><a href="adapters-registry.html">Community Adapter Registry</a><a href="fresh-machine-smoke.html">Fresh Machine Smoke</a><a href="getting-started.html">Getting Started</a><a href="tap-integrity.html">Homebrew Tap Integrity</a><a href="blog/2026-e2e-frame-protocol.html">How Onibi&#39;s E2E Frame Protocol Works</a><a href="install.html">Installer Publication</a><a href="linux-beta.html">Linux Beta Matrix</a><a href="SPEC-adapters.html">Onibi Adapter Manifest Spec</a><a href="SPEC-e2e.html">Onibi E2E Relay Protocol v1</a><a href="pwa-install.html">PWA Install</a><a href="comparison.html">Positioning</a><a href="roadmap.html">Product Scope</a><a href="release.html">Release</a><a href="security.html">Security</a><a href="snapshots.html">Snapshots</a><a href="terminal-fidelity.html">Terminal Fidelity Smoke Matrix</a><a href="transport-smoke.html">Transport Smoke</a><a href="transports.html">Transports</a><a href="troubleshooting.html">Troubleshooting</a><a href="web-push.html">Web Push</a><a href="ws-events-protocol.html">WebSocket events protocol</a><a href="wireguard-setup.html">WireGuard Setup</a><a href="zerotier-setup.html">ZeroTier Setup</a><a href="ios-cert-install.html">iOS Local Certificate Trust</a><a href="iphone-transport-smoke.html" aria-current="page">iPhone transport smoke runner</a><a href="ngrok-setup.html">ngrok Setup</a></nav></aside>
+    <main id="content" class="prose"><div class="article-meta"><a href="index.html">Documentation</a><span>/</span><a href="iphone-transport-smoke.md">Markdown source</a></div><h1>iPhone transport smoke runner</h1>
+<p><code>scripts/iphone-transport-smoke.sh</code> records a physical-device transport run without writing pair tokens, owner cookies, approval payloads, or terminal content to the artifact. It does not start Onibi or handle credentials.</p>
+<p>Start Onibi with the transport under test, copy the owner pairing URL, then run:</p>
+<pre><code class="language-bash">scripts/iphone-transport-smoke.sh \
+  --transport=lan \
+  --pair-url=&#39;https://192.168.1.42:8443/pair/&lt;token&gt;&#39; \
+  --out=/tmp/onibi-iphone-smoke
+</code></pre>
+<p>The runner first executes <code>go test -race ./internal/e2e ./internal/web</code>, then records <code>pass</code>, <code>fail</code>, or <code>skip</code> for setup/health, pairing, approval, intervention, reconnect, teardown, and failure diagnostics. It exits non-zero unless every check passes. Use <code>--record &lt;check=status&gt;</code> for an operator-driven non-interactive run and <code>--allow-skip</code> only when collecting incomplete rehearsal evidence.</p>
+<p>Each artifact is mode <code>0600</code> and contains the transport, origin only, timestamps, local-verification result, completion state, and checkpoint statuses. It never stores the pairing path or fragment.</p>
+<p>Physical-device evidence remains required before claiming iPhone transport certification. Attach the generated JSON and any separately reviewed screenshots to the corresponding issue.</p>
+</main>
+  </div>
+  <footer class="site-footer"><a href="index.html">Onibi documentation</a><a href="https://github.com/gongahkia/onibi">GitHub</a></footer>
+</body>
+</html>

@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Architecture documentation for Onibi, a single-user local coding-agent host.">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/site.css">
+  <title>Architecture · Onibi</title>
+</head>
+<body>
+  <a class="skip-link" href="#content">Skip to content</a>
+  <header class="site-header"><div class="site-header-inner"><a class="brand" href="index.html">Onibi <span>docs</span></a><nav class="top-nav" aria-label="Primary"><a href="getting-started.html">Getting Started</a><a href="security.html">Security</a><a href="transports.html">Transports</a><a href="web-push.html">Web Push</a><a href="https://github.com/gongahkia/onibi">GitHub</a></nav></div></header>
+  <div class="docs-shell">
+    <aside class="docs-sidebar"><p class="sidebar-label">Documentation</p><nav aria-label="All documentation"><a href="architecture.html" aria-current="page">Architecture</a><a href="branding.html">Branding</a><a href="adapter-contract.html">Certified adapter contract</a><a href="cloudflare-quick-setup.html">Cloudflare Quick Setup</a><a href="adapters-registry.html">Community Adapter Registry</a><a href="fresh-machine-smoke.html">Fresh Machine Smoke</a><a href="getting-started.html">Getting Started</a><a href="tap-integrity.html">Homebrew Tap Integrity</a><a href="blog/2026-e2e-frame-protocol.html">How Onibi&#39;s E2E Frame Protocol Works</a><a href="install.html">Installer Publication</a><a href="linux-beta.html">Linux Beta Matrix</a><a href="SPEC-adapters.html">Onibi Adapter Manifest Spec</a><a href="SPEC-e2e.html">Onibi E2E Relay Protocol v1</a><a href="pwa-install.html">PWA Install</a><a href="comparison.html">Positioning</a><a href="roadmap.html">Product Scope</a><a href="release.html">Release</a><a href="security.html">Security</a><a href="snapshots.html">Snapshots</a><a href="terminal-fidelity.html">Terminal Fidelity Smoke Matrix</a><a href="transport-smoke.html">Transport Smoke</a><a href="transports.html">Transports</a><a href="troubleshooting.html">Troubleshooting</a><a href="web-push.html">Web Push</a><a href="ws-events-protocol.html">WebSocket events protocol</a><a href="wireguard-setup.html">WireGuard Setup</a><a href="zerotier-setup.html">ZeroTier Setup</a><a href="ios-cert-install.html">iOS Local Certificate Trust</a><a href="iphone-transport-smoke.html">iPhone transport smoke runner</a><a href="ngrok-setup.html">ngrok Setup</a></nav></aside>
+    <main id="content" class="prose"><div class="article-meta"><a href="index.html">Documentation</a><span>/</span><a href="architecture.md">Markdown source</a></div><h1>Architecture</h1>
+<p>Onibi is a local coding-agent host with a phone web cockpit. It hosts shells and agents under PTYs, serves a local HTTPS/WebSocket UI, accepts hook events on a same-UID Unix socket, and stores durable state in SQLite.</p>
+<h2>Component Map</h2>
+<pre><code class="language-text">phone browser
+  | HTTPS /pair, /, /session-info
+  | WebSocket /ws/pty, /ws/events
+  | POST /approval, /control
+  v
+internal/web
+  | terminal I/O, handover, control signals
+  v
+managed tmux session
+  |
+  v
+shell / claude / codex / other agent
+
+agent hook
+  |
+  v
+onibi-notify
+  | JSON over same-UID Unix socket
+  v
+internal/intake
+  |
+  v
+internal/approval queue
+  |
+  v
+/ws/events approval card on phone
+</code></pre>
+<h2>Invariants</h2>
+<ul>
+<li>Pair tokens are single-use and short-lived.</li>
+<li>The owner browser gets an HttpOnly Secure cookie after pairing.</li>
+<li>WebSocket upgrades require the owner cookie plus the current session token.</li>
+<li>Hook socket peers must have the same OS UID as the daemon.</li>
+<li>Approval requests block at the tool boundary until a decision, timeout, or provider-specific hook failure.</li>
+<li>Same-user local compromise is out of scope.</li>
+</ul>
+<h2>Pairing And Web</h2>
+<p><code>onibi up</code> starts the local web server, mints a pair token, prints the pair URL, and renders a QR code.</p>
+<p>The pair route sets the owner cookie and redirects to <code>/</code>. The frontend then opens:</p>
+<ul>
+<li><code>/ws/pty</code> for terminal bytes.</li>
+<li><code>/ws/events</code> for approval cards and event notifications.</li>
+</ul>
+<p>iOS requires the printed Onibi local CA profile to be installed and fully trusted before Safari accepts the local HTTPS certificate.</p>
+<h2>Session, PTY, And Handover</h2>
+<p><code>onibi up</code> creates one managed tmux-backed session. The spawned shell receives:</p>
+<pre><code class="language-bash">ONIBI_SOCK=/path/to/onibi.sock
+ONIBI_SESSION_ID=&lt;managed-session-id&gt;
+</code></pre>
+<p>The phone view is a web PTY attach client for that tmux session. <code>MAC</code> closes the web attach client and opens the same tmux session in Ghostty on macOS. <code>PHONE</code> detaches visible tmux clients and creates a fresh web attach client for Safari.</p>
+<p>Soft keys send normal terminal escape sequences or control actions:</p>
+<div class="table-wrap"><table><thead><tr><th>control</th><th>behavior</th></tr></thead><tbody><tr><td><code>MAC</code></td><td>opens the current managed tmux session in Ghostty on macOS</td></tr><tr><td><code>PHONE</code></td><td>returns the current managed tmux session to the phone web PTY</td></tr><tr><td><code>ESC</code></td><td>writes byte <code>0x1b</code></td></tr><tr><td><code>UP</code></td><td>writes <code>\x1b[A</code></td></tr><tr><td><code>DN</code></td><td>writes <code>\x1b[B</code></td></tr><tr><td><code>INT</code></td><td>writes Ctrl-C (<code>0x03</code>) to the session, letting the TTY interrupt the foreground job</td></tr><tr><td><code>KILL</code></td><td>terminates the hosted process</td></tr></tbody></table></div>
+<h2>Approval Flow</h2>
+<ol start="1">
+<li>A provider hook calls <code>onibi-notify</code> with an approval request.</li>
+<li><code>onibi-notify</code> sends JSON to the intake socket.</li>
+<li>The approval queue stores a pending request and wakes <code>/ws/events</code>.</li>
+<li>The phone renders <code>Approve</code>, <code>Deny</code>, and <code>Edit</code>.</li>
+<li>The phone posts the decision to <code>/approval/&lt;id&gt;</code>.</li>
+<li>The queue unblocks the waiting hook.</li>
+<li>The provider receives approved, denied, or edited tool input.</li>
+</ol>
+<p>Approval event subscribers are capped by <code>daemon.max_subscribers</code> (default <code>32</code>); slow subscribers still drop their oldest queued events instead of backpressuring decisions.</p>
+<p>Approval states:</p>
+<pre><code class="language-text">pending -&gt; approved
+pending -&gt; denied
+pending -&gt; edited
+pending -&gt; expired
+pending -&gt; cancelled
+</code></pre>
+<h2>Storage</h2>
+<p>SQLite path:</p>
+<pre><code class="language-text">&lt;state-dir&gt;/onibi.sqlite
+</code></pre>
+<p>The DB uses WAL, foreign keys, and one open connection. File permissions are forced to <code>0600</code>.</p>
+<p>Main durable state:</p>
+<div class="table-wrap"><table><thead><tr><th>data</th><th>purpose</th></tr></thead><tbody><tr><td>pairing tokens</td><td>one-time web pairing</td></tr><tr><td>approvals</td><td>tool decision state</td></tr><tr><td>audit</td><td>decisions, prompts, sessions, risk events</td></tr><tr><td>hooks</td><td>installed hook path, hash, version</td></tr><tr><td>sessions</td><td>active and ended PTY/tmux sessions</td></tr><tr><td>kv</td><td>config and transient values</td></tr></tbody></table></div>
+<h2>Legacy Code</h2>
+<p>No v2 Telegram MiniApp/webapp transport code remains. Current user flows use the LAN web cockpit described here; generated frontend bundles may still contain unrelated third-party syntax aliases.</p>
+</main>
+  </div>
+  <footer class="site-footer"><a href="index.html">Onibi documentation</a><a href="https://github.com/gongahkia/onibi">GitHub</a></footer>
+</body>
+</html>

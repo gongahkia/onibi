@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Snapshots documentation for Onibi, a single-user local coding-agent host.">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/site.css">
+  <title>Snapshots · Onibi</title>
+</head>
+<body>
+  <a class="skip-link" href="#content">Skip to content</a>
+  <header class="site-header"><div class="site-header-inner"><a class="brand" href="index.html">Onibi <span>docs</span></a><nav class="top-nav" aria-label="Primary"><a href="getting-started.html">Getting Started</a><a href="security.html">Security</a><a href="transports.html">Transports</a><a href="web-push.html">Web Push</a><a href="https://github.com/gongahkia/onibi">GitHub</a></nav></div></header>
+  <div class="docs-shell">
+    <aside class="docs-sidebar"><p class="sidebar-label">Documentation</p><nav aria-label="All documentation"><a href="architecture.html">Architecture</a><a href="branding.html">Branding</a><a href="adapter-contract.html">Certified adapter contract</a><a href="cloudflare-quick-setup.html">Cloudflare Quick Setup</a><a href="adapters-registry.html">Community Adapter Registry</a><a href="fresh-machine-smoke.html">Fresh Machine Smoke</a><a href="getting-started.html">Getting Started</a><a href="tap-integrity.html">Homebrew Tap Integrity</a><a href="blog/2026-e2e-frame-protocol.html">How Onibi&#39;s E2E Frame Protocol Works</a><a href="install.html">Installer Publication</a><a href="linux-beta.html">Linux Beta Matrix</a><a href="SPEC-adapters.html">Onibi Adapter Manifest Spec</a><a href="SPEC-e2e.html">Onibi E2E Relay Protocol v1</a><a href="pwa-install.html">PWA Install</a><a href="comparison.html">Positioning</a><a href="roadmap.html">Product Scope</a><a href="release.html">Release</a><a href="security.html">Security</a><a href="snapshots.html" aria-current="page">Snapshots</a><a href="terminal-fidelity.html">Terminal Fidelity Smoke Matrix</a><a href="transport-smoke.html">Transport Smoke</a><a href="transports.html">Transports</a><a href="troubleshooting.html">Troubleshooting</a><a href="web-push.html">Web Push</a><a href="ws-events-protocol.html">WebSocket events protocol</a><a href="wireguard-setup.html">WireGuard Setup</a><a href="zerotier-setup.html">ZeroTier Setup</a><a href="ios-cert-install.html">iOS Local Certificate Trust</a><a href="iphone-transport-smoke.html">iPhone transport smoke runner</a><a href="ngrok-setup.html">ngrok Setup</a></nav></aside>
+    <main id="content" class="prose"><div class="article-meta"><a href="index.html">Documentation</a><span>/</span><a href="snapshots.md">Markdown source</a></div><h1>Snapshots</h1>
+<p>Snapshots save enough session state to reopen a useful working context later. They are not VM checkpoints.</p>
+<h2>CLI</h2>
+<pre><code class="language-bash">onibi snapshot &lt;session&gt; &lt;name&gt;
+onibi snapshots list
+onibi restore &lt;name&gt;
+onibi fork &lt;name&gt; @turn-N &#34;new prompt&#34;
+onibi snapshots delete &lt;name&gt;
+</code></pre>
+<p>The phone cockpit has the same core flow: open <code>SNAP</code>, tap a snapshot to restore it in the current browser tab, or long-press a row to fork from a transcript turn.</p>
+<h2>Stored State</h2>
+<p>A snapshot stores:</p>
+<div class="table-wrap"><table><thead><tr><th>field</th><th>behavior</th></tr></thead><tbody><tr><td>PTY replay</td><td>Last captured terminal bytes, used to hydrate the visible pane.</td></tr><tr><td>cwd</td><td>Captured from the child process when possible, with session cwd fallback.</td></tr><tr><td>env</td><td>Captured from the child process when possible; restore drops <code>SSH_*</code> and <code>ONIBI_TOKEN_*</code>.</td></tr><tr><td>command</td><td>The original command is re-run through the user&#39;s shell.</td></tr><tr><td>Claude transcript offset</td><td>Current JSONL file size when the snapshot is taken.</td></tr></tbody></table></div>
+<p>Snapshot rows are stored in SQLite with encrypted PTY replay, cwd, and env fields.</p>
+<h2>Restore Model</h2>
+<p>Restore starts a new PTY in the captured cwd and runs the captured command again. It seeds the PTY replay buffer so the phone has visual context immediately.</p>
+<p>This means restore is best-effort:</p>
+<div class="table-wrap"><table><thead><tr><th>app/workload</th><th>expected restore result</th></tr></thead><tbody><tr><td>shell prompt</td><td>New shell in the captured cwd with restored env where available. In-memory shell state is gone.</td></tr><tr><td><code>vim</code> / <code>nvim</code></td><td>Reopens through the captured command. Swap/session files may recover editor state; unsaved memory-only edits are not a checkpoint.</td></tr><tr><td><code>tmux attach</code></td><td>Reattaches if the tmux session still exists. If tmux is gone, restore fails or starts whatever the command does now.</td></tr><tr><td>Claude Code</td><td>Starts from the captured command and points env at the known transcript path/offset.</td></tr><tr><td><code>curl</code>, <code>ssh</code>, long-running network jobs</td><td>New process. Socket state, remote session state, and partial transfers are not resumed.</td></tr><tr><td><code>npm install</code>, build jobs</td><td>New process. Existing files/cache may make rerun continue or no-op, but Onibi does not resume the old process.</td></tr><tr><td>REPLs (<code>python</code>, <code>node</code>, etc.)</td><td>New REPL. In-memory variables are lost.</td></tr></tbody></table></div>
+<h2>Fork Model</h2>
+<p>Fork is transcript-first. For Claude Code snapshots with a located JSONL transcript, Onibi truncates the transcript to <code>@turn-N</code>, appends a new user prompt, updates the transcript offset, then restores the session command.</p>
+<p>This is the reliable branching path because the fork source is durable text, not live process memory.</p>
+<p>Rules:</p>
+<ul>
+<li><code>@turn-N</code> is zero-based against non-empty JSONL lines.</li>
+<li>If <code>N</code> is past the end, Onibi appends the new prompt after the existing transcript.</li>
+<li>Empty prompts are rejected.</li>
+<li>Snapshots without a located transcript cannot fork.</li>
+</ul>
+<h2>Limits</h2>
+<ul>
+<li>Snapshots do not preserve process memory, file descriptors, sockets, process ids, job control, or kernel state.</li>
+<li>Restore may rerun side-effecting commands. Prefer snapshot names near a stable prompt, not mid-command.</li>
+<li>Environment capture is platform-dependent. Missing env falls back to the daemon process env on restore.</li>
+<li>PTY replay is visual context only. It does not imply the restored process is at the same prompt.</li>
+<li>Delete by name removes all snapshots with that name.</li>
+</ul>
+<h2>Practical Pattern</h2>
+<p>Use snapshots before risky edits or before asking an agent to explore a branch:</p>
+<pre><code class="language-bash">onibi snapshot &lt;session&gt; before-refactor
+onibi fork before-refactor @turn-12 &#34;try the smaller parser design&#34;
+</code></pre>
+<p>Use restore when you want the same cwd/command/terminal context back. Use fork when you want a Claude transcript branch.</p>
+</main>
+  </div>
+  <footer class="site-footer"><a href="index.html">Onibi documentation</a><a href="https://github.com/gongahkia/onibi">GitHub</a></footer>
+</body>
+</html>

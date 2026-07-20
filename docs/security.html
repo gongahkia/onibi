@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Security documentation for Onibi, a single-user local coding-agent host.">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/site.css">
+  <title>Security · Onibi</title>
+</head>
+<body>
+  <a class="skip-link" href="#content">Skip to content</a>
+  <header class="site-header"><div class="site-header-inner"><a class="brand" href="index.html">Onibi <span>docs</span></a><nav class="top-nav" aria-label="Primary"><a href="getting-started.html">Getting Started</a><a href="security.html" aria-current="page">Security</a><a href="transports.html">Transports</a><a href="web-push.html">Web Push</a><a href="https://github.com/gongahkia/onibi">GitHub</a></nav></div></header>
+  <div class="docs-shell">
+    <aside class="docs-sidebar"><p class="sidebar-label">Documentation</p><nav aria-label="All documentation"><a href="architecture.html">Architecture</a><a href="branding.html">Branding</a><a href="adapter-contract.html">Certified adapter contract</a><a href="cloudflare-quick-setup.html">Cloudflare Quick Setup</a><a href="adapters-registry.html">Community Adapter Registry</a><a href="fresh-machine-smoke.html">Fresh Machine Smoke</a><a href="getting-started.html">Getting Started</a><a href="tap-integrity.html">Homebrew Tap Integrity</a><a href="blog/2026-e2e-frame-protocol.html">How Onibi&#39;s E2E Frame Protocol Works</a><a href="install.html">Installer Publication</a><a href="linux-beta.html">Linux Beta Matrix</a><a href="SPEC-adapters.html">Onibi Adapter Manifest Spec</a><a href="SPEC-e2e.html">Onibi E2E Relay Protocol v1</a><a href="pwa-install.html">PWA Install</a><a href="comparison.html">Positioning</a><a href="roadmap.html">Product Scope</a><a href="release.html">Release</a><a href="security.html" aria-current="page">Security</a><a href="snapshots.html">Snapshots</a><a href="terminal-fidelity.html">Terminal Fidelity Smoke Matrix</a><a href="transport-smoke.html">Transport Smoke</a><a href="transports.html">Transports</a><a href="troubleshooting.html">Troubleshooting</a><a href="web-push.html">Web Push</a><a href="ws-events-protocol.html">WebSocket events protocol</a><a href="wireguard-setup.html">WireGuard Setup</a><a href="zerotier-setup.html">ZeroTier Setup</a><a href="ios-cert-install.html">iOS Local Certificate Trust</a><a href="iphone-transport-smoke.html">iPhone transport smoke runner</a><a href="ngrok-setup.html">ngrok Setup</a></nav></aside>
+    <main id="content" class="prose"><div class="article-meta"><a href="index.html">Documentation</a><span>/</span><a href="security.md">Markdown source</a></div><h1>Security</h1>
+<p>See the top-level <a href="../THREAT-MODEL.md"><code>THREAT-MODEL.md</code></a> for the visible summary. This document keeps extended implementation detail.</p>
+<p>Onibi gives a paired phone browser control over local coding-agent sessions. Treat it like remote terminal access to your user account.</p>
+<h2>Threat Model</h2>
+<div class="table-wrap"><table><thead><tr><th>#</th><th>adversary</th><th>capability</th><th>mitigation</th></tr></thead><tbody><tr><td>T1</td><td>local network attacker</td><td>probes the web server or tries to steal a pair URL</td><td>HTTPS, short-lived single-use pair tokens, owner cookie, WebSocket token checks</td></tr><tr><td>T2</td><td>untrusted Wi-Fi</td><td>blocks or interferes with device-to-device traffic</td><td>hotspot fallback, local-only server, QR regenerated per run</td></tr><tr><td>T3</td><td>stolen paired phone</td><td>can use an active owner browser session</td><td>stop <code>onibi up</code>, clear browser data, rotate local state if needed</td></tr><tr><td>T4</td><td>same-user local malware</td><td>can read files, socket, hooks, and agent output</td><td>out of scope; hook hashes and doctor checks are detection only</td></tr><tr><td>T5</td><td>hook tampering</td><td>redirects approval data or bypasses Onibi</td><td>hook hashes, <code>hooks --show</code>, provider trust review</td></tr><tr><td>T6</td><td>stale approval replay</td><td>repeats an old decision</td><td>terminal approval states are final and idempotent</td></tr><tr><td>T7</td><td>edited JSON abuse</td><td>changes tool inputs before approval</td><td>JSON validation, provider schemas where available, audit records</td></tr><tr><td>T8</td><td>Unix socket impersonation</td><td>injects fake local events</td><td>state dir/socket perms plus peer UID checks</td></tr><tr><td>T9</td><td>local CA misuse</td><td>user trusts the wrong certificate profile</td><td>profile is generated locally; install only the path printed by <code>onibi up</code></td></tr></tbody></table></div>
+<h2>Enforcements</h2>
+<ul>
+<li>Pairing tokens are TTL-bound and single-use.</li>
+<li>Owner identity is stored in an HttpOnly Secure cookie.</li>
+<li>Pairing tokens and web owner-cookie rows are encrypted at rest in SQLite with AES-GCM and row-scoped authenticated data.</li>
+<li>The SQLite encryption master key is stored in the OS credential backend where available, with a 0600 fallback file for hosts without Keychain or Secret Service.</li>
+<li>WebSocket connections require cookie auth and token auth.</li>
+<li>Approval decisions update pending rows atomically.</li>
+<li>Edited approval input must be valid JSON.</li>
+<li>Hook installers record SHA-256 hashes.</li>
+<li><code>onibi doctor</code> reports hook drift and state permission problems.</li>
+<li><code>onibi doctor</code> verifies the encrypted store key is present and can decrypt existing encrypted SQLite rows.</li>
+<li><code>/control</code> actions operate on the hosted PTY process, not arbitrary system processes.</li>
+</ul>
+<h2>At-Rest State</h2>
+<blockquote><p><strong>Linux fallback warning:</strong> On Linux hosts without an active Secret Service daemon, such as minimal containers or headless servers without <code>gnome-keyring</code> or KWallet, Onibi&#39;s SQLite master key is stored as a base64 string in <code>&lt;config-dir&gt;/onibi/store.key</code> with 0600 permissions. This file is <strong>not encrypted at rest</strong>. A stolen powered-off disk exposes the key. Prefer running Onibi on hosts with an active credential store.</p></blockquote>
+<p>Onibi encrypts local SQLite values that are useful for pairing or browser takeover: pair tokens, owner-cookie material, and user-agent/device labels. Lookup uses non-secret SHA-256 indexes over high-entropy random tokens, while the original values are sealed through <code>internal/store.CryptBox</code> with per-row AAD (<code>table</code>, row id, column). Audit rows keep payload hashes instead of raw approval payloads.</p>
+<p>The master key is <code>onibi.store.key.v1</code>. On macOS it is stored through the native Keychain backend provided by <code>99designs/keyring</code>; on Linux it uses Secret Service when available; otherwise Onibi stores a base64 key in <code>&lt;config-dir&gt;/onibi/store.key</code> with 0600 permissions. <code>onibi store rekey</code> rotates this key, re-seals encrypted rows, and revokes every web session with reason <code>store-rekey</code>. Active WebSocket sessions poll session validity and close with <code>store-rekey</code> after the next check instead of keeping old in-memory session stream keys alive. Run <code>onibi store rekey --dry-run</code> to see active web sessions, web session rows, and pairing token rows affected before rotating.</p>
+<p>This is defense in depth, not protection from a fully compromised user account. A stolen powered-off laptop should not expose those encrypted SQLite values without the OS credential store or fallback key file. A stolen unlocked laptop, same-user malware, a debugger, swap, crash dumps, shell history, terminal scrollback, and the Onibi process memory while running can still leak live session data or decrypted values.</p>
+<p>Keychain caveat: the <code>zalando/go-keyring</code> issue tracker documents macOS concerns around implementations that shell out to the <code>security</code> CLI, including issue #110. Onibi currently uses <code>99designs/keyring</code>&#39;s native Keychain backend instead, but users should still treat the OS account boundary as the real trust boundary and should keep the Onibi binary signed/notarized for distribution builds.</p>
+<h2>Non-Defenses</h2>
+<ul>
+<li>Same-user local compromise. If your OS user account is owned, Onibi is owned.</li>
+<li>A stolen unlocked phone with an active paired browser session.</li>
+<li>Malicious coding agents or provider-side model behavior.</li>
+<li>Malicious commands you approve.</li>
+<li>Apple notarization, GitHub release, package registry, or Homebrew compromise.</li>
+</ul>
+<h2>Setup Checklist</h2>
+<ul>
+<li>[ ] Install only the <code>onibi-local-ca.mobileconfig</code> printed by your own <code>onibi up</code>.</li>
+<li>[ ] Enable full trust for that CA only when you intend to use the phone cockpit.</li>
+<li>[ ] Use iPhone hotspot when managed Wi-Fi blocks local peer traffic.</li>
+<li>[ ] Verify hook commands with <code>./bin/onibi hooks --show --agent claude</code>.</li>
+<li>[ ] Review Claude <code>/hooks</code> before trusting Onibi hooks.</li>
+<li>[ ] Keep state dir permissions restricted.</li>
+<li>[ ] Stop <code>onibi up</code> when you are done.</li>
+</ul>
+<h2>Reporting</h2>
+<p>Report vulnerabilities privately through GitHub Security Advisories for this repository. Do not open a public issue for a live exploit.</p>
+</main>
+  </div>
+  <footer class="site-footer"><a href="index.html">Onibi documentation</a><a href="https://github.com/gongahkia/onibi">GitHub</a></footer>
+</body>
+</html>

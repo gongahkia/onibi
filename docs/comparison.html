@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Positioning documentation for Onibi, a single-user local coding-agent host.">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/site.css">
+  <title>Positioning · Onibi</title>
+</head>
+<body>
+  <a class="skip-link" href="#content">Skip to content</a>
+  <header class="site-header"><div class="site-header-inner"><a class="brand" href="index.html">Onibi <span>docs</span></a><nav class="top-nav" aria-label="Primary"><a href="getting-started.html">Getting Started</a><a href="security.html">Security</a><a href="transports.html">Transports</a><a href="web-push.html">Web Push</a><a href="https://github.com/gongahkia/onibi">GitHub</a></nav></div></header>
+  <div class="docs-shell">
+    <aside class="docs-sidebar"><p class="sidebar-label">Documentation</p><nav aria-label="All documentation"><a href="architecture.html">Architecture</a><a href="branding.html">Branding</a><a href="adapter-contract.html">Certified adapter contract</a><a href="cloudflare-quick-setup.html">Cloudflare Quick Setup</a><a href="adapters-registry.html">Community Adapter Registry</a><a href="fresh-machine-smoke.html">Fresh Machine Smoke</a><a href="getting-started.html">Getting Started</a><a href="tap-integrity.html">Homebrew Tap Integrity</a><a href="blog/2026-e2e-frame-protocol.html">How Onibi&#39;s E2E Frame Protocol Works</a><a href="install.html">Installer Publication</a><a href="linux-beta.html">Linux Beta Matrix</a><a href="SPEC-adapters.html">Onibi Adapter Manifest Spec</a><a href="SPEC-e2e.html">Onibi E2E Relay Protocol v1</a><a href="pwa-install.html">PWA Install</a><a href="comparison.html" aria-current="page">Positioning</a><a href="roadmap.html">Product Scope</a><a href="release.html">Release</a><a href="security.html">Security</a><a href="snapshots.html">Snapshots</a><a href="terminal-fidelity.html">Terminal Fidelity Smoke Matrix</a><a href="transport-smoke.html">Transport Smoke</a><a href="transports.html">Transports</a><a href="troubleshooting.html">Troubleshooting</a><a href="web-push.html">Web Push</a><a href="ws-events-protocol.html">WebSocket events protocol</a><a href="wireguard-setup.html">WireGuard Setup</a><a href="zerotier-setup.html">ZeroTier Setup</a><a href="ios-cert-install.html">iOS Local Certificate Trust</a><a href="iphone-transport-smoke.html">iPhone transport smoke runner</a><a href="ngrok-setup.html">ngrok Setup</a></nav></aside>
+    <main id="content" class="prose"><div class="article-meta"><a href="index.html">Documentation</a><span>/</span><a href="comparison.md">Markdown source</a></div><h1>Positioning</h1>
+<p>Onibi is a personal, self-hosted remote cockpit for local managed terminal sessions. It pairs a phone PWA to the user&#39;s host, keeps the session local, and routes explicit owner approve, deny, and edit decisions through the approval queue.</p>
+<p>On macOS, Ghostty is the supported automatic desktop handover target. Onibi does not emulate, visually match, control, or affiliate with Ghostty.</p>
+<h2>When Onibi Fits</h2>
+<ul>
+<li>You want a local tmux-backed session with a paired browser cockpit.</li>
+<li>You need explicit owner approval decisions while working with a supported agent adapter.</li>
+<li>You want PWA or Telegram control around the same local session.</li>
+<li>You prefer a local web cockpit rather than a vendor-hosted control plane.</li>
+</ul>
+<p>Supported adapters and transport boundaries are documented in <a href="adapter-contract.html">the adapter contract</a> and <a href="transports.html">transport guide</a>. Capability depends on the selected adapter and transport.</p>
+<h2>Alternatives</h2>
+<p>For a vendor-native remote workflow, use that vendor&#39;s first-party documentation: <a href="https://learn.chatgpt.com/docs/remote-connections">OpenAI Codex remote connections</a> or <a href="https://code.claude.com/docs/en/remote-control">Claude Code Remote Control</a>.</p>
+<p>Choose a terminal multiplexer or remote-terminal tool when its session model is the product you need. Onibi does not maintain competitor feature matrices, pricing comparisons, or parity claims.</p>
+</main>
+  </div>
+  <footer class="site-footer"><a href="index.html">Onibi documentation</a><a href="https://github.com/gongahkia/onibi">GitHub</a></footer>
+</body>
+</html>

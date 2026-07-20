@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="PWA Install documentation for Onibi, a single-user local coding-agent host.">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/site.css">
+  <title>PWA Install · Onibi</title>
+</head>
+<body>
+  <a class="skip-link" href="#content">Skip to content</a>
+  <header class="site-header"><div class="site-header-inner"><a class="brand" href="index.html">Onibi <span>docs</span></a><nav class="top-nav" aria-label="Primary"><a href="getting-started.html">Getting Started</a><a href="security.html">Security</a><a href="transports.html">Transports</a><a href="web-push.html">Web Push</a><a href="https://github.com/gongahkia/onibi">GitHub</a></nav></div></header>
+  <div class="docs-shell">
+    <aside class="docs-sidebar"><p class="sidebar-label">Documentation</p><nav aria-label="All documentation"><a href="architecture.html">Architecture</a><a href="branding.html">Branding</a><a href="adapter-contract.html">Certified adapter contract</a><a href="cloudflare-quick-setup.html">Cloudflare Quick Setup</a><a href="adapters-registry.html">Community Adapter Registry</a><a href="fresh-machine-smoke.html">Fresh Machine Smoke</a><a href="getting-started.html">Getting Started</a><a href="tap-integrity.html">Homebrew Tap Integrity</a><a href="blog/2026-e2e-frame-protocol.html">How Onibi&#39;s E2E Frame Protocol Works</a><a href="install.html">Installer Publication</a><a href="linux-beta.html">Linux Beta Matrix</a><a href="SPEC-adapters.html">Onibi Adapter Manifest Spec</a><a href="SPEC-e2e.html">Onibi E2E Relay Protocol v1</a><a href="pwa-install.html" aria-current="page">PWA Install</a><a href="comparison.html">Positioning</a><a href="roadmap.html">Product Scope</a><a href="release.html">Release</a><a href="security.html">Security</a><a href="snapshots.html">Snapshots</a><a href="terminal-fidelity.html">Terminal Fidelity Smoke Matrix</a><a href="transport-smoke.html">Transport Smoke</a><a href="transports.html">Transports</a><a href="troubleshooting.html">Troubleshooting</a><a href="web-push.html">Web Push</a><a href="ws-events-protocol.html">WebSocket events protocol</a><a href="wireguard-setup.html">WireGuard Setup</a><a href="zerotier-setup.html">ZeroTier Setup</a><a href="ios-cert-install.html">iOS Local Certificate Trust</a><a href="iphone-transport-smoke.html">iPhone transport smoke runner</a><a href="ngrok-setup.html">ngrok Setup</a></nav></aside>
+    <main id="content" class="prose"><div class="article-meta"><a href="index.html">Documentation</a><span>/</span><a href="pwa-install.md">Markdown source</a></div><h1>PWA Install</h1>
+<p>Onibi&#39;s phone cockpit can be installed as a Home Screen web app. This is required for iOS Web Push; Safari tabs are not enough.</p>
+<h2>Requirements</h2>
+<ul>
+<li>Open Onibi over trusted HTTPS.</li>
+<li>Pair the browser as owner before installing.</li>
+<li>Keep <code>/manifest.webmanifest</code>, <code>/sw.js</code>, and app assets on the same origin.</li>
+<li>Manifest fields must include <code>name</code>, <code>short_name</code>, <code>start_url</code>, <code>display</code>,</li>
+</ul>
+<p><code>theme_color</code>, <code>background_color</code>, 192px and 512px PNG icons, and maskable icons.</p>
+<p>Current manifest source: <code>frontend/public/manifest.webmanifest</code>.</p>
+<p>For a separately run Onibi host, open that host directly and add its own browser bookmark or Home Screen entry. The cockpit does not keep, import, or transfer a host directory; existing browser-side host registry data is ignored.</p>
+<h2>iPhone And iPad</h2>
+<ol start="1">
+<li>Run <code>onibi up</code>.</li>
+<li>Install and fully trust <code>onibi-local-ca.mobileconfig</code> if Safari warns about HTTPS.</li>
+<li>Pair from Safari.</li>
+<li>Tap Share.</li>
+<li>Tap Add to Home Screen.</li>
+<li>Confirm the name <code>Onibi</code> and the launcher icon.</li>
+<li>Launch Onibi from the Home Screen icon.</li>
+</ol>
+<p>Expected:</p>
+<ul>
+<li>The app opens without Safari browser chrome.</li>
+<li><code>window.matchMedia(&#34;(display-mode: standalone)&#34;).matches</code> is <code>true</code>.</li>
+<li>The toolbar <code>PUSH</code> button can request notification permission from a user tap.</li>
+</ul>
+<p>If Add to Home Screen is missing, confirm the page was loaded in Safari over trusted HTTPS. If the installed app opens as a normal tab, delete the icon, reopen the paired Safari page, and add it again.</p>
+<h2>Android</h2>
+<ol start="1">
+<li>Run <code>onibi up</code>.</li>
+<li>Pair from Chrome.</li>
+<li>Open the Chrome menu.</li>
+<li>Tap Add to Home screen or Install app.</li>
+<li>Confirm the name <code>Onibi</code> and the launcher icon.</li>
+<li>Launch Onibi from the installed icon.</li>
+</ol>
+<p>Expected:</p>
+<ul>
+<li>The app opens in standalone display mode.</li>
+<li>The icon uses the 512px Onibi PNG or maskable variant.</li>
+<li>The service worker is active and <code>/sw.js</code> is served with JavaScript content type.</li>
+</ul>
+<h2>Audit</h2>
+<p>Local lint:</p>
+<pre><code class="language-bash">cd frontend
+npm test -- --run src/__tests__/manifest.test.ts
+npm run build
+</code></pre>
+<p>Manual device checks:</p>
+<pre><code class="language-js">window.matchMedia(&#34;(display-mode: standalone)&#34;).matches
+</code></pre>
+<p>Lighthouse target: PWA score 90 or higher after the app is paired and launched over trusted HTTPS.</p>
+<h2>Troubleshooting</h2>
+<p>Install prompt missing:</p>
+<ul>
+<li>Confirm <code>/manifest.webmanifest</code> returns JSON from the paired origin.</li>
+<li>Confirm the manifest has <code>display: &#34;standalone&#34;</code> and 192px/512px PNG icons.</li>
+<li>Confirm HTTPS is trusted before adding to Home Screen.</li>
+</ul>
+<p>Push unavailable:</p>
+<ul>
+<li>Confirm the app was launched from the installed icon.</li>
+<li>Confirm <code>PushManager</code> exists in the installed app context.</li>
+<li>Reopen the app after iOS reboot before expecting push notifications.</li>
+</ul>
+</main>
+  </div>
+  <footer class="site-footer"><a href="index.html">Onibi documentation</a><a href="https://github.com/gongahkia/onibi">GitHub</a></footer>
+</body>
+</html>

@@ -3,33 +3,21 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <link rel="icon" href="./favicon.svg" type="image/svg+xml">
-  <title>Onibi</title>
-  <style>
-    :root{color-scheme:light dark;font-family:system-ui,-apple-system,sans-serif;color:#18202a;background:#f4f7f6}body{max-width:760px;margin:0 auto;padding:48px 24px;line-height:1.55}a{color:#126e67}code{background:#e6eeee;padding:2px 4px;border-radius:3px}nav{display:flex;gap:16px;flex-wrap:wrap}li{margin:8px 0}@media(prefers-color-scheme:dark){:root{color:#f8fafc;background:#101820}code{background:#24333d}}
-  </style>
+  <meta name="description" content="Onibi documentation: a single-user local coding-agent host with a paired phone web cockpit.">
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/site.css">
+  <title>Onibi · Documentation</title>
 </head>
 <body>
-  <nav><a href="./getting-started.md">Get started</a><a href="./transports.md">Transports</a><a href="./web-push.md">Web Push</a><a href="https://github.com/gongahkia/onibi">GitHub</a></nav>
-  <main>
-    <h1>Onibi</h1>
-    <p>Onibi is a single-user local coding-agent host with a paired phone web cockpit.</p>
-    <p>It runs a managed terminal session locally, serves it over HTTPS/WebSocket, and presents Claude Code approvals to the paired owner browser. Ghostty handover is macOS-only.</p>
-    <h2>Start</h2>
-    <pre><code>brew install gongahkia/onibi/onibi
-onibi up --transport=lan</code></pre>
-    <h2>Documentation</h2>
-    <ul>
-      <li><a href="./getting-started.md">Getting started</a></li>
-      <li><a href="./ios-cert-install.md">iOS certificate trust</a></li>
-      <li><a href="./transports.md">Local web transport paths</a></li>
-      <li><a href="./transport-smoke.md">Phone transport smoke</a></li>
-      <li><a href="./web-push.md">Web Push</a></li>
-      <li><a href="./architecture.md">Architecture</a></li>
-      <li><a href="./security.md">Security</a></li>
-      <li><a href="./roadmap.md">Product scope</a></li>
-      <li><a href="./release.md">Release verification</a></li>
-    </ul>
+  <a class="skip-link" href="#content">Skip to content</a>
+  <header class="site-header"><div class="site-header-inner"><a class="brand" href="index.html">Onibi <span>docs</span></a><nav class="top-nav" aria-label="Primary"><a href="getting-started.html">Get started</a><a href="transports.html">Transports</a><a href="web-push.html">Web Push</a><a href="https://github.com/gongahkia/onibi">GitHub</a></nav></div></header>
+  <main id="content" class="landing">
+    <section class="hero"><p class="eyebrow">Local coding-agent cockpit</p><h1>Onibi</h1><p>Onibi is a single-user local coding-agent host with a paired phone web cockpit.</p><p>It runs a managed terminal session locally, serves it over HTTPS/WebSocket, and presents Claude Code approvals to the paired owner browser. Ghostty handover is macOS-only.</p><div class="quickstart"><p>Start on a local network</p><pre><code>brew install gongahkia/onibi/onibi
+onibi up --transport=lan</code></pre></div></section>
+    <section class="doc-section"><h2>Start here</h2><div class="card-grid"><a class="doc-card" href="getting-started.html"><strong>Getting started</strong><span>From a fresh machine to a working LAN web cockpit.</span></a><a class="doc-card" href="ios-cert-install.html"><strong>iOS certificate trust</strong><span>Trust the local certificate profile on an iPhone.</span></a><a class="doc-card" href="transports.html"><strong>Transport paths</strong><span>Choose LAN, relay, tunnel, or mesh networking.</span></a></div></section>
+    <section class="doc-section"><h2>Use and operate</h2><div class="card-grid"><a class="doc-card" href="web-push.html"><strong>Web Push</strong><span>Install the PWA and configure browser notifications.</span></a><a class="doc-card" href="architecture.html"><strong>Architecture</strong><span>PTY, pairing, approvals, and local-state boundaries.</span></a><a class="doc-card" href="security.html"><strong>Security</strong><span>Threat model, enforcement, and setup checklist.</span></a><a class="doc-card" href="transport-smoke.html"><strong>Phone transport smoke</strong><span>Verify a paired device across supported transport modes.</span></a><a class="doc-card" href="troubleshooting.html"><strong>Troubleshooting</strong><span>Common setup and connection failures.</span></a><a class="doc-card" href="release.html"><strong>Release verification</strong><span>Release gate and smoke-test procedures.</span></a></div></section>
+    <section class="doc-section"><h2>All documentation</h2><ul class="catalog"><li><a href="SPEC-adapters.html">Adapter manifest spec</a></li><li><a href="SPEC-e2e.html">E2E relay protocol</a></li><li><a href="adapter-contract.html">Certified adapter contract</a></li><li><a href="adapters-registry.html">Community adapter registry</a></li><li><a href="branding.html">Branding</a></li><li><a href="cloudflare-quick-setup.html">Cloudflare Quick Setup</a></li><li><a href="comparison.html">Positioning</a></li><li><a href="fresh-machine-smoke.html">Fresh machine smoke</a></li><li><a href="install.html">Installer publication</a></li><li><a href="iphone-transport-smoke.html">iPhone transport smoke runner</a></li><li><a href="linux-beta.html">Linux beta matrix</a></li><li><a href="ngrok-setup.html">ngrok setup</a></li><li><a href="pwa-install.html">PWA install</a></li><li><a href="roadmap.html">Product scope</a></li><li><a href="snapshots.html">Snapshots</a></li><li><a href="tap-integrity.html">Homebrew tap integrity</a></li><li><a href="terminal-fidelity.html">Terminal fidelity smoke matrix</a></li><li><a href="wireguard-setup.html">WireGuard setup</a></li><li><a href="ws-events-protocol.html">WebSocket events protocol</a></li><li><a href="zerotier-setup.html">ZeroTier setup</a></li><li><a href="blog/2026-e2e-frame-protocol.html">How the E2E frame protocol works</a></li></ul></section>
   </main>
+  <footer class="site-footer"><a href="https://github.com/gongahkia/onibi">Onibi on GitHub</a></footer>
 </body>
 </html>

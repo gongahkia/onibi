@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Cloudflare Quick Setup documentation for Onibi, a single-user local coding-agent host.">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/site.css">
+  <title>Cloudflare Quick Setup · Onibi</title>
+</head>
+<body>
+  <a class="skip-link" href="#content">Skip to content</a>
+  <header class="site-header"><div class="site-header-inner"><a class="brand" href="index.html">Onibi <span>docs</span></a><nav class="top-nav" aria-label="Primary"><a href="getting-started.html">Getting Started</a><a href="security.html">Security</a><a href="transports.html">Transports</a><a href="web-push.html">Web Push</a><a href="https://github.com/gongahkia/onibi">GitHub</a></nav></div></header>
+  <div class="docs-shell">
+    <aside class="docs-sidebar"><p class="sidebar-label">Documentation</p><nav aria-label="All documentation"><a href="architecture.html">Architecture</a><a href="branding.html">Branding</a><a href="adapter-contract.html">Certified adapter contract</a><a href="cloudflare-quick-setup.html" aria-current="page">Cloudflare Quick Setup</a><a href="adapters-registry.html">Community Adapter Registry</a><a href="fresh-machine-smoke.html">Fresh Machine Smoke</a><a href="getting-started.html">Getting Started</a><a href="tap-integrity.html">Homebrew Tap Integrity</a><a href="blog/2026-e2e-frame-protocol.html">How Onibi&#39;s E2E Frame Protocol Works</a><a href="install.html">Installer Publication</a><a href="linux-beta.html">Linux Beta Matrix</a><a href="SPEC-adapters.html">Onibi Adapter Manifest Spec</a><a href="SPEC-e2e.html">Onibi E2E Relay Protocol v1</a><a href="pwa-install.html">PWA Install</a><a href="comparison.html">Positioning</a><a href="roadmap.html">Product Scope</a><a href="release.html">Release</a><a href="security.html">Security</a><a href="snapshots.html">Snapshots</a><a href="terminal-fidelity.html">Terminal Fidelity Smoke Matrix</a><a href="transport-smoke.html">Transport Smoke</a><a href="transports.html">Transports</a><a href="troubleshooting.html">Troubleshooting</a><a href="web-push.html">Web Push</a><a href="ws-events-protocol.html">WebSocket events protocol</a><a href="wireguard-setup.html">WireGuard Setup</a><a href="zerotier-setup.html">ZeroTier Setup</a><a href="ios-cert-install.html">iOS Local Certificate Trust</a><a href="iphone-transport-smoke.html">iPhone transport smoke runner</a><a href="ngrok-setup.html">ngrok Setup</a></nav></aside>
+    <main id="content" class="prose"><div class="article-meta"><a href="index.html">Documentation</a><span>/</span><a href="cloudflare-quick-setup.md">Markdown source</a></div><h1>Cloudflare Quick Setup</h1>
+<p>Cloudflare Quick is an opt-in, temporary public relay for a single-user Onibi cockpit. It is for short device tests when a private network path is unavailable, not a stable or account-managed tunnel.</p>
+<h2>Requirements</h2>
+<ul>
+<li><code>cloudflared</code> is on <code>PATH</code>, or <code>ONIBI_CLOUDFLARED_BIN</code> points to it.</li>
+<li>The local cockpit starts before the Quick Tunnel and is available at <code>https://localhost:&lt;port&gt;</code>.</li>
+<li>No <code>config.yaml</code> is present in the <code>cloudflared</code> directory used by the Quick Tunnel. Cloudflare documents this Quick Tunnel limitation at <a href="https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/trycloudflare/">https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/trycloudflare/</a>.</li>
+</ul>
+<p>Cloudflare assigns a random <code>https://*.trycloudflare.com</code> URL for the running process. It provides no uptime guarantee, has a 200 in-flight request limit, and does not support SSE.</p>
+<h2>Start</h2>
+<pre><code class="language-bash">onibi doctor --transport=cloudflare-quick
+onibi up --transport=cloudflare-quick
+</code></pre>
+<p>Onibi starts a child <code>cloudflared tunnel --url https://localhost:&lt;port&gt; --no-tls-verify</code> process, accepts only an HTTPS <code>trycloudflare.com</code> origin printed by that process, and stops when the child exits. It does not create, configure, or manage a Cloudflare account, domain, route, or token.</p>
+<h2>Upgrade</h2>
+<p><code>cloudflare-named</code> has been removed. Change <code>transport.mode</code> to <code>cloudflare-quick</code> or a private transport; Onibi rejects the old value before cockpit or tunnel startup and does not fall back. Previously configured Cloudflare API-token state is ignored and left untouched; remove it with the secret-store or environment-management tool that created it.</p>
+<h2>Relay E2E</h2>
+<p>Cloudflare Quick always requires Onibi relay E2E. The QR URL carries its <code>#k=</code> bootstrap key only in the fragment; the relay never receives that fragment. Pair verification, terminal bytes, typed input, approvals, controls, HTTP payloads, and WebSocket frames fail closed without a valid key/verifier and encrypted frame.</p>
+<p>Cloudflare can still observe the public hostname, request paths, timing, byte sizes, and connection metadata. See <a href="./SPEC-e2e.html">SPEC-e2e.md</a> for threat boundaries.</p>
+<h2>Phone smoke</h2>
+<ol start="1">
+<li>Run <code>ONIBI_LIVE_CLOUDFLARE_QUICK=1 go test ./internal/web/transport -run LiveCloudflareQuick</code>.</li>
+<li>Start <code>onibi up --transport=cloudflare-quick</code>, scan the new QR on iPhone Safari and Chrome over LTE, and verify terminal input, output, approval allow, and approval deny.</li>
+<li>Open the pair URL after removing <code>#k=</code>; it must not attach.</li>
+<li>Stop <code>cloudflared</code>; Onibi must stop on its next health check. Restart it, scan its new QR, and repeat a terminal command.</li>
+</ol>
+</main>
+  </div>
+  <footer class="site-footer"><a href="index.html">Onibi documentation</a><a href="https://github.com/gongahkia/onibi">GitHub</a></footer>
+</body>
+</html>

@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="ZeroTier Setup documentation for Onibi, a single-user local coding-agent host.">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/site.css">
+  <title>ZeroTier Setup · Onibi</title>
+</head>
+<body>
+  <a class="skip-link" href="#content">Skip to content</a>
+  <header class="site-header"><div class="site-header-inner"><a class="brand" href="index.html">Onibi <span>docs</span></a><nav class="top-nav" aria-label="Primary"><a href="getting-started.html">Getting Started</a><a href="security.html">Security</a><a href="transports.html">Transports</a><a href="web-push.html">Web Push</a><a href="https://github.com/gongahkia/onibi">GitHub</a></nav></div></header>
+  <div class="docs-shell">
+    <aside class="docs-sidebar"><p class="sidebar-label">Documentation</p><nav aria-label="All documentation"><a href="architecture.html">Architecture</a><a href="branding.html">Branding</a><a href="adapter-contract.html">Certified adapter contract</a><a href="cloudflare-quick-setup.html">Cloudflare Quick Setup</a><a href="adapters-registry.html">Community Adapter Registry</a><a href="fresh-machine-smoke.html">Fresh Machine Smoke</a><a href="getting-started.html">Getting Started</a><a href="tap-integrity.html">Homebrew Tap Integrity</a><a href="blog/2026-e2e-frame-protocol.html">How Onibi&#39;s E2E Frame Protocol Works</a><a href="install.html">Installer Publication</a><a href="linux-beta.html">Linux Beta Matrix</a><a href="SPEC-adapters.html">Onibi Adapter Manifest Spec</a><a href="SPEC-e2e.html">Onibi E2E Relay Protocol v1</a><a href="pwa-install.html">PWA Install</a><a href="comparison.html">Positioning</a><a href="roadmap.html">Product Scope</a><a href="release.html">Release</a><a href="security.html">Security</a><a href="snapshots.html">Snapshots</a><a href="terminal-fidelity.html">Terminal Fidelity Smoke Matrix</a><a href="transport-smoke.html">Transport Smoke</a><a href="transports.html">Transports</a><a href="troubleshooting.html">Troubleshooting</a><a href="web-push.html">Web Push</a><a href="ws-events-protocol.html">WebSocket events protocol</a><a href="wireguard-setup.html">WireGuard Setup</a><a href="zerotier-setup.html" aria-current="page">ZeroTier Setup</a><a href="ios-cert-install.html">iOS Local Certificate Trust</a><a href="iphone-transport-smoke.html">iPhone transport smoke runner</a><a href="ngrok-setup.html">ngrok Setup</a></nav></aside>
+    <main id="content" class="prose"><div class="article-meta"><a href="index.html">Documentation</a><span>/</span><a href="zerotier-setup.md">Markdown source</a></div><h1>ZeroTier Setup</h1>
+<p>ZeroTier mode is for users who already run a ZeroTier virtual network or want a user-controlled mesh alternative to Tailscale Private, WireGuard, Cloudflare, and ngrok.</p>
+<h2>Requirements</h2>
+<ul>
+<li>ZeroTier One is installed and running on the laptop.</li>
+<li>The phone has the ZeroTier app installed and connected to the same network.</li>
+<li>The laptop has <code>zerotier-cli</code> available on <code>PATH</code>, or <code>ONIBI_ZEROTIER_BIN</code> points at it.</li>
+<li>The laptop is authorized in a ZeroTier network and has a routed virtual IP before <code>onibi up</code> starts.</li>
+</ul>
+<p>ZeroTier&#39;s upstream start guide documents <code>zerotier-cli info</code> and <code>zerotier-cli listnetworks</code>: <a href="https://docs.zerotier.com/start/">https://docs.zerotier.com/start/</a>.</p>
+<h2>Laptop</h2>
+<p>Verify the daemon:</p>
+<pre><code class="language-bash">zerotier-cli info
+</code></pre>
+<p>The status must be <code>ONLINE</code> or <code>TUNNELED</code>; <code>TUNNELED</code> uses ZeroTier&#39;s TCP fallback.</p>
+<p>Join a network if needed:</p>
+<pre><code class="language-bash">zerotier-cli join &lt;network-id&gt;
+</code></pre>
+<p>Verify membership and authorization:</p>
+<pre><code class="language-bash">zerotier-cli listnetworks
+zerotier-cli listnetworks -j
+</code></pre>
+<p>The selected network must report status <code>OK</code> and show an assigned IP.</p>
+<p>When more than one joined network has a routable address, Onibi fails closed until you pin the one it should use:</p>
+<pre><code class="language-bash">export ONIBI_ZEROTIER_NETWORK=&lt;network-id-or-name&gt;
+</code></pre>
+<p>Start Onibi:</p>
+<pre><code class="language-bash">onibi doctor --transport=zerotier
+onibi up --transport=zerotier
+</code></pre>
+<p>Onibi binds the web listener to the selected ZeroTier IP only, includes that exact IP in the local HTTPS certificate SAN, then prints a pair URL over that IP. It does not join or leave networks, authorize members, alter controller policy, or change routes.</p>
+<h2>Phone</h2>
+<p>Install the official ZeroTier app, join the same network, authorize the phone in the ZeroTier controller, and activate the network before scanning the Onibi QR.</p>
+<p>The Onibi local HTTPS profile is still required. Install and fully trust <code>onibi-local-ca.mobileconfig</code> once, then restart <code>onibi up</code> so the generated server certificate includes the active ZeroTier IP.</p>
+<h2>Smoke</h2>
+<ol start="1">
+<li>Run <code>onibi doctor --transport=zerotier</code>.</li>
+<li>Run <code>onibi up --transport=zerotier</code>.</li>
+<li>Confirm the printed URL uses the ZeroTier IP.</li>
+<li>Open the QR from the phone while ZeroTier is active.</li>
+<li>Use the phone terminal for a shell command and a full-screen program such as <code>vim</code>.</li>
+</ol>
+<p>While <code>onibi up</code> is running, it rechecks ZeroTier membership, interface, and selected address. If any changes, Onibi stops rather than minting or retaining a stale endpoint; restore the selected network and restart <code>onibi up</code>.</p>
+<p>If pairing fails, first confirm the phone can reach the laptop ZeroTier IP with another service, and verify both devices are authorized in the ZeroTier network.</p>
+</main>
+  </div>
+  <footer class="site-footer"><a href="index.html">Onibi documentation</a><a href="https://github.com/gongahkia/onibi">GitHub</a></footer>
+</body>
+</html>

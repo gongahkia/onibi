@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="WebSocket events protocol documentation for Onibi, a single-user local coding-agent host.">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/site.css">
+  <title>WebSocket events protocol · Onibi</title>
+</head>
+<body>
+  <a class="skip-link" href="#content">Skip to content</a>
+  <header class="site-header"><div class="site-header-inner"><a class="brand" href="index.html">Onibi <span>docs</span></a><nav class="top-nav" aria-label="Primary"><a href="getting-started.html">Getting Started</a><a href="security.html">Security</a><a href="transports.html">Transports</a><a href="web-push.html">Web Push</a><a href="https://github.com/gongahkia/onibi">GitHub</a></nav></div></header>
+  <div class="docs-shell">
+    <aside class="docs-sidebar"><p class="sidebar-label">Documentation</p><nav aria-label="All documentation"><a href="architecture.html">Architecture</a><a href="branding.html">Branding</a><a href="adapter-contract.html">Certified adapter contract</a><a href="cloudflare-quick-setup.html">Cloudflare Quick Setup</a><a href="adapters-registry.html">Community Adapter Registry</a><a href="fresh-machine-smoke.html">Fresh Machine Smoke</a><a href="getting-started.html">Getting Started</a><a href="tap-integrity.html">Homebrew Tap Integrity</a><a href="blog/2026-e2e-frame-protocol.html">How Onibi&#39;s E2E Frame Protocol Works</a><a href="install.html">Installer Publication</a><a href="linux-beta.html">Linux Beta Matrix</a><a href="SPEC-adapters.html">Onibi Adapter Manifest Spec</a><a href="SPEC-e2e.html">Onibi E2E Relay Protocol v1</a><a href="pwa-install.html">PWA Install</a><a href="comparison.html">Positioning</a><a href="roadmap.html">Product Scope</a><a href="release.html">Release</a><a href="security.html">Security</a><a href="snapshots.html">Snapshots</a><a href="terminal-fidelity.html">Terminal Fidelity Smoke Matrix</a><a href="transport-smoke.html">Transport Smoke</a><a href="transports.html">Transports</a><a href="troubleshooting.html">Troubleshooting</a><a href="web-push.html">Web Push</a><a href="ws-events-protocol.html" aria-current="page">WebSocket events protocol</a><a href="wireguard-setup.html">WireGuard Setup</a><a href="zerotier-setup.html">ZeroTier Setup</a><a href="ios-cert-install.html">iOS Local Certificate Trust</a><a href="iphone-transport-smoke.html">iPhone transport smoke runner</a><a href="ngrok-setup.html">ngrok Setup</a></nav></aside>
+    <main id="content" class="prose"><div class="article-meta"><a href="index.html">Documentation</a><span>/</span><a href="ws-events-protocol.md">Markdown source</a></div><h1>WebSocket events protocol</h1>
+<p><code>/ws/events</code> is the owner-only JSON event stream for the web cockpit. The client must present the <code>onibi_owner</code> cookie and the matching <code>token</code> query parameter used by <code>/ws/pty</code>.</p>
+<p>All application messages are JSON envelopes:</p>
+<pre><code class="language-json">{&#34;type&#34;:&#34;approval.requested&#34;,&#34;ts&#34;:&#34;2026-06-23T12:00:00Z&#34;,&#34;payload&#34;:{}}
+</code></pre>
+<p><code>type</code> is a stable event name, <code>ts</code> is RFC3339Nano UTC time, and <code>payload</code> is an event-specific object. The server may send <code>server.hello</code> first after a successful upgrade.</p>
+<h2>Event types</h2>
+<p><code>approval.requested</code></p>
+<p>Payload:</p>
+<ul>
+<li><code>id</code>: approval id.</li>
+<li><code>session_id</code>: session that emitted the request.</li>
+<li><code>agent</code>: adapter name.</li>
+<li><code>tool</code>: tool name.</li>
+<li><code>scrubbed_input</code>: approval input after <code>approval.Scrub</code>.</li>
+<li><code>risk_level</code>: <code>low</code>, <code>medium</code>, or <code>high</code> from <code>approval.ClassifyRisk</code>.</li>
+<li><code>risk_reasons</code>: risk classifier reasons.</li>
+<li><code>expires_at</code>: RFC3339Nano UTC expiry.</li>
+<li><code>approval</code>: the provider-neutral <code>onibi.approval.v1</code> model. It contains</li>
+</ul>
+<p><code>version</code>, <code>id</code>, <code>session_id</code>, <code>agent</code>, <code>tool</code>, <code>state</code>, <code>scrubbed_input</code>, derived <code>details</code>, and derived <code>risk</code>; raw adapter input is never included.</p>
+<p><code>approval.decided</code></p>
+<p>Emitted for approve, deny, edit, and cancel terminal states.</p>
+<p>Payload:</p>
+<ul>
+<li><code>id</code></li>
+<li><code>session_id</code></li>
+<li><code>verdict</code>: <code>approve</code>, <code>deny</code>, <code>edited</code>, or <code>cancelled</code>.</li>
+<li><code>reason</code>: optional denial/cancel reason.</li>
+<li><code>decided_at</code>: Unix seconds.</li>
+</ul>
+<p><code>approval.expired</code></p>
+<p>Emitted when the queue transitions a pending approval to expired.</p>
+<p>Payload:</p>
+<ul>
+<li><code>id</code></li>
+<li><code>session_id</code></li>
+<li><code>verdict</code>: <code>expired</code>.</li>
+<li><code>reason</code></li>
+<li><code>expires_at</code></li>
+</ul>
+<p><code>session.started</code></p>
+<p>Payload contains at least <code>session_id</code>. The current implementation emits this for active PTY hosts when a client attaches.</p>
+<p><code>session.ended</code></p>
+<p>Reserved for registry-backed session end events.</p>
+<p><code>render.event</code></p>
+<p>Reserved for selected non-PTY render notifications.</p>
+<h2>Approval decisions</h2>
+<p><code>POST /approval/{id}</code> requires owner auth and accepts:</p>
+<pre><code class="language-json">{&#34;verdict&#34;:&#34;approve&#34;}
+</code></pre>
+<p>Valid verdicts are <code>approve</code>, <code>deny</code>, and <code>edit</code>. <code>deny</code> may include <code>reason</code>. <code>edit</code> must include <code>edited_input</code>, which is validated against the original tool input schema before <code>approval.Queue.Decide</code> is called.</p>
+</main>
+  </div>
+  <footer class="site-footer"><a href="index.html">Onibi documentation</a><a href="https://github.com/gongahkia/onibi">GitHub</a></footer>
+</body>
+</html>

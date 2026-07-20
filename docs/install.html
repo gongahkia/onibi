@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Installer Publication documentation for Onibi, a single-user local coding-agent host.">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/site.css">
+  <title>Installer Publication · Onibi</title>
+</head>
+<body>
+  <a class="skip-link" href="#content">Skip to content</a>
+  <header class="site-header"><div class="site-header-inner"><a class="brand" href="index.html">Onibi <span>docs</span></a><nav class="top-nav" aria-label="Primary"><a href="getting-started.html">Getting Started</a><a href="security.html">Security</a><a href="transports.html">Transports</a><a href="web-push.html">Web Push</a><a href="https://github.com/gongahkia/onibi">GitHub</a></nav></div></header>
+  <div class="docs-shell">
+    <aside class="docs-sidebar"><p class="sidebar-label">Documentation</p><nav aria-label="All documentation"><a href="architecture.html">Architecture</a><a href="branding.html">Branding</a><a href="adapter-contract.html">Certified adapter contract</a><a href="cloudflare-quick-setup.html">Cloudflare Quick Setup</a><a href="adapters-registry.html">Community Adapter Registry</a><a href="fresh-machine-smoke.html">Fresh Machine Smoke</a><a href="getting-started.html">Getting Started</a><a href="tap-integrity.html">Homebrew Tap Integrity</a><a href="blog/2026-e2e-frame-protocol.html">How Onibi&#39;s E2E Frame Protocol Works</a><a href="install.html" aria-current="page">Installer Publication</a><a href="linux-beta.html">Linux Beta Matrix</a><a href="SPEC-adapters.html">Onibi Adapter Manifest Spec</a><a href="SPEC-e2e.html">Onibi E2E Relay Protocol v1</a><a href="pwa-install.html">PWA Install</a><a href="comparison.html">Positioning</a><a href="roadmap.html">Product Scope</a><a href="release.html">Release</a><a href="security.html">Security</a><a href="snapshots.html">Snapshots</a><a href="terminal-fidelity.html">Terminal Fidelity Smoke Matrix</a><a href="transport-smoke.html">Transport Smoke</a><a href="transports.html">Transports</a><a href="troubleshooting.html">Troubleshooting</a><a href="web-push.html">Web Push</a><a href="ws-events-protocol.html">WebSocket events protocol</a><a href="wireguard-setup.html">WireGuard Setup</a><a href="zerotier-setup.html">ZeroTier Setup</a><a href="ios-cert-install.html">iOS Local Certificate Trust</a><a href="iphone-transport-smoke.html">iPhone transport smoke runner</a><a href="ngrok-setup.html">ngrok Setup</a></nav></aside>
+    <main id="content" class="prose"><div class="article-meta"><a href="index.html">Documentation</a><span>/</span><a href="install.md">Markdown source</a></div><h1>Installer Publication</h1>
+<p><code>https://get.onibi.sh</code> should be a tiny GitHub Pages site whose root document is the rendered installer script. It must not serve the raw template from <code>scripts/install.sh</code>, because the raw template intentionally fails closed until the release GPG public key is embedded.</p>
+<h2>Render</h2>
+<p>Export the same public key used by the release workflow:</p>
+<pre><code class="language-bash">GPG_PUBLIC_KEY_B64=&#34;$(gpg --armor --export &#34;$GPG_FINGERPRINT&#34; | base64 | tr -d &#39;\n&#39;)&#34;
+scripts/prepare-install-pages.sh /path/to/get-onibi-pages
+</code></pre>
+<p>The helper writes <code>index.html</code>, <code>CNAME</code>, and <code>.nojekyll</code>, then runs <code>sh -n</code> over the rendered installer. The rendered <code>index.html</code> is shell script content. GitHub Pages serves it for <code>curl -sSf https://get.onibi.sh</code>; the file extension only gives Pages a root document.</p>
+<h2>GitHub Pages</h2>
+<p>Use a small Pages repository or branch dedicated to the installer endpoint:</p>
+<pre><code class="language-text">index.html
+CNAME
+.nojekyll
+</code></pre>
+<p><code>CNAME</code> must contain:</p>
+<pre><code class="language-text">get.onibi.sh
+</code></pre>
+<p>DNS must point <code>get.onibi.sh</code> at GitHub Pages for that site. After DNS and Pages publish, verify:</p>
+<pre><code class="language-bash">curl -sSf https://get.onibi.sh &gt;/tmp/onibi-install.sh
+! grep -q &#39;__ONIBI_RELEASE_GPG_KEY_B64__&#39; /tmp/onibi-install.sh
+sh -n /tmp/onibi-install.sh
+</code></pre>
+<p>The issue is not complete until:</p>
+<pre><code class="language-bash">curl -sSf https://get.onibi.sh
+</code></pre>
+<p>returns the rendered installer.</p>
+<h2>Verify Before Trusting The Tap</h2>
+<p>The Homebrew tap is a personal tap, so verify release signatures and checksums before treating tap metadata as trusted on a sensitive machine.</p>
+<h2>Updates</h2>
+<p>Update Onibi with its package manager. Onibi does not check for or install updates itself. Legacy <code>update:</code> configuration is ignored and does not modify package-manager or agent configuration.</p>
+<p>Use <a href="./tap-integrity.html"><code>tap-integrity.md</code></a> to download <code>checksums.txt</code>, verify <code>checksums.txt.sig</code> with the published GPG fingerprint, compare the cask <code>sha256</code>, and only then install from the tap.</p>
+<p>Cosign verification is also available on tagged releases:</p>
+<pre><code class="language-bash">tag=vX.Y.Z
+identity=&#34;https://github.com/gongahkia/onibi/.github/workflows/release.yml@refs/tags/$tag&#34;
+
+cosign verify-blob checksums.txt \
+  --bundle checksums.txt.sigstore.json \
+  --certificate-identity &#34;$identity&#34; \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+
+cosign verify-blob onibi_vX.Y.Z_darwin_arm64.tar.gz \
+  --bundle onibi_vX.Y.Z_darwin_arm64.tar.gz.sigstore.json \
+  --certificate-identity &#34;$identity&#34; \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+</code></pre>
+<h2>Provenance Verification</h2>
+<p>Tagged releases attach SLSA provenance generated by the release workflow. Verify a downloaded artifact against the matching provenance asset:</p>
+<pre><code class="language-bash">go install github.com/slsa-framework/slsa-verifier/v2/cli/slsa-verifier@v2.7.1
+slsa-verifier verify-artifact \
+  --provenance-path multiple.intoto.jsonl \
+  --source-uri github.com/gongahkia/onibi \
+  --source-tag v0.4.0 \
+  onibi_v0.4.0_darwin_arm64.tar.gz
+</code></pre>
+<p>Replace <code>v0.4.0</code>, the provenance filename, and the artifact filename with the release assets being verified.</p>
+</main>
+  </div>
+  <footer class="site-footer"><a href="index.html">Onibi documentation</a><a href="https://github.com/gongahkia/onibi">GitHub</a></footer>
+</body>
+</html>

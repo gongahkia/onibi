@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Community Adapter Registry documentation for Onibi, a single-user local coding-agent host.">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/site.css">
+  <title>Community Adapter Registry · Onibi</title>
+</head>
+<body>
+  <a class="skip-link" href="#content">Skip to content</a>
+  <header class="site-header"><div class="site-header-inner"><a class="brand" href="index.html">Onibi <span>docs</span></a><nav class="top-nav" aria-label="Primary"><a href="getting-started.html">Getting Started</a><a href="security.html">Security</a><a href="transports.html">Transports</a><a href="web-push.html">Web Push</a><a href="https://github.com/gongahkia/onibi">GitHub</a></nav></div></header>
+  <div class="docs-shell">
+    <aside class="docs-sidebar"><p class="sidebar-label">Documentation</p><nav aria-label="All documentation"><a href="architecture.html">Architecture</a><a href="branding.html">Branding</a><a href="adapter-contract.html">Certified adapter contract</a><a href="cloudflare-quick-setup.html">Cloudflare Quick Setup</a><a href="adapters-registry.html" aria-current="page">Community Adapter Registry</a><a href="fresh-machine-smoke.html">Fresh Machine Smoke</a><a href="getting-started.html">Getting Started</a><a href="tap-integrity.html">Homebrew Tap Integrity</a><a href="blog/2026-e2e-frame-protocol.html">How Onibi&#39;s E2E Frame Protocol Works</a><a href="install.html">Installer Publication</a><a href="linux-beta.html">Linux Beta Matrix</a><a href="SPEC-adapters.html">Onibi Adapter Manifest Spec</a><a href="SPEC-e2e.html">Onibi E2E Relay Protocol v1</a><a href="pwa-install.html">PWA Install</a><a href="comparison.html">Positioning</a><a href="roadmap.html">Product Scope</a><a href="release.html">Release</a><a href="security.html">Security</a><a href="snapshots.html">Snapshots</a><a href="terminal-fidelity.html">Terminal Fidelity Smoke Matrix</a><a href="transport-smoke.html">Transport Smoke</a><a href="transports.html">Transports</a><a href="troubleshooting.html">Troubleshooting</a><a href="web-push.html">Web Push</a><a href="ws-events-protocol.html">WebSocket events protocol</a><a href="wireguard-setup.html">WireGuard Setup</a><a href="zerotier-setup.html">ZeroTier Setup</a><a href="ios-cert-install.html">iOS Local Certificate Trust</a><a href="iphone-transport-smoke.html">iPhone transport smoke runner</a><a href="ngrok-setup.html">ngrok Setup</a></nav></aside>
+    <main id="content" class="prose"><div class="article-meta"><a href="index.html">Documentation</a><span>/</span><a href="adapters-registry.md">Markdown source</a></div><h1>Community Adapter Registry</h1>
+<p>This file is the adapter registry. There is no hosted registry service, package index, telemetry feed, or automatic remote install path.</p>
+<p>Adapters listed here are maintained by their authors. Onibi only provides the manifest format and local CLI checks:</p>
+<pre><code class="language-sh">onibi adapters validate ./adapter.toml
+onibi adapters add ./adapter.toml
+</code></pre>
+<h2>Official Examples</h2>
+<div class="table-wrap"><table><thead><tr><th>Adapter</th><th>Manifest</th><th>Notes</th></tr></thead><tbody><tr><td>Aider post-edit event example</td><td><a href="../examples/aider-adapter/aider.toml"><code>examples/aider-adapter/aider.toml</code></a></td><td>Non-certified, non-enforcing post-edit test event only; it has no native tool-approval boundary.</td></tr></tbody></table></div>
+<h2>Official Adapter Deny Verification</h2>
+<div class="table-wrap"><table><thead><tr><th>Adapter</th><th>Hook surface</th><th>Verified deny blocks tool</th><th>Test</th><th>Notes</th></tr></thead><tbody><tr><td>Amp</td><td><code>tool.call</code> plugin approval</td><td>Yes</td><td><code>TestAdapterAmpDenyBlocksTool</code></td><td>Deny returns <code>reject-and-continue</code>; edits return <code>modify</code> with object input. No <code>session.end</code> event exists; daemon-unavailable and timeout return <code>allow</code>. Certification remains pending authenticated live evidence and a provider-version floor.</td></tr><tr><td>Claude</td><td><code>PreToolUse</code> command hook</td><td>Yes</td><td><code>TestAdapterClaudeDenyBlocksTool</code></td><td>Deny exits non-zero with <code>permissionDecision=deny</code>.</td></tr><tr><td>Codex</td><td><code>PreToolUse</code> command hook</td><td>Yes</td><td><code>TestAdapterCodexDenyBlocksTool</code></td><td>Deny exits non-zero with <code>permissionDecision=deny</code>.</td></tr><tr><td>Copilot</td><td><code>preToolUse</code> command hook</td><td>Yes</td><td><code>TestAdapterCopilotDenyBlocksTool</code></td><td>Deny emits provider JSON <code>permissionDecision=deny</code>; edited input maps to <code>modifiedArgs</code>. Copilot timeout and Onibi daemon/socket unavailability return no decision, while a missing notifier command fails closed; certification remains pending authenticated live evidence and a provider-version floor.</td></tr><tr><td>Gemini</td><td><code>BeforeTool</code> command hook</td><td>Yes</td><td><code>TestAdapterGeminiDenyBlocksTool</code></td><td>Deny emits provider JSON <code>decision=deny</code>; fixture writes only if provider output allows. Native edits map to <code>hookSpecificOutput.tool_input</code>; certification remains pending authenticated live evidence and a provider-version floor.</td></tr><tr><td>OpenCode</td><td><code>tool.execute.before</code> plugin hook</td><td>Yes</td><td><code>TestAdapterOpenCodeDenyBlocksTool</code></td><td>Deny throws before fixture write. OpenCode documents global/project local-plugin discovery and mutable hook output, but this adapter remains non-certified pending authenticated live evidence and a provider-version floor.</td></tr><tr><td>Pi</td><td><code>tool_call</code> extension hook</td><td>Yes</td><td><code>TestAdapterPiDenyBlocksTool</code></td><td>Deny returns <code>{ block: true }</code>; fixture writes only if the hook allows.</td></tr><tr><td>Goose</td><td><code>PreToolUse</code> native blocking hook</td><td>Yes - deny only</td><td><code>TestAdapterGooseDenyBlocksTool</code></td><td>Native approve/deny uses Goose&#39;s documented exit-2 block signal. Edited input is denied because Goose has no documented input-replacement response; Goose remains non-certified.</td></tr></tbody></table></div>
+<h2>Community Adapters</h2>
+<p>No community adapters are listed yet.</p>
+<p>To add one, open a PR that adds one row:</p>
+<pre><code class="language-markdown">| Name | Manifest URL | Author | Notes |
+</code></pre>
+<p>Required evidence:</p>
+<ul>
+<li>Public repository link.</li>
+<li>Direct link to the adapter TOML.</li>
+<li><code>onibi adapters validate &lt;path&gt;</code> output in the PR.</li>
+<li>Minimum supported Onibi version.</li>
+<li>Short explanation of what hook surface the provider exposes.</li>
+</ul>
+<p>The manifest URL must be HTTPS. Users installing from a URL must pin the manifest hash:</p>
+<pre><code class="language-sh">onibi adapters add https://example.com/adapter.toml --sha256=&lt;64-hex&gt;
+</code></pre>
+</main>
+  </div>
+  <footer class="site-footer"><a href="index.html">Onibi documentation</a><a href="https://github.com/gongahkia/onibi">GitHub</a></footer>
+</body>
+</html>

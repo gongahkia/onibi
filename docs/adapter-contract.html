@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Certified adapter contract documentation for Onibi, a single-user local coding-agent host.">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/site.css">
+  <title>Certified adapter contract · Onibi</title>
+</head>
+<body>
+  <a class="skip-link" href="#content">Skip to content</a>
+  <header class="site-header"><div class="site-header-inner"><a class="brand" href="index.html">Onibi <span>docs</span></a><nav class="top-nav" aria-label="Primary"><a href="getting-started.html">Getting Started</a><a href="security.html">Security</a><a href="transports.html">Transports</a><a href="web-push.html">Web Push</a><a href="https://github.com/gongahkia/onibi">GitHub</a></nav></div></header>
+  <div class="docs-shell">
+    <aside class="docs-sidebar"><p class="sidebar-label">Documentation</p><nav aria-label="All documentation"><a href="architecture.html">Architecture</a><a href="branding.html">Branding</a><a href="adapter-contract.html" aria-current="page">Certified adapter contract</a><a href="cloudflare-quick-setup.html">Cloudflare Quick Setup</a><a href="adapters-registry.html">Community Adapter Registry</a><a href="fresh-machine-smoke.html">Fresh Machine Smoke</a><a href="getting-started.html">Getting Started</a><a href="tap-integrity.html">Homebrew Tap Integrity</a><a href="blog/2026-e2e-frame-protocol.html">How Onibi&#39;s E2E Frame Protocol Works</a><a href="install.html">Installer Publication</a><a href="linux-beta.html">Linux Beta Matrix</a><a href="SPEC-adapters.html">Onibi Adapter Manifest Spec</a><a href="SPEC-e2e.html">Onibi E2E Relay Protocol v1</a><a href="pwa-install.html">PWA Install</a><a href="comparison.html">Positioning</a><a href="roadmap.html">Product Scope</a><a href="release.html">Release</a><a href="security.html">Security</a><a href="snapshots.html">Snapshots</a><a href="terminal-fidelity.html">Terminal Fidelity Smoke Matrix</a><a href="transport-smoke.html">Transport Smoke</a><a href="transports.html">Transports</a><a href="troubleshooting.html">Troubleshooting</a><a href="web-push.html">Web Push</a><a href="ws-events-protocol.html">WebSocket events protocol</a><a href="wireguard-setup.html">WireGuard Setup</a><a href="zerotier-setup.html">ZeroTier Setup</a><a href="ios-cert-install.html">iOS Local Certificate Trust</a><a href="iphone-transport-smoke.html">iPhone transport smoke runner</a><a href="ngrok-setup.html">ngrok Setup</a></nav></aside>
+    <main id="content" class="prose"><div class="article-meta"><a href="index.html">Documentation</a><span>/</span><a href="adapter-contract.md">Markdown source</a></div><h1>Certified adapter contract</h1>
+<p>This is the v1 contract for the certified coding-agent adapters: Claude, Codex, and Pi. Other installed adapters are deferred or experimental and are not covered by this contract.</p>
+<p><code>onibi adapters --json</code> reports <code>certified: true</code> and a versioned <code>contract</code> object for these three adapters. The CLI is the authoritative machine-readable capability report.</p>
+<h2>Installation</h2>
+<p>Each certified adapter uses managed, idempotent hook installation; records an integrity hash; and backs up the original config before modification. <code>onibi hooks --show --agent &lt;name&gt;</code> reports expected and observed hook state. Do not trust a hook command without inspecting it.</p>
+<h2>Approval decisions</h2>
+<p>All certified hooks deliver requests over the same-UID Unix socket. While that socket and daemon are reachable, they block the tool call and map decisions as follows:</p>
+<div class="table-wrap"><table><thead><tr><th>Onibi decision</th><th>Adapter effect</th></tr></thead><tbody><tr><td><code>approve</code></td><td>allow</td></tr><tr><td><code>deny</code></td><td>deny</td></tr><tr><td><code>edited</code></td><td>allow with replacement input</td></tr><tr><td><code>expired</code></td><td>deny</td></tr></tbody></table></div>
+<p>The hooks intentionally allow if the daemon is unavailable or the local request times out. This is reported as <code>daemon_unavailable: &#34;allow&#34;</code> and <code>request_timeout: &#34;allow&#34;</code>; it is not an enforcement guarantee for those paths. <code>cancelled</code> also allows, so daemon shutdown does not strand a local agent.</p>
+<p>Codex additionally requires its user to review and trust the current non-managed hook definitions before they run. Its capability report sets <code>review_required: true</code>; Onibi can verify its hook file and recorded hash, but cannot verify Codex&#39;s persisted trust decision. Until Codex trusts the current definitions, Codex approval enforcement is unavailable.</p>
+<h2>Approval payload v1</h2>
+<p>Certified adapters submit <code>onibi.approval.v1</code> over the local intake socket. The model contains <code>session_id</code>, <code>agent</code>, <code>tool</code>, and a JSON-object <code>input</code>. Onibi rejects unsupported schema versions and non-object inputs, canonicalizes the input, then derives <code>details</code> and <code>risk</code> itself. Adapter-supplied risk, target, command, and path values are not trusted by the phone cockpit.</p>
+<p>Web approval responses expose a nested <code>approval</code> object with the version, scrubbed input, derived details, and derived risk. They do not expose the raw input. Legacy top-level fields remain for existing cockpit clients.</p>
+<h2>Lifecycle and recovery</h2>
+<p>Every certified adapter reports session start, activity, approval requests, and turn completion. Claude and Pi also report session exit; Codex currently reports no session-exit event and exposes <code>session_exit: false</code>.</p>
+<p>Pending approval rows survive daemon restart for inspection and audit, but a parked hook connection cannot be reattached. The contract reports that limitation explicitly. Reload or review changed hooks as follows:</p>
+<ul>
+<li>Claude: run <code>claude</code> and inspect <code>/hooks</code>.</li>
+<li>Codex: run <code>codex</code>, review hooks, and trust matching commands.</li>
+<li>Pi: run <code>/reload</code>.</li>
+</ul>
+<p>Pi reload and session replacement emit <code>session_shutdown</code> before a fresh extension instance receives <code>session_start</code>; Onibi maps those events to session exit and activity. Pi executes edited tool input without re-validating it, so Onibi accepts edited approval input only when it is a JSON object. An invalid Pi approval response or edited input blocks the tool.</p>
+<h2>Audit</h2>
+<p>Approval decisions are audit rows containing a payload SHA-256 and compact decision metadata. Raw tool payloads, including replacement input, must not be written to audit detail. The queue is idempotent: only its first pending-to-terminal decision wins.</p>
+</main>
+  </div>
+  <footer class="site-footer"><a href="index.html">Onibi documentation</a><a href="https://github.com/gongahkia/onibi">GitHub</a></footer>
+</body>
+</html>
