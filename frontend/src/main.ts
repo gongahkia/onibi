@@ -27,7 +27,6 @@ import { ApprovalWakeLock } from "./wake-lock";
 import { installImagePaste } from "./image-paste";
 import type { ImageUploadRequest } from "./image-paste";
 import { SharePanel } from "./share";
-import { PairedHostsPanel } from "./paired-hosts-panel";
 import { FleetHostsPanel } from "./fleet-hosts";
 import { ApprovalInboxPanel } from "./approval-inbox";
 import { FleetHomeView } from "./fleet-home";
@@ -70,7 +69,6 @@ let relayE2E: RelayE2E | undefined;
 let sessionList: SessionsListView | undefined;
 let snapshots: SnapshotsPanel | undefined;
 let sharePanel: SharePanel | undefined;
-let pairedHosts: PairedHostsPanel | undefined;
 let fleetHosts: FleetHostsPanel | undefined;
 let approvalInbox: ApprovalInboxPanel | undefined;
 let fleetHome: FleetHomeView | undefined;
@@ -229,7 +227,6 @@ async function showSessionsHome(): Promise<void> {
   viewerMode = false;
   terminalInputEnabled = false;
   showListChrome();
-  pairedHosts = new PairedHostsPanel(document.body, showToast);
   fleetHosts = new FleetHostsPanel(document.body, getJSON);
   approvalInbox = new ApprovalInboxPanel(document.body, getJSON, postJSON, showToast);
   sessionPicker = new SessionPickerPanel(document.body, getJSON, (session) => {
@@ -241,7 +238,7 @@ async function showSessionsHome(): Promise<void> {
   });
   const hostControls = document.createElement("div");
   hostControls.className = "session-list-header-controls";
-  hostControls.append(pairedHosts.element, fleetHosts.element, approvalInbox.element);
+  hostControls.append(fleetHosts.element, approvalInbox.element);
   const home = new FleetHomeView(
     sessionListRoot,
     getJSON,

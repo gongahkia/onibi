@@ -672,28 +672,6 @@
   min-height: 16px;
 }
 
-.paired-hosts-form {
-  width: min(100%, 560px);
-}
-
-.paired-hosts-fields {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.paired-hosts-fields > :nth-child(5),
-.paired-hosts-fields > :nth-child(6) {
-  grid-column: 1 / -1;
-}
-
-.paired-hosts-identity,
-.paired-hosts-transfer {
-  min-height: 74px;
-  padding: 8px;
-  resize: vertical;
-}
-
 .fleet-hosts-form {
   width: min(100%, 640px);
 }
@@ -874,12 +852,6 @@
 .condition-stale,
 .condition-unreachable {
   color: #f85149;
-}
-
-@media (max-width: 480px) {
-  .paired-hosts-fields {
-    grid-template-columns: 1fr;
-  }
 }
 
 .approval-diff .d2h-wrapper {

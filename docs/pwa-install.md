@@ -13,6 +13,8 @@ for iOS Web Push; Safari tabs are not enough.
 
 Current manifest source: `frontend/public/manifest.webmanifest`.
 
+For a separately run Onibi host, open that host directly and add its own browser bookmark or Home Screen entry. The cockpit does not keep, import, or transfer a host directory; existing browser-side host registry data is ignored.
+
 ## iPhone And iPad
 
 1. Run `onibi up`.
