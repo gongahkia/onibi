@@ -179,6 +179,41 @@ func TestGeminiUninstallMissingSettingsIsNoop(t *testing.T) {
 	}
 }
 
+func TestGeminiInstallAndUninstallKeepOneOriginalBackup(t *testing.T) {
+	db, notify, path := newTestEnv(t)
+	writeHookFile(t, path, map[string]any{"custom": true, "hooks": map[string]any{}})
+	ctx := t.Context()
+	if err := Install(ctx, db, notify); err != nil {
+		t.Fatal(err)
+	}
+	if err := Install(ctx, db, notify); err != nil {
+		t.Fatal(err)
+	}
+	var backups int
+	if err := db.SQL().QueryRowContext(ctx, "SELECT count(*) FROM hook_backups WHERE agent = ? AND path = ?", Agent, path).Scan(&backups); err != nil {
+		t.Fatal(err)
+	}
+	if backups != 1 {
+		t.Fatalf("backups after idempotent install=%d", backups)
+	}
+	info := Status(ctx, db)
+	if !info.Installed || !info.Managed || info.Tampered || info.MinimumProviderVersion != MinimumProviderVersion {
+		t.Fatalf("status=%+v", info)
+	}
+	if err := Uninstall(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SQL().QueryRowContext(ctx, "SELECT count(*) FROM hook_backups WHERE agent = ? AND path = ?", Agent, path).Scan(&backups); err != nil {
+		t.Fatal(err)
+	}
+	if backups != 1 {
+		t.Fatalf("backups after uninstall=%d", backups)
+	}
+	if cfg := readHookFile(t, path); cfg["custom"] != true {
+		t.Fatalf("settings=%#v", cfg)
+	}
+}
+
 func TestInstallMigratesLegacyGeminiMetadata(t *testing.T) {
 	db, notify, path := newTestEnv(t)
 	legacy := map[string]any{

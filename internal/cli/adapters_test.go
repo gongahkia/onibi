@@ -34,7 +34,7 @@ func TestAdapterStatusReportsCertifiedContract(t *testing.T) {
 	if !ok || !approvalOK || got["certified"] != true || contract["agent"] != "codex" || contract["version"] != "1" || approval["review_required"] != true {
 		t.Fatalf("json=%s", body)
 	}
-	for _, name := range []string{"amp", "copilot", "gemini"} {
+	for _, name := range []string{"amp", "copilot"} {
 		deferred := statusFromInfo(common.Info{Name: name}, false)
 		if deferred.Certified || deferred.Contract != nil {
 			t.Fatalf("deferred %s row=%+v", name, deferred)
@@ -43,6 +43,10 @@ func TestAdapterStatusReportsCertifiedContract(t *testing.T) {
 	opencode := statusFromInfo(common.Info{Name: "opencode", MinimumProviderVersion: "1.18.3"}, false)
 	if opencode.Certified || opencode.Contract == nil || opencode.Contract.MinimumProviderVersion != "1.18.3" || !opencode.Contract.Approval.BlocksTool {
 		t.Fatalf("OpenCode row=%+v", opencode)
+	}
+	gemini := statusFromInfo(common.Info{Name: "gemini", MinimumProviderVersion: "0.43.0"}, false)
+	if gemini.Certified || gemini.Contract == nil || gemini.Contract.MinimumProviderVersion != "0.43.0" || !gemini.Contract.Approval.BlocksTool || gemini.Contract.Approval.RequestTimeout != adapters.DecisionAllow {
+		t.Fatalf("Gemini row=%+v", gemini)
 	}
 }
 

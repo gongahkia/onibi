@@ -42,6 +42,9 @@ func TestCertifiedContractsMatchV1AgentAllowlist(t *testing.T) {
 	if c, ok := ContractFor("opencode"); !ok || c.Certified || c.Version != CertifiedContractVersion || c.MinimumProviderVersion != "1.18.3" || !c.Installation.Idempotent || !c.Approval.BlocksTool || c.Approval.Edit != DecisionAllowWithUpdated || c.Audit.DecisionRecorded {
 		t.Fatalf("OpenCode capability report=%+v present=%t", c, ok)
 	}
+	if c, ok := ContractFor("gemini"); !ok || c.Certified || c.Version != CertifiedContractVersion || c.MinimumProviderVersion != "0.43.0" || !c.Installation.Idempotent || !c.Approval.BlocksTool || c.Approval.Edit != DecisionAllowWithUpdated || c.Approval.RequestTimeout != DecisionAllow || c.Audit.DecisionRecorded {
+		t.Fatalf("Gemini capability report=%+v present=%t", c, ok)
+	}
 	if _, ok := ContractFor("goose"); ok {
 		t.Fatal("Goose has no edited-input response and is not certified")
 	}

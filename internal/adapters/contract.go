@@ -70,6 +70,7 @@ var adapterContracts = map[string]AdapterContract{
 	capability.AgentClaude: certifiedContract(capability.AgentClaude, true, false, "run claude and inspect /hooks"),
 	capability.AgentCodex:  certifiedContract(capability.AgentCodex, false, true, "run codex, review hooks, and trust matching commands"),
 	capability.AgentPi:     certifiedContract(capability.AgentPi, true, false, "run /reload"),
+	"gemini":               geminiContract(),
 	"opencode":             openCodeContract(),
 }
 
@@ -145,6 +146,43 @@ func openCodeContract() AdapterContract {
 		Recovery: RecoveryContract{
 			HookReloadInstruction: "restart OpenCode or start a new session",
 			PendingApproval:       "no plugin-level waiter recovery claim; use the persisted Onibi approval state",
+		},
+		Audit: AuditContract{},
+	}
+}
+
+func geminiContract() AdapterContract {
+	return AdapterContract{
+		Version:                CertifiedContractVersion,
+		Agent:                  "gemini",
+		Certified:              false,
+		MinimumProviderVersion: "0.43.0",
+		Installation: InstallationContract{
+			Managed:              true,
+			Idempotent:           true,
+			IntegrityVerified:    true,
+			OriginalConfigBacked: true,
+		},
+		Approval: ApprovalContract{
+			Delivery:          "same_uid_unix_socket",
+			BlocksTool:        true,
+			Approve:           DecisionAllow,
+			Deny:              DecisionDeny,
+			Edit:              DecisionAllowWithUpdated,
+			Expire:            DecisionDeny,
+			DaemonUnavailable: DecisionAllow,
+			RequestTimeout:    DecisionAllow,
+		},
+		Lifecycle: LifecycleContract{
+			SessionStart:    true,
+			Activity:        true,
+			ApprovalRequest: true,
+			TurnComplete:    true,
+			SessionExit:     true,
+		},
+		Recovery: RecoveryContract{
+			HookReloadInstruction: "restart Gemini CLI and inspect the configured hooks",
+			PendingApproval:       "no hook-level waiter recovery claim; use the persisted Onibi approval state",
 		},
 		Audit: AuditContract{},
 	}

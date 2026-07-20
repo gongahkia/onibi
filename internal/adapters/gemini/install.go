@@ -13,7 +13,10 @@ import (
 	"github.com/gongahkia/onibi/internal/store"
 )
 
-const Agent = "gemini"
+const (
+	Agent                  = "gemini"
+	MinimumProviderVersion = "0.43.0"
+)
 
 func init() {
 	catalog.MustRegister(catalog.BuiltinAgentManifest(Agent, catalog.Adapter{
@@ -72,12 +75,17 @@ func Install(ctx context.Context, db *store.DB, notifyBin string) error {
 	if err != nil {
 		return err
 	}
+	if err := VerifyHash(ctx, db); err == nil && installedVersion(path) == common.IntegrationVersion {
+		return nil
+	}
 	cfg, err := common.ReadJSON(path, map[string]any{"hooks": map[string]any{}})
 	if err != nil {
 		return err
 	}
-	if _, err := common.BackupOriginal(ctx, db, Agent, path); err != nil {
-		return err
+	if err := VerifyHash(ctx, db); err != nil {
+		if _, err := common.BackupOriginal(ctx, db, Agent, path); err != nil {
+			return err
+		}
 	}
 	removeManaged(cfg)
 	delete(cfg, common.VersionField)
@@ -118,8 +126,10 @@ func Uninstall(ctx context.Context, db *store.DB) error {
 	if err != nil {
 		return err
 	}
-	if _, err := common.BackupOriginal(ctx, db, Agent, path); err != nil {
-		return err
+	if err := VerifyHash(ctx, db); err != nil {
+		if _, err := common.BackupOriginal(ctx, db, Agent, path); err != nil {
+			return err
+		}
 	}
 	removeManaged(cfg)
 	delete(cfg, common.VersionField)
@@ -132,9 +142,9 @@ func Uninstall(ctx context.Context, db *store.DB) error {
 func Status(ctx context.Context, db *store.DB) common.Info {
 	path, err := SettingsPath()
 	if err != nil {
-		return common.Info{Name: Agent, Support: "blocking", BundledVersion: common.IntegrationVersion, Message: err.Error()}
+		return common.Info{Name: Agent, Support: "blocking", BundledVersion: common.IntegrationVersion, MinimumProviderVersion: MinimumProviderVersion, Message: err.Error()}
 	}
-	info := common.Info{Name: Agent, Support: "blocking", BundledVersion: common.IntegrationVersion, InstallPath: path}
+	info := common.Info{Name: Agent, Support: "blocking", BundledVersion: common.IntegrationVersion, MinimumProviderVersion: MinimumProviderVersion, InstallPath: path}
 	body, err := ManagedBody(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
