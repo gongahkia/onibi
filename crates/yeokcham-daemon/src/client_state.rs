@@ -8,6 +8,7 @@ pub const CONTACTS_DATABASE_FILE: &str = "yeokcham-contacts.sqlite";
 pub const RATCHETS_DATABASE_FILE: &str = "yeokcham-ratchets.sqlite";
 pub const ONE_TIME_PREKEY_INVENTORY_DATABASE_FILE: &str = "yeokcham-one-time-prekeys.sqlite";
 pub const ATTACHMENT_UPLOAD_DIRECTORY: &str = "attachment-uploads";
+pub const SHARED_IP_MESH_CERTIFICATE_FILE: &str = "yeokcham-shared-ip-mesh-cert.der";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ClientStateDirectory {
@@ -76,6 +77,11 @@ impl ClientStateDirectory {
     pub fn attachment_uploads_path(&self) -> PathBuf {
         self.root.join(ATTACHMENT_UPLOAD_DIRECTORY)
     }
+
+    #[must_use]
+    pub fn shared_ip_mesh_certificate_path(&self) -> PathBuf {
+        self.root.join(SHARED_IP_MESH_CERTIFICATE_FILE)
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
@@ -98,6 +104,7 @@ mod tests {
         ATTACHMENT_UPLOAD_DIRECTORY, CLIENT_STATE_DIRECTORY_LAYOUT_VERSION, CONTACTS_DATABASE_FILE,
         ClientStateDirectory, ClientStateDirectoryError, DAEMON_LOCK_FILE, INBOX_DATABASE_FILE,
         ONE_TIME_PREKEY_INVENTORY_DATABASE_FILE, OUTBOX_DATABASE_FILE, RATCHETS_DATABASE_FILE,
+        SHARED_IP_MESH_CERTIFICATE_FILE,
     };
 
     #[test]
@@ -132,6 +139,10 @@ mod tests {
         assert_eq!(
             layout.attachment_uploads_path(),
             Path::new("/var/lib/yeokcham/alice").join(ATTACHMENT_UPLOAD_DIRECTORY)
+        );
+        assert_eq!(
+            layout.shared_ip_mesh_certificate_path(),
+            Path::new("/var/lib/yeokcham/alice").join(SHARED_IP_MESH_CERTIFICATE_FILE)
         );
     }
 

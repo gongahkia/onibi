@@ -9,11 +9,13 @@ use yeokcham_protocol::{
 
 pub const LAN_MDNS_SERVICE_TYPE: &str = "_yeokcham._udp.local.";
 const IDENTITY_PROPERTY: &str = "identity";
+const TRANSPORT_PROPERTY: &str = "transport";
 const IDENTITY_HEX_BYTES: usize = ED25519_PUBLIC_KEY_BYTES * 2;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LanPeer {
     identity: IdentityPublicKey,
+    transport: LocalMeshTransportKind,
     endpoints: Vec<DirectProfileConfig>,
 }
 
@@ -28,12 +30,17 @@ impl LanPeer {
         &self.endpoints
     }
 
+    #[must_use]
+    pub const fn transport(&self) -> LocalMeshTransportKind {
+        self.transport
+    }
+
     pub fn session_peers(&self) -> Result<Vec<LocalMeshPeer>, LanPeerDiscoveryError> {
         self.endpoints
             .iter()
             .copied()
             .map(|endpoint| {
-                LocalMeshPeer::new(LocalMeshTransportKind::Lan, self.identity, Some(endpoint))
+                LocalMeshPeer::new(self.transport, self.identity, Some(endpoint))
                     .map_err(LanPeerDiscoveryError::Peer)
             })
             .collect()
@@ -55,12 +62,25 @@ impl LanPeerDiscovery {
         identity: IdentityPublicKey,
         endpoint: DirectProfileConfig,
     ) -> Result<String, LanPeerDiscoveryError> {
+        self.advertise_for_transport(identity, endpoint, LocalMeshTransportKind::Lan)
+    }
+
+    pub fn advertise_for_transport(
+        &self,
+        identity: IdentityPublicKey,
+        endpoint: DirectProfileConfig,
+        transport: LocalMeshTransportKind,
+    ) -> Result<String, LanPeerDiscoveryError> {
         reject_scoped_ipv6(endpoint.endpoint().ip())?;
+        let transport = encode_transport(transport)?;
         let identity_hex = encode_identity(identity);
         let identifier = IdentityIdentifier::derive(&identity);
         let instance = format!("yeokcham-{}", encode_hex(&identifier.as_bytes()[..8]));
         let hostname = format!("{instance}.local.");
-        let properties = [(IDENTITY_PROPERTY, identity_hex.as_str())];
+        let properties = [
+            (IDENTITY_PROPERTY, identity_hex.as_str()),
+            (TRANSPORT_PROPERTY, transport),
+        ];
         let service = ServiceInfo::new(
             LAN_MDNS_SERVICE_TYPE,
             &instance,
@@ -89,6 +109,7 @@ impl LanPeerDiscovery {
         }
         resolve_parts(
             service.get_property_val_str(IDENTITY_PROPERTY),
+            service.get_property_val_str(TRANSPORT_PROPERTY),
             service.port,
             service
                 .get_addresses()
@@ -120,8 +141,12 @@ pub enum LanPeerDiscoveryError {
     InvalidService,
     #[error("resolved mDNS service is missing its identity")]
     MissingIdentity,
+    #[error("resolved mDNS service is missing its transport")]
+    MissingTransport,
     #[error("resolved mDNS identity is not canonical lowercase hexadecimal")]
     InvalidIdentityEncoding,
+    #[error("resolved mDNS transport is unsupported")]
+    UnsupportedTransport,
     #[error("resolved mDNS identity public key is invalid: {0}")]
     InvalidIdentity(#[source] yeokcham_core::IdentityPublicKeyError),
     #[error(
@@ -155,12 +180,16 @@ fn decode_identity(encoded: &str) -> Result<IdentityPublicKey, LanPeerDiscoveryE
 
 fn resolve_parts(
     identity_text: Option<&str>,
+    transport_text: Option<&str>,
     port: u16,
     addresses: impl Iterator<Item = IpAddr>,
 ) -> Result<LanPeer, LanPeerDiscoveryError> {
     let identity = identity_text
         .ok_or(LanPeerDiscoveryError::MissingIdentity)
         .and_then(decode_identity)?;
+    let transport = transport_text
+        .ok_or(LanPeerDiscoveryError::MissingTransport)
+        .and_then(decode_transport)?;
     let endpoints = addresses
         .filter(|address| !is_scoped_ipv6(*address))
         .map(|address| DirectProfileConfig::new(SocketAddr::new(address, port)))
@@ -171,8 +200,29 @@ fn resolve_parts(
     }
     Ok(LanPeer {
         identity,
+        transport,
         endpoints,
     })
+}
+
+fn encode_transport(
+    transport: LocalMeshTransportKind,
+) -> Result<&'static str, LanPeerDiscoveryError> {
+    match transport {
+        LocalMeshTransportKind::Lan => Ok("lan"),
+        LocalMeshTransportKind::WifiHotspot => Ok("wifi_hotspot"),
+        LocalMeshTransportKind::WifiDirect | LocalMeshTransportKind::Bluetooth => {
+            Err(LanPeerDiscoveryError::UnsupportedTransport)
+        }
+    }
+}
+
+fn decode_transport(encoded: &str) -> Result<LocalMeshTransportKind, LanPeerDiscoveryError> {
+    match encoded {
+        "lan" => Ok(LocalMeshTransportKind::Lan),
+        "wifi_hotspot" => Ok(LocalMeshTransportKind::WifiHotspot),
+        _ => Err(LanPeerDiscoveryError::UnsupportedTransport),
+    }
 }
 
 fn reject_scoped_ipv6(address: IpAddr) -> Result<(), LanPeerDiscoveryError> {
@@ -254,6 +304,7 @@ mod tests {
         let identity = "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a";
         let peer = resolve_parts(
             Some(identity),
+            Some("lan"),
             4444,
             ["192.0.2.1".parse().unwrap()].into_iter(),
         )
@@ -267,12 +318,36 @@ mod tests {
             yeokcham_protocol::LocalMeshTransportKind::Lan
         );
         assert!(matches!(
-            resolve_parts(None, 4444, [IpAddr::from([192, 0, 2, 1])].into_iter()),
+            resolve_parts(
+                None,
+                Some("lan"),
+                4444,
+                [IpAddr::from([192, 0, 2, 1])].into_iter()
+            ),
             Err(LanPeerDiscoveryError::MissingIdentity)
         ));
         assert!(matches!(
             resolve_parts(
                 Some(identity),
+                None,
+                4444,
+                [IpAddr::from([192, 0, 2, 1])].into_iter()
+            ),
+            Err(LanPeerDiscoveryError::MissingTransport)
+        ));
+        assert!(matches!(
+            resolve_parts(
+                Some(identity),
+                Some("wifi_direct"),
+                4444,
+                [IpAddr::from([192, 0, 2, 1])].into_iter()
+            ),
+            Err(LanPeerDiscoveryError::UnsupportedTransport)
+        ));
+        assert!(matches!(
+            resolve_parts(
+                Some(identity),
+                Some("lan"),
                 0,
                 [IpAddr::from([192, 0, 2, 1])].into_iter()
             ),
@@ -281,6 +356,7 @@ mod tests {
         assert!(matches!(
             resolve_parts(
                 Some(identity),
+                Some("lan"),
                 4444,
                 ["fe80::1".parse().unwrap()].into_iter()
             ),

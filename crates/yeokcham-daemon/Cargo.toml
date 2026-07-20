@@ -21,6 +21,7 @@ minicbor.workspace = true
 mdns-sd.workspace = true
 natpmp.workspace = true
 quinn.workspace = true
+rcgen = "0.14.7"
 rusqlite.workspace = true
 sha2.workspace = true
 stunclient.workspace = true
@@ -47,7 +48,6 @@ corewlan = "0.2.1"
 criterion.workspace = true
 prost.workspace = true
 proptest.workspace = true
-rcgen = "0.14.7"
 tonic-prost.workspace = true
 tracing-subscriber.workspace = true
 

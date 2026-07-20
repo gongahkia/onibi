@@ -347,6 +347,19 @@ impl DirectConnection {
         local_identity: &IdentityKeypair,
         expected_peer: &IdentityPublicKey,
     ) -> Result<(), DirectTransportError> {
+        self.authenticate_responder_for(local_identity, &[*expected_peer])
+            .await
+            .map(|_| ())
+    }
+
+    pub async fn authenticate_responder_for(
+        &self,
+        local_identity: &IdentityKeypair,
+        expected_peers: &[IdentityPublicKey],
+    ) -> Result<IdentityPublicKey, DirectTransportError> {
+        if expected_peers.is_empty() {
+            return Err(DirectTransportError::NoExpectedPeerIdentities);
+        }
         let binding = self.connection_binding()?;
         let (mut send, mut receive) = self
             .connection
@@ -357,7 +370,15 @@ impl DirectConnection {
             .read_to_end(DIRECT_PEER_PROOF_BYTES)
             .await
             .map_err(DirectTransportError::ReadAuthenticationStream)?;
-        Self::verify_peer_proof(&encoded, &binding, expected_peer)?;
+        let proof =
+            DirectPeerProof::decode(&encoded).map_err(DirectTransportError::InvalidPeerProof)?;
+        let identity = *proof.identity();
+        if !expected_peers.contains(&identity) {
+            return Err(DirectTransportError::UnexpectedPeerIdentity);
+        }
+        proof
+            .verify(&binding)
+            .map_err(DirectTransportError::InvalidPeerProof)?;
         let proof = DirectPeerProof::create(local_identity, &binding)
             .map_err(DirectTransportError::InvalidPeerProof)?;
         send.write_all(
@@ -369,7 +390,7 @@ impl DirectConnection {
         .map_err(DirectTransportError::WriteAuthenticationStream)?;
         send.finish()
             .map_err(DirectTransportError::FinishAuthenticationStream)?;
-        Ok(())
+        Ok(identity)
     }
 
     fn connection_binding(
@@ -456,6 +477,8 @@ pub enum DirectTransportError {
     InvalidPeerProof(#[source] yeokcham_protocol::DirectPeerProofError),
     #[error("direct peer proof does not match the expected identity")]
     UnexpectedPeerIdentity,
+    #[error("direct peer authentication requires at least one expected identity")]
+    NoExpectedPeerIdentities,
 }
 
 #[cfg(test)]

@@ -18,18 +18,22 @@ use std::{
     fs,
     io::{self, Write},
     path::{Path, PathBuf},
-    time::{SystemTime, UNIX_EPOCH},
+    sync::Arc,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use yeokcham_core::{
-    IdentityKeypair, IdentityPublicKey, KeystoreEntryName, KeystoreSecret, OsKeystore,
-};
+#[cfg(any(test, unix))]
+use yeokcham_core::KeystoreSecret;
+use yeokcham_core::{IdentityKeypair, IdentityPublicKey, KeystoreEntryName, OsKeystore};
 use yeokcham_daemon::{
     AttachmentSubmissionStore, ClientIdentity, ClientIdentityInitialization, ClientStateDirectory,
-    ContactLifecycleService, ContactStatus, ContactStore, ContactVerificationMethod,
-    DaemonLocalAuth, DaemonLocalAuthToken, DaemonRuntime, InboxMessage, MessageExpiry,
-    PendingContactImportService, QrContactVerificationService, RecipientInboxDeduplication,
-    SafetyNumberVerificationService, SenderOutbox,
+    ContactLifecycleService, ContactStatus, ContactStore, ContactVerificationMethod, DaemonRuntime,
+    InboxMessage, MessageExpiry, PendingContactImportService, QrContactVerificationService,
+    RecipientInboxDeduplication, SafetyNumberVerificationService, SenderOutbox,
+    SharedIpMeshCertificatePin, SharedIpMeshConfig, SharedIpMeshEndpoint, SharedIpMeshPeer,
+    SharedIpMeshTlsIdentity, SharedIpMeshTransport,
 };
+#[cfg(any(test, unix))]
+use yeokcham_daemon::{DaemonLocalAuth, DaemonLocalAuthToken};
 use yeokcham_protocol::{
     ATTACHMENT_IDENTIFIER_BYTES, AttachmentIdentifier, AttachmentUploadJournal,
     CONTACT_INVITATION_BYTES, ContactInvitation, EncryptedAttachmentChunk,
@@ -114,6 +118,10 @@ enum Command {
     Daemon {
         #[command(subcommand)]
         command: DaemonCommand,
+    },
+    LocalMesh {
+        #[command(subcommand)]
+        command: LocalMeshCommand,
     },
     Tui(TuiCommand),
     ReleaseManifest {
@@ -237,7 +245,53 @@ enum AttachmentCommand {
 enum DaemonCommand {
     Serve {
         #[arg(long)]
+        config: PathBuf,
+    },
+}
+
+#[derive(Subcommand)]
+enum LocalMeshCommand {
+    Init {
+        #[arg(long)]
+        config: PathBuf,
+        #[arg(long)]
         state_directory: PathBuf,
+        #[arg(long)]
+        transport: String,
+        #[arg(long)]
+        listen_endpoint: String,
+    },
+    Fingerprint {
+        #[arg(long)]
+        state_directory: PathBuf,
+    },
+    Connect {
+        #[arg(long)]
+        config: PathBuf,
+        #[arg(long)]
+        identity: String,
+        #[arg(long, default_value_t = 10)]
+        timeout_seconds: u8,
+    },
+    Peer {
+        #[command(subcommand)]
+        command: LocalMeshPeerCommand,
+    },
+    Peers {
+        #[arg(long)]
+        config: PathBuf,
+    },
+}
+
+#[derive(Subcommand)]
+enum LocalMeshPeerCommand {
+    Add {
+        #[arg(long)]
+        config: PathBuf,
+        #[arg(long)]
+        identity: String,
+        #[arg(long)]
+        certificate_fingerprint: String,
     },
 }
 
@@ -333,8 +387,9 @@ fn main() -> Result<(), Box<dyn Error>> {
             ),
         },
         Command::Daemon { command } => match command {
-            DaemonCommand::Serve { state_directory } => daemon_serve(&state_directory)?,
+            DaemonCommand::Serve { config } => daemon_serve(&config)?,
         },
+        Command::LocalMesh { command } => run_local_mesh_command(command)?,
         Command::Tui(command) => tui(&command.state_directory, command.snapshot, command.daemon)?,
         Command::ReleaseManifest { command } => release_manifest(command)?,
         Command::ReleaseMetadata {
@@ -351,6 +406,243 @@ fn main() -> Result<(), Box<dyn Error>> {
         Command::ProtocolVectors { verify } => protocol_vectors(verify)?,
     }
     Ok(())
+}
+
+fn run_local_mesh_command(command: LocalMeshCommand) -> Result<(), Box<dyn Error>> {
+    match command {
+        LocalMeshCommand::Init {
+            config,
+            state_directory,
+            transport,
+            listen_endpoint,
+        } => print!(
+            "{}",
+            initialize_shared_ip_mesh(&config, &state_directory, &transport, &listen_endpoint)?
+        ),
+        LocalMeshCommand::Fingerprint { state_directory } => {
+            print!("{}", shared_ip_mesh_fingerprint(&state_directory)?);
+        }
+        LocalMeshCommand::Connect {
+            config,
+            identity,
+            timeout_seconds,
+        } => print!(
+            "{}",
+            connect_shared_ip_mesh(&config, &identity, timeout_seconds)?
+        ),
+        LocalMeshCommand::Peer { command } => match command {
+            LocalMeshPeerCommand::Add {
+                config,
+                identity,
+                certificate_fingerprint,
+            } => print!(
+                "{}",
+                add_shared_ip_mesh_peer(&config, &identity, &certificate_fingerprint)?
+            ),
+        },
+        LocalMeshCommand::Peers { config } => print!("{}", list_shared_ip_mesh_peers(&config)?),
+    }
+    Ok(())
+}
+
+fn initialize_shared_ip_mesh(
+    config_path: &Path,
+    state_directory: &Path,
+    transport: &str,
+    listen_endpoint: &str,
+) -> Result<String, Box<dyn Error>> {
+    let transport = SharedIpMeshTransport::parse(transport)?;
+    let listen_endpoint = listen_endpoint.parse()?;
+    let config =
+        SharedIpMeshConfig::new(state_directory.to_path_buf(), transport, listen_endpoint)?;
+    if let Some(parent) = config_path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        fs::create_dir_all(parent)?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let mut keystore = LinuxKeystore::new()?;
+        return initialize_shared_ip_mesh_with_keystore(&config, config_path, &mut keystore);
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let mut keystore = MacOsKeystore::new();
+        return initialize_shared_ip_mesh_with_keystore(&config, config_path, &mut keystore);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let mut keystore = WindowsKeystore::new()?;
+        return initialize_shared_ip_mesh_with_keystore(&config, config_path, &mut keystore);
+    }
+    #[allow(unreachable_code)]
+    Err("unsupported operating system keystore".into())
+}
+
+fn initialize_shared_ip_mesh_with_keystore<K: OsKeystore>(
+    config: &SharedIpMeshConfig,
+    config_path: &Path,
+    keystore: &mut K,
+) -> Result<String, Box<dyn Error>> {
+    let layout = ClientStateDirectory::new(config.state_directory())?;
+    fs::create_dir_all(layout.root())?;
+    let (identity, _) = ClientIdentity::create_or_load(keystore)?;
+    let tls = SharedIpMeshTlsIdentity::create_or_load(&layout, keystore)?;
+    config.write_new(config_path)?;
+    Ok(format!(
+        "identity={}\ncertificate_sha256={}\ntransport={}\nlisten_endpoint={}\n",
+        hexadecimal(identity.public_key().as_bytes()),
+        tls.certificate_pin().encode(),
+        config.transport().encode(),
+        config.listen_endpoint()
+    ))
+}
+
+fn shared_ip_mesh_fingerprint(state_directory: &Path) -> Result<String, Box<dyn Error>> {
+    let layout = ClientStateDirectory::new(state_directory)?;
+    #[cfg(target_os = "linux")]
+    {
+        let keystore = LinuxKeystore::new()?;
+        return shared_ip_mesh_fingerprint_with_keystore(&layout, &keystore);
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let keystore = MacOsKeystore::new();
+        return shared_ip_mesh_fingerprint_with_keystore(&layout, &keystore);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let keystore = WindowsKeystore::new()?;
+        return shared_ip_mesh_fingerprint_with_keystore(&layout, &keystore);
+    }
+    #[allow(unreachable_code)]
+    Err("unsupported operating system keystore".into())
+}
+
+fn shared_ip_mesh_fingerprint_with_keystore<K: OsKeystore>(
+    state_directory: &ClientStateDirectory,
+    keystore: &K,
+) -> Result<String, Box<dyn Error>> {
+    let tls = SharedIpMeshTlsIdentity::load(state_directory, keystore)?;
+    Ok(format!(
+        "certificate_sha256={}\n",
+        tls.certificate_pin().encode()
+    ))
+}
+
+fn connect_shared_ip_mesh(
+    config_path: &Path,
+    identity: &str,
+    timeout_seconds: u8,
+) -> Result<String, Box<dyn Error>> {
+    if timeout_seconds == 0 || timeout_seconds > 30 {
+        return Err("local-mesh discovery timeout must be between 1 and 30 seconds".into());
+    }
+    let identity = decode_identity_public_key(identity)?;
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    #[cfg(target_os = "linux")]
+    {
+        let keystore = LinuxKeystore::new()?;
+        return runtime.block_on(connect_shared_ip_mesh_with_keystore(
+            config_path,
+            identity,
+            Duration::from_secs(u64::from(timeout_seconds)),
+            &keystore,
+        ));
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let keystore = MacOsKeystore::new();
+        return runtime.block_on(connect_shared_ip_mesh_with_keystore(
+            config_path,
+            identity,
+            Duration::from_secs(u64::from(timeout_seconds)),
+            &keystore,
+        ));
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let keystore = WindowsKeystore::new()?;
+        return runtime.block_on(connect_shared_ip_mesh_with_keystore(
+            config_path,
+            identity,
+            Duration::from_secs(u64::from(timeout_seconds)),
+            &keystore,
+        ));
+    }
+    #[allow(unreachable_code)]
+    Err("unsupported operating system keystore".into())
+}
+
+async fn connect_shared_ip_mesh_with_keystore<K: OsKeystore + Sync>(
+    config_path: &Path,
+    identity: IdentityPublicKey,
+    timeout: Duration,
+    keystore: &K,
+) -> Result<String, Box<dyn Error>> {
+    let config = SharedIpMeshConfig::load(config_path)?;
+    let local_identity = ClientIdentity::load(keystore)?;
+    let layout = ClientStateDirectory::new(config.state_directory())?;
+    let tls_identity = SharedIpMeshTlsIdentity::load(&layout, keystore)?;
+    let endpoint = SharedIpMeshEndpoint::start(config, local_identity.public_key(), &tls_identity)?;
+    let connected = async {
+        let peer = endpoint.discover_trusted_peer(identity, timeout)?;
+        let connection = endpoint
+            .connect(peer, local_identity.keypair(), &tls_identity)
+            .await?;
+        Ok::<_, Box<dyn Error>>(format!(
+            "identity={}\nremote_endpoint={}\n",
+            hexadecimal(connection.peer().identity().as_bytes()),
+            connection.connection().remote_address()
+        ))
+    }
+    .await;
+    let shutdown = endpoint.shutdown();
+    shutdown?;
+    connected
+}
+
+fn add_shared_ip_mesh_peer(
+    config_path: &Path,
+    identity: &str,
+    certificate_fingerprint: &str,
+) -> Result<String, Box<dyn Error>> {
+    let mut config = SharedIpMeshConfig::load(config_path)?;
+    let identity = decode_identity_public_key(identity)?;
+    let certificate_pin = SharedIpMeshCertificatePin::decode(certificate_fingerprint)?;
+    config.add_peer(SharedIpMeshPeer::new(identity, certificate_pin))?;
+    config.save(config_path)?;
+    Ok(format!(
+        "identity={}\ncertificate_sha256={}\n",
+        hexadecimal(identity.as_bytes()),
+        certificate_pin.encode()
+    ))
+}
+
+fn list_shared_ip_mesh_peers(config_path: &Path) -> Result<String, Box<dyn Error>> {
+    let config = SharedIpMeshConfig::load(config_path)?;
+    let mut output = format!(
+        "transport={}\nlisten_endpoint={}\n",
+        config.transport().encode(),
+        config.listen_endpoint()
+    );
+    for peer in config.peers() {
+        writeln!(
+            output,
+            "peer_identity={}",
+            hexadecimal(peer.identity().as_bytes()),
+        )
+        .expect("writing to String cannot fail");
+        writeln!(
+            output,
+            "peer_certificate_sha256={}",
+            peer.certificate_pin().encode()
+        )
+        .expect("writing to String cannot fail");
+    }
+    Ok(output)
 }
 
 fn protocol_vectors(verify: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
@@ -1044,9 +1336,12 @@ fn start_embedded_tui_client(state_directory: &Path) -> Result<SdkClient, Box<dy
     Ok(SdkClient::start(&config)?)
 }
 
+#[cfg(any(test, unix))]
 const DAEMON_AUTH_TOKEN_ENTRY_PREFIX: &str = "daemon_auth_v1_";
+#[cfg(any(test, unix))]
 const DAEMON_AUTH_TOKEN_ENTRY_DIGEST_BYTES: usize = 24;
 
+#[cfg(any(test, unix))]
 fn daemon_auth_token_entry(state_directory: &Path) -> Result<KeystoreEntryName, Box<dyn Error>> {
     let canonical = fs::canonicalize(state_directory)?;
     let digest = Sha256::digest(canonical.as_os_str().as_encoded_bytes());
@@ -1056,6 +1351,7 @@ fn daemon_auth_token_entry(state_directory: &Path) -> Result<KeystoreEntryName, 
     ))?)
 }
 
+#[cfg(unix)]
 fn load_daemon_auth_token<K: OsKeystore>(
     keystore: &K,
     state_directory: &Path,
@@ -1069,11 +1365,33 @@ fn load_daemon_auth_token<K: OsKeystore>(
 
 #[cfg(unix)]
 async fn serve_daemon_with_keystore<K: OsKeystore>(
-    state_directory: &Path,
+    config_path: &Path,
     keystore: &mut K,
 ) -> Result<(), Box<dyn Error>> {
-    let mut runtime =
-        DaemonRuntime::start(yeokcham_protocol::ProtocolVersion::INITIAL, state_directory)?;
+    let config = SharedIpMeshConfig::load(config_path)?;
+    let mut runtime = DaemonRuntime::start(
+        yeokcham_protocol::ProtocolVersion::INITIAL,
+        config.state_directory(),
+    )?;
+    let local_identity = ClientIdentity::load(keystore)?;
+    let tls_identity = SharedIpMeshTlsIdentity::load(runtime.state_directory(), keystore)?;
+    let mesh = Arc::new(SharedIpMeshEndpoint::start(
+        config,
+        local_identity.public_key(),
+        &tls_identity,
+    )?);
+    let accepting_mesh = Arc::clone(&mesh);
+    let accept_task = tokio::spawn(async move {
+        loop {
+            match accepting_mesh.accept(local_identity.keypair()).await {
+                Ok(connection) => drop(connection),
+                Err(yeokcham_daemon::SharedIpMeshError::Direct(
+                    yeokcham_daemon::DirectTransportError::Shutdown,
+                )) => break,
+                Err(error) => eprintln!("shared-IP mesh connection rejected: {error}"),
+            }
+        }
+    });
     let entry = daemon_auth_token_entry(runtime.state_directory().root())?;
     let (auth, token) = DaemonLocalAuth::initialize()?;
     let secret = KeystoreSecret::new(token.as_bytes().to_vec())?;
@@ -1093,35 +1411,88 @@ async fn serve_daemon_with_keystore<K: OsKeystore>(
     };
     let revoked = auth.revoke();
     let deleted = keystore.delete(&entry);
+    let mesh_shutdown = mesh.shutdown();
+    let accepted = accept_task.await;
     let shutdown = runtime.shutdown();
     served?;
     revoked?;
     deleted?;
+    mesh_shutdown?;
+    accepted?;
     shutdown?;
     Ok(())
 }
 
 #[cfg(unix)]
-fn daemon_serve(state_directory: &Path) -> Result<(), Box<dyn Error>> {
+fn daemon_serve(config_path: &Path) -> Result<(), Box<dyn Error>> {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
     #[cfg(target_os = "linux")]
     {
         let mut keystore = LinuxKeystore::new()?;
-        return runtime.block_on(serve_daemon_with_keystore(state_directory, &mut keystore));
+        return runtime.block_on(serve_daemon_with_keystore(config_path, &mut keystore));
     }
     #[cfg(target_os = "macos")]
     {
         let mut keystore = MacOsKeystore::new();
-        return runtime.block_on(serve_daemon_with_keystore(state_directory, &mut keystore));
+        return runtime.block_on(serve_daemon_with_keystore(config_path, &mut keystore));
     }
     #[allow(unreachable_code)]
     Err("unsupported operating system keystore".into())
 }
 
-#[cfg(not(unix))]
-fn daemon_serve(_state_directory: &Path) -> Result<(), Box<dyn Error>> {
+#[cfg(windows)]
+async fn serve_mesh_daemon_with_keystore<K: OsKeystore + Sync>(
+    config_path: &Path,
+    keystore: &K,
+) -> Result<(), Box<dyn Error>> {
+    let config = SharedIpMeshConfig::load(config_path)?;
+    let mut runtime = DaemonRuntime::start(
+        yeokcham_protocol::ProtocolVersion::INITIAL,
+        config.state_directory(),
+    )?;
+    let local_identity = ClientIdentity::load(keystore)?;
+    let tls_identity = SharedIpMeshTlsIdentity::load(runtime.state_directory(), keystore)?;
+    let mesh = Arc::new(SharedIpMeshEndpoint::start(
+        config,
+        local_identity.public_key(),
+        &tls_identity,
+    )?);
+    let accepting_mesh = Arc::clone(&mesh);
+    let accept_task = tokio::spawn(async move {
+        loop {
+            match accepting_mesh.accept(local_identity.keypair()).await {
+                Ok(connection) => drop(connection),
+                Err(yeokcham_daemon::SharedIpMeshError::Direct(
+                    yeokcham_daemon::DirectTransportError::Shutdown,
+                )) => break,
+                Err(error) => eprintln!("shared-IP mesh connection rejected: {error}"),
+            }
+        }
+    });
+    let interrupted = tokio::signal::ctrl_c().await;
+    let mesh_shutdown = mesh.shutdown();
+    let accepted = accept_task.await;
+    let shutdown = runtime.shutdown();
+    interrupted?;
+    mesh_shutdown?;
+    accepted?;
+    shutdown?;
+    Ok(())
+}
+
+#[cfg(windows)]
+fn daemon_serve(config_path: &Path) -> Result<(), Box<dyn Error>> {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    let keystore = WindowsKeystore::new()?;
+    runtime.block_on(serve_mesh_daemon_with_keystore(config_path, &keystore))
+}
+
+#[cfg(all(not(unix), not(windows)))]
+fn daemon_serve(_config_path: &Path) -> Result<(), Box<dyn Error>> {
     Err("daemon serve is unavailable on this platform".into())
 }
 
@@ -2778,22 +3149,22 @@ mod tests {
     use super::{
         Arguments, AttachmentCommand, Command, ContactCommand, ContactInvitation,
         ContactInvitationCommand, DaemonCommand, EncryptedMessageEnvelope, IdentityCommand,
-        IdentityKeypair, IdentityPublicKey, KeystoreEntryName,
-        MAX_ENCRYPTED_MESSAGE_SUBMISSION_BYTES, MAX_TUI_CONTACT_INPUT_BYTES, MessageCommand,
-        MessageExpiry, OsKeystore, RecipientInboxDeduplication, RelayProfileCommand,
-        ReleaseManifestCommand, SenderOutbox, TorMaildropProfileConfig, TuiCommand,
-        TuiContactInput, TuiContactInputKind, TuiDashboard, TuiMessageInput, TuiMessageInputStage,
-        TuiRouteSelection, TuiScreen, apply_contact_rotation, contact_invitation_record,
-        create_identity, daemon_auth_token_entry, dashboard_from_stores, decode_canonical_hex,
-        decode_envelope, handle_tui_route_policy_key, hexadecimal, identity_record,
-        import_contact_invitation, initialize_tui_identity, inspect_contact_invitation,
-        inspect_relay_profile, load_attachment_transfers, load_identity,
-        queue_attachment_submission, queue_message, relay_profile_record, release_metadata,
-        render_dashboard, render_tui_attachments, render_tui_dashboard, render_tui_route_policy,
-        render_tui_status, revoke_contact, sign_release_manifest, start_embedded_tui_client,
-        submit_tui_contact_input_with_keystore, submit_tui_message_with_identity,
-        tui_safety_number_parts, validate_state_directory, verify_contact_qr,
-        verify_contact_safety_number, verify_release_manifest,
+        IdentityKeypair, IdentityPublicKey, KeystoreEntryName, LocalMeshCommand,
+        LocalMeshPeerCommand, MAX_ENCRYPTED_MESSAGE_SUBMISSION_BYTES, MAX_TUI_CONTACT_INPUT_BYTES,
+        MessageCommand, MessageExpiry, OsKeystore, RecipientInboxDeduplication,
+        RelayProfileCommand, ReleaseManifestCommand, SenderOutbox, TorMaildropProfileConfig,
+        TuiCommand, TuiContactInput, TuiContactInputKind, TuiDashboard, TuiMessageInput,
+        TuiMessageInputStage, TuiRouteSelection, TuiScreen, apply_contact_rotation,
+        contact_invitation_record, create_identity, daemon_auth_token_entry, dashboard_from_stores,
+        decode_canonical_hex, decode_envelope, handle_tui_route_policy_key, hexadecimal,
+        identity_record, import_contact_invitation, initialize_tui_identity,
+        inspect_contact_invitation, inspect_relay_profile, load_attachment_transfers,
+        load_identity, queue_attachment_submission, queue_message, relay_profile_record,
+        release_metadata, render_dashboard, render_tui_attachments, render_tui_dashboard,
+        render_tui_route_policy, render_tui_status, revoke_contact, sign_release_manifest,
+        start_embedded_tui_client, submit_tui_contact_input_with_keystore,
+        submit_tui_message_with_identity, tui_safety_number_parts, validate_state_directory,
+        verify_contact_qr, verify_contact_safety_number, verify_release_manifest,
     };
     use yeokcham_core::KeystoreSecret;
     use yeokcham_daemon::{
@@ -3606,15 +3977,15 @@ mod tests {
             "yeokcham",
             "daemon",
             "serve",
-            "--state-directory",
-            "/state",
+            "--config",
+            "/config/mesh.conf",
         ])
         .unwrap();
         assert!(matches!(
             command.command,
             Command::Daemon {
-                command: DaemonCommand::Serve { state_directory }
-            } if state_directory.as_path() == Path::new("/state")
+                command: DaemonCommand::Serve { config }
+            } if config.as_path() == Path::new("/config/mesh.conf")
         ));
         let command = Arguments::try_parse_from([
             "yeokcham",
@@ -3627,6 +3998,70 @@ mod tests {
         assert!(matches!(
             command.command,
             Command::Tui(TuiCommand { daemon: true, .. })
+        ));
+    }
+
+    #[test]
+    fn parses_shared_ip_mesh_commands() {
+        let command = Arguments::try_parse_from([
+            "yeokcham",
+            "local-mesh",
+            "init",
+            "--config",
+            "/config/mesh.conf",
+            "--state-directory",
+            "/state",
+            "--transport",
+            "wifi_hotspot",
+            "--listen-endpoint",
+            "192.0.2.10:4242",
+        ])
+        .unwrap();
+        assert!(matches!(
+            command.command,
+            Command::LocalMesh {
+                command: LocalMeshCommand::Init { transport, .. }
+            } if transport == "wifi_hotspot"
+        ));
+        let command = Arguments::try_parse_from([
+            "yeokcham",
+            "local-mesh",
+            "peer",
+            "add",
+            "--config",
+            "/config/mesh.conf",
+            "--identity",
+            "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+            "--certificate-fingerprint",
+            "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+        ])
+        .unwrap();
+        assert!(matches!(
+            command.command,
+            Command::LocalMesh {
+                command: LocalMeshCommand::Peer {
+                    command: LocalMeshPeerCommand::Add { .. }
+                }
+            }
+        ));
+        let command = Arguments::try_parse_from([
+            "yeokcham",
+            "local-mesh",
+            "connect",
+            "--config",
+            "/config/mesh.conf",
+            "--identity",
+            "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+        ])
+        .unwrap();
+        assert!(matches!(
+            command.command,
+            Command::LocalMesh {
+                command: LocalMeshCommand::Connect {
+                    timeout_seconds: 10,
+                    ..
+                }
+            }
         ));
     }
 

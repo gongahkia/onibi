@@ -41,6 +41,7 @@ mod relay_tls;
 #[cfg(feature = "experimental-relay-replication")]
 mod replication_scheduler;
 mod safety_number_verification;
+mod shared_ip_mesh;
 mod signed_prekey_lifecycle;
 mod state_store;
 mod stun;
@@ -81,6 +82,7 @@ pub use client_state::{
     ATTACHMENT_UPLOAD_DIRECTORY, CLIENT_STATE_DIRECTORY_LAYOUT_VERSION, CONTACTS_DATABASE_FILE,
     ClientStateDirectory, ClientStateDirectoryError, INBOX_DATABASE_FILE,
     ONE_TIME_PREKEY_INVENTORY_DATABASE_FILE, OUTBOX_DATABASE_FILE, RATCHETS_DATABASE_FILE,
+    SHARED_IP_MESH_CERTIFICATE_FILE,
 };
 pub use contact_lifecycle::{ContactLifecycleError, ContactLifecycleService};
 pub use contact_store::{
@@ -166,6 +168,12 @@ pub use relay_tls::{RELAY_TLS_PIN_BYTES, RelayTlsEndpoint, RelayTlsEndpointError
 pub use replication_scheduler::{MaildropReplicationError, MaildropReplicationScheduler};
 pub use safety_number_verification::{
     SafetyNumberVerificationError, SafetyNumberVerificationService,
+};
+pub use shared_ip_mesh::{
+    MAX_SHARED_IP_MESH_CONFIG_BYTES, MAX_SHARED_IP_MESH_PEERS, SHARED_IP_MESH_CONFIG_VERSION,
+    SHARED_IP_MESH_SERVER_NAME, SHARED_IP_MESH_TLS_KEY_ENTRY, SHARED_IP_MESH_TLS_PIN_BYTES,
+    SharedIpMeshCertificatePin, SharedIpMeshConfig, SharedIpMeshConnection, SharedIpMeshEndpoint,
+    SharedIpMeshError, SharedIpMeshPeer, SharedIpMeshTlsIdentity, SharedIpMeshTransport,
 };
 pub use signed_prekey_lifecycle::{
     SIGNED_PREKEY_KEY_ENTRY, SignedPrekeyInitialization, SignedPrekeyLifecycle,
