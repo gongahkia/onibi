@@ -1,6 +1,6 @@
 # WireGuard Setup
 
-WireGuard mode is for users who already run their own VPN or want a self-hosted alternative to Tailscale, Cloudflare, and ngrok.
+WireGuard mode is for users who already run their own VPN or want a self-hosted alternative to Tailscale Private, Cloudflare, and ngrok.
 
 ## Requirements
 

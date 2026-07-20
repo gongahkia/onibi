@@ -73,6 +73,17 @@ func TestProjectConfigAcceptsPrivateTailscaleTransport(t *testing.T) {
 	}
 }
 
+func TestProjectConfigRejectsRemovedPublicTailscale(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "workspace.toml")
+	if err := os.WriteFile(path, []byte("schema_version = 1\nname = \"alpha\"\n[transports]\ndefault = \"tailscale\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := LoadProjectConfig(path)
+	if err == nil || !strings.Contains(err.Error(), "no longer supported") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 func TestProjectConfigRejectsRemovedEmailTransport(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "workspace.toml")
 	if err := os.WriteFile(path, []byte("schema_version = 1\nname = \"alpha\"\n[transports]\ndefault = \"email\"\n"), 0o600); err != nil {

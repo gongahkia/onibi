@@ -168,7 +168,7 @@ func TestDoctorPushFailsMissingVAPIDKey(t *testing.T) {
 	}
 }
 
-func TestDoctorTailscalePrivatePassesWithoutFunnelCaps(t *testing.T) {
+func TestDoctorTailscalePrivatePassesWithoutPublicCaps(t *testing.T) {
 	paths := doctorTestPaths(t, "tailscale-private")
 	t.Setenv(transport.TailscaleBinEnv, fakeTailscale(t, `{"BackendState":"Running","Self":{"DNSName":"dev.tail.ts.net.","CapMap":{"https":{}}}}`, `{"Web":{"dev.tail.ts.net:443":{}}}`))
 

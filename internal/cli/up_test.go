@@ -3,7 +3,6 @@ package cli
 import (
 	"bytes"
 	"context"
-	"errors"
 	"io"
 	"log/slog"
 	"path/filepath"

@@ -211,7 +211,7 @@ func TestTransportModeValues(t *testing.T) {
 	}
 }
 
-func TestTransportModeRejectsRemovedTailscaleFunnel(t *testing.T) {
+func TestTransportModeRejectsRemovedPublicTailscale(t *testing.T) {
 	cfg := Default()
 	err := Set(&cfg, "transport.mode", "tailscale")
 	if err == nil || !strings.Contains(err.Error(), "no longer supported") {
@@ -219,7 +219,7 @@ func TestTransportModeRejectsRemovedTailscaleFunnel(t *testing.T) {
 	}
 }
 
-func TestLoadRejectsRemovedTailscaleFunnel(t *testing.T) {
+func TestLoadRejectsRemovedPublicTailscale(t *testing.T) {
 	paths := testPaths(t)
 	if err := os.WriteFile(paths.Config, []byte("transport:\n  mode: tailscale\n"), 0o600); err != nil {
 		t.Fatal(err)

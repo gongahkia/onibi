@@ -10,7 +10,7 @@ Onibi is a single-user phone web cockpit. Use a local network path that reaches 
 
 `onibi up --transport=tailscale-private` exposes the same cockpit only through the authenticated tailnet. Tailnet reachability is not authorization: the phone still needs the pair URL and owner session.
 
-`tailscale` has been removed because it used public Funnel. Existing `transport.mode: tailscale` configuration fails before cockpit startup; select `tailscale-private`, LAN, WireGuard, ZeroTier, Cloudflare Quick, or ngrok instead.
+`tailscale` has been removed because it exposed the cockpit publicly. Existing `transport.mode: tailscale` configuration fails before cockpit startup; select `tailscale-private`, LAN, WireGuard, ZeroTier, Cloudflare Quick, or ngrok instead.
 
 ## Other web paths
 

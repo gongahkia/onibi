@@ -1,6 +1,6 @@
 # ZeroTier Setup
 
-ZeroTier mode is for users who already run a ZeroTier virtual network or want a user-controlled mesh alternative to Tailscale, WireGuard, Cloudflare, and ngrok.
+ZeroTier mode is for users who already run a ZeroTier virtual network or want a user-controlled mesh alternative to Tailscale Private, WireGuard, Cloudflare, and ngrok.
 
 ## Requirements
 

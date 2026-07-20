@@ -69,7 +69,7 @@ func TestLANResolveFailsEarlyWithoutRoutableHost(t *testing.T) {
 		t.Fatal("expected LAN reachability error")
 	}
 	var diag *DiagnosticError
-	if !strings.Contains(err.Error(), "iPhone hotspot") || !strings.Contains(err.Error(), "--transport=tailscale") {
+	if !strings.Contains(err.Error(), "iPhone hotspot") || !strings.Contains(err.Error(), "--transport=tailscale-private") {
 		t.Fatalf("err = %v", err)
 	}
 	if !errors.As(err, &diag) || diag.Code != DiagLANUnreachable {

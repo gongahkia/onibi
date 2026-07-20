@@ -27,7 +27,7 @@ func TestRenderTableWrapsToTerminalWidth(t *testing.T) {
 			t.Fatalf("line width=%d line=%q\n%s", visibleLen(line), line, got)
 		}
 	}
-	if !strings.Contains(got, "transport=tailscale-private") || !strings.Contains(got, "not in this") {
+	if !strings.Contains(got, "Tailscale") || !strings.Contains(got, "private") || !strings.Contains(got, "not in this") {
 		t.Fatalf("wrapped output lost content:\n%s", got)
 	}
 }

@@ -21,3 +21,10 @@ func TestResolveRejectsRemovedCloudflareNamed(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestResolveRejectsRemovedPublicTailscale(t *testing.T) {
+	_, err := Resolve(context.Background(), ResolverOptions{Mode: "tailscale", Port: 8443})
+	if err == nil || !strings.Contains(err.Error(), "no longer supported") {
+		t.Fatalf("err = %v", err)
+	}
+}

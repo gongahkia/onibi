@@ -6,7 +6,7 @@ Status: frozen for Q0 implementation.
 
 This protocol protects Onibi traffic when a third-party HTTPS relay is used, including Cloudflare Quick Tunnel and ngrok. The relay may terminate TLS and proxy requests, but it must not learn terminal bytes, approval payloads, control messages, or typed input.
 
-Local LAN and Tailscale modes can use the same framing, but E2E is mandatory for `--transport=cloudflare-quick` and `--transport=ngrok`.
+Local LAN and Tailscale Private modes can use the same framing, but E2E is mandatory for `--transport=cloudflare-quick` and `--transport=ngrok`.
 
 References:
 
