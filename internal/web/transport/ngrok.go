@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -67,6 +69,9 @@ func ngrokBin() string {
 func (n *Ngrok) Check(ctx context.Context) error {
 	if err := checkBinary(n.bin(), n.lookPath, ngrokProvider); err != nil {
 		return err
+	}
+	if err := validateNgrokAgentAPI(n.agentAPI()); err != nil {
+		return Diagnostic(DiagURLParse, ngrokProvider, "Agent API must use a loopback HTTP URL", err)
 	}
 	if strings.TrimSpace(n.Domain) != "" && strings.TrimSpace(n.Authtoken) == "" {
 		return Diagnostic(DiagAuthMissing, ngrokProvider, NgrokAuthtokenEnv+" required when "+NgrokDomainEnv+" is set", nil)
@@ -253,6 +258,23 @@ func (n *Ngrok) agentAPI() string {
 	return strings.TrimRight(strings.TrimSpace(n.AgentAPI), "/")
 }
 
+func validateNgrokAgentAPI(raw string) error {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return err
+	}
+	if u.Scheme != "http" || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
+		return errors.New("want loopback HTTP origin")
+	}
+	if strings.EqualFold(u.Hostname(), "localhost") {
+		return nil
+	}
+	if ip := net.ParseIP(u.Hostname()); ip != nil && ip.IsLoopback() {
+		return nil
+	}
+	return errors.New("host is not loopback")
+}
+
 type ngrokTunnelList struct {
 	Tunnels []ngrokTunnel `json:"tunnels"`
 }
@@ -269,41 +291,49 @@ type ngrokTunnelConfig struct {
 }
 
 func selectNgrokTunnel(tunnels []ngrokTunnel, localPort int, domain string) (ngrokTunnel, bool, error) {
-	wantAddr := fmt.Sprintf("https://localhost:%d", localPort)
 	wantDomain := strings.TrimSpace(domain)
 	insecure := false
 	for _, t := range tunnels {
-		if t.PublicURL == "" {
+		if !ngrokTunnelTargetsLocalHTTPS(t, localPort) {
+			continue
+		}
+		u, err := parseNgrokPublicURL(t.PublicURL)
+		if err != nil {
+			return ngrokTunnel{}, false, Diagnostic(DiagURLParse, ngrokProvider, "invalid Agent API public_url", err)
+		}
+		if u.Scheme != "https" || (u.Port() != "" && u.Port() != "443") {
+			insecure = true
 			continue
 		}
 		if wantDomain != "" {
-			u, err := url.Parse(t.PublicURL)
-			if err != nil {
-				return ngrokTunnel{}, false, Diagnostic(DiagURLParse, ngrokProvider, "invalid Agent API public_url", err)
-			}
 			if strings.EqualFold(u.Hostname(), wantDomain) {
-				if u.Scheme != "https" {
-					insecure = true
-					continue
-				}
 				return t, true, nil
 			}
 			continue
 		}
-		if t.Config.Addr == "" || strings.EqualFold(t.Config.Addr, wantAddr) {
-			u, err := url.Parse(t.PublicURL)
-			if err != nil {
-				return ngrokTunnel{}, false, Diagnostic(DiagURLParse, ngrokProvider, "invalid Agent API public_url", err)
-			}
-			if u.Scheme != "https" {
-				insecure = true
-				continue
-			}
-			return t, true, nil
-		}
+		return t, true, nil
 	}
 	if insecure {
 		return ngrokTunnel{}, false, Diagnostic(DiagURLParse, ngrokProvider, "Agent API exposed only non-HTTPS public_url", nil)
 	}
 	return ngrokTunnel{}, false, nil
+}
+
+func ngrokTunnelTargetsLocalHTTPS(t ngrokTunnel, localPort int) bool {
+	u, err := url.Parse(strings.TrimSpace(t.Config.Addr))
+	if err != nil || u.Scheme != "https" || !strings.EqualFold(u.Hostname(), "localhost") || u.Port() != strconv.Itoa(localPort) {
+		return false
+	}
+	return u.User == nil && u.RawQuery == "" && u.Fragment == "" && (u.Path == "" || u.Path == "/")
+}
+
+func parseNgrokPublicURL(raw string) (*url.URL, error) {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return nil, err
+	}
+	if u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
+		return nil, errors.New("want public origin")
+	}
+	return u, nil
 }

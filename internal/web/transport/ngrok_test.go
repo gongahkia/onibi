@@ -35,6 +35,19 @@ func TestNgrokReservedDomainRequiresToken(t *testing.T) {
 	}
 }
 
+func TestNgrokRejectsNonLoopbackAgentAPI(t *testing.T) {
+	n := &Ngrok{
+		Bin:      "ngrok",
+		AgentAPI: "http://192.0.2.10:4040",
+		lookPath: func(string) (string, error) { return "/usr/bin/ngrok", nil },
+	}
+	err := n.Check(context.Background())
+	var diag *DiagnosticError
+	if !errors.As(err, &diag) || diag.Code != DiagURLParse || !strings.Contains(err.Error(), "loopback") {
+		t.Fatalf("err=%#v", err)
+	}
+}
+
 func TestSelectNgrokTunnelPrefersReservedDomain(t *testing.T) {
 	got, ok, err := selectNgrokTunnel([]ngrokTunnel{
 		{Name: "other", PublicURL: "https://random.ngrok-free.app", Config: ngrokTunnelConfig{Addr: "https://localhost:8443"}},
@@ -70,6 +83,19 @@ func TestSelectNgrokTunnelAllowsHTTPCompanionWhenHTTPSPresent(t *testing.T) {
 	}
 	if !ok || got.Name != "https" {
 		t.Fatalf("tunnel = %#v ok=%v", got, ok)
+	}
+}
+
+func TestSelectNgrokTunnelRequiresExactLocalHTTPSUpstream(t *testing.T) {
+	for _, addr := range []string{"", "localhost:8443", "https://localhost:9443", "https://127.0.0.1:8443"} {
+		_, ok, err := selectNgrokTunnel([]ngrokTunnel{{
+			Name:      "wrong-upstream",
+			PublicURL: "https://demo.ngrok-free.app",
+			Config:    ngrokTunnelConfig{Addr: addr},
+		}}, 8443, "")
+		if err != nil || ok {
+			t.Fatalf("addr=%q ok=%v err=%v", addr, ok, err)
+		}
 	}
 }
 

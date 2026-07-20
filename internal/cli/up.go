@@ -71,7 +71,7 @@ func upCmd() *cobra.Command {
 		Use:     "up [profile]",
 		Aliases: []string{"start"},
 		Short:   "Start the local web cockpit and print a pairing QR",
-		Long:    "Start the local web cockpit and print a pairing QR.\n\nE2E is required for Cloudflare transport.",
+		Long:    "Start the local web cockpit and print a pairing QR.\n\nE2E is required for public relay transport (Cloudflare and ngrok).",
 		Args:    cobra.MaximumNArgs(1),
 		RunE:    runUp,
 	}
@@ -333,7 +333,7 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 	if err := validatePrivatePairTransport(cfg.Web.ListenAddr, pairTransport); err != nil {
 		return err
 	}
-	if isPrivateMeshTransport(pairTransport.Mode) {
+	if requiresRuntimeTransportHealth(pairTransport.Mode) {
 		if err := pairTransport.Health(ctx); err != nil {
 			return fmt.Errorf("%s transport health: %w", pairTransport.Mode, err)
 		}
@@ -420,7 +420,7 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 
 	var privateTransportHealthC <-chan time.Time
 	var privateTransportTicker *time.Ticker
-	if isPrivateMeshTransport(pairTransport.Mode) {
+	if requiresRuntimeTransportHealth(pairTransport.Mode) {
 		privateTransportTicker = time.NewTicker(privateTransportHealthInterval)
 		defer privateTransportTicker.Stop()
 		privateTransportHealthC = privateTransportTicker.C
@@ -475,6 +475,10 @@ func listenCertHosts(addr string) []string {
 
 func isPrivateMeshTransport(mode webtransport.Mode) bool {
 	return mode == webtransport.ModeWireGuard || mode == webtransport.ModeZeroTier
+}
+
+func requiresRuntimeTransportHealth(mode webtransport.Mode) bool {
+	return isPrivateMeshTransport(mode) || mode == webtransport.ModeNgrok
 }
 
 func validatePrivatePairTransport(listenAddr string, pairTransport webtransport.Resolved) error {

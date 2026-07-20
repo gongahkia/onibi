@@ -21,3 +21,10 @@ Repeat with an iPhone hotspot when the normal Wi-Fi blocks device-to-device traf
 4. Confirm a user without the pair URL and owner session cannot operate the cockpit.
 
 Network reachability is not authorization. Onibi does not provide remote-host management, fleet enrollment, chat bridges, notification providers, or team control through these paths.
+
+## ngrok
+
+1. Run `onibi doctor --transport=ngrok`; confirm binary/auth readiness, loopback Agent API configuration, and required relay E2E. Tunnel health is checked during `onibi up`.
+2. Start `onibi up --transport=ngrok`, scan the new QR on iPhone Safari and Chrome over LTE, and verify terminal input, output, approval allow, and approval deny.
+3. Open the pair URL after removing `#k=`; it must not attach.
+4. Stop the Agent API tunnel; Onibi must stop on its next health check. Restart it, scan its new QR, and repeat a terminal command.

@@ -299,19 +299,30 @@ func TestListenCertHostsAndWebHealthURLUseSelectedListener(t *testing.T) {
 	}
 }
 
-func TestCloudflareQuickForcesRelayE2E(t *testing.T) {
-	if !webtransport.IsRelayMode("cloudflare-quick") {
-		t.Fatal("cloudflare-quick did not require relay e2e")
+func TestPublicRelayModesForceRelayE2E(t *testing.T) {
+	for _, mode := range []webtransport.Mode{webtransport.ModeCloudflareQuick, webtransport.ModeNgrok} {
+		if !webtransport.IsRelayMode(string(mode)) {
+			t.Fatalf("%s did not require relay e2e", mode)
+		}
 	}
 }
 
-func TestUpHelpDocumentsCloudflareE2ERequirement(t *testing.T) {
+func TestUpHelpDocumentsPublicRelayE2ERequirement(t *testing.T) {
 	out, _, err := executeRootAllowError(t, "up", "--help", "--color", "never")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "E2E is required for Cloudflare transport") {
+	if !strings.Contains(out.String(), "E2E is required for public relay transport (Cloudflare and ngrok)") {
 		t.Fatalf("help missing E2E requirement:\n%s", out.String())
+	}
+}
+
+func TestRuntimeTransportHealthIncludesNgrok(t *testing.T) {
+	if !requiresRuntimeTransportHealth(webtransport.ModeNgrok) {
+		t.Fatal("ngrok runtime health disabled")
+	}
+	if requiresRuntimeTransportHealth(webtransport.ModeCloudflareQuick) {
+		t.Fatal("cloudflare quick unexpectedly requires runtime health")
 	}
 }
 

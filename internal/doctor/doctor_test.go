@@ -243,7 +243,7 @@ func TestDoctorNgrokPassesWithToken(t *testing.T) {
 	t.Setenv(transport.NgrokAuthtokenEnv, "ngrok-token-1234567890")
 	report := Run(context.Background(), Options{Paths: paths})
 	check := checkNamed(t, report, "transport provider")
-	if check.Status != Pass || !strings.Contains(check.Detail, "authtoken present") {
+	if check.Status != Pass || !strings.Contains(check.Detail, "authtoken present") || !strings.Contains(check.Detail, "relay E2E is required") {
 		t.Fatalf("ngrok check = %#v", check)
 	}
 }
@@ -255,6 +255,17 @@ func TestDoctorNgrokWarnsDomainWithoutToken(t *testing.T) {
 	report := Run(context.Background(), Options{Paths: paths})
 	check := checkNamed(t, report, "transport provider")
 	if check.Status != Warn || !strings.Contains(check.Detail, transport.NgrokAuthtokenEnv) {
+		t.Fatalf("ngrok check = %#v", check)
+	}
+}
+
+func TestDoctorNgrokExplainsMissingOnibiToken(t *testing.T) {
+	paths := doctorTestPaths(t, "ngrok")
+	t.Setenv(transport.NgrokBinEnv, fakeExecutable(t, "ngrok"))
+	t.Setenv(transport.NgrokAuthtokenEnv, "")
+	report := Run(context.Background(), Options{Paths: paths})
+	check := checkNamed(t, report, "transport provider")
+	if check.Status != Pass || !strings.Contains(check.Detail, "authtoken not set") || !strings.Contains(check.Detail, "config may provide agent auth") {
 		t.Fatalf("ngrok check = %#v", check)
 	}
 }

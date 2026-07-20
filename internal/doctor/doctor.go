@@ -375,9 +375,11 @@ func (r *runner) checkNgrokProvider() {
 		r.add("transport provider", Warn, err.Error())
 		return
 	}
-	detail := "ngrok coverage: unit + fake agent API + live opt-in"
+	detail := "ngrok binary ready; exact HTTPS tunnel health is checked through the loopback Agent API during up; relay E2E is required"
 	if strings.TrimSpace(ng.Authtoken) != "" {
-		detail = "ngrok authtoken present; " + detail
+		detail = "ngrok authtoken present; auth ready; " + detail
+	} else {
+		detail = "ngrok authtoken not set; ngrok config may provide agent auth; " + detail
 	}
 	r.add("transport provider", Pass, detail)
 }
