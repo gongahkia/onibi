@@ -127,10 +127,6 @@ func TestLANLifecycleIPv4IPv6AndHotspotContract(t *testing.T) {
 			if urls, err := session.Pair("pair-token"); err != nil || len(urls) != 1 || urls[0] != tc.pair {
 				t.Fatalf("urls=%#v err=%v", urls, err)
 			}
-			candidate, err := session.Enrollment()
-			if err != nil || !candidate.RequiresOwnerProof || candidate.Endpoint.Kind != "mesh" || candidate.Endpoint.URL != strings.TrimSuffix(tc.pair, "/pair/pair-token") {
-				t.Fatalf("candidate=%#v err=%v", candidate, err)
-			}
 			if _, err := session.Reconnect(t.Context()); err != nil {
 				t.Fatal(err)
 			}

@@ -261,10 +261,6 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 		"preferred_host", preferredHost,
 	)
 	relayKeys := web.NewRelayKeys()
-	fleetLink, err := localFleetLink(ctx, db)
-	if err != nil {
-		return err
-	}
 	d := daemon.New(daemon.Options{
 		Paths:                   paths,
 		DB:                      db,
@@ -282,7 +278,6 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 		RequireWebE2E:           webtransport.IsRelayMode(cfg.Transport.Mode),
 		ProviderOutput:          daemonProviderOutputPolicy(cfg),
 		ProviderOutputOverrides: daemonProviderOutputOverrides(cfg),
-		FleetLink:               fleetLink,
 		SkipRestore:             true,
 	})
 	phase = time.Now()

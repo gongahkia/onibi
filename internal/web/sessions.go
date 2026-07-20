@@ -7,28 +7,20 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gongahkia/onibi/internal/fleet"
+	"github.com/gongahkia/onibi/internal/store"
 )
-
-type SessionListOptions struct {
-	IncludeRemote bool
-}
 
 type SessionSummary struct {
 	ID                    string                     `json:"id"`
-	HostID                string                     `json:"host_id,omitempty"`
 	Agent                 string                     `json:"agent"`
 	CWD                   string                     `json:"cwd"`
 	StartedAt             string                     `json:"started_at"`
 	LastActivity          string                     `json:"last_activity"`
 	PendingApprovalsCount int                        `json:"pending_approvals_count"`
-	RecoveryState         fleet.SessionRecoveryState `json:"recovery_state,omitempty"`
+	RecoveryState         store.SessionRecoveryState `json:"recovery_state,omitempty"`
 	RecoveryReason        string                     `json:"recovery_reason,omitempty"`
 	RecoveryUpdatedAt     string                     `json:"recovery_updated_at,omitempty"`
 	RoleRequired          string                     `json:"role_required"`
-	Remote                bool                       `json:"remote,omitempty"`
-	PeerName              string                     `json:"peer_name,omitempty"`
-	RemoteURL             string                     `json:"remote_url,omitempty"`
 }
 
 type SessionState string
@@ -52,19 +44,15 @@ type SessionsStatusResponse struct {
 
 type SessionStatus struct {
 	ID                    string                     `json:"id"`
-	HostID                string                     `json:"host_id,omitempty"`
 	Agent                 string                     `json:"agent"`
 	CWD                   string                     `json:"cwd,omitempty"`
 	State                 SessionState               `json:"state"`
 	LastActivity          string                     `json:"last_activity"`
 	PendingApprovalsCount int                        `json:"pending_approvals_count"`
-	RecoveryState         fleet.SessionRecoveryState `json:"recovery_state,omitempty"`
+	RecoveryState         store.SessionRecoveryState `json:"recovery_state,omitempty"`
 	RecoveryReason        string                     `json:"recovery_reason,omitempty"`
 	RecoveryUpdatedAt     string                     `json:"recovery_updated_at,omitempty"`
 	RoleRequired          string                     `json:"role_required"`
-	Remote                bool                       `json:"remote,omitempty"`
-	PeerName              string                     `json:"peer_name,omitempty"`
-	RemoteURL             string                     `json:"remote_url,omitempty"`
 }
 
 func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
@@ -79,7 +67,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "sessions unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	rows, err := s.sessionList(r.Context(), sessionListOptions(r))
+	rows, err := s.sessionList(r.Context())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -100,7 +88,7 @@ func (s *Server) handleSessionsStatus(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "sessions unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	status, err := s.sessionsStatus(r.Context(), sessionListOptions(r), time.Now())
+	status, err := s.sessionsStatus(r.Context(), time.Now())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -109,28 +97,11 @@ func (s *Server) handleSessionsStatus(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(status)
 }
 
-func sessionListOptions(r *http.Request) SessionListOptions {
-	return SessionListOptions{
-		IncludeRemote: includeRemoteSessions(r.URL.Query()["include"]),
-	}
-}
-
-func includeRemoteSessions(values []string) bool {
-	for _, value := range values {
-		for _, part := range strings.Split(value, ",") {
-			if strings.EqualFold(strings.TrimSpace(part), "remote") {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func (s *Server) sessionsStatus(ctx context.Context, opts SessionListOptions, now time.Time) (SessionsStatusResponse, error) {
+func (s *Server) sessionsStatus(ctx context.Context, now time.Time) (SessionsStatusResponse, error) {
 	if s.sessionList == nil {
 		return SessionsStatusResponse{}, nil
 	}
-	rows, err := s.sessionList(ctx, opts)
+	rows, err := s.sessionList(ctx)
 	if err != nil {
 		return SessionsStatusResponse{}, err
 	}
@@ -151,7 +122,6 @@ func (s *Server) sessionsStatus(ctx context.Context, opts SessionListOptions, no
 		out.Counts[state]++
 		out.Sessions = append(out.Sessions, SessionStatus{
 			ID:                    row.ID,
-			HostID:                row.HostID,
 			Agent:                 row.Agent,
 			CWD:                   row.CWD,
 			State:                 state,
@@ -161,9 +131,6 @@ func (s *Server) sessionsStatus(ctx context.Context, opts SessionListOptions, no
 			RecoveryReason:        row.RecoveryReason,
 			RecoveryUpdatedAt:     row.RecoveryUpdatedAt,
 			RoleRequired:          row.RoleRequired,
-			Remote:                row.Remote,
-			PeerName:              row.PeerName,
-			RemoteURL:             row.RemoteURL,
 		})
 	}
 	return out, nil
@@ -171,9 +138,9 @@ func (s *Server) sessionsStatus(ctx context.Context, opts SessionListOptions, no
 
 func deriveSessionState(row SessionSummary, now time.Time) SessionState {
 	switch row.RecoveryState {
-	case fleet.SessionRecoveryFailed, fleet.SessionRecoveryOrphaned, fleet.SessionRecoveryTerminated:
+	case store.SessionRecoveryFailed, store.SessionRecoveryOrphaned, store.SessionRecoveryTerminated:
 		return SessionStateFailed
-	case fleet.SessionRecoveryReconnecting, fleet.SessionRecoveryRecovering:
+	case store.SessionRecoveryReconnecting, store.SessionRecoveryRecovering:
 		return SessionStateRecovering
 	}
 	if row.PendingApprovalsCount > 0 {

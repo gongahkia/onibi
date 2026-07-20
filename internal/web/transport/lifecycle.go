@@ -5,8 +5,6 @@ import (
 	"errors"
 	"sync"
 	"time"
-
-	"github.com/gongahkia/onibi/internal/fleet"
 )
 
 type LifecycleState string
@@ -32,18 +30,12 @@ type HealthReport struct {
 	Targets []string
 }
 
-type EnrollmentCandidate struct {
-	Endpoint           fleet.Endpoint
-	RequiresOwnerProof bool
-}
-
 type Lifecycle interface {
 	Start(context.Context) (Resolved, error)
 	Resolve(context.Context) (Resolved, error)
 	Health(context.Context) (HealthReport, error)
 	Pair(string) ([]string, error)
 	Reconnect(context.Context) (Resolved, error)
-	Enrollment() (EnrollmentCandidate, error)
 	Shutdown(context.Context) error
 	Diagnostics() []LifecycleDiagnostic
 }
@@ -145,40 +137,6 @@ func (s *Session) Reconnect(ctx context.Context) (Resolved, error) {
 		}
 	}
 	return s.resolve(ctx, "reconnect")
-}
-
-func (s *Session) Enrollment() (EnrollmentCandidate, error) {
-	s.mu.Lock()
-	state := s.state
-	resolved := s.resolved
-	s.mu.Unlock()
-	if state != LifecycleStarted && state != LifecycleHealthy {
-		return EnrollmentCandidate{}, errors.New("transport lifecycle is not started")
-	}
-	endpoint := fleet.Endpoint{URL: resolved.RedactedBaseURL()}
-	switch resolved.Mode {
-	case ModeLAN:
-		for _, target := range resolved.TargetURLs() {
-			candidate := fleet.Endpoint{Kind: fleet.EndpointMesh, URL: target}
-			if candidate.Validate() == nil {
-				endpoint = candidate
-				break
-			}
-		}
-		if endpoint.Kind == "" {
-			return EnrollmentCandidate{}, errors.New("transport does not provide a valid fleet enrollment endpoint")
-		}
-	case ModeTailscalePrivate, ModeWireGuard, ModeZeroTier:
-		endpoint.Kind = fleet.EndpointMesh
-	case ModeCloudflareQuick, ModeNgrok:
-		endpoint.Kind = fleet.EndpointRelay
-	default:
-		return EnrollmentCandidate{}, errors.New("transport does not provide a fleet enrollment endpoint")
-	}
-	if err := endpoint.Validate(); err != nil {
-		return EnrollmentCandidate{}, err
-	}
-	return EnrollmentCandidate{Endpoint: endpoint, RequiresOwnerProof: true}, nil
 }
 
 func (s *Session) Shutdown(ctx context.Context) error {

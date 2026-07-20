@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/gongahkia/onibi/internal/approval"
-	"github.com/gongahkia/onibi/internal/fleet"
 	"github.com/gongahkia/onibi/internal/store"
 	"github.com/gongahkia/onibi/internal/tmux"
 )
@@ -31,7 +30,7 @@ func TestRestoreSessionsRecoversTmuxWithoutDuplicates(t *testing.T) {
 	d := New(Options{DB: db})
 	d.restoreSessions(ctx)
 	entry, ok, err := db.Session(ctx, "session-123")
-	if err != nil || !ok || entry.RecoveryState != fleet.SessionRecoveryHealthy || entry.RecoveryReason != "" {
+	if err != nil || !ok || entry.RecoveryState != store.SessionRecoveryHealthy || entry.RecoveryReason != "" {
 		t.Fatalf("restored session=%#v ok=%v err=%v", entry, ok, err)
 	}
 	if _, err := d.Registry.Get("session-123"); err != nil {
@@ -64,7 +63,7 @@ func TestRestoreSessionsOrphansMissingTmuxWithoutCancellingApproval(t *testing.T
 	}
 	d.restoreSessions(ctx)
 	entry, ok, err := db.Session(ctx, "session-123")
-	if err != nil || !ok || entry.Ended || entry.RecoveryState != fleet.SessionRecoveryOrphaned || entry.RecoveryReason == "" {
+	if err != nil || !ok || entry.Ended || entry.RecoveryState != store.SessionRecoveryOrphaned || entry.RecoveryReason == "" {
 		t.Fatalf("orphaned session=%#v ok=%v err=%v", entry, ok, err)
 	}
 	pending, err := d.Queue.Get(ctx, approvalID)
@@ -95,7 +94,7 @@ func TestTmuxCaptureDisconnectTimesOutAsOrphaned(t *testing.T) {
 	}
 	d.captureTmuxLoop(ctx, tmux.NewWithRunner(&sessionRecoveryTmuxRunner{err: errors.New("connection lost")}), s)
 	entry, ok, err := db.Session(ctx, "session-123")
-	if err != nil || !ok || entry.Ended || entry.RecoveryState != fleet.SessionRecoveryOrphaned || entry.RecoveryReason == "" || s.Ended() {
+	if err != nil || !ok || entry.Ended || entry.RecoveryState != store.SessionRecoveryOrphaned || entry.RecoveryReason == "" || s.Ended() {
 		t.Fatalf("timeout session=%#v ok=%v err=%v ended=%v", entry, ok, err, s.Ended())
 	}
 }
@@ -130,12 +129,12 @@ func TestRestoreSessionsReconcilesDiscoveredTmuxOwnership(t *testing.T) {
 	d.restoreSessions(ctx)
 	for _, tc := range []struct {
 		id    string
-		state fleet.SessionRecoveryState
+		state store.SessionRecoveryState
 	}{
-		{"session-live", fleet.SessionRecoveryHealthy},
-		{"session-duplicate", fleet.SessionRecoveryFailed},
-		{"session-missing", fleet.SessionRecoveryOrphaned},
-		{"session-foreign", fleet.SessionRecoveryOrphaned},
+		{"session-live", store.SessionRecoveryHealthy},
+		{"session-duplicate", store.SessionRecoveryFailed},
+		{"session-missing", store.SessionRecoveryOrphaned},
+		{"session-foreign", store.SessionRecoveryOrphaned},
 	} {
 		entry, ok, err := db.Session(ctx, tc.id)
 		if err != nil || !ok || entry.RecoveryState != tc.state || entry.Ended {
@@ -167,7 +166,7 @@ func TestRestoreSessionsRetainsOwnershipWhenDiscoveryFails(t *testing.T) {
 	d := New(Options{DB: db})
 	d.restoreSessions(ctx)
 	entry, ok, err := db.Session(ctx, "session-123")
-	if err != nil || !ok || entry.Ended || entry.RecoveryState != fleet.SessionRecoveryReconnecting || entry.RecoveryReason == "" {
+	if err != nil || !ok || entry.Ended || entry.RecoveryState != store.SessionRecoveryReconnecting || entry.RecoveryReason == "" {
 		t.Fatalf("discovery failure session=%#v ok=%v err=%v", entry, ok, err)
 	}
 	if sessions := d.Registry.List(); len(sessions) != 0 || runner.count("capture-pane") != 0 || runner.count("kill-session") != 0 {

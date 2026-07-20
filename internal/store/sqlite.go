@@ -289,52 +289,6 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
 );
 CREATE INDEX IF NOT EXISTS idx_push_subscriptions_last_seen ON push_subscriptions(last_seen_at);
 
-CREATE TABLE IF NOT EXISTS fleet_hosts (
-  id          TEXT PRIMARY KEY,
-  data_enc    BLOB NOT NULL,
-  state       TEXT NOT NULL,
-  registered_at INTEGER NOT NULL,
-  last_seen_at INTEGER NOT NULL DEFAULT 0,
-  revoked_at  INTEGER NOT NULL DEFAULT 0,
-  last_heartbeat_ns INTEGER NOT NULL DEFAULT 0,
-  updated_at  INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_fleet_hosts_state_last_seen ON fleet_hosts(state, last_seen_at);
-
-CREATE TABLE IF NOT EXISTS fleet_enrollment_challenges (
-  id          TEXT PRIMARY KEY,
-  host_enc    BLOB NOT NULL,
-  nonce_hash  BLOB NOT NULL,
-  expires_at  INTEGER NOT NULL,
-  consumed_at INTEGER NOT NULL DEFAULT 0,
-  created_at  INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_fleet_enrollment_expires ON fleet_enrollment_challenges(expires_at, consumed_at);
-
-CREATE TABLE IF NOT EXISTS fleet_key_rotation_challenges (
-  id          TEXT PRIMARY KEY,
-  challenge_enc BLOB NOT NULL,
-  nonce_hash  BLOB NOT NULL,
-  expires_at  INTEGER NOT NULL,
-  consumed_at INTEGER NOT NULL DEFAULT 0,
-  created_at  INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_fleet_key_rotation_expires ON fleet_key_rotation_challenges(expires_at, consumed_at);
-
-CREATE TABLE IF NOT EXISTS control_commands (
-  id           TEXT PRIMARY KEY,
-  host_id      TEXT NOT NULL,
-  session_id   TEXT NOT NULL,
-  action       TEXT NOT NULL,
-  payload_enc  BLOB NOT NULL DEFAULT X'',
-  state        TEXT NOT NULL,
-  result       TEXT NOT NULL DEFAULT '',
-  created_at   INTEGER NOT NULL,
-  updated_at   INTEGER NOT NULL,
-  expires_at   INTEGER NOT NULL,
-  completed_at INTEGER NOT NULL DEFAULT 0
-);
-CREATE INDEX IF NOT EXISTS idx_control_commands_host_state ON control_commands(host_id, state, expires_at);
 `
 
 func (d *DB) migrate() error {
@@ -386,9 +340,6 @@ func (d *DB) migrate() error {
 		return err
 	}
 	if err := d.ensureColumn(ctx, "web_sessions", "revoked_reason", "TEXT NOT NULL DEFAULT ''"); err != nil {
-		return err
-	}
-	if err := d.ensureColumn(ctx, "fleet_hosts", "last_heartbeat_ns", "INTEGER NOT NULL DEFAULT 0"); err != nil {
 		return err
 	}
 	if err := d.ensureColumn(ctx, "pairing_tokens", "session_id", "TEXT NOT NULL DEFAULT ''"); err != nil {

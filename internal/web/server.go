@@ -35,7 +35,7 @@ type Options struct {
 	EventBus              *EventBus
 	PTYHosts              func() map[string]*pty.Host
 	SessionIDs            func() []string
-	SessionList           func(context.Context, SessionListOptions) ([]SessionSummary, error)
+	SessionList           func(context.Context) ([]SessionSummary, error)
 	PTYHost               func(context.Context, string) (*pty.Host, error)
 	Handover              func(context.Context, string, string) (string, error)
 	Scroll                func(context.Context, string, string) error
@@ -56,7 +56,7 @@ type Server struct {
 	eventBus              *EventBus
 	ptyHosts              func() map[string]*pty.Host
 	sessionIDs            func() []string
-	sessionList           func(context.Context, SessionListOptions) ([]SessionSummary, error)
+	sessionList           func(context.Context) ([]SessionSummary, error)
 	ptyHost               func(context.Context, string) (*pty.Host, error)
 	handover              func(context.Context, string, string) (string, error)
 	scroll                func(context.Context, string, string) error
@@ -71,8 +71,6 @@ type Server struct {
 	e2eMu                 sync.Mutex
 	e2eHTTPReplay         map[string]time.Time
 	e2eHTTPResponse       map[*http.Request]e2eHTTPMeta
-	fleetLinkMu           sync.Mutex
-	fleetLinks            map[string]*fleetLinkConnection
 }
 
 func New(opts Options) *Server {
@@ -98,7 +96,6 @@ func New(opts Options) *Server {
 		requireE2E:            opts.RequireE2E,
 		experimentalProviders: opts.ExperimentalProviders,
 		log:                   opts.Log,
-		fleetLinks:            make(map[string]*fleetLinkConnection),
 	}
 }
 
@@ -115,16 +112,6 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/attachments/images", s.handleImageAttachment)
 	mux.HandleFunc("/push/vapid-public-key", s.handlePushVAPIDPublicKey)
 	mux.HandleFunc("/push/subscribe", s.handlePushSubscribe)
-	mux.HandleFunc("/fleet/hosts", s.handleFleetHosts)
-	mux.HandleFunc("/fleet/status", s.handleFleetStatus)
-	mux.HandleFunc("/fleet/enroll/challenge", s.handleFleetEnrollmentChallenge)
-	mux.HandleFunc("/fleet/enroll/proof", s.handleFleetEnrollmentProof)
-	mux.HandleFunc("/fleet/rotate/challenge", s.handleFleetKeyRotationChallenge)
-	mux.HandleFunc("/fleet/rotate/proof", s.handleFleetKeyRotationProof)
-	mux.HandleFunc("/fleet/revoke", s.handleFleetRevoke)
-	mux.HandleFunc("/fleet/heartbeat", s.handleFleetHeartbeat)
-	mux.HandleFunc("/fleet/link", s.handleFleetLink)
-	mux.HandleFunc("/fleet/mesh-health", s.handleFleetMeshHealth)
 	mux.HandleFunc("/share", s.handleShare)
 	mux.HandleFunc("/share/revoke", s.handleShareRevoke)
 	mux.HandleFunc("/snapshots", s.handleSnapshots)
@@ -139,7 +126,6 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/assets/", s.handleAssets)
 	mux.HandleFunc("/fonts/", s.handleFonts)
 	mux.HandleFunc("/control", s.handleControl)
-	mux.HandleFunc("/control/{id}", s.handleControl)
 	mux.HandleFunc("/handover", s.handleHandover)
 	mux.HandleFunc("/approvals/pending", s.handlePendingApprovals)
 	mux.HandleFunc("/approval/{id}", s.handleApproval)

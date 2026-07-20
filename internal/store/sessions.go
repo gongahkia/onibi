@@ -6,9 +6,27 @@ import (
 	"errors"
 	"strings"
 	"time"
-
-	"github.com/gongahkia/onibi/internal/fleet"
 )
+
+type SessionRecoveryState string
+
+const (
+	SessionRecoveryHealthy      SessionRecoveryState = "healthy"
+	SessionRecoveryReconnecting SessionRecoveryState = "reconnecting"
+	SessionRecoveryRecovering   SessionRecoveryState = "recovering"
+	SessionRecoveryOrphaned     SessionRecoveryState = "orphaned"
+	SessionRecoveryFailed       SessionRecoveryState = "failed"
+	SessionRecoveryTerminated   SessionRecoveryState = "terminated"
+)
+
+func (s SessionRecoveryState) Valid() bool {
+	switch s {
+	case SessionRecoveryHealthy, SessionRecoveryReconnecting, SessionRecoveryRecovering, SessionRecoveryOrphaned, SessionRecoveryFailed, SessionRecoveryTerminated:
+		return true
+	default:
+		return false
+	}
+}
 
 type SessionEntry struct {
 	ID                string
@@ -20,7 +38,7 @@ type SessionEntry struct {
 	TmuxTarget        string
 	StartedAt         time.Time
 	LastActivity      time.Time
-	RecoveryState     fleet.SessionRecoveryState
+	RecoveryState     SessionRecoveryState
 	RecoveryReason    string
 	RecoveryUpdatedAt time.Time
 	EndedAt           time.Time
@@ -44,7 +62,7 @@ func (d *DB) SessionUpsertStart(ctx context.Context, id, name, agent, cwd, comma
 		   started_at=excluded.started_at,
 		   last_activity=excluded.last_activity
 		 WHERE sessions.ended_at IS NULL`,
-		id, name, agent, nullIfEmpty(cwd), nullIfEmpty(command), transport, nullIfEmpty(tmuxTarget), started.Unix(), started.Unix(), string(fleet.SessionRecoveryHealthy), "", started.Unix())
+		id, name, agent, nullIfEmpty(cwd), nullIfEmpty(command), transport, nullIfEmpty(tmuxTarget), started.Unix(), started.Unix(), string(SessionRecoveryHealthy), "", started.Unix())
 	return err
 }
 
@@ -63,16 +81,16 @@ func (d *DB) SessionMarkEnded(ctx context.Context, id string, ended time.Time) e
 		        recovery_reason = CASE WHEN ended_at IS NULL THEN ? ELSE recovery_reason END,
 		        recovery_updated_at = CASE WHEN ended_at IS NULL THEN ? ELSE recovery_updated_at END
 		  WHERE id = ?`,
-		ended.Unix(), string(fleet.SessionRecoveryTerminated), "session terminated", ended.Unix(), id)
+		ended.Unix(), string(SessionRecoveryTerminated), "session terminated", ended.Unix(), id)
 	return err
 }
 
-func (d *DB) SessionTransitionRecovery(ctx context.Context, id string, next fleet.SessionRecoveryState, reason string, at time.Time) (bool, error) {
+func (d *DB) SessionTransitionRecovery(ctx context.Context, id string, next SessionRecoveryState, reason string, at time.Time) (bool, error) {
 	if strings.TrimSpace(id) == "" || !next.Valid() || at.IsZero() {
 		return false, errors.New("invalid session recovery transition")
 	}
 	reason = strings.TrimSpace(reason)
-	if len(reason) > 512 || (next != fleet.SessionRecoveryHealthy && reason == "") || (next == fleet.SessionRecoveryHealthy && reason != "") {
+	if len(reason) > 512 || (next != SessionRecoveryHealthy && reason == "") || (next == SessionRecoveryHealthy && reason != "") {
 		return false, errors.New("invalid session recovery reason")
 	}
 	tx, err := d.sql.BeginTx(ctx, nil)
@@ -87,7 +105,7 @@ func (d *DB) SessionTransitionRecovery(ctx context.Context, id string, next flee
 	} else if err != nil {
 		return false, err
 	}
-	state := fleet.SessionRecoveryState(current)
+	state := SessionRecoveryState(current)
 	if !state.Valid() {
 		return false, errors.New("invalid persisted session recovery state")
 	}
@@ -194,7 +212,7 @@ func scanSessions(rows *sql.Rows) ([]SessionEntry, error) {
 		}
 		e.StartedAt = time.Unix(started, 0)
 		e.LastActivity = time.Unix(lastActivity, 0)
-		e.RecoveryState = fleet.SessionRecoveryState(recoveryState)
+		e.RecoveryState = SessionRecoveryState(recoveryState)
 		if recoveryUpdated > 0 {
 			e.RecoveryUpdatedAt = time.Unix(recoveryUpdated, 0)
 		}
@@ -210,26 +228,26 @@ func scanSessions(rows *sql.Rows) ([]SessionEntry, error) {
 	return out, rows.Err()
 }
 
-func validSessionRecoveryTransition(current, next fleet.SessionRecoveryState) bool {
+func validSessionRecoveryTransition(current, next SessionRecoveryState) bool {
 	switch current {
-	case fleet.SessionRecoveryHealthy:
-		return next == fleet.SessionRecoveryReconnecting || next == fleet.SessionRecoveryRecovering || next == fleet.SessionRecoveryOrphaned || next == fleet.SessionRecoveryFailed || next == fleet.SessionRecoveryTerminated
-	case fleet.SessionRecoveryReconnecting:
-		return next == fleet.SessionRecoveryHealthy || next == fleet.SessionRecoveryRecovering || next == fleet.SessionRecoveryOrphaned || next == fleet.SessionRecoveryFailed || next == fleet.SessionRecoveryTerminated
-	case fleet.SessionRecoveryRecovering:
-		return next == fleet.SessionRecoveryHealthy || next == fleet.SessionRecoveryReconnecting || next == fleet.SessionRecoveryOrphaned || next == fleet.SessionRecoveryFailed || next == fleet.SessionRecoveryTerminated
-	case fleet.SessionRecoveryOrphaned, fleet.SessionRecoveryFailed:
-		return next == fleet.SessionRecoveryRecovering || next == fleet.SessionRecoveryTerminated
+	case SessionRecoveryHealthy:
+		return next == SessionRecoveryReconnecting || next == SessionRecoveryRecovering || next == SessionRecoveryOrphaned || next == SessionRecoveryFailed || next == SessionRecoveryTerminated
+	case SessionRecoveryReconnecting:
+		return next == SessionRecoveryHealthy || next == SessionRecoveryRecovering || next == SessionRecoveryOrphaned || next == SessionRecoveryFailed || next == SessionRecoveryTerminated
+	case SessionRecoveryRecovering:
+		return next == SessionRecoveryHealthy || next == SessionRecoveryReconnecting || next == SessionRecoveryOrphaned || next == SessionRecoveryFailed || next == SessionRecoveryTerminated
+	case SessionRecoveryOrphaned, SessionRecoveryFailed:
+		return next == SessionRecoveryRecovering || next == SessionRecoveryTerminated
 	default:
 		return false
 	}
 }
 
-func validSessionRecoveryRecord(state fleet.SessionRecoveryState, reason string, updatedAt time.Time) bool {
+func validSessionRecoveryRecord(state SessionRecoveryState, reason string, updatedAt time.Time) bool {
 	if !state.Valid() || len(reason) > 512 {
 		return false
 	}
-	if state == fleet.SessionRecoveryHealthy {
+	if state == SessionRecoveryHealthy {
 		return strings.TrimSpace(reason) == ""
 	}
 	return strings.TrimSpace(reason) != "" && !updatedAt.IsZero()

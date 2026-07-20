@@ -15,7 +15,6 @@ import (
 
 	"github.com/gongahkia/onibi/internal/approval"
 	"github.com/gongahkia/onibi/internal/config"
-	"github.com/gongahkia/onibi/internal/fleet"
 	"github.com/gongahkia/onibi/internal/intake"
 	"github.com/gongahkia/onibi/internal/pty"
 	"github.com/gongahkia/onibi/internal/store"
@@ -56,7 +55,6 @@ type Daemon struct {
 	TelegramPair            string
 	ProviderOutput          ProviderOutputPolicy
 	ProviderOutputOverrides ProviderOutputOverrides
-	FleetLink               *FleetLink
 
 	mu                    sync.Mutex
 	webAttachMu           sync.Mutex
@@ -65,8 +63,6 @@ type Daemon struct {
 	notified              map[string]bool // session id → already-fired turn-complete once
 	sessionActivityEvents map[string]time.Time
 	started               time.Time
-	tailnetStatus         func(context.Context) ([]byte, error)
-	tailnetHealth         func(context.Context, string, fleet.Host) (bool, error)
 	tmuxCaptureInterval   time.Duration
 	tmuxRecoveryTimeout   time.Duration
 
@@ -97,9 +93,6 @@ type Options struct {
 	TelegramPair            string
 	ProviderOutput          ProviderOutputPolicy
 	ProviderOutputOverrides ProviderOutputOverrides
-	FleetLink               *FleetLink
-	TailnetStatus           func(context.Context) ([]byte, error)
-	TailnetHealth           func(context.Context, string, fleet.Host) (bool, error)
 	SkipRestore             bool
 }
 
@@ -134,9 +127,6 @@ func New(opts Options) *Daemon {
 		TelegramPair:            opts.TelegramPair,
 		ProviderOutput:          opts.ProviderOutput.normalized(),
 		ProviderOutputOverrides: opts.ProviderOutputOverrides,
-		FleetLink:               opts.FleetLink,
-		tailnetStatus:           tailnetStatusOrDefault(opts.TailnetStatus),
-		tailnetHealth:           tailnetHealthOrDefault(opts.TailnetHealth),
 	}
 
 	// approval queue + expiry sweeper
@@ -156,9 +146,6 @@ func New(opts Options) *Daemon {
 	}
 	d.Queue.Log = opts.Log
 	d.Sweeper = &approval.Sweeper{Queue: d.Queue, Log: opts.Log, Interval: opts.ApprovalSweepInterval}
-	if d.FleetLink != nil {
-		d.FleetLink.SetControlResultHandler(d.handleFleetControl)
-	}
 
 	// intake server: fire-and-forget + approval RPC
 	d.Intake = intake.New(opts.Paths.Socket, d.handleEvent, opts.Log)
@@ -350,15 +337,6 @@ func (d *Daemon) Run(ctx context.Context) error {
 	}()
 
 	var wg sync.WaitGroup
-	if d.FleetLink != nil {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			if err := d.FleetLink.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
-				d.Log.Error("fleet link", slog.Any("err", err))
-			}
-		}()
-	}
 	if d.WebAddr != "" {
 		// VAPID keys live in the OS secret store. On macOS, a locked or
 		// unapproved Keychain item can block SecItemCopyMatching indefinitely.
@@ -472,9 +450,6 @@ func (d *Daemon) runStartupMaintenance(ctx context.Context) {
 	if d.DB != nil {
 		if err := d.DB.KVPurgeExpired(ctx); err != nil && !errors.Is(err, context.Canceled) {
 			d.Log.Warn("purge expired kv", slog.Any("err", err))
-		}
-		if _, err := d.DB.ControlCommandsExpire(ctx, time.Now().UTC()); err != nil && !errors.Is(err, context.Canceled) {
-			d.Log.Warn("expire control commands", slog.Any("err", err))
 		}
 	}
 	if !d.SkipRestore {

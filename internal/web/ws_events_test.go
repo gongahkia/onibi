@@ -128,7 +128,7 @@ func TestSessionsStatusWSEventReplay(t *testing.T) {
 	defer db.Close()
 	srv := New(Options{
 		DB: db,
-		SessionList: func(context.Context, SessionListOptions) ([]SessionSummary, error) {
+		SessionList: func(context.Context) ([]SessionSummary, error) {
 			return []SessionSummary{{
 				ID:                    "s1",
 				Agent:                 "claude",

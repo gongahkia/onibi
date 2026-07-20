@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
-
-	"github.com/gongahkia/onibi/internal/fleet"
 )
 
 func TestSessionStartRecentAndEnd(t *testing.T) {
@@ -59,35 +57,35 @@ func TestSessionRecoveryStateMachineIsDurable(t *testing.T) {
 		t.Fatal(err)
 	}
 	entry, ok, err := db.Session(ctx, "s1")
-	if err != nil || !ok || entry.RecoveryState != fleet.SessionRecoveryHealthy || entry.RecoveryReason != "" {
+	if err != nil || !ok || entry.RecoveryState != SessionRecoveryHealthy || entry.RecoveryReason != "" {
 		t.Fatalf("initial session=%#v ok=%v err=%v", entry, ok, err)
 	}
-	if changed, err := db.SessionTransitionRecovery(ctx, "s1", fleet.SessionRecoveryReconnecting, "tmux capture disconnected", now.Add(time.Second)); err != nil || !changed {
+	if changed, err := db.SessionTransitionRecovery(ctx, "s1", SessionRecoveryReconnecting, "tmux capture disconnected", now.Add(time.Second)); err != nil || !changed {
 		t.Fatalf("reconnecting changed=%v err=%v", changed, err)
 	}
-	if changed, err := db.SessionTransitionRecovery(ctx, "s1", fleet.SessionRecoveryReconnecting, "tmux capture disconnected", now.Add(2*time.Second)); err != nil || changed {
+	if changed, err := db.SessionTransitionRecovery(ctx, "s1", SessionRecoveryReconnecting, "tmux capture disconnected", now.Add(2*time.Second)); err != nil || changed {
 		t.Fatalf("duplicate reconnect changed=%v err=%v", changed, err)
 	}
-	if changed, err := db.SessionTransitionRecovery(ctx, "s1", fleet.SessionRecoveryHealthy, "", now.Add(3*time.Second)); err != nil || !changed {
+	if changed, err := db.SessionTransitionRecovery(ctx, "s1", SessionRecoveryHealthy, "", now.Add(3*time.Second)); err != nil || !changed {
 		t.Fatalf("healthy changed=%v err=%v", changed, err)
 	}
-	if changed, err := db.SessionTransitionRecovery(ctx, "s1", fleet.SessionRecoveryFailed, "unsupported transport", now.Add(4*time.Second)); err != nil || !changed {
+	if changed, err := db.SessionTransitionRecovery(ctx, "s1", SessionRecoveryFailed, "unsupported transport", now.Add(4*time.Second)); err != nil || !changed {
 		t.Fatalf("failed changed=%v err=%v", changed, err)
 	}
-	if changed, err := db.SessionTransitionRecovery(ctx, "s1", fleet.SessionRecoveryHealthy, "", now.Add(5*time.Second)); err == nil || changed {
+	if changed, err := db.SessionTransitionRecovery(ctx, "s1", SessionRecoveryHealthy, "", now.Add(5*time.Second)); err == nil || changed {
 		t.Fatalf("failed-to-healthy changed=%v err=%v", changed, err)
 	}
-	if changed, err := db.SessionTransitionRecovery(ctx, "s1", fleet.SessionRecoveryRecovering, "retrying recovery", now.Add(6*time.Second)); err != nil || !changed {
+	if changed, err := db.SessionTransitionRecovery(ctx, "s1", SessionRecoveryRecovering, "retrying recovery", now.Add(6*time.Second)); err != nil || !changed {
 		t.Fatalf("recovering changed=%v err=%v", changed, err)
 	}
-	if changed, err := db.SessionTransitionRecovery(ctx, "s1", fleet.SessionRecoveryOrphaned, "tmux reconnect timed out", now.Add(7*time.Second)); err != nil || !changed {
+	if changed, err := db.SessionTransitionRecovery(ctx, "s1", SessionRecoveryOrphaned, "tmux reconnect timed out", now.Add(7*time.Second)); err != nil || !changed {
 		t.Fatalf("orphaned changed=%v err=%v", changed, err)
 	}
 	if err := db.SessionMarkEnded(ctx, "s1", now.Add(8*time.Second)); err != nil {
 		t.Fatal(err)
 	}
 	entry, ok, err = db.Session(ctx, "s1")
-	if err != nil || !ok || !entry.Ended || entry.RecoveryState != fleet.SessionRecoveryTerminated || entry.RecoveryReason != "session terminated" {
+	if err != nil || !ok || !entry.Ended || entry.RecoveryState != SessionRecoveryTerminated || entry.RecoveryReason != "session terminated" {
 		t.Fatalf("terminated session=%#v ok=%v err=%v", entry, ok, err)
 	}
 }
@@ -122,7 +120,7 @@ INSERT INTO sessions(id, name, agent, transport, started_at, last_activity) VALU
 	}
 	defer db.Close()
 	entry, ok, err := db.Session(context.Background(), "s1")
-	if err != nil || !ok || entry.RecoveryState != fleet.SessionRecoveryHealthy || entry.RecoveryReason != "" || !entry.RecoveryUpdatedAt.IsZero() {
+	if err != nil || !ok || entry.RecoveryState != SessionRecoveryHealthy || entry.RecoveryReason != "" || !entry.RecoveryUpdatedAt.IsZero() {
 		t.Fatalf("migrated session=%#v ok=%v err=%v", entry, ok, err)
 	}
 }

@@ -19,7 +19,6 @@ import (
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 
-	"github.com/gongahkia/onibi/internal/fleet"
 	"github.com/gongahkia/onibi/internal/pty"
 	"github.com/gongahkia/onibi/internal/store"
 )
@@ -454,12 +453,9 @@ func TestSessionCostEndpointIsUnavailable(t *testing.T) {
 func TestSessionsEndpointReturnsResolverRows(t *testing.T) {
 	srv, cleanup := testServer(t)
 	defer cleanup()
-	var gotOpts SessionListOptions
-	srv.sessionList = func(_ context.Context, opts SessionListOptions) ([]SessionSummary, error) {
-		gotOpts = opts
+	srv.sessionList = func(context.Context) ([]SessionSummary, error) {
 		return []SessionSummary{{
 			ID:                    "s1",
-			HostID:                "host-work-mac",
 			Agent:                 "claude",
 			CWD:                   "/tmp/repo",
 			StartedAt:             "2026-06-30T00:00:00Z",
@@ -484,11 +480,8 @@ func TestSessionsEndpointReturnsResolverRows(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || got[0].ID != "s1" || got[0].HostID != "host-work-mac" || got[0].PendingApprovalsCount != 2 || got[0].RoleRequired != "owner" {
+	if len(got) != 1 || got[0].ID != "s1" || got[0].PendingApprovalsCount != 2 || got[0].RoleRequired != "owner" {
 		t.Fatalf("sessions = %#v", got)
-	}
-	if !gotOpts.IncludeRemote {
-		t.Fatalf("options = %#v", gotOpts)
 	}
 }
 
@@ -498,16 +491,13 @@ func TestSessionsStatusEndpointDerivesStates(t *testing.T) {
 	now := time.Now().UTC()
 	old := now.Add(-10 * time.Minute).Format(time.RFC3339Nano)
 	recent := now.Add(-time.Second).Format(time.RFC3339Nano)
-	srv.sessionList = func(_ context.Context, opts SessionListOptions) ([]SessionSummary, error) {
-		if !opts.IncludeRemote {
-			t.Fatalf("options = %#v", opts)
-		}
+	srv.sessionList = func(context.Context) ([]SessionSummary, error) {
 		return []SessionSummary{
 			{ID: "await", Agent: "claude", LastActivity: old, PendingApprovalsCount: 1, RoleRequired: "owner"},
 			{ID: "work", Agent: "codex", LastActivity: recent, RoleRequired: "owner"},
 			{ID: "idle", Agent: "opencode", LastActivity: old, RoleRequired: "owner"},
-			{ID: "recover", Agent: "pi", LastActivity: recent, PendingApprovalsCount: 1, RecoveryState: fleet.SessionRecoveryRecovering, RoleRequired: "owner"},
-			{ID: "failed", Agent: "pi", LastActivity: recent, PendingApprovalsCount: 1, RecoveryState: fleet.SessionRecoveryFailed, RoleRequired: "owner"},
+			{ID: "recover", Agent: "pi", LastActivity: recent, PendingApprovalsCount: 1, RecoveryState: store.SessionRecoveryRecovering, RoleRequired: "owner"},
+			{ID: "failed", Agent: "pi", LastActivity: recent, PendingApprovalsCount: 1, RecoveryState: store.SessionRecoveryFailed, RoleRequired: "owner"},
 		}, nil
 	}
 	rr := httptest.NewRecorder()
@@ -550,8 +540,8 @@ func TestDeriveSessionStateIsConsistentForCertifiedAdapters(t *testing.T) {
 		{name: "idle", row: SessionSummary{LastActivity: old}, want: SessionStateIdle},
 		{name: "working", row: SessionSummary{LastActivity: recent}, want: SessionStateWorking},
 		{name: "awaiting approval", row: SessionSummary{LastActivity: old, PendingApprovalsCount: 1}, want: SessionStateAwaitingApproval},
-		{name: "recovering overrides approval", row: SessionSummary{LastActivity: recent, PendingApprovalsCount: 1, RecoveryState: fleet.SessionRecoveryReconnecting}, want: SessionStateRecovering},
-		{name: "failed overrides approval", row: SessionSummary{LastActivity: recent, PendingApprovalsCount: 1, RecoveryState: fleet.SessionRecoveryFailed}, want: SessionStateFailed},
+		{name: "recovering overrides approval", row: SessionSummary{LastActivity: recent, PendingApprovalsCount: 1, RecoveryState: store.SessionRecoveryReconnecting}, want: SessionStateRecovering},
+		{name: "failed overrides approval", row: SessionSummary{LastActivity: recent, PendingApprovalsCount: 1, RecoveryState: store.SessionRecoveryFailed}, want: SessionStateFailed},
 	}
 	for _, agent := range []string{"claude", "codex", "pi"} {
 		for _, tc := range cases {

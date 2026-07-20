@@ -122,7 +122,7 @@ func (s *Server) handleWSEvents(w http.ResponseWriter, r *http.Request) {
 		if !force && now.Sub(lastSessionsStatus) < sessionsStatusMinInterval {
 			return nil
 		}
-		status, err := s.sessionsStatus(ctx, SessionListOptions{IncludeRemote: true}, now)
+		status, err := s.sessionsStatus(ctx, now)
 		if err != nil {
 			s.log.Warn("web sessions status failed", "request_id", reqID, "session_id", sessionID, "err", err)
 			return nil

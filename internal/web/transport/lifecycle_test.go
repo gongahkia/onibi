@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/gongahkia/onibi/internal/faulttest"
-	"github.com/gongahkia/onibi/internal/fleet"
 )
 
 func TestLifecycleCoversProviderStartHealthPairReconnectAndShutdown(t *testing.T) {
@@ -22,10 +21,6 @@ func TestLifecycleCoversProviderStartHealthPairReconnectAndShutdown(t *testing.T
 	}
 	if urls, err := session.Pair("pair-token"); err != nil || len(urls) != 1 || urls[0] != "https://relay.example.test/pair/pair-token" {
 		t.Fatalf("urls=%#v err=%v", urls, err)
-	}
-	candidate, err := session.Enrollment()
-	if err != nil || !candidate.RequiresOwnerProof || candidate.Endpoint.Kind != "relay" {
-		t.Fatalf("candidate=%#v err=%v", candidate, err)
 	}
 	if _, err := session.Reconnect(context.Background()); err != nil {
 		t.Fatal(err)
@@ -42,13 +37,12 @@ func TestTransportConformance(t *testing.T) {
 	for _, tc := range []struct {
 		mode Mode
 		url  string
-		kind fleet.EndpointKind
 	}{
-		{mode: ModeTailscalePrivate, url: "https://node.tail.ts.net", kind: fleet.EndpointMesh},
-		{mode: ModeWireGuard, url: "https://100.64.0.2:8443", kind: fleet.EndpointMesh},
-		{mode: ModeZeroTier, url: "https://10.147.20.4:8443", kind: fleet.EndpointMesh},
-		{mode: ModeCloudflareQuick, url: "https://quick.trycloudflare.com", kind: fleet.EndpointRelay},
-		{mode: ModeNgrok, url: "https://demo.ngrok-free.app", kind: fleet.EndpointRelay},
+		{mode: ModeTailscalePrivate, url: "https://node.tail.ts.net"},
+		{mode: ModeWireGuard, url: "https://100.64.0.2:8443"},
+		{mode: ModeZeroTier, url: "https://10.147.20.4:8443"},
+		{mode: ModeCloudflareQuick, url: "https://quick.trycloudflare.com"},
+		{mode: ModeNgrok, url: "https://demo.ngrok-free.app"},
 	} {
 		t.Run(string(tc.mode), func(t *testing.T) {
 			provider := &faulttest.Provider{URLValue: tc.url}
@@ -61,10 +55,6 @@ func TestTransportConformance(t *testing.T) {
 			}
 			if urls, err := session.Pair("pair-token"); err != nil || len(urls) != 1 || urls[0] != strings.TrimRight(tc.url, "/")+"/pair/pair-token" {
 				t.Fatalf("urls=%#v err=%v", urls, err)
-			}
-			candidate, err := session.Enrollment()
-			if err != nil || !candidate.RequiresOwnerProof || candidate.Endpoint.Kind != tc.kind {
-				t.Fatalf("candidate=%#v err=%v", candidate, err)
 			}
 			provider.SetCheckError(Diagnostic(DiagActivationLag, string(tc.mode), "fault injected transport loss", errors.New("network reset")))
 			if _, err := session.Health(t.Context()); err == nil {
@@ -111,19 +101,17 @@ func conformanceProviderFactory(mode Mode, provider Provider) ProviderFactory {
 	}
 }
 
-func TestTailscalePrivateLifecycleEnrollment(t *testing.T) {
+func TestTailscalePrivateLifecycle(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		mode Mode
 		url  string
-		kind string
 		new  func(*lifecycleProvider) ProviderFactory
 	}{
 		{
 			name: "private serve mesh",
 			mode: ModeTailscalePrivate,
 			url:  "https://dev.tail.ts.net/",
-			kind: "mesh",
 			new: func(p *lifecycleProvider) ProviderFactory {
 				return ProviderFactory{TailscalePrivate: func() Provider { return p }}
 			},
@@ -140,10 +128,6 @@ func TestTailscalePrivateLifecycleEnrollment(t *testing.T) {
 			}
 			if urls, err := session.Pair("pair-token"); err != nil || len(urls) != 1 || urls[0] != tc.url+"pair/pair-token" {
 				t.Fatalf("urls=%#v err=%v", urls, err)
-			}
-			candidate, err := session.Enrollment()
-			if err != nil || !candidate.RequiresOwnerProof || string(candidate.Endpoint.Kind) != tc.kind {
-				t.Fatalf("candidate=%#v err=%v", candidate, err)
 			}
 			provider.checkErr = Diagnostic(DiagActivationLag, "tailscale", "fault injected transport loss", errors.New("network reset"))
 			if _, err := session.Health(t.Context()); err == nil {

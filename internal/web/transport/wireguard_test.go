@@ -119,10 +119,6 @@ func TestWireGuardLifecycleFailsClosedWhenSelectedEndpointChanges(t *testing.T) 
 	if urls, err := session.Pair("pair-token"); err != nil || len(urls) != 1 || urls[0] != "https://10.8.0.2:8443/pair/pair-token" {
 		t.Fatalf("urls=%#v err=%v", urls, err)
 	}
-	candidate, err := session.Enrollment()
-	if err != nil || !candidate.RequiresOwnerProof || candidate.Endpoint.Kind != "mesh" {
-		t.Fatalf("candidate=%#v err=%v", candidate, err)
-	}
 	delete(addrs, "wg0")
 	if _, err := session.Health(t.Context()); err == nil {
 		t.Fatal("expected endpoint health failure")

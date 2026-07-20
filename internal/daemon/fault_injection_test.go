@@ -9,7 +9,6 @@ import (
 
 	"github.com/gongahkia/onibi/internal/approval"
 	"github.com/gongahkia/onibi/internal/faulttest"
-	"github.com/gongahkia/onibi/internal/fleet"
 	"github.com/gongahkia/onibi/internal/pty"
 	"github.com/gongahkia/onibi/internal/store"
 	"github.com/gongahkia/onibi/internal/tmux"
@@ -105,7 +104,7 @@ func TestFaultDelayedTmuxDisappearanceMarksRecoveryWithoutDuplicate(t *testing.T
 	case <-t.Context().Done():
 		t.Fatal(t.Context().Err())
 	}
-	if entry, found, err := db.Session(t.Context(), "session-fault-tmux"); err != nil || !found || entry.RecoveryState != fleet.SessionRecoveryHealthy {
+	if entry, found, err := db.Session(t.Context(), "session-fault-tmux"); err != nil || !found || entry.RecoveryState != store.SessionRecoveryHealthy {
 		t.Fatalf("delayed entry=%#v found=%v err=%v", entry, found, err)
 	}
 	gate.Release()
@@ -115,7 +114,7 @@ func TestFaultDelayedTmuxDisappearanceMarksRecoveryWithoutDuplicate(t *testing.T
 		t.Fatal(t.Context().Err())
 	}
 	entry, found, err := db.Session(t.Context(), "session-fault-tmux")
-	if err != nil || !found || entry.RecoveryState != fleet.SessionRecoveryOrphaned {
+	if err != nil || !found || entry.RecoveryState != store.SessionRecoveryOrphaned {
 		t.Fatalf("entry=%#v found=%v err=%v", entry, found, err)
 	}
 	if sessions := d.Registry.List(); len(sessions) != 0 {

@@ -5,12 +5,11 @@ import (
 	"errors"
 	"time"
 
-	"github.com/gongahkia/onibi/internal/fleet"
 	"github.com/gongahkia/onibi/internal/store"
 	"github.com/gongahkia/onibi/internal/web"
 )
 
-func (d *Daemon) WebSessions(ctx context.Context, opts web.SessionListOptions) ([]web.SessionSummary, error) {
+func (d *Daemon) WebSessions(ctx context.Context) ([]web.SessionSummary, error) {
 	if d == nil {
 		return nil, errors.New("daemon unavailable")
 	}
@@ -41,14 +40,6 @@ func (d *Daemon) WebSessions(ctx context.Context, opts web.SessionListOptions) (
 			RoleRequired:          "owner",
 		})
 	}
-	if opts.IncludeRemote {
-		remote, err := d.tailnetPeerSessions(ctx)
-		if err != nil {
-			d.Log.Debug("tailnet peer discovery failed", "err", err)
-		} else {
-			out = append(out, remote...)
-		}
-	}
 	return out, nil
 }
 
@@ -69,7 +60,7 @@ func (d *Daemon) webSessionRows(ctx context.Context) ([]store.SessionEntry, erro
 			TmuxTarget:        s.TmuxTarget,
 			StartedAt:         s.StartedAt(),
 			LastActivity:      s.LastActivityAt(),
-			RecoveryState:     fleet.SessionRecoveryHealthy,
+			RecoveryState:     store.SessionRecoveryHealthy,
 			RecoveryUpdatedAt: s.StartedAt(),
 		})
 	}

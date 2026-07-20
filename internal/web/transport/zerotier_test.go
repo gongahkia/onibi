@@ -158,10 +158,6 @@ func TestZeroTierLifecycleDetectsNetworkChangeAndRecovers(t *testing.T) {
 	if urls, err := session.Pair("pair-token"); err != nil || len(urls) != 1 || urls[0] != "https://10.147.20.4:8443/pair/pair-token" {
 		t.Fatalf("urls=%#v err=%v", urls, err)
 	}
-	candidate, err := session.Enrollment()
-	if err != nil || !candidate.RequiresOwnerProof || candidate.Endpoint.Kind != "mesh" {
-		t.Fatalf("candidate=%#v err=%v", candidate, err)
-	}
 	runner.SetNetworks(`[{"id":"8056c2e21c000002","name":"prod","status":"OK","portDeviceName":"ztprod","assignedAddresses":["fd00:147::4/64"]}]`)
 	if _, err := session.Health(t.Context()); err == nil {
 		t.Fatal("expected network health failure")
