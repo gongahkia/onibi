@@ -204,15 +204,15 @@ func TestEncryptedSchemaHasNoPlainPairingOrWebSessionColumns(t *testing.T) {
 	}
 }
 
-func TestFleetStateIsNotCreatedAndLegacyTablesAreIgnored(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "fleet-legacy.sqlite")
+func TestRemovedStateIsNotCreatedAndLegacyTablesAreIgnored(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legacy-state.sqlite")
 	key := bytes.Repeat([]byte{1}, 32)
 	db, err := Open(path, WithStoreKey(key))
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	for _, table := range []string{"fleet_hosts", "fleet_enrollment_challenges", "fleet_key_rotation_challenges", "control_commands"} {
+	for _, table := range []string{"fleet_hosts", "fleet_enrollment_challenges", "fleet_key_rotation_challenges", "control_commands", "profiles"} {
 		var count int
 		if err := db.sql.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?`, table).Scan(&count); err != nil {
 			t.Fatal(err)
@@ -232,7 +232,12 @@ func TestFleetStateIsNotCreatedAndLegacyTablesAreIgnored(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := raw.Exec(`CREATE TABLE fleet_hosts (id TEXT PRIMARY KEY); INSERT INTO fleet_hosts(id) VALUES ('legacy-host')`); err != nil {
+	if _, err := raw.Exec(`
+CREATE TABLE fleet_hosts (id TEXT PRIMARY KEY);
+INSERT INTO fleet_hosts(id) VALUES ('legacy-host');
+CREATE TABLE profiles (name TEXT PRIMARY KEY);
+INSERT INTO profiles(name) VALUES ('legacy-profile');
+`); err != nil {
 		t.Fatal(err)
 	}
 	if err := raw.Close(); err != nil {
@@ -250,6 +255,10 @@ func TestFleetStateIsNotCreatedAndLegacyTablesAreIgnored(t *testing.T) {
 	var hostID string
 	if err := db.sql.QueryRowContext(ctx, `SELECT id FROM fleet_hosts`).Scan(&hostID); err != nil || hostID != "legacy-host" {
 		t.Fatalf("legacy fleet table: id=%q err=%v", hostID, err)
+	}
+	var profile string
+	if err := db.sql.QueryRowContext(ctx, `SELECT name FROM profiles`).Scan(&profile); err != nil || profile != "legacy-profile" {
+		t.Fatalf("legacy profile table: name=%q err=%v", profile, err)
 	}
 }
 

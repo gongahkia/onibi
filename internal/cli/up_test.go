@@ -56,67 +56,21 @@ func TestUpRejectsRemovedSSHFlags(t *testing.T) {
 	}
 }
 
-func TestUpAppliesProfileFlags(t *testing.T) {
+func TestUpPassesExplicitFlags(t *testing.T) {
 	withDefaultState(t)
 	cwd := t.TempDir()
-	executeRoot(t, "profile", "add", "work", "--transport", "tailscale-private", "--agent", "sh", "--cwd", cwd, "--color", "never")
 	oldWebPair := webPairRun
 	webPairRun = func(cmd *cobra.Command, _ config.Paths, _ *store.DB) error {
 		transport, _ := cmd.Flags().GetString("transport")
 		agent, _ := cmd.Flags().GetString("agent")
 		gotCWD, _ := cmd.Flags().GetString("cwd")
 		if transport != "tailscale-private" || agent != "sh" || gotCWD != cwd {
-			t.Fatalf("profile flags transport=%q agent=%q cwd=%q", transport, agent, gotCWD)
+			t.Fatalf("explicit flags transport=%q agent=%q cwd=%q", transport, agent, gotCWD)
 		}
-		cmd.Println("profile pair stub")
 		return nil
 	}
 	t.Cleanup(func() { webPairRun = oldWebPair })
-	out, _ := executeRoot(t, "up", "work", "--color", "never")
-	if !strings.Contains(out.String(), "profile pair stub") {
-		t.Fatalf("stdout = %q", out.String())
-	}
-}
-
-func TestUpNoArgRecallsLastUsedProfile(t *testing.T) {
-	withDefaultState(t)
-	cwd := t.TempDir()
-	executeRoot(t, "profile", "add", "work", "--transport", "tailscale-private", "--agent", "sh", "--cwd", cwd, "--use", "--color", "never")
-	oldWebPair := webPairRun
-	webPairRun = func(cmd *cobra.Command, _ config.Paths, _ *store.DB) error {
-		transport, _ := cmd.Flags().GetString("transport")
-		agent, _ := cmd.Flags().GetString("agent")
-		gotCWD, _ := cmd.Flags().GetString("cwd")
-		if transport != "tailscale-private" || agent != "sh" || gotCWD != cwd {
-			t.Fatalf("profile flags transport=%q agent=%q cwd=%q", transport, agent, gotCWD)
-		}
-		cmd.Println("last profile stub")
-		return nil
-	}
-	t.Cleanup(func() { webPairRun = oldWebPair })
-	out, _ := executeRoot(t, "up", "--color", "never")
-	if !strings.Contains(out.String(), "last profile stub") {
-		t.Fatalf("stdout = %q", out.String())
-	}
-}
-
-func TestUpNoArgFallsBackWithoutLastUsedProfile(t *testing.T) {
-	withDefaultState(t)
-	executeRoot(t, "profile", "add", "work", "--transport", "tailscale-private", "--color", "never")
-	oldWebPair := webPairRun
-	webPairRun = func(cmd *cobra.Command, _ config.Paths, _ *store.DB) error {
-		transport, _ := cmd.Flags().GetString("transport")
-		if transport != "" {
-			t.Fatalf("transport = %q", transport)
-		}
-		cmd.Println("fallback stub")
-		return nil
-	}
-	t.Cleanup(func() { webPairRun = oldWebPair })
-	out, _ := executeRoot(t, "up", "--color", "never")
-	if !strings.Contains(out.String(), "fallback stub") {
-		t.Fatalf("stdout = %q", out.String())
-	}
+	_, _ = executeRoot(t, "up", "--transport", "tailscale-private", "--agent", "sh", "--cwd", cwd, "--color", "never")
 }
 
 func TestUpDetachInstallsServiceAndPrintsPIDLog(t *testing.T) {

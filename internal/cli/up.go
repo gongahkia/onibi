@@ -65,11 +65,11 @@ var runtimeTransportHealthInterval = 5 * time.Second
 
 func upCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "up [profile]",
+		Use:     "up",
 		Aliases: []string{"start"},
 		Short:   "Start the local web cockpit and print a pairing QR",
 		Long:    "Start the local web cockpit and print a pairing QR.\n\nE2E is required for public relay transport (Cloudflare and ngrok).",
-		Args:    cobra.MaximumNArgs(1),
+		Args:    cobra.NoArgs,
 		RunE:    runUp,
 	}
 	cmd.Flags().String("transport", "", "pairing transport: "+webtransport.SupportedModeList())
@@ -85,7 +85,7 @@ func upCmd() *cobra.Command {
 	return cmd
 }
 
-func runUp(cmd *cobra.Command, args []string) error {
+func runUp(cmd *cobra.Command, _ []string) error {
 	paths, err := config.DefaultPaths()
 	if err != nil {
 		return err
@@ -99,9 +99,6 @@ func runUp(cmd *cobra.Command, args []string) error {
 		if firstRun {
 			return errors.New("--first-run cannot be combined with --detach")
 		}
-		if len(args) > 0 {
-			return errors.New("--detach cannot be combined with a profile")
-		}
 		return runUpDetach(cmd, paths)
 	}
 	db, err := openDefaultDB()
@@ -109,15 +106,6 @@ func runUp(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	defer db.Close()
-	if len(args) == 1 {
-		if err := applyUpProfile(cmd, db, args[0]); err != nil {
-			return err
-		}
-	} else if shouldRecallLastProfile(cmd) {
-		if err := applyLastUsedProfile(cmd, db); err != nil {
-			return err
-		}
-	}
 	if firstRun {
 		if err := runFirstRunWizard(cmd, paths, db); err != nil {
 			return err
@@ -639,57 +627,6 @@ func tmuxTargetAlreadyGone(err error) bool {
 	}
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "can't find session") || strings.Contains(msg, "no server running")
-}
-
-func applyUpProfile(cmd *cobra.Command, db *store.DB, name string) error {
-	profile, ok, err := db.ProfileGet(nonNilContext(cmd.Context()), name)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return fmt.Errorf("profile %q not found", name)
-	}
-	setProfileFlag := func(flag, value string) error {
-		value = strings.TrimSpace(value)
-		if value == "" {
-			return nil
-		}
-		f := cmd.Flags().Lookup(flag)
-		if f == nil || f.Changed {
-			return nil
-		}
-		return cmd.Flags().Set(flag, value)
-	}
-	if err := setProfileFlag("transport", profile.Transport); err != nil {
-		return err
-	}
-	if err := setProfileFlag("agent", profile.Agent); err != nil {
-		return err
-	}
-	if err := setProfileFlag("cwd", profile.CWD); err != nil {
-		return err
-	}
-	return db.ProfileTouch(nonNilContext(cmd.Context()), profile.Name, time.Now().UTC())
-}
-
-func shouldRecallLastProfile(cmd *cobra.Command) bool {
-	for _, name := range []string{"transport", "agent", "cwd", "shell"} {
-		if flag := cmd.Flags().Lookup(name); flag != nil && flag.Changed {
-			return false
-		}
-	}
-	return true
-}
-
-func applyLastUsedProfile(cmd *cobra.Command, db *store.DB) error {
-	profiles, err := db.ProfileList(nonNilContext(cmd.Context()))
-	if err != nil {
-		return err
-	}
-	if len(profiles) == 0 || profiles[0].LastUsedAt.IsZero() {
-		return nil
-	}
-	return applyUpProfile(cmd, db, profiles[0].Name)
 }
 
 func shellWorkingDir(cmd *cobra.Command) (string, bool, error) {
