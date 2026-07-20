@@ -144,17 +144,11 @@ func TestSetValidates(t *testing.T) {
 	if err := Set(&cfg, "provider.output.discord.redaction", "off"); err != nil {
 		t.Fatal(err)
 	}
-	if err := Set(&cfg, "provider.output.zulip.max_chunks", "4"); err != nil {
-		t.Fatal(err)
-	}
 	if got, _ := Get(cfg, "provider.output.slack.max_bytes"); got != "2048" {
 		t.Fatalf("provider.output.slack.max_bytes = %s", got)
 	}
 	if got, _ := Get(cfg, "provider.output.discord.redaction"); got != "off" {
 		t.Fatalf("provider.output.discord.redaction = %s", got)
-	}
-	if got, _ := Get(cfg, "provider.output.zulip.max_chunks"); got != "4" {
-		t.Fatalf("provider.output.zulip.max_chunks = %s", got)
 	}
 	if err := Set(&cfg, "provider.output.discord.redaction", "inherit"); err != nil {
 		t.Fatal(err)
@@ -268,7 +262,7 @@ func TestTransportModeRejectsUnsupportedValue(t *testing.T) {
 }
 
 func TestTransportModeRejectsRemovedNotificationProviders(t *testing.T) {
-	for _, mode := range []string{"email", "sms", "apns", "gotify", "ntfy", "pushover", "signal", "irc"} {
+	for _, mode := range []string{"email", "sms", "apns", "gotify", "ntfy", "pushover", "signal", "irc", "zulip"} {
 		t.Run(mode, func(t *testing.T) {
 			cfg := Default()
 			err := Set(&cfg, "transport.mode", mode)
@@ -304,6 +298,17 @@ func TestLoadRejectsRemovedSignalTransport(t *testing.T) {
 func TestLoadRejectsRemovedIRCTransport(t *testing.T) {
 	paths := testPaths(t)
 	if err := os.WriteFile(paths.Config, []byte("transport:\n  mode: irc\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := Load(paths)
+	if err == nil || !strings.Contains(err.Error(), "no longer supported") {
+		t.Fatalf("unexpected err: %v", err)
+	}
+}
+
+func TestLoadRejectsRemovedZulipTransport(t *testing.T) {
+	paths := testPaths(t)
+	if err := os.WriteFile(paths.Config, []byte("transport:\n  mode: zulip\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	_, _, err := Load(paths)

@@ -56,23 +56,7 @@ func TestProviderOptionsFromEnvRejectsMissing(t *testing.T) {
 	if _, _, err := providerOptionsFromEnv("discord"); err == nil {
 		t.Fatal("expected missing discord token error")
 	}
-	if !isEnvChatTransport("matrix") || !isEnvChatTransport("slack") || !isEnvChatTransport("discord") || !isEnvChatTransport("zulip") {
+	if !isEnvChatTransport("matrix") || !isEnvChatTransport("slack") || !isEnvChatTransport("discord") {
 		t.Fatal("chat transport classification failed")
-	}
-}
-
-func TestProviderOptionsFromEnvZulip(t *testing.T) {
-	t.Setenv("ONIBI_ZULIP_URL", "https://zulip.example")
-	t.Setenv("ONIBI_ZULIP_EMAIL", "onibi-bot@example.com")
-	t.Setenv("ONIBI_ZULIP_API_KEY", "key")
-	t.Setenv("ONIBI_ZULIP_STREAM", "onibi")
-	t.Setenv("ONIBI_ZULIP_TOPIC_PREFIX", "sess-")
-	t.Setenv("ONIBI_ZULIP_OWNER_EMAIL", "owner@example.com")
-	opts, label, err := providerOptionsFromEnv("zulip")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if label != "Zulip" || opts.Zulip.Stream != "onibi" || opts.Zulip.TopicPrefix != "sess-" || opts.Zulip.OwnerEmail != "owner@example.com" {
-		t.Fatalf("opts=%#v label=%q", opts.Zulip, label)
 	}
 }

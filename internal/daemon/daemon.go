@@ -57,7 +57,6 @@ type Daemon struct {
 	Matrix                  MatrixOptions
 	Slack                   SlackOptions
 	Discord                 DiscordOptions
-	Zulip                   ZulipOptions
 	ProviderOutput          ProviderOutputPolicy
 	ProviderOutputOverrides ProviderOutputOverrides
 	FleetLink               *FleetLink
@@ -108,7 +107,6 @@ type Options struct {
 	Matrix                  MatrixOptions
 	Slack                   SlackOptions
 	Discord                 DiscordOptions
-	Zulip                   ZulipOptions
 	ProviderOutput          ProviderOutputPolicy
 	ProviderOutputOverrides ProviderOutputOverrides
 	FleetLink               *FleetLink
@@ -140,15 +138,6 @@ type DiscordOptions struct {
 	GatewayURL string
 	AllowedIDs []string
 	Intents    int
-}
-
-type ZulipOptions struct {
-	BaseURL     string
-	Email       string
-	APIKey      string
-	Stream      string
-	TopicPrefix string
-	OwnerEmail  string
 }
 
 // New constructs a daemon, wiring intake + registry + idle detector +
@@ -186,7 +175,6 @@ func New(opts Options) *Daemon {
 		Matrix:                  opts.Matrix,
 		Slack:                   opts.Slack,
 		Discord:                 opts.Discord,
-		Zulip:                   opts.Zulip,
 		ProviderOutput:          opts.ProviderOutput.normalized(),
 		ProviderOutputOverrides: opts.ProviderOutputOverrides,
 		FleetLink:               opts.FleetLink,
@@ -462,7 +450,6 @@ func (d *Daemon) Run(ctx context.Context) error {
 		d.startMatrixBridge(ctx, &wg, cancel)
 		d.startSlackBridge(ctx, &wg, cancel)
 		d.startDiscordBridge(ctx, &wg, cancel)
-		d.startZulipBridge(ctx, &wg, cancel)
 	}
 	d.startWebPushNotifier(ctx, &wg)
 

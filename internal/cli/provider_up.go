@@ -38,7 +38,6 @@ func runEnvProviderUp(cmd *cobra.Command, paths config.Paths, db *store.DB, cfg 
 		Matrix:                  opts.Matrix,
 		Slack:                   opts.Slack,
 		Discord:                 opts.Discord,
-		Zulip:                   opts.Zulip,
 		ProviderOutput:          daemonProviderOutputPolicy(cfg),
 		ProviderOutputOverrides: daemonProviderOutputOverrides(cfg),
 		SkipRestore:             true,
@@ -71,7 +70,6 @@ type envProviderOptions struct {
 	Matrix  daemon.MatrixOptions
 	Slack   daemon.SlackOptions
 	Discord daemon.DiscordOptions
-	Zulip   daemon.ZulipOptions
 }
 
 func providerOptionsFromEnv(mode string) (envProviderOptions, string, error) {
@@ -113,19 +111,6 @@ func providerOptionsFromEnv(mode string) (envProviderOptions, string, error) {
 			return opts, "", fmt.Errorf("discord requires ONIBI_DISCORD_TOKEN")
 		}
 		return opts, "Discord", nil
-	case "zulip":
-		opts.Zulip = daemon.ZulipOptions{
-			BaseURL:     envRequired("ONIBI_ZULIP_URL"),
-			Email:       envRequired("ONIBI_ZULIP_EMAIL"),
-			APIKey:      envRequired("ONIBI_ZULIP_API_KEY"),
-			Stream:      envRequired("ONIBI_ZULIP_STREAM"),
-			TopicPrefix: strings.TrimSpace(os.Getenv("ONIBI_ZULIP_TOPIC_PREFIX")),
-			OwnerEmail:  strings.TrimSpace(os.Getenv("ONIBI_ZULIP_OWNER_EMAIL")),
-		}
-		if opts.Zulip.BaseURL == "" || opts.Zulip.Email == "" || opts.Zulip.APIKey == "" || opts.Zulip.Stream == "" {
-			return opts, "", fmt.Errorf("zulip requires ONIBI_ZULIP_URL, ONIBI_ZULIP_EMAIL, ONIBI_ZULIP_API_KEY, ONIBI_ZULIP_STREAM")
-		}
-		return opts, "Zulip", nil
 	default:
 		return opts, "", fmt.Errorf("unsupported env provider %q", mode)
 	}
@@ -133,7 +118,7 @@ func providerOptionsFromEnv(mode string) (envProviderOptions, string, error) {
 
 func isEnvChatTransport(mode string) bool {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case "matrix", "slack", "discord", "zulip":
+	case "matrix", "slack", "discord":
 		return true
 	default:
 		return false

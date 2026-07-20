@@ -22,7 +22,7 @@ func TestProvidersReportAllProvidersUnconfigured(t *testing.T) {
 	paths := doctorTestPaths(t, "lan")
 	clearProviderEnv(t)
 	report := Providers(t.Context(), Options{Paths: paths, Offline: true, PreferDotenv: true})
-	want := []string{"telegram", "matrix", "slack", "discord", "zulip"}
+	want := []string{"telegram", "matrix", "slack", "discord"}
 	if len(report.Providers) != len(want) {
 		t.Fatalf("providers = %#v", report.Providers)
 	}
@@ -56,7 +56,6 @@ func TestProvidersMissingDetailsPerProvider(t *testing.T) {
 		"matrix":   "ONIBI_MATRIX_HOMESERVER",
 		"slack":    "ONIBI_SLACK_APP_TOKEN",
 		"discord":  "ONIBI_DISCORD_TOKEN",
-		"zulip":    "ONIBI_ZULIP_URL",
 	}
 	for name, detail := range want {
 		row := providerNamed(t, report, name)
@@ -112,18 +111,6 @@ func TestProvidersReachabilityFakeAPIs(t *testing.T) {
 	}))
 	defer discordSrv.Close()
 	withDiscordFactory(t, discordSrv.URL)
-	zulipSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/register":
-			writeDoctorJSON(t, w, map[string]any{"queue_id": "q1", "last_event_id": 1})
-		case r.Method == http.MethodDelete && r.URL.Path == "/api/v1/events":
-			writeDoctorJSON(t, w, map[string]any{"result": "success"})
-		default:
-			t.Fatalf("zulip request = %s %s", r.Method, r.URL.Path)
-		}
-	}))
-	defer zulipSrv.Close()
-	t.Setenv("ONIBI_ZULIP_URL", zulipSrv.URL)
 	report := Providers(t.Context(), Options{Paths: paths, PreferDotenv: true})
 	for _, row := range report.Providers {
 		if row.Reachable != ReachableYes {
@@ -283,29 +270,6 @@ func TestDoctorDiscordWarnsOnSendPermission(t *testing.T) {
 	}
 }
 
-func TestDoctorZulipProviderFakeAPI(t *testing.T) {
-	paths := doctorTestPaths(t, "zulip")
-	t.Setenv("ONIBI_ZULIP_EMAIL", "onibi-bot@example.com")
-	t.Setenv("ONIBI_ZULIP_API_KEY", "zulip-key")
-	t.Setenv("ONIBI_ZULIP_STREAM", "onibi")
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/register":
-			writeDoctorJSON(t, w, map[string]any{"queue_id": "q1", "last_event_id": 1})
-		case r.Method == http.MethodDelete && r.URL.Path == "/api/v1/events":
-			writeDoctorJSON(t, w, map[string]any{"result": "success"})
-		default:
-			t.Fatalf("zulip request = %s %s", r.Method, r.URL.Path)
-		}
-	}))
-	defer srv.Close()
-	t.Setenv("ONIBI_ZULIP_URL", srv.URL)
-	check := checkNamed(t, Run(t.Context(), Options{Paths: paths}), "transport provider")
-	if check.Status != Pass || !strings.Contains(check.Detail, "Zulip live API ok") {
-		t.Fatalf("check = %#v", check)
-	}
-}
-
 func withSlackFactory(t *testing.T, baseURL string) {
 	t.Helper()
 	old := newSlackClient
@@ -383,10 +347,6 @@ func configureEnvProviders(t *testing.T) {
 	t.Setenv("ONIBI_SLACK_BOT_TOKEN", "xoxb-test")
 	t.Setenv("ONIBI_DISCORD_TOKEN", "discord-token")
 	t.Setenv("ONIBI_DISCORD_CHANNEL_ID", "C1")
-	t.Setenv("ONIBI_ZULIP_URL", "https://zulip.example")
-	t.Setenv("ONIBI_ZULIP_EMAIL", "onibi-bot@example.com")
-	t.Setenv("ONIBI_ZULIP_API_KEY", "zulip-key")
-	t.Setenv("ONIBI_ZULIP_STREAM", "onibi")
 }
 
 func clearProviderEnv(t *testing.T) {
@@ -402,12 +362,6 @@ func clearProviderEnv(t *testing.T) {
 		"ONIBI_SLACK_ALLOWED_CHANNELS",
 		"ONIBI_DISCORD_TOKEN",
 		"ONIBI_DISCORD_CHANNEL_ID",
-		"ONIBI_ZULIP_URL",
-		"ONIBI_ZULIP_EMAIL",
-		"ONIBI_ZULIP_API_KEY",
-		"ONIBI_ZULIP_STREAM",
-		"ONIBI_ZULIP_TOPIC_PREFIX",
-		"ONIBI_ZULIP_OWNER_EMAIL",
 		"ONIBI_DOCTOR_LIVE",
 	} {
 		t.Setenv(name, "")

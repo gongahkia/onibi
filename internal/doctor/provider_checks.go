@@ -13,7 +13,6 @@ import (
 	"github.com/gongahkia/onibi/internal/secrets"
 	"github.com/gongahkia/onibi/internal/store"
 	"github.com/gongahkia/onibi/internal/telegram"
-	"github.com/gongahkia/onibi/internal/zulip"
 )
 
 const (
@@ -39,9 +38,6 @@ var (
 	newTelegramProviderClient = func(token string) *telegram.Client {
 		return telegram.NewClient(token)
 	}
-	newZulipClient = func(baseURL, email, apiKey string) *zulip.Client {
-		return zulip.New(baseURL, email, apiKey)
-	}
 )
 
 func Providers(ctx context.Context, opts Options) ProviderReport {
@@ -51,7 +47,6 @@ func Providers(ctx context.Context, opts Options) ProviderReport {
 		providerMatrix(ctx, opts, pa),
 		providerSlack(ctx, opts, pa),
 		providerDiscord(ctx, opts, pa),
-		providerZulip(ctx, opts, pa),
 	}
 	return ProviderReport{Providers: rows}
 }
@@ -193,33 +188,6 @@ func providerDiscord(ctx context.Context, opts Options, pa map[string]string) Pr
 	return row
 }
 
-func providerZulip(ctx context.Context, opts Options, pa map[string]string) ProviderRow {
-	row := providerRow("zulip", pa)
-	missing := missingEnv("ONIBI_ZULIP_URL", "ONIBI_ZULIP_EMAIL", "ONIBI_ZULIP_API_KEY", "ONIBI_ZULIP_STREAM")
-	row.Configured = len(missing) == 0
-	if !row.Configured {
-		row.Detail = "missing " + strings.Join(missing, ", ")
-		row.Fix = []string{"set ONIBI_ZULIP_URL, ONIBI_ZULIP_EMAIL, ONIBI_ZULIP_API_KEY, ONIBI_ZULIP_STREAM", "run onibi up --transport=zulip"}
-		return row
-	}
-	row.Detail = "env present"
-	if opts.Offline {
-		return row
-	}
-	withProviderTimeout(ctx, func(ctx context.Context) {
-		q, err := newZulipClient(os.Getenv("ONIBI_ZULIP_URL"), os.Getenv("ONIBI_ZULIP_EMAIL"), os.Getenv("ONIBI_ZULIP_API_KEY")).RegisterQueue(ctx, zulip.QueueOptions{EventTypes: []string{"message"}, Narrow: [][]string{{"channel", os.Getenv("ONIBI_ZULIP_STREAM")}}})
-		if err != nil {
-			row.Reachable = ReachableNo
-			row.Detail = "event queue failed: " + err.Error()
-			return
-		}
-		_ = newZulipClient(os.Getenv("ONIBI_ZULIP_URL"), os.Getenv("ONIBI_ZULIP_EMAIL"), os.Getenv("ONIBI_ZULIP_API_KEY")).DeleteQueue(ctx, q.QueueID)
-		row.Reachable = ReachableYes
-		row.Detail = "event queue ok"
-	})
-	return row
-}
-
 func providerRow(name string, pa map[string]string) ProviderRow {
 	return ProviderRow{Name: name, Reachable: ReachableSkipped, LastAuditTimestamp: pa[name]}
 }
@@ -264,7 +232,7 @@ func providerAudit(ctx context.Context, paths config.Paths) map[string]string {
 	}
 	out := map[string]string{}
 	for _, e := range entries {
-		for _, name := range []string{"telegram", "matrix", "slack", "discord", "zulip"} {
+		for _, name := range []string{"telegram", "matrix", "slack", "discord"} {
 			if providerAuditMatch(name, e) {
 				out[name] = e.TS.UTC().Format(time.RFC3339)
 			}

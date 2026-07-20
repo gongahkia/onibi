@@ -20,7 +20,6 @@ import (
 	"github.com/gongahkia/onibi/internal/matrix"
 	"github.com/gongahkia/onibi/internal/slack"
 	"github.com/gongahkia/onibi/internal/web"
-	"github.com/gongahkia/onibi/internal/zulip"
 )
 
 const (
@@ -42,12 +41,6 @@ const (
 	discordEditModalPrefix  = "onibi:approval_edit:"
 	discordEditInputID      = "json"
 	discordReconnectMaxWait = 30 * time.Second
-)
-
-const (
-	zulipDefaultTopicPrefix = "onibi-"
-	zulipMessageChunkLimit  = 3800
-	zulipReconnectMaxWait   = 30 * time.Second
 )
 
 func (d *Daemon) runMatrixBridge(ctx context.Context, c *matrix.Client) error {
@@ -1437,117 +1430,6 @@ func discordEditModal(a *approval.Approval) map[string]any {
 			}},
 		},
 	}
-}
-
-func (d *Daemon) runZulipBridge(ctx context.Context, c *zulip.Client) error {
-	if c == nil {
-		return errors.New("zulip client nil")
-	}
-	if strings.TrimSpace(d.Zulip.Stream) == "" {
-		return errors.New("zulip stream required")
-	}
-	go d.forwardApprovalsToZulip(ctx, c)
-	return c.TailEvents(ctx, zulip.TailOptions{
-		QueueOptions: zulip.QueueOptions{
-			EventTypes: []string{"message"},
-			Narrow:     [][]string{{"channel", d.Zulip.Stream}},
-		},
-		RetryMin: time.Second,
-		RetryMax: zulipReconnectMaxWait,
-		AfterError: func(err error, delay time.Duration, attempt int) {
-			d.audit(ctx, "provider.zulip.reconnect", "", "", 0, fmt.Sprintf("attempt=%d delay=%s err=%s", attempt, delay, err))
-		},
-	}, func(ev zulip.Event) error {
-		return d.handleZulipEvent(ctx, c, ev)
-	})
-}
-
-func (d *Daemon) handleZulipEvent(ctx context.Context, c *zulip.Client, ev zulip.Event) error {
-	if ev.Type != "message" || ev.Message == nil {
-		return nil
-	}
-	msg := ev.Message
-	if msg.Type != "" && msg.Type != "stream" && msg.Type != "channel" {
-		return nil
-	}
-	if owner := strings.TrimSpace(d.Zulip.OwnerEmail); owner != "" && !strings.EqualFold(owner, msg.SenderEmail) {
-		return nil
-	}
-	if bot := strings.TrimSpace(d.Zulip.Email); bot != "" && strings.EqualFold(bot, msg.SenderEmail) {
-		return nil
-	}
-	topic := msg.Topic()
-	sessionID := d.zulipSessionFromTopic(topic)
-	if sessionID == "" {
-		return nil
-	}
-	text := strings.TrimSpace(msg.Content)
-	if text == "" {
-		return nil
-	}
-	d.audit(ctx, "provider.zulip.text_in", sessionID, text, 0, "stream="+d.Zulip.Stream+" topic="+topic+" sender="+msg.SenderEmail)
-	out, err := d.handleProviderTextFor(ctx, sessionID, text, 0, "zulip")
-	if err != nil {
-		_, _ = c.SendStreamMessage(ctx, zulip.StreamMessage{Stream: d.Zulip.Stream, Topic: topic, Content: "Input failed: " + err.Error()})
-		return nil
-	}
-	d.postZulipTail(ctx, c, topic, sessionID, out)
-	return nil
-}
-
-func (d *Daemon) forwardApprovalsToZulip(ctx context.Context, c *zulip.Client) {
-	if d.Queue == nil || strings.TrimSpace(d.Zulip.Stream) == "" {
-		return
-	}
-	d.forwardNotifyApprovals(ctx, func(a *approval.Approval) {
-		topic := d.zulipTopicForSession(a.SessionID)
-		text := formatApprovalWithPolicy(a, d.providerOutputPolicy("zulip")) + "\n\nReply `approve " + a.ID + "` or `deny " + a.ID + "` in this topic."
-		resp, err := c.SendStreamMessage(ctx, zulip.StreamMessage{Stream: d.Zulip.Stream, Topic: topic, Content: text})
-		if err != nil {
-			d.audit(ctx, "provider.zulip.approval_error", a.SessionID, "", 0, "approval="+a.ID+" topic="+topic+" err="+err.Error())
-			return
-		}
-		d.audit(ctx, "provider.zulip.approval_sent", a.SessionID, "", 0, fmt.Sprintf("approval=%s topic=%s message=%d", a.ID, topic, resp.ID))
-	})
-}
-
-func (d *Daemon) postZulipTail(ctx context.Context, c *zulip.Client, topic, sessionID, text string) {
-	if c == nil {
-		return
-	}
-	for i, chunk := range chatout.Chunks(text, zulipMessageChunkLimit) {
-		if _, err := c.SendStreamMessage(ctx, zulip.StreamMessage{Stream: d.Zulip.Stream, Topic: topic, Content: chunk}); err != nil {
-			d.audit(ctx, "provider.zulip.tail_error", sessionID, "", 0, "topic="+topic+" err="+err.Error())
-			return
-		}
-		d.audit(ctx, "provider.zulip.tail_chunk", sessionID, chunk, 0, fmt.Sprintf("topic=%s index=%d bytes=%d", topic, i, len(chunk)))
-	}
-}
-
-func (d *Daemon) zulipTopicForSession(sessionID string) string {
-	sessionID = strings.TrimSpace(sessionID)
-	if sessionID == "" {
-		sessionID = "default"
-	}
-	return d.zulipTopicPrefix() + sessionID
-}
-
-func (d *Daemon) zulipSessionFromTopic(topic string) string {
-	topic = strings.TrimSpace(topic)
-	prefix := d.zulipTopicPrefix()
-	sessionID, ok := strings.CutPrefix(topic, prefix)
-	if !ok {
-		return ""
-	}
-	return strings.TrimSpace(sessionID)
-}
-
-func (d *Daemon) zulipTopicPrefix() string {
-	prefix := strings.TrimSpace(d.Zulip.TopicPrefix)
-	if prefix == "" {
-		return zulipDefaultTopicPrefix
-	}
-	return prefix
 }
 
 func (d *Daemon) runWebPushNotifier(ctx context.Context) {

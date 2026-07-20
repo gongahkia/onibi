@@ -23,7 +23,6 @@ const (
 	ModeWireGuard        Mode = "wireguard"
 	ModeZeroTier         Mode = "zerotier"
 	ModeTelegram         Mode = "telegram"
-	ModeZulip            Mode = "zulip"
 	ModeCloudflareQuick  Mode = "cloudflare-quick"
 	ModeCloudflareNamed  Mode = "cloudflare-named"
 	ModeNgrok            Mode = "ngrok"
@@ -171,8 +170,6 @@ func NormalizeMode(mode string) Mode {
 		return ModeZeroTier
 	case ModeTelegram:
 		return ModeTelegram
-	case ModeZulip:
-		return ModeZulip
 	case ModeCloudflareQuick:
 		return ModeCloudflareQuick
 	case ModeCloudflareNamed:
