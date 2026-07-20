@@ -92,6 +92,10 @@ func TestProviderResponses(t *testing.T) {
 	if code != 0 || !strings.Contains(out, `"permissionDecision":"deny"`) {
 		t.Fatalf("bad copilot deny: code=%d out=%s", code, out)
 	}
+	out, _, code = providerResponse("copilot", intake.Response{Decision: "approve"})
+	if code != 0 || !strings.Contains(out, `"permissionDecision":"allow"`) {
+		t.Fatalf("bad copilot approve: code=%d out=%s", code, out)
+	}
 	out, _, code = providerResponse("copilot", intake.Response{Decision: "edited", UpdatedInput: `{"command":"echo ok"}`})
 	if code != 0 {
 		t.Fatalf("bad copilot edit code=%d out=%s", code, out)
@@ -103,6 +107,14 @@ func TestProviderResponses(t *testing.T) {
 	modifiedArgs := copilot["modifiedArgs"].(map[string]any)
 	if modifiedArgs["command"] != "echo ok" {
 		t.Fatalf("bad copilot modifiedArgs: %s", out)
+	}
+	out, _, code = providerResponse("copilot", intake.Response{Decision: "expired"})
+	if code != 0 || !strings.Contains(out, `"permissionDecision":"deny"`) || !strings.Contains(out, "approval expired") {
+		t.Fatalf("bad copilot expired: code=%d out=%s", code, out)
+	}
+	out, errOut, code = providerResponse("copilot", intake.Response{Decision: "cancelled"})
+	if code != 0 || out != "" || errOut != "" {
+		t.Fatalf("copilot timeout should return no decision: code=%d out=%q err=%q", code, out, errOut)
 	}
 
 	out, _, code = providerResponse("gemini", intake.Response{Decision: "expired"})

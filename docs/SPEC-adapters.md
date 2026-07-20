@@ -124,7 +124,7 @@ The in-tree adapters remain the reference implementations for provider-specific 
 | `amp` | `agent` | Installs an Amp TypeScript plugin and reports blocking tool calls. |
 | `claude` | `agent` | Installs Claude Code lifecycle hooks, including blocking `PreToolUse`. |
 | `codex` | `agent` | Installs Codex hook JSON for lifecycle and blocking tool approvals. |
-| `copilot` | `agent` | Installs GitHub Copilot CLI hook JSON for lifecycle events. |
+| `copilot` | `agent` | Installs GitHub Copilot CLI lifecycle and `preToolUse` approval hooks. It is non-certified pending authenticated live evidence and a provider-version floor. |
 | `gemini` | `agent` | Installs Gemini CLI lifecycle hooks and native `BeforeTool` approval/edit handling. It is non-certified pending authenticated live evidence and a provider-version floor. |
 | `goose` | `agent` | Installs Goose lifecycle hooks and native deny-only tool approvals; no edited-input response, so it is non-certified. |
 | `opencode` | `agent` | Installs an OpenCode plugin with mutable `tool.execute.before` approvals. It is non-certified pending authenticated live evidence and a provider-version floor. |

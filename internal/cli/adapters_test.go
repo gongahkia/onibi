@@ -34,7 +34,7 @@ func TestAdapterStatusReportsCertifiedContract(t *testing.T) {
 	if !ok || !approvalOK || got["certified"] != true || contract["agent"] != "codex" || contract["version"] != "1" || approval["review_required"] != true {
 		t.Fatalf("json=%s", body)
 	}
-	for _, name := range []string{"opencode", "gemini"} {
+	for _, name := range []string{"copilot", "opencode", "gemini"} {
 		deferred := statusFromInfo(common.Info{Name: name}, false)
 		if deferred.Certified || deferred.Contract != nil {
 			t.Fatalf("deferred %s row=%+v", name, deferred)

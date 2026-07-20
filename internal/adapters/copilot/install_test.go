@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -67,6 +68,84 @@ func TestAdapterCopilotDenyBlocksTool(t *testing.T) {
 		t.Fatalf("deny hook did not return provider block: code=%d stdout=%q stderr=%q", res.Code, res.Stdout, res.Stderr)
 	}
 	denytest.CreateIfAllowed(t, target, allowed)
+}
+
+func TestCopilotUnavailableDaemonReturnsNoDecision(t *testing.T) {
+	notify := filepath.Join(t.TempDir(), "onibi-notify")
+	build := exec.Command("go", "build", "-o", notify, "github.com/gongahkia/onibi/clients/onibi-notify")
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build notify: %v\n%s", err, out)
+	}
+	t.Setenv("ONIBI_SOCK", filepath.Join(t.TempDir(), "missing.sock"))
+	h := hook(notify, eventSpec{event: "preToolUse", typ: "approval_request", wait: true, response: "provider", timeout: 360})
+	res := denytest.RunHook(t, h["bash"].(string), `{"hookEventName":"preToolUse","toolName":"writeFile","toolArgs":{"filePath":"x","content":"x"}}`)
+	if res.Code != 0 || res.Stdout != "" || res.Stderr != "" {
+		t.Fatalf("unavailable daemon result=%+v", res)
+	}
+}
+
+func TestCopilotContractHooksCoverLifecycleTimeoutIntegrityAndRestart(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "onibi.json")
+	t.Setenv("ONIBI_COPILOT_HOOK", path)
+	db, err := store.Open(filepath.Join(dir, "test.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	notify := filepath.Join(dir, "onibi-notify")
+	if err := os.WriteFile(notify, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := Install(context.Background(), db, notify); err != nil {
+		t.Fatal(err)
+	}
+	expected, err := ExpectedHooks(notify)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observed, err := ObservedHooks()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(expected) != len(events) || len(observed) != len(events) {
+		t.Fatalf("expected=%+v observed=%+v", expected, observed)
+	}
+	want := map[string]string{
+		"sessionStart":        "agent_message",
+		"userPromptSubmitted": "agent_message",
+		"preToolUse":          "approval_request",
+		"postToolUse":         "agent_message",
+		"postToolUseFailure":  "agent_message",
+		"notification":        "agent_message",
+		"agentStop":           "agent_done",
+		"sessionEnd":          "session_exited",
+		"errorOccurred":       "agent_message",
+	}
+	for _, hook := range expected {
+		typ, ok := want[hook.Event]
+		if !ok || hook.Type != "command" || !strings.Contains(hook.Command, "--type "+typ) {
+			t.Fatalf("hook=%+v", hook)
+		}
+		if hook.Event == "preToolUse" {
+			if hook.Timeout != 360 || !strings.Contains(hook.Command, "--wait --response provider") {
+				t.Fatalf("approval hook=%+v", hook)
+			}
+		} else if hook.Timeout != 30 {
+			t.Fatalf("lifecycle hook=%+v", hook)
+		}
+	}
+	for _, hook := range observed {
+		if !hook.Managed || hook.Type != "command" || hook.Command == "" || hook.Timeout <= 0 {
+			t.Fatalf("observed hook=%+v", hook)
+		}
+	}
+	if err := VerifyHash(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+	if trust := strings.Join(TrustInstructions(), "\n"); !strings.Contains(trust, "restart Copilot CLI") {
+		t.Fatalf("trust=%q", trust)
+	}
 }
 
 func TestExpectedAndObservedHooksReportCopilotDrift(t *testing.T) {
