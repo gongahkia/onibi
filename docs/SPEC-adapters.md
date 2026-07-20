@@ -126,6 +126,6 @@ The in-tree adapters remain the reference implementations for provider-specific 
 | `codex` | `agent` | Installs Codex hook JSON for lifecycle and blocking tool approvals. |
 | `copilot` | `agent` | Installs GitHub Copilot CLI lifecycle and `preToolUse` approval hooks. It is non-certified pending authenticated live evidence and a provider-version floor. |
 | `gemini` | `agent` | Installs Gemini CLI lifecycle hooks and native `BeforeTool` approval/edit handling. It is non-certified pending authenticated live evidence and a provider-version floor. |
-| `goose` | `agent` | Installs Goose lifecycle hooks and native deny-only tool approvals; no edited-input response, so it is non-certified. |
+| `goose` | `agent` | Installs Goose lifecycle hooks and native deny-only tool approvals. `onibi adapters --json` reports the `1.35.0` provider floor for Goose `PreToolUse` denial; no edited-input response or authenticated live evidence exists, so it is non-certified. |
 | `opencode` | `agent` | Installs an OpenCode plugin with mutable `tool.execute.before` approvals. It is non-certified pending authenticated live evidence and a provider-version floor. |
 | `pi` | `agent` | Installs a Pi Coding Agent extension and reports blocking tool calls. |

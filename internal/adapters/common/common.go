@@ -26,20 +26,21 @@ const (
 )
 
 type Info struct {
-	Name             string
-	Support          string
-	Installed        bool
-	Managed          bool
-	Disabled         bool
-	HashRecorded     bool
-	Tampered         bool
-	Adoptable        bool
-	InstalledVersion *string
-	BundledVersion   string
-	Outdated         bool
-	InstallPath      string
-	Message          string
-	Next             string
+	Name                   string
+	Support                string
+	Installed              bool
+	Managed                bool
+	Disabled               bool
+	HashRecorded           bool
+	Tampered               bool
+	Adoptable              bool
+	InstalledVersion       *string
+	BundledVersion         string
+	MinimumProviderVersion string
+	Outdated               bool
+	InstallPath            string
+	Message                string
+	Next                   string
 }
 
 type HookRecord struct {

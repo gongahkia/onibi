@@ -42,6 +42,21 @@ func TestAdapterStatusReportsCertifiedContract(t *testing.T) {
 	}
 }
 
+func TestAdapterStatusReportsMinimumProviderVersion(t *testing.T) {
+	row := statusFromInfo(common.Info{Name: "goose", MinimumProviderVersion: "1.35.0"}, false)
+	body, err := json.Marshal(row)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["minimum_provider_version"] != "1.35.0" || got["certified"] != false {
+		t.Fatalf("json=%s", body)
+	}
+}
+
 func TestAdaptersAddLocalManifestCopiesAndRegisters(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("ONIBI_ADAPTERS_DIR", filepath.Join(dir, "adapters"))

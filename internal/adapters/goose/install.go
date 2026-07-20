@@ -13,7 +13,10 @@ import (
 	"github.com/gongahkia/onibi/internal/store"
 )
 
-const Agent = "goose"
+const (
+	Agent                  = "goose"
+	MinimumProviderVersion = "1.35.0"
+)
 
 func init() {
 	catalog.MustRegister(catalog.BuiltinAgentManifest(Agent, catalog.Adapter{
@@ -111,9 +114,9 @@ func Uninstall(ctx context.Context, db *store.DB) error {
 func Status(ctx context.Context, db *store.DB) common.Info {
 	path, err := HooksPath()
 	if err != nil {
-		return common.Info{Name: Agent, Support: "blocking", BundledVersion: common.IntegrationVersion, Message: err.Error()}
+		return common.Info{Name: Agent, Support: "blocking", BundledVersion: common.IntegrationVersion, MinimumProviderVersion: MinimumProviderVersion, Message: err.Error()}
 	}
-	info := common.Info{Name: Agent, Support: "blocking", BundledVersion: common.IntegrationVersion, InstallPath: path}
+	info := common.Info{Name: Agent, Support: "blocking", BundledVersion: common.IntegrationVersion, MinimumProviderVersion: MinimumProviderVersion, InstallPath: path}
 	body, err := ManagedBody(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {

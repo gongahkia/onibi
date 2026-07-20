@@ -81,6 +81,20 @@ func TestAdapterGooseDenyBlocksTool(t *testing.T) {
 	denytest.AssertNotCreated(t, target)
 }
 
+func TestStatusReportsNativeDenyProviderFloor(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("ONIBI_GOOSE_HOOKS", filepath.Join(dir, "hooks.json"))
+	db, err := store.Open(filepath.Join(dir, "test.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	info := Status(context.Background(), db)
+	if info.Support != "blocking" || info.MinimumProviderVersion != MinimumProviderVersion {
+		t.Fatalf("status = %+v", info)
+	}
+}
+
 func TestObservedHooksReportsOpenPluginsSchemaInvalid(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "hooks.json")

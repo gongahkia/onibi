@@ -24,22 +24,23 @@ import (
 )
 
 type adapterStatus struct {
-	Name             string                    `json:"name"`
-	Support          string                    `json:"support"`
-	Certified        bool                      `json:"certified"`
-	Contract         *adapters.AdapterContract `json:"contract,omitempty"`
-	Detected         bool                      `json:"detected"`
-	Installed        bool                      `json:"installed"`
-	Managed          bool                      `json:"managed"`
-	HashRecorded     bool                      `json:"hash_recorded"`
-	Tampered         bool                      `json:"tampered"`
-	Adoptable        bool                      `json:"adoptable"`
-	InstalledVersion string                    `json:"installed_version,omitempty"`
-	BundledVersion   string                    `json:"bundled_version"`
-	Outdated         bool                      `json:"outdated"`
-	Path             string                    `json:"path,omitempty"`
-	Message          string                    `json:"message,omitempty"`
-	Next             string                    `json:"next,omitempty"`
+	Name                   string                    `json:"name"`
+	Support                string                    `json:"support"`
+	Certified              bool                      `json:"certified"`
+	Contract               *adapters.AdapterContract `json:"contract,omitempty"`
+	Detected               bool                      `json:"detected"`
+	Installed              bool                      `json:"installed"`
+	Managed                bool                      `json:"managed"`
+	HashRecorded           bool                      `json:"hash_recorded"`
+	Tampered               bool                      `json:"tampered"`
+	Adoptable              bool                      `json:"adoptable"`
+	InstalledVersion       string                    `json:"installed_version,omitempty"`
+	BundledVersion         string                    `json:"bundled_version"`
+	MinimumProviderVersion string                    `json:"minimum_provider_version,omitempty"`
+	Outdated               bool                      `json:"outdated"`
+	Path                   string                    `json:"path,omitempty"`
+	Message                string                    `json:"message,omitempty"`
+	Next                   string                    `json:"next,omitempty"`
 }
 
 func runAdapters(cmd *cobra.Command, _ []string) error {
@@ -274,20 +275,21 @@ func statusFromInfo(info common.Info, detected bool) adapterStatus {
 		installed = *info.InstalledVersion
 	}
 	row := adapterStatus{
-		Name:             info.Name,
-		Support:          info.Support,
-		Detected:         detected,
-		Installed:        info.Installed,
-		Managed:          info.Managed,
-		HashRecorded:     info.HashRecorded,
-		Tampered:         info.Tampered,
-		Adoptable:        info.Adoptable,
-		InstalledVersion: installed,
-		BundledVersion:   info.BundledVersion,
-		Outdated:         info.Outdated,
-		Path:             info.InstallPath,
-		Message:          info.Message,
-		Next:             info.Next,
+		Name:                   info.Name,
+		Support:                info.Support,
+		Detected:               detected,
+		Installed:              info.Installed,
+		Managed:                info.Managed,
+		HashRecorded:           info.HashRecorded,
+		Tampered:               info.Tampered,
+		Adoptable:              info.Adoptable,
+		InstalledVersion:       installed,
+		BundledVersion:         info.BundledVersion,
+		MinimumProviderVersion: info.MinimumProviderVersion,
+		Outdated:               info.Outdated,
+		Path:                   info.InstallPath,
+		Message:                info.Message,
+		Next:                   info.Next,
 	}
 	if contract, ok := adapters.ContractFor(info.Name); ok {
 		row.Certified = true

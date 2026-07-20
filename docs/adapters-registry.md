@@ -26,7 +26,9 @@ onibi adapters add ./adapter.toml
 | Gemini | `BeforeTool` command hook | Yes | `TestAdapterGeminiDenyBlocksTool` | Deny emits provider JSON `decision=deny`; fixture writes only if provider output allows. Native edits map to `hookSpecificOutput.tool_input`; certification remains pending authenticated live evidence and a provider-version floor. |
 | OpenCode | `tool.execute.before` plugin hook | Yes | `TestAdapterOpenCodeDenyBlocksTool` | Deny throws before fixture write. OpenCode documents global/project local-plugin discovery and mutable hook output, but this adapter remains non-certified pending authenticated live evidence and a provider-version floor. |
 | Pi | `tool_call` extension hook | Yes | `TestAdapterPiDenyBlocksTool` | Deny returns `{ block: true }`; fixture writes only if the hook allows. |
-| Goose | `PreToolUse` native blocking hook | Yes - deny only | `TestAdapterGooseDenyBlocksTool` | Native approve/deny uses Goose's documented exit-2 block signal. Edited input is denied because Goose has no documented input-replacement response; Goose remains non-certified. |
+| Goose | `PreToolUse` native blocking hook | Yes - deny only | `TestAdapterGooseDenyBlocksTool` | Goose v1.35.0 added `PreToolUse` denial: exit 2 or `{"decision":"block"}` blocks the tool. Onibi reports this as its provider floor. Edited input is denied because Goose has no documented input-replacement response; no authenticated live evidence exists, so Goose remains non-certified. |
+
+Goose documents [the native hook system and `PreToolUse` denial](https://github.com/aaif-goose/goose/releases/tag/v1.35.0). The floor is reported, not locally probed: verify the installed Goose version before relying on the hook.
 
 ## Community Adapters
 
