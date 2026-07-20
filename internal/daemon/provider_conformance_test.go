@@ -13,7 +13,7 @@ import (
 )
 
 func TestChatProviderTextConformance(t *testing.T) {
-	for _, provider := range []string{"matrix", "slack"} {
+	for _, provider := range []string{"matrix"} {
 		t.Run(provider+" routes terminal text", func(t *testing.T) {
 			r := &tmuxRunner{results: [][]byte{
 				nil,

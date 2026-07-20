@@ -22,7 +22,6 @@ import (
 	"github.com/gongahkia/onibi/internal/matrix"
 	"github.com/gongahkia/onibi/internal/secrets"
 	"github.com/gongahkia/onibi/internal/service"
-	"github.com/gongahkia/onibi/internal/slack"
 	"github.com/gongahkia/onibi/internal/web"
 	"github.com/gongahkia/onibi/internal/web/transport"
 )
@@ -88,11 +87,7 @@ type runner struct {
 	checks []Check
 }
 
-var (
-	newSlackClient = func(appToken, botToken string) *slack.Client {
-		return slack.New(appToken, botToken)
-	}
-)
+var ()
 
 func (r *runner) add(name string, st Status, detail string) {
 	c := Check{Name: name, Status: st, Detail: detail, Code: codeFor(name)}
@@ -335,8 +330,6 @@ func (r *runner) checkTransportProvider() {
 		r.add("transport provider", Pass, "Telegram coverage: unit + fake API + live opt-in; run onibi telegram status for pairing")
 	case "matrix":
 		r.checkMatrixProvider()
-	case "slack":
-		r.checkSlackProvider()
 	default:
 		r.add("transport provider", Warn, "unknown transport "+mode)
 	}
@@ -429,47 +422,6 @@ func (r *runner) checkMatrixProvider() {
 		return
 	}
 	r.add("transport provider", Pass, "Matrix live API ok: joined room, owner power, encrypted="+fmt.Sprint(encrypted))
-}
-
-func (r *runner) checkSlackProvider() {
-	if missing := missingEnv("ONIBI_SLACK_APP_TOKEN", "ONIBI_SLACK_BOT_TOKEN"); len(missing) > 0 {
-		r.add("transport provider", Warn, "Slack missing "+strings.Join(missing, ", "))
-		return
-	}
-	if r.opts.Offline {
-		r.add("transport provider", Pass, "Slack env present; live API checks skipped offline")
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.ctx, 8*time.Second)
-	defer cancel()
-	c := newSlackClient(os.Getenv("ONIBI_SLACK_APP_TOKEN"), os.Getenv("ONIBI_SLACK_BOT_TOKEN"))
-	auth, err := c.AuthTest(ctx)
-	if err != nil {
-		r.add("transport provider", Warn, "Slack auth.test failed: "+err.Error())
-		return
-	}
-	if _, err := c.OpenSocket(ctx); err != nil {
-		r.add("transport provider", Warn, "Slack Socket Mode failed: "+err.Error())
-		return
-	}
-	channel := strings.TrimSpace(os.Getenv("ONIBI_SLACK_APPROVAL_CHANNEL"))
-	if channel == "" {
-		channel = firstCSVEnv("ONIBI_SLACK_ALLOWED_CHANNELS")
-	}
-	if channel == "" {
-		r.add("transport provider", Warn, "Slack auth/socket ok for "+auth.TeamID+"; set ONIBI_SLACK_APPROVAL_CHANNEL or ONIBI_SLACK_ALLOWED_CHANNELS for channel access check")
-		return
-	}
-	info, err := c.ConversationInfo(ctx, channel)
-	if err != nil {
-		r.add("transport provider", Warn, "Slack channel access failed: "+err.Error())
-		return
-	}
-	if !info.Channel.IsIM && !info.Channel.IsMember {
-		r.add("transport provider", Warn, "Slack bot is not a member of "+channel)
-		return
-	}
-	r.add("transport provider", Pass, "Slack live API ok: auth, socket, channel "+channel)
 }
 
 func (r *runner) transportMode(cfg config.Config) string {

@@ -16,7 +16,7 @@ func TestSecurityScanFindsAllPatternsAndRedacts(t *testing.T) {
 		"github_oauth":       "gho_" + strings.Repeat("C", 36),
 		"openai":             "sk-" + strings.Repeat("D", 20),
 		"anthropic":          "sk-ant-" + strings.Repeat("E", 30),
-		"slack":              "xoxb-" + strings.Repeat("F", 10),
+		"xox_token":          "xoxb-" + strings.Repeat("F", 10),
 		"aws_access_key":     "AKIA" + strings.Repeat("G", 16),
 		"aws_session_key":    "ASIA" + strings.Repeat("H", 16),
 		"google_api_key":     "AIza" + strings.Repeat("I", 35),

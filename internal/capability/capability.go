@@ -26,7 +26,6 @@ var v1WebTransports = []string{
 var deferredProviderTransports = []string{
 	"telegram",
 	"matrix",
-	"slack",
 }
 
 func V1Agents() []string { return append([]string(nil), v1Agents...) }

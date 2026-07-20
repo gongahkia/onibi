@@ -12,7 +12,7 @@ import (
 //   - PEM blocks (BEGIN .* KEY)
 //   - AWS access keys (AKIA / ASIA + 16 alnum)
 //   - GitHub tokens (ghp_, gho_, ghu_, ghs_, ghr_ + 36 chars)
-//   - Slack tokens (xox[a-z]-...)
+//   - xox tokens (xox[a-z]-...)
 //   - Stripe keys (sk_live_, rk_live_)
 //   - Bearer tokens in inline strings ("Bearer <40+ alnum>")
 //   - Common password/secret assignment forms (PASSWORD="..", PASS=.., SECRET=..)
@@ -42,7 +42,7 @@ var redactCLISecret = regexp.MustCompile(`(?i)(--(?:password|passwd|secret|token
 // for assignment-style matches we keep the key half intact.
 func Scrub(s string) string {
 	out := s
-	// PEM, AWS, GH, Slack, Stripe, Bearer: full match → placeholder
+	// PEM, AWS, GH, xox, Stripe, Bearer: full match → placeholder
 	for _, re := range redactRules[:6] {
 		out = re.ReplaceAllString(out, placeholder)
 	}

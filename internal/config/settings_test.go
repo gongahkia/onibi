@@ -138,12 +138,6 @@ func TestSetValidates(t *testing.T) {
 	if got, _ := Get(cfg, "provider.output.redaction"); got != "strict" {
 		t.Fatalf("provider.output.redaction = %s", got)
 	}
-	if err := Set(&cfg, "provider.output.slack.max_bytes", "2048"); err != nil {
-		t.Fatal(err)
-	}
-	if got, _ := Get(cfg, "provider.output.slack.max_bytes"); got != "2048" {
-		t.Fatalf("provider.output.slack.max_bytes = %s", got)
-	}
 }
 
 func TestProviderOutputValidation(t *testing.T) {
@@ -158,14 +152,6 @@ func TestProviderOutputValidation(t *testing.T) {
 	cfg = Default()
 	if err := Set(&cfg, "provider.output.redaction", "none"); err == nil {
 		t.Fatal("expected redaction validation error")
-	}
-	cfg = Default()
-	if err := Set(&cfg, "provider.output.slack.max_bytes", "128"); err == nil {
-		t.Fatal("expected slack max_bytes validation error")
-	}
-	cfg = Default()
-	if err := Set(&cfg, "provider.output.slack.redaction", "none"); err == nil {
-		t.Fatal("expected slack redaction validation error")
 	}
 }
 
@@ -250,7 +236,7 @@ func TestTransportModeRejectsUnsupportedValue(t *testing.T) {
 }
 
 func TestTransportModeRejectsRemovedNotificationProviders(t *testing.T) {
-	for _, mode := range []string{"email", "sms", "apns", "gotify", "ntfy", "pushover", "signal", "irc", "zulip", "discord"} {
+	for _, mode := range []string{"email", "sms", "apns", "gotify", "ntfy", "pushover", "signal", "irc", "zulip", "discord", "slack"} {
 		t.Run(mode, func(t *testing.T) {
 			cfg := Default()
 			err := Set(&cfg, "transport.mode", mode)
@@ -316,6 +302,17 @@ func TestLoadRejectsRemovedDiscordTransport(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsRemovedSlackTransport(t *testing.T) {
+	paths := testPaths(t)
+	if err := os.WriteFile(paths.Config, []byte("transport:\n  mode: slack\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := Load(paths)
+	if err == nil || !strings.Contains(err.Error(), "no longer supported") {
+		t.Fatalf("unexpected err: %v", err)
+	}
+}
+
 func TestProviderOutputRejectsRemovedDiscordOverride(t *testing.T) {
 	cfg := Default()
 	if err := Set(&cfg, "provider.output.discord.max_bytes", "2048"); err == nil {
@@ -333,6 +330,27 @@ func TestLoadRejectsRemovedDiscordOutputOverride(t *testing.T) {
 	}
 	_, _, err := Load(paths)
 	if err == nil || !strings.Contains(err.Error(), "field discord not found") {
+		t.Fatalf("unexpected err: %v", err)
+	}
+}
+
+func TestProviderOutputRejectsRemovedSlackOverride(t *testing.T) {
+	cfg := Default()
+	if err := Set(&cfg, "provider.output.slack.max_bytes", "2048"); err == nil {
+		t.Fatal("expected unknown config key error")
+	}
+	if _, err := Get(cfg, "provider.output.slack.max_bytes"); err == nil {
+		t.Fatal("expected unknown config key error")
+	}
+}
+
+func TestLoadRejectsRemovedSlackOutputOverride(t *testing.T) {
+	paths := testPaths(t)
+	if err := os.WriteFile(paths.Config, []byte("provider:\n  output:\n    slack:\n      max_bytes: 2048\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := Load(paths)
+	if err == nil || !strings.Contains(err.Error(), "field slack not found") {
 		t.Fatalf("unexpected err: %v", err)
 	}
 }

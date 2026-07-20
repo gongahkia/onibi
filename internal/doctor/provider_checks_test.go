@@ -10,7 +10,6 @@ import (
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/daemon"
 	"github.com/gongahkia/onibi/internal/secrets"
-	"github.com/gongahkia/onibi/internal/slack"
 	"github.com/gongahkia/onibi/internal/store"
 	"github.com/gongahkia/onibi/internal/telegram"
 )
@@ -21,7 +20,7 @@ func TestProvidersReportAllProvidersUnconfigured(t *testing.T) {
 	paths := doctorTestPaths(t, "lan")
 	clearProviderEnv(t)
 	report := Providers(t.Context(), Options{Paths: paths, Offline: true, PreferDotenv: true})
-	want := []string{"telegram", "matrix", "slack"}
+	want := []string{"telegram", "matrix"}
 	if len(report.Providers) != len(want) {
 		t.Fatalf("providers = %#v", report.Providers)
 	}
@@ -53,7 +52,6 @@ func TestProvidersMissingDetailsPerProvider(t *testing.T) {
 	want := map[string]string{
 		"telegram": "missing bot token",
 		"matrix":   "ONIBI_MATRIX_HOMESERVER",
-		"slack":    "ONIBI_SLACK_APP_TOKEN",
 	}
 	for name, detail := range want {
 		row := providerNamed(t, report, name)
@@ -85,18 +83,6 @@ func TestProvidersReachabilityFakeAPIs(t *testing.T) {
 	}))
 	defer matrixSrv.Close()
 	t.Setenv("ONIBI_MATRIX_HOMESERVER", matrixSrv.URL)
-	slackSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case strings.HasSuffix(r.URL.Path, "/auth.test"):
-			writeDoctorJSON(t, w, map[string]any{"ok": true, "team_id": "T1", "bot_id": "B1"})
-		case strings.HasSuffix(r.URL.Path, "/apps.connections.open"):
-			writeDoctorJSON(t, w, map[string]any{"ok": true, "url": "wss://socket.example"})
-		default:
-			t.Fatalf("slack path = %s", r.URL.Path)
-		}
-	}))
-	defer slackSrv.Close()
-	withSlackFactory(t, slackSrv.URL)
 	report := Providers(t.Context(), Options{Paths: paths, PreferDotenv: true})
 	for _, row := range report.Providers {
 		if row.Reachable != ReachableYes {
@@ -128,56 +114,6 @@ func TestProvidersLastAuditTimestamp(t *testing.T) {
 	}
 }
 
-func TestDoctorSlackProviderFakeAPI(t *testing.T) {
-	paths := doctorTestPaths(t, "slack")
-	t.Setenv("ONIBI_SLACK_APP_TOKEN", "xapp-test")
-	t.Setenv("ONIBI_SLACK_BOT_TOKEN", "xoxb-test")
-	t.Setenv("ONIBI_SLACK_APPROVAL_CHANNEL", "C1")
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case strings.HasSuffix(r.URL.Path, "/auth.test"):
-			writeDoctorJSON(t, w, map[string]any{"ok": true, "team_id": "T1", "bot_id": "B1"})
-		case strings.HasSuffix(r.URL.Path, "/apps.connections.open"):
-			writeDoctorJSON(t, w, map[string]any{"ok": true, "url": "wss://socket.example"})
-		case strings.HasSuffix(r.URL.Path, "/conversations.info"):
-			writeDoctorJSON(t, w, map[string]any{"ok": true, "channel": map[string]any{"id": "C1", "is_member": true}})
-		default:
-			t.Fatalf("path = %s", r.URL.Path)
-		}
-	}))
-	defer srv.Close()
-	withSlackFactory(t, srv.URL)
-	check := checkNamed(t, Run(t.Context(), Options{Paths: paths}), "transport provider")
-	if check.Status != Pass || !strings.Contains(check.Detail, "Slack live API ok") {
-		t.Fatalf("check = %#v", check)
-	}
-}
-
-func TestDoctorSlackWarnsWhenNotMember(t *testing.T) {
-	paths := doctorTestPaths(t, "slack")
-	t.Setenv("ONIBI_SLACK_APP_TOKEN", "xapp-test")
-	t.Setenv("ONIBI_SLACK_BOT_TOKEN", "xoxb-test")
-	t.Setenv("ONIBI_SLACK_APPROVAL_CHANNEL", "C1")
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case strings.HasSuffix(r.URL.Path, "/auth.test"):
-			writeDoctorJSON(t, w, map[string]any{"ok": true, "team_id": "T1"})
-		case strings.HasSuffix(r.URL.Path, "/apps.connections.open"):
-			writeDoctorJSON(t, w, map[string]any{"ok": true, "url": "wss://socket.example"})
-		case strings.HasSuffix(r.URL.Path, "/conversations.info"):
-			writeDoctorJSON(t, w, map[string]any{"ok": true, "channel": map[string]any{"id": "C1", "is_member": false}})
-		default:
-			t.Fatalf("path = %s", r.URL.Path)
-		}
-	}))
-	defer srv.Close()
-	withSlackFactory(t, srv.URL)
-	check := checkNamed(t, Run(t.Context(), Options{Paths: paths}), "transport provider")
-	if check.Status != Warn || !strings.Contains(check.Detail, "not a member") {
-		t.Fatalf("check = %#v", check)
-	}
-}
-
 func TestDoctorMatrixProviderFakeAPIEncryptedWarn(t *testing.T) {
 	paths := doctorTestPaths(t, "matrix")
 	t.Setenv("ONIBI_MATRIX_ACCESS_TOKEN", "matrix-token")
@@ -202,17 +138,6 @@ func TestDoctorMatrixProviderFakeAPIEncryptedWarn(t *testing.T) {
 	if check.Status != Warn || !strings.Contains(check.Detail, "encrypted") {
 		t.Fatalf("check = %#v", check)
 	}
-}
-
-func withSlackFactory(t *testing.T, baseURL string) {
-	t.Helper()
-	old := newSlackClient
-	newSlackClient = func(appToken, botToken string) *slack.Client {
-		c := slack.New(appToken, botToken)
-		c.BaseURL = baseURL
-		return c
-	}
-	t.Cleanup(func() { newSlackClient = old })
 }
 
 func withTelegramProviderFactory(t *testing.T, baseURL string) {
@@ -266,8 +191,6 @@ func configureEnvProviders(t *testing.T) {
 	t.Setenv("ONIBI_MATRIX_HOMESERVER", "https://matrix.example")
 	t.Setenv("ONIBI_MATRIX_ACCESS_TOKEN", "matrix-token")
 	t.Setenv("ONIBI_MATRIX_ROOM_ID", "!room:example")
-	t.Setenv("ONIBI_SLACK_APP_TOKEN", "xapp-test")
-	t.Setenv("ONIBI_SLACK_BOT_TOKEN", "xoxb-test")
 }
 
 func clearProviderEnv(t *testing.T) {
@@ -277,10 +200,6 @@ func clearProviderEnv(t *testing.T) {
 		"ONIBI_MATRIX_HOMESERVER",
 		"ONIBI_MATRIX_ACCESS_TOKEN",
 		"ONIBI_MATRIX_ROOM_ID",
-		"ONIBI_SLACK_APP_TOKEN",
-		"ONIBI_SLACK_BOT_TOKEN",
-		"ONIBI_SLACK_APPROVAL_CHANNEL",
-		"ONIBI_SLACK_ALLOWED_CHANNELS",
 		"ONIBI_DOCTOR_LIVE",
 	} {
 		t.Setenv(name, "")

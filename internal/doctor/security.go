@@ -43,7 +43,7 @@ var securityPatterns = []securityPattern{
 	{name: "github_oauth", re: regexp.MustCompile(`gho_[A-Za-z0-9]{36}`)},
 	{name: "openai", re: regexp.MustCompile(`sk-[A-Za-z0-9]{20,}`)},
 	{name: "anthropic", re: regexp.MustCompile(`sk-ant-[A-Za-z0-9-]{30,}`)},
-	{name: "slack", re: regexp.MustCompile(`xox[abpr]-[A-Za-z0-9-]{10,}`)},
+	{name: "xox_token", re: regexp.MustCompile(`xox[abpr]-[A-Za-z0-9-]{10,}`)},
 	{name: "aws_access_key", re: regexp.MustCompile(`AKIA[A-Z0-9]{16}`)},
 	{name: "aws_session_key", re: regexp.MustCompile(`ASIA[A-Z0-9]{16}`)},
 	{name: "google_api_key", re: regexp.MustCompile(`AIza[A-Za-z0-9_-]{35}`)},

@@ -8,7 +8,7 @@ import (
 
 // SweepInterval controls how often the expiry sweeper runs. Coarse-grained
 // — we don't need second-precision expiry; the 5-min hard limit + this
-// interval means worst-case slack is 5m+SweepInterval (still well within
+// interval means worst-case leeway is 5m+SweepInterval (still well within
 // the threat budget).
 const SweepInterval = 15 * time.Second
 

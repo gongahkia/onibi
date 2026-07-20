@@ -193,12 +193,12 @@ func fitTableWidths(widths []int, maxWidth int) []int {
 	target := maxWidth - gap
 	for sumInts(out) > target {
 		col := -1
-		slack := 0
+		margin := 0
 		for i, width := range out {
 			minWidth := minTableColumnWidth(i, len(out), width)
-			if width-minWidth > slack {
+			if width-minWidth > margin {
 				col = i
-				slack = width - minWidth
+				margin = width - minWidth
 			}
 		}
 		if col < 0 {

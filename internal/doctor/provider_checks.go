@@ -45,7 +45,6 @@ func Providers(ctx context.Context, opts Options) ProviderReport {
 	rows := []ProviderRow{
 		providerTelegram(ctx, opts, pa),
 		providerMatrix(ctx, opts, pa),
-		providerSlack(ctx, opts, pa),
 	}
 	return ProviderReport{Providers: rows}
 }
@@ -119,38 +118,6 @@ func providerMatrix(ctx context.Context, opts Options, pa map[string]string) Pro
 	return row
 }
 
-func providerSlack(ctx context.Context, opts Options, pa map[string]string) ProviderRow {
-	row := providerRow("slack", pa)
-	missing := missingEnv("ONIBI_SLACK_APP_TOKEN", "ONIBI_SLACK_BOT_TOKEN")
-	row.Configured = len(missing) == 0
-	if !row.Configured {
-		row.Detail = "missing " + strings.Join(missing, ", ")
-		row.Fix = []string{"set ONIBI_SLACK_APP_TOKEN and ONIBI_SLACK_BOT_TOKEN", "set ONIBI_SLACK_APPROVAL_CHANNEL or ONIBI_SLACK_ALLOWED_CHANNELS for approvals"}
-		return row
-	}
-	row.Detail = "env present"
-	if opts.Offline {
-		return row
-	}
-	withProviderTimeout(ctx, func(ctx context.Context) {
-		c := newSlackClient(os.Getenv("ONIBI_SLACK_APP_TOKEN"), os.Getenv("ONIBI_SLACK_BOT_TOKEN"))
-		auth, err := c.AuthTest(ctx)
-		if err != nil {
-			row.Reachable = ReachableNo
-			row.Detail = "auth.test failed: " + err.Error()
-			return
-		}
-		if _, err := c.OpenSocket(ctx); err != nil {
-			row.Reachable = ReachableNo
-			row.Detail = "socket mode failed: " + err.Error()
-			return
-		}
-		row.Reachable = ReachableYes
-		row.Detail = "team=" + auth.TeamID
-	})
-	return row
-}
-
 func providerRow(name string, pa map[string]string) ProviderRow {
 	return ProviderRow{Name: name, Reachable: ReachableSkipped, LastAuditTimestamp: pa[name]}
 }
@@ -195,7 +162,7 @@ func providerAudit(ctx context.Context, paths config.Paths) map[string]string {
 	}
 	out := map[string]string{}
 	for _, e := range entries {
-		for _, name := range []string{"telegram", "matrix", "slack"} {
+		for _, name := range []string{"telegram", "matrix"} {
 			if providerAuditMatch(name, e) {
 				out[name] = e.TS.UTC().Format(time.RFC3339)
 			}

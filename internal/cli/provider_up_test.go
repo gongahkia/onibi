@@ -38,25 +38,11 @@ func TestRunEnvProviderUpRequiresExperimentalOptIn(t *testing.T) {
 	}
 }
 
-func TestProviderOptionsFromEnvSlackAllowlist(t *testing.T) {
-	t.Setenv("ONIBI_SLACK_APP_TOKEN", "xapp")
-	t.Setenv("ONIBI_SLACK_BOT_TOKEN", "xoxb")
-	t.Setenv("ONIBI_SLACK_ALLOWED_CHANNELS", "C1,C2")
-	t.Setenv("ONIBI_SLACK_ALLOWED_DM_USERS", "U1")
-	opts, _, err := providerOptionsFromEnv("slack")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(opts.Slack.AllowedIDs) != 2 || opts.Slack.AllowedDMUsers[0] != "U1" {
-		t.Fatalf("opts=%#v", opts.Slack)
-	}
-}
-
 func TestProviderOptionsFromEnvRejectsMissing(t *testing.T) {
 	if _, _, err := providerOptionsFromEnv("unknown"); err == nil {
 		t.Fatal("expected unsupported provider error")
 	}
-	if !isEnvChatTransport("matrix") || !isEnvChatTransport("slack") {
+	if !isEnvChatTransport("matrix") {
 		t.Fatal("chat transport classification failed")
 	}
 }

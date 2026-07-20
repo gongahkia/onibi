@@ -22,7 +22,7 @@ Detailed controls live in [`docs/security.md`](docs/security.md). Relay E2E deta
 
 ## Caveats
 
-- Chat providers such as Telegram and Slack can see message plaintext unless the provider path has real end-to-end encryption. Do not route terminal secrets or approval payloads through plaintext chat transports.
+- Telegram can see message plaintext unless its provider path has real end-to-end encryption. Do not route terminal secrets or approval payloads through plaintext chat transports.
 - Cloudflare relay E2E hides PTY bytes, typed input, approval payloads, and control bodies from Cloudflare, but relay metadata remains visible: host, timing, byte lengths, connection count, request paths, `session_id`, stream id, channel, direction, and sequence numbers.
 - Hook failures are provider-specific. Blocking approval hooks fail closed when the provider honors non-zero exit or deny JSON. Notify-only hooks and providers that ignore hook failures can fail open; use `onibi hooks --show` and provider trust review to confirm behavior.
 
