@@ -20,7 +20,6 @@ import (
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/daemon"
 	"github.com/gongahkia/onibi/internal/discord"
-	"github.com/gongahkia/onibi/internal/irc"
 	"github.com/gongahkia/onibi/internal/matrix"
 	"github.com/gongahkia/onibi/internal/secrets"
 	"github.com/gongahkia/onibi/internal/service"
@@ -347,8 +346,6 @@ func (r *runner) checkTransportProvider() {
 		r.checkDiscordProvider()
 	case "zulip":
 		r.checkZulipProvider()
-	case "irc":
-		r.checkIRCProvider()
 	default:
 		r.add("transport provider", Warn, "unknown transport "+mode)
 	}
@@ -561,29 +558,6 @@ func (r *runner) checkZulipProvider() {
 	}
 	_ = c.DeleteQueue(ctx, q.QueueID)
 	r.add("transport provider", Pass, "Zulip live API ok: event queue on stream "+os.Getenv("ONIBI_ZULIP_STREAM"))
-}
-
-func (r *runner) checkIRCProvider() {
-	if missing := missingEnv("ONIBI_IRC_NICK", "ONIBI_IRC_PASSWORD", "ONIBI_IRC_OWNER_NICK"); len(missing) > 0 {
-		r.add("transport provider", Warn, "IRC missing "+strings.Join(missing, ", "))
-		return
-	}
-	if r.opts.Offline {
-		r.add("transport provider", Pass, "IRC env present; live SASL check skipped offline")
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.ctx, 8*time.Second)
-	defer cancel()
-	c := newIRCClient(os.Getenv("ONIBI_IRC_ADDR"), os.Getenv("ONIBI_IRC_NICK"), os.Getenv("ONIBI_IRC_USERNAME"), os.Getenv("ONIBI_IRC_PASSWORD"))
-	if envBool("ONIBI_IRC_PLAINTEXT") {
-		c.Plaintext = true
-	}
-	if err := c.Connect(ctx); err != nil {
-		r.add("transport provider", Warn, "IRC SASL connect failed: "+err.Error())
-		return
-	}
-	_ = c.Close()
-	r.add("transport provider", Pass, "IRC live API ok: SASL connect to "+providerValueOrDefault(os.Getenv("ONIBI_IRC_ADDR"), irc.DefaultAddr))
 }
 
 func (r *runner) transportMode(cfg config.Config) string {

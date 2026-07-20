@@ -56,7 +56,7 @@ func TestProviderOptionsFromEnvRejectsMissing(t *testing.T) {
 	if _, _, err := providerOptionsFromEnv("discord"); err == nil {
 		t.Fatal("expected missing discord token error")
 	}
-	if !isEnvChatTransport("matrix") || !isEnvChatTransport("slack") || !isEnvChatTransport("discord") || !isEnvChatTransport("zulip") || !isEnvChatTransport("irc") {
+	if !isEnvChatTransport("matrix") || !isEnvChatTransport("slack") || !isEnvChatTransport("discord") || !isEnvChatTransport("zulip") {
 		t.Fatal("chat transport classification failed")
 	}
 }
@@ -74,21 +74,5 @@ func TestProviderOptionsFromEnvZulip(t *testing.T) {
 	}
 	if label != "Zulip" || opts.Zulip.Stream != "onibi" || opts.Zulip.TopicPrefix != "sess-" || opts.Zulip.OwnerEmail != "owner@example.com" {
 		t.Fatalf("opts=%#v label=%q", opts.Zulip, label)
-	}
-}
-
-func TestProviderOptionsFromEnvIRC(t *testing.T) {
-	t.Setenv("ONIBI_IRC_ADDR", "irc.example:6697")
-	t.Setenv("ONIBI_IRC_NICK", "onibi")
-	t.Setenv("ONIBI_IRC_USERNAME", "onibi-account")
-	t.Setenv("ONIBI_IRC_PASSWORD", "secret")
-	t.Setenv("ONIBI_IRC_OWNER_NICK", "owner")
-	t.Setenv("ONIBI_IRC_PLAINTEXT", "1")
-	opts, label, err := providerOptionsFromEnv("irc")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if label != "IRC" || opts.IRC.Addr != "irc.example:6697" || opts.IRC.Username != "onibi-account" || opts.IRC.OwnerNick != "owner" || !opts.IRC.Plaintext {
-		t.Fatalf("opts=%#v label=%q", opts.IRC, label)
 	}
 }

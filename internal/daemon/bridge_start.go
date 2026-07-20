@@ -10,7 +10,6 @@ import (
 	"sync"
 
 	"github.com/gongahkia/onibi/internal/discord"
-	"github.com/gongahkia/onibi/internal/irc"
 	"github.com/gongahkia/onibi/internal/matrix"
 	"github.com/gongahkia/onibi/internal/slack"
 	"github.com/gongahkia/onibi/internal/zulip"
@@ -81,22 +80,6 @@ func (d *Daemon) startZulipBridge(ctx context.Context, wg *sync.WaitGroup, cance
 		defer wg.Done()
 		if err := d.runZulipBridge(ctx, zulip.New(d.Zulip.BaseURL, d.Zulip.Email, d.Zulip.APIKey)); err != nil && !errors.Is(err, context.Canceled) {
 			d.Log.Error("zulip bridge", slog.Any("err", err))
-			cancel()
-		}
-	}()
-}
-
-func (d *Daemon) startIRCBridge(ctx context.Context, wg *sync.WaitGroup, cancel context.CancelFunc) {
-	if strings.TrimSpace(d.IRC.Nick) == "" {
-		return
-	}
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		c := irc.New(d.IRC.Addr, d.IRC.Nick, d.IRC.Username, d.IRC.Password)
-		c.Plaintext = d.IRC.Plaintext
-		if err := d.runIRCBridge(ctx, c); err != nil && !errors.Is(err, context.Canceled) {
-			d.Log.Error("irc bridge", slog.Any("err", err))
 			cancel()
 		}
 	}()

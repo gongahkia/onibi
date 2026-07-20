@@ -20,7 +20,6 @@ func daemonProviderOutputOverrides(cfg config.Config) daemon.ProviderOutputOverr
 		Slack:    daemonProviderOutputOverride(cfg.Provider.Output.Slack),
 		Discord:  daemonProviderOutputOverride(cfg.Provider.Output.Discord),
 		Zulip:    daemonProviderOutputOverride(cfg.Provider.Output.Zulip),
-		IRC:      daemonProviderOutputOverride(cfg.Provider.Output.IRC),
 	}
 }
 

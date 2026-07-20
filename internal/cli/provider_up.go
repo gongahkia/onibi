@@ -39,7 +39,6 @@ func runEnvProviderUp(cmd *cobra.Command, paths config.Paths, db *store.DB, cfg 
 		Slack:                   opts.Slack,
 		Discord:                 opts.Discord,
 		Zulip:                   opts.Zulip,
-		IRC:                     opts.IRC,
 		ProviderOutput:          daemonProviderOutputPolicy(cfg),
 		ProviderOutputOverrides: daemonProviderOutputOverrides(cfg),
 		SkipRestore:             true,
@@ -73,7 +72,6 @@ type envProviderOptions struct {
 	Slack   daemon.SlackOptions
 	Discord daemon.DiscordOptions
 	Zulip   daemon.ZulipOptions
-	IRC     daemon.IRCOptions
 }
 
 func providerOptionsFromEnv(mode string) (envProviderOptions, string, error) {
@@ -128,19 +126,6 @@ func providerOptionsFromEnv(mode string) (envProviderOptions, string, error) {
 			return opts, "", fmt.Errorf("zulip requires ONIBI_ZULIP_URL, ONIBI_ZULIP_EMAIL, ONIBI_ZULIP_API_KEY, ONIBI_ZULIP_STREAM")
 		}
 		return opts, "Zulip", nil
-	case "irc":
-		opts.IRC = daemon.IRCOptions{
-			Addr:      strings.TrimSpace(os.Getenv("ONIBI_IRC_ADDR")),
-			Nick:      envRequired("ONIBI_IRC_NICK"),
-			Username:  strings.TrimSpace(os.Getenv("ONIBI_IRC_USERNAME")),
-			Password:  envRequired("ONIBI_IRC_PASSWORD"),
-			OwnerNick: envRequired("ONIBI_IRC_OWNER_NICK"),
-			Plaintext: envBool("ONIBI_IRC_PLAINTEXT"),
-		}
-		if opts.IRC.Nick == "" || opts.IRC.Password == "" || opts.IRC.OwnerNick == "" {
-			return opts, "", fmt.Errorf("irc requires ONIBI_IRC_NICK, ONIBI_IRC_PASSWORD, ONIBI_IRC_OWNER_NICK")
-		}
-		return opts, "IRC", nil
 	default:
 		return opts, "", fmt.Errorf("unsupported env provider %q", mode)
 	}
@@ -148,7 +133,7 @@ func providerOptionsFromEnv(mode string) (envProviderOptions, string, error) {
 
 func isEnvChatTransport(mode string) bool {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case "matrix", "slack", "discord", "zulip", "irc":
+	case "matrix", "slack", "discord", "zulip":
 		return true
 	default:
 		return false

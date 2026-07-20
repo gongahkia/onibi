@@ -29,7 +29,6 @@ type ProviderOutputOverrides struct {
 	Slack    ProviderOutputPolicy
 	Discord  ProviderOutputPolicy
 	Zulip    ProviderOutputPolicy
-	IRC      ProviderOutputPolicy
 }
 
 func (p ProviderOutputPolicy) normalized() ProviderOutputPolicy {
@@ -76,8 +75,6 @@ func (o ProviderOutputOverrides) forProvider(provider string) ProviderOutputPoli
 		return o.Discord
 	case "zulip":
 		return o.Zulip
-	case "irc":
-		return o.IRC
 	default:
 		return ProviderOutputPolicy{}
 	}

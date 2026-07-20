@@ -58,7 +58,6 @@ type Daemon struct {
 	Slack                   SlackOptions
 	Discord                 DiscordOptions
 	Zulip                   ZulipOptions
-	IRC                     IRCOptions
 	ProviderOutput          ProviderOutputPolicy
 	ProviderOutputOverrides ProviderOutputOverrides
 	FleetLink               *FleetLink
@@ -110,7 +109,6 @@ type Options struct {
 	Slack                   SlackOptions
 	Discord                 DiscordOptions
 	Zulip                   ZulipOptions
-	IRC                     IRCOptions
 	ProviderOutput          ProviderOutputPolicy
 	ProviderOutputOverrides ProviderOutputOverrides
 	FleetLink               *FleetLink
@@ -153,15 +151,6 @@ type ZulipOptions struct {
 	OwnerEmail  string
 }
 
-type IRCOptions struct {
-	Addr      string
-	Nick      string
-	Username  string
-	Password  string
-	OwnerNick string
-	Plaintext bool
-}
-
 // New constructs a daemon, wiring intake + registry + idle detector +
 // approval queue + local web cockpit.
 func New(opts Options) *Daemon {
@@ -198,7 +187,6 @@ func New(opts Options) *Daemon {
 		Slack:                   opts.Slack,
 		Discord:                 opts.Discord,
 		Zulip:                   opts.Zulip,
-		IRC:                     opts.IRC,
 		ProviderOutput:          opts.ProviderOutput.normalized(),
 		ProviderOutputOverrides: opts.ProviderOutputOverrides,
 		FleetLink:               opts.FleetLink,
@@ -475,7 +463,6 @@ func (d *Daemon) Run(ctx context.Context) error {
 		d.startSlackBridge(ctx, &wg, cancel)
 		d.startDiscordBridge(ctx, &wg, cancel)
 		d.startZulipBridge(ctx, &wg, cancel)
-		d.startIRCBridge(ctx, &wg, cancel)
 	}
 	d.startWebPushNotifier(ctx, &wg)
 

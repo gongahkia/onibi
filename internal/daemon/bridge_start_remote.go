@@ -12,5 +12,4 @@ func (d *Daemon) startMatrixBridge(context.Context, *sync.WaitGroup, context.Can
 func (d *Daemon) startSlackBridge(context.Context, *sync.WaitGroup, context.CancelFunc)    {}
 func (d *Daemon) startDiscordBridge(context.Context, *sync.WaitGroup, context.CancelFunc)  {}
 func (d *Daemon) startZulipBridge(context.Context, *sync.WaitGroup, context.CancelFunc)    {}
-func (d *Daemon) startIRCBridge(context.Context, *sync.WaitGroup, context.CancelFunc)      {}
 func (d *Daemon) startWebPushNotifier(context.Context, *sync.WaitGroup)                    {}

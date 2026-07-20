@@ -17,7 +17,6 @@ import (
 	"github.com/gongahkia/onibi/internal/approval"
 	"github.com/gongahkia/onibi/internal/chatout"
 	"github.com/gongahkia/onibi/internal/discord"
-	"github.com/gongahkia/onibi/internal/irc"
 	"github.com/gongahkia/onibi/internal/matrix"
 	"github.com/gongahkia/onibi/internal/slack"
 	"github.com/gongahkia/onibi/internal/web"
@@ -1549,97 +1548,6 @@ func (d *Daemon) zulipTopicPrefix() string {
 		return zulipDefaultTopicPrefix
 	}
 	return prefix
-}
-
-func (d *Daemon) runIRCBridge(ctx context.Context, c *irc.Client) error {
-	if c == nil {
-		return errors.New("irc client nil")
-	}
-	if strings.TrimSpace(d.IRC.OwnerNick) == "" {
-		return errors.New("irc owner nick required")
-	}
-	prev := c.AfterError
-	c.AfterError = func(err error, delay time.Duration, attempt int) {
-		d.audit(ctx, "provider.irc.reconnect", "", "", 0, fmt.Sprintf("attempt=%d delay=%s err=%v", attempt, delay, err))
-		if prev != nil {
-			prev(err, delay, attempt)
-		}
-	}
-	go d.forwardApprovalsToIRC(ctx, c)
-	return c.RunWithReconnect(ctx, func(msg irc.Message) error {
-		return d.handleIRCMessage(ctx, c, msg)
-	})
-}
-
-func (d *Daemon) handleIRCMessage(ctx context.Context, c *irc.Client, msg irc.Message) error {
-	if msg.Command != "PRIVMSG" || len(msg.Params) == 0 {
-		return nil
-	}
-	if !strings.EqualFold(msg.Params[0], d.IRC.Nick) {
-		return nil
-	}
-	from := msg.Nick()
-	if !strings.EqualFold(from, d.IRC.OwnerNick) {
-		return nil
-	}
-	text := strings.TrimSpace(msg.Trailing)
-	if text == "" {
-		return nil
-	}
-	if action, id, ok := irc.ParseOnibiCommand(text); ok {
-		reply := d.handleIRCApprovalCommand(ctx, action, id)
-		_ = c.SendPrivmsg(ctx, from, reply)
-		return nil
-	}
-	sessionID := d.providerTargetSessionID("")
-	d.audit(ctx, "provider.irc.text_in", sessionID, text, 0, "nick="+from)
-	out, err := d.handleProviderTextFor(ctx, "", text, 0, "irc")
-	if err != nil {
-		_ = c.SendPrivmsg(ctx, from, "Input failed: "+err.Error())
-		return nil
-	}
-	d.postIRCTail(ctx, c, from, sessionID, out)
-	return nil
-}
-
-func (d *Daemon) handleIRCApprovalCommand(ctx context.Context, action, id string) string {
-	verdict := approvalVerdictForAction(action)
-	sessionID := d.approvalSessionID(ctx, id)
-	d.audit(ctx, "provider.irc.command", sessionID, irc.FormatOnibiCommand(action, id), 0, "action="+action+" approval="+id+" nick="+d.IRC.OwnerNick)
-	if verdict == "" {
-		return "Approval " + id + " failed: invalid action."
-	}
-	if err := d.decideProviderApproval(ctx, id, verdict, 0); err != nil {
-		return fmt.Sprintf("Approval %s failed: %v", id, err)
-	}
-	return fmt.Sprintf("Approval %s %s.", id, verdict)
-}
-
-func (d *Daemon) forwardApprovalsToIRC(ctx context.Context, c *irc.Client) {
-	if d.Queue == nil || strings.TrimSpace(d.IRC.OwnerNick) == "" {
-		return
-	}
-	d.forwardNotifyApprovals(ctx, func(a *approval.Approval) {
-		text := formatApprovalWithPolicy(a, d.providerOutputPolicy("irc")) + "\nReply " + irc.FormatOnibiCommand("approve", a.ID) + " or " + irc.FormatOnibiCommand("deny", a.ID) + "."
-		if err := c.SendPrivmsg(ctx, d.IRC.OwnerNick, text); err != nil {
-			d.audit(ctx, "provider.irc.approval_error", a.SessionID, "", 0, "approval="+a.ID+" nick="+d.IRC.OwnerNick+" err="+err.Error())
-			return
-		}
-		d.audit(ctx, "provider.irc.approval_sent", a.SessionID, "", 0, "approval="+a.ID+" nick="+d.IRC.OwnerNick)
-	})
-}
-
-func (d *Daemon) postIRCTail(ctx context.Context, c *irc.Client, nick, sessionID, text string) {
-	if c == nil {
-		return
-	}
-	for i, chunk := range chatout.Chunks(text, irc.MessageChunkLimit) {
-		if err := c.SendPrivmsg(ctx, nick, chunk); err != nil {
-			d.audit(ctx, "provider.irc.tail_error", sessionID, "", 0, "nick="+nick+" err="+err.Error())
-			return
-		}
-		d.audit(ctx, "provider.irc.tail_chunk", sessionID, chunk, 0, fmt.Sprintf("nick=%s index=%d bytes=%d", nick, i, len(chunk)))
-	}
 }
 
 func (d *Daemon) runWebPushNotifier(ctx context.Context) {
