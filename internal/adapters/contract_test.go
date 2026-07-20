@@ -39,6 +39,9 @@ func TestCertifiedContractsMatchV1AgentAllowlist(t *testing.T) {
 			t.Fatalf("audit contract=%+v", c.Audit)
 		}
 	}
+	if c, ok := ContractFor("amp"); !ok || c.Certified || c.Version != CertifiedContractVersion || c.MinimumProviderVersion != "" || !c.Installation.Idempotent || !c.Approval.BlocksTool || c.Approval.Edit != DecisionAllowWithUpdated || c.Lifecycle.SessionExit || c.Audit.DecisionRecorded {
+		t.Fatalf("Amp capability report=%+v present=%t", c, ok)
+	}
 	if c, ok := ContractFor("opencode"); !ok || c.Certified || c.Version != CertifiedContractVersion || c.MinimumProviderVersion != "1.18.3" || !c.Installation.Idempotent || !c.Approval.BlocksTool || c.Approval.Edit != DecisionAllowWithUpdated || c.Audit.DecisionRecorded {
 		t.Fatalf("OpenCode capability report=%+v present=%t", c, ok)
 	}

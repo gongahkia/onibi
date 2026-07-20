@@ -36,7 +36,7 @@ Edited input must parse as a JSON object before Onibi returns `modify`.
 
 [Amp's plugin API](https://ampcode.com/manual/plugin-api) documents project and system plugin paths, Bun execution, concurrent thread handling, `tool.call` allow/reject/modify results, and the five supported lifecycle events. It does not expose a `session.end` event. Onibi uses `thread.id` as provider-session metadata; `agent.end` only reports turn completion.
 
-`onibi hooks --show --agent amp` reports all five generated and observed plugin hooks, backup, source/hash drift, and reload instructions. Hermetic fixtures cover approve, deny, expiry, edit, daemon-unavailable allow, timeout allow, plugin reload, and distinct provider thread IDs. `onibi adapters --json` marks Amp `certified: false` with no v1 contract.
+`onibi hooks --show --agent amp` reports all five generated and observed plugin hooks, backup, source/hash drift, and reload instructions. Hermetic fixtures cover approve, deny, expiry, edit, daemon-unavailable allow, timeout allow, plugin reload, and distinct provider thread IDs. `onibi adapters --json` reports Amp's non-certified contract v1; its omitted `minimum_provider_version` means no provider floor has been established.
 
 Amp executes plugins with Bun. Onibi uses asynchronous `Bun.spawn` for its native runtime so one approval wait does not synchronously block the plugin process; the Node fallback exists only for hermetic fixture execution. If the Onibi daemon/socket is unavailable, or its five-minute approval wait expires, the plugin returns `{ action: "allow" }`.
 

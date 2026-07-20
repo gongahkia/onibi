@@ -73,6 +73,7 @@ var adapterContracts = map[string]AdapterContract{
 	"copilot":              copilotContract(),
 	"gemini":               geminiContract(),
 	"opencode":             openCodeContract(),
+	"amp":                  ampContract(),
 }
 
 func certifiedContract(agent string, sessionExit, reviewRequired bool, reload string) AdapterContract {
@@ -113,6 +114,41 @@ func certifiedContract(agent string, sessionExit, reviewRequired bool, reload st
 			PayloadHashOnly:    true,
 			RawPayloadRecorded: false,
 		},
+	}
+}
+
+func ampContract() AdapterContract {
+	return AdapterContract{
+		Version:   CertifiedContractVersion,
+		Agent:     "amp",
+		Certified: false,
+		Installation: InstallationContract{
+			Managed:              true,
+			Idempotent:           true,
+			IntegrityVerified:    true,
+			OriginalConfigBacked: true,
+		},
+		Approval: ApprovalContract{
+			Delivery:          "same_uid_unix_socket",
+			BlocksTool:        true,
+			Approve:           DecisionAllow,
+			Deny:              DecisionDeny,
+			Edit:              DecisionAllowWithUpdated,
+			Expire:            DecisionDeny,
+			DaemonUnavailable: DecisionAllow,
+			RequestTimeout:    DecisionAllow,
+		},
+		Lifecycle: LifecycleContract{
+			SessionStart:    true,
+			Activity:        true,
+			ApprovalRequest: true,
+			TurnComplete:    true,
+		},
+		Recovery: RecoveryContract{
+			HookReloadInstruction: "run plugins: reload",
+			PendingApproval:       "no plugin-level waiter recovery claim; use the persisted Onibi approval state",
+		},
+		Audit: AuditContract{},
 	}
 }
 

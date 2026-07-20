@@ -121,7 +121,7 @@ The in-tree adapters remain the reference implementations for provider-specific 
 
 | Adapter | Kind | Reference behavior |
 |---|---|---|
-| `amp` | `agent` | Installs an Amp TypeScript plugin with native `tool.call` approval handling. It is non-certified pending authenticated live evidence and a provider-version floor. |
+| `amp` | `agent` | Installs an Amp TypeScript plugin with native `tool.call` approval handling. `onibi adapters --json` reports its non-certified contract v1 but omits `minimum_provider_version` because the official API has no documented compatibility floor; authenticated live evidence is also required. |
 | `claude` | `agent` | Installs Claude Code lifecycle hooks, including blocking `PreToolUse`. |
 | `codex` | `agent` | Installs Codex hook JSON for lifecycle and blocking tool approvals. |
 | `copilot` | `agent` | Installs GitHub Copilot CLI lifecycle and `preToolUse` approval hooks. `onibi adapters --json` reports the non-certified contract v1 and documented Copilot CLI `1.0.54` floor; local fixtures cover decisions, lifecycle, hook disablement, timeout, and drift, but authenticated live evidence remains required. |

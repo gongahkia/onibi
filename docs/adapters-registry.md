@@ -19,7 +19,7 @@ onibi adapters add ./adapter.toml
 
 | Adapter | Hook surface | Verified deny blocks tool | Test | Notes |
 |---|---|---:|---|---|
-| Amp | `tool.call` plugin approval | Yes | `TestAdapterAmpDenyBlocksTool` | Deny returns `reject-and-continue`; edits return `modify` with object input. No `session.end` event exists; daemon-unavailable and timeout return `allow`. Certification remains pending authenticated live evidence and a provider-version floor. |
+| Amp | `tool.call` plugin approval | Yes | `TestAdapterAmpDenyBlocksTool` | Deny returns `reject-and-continue`; edits return `modify` with object input. No `session.end` event exists; daemon-unavailable and timeout return `allow`. `onibi adapters --json` exposes non-certified contract v1 but omits `minimum_provider_version`: the official API has no documented compatibility floor. Authenticated live evidence remains required. |
 | Claude | `PreToolUse` command hook | Yes | `TestAdapterClaudeDenyBlocksTool` | Deny exits non-zero with `permissionDecision=deny`. |
 | Codex | `PreToolUse` command hook | Yes | `TestAdapterCodexDenyBlocksTool` | Deny exits non-zero with `permissionDecision=deny`. |
 | Copilot | `preToolUse` command hook | Yes | `TestAdapterCopilotDenyBlocksTool` | Deny emits provider JSON `permissionDecision=deny`; edit, expiry, daemon-unavailable, timeout, lifecycle, disabled-hook, and drift behavior have provider-shaped local fixtures. `onibi adapters --json` exposes its non-certified contract v1 and documented Copilot CLI `1.0.54` floor. A missing notifier command fails closed; authenticated live evidence remains required. |
