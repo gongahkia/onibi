@@ -24,7 +24,10 @@ import (
 var newTelegramClient = telegram.NewClient
 var openSecretStore = secrets.Open
 
-const telegramTokenEnv = "ONIBI_TELEGRAM_TOKEN"
+const (
+	telegramTokenEnv          = "ONIBI_TELEGRAM_TOKEN"
+	telegramCapabilityVersion = "1"
+)
 
 func telegramCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -129,6 +132,7 @@ func runTelegramStatus(cmd *cobra.Command, _ []string) error {
 	owner, ownerOK, _ := db.KVGetString(cmd.Context(), daemon.TelegramKVOwnerChatID)
 	liveCheck, _ := cmd.Flags().GetBool("check")
 	report := telegramStatusReport{
+		Capability:    telegramCapability(),
 		Token:         tokenOK,
 		SecretBackend: secretBackend,
 		OwnerPaired:   ownerOK,
@@ -169,16 +173,41 @@ func runTelegramStatus(cmd *cobra.Command, _ []string) error {
 }
 
 type telegramStatusReport struct {
-	Token         bool     `json:"token"`
-	SecretBackend string   `json:"secret_backend"`
-	OwnerPaired   bool     `json:"owner_paired"`
-	OwnerChatID   string   `json:"owner_chat_id,omitempty"`
-	Check         bool     `json:"check"`
-	TokenValid    *bool    `json:"token_valid,omitempty"`
-	BotID         int64    `json:"bot_id,omitempty"`
-	BotUsername   string   `json:"bot_username,omitempty"`
-	CheckError    string   `json:"check_error,omitempty"`
-	Next          []string `json:"next,omitempty"`
+	Capability    telegramCapabilityReport `json:"capability"`
+	Token         bool                     `json:"token"`
+	SecretBackend string                   `json:"secret_backend"`
+	OwnerPaired   bool                     `json:"owner_paired"`
+	OwnerChatID   string                   `json:"owner_chat_id,omitempty"`
+	Check         bool                     `json:"check"`
+	TokenValid    *bool                    `json:"token_valid,omitempty"`
+	BotID         int64                    `json:"bot_id,omitempty"`
+	BotUsername   string                   `json:"bot_username,omitempty"`
+	CheckError    string                   `json:"check_error,omitempty"`
+	Next          []string                 `json:"next,omitempty"`
+}
+
+type telegramCapabilityReport struct {
+	Version               string   `json:"version"`
+	OwnerOnly             bool     `json:"owner_only"`
+	Standalone            bool     `json:"standalone"`
+	PWARequired           bool     `json:"pwa_required"`
+	LiveTerminal          bool     `json:"live_terminal"`
+	EndToEndEncrypted     bool     `json:"end_to_end_encrypted"`
+	BoundedRedactedOutput bool     `json:"bounded_redacted_output"`
+	ApprovalVerdicts      []string `json:"approval_verdicts"`
+}
+
+func telegramCapability() telegramCapabilityReport {
+	return telegramCapabilityReport{
+		Version:               telegramCapabilityVersion,
+		OwnerOnly:             true,
+		Standalone:            true,
+		PWARequired:           false,
+		LiveTerminal:          false,
+		EndToEndEncrypted:     false,
+		BoundedRedactedOutput: true,
+		ApprovalVerdicts:      []string{"approve", "deny", "edit"},
+	}
 }
 
 func telegramStatusNext(report telegramStatusReport) []string {

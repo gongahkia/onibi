@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -38,6 +39,9 @@ func TestTelegramSetupStatusDisableCLI(t *testing.T) {
 	}
 	if !status.Token || status.TokenValid == nil || !*status.TokenValid || status.BotUsername != "onibi_test_bot" {
 		t.Fatalf("status = %+v", status)
+	}
+	if status.Capability.Version != telegramCapabilityVersion || !status.Capability.OwnerOnly || !status.Capability.Standalone || status.Capability.PWARequired || status.Capability.LiveTerminal || status.Capability.EndToEndEncrypted || !status.Capability.BoundedRedactedOutput || !slices.Equal(status.Capability.ApprovalVerdicts, []string{"approve", "deny", "edit"}) {
+		t.Fatalf("capability = %+v", status.Capability)
 	}
 	db, err := store.Open(paths.DBFile)
 	if err != nil {
