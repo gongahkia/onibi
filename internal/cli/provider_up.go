@@ -10,7 +10,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	apnsapi "github.com/gongahkia/onibi/internal/apns"
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/daemon"
 	gotifyapi "github.com/gongahkia/onibi/internal/gotify"
@@ -30,11 +29,6 @@ func runEnvProviderUp(cmd *cobra.Command, paths config.Paths, db *store.DB, cfg 
 		ctx, cancel := context.WithTimeout(cmd.Context(), 5*time.Second)
 		defer cancel()
 		if err := gotifyapi.New(opts.Gotify.BaseURL, opts.Gotify.AppToken, opts.Gotify.ClientToken).Validate(ctx); err != nil {
-			return err
-		}
-	}
-	if mode == "apns" {
-		if _, err := apnsapi.New(apnsConfigFromOptions(opts.APNs)); err != nil {
 			return err
 		}
 	}
@@ -60,7 +54,6 @@ func runEnvProviderUp(cmd *cobra.Command, paths config.Paths, db *store.DB, cfg 
 		Pushover:                opts.Pushover,
 		Ntfy:                    opts.Ntfy,
 		Gotify:                  opts.Gotify,
-		APNs:                    opts.APNs,
 		ProviderOutput:          daemonProviderOutputPolicy(cfg),
 		ProviderOutputOverrides: daemonProviderOutputOverrides(cfg),
 		SkipRestore:             true,
@@ -99,7 +92,6 @@ type envProviderOptions struct {
 	Pushover daemon.PushoverOptions
 	Ntfy     daemon.NtfyOptions
 	Gotify   daemon.GotifyOptions
-	APNs     daemon.APNsOptions
 }
 
 func providerOptionsFromEnv(mode string) (envProviderOptions, string, error) {
@@ -197,19 +189,6 @@ func providerOptionsFromEnv(mode string) (envProviderOptions, string, error) {
 			return opts, "", fmt.Errorf("gotify requires ONIBI_GOTIFY_URL and ONIBI_GOTIFY_APP_TOKEN")
 		}
 		return opts, "Gotify", nil
-	case "apns":
-		opts.APNs = daemon.APNsOptions{
-			KeyPath:     envRequired("ONIBI_APNS_KEY_PATH"),
-			KeyID:       envRequired("ONIBI_APNS_KEY_ID"),
-			TeamID:      envRequired("ONIBI_APNS_TEAM_ID"),
-			Topic:       envRequired("ONIBI_APNS_TOPIC"),
-			DeviceToken: envRequired("ONIBI_APNS_DEVICE_TOKEN"),
-			Environment: strings.TrimSpace(os.Getenv("ONIBI_APNS_ENV")),
-		}
-		if opts.APNs.KeyPath == "" || opts.APNs.KeyID == "" || opts.APNs.TeamID == "" || opts.APNs.Topic == "" || opts.APNs.DeviceToken == "" {
-			return opts, "", fmt.Errorf("apns requires ONIBI_APNS_KEY_PATH, ONIBI_APNS_KEY_ID, ONIBI_APNS_TEAM_ID, ONIBI_APNS_TOPIC, ONIBI_APNS_DEVICE_TOKEN")
-		}
-		return opts, "APNs", nil
 	default:
 		return opts, "", fmt.Errorf("unsupported env provider %q", mode)
 	}
@@ -226,7 +205,7 @@ func isEnvChatTransport(mode string) bool {
 
 func isNotifyTransport(mode string) bool {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case "pushover", "ntfy", "gotify", "apns":
+	case "pushover", "ntfy", "gotify":
 		return true
 	default:
 		return false
@@ -248,10 +227,6 @@ func envProviderActionWebAddr(mode string, opts envProviderOptions, listenAddr s
 		}
 	}
 	return ""
-}
-
-func apnsConfigFromOptions(opts daemon.APNsOptions) apnsapi.Config {
-	return apnsapi.Config{KeyPath: opts.KeyPath, KeyID: opts.KeyID, TeamID: opts.TeamID, Topic: opts.Topic, Environment: opts.Environment}
 }
 
 func envRequired(name string) string {

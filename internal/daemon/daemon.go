@@ -63,7 +63,6 @@ type Daemon struct {
 	Pushover                PushoverOptions
 	Ntfy                    NtfyOptions
 	Gotify                  GotifyOptions
-	APNs                    APNsOptions
 	ProviderOutput          ProviderOutputPolicy
 	ProviderOutputOverrides ProviderOutputOverrides
 	FleetLink               *FleetLink
@@ -123,7 +122,6 @@ type Options struct {
 	Pushover                PushoverOptions
 	Ntfy                    NtfyOptions
 	Gotify                  GotifyOptions
-	APNs                    APNsOptions
 	ProviderOutput          ProviderOutputPolicy
 	ProviderOutputOverrides ProviderOutputOverrides
 	FleetLink               *FleetLink
@@ -202,15 +200,6 @@ type GotifyOptions struct {
 	ActionBaseURL string
 }
 
-type APNsOptions struct {
-	KeyPath     string
-	KeyID       string
-	TeamID      string
-	Topic       string
-	DeviceToken string
-	Environment string
-}
-
 // New constructs a daemon, wiring intake + registry + idle detector +
 // approval queue + local web cockpit.
 func New(opts Options) *Daemon {
@@ -253,7 +242,6 @@ func New(opts Options) *Daemon {
 		Pushover:                opts.Pushover,
 		Ntfy:                    opts.Ntfy,
 		Gotify:                  opts.Gotify,
-		APNs:                    opts.APNs,
 		ProviderOutput:          opts.ProviderOutput.normalized(),
 		ProviderOutputOverrides: opts.ProviderOutputOverrides,
 		FleetLink:               opts.FleetLink,
@@ -544,11 +532,8 @@ func (d *Daemon) Run(ctx context.Context) error {
 		d.startPushoverNotifier(ctx, &wg)
 		d.startNtfyNotifier(ctx, &wg)
 		d.startGotifyNotifier(ctx, &wg)
-		d.startAPNsNotifier(ctx, &wg)
 	}
-	if !d.apnsConfigured() {
-		d.startWebPushNotifier(ctx, &wg)
-	}
+	d.startWebPushNotifier(ctx, &wg)
 
 	wg.Add(1)
 	go func() {

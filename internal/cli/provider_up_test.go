@@ -60,7 +60,7 @@ func TestProviderOptionsFromEnvRejectsMissing(t *testing.T) {
 	if !isEnvChatTransport("matrix") || !isEnvChatTransport("slack") || !isEnvChatTransport("discord") || !isEnvChatTransport("zulip") || !isEnvChatTransport("irc") || !isEnvChatTransport("signal") {
 		t.Fatal("chat transport classification failed")
 	}
-	if !isNotifyTransport("pushover") || !isNotifyTransport("ntfy") || !isNotifyTransport("gotify") || !isNotifyTransport("apns") {
+	if !isNotifyTransport("pushover") || !isNotifyTransport("ntfy") || !isNotifyTransport("gotify") {
 		t.Fatal("notify transport classification failed")
 	}
 }
@@ -111,22 +111,6 @@ func TestProviderOptionsFromEnvSignal(t *testing.T) {
 	}
 	if len(opts.Signal.Recipients) != 2 || opts.Signal.Recipients[1] != "+15550003" {
 		t.Fatalf("recipients=%#v", opts.Signal.Recipients)
-	}
-}
-
-func TestProviderOptionsFromEnvAPNs(t *testing.T) {
-	t.Setenv("ONIBI_APNS_KEY_PATH", "/tmp/AuthKey_ABC123DEFG.p8")
-	t.Setenv("ONIBI_APNS_KEY_ID", "ABC123DEFG")
-	t.Setenv("ONIBI_APNS_TEAM_ID", "TEAM123456")
-	t.Setenv("ONIBI_APNS_TOPIC", "com.example.onibi")
-	t.Setenv("ONIBI_APNS_DEVICE_TOKEN", "abc123")
-	t.Setenv("ONIBI_APNS_ENV", "development")
-	opts, label, err := providerOptionsFromEnv("apns")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if label != "APNs" || opts.APNs.Topic != "com.example.onibi" || opts.APNs.Environment != "development" || opts.APNs.DeviceToken != "abc123" {
-		t.Fatalf("opts=%#v label=%q", opts.APNs, label)
 	}
 }
 

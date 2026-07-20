@@ -9,7 +9,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/gongahkia/onibi/internal/apns"
 	"github.com/gongahkia/onibi/internal/discord"
 	"github.com/gongahkia/onibi/internal/gotify"
 	"github.com/gongahkia/onibi/internal/irc"
@@ -154,28 +153,6 @@ func (d *Daemon) startGotifyNotifier(ctx context.Context, wg *sync.WaitGroup) {
 	}()
 }
 
-func (d *Daemon) startAPNsNotifier(ctx context.Context, wg *sync.WaitGroup) {
-	if !d.apnsConfigured() {
-		return
-	}
-	c, err := apns.New(apns.Config{
-		KeyPath:     d.APNs.KeyPath,
-		KeyID:       d.APNs.KeyID,
-		TeamID:      d.APNs.TeamID,
-		Topic:       d.APNs.Topic,
-		Environment: d.APNs.Environment,
-	})
-	if err != nil {
-		d.Log.Error("apns notifier", slog.Any("err", err))
-		return
-	}
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		d.runAPNsNotifier(ctx, c)
-	}()
-}
-
 func (d *Daemon) startWebPushNotifier(ctx context.Context, wg *sync.WaitGroup) {
 	if d.DB == nil {
 		return
@@ -185,12 +162,4 @@ func (d *Daemon) startWebPushNotifier(ctx context.Context, wg *sync.WaitGroup) {
 		defer wg.Done()
 		d.runWebPushNotifier(ctx)
 	}()
-}
-
-func (d *Daemon) apnsConfigured() bool {
-	return strings.TrimSpace(d.APNs.KeyPath) != "" &&
-		strings.TrimSpace(d.APNs.KeyID) != "" &&
-		strings.TrimSpace(d.APNs.TeamID) != "" &&
-		strings.TrimSpace(d.APNs.Topic) != "" &&
-		strings.TrimSpace(d.APNs.DeviceToken) != ""
 }

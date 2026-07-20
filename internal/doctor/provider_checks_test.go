@@ -13,7 +13,6 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/gongahkia/onibi/internal/apns"
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/daemon"
 	"github.com/gongahkia/onibi/internal/discord"
@@ -32,7 +31,7 @@ func TestProvidersReportAllProvidersUnconfigured(t *testing.T) {
 	paths := doctorTestPaths(t, "lan")
 	clearProviderEnv(t)
 	report := Providers(t.Context(), Options{Paths: paths, Offline: true, PreferDotenv: true})
-	want := []string{"telegram", "matrix", "slack", "discord", "zulip", "irc", "signal", "pushover", "ntfy", "gotify", "apns"}
+	want := []string{"telegram", "matrix", "slack", "discord", "zulip", "irc", "signal", "pushover", "ntfy", "gotify"}
 	if len(report.Providers) != len(want) {
 		t.Fatalf("providers = %#v", report.Providers)
 	}
@@ -72,7 +71,6 @@ func TestProvidersMissingDetailsPerProvider(t *testing.T) {
 		"pushover": "ONIBI_PUSHOVER_TOKEN",
 		"ntfy":     "ONIBI_NTFY_TOPIC",
 		"gotify":   "ONIBI_GOTIFY_URL",
-		"apns":     "ONIBI_APNS_KEY_PATH",
 	}
 	for name, detail := range want {
 		row := providerNamed(t, report, name)
@@ -167,7 +165,6 @@ func TestProvidersReachabilityFakeAPIs(t *testing.T) {
 	}))
 	defer gotifySrv.Close()
 	t.Setenv("ONIBI_GOTIFY_URL", gotifySrv.URL)
-	withAPNsProviderFactory(t)
 	report := Providers(t.Context(), Options{Paths: paths, PreferDotenv: true})
 	for _, row := range report.Providers {
 		if row.Reachable != ReachableYes {
@@ -552,15 +549,6 @@ func withPushoverFactory(t *testing.T, baseURL string) {
 	t.Cleanup(func() { newPushoverClient = old })
 }
 
-func withAPNsProviderFactory(t *testing.T) {
-	t.Helper()
-	old := newAPNsProviderClient
-	newAPNsProviderClient = func(apns.Config) (apnsPusher, error) {
-		return fakeAPNsPusher{}, nil
-	}
-	t.Cleanup(func() { newAPNsProviderClient = old })
-}
-
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -569,12 +557,6 @@ func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 
 func (f roundTripFunc) Client() *http.Client {
 	return &http.Client{Transport: f}
-}
-
-type fakeAPNsPusher struct{}
-
-func (fakeAPNsPusher) PushApproval(context.Context, apns.PushRequest) (apns.PushResult, error) {
-	return apns.PushResult{StatusCode: http.StatusOK, APNsID: "apns-1", Sent: true}, nil
 }
 
 func configureTelegramProvider(t *testing.T, paths config.Paths) {
@@ -628,11 +610,6 @@ func configureEnvProviders(t *testing.T) {
 	t.Setenv("ONIBI_GOTIFY_URL", "https://gotify.example")
 	t.Setenv("ONIBI_GOTIFY_APP_TOKEN", "app-token")
 	t.Setenv("ONIBI_GOTIFY_CLIENT_TOKEN", "client-token")
-	t.Setenv("ONIBI_APNS_KEY_PATH", "/tmp/AuthKey_ABC123DEFG.p8")
-	t.Setenv("ONIBI_APNS_KEY_ID", "ABC123DEFG")
-	t.Setenv("ONIBI_APNS_TEAM_ID", "TEAM123456")
-	t.Setenv("ONIBI_APNS_TOPIC", "com.example.onibi")
-	t.Setenv("ONIBI_APNS_DEVICE_TOKEN", "abc123")
 }
 
 func clearProviderEnv(t *testing.T) {
@@ -674,12 +651,6 @@ func clearProviderEnv(t *testing.T) {
 		"ONIBI_GOTIFY_URL",
 		"ONIBI_GOTIFY_APP_TOKEN",
 		"ONIBI_GOTIFY_CLIENT_TOKEN",
-		"ONIBI_APNS_KEY_PATH",
-		"ONIBI_APNS_KEY_ID",
-		"ONIBI_APNS_TEAM_ID",
-		"ONIBI_APNS_TOPIC",
-		"ONIBI_APNS_DEVICE_TOKEN",
-		"ONIBI_APNS_ENV",
 		"ONIBI_DOCTOR_LIVE",
 	} {
 		t.Setenv(name, "")

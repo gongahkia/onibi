@@ -215,17 +215,6 @@ ONIBI_LIVE_SIGNAL=1 ONIBI_SIGNAL_RPC_URL=http://127.0.0.1:6001 ONIBI_SIGNAL_ACCO
 - Confirm `go test -race ./internal/signal -run TestParityAxes` covers send, emoji reaction JSON-RPC, SSE chunking, and reconnect.
 - Run `onibi up --transport=signal`, react `👍` to an approval prompt, send a text message for PTY input, and confirm `provider.signal.reaction`, `provider.signal.text_in`, and `provider.signal.tail_chunk` audit rows.
 
-APNs:
-
-```bash
-ONIBI_LIVE_APNS=1 ONIBI_APNS_KEY_PATH=/secure/path/AuthKey_ABC123DEFG.p8 ONIBI_APNS_KEY_ID=ABC123DEFG ONIBI_APNS_TEAM_ID=TEAM123456 ONIBI_APNS_TOPIC=com.example.OnibiCompanion ONIBI_APNS_DEVICE_TOKEN=<hex-device-token> ONIBI_APNS_ENV=production go test ./internal/apns -run LiveAPNs
-```
-
-- Confirm `go test -race ./internal/apns -run TestPushShape` covers payload shape, topic, push type, priority, and APNs rejection surfacing.
-- Confirm the native app install uses the same APNs environment and bundle topic as Onibi.
-- Confirm `onibi up --transport=apns` writes `notify.apns.sent` or `notify.apns.error` audit rows.
-- Unset APNs env and confirm web push remains the fallback notifier.
-
 ## Cloudflare Quick
 
 ```bash

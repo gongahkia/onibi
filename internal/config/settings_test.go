@@ -274,7 +274,7 @@ func TestTransportModeRejectsUnsupportedValue(t *testing.T) {
 }
 
 func TestTransportModeRejectsRemovedNotificationProviders(t *testing.T) {
-	for _, mode := range []string{"email", "sms"} {
+	for _, mode := range []string{"email", "sms", "apns"} {
 		t.Run(mode, func(t *testing.T) {
 			cfg := Default()
 			err := Set(&cfg, "transport.mode", mode)

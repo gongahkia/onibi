@@ -53,7 +53,7 @@ Unknown top-level keys are invalid.
 `[transports]` declares workspace-preferred control surfaces.
 
 `transports.default`
-: Optional default transport mode. Valid values match `transport.mode`: `lan`, `tailscale`, `tailscale-private`, `wireguard`, `zerotier`, `cloudflare-quick`, `cloudflare-named`, `ngrok`, `telegram`, `matrix`, `slack`, `discord`, `zulip`, `irc`, `signal`, `pushover`, `ntfy`, `gotify`, `apns`, or `auto`.
+: Optional default transport mode. Valid values match `transport.mode`: `lan`, `tailscale`, `tailscale-private`, `wireguard`, `zerotier`, `cloudflare-quick`, `cloudflare-named`, `ngrok`, `telegram`, `matrix`, `slack`, `discord`, `zulip`, `irc`, `signal`, `pushover`, `ntfy`, `gotify`, or `auto`.
 
 `transports.web`
 : Optional ordered allowlist for browser cockpit modes.
