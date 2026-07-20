@@ -203,6 +203,48 @@ func TestTelegramBridgeLongOutputChunks(t *testing.T) {
 	}
 }
 
+func TestTelegramBridgePeekUsesProviderOutputPolicy(t *testing.T) {
+	db := openDaemonTestDB(t)
+	d := New(Options{
+		DB:              db,
+		TelegramOwnerID: 42,
+		ProviderOutput:  ProviderOutputPolicy{MaxChunks: 1, MaxBytes: 120, Redaction: "default"},
+		ProviderOutputOverrides: ProviderOutputOverrides{
+			Telegram: ProviderOutputPolicy{Redaction: "strict"},
+		},
+	})
+	secret := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"
+	s := NewSession("s1", "shell", "shell", nil, BufferSize)
+	_, _ = s.Buf.Write([]byte(secret + "\n" + strings.Repeat("x ", 120)))
+	if err := d.Registry.Add(s); err != nil {
+		t.Fatal(err)
+	}
+	spy, client := newTelegramAPISpy(t)
+	b := &telegramBridge{d: d, client: client, ownerID: 42}
+	b.setTarget(context.Background(), 42, "s1")
+
+	b.handleUpdate(context.Background(), telegram.Update{Message: &telegram.Message{Chat: telegram.Chat{ID: 42}, Text: "/peek"}})
+
+	got := strings.Join(spy.messageTexts(), "\n")
+	if strings.Contains(got, secret) || !strings.Contains(got, "[REDACTED]") || !strings.Contains(got, "truncated provider output") {
+		t.Fatalf("peek = %q", got)
+	}
+}
+
+func TestTelegramBridgeRejectsGraphicsCommand(t *testing.T) {
+	db := openDaemonTestDB(t)
+	d := New(Options{DB: db, TelegramOwnerID: 42})
+	spy, client := newTelegramAPISpy(t)
+	b := &telegramBridge{d: d, client: client, ownerID: 42}
+
+	b.handleUpdate(context.Background(), telegram.Update{Message: &telegram.Message{Chat: telegram.Chat{ID: 42}, Text: "/render"}})
+
+	got := strings.Join(spy.messageTexts(), "\n")
+	if !strings.Contains(got, "Unknown command") {
+		t.Fatalf("render response = %q", got)
+	}
+}
+
 func TestTelegramBridgeKillRequiresConfirmation(t *testing.T) {
 	r := &tmuxRunner{}
 	old := newTmuxController

@@ -176,9 +176,7 @@ func (b *telegramBridge) handleCommand(ctx context.Context, chatID int64, text s
 			b.send(ctx, chatID, "Peek failed: "+err.Error(), nil)
 			return
 		}
-		b.sendChunks(ctx, chatID, out)
-	case "/render", "/screenshot":
-		b.handleRender(ctx, chatID)
+		b.sendChunks(ctx, chatID, b.d.prepareProviderOutputFor("telegram", out))
 	case "/show":
 		msg, err := b.d.ShowSession(ctx, arg)
 		if err != nil {
@@ -271,23 +269,6 @@ func (b *telegramBridge) handleNew(ctx context.Context, chatID int64, arg string
 	}
 	b.setTarget(ctx, chatID, s.ID)
 	b.send(ctx, chatID, "Started "+s.Name+" ("+s.ID+"). Text this chat to send input.", nil)
-}
-
-func (b *telegramBridge) handleRender(ctx context.Context, chatID int64) {
-	s, err := b.d.sessionForRPCTarget(b.target(ctx, chatID))
-	if err != nil {
-		b.send(ctx, chatID, "Render failed: "+err.Error(), nil)
-		return
-	}
-	buf := s.Buf.Snapshot()
-	png, err := render.RenderPNG(buf, render.PNGOptions{Rows: 40, Cols: 100, Scale: 1})
-	if err != nil {
-		b.send(ctx, chatID, "Render failed: "+err.Error(), nil)
-		return
-	}
-	if err := b.client.SendPhoto(ctx, chatID, png, s.Name+" ("+s.ID+")"); err != nil {
-		b.send(ctx, chatID, "Send photo failed: "+err.Error(), nil)
-	}
 }
 
 func (b *telegramBridge) handleKill(ctx context.Context, chatID int64) {
@@ -513,7 +494,6 @@ Text this chat to send input to the current target.
 /sessions
 /target <id|name>
 /peek
-/render
 /show
 /hide
 /end

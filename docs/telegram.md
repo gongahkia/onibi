@@ -8,6 +8,8 @@ The local Telegram bridge starts from `onibi up --transport=telegram`; it create
 
 Telegram Bot API messages are not treated as end-to-end encrypted. The bounded/redacted text and approval messages traverse Telegram infrastructure; use the web relay transport when an Onibi end-to-end relay boundary is required. Telegram's [FAQ](https://telegram.org/faq) distinguishes end-to-end-encrypted Secret Chats from Cloud Chats.
 
+Every text response, including `/peek`, passes the configured `provider.output` bounds and redaction policy before it reaches Telegram.
+
 ## Commands
 
 After owner enrollment, text targets the selected managed session. `/new`, `/sessions`, and `/target` create/select sessions; `/peek` returns bounded output; `/interrupt`, `/esc`, `/enter`, `/show`, `/hide`, `/end`, and the double-confirmed `/kill` control the selected session. Approvals use `/approve <id>`, `/deny <id> [reason]`, and `/edit <id> <edited JSON>`.

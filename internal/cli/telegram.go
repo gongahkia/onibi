@@ -269,21 +269,23 @@ func runTelegramUp(cmd *cobra.Command, paths config.Paths, db *store.DB, cfg con
 		}
 	}
 	d := daemon.New(daemon.Options{
-		Paths:                  paths,
-		DB:                     db,
-		Log:                    logger,
-		ApprovalTTL:            cfg.Daemon.ApprovalTimeout.Std(),
-		ApprovalSweepInterval:  cfg.Daemon.ApprovalSweepInterval.Std(),
-		ApprovalMaxSubscribers: cfg.Daemon.MaxSubscribers,
-		IdleThreshold:          cfg.Daemon.TurnIdleThreshold.Std(),
-		IdleInterval:           cfg.Daemon.TurnIdleInterval.Std(),
-		BufferSize:             cfg.Daemon.PTYBufferBytes,
-		TerminalDefault:        cfg.Terminal.Default,
-		ExperimentalProviders:  cfg.Experimental.Providers,
-		TelegramToken:          token,
-		TelegramOwnerID:        ownerID,
-		TelegramPair:           pairCode,
-		SkipRestore:            true,
+		Paths:                   paths,
+		DB:                      db,
+		Log:                     logger,
+		ApprovalTTL:             cfg.Daemon.ApprovalTimeout.Std(),
+		ApprovalSweepInterval:   cfg.Daemon.ApprovalSweepInterval.Std(),
+		ApprovalMaxSubscribers:  cfg.Daemon.MaxSubscribers,
+		IdleThreshold:           cfg.Daemon.TurnIdleThreshold.Std(),
+		IdleInterval:            cfg.Daemon.TurnIdleInterval.Std(),
+		BufferSize:              cfg.Daemon.PTYBufferBytes,
+		TerminalDefault:         cfg.Terminal.Default,
+		ExperimentalProviders:   cfg.Experimental.Providers,
+		TelegramToken:           token,
+		TelegramOwnerID:         ownerID,
+		TelegramPair:            pairCode,
+		ProviderOutput:          daemonProviderOutputPolicy(cfg),
+		ProviderOutputOverrides: daemonProviderOutputOverrides(cfg),
+		SkipRestore:             true,
 	})
 	session, err := startManagedWebPairShell(cmd.Context(), d, cfg, shellCWD, logger)
 	if err != nil {
