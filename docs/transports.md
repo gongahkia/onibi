@@ -17,3 +17,9 @@ Onibi is a single-user phone web cockpit. Use a local network path that reaches 
 WireGuard, ZeroTier, Cloudflare, and ngrok are web transport implementations with their own setup and operational constraints. Public relays require Onibi relay E2E; see [Cloudflare Quick setup](./cloudflare-quick-setup.md) and [ngrok setup](./ngrok-setup.md). They do not add a hosted Onibi account, multi-user control plane, remote host management, chat bridge, or notification provider.
 
 Run `onibi doctor --transport=<mode>` before a non-LAN start and use [`transport-smoke.md`](./transport-smoke.md) for device validation.
+
+## Telegram chat cockpit
+
+Telegram is an experimental, owner-only text cockpit, not a web transport or live terminal. Start it with `onibi up --transport=telegram`; its one-time owner enrollment, local credential storage, session controls, approval callbacks, and bounded/redacted output operate without browser pairing, Web Push, or an open PWA page.
+
+The bridge uses capped exponential long-poll reconnect backoff and Telegram Bot API send limits (30 messages/second globally, one message/second per chat). It audits text input, approval callbacks, and output chunks with payload hashes rather than raw payloads. Bot API messages are not treated as end-to-end encrypted: Telegram's [FAQ](https://telegram.org/faq) distinguishes end-to-end-encrypted Secret Chats from Cloud Chats. See [Telegram Chat Cockpit](./telegram.md) for capability reporting and the secret-gated live verification runbook.
