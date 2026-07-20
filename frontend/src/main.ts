@@ -27,10 +27,7 @@ import { ApprovalWakeLock } from "./wake-lock";
 import { installImagePaste } from "./image-paste";
 import type { ImageUploadRequest } from "./image-paste";
 import { SharePanel } from "./share";
-import { FleetHostsPanel } from "./fleet-hosts";
 import { ApprovalInboxPanel } from "./approval-inbox";
-import { FleetHomeView } from "./fleet-home";
-import { SessionPickerPanel } from "./session-picker";
 import { TerminalStatus } from "./terminal-status";
 import { InterventionPanel } from "./intervention-panel";
 import { SessionToolsPanel } from "./session-tools";
@@ -69,18 +66,12 @@ let relayE2E: RelayE2E | undefined;
 let sessionList: SessionsListView | undefined;
 let snapshots: SnapshotsPanel | undefined;
 let sharePanel: SharePanel | undefined;
-let fleetHosts: FleetHostsPanel | undefined;
 let approvalInbox: ApprovalInboxPanel | undefined;
-let fleetHome: FleetHomeView | undefined;
-let sessionPicker: SessionPickerPanel | undefined;
 let interventionPanel: InterventionPanel | undefined;
 let terminalInputEnabled = false;
 let viewerMode = false;
 let csrfToken = "";
-const terminalStatus = new TerminalStatus(() => {
-  ws.close();
-  window.location.href = "/";
-});
+const terminalStatus = new TerminalStatus();
 
 attachTerminalIO(term, ws, () => terminalInputEnabled);
 installViewportResize(term, fit, ws);
@@ -128,7 +119,6 @@ events.addEventListener("event", (event) => {
     approvals.handleEnvelope(envelope);
   }
   sessionList?.handleEnvelope(envelope);
-  fleetHome?.handleEnvelope(envelope);
   approvalInbox?.handleEnvelope(envelope);
   snapshots?.handleEnvelope(envelope);
 });
@@ -227,45 +217,28 @@ async function showSessionsHome(): Promise<void> {
   viewerMode = false;
   terminalInputEnabled = false;
   showListChrome();
-  fleetHosts = new FleetHostsPanel(document.body, getJSON);
   approvalInbox = new ApprovalInboxPanel(document.body, getJSON, postJSON, showToast);
-  sessionPicker = new SessionPickerPanel(document.body, getJSON, (session) => {
-    if (session.remote_url !== undefined && session.remote_url !== "") {
-      window.location.href = session.remote_url;
-      return;
-    }
-    navigateToSession(session.id);
-  });
   const hostControls = document.createElement("div");
   hostControls.className = "session-list-header-controls";
-  hostControls.append(fleetHosts.element, approvalInbox.element);
-  const home = new FleetHomeView(
+  hostControls.append(approvalInbox.element);
+  sessionList = new SessionsListView(
     sessionListRoot,
     getJSON,
-    (session) => {
-      if (session.remote_url !== undefined && session.remote_url !== "") {
-        window.location.href = session.remote_url;
-        return;
-      }
-      navigateToSession(session.id);
-    },
-    (hostID) => fleetHosts?.openHost(hostID),
-    () => approvalInbox?.open(),
-    () => sessionPicker?.open(),
+    navigateToSession,
+    postJSON,
+    showToast,
     hostControls
   );
-  fleetHome = home;
-  const setFleetOffline = (offline: boolean) => {
-    home.setOffline(offline);
+  const setOffline = (offline: boolean) => {
     approvalInbox?.setOffline(offline);
   };
-  window.addEventListener("offline", () => setFleetOffline(true));
-  window.addEventListener("online", () => setFleetOffline(false));
+  window.addEventListener("offline", () => setOffline(true));
+  window.addEventListener("online", () => setOffline(false));
   if (!navigator.onLine) {
-    setFleetOffline(true);
+    setOffline(true);
   }
   await connectSessionListEvents();
-  await home.load();
+  await sessionList.load();
   refreshPushOnOpen();
   splash.hidden = true;
   startFirstRunTour();

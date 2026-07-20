@@ -13,9 +13,6 @@ export type SessionSummary = {
   recovery_reason?: string;
   recovery_updated_at?: string;
   role_required: string;
-  remote?: boolean;
-  peer_name?: string;
-  remote_url?: string;
 };
 
 type SessionRecoveryState =
@@ -69,7 +66,7 @@ export class SessionsListView {
   }
 
   private sessionsPath(): string {
-    return "/sessions?include=remote";
+    return "/sessions";
   }
 
   private render(): void {
@@ -127,8 +124,7 @@ export class SessionsListView {
 
     const cwd = document.createElement("span");
     cwd.className = "session-list-cwd";
-    cwd.textContent =
-      row.remote === true && row.remote_url !== undefined ? row.remote_url : row.cwd;
+    cwd.textContent = row.cwd;
 
     const meta = document.createElement("span");
     meta.className = "session-list-meta";
@@ -146,7 +142,7 @@ export class SessionsListView {
       });
     }
     actions.append(attach);
-    if (row.remote !== true && this.postJSON !== undefined) {
+    if (this.postJSON !== undefined) {
       const kill = sessionAction(
         this.killArmedUntil(row.id) > Date.now() ? "Confirm KILL" : "KILL"
       );
@@ -183,16 +179,12 @@ export class SessionsListView {
   }
 
   private attach(row: SessionSummary): void {
-    if (row.remote_url !== undefined && row.remote_url !== "") {
-      window.location.href = row.remote_url;
-      return;
-    }
     saveLastSessionID(row.id);
     this.navigate(row.id);
   }
 
   private installLongPressKill(el: HTMLElement, row: SessionSummary): void {
-    if (row.remote === true || this.postJSON === undefined) {
+    if (this.postJSON === undefined) {
       return;
     }
     let timer = 0;
@@ -276,9 +268,6 @@ function sortedRows(rows: SessionSummary[]): SessionSummary[] {
 
 function sessionMeta(row: SessionSummary): string {
   const recovery = recoveryText(row);
-  if (row.remote === true) {
-    return [recovery, "remote"].filter((part): part is string => part !== undefined).join(" / ");
-  }
   const parts = recovery === undefined ? [] : [recovery];
   if (row.pending_approvals_count > 0) {
     parts.push(`${row.pending_approvals_count} pending`);
@@ -293,9 +282,6 @@ function sessionRowClass(row: SessionSummary): string {
   if (row.id === lastSessionID()) {
     classes.push("last");
   }
-  if (row.remote === true) {
-    classes.push("remote");
-  }
   if (hasUnhealthyRecovery(row)) {
     classes.push("recovery-unhealthy");
   }
@@ -303,9 +289,6 @@ function sessionRowClass(row: SessionSummary): string {
 }
 
 function sessionTitle(row: SessionSummary): string {
-  if (row.remote === true) {
-    return (row.peer_name ?? row.agent) || "remote";
-  }
   return row.agent || "session";
 }
 

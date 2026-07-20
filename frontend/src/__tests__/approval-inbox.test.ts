@@ -1,14 +1,14 @@
 import { JSDOM } from "jsdom";
-import type { FleetStatus } from "../fleet-hosts";
+import type { PendingApprovals } from "../approval-inbox";
 
 test("approval inbox renders loading and failure states", async () => {
   const dom = installDOM('<main id="root"></main>');
   const { ApprovalInboxPanel } = await import("../approval-inbox");
-  let resolve: ((value: FleetStatus) => void) | undefined;
+  let resolve: ((value: PendingApprovals) => void) | undefined;
   const panel = new ApprovalInboxPanel(
     requireRoot(),
     async () =>
-      new Promise<FleetStatus>((done) => {
+      new Promise<PendingApprovals>((done) => {
         resolve = done;
       }),
     async () => new Response("ok", { status: 200 }),
@@ -36,7 +36,7 @@ test("approval inbox renders loading and failure states", async () => {
   failed.window.close();
 });
 
-test("approval inbox shows exact provenance and confirms its action target", async () => {
+test("approval inbox confirms its local action target", async () => {
   const dom = installDOM('<main id="root"></main>');
   const { ApprovalInboxPanel } = await import("../approval-inbox");
   const calls: Array<{ path: string; body: Record<string, unknown> }> = [];
@@ -51,20 +51,14 @@ test("approval inbox shows exact provenance and confirms its action target", asy
   );
   panel.open();
   await settle();
-  const remote = card(requireRoot(), "approval-remote");
-  expect(remote.textContent).toContain("host: Work Mac / host-work-mac");
-  expect(remote.textContent).toContain("session: remote:host-work-mac");
-  expect(remote.textContent).toContain("agent: claude");
-  const local = card(requireRoot(), "approval-local");
-  expect(local.textContent).toContain("host: this hub");
-  const unknown = card(requireRoot(), "approval-unknown");
-  expect(unknown.textContent).toContain("host: not reported");
-  expect(button(unknown, "Approve").disabled).toBe(true);
-  click(dom, button(remote, "Approve"));
+  const approval = card(requireRoot(), "approval-local");
+  expect(approval.textContent).toContain("session: local-session");
+  expect(approval.textContent).toContain("agent: codex");
+  click(dom, button(approval, "Approve"));
   expect(requireRoot().textContent).toContain("Confirm approve");
   click(dom, button(requireRoot(), "Confirm approve"));
   await settle();
-  expect(calls).toEqual([{ path: "/approval/approval-remote", body: { verdict: "approve" } }]);
+  expect(calls).toEqual([{ path: "/approval/approval-local", body: { verdict: "approve" } }]);
   dom.window.close();
 });
 
@@ -77,9 +71,7 @@ test("approval inbox retains cached approvals and locks a pending decision", asy
   const panel = new ApprovalInboxPanel(
     requireRoot(),
     async () => {
-      if (fail) {
-        throw new Error("offline");
-      }
+      if (fail) throw new Error("offline");
       return status();
     },
     async () => {
@@ -96,8 +88,8 @@ test("approval inbox retains cached approvals and locks a pending decision", asy
   click(dom, button(requireRoot(), "Reload"));
   await settle();
   expect(requireRoot().textContent).toContain("approval data may be stale: reconnect then reload");
-  expect(requireRoot().textContent).toContain("approval-remote");
-  click(dom, button(card(requireRoot(), "approval-remote"), "Approve"));
+  expect(requireRoot().textContent).toContain("approval-local");
+  click(dom, button(card(requireRoot(), "approval-local"), "Approve"));
   click(dom, button(requireRoot(), "Confirm approve"));
   click(dom, button(requireRoot(), "Approve"));
   expect(calls).toBe(1);
@@ -107,68 +99,21 @@ test("approval inbox retains cached approvals and locks a pending decision", asy
   dom.window.close();
 });
 
-function status(): FleetStatus {
+function status(): PendingApprovals {
   return {
-    generated_at: "2026-07-14T01:00:00Z",
-    hosts: [
-      {
-        id: "host-work-mac",
-        display_name: "Work Mac",
-        endpoint: { kind: "mesh", url: "https://work.tail.ts.net" },
-        protocol_version: 1,
-        binary_version: "v1.2.3",
-        capabilities: [],
-        state: "active",
-        registered_at: "2026-07-14T00:00:00Z",
-        last_seen_at: "2026-07-14T00:59:00Z"
-      }
-    ],
-    sessions: [
-      {
-        id: "remote:host-work-mac",
-        host_id: "host-work-mac",
-        agent: "claude",
-        state: "awaiting-approval",
-        last_activity: "2026-07-14T00:59:00Z",
-        pending_approvals: 1,
-        remote: true
-      },
-      {
-        id: "local-session",
-        agent: "codex",
-        state: "awaiting-approval",
-        last_activity: "2026-07-14T00:59:00Z",
-        pending_approvals: 1
-      }
-    ],
-    pending_approvals: [
-      {
-        id: "approval-remote",
-        host_id: "host-work-mac",
-        session_id: "remote:host-work-mac",
-        agent: "claude",
-        tool: "Bash",
-        state: "pending",
-        created_at: "2026-07-14T00:59:00Z",
-        expires_at: "2026-07-14T01:04:00Z"
-      },
+    approvals: [
       {
         id: "approval-local",
         session_id: "local-session",
         agent: "codex",
-        tool: "Write",
-        state: "pending",
-        created_at: "2026-07-14T00:59:00Z",
+        tool: "Bash",
         expires_at: "2026-07-14T01:04:00Z"
       },
       {
-        id: "approval-unknown",
-        host_id: "host-unreported",
-        session_id: "local-session",
-        agent: "codex",
+        id: "approval-second",
+        session_id: "second-session",
+        agent: "claude",
         tool: "Write",
-        state: "pending",
-        created_at: "2026-07-14T00:59:00Z",
         expires_at: "2026-07-14T01:04:00Z"
       }
     ]
@@ -177,25 +122,19 @@ function status(): FleetStatus {
 
 function requireRoot(): HTMLElement {
   const root = document.getElementById("root");
-  if (root === null) {
-    throw new Error("missing root");
-  }
+  if (root === null) throw new Error("missing root");
   return root;
 }
 
 function card(root: HTMLElement, id: string): HTMLElement {
   const found = root.querySelector<HTMLElement>(`[data-approval-id="${id}"]`);
-  if (found === null) {
-    throw new Error(`missing ${id}`);
-  }
+  if (found === null) throw new Error(`missing ${id}`);
   return found;
 }
 
 function button(root: HTMLElement, label: string): HTMLButtonElement {
   const found = Array.from(root.querySelectorAll("button")).find((el) => el.textContent === label);
-  if (!(found instanceof HTMLButtonElement)) {
-    throw new Error(`missing ${label} button`);
-  }
+  if (!(found instanceof HTMLButtonElement)) throw new Error(`missing ${label} button`);
   return found;
 }
 

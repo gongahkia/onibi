@@ -6,7 +6,6 @@ export type SessionRecoveryState =
 
 export type SessionStatus = {
   id: string;
-  host_id?: string;
   agent: string;
   cwd?: string;
   state: SessionState;
@@ -16,9 +15,6 @@ export type SessionStatus = {
   recovery_reason?: string;
   recovery_updated_at?: string;
   role_required: string;
-  remote?: boolean;
-  peer_name?: string;
-  remote_url?: string;
 };
 
 export type SessionsStatusPayload = {

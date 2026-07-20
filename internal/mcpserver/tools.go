@@ -19,10 +19,6 @@ import (
 	"github.com/gongahkia/onibi/internal/transcript"
 )
 
-type listSessionsInput struct {
-	IncludeRemote bool `json:"include_remote,omitempty"`
-}
-
 type listSessionsRow struct {
 	ID                    string `json:"id"`
 	Agent                 string `json:"agent"`
@@ -173,7 +169,6 @@ var fetchTranscriptOutputSchema = json.RawMessage(`{
 func listSessionsTool() mcp.Tool {
 	return mcp.NewTool("onibi_list_sessions",
 		mcp.WithDescription("List Onibi sessions for MCP clients."),
-		mcp.WithBoolean("include_remote", mcp.Description("include remote sessions"), mcp.DefaultBool(false)),
 		mcp.WithRawOutputSchema(listSessionsOutputSchema),
 	)
 }
@@ -224,11 +219,7 @@ func fetchTranscriptTool() mcp.Tool {
 }
 
 func (s *Server) listSessions(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	var in listSessionsInput
-	if err := req.BindArguments(&in); err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	rows, err := s.listSessionRows(ctx, in)
+	rows, err := s.listSessionRows(ctx)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
@@ -393,7 +384,7 @@ func (s *Server) fetchTranscript(ctx context.Context, in fetchTranscriptInput) (
 	return readTranscriptTurns(path, in.SinceTurn, maxTurns)
 }
 
-func (s *Server) listSessionRows(ctx context.Context, in listSessionsInput) ([]listSessionsRow, error) {
+func (s *Server) listSessionRows(ctx context.Context) ([]listSessionsRow, error) {
 	if s.db == nil {
 		return nil, errors.New("session DB unavailable")
 	}
@@ -407,9 +398,6 @@ func (s *Server) listSessionRows(ctx context.Context, in listSessionsInput) ([]l
 	}
 	out := make([]listSessionsRow, 0, len(rows))
 	for _, row := range rows {
-		if !in.IncludeRemote && strings.HasPrefix(row.ID, "remote:") {
-			continue
-		}
 		out = append(out, listSessionsRow{
 			ID:                    row.ID,
 			Agent:                 row.Agent,

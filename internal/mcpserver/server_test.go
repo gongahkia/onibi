@@ -43,7 +43,7 @@ func TestToolSchemasListed(t *testing.T) {
 		got[tool.Name] = tool
 	}
 	want := map[string][]string{
-		"onibi_list_sessions":          {"include_remote"},
+		"onibi_list_sessions":          {},
 		"onibi_kill_session":           {"session_id", "force"},
 		"onibi_fetch_transcript":       {"session_id", "since_turn", "max_turns"},
 		"onibi_list_pending_approvals": {},
@@ -415,7 +415,7 @@ func TestListSessionsToolShape(t *testing.T) {
 	}
 	session := connectMCPTest(t, New(Options{DB: db}))
 
-	out := callToolOK[[]listSessionsRow](t, session, "onibi_list_sessions", map[string]any{"include_remote": false})
+	out := callToolOK[[]listSessionsRow](t, session, "onibi_list_sessions", nil)
 	if len(out) != 1 {
 		t.Fatalf("sessions = %+v", out)
 	}

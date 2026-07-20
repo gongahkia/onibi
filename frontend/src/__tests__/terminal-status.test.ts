@@ -1,16 +1,13 @@
 import { JSDOM } from "jsdom";
 
-test("terminal status renders loading, recovery, failure, and fleet exit", async () => {
+test("terminal status renders loading and recovery", async () => {
   const dom = installDOM('<div id="status"></div>');
   const { TerminalStatus } = await import("../terminal-status");
   const root = document.getElementById("status");
   if (root === null) {
     throw new Error("missing status root");
   }
-  let exits = 0;
-  const status = new TerminalStatus(() => {
-    exits += 1;
-  });
+  const status = new TerminalStatus();
   root.append(status.element);
   expect(root.textContent).toContain("Connecting terminal...");
   status.setConnected();
@@ -19,13 +16,6 @@ test("terminal status renders loading, recovery, failure, and fleet exit", async
   expect(root.textContent).toContain("Disconnected. Retrying...");
   status.setRecovered({ mode: "snapshot", replay_bytes: 12 });
   expect(root.textContent).toContain("Recovered buffered output");
-  const fleet = root.querySelector("button");
-  if (!(fleet instanceof HTMLButtonElement)) {
-    throw new Error("missing fleet button");
-  }
-  expect(fleet.tabIndex).toBe(0);
-  fleet.click();
-  expect(exits).toBe(1);
   dom.window.close();
 });
 

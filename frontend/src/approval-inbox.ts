@@ -1,18 +1,22 @@
 import type { EventEnvelope } from "./events";
-import type { FleetApproval, FleetHost, FleetSession, FleetStatus } from "./fleet-hosts";
 
 type FetchJSON = <T>(path: string) => Promise<T>;
 type PostJSON = (path: string, body: Record<string, unknown>) => Promise<Response>;
 
-type ApprovalProvenance = {
-  host: string;
-  actionable: boolean;
+export type PendingApproval = {
+  id: string;
+  session_id: string;
+  agent: string;
+  tool: string;
+  expires_at: string;
 };
+
+export type PendingApprovals = { approvals: PendingApproval[] };
 
 export class ApprovalInboxPanel {
   readonly element = document.createElement("button");
   private modal: HTMLElement | undefined;
-  private payload: FleetStatus | undefined;
+  private payload: PendingApprovals | undefined;
   private loading = false;
   private status = "";
   private approveArmedID = "";
@@ -91,7 +95,7 @@ export class ApprovalInboxPanel {
     this.status = this.payload === undefined ? "" : "refreshing approvals";
     this.render();
     try {
-      this.payload = await this.fetchJSON<FleetStatus>("/fleet/status");
+      this.payload = await this.fetchJSON<PendingApprovals>("/approvals/pending");
       this.status = "";
     } catch {
       this.status =
@@ -131,19 +135,18 @@ export class ApprovalInboxPanel {
     if (this.payload === undefined) {
       return empty(this.status || "approval inbox unavailable");
     }
-    if (this.payload.pending_approvals.length === 0) {
+    if (this.payload.approvals.length === 0) {
       return empty("no pending approvals");
     }
     const list = document.createElement("div");
     list.className = "approval-inbox-list";
-    for (const approval of this.payload.pending_approvals) {
+    for (const approval of this.payload.approvals) {
       list.append(this.approvalCard(approval));
     }
     return list;
   }
 
-  private approvalCard(approval: FleetApproval): HTMLElement {
-    const provenance = this.provenance(approval);
+  private approvalCard(approval: PendingApproval): HTMLElement {
     const card = document.createElement("section");
     card.className = "approval-inbox-card";
     card.dataset.approvalId = approval.id;
@@ -157,7 +160,6 @@ export class ApprovalInboxPanel {
     const source = document.createElement("div");
     source.className = "approval-inbox-source";
     source.append(
-      sourceValue("host", provenance.host),
       sourceValue("session", approval.session_id),
       sourceValue("agent", approval.agent),
       sourceValue("approval", approval.id)
@@ -174,11 +176,6 @@ export class ApprovalInboxPanel {
       deny.disabled = true;
       approve.title = "approval decision pending";
       deny.title = "approval decision pending";
-    } else if (!provenance.actionable) {
-      approve.disabled = true;
-      deny.disabled = true;
-      approve.title = "host provenance not reported";
-      deny.title = "host provenance not reported";
     } else {
       approve.addEventListener("click", () => void this.approve(approval.id));
       deny.addEventListener("click", () => void this.decide(approval.id, "deny"));
@@ -186,29 +183,6 @@ export class ApprovalInboxPanel {
     actions.append(approve, deny);
     card.append(heading, source, actions);
     return card;
-  }
-
-  private provenance(approval: FleetApproval): ApprovalProvenance {
-    const host = this.host(approval.host_id);
-    if (host !== undefined) {
-      return { host: `${host.display_name} / ${host.id}`, actionable: true };
-    }
-    if (approval.host_id !== undefined && approval.host_id !== "") {
-      return { host: "not reported", actionable: false };
-    }
-    const session = this.session(approval.session_id);
-    if (session !== undefined && session.remote !== true && session.host_id === undefined) {
-      return { host: "this hub", actionable: true };
-    }
-    return { host: "not reported", actionable: false };
-  }
-
-  private host(id: string | undefined): FleetHost | undefined {
-    return this.payload?.hosts.find((host) => host.id === id);
-  }
-
-  private session(id: string): FleetSession | undefined {
-    return this.payload?.sessions.find((session) => session.id === id);
   }
 
   private async approve(id: string): Promise<void> {
