@@ -24,7 +24,7 @@ onibi adapters add ./adapter.toml
 | Codex | `PreToolUse` command hook | Yes | `TestAdapterCodexDenyBlocksTool` | Deny exits non-zero with `permissionDecision=deny`. |
 | Copilot | `preToolUse` command hook | Yes | `TestAdapterCopilotDenyBlocksTool` | Deny emits provider JSON `permissionDecision=deny`; fixture writes only if provider output allows. |
 | Gemini | `BeforeTool` command hook | Yes | `TestAdapterGeminiDenyBlocksTool` | Deny emits provider JSON `decision=deny`; fixture writes only if provider output allows. |
-| OpenCode | `tool.execute.before` plugin hook | Yes | `TestAdapterOpenCodeDenyBlocksTool` | Deny throws before fixture write. |
+| OpenCode | `tool.execute.before` plugin hook | Yes | `TestAdapterOpenCodeDenyBlocksTool` | Deny throws before fixture write. OpenCode documents global/project local-plugin discovery and mutable hook output, but this adapter remains non-certified pending authenticated live evidence and a provider-version floor. |
 | Pi | `tool_call` extension hook | Yes | `TestAdapterPiDenyBlocksTool` | Deny returns `{ block: true }`; fixture writes only if the hook allows. |
 | Goose | `PreToolUse` native blocking hook | Yes - deny only | `TestAdapterGooseDenyBlocksTool` | Native approve/deny uses Goose's documented exit-2 block signal. Edited input is denied because Goose has no documented input-replacement response; Goose remains non-certified. |
 

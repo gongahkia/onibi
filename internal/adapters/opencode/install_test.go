@@ -1,6 +1,7 @@
 package opencode
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/gongahkia/onibi/internal/adapters/common"
 	"github.com/gongahkia/onibi/internal/adapters/denytest"
+	"github.com/gongahkia/onibi/internal/store"
 )
 
 func TestPluginSourceMatchesOpenCodeContracts(t *testing.T) {
@@ -53,6 +55,138 @@ try {
 if (!blocked) await fs.writeFile(target, "created\n");
 `, target)
 	denytest.AssertNotCreated(t, target)
+}
+
+func TestPluginApprovalDecisionMappings(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		response string
+		missing  bool
+		blocked  bool
+		content  string
+	}{
+		{name: "approve", response: `{"decision":"approve"}`, content: "original"},
+		{name: "deny", response: `{"decision":"deny","reason":"denied"}`, blocked: true, content: "original"},
+		{name: "expired", response: `{"decision":"expired","reason":"expired"}`, blocked: true, content: "original"},
+		{name: "edited", response: `{"decision":"edited","updated_input":"{\"content\":\"edited\"}"}`, content: "edited"},
+		{name: "timeout", response: `{"decision":"cancelled"}`, content: "original"},
+		{name: "daemon_unavailable", missing: true, content: "original"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			node := denytest.Node(t)
+			dir := t.TempDir()
+			notify := filepath.Join(dir, "missing-onibi-notify")
+			if !tc.missing {
+				notify = decisionNotify(t, dir, tc.response)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "onibi.mjs"), []byte(pluginSource(notify)), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			out := denytest.RunNodeScript(t, node, dir, `import { Onibi } from "./onibi.mjs";
+const plugin = await Onibi();
+const output = { tool: "writeFile", args: { content: "original" } };
+let blocked = false;
+try {
+  await plugin["tool.execute.before"]({ sessionID: "s1", cwd: process.cwd(), tool: "writeFile" }, output);
+} catch {
+  blocked = true;
+}
+console.log(JSON.stringify({ blocked, args: output.args }));
+`)
+			if strings.Contains(out, `"blocked":true`) != tc.blocked {
+				t.Fatalf("blocked=%t output=%s", tc.blocked, out)
+			}
+			if !strings.Contains(out, `"content":"`+tc.content+`"`) {
+				t.Fatalf("content=%q output=%s", tc.content, out)
+			}
+		})
+	}
+}
+
+func TestPluginMapsSessionExitAndTurnCompletion(t *testing.T) {
+	node := denytest.Node(t)
+	dir := t.TempDir()
+	record := filepath.Join(dir, "notify.log")
+	t.Setenv("ONIBI_NOTIFY_RECORD", record)
+	notify := filepath.Join(dir, "onibi-notify")
+	if err := os.WriteFile(notify, []byte(`#!/usr/bin/env node
+import fs from "node:fs";
+fs.appendFileSync(process.env.ONIBI_NOTIFY_RECORD, process.argv.slice(2).join(" ")+"\n");
+`), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "onibi.mjs"), []byte(pluginSource(notify)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	denytest.RunNodeScript(t, node, dir, `import { Onibi } from "./onibi.mjs";
+const plugin = await Onibi();
+await plugin.event({ type: "session.deleted", sessionID: "s1" });
+await plugin["session.idle"]({ sessionID: "s1" });
+`)
+	body, err := os.ReadFile(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"--type session_exited", "--type agent_done"} {
+		if !strings.Contains(string(body), want) {
+			t.Fatalf("notification missing %q: %s", want, body)
+		}
+	}
+}
+
+func TestExpectedAndObservedHooksReportPluginDrift(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "onibi.js")
+	t.Setenv("ONIBI_OPENCODE_PLUGIN", path)
+	notify := filepath.Join(dir, "onibi-notify")
+	if err := os.WriteFile(notify, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	db, err := store.Open(filepath.Join(dir, "test.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if err := Install(context.Background(), db, notify); err != nil {
+		t.Fatal(err)
+	}
+	expected, err := ExpectedHooks(notify)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observed, err := ObservedHooks()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(expected) != len(pluginEvents) || len(observed) != len(pluginEvents) {
+		t.Fatalf("expected=%+v observed=%+v", expected, observed)
+	}
+	for _, hook := range observed {
+		if !hook.Managed || hook.Type != "plugin" || hook.Command != notify {
+			t.Fatalf("observed hook=%+v", hook)
+		}
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body = []byte(strings.Replace(string(body), `"tool.execute.after": async (input, output)`, `"tool.execute.after": async (input)`, 1))
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	observed, err = ObservedHooks()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(observed) != len(pluginEvents)-1 {
+		t.Fatalf("observed drift=%+v", observed)
+	}
+	if err := VerifyHash(context.Background(), db); err == nil {
+		t.Fatal("tampered plugin verified")
+	}
+	if BackupPath(context.Background(), db) != "" {
+		t.Fatal("unexpected backup for absent original plugin")
+	}
 }
 
 func TestPluginPathScopes(t *testing.T) {
@@ -121,4 +255,14 @@ func TestTrustInstructionsMentionRestart(t *testing.T) {
 			t.Fatalf("instructions missing %q: %q", want, got)
 		}
 	}
+}
+
+func decisionNotify(t *testing.T, dir, response string) string {
+	t.Helper()
+	path := filepath.Join(dir, "onibi-notify")
+	body := "#!/bin/sh\nprintf '%s\\n' '" + response + "'\n"
+	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }

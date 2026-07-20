@@ -307,6 +307,41 @@ func TestHooksShowAmpJSONReportsPluginPathAndReload(t *testing.T) {
 	}
 }
 
+func TestHooksShowOpenCodeJSONReportsPluginStateAndReload(t *testing.T) {
+	home, _, _ := hooksCLIFixture(t)
+	pluginPath := filepath.Join(home, ".config", "opencode", "plugins", "onibi.js")
+	t.Setenv("ONIBI_OPENCODE_PLUGIN", pluginPath)
+	if err := os.MkdirAll(filepath.Dir(pluginPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(pluginPath, []byte("old OpenCode plugin"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	executeRoot(t, "install-hooks", "--agent", "opencode", "--color", "never")
+	out, _ := executeRoot(t, "hooks", "--show", "--agent", "opencode", "--json", "--color", "never")
+	var report hooksShowReport
+	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
+		t.Fatalf("json: %v\n%s", err, out.String())
+	}
+	if report.ConfigPath != pluginPath || report.BackupPath == "" {
+		t.Fatalf("report=%+v", report)
+	}
+	if len(report.Expected) != 4 || len(report.Observed) != 4 {
+		t.Fatalf("plugin hooks=%+v", report)
+	}
+	for _, event := range []string{"event", "tool.execute.before", "tool.execute.after", "session.idle"} {
+		if !hasDrift(report.Drift, event, "ok", "") {
+			t.Fatalf("missing %s drift: %+v", event, report.Drift)
+		}
+	}
+	trust := strings.Join(report.TrustInstructions, "\n")
+	for _, want := range []string{"restart OpenCode", "ONIBI_OPENCODE_SCOPE=project", "ONIBI_OPENCODE_PLUGIN"} {
+		if !strings.Contains(trust, want) {
+			t.Fatalf("trust instructions missing %q: %+v", want, report.TrustInstructions)
+		}
+	}
+}
+
 func TestHooksShowPiJSONReportsExtensionPathAndReload(t *testing.T) {
 	home, _, _ := hooksCLIFixture(t)
 	extensionPath := filepath.Join(home, ".pi", "agent", "extensions", "onibi.ts")

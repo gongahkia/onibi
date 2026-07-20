@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/gongahkia/onibi/internal/adapters/catalog"
@@ -23,10 +24,15 @@ func init() {
 		Status:            Status,
 		Verify:            VerifyHash,
 		Adopt:             Adopt,
+		ExpectedHooks:     ExpectedHooks,
+		ObservedHooks:     ObservedHooks,
 		TrustInstructions: TrustInstructions,
+		BackupPath:        BackupPath,
 		DetectPresence:    DetectPresence,
 	}, map[string]string{"PreToolUse": "*"}))
 }
+
+var pluginEvents = []string{"event", "tool.execute.before", "tool.execute.after", "session.idle"}
 
 func PluginPath() (string, error) {
 	if v := strings.TrimSpace(os.Getenv("ONIBI_OPENCODE_PLUGIN")); v != "" {
@@ -147,6 +153,53 @@ func Adopt(ctx context.Context, db *store.DB) error {
 	return common.Record(ctx, db, Agent, path, body)
 }
 
+func ExpectedHooks(notifyBin string) ([]common.ExpectedHook, error) {
+	out := make([]common.ExpectedHook, 0, len(pluginEvents))
+	for _, event := range pluginEvents {
+		out = append(out, common.ExpectedHook{Event: event, Type: "plugin", Command: notifyBin})
+	}
+	return out, nil
+}
+
+func ObservedHooks() ([]common.ObservedHook, error) {
+	path, err := PluginPath()
+	if err != nil {
+		return nil, err
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	src := string(body)
+	managed := strings.Contains(src, `const ONIBI_AGENT = "opencode";`)
+	notify, notifyOK := pluginNotify(src)
+	if !strings.Contains(src, "export const Onibi = async () => ({") {
+		return []common.ObservedHook{{Event: "*", Managed: managed, Problems: []string{"schema-invalid: Onibi plugin export missing"}}}, nil
+	}
+	var out []common.ObservedHook
+	if !notifyOK {
+		out = append(out, common.ObservedHook{Event: "*", Managed: managed, Problems: []string{"schema-invalid: ONIBI_NOTIFY string constant missing"}})
+	}
+	for _, event := range pluginEvents {
+		if strings.Contains(src, pluginHookSignature(event)) {
+			out = append(out, common.ObservedHook{Event: event, Type: "plugin", Command: notify, Managed: managed})
+		}
+	}
+	return out, nil
+}
+
+func BackupPath(ctx context.Context, db *store.DB) string {
+	path, err := PluginPath()
+	if err != nil {
+		return ""
+	}
+	backup, ok, err := common.LatestBackup(ctx, db, Agent, path)
+	if err != nil || !ok {
+		return ""
+	}
+	return backup.BackupPath
+}
+
 func TrustInstructions() []string {
 	return []string{
 		"OpenCode next step: restart OpenCode or start a new session so local plugins are loaded from the plugin directory.",
@@ -162,6 +215,34 @@ func installedVersion(src string) string {
 		}
 	}
 	return ""
+}
+
+func pluginNotify(src string) (string, bool) {
+	for _, line := range strings.Split(src, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "const ONIBI_NOTIFY = ") {
+			continue
+		}
+		value := strings.TrimSuffix(strings.TrimPrefix(line, "const ONIBI_NOTIFY = "), ";")
+		path, err := strconv.Unquote(value)
+		return path, err == nil && path != ""
+	}
+	return "", false
+}
+
+func pluginHookSignature(event string) string {
+	switch event {
+	case "event":
+		return "event: async (input)"
+	case "tool.execute.before":
+		return `"tool.execute.before": async (input, output)`
+	case "tool.execute.after":
+		return `"tool.execute.after": async (input, output)`
+	case "session.idle":
+		return `"session.idle": async (input)`
+	default:
+		return ""
+	}
 }
 
 func pluginSource(notifyBin string) string {

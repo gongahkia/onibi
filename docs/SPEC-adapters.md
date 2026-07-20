@@ -127,5 +127,5 @@ The in-tree adapters remain the reference implementations for provider-specific 
 | `copilot` | `agent` | Installs GitHub Copilot CLI hook JSON for lifecycle events. |
 | `gemini` | `agent` | Installs Gemini CLI settings hooks for lifecycle events. |
 | `goose` | `agent` | Installs Goose lifecycle hooks and native deny-only tool approvals; no edited-input response, so it is non-certified. |
-| `opencode` | `agent` | Installs an OpenCode plugin and reports blocking tool calls. |
+| `opencode` | `agent` | Installs an OpenCode plugin with mutable `tool.execute.before` approvals. It is non-certified pending authenticated live evidence and a provider-version floor. |
 | `pi` | `agent` | Installs a Pi Coding Agent extension and reports blocking tool calls. |
