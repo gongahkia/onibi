@@ -65,17 +65,6 @@ Minimum PR checklist:
 - Add install, uninstall, status, verify, adopt, and hook-deny tests when the provider can block tools.
 - Add `onibi adapters validate <path>` output and registry evidence for community manifests.
 
-## Adding a Provider
-
-Provider work starts at the `internal/chatout.Provider` contract.
-
-Minimum PR checklist:
-
-- Implement send, chunking, redaction, retry/error handling, and config validation.
-- Add unit tests for output limits and redaction.
-- Add live tests behind `ONIBI_LIVE_*` env vars and document required secrets.
-- State whether the provider is notify-only, output-only, or supports interactive approvals.
-
 Rules:
 
 - Do not commit secrets, `.env`, SQLite state, logs, local cert keys, or hook output.

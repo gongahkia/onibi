@@ -2,14 +2,14 @@
 
 Onibi is a personal, self-hosted remote cockpit for local managed terminal sessions. It pairs a phone PWA to the user's host, keeps the session local, and routes explicit owner approve, deny, and edit decisions through the approval queue.
 
-On macOS, Ghostty is the supported automatic desktop handover target. Linux handover prints a manual `tmux attach-session` command and never launches a desktop terminal. Onibi does not emulate, visually match, control, or affiliate with Ghostty.
+On macOS, Ghostty is the supported automatic desktop handover target. Onibi does not emulate, visually match, control, or affiliate with Ghostty.
 
 ## When Onibi Fits
 
 - You want a local tmux-backed session with a paired browser cockpit.
 - You need explicit owner approval decisions while working with a supported agent adapter.
-- You want PWA control or configured Telegram control around the same local session.
-- You prefer documented local, mesh, relay, and chat transport choices rather than a vendor-hosted control plane.
+- You want PWA or Telegram control around the same local session.
+- You prefer a local web cockpit rather than a vendor-hosted control plane.
 
 Supported adapters and transport boundaries are documented in [the adapter contract](adapter-contract.md) and [transport guide](transports.md). Capability depends on the selected adapter and transport.
 

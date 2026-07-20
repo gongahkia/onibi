@@ -33,14 +33,12 @@ internal/approval queue
 /ws/events approval card on phone
 ```
 
-`onibi mcp` is a separate local stdio JSON-RPC server. It reaches daemon-backed tools through the same Unix socket as hooks.
-
 ## Invariants
 
 - Pair tokens are single-use and short-lived.
 - The owner browser gets an HttpOnly Secure cookie after pairing.
 - WebSocket upgrades require the owner cookie plus the current session token.
-- Hook and MCP socket peers must have the same OS UID as the daemon.
+- Hook socket peers must have the same OS UID as the daemon.
 - Approval requests block at the tool boundary until a decision, timeout, or provider-specific hook failure.
 - Same-user local compromise is out of scope.
 
@@ -64,13 +62,13 @@ ONIBI_SOCK=/path/to/onibi.sock
 ONIBI_SESSION_ID=<managed-session-id>
 ```
 
-The phone view is a web PTY attach client for that tmux session. `MAC` closes the web attach client and opens the same tmux session in Ghostty on macOS. On Linux, it returns a quoted `tmux attach-session` command to run manually in Ghostty and never launches a desktop terminal. `PHONE` detaches visible tmux clients and creates a fresh web attach client for Safari.
+The phone view is a web PTY attach client for that tmux session. `MAC` closes the web attach client and opens the same tmux session in Ghostty on macOS. `PHONE` detaches visible tmux clients and creates a fresh web attach client for Safari.
 
 Soft keys send normal terminal escape sequences or control actions:
 
 | control | behavior |
 |---|---|
-| `MAC` | opens the current managed tmux session in Ghostty on macOS; prints a manual `tmux attach-session` command on Linux |
+| `MAC` | opens the current managed tmux session in Ghostty on macOS |
 | `PHONE` | returns the current managed tmux session to the phone web PTY |
 | `ESC` | writes byte `0x1b` |
 | `UP` | writes `\x1b[A` |

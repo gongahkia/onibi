@@ -31,12 +31,10 @@ screenshots=(
   docs/assets/fresh-machine/macos-install.png
   docs/assets/fresh-machine/macos-doctor-preflight.png
   docs/assets/fresh-machine/macos-up.png
-  docs/assets/fresh-machine/macos-doctor-after-upgrade.png
   docs/assets/fresh-machine/macos-uninstall.png
   docs/assets/fresh-machine/ubuntu-install.png
   docs/assets/fresh-machine/ubuntu-doctor-preflight.png
   docs/assets/fresh-machine/ubuntu-up.png
-  docs/assets/fresh-machine/ubuntu-doctor-after-upgrade.png
   docs/assets/fresh-machine/ubuntu-uninstall.png
 )
 transcripts=(
@@ -48,7 +46,6 @@ transcripts=(
   macos-doctor-preflight.txt
   macos-up.txt
   macos-up.log
-  macos-doctor-after-upgrade.txt
   macos-uninstall-dry-run.txt
   macos-uninstall.txt
   ubuntu-install.txt
@@ -58,7 +55,6 @@ transcripts=(
   ubuntu-doctor-preflight.txt
   ubuntu-up.txt
   ubuntu-up.log
-  ubuntu-doctor-after-upgrade.txt
   ubuntu-uninstall-dry-run.txt
   ubuntu-uninstall.txt
 )
@@ -122,11 +118,8 @@ done
 
 require_text "brew install gongahkia/onibi/onibi 2>&1 | tee \"\$ONIBI_SMOKE_DIR/macos-install.txt\"" "$doc"
 require_text "curl -fsSL https://get.onibi.sh | sh 2>&1 | tee \"\$ONIBI_SMOKE_DIR/ubuntu-install.txt\"" "$doc"
-require_text "onibi doctor --release --after-upgrade --offline --color=never 2>&1 | tee \"\$ONIBI_SMOKE_DIR/macos-doctor-after-upgrade.txt\"" "$doc"
-require_text "onibi doctor --after-upgrade --offline --color=never 2>&1 | tee \"\$ONIBI_SMOKE_DIR/ubuntu-doctor-after-upgrade.txt\"" "$doc"
 require_text "sudo apt install -y ca-certificates curl gnupg tar tmux" "$doc"
 require_text "fresh-machine lifecycle smoke requires x86_64" "$doc"
-require_text "The Linux arm64 artifact is the constrained SSH runtime" "$doc"
 
 if ((require_artifacts)); then
   if grep -Fq "Current verification status: real macOS and Ubuntu VM output/screenshots are not" "$doc" || grep -Fq "captured in this repo yet" "$doc"; then

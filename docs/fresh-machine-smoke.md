@@ -20,12 +20,10 @@ Reference docs checked:
 | `docs/assets/fresh-machine/macos-install.png` | terminal after install |
 | `docs/assets/fresh-machine/macos-doctor-preflight.png` | `onibi doctor --mode preflight --offline` |
 | `docs/assets/fresh-machine/macos-up.png` | `onibi up` printing pair URL/QR |
-| `docs/assets/fresh-machine/macos-doctor-after-upgrade.png` | `onibi doctor --release --after-upgrade --offline` |
 | `docs/assets/fresh-machine/macos-uninstall.png` | uninstall plan + final command |
 | `docs/assets/fresh-machine/ubuntu-install.png` | terminal after install |
 | `docs/assets/fresh-machine/ubuntu-doctor-preflight.png` | `onibi doctor --mode preflight --offline` |
 | `docs/assets/fresh-machine/ubuntu-up.png` | `onibi up` printing pair URL/QR |
-| `docs/assets/fresh-machine/ubuntu-doctor-after-upgrade.png` | `onibi doctor --after-upgrade --offline` |
 | `docs/assets/fresh-machine/ubuntu-uninstall.png` | uninstall plan + final command |
 
 Do not replace this table with prose. The release note needs one file per state.
@@ -149,18 +147,6 @@ Stop with `Ctrl-C` after pairing and a simple terminal command.
 
 On macOS, tap `MAC` and confirm Ghostty opens the managed tmux session. If Ghostty is missing or launch fails, retain the displayed manual `tmux attach-session` command.
 
-### Doctor After Upgrade
-
-```bash
-onibi doctor --release --after-upgrade --offline --color=never 2>&1 | tee "$ONIBI_SMOKE_DIR/macos-doctor-after-upgrade.txt"
-```
-
-Expected:
-
-- Store key and sqlite checks pass.
-- Local certs pass after successful `onibi up`.
-- Hook drift is absent or reports a specific fix command.
-
 ### Uninstall
 
 ```bash
@@ -184,10 +170,7 @@ used only for distro packages when the base VM lacks required tools. If the VM
 policy forbids `sudo`, preinstall `curl`, `tar`, `gpg`, `ca-certificates`, and
 `tmux` in the image.
 
-The Linux arm64 artifact is the constrained SSH runtime and supports only
-`onibi up`, `onibi version`, and `onibi fleet`; use
-[`ssh-transport.md`](./ssh-transport.md) and `scripts/ssh-smoke.sh` for that
-target. Do not use it for this full lifecycle runbook.
+Linux is beta-only and is not a substitute for the macOS phone-cockpit validation in this runbook.
 
 ### Install
 
@@ -276,23 +259,7 @@ Expected:
 - Output prints a `https://<lan-ip>:8443/pair/<token>` URL and QR.
 - Phone browser pairs over the same LAN or hotspot.
 
-### Desktop Handover
-
-Tap `MAC` and retain the displayed `tmux attach-session` command. Confirm no desktop terminal opens, then run that command manually in Ghostty.
-
 Stop with `Ctrl-C` after pairing and a simple terminal command.
-
-### Doctor After Upgrade
-
-```bash
-onibi doctor --after-upgrade --offline --color=never 2>&1 | tee "$ONIBI_SMOKE_DIR/ubuntu-doctor-after-upgrade.txt"
-```
-
-Expected:
-
-- Store key and sqlite checks pass.
-- Local certs pass after successful `onibi up`.
-- Hook drift is absent or reports a specific fix command.
 
 ### Uninstall
 
@@ -315,7 +282,7 @@ scripts/fresh-machine-doc-check.sh
 ```
 
 `scripts/release-smoke.sh` verifies checksums, archive membership, host-platform
-binary execution, preflight doctor in an isolated HOME, and SSH size-only smoke.
+binary execution and preflight doctor in an isolated HOME.
 `scripts/fresh-machine-doc-check.sh` verifies this runbook still names every
 required screenshot, transcript command, platform section, and release reference.
 After the real macOS and Ubuntu runs, use:
@@ -333,5 +300,4 @@ Do not close the tracking issue until all are true:
 
 - macOS transcript files exist under the run directory and screenshots are added.
 - Ubuntu transcript files exist under the run directory and screenshots are added.
-- macOS captures `onibi doctor --release --after-upgrade --offline`; Ubuntu captures `onibi doctor --after-upgrade --offline` because Linux is beta-only.
 - The uninstall step proves no Onibi binary, service, hook, or state remains.

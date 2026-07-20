@@ -19,7 +19,6 @@ go test -race -count=1 ./...
 go vet ./...
 staticcheck ./...
 make build
-./bin/onibi doctor --after-upgrade --offline
 ./bin/onibi doctor --release --offline
 scripts/macos-release-gate.sh
 make macos-scenario-gate
@@ -29,10 +28,7 @@ scripts/release-smoke.sh dist
 scripts/reproducible-build.sh
 ```
 
-The macOS, macOS-scenario, and security-regression gates are release-blocking. The scenario gate covers fleet
-enrollment, every web transport, recovery, approvals, and intervention; its
-real-iPhone evidence set is defined in
-[`release-scenario-matrix.md`](./release-scenario-matrix.md). The scenario and security-regression gates write
+The macOS, macOS-scenario, and security-regression gates are release-blocking. The scenario gate covers the local web cockpit, recovery, approvals, and intervention. The scenario and security-regression gates write
 `metadata.json`, `test.log`, and `summary.json` under `artifacts/` for CI upload.
 Linux is beta-only; run
 [`linux-beta.md`](./linux-beta.md) separately and do not substitute Linux
@@ -65,7 +61,6 @@ GoReleaser publishes a cask to `gongahkia/homebrew-onibi` when
 brew install --cask ./Casks/onibi.rb
 onibi version
 onibi doctor --mode preflight --offline
-onibi doctor --after-upgrade --offline
 onibi hooks --show --all --json >/tmp/onibi-hooks.json
 ```
 

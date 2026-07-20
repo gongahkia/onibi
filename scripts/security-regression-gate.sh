@@ -21,13 +21,12 @@ run() {
   status=1
 }
 
-run go test -race -count=1 ./internal/approval ./internal/envelope ./internal/web ./internal/fleet ./internal/store
+run go test -race -count=1 ./internal/approval ./internal/envelope ./internal/web ./internal/store
 run go test -parallel=1 -run=^$ -fuzz=FuzzDecide -fuzztime="$fuzz_time" ./internal/approval
 run go test -parallel=1 -run=^$ -fuzz=FuzzCodecOpen -fuzztime="$fuzz_time" ./internal/envelope
 run go test -parallel=1 -run=^$ -fuzz=FuzzOpenRelayFrame -fuzztime="$fuzz_time" ./internal/envelope
 run go test -parallel=1 -run=^$ -fuzz=FuzzSequencedWSDecrypt -fuzztime="$fuzz_time" ./internal/web
 run go test -parallel=1 -run=^$ -fuzz=FuzzPairConfirmRejectsAdversarialFrames -fuzztime="$fuzz_time" ./internal/web
-run go test -parallel=1 -run=^$ -fuzz=FuzzEnrollmentChallengeValidate -fuzztime="$fuzz_time" ./internal/fleet
 run go test -parallel=1 -run=^$ -fuzz=FuzzCryptBoxOpen -fuzztime="$fuzz_time" ./internal/store
 
 if ((status == 0)); then

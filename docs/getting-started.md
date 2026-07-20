@@ -26,7 +26,7 @@ Onibi stores local state in:
 ~/.local/share/onibi/
 ```
 
-The phone cockpit is served over local HTTPS. The daemon also opens a same-UID Unix socket for hooks and MCP tools.
+The phone cockpit is served over local HTTPS. The daemon also opens a same-UID Unix socket for approval hooks.
 
 ## 2. Install
 

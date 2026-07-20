@@ -60,13 +60,6 @@ for os in darwin linux; do
   done
 done
 
-remote_bins=("$dist"/onibi_linux_arm64*/onibi)
-if ((${#remote_bins[@]} != 1)); then
-  echo "expected one linux/arm64 onibi release binary, got ${#remote_bins[@]}" >&2
-  exit 1
-fi
-scripts/ssh-smoke.sh --size-only --binary "${remote_bins[0]}"
-
 for tarball in "${artifacts[@]}"; do
   work="$tmp/$(basename "$tarball" .tar.gz)"
   mkdir -p "$work"

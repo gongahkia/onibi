@@ -31,7 +31,6 @@ Onibi gives a paired phone browser control over local coding-agent sessions. Tre
 - `onibi doctor` reports hook drift and state permission problems.
 - `onibi doctor` verifies the encrypted store key is present and can decrypt existing encrypted SQLite rows.
 - `/control` actions operate on the hosted PTY process, not arbitrary system processes.
-- `onibi mcp` exposes local stdio tools through the same Unix socket and peer-UID checks as hooks.
 
 ## At-Rest State
 

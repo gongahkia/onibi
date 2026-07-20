@@ -17,4 +17,4 @@
 
 Security reports: [SECURITY.md](https://github.com/gongahkia/onibi/blob/main/SECURITY.md)
 
-Contribution guides: [Adding a Transport](https://github.com/gongahkia/onibi/blob/main/CONTRIBUTING.md#adding-a-transport), [Adding an Adapter](https://github.com/gongahkia/onibi/blob/main/CONTRIBUTING.md#adding-an-adapter), [Adding a Provider](https://github.com/gongahkia/onibi/blob/main/CONTRIBUTING.md#adding-a-provider)
+Contribution guides: [Adding a Transport](https://github.com/gongahkia/onibi/blob/main/CONTRIBUTING.md#adding-a-transport), [Adding an Adapter](https://github.com/gongahkia/onibi/blob/main/CONTRIBUTING.md#adding-an-adapter)

@@ -28,8 +28,6 @@ A snapshot stores:
 
 Snapshot rows are stored in SQLite with encrypted PTY replay, cwd, and env fields.
 
-Historical `recordings/` artifacts are ignored and left untouched after upgrade.
-
 ## Restore Model
 
 Restore starts a new PTY in the captured cwd and runs the captured command again. It seeds the PTY replay buffer so the phone has visual context immediately.

@@ -8,7 +8,7 @@ release host.
 |---|---|---|---|
 | macOS 14+ | v1 release host | Keychain, launchd user agent | `scripts/macos-release-gate.sh` plus the macOS fresh-machine evidence set |
 | Ubuntu 24.04 x86_64 | beta | Secret Service, `systemctl --user`, non-root user service | `scripts/linux-beta-smoke.sh` plus Ubuntu fresh-machine evidence |
-| Ubuntu 24.04 arm64 | beta | Secret Service, `systemctl --user`, non-root user service | `scripts/linux-beta-smoke.sh` plus `scripts/ssh-smoke.sh --target user@host` |
+| Ubuntu 24.04 arm64 | beta | Secret Service, `systemctl --user`, non-root user service | `scripts/linux-beta-smoke.sh` |
 | other Linux distributions | unsupported beta variant | no coverage claim | port the Ubuntu evidence set before deployment |
 | non-macOS/non-Linux | unsupported | no v1 host contract | `onibi doctor` fails with the host name |
 

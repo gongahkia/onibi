@@ -4,245 +4,32 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <link rel="icon" href="./favicon.svg" type="image/svg+xml">
-  <link rel="icon" href="./favicon.ico" sizes="any">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/asciinema-player@3.16.0/dist/bundle/asciinema-player.css">
   <title>Onibi</title>
   <style>
-    :root{color-scheme:light;--bg:#f4f7f6;--ink:#18202a;--muted:#59636f;--line:#cfd7dd;--panel:#fff;--teal:#1f766f;--teal2:#155b56;--red:#a6403d;--gold:#b98524;--code:#101820;--logo:url("../asset/logo/onibi.svg")}
-    *{box-sizing:border-box}
-    html{scroll-behavior:smooth}
-    body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;letter-spacing:0}
-    a{color:var(--teal);text-decoration:none}
-    a:hover{text-decoration:underline}
-    header{position:sticky;top:0;z-index:2;background:rgba(244,247,246,.93);border-bottom:1px solid var(--line);backdrop-filter:saturate(140%) blur(12px)}
-    .nav{max-width:1120px;margin:0 auto;padding:12px 20px;display:flex;align-items:center;justify-content:space-between;gap:18px}
-    .brand{display:flex;align-items:center;gap:10px;font-weight:800;color:var(--ink)}
-    .brand picture{width:34px;height:34px;display:block;flex:0 0 auto}
-    .brand img{width:100%;height:100%;object-fit:contain;display:block}
-    .navlinks{display:flex;align-items:center;gap:16px;flex-wrap:wrap;font-size:14px}
-    .hero{min-height:68vh;display:grid;align-items:center;overflow:hidden;background-image:linear-gradient(90deg,rgba(244,247,246,.97) 0%,rgba(244,247,246,.88) 48%,rgba(244,247,246,.4) 100%),var(--logo);background-position:center,right 10% center;background-size:cover,min(46vw,520px);background-repeat:no-repeat;border-bottom:1px solid var(--line)}
-    .hero-inner{max-width:1120px;width:100%;min-width:0;margin:0 auto;padding:68px 20px 56px}
-    h1{font-size:clamp(52px,9vw,110px);line-height:.9;margin:0 0 18px;font-weight:900}
-    .lede{max-width:680px;font-size:clamp(20px,3vw,32px);line-height:1.18;margin:0 0 24px;color:#26313b;font-weight:750}
-    .sub{max-width:650px;color:var(--muted);margin:0 0 26px}
-    .install-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;max-width:760px}
-    .install-card{min-width:0;background:var(--code);color:#f8fafc;border:1px solid #2d3744;border-radius:8px;padding:12px 14px}
-    .install-label{display:block;color:#93e1d8;font-size:12px;font-weight:800;text-transform:uppercase;margin-bottom:6px}
-    .install-card code{display:block;font:14px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
-    .actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:22px}
-    .button{display:inline-flex;align-items:center;justify-content:center;min-height:42px;padding:9px 14px;border-radius:8px;border:1px solid var(--teal);background:var(--teal);color:white;font-weight:750}
-    .button.secondary{background:transparent;color:var(--teal2);border-color:var(--line)}
-    main{max-width:1120px;margin:0 auto;padding:30px 20px 56px}
-    .feature-map{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:-54px 0 34px}
-    .feature-map a,.doc-link{display:block;border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:14px;box-shadow:0 10px 28px rgba(24,32,42,.08)}
-    .feature-map strong,.doc-link strong{display:block;color:var(--ink);margin-bottom:4px}
-    .feature-map span,.doc-link span{display:block;color:var(--muted);font-size:14px}
-    section{padding:28px 0;border-top:1px solid var(--line)}
-    h2{font-size:26px;line-height:1.15;margin:0 0 12px}
-    .split{display:grid;grid-template-columns:1fr 1fr;gap:24px}
-    .list{display:grid;gap:10px;margin:0;padding:0;list-style:none}
-    .list li{padding-left:18px;position:relative}
-    .list li:before{content:"";position:absolute;left:0;top:.68em;width:7px;height:7px;border-radius:50%;background:var(--gold)}
-    .docs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
-    .mini{display:flex;align-items:center;justify-content:space-between;gap:18px;border:1px solid var(--line);border-radius:8px;background:#eef6f4;padding:18px;margin-top:18px}
-    .mini p{margin:0;color:var(--muted)}
-    .demo-player{border:1px solid var(--line);border-radius:8px;background:#101820;padding:8px;overflow:hidden;box-shadow:0 10px 28px rgba(24,32,42,.1)}
-    .demo-player .ap-wrapper{max-width:100%}
-    .demo-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
-    .demo-item{min-width:0;border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:12px}
-    .demo-item h3{font-size:17px;line-height:1.2;margin:0 0 8px}
-    .demo-cast-link{display:inline-block;margin-top:10px;font-size:14px}
-    footer{border-top:1px solid var(--line);padding:24px 20px;color:var(--muted);text-align:center}
-    @media (prefers-color-scheme:dark){:root{color-scheme:dark;--bg:#101820;--ink:#f8fafc;--muted:#b5c0ca;--line:#33404a;--panel:#17212b;--teal:#93e1d8;--teal2:#93e1d8;--red:#ff9f9c;--gold:#e2b86f;--code:#05070a;--logo:url("../asset/logo/onibi-dark.svg")}header{background:rgba(16,24,32,.93)}.hero{background-image:linear-gradient(90deg,rgba(16,24,32,.98) 0%,rgba(16,24,32,.9) 48%,rgba(16,24,32,.45) 100%),var(--logo)}.lede{color:#f8fafc}.mini{background:#162630}.install-card{border-color:#3b4652}}
-    @media (max-width:820px){.hero{min-height:64vh;background-position:center,right -80px center;background-size:cover,360px}.feature-map,.docs,.split,.demo-grid{grid-template-columns:1fr}.feature-map{margin:-32px 0 28px}.nav{align-items:flex-start}.navlinks{justify-content:flex-end}.mini{align-items:flex-start;flex-direction:column}}
-    @media (max-width:520px){body{font-size:15px}.nav{padding:10px 14px}.navlinks{gap:10px;font-size:13px}.hero{background-position:center,right -126px center;background-size:cover,300px}.hero-inner{padding:52px 14px 44px}.install-grid{grid-template-columns:1fr}.install-card code{font-size:12px}main{padding:24px 14px 44px}.actions .button{width:100%}}
+    :root{color-scheme:light dark;font-family:system-ui,-apple-system,sans-serif;color:#18202a;background:#f4f7f6}body{max-width:760px;margin:0 auto;padding:48px 24px;line-height:1.55}a{color:#126e67}code{background:#e6eeee;padding:2px 4px;border-radius:3px}nav{display:flex;gap:16px;flex-wrap:wrap}li{margin:8px 0}@media(prefers-color-scheme:dark){:root{color:#f8fafc;background:#101820}code{background:#24333d}}
   </style>
 </head>
 <body>
-  <header>
-    <nav class="nav" aria-label="Primary">
-      <a class="brand" href="./"><picture><source media="(prefers-color-scheme: dark)" srcset="../asset/logo/onibi-dark.svg"><img src="../asset/logo/onibi.svg" alt=""></picture>Onibi</a>
-      <div class="navlinks">
-        <a href="#features">Features</a>
-        <a href="#demo">Demo</a>
-        <a href="#blog">Blog</a>
-        <a href="#docs">Docs</a>
-        <a href="./ios-cert-install.md">iOS Cert</a>
-        <a href="https://github.com/gongahkia/onibi/blob/main/README.md">GitHub README</a>
-      </div>
-    </nav>
-  </header>
-
-  <section class="hero" aria-labelledby="title">
-    <div class="hero-inner">
-      <h1 id="title">Onibi</h1>
-      <p class="lede">Coding agents often run locally, but approvals and quick fixes arrive when you are away from the keyboard.</p>
-      <p class="sub">Onibi runs local shells and coding agents in managed tmux-backed sessions, then gives your phone a live terminal and approval cockpit over HTTPS/WebSocket.</p>
-      <div class="install-grid" aria-label="Install commands">
-        <div class="install-card">
-          <span class="install-label">Homebrew</span>
-          <code>brew install gongahkia/onibi/onibi
-onibi up</code>
-        </div>
-        <div class="install-card">
-          <span class="install-label">Curl</span>
-          <code>curl -fsSL https://get.onibi.sh | sh
-onibi up</code>
-        </div>
-      </div>
-      <div class="actions">
-        <a class="button" href="./getting-started.md">Get Started</a>
-        <a class="button secondary" href="#docs">Docs</a>
-      </div>
-    </div>
-  </section>
-
+  <nav><a href="./getting-started.md">Get started</a><a href="./transports.md">Transports</a><a href="./web-push.md">Web Push</a><a href="https://github.com/gongahkia/onibi">GitHub</a></nav>
   <main>
-    <nav id="features" class="feature-map" aria-label="Feature anchors">
-      <a href="#approvals"><strong>Approvals</strong><span>Owner-only web decisions for agent tool calls.</span></a>
-      <a href="#sessions"><strong>Sessions</strong><span>Local PTY hosting for agents and arbitrary CLI/TUI commands.</span></a>
-      <a href="#mobile"><strong>Mobile Cockpit</strong><span>Bundled font, inline images, terminal controls, and approvals.</span></a>
-      <a href="#local"><strong>Local First</strong><span>LAN or hotspot pairing, no hosted Onibi account.</span></a>
-    </nav>
-
-    <section id="demo">
-      <h2>Demo</h2>
-      <p>Sanitized local asciinema demos for first run, approvals, handoff, and Cloudflare Quick E2E. Full notes live in <a href="https://github.com/gongahkia/onibi/blob/main/SHOWCASE.md">SHOWCASE.md</a>.</p>
-      <div class="demo-grid">
-        <article class="demo-item">
-          <h3>Pair and run</h3>
-          <div class="demo-player" data-cast="./casts/pair-and-run.cast" data-cast-b64="eyJ2ZXJzaW9uIjoyLCJ3aWR0aCI6OTYsImhlaWdodCI6MjgsInRpbWVzdGFtcCI6MTc4MzYzMjAwMCwiaWRsZV90aW1lX2xpbWl0IjoxLjAsImVudiI6eyJTSEVMTCI6Ii9iaW4venNoIiwiVEVSTSI6Inh0ZXJtLWdob3N0dHkifSwidGl0bGUiOiJPbmliaSBwYWlyIGFuZCBydW4ifQpbMC4yMDAsIm8iLCIkIGJyZXcgaW5zdGFsbCBnb25nYWhraWEvb25pYmkvb25pYmlcclxuIl0KWzEuMTAwLCJvIiwiPT0+IEluc3RhbGxpbmcgb25pYmlcclxuPT0+IExpbmtpbmcgb25pYmkgYW5kIG9uaWJpLW5vdGlmeVxyXG4iXQpbMi4wMDAsIm8iLCIkIG9uaWJpIHVwIC0tZmlyc3QtcnVuIC0tdHJhbnNwb3J0PWxhblxyXG4iXQpbMi44MDAsIm8iLCJPbmliaSBGaXJzdCBydW5cclxuIl0KWzMuNDAwLCJvIiwiRGV0ZWN0ZWQgaG9va3NcclxuICAxLiBjbGF1ZGVcclxuICAyLiBzaGVsbDp6c2hcclxuIl0KWzQuMTAwLCJvIiwiU2VsZWN0ZWQgaG9va3M6IGNsYXVkZSwgc2hlbGw6enNoXHJcbkluc3RhbGxlZCBjbGF1ZGUgaG9va3NcclxuSW5zdGFsbGVkIHpzaCBob29rc1xyXG4iXQpbNS4xMDAsIm8iLCJUcmFuc3BvcnQgbGFuXHJcbiJdCls1LjgwMCwibyIsImlQaG9uZSB0cnVzdDogaW5zdGFsbCBvbmliaS1sb2NhbC1jYS5tb2JpbGVjb25maWcsIHRoZW4gZnVsbHkgdHJ1c3QgdGhlIE9uaWJpIENBLlxyXG4iXQpbNi43MDAsIm8iLCJQYWlyIGZyb20gcGhvbmVcclxuPHBhaXItdXJsLXJlZGFjdGVkPlxyXG5FeHBpcmVzOiA1bTBzXHJcbiJdCls3LjUwMCwibyIsIltRUiBvbWl0dGVkIGluIGNhc3RdXHJcbiJdCls5LjAwMCwibyIsIltPS10gUGFpcmVkIGlQaG9uZVxyXG4iXQpbMTAuMDAwLCJvIiwiU29mdCBrZXlzOiBFU0MgVEFCIENUUkwgVVAgRE4gSU5UIEtJTEwgTUFDIFBIT05FXHJcbiJdClsxMS4wMDAsIm8iLCIkIHByaW50ZiAnaGVsbG8gZnJvbSBwaG9uZVxcbidcclxuIl0KWzExLjkwMCwibyIsImhlbGxvIGZyb20gcGhvbmVcclxuIl0KWzEzLjAwMCwibyIsIiQgcHdkXHJcbn4vZGVtby9wcm9qZWN0XHJcbiJdClsxNC4yMDAsIm8iLCJyZWFkeVxyXG4iXQo=" aria-label="Pair and run terminal recording"></div>
-          <a class="demo-cast-link" href="./casts/pair-and-run.cast">Download pair-and-run.cast</a>
-        </article>
-        <article class="demo-item">
-          <h3>Approve and deny</h3>
-          <div class="demo-player" data-cast="./casts/approve-and-deny.cast" data-cast-b64="eyJ2ZXJzaW9uIjoyLCJ3aWR0aCI6OTYsImhlaWdodCI6MjgsInRpbWVzdGFtcCI6MTc4MzYzMjA2MCwiaWRsZV90aW1lX2xpbWl0IjoxLjAsImVudiI6eyJTSEVMTCI6Ii9iaW4venNoIiwiVEVSTSI6Inh0ZXJtLWdob3N0dHkifSwidGl0bGUiOiJPbmliaSBhcHByb3ZlIGFuZCBkZW55In0KWzAuMjAwLCJvIiwiJCBjbGF1ZGVcclxuIl0KWzEuMDAwLCJvIiwiY2xhdWRlPiBjcmVhdGUgL3RtcC9vbmliaS1hcHByb3ZlZC50eHQgd2l0aCB0aGUgdGV4dCBva1xyXG4iXQpbMi4wMDAsIm8iLCJhcHByb3ZhbCByZXF1ZXN0ZWQ6IEJhc2hcclxue1wiY29tbWFuZFwiOlwicHJpbnRmIG9rID4gL3RtcC9vbmliaS1hcHByb3ZlZC50eHRcIn1cclxuIl0KWzMuMDAwLCJvIiwicGhvbmUgYXBwcm92YWwgY2FyZFxyXG4gIHRvb2w6IEJhc2hcclxuICByaXNrOiBtZWRpdW1cclxuICBidXR0b25zOiBBcHByb3ZlIC8gRGVueSAvIEVkaXRcclxuIl0KWzQuODAwLCJvIiwicGhvbmUgdGFwcGVkIEFwcHJvdmVcclxuIl0KWzUuMzAwLCJvIiwiYXBwcm92YWwgZGVjaWRlZDogYXBwcm92ZVxyXG4iXQpbNi4xMDAsIm8iLCIkIHRlc3QgLWYgL3RtcC9vbmliaS1hcHByb3ZlZC50eHQgJiYgY2F0IC90bXAvb25pYmktYXBwcm92ZWQudHh0XHJcbiJdCls3LjAwMCwibyIsIm9rXHJcbiJdCls4LjAwMCwibyIsImNsYXVkZT4gcmVtb3ZlIHRoZSBwcm9qZWN0IGRpcmVjdG9yeVxyXG4iXQpbOS4wMDAsIm8iLCJhcHByb3ZhbCByZXF1ZXN0ZWQ6IEJhc2hcclxue1wiY29tbWFuZFwiOlwicm0gLXJmIH4vZGVtby9wcm9qZWN0XCJ9XHJcbiJdClsxMC4xMDAsIm8iLCJwaG9uZSBhcHByb3ZhbCBjYXJkXHJcbiAgcmlzazogaGlnaFxyXG4gIGJ1dHRvbnM6IEFwcHJvdmUgLyBEZW55IC8gRWRpdFxyXG4iXQpbMTEuMzAwLCJvIiwicGhvbmUgdGFwcGVkIERlbnlcclxuIl0KWzExLjgwMCwibyIsImFwcHJvdmFsIGRlY2lkZWQ6IGRlbnkgcmVhc29uPVwidW5zYWZlIGRlc3RydWN0aXZlIGNvbW1hbmRcIlxyXG4iXQpbMTIuODAwLCJvIiwidG9vbCBibG9ja2VkIGJlZm9yZSBleGVjdXRpb25cclxuIl0KWzE0LjAwMCwibyIsImF1ZGl0IHJvd3M6IGFwcHJvdmFsLnJlcXVlc3QsIGFwcHJvdmFsLmRlY2lkZWRcclxuIl0K" aria-label="Approve and deny terminal recording"></div>
-          <a class="demo-cast-link" href="./casts/approve-and-deny.cast">Download approve-and-deny.cast</a>
-        </article>
-        <article class="demo-item">
-          <h3>Handover</h3>
-          <div class="demo-player" data-cast="./casts/handover.cast" data-cast-b64="eyJ2ZXJzaW9uIjoyLCJ3aWR0aCI6OTYsImhlaWdodCI6MjgsInRpbWVzdGFtcCI6MTc4MzYzMjEyMCwiaWRsZV90aW1lX2xpbWl0IjoxLjAsImVudiI6eyJTSEVMTCI6Ii9iaW4venNoIiwiVEVSTSI6Inh0ZXJtLWdob3N0dHkifSwidGl0bGUiOiJPbmliaSBoYW5kb3ZlciJ9ClswLjIwMCwibyIsIiQgb25pYmkgdXAgLS12aXNpYmxlIC0tdHJhbnNwb3J0PWxhblxyXG4iXQpbMS4xMDAsIm8iLCJTdGFydGVkIG9uaWJpLXNoZWxsIChzZXNzX2RlbW8pIHRtdXggdGFyZ2V0IG9uaWJpOnNlc3NfZGVtby4wXHJcbiJdClsyLjAwMCwibyIsIlBhaXIgZnJvbSBwaG9uZVxyXG48cGFpci11cmwtcmVkYWN0ZWQ+XHJcbiJdClszLjQwMCwibyIsIltPS10gUGFpcmVkIGlQaG9uZVxyXG4iXQpbNC4wMDAsIm8iLCIkIHByaW50ZiAnc2FtZSBzZXNzaW9uIG9uIHBob25lXFxuJ1xyXG4iXQpbNC45MDAsIm8iLCJzYW1lIHNlc3Npb24gb24gcGhvbmVcclxuIl0KWzYuMDAwLCJvIiwicGhvbmUgdGFwcGVkIE1BQ1xyXG4iXQpbNi43MDAsIm8iLCJNYWMgaGFuZG92ZXIgcmVhZHkuIEF0dGFjaGVkIHRtdXggdGFyZ2V0IG9uaWJpOnNlc3NfZGVtby4wXHJcbiJdCls4LjAwMCwibyIsIiQgZWNobyB0eXBlZCBvbiBtYWNcclxuIl0KWzguODAwLCJvIiwidHlwZWQgb24gbWFjXHJcbiJdClsxMC4wMDAsIm8iLCJNYWMgdXNlciB0YXBwZWQgUEhPTkVcclxuIl0KWzEwLjcwMCwibyIsIlBob25lIGhhbmRvdmVyIHJlYWR5LiBWaXNpYmxlIHRtdXggY2xpZW50cyBkZXRhY2hlZC5cclxuIl0KWzEyLjAwMCwibyIsIiQgZWNobyBiYWNrIG9uIHBob25lXHJcbiJdClsxMi45MDAsIm8iLCJiYWNrIG9uIHBob25lXHJcbiJdClsxNC4wMDAsIm8iLCJzZXNzaW9uIGlkIHVuY2hhbmdlZDogc2Vzc19kZW1vXHJcbiJdCg==" aria-label="Handover terminal recording"></div>
-          <a class="demo-cast-link" href="./casts/handover.cast">Download handover.cast</a>
-        </article>
-        <article class="demo-item">
-          <h3>Cloudflare Quick E2E</h3>
-          <div class="demo-player" data-cast="./casts/e2e-cloudflare.cast" data-cast-b64="eyJ2ZXJzaW9uIjoyLCJ3aWR0aCI6OTYsImhlaWdodCI6MjgsInRpbWVzdGFtcCI6MTc4MzYzMjE4MCwiaWRsZV90aW1lX2xpbWl0IjoxLjAsImVudiI6eyJTSEVMTCI6Ii9iaW4venNoIiwiVEVSTSI6Inh0ZXJtLWdob3N0dHkifSwidGl0bGUiOiJPbmliaSBDbG91ZGZsYXJlIFF1aWNrIEUyRSJ9ClswLjIwMCwibyIsIiQgb25pYmkgdXAgLS10cmFuc3BvcnQ9Y2xvdWRmbGFyZS1xdWlja1xyXG4iXQpbMS4xMDAsIm8iLCJTdGFydGluZyBsb2NhbCBIVFRQUyBjb2NrcGl0IG9uIDEyNy4wLjAuMTo4NDQzXHJcbiJdClsyLjAwMCwibyIsIlN0YXJ0aW5nIGNsb3VkZmxhcmVkIHF1aWNrIHR1bm5lbFxyXG4iXQpbMy4yMDAsIm8iLCJSZWxheSBVUkw6IDxxdWljay10dW5uZWwtdXJsLXJlZGFjdGVkPlxyXG4iXQpbNC4wMDAsIm8iLCJQYWlyIGZyb20gcGhvbmVcclxuPHF1aWNrLXR1bm5lbC11cmwtcmVkYWN0ZWQ+I2s9UkVEQUNURURcclxuIl0KWzUuMDAwLCJvIiwiQXBwLWxheWVyIEUyRTogcGFpci1jb25maXJtIHJlcXVlc3Qgc2VhbGVkIHdpdGggSEtERiArIEFFUy1HQ01cclxuIl0KWzYuNDAwLCJvIiwiW09LXSBQYWlyZWQgaVBob25lIG92ZXIgQ2xvdWRmbGFyZSBRdWlja1xyXG4iXQpbNy4yMDAsIm8iLCJXZWJTb2NrZXQgUFRZIHN0cmVhbTogZW5jcnlwdGVkIGJlZm9yZSByZWxheVxyXG4iXQpbOC4yMDAsIm8iLCIkIHByaW50ZiAnY2YtZTJlLW9rXFxuJ1xyXG4iXQpbOS4wMDAsIm8iLCJjZi1lMmUtb2tcclxuIl0KWzEwLjQwMCwibyIsIkNvbnRyb2wgcmVxdWVzdDogaW50ZXJydXB0IC0+IHNlYWxlZCBIVFRQIFBPU1RcclxuIl0KWzExLjMwMCwibyIsIkF1ZGl0OiByZWxheSB0cmFuc3BvcnQgYWN0aXZlLCBvd25lciBzZXNzaW9uIHZlcmlmaWVkXHJcbiJdCg==" aria-label="Cloudflare Quick E2E terminal recording"></div>
-          <a class="demo-cast-link" href="./casts/e2e-cloudflare.cast">Download e2e-cloudflare.cast</a>
-        </article>
-      </div>
-    </section>
-
-    <section id="approvals">
-      <div class="split">
-        <div>
-          <h2>Control agent work from your phone</h2>
-          <p>Onibi routes terminal I/O and approval requests to a paired mobile browser over local HTTPS/WebSocket.</p>
-        </div>
-        <ul class="list">
-          <li>Approve, deny, or edit tool-call inputs.</li>
-          <li>Queue prompts while a session is busy.</li>
-          <li>Drive live sessions from the phone cockpit.</li>
-        </ul>
-      </div>
-    </section>
-
-    <section id="sessions">
-      <div class="split">
-        <div>
-          <h2>Host real local terminals</h2>
-          <p>Run supported coding agents or wrap any local CLI/TUI while Onibi keeps state, audit records, and session routing local.</p>
-        </div>
-        <ul class="list">
-          <li>Claude Code, Codex, OpenCode, Goose, Gemini, Copilot CLI, Pi, and Amp adapters.</li>
-          <li>Opt-in shell command-done hooks for zsh, bash, and fish.</li>
-          <li>Local stdio MCP server for MCP-capable agents.</li>
-        </ul>
-      </div>
-    </section>
-
-    <section id="mobile">
-      <div class="split">
-        <div>
-          <h2>Use the mobile cockpit</h2>
-          <p>The phone UI renders the live PTY with xterm.js and approval overlays when hooks block on a decision.</p>
-        </div>
-        <ul class="list">
-          <li>Top controls handle interrupt and kill; bottom soft keys handle Esc, Tab, arrows, control keys, paste, and theme.</li>
-          <li>Bundled terminfo, JetBrains Mono, Sixel/IIP rendering, and Kitty graphics transcoding support terminal applications in the cockpit.</li>
-          <li>Claude Code approvals can be approved, denied, or edited from the overlay.</li>
-          <li>Install the Onibi local CA profile once for iPhone HTTPS trust.</li>
-        </ul>
-      </div>
-    </section>
-
-    <section id="local">
-      <div class="split">
-        <div>
-          <h2>Single-user local daemon</h2>
-          <p>The daemon uses local HTTPS/WebSocket for the phone cockpit, local Unix sockets with same-UID checks, OS secret storage, and SQLite state in the user profile.</p>
-        </div>
-        <ul class="list">
-          <li>No hosted account system or SaaS control plane.</li>
-          <li>Pair-by-QR owner setup with single-use tokens, doctor checks, and hook drift detection.</li>
-          <li>Built as a single Go binary for macOS and Linux.</li>
-        </ul>
-      </div>
-    </section>
-
-    <section id="blog">
-      <h2>Blog</h2>
-      <div class="docs">
-        <a class="doc-link" href="./blog/2026-e2e-frame-protocol.md"><strong>How Onibi's E2E Frame Protocol Works</strong><span>Fragment-keyed relay E2E, HKDF key separation, AES-GCM frames, AAD, and non-defenses.</span></a>
-      </div>
-    </section>
-
-    <section id="docs">
-      <h2>Documentation</h2>
-      <div class="docs">
-        <a class="doc-link" href="https://github.com/gongahkia/onibi/blob/main/README.md"><strong>README on GitHub</strong><span>Project overview, commands, and release notes.</span></a>
-        <a class="doc-link" href="https://github.com/gongahkia/onibi/blob/main/SHOWCASE.md"><strong>Showcase</strong><span>Sanitized asciinema launch demos.</span></a>
-        <a class="doc-link" href="https://github.com/gongahkia/onibi/blob/main/BENCHMARKS.md"><strong>Benchmarks</strong><span>Cold-start, RSS, and PTY-throughput baselines.</span></a>
-        <a class="doc-link" href="./install.md"><strong>Installer</strong><span>get.onibi.sh Pages publishing and verification.</span></a>
-        <a class="doc-link" href="./ios-cert-install.md"><strong>iOS Certificate</strong><span>Install and trust the local CA profile.</span></a>
-        <a class="doc-link" href="./architecture.md"><strong>Architecture</strong><span>Components, lifecycle, storage, and daemon loops.</span></a>
-        <a class="doc-link" href="./comparison.md"><strong>Positioning</strong><span>Focused scope and first-party alternatives.</span></a>
-        <a class="doc-link" href="./ssh-transport.md"><strong>SSH Transport</strong><span>Remote bootstrap, known hosts, user services, and teardown.</span></a>
-        <a class="doc-link" href="./mcp.md"><strong>MCP</strong><span>Stdio server config, tools, and auth model.</span></a>
-        <a class="doc-link" href="./SPEC-providers.md"><strong>Provider Capability Contract</strong><span>Deferred chat and notify capability evidence.</span></a>
-        <a class="doc-link" href="./workspaces.md"><strong>Workspaces</strong><span>Team-shareable .onibi defaults and private workspace bindings.</span></a>
-        <a class="doc-link" href="./team-setup.md"><strong>Team Setup</strong><span>One-owner, one-viewer workspace sharing walkthrough.</span></a>
-        <a class="doc-link" href="./roadmap.md"><strong>Roadmap</strong><span>v0.3 to v1.0 milestone framing and non-goals.</span></a>
-        <a class="doc-link" href="./ws-events-protocol.md"><strong>Web Events</strong><span>Event stream protocol for sessions and approvals.</span></a>
-        <a class="doc-link" href="./sharing.md"><strong>Viewer Sharing</strong><span>Read-only viewer threat model, TTLs, and revocation.</span></a>
-        <a class="doc-link" href="./tap-integrity.md"><strong>Tap Integrity</strong><span>Homebrew tap checksum and GPG verification.</span></a>
-        <a class="doc-link" href="./web-push.md"><strong>Web Push</strong><span>iOS PWA push prerequisites and troubleshooting.</span></a>
-        <a class="doc-link" href="./troubleshooting.md"><strong>Troubleshooting</strong><span>Pairing, certificates, WebSockets, hooks, and soft keys.</span></a>
-      </div>
-      <div class="mini">
-        <p>Current docs cover the LAN web cockpit. Historical v2 transport notes remain only as reference until Phase 06.</p>
-        <a class="button" href="./ios-cert-install.md">Open iOS cert guide</a>
-      </div>
-    </section>
+    <h1>Onibi</h1>
+    <p>Onibi is a single-user local coding-agent host with a paired phone web cockpit.</p>
+    <p>It runs a managed terminal session locally, serves it over HTTPS/WebSocket, and presents Claude Code approvals to the paired owner browser. Ghostty handover is macOS-only.</p>
+    <h2>Start</h2>
+    <pre><code>brew install gongahkia/onibi/onibi
+onibi up --transport=lan</code></pre>
+    <h2>Documentation</h2>
+    <ul>
+      <li><a href="./getting-started.md">Getting started</a></li>
+      <li><a href="./ios-cert-install.md">iOS certificate trust</a></li>
+      <li><a href="./transports.md">Local web transport paths</a></li>
+      <li><a href="./transport-smoke.md">Phone transport smoke</a></li>
+      <li><a href="./web-push.md">Web Push</a></li>
+      <li><a href="./architecture.md">Architecture</a></li>
+      <li><a href="./security.md">Security</a></li>
+      <li><a href="./roadmap.md">Product scope</a></li>
+      <li><a href="./release.md">Release verification</a></li>
+    </ul>
   </main>
-
-  <footer>
-    Apache-2.0. Local daemon, LAN web cockpit, owner-controlled sessions.
-  </footer>
-  <script src="https://cdn.jsdelivr.net/npm/asciinema-player@3.16.0/dist/bundle/asciinema-player.min.js"></script>
-  <script>
-    if (window.AsciinemaPlayer !== undefined) {
-      for (const demoPlayer of document.querySelectorAll("[data-cast]")) {
-        const cast = demoPlayer.dataset.castB64 !== undefined ? `data:text/plain;base64,${demoPlayer.dataset.castB64}` : demoPlayer.dataset.cast;
-        window.AsciinemaPlayer.create(cast, demoPlayer, {
-          cols: 96,
-          rows: 28,
-          controls: true,
-          idleTimeLimit: 1,
-          preload: true,
-          terminalFontSize: "small"
-        });
-      }
-    }
-  </script>
 </body>
 </html>

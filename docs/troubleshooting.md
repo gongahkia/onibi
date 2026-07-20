@@ -87,7 +87,7 @@ Tap `MAC` again and check the toast. If it fails, run:
 ./bin/onibi show
 ```
 
-With one active managed session, `show` targets it by default. If Ghostty is missing or launching fails, the error includes a `tmux attach-session` command; run it manually in Ghostty. On Linux, this manual command is the intended handover behavior.
+With one active managed session, `show` targets it by default. If Ghostty is missing or launching fails, the error includes a `tmux attach-session` command; run it manually in Ghostty.
 
 ## Handover Back To Phone Reconnects
 
@@ -137,11 +137,7 @@ If hooks are missing or stale:
 ./bin/onibi install-hooks --agent claude
 ```
 
-Provider-specific trust or reload prompts printed by `install-hooks` are required for that provider.
-
-## MCP
-
-Use `onibi mcp` as a stdio server command in the MCP client config. The daemon should already be running for daemon-backed tools.
+Agent-specific trust or reload prompts printed by `install-hooks` are required for that adapter.
 
 ## Clean Reset
 

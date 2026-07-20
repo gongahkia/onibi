@@ -7,7 +7,7 @@ mkdir -p "$out"
 chmod 0700 "$out"
 host_os="$(go env GOOS)"
 cat >"$out/matrix.json" <<'EOF'
-{"schema":"onibi.release-scenario-matrix.v1","platform":"macos","release_blocking":true,"transports":["lan","tailscale","tailscale-private","wireguard","zerotier","cloudflare-quick","cloudflare-named","ngrok"],"iphone_evidence":{"required_for_certification":true,"runner":"scripts/iphone-transport-smoke.sh","checks":["setup_health","pairing","approval","intervention","reconnect","teardown","failure_diagnostics"]},"scenarios":[{"id":"macos-platform"},{"id":"multi-host-enrollment"},{"id":"web-transports"},{"id":"session-recovery"},{"id":"approvals"},{"id":"intervention"},{"id":"iphone-evidence-contract"}]}
+{"schema":"onibi.release-scenario-matrix.v1","platform":"macos","release_blocking":true,"transports":["lan","tailscale","tailscale-private","wireguard","zerotier","cloudflare-quick","cloudflare-named","ngrok"],"iphone_evidence":{"required_for_certification":true,"runner":"scripts/iphone-transport-smoke.sh","checks":["setup_health","pairing","approval","intervention","reconnect","teardown","failure_diagnostics"]},"scenarios":[{"id":"macos-platform"},{"id":"web-transports"},{"id":"session-recovery"},{"id":"approvals"},{"id":"intervention"},{"id":"iphone-evidence-contract"}]}
 EOF
 printf '{"schema":"onibi.macos-scenario-gate.v1","host_os":"%s","matrix":"matrix.json"}\n' "$host_os" >"$out/metadata.json"
 
@@ -35,11 +35,10 @@ if [[ "$host_os" != "darwin" ]]; then
   checks+=("{\"id\":\"macos-platform\",\"result\":\"fail\",\"log\":\"test.log\"}")
 else
   run macos-platform scripts/macos-release-gate.sh "$out/macos-release"
-  run multi-host-enrollment go test -race -count=1 ./internal/cli ./internal/fleetnode ./internal/web ./internal/daemon -run '^(TestFleetEnrollRelayUsesOwnerAuthorizedHubFlow|TestEnrollmentPersistsVerifiedFleetLink|TestFleetEnrollmentSupportsIndependentHosts|TestFleetLinkAuthenticatesHeartbeatAndDeliversControl|TestFleetLinkReconnectsAndVerifiesHubControls)$'
   run web-transports go test -race -count=1 ./internal/web/transport -run '^(TestTransportConformance|TestLifecycleCoversStaticLANWithoutProviderBypass)$'
   run session-recovery go test -race -count=1 ./internal/daemon ./internal/web -run '^(TestRestoreSessionsRecoversTmuxWithoutDuplicates|TestRestoreSessionsOrphansMissingTmuxWithoutCancellingApproval|TestRelaySessionReattachAfterTunnelReconnect|TestSessionsStatusWSEventReplay)$'
   run approvals go test -race -count=1 ./internal/daemon ./internal/web -run '^(TestClaudeApprovalDenyIsEnforcingAndAudited|TestCodexApprovalDenyIsEnforcingAndAudited|TestPiApprovalDenyIsEnforcingAndAudited|TestWSEventsStreamsApprovalRequestAndDecision|TestApprovalPostDecidesQueue)$'
-  run intervention go test -race -count=1 ./internal/web ./internal/daemon -run '^(TestControlCommandRetryExecutesOnceAndReturnsStatus|TestControlCommandsCoverInputHandoverAndKill|TestFleetControlDuplicateDoesNotReplay)$'
+  run intervention go test -race -count=1 ./internal/web ./internal/daemon -run '^(TestControlCommandRetryExecutesOnceAndReturnsStatus|TestControlCommandsCoverInputHandoverAndKill)$'
   run iphone-evidence-contract go test -race -count=1 ./internal/e2e -run '^TestIPhoneTransportSmokeRedactsPairURL$'
 fi
 

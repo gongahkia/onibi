@@ -27,7 +27,6 @@ onibi adapters add ./adapter.toml
 | OpenCode | `tool.execute.before` plugin hook | Yes | `TestAdapterOpenCodeDenyBlocksTool` | Deny throws before fixture write. |
 | Pi | `tool_call` extension hook | Yes | `TestAdapterPiDenyBlocksTool` | Deny returns `{ block: true }`; fixture writes only if the hook allows. |
 | Goose | `PreToolUse` event bridge | No - notify-only | `TestAdapterGooseDenyNotifyOnly` | Current adapter sends `agent_message`; it does not wait for an approval decision. |
-| Shell | shell pre/post exec hooks | No - notify-only | `TestAdapterShellDenyNotifyOnly` | Shell hooks report `cmd_done`; there is no PreToolUse approval surface. |
 
 ## Community Adapters
 
