@@ -38,7 +38,6 @@ export class InterventionPanel {
     this.element.textContent = "Act";
     this.element.setAttribute("aria-haspopup", "dialog");
     this.element.setAttribute("aria-expanded", "false");
-    this.element.dataset.tour = "intervention";
 
     this.panel = document.createElement("section");
     this.panel.className = "intervention-panel";

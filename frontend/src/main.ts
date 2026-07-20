@@ -22,7 +22,6 @@ import { RelayE2E, relayE2EContentType } from "./e2e";
 import { saveLastSessionID, SessionsListView } from "./sessions";
 import { SnapshotsPanel } from "./snapshots";
 import { refreshPushSubscription, subscribePushFromGesture } from "./push";
-import { startFirstRunTour } from "./tour";
 import { ApprovalWakeLock } from "./wake-lock";
 import { installImagePaste } from "./image-paste";
 import type { ImageUploadRequest } from "./image-paste";
@@ -187,7 +186,6 @@ async function boot(): Promise<void> {
     });
     connectTerminal(info);
     events.connect(eventsURL(info.ws_token));
-    startFirstRunTour();
   } catch {
     splash.textContent = "session unavailable";
   }
@@ -220,7 +218,6 @@ async function showSessionsHome(): Promise<void> {
   await sessionList.load();
   refreshPushOnOpen();
   splash.hidden = true;
-  startFirstRunTour();
 }
 
 async function sessionInfo(sessionID: string): Promise<SessionInfo> {
@@ -288,7 +285,7 @@ function installControls(
   root.scrollLeft = 0;
 }
 
-function controlButton(label: string, action: () => void, tourID = ""): HTMLButtonElement {
+function controlButton(label: string, action: () => void): HTMLButtonElement {
   const el = document.createElement("button");
   let firedAt = 0;
   let skipNextClick = false;
@@ -305,9 +302,6 @@ function controlButton(label: string, action: () => void, tourID = ""): HTMLButt
   el.type = "button";
   el.className = "control-button";
   el.textContent = label;
-  if (tourID !== "") {
-    el.dataset.tour = tourID;
-  }
   el.addEventListener("pointerdown", fire);
   el.addEventListener("touchstart", fire, { passive: false });
   el.addEventListener("click", (event) => {
