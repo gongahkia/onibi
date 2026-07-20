@@ -2,6 +2,7 @@ package opencode
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -186,6 +187,59 @@ func TestExpectedAndObservedHooksReportPluginDrift(t *testing.T) {
 	}
 	if BackupPath(context.Background(), db) != "" {
 		t.Fatal("unexpected backup for absent original plugin")
+	}
+}
+
+func TestPluginInstallIsIdempotentAndUninstallKeepsOriginalBackup(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "onibi.js")
+	notify := filepath.Join(dir, "onibi-notify")
+	t.Setenv("ONIBI_OPENCODE_PLUGIN", path)
+	if err := os.WriteFile(path, []byte("export const Original = () => {};\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(notify, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	db, err := store.Open(filepath.Join(dir, "test.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	ctx := t.Context()
+	if err := Install(ctx, db, notify); err != nil {
+		t.Fatal(err)
+	}
+	if err := Install(ctx, db, notify); err != nil {
+		t.Fatal(err)
+	}
+	info := Status(ctx, db)
+	if !info.Installed || !info.Managed || info.Tampered || info.MinimumProviderVersion != MinimumProviderVersion {
+		t.Fatalf("status=%+v", info)
+	}
+	var backups int
+	if err := db.SQL().QueryRowContext(ctx, "SELECT count(*) FROM hook_backups WHERE agent = ? AND path = ?", Agent, path).Scan(&backups); err != nil {
+		t.Fatal(err)
+	}
+	if backups != 1 {
+		t.Fatalf("backups after idempotent install=%d", backups)
+	}
+	if err := Uninstall(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("plugin after uninstall err=%v", err)
+	}
+	if err := db.SQL().QueryRowContext(ctx, "SELECT count(*) FROM hook_backups WHERE agent = ? AND path = ?", Agent, path).Scan(&backups); err != nil {
+		t.Fatal(err)
+	}
+	if backups != 1 {
+		t.Fatalf("backups after uninstall=%d", backups)
+	}
+	backup := BackupPath(ctx, db)
+	body, err := os.ReadFile(backup)
+	if err != nil || string(body) != "export const Original = () => {};\n" {
+		t.Fatalf("backup err=%v body=%q", err, body)
 	}
 }
 

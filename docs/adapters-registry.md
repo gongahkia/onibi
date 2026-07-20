@@ -24,11 +24,13 @@ onibi adapters add ./adapter.toml
 | Codex | `PreToolUse` command hook | Yes | `TestAdapterCodexDenyBlocksTool` | Deny exits non-zero with `permissionDecision=deny`. |
 | Copilot | `preToolUse` command hook | Yes | `TestAdapterCopilotDenyBlocksTool` | Deny emits provider JSON `permissionDecision=deny`; edited input maps to `modifiedArgs`. Copilot timeout and Onibi daemon/socket unavailability return no decision, while a missing notifier command fails closed; certification remains pending authenticated live evidence and a provider-version floor. |
 | Gemini | `BeforeTool` command hook | Yes | `TestAdapterGeminiDenyBlocksTool` | Deny emits provider JSON `decision=deny`; fixture writes only if provider output allows. Native edits map to `hookSpecificOutput.tool_input`; certification remains pending authenticated live evidence and a provider-version floor. |
-| OpenCode | `tool.execute.before` plugin hook | Yes | `TestAdapterOpenCodeDenyBlocksTool` | Deny throws before fixture write. OpenCode documents global/project local-plugin discovery and mutable hook output, but this adapter remains non-certified pending authenticated live evidence and a provider-version floor. |
+| OpenCode | `tool.execute.before` plugin hook | Yes | `TestAdapterOpenCodeDenyBlocksTool` | Deny throws before fixture write; approve, expiry, edit, timeout, daemon-unavailable, lifecycle, global/project scope, install drift, and reload instruction have provider-shaped local fixtures. `onibi adapters --json` exposes its non-certified contract v1 and documented OpenCode `1.18.3` floor. Authenticated live evidence is still required. |
 | Pi | `tool_call` extension hook | Yes | `TestAdapterPiDenyBlocksTool` | Deny returns `{ block: true }`; fixture writes only if the hook allows. |
 | Goose | `PreToolUse` native blocking hook | Yes - deny only | `TestAdapterGooseDenyBlocksTool` | Goose v1.35.0 added `PreToolUse` denial: exit 2 or `{"decision":"block"}` blocks the tool. Onibi reports this as its provider floor. Edited input is denied because Goose has no documented input-replacement response; no authenticated live evidence exists, so Goose remains non-certified. |
 
 Goose documents [the native hook system and `PreToolUse` denial](https://github.com/aaif-goose/goose/releases/tag/v1.35.0). The floor is reported, not locally probed: verify the installed Goose version before relying on the hook.
+
+OpenCode's [plugin documentation](https://opencode.ai/docs/plugins/) specifies global/project plugin discovery and mutable `tool.execute.before`; [v1.18.3](https://github.com/anomalyco/opencode/releases/tag/v1.18.3) is the reported documentation floor. It is not authenticated live evidence.
 
 ## Community Adapters
 

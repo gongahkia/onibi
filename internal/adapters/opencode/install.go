@@ -14,7 +14,10 @@ import (
 	"github.com/gongahkia/onibi/internal/store"
 )
 
-const Agent = "opencode"
+const (
+	Agent                  = "opencode"
+	MinimumProviderVersion = "1.18.3"
+)
 
 func init() {
 	catalog.MustRegister(catalog.BuiltinAgentManifest(Agent, catalog.Adapter{
@@ -66,10 +69,15 @@ func Install(ctx context.Context, db *store.DB, notifyBin string) error {
 	if err != nil {
 		return err
 	}
+	body := []byte(pluginSource(notifyBin))
+	if current, err := os.ReadFile(path); err == nil && string(current) == string(body) {
+		if err := common.VerifyRecorded(ctx, db, Agent, path, current); err == nil {
+			return nil
+		}
+	}
 	if _, err := common.BackupOriginal(ctx, db, Agent, path); err != nil {
 		return err
 	}
-	body := []byte(pluginSource(notifyBin))
 	if err := common.WriteFile(path, body, 0o600); err != nil {
 		return err
 	}
@@ -81,7 +89,13 @@ func Uninstall(ctx context.Context, db *store.DB) error {
 	if err != nil {
 		return err
 	}
-	if _, err := common.BackupOriginal(ctx, db, Agent, path); err != nil {
+	if body, err := os.ReadFile(path); err == nil {
+		if !strings.Contains(string(body), `const ONIBI_AGENT = "opencode";`) || common.VerifyRecorded(ctx, db, Agent, path, body) != nil {
+			if _, err := common.BackupOriginal(ctx, db, Agent, path); err != nil {
+				return err
+			}
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -93,9 +107,9 @@ func Uninstall(ctx context.Context, db *store.DB) error {
 func Status(ctx context.Context, db *store.DB) common.Info {
 	path, err := PluginPath()
 	if err != nil {
-		return common.Info{Name: Agent, Support: "blocking", BundledVersion: common.IntegrationVersion, Message: err.Error()}
+		return common.Info{Name: Agent, Support: "blocking", BundledVersion: common.IntegrationVersion, MinimumProviderVersion: MinimumProviderVersion, Message: err.Error()}
 	}
-	info := common.Info{Name: Agent, Support: "blocking", BundledVersion: common.IntegrationVersion, InstallPath: path}
+	info := common.Info{Name: Agent, Support: "blocking", BundledVersion: common.IntegrationVersion, MinimumProviderVersion: MinimumProviderVersion, InstallPath: path}
 	body, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {

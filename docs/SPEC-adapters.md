@@ -127,5 +127,7 @@ The in-tree adapters remain the reference implementations for provider-specific 
 | `copilot` | `agent` | Installs GitHub Copilot CLI lifecycle and `preToolUse` approval hooks. It is non-certified pending authenticated live evidence and a provider-version floor. |
 | `gemini` | `agent` | Installs Gemini CLI lifecycle hooks and native `BeforeTool` approval/edit handling. It is non-certified pending authenticated live evidence and a provider-version floor. |
 | `goose` | `agent` | Installs Goose lifecycle hooks and native deny-only tool approvals. `onibi adapters --json` reports the `1.35.0` provider floor for Goose `PreToolUse` denial; no edited-input response or authenticated live evidence exists, so it is non-certified. |
-| `opencode` | `agent` | Installs an OpenCode plugin with mutable `tool.execute.before` approvals. It is non-certified pending authenticated live evidence and a provider-version floor. |
+| `opencode` | `agent` | Installs an OpenCode plugin with mutable `tool.execute.before` approvals. `onibi adapters --json` reports the non-certified contract v1 and documented OpenCode `1.18.3` floor; local fixtures cover plugin scopes, decisions, lifecycle events, and drift, but authenticated live evidence remains required. |
 | `pi` | `agent` | Installs a Pi Coding Agent extension and reports blocking tool calls. |
+
+OpenCode's [plugin documentation](https://opencode.ai/docs/plugins/) specifies the global and project plugin directories, startup loading, and mutable `tool.execute.before` hook. Its [v1.18.3 release](https://github.com/anomalyco/opencode/releases/tag/v1.18.3) is the documented floor in this report, not a local provider probe.

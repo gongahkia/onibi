@@ -34,11 +34,15 @@ func TestAdapterStatusReportsCertifiedContract(t *testing.T) {
 	if !ok || !approvalOK || got["certified"] != true || contract["agent"] != "codex" || contract["version"] != "1" || approval["review_required"] != true {
 		t.Fatalf("json=%s", body)
 	}
-	for _, name := range []string{"amp", "copilot", "opencode", "gemini"} {
+	for _, name := range []string{"amp", "copilot", "gemini"} {
 		deferred := statusFromInfo(common.Info{Name: name}, false)
 		if deferred.Certified || deferred.Contract != nil {
 			t.Fatalf("deferred %s row=%+v", name, deferred)
 		}
+	}
+	opencode := statusFromInfo(common.Info{Name: "opencode", MinimumProviderVersion: "1.18.3"}, false)
+	if opencode.Certified || opencode.Contract == nil || opencode.Contract.MinimumProviderVersion != "1.18.3" || !opencode.Contract.Approval.BlocksTool {
+		t.Fatalf("OpenCode row=%+v", opencode)
 	}
 }
 

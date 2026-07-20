@@ -292,7 +292,7 @@ func statusFromInfo(info common.Info, detected bool) adapterStatus {
 		Next:                   info.Next,
 	}
 	if contract, ok := adapters.ContractFor(info.Name); ok {
-		row.Certified = true
+		row.Certified = contract.Certified
 		row.Contract = &contract
 	}
 	return row

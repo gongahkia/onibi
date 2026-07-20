@@ -17,14 +17,15 @@ const (
 )
 
 type AdapterContract struct {
-	Version      string               `json:"version"`
-	Agent        string               `json:"agent"`
-	Certified    bool                 `json:"certified"`
-	Installation InstallationContract `json:"installation"`
-	Approval     ApprovalContract     `json:"approval"`
-	Lifecycle    LifecycleContract    `json:"lifecycle"`
-	Recovery     RecoveryContract     `json:"recovery"`
-	Audit        AuditContract        `json:"audit"`
+	Version                string               `json:"version"`
+	Agent                  string               `json:"agent"`
+	Certified              bool                 `json:"certified"`
+	MinimumProviderVersion string               `json:"minimum_provider_version,omitempty"`
+	Installation           InstallationContract `json:"installation"`
+	Approval               ApprovalContract     `json:"approval"`
+	Lifecycle              LifecycleContract    `json:"lifecycle"`
+	Recovery               RecoveryContract     `json:"recovery"`
+	Audit                  AuditContract        `json:"audit"`
 }
 
 type InstallationContract struct {
@@ -65,10 +66,11 @@ type AuditContract struct {
 	RawPayloadRecorded bool `json:"raw_payload_recorded"`
 }
 
-var certifiedContracts = map[string]AdapterContract{
+var adapterContracts = map[string]AdapterContract{
 	capability.AgentClaude: certifiedContract(capability.AgentClaude, true, false, "run claude and inspect /hooks"),
 	capability.AgentCodex:  certifiedContract(capability.AgentCodex, false, true, "run codex, review hooks, and trust matching commands"),
 	capability.AgentPi:     certifiedContract(capability.AgentPi, true, false, "run /reload"),
+	"opencode":             openCodeContract(),
 }
 
 func certifiedContract(agent string, sessionExit, reviewRequired bool, reload string) AdapterContract {
@@ -112,15 +114,51 @@ func certifiedContract(agent string, sessionExit, reviewRequired bool, reload st
 	}
 }
 
+func openCodeContract() AdapterContract {
+	return AdapterContract{
+		Version:                CertifiedContractVersion,
+		Agent:                  "opencode",
+		Certified:              false,
+		MinimumProviderVersion: "1.18.3",
+		Installation: InstallationContract{
+			Managed:              true,
+			Idempotent:           true,
+			IntegrityVerified:    true,
+			OriginalConfigBacked: true,
+		},
+		Approval: ApprovalContract{
+			Delivery:          "same_uid_unix_socket",
+			BlocksTool:        true,
+			Approve:           DecisionAllow,
+			Deny:              DecisionDeny,
+			Edit:              DecisionAllowWithUpdated,
+			Expire:            DecisionDeny,
+			DaemonUnavailable: DecisionAllow,
+			RequestTimeout:    DecisionAllow,
+		},
+		Lifecycle: LifecycleContract{
+			Activity:        true,
+			ApprovalRequest: true,
+			TurnComplete:    true,
+			SessionExit:     true,
+		},
+		Recovery: RecoveryContract{
+			HookReloadInstruction: "restart OpenCode or start a new session",
+			PendingApproval:       "no plugin-level waiter recovery claim; use the persisted Onibi approval state",
+		},
+		Audit: AuditContract{},
+	}
+}
+
 func ContractFor(name string) (AdapterContract, bool) {
-	c, ok := certifiedContracts[strings.ToLower(strings.TrimSpace(name))]
+	c, ok := adapterContracts[strings.ToLower(strings.TrimSpace(name))]
 	return c, ok
 }
 
 func CertifiedContracts() []AdapterContract {
 	out := make([]AdapterContract, 0, len(capability.V1Agents()))
 	for _, name := range capability.V1Agents() {
-		if c, ok := ContractFor(name); ok {
+		if c, ok := ContractFor(name); ok && c.Certified {
 			out = append(out, c)
 		}
 	}

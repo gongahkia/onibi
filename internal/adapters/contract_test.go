@@ -39,8 +39,8 @@ func TestCertifiedContractsMatchV1AgentAllowlist(t *testing.T) {
 			t.Fatalf("audit contract=%+v", c.Audit)
 		}
 	}
-	if _, ok := ContractFor("opencode"); ok {
-		t.Fatal("deferred adapter has a certified contract")
+	if c, ok := ContractFor("opencode"); !ok || c.Certified || c.Version != CertifiedContractVersion || c.MinimumProviderVersion != "1.18.3" || !c.Installation.Idempotent || !c.Approval.BlocksTool || c.Approval.Edit != DecisionAllowWithUpdated || c.Audit.DecisionRecorded {
+		t.Fatalf("OpenCode capability report=%+v present=%t", c, ok)
 	}
 	if _, ok := ContractFor("goose"); ok {
 		t.Fatal("Goose has no edited-input response and is not certified")
