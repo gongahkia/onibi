@@ -18,6 +18,7 @@ use std::{
     fs,
     io::{self, Write},
     path::{Path, PathBuf},
+    time::{SystemTime, UNIX_EPOCH},
 };
 #[cfg(test)]
 use yeokcham_core::KeystoreSecret;
@@ -37,8 +38,9 @@ use yeokcham_protocol::{
     TOR_ONION_SERVICE_PUBLIC_KEY_BYTES, TorMaildropProfileConfig,
 };
 use yeokcham_sdk::{
-    SdkClient, SdkClientBuilder, SdkDeliveryProfile, SdkDeliveryProfilePolicy,
-    SdkDirectIpDisclosureAcknowledgement, SdkLocalMeshPolicy, SdkLocalMeshTransportKind,
+    SdkClient, SdkClientBuilder, SdkContactStatus, SdkDeliveryProfile, SdkDeliveryProfilePolicy,
+    SdkDirectIpDisclosureAcknowledgement, SdkIdentityManager, SdkLocalMeshPolicy,
+    SdkLocalMeshTransportKind, SdkMessageEnvelope, SdkMessageExpiry, SdkMessageSendRequest,
 };
 
 use release_manifest::{ReleaseArtifact, SignedReleaseArtifactManifest};
@@ -1018,7 +1020,7 @@ fn tui(state_directory: &Path, snapshot: bool) -> Result<(), Box<dyn Error>> {
         print!("{}", dashboard.snapshot());
         client.shutdown()?;
     } else {
-        let result = run_dashboard(dashboard, state_directory, client.is_running());
+        let result = run_dashboard(dashboard, state_directory, &mut client);
         let shutdown = client.shutdown();
         result?;
         shutdown?;
@@ -1279,6 +1281,103 @@ impl TuiContactInput {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TuiMessageInputStage {
+    Recipient,
+    Envelope,
+    Ttl,
+}
+
+impl TuiMessageInputStage {
+    const fn prompt(self) -> &'static str {
+        match self {
+            Self::Recipient => "Recipient public-key hexadecimal",
+            Self::Envelope => "Canonical encrypted-envelope hexadecimal",
+            Self::Ttl => "TTL seconds",
+        }
+    }
+}
+
+struct TuiMessageInput {
+    stage: TuiMessageInputStage,
+    recipient: String,
+    envelope: String,
+    ttl_seconds: String,
+}
+
+impl TuiMessageInput {
+    const fn new() -> Self {
+        Self {
+            stage: TuiMessageInputStage::Recipient,
+            recipient: String::new(),
+            envelope: String::new(),
+            ttl_seconds: String::new(),
+        }
+    }
+
+    fn push(&mut self, character: char) {
+        let (value, maximum, valid) = match self.stage {
+            TuiMessageInputStage::Recipient => (
+                &mut self.recipient,
+                64,
+                character.is_ascii_digit() || matches!(character, 'a'..='f'),
+            ),
+            TuiMessageInputStage::Envelope => (
+                &mut self.envelope,
+                MAX_ENCRYPTED_MESSAGE_SUBMISSION_BYTES * 2,
+                character.is_ascii_digit() || matches!(character, 'a'..='f'),
+            ),
+            TuiMessageInputStage::Ttl => (&mut self.ttl_seconds, 10, character.is_ascii_digit()),
+        };
+        if valid && value.len() + character.len_utf8() <= maximum {
+            value.push(character);
+        }
+    }
+
+    fn pop(&mut self) {
+        match self.stage {
+            TuiMessageInputStage::Recipient => self.recipient.pop(),
+            TuiMessageInputStage::Envelope => self.envelope.pop(),
+            TuiMessageInputStage::Ttl => self.ttl_seconds.pop(),
+        };
+    }
+
+    fn advance(&mut self) -> Result<bool, ()> {
+        match self.stage {
+            TuiMessageInputStage::Recipient => {
+                decode_identity_public_key(&self.recipient).map_err(|_| ())?;
+                self.stage = TuiMessageInputStage::Envelope;
+                Ok(false)
+            }
+            TuiMessageInputStage::Envelope => {
+                let encoded = decode_bounded_canonical_hex(
+                    &self.envelope,
+                    MAX_ENCRYPTED_MESSAGE_SUBMISSION_BYTES,
+                )
+                .map_err(|_| ())?;
+                SdkMessageEnvelope::from_encoded(&encoded).map_err(|_| ())?;
+                self.stage = TuiMessageInputStage::Ttl;
+                Ok(false)
+            }
+            TuiMessageInputStage::Ttl => {
+                let ttl_seconds = self.ttl_seconds.parse::<u32>().map_err(|_| ())?;
+                SdkMessageExpiry::new(0, ttl_seconds).map_err(|_| ())?;
+                Ok(true)
+            }
+        }
+    }
+
+    fn rendered_value(&self) -> String {
+        match self.stage {
+            TuiMessageInputStage::Recipient => self.recipient.clone(),
+            TuiMessageInputStage::Envelope => {
+                format!("redacted ({} hexadecimal characters)", self.envelope.len())
+            }
+            TuiMessageInputStage::Ttl => self.ttl_seconds.clone(),
+        }
+    }
+}
+
 struct TuiDashboard {
     dashboard: Dashboard,
     screen: TuiScreen,
@@ -1286,6 +1385,7 @@ struct TuiDashboard {
     runtime_running: bool,
     route_policy: TuiRoutePolicy,
     contact_input: Option<TuiContactInput>,
+    message_input: Option<TuiMessageInput>,
     notice: Option<&'static str>,
     last_error: Option<&'static str>,
 }
@@ -1368,6 +1468,7 @@ impl TuiDashboard {
             runtime_running,
             route_policy: TuiRoutePolicy::new(),
             contact_input: None,
+            message_input: None,
             notice: None,
             last_error: None,
         }
@@ -1395,20 +1496,21 @@ impl TuiDashboard {
 fn run_dashboard(
     dashboard: Dashboard,
     state_directory: &Path,
-    runtime_running: bool,
+    client: &mut SdkClient,
 ) -> Result<(), Box<dyn Error>> {
     let _restore = TerminalRestoreGuard;
     terminal::enable_raw_mode()?;
     let mut output = io::stdout();
     execute!(output, EnterAlternateScreen, Hide)?;
-    let mut dashboard = TuiDashboard::new(dashboard, runtime_running);
-    dashboard_event_loop(&mut output, &mut dashboard, state_directory)
+    let mut dashboard = TuiDashboard::new(dashboard, client.is_running());
+    dashboard_event_loop(&mut output, &mut dashboard, state_directory, client)
 }
 
 fn dashboard_event_loop(
     output: &mut impl Write,
     dashboard: &mut TuiDashboard,
     state_directory: &Path,
+    client: &mut SdkClient,
 ) -> Result<(), Box<dyn Error>> {
     loop {
         render_tui_dashboard(output, dashboard)?;
@@ -1417,6 +1519,8 @@ fn dashboard_event_loop(
         {
             if dashboard.contact_input.is_some() {
                 handle_tui_contact_input(dashboard, state_directory, key.code)?;
+            } else if dashboard.message_input.is_some() {
+                handle_tui_message_input(dashboard, state_directory, client, key.code)?;
             } else if dashboard.screen == TuiScreen::Inbox {
                 match key.code {
                     KeyCode::Char('q') => return Ok(()),
@@ -1457,6 +1561,10 @@ fn dashboard_event_loop(
                     }
                     KeyCode::Char('p') => {
                         dashboard.screen = TuiScreen::RoutePolicy;
+                        dashboard.notice = None;
+                    }
+                    KeyCode::Char('m') => {
+                        dashboard.message_input = Some(TuiMessageInput::new());
                         dashboard.notice = None;
                     }
                     KeyCode::Char('i') => {
@@ -1587,6 +1695,110 @@ fn handle_tui_contact_input(
     Ok(())
 }
 
+fn handle_tui_message_input(
+    dashboard: &mut TuiDashboard,
+    state_directory: &Path,
+    client: &mut SdkClient,
+    key: KeyCode,
+) -> Result<(), Box<dyn Error>> {
+    let Some(input) = dashboard.message_input.as_mut() else {
+        return Ok(());
+    };
+    match key {
+        KeyCode::Esc => {
+            dashboard.message_input = None;
+            dashboard.notice = Some("message composition cancelled");
+            dashboard.last_error = None;
+        }
+        KeyCode::Backspace => input.pop(),
+        KeyCode::Char(character) => input.push(character),
+        KeyCode::Enter => match input.advance() {
+            Ok(false) => {
+                dashboard.last_error = None;
+            }
+            Ok(true) => {
+                let input = dashboard
+                    .message_input
+                    .take()
+                    .ok_or("message input is unavailable")?;
+                if submit_tui_message(client, &input).is_ok() {
+                    if let Ok(updated) = load_system_dashboard_with_keystore(state_directory) {
+                        let identity = dashboard.dashboard.identity.clone();
+                        dashboard.dashboard = updated;
+                        dashboard.dashboard.identity = identity;
+                        dashboard.notice = Some("encrypted message queued");
+                        dashboard.last_error = None;
+                    } else {
+                        dashboard.notice = None;
+                        dashboard.last_error = Some("message state refresh failed");
+                    }
+                } else {
+                    dashboard.notice = None;
+                    dashboard.last_error = Some("encrypted message was not queued");
+                }
+            }
+            Err(()) => {
+                dashboard.last_error = Some("message input is invalid");
+            }
+        },
+        _ => {}
+    }
+    Ok(())
+}
+
+fn submit_tui_message(
+    client: &mut SdkClient,
+    input: &TuiMessageInput,
+) -> Result<(), Box<dyn Error>> {
+    let created_at = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+    #[cfg(target_os = "linux")]
+    {
+        let mut identity = SdkIdentityManager::new(LinuxKeystore::new()?);
+        return submit_tui_message_with_identity(client, &mut identity, input, created_at);
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let mut identity = SdkIdentityManager::new(MacOsKeystore::new());
+        return submit_tui_message_with_identity(client, &mut identity, input, created_at);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let mut identity = SdkIdentityManager::new(WindowsKeystore::new()?);
+        return submit_tui_message_with_identity(client, &mut identity, input, created_at);
+    }
+    #[allow(unreachable_code)]
+    Err("unsupported operating system keystore".into())
+}
+
+fn submit_tui_message_with_identity<K: OsKeystore>(
+    client: &mut SdkClient,
+    identity: &mut SdkIdentityManager<K>,
+    input: &TuiMessageInput,
+    created_at: u64,
+) -> Result<(), Box<dyn Error>> {
+    let recipient = decode_identity_public_key(&input.recipient)?;
+    let encoded =
+        decode_bounded_canonical_hex(&input.envelope, MAX_ENCRYPTED_MESSAGE_SUBMISSION_BYTES)?;
+    let envelope = SdkMessageEnvelope::from_encoded(&encoded)?;
+    let ttl_seconds = input.ttl_seconds.parse::<u32>()?;
+    let expiry = SdkMessageExpiry::new(created_at, ttl_seconds)?;
+    let verified = {
+        let contacts = client.contact_manager(identity)?;
+        matches!(
+            contacts.contact(&recipient),
+            Some(contact) if contact.status() == SdkContactStatus::Verified
+        )
+    };
+    if !verified {
+        return Err("recipient contact is not verified".into());
+    }
+    let _ = client.send_message(
+        identity,
+        SdkMessageSendRequest::new(recipient, envelope, expiry),
+    )?;
+    Ok(())
+}
+
 fn submit_tui_contact_input(
     state_directory: &Path,
     input: &TuiContactInput,
@@ -1694,11 +1906,23 @@ fn render_tui_dashboard(output: &mut impl Write, dashboard: &TuiDashboard) -> st
             Print(format!("{}: {}\n", input.kind.prompt(), input.value)),
             Print("Enter submits; Esc cancels.\n")
         )?;
+    } else if let Some(input) = &dashboard.message_input {
+        queue!(
+            output,
+            Print(format!(
+                "{}: {}\n",
+                input.stage.prompt(),
+                input.rendered_value()
+            )),
+            Print(
+                "The encrypted envelope is never rendered. Enter advances or queues; Esc cancels.\n"
+            )
+        )?;
     } else {
         queue!(
             output,
             Print(
-                "a: attachments; b: inbox; o: status; p: route policy; i: import invitation; r: verify QR; s: verify safety number; q: exit.\n"
+                "a: attachments; b: inbox; m: queue encrypted message; o: status; p: route policy; i: import invitation; r: verify QR; s: verify safety number; q: exit.\n"
             )
         )?;
     }
@@ -2115,10 +2339,11 @@ mod tests {
     use super::{
         Arguments, AttachmentCommand, Command, ContactCommand, ContactInvitation,
         ContactInvitationCommand, EncryptedMessageEnvelope, IdentityCommand, IdentityKeypair,
-        IdentityPublicKey, KeystoreEntryName, MAX_TUI_CONTACT_INPUT_BYTES, MessageCommand,
-        MessageExpiry, OsKeystore, RecipientInboxDeduplication, RelayProfileCommand,
-        ReleaseManifestCommand, SenderOutbox, TorMaildropProfileConfig, TuiCommand,
-        TuiContactInput, TuiContactInputKind, TuiDashboard, TuiRouteSelection, TuiScreen,
+        IdentityPublicKey, KeystoreEntryName, MAX_ENCRYPTED_MESSAGE_SUBMISSION_BYTES,
+        MAX_TUI_CONTACT_INPUT_BYTES, MessageCommand, MessageExpiry, OsKeystore,
+        RecipientInboxDeduplication, RelayProfileCommand, ReleaseManifestCommand, SenderOutbox,
+        TorMaildropProfileConfig, TuiCommand, TuiContactInput, TuiContactInputKind, TuiDashboard,
+        TuiMessageInput, TuiMessageInputStage, TuiRouteSelection, TuiScreen,
         apply_contact_rotation, contact_invitation_record, create_identity, dashboard_from_stores,
         decode_canonical_hex, decode_envelope, handle_tui_route_policy_key, hexadecimal,
         identity_record, import_contact_invitation, initialize_tui_identity,
@@ -2126,9 +2351,9 @@ mod tests {
         load_identity, queue_attachment_submission, queue_message, relay_profile_record,
         release_metadata, render_dashboard, render_tui_attachments, render_tui_dashboard,
         render_tui_route_policy, render_tui_status, revoke_contact, sign_release_manifest,
-        start_embedded_tui_client, submit_tui_contact_input_with_keystore, tui_safety_number_parts,
-        validate_state_directory, verify_contact_qr, verify_contact_safety_number,
-        verify_release_manifest,
+        start_embedded_tui_client, submit_tui_contact_input_with_keystore,
+        submit_tui_message_with_identity, tui_safety_number_parts, validate_state_directory,
+        verify_contact_qr, verify_contact_safety_number, verify_release_manifest,
     };
     use yeokcham_core::KeystoreSecret;
     use yeokcham_daemon::{
@@ -2141,7 +2366,7 @@ mod tests {
         DeliveryAcknowledgement, EncryptedAttachmentChunk, IdentityRotation, QrVerificationPayload,
         SafetyNumberFingerprint,
     };
-    use yeokcham_sdk::{SdkDeliveryProfileKind, SdkLocalMeshTransportKind};
+    use yeokcham_sdk::{SdkDeliveryProfileKind, SdkIdentityManager, SdkLocalMeshTransportKind};
 
     const REVISION: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     static NEXT_TEST_STATE_DIRECTORY: AtomicU64 = AtomicU64::new(0);
@@ -2972,6 +3197,140 @@ mod tests {
         assert!(tui_safety_number_parts("contact").is_err());
         assert!(tui_safety_number_parts("contact safety extra").is_err());
         assert!(tui_safety_number_parts(" contact").is_err());
+    }
+
+    #[test]
+    fn tui_message_input_is_bounded_canonical_and_redacts_the_envelope() {
+        let recipient = IdentityKeypair::generate().unwrap().public_key();
+        let envelope = EncryptedMessageEnvelope::new(vec![0xa1], b"encrypted-body".to_vec())
+            .unwrap()
+            .encode()
+            .unwrap();
+        let envelope = hexadecimal(&envelope);
+        let mut input = TuiMessageInput::new();
+        input.recipient = hexadecimal(recipient.as_bytes());
+
+        assert_eq!(input.advance(), Ok(false));
+        assert_eq!(input.stage, TuiMessageInputStage::Envelope);
+        input.envelope = envelope.clone();
+        assert_eq!(input.advance(), Ok(false));
+        assert_eq!(input.stage, TuiMessageInputStage::Ttl);
+        input.ttl_seconds = "60".to_owned();
+        assert_eq!(input.advance(), Ok(true));
+
+        let mut malformed = TuiMessageInput::new();
+        malformed.stage = TuiMessageInputStage::Envelope;
+        malformed.envelope = "820141a141b2".to_owned();
+        assert_eq!(malformed.advance(), Err(()));
+
+        let mut invalid_ttl = TuiMessageInput::new();
+        invalid_ttl.stage = TuiMessageInputStage::Ttl;
+        invalid_ttl.ttl_seconds = "0".to_owned();
+        assert_eq!(invalid_ttl.advance(), Err(()));
+
+        let mut bounded = TuiMessageInput::new();
+        bounded.stage = TuiMessageInputStage::Envelope;
+        bounded.envelope = "a".repeat(MAX_ENCRYPTED_MESSAGE_SUBMISSION_BYTES * 2);
+        bounded.push('a');
+        assert_eq!(
+            bounded.envelope.len(),
+            MAX_ENCRYPTED_MESSAGE_SUBMISSION_BYTES * 2
+        );
+
+        let mut tui = TuiDashboard::new(dashboard_from_stores(None, None, None), true);
+        tui.message_input = Some(TuiMessageInput {
+            stage: TuiMessageInputStage::Envelope,
+            recipient: String::new(),
+            envelope: envelope.clone(),
+            ttl_seconds: String::new(),
+        });
+        let mut rendered = Vec::new();
+        render_tui_dashboard(&mut rendered, &tui).unwrap();
+        let rendered = String::from_utf8(rendered).unwrap();
+        assert!(rendered.contains("redacted"));
+        assert!(rendered.contains("never rendered"));
+        assert!(!rendered.contains(&envelope));
+    }
+
+    #[test]
+    fn tui_message_submission_queues_only_verified_contacts_through_the_public_sdk() {
+        let state_directory = std::env::temp_dir().join(format!(
+            "yeokcham-cli-tui-message-{}-{}",
+            std::process::id(),
+            NEXT_TEST_STATE_DIRECTORY.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&state_directory).unwrap();
+        let mut client = start_embedded_tui_client(&state_directory).unwrap();
+        let mut identity = SdkIdentityManager::new(InMemoryKeystore::default());
+        let local_identity = identity.create_or_load().unwrap().public_key();
+        let recipient = IdentityKeypair::generate().unwrap();
+        let invitation = ContactInvitation::create(&recipient)
+            .unwrap()
+            .encode()
+            .unwrap();
+        let fingerprint =
+            SafetyNumberFingerprint::derive(&local_identity, &recipient.public_key()).unwrap();
+        {
+            let mut contacts = client.contact_manager(&mut identity).unwrap();
+            contacts.import_invitation(&invitation).unwrap();
+            contacts
+                .verify_safety_number(&recipient.public_key(), fingerprint.as_bytes())
+                .unwrap();
+        }
+        let input = TuiMessageInput {
+            stage: TuiMessageInputStage::Ttl,
+            recipient: hexadecimal(recipient.public_key().as_bytes()),
+            envelope: hexadecimal(
+                &EncryptedMessageEnvelope::new(vec![0xa1], b"encrypted-body".to_vec())
+                    .unwrap()
+                    .encode()
+                    .unwrap(),
+            ),
+            ttl_seconds: "60".to_owned(),
+        };
+
+        submit_tui_message_with_identity(&mut client, &mut identity, &input, 100).unwrap();
+        client.shutdown().unwrap();
+        let mut keystore = identity.into_inner();
+        let outbox =
+            SenderOutbox::open(&state_directory.join(OUTBOX_DATABASE_FILE), &mut keystore).unwrap();
+        assert_eq!(outbox.messages().len(), 1);
+        assert_eq!(outbox.messages()[0].recipient(), &recipient.public_key());
+        assert_eq!(
+            outbox.messages()[0].expiry(),
+            MessageExpiry::new(100, 60).unwrap()
+        );
+        fs::remove_dir_all(state_directory).unwrap();
+    }
+
+    #[test]
+    fn tui_message_submission_rejects_unverified_recipients_without_an_outbox_write() {
+        let state_directory = std::env::temp_dir().join(format!(
+            "yeokcham-cli-tui-message-unverified-{}-{}",
+            std::process::id(),
+            NEXT_TEST_STATE_DIRECTORY.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&state_directory).unwrap();
+        let mut client = start_embedded_tui_client(&state_directory).unwrap();
+        let mut identity = SdkIdentityManager::new(InMemoryKeystore::default());
+        identity.create_or_load().unwrap();
+        let recipient = IdentityKeypair::generate().unwrap();
+        let input = TuiMessageInput {
+            stage: TuiMessageInputStage::Ttl,
+            recipient: hexadecimal(recipient.public_key().as_bytes()),
+            envelope: hexadecimal(
+                &EncryptedMessageEnvelope::new(vec![0xa1], b"encrypted-body".to_vec())
+                    .unwrap()
+                    .encode()
+                    .unwrap(),
+            ),
+            ttl_seconds: "60".to_owned(),
+        };
+
+        assert!(submit_tui_message_with_identity(&mut client, &mut identity, &input, 100).is_err());
+        client.shutdown().unwrap();
+        assert!(!state_directory.join(OUTBOX_DATABASE_FILE).exists());
+        fs::remove_dir_all(state_directory).unwrap();
     }
 
     #[test]
