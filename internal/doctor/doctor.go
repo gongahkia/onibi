@@ -19,7 +19,6 @@ import (
 	"github.com/gongahkia/onibi/internal/adapters"
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/daemon"
-	"github.com/gongahkia/onibi/internal/matrix"
 	"github.com/gongahkia/onibi/internal/secrets"
 	"github.com/gongahkia/onibi/internal/service"
 	"github.com/gongahkia/onibi/internal/web"
@@ -328,8 +327,6 @@ func (r *runner) checkTransportProvider() {
 		r.checkNgrokProvider()
 	case "telegram":
 		r.add("transport provider", Pass, "Telegram coverage: unit + fake API + live opt-in; run onibi telegram status for pairing")
-	case "matrix":
-		r.checkMatrixProvider()
 	default:
 		r.add("transport provider", Warn, "unknown transport "+mode)
 	}
@@ -383,45 +380,6 @@ func (r *runner) checkNgrokProvider() {
 		detail = "ngrok authtoken present; " + detail
 	}
 	r.add("transport provider", Pass, detail)
-}
-
-func (r *runner) checkMatrixProvider() {
-	if missing := missingEnv("ONIBI_MATRIX_HOMESERVER", "ONIBI_MATRIX_ACCESS_TOKEN", "ONIBI_MATRIX_ROOM_ID"); len(missing) > 0 {
-		r.add("transport provider", Warn, "Matrix missing "+strings.Join(missing, ", "))
-		return
-	}
-	if r.opts.Offline {
-		r.add("transport provider", Pass, "Matrix env present; live API checks skipped offline")
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.ctx, 8*time.Second)
-	defer cancel()
-	roomID := strings.TrimSpace(os.Getenv("ONIBI_MATRIX_ROOM_ID"))
-	c := matrix.New(os.Getenv("ONIBI_MATRIX_HOMESERVER"), os.Getenv("ONIBI_MATRIX_ACCESS_TOKEN"))
-	who, err := c.CheckRoomOwner(ctx, roomID, 50)
-	if err != nil {
-		r.add("transport provider", Warn, "Matrix room ownership failed: "+err.Error())
-		return
-	}
-	rooms, err := c.JoinedRooms(ctx)
-	if err != nil {
-		r.add("transport provider", Warn, "Matrix joined-room check failed: "+err.Error())
-		return
-	}
-	if !containsString(rooms.JoinedRooms, roomID) {
-		r.add("transport provider", Warn, "Matrix account "+who.UserID+" is not joined to "+roomID)
-		return
-	}
-	encrypted, err := c.IsEncryptedRoom(ctx, roomID)
-	if err != nil {
-		r.add("transport provider", Warn, "Matrix encryption-state check failed: "+err.Error())
-		return
-	}
-	if encrypted && !envBool("ONIBI_MATRIX_ALLOW_ENCRYPTED") {
-		r.add("transport provider", Warn, "Matrix room is encrypted; Onibi refuses encrypted rooms without real Megolm E2EE")
-		return
-	}
-	r.add("transport provider", Pass, "Matrix live API ok: joined room, owner power, encrypted="+fmt.Sprint(encrypted))
 }
 
 func (r *runner) transportMode(cfg config.Config) string {

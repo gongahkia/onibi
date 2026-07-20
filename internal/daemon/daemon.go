@@ -54,7 +54,6 @@ type Daemon struct {
 	TelegramToken           string
 	TelegramOwnerID         int64
 	TelegramPair            string
-	Matrix                  MatrixOptions
 	ProviderOutput          ProviderOutputPolicy
 	ProviderOutputOverrides ProviderOutputOverrides
 	FleetLink               *FleetLink
@@ -63,7 +62,6 @@ type Daemon struct {
 	webAttachMu           sync.Mutex
 	webAttachHosts        map[string]*pty.Host
 	webAttachPending      map[string]chan struct{}
-	matrixEncryptedRoom   bool
 	notified              map[string]bool // session id → already-fired turn-complete once
 	sessionActivityEvents map[string]time.Time
 	started               time.Time
@@ -97,23 +95,12 @@ type Options struct {
 	TelegramToken           string
 	TelegramOwnerID         int64
 	TelegramPair            string
-	Matrix                  MatrixOptions
 	ProviderOutput          ProviderOutputPolicy
 	ProviderOutputOverrides ProviderOutputOverrides
 	FleetLink               *FleetLink
 	TailnetStatus           func(context.Context) ([]byte, error)
 	TailnetHealth           func(context.Context, string, fleet.Host) (bool, error)
 	SkipRestore             bool
-}
-
-type MatrixOptions struct {
-	Homeserver     string
-	AccessToken    string
-	RoomID         string
-	OwnerUserID    string
-	OwnerDeviceID  string
-	AllowEncrypted bool
-	SASVerified    bool
 }
 
 // New constructs a daemon, wiring intake + registry + idle detector +
@@ -145,7 +132,6 @@ func New(opts Options) *Daemon {
 		TelegramToken:           opts.TelegramToken,
 		TelegramOwnerID:         opts.TelegramOwnerID,
 		TelegramPair:            opts.TelegramPair,
-		Matrix:                  opts.Matrix,
 		ProviderOutput:          opts.ProviderOutput.normalized(),
 		ProviderOutputOverrides: opts.ProviderOutputOverrides,
 		FleetLink:               opts.FleetLink,
@@ -418,7 +404,6 @@ func (d *Daemon) Run(ctx context.Context) error {
 
 	if d.ExperimentalProviders {
 		d.startTelegramBridge(ctx, &wg, cancel)
-		d.startMatrixBridge(ctx, &wg, cancel)
 	}
 	d.startWebPushNotifier(ctx, &wg)
 

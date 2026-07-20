@@ -194,6 +194,17 @@ func TestProjectConfigRejectsRemovedSlackTransport(t *testing.T) {
 	}
 }
 
+func TestProjectConfigRejectsRemovedMatrixTransport(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "workspace.toml")
+	if err := os.WriteFile(path, []byte("schema_version = 1\nname = \"alpha\"\n[transports]\ndefault = \"matrix\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := LoadProjectConfig(path)
+	if err == nil || !strings.Contains(err.Error(), "no longer supported") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 func TestProjectConfigIgnoresLegacyPolicyTables(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "workspace.toml")
 	body := "schema_version = 1\nname = \"alpha\"\n[budget.global]\nmax_tokens_per_day = 1000\n[trust]\npolicy_file = \"trust.toml\"\n[[trust.rule]]\neffect = \"auto_approve\"\nexpires = \"never\"\n[trust.rule.match]\ntool = \"Read\"\n"

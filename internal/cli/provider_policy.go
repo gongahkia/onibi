@@ -16,7 +16,6 @@ func daemonProviderOutputPolicy(cfg config.Config) daemon.ProviderOutputPolicy {
 func daemonProviderOutputOverrides(cfg config.Config) daemon.ProviderOutputOverrides {
 	return daemon.ProviderOutputOverrides{
 		Telegram: daemonProviderOutputOverride(cfg.Provider.Output.Telegram),
-		Matrix:   daemonProviderOutputOverride(cfg.Provider.Output.Matrix),
 	}
 }
 

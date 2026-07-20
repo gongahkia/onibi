@@ -8,8 +8,6 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
-
-	"github.com/gongahkia/onibi/internal/matrix"
 )
 
 func (d *Daemon) startTelegramBridge(ctx context.Context, wg *sync.WaitGroup, cancel context.CancelFunc) {
@@ -21,20 +19,6 @@ func (d *Daemon) startTelegramBridge(ctx context.Context, wg *sync.WaitGroup, ca
 		defer wg.Done()
 		if err := d.runTelegramBridge(ctx); err != nil && !errors.Is(err, context.Canceled) {
 			d.Log.Error("telegram bridge", slog.Any("err", err))
-			cancel()
-		}
-	}()
-}
-
-func (d *Daemon) startMatrixBridge(ctx context.Context, wg *sync.WaitGroup, cancel context.CancelFunc) {
-	if strings.TrimSpace(d.Matrix.AccessToken) == "" {
-		return
-	}
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if err := d.runMatrixBridge(ctx, matrix.New(d.Matrix.Homeserver, d.Matrix.AccessToken)); err != nil && !errors.Is(err, context.Canceled) {
-			d.Log.Error("matrix bridge", slog.Any("err", err))
 			cancel()
 		}
 	}()

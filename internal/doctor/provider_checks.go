@@ -9,7 +9,6 @@ import (
 
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/daemon"
-	"github.com/gongahkia/onibi/internal/matrix"
 	"github.com/gongahkia/onibi/internal/secrets"
 	"github.com/gongahkia/onibi/internal/store"
 	"github.com/gongahkia/onibi/internal/telegram"
@@ -44,7 +43,6 @@ func Providers(ctx context.Context, opts Options) ProviderReport {
 	pa := providerAudit(ctx, opts.Paths)
 	rows := []ProviderRow{
 		providerTelegram(ctx, opts, pa),
-		providerMatrix(ctx, opts, pa),
 	}
 	return ProviderReport{Providers: rows}
 }
@@ -83,38 +81,6 @@ func providerTelegram(ctx context.Context, opts Options, pa map[string]string) P
 	if !row.Configured {
 		row.Fix = []string{"run onibi telegram setup", "run onibi up --transport=telegram and send the printed /start code"}
 	}
-	return row
-}
-
-func providerMatrix(ctx context.Context, opts Options, pa map[string]string) ProviderRow {
-	row := providerRow("matrix", pa)
-	missing := missingEnv("ONIBI_MATRIX_HOMESERVER", "ONIBI_MATRIX_ACCESS_TOKEN", "ONIBI_MATRIX_ROOM_ID")
-	row.Configured = len(missing) == 0
-	if !row.Configured {
-		row.Detail = "missing " + strings.Join(missing, ", ")
-		row.Fix = []string{"set ONIBI_MATRIX_HOMESERVER, ONIBI_MATRIX_ACCESS_TOKEN, ONIBI_MATRIX_ROOM_ID", "run onibi up --transport=matrix"}
-		return row
-	}
-	row.Detail = "env present"
-	if opts.Offline {
-		return row
-	}
-	withProviderTimeout(ctx, func(ctx context.Context) {
-		roomID := strings.TrimSpace(os.Getenv("ONIBI_MATRIX_ROOM_ID"))
-		rooms, err := matrix.New(os.Getenv("ONIBI_MATRIX_HOMESERVER"), os.Getenv("ONIBI_MATRIX_ACCESS_TOKEN")).JoinedRooms(ctx)
-		if err != nil {
-			row.Reachable = ReachableNo
-			row.Detail = "joined_rooms failed: " + err.Error()
-			return
-		}
-		if !containsString(rooms.JoinedRooms, roomID) {
-			row.Reachable = ReachableNo
-			row.Detail = "account not joined to " + roomID
-			return
-		}
-		row.Reachable = ReachableYes
-		row.Detail = "joined " + roomID
-	})
 	return row
 }
 
@@ -162,7 +128,7 @@ func providerAudit(ctx context.Context, paths config.Paths) map[string]string {
 	}
 	out := map[string]string{}
 	for _, e := range entries {
-		for _, name := range []string{"telegram", "matrix"} {
+		for _, name := range []string{"telegram"} {
 			if providerAuditMatch(name, e) {
 				out[name] = e.TS.UTC().Format(time.RFC3339)
 			}

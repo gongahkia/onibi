@@ -20,7 +20,7 @@ func TestProvidersReportAllProvidersUnconfigured(t *testing.T) {
 	paths := doctorTestPaths(t, "lan")
 	clearProviderEnv(t)
 	report := Providers(t.Context(), Options{Paths: paths, Offline: true, PreferDotenv: true})
-	want := []string{"telegram", "matrix"}
+	want := []string{"telegram"}
 	if len(report.Providers) != len(want) {
 		t.Fatalf("providers = %#v", report.Providers)
 	}
@@ -51,7 +51,6 @@ func TestProvidersMissingDetailsPerProvider(t *testing.T) {
 	report := Providers(t.Context(), Options{Paths: paths, Offline: true, PreferDotenv: true})
 	want := map[string]string{
 		"telegram": "missing bot token",
-		"matrix":   "ONIBI_MATRIX_HOMESERVER",
 	}
 	for name, detail := range want {
 		row := providerNamed(t, report, name)
@@ -75,14 +74,6 @@ func TestProvidersReachabilityFakeAPIs(t *testing.T) {
 	}))
 	defer telegramSrv.Close()
 	withTelegramProviderFactory(t, telegramSrv.URL)
-	matrixSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !strings.HasSuffix(r.URL.Path, "/joined_rooms") {
-			t.Fatalf("matrix path = %s", r.URL.Path)
-		}
-		writeDoctorJSON(t, w, map[string]any{"joined_rooms": []string{"!room:example"}})
-	}))
-	defer matrixSrv.Close()
-	t.Setenv("ONIBI_MATRIX_HOMESERVER", matrixSrv.URL)
 	report := Providers(t.Context(), Options{Paths: paths, PreferDotenv: true})
 	for _, row := range report.Providers {
 		if row.Reachable != ReachableYes {
@@ -111,32 +102,6 @@ func TestProvidersLastAuditTimestamp(t *testing.T) {
 		if row := providerNamed(t, report, name); row.LastAuditTimestamp == "" {
 			t.Fatalf("%s row missing audit: %#v", name, row)
 		}
-	}
-}
-
-func TestDoctorMatrixProviderFakeAPIEncryptedWarn(t *testing.T) {
-	paths := doctorTestPaths(t, "matrix")
-	t.Setenv("ONIBI_MATRIX_ACCESS_TOKEN", "matrix-token")
-	t.Setenv("ONIBI_MATRIX_ROOM_ID", "!room:example")
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case strings.HasSuffix(r.URL.Path, "/account/whoami"):
-			writeDoctorJSON(t, w, map[string]any{"user_id": "@bot:example"})
-		case strings.Contains(r.URL.Path, "/state/m.room.power_levels"):
-			writeDoctorJSON(t, w, map[string]any{"users": map[string]any{"@bot:example": 100}})
-		case strings.HasSuffix(r.URL.Path, "/joined_rooms"):
-			writeDoctorJSON(t, w, map[string]any{"joined_rooms": []string{"!room:example"}})
-		case strings.Contains(r.URL.Path, "/state/m.room.encryption"):
-			writeDoctorJSON(t, w, map[string]any{"algorithm": "m.megolm.v1.aes-sha2"})
-		default:
-			t.Fatalf("path = %s", r.URL.Path)
-		}
-	}))
-	defer srv.Close()
-	t.Setenv("ONIBI_MATRIX_HOMESERVER", srv.URL)
-	check := checkNamed(t, Run(t.Context(), Options{Paths: paths}), "transport provider")
-	if check.Status != Warn || !strings.Contains(check.Detail, "encrypted") {
-		t.Fatalf("check = %#v", check)
 	}
 }
 
@@ -188,18 +153,12 @@ func configureTelegramProvider(t *testing.T, paths config.Paths) {
 
 func configureEnvProviders(t *testing.T) {
 	t.Helper()
-	t.Setenv("ONIBI_MATRIX_HOMESERVER", "https://matrix.example")
-	t.Setenv("ONIBI_MATRIX_ACCESS_TOKEN", "matrix-token")
-	t.Setenv("ONIBI_MATRIX_ROOM_ID", "!room:example")
 }
 
 func clearProviderEnv(t *testing.T) {
 	t.Helper()
 	for _, name := range []string{
 		"ONIBI_TELEGRAM_TOKEN",
-		"ONIBI_MATRIX_HOMESERVER",
-		"ONIBI_MATRIX_ACCESS_TOKEN",
-		"ONIBI_MATRIX_ROOM_ID",
 		"ONIBI_DOCTOR_LIVE",
 	} {
 		t.Setenv(name, "")

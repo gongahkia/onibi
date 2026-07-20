@@ -236,7 +236,7 @@ func TestTransportModeRejectsUnsupportedValue(t *testing.T) {
 }
 
 func TestTransportModeRejectsRemovedNotificationProviders(t *testing.T) {
-	for _, mode := range []string{"email", "sms", "apns", "gotify", "ntfy", "pushover", "signal", "irc", "zulip", "discord", "slack"} {
+	for _, mode := range []string{"email", "sms", "apns", "gotify", "ntfy", "pushover", "signal", "irc", "zulip", "discord", "slack", "matrix"} {
 		t.Run(mode, func(t *testing.T) {
 			cfg := Default()
 			err := Set(&cfg, "transport.mode", mode)
@@ -313,6 +313,17 @@ func TestLoadRejectsRemovedSlackTransport(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsRemovedMatrixTransport(t *testing.T) {
+	paths := testPaths(t)
+	if err := os.WriteFile(paths.Config, []byte("transport:\n  mode: matrix\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := Load(paths)
+	if err == nil || !strings.Contains(err.Error(), "no longer supported") {
+		t.Fatalf("unexpected err: %v", err)
+	}
+}
+
 func TestProviderOutputRejectsRemovedDiscordOverride(t *testing.T) {
 	cfg := Default()
 	if err := Set(&cfg, "provider.output.discord.max_bytes", "2048"); err == nil {
@@ -351,6 +362,27 @@ func TestLoadRejectsRemovedSlackOutputOverride(t *testing.T) {
 	}
 	_, _, err := Load(paths)
 	if err == nil || !strings.Contains(err.Error(), "field slack not found") {
+		t.Fatalf("unexpected err: %v", err)
+	}
+}
+
+func TestProviderOutputRejectsRemovedMatrixOverride(t *testing.T) {
+	cfg := Default()
+	if err := Set(&cfg, "provider.output.matrix.max_bytes", "2048"); err == nil {
+		t.Fatal("expected unknown config key error")
+	}
+	if _, err := Get(cfg, "provider.output.matrix.max_bytes"); err == nil {
+		t.Fatal("expected unknown config key error")
+	}
+}
+
+func TestLoadRejectsRemovedMatrixOutputOverride(t *testing.T) {
+	paths := testPaths(t)
+	if err := os.WriteFile(paths.Config, []byte("provider:\n  output:\n    matrix:\n      max_bytes: 2048\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := Load(paths)
+	if err == nil || !strings.Contains(err.Error(), "field matrix not found") {
 		t.Fatalf("unexpected err: %v", err)
 	}
 }

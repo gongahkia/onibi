@@ -25,7 +25,6 @@ type ProviderOutputPolicy struct {
 
 type ProviderOutputOverrides struct {
 	Telegram ProviderOutputPolicy
-	Matrix   ProviderOutputPolicy
 }
 
 func (p ProviderOutputPolicy) normalized() ProviderOutputPolicy {
@@ -64,8 +63,6 @@ func (o ProviderOutputOverrides) forProvider(provider string) ProviderOutputPoli
 	switch strings.ToLower(strings.TrimSpace(provider)) {
 	case "telegram":
 		return o.Telegram
-	case "matrix":
-		return o.Matrix
 	default:
 		return ProviderOutputPolicy{}
 	}

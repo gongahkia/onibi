@@ -9,43 +9,7 @@ import (
 	"time"
 
 	"github.com/gongahkia/onibi/internal/approval"
-	"github.com/gongahkia/onibi/internal/tmux"
 )
-
-func TestChatProviderTextConformance(t *testing.T) {
-	for _, provider := range []string{"matrix"} {
-		t.Run(provider+" routes terminal text", func(t *testing.T) {
-			r := &tmuxRunner{results: [][]byte{
-				nil,
-				nil,
-				[]byte("$ pwd\n/tmp/onibi\n"),
-				[]byte("$ pwd\n/tmp/onibi\n"),
-				[]byte("$ pwd\n/tmp/onibi\n"),
-			}}
-			old := newTmuxController
-			newTmuxController = func() *tmux.Controller { return tmux.NewWithRunner(r) }
-			t.Cleanup(func() { newTmuxController = old })
-
-			d := New(Options{})
-			s := NewSession("s1", "shell", "shell", nil, 0)
-			s.Transport = "tmux"
-			s.TmuxTarget = "onibi-s1"
-			if err := d.Registry.Add(s); err != nil {
-				t.Fatal(err)
-			}
-			out, err := d.handleProviderText(t.Context(), "", "pwd", 0)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !strings.Contains(out, "/tmp/onibi") {
-				t.Fatalf("out = %q", out)
-			}
-			if !containsCall(r.calls, "send-keys", "-t", "onibi-s1", "-l", "--", "pwd") {
-				t.Fatalf("missing provider text send: %#v", r.calls)
-			}
-		})
-	}
-}
 
 func TestChatProviderApprovalCommandConformance(t *testing.T) {
 	for _, tc := range []struct {

@@ -42,27 +42,6 @@ func TestDoctorExplainPrintsRepairPlan(t *testing.T) {
 	}
 }
 
-func TestDoctorTransportOverrideReportsProvider(t *testing.T) {
-	withDotenvDoctor(t)
-	out, _, err := executeRootAllowError(t, "doctor", "--offline", "--transport", "matrix", "--json", "--color", "never")
-	if err != nil && !strings.Contains(err.Error(), "doctor failed") {
-		t.Fatalf("execute doctor: %v", err)
-	}
-	var report doctor.Report
-	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
-		t.Fatalf("json: %v\n%s", err, out.String())
-	}
-	for _, check := range report.Checks {
-		if check.Name == "transport provider" {
-			if !strings.Contains(check.Detail, "ONIBI_MATRIX_HOMESERVER") {
-				t.Fatalf("provider detail = %q", check.Detail)
-			}
-			return
-		}
-	}
-	t.Fatalf("missing transport provider check: %#v", report.Checks)
-}
-
 func TestDoctorProvidersJSONShowsAllProviders(t *testing.T) {
 	withDotenvDoctor(t)
 	out, _, err := executeRootAllowError(t, "doctor", "--providers", "--offline", "--json", "--color", "never")
@@ -73,7 +52,7 @@ func TestDoctorProvidersJSONShowsAllProviders(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
 		t.Fatalf("json: %v\n%s", err, out.String())
 	}
-	if len(report.Providers) != 2 {
+	if len(report.Providers) != 1 {
 		t.Fatalf("providers = %#v", report.Providers)
 	}
 }
