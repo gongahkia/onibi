@@ -62,7 +62,7 @@ try {
     if ($null -eq $linker) {
         throw 'x86_64-w64-mingw32-gcc is required to test the GNU Windows package'
     }
-    $env:CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER = $linker.Path
+    $env:CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER = $linker.Name
     $package = Join-Path $temporaryDirectory 'yeokcham.zip'
     & $packageScript -Output $package -Target x86_64-pc-windows-gnu
     if (-not (Test-Path -LiteralPath $package -PathType Leaf) -or (Get-Item -LiteralPath $package).Length -le 0) {
