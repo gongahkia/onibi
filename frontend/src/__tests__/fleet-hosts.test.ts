@@ -72,7 +72,7 @@ function status(): FleetStatus {
       {
         id: "host-build-mac",
         display_name: "Build Mac",
-        endpoint: { kind: "ssh", url: "onibi@build.example.test" },
+        endpoint: { kind: "mesh", url: "https://build.tail.ts.net" },
         protocol_version: 1,
         binary_version: "v1.2.3",
         capabilities: [],
@@ -93,7 +93,7 @@ function status(): FleetStatus {
       {
         id: "host-old-mac",
         display_name: "Old Mac",
-        endpoint: { kind: "ssh", url: "onibi@old.example.test" },
+        endpoint: { kind: "mesh", url: "https://old.tail.ts.net" },
         protocol_version: 1,
         binary_version: "v1.2.3",
         capabilities: [],

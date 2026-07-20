@@ -49,6 +49,13 @@ func TestUpStartsWebPair(t *testing.T) {
 	}
 }
 
+func TestUpRejectsRemovedSSHFlags(t *testing.T) {
+	_, _, err := executeRootAllowError(t, "up", "--ssh", "onibi@host.example.test", "--color", "never")
+	if err == nil || !strings.Contains(err.Error(), "unknown flag: --ssh") {
+		t.Fatalf("unexpected err: %v", err)
+	}
+}
+
 func TestUpAppliesProfileFlags(t *testing.T) {
 	withDefaultState(t)
 	cwd := t.TempDir()

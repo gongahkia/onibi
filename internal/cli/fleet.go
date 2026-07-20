@@ -7,6 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -19,12 +22,22 @@ import (
 	"github.com/gongahkia/onibi/internal/fleetnode"
 	"github.com/gongahkia/onibi/internal/store"
 	fleettransport "github.com/gongahkia/onibi/internal/transport/fleet"
+	"github.com/gongahkia/onibi/internal/web"
 )
+
+var newFleetHTTPClient = func() *http.Client {
+	return &http.Client{Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+}
+
+type fleetEnrollmentResponse struct {
+	Host     fleet.Host `json:"host"`
+	HubProof string     `json:"hub_proof"`
+}
 
 func fleetCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "fleet", Short: "Validate fleet enrollment endpoints"}
 	endpoint := &cobra.Command{
-		Use:   "endpoint <mesh|ssh|relay> <address>",
+		Use:   "endpoint <mesh|relay> <address>",
 		Short: "Select a fleet enrollment endpoint",
 		Args:  cobra.ExactArgs(2),
 		RunE:  runFleetEndpoint,
@@ -120,6 +133,60 @@ func runFleetEnroll(cmd *cobra.Command, _ []string) error {
 	}
 	_, err = fmt.Fprintf(cmd.OutOrStdout(), "Enrolled relay fleet host %s; restart onibi up to connect.\n", enrolled.Host.ID)
 	return err
+}
+
+func validateFleetHubURL(raw string) error {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Scheme != "https" || u.Host == "" || (u.Path != "" && u.Path != "/") || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return errors.New("fleet hub must be an HTTPS URL without credentials, query, or fragment")
+	}
+	return nil
+}
+
+func requestFleetChallenge(ctx context.Context, hub, ownerSession string, host fleet.Host) (fleet.EnrollmentChallenge, error) {
+	var challenge fleet.EnrollmentChallenge
+	if err := fleetPOST(ctx, hub+"/fleet/enroll/challenge", ownerSession, web.CSRFTokenForSession(ownerSession), struct {
+		Host fleet.Host `json:"host"`
+	}{Host: host}, &challenge); err != nil {
+		return fleet.EnrollmentChallenge{}, err
+	}
+	if err := challenge.Validate(); err != nil {
+		return fleet.EnrollmentChallenge{}, errors.New("invalid fleet enrollment challenge")
+	}
+	return challenge, nil
+}
+
+func requestFleetProof(ctx context.Context, hub string, proof fleet.EnrollmentProof) (fleetEnrollmentResponse, error) {
+	var response fleetEnrollmentResponse
+	if err := fleetPOST(ctx, hub+"/fleet/enroll/proof", "", "", proof, &response); err != nil {
+		return fleetEnrollmentResponse{}, err
+	}
+	return response, nil
+}
+
+func fleetPOST(ctx context.Context, endpoint, session, csrf string, in, out any) error {
+	body, err := json.Marshal(in)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(string(body)))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if session != "" {
+		req.AddCookie(&http.Cookie{Name: web.OwnerCookieName, Value: session})
+		req.Header.Set("X-Onibi-CSRF", csrf)
+	}
+	resp, err := newFleetHTTPClient().Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("fleet enrollment request failed: %s", resp.Status)
+	}
+	return json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(out)
 }
 
 func localFleetLink(ctx context.Context, db *store.DB) (*daemon.FleetLink, error) {

@@ -38,7 +38,6 @@ import (
 
 var installServiceRun = runInstallService
 var webPairRun = runWebPairUp
-var sshUpRun = runSSHUp
 var upServicePID = func(ctx context.Context) (int, bool, error) {
 	m, err := serviceManager()
 	if err != nil {
@@ -83,8 +82,6 @@ func upCmd() *cobra.Command {
 	cmd.Flags().Bool("first-run", false, "run guided onboarding before starting the cockpit")
 	cmd.Flags().Bool("no-qr", false, "print pairing URL without QR")
 	cmd.Flags().String("log-file", "", "also write up logs to this file")
-	cmd.Flags().String("ssh", "", "bootstrap and tunnel a remote host, user@host[:port]")
-	cmd.Flags().String("ssh-key", "", "SSH private key path for --ssh")
 	return cmd
 }
 
@@ -106,12 +103,6 @@ func runUp(cmd *cobra.Command, args []string) error {
 			return errors.New("--detach cannot be combined with a profile")
 		}
 		return runUpDetach(cmd, paths)
-	}
-	if target, _ := cmd.Flags().GetString("ssh"); strings.TrimSpace(target) != "" {
-		if firstRun {
-			return errors.New("--first-run cannot be combined with --ssh")
-		}
-		return sshUpRun(cmd, target)
 	}
 	db, err := openDefaultDB()
 	if err != nil {

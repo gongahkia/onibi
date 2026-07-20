@@ -19,7 +19,6 @@ type Adapter string
 
 const (
 	AdapterMesh  Adapter = "mesh"
-	AdapterSSH   Adapter = "ssh"
 	AdapterRelay Adapter = "relay"
 )
 
@@ -57,8 +56,6 @@ func (p EnrollmentPlan) Resolve(now time.Time) (fleet.Endpoint, error) {
 	switch p.Adapter {
 	case AdapterMesh:
 		endpoint.Kind = fleet.EndpointMesh
-	case AdapterSSH:
-		endpoint.Kind = fleet.EndpointSSH
 	case AdapterRelay:
 		endpoint.Kind = fleet.EndpointRelay
 	default:

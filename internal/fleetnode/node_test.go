@@ -25,7 +25,7 @@ func TestEnrollmentPersistsVerifiedFleetLink(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	host, err := identity.Host("SSH host", fleet.Endpoint{Kind: fleet.EndpointSSH, URL: "onibi@host.example.test:2222"}, "v1.0.0", []string{"session.read"})
+	host, err := identity.Host("Mesh host", fleet.Endpoint{Kind: fleet.EndpointMesh, URL: "https://100.64.0.2"}, "v1.0.0", []string{"session.read"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestConfigureRejectsInvalidHubProof(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
-	host, err := identity.Host("SSH host", fleet.Endpoint{Kind: fleet.EndpointSSH, URL: "onibi@host.example.test"}, "v1.0.0", nil)
+	host, err := identity.Host("Mesh host", fleet.Endpoint{Kind: fleet.EndpointMesh, URL: "https://100.64.0.2"}, "v1.0.0", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

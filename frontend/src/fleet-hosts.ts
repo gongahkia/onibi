@@ -6,7 +6,7 @@ type FleetCondition = "unreachable" | "stale" | "recovering" | "healthy";
 export type FleetHost = {
   id: string;
   display_name: string;
-  endpoint: { kind: "mesh" | "ssh" | "relay"; url: string };
+  endpoint: { kind: "mesh" | "relay"; url: string };
   protocol_version: number;
   binary_version: string;
   capabilities: string[];

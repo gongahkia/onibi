@@ -103,7 +103,6 @@ type EndpointKind string
 
 const (
 	EndpointMesh  EndpointKind = "mesh"
-	EndpointSSH   EndpointKind = "ssh"
 	EndpointRelay EndpointKind = "relay"
 )
 
@@ -330,10 +329,6 @@ func (e Endpoint) Validate() error {
 		if err := validateHTTPSEndpoint(e.URL, true); err != nil {
 			return fmt.Errorf("invalid %s endpoint", e.Kind)
 		}
-	case EndpointSSH:
-		if err := validateSSHEndpoint(e.URL); err != nil {
-			return errors.New("invalid ssh endpoint")
-		}
 	default:
 		return fmt.Errorf("unsupported endpoint kind %q", e.Kind)
 	}
@@ -390,43 +385,6 @@ func validEndpointHost(host string, requirePublic bool) bool {
 func isCarrierGradeNAT(ip net.IP) bool {
 	v4 := ip.To4()
 	return v4 != nil && v4[0] == 100 && v4[1]&0xc0 == 64
-}
-
-func validateSSHEndpoint(raw string) error {
-	if raw != strings.TrimSpace(raw) || len(raw) == 0 || len(raw) > 512 || strings.ContainsAny(raw, "\r\n\t /?#!") || strings.Count(raw, "@") != 1 {
-		return errors.New("invalid ssh endpoint")
-	}
-	user, target, _ := strings.Cut(raw, "@")
-	if !validSSHUser(user) {
-		return errors.New("invalid ssh user")
-	}
-	host := target
-	if parsedHost, port, err := net.SplitHostPort(target); err == nil {
-		host = parsedHost
-		v, err := strconv.Atoi(port)
-		if err != nil || v < 1 || v > 65535 {
-			return errors.New("invalid ssh port")
-		}
-	} else if strings.Contains(target, ":") || strings.ContainsAny(target, "[]") {
-		return errors.New("invalid ssh host")
-	}
-	if !validEndpointHost(strings.ToLower(host), false) {
-		return errors.New("invalid ssh host")
-	}
-	return nil
-}
-
-func validSSHUser(user string) bool {
-	if len(user) == 0 || len(user) > 64 {
-		return false
-	}
-	for _, r := range user {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '.' || r == '_' || r == '-' {
-			continue
-		}
-		return false
-	}
-	return true
 }
 
 type Host struct {

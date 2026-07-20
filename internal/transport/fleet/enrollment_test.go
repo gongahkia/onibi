@@ -8,7 +8,7 @@ import (
 	"github.com/gongahkia/onibi/internal/fleet"
 )
 
-func TestEnrollmentPlanSelectsMeshSSHAndRelay(t *testing.T) {
+func TestEnrollmentPlanSelectsMeshAndRelay(t *testing.T) {
 	now := time.Date(2026, 7, 14, 0, 0, 0, 0, time.UTC)
 	for _, test := range []struct {
 		adapter Adapter
@@ -16,7 +16,6 @@ func TestEnrollmentPlanSelectsMeshSSHAndRelay(t *testing.T) {
 		kind    fleet.EndpointKind
 	}{
 		{AdapterMesh, "https://100.64.0.2", fleet.EndpointMesh},
-		{AdapterSSH, "onibi@host.example.test:2222", fleet.EndpointSSH},
 		{AdapterRelay, "https://relay.example.test", fleet.EndpointRelay},
 	} {
 		plan, err := NewEnrollmentPlan(string(test.adapter), test.address, now)
@@ -45,7 +44,7 @@ func TestEnrollmentPlanRejectsMalformedStaleAndIncompatibleInputs(t *testing.T) 
 		{Version: EnrollmentAdapterVersion, Adapter: AdapterRelay, Address: valid.Address, IssuedAt: now.Add(time.Minute), ExpiresAt: now.Add(30 * time.Second)},
 		{Version: EnrollmentAdapterVersion, Adapter: AdapterRelay, Address: "https://127.0.0.1", IssuedAt: now, ExpiresAt: now.Add(EnrollmentPlanTTL)},
 		{Version: EnrollmentAdapterVersion, Adapter: AdapterMesh, Address: "https://localhost", IssuedAt: now, ExpiresAt: now.Add(EnrollmentPlanTTL)},
-		{Version: EnrollmentAdapterVersion, Adapter: AdapterSSH, Address: "onibi@host.example.test:not-a-port", IssuedAt: now, ExpiresAt: now.Add(EnrollmentPlanTTL)},
+		{Version: EnrollmentAdapterVersion, Adapter: "ssh", Address: "onibi@host.example.test", IssuedAt: now, ExpiresAt: now.Add(EnrollmentPlanTTL)},
 	} {
 		if _, err := plan.Resolve(now); err == nil {
 			t.Fatalf("expected invalid plan: %#v", plan)

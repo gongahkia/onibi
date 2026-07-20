@@ -32,8 +32,8 @@ func TestFleetEndpointSelectsAdapter(t *testing.T) {
 }
 
 func TestFleetEndpointRejectsInvalidAdapterInput(t *testing.T) {
-	_, _, err := executeRootAllowError(t, "fleet", "endpoint", "ssh", "onibi@host.example.test:not-a-port", "--color", "never")
-	if err == nil || !strings.Contains(err.Error(), "invalid ssh endpoint") {
+	_, _, err := executeRootAllowError(t, "fleet", "endpoint", "ssh", "onibi@host.example.test", "--color", "never")
+	if err == nil || !strings.Contains(err.Error(), "unsupported fleet enrollment adapter \"ssh\"") {
 		t.Fatalf("fleet endpoint error = %v", err)
 	}
 }

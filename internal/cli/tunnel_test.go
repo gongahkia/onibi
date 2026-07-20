@@ -76,3 +76,10 @@ func TestCloudflareCommandRemoved(t *testing.T) {
 		t.Fatalf("unexpected err: %v", err)
 	}
 }
+
+func TestSSHCommandRemoved(t *testing.T) {
+	_, _, err := executeRootAllowError(t, "ssh", "status", "--color", "never")
+	if err == nil || !strings.Contains(err.Error(), "unknown command") {
+		t.Fatalf("unexpected err: %v", err)
+	}
+}
