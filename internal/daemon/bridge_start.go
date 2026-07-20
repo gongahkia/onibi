@@ -12,7 +12,6 @@ import (
 	"github.com/gongahkia/onibi/internal/discord"
 	"github.com/gongahkia/onibi/internal/irc"
 	"github.com/gongahkia/onibi/internal/matrix"
-	signalapi "github.com/gongahkia/onibi/internal/signal"
 	"github.com/gongahkia/onibi/internal/slack"
 	"github.com/gongahkia/onibi/internal/zulip"
 )
@@ -98,20 +97,6 @@ func (d *Daemon) startIRCBridge(ctx context.Context, wg *sync.WaitGroup, cancel 
 		c.Plaintext = d.IRC.Plaintext
 		if err := d.runIRCBridge(ctx, c); err != nil && !errors.Is(err, context.Canceled) {
 			d.Log.Error("irc bridge", slog.Any("err", err))
-			cancel()
-		}
-	}()
-}
-
-func (d *Daemon) startSignalBridge(ctx context.Context, wg *sync.WaitGroup, cancel context.CancelFunc) {
-	if strings.TrimSpace(d.Signal.RPCURL) == "" {
-		return
-	}
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if err := d.runSignalBridge(ctx, signalapi.New(d.Signal.RPCURL, d.Signal.Account)); err != nil && !errors.Is(err, context.Canceled) {
-			d.Log.Error("signal bridge", slog.Any("err", err))
 			cancel()
 		}
 	}()

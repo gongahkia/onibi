@@ -30,7 +30,6 @@ type ProviderOutputOverrides struct {
 	Discord  ProviderOutputPolicy
 	Zulip    ProviderOutputPolicy
 	IRC      ProviderOutputPolicy
-	Signal   ProviderOutputPolicy
 }
 
 func (p ProviderOutputPolicy) normalized() ProviderOutputPolicy {
@@ -79,8 +78,6 @@ func (o ProviderOutputOverrides) forProvider(provider string) ProviderOutputPoli
 		return o.Zulip
 	case "irc":
 		return o.IRC
-	case "signal":
-		return o.Signal
 	default:
 		return ProviderOutputPolicy{}
 	}

@@ -59,7 +59,6 @@ type Daemon struct {
 	Discord                 DiscordOptions
 	Zulip                   ZulipOptions
 	IRC                     IRCOptions
-	Signal                  SignalOptions
 	ProviderOutput          ProviderOutputPolicy
 	ProviderOutputOverrides ProviderOutputOverrides
 	FleetLink               *FleetLink
@@ -74,8 +73,6 @@ type Daemon struct {
 	discordMu             sync.Mutex
 	discordApprovals      map[string]discordApprovalRef
 	discordTailThreads    map[string]string
-	signalMu              sync.Mutex
-	signalApprovals       map[int64]string
 	notified              map[string]bool // session id → already-fired turn-complete once
 	sessionActivityEvents map[string]time.Time
 	started               time.Time
@@ -114,7 +111,6 @@ type Options struct {
 	Discord                 DiscordOptions
 	Zulip                   ZulipOptions
 	IRC                     IRCOptions
-	Signal                  SignalOptions
 	ProviderOutput          ProviderOutputPolicy
 	ProviderOutputOverrides ProviderOutputOverrides
 	FleetLink               *FleetLink
@@ -166,14 +162,6 @@ type IRCOptions struct {
 	Plaintext bool
 }
 
-type SignalOptions struct {
-	RPCURL     string
-	Account    string
-	Recipients []string
-	GroupID    string
-	Owner      string
-}
-
 // New constructs a daemon, wiring intake + registry + idle detector +
 // approval queue + local web cockpit.
 func New(opts Options) *Daemon {
@@ -191,7 +179,6 @@ func New(opts Options) *Daemon {
 		slackApprovals:          map[string]slackApprovalRef{},
 		discordApprovals:        map[string]discordApprovalRef{},
 		discordTailThreads:      map[string]string{},
-		signalApprovals:         map[int64]string{},
 		notified:                map[string]bool{},
 		sessionActivityEvents:   map[string]time.Time{},
 		started:                 time.Now(),
@@ -212,7 +199,6 @@ func New(opts Options) *Daemon {
 		Discord:                 opts.Discord,
 		Zulip:                   opts.Zulip,
 		IRC:                     opts.IRC,
-		Signal:                  opts.Signal,
 		ProviderOutput:          opts.ProviderOutput.normalized(),
 		ProviderOutputOverrides: opts.ProviderOutputOverrides,
 		FleetLink:               opts.FleetLink,
@@ -490,7 +476,6 @@ func (d *Daemon) Run(ctx context.Context) error {
 		d.startDiscordBridge(ctx, &wg, cancel)
 		d.startZulipBridge(ctx, &wg, cancel)
 		d.startIRCBridge(ctx, &wg, cancel)
-		d.startSignalBridge(ctx, &wg, cancel)
 	}
 	d.startWebPushNotifier(ctx, &wg)
 

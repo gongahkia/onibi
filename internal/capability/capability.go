@@ -30,7 +30,6 @@ var deferredProviderTransports = []string{
 	"discord",
 	"zulip",
 	"irc",
-	"signal",
 }
 
 func V1Agents() []string { return append([]string(nil), v1Agents...) }

@@ -56,7 +56,7 @@ func TestProviderOptionsFromEnvRejectsMissing(t *testing.T) {
 	if _, _, err := providerOptionsFromEnv("discord"); err == nil {
 		t.Fatal("expected missing discord token error")
 	}
-	if !isEnvChatTransport("matrix") || !isEnvChatTransport("slack") || !isEnvChatTransport("discord") || !isEnvChatTransport("zulip") || !isEnvChatTransport("irc") || !isEnvChatTransport("signal") {
+	if !isEnvChatTransport("matrix") || !isEnvChatTransport("slack") || !isEnvChatTransport("discord") || !isEnvChatTransport("zulip") || !isEnvChatTransport("irc") {
 		t.Fatal("chat transport classification failed")
 	}
 }
@@ -90,22 +90,5 @@ func TestProviderOptionsFromEnvIRC(t *testing.T) {
 	}
 	if label != "IRC" || opts.IRC.Addr != "irc.example:6697" || opts.IRC.Username != "onibi-account" || opts.IRC.OwnerNick != "owner" || !opts.IRC.Plaintext {
 		t.Fatalf("opts=%#v label=%q", opts.IRC, label)
-	}
-}
-
-func TestProviderOptionsFromEnvSignal(t *testing.T) {
-	t.Setenv("ONIBI_SIGNAL_RPC_URL", "http://127.0.0.1:6001")
-	t.Setenv("ONIBI_SIGNAL_ACCOUNT", "+15550001")
-	t.Setenv("ONIBI_SIGNAL_RECIPIENTS", "+15550002,+15550003")
-	t.Setenv("ONIBI_SIGNAL_OWNER", "+15550002")
-	opts, label, err := providerOptionsFromEnv("signal")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if label != "Signal" || opts.Signal.RPCURL != "http://127.0.0.1:6001" || opts.Signal.Account != "+15550001" || opts.Signal.Owner != "+15550002" {
-		t.Fatalf("opts=%#v label=%q", opts.Signal, label)
-	}
-	if len(opts.Signal.Recipients) != 2 || opts.Signal.Recipients[1] != "+15550003" {
-		t.Fatalf("recipients=%#v", opts.Signal.Recipients)
 	}
 }

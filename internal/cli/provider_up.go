@@ -40,7 +40,6 @@ func runEnvProviderUp(cmd *cobra.Command, paths config.Paths, db *store.DB, cfg 
 		Discord:                 opts.Discord,
 		Zulip:                   opts.Zulip,
 		IRC:                     opts.IRC,
-		Signal:                  opts.Signal,
 		ProviderOutput:          daemonProviderOutputPolicy(cfg),
 		ProviderOutputOverrides: daemonProviderOutputOverrides(cfg),
 		SkipRestore:             true,
@@ -75,7 +74,6 @@ type envProviderOptions struct {
 	Discord daemon.DiscordOptions
 	Zulip   daemon.ZulipOptions
 	IRC     daemon.IRCOptions
-	Signal  daemon.SignalOptions
 }
 
 func providerOptionsFromEnv(mode string) (envProviderOptions, string, error) {
@@ -143,18 +141,6 @@ func providerOptionsFromEnv(mode string) (envProviderOptions, string, error) {
 			return opts, "", fmt.Errorf("irc requires ONIBI_IRC_NICK, ONIBI_IRC_PASSWORD, ONIBI_IRC_OWNER_NICK")
 		}
 		return opts, "IRC", nil
-	case "signal":
-		opts.Signal = daemon.SignalOptions{
-			RPCURL:     envRequired("ONIBI_SIGNAL_RPC_URL"),
-			Account:    envRequired("ONIBI_SIGNAL_ACCOUNT"),
-			Recipients: signalRecipientsFromEnv(),
-			GroupID:    strings.TrimSpace(os.Getenv("ONIBI_SIGNAL_GROUP_ID")),
-			Owner:      strings.TrimSpace(os.Getenv("ONIBI_SIGNAL_OWNER")),
-		}
-		if opts.Signal.RPCURL == "" || opts.Signal.Account == "" || (len(opts.Signal.Recipients) == 0 && opts.Signal.GroupID == "") {
-			return opts, "", fmt.Errorf("signal requires ONIBI_SIGNAL_RPC_URL, ONIBI_SIGNAL_ACCOUNT, and ONIBI_SIGNAL_RECIPIENT or ONIBI_SIGNAL_GROUP_ID")
-		}
-		return opts, "Signal", nil
 	default:
 		return opts, "", fmt.Errorf("unsupported env provider %q", mode)
 	}
@@ -162,7 +148,7 @@ func providerOptionsFromEnv(mode string) (envProviderOptions, string, error) {
 
 func isEnvChatTransport(mode string) bool {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case "matrix", "slack", "discord", "zulip", "irc", "signal":
+	case "matrix", "slack", "discord", "zulip", "irc":
 		return true
 	default:
 		return false
@@ -191,11 +177,4 @@ func splitCSV(v string) []string {
 		}
 	}
 	return out
-}
-
-func signalRecipientsFromEnv() []string {
-	if v := strings.TrimSpace(os.Getenv("ONIBI_SIGNAL_RECIPIENTS")); v != "" {
-		return splitCSV(v)
-	}
-	return splitCSV(os.Getenv("ONIBI_SIGNAL_RECIPIENT"))
 }

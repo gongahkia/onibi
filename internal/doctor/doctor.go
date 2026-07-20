@@ -349,8 +349,6 @@ func (r *runner) checkTransportProvider() {
 		r.checkZulipProvider()
 	case "irc":
 		r.checkIRCProvider()
-	case "signal":
-		r.checkSignalProvider()
 	default:
 		r.add("transport provider", Warn, "unknown transport "+mode)
 	}
@@ -586,28 +584,6 @@ func (r *runner) checkIRCProvider() {
 	}
 	_ = c.Close()
 	r.add("transport provider", Pass, "IRC live API ok: SASL connect to "+providerValueOrDefault(os.Getenv("ONIBI_IRC_ADDR"), irc.DefaultAddr))
-}
-
-func (r *runner) checkSignalProvider() {
-	missing := missingEnv("ONIBI_SIGNAL_RPC_URL", "ONIBI_SIGNAL_ACCOUNT")
-	if strings.TrimSpace(os.Getenv("ONIBI_SIGNAL_RECIPIENT")) == "" && strings.TrimSpace(os.Getenv("ONIBI_SIGNAL_RECIPIENTS")) == "" && strings.TrimSpace(os.Getenv("ONIBI_SIGNAL_GROUP_ID")) == "" {
-		missing = append(missing, "ONIBI_SIGNAL_RECIPIENT or ONIBI_SIGNAL_GROUP_ID")
-	}
-	if len(missing) > 0 {
-		r.add("transport provider", Warn, "Signal missing "+strings.Join(missing, ", "))
-		return
-	}
-	if r.opts.Offline || !doctorLiveProbe() {
-		r.add("transport provider", Pass, "Signal env present; set ONIBI_DOCTOR_LIVE=1 for daemon check")
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.ctx, 8*time.Second)
-	defer cancel()
-	if err := newSignalClient(os.Getenv("ONIBI_SIGNAL_RPC_URL"), os.Getenv("ONIBI_SIGNAL_ACCOUNT")).Check(ctx); err != nil {
-		r.add("transport provider", Warn, "Signal daemon check failed: "+err.Error())
-		return
-	}
-	r.add("transport provider", Pass, "Signal daemon check ok")
 }
 
 func (r *runner) transportMode(cfg config.Config) string {
