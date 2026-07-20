@@ -27,7 +27,6 @@ type ProviderOutputOverrides struct {
 	Telegram ProviderOutputPolicy
 	Matrix   ProviderOutputPolicy
 	Slack    ProviderOutputPolicy
-	Discord  ProviderOutputPolicy
 }
 
 func (p ProviderOutputPolicy) normalized() ProviderOutputPolicy {
@@ -70,8 +69,6 @@ func (o ProviderOutputOverrides) forProvider(provider string) ProviderOutputPoli
 		return o.Matrix
 	case "slack":
 		return o.Slack
-	case "discord":
-		return o.Discord
 	default:
 		return ProviderOutputPolicy{}
 	}

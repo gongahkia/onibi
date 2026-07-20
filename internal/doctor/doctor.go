@@ -19,7 +19,6 @@ import (
 	"github.com/gongahkia/onibi/internal/adapters"
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/daemon"
-	"github.com/gongahkia/onibi/internal/discord"
 	"github.com/gongahkia/onibi/internal/matrix"
 	"github.com/gongahkia/onibi/internal/secrets"
 	"github.com/gongahkia/onibi/internal/service"
@@ -92,9 +91,6 @@ type runner struct {
 var (
 	newSlackClient = func(appToken, botToken string) *slack.Client {
 		return slack.New(appToken, botToken)
-	}
-	newDiscordClient = func(token string) *discord.Client {
-		return discord.New(token)
 	}
 )
 
@@ -341,8 +337,6 @@ func (r *runner) checkTransportProvider() {
 		r.checkMatrixProvider()
 	case "slack":
 		r.checkSlackProvider()
-	case "discord":
-		r.checkDiscordProvider()
 	default:
 		r.add("transport provider", Warn, "unknown transport "+mode)
 	}
@@ -476,64 +470,6 @@ func (r *runner) checkSlackProvider() {
 		return
 	}
 	r.add("transport provider", Pass, "Slack live API ok: auth, socket, channel "+channel)
-}
-
-func (r *runner) checkDiscordProvider() {
-	if missing := missingEnv("ONIBI_DISCORD_TOKEN"); len(missing) > 0 {
-		r.add("transport provider", Warn, "Discord missing "+strings.Join(missing, ", "))
-		return
-	}
-	if r.opts.Offline {
-		r.add("transport provider", Pass, "Discord env present; live API checks skipped offline")
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.ctx, 8*time.Second)
-	defer cancel()
-	c := newDiscordClient(os.Getenv("ONIBI_DISCORD_TOKEN"))
-	app, err := c.CurrentApplication(ctx)
-	if err != nil {
-		r.add("transport provider", Warn, "Discord application check failed: "+err.Error())
-		return
-	}
-	channel := strings.TrimSpace(os.Getenv("ONIBI_DISCORD_CHANNEL_ID"))
-	if channel == "" {
-		channel = firstCSVEnv("ONIBI_DISCORD_ALLOWED_IDS")
-	}
-	if channel == "" {
-		r.add("transport provider", Warn, "Discord app "+app.ID+" ok; set ONIBI_DISCORD_CHANNEL_ID for channel permission check")
-		return
-	}
-	ch, err := c.Channel(ctx, channel)
-	if err != nil {
-		r.add("transport provider", Warn, "Discord channel access failed: "+err.Error())
-		return
-	}
-	slashDetail := ""
-	if strings.TrimSpace(os.Getenv("ONIBI_DISCORD_APPLICATION_ID")) != "" || strings.TrimSpace(os.Getenv("ONIBI_DISCORD_GUILD_ID")) != "" {
-		appID := strings.TrimSpace(os.Getenv("ONIBI_DISCORD_APPLICATION_ID"))
-		if appID == "" {
-			appID = app.ID
-		}
-		commands, err := c.ApplicationCommands(ctx, appID, strings.TrimSpace(os.Getenv("ONIBI_DISCORD_GUILD_ID")))
-		if err != nil {
-			r.add("transport provider", Warn, "Discord slash command check failed: "+err.Error())
-			return
-		}
-		if !discord.HasOnibiCommand(commands) {
-			r.add("transport provider", Warn, "Discord slash command /onibi missing; run onibi discord register")
-			return
-		}
-		slashDetail = ", slash command ok"
-	}
-	if doctorLiveProbe() {
-		if err := c.CreateMessage(ctx, channel, "onibi doctor discord probe"); err != nil {
-			r.add("transport provider", Warn, "Discord send permission failed: "+err.Error())
-			return
-		}
-		r.add("transport provider", Pass, "Discord live API ok: application, channel "+ch.ID+", send probe"+slashDetail)
-		return
-	}
-	r.add("transport provider", Pass, "Discord live API ok: application, channel "+ch.ID+slashDetail+"; set ONIBI_DOCTOR_LIVE=1 for send permission probe")
 }
 
 func (r *runner) transportMode(cfg config.Config) string {

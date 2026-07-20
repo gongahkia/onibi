@@ -18,7 +18,6 @@ func daemonProviderOutputOverrides(cfg config.Config) daemon.ProviderOutputOverr
 		Telegram: daemonProviderOutputOverride(cfg.Provider.Output.Telegram),
 		Matrix:   daemonProviderOutputOverride(cfg.Provider.Output.Matrix),
 		Slack:    daemonProviderOutputOverride(cfg.Provider.Output.Slack),
-		Discord:  daemonProviderOutputOverride(cfg.Provider.Output.Discord),
 	}
 }
 

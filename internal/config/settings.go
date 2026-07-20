@@ -93,7 +93,6 @@ type ProviderOutput struct {
 	Telegram  ProviderOutputOverride `yaml:"telegram,omitempty" json:"telegram,omitempty"`
 	Matrix    ProviderOutputOverride `yaml:"matrix,omitempty" json:"matrix,omitempty"`
 	Slack     ProviderOutputOverride `yaml:"slack,omitempty" json:"slack,omitempty"`
-	Discord   ProviderOutputOverride `yaml:"discord,omitempty" json:"discord,omitempty"`
 }
 
 type ProviderOutputOverride struct {
@@ -249,7 +248,7 @@ func (c Config) Validate() error {
 	mode := strings.ToLower(strings.TrimSpace(c.Transport.Mode))
 	switch {
 	case capability.IsV1WebTransport(mode), capability.IsInternalWebTransport(mode):
-	case mode == "email" || mode == "sms" || mode == "apns" || mode == "gotify" || mode == "ntfy" || mode == "pushover" || mode == "signal" || mode == "irc" || mode == "zulip":
+	case mode == "email" || mode == "sms" || mode == "apns" || mode == "gotify" || mode == "ntfy" || mode == "pushover" || mode == "signal" || mode == "irc" || mode == "zulip" || mode == "discord":
 		return fmt.Errorf("transport.mode=%q is no longer supported; use web push or telegram", mode)
 	case capability.IsDeferredProviderTransport(mode):
 		if !c.Experimental.Providers {
@@ -573,7 +572,6 @@ type rawProviderOutput struct {
 	Telegram  rawProviderOutputOverride `yaml:"telegram"`
 	Matrix    rawProviderOutputOverride `yaml:"matrix"`
 	Slack     rawProviderOutputOverride `yaml:"slack"`
-	Discord   rawProviderOutputOverride `yaml:"discord"`
 }
 
 type rawProviderOutputOverride struct {
@@ -654,7 +652,6 @@ func applyRaw(cfg *Config, meta *LoadMeta, raw rawConfig) {
 	applyRawProviderOutputOverride(&cfg.Provider.Output.Telegram, meta, "telegram", raw.Provider.Output.Telegram)
 	applyRawProviderOutputOverride(&cfg.Provider.Output.Matrix, meta, "matrix", raw.Provider.Output.Matrix)
 	applyRawProviderOutputOverride(&cfg.Provider.Output.Slack, meta, "slack", raw.Provider.Output.Slack)
-	applyRawProviderOutputOverride(&cfg.Provider.Output.Discord, meta, "discord", raw.Provider.Output.Discord)
 	if raw.Terminal.Default != nil {
 		cfg.Terminal.Default = strings.ToLower(strings.TrimSpace(*raw.Terminal.Default))
 		meta.Explicit["terminal.default"] = true
@@ -662,7 +659,7 @@ func applyRaw(cfg *Config, meta *LoadMeta, raw rawConfig) {
 }
 
 func providerOutputProviderNames() []string {
-	return []string{"telegram", "matrix", "slack", "discord"}
+	return []string{"telegram", "matrix", "slack"}
 }
 
 func providerOutputOverride(out ProviderOutput, provider string) ProviderOutputOverride {
@@ -673,8 +670,6 @@ func providerOutputOverride(out ProviderOutput, provider string) ProviderOutputO
 		return out.Matrix
 	case "slack":
 		return out.Slack
-	case "discord":
-		return out.Discord
 	default:
 		return ProviderOutputOverride{}
 	}
@@ -688,8 +683,6 @@ func providerOutputOverridePtr(out *ProviderOutput, provider string) *ProviderOu
 		return &out.Matrix
 	case "slack":
 		return &out.Slack
-	case "discord":
-		return &out.Discord
 	default:
 		return nil
 	}

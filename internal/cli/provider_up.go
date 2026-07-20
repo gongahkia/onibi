@@ -37,7 +37,6 @@ func runEnvProviderUp(cmd *cobra.Command, paths config.Paths, db *store.DB, cfg 
 		ExperimentalProviders:   cfg.Experimental.Providers,
 		Matrix:                  opts.Matrix,
 		Slack:                   opts.Slack,
-		Discord:                 opts.Discord,
 		ProviderOutput:          daemonProviderOutputPolicy(cfg),
 		ProviderOutputOverrides: daemonProviderOutputOverrides(cfg),
 		SkipRestore:             true,
@@ -67,9 +66,8 @@ func runEnvProviderUp(cmd *cobra.Command, paths config.Paths, db *store.DB, cfg 
 }
 
 type envProviderOptions struct {
-	Matrix  daemon.MatrixOptions
-	Slack   daemon.SlackOptions
-	Discord daemon.DiscordOptions
+	Matrix daemon.MatrixOptions
+	Slack  daemon.SlackOptions
 }
 
 func providerOptionsFromEnv(mode string) (envProviderOptions, string, error) {
@@ -101,16 +99,6 @@ func providerOptionsFromEnv(mode string) (envProviderOptions, string, error) {
 			return opts, "", fmt.Errorf("slack requires ONIBI_SLACK_APP_TOKEN and ONIBI_SLACK_BOT_TOKEN")
 		}
 		return opts, "Slack", nil
-	case "discord":
-		opts.Discord = daemon.DiscordOptions{
-			Token:      envRequired("ONIBI_DISCORD_TOKEN"),
-			GatewayURL: strings.TrimSpace(os.Getenv("ONIBI_DISCORD_GATEWAY_URL")),
-			AllowedIDs: splitCSV(os.Getenv("ONIBI_DISCORD_ALLOWED_IDS")),
-		}
-		if opts.Discord.Token == "" {
-			return opts, "", fmt.Errorf("discord requires ONIBI_DISCORD_TOKEN")
-		}
-		return opts, "Discord", nil
 	default:
 		return opts, "", fmt.Errorf("unsupported env provider %q", mode)
 	}
@@ -118,7 +106,7 @@ func providerOptionsFromEnv(mode string) (envProviderOptions, string, error) {
 
 func isEnvChatTransport(mode string) bool {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case "matrix", "slack", "discord":
+	case "matrix", "slack":
 		return true
 	default:
 		return false

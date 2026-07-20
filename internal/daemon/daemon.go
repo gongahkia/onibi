@@ -56,7 +56,6 @@ type Daemon struct {
 	TelegramPair            string
 	Matrix                  MatrixOptions
 	Slack                   SlackOptions
-	Discord                 DiscordOptions
 	ProviderOutput          ProviderOutputPolicy
 	ProviderOutputOverrides ProviderOutputOverrides
 	FleetLink               *FleetLink
@@ -68,9 +67,6 @@ type Daemon struct {
 	slackMu               sync.Mutex
 	slackApprovals        map[string]slackApprovalRef
 	matrixEncryptedRoom   bool
-	discordMu             sync.Mutex
-	discordApprovals      map[string]discordApprovalRef
-	discordTailThreads    map[string]string
 	notified              map[string]bool // session id → already-fired turn-complete once
 	sessionActivityEvents map[string]time.Time
 	started               time.Time
@@ -106,7 +102,6 @@ type Options struct {
 	TelegramPair            string
 	Matrix                  MatrixOptions
 	Slack                   SlackOptions
-	Discord                 DiscordOptions
 	ProviderOutput          ProviderOutputPolicy
 	ProviderOutputOverrides ProviderOutputOverrides
 	FleetLink               *FleetLink
@@ -133,13 +128,6 @@ type SlackOptions struct {
 	ApprovalChannel string
 }
 
-type DiscordOptions struct {
-	Token      string
-	GatewayURL string
-	AllowedIDs []string
-	Intents    int
-}
-
 // New constructs a daemon, wiring intake + registry + idle detector +
 // approval queue + local web cockpit.
 func New(opts Options) *Daemon {
@@ -155,8 +143,6 @@ func New(opts Options) *Daemon {
 		webAttachHosts:          map[string]*pty.Host{},
 		webAttachPending:        map[string]chan struct{}{},
 		slackApprovals:          map[string]slackApprovalRef{},
-		discordApprovals:        map[string]discordApprovalRef{},
-		discordTailThreads:      map[string]string{},
 		notified:                map[string]bool{},
 		sessionActivityEvents:   map[string]time.Time{},
 		started:                 time.Now(),
@@ -174,7 +160,6 @@ func New(opts Options) *Daemon {
 		TelegramPair:            opts.TelegramPair,
 		Matrix:                  opts.Matrix,
 		Slack:                   opts.Slack,
-		Discord:                 opts.Discord,
 		ProviderOutput:          opts.ProviderOutput.normalized(),
 		ProviderOutputOverrides: opts.ProviderOutputOverrides,
 		FleetLink:               opts.FleetLink,
@@ -449,7 +434,6 @@ func (d *Daemon) Run(ctx context.Context) error {
 		d.startTelegramBridge(ctx, &wg, cancel)
 		d.startMatrixBridge(ctx, &wg, cancel)
 		d.startSlackBridge(ctx, &wg, cancel)
-		d.startDiscordBridge(ctx, &wg, cancel)
 	}
 	d.startWebPushNotifier(ctx, &wg)
 

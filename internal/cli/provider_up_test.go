@@ -53,10 +53,10 @@ func TestProviderOptionsFromEnvSlackAllowlist(t *testing.T) {
 }
 
 func TestProviderOptionsFromEnvRejectsMissing(t *testing.T) {
-	if _, _, err := providerOptionsFromEnv("discord"); err == nil {
-		t.Fatal("expected missing discord token error")
+	if _, _, err := providerOptionsFromEnv("unknown"); err == nil {
+		t.Fatal("expected unsupported provider error")
 	}
-	if !isEnvChatTransport("matrix") || !isEnvChatTransport("slack") || !isEnvChatTransport("discord") {
+	if !isEnvChatTransport("matrix") || !isEnvChatTransport("slack") {
 		t.Fatal("chat transport classification failed")
 	}
 }

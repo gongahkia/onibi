@@ -9,7 +9,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/gongahkia/onibi/internal/discord"
 	"github.com/gongahkia/onibi/internal/matrix"
 	"github.com/gongahkia/onibi/internal/slack"
 )
@@ -51,20 +50,6 @@ func (d *Daemon) startSlackBridge(ctx context.Context, wg *sync.WaitGroup, cance
 		defer wg.Done()
 		if err := d.runSlackBridge(ctx, slack.New(d.Slack.AppToken, d.Slack.BotToken)); err != nil && !errors.Is(err, context.Canceled) {
 			d.Log.Error("slack bridge", slog.Any("err", err))
-			cancel()
-		}
-	}()
-}
-
-func (d *Daemon) startDiscordBridge(ctx context.Context, wg *sync.WaitGroup, cancel context.CancelFunc) {
-	if strings.TrimSpace(d.Discord.Token) == "" {
-		return
-	}
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if err := d.runDiscordBridge(ctx, discord.New(d.Discord.Token)); err != nil && !errors.Is(err, context.Canceled) {
-			d.Log.Error("discord bridge", slog.Any("err", err))
 			cancel()
 		}
 	}()

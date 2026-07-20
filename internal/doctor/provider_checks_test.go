@@ -9,7 +9,6 @@ import (
 
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/daemon"
-	"github.com/gongahkia/onibi/internal/discord"
 	"github.com/gongahkia/onibi/internal/secrets"
 	"github.com/gongahkia/onibi/internal/slack"
 	"github.com/gongahkia/onibi/internal/store"
@@ -22,7 +21,7 @@ func TestProvidersReportAllProvidersUnconfigured(t *testing.T) {
 	paths := doctorTestPaths(t, "lan")
 	clearProviderEnv(t)
 	report := Providers(t.Context(), Options{Paths: paths, Offline: true, PreferDotenv: true})
-	want := []string{"telegram", "matrix", "slack", "discord"}
+	want := []string{"telegram", "matrix", "slack"}
 	if len(report.Providers) != len(want) {
 		t.Fatalf("providers = %#v", report.Providers)
 	}
@@ -55,7 +54,6 @@ func TestProvidersMissingDetailsPerProvider(t *testing.T) {
 		"telegram": "missing bot token",
 		"matrix":   "ONIBI_MATRIX_HOMESERVER",
 		"slack":    "ONIBI_SLACK_APP_TOKEN",
-		"discord":  "ONIBI_DISCORD_TOKEN",
 	}
 	for name, detail := range want {
 		row := providerNamed(t, report, name)
@@ -99,18 +97,6 @@ func TestProvidersReachabilityFakeAPIs(t *testing.T) {
 	}))
 	defer slackSrv.Close()
 	withSlackFactory(t, slackSrv.URL)
-	discordSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/oauth2/applications/@me"):
-			writeDoctorJSON(t, w, discord.Application{ID: "app1", Name: "onibi"})
-		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/channels/C1"):
-			writeDoctorJSON(t, w, discord.Channel{ID: "C1", GuildID: "G1"})
-		default:
-			t.Fatalf("discord request = %s %s", r.Method, r.URL.Path)
-		}
-	}))
-	defer discordSrv.Close()
-	withDiscordFactory(t, discordSrv.URL)
 	report := Providers(t.Context(), Options{Paths: paths, PreferDotenv: true})
 	for _, row := range report.Providers {
 		if row.Reachable != ReachableYes {
@@ -218,58 +204,6 @@ func TestDoctorMatrixProviderFakeAPIEncryptedWarn(t *testing.T) {
 	}
 }
 
-func TestDoctorDiscordProviderFakeAPI(t *testing.T) {
-	paths := doctorTestPaths(t, "discord")
-	t.Setenv("ONIBI_DISCORD_TOKEN", "discord-token")
-	t.Setenv("ONIBI_DISCORD_CHANNEL_ID", "C1")
-	t.Setenv("ONIBI_DISCORD_APPLICATION_ID", "app1")
-	t.Setenv("ONIBI_DISCORD_GUILD_ID", "G1")
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/oauth2/applications/@me"):
-			writeDoctorJSON(t, w, discord.Application{ID: "app1", Name: "onibi"})
-		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/channels/C1"):
-			writeDoctorJSON(t, w, discord.Channel{ID: "C1", GuildID: "G1"})
-		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/applications/app1/guilds/G1/commands"):
-			writeDoctorJSON(t, w, []discord.ApplicationCommand{{ID: "cmd1", Name: "onibi"}})
-		default:
-			t.Fatalf("request = %s %s", r.Method, r.URL.Path)
-		}
-	}))
-	defer srv.Close()
-	withDiscordFactory(t, srv.URL)
-	check := checkNamed(t, Run(t.Context(), Options{Paths: paths}), "transport provider")
-	if check.Status != Pass || !strings.Contains(check.Detail, "slash command ok") {
-		t.Fatalf("check = %#v", check)
-	}
-}
-
-func TestDoctorDiscordWarnsOnSendPermission(t *testing.T) {
-	paths := doctorTestPaths(t, "discord")
-	t.Setenv("ONIBI_DOCTOR_LIVE", "1")
-	t.Setenv("ONIBI_DISCORD_TOKEN", "discord-token")
-	t.Setenv("ONIBI_DISCORD_CHANNEL_ID", "C1")
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/oauth2/applications/@me"):
-			writeDoctorJSON(t, w, discord.Application{ID: "app1", Name: "onibi"})
-		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/channels/C1"):
-			writeDoctorJSON(t, w, discord.Channel{ID: "C1", GuildID: "G1"})
-		case r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/channels/C1/messages"):
-			w.WriteHeader(http.StatusForbidden)
-			writeDoctorJSON(t, w, map[string]any{"code": 50013, "message": "Missing Permissions"})
-		default:
-			t.Fatalf("request = %s %s", r.Method, r.URL.Path)
-		}
-	}))
-	defer srv.Close()
-	withDiscordFactory(t, srv.URL)
-	check := checkNamed(t, Run(t.Context(), Options{Paths: paths}), "transport provider")
-	if check.Status != Warn || !strings.Contains(check.Detail, "send permission failed") || !strings.Contains(check.Detail, "50013") {
-		t.Fatalf("check = %#v", check)
-	}
-}
-
 func withSlackFactory(t *testing.T, baseURL string) {
 	t.Helper()
 	old := newSlackClient
@@ -279,17 +213,6 @@ func withSlackFactory(t *testing.T, baseURL string) {
 		return c
 	}
 	t.Cleanup(func() { newSlackClient = old })
-}
-
-func withDiscordFactory(t *testing.T, baseURL string) {
-	t.Helper()
-	old := newDiscordClient
-	newDiscordClient = func(token string) *discord.Client {
-		c := discord.New(token)
-		c.BaseURL = baseURL
-		return c
-	}
-	t.Cleanup(func() { newDiscordClient = old })
 }
 
 func withTelegramProviderFactory(t *testing.T, baseURL string) {
@@ -345,8 +268,6 @@ func configureEnvProviders(t *testing.T) {
 	t.Setenv("ONIBI_MATRIX_ROOM_ID", "!room:example")
 	t.Setenv("ONIBI_SLACK_APP_TOKEN", "xapp-test")
 	t.Setenv("ONIBI_SLACK_BOT_TOKEN", "xoxb-test")
-	t.Setenv("ONIBI_DISCORD_TOKEN", "discord-token")
-	t.Setenv("ONIBI_DISCORD_CHANNEL_ID", "C1")
 }
 
 func clearProviderEnv(t *testing.T) {
@@ -360,8 +281,6 @@ func clearProviderEnv(t *testing.T) {
 		"ONIBI_SLACK_BOT_TOKEN",
 		"ONIBI_SLACK_APPROVAL_CHANNEL",
 		"ONIBI_SLACK_ALLOWED_CHANNELS",
-		"ONIBI_DISCORD_TOKEN",
-		"ONIBI_DISCORD_CHANNEL_ID",
 		"ONIBI_DOCTOR_LIVE",
 	} {
 		t.Setenv(name, "")

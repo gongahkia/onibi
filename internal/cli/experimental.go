@@ -28,6 +28,6 @@ func experimentalCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.AddCommand(telegramCmd(), discordCmd())
+	cmd.AddCommand(telegramCmd())
 	return cmd
 }

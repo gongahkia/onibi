@@ -46,7 +46,6 @@ func Providers(ctx context.Context, opts Options) ProviderReport {
 		providerTelegram(ctx, opts, pa),
 		providerMatrix(ctx, opts, pa),
 		providerSlack(ctx, opts, pa),
-		providerDiscord(ctx, opts, pa),
 	}
 	return ProviderReport{Providers: rows}
 }
@@ -152,42 +151,6 @@ func providerSlack(ctx context.Context, opts Options, pa map[string]string) Prov
 	return row
 }
 
-func providerDiscord(ctx context.Context, opts Options, pa map[string]string) ProviderRow {
-	row := providerRow("discord", pa)
-	missing := missingEnv("ONIBI_DISCORD_TOKEN")
-	row.Configured = len(missing) == 0
-	if !row.Configured {
-		row.Detail = "missing " + strings.Join(missing, ", ")
-		row.Fix = []string{"set ONIBI_DISCORD_TOKEN", "set ONIBI_DISCORD_CHANNEL_ID for channel checks; run onibi discord register for slash commands"}
-		return row
-	}
-	row.Detail = "env present"
-	if opts.Offline {
-		return row
-	}
-	withProviderTimeout(ctx, func(ctx context.Context) {
-		c := newDiscordClient(os.Getenv("ONIBI_DISCORD_TOKEN"))
-		app, err := c.CurrentApplication(ctx)
-		if err != nil {
-			row.Reachable = ReachableNo
-			row.Detail = "application check failed: " + err.Error()
-			return
-		}
-		if channel := strings.TrimSpace(os.Getenv("ONIBI_DISCORD_CHANNEL_ID")); channel != "" {
-			if _, err := c.Channel(ctx, channel); err != nil {
-				row.Reachable = ReachableNo
-				row.Detail = "channel check failed: " + err.Error()
-				return
-			}
-			row.Detail = "app=" + app.ID + " channel=" + channel
-		} else {
-			row.Detail = "app=" + app.ID
-		}
-		row.Reachable = ReachableYes
-	})
-	return row
-}
-
 func providerRow(name string, pa map[string]string) ProviderRow {
 	return ProviderRow{Name: name, Reachable: ReachableSkipped, LastAuditTimestamp: pa[name]}
 }
@@ -232,7 +195,7 @@ func providerAudit(ctx context.Context, paths config.Paths) map[string]string {
 	}
 	out := map[string]string{}
 	for _, e := range entries {
-		for _, name := range []string{"telegram", "matrix", "slack", "discord"} {
+		for _, name := range []string{"telegram", "matrix", "slack"} {
 			if providerAuditMatch(name, e) {
 				out[name] = e.TS.UTC().Format(time.RFC3339)
 			}
