@@ -643,10 +643,10 @@ func (r *runner) checkHooks() {
 	for _, name := range adapters.Names() {
 		a, _ := adapters.Get(name)
 		info := a.Status(r.ctx, db)
-		if info.Installed && !info.Tampered && !info.Outdated {
+		if info.Installed && !info.Disabled && !info.Tampered && !info.Outdated {
 			continue
 		}
-		if info.Tampered || info.Outdated {
+		if info.Disabled || info.Tampered || info.Outdated {
 			problems++
 		}
 	}

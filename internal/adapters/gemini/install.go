@@ -17,13 +17,17 @@ const Agent = "gemini"
 
 func init() {
 	catalog.MustRegister(catalog.BuiltinAgentManifest(Agent, catalog.Adapter{
-		Name:           Agent,
-		Install:        Install,
-		Uninstall:      Uninstall,
-		Status:         Status,
-		Verify:         VerifyHash,
-		Adopt:          Adopt,
-		DetectPresence: DetectPresence,
+		Name:              Agent,
+		Install:           Install,
+		Uninstall:         Uninstall,
+		Status:            Status,
+		Verify:            VerifyHash,
+		Adopt:             Adopt,
+		ExpectedHooks:     ExpectedHooks,
+		ObservedHooks:     ObservedHooks,
+		TrustInstructions: TrustInstructions,
+		BackupPath:        BackupPath,
+		DetectPresence:    DetectPresence,
 	}, map[string]string{"BeforeTool": "*"}))
 }
 
@@ -105,6 +109,11 @@ func Uninstall(ctx context.Context, db *store.DB) error {
 	if err != nil {
 		return err
 	}
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		return common.DeleteRecord(ctx, db, Agent, path)
+	} else if err != nil {
+		return err
+	}
 	cfg, err := common.ReadJSON(path, map[string]any{"hooks": map[string]any{}})
 	if err != nil {
 		return err
@@ -144,6 +153,11 @@ func Status(ctx context.Context, db *store.DB) common.Info {
 	info.InstalledVersion = common.VersionPtr(version)
 	info.Outdated = version != common.IntegrationVersion
 	common.ApplyManagedStatus(ctx, db, &info, Agent, path, body, "Gemini hooks installed", "onibi install-hooks --agent gemini")
+	if geminiHooksDisabled(path) {
+		info.Disabled = true
+		info.Message = "Gemini hooks disabled by hooksConfig.enabled=false"
+		info.Next = "enable hooksConfig.enabled in " + path
+	}
 	return info
 }
 
@@ -175,6 +189,81 @@ func Adopt(ctx context.Context, db *store.DB) error {
 		return errors.New("onibi-managed Gemini hook is missing")
 	}
 	return common.Record(ctx, db, Agent, path, body)
+}
+
+func ExpectedHooks(notifyBin string) ([]common.ExpectedHook, error) {
+	out := make([]common.ExpectedHook, 0, len(events))
+	for _, e := range events {
+		h := hook(notifyBin, e)
+		cmd, _ := h["command"].(string)
+		out = append(out, common.ExpectedHook{Event: e.event, Matcher: e.matcher, Type: "command", Command: cmd, Timeout: e.timeout})
+	}
+	return out, nil
+}
+
+func ObservedHooks() ([]common.ObservedHook, error) {
+	path, err := SettingsPath()
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := common.ReadJSON(path, map[string]any{})
+	if err != nil {
+		return nil, err
+	}
+	hooks, ok := cfg["hooks"].(map[string]any)
+	if !ok {
+		if _, exists := cfg["hooks"]; exists {
+			return []common.ObservedHook{{Event: "*", Problems: []string{"schema-invalid: hooks is not an object"}}}, nil
+		}
+		return nil, nil
+	}
+	var out []common.ObservedHook
+	for _, event := range common.SortStrings(keys(hooks)) {
+		for _, group := range asSlice(hooks[event]) {
+			gm, ok := group.(map[string]any)
+			if !ok {
+				out = append(out, common.ObservedHook{Event: event, Problems: []string{"schema-invalid: matcher group is not an object"}})
+				continue
+			}
+			matcher, _ := gm["matcher"].(string)
+			problems := groupSchemaProblems(gm)
+			entries, ok := gm["hooks"].([]any)
+			if !ok {
+				out = append(out, common.ObservedHook{Event: event, Matcher: matcher, Problems: append(problems, "schema-invalid: hooks is not an array")})
+				continue
+			}
+			for _, entry := range entries {
+				hook, ok := entry.(map[string]any)
+				if !ok {
+					out = append(out, common.ObservedHook{Event: event, Matcher: matcher, Problems: append(problems, "schema-invalid: hook is not an object")})
+					continue
+				}
+				typ, _ := hook["type"].(string)
+				cmd, _ := hook["command"].(string)
+				out = append(out, common.ObservedHook{Event: event, Matcher: matcher, Type: typ, Command: cmd, Timeout: intValue(hook["timeout"]), Managed: isManaged(hook), Problems: append(problems, hookSchemaProblems(hook)...)})
+			}
+		}
+	}
+	return out, nil
+}
+
+func TrustInstructions() []string {
+	return []string{
+		"Gemini CLI next step: inspect the configured hooks and verify the Onibi commands before use.",
+		"Use onibi hooks --show --agent gemini to compare expected commands, installed commands, backups, and drift.",
+	}
+}
+
+func BackupPath(ctx context.Context, db *store.DB) string {
+	path, err := SettingsPath()
+	if err != nil {
+		return ""
+	}
+	backup, ok, err := common.LatestBackup(ctx, db, Agent, path)
+	if err != nil || !ok {
+		return ""
+	}
+	return backup.BackupPath
 }
 
 func hook(notifyBin string, e eventSpec) map[string]any {
@@ -282,6 +371,68 @@ func isManaged(v any) bool {
 func commandValue(m map[string]any) string {
 	cmd, _ := m["command"].(string)
 	return cmd
+}
+
+func geminiHooksDisabled(path string) bool {
+	cfg, err := common.ReadJSON(path, map[string]any{})
+	if err != nil {
+		return false
+	}
+	hooksConfig, _ := cfg["hooksConfig"].(map[string]any)
+	enabled, exists := hooksConfig["enabled"].(bool)
+	return exists && !enabled
+}
+
+func groupSchemaProblems(group map[string]any) []string {
+	var problems []string
+	for key, value := range group {
+		switch key {
+		case "hooks":
+		case "matcher":
+			if _, ok := value.(string); !ok {
+				problems = append(problems, "schema-invalid: matcher is not a string")
+			}
+		case "sequential":
+			if _, ok := value.(bool); !ok {
+				problems = append(problems, "schema-invalid: sequential is not a boolean")
+			}
+		default:
+			problems = append(problems, "schema-invalid: unknown matcher field "+key)
+		}
+	}
+	return problems
+}
+
+func hookSchemaProblems(hook map[string]any) []string {
+	var problems []string
+	for key, value := range hook {
+		switch key {
+		case "type", "command", "name", "description":
+			if _, ok := value.(string); !ok {
+				problems = append(problems, "schema-invalid: "+key+" is not a string")
+			}
+		case "timeout":
+			if intValue(value) <= 0 {
+				problems = append(problems, "schema-invalid: timeout is not a positive number")
+			}
+		default:
+			problems = append(problems, "schema-invalid: unknown hook field "+key)
+		}
+	}
+	return problems
+}
+
+func intValue(value any) int {
+	switch v := value.(type) {
+	case int:
+		return v
+	case int64:
+		return int(v)
+	case float64:
+		return int(v)
+	default:
+		return 0
+	}
 }
 
 func keys(m map[string]any) []string {

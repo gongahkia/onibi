@@ -3,6 +3,7 @@ package gemini
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -75,6 +76,107 @@ func TestAdapterGeminiDenyBlocksTool(t *testing.T) {
 		t.Fatalf("deny hook did not return provider block: code=%d stdout=%q stderr=%q", res.Code, res.Stdout, res.Stderr)
 	}
 	denytest.CreateIfAllowed(t, target, allowed)
+}
+
+func TestGeminiUnavailableNotifyReturnsWarningExit(t *testing.T) {
+	target := denytest.Target(t, Agent)
+	h := hook(filepath.Join(t.TempDir(), "missing-onibi-notify"), eventSpec{event: "BeforeTool", matcher: "*", typ: "approval_request", wait: true, response: "provider", timeout: 360000})
+	res := denytest.RunHook(t, h["command"].(string), `{"hook_event_name":"BeforeTool","tool_name":"run_shell_command","tool_input":{"command":"touch `+target+`"}}`)
+	if res.Code == 0 || res.Code == 2 || res.Stdout != "" {
+		t.Fatalf("unavailable notifier result=%+v", res)
+	}
+	if err := os.WriteFile(target, []byte("created\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(target); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestGeminiContractHooksCoverLifecycleTimeoutAndDrift(t *testing.T) {
+	db, notify, _ := newTestEnv(t)
+	if err := Install(context.Background(), db, notify); err != nil {
+		t.Fatal(err)
+	}
+	expected, err := ExpectedHooks(notify)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observed, err := ObservedHooks()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(expected) != len(events) || len(observed) != len(events) {
+		t.Fatalf("expected=%+v observed=%+v", expected, observed)
+	}
+	want := map[string]string{
+		"SessionStart": "agent_message",
+		"BeforeAgent":  "agent_message",
+		"BeforeTool":   "approval_request",
+		"AfterTool":    "agent_message",
+		"Notification": "agent_message",
+		"AfterAgent":   "agent_done",
+		"SessionEnd":   "session_exited",
+	}
+	for _, hook := range expected {
+		typ, ok := want[hook.Event]
+		if !ok || hook.Type != "command" || !strings.Contains(hook.Command, "--type "+typ) {
+			t.Fatalf("hook=%+v", hook)
+		}
+		if hook.Event == "BeforeTool" {
+			if hook.Matcher != "*" || hook.Timeout != 360000 || !strings.Contains(hook.Command, "--wait --response provider") {
+				t.Fatalf("approval hook=%+v", hook)
+			}
+		} else if hook.Timeout != 30000 {
+			t.Fatalf("lifecycle hook=%+v", hook)
+		}
+	}
+	for _, hook := range observed {
+		if !hook.Managed || hook.Type != "command" || hook.Command == "" || hook.Timeout < 1000 {
+			t.Fatalf("observed hook=%+v", hook)
+		}
+	}
+	if err := VerifyHash(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestGeminiObservedHooksAndStatusReportDisableAndSchemaDrift(t *testing.T) {
+	db, notify, path := newTestEnv(t)
+	if err := Install(context.Background(), db, notify); err != nil {
+		t.Fatal(err)
+	}
+	cfg := readHookFile(t, path)
+	cfg["hooksConfig"] = map[string]any{"enabled": false}
+	hooks := cfg["hooks"].(map[string]any)
+	group := hooks["BeforeTool"].([]any)[0].(map[string]any)
+	hook := group["hooks"].([]any)[0].(map[string]any)
+	hook["timeout"] = "slow"
+	hook["unknown"] = true
+	writeHookFile(t, path, cfg)
+	observed, err := ObservedHooks()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"schema-invalid: timeout is not a positive number", "schema-invalid: unknown hook field unknown"} {
+		if !hasObservedProblem(observed, want) {
+			t.Fatalf("missing %q in %+v", want, observed)
+		}
+	}
+	info := Status(context.Background(), db)
+	if !info.Disabled || !strings.Contains(info.Message, "hooksConfig.enabled=false") || info.Next == "" {
+		t.Fatalf("status=%+v", info)
+	}
+}
+
+func TestGeminiUninstallMissingSettingsIsNoop(t *testing.T) {
+	db, _, path := newTestEnv(t)
+	if err := Uninstall(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("uninstall created settings: %v", err)
+	}
 }
 
 func TestInstallMigratesLegacyGeminiMetadata(t *testing.T) {
@@ -164,4 +266,15 @@ func legacyFields(v any) []string {
 	}
 	walk(v)
 	return out
+}
+
+func hasObservedProblem(rows []common.ObservedHook, want string) bool {
+	for _, row := range rows {
+		for _, problem := range row.Problems {
+			if problem == want {
+				return true
+			}
+		}
+	}
+	return false
 }

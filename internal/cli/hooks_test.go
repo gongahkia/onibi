@@ -222,6 +222,39 @@ func TestHooksShowGooseJSONReportsCommandsAndBackup(t *testing.T) {
 	}
 }
 
+func TestHooksShowGeminiJSONReportsCommandsBackupAndDisable(t *testing.T) {
+	home, _, _ := hooksCLIFixture(t)
+	settingsPath := filepath.Join(home, ".gemini", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(settingsPath, []byte(`{"hooks":{}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ONIBI_GEMINI_SETTINGS", settingsPath)
+	executeRoot(t, "install-hooks", "--agent", "gemini", "--color", "never")
+	out, _ := executeRoot(t, "hooks", "--show", "--agent", "gemini", "--json", "--color", "never")
+	var report hooksShowReport
+	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
+		t.Fatalf("json: %v\n%s", err, out.String())
+	}
+	if report.ConfigPath != settingsPath || report.BackupPath == "" {
+		t.Fatalf("report=%+v", report)
+	}
+	if len(report.Expected) != 7 || len(report.Observed) != 7 {
+		t.Fatalf("hooks=%+v", report)
+	}
+	for _, event := range []string{"SessionStart", "BeforeAgent", "BeforeTool", "AfterTool", "Notification", "AfterAgent", "SessionEnd"} {
+		if !hasDrift(report.Drift, event, "ok", "") {
+			t.Fatalf("missing %s drift: %+v", event, report.Drift)
+		}
+	}
+	trust := strings.Join(report.TrustInstructions, "\n")
+	if !strings.Contains(trust, "inspect the configured hooks") || !strings.Contains(trust, "hooks --show") {
+		t.Fatalf("trust=%q", trust)
+	}
+}
+
 func TestHooksShowCopilotJSONReportsCommandsBackupTrustAndDisabled(t *testing.T) {
 	home, _, _ := hooksCLIFixture(t)
 	hooksPath := filepath.Join(home, ".copilot", "hooks", "onibi.json")
