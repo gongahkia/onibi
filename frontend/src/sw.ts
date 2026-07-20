@@ -19,11 +19,7 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const fetchEvent = event as FetchEvent;
   const request = fetchEvent.request;
-  if (request.method !== "GET") {
-    return;
-  }
-  const url = new URL(request.url);
-  if (url.origin !== location.origin || !url.pathname.startsWith("/assets/")) {
+  if (!shouldCacheAsset(request, location.origin)) {
     return;
   }
   fetchEvent.respondWith(staleWhileRevalidate(request));
@@ -50,6 +46,19 @@ async function staleWhileRevalidate(request: Request): Promise<Response> {
     return response;
   });
   return cached ?? fresh;
+}
+
+function shouldCacheAsset(
+  request: Pick<Request, "method" | "url">,
+  origin: string
+): boolean {
+  const url = new URL(request.url);
+  return (
+    request.method === "GET" &&
+    url.origin === origin &&
+    url.pathname.startsWith("/assets/") &&
+    url.search === ""
+  );
 }
 
 type PushPayload = {

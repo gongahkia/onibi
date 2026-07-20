@@ -13,11 +13,7 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
     const fetchEvent = event;
     const request = fetchEvent.request;
-    if (request.method !== "GET") {
-        return;
-    }
-    const url = new URL(request.url);
-    if (url.origin !== location.origin || !url.pathname.startsWith("/assets/")) {
+    if (!shouldCacheAsset(request, location.origin)) {
         return;
     }
     fetchEvent.respondWith(staleWhileRevalidate(request));
@@ -41,6 +37,13 @@ async function staleWhileRevalidate(request) {
         return response;
     });
     return cached ?? fresh;
+}
+function shouldCacheAsset(request, origin) {
+    const url = new URL(request.url);
+    return (request.method === "GET" &&
+        url.origin === origin &&
+        url.pathname.startsWith("/assets/") &&
+        url.search === "");
 }
 async function showPushNotification(event) {
     const payload = parsePushPayload(event.data);
