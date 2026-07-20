@@ -273,6 +273,14 @@ func TestTransportModeRejectsUnsupportedValue(t *testing.T) {
 	}
 }
 
+func TestTransportModeRejectsRemovedEmail(t *testing.T) {
+	cfg := Default()
+	err := Set(&cfg, "transport.mode", "email")
+	if err == nil || !strings.Contains(err.Error(), "no longer supported") {
+		t.Fatalf("unexpected err: %v", err)
+	}
+}
+
 func TestSaveLoadTerminalDefault(t *testing.T) {
 	paths := testPaths(t)
 	cfg := Default()

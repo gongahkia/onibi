@@ -62,7 +62,6 @@ func runEnvProviderUp(cmd *cobra.Command, paths config.Paths, db *store.DB, cfg 
 		Gotify:                  opts.Gotify,
 		APNs:                    opts.APNs,
 		SMS:                     opts.SMS,
-		Email:                   opts.Email,
 		ProviderOutput:          daemonProviderOutputPolicy(cfg),
 		ProviderOutputOverrides: daemonProviderOutputOverrides(cfg),
 		SkipRestore:             true,
@@ -103,7 +102,6 @@ type envProviderOptions struct {
 	Gotify   daemon.GotifyOptions
 	APNs     daemon.APNsOptions
 	SMS      daemon.SMSOptions
-	Email    daemon.EmailOptions
 }
 
 func providerOptionsFromEnv(mode string) (envProviderOptions, string, error) {
@@ -227,20 +225,6 @@ func providerOptionsFromEnv(mode string) (envProviderOptions, string, error) {
 			return opts, "", fmt.Errorf("sms requires ONIBI_TWILIO_ACCOUNT_SID, ONIBI_TWILIO_AUTH_TOKEN, ONIBI_SMS_TO, ONIBI_SMS_ACTION_BASE_URL, and ONIBI_TWILIO_FROM or ONIBI_TWILIO_MESSAGING_SERVICE_SID")
 		}
 		return opts, "SMS", nil
-	case "email":
-		opts.Email = daemon.EmailOptions{
-			Addr:          envRequired("ONIBI_SMTP_ADDR"),
-			Host:          strings.TrimSpace(os.Getenv("ONIBI_SMTP_HOST")),
-			Username:      strings.TrimSpace(os.Getenv("ONIBI_SMTP_USERNAME")),
-			Password:      strings.TrimSpace(os.Getenv("ONIBI_SMTP_PASSWORD")),
-			From:          envRequired("ONIBI_EMAIL_FROM"),
-			To:            envRequired("ONIBI_EMAIL_TO"),
-			ActionBaseURL: envRequired("ONIBI_EMAIL_ACTION_BASE_URL"),
-		}
-		if opts.Email.Addr == "" || opts.Email.From == "" || opts.Email.To == "" || opts.Email.ActionBaseURL == "" {
-			return opts, "", fmt.Errorf("email requires ONIBI_SMTP_ADDR, ONIBI_EMAIL_FROM, ONIBI_EMAIL_TO, ONIBI_EMAIL_ACTION_BASE_URL")
-		}
-		return opts, "Email", nil
 	default:
 		return opts, "", fmt.Errorf("unsupported env provider %q", mode)
 	}
@@ -257,7 +241,7 @@ func isEnvChatTransport(mode string) bool {
 
 func isNotifyTransport(mode string) bool {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case "pushover", "ntfy", "gotify", "apns", "sms", "email":
+	case "pushover", "ntfy", "gotify", "apns", "sms":
 		return true
 	default:
 		return false
@@ -279,10 +263,6 @@ func envProviderActionWebAddr(mode string, opts envProviderOptions, listenAddr s
 		}
 	case "sms":
 		if strings.TrimSpace(opts.SMS.ActionBaseURL) != "" {
-			return listenAddr
-		}
-	case "email":
-		if strings.TrimSpace(opts.Email.ActionBaseURL) != "" {
 			return listenAddr
 		}
 	}

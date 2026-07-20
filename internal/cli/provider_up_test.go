@@ -60,7 +60,7 @@ func TestProviderOptionsFromEnvRejectsMissing(t *testing.T) {
 	if !isEnvChatTransport("matrix") || !isEnvChatTransport("slack") || !isEnvChatTransport("discord") || !isEnvChatTransport("zulip") || !isEnvChatTransport("irc") || !isEnvChatTransport("signal") {
 		t.Fatal("chat transport classification failed")
 	}
-	if !isNotifyTransport("pushover") || !isNotifyTransport("ntfy") || !isNotifyTransport("gotify") || !isNotifyTransport("apns") || !isNotifyTransport("sms") || !isNotifyTransport("email") {
+	if !isNotifyTransport("pushover") || !isNotifyTransport("ntfy") || !isNotifyTransport("gotify") || !isNotifyTransport("apns") || !isNotifyTransport("sms") {
 		t.Fatal("notify transport classification failed")
 	}
 }
@@ -142,23 +142,6 @@ func TestProviderOptionsFromEnvSMS(t *testing.T) {
 	}
 	if label != "SMS" || opts.SMS.MessagingServiceSID != "MG123" || opts.SMS.To != "+15550002" || opts.SMS.ActionBaseURL != "https://onibi.example" {
 		t.Fatalf("opts=%#v label=%q", opts.SMS, label)
-	}
-}
-
-func TestProviderOptionsFromEnvEmail(t *testing.T) {
-	t.Setenv("ONIBI_SMTP_ADDR", "smtp.example:587")
-	t.Setenv("ONIBI_SMTP_HOST", "smtp.example")
-	t.Setenv("ONIBI_SMTP_USERNAME", "user")
-	t.Setenv("ONIBI_SMTP_PASSWORD", "pass")
-	t.Setenv("ONIBI_EMAIL_FROM", "onibi@example.com")
-	t.Setenv("ONIBI_EMAIL_TO", "owner@example.com")
-	t.Setenv("ONIBI_EMAIL_ACTION_BASE_URL", "https://onibi.example")
-	opts, label, err := providerOptionsFromEnv("email")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if label != "Email" || opts.Email.Addr != "smtp.example:587" || opts.Email.Host != "smtp.example" || opts.Email.To != "owner@example.com" || opts.Email.ActionBaseURL != "https://onibi.example" {
-		t.Fatalf("opts=%#v label=%q", opts.Email, label)
 	}
 }
 

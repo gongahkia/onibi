@@ -30,7 +30,6 @@ Deferred experimental provider transports are:
 - `gotify`: self-hosted alerts with optional signed approval deep-links.
 - `apns`: direct Apple Push Notification service alerts using a user-provided APNs key and native app device token.
 - `sms`: Twilio SMS alerts with signed approval links.
-- `email`: SMTP alerts with signed approval links through a user-provided MTA.
 - `signal`: local `signal-cli` JSON-RPC chat control.
 
 Before selecting any provider transport, explicitly enable its experimental profile once:
@@ -415,21 +414,6 @@ onibi up --transport=sms
 ```
 
 Create a Twilio account, buy or verify a sender, and use either `ONIBI_TWILIO_FROM` or a Messaging Service SID. Twilio SMS is not free; live probes and approval sends can bill your Twilio account. SMS is notify-only and does not accept terminal text input. Each approval SMS contains Approve/Deny URLs signed by Onibi, single-use, and valid for 5 minutes. `ONIBI_SMS_ACTION_BASE_URL` must route to this Onibi daemon's web listener; `onibi up --transport=sms` starts that listener when the action base URL is configured. Sends, retries, and errors write `notify.sms.*` audit rows.
-
-Email:
-
-```bash
-ONIBI_SMTP_ADDR=smtp.example.com:587
-ONIBI_SMTP_HOST=smtp.example.com
-ONIBI_SMTP_USERNAME=onibi@example.com
-ONIBI_SMTP_PASSWORD=...
-ONIBI_EMAIL_FROM=onibi@example.com
-ONIBI_EMAIL_TO=owner@example.com
-ONIBI_EMAIL_ACTION_BASE_URL=https://onibi.example.com
-onibi up --transport=email
-```
-
-Email uses the Go standard library SMTP client and a bring-your-own MTA. `ONIBI_SMTP_USERNAME` and `ONIBI_SMTP_PASSWORD` are optional for local or trusted relays; most public SMTP services require them. Email is notify-only and does not accept terminal text input. Each approval email contains Approve/Deny URLs signed by Onibi, single-use, and valid for 5 minutes. `ONIBI_EMAIL_ACTION_BASE_URL` must route to this Onibi daemon's web listener; `onibi up --transport=email` starts that listener when the action base URL is configured. Sends, retries, and errors write `notify.email.*` audit rows.
 
 ## Coverage status
 

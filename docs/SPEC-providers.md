@@ -177,7 +177,6 @@ provider-specific live evidence and review.
 | Gotify | yes | partial | notify-only | no | yes | partial | no | partial |
 | APNs | yes | no | notify-only | no | no | no | no | partial |
 | SMS | partial | partial | notify-only | no | no | partial | no | partial |
-| Email | partial | partial | notify-only | no | no | partial | no | partial |
 
 <!-- markdownlint-enable MD013 -->
 
@@ -238,9 +237,9 @@ APNs is notify-only. It sends direct Apple alert pushes through a user-provided
 APNs auth key and native app device token. PWA-only Onibi cannot mint a native
 device token, so web push remains the fallback when APNs config is absent.
 
-SMS and email are notify-only failover transports. They send signed approval
-URLs through Twilio SMS or a user-provided SMTP relay and require an externally
-reachable Onibi action base URL for tap-through decisions.
+SMS is a notify-only failover transport. It sends signed approval URLs through
+Twilio and requires an externally reachable Onibi action base URL for
+tap-through decisions.
 
 ## Capability-specific conformance
 

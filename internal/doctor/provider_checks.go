@@ -10,7 +10,6 @@ import (
 	"github.com/gongahkia/onibi/internal/apns"
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/daemon"
-	emailapi "github.com/gongahkia/onibi/internal/email"
 	"github.com/gongahkia/onibi/internal/gotify"
 	"github.com/gongahkia/onibi/internal/irc"
 	"github.com/gongahkia/onibi/internal/matrix"
@@ -75,9 +74,6 @@ var (
 	newSMSClient = func(accountSID, authToken, from, messagingServiceSID string) *sms.Client {
 		return sms.New(accountSID, authToken, from, messagingServiceSID)
 	}
-	newEmailClient = func(addr, host, username, password, from string) *emailapi.Client {
-		return emailapi.New(addr, host, username, password, from)
-	}
 )
 
 func Providers(ctx context.Context, opts Options) ProviderReport {
@@ -95,7 +91,6 @@ func Providers(ctx context.Context, opts Options) ProviderReport {
 		providerGotify(ctx, opts, pa),
 		providerAPNs(ctx, opts, pa),
 		providerSMS(ctx, opts, pa),
-		providerEmail(ctx, opts, pa),
 	}
 	return ProviderReport{Providers: rows}
 }
@@ -485,32 +480,6 @@ func providerSMS(ctx context.Context, opts Options, pa map[string]string) Provid
 	return row
 }
 
-func providerEmail(ctx context.Context, opts Options, pa map[string]string) ProviderRow {
-	row := providerRow("email", pa)
-	missing := missingEnv("ONIBI_SMTP_ADDR", "ONIBI_EMAIL_FROM", "ONIBI_EMAIL_TO", "ONIBI_EMAIL_ACTION_BASE_URL")
-	row.Configured = len(missing) == 0
-	if !row.Configured {
-		row.Detail = "missing " + strings.Join(missing, ", ")
-		row.Fix = []string{"set ONIBI_SMTP_ADDR, ONIBI_EMAIL_FROM, ONIBI_EMAIL_TO, ONIBI_EMAIL_ACTION_BASE_URL", "optionally set ONIBI_SMTP_USERNAME and ONIBI_SMTP_PASSWORD"}
-		return row
-	}
-	row.Detail = "env present; set ONIBI_DOCTOR_LIVE=1 for SMTP send probe"
-	if opts.Offline || !doctorLiveProbe() {
-		return row
-	}
-	withProviderTimeout(ctx, func(ctx context.Context) {
-		err := newEmailClient(os.Getenv("ONIBI_SMTP_ADDR"), os.Getenv("ONIBI_SMTP_HOST"), os.Getenv("ONIBI_SMTP_USERNAME"), os.Getenv("ONIBI_SMTP_PASSWORD"), os.Getenv("ONIBI_EMAIL_FROM")).Send(ctx, emailapi.Message{To: os.Getenv("ONIBI_EMAIL_TO"), Subject: "Onibi doctor email probe", Body: "onibi doctor email probe"})
-		if err != nil {
-			row.Reachable = ReachableNo
-			row.Detail = "send probe failed: " + err.Error()
-			return
-		}
-		row.Reachable = ReachableYes
-		row.Detail = "send probe ok"
-	})
-	return row
-}
-
 func providerRow(name string, pa map[string]string) ProviderRow {
 	return ProviderRow{Name: name, Reachable: ReachableSkipped, LastAuditTimestamp: pa[name]}
 }
@@ -555,7 +524,7 @@ func providerAudit(ctx context.Context, paths config.Paths) map[string]string {
 	}
 	out := map[string]string{}
 	for _, e := range entries {
-		for _, name := range []string{"telegram", "matrix", "slack", "discord", "zulip", "irc", "signal", "pushover", "ntfy", "gotify", "apns", "sms", "email"} {
+		for _, name := range []string{"telegram", "matrix", "slack", "discord", "zulip", "irc", "signal", "pushover", "ntfy", "gotify", "apns", "sms"} {
 			if providerAuditMatch(name, e) {
 				out[name] = e.TS.UTC().Format(time.RFC3339)
 			}
@@ -587,8 +556,6 @@ func providerAuditMatch(name string, e store.AuditEntry) bool {
 		return strings.Contains(action, "notify.apns")
 	case "sms":
 		return strings.Contains(action, "notify.sms")
-	case "email":
-		return strings.Contains(action, "notify.email")
 	default:
 		return strings.Contains(action, name) || strings.Contains(detail, "provider="+name)
 	}

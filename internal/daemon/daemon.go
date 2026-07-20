@@ -65,7 +65,6 @@ type Daemon struct {
 	Gotify                  GotifyOptions
 	APNs                    APNsOptions
 	SMS                     SMSOptions
-	Email                   EmailOptions
 	ProviderOutput          ProviderOutputPolicy
 	ProviderOutputOverrides ProviderOutputOverrides
 	FleetLink               *FleetLink
@@ -127,7 +126,6 @@ type Options struct {
 	Gotify                  GotifyOptions
 	APNs                    APNsOptions
 	SMS                     SMSOptions
-	Email                   EmailOptions
 	ProviderOutput          ProviderOutputPolicy
 	ProviderOutputOverrides ProviderOutputOverrides
 	FleetLink               *FleetLink
@@ -224,16 +222,6 @@ type SMSOptions struct {
 	ActionBaseURL       string
 }
 
-type EmailOptions struct {
-	Addr          string
-	Host          string
-	Username      string
-	Password      string
-	From          string
-	To            string
-	ActionBaseURL string
-}
-
 // New constructs a daemon, wiring intake + registry + idle detector +
 // approval queue + local web cockpit.
 func New(opts Options) *Daemon {
@@ -278,7 +266,6 @@ func New(opts Options) *Daemon {
 		Gotify:                  opts.Gotify,
 		APNs:                    opts.APNs,
 		SMS:                     opts.SMS,
-		Email:                   opts.Email,
 		ProviderOutput:          opts.ProviderOutput.normalized(),
 		ProviderOutputOverrides: opts.ProviderOutputOverrides,
 		FleetLink:               opts.FleetLink,
@@ -506,7 +493,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 			}
 		}()
 	}
-	if (strings.TrimSpace(d.Ntfy.ActionBaseURL) != "" || strings.TrimSpace(d.Gotify.ActionBaseURL) != "" || strings.TrimSpace(d.SMS.ActionBaseURL) != "" || strings.TrimSpace(d.Email.ActionBaseURL) != "") && d.notifyActionSigner == nil {
+	if (strings.TrimSpace(d.Ntfy.ActionBaseURL) != "" || strings.TrimSpace(d.Gotify.ActionBaseURL) != "" || strings.TrimSpace(d.SMS.ActionBaseURL) != "") && d.notifyActionSigner == nil {
 		signer, err := web.NewActionSigner(nil)
 		if err != nil {
 			return err
@@ -571,7 +558,6 @@ func (d *Daemon) Run(ctx context.Context) error {
 		d.startGotifyNotifier(ctx, &wg)
 		d.startAPNsNotifier(ctx, &wg)
 		d.startSMSNotifier(ctx, &wg)
-		d.startEmailNotifier(ctx, &wg)
 	}
 	if !d.apnsConfigured() {
 		d.startWebPushNotifier(ctx, &wg)

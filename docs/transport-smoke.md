@@ -149,7 +149,6 @@ ONIBI_LIVE_IRC=1 ONIBI_IRC_NICK=onibi-bot ONIBI_IRC_USERNAME=onibi-bot ONIBI_IRC
 - Gotify: token validation; set `ONIBI_DOCTOR_LIVE=1` for send/WS probe.
 - ntfy: topic secrecy validation; set `ONIBI_DOCTOR_LIVE=1` for publish/WebSocket subscribe probe.
 - SMS: Twilio env validation; set `ONIBI_DOCTOR_LIVE=1` for a paid send probe.
-- Email: SMTP env validation; set `ONIBI_DOCTOR_LIVE=1` for a send probe.
 
 ## Provider output policy
 
@@ -218,20 +217,6 @@ ONIBI_LIVE_SMS=1 ONIBI_TWILIO_ACCOUNT_SID=AC... ONIBI_TWILIO_AUTH_TOKEN=... ONIB
 - Trigger an approval, open the SMS Approve link, and confirm the approval completes once.
 - Reopen the same link and confirm the single-use link is rejected.
 - Confirm `notify.sms.sent`, retry, or error audit rows are written.
-- Confirm no terminal input path is exposed.
-
-Email:
-
-```bash
-go test -race ./internal/email
-ONIBI_LIVE_EMAIL=1 ONIBI_SMTP_ADDR=smtp.example.com:587 ONIBI_SMTP_HOST=smtp.example.com ONIBI_SMTP_USERNAME=... ONIBI_SMTP_PASSWORD=... ONIBI_EMAIL_FROM=onibi@example.com ONIBI_EMAIL_TO=owner@example.com go test ./internal/email -run LiveSMTPEmail
-```
-
-- Confirm the SMTP relay accepts the sender and target recipient.
-- Run `onibi up --transport=email` with `ONIBI_EMAIL_ACTION_BASE_URL` set to a reachable Onibi web origin.
-- Trigger an approval, open the email Approve link, and confirm the approval completes once.
-- Reopen the same link and confirm the single-use link is rejected.
-- Confirm `notify.email.sent`, retry, or error audit rows are written.
 - Confirm no terminal input path is exposed.
 
 Signal:

@@ -19,7 +19,6 @@ import (
 	"github.com/gongahkia/onibi/internal/approval"
 	"github.com/gongahkia/onibi/internal/chatout"
 	"github.com/gongahkia/onibi/internal/discord"
-	emailapi "github.com/gongahkia/onibi/internal/email"
 	"github.com/gongahkia/onibi/internal/gotify"
 	"github.com/gongahkia/onibi/internal/irc"
 	"github.com/gongahkia/onibi/internal/matrix"
@@ -2048,53 +2047,6 @@ func (d *Daemon) sendSMSWithRetry(ctx context.Context, c *sms.Client, a *approva
 
 func smsApprovalBody(a *approval.Approval, approveURL, denyURL string) string {
 	return fmt.Sprintf("Onibi approval %s\n%s %s\nApprove: %s\nDeny: %s", a.ID, strings.TrimSpace(a.Agent), strings.TrimSpace(a.Tool), approveURL, denyURL)
-}
-
-func (d *Daemon) runEmailNotifier(ctx context.Context, c *emailapi.Client) {
-	d.forwardNotifyApprovals(ctx, func(a *approval.Approval) {
-		approveURL, denyURL, err := d.signedApprovalActionURLs(d.Email.ActionBaseURL, a)
-		if err != nil {
-			d.audit(ctx, "notify.email.action_error", a.SessionID, "", 0, "approval="+a.ID+" err="+err.Error())
-			return
-		}
-		msg := emailapi.Message{
-			To:      d.Email.To,
-			Subject: "Onibi approval " + a.ID,
-			Body:    emailApprovalBody(a, d.providerOutputPolicy("notify"), approveURL, denyURL),
-		}
-		if err := d.sendEmailWithRetry(ctx, c, a, msg); err != nil {
-			d.audit(ctx, "notify.email.error", a.SessionID, "", 0, "approval="+a.ID+" err="+err.Error())
-			return
-		}
-		d.audit(ctx, "notify.email.sent", a.SessionID, "", 0, "approval="+a.ID)
-	})
-}
-
-func (d *Daemon) sendEmailWithRetry(ctx context.Context, c *emailapi.Client, a *approval.Approval, msg emailapi.Message) error {
-	var last error
-	for attempt := 1; attempt <= 3; attempt++ {
-		if err := c.Send(ctx, msg); err == nil {
-			return nil
-		} else {
-			last = err
-		}
-		if attempt == 3 {
-			break
-		}
-		d.audit(ctx, "notify.email.retry", a.SessionID, "", 0, fmt.Sprintf("approval=%s attempt=%d err=%s", a.ID, attempt, last.Error()))
-		timer := time.NewTimer(time.Duration(attempt) * 250 * time.Millisecond)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return ctx.Err()
-		case <-timer.C:
-		}
-	}
-	return last
-}
-
-func emailApprovalBody(a *approval.Approval, policy ProviderOutputPolicy, approveURL, denyURL string) string {
-	return formatApprovalWithPolicy(a, policy) + "\n\nApprove: " + approveURL + "\nDeny: " + denyURL + "\n\nLinks expire after 5 minutes and are single-use."
 }
 
 func (d *Daemon) signedApprovalActionURLs(baseURL string, a *approval.Approval) (string, string, error) {

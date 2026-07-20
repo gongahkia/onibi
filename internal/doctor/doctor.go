@@ -23,7 +23,6 @@ import (
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/daemon"
 	"github.com/gongahkia/onibi/internal/discord"
-	emailapi "github.com/gongahkia/onibi/internal/email"
 	"github.com/gongahkia/onibi/internal/gotify"
 	"github.com/gongahkia/onibi/internal/irc"
 	"github.com/gongahkia/onibi/internal/matrix"
@@ -381,8 +380,6 @@ func (r *runner) checkTransportProvider() {
 		r.checkSignalProvider()
 	case "sms":
 		r.checkSMSProvider()
-	case "email":
-		r.checkEmailProvider()
 	default:
 		r.add("transport provider", Warn, "unknown transport "+mode)
 	}
@@ -768,25 +765,6 @@ func (r *runner) checkSignalProvider() {
 		return
 	}
 	r.add("transport provider", Pass, "Signal daemon check ok")
-}
-
-func (r *runner) checkEmailProvider() {
-	if missing := missingEnv("ONIBI_SMTP_ADDR", "ONIBI_EMAIL_FROM", "ONIBI_EMAIL_TO", "ONIBI_EMAIL_ACTION_BASE_URL"); len(missing) > 0 {
-		r.add("transport provider", Warn, "Email missing "+strings.Join(missing, ", "))
-		return
-	}
-	if r.opts.Offline || !doctorLiveProbe() {
-		r.add("transport provider", Pass, "Email env present; set ONIBI_DOCTOR_LIVE=1 for SMTP send probe")
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.ctx, 8*time.Second)
-	defer cancel()
-	err := newEmailClient(os.Getenv("ONIBI_SMTP_ADDR"), os.Getenv("ONIBI_SMTP_HOST"), os.Getenv("ONIBI_SMTP_USERNAME"), os.Getenv("ONIBI_SMTP_PASSWORD"), os.Getenv("ONIBI_EMAIL_FROM")).Send(ctx, emailapi.Message{To: os.Getenv("ONIBI_EMAIL_TO"), Subject: "Onibi doctor email probe", Body: "onibi doctor email probe"})
-	if err != nil {
-		r.add("transport provider", Warn, "Email send probe failed: "+err.Error())
-		return
-	}
-	r.add("transport provider", Pass, "Email live API ok: send")
 }
 
 func (r *runner) transportMode(cfg config.Config) string {

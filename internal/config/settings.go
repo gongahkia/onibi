@@ -253,6 +253,8 @@ func (c Config) Validate() error {
 	mode := strings.ToLower(strings.TrimSpace(c.Transport.Mode))
 	switch {
 	case capability.IsV1WebTransport(mode), capability.IsInternalWebTransport(mode):
+	case mode == "email":
+		return fmt.Errorf("transport.mode=%q is no longer supported; use web push or telegram", mode)
 	case capability.IsDeferredProviderTransport(mode):
 		if !c.Experimental.Providers {
 			return fmt.Errorf("transport.mode %q is deferred in v1; run `onibi config --migrate` or set experimental.providers=true to opt into unsupported provider behavior", mode)
