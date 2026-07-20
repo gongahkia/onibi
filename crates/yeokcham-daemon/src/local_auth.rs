@@ -222,14 +222,14 @@ mod tests {
         assert_eq!(format!("{restored:?}"), "DaemonLocalAuthToken(REDACTED)");
         let mut unsupported = *token.as_bytes();
         unsupported[0] = LOCAL_AUTH_TOKEN_VERSION + 1;
-        assert_eq!(
+        assert!(matches!(
             DaemonLocalAuthToken::from_bytes(&unsupported),
             Err(DaemonLocalAuthError::Unauthorized)
-        );
-        assert_eq!(
+        ));
+        assert!(matches!(
             DaemonLocalAuthToken::from_bytes(&unsupported[..LOCAL_AUTH_TOKEN_BYTES - 1]),
             Err(DaemonLocalAuthError::Unauthorized)
-        );
+        ));
     }
 
     #[test]

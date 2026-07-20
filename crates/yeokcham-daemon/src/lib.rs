@@ -22,6 +22,7 @@ mod linux_network_manager;
 mod linux_wifi_direct_capability;
 mod linux_wifi_hotspot_capability;
 mod local_auth;
+mod local_mesh_session;
 mod local_transport;
 mod local_transport_availability;
 mod local_transport_reconnect;
@@ -49,6 +50,7 @@ mod tor_tonic;
 mod unix_listener;
 mod upnp;
 mod wifi_direct_transport;
+mod wifi_group_lifecycle;
 mod wifi_hotspot_transport;
 #[cfg(windows)]
 mod windows_listener;
@@ -122,6 +124,9 @@ pub use local_auth::{
     LOCAL_AUTH_TOKEN_BYTES, LOCAL_AUTH_TOKEN_METADATA_KEY, LOCAL_AUTH_TOKEN_VERSION,
     MAX_LOCAL_AUTH_METADATA_BYTES,
 };
+pub use local_mesh_session::{
+    AuthenticatedDirectHandoff, AuthenticatedLocalMeshSession, LocalMeshSessionError,
+};
 pub use local_transport::LocalTransport;
 pub use local_transport_availability::{
     LocalTransportAvailability, LocalTransportAvailabilityError,
@@ -180,6 +185,7 @@ pub use tor_tonic::{TorSocksTonicConnector, TorSocksTonicConnectorError};
 pub use unix_listener::{DAEMON_UNIX_SOCKET_FILE, DaemonUnixListener, DaemonUnixListenerError};
 pub use upnp::{MAX_UPNP_LEASE_SECONDS, UpnpMapping, UpnpMappingError, UpnpMappingRequest};
 pub use wifi_direct_transport::WifiDirectTransport;
+pub use wifi_group_lifecycle::{ManagedWifiGroup, WifiGroupLifecycle};
 pub use wifi_hotspot_transport::WifiHotspotTransport;
 #[cfg(windows)]
 pub use windows_listener::{

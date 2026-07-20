@@ -2,7 +2,10 @@ use std::net::{IpAddr, SocketAddr};
 
 use mdns_sd::{Receiver, ResolvedService, ServiceDaemon, ServiceEvent, ServiceInfo};
 use yeokcham_core::{ED25519_PUBLIC_KEY_BYTES, IdentityPublicKey};
-use yeokcham_protocol::{DirectProfileConfig, DirectProfileConfigError, IdentityIdentifier};
+use yeokcham_protocol::{
+    DirectProfileConfig, DirectProfileConfigError, IdentityIdentifier, LocalMeshPeer,
+    LocalMeshPeerError, LocalMeshTransportKind,
+};
 
 pub const LAN_MDNS_SERVICE_TYPE: &str = "_yeokcham._udp.local.";
 const IDENTITY_PROPERTY: &str = "identity";
@@ -23,6 +26,17 @@ impl LanPeer {
     #[must_use]
     pub fn endpoints(&self) -> &[DirectProfileConfig] {
         &self.endpoints
+    }
+
+    pub fn session_peers(&self) -> Result<Vec<LocalMeshPeer>, LanPeerDiscoveryError> {
+        self.endpoints
+            .iter()
+            .copied()
+            .map(|endpoint| {
+                LocalMeshPeer::new(LocalMeshTransportKind::Lan, self.identity, Some(endpoint))
+                    .map_err(LanPeerDiscoveryError::Peer)
+            })
+            .collect()
     }
 }
 
@@ -116,6 +130,8 @@ pub enum LanPeerDiscoveryError {
     UnsupportedIpv6Scope,
     #[error("resolved mDNS endpoint is invalid: {0}")]
     InvalidEndpoint(#[source] DirectProfileConfigError),
+    #[error("resolved mDNS peer is invalid: {0}")]
+    Peer(#[source] LocalMeshPeerError),
 }
 
 fn encode_identity(identity: IdentityPublicKey) -> String {
@@ -245,6 +261,10 @@ mod tests {
         assert_eq!(
             peer.endpoints()[0].endpoint(),
             "192.0.2.1:4444".parse::<SocketAddr>().unwrap()
+        );
+        assert_eq!(
+            peer.session_peers().unwrap()[0].transport(),
+            yeokcham_protocol::LocalMeshTransportKind::Lan
         );
         assert!(matches!(
             resolve_parts(None, 4444, [IpAddr::from([192, 0, 2, 1])].into_iter()),

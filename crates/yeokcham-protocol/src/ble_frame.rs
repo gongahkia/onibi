@@ -2,9 +2,59 @@ use std::{fmt, mem};
 
 pub const BLE_FRAGMENT_PROTOCOL_VERSION: u8 = 1;
 pub const BLE_FRAGMENT_HEADER_BYTES: usize = 9;
+pub const BLE_GATT_CONTRACT_VERSION: u8 = 1;
+pub const BLE_ATT_MTU_MINIMUM_BYTES: usize = 23;
+pub const BLE_ATT_ATTRIBUTE_VALUE_OVERHEAD_BYTES: usize = 3;
 pub const MIN_BLE_GATT_CHARACTERISTIC_VALUE_BYTES: usize = 20;
 pub const MAX_BLE_WIRE_FRAME_BYTES: usize = 65_536;
 pub const MAX_BLE_FRAGMENT_COUNT: usize = 8_192;
+pub const BLE_GATT_SERVICE_UUID: [u8; 16] = [
+    0x92, 0x05, 0xce, 0xf2, 0x34, 0x8d, 0x48, 0x8b, 0x84, 0xed, 0xf9, 0xb3, 0x05, 0xeb, 0x2f, 0x7b,
+];
+pub const BLE_GATT_CENTRAL_TO_PERIPHERAL_UUID: [u8; 16] = [
+    0xbe, 0x08, 0xdb, 0x42, 0xbe, 0xeb, 0x40, 0x57, 0x84, 0x76, 0xcb, 0x3e, 0xf6, 0x04, 0x59, 0x12,
+];
+pub const BLE_GATT_PERIPHERAL_TO_CENTRAL_UUID: [u8; 16] = [
+    0xa6, 0xc9, 0x4f, 0x31, 0x53, 0x8f, 0x45, 0xf7, 0x87, 0xe9, 0x5a, 0x30, 0x90, 0x5e, 0x8f, 0x4b,
+];
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BleGattDirection {
+    CentralToPeripheral,
+    PeripheralToCentral,
+}
+
+pub struct BleGattContract;
+
+impl BleGattContract {
+    #[must_use]
+    pub const fn version() -> u8 {
+        BLE_GATT_CONTRACT_VERSION
+    }
+
+    #[must_use]
+    pub const fn service_uuid() -> [u8; 16] {
+        BLE_GATT_SERVICE_UUID
+    }
+
+    #[must_use]
+    pub const fn characteristic_uuid(direction: BleGattDirection) -> [u8; 16] {
+        match direction {
+            BleGattDirection::CentralToPeripheral => BLE_GATT_CENTRAL_TO_PERIPHERAL_UUID,
+            BleGattDirection::PeripheralToCentral => BLE_GATT_PERIPHERAL_TO_CENTRAL_UUID,
+        }
+    }
+
+    pub fn fragment_limits(negotiated_att_mtu: usize) -> Result<BleFragmentLimits, BleFrameError> {
+        if !(BLE_ATT_MTU_MINIMUM_BYTES
+            ..=MAX_BLE_WIRE_FRAME_BYTES + BLE_ATT_ATTRIBUTE_VALUE_OVERHEAD_BYTES)
+            .contains(&negotiated_att_mtu)
+        {
+            return Err(BleFrameError::InvalidAttMtu);
+        }
+        BleFragmentLimits::new(negotiated_att_mtu - BLE_ATT_ATTRIBUTE_VALUE_OVERHEAD_BYTES)
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct BleFragmentLimits {
@@ -225,6 +275,8 @@ impl BleFrameReassembler {
 
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum BleFrameError {
+    #[error("negotiated BLE ATT MTU is outside the supported range")]
+    InvalidAttMtu,
     #[error("maximum BLE fragment size is outside the supported range")]
     InvalidMaximumFragmentBytes,
     #[error("BLE wire frame is empty")]
@@ -254,8 +306,9 @@ pub enum BleFrameError {
 #[cfg(test)]
 mod tests {
     use super::{
-        BLE_FRAGMENT_HEADER_BYTES, BLE_FRAGMENT_PROTOCOL_VERSION, BleFragment, BleFragmentLimits,
-        BleFrameError, BleFrameReassembler, MAX_BLE_WIRE_FRAME_BYTES,
+        BLE_ATT_MTU_MINIMUM_BYTES, BLE_FRAGMENT_HEADER_BYTES, BLE_FRAGMENT_PROTOCOL_VERSION,
+        BleFragment, BleFragmentLimits, BleFrameError, BleFrameReassembler, BleGattContract,
+        BleGattDirection, MAX_BLE_WIRE_FRAME_BYTES,
     };
 
     fn minimum_limits() -> BleFragmentLimits {
@@ -278,6 +331,29 @@ mod tests {
                 .or(completed_frame);
         }
         assert_eq!(completed_frame.unwrap(), frame);
+    }
+
+    #[test]
+    fn fixes_gatt_directions_and_derives_fragment_limits_from_att_mtu() {
+        assert_eq!(BleGattContract::version(), 1);
+        assert_ne!(
+            BleGattContract::service_uuid(),
+            BleGattContract::characteristic_uuid(BleGattDirection::CentralToPeripheral)
+        );
+        assert_ne!(
+            BleGattContract::characteristic_uuid(BleGattDirection::CentralToPeripheral),
+            BleGattContract::characteristic_uuid(BleGattDirection::PeripheralToCentral)
+        );
+        assert_eq!(
+            BleGattContract::fragment_limits(BLE_ATT_MTU_MINIMUM_BYTES)
+                .unwrap()
+                .maximum_fragment_bytes(),
+            20
+        );
+        assert_eq!(
+            BleGattContract::fragment_limits(BLE_ATT_MTU_MINIMUM_BYTES - 1).unwrap_err(),
+            BleFrameError::InvalidAttMtu
+        );
     }
 
     #[test]

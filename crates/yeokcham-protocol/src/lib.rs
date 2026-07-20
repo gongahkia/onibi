@@ -20,6 +20,7 @@ mod extension_frame;
 mod identity_export;
 mod identity_identifier;
 mod identity_rotation;
+mod local_mesh_peer;
 mod local_mesh_profile;
 mod mailbox_capability;
 mod message_identifier;
@@ -38,6 +39,7 @@ mod signing;
 mod state_export;
 mod tor_maildrop_profile;
 mod version;
+mod wifi_group_handoff;
 mod wire;
 mod x3dh;
 
@@ -67,9 +69,11 @@ pub use attachment_upload::{
     MAX_ATTACHMENT_UPLOAD_JOURNAL_BYTES,
 };
 pub use ble_frame::{
-    BLE_FRAGMENT_HEADER_BYTES, BLE_FRAGMENT_PROTOCOL_VERSION, BleFragment, BleFragmentLimits,
-    BleFrameError, BleFrameReassembler, MAX_BLE_FRAGMENT_COUNT, MAX_BLE_WIRE_FRAME_BYTES,
-    MIN_BLE_GATT_CHARACTERISTIC_VALUE_BYTES,
+    BLE_ATT_ATTRIBUTE_VALUE_OVERHEAD_BYTES, BLE_ATT_MTU_MINIMUM_BYTES, BLE_FRAGMENT_HEADER_BYTES,
+    BLE_FRAGMENT_PROTOCOL_VERSION, BLE_GATT_CENTRAL_TO_PERIPHERAL_UUID, BLE_GATT_CONTRACT_VERSION,
+    BLE_GATT_PERIPHERAL_TO_CENTRAL_UUID, BLE_GATT_SERVICE_UUID, BleFragment, BleFragmentLimits,
+    BleFrameError, BleFrameReassembler, BleGattContract, BleGattDirection, MAX_BLE_FRAGMENT_COUNT,
+    MAX_BLE_WIRE_FRAME_BYTES, MIN_BLE_GATT_CHARACTERISTIC_VALUE_BYTES,
 };
 pub use contact_invitation::{
     CONTACT_INVITATION_BYTES, CONTACT_INVITATION_NONCE_BYTES, CONTACT_INVITATION_SCHEMA_VERSION,
@@ -113,6 +117,9 @@ pub use identity_identifier::{IDENTITY_IDENTIFIER_BYTES, IdentityIdentifier};
 pub use identity_rotation::{
     IDENTITY_ROTATION_BYTES, IDENTITY_ROTATION_SCHEMA_VERSION, IdentityRotation,
     IdentityRotationError,
+};
+pub use local_mesh_peer::{
+    LOCAL_MESH_PEER_SCHEMA_VERSION, LocalMeshPeer, LocalMeshPeerError, MAX_LOCAL_MESH_PEER_BYTES,
 };
 pub use local_mesh_profile::{
     LOCAL_MESH_PROFILE_CONFIG_SCHEMA_VERSION, LocalMeshProfileConfig, LocalMeshProfileConfigError,
@@ -165,6 +172,11 @@ pub use tor_maildrop_profile::{
     TorMaildropProfileConfig, TorMaildropProfileConfigError,
 };
 pub use version::{ProtocolVersion, VersionRange};
+pub use wifi_group_handoff::{
+    MAX_WIFI_GROUP_CREDENTIAL_BYTES, MAX_WIFI_GROUP_IDENTIFIER_BYTES,
+    WIFI_GROUP_CONFIGURATION_SCHEMA_VERSION, WifiGroupConfiguration, WifiGroupConfigurationError,
+    WifiGroupCredential, WifiGroupCredentialError, WifiGroupHandoff, WifiGroupRole,
+};
 pub use wire::{EnvelopeKind, WireEnvelope, WireError, WireLimits};
 pub use x3dh::{
     MAX_X3DH_INITIAL_MESSAGE_BYTES, MAX_X3DH_PREKEY_BUNDLE_BYTES,
