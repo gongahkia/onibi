@@ -42,13 +42,14 @@ pub enum DaemonLocalAuthError {
 impl DaemonLocalAuth {
     pub fn initialize() -> Result<(Self, DaemonLocalAuthToken), DaemonLocalAuthError> {
         let token = generate_token()?;
-        let active_token = Zeroizing::new(*token.as_bytes());
-        Ok((
-            Self {
-                token: Arc::new(Mutex::new(Some(active_token))),
-            },
-            token,
-        ))
+        Ok((Self::from_token(&token), token))
+    }
+
+    #[must_use]
+    pub fn from_token(token: &DaemonLocalAuthToken) -> Self {
+        Self {
+            token: Arc::new(Mutex::new(Some(Zeroizing::new(*token.as_bytes())))),
+        }
     }
 
     pub fn authorize(&self, presented: &[u8]) -> Result<(), DaemonLocalAuthError> {
@@ -113,6 +114,16 @@ impl DaemonLocalAuth {
 }
 
 impl DaemonLocalAuthToken {
+    pub fn from_bytes(value: &[u8]) -> Result<Self, DaemonLocalAuthError> {
+        let value: [u8; LOCAL_AUTH_TOKEN_BYTES] = value
+            .try_into()
+            .map_err(|_| DaemonLocalAuthError::Unauthorized)?;
+        if value[0] != LOCAL_AUTH_TOKEN_VERSION {
+            return Err(DaemonLocalAuthError::Unauthorized);
+        }
+        Ok(Self(Zeroizing::new(value)))
+    }
+
     #[must_use]
     pub fn as_bytes(&self) -> &[u8; LOCAL_AUTH_TOKEN_BYTES] {
         &self.0
@@ -172,7 +183,7 @@ mod tests {
     use tonic::{Code, Request, metadata::MetadataValue, service::Interceptor};
 
     use super::{
-        DaemonLocalAuth, DaemonLocalAuthError, LOCAL_AUTH_TOKEN_BYTES,
+        DaemonLocalAuth, DaemonLocalAuthError, DaemonLocalAuthToken, LOCAL_AUTH_TOKEN_BYTES,
         LOCAL_AUTH_TOKEN_METADATA_KEY, LOCAL_AUTH_TOKEN_VERSION, MAX_LOCAL_AUTH_METADATA_BYTES,
     };
 
@@ -200,6 +211,25 @@ mod tests {
         );
         assert_eq!(auth.revoke(), Err(DaemonLocalAuthError::State));
         assert!(matches!(auth.rotate(), Err(DaemonLocalAuthError::State)));
+    }
+
+    #[test]
+    fn restores_only_current_version_tokens_without_exposing_them() {
+        let (_, token) = DaemonLocalAuth::initialize().unwrap();
+        let restored = DaemonLocalAuthToken::from_bytes(token.as_bytes()).unwrap();
+        let auth = DaemonLocalAuth::from_token(&restored);
+        assert_eq!(auth.authorize(token.as_bytes()), Ok(()));
+        assert_eq!(format!("{restored:?}"), "DaemonLocalAuthToken(REDACTED)");
+        let mut unsupported = *token.as_bytes();
+        unsupported[0] = LOCAL_AUTH_TOKEN_VERSION + 1;
+        assert_eq!(
+            DaemonLocalAuthToken::from_bytes(&unsupported),
+            Err(DaemonLocalAuthError::Unauthorized)
+        );
+        assert_eq!(
+            DaemonLocalAuthToken::from_bytes(&unsupported[..LOCAL_AUTH_TOKEN_BYTES - 1]),
+            Err(DaemonLocalAuthError::Unauthorized)
+        );
     }
 
     #[test]

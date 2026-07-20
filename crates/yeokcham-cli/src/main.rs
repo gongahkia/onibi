@@ -20,14 +20,15 @@ use std::{
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
-#[cfg(test)]
-use yeokcham_core::KeystoreSecret;
-use yeokcham_core::{IdentityKeypair, IdentityPublicKey, KeystoreEntryName, OsKeystore};
+use yeokcham_core::{
+    IdentityKeypair, IdentityPublicKey, KeystoreEntryName, KeystoreSecret, OsKeystore,
+};
 use yeokcham_daemon::{
     AttachmentSubmissionStore, ClientIdentity, ClientIdentityInitialization, ClientStateDirectory,
-    ContactLifecycleService, ContactStatus, ContactStore, ContactVerificationMethod, DaemonRuntime,
-    InboxMessage, MessageExpiry, PendingContactImportService, QrContactVerificationService,
-    RecipientInboxDeduplication, SafetyNumberVerificationService, SenderOutbox,
+    ContactLifecycleService, ContactStatus, ContactStore, ContactVerificationMethod,
+    DaemonLocalAuth, DaemonLocalAuthToken, DaemonRuntime, InboxMessage, MessageExpiry,
+    PendingContactImportService, QrContactVerificationService, RecipientInboxDeduplication,
+    SafetyNumberVerificationService, SenderOutbox,
 };
 use yeokcham_protocol::{
     ATTACHMENT_IDENTIFIER_BYTES, AttachmentIdentifier, AttachmentUploadJournal,
@@ -41,6 +42,27 @@ use yeokcham_sdk::{
     SdkClient, SdkClientBuilder, SdkContactStatus, SdkDeliveryProfile, SdkDeliveryProfilePolicy,
     SdkDirectIpDisclosureAcknowledgement, SdkIdentityManager, SdkLocalMeshPolicy,
     SdkLocalMeshTransportKind, SdkMessageEnvelope, SdkMessageExpiry, SdkMessageSendRequest,
+};
+
+#[cfg(unix)]
+use hyper_util::rt::TokioIo;
+#[cfg(unix)]
+use tokio::net::UnixStream;
+#[cfg(unix)]
+use tonic::{
+    Request,
+    transport::{Channel, Endpoint},
+};
+#[cfg(unix)]
+use tower::service_fn;
+#[cfg(unix)]
+use yeokcham_daemon::DaemonServer;
+#[cfg(unix)]
+use yeokcham_daemon_api::v1::{
+    ContactStatus as RpcContactStatus, ContactVerificationMethod as RpcContactVerificationMethod,
+    CreateOrLoadIdentityRequest, ImportContactInvitationRequest, ListContactsRequest,
+    SendMessageRequest, StartClientRequest, VerifyContactQrRequest,
+    VerifyContactSafetyNumberRequest, daemon_service_client::DaemonServiceClient,
 };
 
 use release_manifest::{ReleaseArtifact, SignedReleaseArtifactManifest};
@@ -88,6 +110,10 @@ enum Command {
     Attachment {
         #[command(subcommand)]
         command: AttachmentCommand,
+    },
+    Daemon {
+        #[command(subcommand)]
+        command: DaemonCommand,
     },
     Tui(TuiCommand),
     ReleaseManifest {
@@ -207,12 +233,22 @@ enum AttachmentCommand {
     },
 }
 
+#[derive(Subcommand)]
+enum DaemonCommand {
+    Serve {
+        #[arg(long)]
+        state_directory: PathBuf,
+    },
+}
+
 #[derive(Args)]
 struct TuiCommand {
     #[arg(long)]
     state_directory: PathBuf,
     #[arg(long)]
     snapshot: bool,
+    #[arg(long)]
+    daemon: bool,
 }
 
 #[derive(Subcommand)]
@@ -296,7 +332,10 @@ fn main() -> Result<(), Box<dyn Error>> {
                 queue_system_attachment(&state_directory, &manifest, &chunk)?
             ),
         },
-        Command::Tui(command) => tui(&command.state_directory, command.snapshot)?,
+        Command::Daemon { command } => match command {
+            DaemonCommand::Serve { state_directory } => daemon_serve(&state_directory)?,
+        },
+        Command::Tui(command) => tui(&command.state_directory, command.snapshot, command.daemon)?,
         Command::ReleaseManifest { command } => release_manifest(command)?,
         Command::ReleaseMetadata {
             source_revision,
@@ -1005,26 +1044,422 @@ fn start_embedded_tui_client(state_directory: &Path) -> Result<SdkClient, Box<dy
     Ok(SdkClient::start(&config)?)
 }
 
-fn tui(state_directory: &Path, snapshot: bool) -> Result<(), Box<dyn Error>> {
-    let (identity, initialization) = create_or_load_client_system_identity()?;
-    validate_state_directory(state_directory)?;
-    let mut client = start_embedded_tui_client(state_directory)?;
-    let dashboard = match load_system_dashboard_with_keystore(state_directory) {
-        Ok(dashboard) => dashboard.with_identity(identity, initialization),
-        Err(error) => {
-            let _ = client.shutdown();
-            return Err(error);
+const DAEMON_AUTH_TOKEN_ENTRY_PREFIX: &str = "daemon_auth_v1_";
+const DAEMON_AUTH_TOKEN_ENTRY_DIGEST_BYTES: usize = 24;
+
+fn daemon_auth_token_entry(state_directory: &Path) -> Result<KeystoreEntryName, Box<dyn Error>> {
+    let canonical = fs::canonicalize(state_directory)?;
+    let digest = Sha256::digest(canonical.as_os_str().as_encoded_bytes());
+    Ok(KeystoreEntryName::new(format!(
+        "{DAEMON_AUTH_TOKEN_ENTRY_PREFIX}{}",
+        hexadecimal(&digest[..DAEMON_AUTH_TOKEN_ENTRY_DIGEST_BYTES])
+    ))?)
+}
+
+fn load_daemon_auth_token<K: OsKeystore>(
+    keystore: &K,
+    state_directory: &Path,
+) -> Result<DaemonLocalAuthToken, Box<dyn Error>> {
+    let entry = daemon_auth_token_entry(state_directory)?;
+    let secret = keystore
+        .load(&entry)?
+        .ok_or("daemon local authentication token is unavailable")?;
+    Ok(DaemonLocalAuthToken::from_bytes(secret.as_bytes())?)
+}
+
+#[cfg(unix)]
+async fn serve_daemon_with_keystore<K: OsKeystore>(
+    state_directory: &Path,
+    keystore: &mut K,
+) -> Result<(), Box<dyn Error>> {
+    let mut runtime =
+        DaemonRuntime::start(yeokcham_protocol::ProtocolVersion::INITIAL, state_directory)?;
+    let entry = daemon_auth_token_entry(runtime.state_directory().root())?;
+    let (auth, token) = DaemonLocalAuth::initialize()?;
+    let secret = KeystoreSecret::new(token.as_bytes().to_vec())?;
+    keystore.store(&entry, &secret)?;
+    let served = {
+        let server = DaemonServer::bind(&runtime, auth.clone());
+        match server {
+            Ok(server) => {
+                server
+                    .serve_until(async {
+                        let _ = tokio::signal::ctrl_c().await;
+                    })
+                    .await
+            }
+            Err(error) => Err(error),
         }
+    };
+    let revoked = auth.revoke();
+    let deleted = keystore.delete(&entry);
+    let shutdown = runtime.shutdown();
+    served?;
+    revoked?;
+    deleted?;
+    shutdown?;
+    Ok(())
+}
+
+#[cfg(unix)]
+fn daemon_serve(state_directory: &Path) -> Result<(), Box<dyn Error>> {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    #[cfg(target_os = "linux")]
+    {
+        let mut keystore = LinuxKeystore::new()?;
+        return runtime.block_on(serve_daemon_with_keystore(state_directory, &mut keystore));
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let mut keystore = MacOsKeystore::new();
+        return runtime.block_on(serve_daemon_with_keystore(state_directory, &mut keystore));
+    }
+    #[allow(unreachable_code)]
+    Err("unsupported operating system keystore".into())
+}
+
+#[cfg(not(unix))]
+fn daemon_serve(_state_directory: &Path) -> Result<(), Box<dyn Error>> {
+    Err("daemon serve is unavailable on this platform".into())
+}
+
+enum TuiRuntime {
+    Embedded(SdkClient),
+    #[cfg(unix)]
+    Daemon(DaemonTuiClient),
+}
+
+impl TuiRuntime {
+    fn is_running(&self) -> bool {
+        match self {
+            Self::Embedded(client) => client.is_running(),
+            #[cfg(unix)]
+            Self::Daemon(client) => client.is_running(),
+        }
+    }
+
+    fn refresh_dashboard(&mut self, state_directory: &Path) -> Result<Dashboard, Box<dyn Error>> {
+        match self {
+            Self::Embedded(_) => load_system_dashboard_with_keystore(state_directory),
+            #[cfg(unix)]
+            Self::Daemon(client) => client.dashboard(),
+        }
+    }
+
+    fn submit_contact_input(
+        &mut self,
+        state_directory: &Path,
+        input: &TuiContactInput,
+    ) -> Result<(), Box<dyn Error>> {
+        match self {
+            Self::Embedded(_) => submit_tui_contact_input(state_directory, input),
+            #[cfg(unix)]
+            Self::Daemon(client) => client.submit_contact_input(input),
+        }
+    }
+
+    fn submit_message(&mut self, input: &TuiMessageInput) -> Result<(), Box<dyn Error>> {
+        match self {
+            Self::Embedded(client) => submit_tui_message(client, input),
+            #[cfg(unix)]
+            Self::Daemon(client) => client.submit_message(input),
+        }
+    }
+
+    fn shutdown(&mut self) -> Result<(), Box<dyn Error>> {
+        match self {
+            Self::Embedded(client) => Ok(client.shutdown()?),
+            #[cfg(unix)]
+            Self::Daemon(_) => Ok(()),
+        }
+    }
+}
+
+#[cfg(unix)]
+struct DaemonTuiClient {
+    runtime: tokio::runtime::Runtime,
+    client: DaemonServiceClient<Channel>,
+    token: DaemonLocalAuthToken,
+    running: bool,
+}
+
+#[cfg(unix)]
+impl DaemonTuiClient {
+    fn connect(state_directory: &Path) -> Result<Self, Box<dyn Error>> {
+        let token = load_system_daemon_auth_token(state_directory)?;
+        let socket_path = state_directory.join(yeokcham_daemon::DAEMON_UNIX_SOCKET_FILE);
+        Self::connect_with_token(socket_path, token)
+    }
+
+    fn connect_with_token(
+        socket_path: PathBuf,
+        token: DaemonLocalAuthToken,
+    ) -> Result<Self, Box<dyn Error>> {
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()?;
+        let channel = runtime.block_on(async move {
+            Endpoint::from_static("http://[::]:50051")
+                .connect_with_connector(service_fn(move |_| {
+                    let socket_path = socket_path.clone();
+                    async move { UnixStream::connect(socket_path).await.map(TokioIo::new) }
+                }))
+                .await
+        })?;
+        let mut client = Self {
+            runtime,
+            client: DaemonServiceClient::new(channel),
+            token,
+            running: false,
+        };
+        client.start()?;
+        Ok(client)
+    }
+
+    fn is_running(&self) -> bool {
+        self.running
+    }
+
+    fn request<T>(&self, value: T) -> Request<T> {
+        let mut request = Request::new(value);
+        request.metadata_mut().insert_bin(
+            yeokcham_daemon::LOCAL_AUTH_TOKEN_METADATA_KEY,
+            self.token.metadata_value(),
+        );
+        request
+    }
+
+    fn start(&mut self) -> Result<(), Box<dyn Error>> {
+        let response = self.runtime.block_on(
+            self.client
+                .start_client(self.request(StartClientRequest {})),
+        )?;
+        let response = response.into_inner();
+        if response.api_major != u32::from(yeokcham_protocol::ProtocolVersion::INITIAL.get())
+            || !response.running
+        {
+            return Err("daemon protocol is incompatible or not running".into());
+        }
+        self.running = true;
+        Ok(())
+    }
+
+    fn dashboard(&mut self) -> Result<Dashboard, Box<dyn Error>> {
+        let identity_response = self.runtime.block_on(
+            self.client
+                .create_or_load_identity(self.request(CreateOrLoadIdentityRequest {})),
+        )?;
+        let identity_response = identity_response.into_inner();
+        let public_key: [u8; 32] = identity_response
+            .public_key
+            .try_into()
+            .map_err(|_| "daemon identity is invalid")?;
+        let identity = IdentityPublicKey::from_bytes(public_key)?;
+        let contacts = self
+            .runtime
+            .block_on(
+                self.client
+                    .list_contacts(self.request(ListContactsRequest {})),
+            )?
+            .into_inner()
+            .contacts;
+        let mut contacts: Vec<_> = contacts
+            .into_iter()
+            .map(|contact| {
+                let status = RpcContactStatus::try_from(contact.status)
+                    .map_err(|_| "daemon contact status is invalid")?;
+                let verification =
+                    RpcContactVerificationMethod::try_from(contact.verification_method)
+                        .map_err(|_| "daemon contact verification method is invalid")?;
+                let public_key: [u8; 32] = contact
+                    .identity
+                    .try_into()
+                    .map_err(|_| "daemon contact identity is invalid")?;
+                Ok(format!(
+                    "contact={} status={} verification={}",
+                    hexadecimal(&public_key),
+                    daemon_contact_status_label(status),
+                    daemon_contact_verification_label(verification)
+                ))
+            })
+            .collect::<Result<_, Box<dyn Error>>>()?;
+        contacts.sort_unstable();
+        if contacts.is_empty() {
+            contacts.push("no contacts".to_owned());
+        }
+        Ok(Dashboard {
+            identity: vec![
+                format!(
+                    "status={}",
+                    daemon_identity_initialization_label(identity_response.initialization)
+                ),
+                format!(
+                    "identifier={}",
+                    hexadecimal(IdentityIdentifier::derive(&identity).as_bytes())
+                ),
+            ],
+            contacts,
+            attachments: vec!["daemon attachment list is unavailable via API".to_owned()],
+            inbox: vec!["daemon inbox list is unavailable via API".to_owned()],
+            inbox_messages: Vec::new(),
+            outbox: vec!["daemon outbox list is unavailable via API".to_owned()],
+            delivery_state: vec!["daemon delivery list is unavailable via API".to_owned()],
+        })
+    }
+
+    fn submit_contact_input(&mut self, input: &TuiContactInput) -> Result<(), Box<dyn Error>> {
+        match input.kind {
+            TuiContactInputKind::Invitation => {
+                let invitation =
+                    decode_bounded_canonical_hex(&input.value, CONTACT_INVITATION_BYTES)?;
+                let _ = self
+                    .runtime
+                    .block_on(self.client.import_contact_invitation(
+                        self.request(ImportContactInvitationRequest { invitation }),
+                    ))?;
+            }
+            TuiContactInputKind::QrVerification => {
+                let payload =
+                    decode_bounded_canonical_hex(&input.value, QR_VERIFICATION_PAYLOAD_BYTES)?;
+                let _ = self.runtime.block_on(
+                    self.client
+                        .verify_contact_qr(self.request(VerifyContactQrRequest { payload })),
+                )?;
+            }
+            TuiContactInputKind::SafetyNumberVerification => {
+                let (contact_public_key, safety_number) = tui_safety_number_parts(&input.value)?;
+                let identity = decode_identity_public_key(contact_public_key)?;
+                let fingerprint =
+                    decode_bounded_canonical_hex(safety_number, SAFETY_NUMBER_FINGERPRINT_BYTES)?;
+                let _ = self
+                    .runtime
+                    .block_on(self.client.verify_contact_safety_number(self.request(
+                        VerifyContactSafetyNumberRequest {
+                            identity: identity.as_bytes().to_vec(),
+                            fingerprint,
+                        },
+                    )))?;
+            }
+        }
+        Ok(())
+    }
+
+    fn submit_message(&mut self, input: &TuiMessageInput) -> Result<(), Box<dyn Error>> {
+        let recipient = decode_identity_public_key(&input.recipient)?;
+        let envelope =
+            decode_bounded_canonical_hex(&input.envelope, MAX_ENCRYPTED_MESSAGE_SUBMISSION_BYTES)?;
+        let _ = SdkMessageEnvelope::from_encoded(&envelope)?;
+        let ttl_seconds = input.ttl_seconds.parse::<u32>()?;
+        let created_at = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+        let _ = SdkMessageExpiry::new(created_at, ttl_seconds)?;
+        let contacts = self
+            .runtime
+            .block_on(
+                self.client
+                    .list_contacts(self.request(ListContactsRequest {})),
+            )?
+            .into_inner()
+            .contacts;
+        let verified = contacts.iter().any(|contact| {
+            contact.identity == recipient.as_bytes()
+                && RpcContactStatus::try_from(contact.status) == Ok(RpcContactStatus::Verified)
+        });
+        if !verified {
+            return Err("recipient contact is not verified".into());
+        }
+        let _ = self
+            .runtime
+            .block_on(self.client.send_message(self.request(SendMessageRequest {
+                recipient: recipient.as_bytes().to_vec(),
+                envelope,
+                created_at,
+                ttl_seconds,
+            })))?;
+        Ok(())
+    }
+}
+
+#[cfg(unix)]
+fn load_system_daemon_auth_token(
+    state_directory: &Path,
+) -> Result<DaemonLocalAuthToken, Box<dyn Error>> {
+    #[cfg(target_os = "linux")]
+    {
+        return load_daemon_auth_token(&LinuxKeystore::new()?, state_directory);
+    }
+    #[cfg(target_os = "macos")]
+    {
+        return load_daemon_auth_token(&MacOsKeystore::new(), state_directory);
+    }
+    #[allow(unreachable_code)]
+    Err("unsupported operating system keystore".into())
+}
+
+#[cfg(unix)]
+const fn daemon_identity_initialization_label(initialization: i32) -> &'static str {
+    match initialization {
+        1 => "created",
+        2 => "loaded",
+        3 => "recovered",
+        _ => "unavailable",
+    }
+}
+
+#[cfg(unix)]
+const fn daemon_contact_status_label(status: RpcContactStatus) -> &'static str {
+    match status {
+        RpcContactStatus::Pending => "pending",
+        RpcContactStatus::Verified => "verified",
+        RpcContactStatus::Revoked => "revoked",
+        RpcContactStatus::Unspecified => "unavailable",
+    }
+}
+
+#[cfg(unix)]
+const fn daemon_contact_verification_label(method: RpcContactVerificationMethod) -> &'static str {
+    match method {
+        RpcContactVerificationMethod::Qr => "qr",
+        RpcContactVerificationMethod::SafetyNumber => "safety_number",
+        RpcContactVerificationMethod::Unspecified => "none",
+    }
+}
+
+fn tui(state_directory: &Path, snapshot: bool, daemon: bool) -> Result<(), Box<dyn Error>> {
+    validate_state_directory(state_directory)?;
+    let (mut runtime, dashboard) = if daemon {
+        #[cfg(unix)]
+        {
+            let mut client = DaemonTuiClient::connect(state_directory)?;
+            let dashboard = client.dashboard()?;
+            (TuiRuntime::Daemon(client), dashboard)
+        }
+        #[cfg(not(unix))]
+        return Err("daemon TUI mode is unavailable on this platform".into());
+    } else {
+        let (identity, initialization) = create_or_load_client_system_identity()?;
+        let client = start_embedded_tui_client(state_directory)?;
+        let dashboard = match load_system_dashboard_with_keystore(state_directory) {
+            Ok(dashboard) => dashboard.with_identity(identity, initialization),
+            Err(error) => {
+                let mut runtime = TuiRuntime::Embedded(client);
+                let _ = runtime.shutdown();
+                return Err(error);
+            }
+        };
+        (TuiRuntime::Embedded(client), dashboard)
     };
     if snapshot {
         print!("{}", dashboard.snapshot());
-        client.shutdown()?;
     } else {
-        let result = run_dashboard(dashboard, state_directory, &mut client);
-        let shutdown = client.shutdown();
+        let result = run_dashboard(dashboard, state_directory, &mut runtime);
+        let shutdown = runtime.shutdown();
         result?;
         shutdown?;
+        return Ok(());
     }
+    runtime.shutdown()?;
     Ok(())
 }
 
@@ -1496,21 +1931,21 @@ impl TuiDashboard {
 fn run_dashboard(
     dashboard: Dashboard,
     state_directory: &Path,
-    client: &mut SdkClient,
+    runtime: &mut TuiRuntime,
 ) -> Result<(), Box<dyn Error>> {
     let _restore = TerminalRestoreGuard;
     terminal::enable_raw_mode()?;
     let mut output = io::stdout();
     execute!(output, EnterAlternateScreen, Hide)?;
-    let mut dashboard = TuiDashboard::new(dashboard, client.is_running());
-    dashboard_event_loop(&mut output, &mut dashboard, state_directory, client)
+    let mut dashboard = TuiDashboard::new(dashboard, runtime.is_running());
+    dashboard_event_loop(&mut output, &mut dashboard, state_directory, runtime)
 }
 
 fn dashboard_event_loop(
     output: &mut impl Write,
     dashboard: &mut TuiDashboard,
     state_directory: &Path,
-    client: &mut SdkClient,
+    runtime: &mut TuiRuntime,
 ) -> Result<(), Box<dyn Error>> {
     loop {
         render_tui_dashboard(output, dashboard)?;
@@ -1518,9 +1953,9 @@ fn dashboard_event_loop(
             && key.kind == KeyEventKind::Press
         {
             if dashboard.contact_input.is_some() {
-                handle_tui_contact_input(dashboard, state_directory, key.code)?;
+                handle_tui_contact_input(dashboard, state_directory, runtime, key.code)?;
             } else if dashboard.message_input.is_some() {
-                handle_tui_message_input(dashboard, state_directory, client, key.code)?;
+                handle_tui_message_input(dashboard, state_directory, runtime, key.code)?;
             } else if dashboard.screen == TuiScreen::Inbox {
                 match key.code {
                     KeyCode::Char('q') => return Ok(()),
@@ -1654,6 +2089,7 @@ fn select_tui_route(dashboard: &mut TuiDashboard, selection: TuiRouteSelection) 
 fn handle_tui_contact_input(
     dashboard: &mut TuiDashboard,
     state_directory: &Path,
+    runtime: &mut TuiRuntime,
     key: KeyCode,
 ) -> Result<(), Box<dyn Error>> {
     let Some(input) = dashboard.contact_input.as_mut() else {
@@ -1674,8 +2110,11 @@ fn handle_tui_contact_input(
                 .contact_input
                 .take()
                 .ok_or("contact input is unavailable")?;
-            if submit_tui_contact_input(state_directory, &input).is_ok() {
-                if let Ok(updated) = load_system_dashboard_with_keystore(state_directory) {
+            if runtime
+                .submit_contact_input(state_directory, &input)
+                .is_ok()
+            {
+                if let Ok(updated) = runtime.refresh_dashboard(state_directory) {
                     let identity = dashboard.dashboard.identity.clone();
                     dashboard.dashboard = updated;
                     dashboard.dashboard.identity = identity;
@@ -1698,7 +2137,7 @@ fn handle_tui_contact_input(
 fn handle_tui_message_input(
     dashboard: &mut TuiDashboard,
     state_directory: &Path,
-    client: &mut SdkClient,
+    runtime: &mut TuiRuntime,
     key: KeyCode,
 ) -> Result<(), Box<dyn Error>> {
     let Some(input) = dashboard.message_input.as_mut() else {
@@ -1721,8 +2160,8 @@ fn handle_tui_message_input(
                     .message_input
                     .take()
                     .ok_or("message input is unavailable")?;
-                if submit_tui_message(client, &input).is_ok() {
-                    if let Ok(updated) = load_system_dashboard_with_keystore(state_directory) {
+                if runtime.submit_message(&input).is_ok() {
+                    if let Ok(updated) = runtime.refresh_dashboard(state_directory) {
                         let identity = dashboard.dashboard.identity.clone();
                         dashboard.dashboard = updated;
                         dashboard.dashboard.identity = identity;
@@ -2027,7 +2466,7 @@ fn render_tui_status(output: &mut impl Write, dashboard: &TuiDashboard) -> std::
         Clear(ClearType::All),
         Print("Operational status:\n"),
         Print(format!(
-            "embedded_runtime={}\n",
+            "runtime={}\n",
             if dashboard.runtime_running {
                 "running"
             } else {
@@ -2338,22 +2777,23 @@ mod tests {
 
     use super::{
         Arguments, AttachmentCommand, Command, ContactCommand, ContactInvitation,
-        ContactInvitationCommand, EncryptedMessageEnvelope, IdentityCommand, IdentityKeypair,
-        IdentityPublicKey, KeystoreEntryName, MAX_ENCRYPTED_MESSAGE_SUBMISSION_BYTES,
-        MAX_TUI_CONTACT_INPUT_BYTES, MessageCommand, MessageExpiry, OsKeystore,
-        RecipientInboxDeduplication, RelayProfileCommand, ReleaseManifestCommand, SenderOutbox,
-        TorMaildropProfileConfig, TuiCommand, TuiContactInput, TuiContactInputKind, TuiDashboard,
-        TuiMessageInput, TuiMessageInputStage, TuiRouteSelection, TuiScreen,
-        apply_contact_rotation, contact_invitation_record, create_identity, dashboard_from_stores,
-        decode_canonical_hex, decode_envelope, handle_tui_route_policy_key, hexadecimal,
-        identity_record, import_contact_invitation, initialize_tui_identity,
-        inspect_contact_invitation, inspect_relay_profile, load_attachment_transfers,
-        load_identity, queue_attachment_submission, queue_message, relay_profile_record,
-        release_metadata, render_dashboard, render_tui_attachments, render_tui_dashboard,
-        render_tui_route_policy, render_tui_status, revoke_contact, sign_release_manifest,
-        start_embedded_tui_client, submit_tui_contact_input_with_keystore,
-        submit_tui_message_with_identity, tui_safety_number_parts, validate_state_directory,
-        verify_contact_qr, verify_contact_safety_number, verify_release_manifest,
+        ContactInvitationCommand, DaemonCommand, EncryptedMessageEnvelope, IdentityCommand,
+        IdentityKeypair, IdentityPublicKey, KeystoreEntryName,
+        MAX_ENCRYPTED_MESSAGE_SUBMISSION_BYTES, MAX_TUI_CONTACT_INPUT_BYTES, MessageCommand,
+        MessageExpiry, OsKeystore, RecipientInboxDeduplication, RelayProfileCommand,
+        ReleaseManifestCommand, SenderOutbox, TorMaildropProfileConfig, TuiCommand,
+        TuiContactInput, TuiContactInputKind, TuiDashboard, TuiMessageInput, TuiMessageInputStage,
+        TuiRouteSelection, TuiScreen, apply_contact_rotation, contact_invitation_record,
+        create_identity, daemon_auth_token_entry, dashboard_from_stores, decode_canonical_hex,
+        decode_envelope, handle_tui_route_policy_key, hexadecimal, identity_record,
+        import_contact_invitation, initialize_tui_identity, inspect_contact_invitation,
+        inspect_relay_profile, load_attachment_transfers, load_identity,
+        queue_attachment_submission, queue_message, relay_profile_record, release_metadata,
+        render_dashboard, render_tui_attachments, render_tui_dashboard, render_tui_route_policy,
+        render_tui_status, revoke_contact, sign_release_manifest, start_embedded_tui_client,
+        submit_tui_contact_input_with_keystore, submit_tui_message_with_identity,
+        tui_safety_number_parts, validate_state_directory, verify_contact_qr,
+        verify_contact_safety_number, verify_release_manifest,
     };
     use yeokcham_core::KeystoreSecret;
     use yeokcham_daemon::{
@@ -2367,6 +2807,15 @@ mod tests {
         SafetyNumberFingerprint,
     };
     use yeokcham_sdk::{SdkDeliveryProfileKind, SdkIdentityManager, SdkLocalMeshTransportKind};
+
+    #[cfg(unix)]
+    use super::DaemonTuiClient;
+    #[cfg(unix)]
+    use yeokcham_daemon::{DaemonLocalAuth, DaemonRuntime, DaemonServer};
+    #[cfg(unix)]
+    use yeokcham_daemon_api::v1::ShutdownDaemonRequest;
+    #[cfg(unix)]
+    use yeokcham_protocol::ProtocolVersion;
 
     const REVISION: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     static NEXT_TEST_STATE_DIRECTORY: AtomicU64 = AtomicU64::new(0);
@@ -3145,9 +3594,118 @@ mod tests {
             command.command,
             Command::Tui(TuiCommand {
                 state_directory,
-                snapshot: true
+                snapshot: true,
+                daemon: false
             }) if state_directory.as_path() == Path::new("/state")
         ));
+    }
+
+    #[test]
+    fn parses_daemon_commands() {
+        let command = Arguments::try_parse_from([
+            "yeokcham",
+            "daemon",
+            "serve",
+            "--state-directory",
+            "/state",
+        ])
+        .unwrap();
+        assert!(matches!(
+            command.command,
+            Command::Daemon {
+                command: DaemonCommand::Serve { state_directory }
+            } if state_directory.as_path() == Path::new("/state")
+        ));
+        let command = Arguments::try_parse_from([
+            "yeokcham",
+            "tui",
+            "--state-directory",
+            "/state",
+            "--daemon",
+        ])
+        .unwrap();
+        assert!(matches!(
+            command.command,
+            Command::Tui(TuiCommand { daemon: true, .. })
+        ));
+    }
+
+    #[test]
+    fn daemon_auth_token_entries_are_state_root_specific() {
+        let first = std::env::temp_dir().join(format!(
+            "yeokcham-cli-daemon-token-a-{}-{}",
+            std::process::id(),
+            NEXT_TEST_STATE_DIRECTORY.fetch_add(1, Ordering::Relaxed)
+        ));
+        let second = std::env::temp_dir().join(format!(
+            "yeokcham-cli-daemon-token-b-{}-{}",
+            std::process::id(),
+            NEXT_TEST_STATE_DIRECTORY.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&first).unwrap();
+        fs::create_dir(&second).unwrap();
+        let first_entry = daemon_auth_token_entry(&first).unwrap();
+        let second_entry = daemon_auth_token_entry(&second).unwrap();
+        assert_ne!(first_entry, second_entry);
+        assert!(first_entry.as_str().starts_with("daemon_auth_v1_"));
+        assert!(first_entry.as_str().len() <= 64);
+        fs::remove_dir_all(first).unwrap();
+        fs::remove_dir_all(second).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_tui_client_uses_authenticated_unix_grpc() {
+        let state_directory = std::env::temp_dir().join(format!(
+            "yeokcham-cli-daemon-tui-{}-{}",
+            std::process::id(),
+            NEXT_TEST_STATE_DIRECTORY.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&state_directory).unwrap();
+        let (auth, token) = DaemonLocalAuth::initialize().unwrap();
+        let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel(1);
+        let server_state_directory = state_directory.clone();
+        let server = std::thread::spawn(move || {
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            runtime.block_on(async move {
+                let mut daemon =
+                    DaemonRuntime::start(ProtocolVersion::INITIAL, &server_state_directory)
+                        .unwrap();
+                let server = DaemonServer::bind_with_identity_keystore(
+                    &daemon,
+                    auth,
+                    InMemoryKeystore::default(),
+                )
+                .unwrap();
+                ready_tx.send(()).unwrap();
+                let result = server.serve_until(std::future::pending()).await;
+                daemon.shutdown().unwrap();
+                result.unwrap();
+            });
+        });
+        ready_rx.recv().unwrap();
+        let socket_path = state_directory.join(yeokcham_daemon::DAEMON_UNIX_SOCKET_FILE);
+        let mut client = DaemonTuiClient::connect_with_token(socket_path, token).unwrap();
+        let dashboard = client.dashboard().unwrap();
+        assert!(
+            dashboard
+                .identity
+                .iter()
+                .any(|line| line == "status=created")
+        );
+        let request = client.request(ShutdownDaemonRequest {});
+        let response = client
+            .runtime
+            .block_on(client.client.shutdown_daemon(request))
+            .unwrap()
+            .into_inner();
+        assert!(!response.running);
+        drop(client);
+        server.join().unwrap();
+        fs::remove_dir_all(state_directory).unwrap();
     }
 
     #[test]
@@ -3380,7 +3938,7 @@ mod tests {
         render_tui_status(&mut rendered, &tui).unwrap();
 
         let rendered = String::from_utf8(rendered).unwrap();
-        assert!(rendered.contains("embedded_runtime=running"));
+        assert!(rendered.contains("runtime=running"));
         assert!(rendered.contains("last_error=contact update failed"));
         assert!(!rendered.contains("ciphertext"));
     }

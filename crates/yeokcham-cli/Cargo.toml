@@ -20,8 +20,13 @@ crossterm.workspace = true
 minicbor.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
+tokio = { workspace = true, features = ["signal"] }
+tonic.workspace = true
+tower.workspace = true
+hyper-util.workspace = true
 yeokcham-core = { path = "../yeokcham-core" }
 yeokcham-daemon = { path = "../yeokcham-daemon" }
+yeokcham-daemon-api = { path = "../yeokcham-daemon-api" }
 yeokcham-protocol = { path = "../yeokcham-protocol" }
 yeokcham-sdk = { path = "../yeokcham-sdk" }
 

@@ -4011,11 +4011,16 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "crossterm",
+ "hyper-util",
  "minicbor",
  "sha2 0.11.0",
  "thiserror 2.0.18",
+ "tokio",
+ "tonic",
+ "tower",
  "yeokcham-core",
  "yeokcham-daemon",
+ "yeokcham-daemon-api",
  "yeokcham-protocol",
  "yeokcham-sdk",
 ]
