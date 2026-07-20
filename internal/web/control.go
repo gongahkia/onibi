@@ -24,6 +24,8 @@ type controlResponse struct {
 	Result string `json:"result,omitempty"`
 }
 
+var errControlSessionNotFound = errors.New("session not found")
+
 func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 	started := time.Now()
 	if r.Method != http.MethodPost {
@@ -48,7 +50,11 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 	result, err := s.executeLocalControl(r.Context(), req)
 	if err != nil {
 		s.log.Warn("web control failed", "request_id", requestID(r), "session_id", req.SessionID, "action", req.Action, "err", err, "remote", remoteHost(r.RemoteAddr), "duration_ms", time.Since(started).Milliseconds())
-		writeControlError(w, err.Error(), http.StatusBadRequest)
+		status := http.StatusBadRequest
+		if errors.Is(err, errControlSessionNotFound) {
+			status = http.StatusNotFound
+		}
+		writeControlError(w, err.Error(), status)
 		return
 	}
 	s.log.Info("web control accepted", "request_id", requestID(r), "session_id", req.SessionID, "action", req.Action, "remote", remoteHost(r.RemoteAddr), "duration_ms", time.Since(started).Milliseconds())
@@ -89,7 +95,7 @@ func (s *Server) executeLocalControl(ctx context.Context, req controlRequest) (s
 	}
 	host, ok := s.hostForSession(ctx, req.SessionID)
 	if !ok {
-		return "", errors.New("session not found")
+		return "", errControlSessionNotFound
 	}
 	switch action {
 	case "interrupt":
