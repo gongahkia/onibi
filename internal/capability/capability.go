@@ -13,7 +13,6 @@ var v1Agents = []string{AgentClaude, AgentCodex, AgentPi}
 
 var v1WebTransports = []string{
 	"lan",
-	"tailscale",
 	"tailscale-private",
 	"wireguard",
 	"zerotier",

@@ -18,7 +18,6 @@ type Mode string
 const (
 	ModeLAN              Mode = "lan"
 	ModeLANLoopback      Mode = "lan-loopback"
-	ModeTailscale        Mode = "tailscale"
 	ModeTailscalePrivate Mode = "tailscale-private"
 	ModeWireGuard        Mode = "wireguard"
 	ModeZeroTier         Mode = "zerotier"
@@ -91,7 +90,6 @@ type ResolverOptions struct {
 }
 
 type ProviderFactory struct {
-	Tailscale        func() Provider
 	TailscalePrivate func() Provider
 	WireGuard        func() Provider
 	ZeroTier         func() Provider
@@ -110,6 +108,9 @@ type Resolved struct {
 }
 
 func resolveTransport(ctx context.Context, opts ResolverOptions) (Resolved, error) {
+	if strings.EqualFold(strings.TrimSpace(opts.Mode), "tailscale") {
+		return Resolved{}, fmt.Errorf("transport %q is no longer supported; choose tailscale-private or another supported transport", opts.Mode)
+	}
 	if strings.EqualFold(strings.TrimSpace(opts.Mode), "cloudflare-named") {
 		return Resolved{}, fmt.Errorf("transport %q has been removed; choose cloudflare-quick or a private transport", opts.Mode)
 	}
@@ -125,8 +126,6 @@ func resolveTransport(ctx context.Context, opts ResolverOptions) (Resolved, erro
 		return resolveLAN(opts.Port, opts.LANHosts, opts.FallbackHost)
 	case ModeLANLoopback:
 		return Resolved{Mode: ModeLANLoopback, Port: opts.Port, LANHosts: []string{"127.0.0.1"}}, nil
-	case ModeTailscale:
-		return startProvider(ctx, mode, opts.Port, providerOrDefault(opts.Providers.Tailscale, func() Provider { return NewTailscale() }))
 	case ModeTailscalePrivate:
 		return startProvider(ctx, mode, opts.Port, providerOrDefault(opts.Providers.TailscalePrivate, func() Provider { return NewTailscalePrivate() }))
 	case ModeWireGuard:
@@ -138,11 +137,6 @@ func resolveTransport(ctx context.Context, opts ResolverOptions) (Resolved, erro
 	case ModeNgrok:
 		return startProvider(ctx, mode, opts.Port, providerOrDefault(opts.Providers.Ngrok, func() Provider { return NewNgrokFromEnv() }))
 	case ModeAuto:
-		pt, err := startProvider(ctx, ModeTailscale, opts.Port, providerOrDefault(opts.Providers.Tailscale, func() Provider { return NewTailscale() }))
-		if err == nil {
-			return pt, nil
-		}
-		opts.Logger.Warn("tailscale transport unavailable; falling back to lan", "err", err)
 		return resolveLAN(opts.Port, opts.LANHosts, opts.FallbackHost)
 	default:
 		return Resolved{}, fmt.Errorf("unsupported transport %q", opts.Mode)
@@ -159,8 +153,6 @@ func NormalizeMode(mode string) Mode {
 		return ModeLAN
 	case ModeLANLoopback:
 		return ModeLANLoopback
-	case ModeTailscale:
-		return ModeTailscale
 	case ModeTailscalePrivate:
 		return ModeTailscalePrivate
 	case ModeWireGuard:
@@ -181,12 +173,12 @@ func NormalizeMode(mode string) Mode {
 }
 
 func SupportedModeList() string {
-	return "lan, lan-loopback, tailscale, tailscale-private, wireguard, zerotier, cloudflare-quick, ngrok, auto"
+	return "lan, lan-loopback, tailscale-private, wireguard, zerotier, cloudflare-quick, ngrok, auto"
 }
 
 func IsRelayMode(mode string) bool {
 	switch NormalizeMode(mode) {
-	case ModeTailscale, ModeCloudflareQuick, ModeNgrok:
+	case ModeCloudflareQuick, ModeNgrok:
 		return true
 	default:
 		return false
@@ -222,7 +214,7 @@ func validateLANReachability(lanHosts []string, fallbackHost string) error {
 	if isRoutableLANHost(fallbackHost) {
 		return nil
 	}
-	return Diagnostic(DiagLANUnreachable, "lan", "no routable LAN address detected; managed Wi-Fi, VPN policy, or client isolation may block phone pairing. Connect the Mac to the iPhone hotspot, or use --transport=tailscale, --transport=wireguard, --transport=zerotier, --transport=cloudflare-quick, or --transport=ngrok", nil)
+	return Diagnostic(DiagLANUnreachable, "lan", "no routable LAN address detected; managed Wi-Fi, VPN policy, or client isolation may block phone pairing. Connect the Mac to the iPhone hotspot, or use --transport=tailscale-private, --transport=wireguard, --transport=zerotier, --transport=cloudflare-quick, or --transport=ngrok", nil)
 }
 
 func isRoutableLANHost(host string) bool {

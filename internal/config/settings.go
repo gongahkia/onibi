@@ -242,6 +242,8 @@ func (c Config) Validate() error {
 	}
 	mode := strings.ToLower(strings.TrimSpace(c.Transport.Mode))
 	switch {
+	case mode == "tailscale":
+		return fmt.Errorf("transport.mode=%q is no longer supported; set transport.mode to tailscale-private or another supported transport", mode)
 	case mode == "cloudflare-named":
 		return fmt.Errorf("transport.mode=%q has been removed; set transport.mode to cloudflare-quick or a private transport", mode)
 	case capability.IsV1WebTransport(mode), capability.IsInternalWebTransport(mode):
@@ -478,7 +480,7 @@ func Keys(cfg Config, meta LoadMeta) []KeyInfo {
 		{"shell.default", def.Shell.Default, cfg.Shell.Default, meta.Explicit["shell.default"], "shell launched by `onibi shell`: auto, shell name, or absolute path"},
 		{"shell.login", strconv.FormatBool(def.Shell.Login), strconv.FormatBool(cfg.Shell.Login), meta.Explicit["shell.login"], "start `onibi shell` as login+interactive when supported"},
 		{"terminal.default", def.Terminal.Default, cfg.Terminal.Default, meta.Explicit["terminal.default"], "visible session handover: auto/ghostty opens Ghostty on macOS; otherwise manual tmux attach"},
-		{"transport.mode", def.Transport.Mode, cfg.Transport.Mode, meta.Explicit["transport.mode"], "v1 web transport: lan, tailscale, tailscale-private, wireguard, zerotier, cloudflare-quick, ngrok, or auto"},
+		{"transport.mode", def.Transport.Mode, cfg.Transport.Mode, meta.Explicit["transport.mode"], "v1 web transport: lan, tailscale-private, wireguard, zerotier, cloudflare-quick, ngrok, or auto"},
 		{"transport.saddr", def.Transport.SAddr, cfg.Transport.SAddr, meta.Explicit["transport.saddr"], "optional transport service address"},
 		{"experimental.providers", strconv.FormatBool(def.Experimental.Providers), strconv.FormatBool(cfg.Experimental.Providers), meta.Explicit["experimental.providers"], "allow deferred and unsupported chat/notify provider transports"},
 		{"provider.output.max_chunks", strconv.Itoa(def.Provider.Output.MaxChunks), strconv.Itoa(cfg.Provider.Output.MaxChunks), meta.Explicit["provider.output.max_chunks"], "maximum provider reply chunks per session command"},

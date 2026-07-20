@@ -13,7 +13,7 @@ Default CI is hermetic. Run this checklist on the actual Mac and paired phone be
 
 Repeat with an iPhone hotspot when the normal Wi-Fi blocks device-to-device traffic.
 
-## Tailscale and other web paths
+## Tailscale Private and other web paths
 
 1. Confirm the phone can reach the selected network endpoint.
 2. Start Onibi with the selected `--transport` mode and scan the newly printed pair URL.

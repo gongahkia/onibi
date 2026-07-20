@@ -19,8 +19,8 @@ name = "alpha"
 default_agent = "claude"
 
 [transports]
-default = "tailscale"
-web = ["lan", "tailscale"]
+default = "tailscale-private"
+web = ["lan", "tailscale-private"]
 `), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +39,7 @@ web = ["lan", "tailscale"]
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Name != "alpha" || cfg.Transports.Default != "tailscale" {
+	if cfg.Name != "alpha" || cfg.Transports.Default != "tailscale-private" {
 		t.Fatalf("cfg = %#v", cfg)
 	}
 }

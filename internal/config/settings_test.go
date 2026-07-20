@@ -201,13 +201,32 @@ func TestUpdateConfigKeysAreRemoved(t *testing.T) {
 }
 
 func TestTransportModeValues(t *testing.T) {
-	for _, value := range []string{"lan", "lan-loopback", "tailscale", "tailscale-private", "wireguard", "zerotier", "cloudflare-quick", "ngrok", "auto"} {
+	for _, value := range []string{"lan", "lan-loopback", "tailscale-private", "wireguard", "zerotier", "cloudflare-quick", "ngrok", "auto"} {
 		t.Run(value, func(t *testing.T) {
 			cfg := Default()
 			if err := Set(&cfg, "transport.mode", value); err != nil {
 				t.Fatal(err)
 			}
 		})
+	}
+}
+
+func TestTransportModeRejectsRemovedTailscaleFunnel(t *testing.T) {
+	cfg := Default()
+	err := Set(&cfg, "transport.mode", "tailscale")
+	if err == nil || !strings.Contains(err.Error(), "no longer supported") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestLoadRejectsRemovedTailscaleFunnel(t *testing.T) {
+	paths := testPaths(t)
+	if err := os.WriteFile(paths.Config, []byte("transport:\n  mode: tailscale\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := Load(paths)
+	if err == nil || !strings.Contains(err.Error(), "no longer supported") {
+		t.Fatalf("err = %v", err)
 	}
 }
 

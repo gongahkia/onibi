@@ -20,7 +20,7 @@ func TestIndexEntryRoundtripsDisk(t *testing.T) {
 		Path:             "/Users/me/src/project",
 		LastSeen:         lastSeen,
 		SSHKey:           "keychain:onibi/project_1",
-		DefaultTransport: "tailscale",
+		DefaultTransport: "tailscale-private",
 	}
 	if err := SaveIndexEntry(dir, entry); err != nil {
 		t.Fatal(err)

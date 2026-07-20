@@ -17,7 +17,7 @@ func runRootLanding(cmd *cobra.Command, _ []string) error {
 	fmt.Fprintln(cmd.OutOrStdout())
 	rows := [][]string{
 		{"Start", "onibi up", "start the local web cockpit and print a pairing QR"},
-		{"Cellular", "onibi up --transport=tailscale", "use Tailscale Funnel and print QR"},
+		{"Tailnet", "onibi up --transport=tailscale-private", "use private Tailscale Serve and print QR"},
 		{"Pair", "onibi pair", "mint another phone QR"},
 		{"Integrate", "onibi install-hooks --interactive", "install agent hooks"},
 		{"Check", "onibi status", "show daemon, devices, hooks, and doctor summary"},

@@ -53,13 +53,13 @@ func TestUpStartsWebPair(t *testing.T) {
 func TestUpAppliesProfileFlags(t *testing.T) {
 	withDefaultState(t)
 	cwd := t.TempDir()
-	executeRoot(t, "profile", "add", "work", "--transport", "tailscale", "--agent", "sh", "--cwd", cwd, "--color", "never")
+	executeRoot(t, "profile", "add", "work", "--transport", "tailscale-private", "--agent", "sh", "--cwd", cwd, "--color", "never")
 	oldWebPair := webPairRun
 	webPairRun = func(cmd *cobra.Command, _ config.Paths, _ *store.DB) error {
 		transport, _ := cmd.Flags().GetString("transport")
 		agent, _ := cmd.Flags().GetString("agent")
 		gotCWD, _ := cmd.Flags().GetString("cwd")
-		if transport != "tailscale" || agent != "sh" || gotCWD != cwd {
+		if transport != "tailscale-private" || agent != "sh" || gotCWD != cwd {
 			t.Fatalf("profile flags transport=%q agent=%q cwd=%q", transport, agent, gotCWD)
 		}
 		cmd.Println("profile pair stub")
@@ -75,13 +75,13 @@ func TestUpAppliesProfileFlags(t *testing.T) {
 func TestUpNoArgRecallsLastUsedProfile(t *testing.T) {
 	withDefaultState(t)
 	cwd := t.TempDir()
-	executeRoot(t, "profile", "add", "work", "--transport", "tailscale", "--agent", "sh", "--cwd", cwd, "--use", "--color", "never")
+	executeRoot(t, "profile", "add", "work", "--transport", "tailscale-private", "--agent", "sh", "--cwd", cwd, "--use", "--color", "never")
 	oldWebPair := webPairRun
 	webPairRun = func(cmd *cobra.Command, _ config.Paths, _ *store.DB) error {
 		transport, _ := cmd.Flags().GetString("transport")
 		agent, _ := cmd.Flags().GetString("agent")
 		gotCWD, _ := cmd.Flags().GetString("cwd")
-		if transport != "tailscale" || agent != "sh" || gotCWD != cwd {
+		if transport != "tailscale-private" || agent != "sh" || gotCWD != cwd {
 			t.Fatalf("profile flags transport=%q agent=%q cwd=%q", transport, agent, gotCWD)
 		}
 		cmd.Println("last profile stub")
@@ -96,7 +96,7 @@ func TestUpNoArgRecallsLastUsedProfile(t *testing.T) {
 
 func TestUpNoArgFallsBackWithoutLastUsedProfile(t *testing.T) {
 	withDefaultState(t)
-	executeRoot(t, "profile", "add", "work", "--transport", "tailscale", "--color", "never")
+	executeRoot(t, "profile", "add", "work", "--transport", "tailscale-private", "--color", "never")
 	oldWebPair := webPairRun
 	webPairRun = func(cmd *cobra.Command, _ config.Paths, _ *store.DB) error {
 		transport, _ := cmd.Flags().GetString("transport")
@@ -157,44 +157,7 @@ func TestWebPairURLsIncludesFallbacks(t *testing.T) {
 	}
 }
 
-func TestResolvePairTransportAutoUsesTailscale(t *testing.T) {
-	old := newTransportProviders
-	fake := &fakePairTransport{url: "https://dev.tail.ts.net/"}
-	newTransportProviders = func() webtransport.ProviderFactory {
-		return webtransport.ProviderFactory{Tailscale: func() webtransport.Provider { return fake }}
-	}
-	t.Cleanup(func() { newTransportProviders = old })
-
-	pt, err := resolvePairTransport(context.Background(), "auto", 8443, []string{"192.0.2.10"}, "host.local", discardLogger())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if pt.Mode != webtransport.ModeTailscale {
-		t.Fatalf("mode = %q", pt.Mode)
-	}
-	if got := pt.URLs("tok"); len(got) != 1 || got[0] != "https://dev.tail.ts.net/pair/tok" {
-		t.Fatalf("urls = %#v", got)
-	}
-	if fake.enablePort != 8443 {
-		t.Fatalf("enable port = %d", fake.enablePort)
-	}
-	if err := pt.Disable(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if !fake.disabled {
-		t.Fatal("disable not called")
-	}
-}
-
-func TestResolvePairTransportAutoFallsBackToLAN(t *testing.T) {
-	old := newTransportProviders
-	newTransportProviders = func() webtransport.ProviderFactory {
-		return webtransport.ProviderFactory{Tailscale: func() webtransport.Provider {
-			return &fakePairTransport{enableErr: errors.New("no tailscale")}
-		}}
-	}
-	t.Cleanup(func() { newTransportProviders = old })
-
+func TestResolvePairTransportAutoUsesLAN(t *testing.T) {
 	pt, err := resolvePairTransport(context.Background(), "auto", 8443, []string{"192.0.2.10"}, "host.local", discardLogger())
 	if err != nil {
 		t.Fatal(err)

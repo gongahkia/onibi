@@ -168,34 +168,6 @@ func TestDoctorPushFailsMissingVAPIDKey(t *testing.T) {
 	}
 }
 
-func TestDoctorTailscalePassesWithFunnelCaps(t *testing.T) {
-	paths := doctorTestPaths(t, "tailscale")
-	t.Setenv(transport.TailscaleBinEnv, fakeTailscale(t, statusWithFunnelCaps(), serveWithFunnel()))
-
-	report := Run(context.Background(), Options{Paths: paths})
-	check := checkNamed(t, report, "tailscale")
-	if check.Status != Pass {
-		t.Fatalf("tailscale check = %#v", check)
-	}
-	if !strings.Contains(check.Detail, "Funnel active") {
-		t.Fatalf("detail = %q", check.Detail)
-	}
-}
-
-func TestDoctorTailscaleWarnsWithoutFunnelCaps(t *testing.T) {
-	paths := doctorTestPaths(t, "tailscale")
-	t.Setenv(transport.TailscaleBinEnv, fakeTailscale(t, `{"BackendState":"Running","Self":{"DNSName":"dev.tail.ts.net.","CapMap":{"https":{},"funnel":{}}}}`, serveWithFunnel()))
-
-	report := Run(context.Background(), Options{Paths: paths})
-	check := checkNamed(t, report, "tailscale")
-	if check.Status != Warn {
-		t.Fatalf("tailscale check = %#v", check)
-	}
-	if !strings.Contains(check.Detail, "public port 443") {
-		t.Fatalf("detail = %q", check.Detail)
-	}
-}
-
 func TestDoctorTailscalePrivatePassesWithoutFunnelCaps(t *testing.T) {
 	paths := doctorTestPaths(t, "tailscale-private")
 	t.Setenv(transport.TailscaleBinEnv, fakeTailscale(t, `{"BackendState":"Running","Self":{"DNSName":"dev.tail.ts.net.","CapMap":{"https":{}}}}`, `{"Web":{"dev.tail.ts.net:443":{}}}`))
@@ -335,14 +307,6 @@ func fakeZeroTier(t *testing.T, networksJSON string) string {
 		t.Fatal(err)
 	}
 	return path
-}
-
-func statusWithFunnelCaps() string {
-	return `{"BackendState":"Running","Self":{"DNSName":"dev.tail.ts.net.","CapMap":{"https":{},"funnel":{},"https://tailscale.com/cap/funnel-ports?ports=443":{}}}}`
-}
-
-func serveWithFunnel() string {
-	return `{"AllowFunnel":{"dev.tail.ts.net:443":true}}`
 }
 
 func checkNamed(t *testing.T, report Report, name string) Check {

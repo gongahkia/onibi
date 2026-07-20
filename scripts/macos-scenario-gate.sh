@@ -7,7 +7,7 @@ mkdir -p "$out"
 chmod 0700 "$out"
 host_os="$(go env GOOS)"
 cat >"$out/matrix.json" <<'EOF'
-{"schema":"onibi.release-scenario-matrix.v1","platform":"macos","release_blocking":true,"transports":["lan","tailscale","tailscale-private","wireguard","zerotier","cloudflare-quick","ngrok"],"iphone_evidence":{"required_for_certification":true,"runner":"scripts/iphone-transport-smoke.sh","checks":["setup_health","pairing","approval","intervention","reconnect","teardown","failure_diagnostics"]},"scenarios":[{"id":"macos-platform"},{"id":"web-transports"},{"id":"session-recovery"},{"id":"approvals"},{"id":"intervention"},{"id":"iphone-evidence-contract"}]}
+{"schema":"onibi.release-scenario-matrix.v1","platform":"macos","release_blocking":true,"transports":["lan","tailscale-private","wireguard","zerotier","cloudflare-quick","ngrok"],"iphone_evidence":{"required_for_certification":true,"runner":"scripts/iphone-transport-smoke.sh","checks":["setup_health","pairing","approval","intervention","reconnect","teardown","failure_diagnostics"]},"scenarios":[{"id":"macos-platform"},{"id":"web-transports"},{"id":"session-recovery"},{"id":"approvals"},{"id":"intervention"},{"id":"iphone-evidence-contract"}]}
 EOF
 printf '{"schema":"onibi.macos-scenario-gate.v1","host_os":"%s","matrix":"matrix.json"}\n' "$host_os" >"$out/metadata.json"
 

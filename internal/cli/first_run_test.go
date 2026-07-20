@@ -23,7 +23,7 @@ func TestFirstRunHappyPathInstallsDetectedHooksAndStartsUp(t *testing.T) {
 	oldWebPair := webPairRun
 	webPairRun = func(cmd *cobra.Command, _ config.Paths, _ *store.DB) error {
 		transport, _ := cmd.Flags().GetString("transport")
-		if transport != "tailscale" {
+		if transport != "tailscale-private" {
 			t.Fatalf("transport = %q", transport)
 		}
 		cmd.Println("first-run pair stub")
@@ -33,7 +33,7 @@ func TestFirstRunHappyPathInstallsDetectedHooksAndStartsUp(t *testing.T) {
 
 	out, _ := executeRootInput(t, "all\n2\n", "up", "--first-run", "--color", "never", "--no-logo")
 	got := out.String()
-	for _, want := range []string{"First run", "Detected hooks", "Installed claude hooks", "Transport tailscale", "first-run pair stub"} {
+	for _, want := range []string{"First run", "Detected hooks", "Installed claude hooks", "Transport tailscale-private", "first-run pair stub"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("output missing %q:\n%s", want, got)
 		}
@@ -45,7 +45,7 @@ func TestFirstRunHappyPathInstallsDetectedHooksAndStartsUp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Transport.Mode != "tailscale" {
+	if cfg.Transport.Mode != "tailscale-private" {
 		t.Fatalf("saved transport = %q", cfg.Transport.Mode)
 	}
 }
@@ -98,14 +98,14 @@ func TestFirstRunIdempotentKeepsExistingTransportDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.Transport.Mode = "tailscale"
+	cfg.Transport.Mode = "tailscale-private"
 	if err := config.Save(meta.Path, cfg); err != nil {
 		t.Fatal(err)
 	}
 	oldWebPair := webPairRun
 	webPairRun = func(cmd *cobra.Command, _ config.Paths, _ *store.DB) error {
 		transport, _ := cmd.Flags().GetString("transport")
-		if transport != "tailscale" {
+		if transport != "tailscale-private" {
 			t.Fatalf("transport = %q", transport)
 		}
 		cmd.Println("first-run idempotent pair stub")
@@ -115,7 +115,7 @@ func TestFirstRunIdempotentKeepsExistingTransportDefault(t *testing.T) {
 
 	out, _ := executeRootInput(t, "\n\n", "up", "--first-run", "--color", "never", "--no-logo")
 	got := out.String()
-	for _, want := range []string{"No detected agent config dirs", "Select transport [2]", "Transport tailscale", "first-run idempotent pair stub"} {
+	for _, want := range []string{"No detected agent config dirs", "Select transport [2]", "Transport tailscale-private", "first-run idempotent pair stub"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("output missing %q:\n%s", want, got)
 		}
@@ -127,7 +127,7 @@ func TestFirstRunIdempotentKeepsExistingTransportDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Transport.Mode != "tailscale" {
+	if cfg.Transport.Mode != "tailscale-private" {
 		t.Fatalf("saved transport = %q", cfg.Transport.Mode)
 	}
 }

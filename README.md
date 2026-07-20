@@ -26,7 +26,7 @@ onibi install-hooks --agent claude
 onibi up
 ```
 
-Use `onibi up --transport=lan` for local pairing or `--transport=tailscale` for an authenticated tailnet. Run `onibi status` and `onibi doctor --fix` when validating an install. Update Onibi through its package manager. Source-build setup lives in [`CONTRIBUTING.md`](./CONTRIBUTING.md).
+Use `onibi up --transport=lan` for local pairing or `--transport=tailscale-private` for an authenticated tailnet. Run `onibi status` and `onibi doctor --fix` when validating an install. Update Onibi through its package manager. Source-build setup lives in [`CONTRIBUTING.md`](./CONTRIBUTING.md).
 
 On iPhone:
 

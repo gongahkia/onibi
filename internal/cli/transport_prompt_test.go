@@ -8,17 +8,17 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func TestPromptPairTransportSelectsTailscale(t *testing.T) {
+func TestPromptPairTransportSelectsTailscalePrivate(t *testing.T) {
 	cmd, out := transportPromptCmd("2\n")
 	withPromptTTY(t, true)
 	got, prompted, err := promptPairTransport(cmd, "lan")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !prompted || got != "tailscale" {
+	if !prompted || got != "tailscale-private" {
 		t.Fatalf("prompted=%v transport=%q", prompted, got)
 	}
-	for _, want := range []string{"Web cockpit transport", "Tailscale Funnel", "Cloudflare Quick", "COVERAGE"} {
+	for _, want := range []string{"Web cockpit transport", "Tailscale Serve", "Cloudflare Quick", "COVERAGE"} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("prompt output missing %q:\n%s", want, out.String())
 		}

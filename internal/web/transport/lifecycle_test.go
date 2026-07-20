@@ -44,7 +44,6 @@ func TestTransportConformance(t *testing.T) {
 		url  string
 		kind fleet.EndpointKind
 	}{
-		{mode: ModeTailscale, url: "https://public.example.test", kind: fleet.EndpointRelay},
 		{mode: ModeTailscalePrivate, url: "https://node.tail.ts.net", kind: fleet.EndpointMesh},
 		{mode: ModeWireGuard, url: "https://100.64.0.2:8443", kind: fleet.EndpointMesh},
 		{mode: ModeZeroTier, url: "https://10.147.20.4:8443", kind: fleet.EndpointMesh},
@@ -97,8 +96,6 @@ func TestTransportConformance(t *testing.T) {
 
 func conformanceProviderFactory(mode Mode, provider Provider) ProviderFactory {
 	switch mode {
-	case ModeTailscale:
-		return ProviderFactory{Tailscale: func() Provider { return provider }}
 	case ModeTailscalePrivate:
 		return ProviderFactory{TailscalePrivate: func() Provider { return provider }}
 	case ModeWireGuard:
@@ -114,7 +111,7 @@ func conformanceProviderFactory(mode Mode, provider Provider) ProviderFactory {
 	}
 }
 
-func TestTailscalePrivateAndFunnelLifecycleEnrollment(t *testing.T) {
+func TestTailscalePrivateLifecycleEnrollment(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		mode Mode
@@ -129,15 +126,6 @@ func TestTailscalePrivateAndFunnelLifecycleEnrollment(t *testing.T) {
 			kind: "mesh",
 			new: func(p *lifecycleProvider) ProviderFactory {
 				return ProviderFactory{TailscalePrivate: func() Provider { return p }}
-			},
-		},
-		{
-			name: "public funnel relay",
-			mode: ModeTailscale,
-			url:  "https://dev.tail.ts.net/",
-			kind: "relay",
-			new: func(p *lifecycleProvider) ProviderFactory {
-				return ProviderFactory{Tailscale: func() Provider { return p }}
 			},
 		},
 	} {

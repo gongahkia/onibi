@@ -14,7 +14,7 @@ func TestTunnelExposesPortWithTransportAndPrintsTargetURL(t *testing.T) {
 	oldProviders := newTransportProviders
 	fake := &fakePairTransport{url: "https://dev.tail.ts.net/"}
 	newTransportProviders = func() transport.ProviderFactory {
-		return transport.ProviderFactory{Tailscale: func() transport.Provider { return fake }}
+		return transport.ProviderFactory{TailscalePrivate: func() transport.Provider { return fake }}
 	}
 	t.Cleanup(func() { newTransportProviders = oldProviders })
 
@@ -24,7 +24,7 @@ func TestTunnelExposesPortWithTransportAndPrintsTargetURL(t *testing.T) {
 	cmd := tunnelCmd()
 	cmd.SetContext(ctx)
 	cmd.SetOut(&out)
-	cmd.SetArgs([]string{"4173", "--transport", "tailscale", "--no-qr"})
+	cmd.SetArgs([]string{"4173", "--transport", "tailscale-private", "--no-qr"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}

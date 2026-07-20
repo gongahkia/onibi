@@ -23,7 +23,7 @@ Records structured, token-redacted evidence for a physical iPhone transport smok
 The Onibi service must already be running; this script never starts it or handles credentials.
 
 Options:
-  --transport <mode>       lan, tailscale, tailscale-private, wireguard, zerotier, cloudflare-quick, or ngrok
+  --transport <mode>       lan, tailscale-private, wireguard, zerotier, cloudflare-quick, or ngrok
   --pair-url <https-url>   active owner pairing URL from Onibi output; the token is never written to evidence
   --out <dir>              evidence directory; required unless ONIBI_IPHONE_SMOKE_OUT is set
   --record <check=status>  non-interactive result for setup_health, pairing, approval, intervention, reconnect, teardown, or failure_diagnostics
@@ -36,7 +36,7 @@ EOF
 
 valid_transport() {
   case "$1" in
-    lan|tailscale|tailscale-private|wireguard|zerotier|cloudflare-quick|ngrok) return 0 ;;
+    lan|tailscale-private|wireguard|zerotier|cloudflare-quick|ngrok) return 0 ;;
     *) return 1 ;;
   esac
 }

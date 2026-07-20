@@ -14,12 +14,12 @@ func TestWorkspaceAddUseListRemove(t *testing.T) {
 	if err := os.MkdirAll(repo, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	out := executeWorkspace(t, "add", "alpha", repo, "--default-transport", "tailscale", "--use")
+	out := executeWorkspace(t, "add", "alpha", repo, "--default-transport", "tailscale-private", "--use")
 	if !strings.Contains(out.String(), "Workspace alpha added") {
 		t.Fatalf("out = %q", out.String())
 	}
 	out = executeWorkspace(t, "list")
-	if !strings.Contains(out.String(), "* alpha") || !strings.Contains(out.String(), repo) || !strings.Contains(out.String(), "tailscale") {
+	if !strings.Contains(out.String(), "* alpha") || !strings.Contains(out.String(), repo) || !strings.Contains(out.String(), "tailscale-private") {
 		t.Fatalf("list = %q", out.String())
 	}
 	out = executeWorkspace(t, "remove", "alpha")
@@ -39,7 +39,7 @@ func TestWorkspaceExportWritesPortableBundle(t *testing.T) {
 	if err := os.MkdirAll(onibiDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	executeWorkspace(t, "add", "alpha", repo, "--ssh-key", "secret-key-ref", "--default-transport", "tailscale")
+	executeWorkspace(t, "add", "alpha", repo, "--ssh-key", "secret-key-ref", "--default-transport", "tailscale-private")
 	bundle := filepath.Join(t.TempDir(), "bundle")
 	out := executeWorkspace(t, "export", "alpha", bundle)
 	if !strings.Contains(out.String(), "Workspace alpha exported") {
@@ -55,7 +55,7 @@ func TestWorkspaceExportWritesPortableBundle(t *testing.T) {
 			t.Fatalf("workspace.toml leaked %q:\n%s", forbidden, text)
 		}
 	}
-	for _, want := range []string{`name = 'alpha'`, `default = 'tailscale'`} {
+	for _, want := range []string{`name = 'alpha'`, `default = 'tailscale-private'`} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("workspace.toml missing %q:\n%s", want, text)
 		}
@@ -69,7 +69,7 @@ func TestWorkspaceImportBundleUse(t *testing.T) {
 	if err := os.MkdirAll(onibiDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(onibiDir, "workspace.toml"), []byte("schema_version = 1\nname = \"beta\"\n[transports]\ndefault = \"tailscale\"\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(onibiDir, "workspace.toml"), []byte("schema_version = 1\nname = \"beta\"\n[transports]\ndefault = \"tailscale-private\"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	out := executeWorkspace(t, "import", repo, "--use")
@@ -77,7 +77,7 @@ func TestWorkspaceImportBundleUse(t *testing.T) {
 		t.Fatalf("out = %q", out.String())
 	}
 	out = executeWorkspace(t, "list")
-	if !strings.Contains(out.String(), "* beta") || !strings.Contains(out.String(), repo) || !strings.Contains(out.String(), "tailscale") {
+	if !strings.Contains(out.String(), "* beta") || !strings.Contains(out.String(), repo) || !strings.Contains(out.String(), "tailscale-private") {
 		t.Fatalf("list = %q", out.String())
 	}
 }

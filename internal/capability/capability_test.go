@@ -16,7 +16,7 @@ func TestV1AgentsAreExactAndNormalized(t *testing.T) {
 }
 
 func TestV1WebTransportsExcludeProviders(t *testing.T) {
-	for _, mode := range []string{"lan", "Tailscale", "tailscale-private", "wireguard", "zerotier", "cloudflare-quick", "ngrok", "auto"} {
+	for _, mode := range []string{"lan", "tailscale-private", "wireguard", "zerotier", "cloudflare-quick", "ngrok", "auto"} {
 		if !IsV1WebTransport(mode) {
 			t.Fatalf("IsV1WebTransport(%q) = false", mode)
 		}

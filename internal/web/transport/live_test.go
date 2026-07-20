@@ -13,12 +13,12 @@ import (
 	"github.com/gongahkia/onibi/internal/liveartifact"
 )
 
-func TestLiveTailscale(t *testing.T) {
-	if os.Getenv("ONIBI_LIVE_TAILSCALE") != "1" {
-		t.Skip("set ONIBI_LIVE_TAILSCALE=1")
+func TestLiveTailscalePrivate(t *testing.T) {
+	if os.Getenv("ONIBI_LIVE_TAILSCALE_PRIVATE") != "1" {
+		t.Skip("set ONIBI_LIVE_TAILSCALE_PRIVATE=1")
 	}
-	envs := []string{"ONIBI_LIVE_TAILSCALE"}
-	rec, err := liveartifact.New("tailscale", envs...)
+	envs := []string{"ONIBI_LIVE_TAILSCALE_PRIVATE"}
+	rec, err := liveartifact.New("tailscale-private", envs...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +33,7 @@ func TestLiveTailscale(t *testing.T) {
 	rec.Record("local-https", map[string]any{"port": port})
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	ts := NewTailscale()
+	ts := NewTailscalePrivate()
 	if err := ts.Enable(ctx, port); err != nil {
 		rec.Error("enable", err)
 		t.Fatal(err)

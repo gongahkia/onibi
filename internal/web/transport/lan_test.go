@@ -164,7 +164,7 @@ func TestLANClientIsolationDiagnosticFailsClosed(t *testing.T) {
 }
 
 func TestResolvedTargetURLsUseProviderBaseURL(t *testing.T) {
-	pt := Resolved{Mode: ModeTailscale, BaseURL: "https://dev.tail.ts.net/"}
+	pt := Resolved{Mode: ModeNgrok, BaseURL: "https://dev.tail.ts.net/"}
 	got := pt.TargetURLs()
 	if len(got) != 1 || got[0] != "https://dev.tail.ts.net" {
 		t.Fatalf("urls = %#v", got)

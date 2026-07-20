@@ -15,7 +15,7 @@ func TestRenderTableWrapsToTerminalWidth(t *testing.T) {
 	var out bytes.Buffer
 	err := renderTable(&out, [][]string{
 		tableHeader(cliStyle{}, "#", "PROVIDER", "BEST FOR", "COMMAND"),
-		{"2", "Tailscale Funnel", "cellular via *.ts.net", "onibi up --transport=tailscale"},
+		{"2", "Tailscale Serve", "private tailnet HTTPS", "onibi up --transport=tailscale-private"},
 		{"-", "Cloudflare Tunnel", "public web URL", "not in this build"},
 	})
 	if err != nil {
@@ -27,7 +27,7 @@ func TestRenderTableWrapsToTerminalWidth(t *testing.T) {
 			t.Fatalf("line width=%d line=%q\n%s", visibleLen(line), line, got)
 		}
 	}
-	if !strings.Contains(got, "transport=tailscale") || !strings.Contains(got, "not in this") {
+	if !strings.Contains(got, "transport=tailscale-private") || !strings.Contains(got, "not in this") {
 		t.Fatalf("wrapped output lost content:\n%s", got)
 	}
 }

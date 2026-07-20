@@ -170,7 +170,7 @@ func (s *Session) Enrollment() (EnrollmentCandidate, error) {
 		}
 	case ModeTailscalePrivate, ModeWireGuard, ModeZeroTier:
 		endpoint.Kind = fleet.EndpointMesh
-	case ModeTailscale, ModeCloudflareQuick, ModeNgrok:
+	case ModeCloudflareQuick, ModeNgrok:
 		endpoint.Kind = fleet.EndpointRelay
 	default:
 		return EnrollmentCandidate{}, errors.New("transport does not provide a fleet enrollment endpoint")

@@ -20,7 +20,7 @@ Current verified baseline: macOS Apple Silicon only. Linux amd64, Raspberry Pi 4
 | Idle RSS, daemon + web without active session | [Unverified] not supported by current foreground CLI | local-macos-arm64 | `onibi up` starts a managed session by design |
 | PTY throughput over `/ws/pty`, local handler | median 585.1 MiB/s, range 483.4-670.7 MiB/s, n=5 | local-macos-arm64 | `scripts/bench-throughput.sh --bytes 1048576 --count 5`; in-process web benchmark, no relay |
 | PTY throughput over LAN | [Unverified] not run | local-macos-arm64 | needs paired browser/client runner |
-| PTY throughput over Tailscale | [Unverified] not run | external | needs live tailnet/Funnel runner |
+| PTY throughput over Tailscale | [Unverified] not run | external | needs live tailnet runner |
 | PTY throughput over Cloudflare Quick with E2E | [Unverified] not run | external | needs live `cloudflared` tunnel and relay E2E |
 | Approval-decision round-trip, local queue | median 2.050 ms, mean 2.118 ms, min 1.394 ms, max 3.207 ms, n=10 | local-macos-arm64 | `scripts/bench-approval-rtt.sh --count 10`; request -> decide -> waiter delivery, no browser/provider |
 | Approval-decision round-trip, browser/provider | [Unverified] not run | external | needs paired browser/provider approval flow |

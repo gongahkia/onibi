@@ -6,9 +6,11 @@ Onibi is a single-user phone web cockpit. Use a local network path that reaches 
 
 `onibi up --transport=lan` starts the local HTTPS cockpit and prints a single-use pair URL. A phone on the same LAN can open that URL after trusting the generated local CA profile. When managed Wi-Fi blocks peer traffic, use the iPhone hotspot and start Onibi again to obtain a new URL.
 
-## Tailscale
+## Tailscale Private
 
-`onibi up --transport=tailscale` exposes the same cockpit through the authenticated tailnet. Tailnet reachability is not authorization: the phone still needs the pair URL and owner session.
+`onibi up --transport=tailscale-private` exposes the same cockpit only through the authenticated tailnet. Tailnet reachability is not authorization: the phone still needs the pair URL and owner session.
+
+`tailscale` has been removed because it used public Funnel. Existing `transport.mode: tailscale` configuration fails before cockpit startup; select `tailscale-private`, LAN, WireGuard, ZeroTier, Cloudflare Quick, or ngrok instead.
 
 ## Other web paths
 

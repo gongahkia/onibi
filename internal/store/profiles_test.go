@@ -14,7 +14,7 @@ func TestProfileUpsertEncryptsPayload(t *testing.T) {
 	}
 	defer db.Close()
 	ctx := context.Background()
-	profile := Profile{Name: "work", Transport: "tailscale", Agent: "claude", Workspace: "work-ws", CWD: "/tmp/work"}
+	profile := Profile{Name: "work", Transport: "tailscale-private", Agent: "claude", Workspace: "work-ws", CWD: "/tmp/work"}
 	if err := db.ProfileUpsert(ctx, profile); err != nil {
 		t.Fatal(err)
 	}
@@ -22,7 +22,7 @@ func TestProfileUpsertEncryptsPayload(t *testing.T) {
 	if err := db.SQL().QueryRowContext(ctx, `SELECT data_enc FROM profiles WHERE name = ?`, "work").Scan(&raw); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(raw), "tailscale") || strings.Contains(string(raw), "claude") || strings.Contains(string(raw), "/tmp/work") {
+	if strings.Contains(string(raw), "tailscale-private") || strings.Contains(string(raw), "claude") || strings.Contains(string(raw), "/tmp/work") {
 		t.Fatalf("profile payload stored plaintext: %q", string(raw))
 	}
 	got, ok, err := db.ProfileGet(ctx, "work")
@@ -32,7 +32,7 @@ func TestProfileUpsertEncryptsPayload(t *testing.T) {
 	if !ok {
 		t.Fatal("profile missing")
 	}
-	if got.Transport != "tailscale" || got.Agent != "claude" || got.Workspace != "work-ws" || got.CWD != "/tmp/work" {
+	if got.Transport != "tailscale-private" || got.Agent != "claude" || got.Workspace != "work-ws" || got.CWD != "/tmp/work" {
 		t.Fatalf("profile = %#v", got)
 	}
 }
@@ -47,7 +47,7 @@ func TestProfileListTouchAndRemove(t *testing.T) {
 	if err := db.ProfileUpsert(ctx, Profile{Name: "a", Transport: "lan"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.ProfileUpsert(ctx, Profile{Name: "b", Transport: "tailscale"}); err != nil {
+	if err := db.ProfileUpsert(ctx, Profile{Name: "b", Transport: "tailscale-private"}); err != nil {
 		t.Fatal(err)
 	}
 	when := time.Unix(10, 0).UTC()

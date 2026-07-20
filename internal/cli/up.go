@@ -49,7 +49,6 @@ var upServicePID = func(ctx context.Context) (int, bool, error) {
 var ensureGhosttyTerminfo = terminfo.EnsureXtermGhostty
 var newTransportProviders = func() webtransport.ProviderFactory {
 	return webtransport.ProviderFactory{
-		Tailscale:        func() webtransport.Provider { return webtransport.NewTailscale() },
 		TailscalePrivate: func() webtransport.Provider { return webtransport.NewTailscalePrivate() },
 		WireGuard:        func() webtransport.Provider { return webtransport.NewWireGuardFromEnv() },
 		ZeroTier:         func() webtransport.Provider { return webtransport.NewZeroTierFromEnv() },
@@ -576,8 +575,6 @@ func cleanupPairTransport(logger *slog.Logger, pt webtransport.Resolved) {
 		return
 	}
 	switch pt.Mode {
-	case webtransport.ModeTailscale:
-		logger.Info("pair transport cleanup audit", "transport", pt.Mode, "action", "tailscale funnel --bg off")
 	case webtransport.ModeTailscalePrivate:
 		logger.Info("pair transport cleanup audit", "transport", pt.Mode, "action", "tailscale serve --bg off")
 	case webtransport.ModeCloudflareQuick:
