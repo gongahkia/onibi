@@ -63,7 +63,7 @@ default_agent = "claude"
 default = "tailscale"
 web = ["lan", "tailscale"]
 chat = ["telegram", "signal"]
-notify = ["pushover", "ntfy"]
+notify = ["pushover"]
 ```
 
 ## Upgrade: Native Agent Permissions

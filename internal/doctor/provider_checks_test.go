@@ -11,8 +11,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/coder/websocket"
-
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/daemon"
 	"github.com/gongahkia/onibi/internal/discord"
@@ -31,7 +29,7 @@ func TestProvidersReportAllProvidersUnconfigured(t *testing.T) {
 	paths := doctorTestPaths(t, "lan")
 	clearProviderEnv(t)
 	report := Providers(t.Context(), Options{Paths: paths, Offline: true, PreferDotenv: true})
-	want := []string{"telegram", "matrix", "slack", "discord", "zulip", "irc", "signal", "pushover", "ntfy"}
+	want := []string{"telegram", "matrix", "slack", "discord", "zulip", "irc", "signal", "pushover"}
 	if len(report.Providers) != len(want) {
 		t.Fatalf("providers = %#v", report.Providers)
 	}
@@ -69,7 +67,6 @@ func TestProvidersMissingDetailsPerProvider(t *testing.T) {
 		"irc":      "ONIBI_IRC_NICK",
 		"signal":   "ONIBI_SIGNAL_RPC_URL",
 		"pushover": "ONIBI_PUSHOVER_TOKEN",
-		"ntfy":     "ONIBI_NTFY_TOPIC",
 	}
 	for name, detail := range want {
 		row := providerNamed(t, report, name)
@@ -148,14 +145,6 @@ func TestProvidersReachabilityFakeAPIs(t *testing.T) {
 	}))
 	defer pushoverSrv.Close()
 	withPushoverFactory(t, pushoverSrv.URL)
-	ntfySrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			t.Fatalf("ntfy method = %s", r.Method)
-		}
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer ntfySrv.Close()
-	t.Setenv("ONIBI_NTFY_BASE_URL", ntfySrv.URL)
 	report := Providers(t.Context(), Options{Paths: paths, PreferDotenv: true})
 	for _, row := range report.Providers {
 		if row.Reachable != ReachableYes {
@@ -175,15 +164,12 @@ func TestProvidersLastAuditTimestamp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AuditAppend(t.Context(), "notify.ntfy.sent", "s1", "", 0, "approval=a1"); err != nil {
-		t.Fatal(err)
-	}
 	if err := db.AuditAppend(t.Context(), "approval.decided", "s1", "", 42, "id=a1 verdict=approve"); err != nil {
 		t.Fatal(err)
 	}
 	_ = db.Close()
 	report := Providers(t.Context(), Options{Paths: paths, Offline: true, PreferDotenv: true})
-	for _, name := range []string{"telegram", "ntfy"} {
+	for _, name := range []string{"telegram"} {
 		if row := providerNamed(t, report, name); row.LastAuditTimestamp == "" {
 			t.Fatalf("%s row missing audit: %#v", name, row)
 		}
@@ -350,35 +336,6 @@ func TestDoctorIRCProviderFakeConn(t *testing.T) {
 	withIRCFactory(t)
 	check := checkNamed(t, Run(t.Context(), Options{Paths: paths}), "transport provider")
 	if check.Status != Pass || !strings.Contains(check.Detail, "IRC live API ok") {
-		t.Fatalf("check = %#v", check)
-	}
-}
-
-func TestDoctorNtfyProviderPublishSubscribeFakeAPI(t *testing.T) {
-	paths := doctorTestPaths(t, "ntfy")
-	topic := "AbcdefGhij1234567890_Z"
-	t.Setenv("ONIBI_DOCTOR_LIVE", "1")
-	t.Setenv("ONIBI_NTFY_TOPIC", topic)
-	published := make(chan string, 1)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasSuffix(r.URL.Path, "/ws") {
-			conn, err := websocket.Accept(w, r, nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer conn.CloseNow()
-			body := <-published
-			_ = conn.Write(r.Context(), websocket.MessageText, []byte(`{"message":`+strconvQuote(body)+`}`))
-			return
-		}
-		b, _ := io.ReadAll(r.Body)
-		published <- string(b)
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
-	t.Setenv("ONIBI_NTFY_BASE_URL", srv.URL)
-	check := checkNamed(t, Run(t.Context(), Options{Paths: paths}), "transport provider")
-	if check.Status != Pass || !strings.Contains(check.Detail, "publish + WebSocket") {
 		t.Fatalf("check = %#v", check)
 	}
 }
@@ -559,7 +516,6 @@ func configureEnvProviders(t *testing.T) {
 	t.Setenv("ONIBI_SIGNAL_RECIPIENT", "+15550002")
 	t.Setenv("ONIBI_PUSHOVER_TOKEN", "push-token")
 	t.Setenv("ONIBI_PUSHOVER_USER_KEY", "user-key")
-	t.Setenv("ONIBI_NTFY_TOPIC", "AbcdefGhij1234567890_Z")
 }
 
 func clearProviderEnv(t *testing.T) {
@@ -595,9 +551,6 @@ func clearProviderEnv(t *testing.T) {
 		"ONIBI_SIGNAL_OWNER",
 		"ONIBI_PUSHOVER_TOKEN",
 		"ONIBI_PUSHOVER_USER_KEY",
-		"ONIBI_NTFY_TOPIC",
-		"ONIBI_NTFY_BASE_URL",
-		"ONIBI_NTFY_TOKEN",
 		"ONIBI_DOCTOR_LIVE",
 	} {
 		t.Setenv(name, "")
@@ -621,9 +574,4 @@ func writeDoctorJSON(t *testing.T, w http.ResponseWriter, v any) {
 	if err := json.NewEncoder(w).Encode(v); err != nil {
 		t.Fatal(err)
 	}
-}
-
-func strconvQuote(s string) string {
-	b, _ := json.Marshal(s)
-	return string(b)
 }

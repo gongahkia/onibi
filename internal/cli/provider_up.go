@@ -35,7 +35,6 @@ func runEnvProviderUp(cmd *cobra.Command, paths config.Paths, db *store.DB, cfg 
 		BufferSize:              cfg.Daemon.PTYBufferBytes,
 		TerminalDefault:         cfg.Terminal.Default,
 		ExperimentalProviders:   cfg.Experimental.Providers,
-		WebAddr:                 envProviderActionWebAddr(mode, opts, cfg.Web.ListenAddr),
 		Matrix:                  opts.Matrix,
 		Slack:                   opts.Slack,
 		Discord:                 opts.Discord,
@@ -43,7 +42,6 @@ func runEnvProviderUp(cmd *cobra.Command, paths config.Paths, db *store.DB, cfg 
 		IRC:                     opts.IRC,
 		Signal:                  opts.Signal,
 		Pushover:                opts.Pushover,
-		Ntfy:                    opts.Ntfy,
 		ProviderOutput:          daemonProviderOutputPolicy(cfg),
 		ProviderOutputOverrides: daemonProviderOutputOverrides(cfg),
 		SkipRestore:             true,
@@ -80,7 +78,6 @@ type envProviderOptions struct {
 	IRC      daemon.IRCOptions
 	Signal   daemon.SignalOptions
 	Pushover daemon.PushoverOptions
-	Ntfy     daemon.NtfyOptions
 }
 
 func providerOptionsFromEnv(mode string) (envProviderOptions, string, error) {
@@ -166,12 +163,6 @@ func providerOptionsFromEnv(mode string) (envProviderOptions, string, error) {
 			return opts, "", fmt.Errorf("pushover requires ONIBI_PUSHOVER_TOKEN and ONIBI_PUSHOVER_USER_KEY")
 		}
 		return opts, "Pushover", nil
-	case "ntfy":
-		opts.Ntfy = daemon.NtfyOptions{BaseURL: strings.TrimSpace(os.Getenv("ONIBI_NTFY_BASE_URL")), Topic: envRequired("ONIBI_NTFY_TOPIC"), Token: strings.TrimSpace(os.Getenv("ONIBI_NTFY_TOKEN")), ActionBaseURL: strings.TrimSpace(os.Getenv("ONIBI_NTFY_ACTION_BASE_URL"))}
-		if opts.Ntfy.Topic == "" {
-			return opts, "", fmt.Errorf("ntfy requires ONIBI_NTFY_TOPIC")
-		}
-		return opts, "ntfy", nil
 	default:
 		return opts, "", fmt.Errorf("unsupported env provider %q", mode)
 	}
@@ -188,24 +179,11 @@ func isEnvChatTransport(mode string) bool {
 
 func isNotifyTransport(mode string) bool {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case "pushover", "ntfy":
+	case "pushover":
 		return true
 	default:
 		return false
 	}
-}
-
-func envProviderActionWebAddr(mode string, opts envProviderOptions, listenAddr string) string {
-	if !isNotifyTransport(mode) {
-		return ""
-	}
-	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case "ntfy":
-		if strings.TrimSpace(opts.Ntfy.ActionBaseURL) != "" {
-			return listenAddr
-		}
-	}
-	return ""
 }
 
 func envRequired(name string) string {

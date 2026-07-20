@@ -29,7 +29,7 @@ default_agent = "claude"
 default = "tailscale"
 web = ["lan", "tailscale"]
 chat = ["telegram", "signal"]
-notify = ["pushover", "ntfy"]
+notify = ["pushover"]
 
 [hooks]
 auto_install = ["claude", "codex", "shell:zsh"]
@@ -53,7 +53,7 @@ Unknown top-level keys are invalid.
 `[transports]` declares workspace-preferred control surfaces.
 
 `transports.default`
-: Optional default transport mode. Valid values match `transport.mode`: `lan`, `tailscale`, `tailscale-private`, `wireguard`, `zerotier`, `cloudflare-quick`, `cloudflare-named`, `ngrok`, `telegram`, `matrix`, `slack`, `discord`, `zulip`, `irc`, `signal`, `pushover`, `ntfy`, or `auto`.
+: Optional default transport mode. Valid values match `transport.mode`: `lan`, `tailscale`, `tailscale-private`, `wireguard`, `zerotier`, `cloudflare-quick`, `cloudflare-named`, `ngrok`, `telegram`, `matrix`, `slack`, `discord`, `zulip`, `irc`, `signal`, `pushover`, or `auto`.
 
 `transports.web`
 : Optional ordered allowlist for browser cockpit modes.

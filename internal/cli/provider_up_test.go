@@ -8,7 +8,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/gongahkia/onibi/internal/config"
-	"github.com/gongahkia/onibi/internal/daemon"
 )
 
 func TestProviderOptionsFromEnvMatrix(t *testing.T) {
@@ -60,7 +59,7 @@ func TestProviderOptionsFromEnvRejectsMissing(t *testing.T) {
 	if !isEnvChatTransport("matrix") || !isEnvChatTransport("slack") || !isEnvChatTransport("discord") || !isEnvChatTransport("zulip") || !isEnvChatTransport("irc") || !isEnvChatTransport("signal") {
 		t.Fatal("chat transport classification failed")
 	}
-	if !isNotifyTransport("pushover") || !isNotifyTransport("ntfy") {
+	if !isNotifyTransport("pushover") {
 		t.Fatal("notify transport classification failed")
 	}
 }
@@ -111,12 +110,5 @@ func TestProviderOptionsFromEnvSignal(t *testing.T) {
 	}
 	if len(opts.Signal.Recipients) != 2 || opts.Signal.Recipients[1] != "+15550003" {
 		t.Fatalf("recipients=%#v", opts.Signal.Recipients)
-	}
-}
-
-func TestEnvProviderActionWebAddr(t *testing.T) {
-	opts := envProviderOptions{Ntfy: daemon.NtfyOptions{}}
-	if got := envProviderActionWebAddr("ntfy", opts, ":8443"); got != "" {
-		t.Fatalf("ntfy addr = %q", got)
 	}
 }

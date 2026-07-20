@@ -11,7 +11,6 @@ import (
 	"github.com/gongahkia/onibi/internal/daemon"
 	"github.com/gongahkia/onibi/internal/irc"
 	"github.com/gongahkia/onibi/internal/matrix"
-	"github.com/gongahkia/onibi/internal/ntfy"
 	"github.com/gongahkia/onibi/internal/pushover"
 	"github.com/gongahkia/onibi/internal/secrets"
 	signalapi "github.com/gongahkia/onibi/internal/signal"
@@ -46,9 +45,6 @@ var (
 	newPushoverClient = func(token, userKey string) *pushover.Client {
 		return pushover.New(token, userKey)
 	}
-	newNtfyClient = func(baseURL, topic, token string) *ntfy.Client {
-		return ntfy.New(baseURL, topic, token)
-	}
 	newZulipClient = func(baseURL, email, apiKey string) *zulip.Client {
 		return zulip.New(baseURL, email, apiKey)
 	}
@@ -71,7 +67,6 @@ func Providers(ctx context.Context, opts Options) ProviderReport {
 		providerIRC(ctx, opts, pa),
 		providerSignal(ctx, opts, pa),
 		providerPushover(ctx, opts, pa),
-		providerNtfy(ctx, opts, pa),
 	}
 	return ProviderReport{Providers: rows}
 }
@@ -324,36 +319,6 @@ func providerSignal(ctx context.Context, opts Options, pa map[string]string) Pro
 	return row
 }
 
-func providerNtfy(ctx context.Context, opts Options, pa map[string]string) ProviderRow {
-	row := providerRow("ntfy", pa)
-	topic := strings.TrimSpace(os.Getenv("ONIBI_NTFY_TOPIC"))
-	if topic == "" {
-		row.Detail = "missing ONIBI_NTFY_TOPIC"
-		row.Fix = []string{"set ONIBI_NTFY_TOPIC to a 20+ character random secret", "optionally set ONIBI_NTFY_BASE_URL and ONIBI_NTFY_TOKEN"}
-		return row
-	}
-	if err := ntfy.ValidateTopicSecret(topic); err != nil {
-		row.Detail = "topic weak: " + err.Error()
-		row.Fix = []string{"replace ONIBI_NTFY_TOPIC with a 20+ character random secret"}
-		return row
-	}
-	row.Configured = true
-	row.Detail = "topic valid; set ONIBI_DOCTOR_LIVE=1 for publish probe"
-	if opts.Offline || !doctorLiveProbe() {
-		return row
-	}
-	withProviderTimeout(ctx, func(ctx context.Context) {
-		if err := newNtfyClient(os.Getenv("ONIBI_NTFY_BASE_URL"), topic, os.Getenv("ONIBI_NTFY_TOKEN")).Publish(ctx, ntfy.Message{Title: "Onibi doctor", Body: "onibi doctor ntfy probe"}); err != nil {
-			row.Reachable = ReachableNo
-			row.Detail = "publish probe failed: " + err.Error()
-			return
-		}
-		row.Reachable = ReachableYes
-		row.Detail = "publish probe ok"
-	})
-	return row
-}
-
 func providerRow(name string, pa map[string]string) ProviderRow {
 	return ProviderRow{Name: name, Reachable: ReachableSkipped, LastAuditTimestamp: pa[name]}
 }
@@ -398,7 +363,7 @@ func providerAudit(ctx context.Context, paths config.Paths) map[string]string {
 	}
 	out := map[string]string{}
 	for _, e := range entries {
-		for _, name := range []string{"telegram", "matrix", "slack", "discord", "zulip", "irc", "signal", "pushover", "ntfy"} {
+		for _, name := range []string{"telegram", "matrix", "slack", "discord", "zulip", "irc", "signal", "pushover"} {
 			if providerAuditMatch(name, e) {
 				out[name] = e.TS.UTC().Format(time.RFC3339)
 			}
@@ -422,8 +387,6 @@ func providerAuditMatch(name string, e store.AuditEntry) bool {
 		return (action == "approval.decided" && e.DecidedByChat != 0) || strings.Contains(action, "telegram") || strings.Contains(detail, "telegram")
 	case "pushover":
 		return strings.Contains(action, "notify.pushover")
-	case "ntfy":
-		return strings.Contains(action, "notify.ntfy")
 	default:
 		return strings.Contains(action, name) || strings.Contains(detail, "provider="+name)
 	}

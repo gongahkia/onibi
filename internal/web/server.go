@@ -46,7 +46,6 @@ type Options struct {
 	RelayKeys             *RelayKeys
 	RequireE2E            bool
 	ExperimentalProviders bool
-	ActionSigner          *ActionSigner
 	Log                   *slog.Logger
 }
 
@@ -68,7 +67,6 @@ type Server struct {
 	relayKeys             *RelayKeys
 	requireE2E            bool
 	experimentalProviders bool
-	actionSigner          *ActionSigner
 	log                   *slog.Logger
 	e2eMu                 sync.Mutex
 	e2eHTTPReplay         map[string]time.Time
@@ -99,7 +97,6 @@ func New(opts Options) *Server {
 		relayKeys:             opts.RelayKeys,
 		requireE2E:            opts.RequireE2E,
 		experimentalProviders: opts.ExperimentalProviders,
-		actionSigner:          opts.ActionSigner,
 		log:                   opts.Log,
 		fleetLinks:            make(map[string]*fleetLinkConnection),
 	}
@@ -146,9 +143,6 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/handover", s.handleHandover)
 	mux.HandleFunc("/approvals/pending", s.handlePendingApprovals)
 	mux.HandleFunc("/approval/{id}", s.handleApproval)
-	if s.experimentalProviders {
-		mux.HandleFunc("/ntfy/approval/{id}/{verdict}", s.handleNtfyApprovalAction)
-	}
 	mux.HandleFunc("/", s.handleRoot)
 	return s.loggedHandler(s.e2eHTTPHandler(mux))
 }

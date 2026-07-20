@@ -12,7 +12,6 @@ import (
 	"github.com/gongahkia/onibi/internal/discord"
 	"github.com/gongahkia/onibi/internal/irc"
 	"github.com/gongahkia/onibi/internal/matrix"
-	"github.com/gongahkia/onibi/internal/ntfy"
 	"github.com/gongahkia/onibi/internal/pushover"
 	signalapi "github.com/gongahkia/onibi/internal/signal"
 	"github.com/gongahkia/onibi/internal/slack"
@@ -127,17 +126,6 @@ func (d *Daemon) startPushoverNotifier(ctx context.Context, wg *sync.WaitGroup) 
 	go func() {
 		defer wg.Done()
 		d.runPushoverNotifier(ctx, pushover.New(d.Pushover.Token, d.Pushover.UserKey))
-	}()
-}
-
-func (d *Daemon) startNtfyNotifier(ctx context.Context, wg *sync.WaitGroup) {
-	if strings.TrimSpace(d.Ntfy.Topic) == "" {
-		return
-	}
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		d.runNtfyNotifier(ctx, ntfy.New(d.Ntfy.BaseURL, d.Ntfy.Topic, d.Ntfy.Token))
 	}()
 }
 

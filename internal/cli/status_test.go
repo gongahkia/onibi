@@ -8,7 +8,7 @@ import (
 
 func TestStatusJSONIsValid(t *testing.T) {
 	withDefaultState(t)
-	appendDefaultAudit(t, "notify.ntfy.error", "failed")
+	appendDefaultAudit(t, "notify.pushover.error", "failed")
 	out, _ := executeRoot(t, "status", "--json", "--color", "never")
 	var report cliStatusReport
 	if err := json.Unmarshal(out.Bytes(), &report); err != nil {

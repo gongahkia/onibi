@@ -146,7 +146,6 @@ ONIBI_LIVE_IRC=1 ONIBI_IRC_NICK=onibi-bot ONIBI_IRC_USERNAME=onibi-bot ONIBI_IRC
 - IRC: required bot/owner env and SASL connect to the configured server.
 - Signal: required local daemon env and `/api/v1/check` when `ONIBI_DOCTOR_LIVE=1`.
 - Matrix: account ownership power, joined-room state, and encrypted-room refusal.
-- ntfy: topic secrecy validation; set `ONIBI_DOCTOR_LIVE=1` for publish/WebSocket subscribe probe.
 
 ## Provider output policy
 
@@ -180,16 +179,6 @@ ONIBI_LIVE_PUSHOVER=1 ONIBI_PUSHOVER_TOKEN=... ONIBI_PUSHOVER_USER_KEY=... ONIBI
 - Confirm audit rows include receipt creation, ack/expiry state, and approve/error state.
 - Confirm `onibi status` shows notify recent/error counts and `onibi log --notify` filters notify audit rows.
 - Confirm normal terminal messages are not accepted through Pushover.
-
-ntfy:
-
-```bash
-ONIBI_LIVE_NTFY=1 ONIBI_NTFY_TOPIC=<20+ char random secret> ONIBI_NTFY_STREAM=1 go test ./internal/ntfy -run LiveNtfy
-```
-
-- Confirm publish and JSON stream subscribe receive the same approval text.
-- With `ONIBI_NTFY_ACTION_BASE_URL` set to a reachable Onibi web origin, confirm ntfy web/Android render Approve/Deny actions.
-- Confirm short, repeated, single-class, or guessable topics are rejected before startup.
 
 Signal:
 

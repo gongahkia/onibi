@@ -16,15 +16,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/coder/websocket"
-
 	"github.com/gongahkia/onibi/internal/adapters"
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/daemon"
 	"github.com/gongahkia/onibi/internal/discord"
 	"github.com/gongahkia/onibi/internal/irc"
 	"github.com/gongahkia/onibi/internal/matrix"
-	"github.com/gongahkia/onibi/internal/ntfy"
 	"github.com/gongahkia/onibi/internal/secrets"
 	"github.com/gongahkia/onibi/internal/service"
 	"github.com/gongahkia/onibi/internal/slack"
@@ -358,17 +355,6 @@ func (r *runner) checkTransportProvider() {
 			return
 		}
 		r.add("transport provider", Pass, "Pushover coverage: unit + receipt audit + live opt-in")
-	case "ntfy":
-		topic := strings.TrimSpace(os.Getenv("ONIBI_NTFY_TOPIC"))
-		if topic == "" {
-			r.add("transport provider", Warn, "ntfy missing ONIBI_NTFY_TOPIC")
-			return
-		}
-		if err := ntfy.ValidateTopicSecret(topic); err != nil {
-			r.add("transport provider", Warn, "ntfy topic weak: "+err.Error())
-			return
-		}
-		r.checkNtfyProvider(topic)
 	case "signal":
 		r.checkSignalProvider()
 	default:
@@ -608,36 +594,6 @@ func (r *runner) checkIRCProvider() {
 	r.add("transport provider", Pass, "IRC live API ok: SASL connect to "+providerValueOrDefault(os.Getenv("ONIBI_IRC_ADDR"), irc.DefaultAddr))
 }
 
-func (r *runner) checkNtfyProvider(topic string) {
-	if r.opts.Offline {
-		r.add("transport provider", Pass, "ntfy topic valid; live publish/subscribe skipped offline")
-		return
-	}
-	if !doctorLiveProbe() {
-		r.add("transport provider", Pass, "ntfy topic valid; set ONIBI_DOCTOR_LIVE=1 for publish/subscribe probe")
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.ctx, 8*time.Second)
-	defer cancel()
-	c := ntfy.New(os.Getenv("ONIBI_NTFY_BASE_URL"), topic, os.Getenv("ONIBI_NTFY_TOKEN"))
-	conn, err := c.SubscribeWSSince(ctx, "all")
-	if err != nil {
-		r.add("transport provider", Warn, "ntfy subscribe failed: "+err.Error())
-		return
-	}
-	defer conn.CloseNow()
-	body := fmt.Sprintf("onibi doctor ntfy probe %d", time.Now().UnixNano())
-	if err := c.Publish(ctx, ntfy.Message{Title: "Onibi doctor", Body: body}); err != nil {
-		r.add("transport provider", Warn, "ntfy publish failed: "+err.Error())
-		return
-	}
-	if err := waitWebsocketContains(ctx, conn, body); err != nil {
-		r.add("transport provider", Warn, "ntfy subscribe did not receive probe: "+err.Error())
-		return
-	}
-	r.add("transport provider", Pass, "ntfy live API ok: publish + WebSocket subscribe")
-}
-
 func (r *runner) checkSignalProvider() {
 	missing := missingEnv("ONIBI_SIGNAL_RPC_URL", "ONIBI_SIGNAL_ACCOUNT")
 	if strings.TrimSpace(os.Getenv("ONIBI_SIGNAL_RECIPIENT")) == "" && strings.TrimSpace(os.Getenv("ONIBI_SIGNAL_RECIPIENTS")) == "" && strings.TrimSpace(os.Getenv("ONIBI_SIGNAL_GROUP_ID")) == "" {
@@ -713,18 +669,6 @@ func containsString(vals []string, needle string) bool {
 		}
 	}
 	return false
-}
-
-func waitWebsocketContains(ctx context.Context, conn *websocket.Conn, want string) error {
-	for {
-		_, p, err := conn.Read(ctx)
-		if err != nil {
-			return err
-		}
-		if strings.Contains(string(p), want) {
-			return nil
-		}
-	}
 }
 
 func (r *runner) checkLAN() {

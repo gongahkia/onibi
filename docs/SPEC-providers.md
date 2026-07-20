@@ -173,7 +173,6 @@ provider-specific live evidence and review.
 | IRC | partial | partial | yes | yes | partial | partial | no | partial |
 | Signal | partial | partial | yes | yes | partial | partial | no | partial |
 | Pushover | yes | partial | notify-only | no | no | no | yes | partial |
-| ntfy | yes | partial | notify-only | no | yes | partial | no | partial |
 
 <!-- markdownlint-enable MD013 -->
 
@@ -216,13 +215,6 @@ rows. Live guild verification remains required.
 Pushover is notify-only. It can send emergency-priority approval alerts, poll
 receipts, and map acknowledged receipts to approve, but it does not provide
 terminal input, deny callbacks, or native edit decisions.
-
-ntfy validates topic secrecy, publishes optional signed Approve/Deny action
-buttons, can tail the JSON topic stream with reconnect/replay, and has a local
-notify-only `chatout.Provider` adapter. Password E2E is not implemented because
-the 2026-07-10 official ntfy publish/subscribe docs do not verify
-`X-Message-Encryption` support; upstream E2E is tracked in
-<https://github.com/binwiederhier/ntfy/issues/69>.
 
 ## Capability-specific conformance
 

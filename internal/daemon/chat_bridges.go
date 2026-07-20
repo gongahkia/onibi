@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand"
-	"net/http"
 	"strings"
 	"time"
 
@@ -20,7 +19,6 @@ import (
 	"github.com/gongahkia/onibi/internal/discord"
 	"github.com/gongahkia/onibi/internal/irc"
 	"github.com/gongahkia/onibi/internal/matrix"
-	"github.com/gongahkia/onibi/internal/ntfy"
 	"github.com/gongahkia/onibi/internal/pushover"
 	signalapi "github.com/gongahkia/onibi/internal/signal"
 	"github.com/gongahkia/onibi/internal/slack"
@@ -1846,80 +1844,6 @@ func (d *Daemon) sendPushoverApproval(ctx context.Context, c *pushover.Client, a
 		}
 		d.audit(ctx, "notify.pushover.receipt."+state, a.SessionID, "", 0, "approval="+a.ID+" receipt="+resp.Receipt)
 	}()
-}
-
-func (d *Daemon) runNtfyNotifier(ctx context.Context, c *ntfy.Client) {
-	d.forwardNotifyApprovals(ctx, func(a *approval.Approval) {
-		msg := ntfy.Message{Title: "Onibi approval", Body: formatApprovalWithPolicy(a, d.providerOutputPolicy("notify")), Tags: "warning"}
-		actions, err := d.ntfyApprovalActions(a)
-		if err != nil {
-			d.audit(ctx, "notify.ntfy.action_error", a.SessionID, "", 0, "approval="+a.ID+" err="+err.Error())
-		} else {
-			msg.Actions = actions
-		}
-		if err := d.publishNtfyWithRetry(ctx, c, a, msg); err != nil {
-			d.audit(ctx, "notify.ntfy.error", a.SessionID, "", 0, "approval="+a.ID+" err="+err.Error())
-			return
-		}
-		d.audit(ctx, "notify.ntfy.sent", a.SessionID, "", 0, fmt.Sprintf("approval=%s actions=%d", a.ID, len(msg.Actions)))
-	})
-}
-
-func (d *Daemon) ntfyApprovalActions(a *approval.Approval) ([]ntfy.Action, error) {
-	baseURL := strings.TrimSpace(d.Ntfy.ActionBaseURL)
-	if baseURL == "" {
-		return nil, nil
-	}
-	approveURL, denyURL, err := d.signedApprovalActionURLs(baseURL, a)
-	if err != nil {
-		return nil, err
-	}
-	return []ntfy.Action{
-		{Type: "http", Label: "Approve", URL: approveURL, Method: http.MethodPost, Clear: true},
-		{Type: "http", Label: "Deny", URL: denyURL, Method: http.MethodPost, Clear: true},
-	}, nil
-}
-
-func (d *Daemon) publishNtfyWithRetry(ctx context.Context, c *ntfy.Client, a *approval.Approval, msg ntfy.Message) error {
-	var last error
-	for attempt := 1; attempt <= 3; attempt++ {
-		if err := c.Publish(ctx, msg); err == nil {
-			return nil
-		} else {
-			last = err
-		}
-		if attempt == 3 {
-			break
-		}
-		d.audit(ctx, "notify.ntfy.retry", a.SessionID, "", 0, fmt.Sprintf("approval=%s attempt=%d err=%s", a.ID, attempt, last.Error()))
-		timer := time.NewTimer(time.Duration(attempt) * 250 * time.Millisecond)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return ctx.Err()
-		case <-timer.C:
-		}
-	}
-	return last
-}
-
-func (d *Daemon) signedApprovalActionURLs(baseURL string, a *approval.Approval) (string, string, error) {
-	baseURL = strings.TrimSpace(baseURL)
-	if baseURL == "" {
-		return "", "", errors.New("action base URL required")
-	}
-	if d.notifyActionSigner == nil {
-		return "", "", errors.New("notify action signer unavailable")
-	}
-	approveURL, err := d.notifyActionSigner.SignedApprovalURL(baseURL, a.ID, approval.VerdictApprove, time.Now())
-	if err != nil {
-		return "", "", err
-	}
-	denyURL, err := d.notifyActionSigner.SignedApprovalURL(baseURL, a.ID, approval.VerdictDeny, time.Now())
-	if err != nil {
-		return "", "", err
-	}
-	return approveURL, denyURL, nil
 }
 
 func (d *Daemon) runWebPushNotifier(ctx context.Context) {

@@ -61,7 +61,6 @@ type Daemon struct {
 	IRC                     IRCOptions
 	Signal                  SignalOptions
 	Pushover                PushoverOptions
-	Ntfy                    NtfyOptions
 	ProviderOutput          ProviderOutputPolicy
 	ProviderOutputOverrides ProviderOutputOverrides
 	FleetLink               *FleetLink
@@ -78,7 +77,6 @@ type Daemon struct {
 	discordTailThreads    map[string]string
 	signalMu              sync.Mutex
 	signalApprovals       map[int64]string
-	notifyActionSigner    *web.ActionSigner
 	notified              map[string]bool // session id → already-fired turn-complete once
 	sessionActivityEvents map[string]time.Time
 	started               time.Time
@@ -119,7 +117,6 @@ type Options struct {
 	IRC                     IRCOptions
 	Signal                  SignalOptions
 	Pushover                PushoverOptions
-	Ntfy                    NtfyOptions
 	ProviderOutput          ProviderOutputPolicy
 	ProviderOutputOverrides ProviderOutputOverrides
 	FleetLink               *FleetLink
@@ -184,13 +181,6 @@ type PushoverOptions struct {
 	UserKey string
 }
 
-type NtfyOptions struct {
-	BaseURL       string
-	Topic         string
-	Token         string
-	ActionBaseURL string
-}
-
 // New constructs a daemon, wiring intake + registry + idle detector +
 // approval queue + local web cockpit.
 func New(opts Options) *Daemon {
@@ -231,7 +221,6 @@ func New(opts Options) *Daemon {
 		IRC:                     opts.IRC,
 		Signal:                  opts.Signal,
 		Pushover:                opts.Pushover,
-		Ntfy:                    opts.Ntfy,
 		ProviderOutput:          opts.ProviderOutput.normalized(),
 		ProviderOutputOverrides: opts.ProviderOutputOverrides,
 		FleetLink:               opts.FleetLink,
@@ -459,14 +448,6 @@ func (d *Daemon) Run(ctx context.Context) error {
 			}
 		}()
 	}
-	if strings.TrimSpace(d.Ntfy.ActionBaseURL) != "" && d.notifyActionSigner == nil {
-		signer, err := web.NewActionSigner(nil)
-		if err != nil {
-			return err
-		}
-		d.notifyActionSigner = signer
-	}
-
 	if d.WebAddr != "" {
 		// VAPID keys live in the OS secret store. On macOS, a locked or
 		// unapproved Keychain item can block SecItemCopyMatching indefinitely.
@@ -498,7 +479,6 @@ func (d *Daemon) Run(ctx context.Context) error {
 			RelayKeys:             d.RelayKeys,
 			RequireE2E:            d.RequireWebE2E,
 			ExperimentalProviders: d.ExperimentalProviders,
-			ActionSigner:          d.notifyActionSigner,
 			Log:                   d.Log,
 		})
 		wg.Add(1)
@@ -520,7 +500,6 @@ func (d *Daemon) Run(ctx context.Context) error {
 		d.startIRCBridge(ctx, &wg, cancel)
 		d.startSignalBridge(ctx, &wg, cancel)
 		d.startPushoverNotifier(ctx, &wg)
-		d.startNtfyNotifier(ctx, &wg)
 	}
 	d.startWebPushNotifier(ctx, &wg)
 

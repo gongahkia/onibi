@@ -26,7 +26,6 @@ Deferred experimental provider transports are:
 - `zulip`: Zulip stream/topic control with one topic per session.
 - `irc`: IRC DM control with SASL auth, intended for libera.chat-style registered bot nicks.
 - `pushover`: notify-only approval alerts.
-- `ntfy`: topic alerts with optional signed approval actions.
 - `signal`: local `signal-cli` JSON-RPC chat control.
 
 Before selecting any provider transport, explicitly enable its experimental profile once:
@@ -359,21 +358,9 @@ onibi up --transport=pushover
 
 Create a Pushover application to get `ONIBI_PUSHOVER_TOKEN`, then copy the target user's User Key into `ONIBI_PUSHOVER_USER_KEY`. Pushover approval alerts use emergency priority (`priority=2`, retry, expire), poll the returned receipt, map acknowledged receipts to approve, and write send/receipt/ack/expiry/approve audit rows. Pushover has one supplementary message URL plus native emergency acknowledgment/callback support; Onibi's default local path uses the native acknowledgment receipt for approval.
 
-ntfy:
-
-```bash
-ONIBI_NTFY_TOPIC=<20+ char random secret>
-ONIBI_NTFY_BASE_URL=https://ntfy.sh
-ONIBI_NTFY_TOKEN=...
-ONIBI_NTFY_ACTION_BASE_URL=https://<reachable-onibi-web-origin>
-onibi up --transport=ntfy
-```
-
-The ntfy topic is treated as a secret; short, repeated, single-class, or guessable topics are rejected. When `ONIBI_NTFY_ACTION_BASE_URL` is set, approval alerts include two ntfy `http` action buttons for Approve/Deny. The action URLs are HMAC-signed, single-use, and expire after 5 minutes. JSON stream subscribe uses `<topic>/json`, replays with `since`, and reconnects with the last message id. As of the 2026-07-10 docs check, official ntfy publish/subscribe docs cover HTTPS, authenticated topics, access tokens, click/actions fields, and JSON streams, while native client E2E remains tracked upstream in ntfy issue #69; Onibi does not claim native ntfy password E2E via `X-Message-Encryption`. References: <https://docs.ntfy.sh/publish/>, <https://docs.ntfy.sh/subscribe/api/>, <https://github.com/binwiederhier/ntfy/issues/69>.
-
 ## Coverage status
 
-`onibi up` prints provider coverage in the picker. `onibi doctor --transport=<mode>` runs the matching preflight check and reports missing env, weak ntfy topics, missing relay binaries, and provider API failures before startup. `onibi status` summarizes recent notify audit state, and `onibi log --notify` filters notify rows.
+`onibi up` prints provider coverage in the picker. `onibi doctor --transport=<mode>` runs the matching preflight check and reports missing env, missing relay binaries, and provider API failures before startup. `onibi status` summarizes recent notify audit state, and `onibi log --notify` filters notify rows.
 
 ## Cloudflare Quick Tunnel
 
