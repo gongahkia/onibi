@@ -349,12 +349,6 @@ func (r *runner) checkTransportProvider() {
 		r.checkZulipProvider()
 	case "irc":
 		r.checkIRCProvider()
-	case "pushover":
-		if missing := missingEnv("ONIBI_PUSHOVER_TOKEN", "ONIBI_PUSHOVER_USER_KEY"); len(missing) > 0 {
-			r.add("transport provider", Warn, "Pushover missing "+strings.Join(missing, ", "))
-			return
-		}
-		r.add("transport provider", Pass, "Pushover coverage: unit + receipt audit + live opt-in")
 	case "signal":
 		r.checkSignalProvider()
 	default:

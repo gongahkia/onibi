@@ -274,7 +274,7 @@ func TestTransportModeRejectsUnsupportedValue(t *testing.T) {
 }
 
 func TestTransportModeRejectsRemovedNotificationProviders(t *testing.T) {
-	for _, mode := range []string{"email", "sms", "apns", "gotify", "ntfy"} {
+	for _, mode := range []string{"email", "sms", "apns", "gotify", "ntfy", "pushover"} {
 		t.Run(mode, func(t *testing.T) {
 			cfg := Default()
 			err := Set(&cfg, "transport.mode", mode)
@@ -282,6 +282,27 @@ func TestTransportModeRejectsRemovedNotificationProviders(t *testing.T) {
 				t.Fatalf("unexpected err: %v", err)
 			}
 		})
+	}
+}
+
+func TestLoadRejectsRemovedPushoverTransport(t *testing.T) {
+	paths := testPaths(t)
+	if err := os.WriteFile(paths.Config, []byte("transport:\n  mode: pushover\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := Load(paths)
+	if err == nil || !strings.Contains(err.Error(), "no longer supported") {
+		t.Fatalf("unexpected err: %v", err)
+	}
+}
+
+func TestProviderOutputRejectsRemovedNotifyOverride(t *testing.T) {
+	cfg := Default()
+	if err := Set(&cfg, "provider.output.notify.max_bytes", "2048"); err == nil {
+		t.Fatal("expected unknown config key error")
+	}
+	if _, err := Get(cfg, "provider.output.notify.max_bytes"); err == nil {
+		t.Fatal("expected unknown config key error")
 	}
 }
 

@@ -41,7 +41,6 @@ func runEnvProviderUp(cmd *cobra.Command, paths config.Paths, db *store.DB, cfg 
 		Zulip:                   opts.Zulip,
 		IRC:                     opts.IRC,
 		Signal:                  opts.Signal,
-		Pushover:                opts.Pushover,
 		ProviderOutput:          daemonProviderOutputPolicy(cfg),
 		ProviderOutputOverrides: daemonProviderOutputOverrides(cfg),
 		SkipRestore:             true,
@@ -71,13 +70,12 @@ func runEnvProviderUp(cmd *cobra.Command, paths config.Paths, db *store.DB, cfg 
 }
 
 type envProviderOptions struct {
-	Matrix   daemon.MatrixOptions
-	Slack    daemon.SlackOptions
-	Discord  daemon.DiscordOptions
-	Zulip    daemon.ZulipOptions
-	IRC      daemon.IRCOptions
-	Signal   daemon.SignalOptions
-	Pushover daemon.PushoverOptions
+	Matrix  daemon.MatrixOptions
+	Slack   daemon.SlackOptions
+	Discord daemon.DiscordOptions
+	Zulip   daemon.ZulipOptions
+	IRC     daemon.IRCOptions
+	Signal  daemon.SignalOptions
 }
 
 func providerOptionsFromEnv(mode string) (envProviderOptions, string, error) {
@@ -157,12 +155,6 @@ func providerOptionsFromEnv(mode string) (envProviderOptions, string, error) {
 			return opts, "", fmt.Errorf("signal requires ONIBI_SIGNAL_RPC_URL, ONIBI_SIGNAL_ACCOUNT, and ONIBI_SIGNAL_RECIPIENT or ONIBI_SIGNAL_GROUP_ID")
 		}
 		return opts, "Signal", nil
-	case "pushover":
-		opts.Pushover = daemon.PushoverOptions{Token: envRequired("ONIBI_PUSHOVER_TOKEN"), UserKey: envRequired("ONIBI_PUSHOVER_USER_KEY")}
-		if opts.Pushover.Token == "" || opts.Pushover.UserKey == "" {
-			return opts, "", fmt.Errorf("pushover requires ONIBI_PUSHOVER_TOKEN and ONIBI_PUSHOVER_USER_KEY")
-		}
-		return opts, "Pushover", nil
 	default:
 		return opts, "", fmt.Errorf("unsupported env provider %q", mode)
 	}
@@ -171,15 +163,6 @@ func providerOptionsFromEnv(mode string) (envProviderOptions, string, error) {
 func isEnvChatTransport(mode string) bool {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
 	case "matrix", "slack", "discord", "zulip", "irc", "signal":
-		return true
-	default:
-		return false
-	}
-}
-
-func isNotifyTransport(mode string) bool {
-	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case "pushover":
 		return true
 	default:
 		return false

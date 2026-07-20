@@ -246,7 +246,7 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 	if cfg.Transport.Mode == "telegram" {
 		return runTelegramUp(cmd, paths, db, cfg, logger, started, shellCWD)
 	}
-	if isEnvChatTransport(cfg.Transport.Mode) || isNotifyTransport(cfg.Transport.Mode) {
+	if isEnvChatTransport(cfg.Transport.Mode) {
 		return runEnvProviderUp(cmd, paths, db, cfg, logger, started, shellCWD)
 	}
 	port, err := listenPort(cfg.Web.ListenAddr)

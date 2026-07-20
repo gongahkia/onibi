@@ -68,7 +68,7 @@ func TestRunLogExportUnaffectedByJSONFlag(t *testing.T) {
 
 func TestRunLogNotifyFilter(t *testing.T) {
 	seedDefaultAudit(t, "approval.decided")
-	appendDefaultAudit(t, "notify.pushover.sent", "sent")
+	appendDefaultAudit(t, "notify.webpush.sent", "sent")
 	var out bytes.Buffer
 	cmd := logCmd()
 	cmd.SetOut(&out)
@@ -77,7 +77,7 @@ func TestRunLogNotifyFilter(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := out.String()
-	if !strings.Contains(got, "notify.pushover.sent") || strings.Contains(got, "approval.decided") {
+	if !strings.Contains(got, "notify.webpush.sent") || strings.Contains(got, "approval.decided") {
 		t.Fatalf("notify filter output = %s", got)
 	}
 }

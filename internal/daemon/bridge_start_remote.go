@@ -14,5 +14,4 @@ func (d *Daemon) startDiscordBridge(context.Context, *sync.WaitGroup, context.Ca
 func (d *Daemon) startZulipBridge(context.Context, *sync.WaitGroup, context.CancelFunc)    {}
 func (d *Daemon) startIRCBridge(context.Context, *sync.WaitGroup, context.CancelFunc)      {}
 func (d *Daemon) startSignalBridge(context.Context, *sync.WaitGroup, context.CancelFunc)   {}
-func (d *Daemon) startPushoverNotifier(context.Context, *sync.WaitGroup)                   {}
 func (d *Daemon) startWebPushNotifier(context.Context, *sync.WaitGroup)                    {}

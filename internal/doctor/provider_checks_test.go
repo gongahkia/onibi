@@ -15,7 +15,6 @@ import (
 	"github.com/gongahkia/onibi/internal/daemon"
 	"github.com/gongahkia/onibi/internal/discord"
 	"github.com/gongahkia/onibi/internal/irc"
-	"github.com/gongahkia/onibi/internal/pushover"
 	"github.com/gongahkia/onibi/internal/secrets"
 	signalapi "github.com/gongahkia/onibi/internal/signal"
 	"github.com/gongahkia/onibi/internal/slack"
@@ -29,7 +28,7 @@ func TestProvidersReportAllProvidersUnconfigured(t *testing.T) {
 	paths := doctorTestPaths(t, "lan")
 	clearProviderEnv(t)
 	report := Providers(t.Context(), Options{Paths: paths, Offline: true, PreferDotenv: true})
-	want := []string{"telegram", "matrix", "slack", "discord", "zulip", "irc", "signal", "pushover"}
+	want := []string{"telegram", "matrix", "slack", "discord", "zulip", "irc", "signal"}
 	if len(report.Providers) != len(want) {
 		t.Fatalf("providers = %#v", report.Providers)
 	}
@@ -66,7 +65,6 @@ func TestProvidersMissingDetailsPerProvider(t *testing.T) {
 		"zulip":    "ONIBI_ZULIP_URL",
 		"irc":      "ONIBI_IRC_NICK",
 		"signal":   "ONIBI_SIGNAL_RPC_URL",
-		"pushover": "ONIBI_PUSHOVER_TOKEN",
 	}
 	for name, detail := range want {
 		row := providerNamed(t, report, name)
@@ -137,14 +135,6 @@ func TestProvidersReachabilityFakeAPIs(t *testing.T) {
 	defer zulipSrv.Close()
 	t.Setenv("ONIBI_ZULIP_URL", zulipSrv.URL)
 	withIRCFactory(t)
-	pushoverSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !strings.HasSuffix(r.URL.Path, "/messages.json") {
-			t.Fatalf("pushover path = %s", r.URL.Path)
-		}
-		writeDoctorJSON(t, w, pushover.MessageResponse{Status: 1, Request: "r1"})
-	}))
-	defer pushoverSrv.Close()
-	withPushoverFactory(t, pushoverSrv.URL)
 	report := Providers(t.Context(), Options{Paths: paths, PreferDotenv: true})
 	for _, row := range report.Providers {
 		if row.Reachable != ReachableYes {
@@ -448,17 +438,6 @@ func withTelegramProviderFactory(t *testing.T, baseURL string) {
 	t.Cleanup(func() { newTelegramProviderClient = old })
 }
 
-func withPushoverFactory(t *testing.T, baseURL string) {
-	t.Helper()
-	old := newPushoverClient
-	newPushoverClient = func(token, userKey string) *pushover.Client {
-		c := pushover.New(token, userKey)
-		c.BaseURL = baseURL
-		return c
-	}
-	t.Cleanup(func() { newPushoverClient = old })
-}
-
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -514,8 +493,6 @@ func configureEnvProviders(t *testing.T) {
 	t.Setenv("ONIBI_SIGNAL_RPC_URL", "http://signal.invalid")
 	t.Setenv("ONIBI_SIGNAL_ACCOUNT", "+15550001")
 	t.Setenv("ONIBI_SIGNAL_RECIPIENT", "+15550002")
-	t.Setenv("ONIBI_PUSHOVER_TOKEN", "push-token")
-	t.Setenv("ONIBI_PUSHOVER_USER_KEY", "user-key")
 }
 
 func clearProviderEnv(t *testing.T) {
@@ -549,8 +526,6 @@ func clearProviderEnv(t *testing.T) {
 		"ONIBI_SIGNAL_RECIPIENTS",
 		"ONIBI_SIGNAL_GROUP_ID",
 		"ONIBI_SIGNAL_OWNER",
-		"ONIBI_PUSHOVER_TOKEN",
-		"ONIBI_PUSHOVER_USER_KEY",
 		"ONIBI_DOCTOR_LIVE",
 	} {
 		t.Setenv(name, "")

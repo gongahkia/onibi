@@ -19,7 +19,6 @@ import (
 	"github.com/gongahkia/onibi/internal/discord"
 	"github.com/gongahkia/onibi/internal/irc"
 	"github.com/gongahkia/onibi/internal/matrix"
-	"github.com/gongahkia/onibi/internal/pushover"
 	signalapi "github.com/gongahkia/onibi/internal/signal"
 	"github.com/gongahkia/onibi/internal/slack"
 	"github.com/gongahkia/onibi/internal/web"
@@ -1799,51 +1798,6 @@ func signalEmojiVerdict(emoji string) approval.Verdict {
 	default:
 		return ""
 	}
-}
-
-func (d *Daemon) runPushoverNotifier(ctx context.Context, c *pushover.Client) {
-	d.forwardNotifyApprovals(ctx, func(a *approval.Approval) {
-		d.sendPushoverApproval(ctx, c, a)
-	})
-}
-
-func (d *Daemon) sendPushoverApproval(ctx context.Context, c *pushover.Client, a *approval.Approval) {
-	resp, err := c.Send(ctx, pushover.MessageOptions{Title: "Onibi approval", Message: formatApprovalWithPolicy(a, d.providerOutputPolicy("notify")), Priority: 2, Retry: 30 * time.Second, Expire: time.Hour})
-	if err != nil {
-		d.audit(ctx, "notify.pushover.error", a.SessionID, "", 0, "approval="+a.ID+" err="+err.Error())
-		return
-	}
-	if resp.Receipt == "" {
-		d.audit(ctx, "notify.pushover.sent", a.SessionID, "", 0, "approval="+a.ID+" receipt=false")
-		return
-	}
-	d.audit(ctx, "notify.pushover.receipt", a.SessionID, "", 0, "approval="+a.ID+" receipt="+resp.Receipt)
-	go func() {
-		got, err := c.PollReceipt(ctx, resp.Receipt, 30*time.Second)
-		if err != nil {
-			d.audit(ctx, "notify.pushover.receipt.error", a.SessionID, "", 0, "approval="+a.ID+" receipt="+resp.Receipt+" err="+err.Error())
-			return
-		}
-		state := "pending"
-		if got.Acknowledged == 1 {
-			state = "acknowledged"
-			if err := d.decideProviderApproval(ctx, a.ID, approval.VerdictApprove, 0); err != nil {
-				switch {
-				case errors.Is(err, approval.ErrAlreadyDecided):
-					d.audit(ctx, "notify.pushover.approve_already_decided", a.SessionID, "", 0, "approval="+a.ID+" receipt="+resp.Receipt)
-				case errors.Is(err, approval.ErrExpired):
-					d.audit(ctx, "notify.pushover.approve_expired", a.SessionID, "", 0, "approval="+a.ID+" receipt="+resp.Receipt)
-				default:
-					d.audit(ctx, "notify.pushover.approve_error", a.SessionID, "", 0, "approval="+a.ID+" receipt="+resp.Receipt+" err="+err.Error())
-				}
-			} else {
-				d.audit(ctx, "notify.pushover.approve", a.SessionID, "", 0, "approval="+a.ID+" receipt="+resp.Receipt)
-			}
-		} else if got.Expired == 1 {
-			state = "expired"
-		}
-		d.audit(ctx, "notify.pushover.receipt."+state, a.SessionID, "", 0, "approval="+a.ID+" receipt="+resp.Receipt)
-	}()
 }
 
 func (d *Daemon) runWebPushNotifier(ctx context.Context) {

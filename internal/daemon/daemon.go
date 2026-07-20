@@ -60,7 +60,6 @@ type Daemon struct {
 	Zulip                   ZulipOptions
 	IRC                     IRCOptions
 	Signal                  SignalOptions
-	Pushover                PushoverOptions
 	ProviderOutput          ProviderOutputPolicy
 	ProviderOutputOverrides ProviderOutputOverrides
 	FleetLink               *FleetLink
@@ -116,7 +115,6 @@ type Options struct {
 	Zulip                   ZulipOptions
 	IRC                     IRCOptions
 	Signal                  SignalOptions
-	Pushover                PushoverOptions
 	ProviderOutput          ProviderOutputPolicy
 	ProviderOutputOverrides ProviderOutputOverrides
 	FleetLink               *FleetLink
@@ -176,11 +174,6 @@ type SignalOptions struct {
 	Owner      string
 }
 
-type PushoverOptions struct {
-	Token   string
-	UserKey string
-}
-
 // New constructs a daemon, wiring intake + registry + idle detector +
 // approval queue + local web cockpit.
 func New(opts Options) *Daemon {
@@ -220,7 +213,6 @@ func New(opts Options) *Daemon {
 		Zulip:                   opts.Zulip,
 		IRC:                     opts.IRC,
 		Signal:                  opts.Signal,
-		Pushover:                opts.Pushover,
 		ProviderOutput:          opts.ProviderOutput.normalized(),
 		ProviderOutputOverrides: opts.ProviderOutputOverrides,
 		FleetLink:               opts.FleetLink,
@@ -499,7 +491,6 @@ func (d *Daemon) Run(ctx context.Context) error {
 		d.startZulipBridge(ctx, &wg, cancel)
 		d.startIRCBridge(ctx, &wg, cancel)
 		d.startSignalBridge(ctx, &wg, cancel)
-		d.startPushoverNotifier(ctx, &wg)
 	}
 	d.startWebPushNotifier(ctx, &wg)
 

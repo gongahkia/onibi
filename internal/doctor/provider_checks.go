@@ -11,7 +11,6 @@ import (
 	"github.com/gongahkia/onibi/internal/daemon"
 	"github.com/gongahkia/onibi/internal/irc"
 	"github.com/gongahkia/onibi/internal/matrix"
-	"github.com/gongahkia/onibi/internal/pushover"
 	"github.com/gongahkia/onibi/internal/secrets"
 	signalapi "github.com/gongahkia/onibi/internal/signal"
 	"github.com/gongahkia/onibi/internal/store"
@@ -42,9 +41,6 @@ var (
 	newTelegramProviderClient = func(token string) *telegram.Client {
 		return telegram.NewClient(token)
 	}
-	newPushoverClient = func(token, userKey string) *pushover.Client {
-		return pushover.New(token, userKey)
-	}
 	newZulipClient = func(baseURL, email, apiKey string) *zulip.Client {
 		return zulip.New(baseURL, email, apiKey)
 	}
@@ -66,7 +62,6 @@ func Providers(ctx context.Context, opts Options) ProviderReport {
 		providerZulip(ctx, opts, pa),
 		providerIRC(ctx, opts, pa),
 		providerSignal(ctx, opts, pa),
-		providerPushover(ctx, opts, pa),
 	}
 	return ProviderReport{Providers: rows}
 }
@@ -265,32 +260,6 @@ func providerIRC(ctx context.Context, opts Options, pa map[string]string) Provid
 	return row
 }
 
-func providerPushover(ctx context.Context, opts Options, pa map[string]string) ProviderRow {
-	row := providerRow("pushover", pa)
-	missing := missingEnv("ONIBI_PUSHOVER_TOKEN", "ONIBI_PUSHOVER_USER_KEY")
-	row.Configured = len(missing) == 0
-	if !row.Configured {
-		row.Detail = "missing " + strings.Join(missing, ", ")
-		row.Fix = []string{"set ONIBI_PUSHOVER_TOKEN and ONIBI_PUSHOVER_USER_KEY", "run onibi up --transport=pushover"}
-		return row
-	}
-	row.Detail = "env present; set ONIBI_DOCTOR_LIVE=1 for send probe"
-	if opts.Offline || !doctorLiveProbe() {
-		return row
-	}
-	withProviderTimeout(ctx, func(ctx context.Context) {
-		_, err := newPushoverClient(os.Getenv("ONIBI_PUSHOVER_TOKEN"), os.Getenv("ONIBI_PUSHOVER_USER_KEY")).Send(ctx, pushover.MessageOptions{Title: "Onibi doctor", Message: "onibi doctor pushover probe", Priority: -2})
-		if err != nil {
-			row.Reachable = ReachableNo
-			row.Detail = "send probe failed: " + err.Error()
-			return
-		}
-		row.Reachable = ReachableYes
-		row.Detail = "send probe ok"
-	})
-	return row
-}
-
 func providerSignal(ctx context.Context, opts Options, pa map[string]string) ProviderRow {
 	row := providerRow("signal", pa)
 	missing := missingEnv("ONIBI_SIGNAL_RPC_URL", "ONIBI_SIGNAL_ACCOUNT")
@@ -363,7 +332,7 @@ func providerAudit(ctx context.Context, paths config.Paths) map[string]string {
 	}
 	out := map[string]string{}
 	for _, e := range entries {
-		for _, name := range []string{"telegram", "matrix", "slack", "discord", "zulip", "irc", "signal", "pushover"} {
+		for _, name := range []string{"telegram", "matrix", "slack", "discord", "zulip", "irc", "signal"} {
 			if providerAuditMatch(name, e) {
 				out[name] = e.TS.UTC().Format(time.RFC3339)
 			}
@@ -385,8 +354,6 @@ func providerAuditMatch(name string, e store.AuditEntry) bool {
 	switch name {
 	case "telegram":
 		return (action == "approval.decided" && e.DecidedByChat != 0) || strings.Contains(action, "telegram") || strings.Contains(detail, "telegram")
-	case "pushover":
-		return strings.Contains(action, "notify.pushover")
 	default:
 		return strings.Contains(action, name) || strings.Contains(detail, "provider="+name)
 	}

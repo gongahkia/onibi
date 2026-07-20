@@ -12,7 +12,6 @@ import (
 	"github.com/gongahkia/onibi/internal/discord"
 	"github.com/gongahkia/onibi/internal/irc"
 	"github.com/gongahkia/onibi/internal/matrix"
-	"github.com/gongahkia/onibi/internal/pushover"
 	signalapi "github.com/gongahkia/onibi/internal/signal"
 	"github.com/gongahkia/onibi/internal/slack"
 	"github.com/gongahkia/onibi/internal/zulip"
@@ -115,17 +114,6 @@ func (d *Daemon) startSignalBridge(ctx context.Context, wg *sync.WaitGroup, canc
 			d.Log.Error("signal bridge", slog.Any("err", err))
 			cancel()
 		}
-	}()
-}
-
-func (d *Daemon) startPushoverNotifier(ctx context.Context, wg *sync.WaitGroup) {
-	if strings.TrimSpace(d.Pushover.Token) == "" {
-		return
-	}
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		d.runPushoverNotifier(ctx, pushover.New(d.Pushover.Token, d.Pushover.UserKey))
 	}()
 }
 
