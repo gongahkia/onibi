@@ -70,6 +70,7 @@ var adapterContracts = map[string]AdapterContract{
 	capability.AgentClaude: certifiedContract(capability.AgentClaude, true, false, "run claude and inspect /hooks"),
 	capability.AgentCodex:  certifiedContract(capability.AgentCodex, false, true, "run codex, review hooks, and trust matching commands"),
 	capability.AgentPi:     certifiedContract(capability.AgentPi, true, false, "run /reload"),
+	"copilot":              copilotContract(),
 	"gemini":               geminiContract(),
 	"opencode":             openCodeContract(),
 }
@@ -182,6 +183,43 @@ func geminiContract() AdapterContract {
 		},
 		Recovery: RecoveryContract{
 			HookReloadInstruction: "restart Gemini CLI and inspect the configured hooks",
+			PendingApproval:       "no hook-level waiter recovery claim; use the persisted Onibi approval state",
+		},
+		Audit: AuditContract{},
+	}
+}
+
+func copilotContract() AdapterContract {
+	return AdapterContract{
+		Version:                CertifiedContractVersion,
+		Agent:                  "copilot",
+		Certified:              false,
+		MinimumProviderVersion: "1.0.54",
+		Installation: InstallationContract{
+			Managed:              true,
+			Idempotent:           true,
+			IntegrityVerified:    true,
+			OriginalConfigBacked: true,
+		},
+		Approval: ApprovalContract{
+			Delivery:          "same_uid_unix_socket",
+			BlocksTool:        true,
+			Approve:           DecisionAllow,
+			Deny:              DecisionDeny,
+			Edit:              DecisionAllowWithUpdated,
+			Expire:            DecisionDeny,
+			DaemonUnavailable: DecisionAllow,
+			RequestTimeout:    DecisionAllow,
+		},
+		Lifecycle: LifecycleContract{
+			SessionStart:    true,
+			Activity:        true,
+			ApprovalRequest: true,
+			TurnComplete:    true,
+			SessionExit:     true,
+		},
+		Recovery: RecoveryContract{
+			HookReloadInstruction: "restart Copilot CLI so hook configurations are loaded",
 			PendingApproval:       "no hook-level waiter recovery claim; use the persisted Onibi approval state",
 		},
 		Audit: AuditContract{},

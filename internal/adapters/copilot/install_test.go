@@ -57,6 +57,51 @@ func TestInstallWritesCopilotSchemaCleanHooks(t *testing.T) {
 	}
 }
 
+func TestCopilotInstallAndUninstallKeepOneOriginalBackup(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "onibi.json")
+	notify := filepath.Join(dir, "onibi-notify")
+	t.Setenv("ONIBI_COPILOT_HOOK", path)
+	if err := os.WriteFile(path, []byte(`{"version":1,"hooks":{}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(notify, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	db, err := store.Open(filepath.Join(dir, "test.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	ctx := t.Context()
+	if err := Install(ctx, db, notify); err != nil {
+		t.Fatal(err)
+	}
+	if err := Install(ctx, db, notify); err != nil {
+		t.Fatal(err)
+	}
+	var backups int
+	if err := db.SQL().QueryRowContext(ctx, "SELECT count(*) FROM hook_backups WHERE agent = ? AND path = ?", Agent, path).Scan(&backups); err != nil {
+		t.Fatal(err)
+	}
+	if backups != 1 {
+		t.Fatalf("backups after idempotent install=%d", backups)
+	}
+	info := Status(ctx, db)
+	if !info.Installed || !info.Managed || info.Tampered || info.MinimumProviderVersion != MinimumProviderVersion {
+		t.Fatalf("status=%+v", info)
+	}
+	if err := Uninstall(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SQL().QueryRowContext(ctx, "SELECT count(*) FROM hook_backups WHERE agent = ? AND path = ?", Agent, path).Scan(&backups); err != nil {
+		t.Fatal(err)
+	}
+	if backups != 1 {
+		t.Fatalf("backups after uninstall=%d", backups)
+	}
+}
+
 func TestAdapterCopilotDenyBlocksTool(t *testing.T) {
 	notify := denytest.DenyNotify(t)
 	target := denytest.Target(t, Agent)

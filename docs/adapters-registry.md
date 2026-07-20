@@ -22,7 +22,7 @@ onibi adapters add ./adapter.toml
 | Amp | `tool.call` plugin approval | Yes | `TestAdapterAmpDenyBlocksTool` | Deny returns `reject-and-continue`; edits return `modify` with object input. No `session.end` event exists; daemon-unavailable and timeout return `allow`. Certification remains pending authenticated live evidence and a provider-version floor. |
 | Claude | `PreToolUse` command hook | Yes | `TestAdapterClaudeDenyBlocksTool` | Deny exits non-zero with `permissionDecision=deny`. |
 | Codex | `PreToolUse` command hook | Yes | `TestAdapterCodexDenyBlocksTool` | Deny exits non-zero with `permissionDecision=deny`. |
-| Copilot | `preToolUse` command hook | Yes | `TestAdapterCopilotDenyBlocksTool` | Deny emits provider JSON `permissionDecision=deny`; edited input maps to `modifiedArgs`. Copilot timeout and Onibi daemon/socket unavailability return no decision, while a missing notifier command fails closed; certification remains pending authenticated live evidence and a provider-version floor. |
+| Copilot | `preToolUse` command hook | Yes | `TestAdapterCopilotDenyBlocksTool` | Deny emits provider JSON `permissionDecision=deny`; edit, expiry, daemon-unavailable, timeout, lifecycle, disabled-hook, and drift behavior have provider-shaped local fixtures. `onibi adapters --json` exposes its non-certified contract v1 and documented Copilot CLI `1.0.54` floor. A missing notifier command fails closed; authenticated live evidence remains required. |
 | Gemini | `BeforeTool` command hook | Yes | `TestAdapterGeminiDenyBlocksTool` | Deny emits provider JSON `decision=deny`; approve, expiry, edit, timeout, daemon-unavailable, lifecycle, disabled-hook, install drift, and millisecond timeout behavior have provider-shaped local fixtures. `onibi adapters --json` exposes its non-certified contract v1 and documented Gemini CLI `0.43.0` floor. Authenticated live evidence is still required. |
 | OpenCode | `tool.execute.before` plugin hook | Yes | `TestAdapterOpenCodeDenyBlocksTool` | Deny throws before fixture write; approve, expiry, edit, timeout, daemon-unavailable, lifecycle, global/project scope, install drift, and reload instruction have provider-shaped local fixtures. `onibi adapters --json` exposes its non-certified contract v1 and documented OpenCode `1.18.3` floor. Authenticated live evidence is still required. |
 | Pi | `tool_call` extension hook | Yes | `TestAdapterPiDenyBlocksTool` | Deny returns `{ block: true }`; fixture writes only if the hook allows. |
@@ -33,6 +33,8 @@ Goose documents [the native hook system and `PreToolUse` denial](https://github.
 OpenCode's [plugin documentation](https://opencode.ai/docs/plugins/) specifies global/project plugin discovery and mutable `tool.execute.before`; [v1.18.3](https://github.com/anomalyco/opencode/releases/tag/v1.18.3) is the reported documentation floor. It is not authenticated live evidence.
 
 Gemini CLI's [hook reference](https://geminicli.com/docs/hooks/reference/) specifies `BeforeTool` deny/edit output and millisecond timeouts; [v0.43.0](https://github.com/google-gemini/gemini-cli/releases/tag/v0.43.0) is the reported documentation floor. It is not authenticated live evidence.
+
+GitHub's [Copilot hook reference](https://docs.github.com/en/copilot/reference/hooks-reference) specifies `preToolUse` decisions, timeout behavior, and `disableAllHooks`; [v1.0.54](https://github.com/github/copilot-cli/releases/tag/v1.0.54) is the reported documentation floor. It is not authenticated live evidence.
 
 ## Community Adapters
 

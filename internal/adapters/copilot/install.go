@@ -13,7 +13,10 @@ import (
 	"github.com/gongahkia/onibi/internal/store"
 )
 
-const Agent = "copilot"
+const (
+	Agent                  = "copilot"
+	MinimumProviderVersion = "1.0.54"
+)
 
 func init() {
 	catalog.MustRegister(catalog.BuiltinAgentManifest(Agent, catalog.Adapter{
@@ -79,6 +82,9 @@ func Install(ctx context.Context, db *store.DB, notifyBin string) error {
 	if err != nil {
 		return err
 	}
+	if err := VerifyHash(ctx, db); err == nil && installedVersion(path) == common.IntegrationVersion {
+		return nil
+	}
 	if _, err := common.BackupOriginal(ctx, db, Agent, path); err != nil {
 		return err
 	}
@@ -105,8 +111,10 @@ func Uninstall(ctx context.Context, db *store.DB) error {
 	if err != nil {
 		return err
 	}
-	if _, err := common.BackupOriginal(ctx, db, Agent, path); err != nil {
-		return err
+	if err := VerifyHash(ctx, db); err != nil {
+		if _, err := common.BackupOriginal(ctx, db, Agent, path); err != nil {
+			return err
+		}
 	}
 	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
@@ -117,9 +125,9 @@ func Uninstall(ctx context.Context, db *store.DB) error {
 func Status(ctx context.Context, db *store.DB) common.Info {
 	path, err := HooksPath()
 	if err != nil {
-		return common.Info{Name: Agent, Support: "blocking", BundledVersion: common.IntegrationVersion, Message: err.Error()}
+		return common.Info{Name: Agent, Support: "blocking", BundledVersion: common.IntegrationVersion, MinimumProviderVersion: MinimumProviderVersion, Message: err.Error()}
 	}
-	info := common.Info{Name: Agent, Support: "blocking", BundledVersion: common.IntegrationVersion, InstallPath: path}
+	info := common.Info{Name: Agent, Support: "blocking", BundledVersion: common.IntegrationVersion, MinimumProviderVersion: MinimumProviderVersion, InstallPath: path}
 	body, err := ManagedBody(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
