@@ -19,7 +19,7 @@ onibi adapters add ./adapter.toml
 
 | Adapter | Hook surface | Verified deny blocks tool | Test | Notes |
 |---|---|---:|---|---|
-| Amp | `tool.call` plugin approval | Yes | `TestAdapterAmpDenyBlocksTool` | Deny returns `reject-and-continue`; fixture writes only if the hook allows. |
+| Amp | `tool.call` plugin approval | Yes | `TestAdapterAmpDenyBlocksTool` | Deny returns `reject-and-continue`; edits return `modify` with object input. No `session.end` event exists; daemon-unavailable and timeout return `allow`. Certification remains pending authenticated live evidence and a provider-version floor. |
 | Claude | `PreToolUse` command hook | Yes | `TestAdapterClaudeDenyBlocksTool` | Deny exits non-zero with `permissionDecision=deny`. |
 | Codex | `PreToolUse` command hook | Yes | `TestAdapterCodexDenyBlocksTool` | Deny exits non-zero with `permissionDecision=deny`. |
 | Copilot | `preToolUse` command hook | Yes | `TestAdapterCopilotDenyBlocksTool` | Deny emits provider JSON `permissionDecision=deny`; edited input maps to `modifiedArgs`. Copilot timeout and Onibi daemon/socket unavailability return no decision, while a missing notifier command fails closed; certification remains pending authenticated live evidence and a provider-version floor. |

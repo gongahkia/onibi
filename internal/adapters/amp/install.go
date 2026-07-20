@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/gongahkia/onibi/internal/adapters/catalog"
@@ -23,10 +24,15 @@ func init() {
 		Status:            Status,
 		Verify:            VerifyHash,
 		Adopt:             Adopt,
+		ExpectedHooks:     ExpectedHooks,
+		ObservedHooks:     ObservedHooks,
 		TrustInstructions: TrustInstructions,
+		BackupPath:        BackupPath,
 		DetectPresence:    DetectPresence,
 	}, map[string]string{"PreToolUse": "*"}))
 }
+
+var pluginEvents = []string{"session.start", "agent.start", "tool.call", "tool.result", "agent.end"}
 
 func PluginPath() (string, error) {
 	return common.HomePath("ONIBI_AMP_PLUGIN", ".config", "amp", "plugins", "onibi.ts")
@@ -137,6 +143,53 @@ func Adopt(ctx context.Context, db *store.DB) error {
 	return common.Record(ctx, db, Agent, path, body)
 }
 
+func ExpectedHooks(notifyBin string) ([]common.ExpectedHook, error) {
+	out := make([]common.ExpectedHook, 0, len(pluginEvents))
+	for _, event := range pluginEvents {
+		out = append(out, common.ExpectedHook{Event: event, Type: "plugin", Command: notifyBin})
+	}
+	return out, nil
+}
+
+func ObservedHooks() ([]common.ObservedHook, error) {
+	path, err := PluginPath()
+	if err != nil {
+		return nil, err
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	src := string(body)
+	managed := strings.Contains(src, `const ONIBI_AGENT = "amp";`)
+	notify, notifyOK := pluginNotify(src)
+	if !strings.Contains(src, "export default function (amp: PluginAPI)") {
+		return []common.ObservedHook{{Event: "*", Managed: managed, Problems: []string{"schema-invalid: Amp plugin export missing"}}}, nil
+	}
+	var out []common.ObservedHook
+	if !notifyOK {
+		out = append(out, common.ObservedHook{Event: "*", Managed: managed, Problems: []string{"schema-invalid: ONIBI_NOTIFY string constant missing"}})
+	}
+	for _, event := range pluginEvents {
+		if strings.Contains(src, pluginHookSignature(event)) {
+			out = append(out, common.ObservedHook{Event: event, Type: "plugin", Command: notify, Managed: managed})
+		}
+	}
+	return out, nil
+}
+
+func BackupPath(ctx context.Context, db *store.DB) string {
+	path, err := PluginPath()
+	if err != nil {
+		return ""
+	}
+	backup, ok, err := common.LatestBackup(ctx, db, Agent, path)
+	if err != nil || !ok {
+		return ""
+	}
+	return backup.BackupPath
+}
+
 func TrustInstructions() []string {
 	return []string{
 		"Amp next step: run plugins: reload from the command palette, then plugins: list to confirm Onibi is loaded.",
@@ -153,6 +206,30 @@ func installedVersion(src string) string {
 	return ""
 }
 
+func pluginNotify(src string) (string, bool) {
+	for _, line := range strings.Split(src, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "const ONIBI_NOTIFY = ") {
+			continue
+		}
+		value := strings.TrimSuffix(strings.TrimPrefix(line, "const ONIBI_NOTIFY = "), ";")
+		path, err := strconv.Unquote(value)
+		return path, err == nil && path != ""
+	}
+	return "", false
+}
+
+func pluginHookSignature(event string) string {
+	switch event {
+	case "session.start", "agent.start", "tool.result", "agent.end":
+		return `amp.on("` + event + `", async (event: any) => emit(`
+	case "tool.call":
+		return `amp.on("tool.call", async (event: any) => {`
+	default:
+		return ""
+	}
+}
+
 func pluginSource(notifyBin string) string {
 	return fmt.Sprintf(`import type { PluginAPI } from "@ampcode/plugin";
 
@@ -164,6 +241,15 @@ async function runOnibi(args: string[], payload: any) {
   const env = (globalThis as any).process?.env ?? {};
   if (!env.ONIBI_SESSION_ID) return { code: 0, stdout: "" };
   const body = JSON.stringify(payload ?? {});
+  const bun = (globalThis as any).Bun;
+  if (bun?.spawn) {
+    const p = bun.spawn([ONIBI_NOTIFY, ...args], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+    p.stdin.write(body);
+    p.stdin.end();
+    const stdout = await new Response(p.stdout).text();
+    const code = await p.exited;
+    return { code, stdout };
+  }
   const { spawnSync } = await import("node:child_process");
   const r = spawnSync(ONIBI_NOTIFY, args, { input: body, encoding: "utf8" });
   return { code: r.status ?? 0, stdout: r.stdout ?? "" };
@@ -176,7 +262,8 @@ async function emit(type: string, event: any) {
 async function approval(event: any) {
   const payload = {
     hook_event_name: "tool.call",
-    session_id: event?.sessionId ?? event?.session_id ?? event?.session?.id,
+    session_id: event?.thread?.id ?? event?.sessionId ?? event?.session_id ?? event?.session?.id,
+    provider_session_id: event?.thread?.id ?? event?.sessionId ?? event?.session_id ?? event?.session?.id,
     cwd: event?.cwd ?? event?.directory,
     tool_name: event?.toolName ?? event?.tool_name ?? event?.tool ?? event?.name ?? "tool.call",
     tool_input: event?.input ?? event?.args ?? {},

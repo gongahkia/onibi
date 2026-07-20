@@ -332,6 +332,14 @@ func TestHooksShowAmpJSONReportsPluginPathAndReload(t *testing.T) {
 	if report.BackupPath == "" {
 		t.Fatal("backup path missing")
 	}
+	if len(report.Expected) != 5 || len(report.Observed) != 5 {
+		t.Fatalf("hooks expected=%+v observed=%+v", report.Expected, report.Observed)
+	}
+	for _, event := range []string{"session.start", "agent.start", "tool.call", "tool.result", "agent.end"} {
+		if !hasDrift(report.Drift, event, "ok", "") {
+			t.Fatalf("missing ok drift for %s: %+v", event, report.Drift)
+		}
+	}
 	trust := strings.Join(report.TrustInstructions, "\n")
 	for _, want := range []string{"plugins: reload", "plugins: list"} {
 		if !strings.Contains(trust, want) {

@@ -121,7 +121,7 @@ The in-tree adapters remain the reference implementations for provider-specific 
 
 | Adapter | Kind | Reference behavior |
 |---|---|---|
-| `amp` | `agent` | Installs an Amp TypeScript plugin and reports blocking tool calls. |
+| `amp` | `agent` | Installs an Amp TypeScript plugin with native `tool.call` approval handling. It is non-certified pending authenticated live evidence and a provider-version floor. |
 | `claude` | `agent` | Installs Claude Code lifecycle hooks, including blocking `PreToolUse`. |
 | `codex` | `agent` | Installs Codex hook JSON for lifecycle and blocking tool approvals. |
 | `copilot` | `agent` | Installs GitHub Copilot CLI lifecycle and `preToolUse` approval hooks. It is non-certified pending authenticated live evidence and a provider-version floor. |

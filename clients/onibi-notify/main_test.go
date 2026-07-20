@@ -41,6 +41,10 @@ func TestParseHookPayloadSnakeAndCamel(t *testing.T) {
 	if p.CWD != "/tmp/goose" || p.Tool != "developer__shell" || !strings.Contains(p.InputJSON, "pwd") {
 		t.Fatalf("bad goose payload: %+v", p)
 	}
+	p = parseHookPayload([]byte(`{"event":"session.start","thread":{"id":"T-amp"}}`))
+	if p.ProviderSessionID != "T-amp" {
+		t.Fatalf("Amp provider session = %q", p.ProviderSessionID)
+	}
 }
 
 func TestParseHookPayloadProviderTargets(t *testing.T) {
