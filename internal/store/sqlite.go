@@ -262,14 +262,6 @@ CREATE TABLE IF NOT EXISTS transcript_turns (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_transcript_turns_session_turn ON transcript_turns(session_id, turn_index);
 CREATE INDEX IF NOT EXISTS idx_transcript_turns_ts ON transcript_turns(ts);
 
-CREATE TABLE IF NOT EXISTS workspaces (
-  name        TEXT PRIMARY KEY,
-  path_enc    BLOB NOT NULL,
-  ssh_key_ref TEXT,
-  last_seen   INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_workspaces_last_seen ON workspaces(last_seen);
-
 CREATE TABLE IF NOT EXISTS push_subscriptions (
   endpoint_hash TEXT PRIMARY KEY,
   endpoint_enc  BLOB NOT NULL,

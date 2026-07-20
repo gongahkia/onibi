@@ -212,7 +212,7 @@ func TestRemovedStateIsNotCreatedAndLegacyTablesAreIgnored(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	for _, table := range []string{"fleet_hosts", "fleet_enrollment_challenges", "fleet_key_rotation_challenges", "control_commands", "profiles"} {
+	for _, table := range []string{"fleet_hosts", "fleet_enrollment_challenges", "fleet_key_rotation_challenges", "control_commands", "profiles", "workspaces"} {
 		var count int
 		if err := db.sql.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?`, table).Scan(&count); err != nil {
 			t.Fatal(err)
@@ -237,6 +237,8 @@ CREATE TABLE fleet_hosts (id TEXT PRIMARY KEY);
 INSERT INTO fleet_hosts(id) VALUES ('legacy-host');
 CREATE TABLE profiles (name TEXT PRIMARY KEY);
 INSERT INTO profiles(name) VALUES ('legacy-profile');
+CREATE TABLE workspaces (name TEXT PRIMARY KEY);
+INSERT INTO workspaces(name) VALUES ('legacy-workspace');
 `); err != nil {
 		t.Fatal(err)
 	}
@@ -259,6 +261,10 @@ INSERT INTO profiles(name) VALUES ('legacy-profile');
 	var profile string
 	if err := db.sql.QueryRowContext(ctx, `SELECT name FROM profiles`).Scan(&profile); err != nil || profile != "legacy-profile" {
 		t.Fatalf("legacy profile table: name=%q err=%v", profile, err)
+	}
+	var workspace string
+	if err := db.sql.QueryRowContext(ctx, `SELECT name FROM workspaces`).Scan(&workspace); err != nil || workspace != "legacy-workspace" {
+		t.Fatalf("legacy workspace table: name=%q err=%v", workspace, err)
 	}
 }
 
@@ -406,23 +412,6 @@ func TestSnapshotSchemaLoadsOnFreshDB(t *testing.T) {
 	var version int
 	if err := db.sql.QueryRowContext(context.Background(), `SELECT version FROM schema_version WHERE version = 8`).Scan(&version); err != nil {
 		t.Fatalf("schema version 8 missing: %v", err)
-	}
-}
-
-func TestWorkspaceSchemaLoadsOnFreshDB(t *testing.T) {
-	db := openTemp(t)
-	workspaceCols := tableColumns(t, db, "workspaces")
-	for _, want := range []string{"name", "path_enc", "ssh_key_ref", "last_seen"} {
-		if !slices.Contains(workspaceCols, want) {
-			t.Fatalf("workspaces missing %q: %#v", want, workspaceCols)
-		}
-	}
-	if typ := tableColumnType(t, db, "workspaces", "path_enc"); typ != "BLOB" {
-		t.Fatalf("workspaces.path_enc type = %q, want BLOB", typ)
-	}
-	var version int
-	if err := db.sql.QueryRowContext(context.Background(), `SELECT version FROM schema_version WHERE version = 9`).Scan(&version); err != nil {
-		t.Fatalf("schema version 9 missing: %v", err)
 	}
 }
 

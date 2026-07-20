@@ -20,7 +20,7 @@ func TestMCPCommandIsAbsent(t *testing.T) {
 }
 
 func TestProfileSurfacesAreAbsent(t *testing.T) {
-	for _, args := range [][]string{{"profile"}, {"up", "legacy"}} {
+	for _, args := range [][]string{{"profile"}, {"up", "legacy"}, {"workspace"}, {"project"}} {
 		_, _, err := executeRootAllowError(t, append(args, "--color", "never")...)
 		if err == nil || !strings.Contains(err.Error(), "unknown command") {
 			t.Fatalf("args=%v err=%v", args, err)

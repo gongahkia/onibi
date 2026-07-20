@@ -119,7 +119,11 @@ func runUpDetach(cmd *cobra.Command, paths config.Paths) error {
 	if err := installServiceRun(cmd, nil); err != nil {
 		return err
 	}
-	pid, ok, err := upServicePID(nonNilContext(cmd.Context()))
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	pid, ok, err := upServicePID(ctx)
 	if err != nil {
 		return err
 	}

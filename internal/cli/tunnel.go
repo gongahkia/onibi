@@ -70,7 +70,11 @@ func runTunnel(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("transport %q does not support ad-hoc web tunnels", cfg.Transport.Mode)
 	}
 	logger := logging.New(cmd.ErrOrStderr(), commandLogLevel(cmd)).With("component", "tunnel")
-	ctx, stop := signal.NotifyContext(nonNilContext(cmd.Context()), syscall.SIGINT, syscall.SIGTERM)
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	lanHosts := web.LANHosts()
 	preferredHost := web.PreferredHost()

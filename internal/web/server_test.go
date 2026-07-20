@@ -469,7 +469,7 @@ func TestSessionsEndpointReturnsResolverRows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req := httptest.NewRequest(http.MethodGet, "/sessions?include=local,remote&workspace=legacy", nil)
+	req := httptest.NewRequest(http.MethodGet, "/sessions", nil)
 	req.AddCookie(rr.Result().Cookies()[0])
 	w := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(w, req)
