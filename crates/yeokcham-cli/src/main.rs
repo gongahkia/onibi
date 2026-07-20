@@ -36,7 +36,10 @@ use yeokcham_protocol::{
     QR_VERIFICATION_PAYLOAD_BYTES, SAFETY_NUMBER_FINGERPRINT_BYTES,
     TOR_ONION_SERVICE_PUBLIC_KEY_BYTES, TorMaildropProfileConfig,
 };
-use yeokcham_sdk::{SdkClient, SdkClientBuilder};
+use yeokcham_sdk::{
+    SdkClient, SdkClientBuilder, SdkDeliveryProfile, SdkDeliveryProfilePolicy,
+    SdkDirectIpDisclosureAcknowledgement, SdkLocalMeshPolicy, SdkLocalMeshTransportKind,
+};
 
 use release_manifest::{ReleaseArtifact, SignedReleaseArtifactManifest};
 
@@ -1281,6 +1284,7 @@ struct TuiDashboard {
     screen: TuiScreen,
     inbox_selection: usize,
     runtime_running: bool,
+    route_policy: TuiRoutePolicy,
     contact_input: Option<TuiContactInput>,
     notice: Option<&'static str>,
     last_error: Option<&'static str>,
@@ -1292,6 +1296,67 @@ enum TuiScreen {
     Inbox,
     Attachments,
     Status,
+    RoutePolicy,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TuiRouteSelection {
+    Direct,
+    TorMaildrop,
+    LocalMesh(SdkLocalMeshTransportKind),
+}
+
+impl TuiRouteSelection {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Direct => "direct",
+            Self::TorMaildrop => "tor_maildrop",
+            Self::LocalMesh(SdkLocalMeshTransportKind::Lan) => "local_mesh_lan",
+            Self::LocalMesh(SdkLocalMeshTransportKind::WifiHotspot) => "local_mesh_wifi_hotspot",
+            Self::LocalMesh(SdkLocalMeshTransportKind::WifiDirect) => "local_mesh_wifi_direct",
+            Self::LocalMesh(SdkLocalMeshTransportKind::Bluetooth) => "local_mesh_bluetooth",
+        }
+    }
+}
+
+struct TuiRoutePolicy {
+    selection: Option<TuiRouteSelection>,
+    profile: Option<SdkDeliveryProfile>,
+    direct_acknowledgement_pending: bool,
+}
+
+impl TuiRoutePolicy {
+    const fn new() -> Self {
+        Self {
+            selection: None,
+            profile: None,
+            direct_acknowledgement_pending: false,
+        }
+    }
+
+    fn select(&mut self, selection: TuiRouteSelection) -> Result<(), ()> {
+        let profile = match selection {
+            TuiRouteSelection::Direct => SdkDeliveryProfilePolicy::new(true, false, None)
+                .map_err(|_| ())?
+                .select_direct(SdkDirectIpDisclosureAcknowledgement::acknowledge())
+                .map_err(|_| ())?,
+            TuiRouteSelection::TorMaildrop => SdkDeliveryProfilePolicy::new(false, true, None)
+                .map_err(|_| ())?
+                .select_tor_maildrop()
+                .map_err(|_| ())?,
+            TuiRouteSelection::LocalMesh(transport) => {
+                let local_mesh = SdkLocalMeshPolicy::new(&[transport]).map_err(|_| ())?;
+                SdkDeliveryProfilePolicy::new(false, false, Some(local_mesh))
+                    .map_err(|_| ())?
+                    .select_local_mesh(transport)
+                    .map_err(|_| ())?
+            }
+        };
+        self.selection = Some(selection);
+        self.profile = Some(profile);
+        self.direct_acknowledgement_pending = false;
+        Ok(())
+    }
 }
 
 impl TuiDashboard {
@@ -1301,6 +1366,7 @@ impl TuiDashboard {
             screen: TuiScreen::Overview,
             inbox_selection: 0,
             runtime_running,
+            route_policy: TuiRoutePolicy::new(),
             contact_input: None,
             notice: None,
             last_error: None,
@@ -1371,6 +1437,8 @@ fn dashboard_event_loop(
                     KeyCode::Esc | KeyCode::Char('o') => dashboard.screen = TuiScreen::Overview,
                     _ => {}
                 }
+            } else if dashboard.screen == TuiScreen::RoutePolicy {
+                handle_tui_route_policy_key(dashboard, key.code);
             } else {
                 match key.code {
                     KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
@@ -1385,6 +1453,10 @@ fn dashboard_event_loop(
                     }
                     KeyCode::Char('o') => {
                         dashboard.screen = TuiScreen::Status;
+                        dashboard.notice = None;
+                    }
+                    KeyCode::Char('p') => {
+                        dashboard.screen = TuiScreen::RoutePolicy;
                         dashboard.notice = None;
                     }
                     KeyCode::Char('i') => {
@@ -1407,6 +1479,67 @@ fn dashboard_event_loop(
                 }
             }
         }
+    }
+}
+
+fn handle_tui_route_policy_key(dashboard: &mut TuiDashboard, key: KeyCode) {
+    if dashboard.route_policy.direct_acknowledgement_pending {
+        match key {
+            KeyCode::Char('y') => {
+                if dashboard
+                    .route_policy
+                    .select(TuiRouteSelection::Direct)
+                    .is_ok()
+                {
+                    dashboard.notice = Some("route selected");
+                    dashboard.last_error = None;
+                } else {
+                    dashboard.notice = None;
+                    dashboard.last_error = Some("route selection failed");
+                }
+            }
+            KeyCode::Char('n') | KeyCode::Esc => {
+                dashboard.route_policy.direct_acknowledgement_pending = false;
+                dashboard.notice = Some("direct route not selected");
+                dashboard.last_error = None;
+            }
+            _ => {}
+        }
+        return;
+    }
+    match key {
+        KeyCode::Char('q' | 'p') | KeyCode::Esc => {
+            dashboard.screen = TuiScreen::Overview;
+        }
+        KeyCode::Char('d') => dashboard.route_policy.direct_acknowledgement_pending = true,
+        KeyCode::Char('t') => select_tui_route(dashboard, TuiRouteSelection::TorMaildrop),
+        KeyCode::Char('l') => select_tui_route(
+            dashboard,
+            TuiRouteSelection::LocalMesh(SdkLocalMeshTransportKind::Lan),
+        ),
+        KeyCode::Char('h') => select_tui_route(
+            dashboard,
+            TuiRouteSelection::LocalMesh(SdkLocalMeshTransportKind::WifiHotspot),
+        ),
+        KeyCode::Char('w') => select_tui_route(
+            dashboard,
+            TuiRouteSelection::LocalMesh(SdkLocalMeshTransportKind::WifiDirect),
+        ),
+        KeyCode::Char('b') => select_tui_route(
+            dashboard,
+            TuiRouteSelection::LocalMesh(SdkLocalMeshTransportKind::Bluetooth),
+        ),
+        _ => {}
+    }
+}
+
+fn select_tui_route(dashboard: &mut TuiDashboard, selection: TuiRouteSelection) {
+    if dashboard.route_policy.select(selection).is_ok() {
+        dashboard.notice = Some("route selected");
+        dashboard.last_error = None;
+    } else {
+        dashboard.notice = None;
+        dashboard.last_error = Some("route selection failed");
     }
 }
 
@@ -1546,6 +1679,9 @@ fn render_tui_dashboard(output: &mut impl Write, dashboard: &TuiDashboard) -> st
     if dashboard.screen == TuiScreen::Status {
         return render_tui_status(output, dashboard);
     }
+    if dashboard.screen == TuiScreen::RoutePolicy {
+        return render_tui_route_policy(output, dashboard);
+    }
     queue!(
         output,
         MoveTo(0, 0),
@@ -1562,12 +1698,51 @@ fn render_tui_dashboard(output: &mut impl Write, dashboard: &TuiDashboard) -> st
         queue!(
             output,
             Print(
-                "a: attachments; b: inbox; o: status; i: import invitation; r: verify QR; s: verify safety number; q: exit.\n"
+                "a: attachments; b: inbox; o: status; p: route policy; i: import invitation; r: verify QR; s: verify safety number; q: exit.\n"
             )
         )?;
     }
     if let Some(notice) = dashboard.notice {
         queue!(output, Print(format!("{notice}\n")))?;
+    }
+    output.flush()
+}
+
+fn render_tui_route_policy(
+    output: &mut impl Write,
+    dashboard: &TuiDashboard,
+) -> std::io::Result<()> {
+    queue!(
+        output,
+        MoveTo(0, 0),
+        Clear(ClearType::All),
+        Print("Route policy:\n"),
+        Print(format!(
+            "selected={}\n",
+            dashboard
+                .route_policy
+                .selection
+                .map_or("none", TuiRouteSelection::label)
+        )),
+        Print("d: direct (requires IP-disclosure acknowledgement); t: Tor maildrop.\n"),
+        Print("l: LAN; h: Wi-Fi hotspot; w: Wi-Fi Direct; b: Bluetooth.\n"),
+        Print("Every route change is explicit; no automatic route replacement occurs.\n")
+    )?;
+    if dashboard.route_policy.direct_acknowledgement_pending {
+        queue!(
+            output,
+            Print(
+                "Direct delivery may disclose your IP address. Press y to acknowledge or n/Esc to cancel.\n"
+            )
+        )?;
+    } else {
+        queue!(output, Print("p or Esc returns; q returns to overview.\n"))?;
+    }
+    if let Some(notice) = dashboard.notice {
+        queue!(output, Print(format!("{notice}\n")))?;
+    }
+    if let Some(error) = dashboard.last_error {
+        queue!(output, Print(format!("error={error}\n")))?;
     }
     output.flush()
 }
@@ -1926,6 +2101,7 @@ fn is_canonical_hex(value: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use crossterm::event::KeyCode;
     use std::{
         collections::BTreeMap,
         convert::Infallible,
@@ -1942,13 +2118,14 @@ mod tests {
         IdentityPublicKey, KeystoreEntryName, MAX_TUI_CONTACT_INPUT_BYTES, MessageCommand,
         MessageExpiry, OsKeystore, RecipientInboxDeduplication, RelayProfileCommand,
         ReleaseManifestCommand, SenderOutbox, TorMaildropProfileConfig, TuiCommand,
-        TuiContactInput, TuiContactInputKind, TuiDashboard, TuiScreen, apply_contact_rotation,
-        contact_invitation_record, create_identity, dashboard_from_stores, decode_canonical_hex,
-        decode_envelope, hexadecimal, identity_record, import_contact_invitation,
-        initialize_tui_identity, inspect_contact_invitation, inspect_relay_profile,
-        load_attachment_transfers, load_identity, queue_attachment_submission, queue_message,
-        relay_profile_record, release_metadata, render_dashboard, render_tui_attachments,
-        render_tui_dashboard, render_tui_status, revoke_contact, sign_release_manifest,
+        TuiContactInput, TuiContactInputKind, TuiDashboard, TuiRouteSelection, TuiScreen,
+        apply_contact_rotation, contact_invitation_record, create_identity, dashboard_from_stores,
+        decode_canonical_hex, decode_envelope, handle_tui_route_policy_key, hexadecimal,
+        identity_record, import_contact_invitation, initialize_tui_identity,
+        inspect_contact_invitation, inspect_relay_profile, load_attachment_transfers,
+        load_identity, queue_attachment_submission, queue_message, relay_profile_record,
+        release_metadata, render_dashboard, render_tui_attachments, render_tui_dashboard,
+        render_tui_route_policy, render_tui_status, revoke_contact, sign_release_manifest,
         start_embedded_tui_client, submit_tui_contact_input_with_keystore, tui_safety_number_parts,
         validate_state_directory, verify_contact_qr, verify_contact_safety_number,
         verify_release_manifest,
@@ -1964,6 +2141,7 @@ mod tests {
         DeliveryAcknowledgement, EncryptedAttachmentChunk, IdentityRotation, QrVerificationPayload,
         SafetyNumberFingerprint,
     };
+    use yeokcham_sdk::{SdkDeliveryProfileKind, SdkLocalMeshTransportKind};
 
     const REVISION: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     static NEXT_TEST_STATE_DIRECTORY: AtomicU64 = AtomicU64::new(0);
@@ -2846,6 +3024,67 @@ mod tests {
         assert!(rendered.contains("embedded_runtime=running"));
         assert!(rendered.contains("last_error=contact update failed"));
         assert!(!rendered.contains("ciphertext"));
+    }
+
+    #[test]
+    fn tui_route_policy_requires_direct_acknowledgement_and_explicitly_changes_routes() {
+        let mut tui = TuiDashboard::new(dashboard_from_stores(None, None, None), true);
+        tui.screen = TuiScreen::RoutePolicy;
+
+        handle_tui_route_policy_key(&mut tui, KeyCode::Char('d'));
+        assert!(tui.route_policy.direct_acknowledgement_pending);
+        assert_eq!(tui.route_policy.selection, None);
+        handle_tui_route_policy_key(&mut tui, KeyCode::Char('t'));
+        assert_eq!(tui.route_policy.selection, None);
+        handle_tui_route_policy_key(&mut tui, KeyCode::Char('n'));
+        assert!(!tui.route_policy.direct_acknowledgement_pending);
+        assert_eq!(tui.route_policy.selection, None);
+
+        handle_tui_route_policy_key(&mut tui, KeyCode::Char('d'));
+        handle_tui_route_policy_key(&mut tui, KeyCode::Char('y'));
+        let direct = tui.route_policy.profile.unwrap();
+        assert_eq!(tui.route_policy.selection, Some(TuiRouteSelection::Direct));
+        assert_eq!(direct.kind(), SdkDeliveryProfileKind::Direct);
+        assert!(direct.has_direct_ip_disclosure_warning());
+
+        handle_tui_route_policy_key(&mut tui, KeyCode::Char('t'));
+        let tor = tui.route_policy.profile.unwrap();
+        assert_eq!(
+            tui.route_policy.selection,
+            Some(TuiRouteSelection::TorMaildrop)
+        );
+        assert_eq!(tor.kind(), SdkDeliveryProfileKind::TorMaildrop);
+        assert!(direct.validate_automatic_replacement(tor).is_err());
+    }
+
+    #[test]
+    fn tui_route_policy_selects_each_local_route_and_renders_only_policy_state() {
+        let mut tui = TuiDashboard::new(dashboard_from_stores(None, None, None), true);
+        tui.screen = TuiScreen::RoutePolicy;
+        let mut rendered = Vec::new();
+
+        render_tui_route_policy(&mut rendered, &tui).unwrap();
+        let rendered = String::from_utf8(rendered).unwrap();
+        assert!(rendered.contains("selected=none"));
+        assert!(rendered.contains("no automatic route replacement"));
+        assert!(!rendered.contains("ciphertext"));
+
+        for (key, transport) in [
+            ('l', SdkLocalMeshTransportKind::Lan),
+            ('h', SdkLocalMeshTransportKind::WifiHotspot),
+            ('w', SdkLocalMeshTransportKind::WifiDirect),
+            ('b', SdkLocalMeshTransportKind::Bluetooth),
+        ] {
+            handle_tui_route_policy_key(&mut tui, KeyCode::Char(key));
+            assert_eq!(
+                tui.route_policy.selection,
+                Some(TuiRouteSelection::LocalMesh(transport))
+            );
+            assert_eq!(
+                tui.route_policy.profile.unwrap().kind(),
+                SdkDeliveryProfileKind::LocalMesh
+            );
+        }
     }
 
     #[test]
