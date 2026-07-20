@@ -18,7 +18,6 @@ import (
 	"github.com/gongahkia/onibi/internal/pushover"
 	signalapi "github.com/gongahkia/onibi/internal/signal"
 	"github.com/gongahkia/onibi/internal/slack"
-	"github.com/gongahkia/onibi/internal/sms"
 	"github.com/gongahkia/onibi/internal/zulip"
 )
 
@@ -177,17 +176,6 @@ func (d *Daemon) startAPNsNotifier(ctx context.Context, wg *sync.WaitGroup) {
 	}()
 }
 
-func (d *Daemon) startSMSNotifier(ctx context.Context, wg *sync.WaitGroup) {
-	if !d.smsConfigured() {
-		return
-	}
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		d.runSMSNotifier(ctx, sms.New(d.SMS.AccountSID, d.SMS.AuthToken, d.SMS.From, d.SMS.MessagingServiceSID))
-	}()
-}
-
 func (d *Daemon) startWebPushNotifier(ctx context.Context, wg *sync.WaitGroup) {
 	if d.DB == nil {
 		return
@@ -205,12 +193,4 @@ func (d *Daemon) apnsConfigured() bool {
 		strings.TrimSpace(d.APNs.TeamID) != "" &&
 		strings.TrimSpace(d.APNs.Topic) != "" &&
 		strings.TrimSpace(d.APNs.DeviceToken) != ""
-}
-
-func (d *Daemon) smsConfigured() bool {
-	return strings.TrimSpace(d.SMS.AccountSID) != "" &&
-		strings.TrimSpace(d.SMS.AuthToken) != "" &&
-		strings.TrimSpace(d.SMS.To) != "" &&
-		strings.TrimSpace(d.SMS.ActionBaseURL) != "" &&
-		(strings.TrimSpace(d.SMS.From) != "" || strings.TrimSpace(d.SMS.MessagingServiceSID) != "")
 }

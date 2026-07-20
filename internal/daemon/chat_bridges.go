@@ -26,7 +26,6 @@ import (
 	"github.com/gongahkia/onibi/internal/pushover"
 	signalapi "github.com/gongahkia/onibi/internal/signal"
 	"github.com/gongahkia/onibi/internal/slack"
-	"github.com/gongahkia/onibi/internal/sms"
 	"github.com/gongahkia/onibi/internal/web"
 	"github.com/gongahkia/onibi/internal/zulip"
 )
@@ -2001,52 +2000,6 @@ func (d *Daemon) publishAPNsWithRetry(ctx context.Context, c *apns.Client, a *ap
 		}
 	}
 	return last, lastErr
-}
-
-func (d *Daemon) runSMSNotifier(ctx context.Context, c *sms.Client) {
-	d.forwardNotifyApprovals(ctx, func(a *approval.Approval) {
-		approveURL, denyURL, err := d.signedApprovalActionURLs(d.SMS.ActionBaseURL, a)
-		if err != nil {
-			d.audit(ctx, "notify.sms.action_error", a.SessionID, "", 0, "approval="+a.ID+" err="+err.Error())
-			return
-		}
-		msg := sms.Message{To: d.SMS.To, Body: smsApprovalBody(a, approveURL, denyURL)}
-		resp, err := d.sendSMSWithRetry(ctx, c, a, msg)
-		if err != nil {
-			d.audit(ctx, "notify.sms.error", a.SessionID, "", 0, fmt.Sprintf("approval=%s sid=%t status=%s err=%s", a.ID, resp.SID != "", resp.Status, err.Error()))
-			return
-		}
-		d.audit(ctx, "notify.sms.sent", a.SessionID, "", 0, fmt.Sprintf("approval=%s sid=%t status=%s", a.ID, resp.SID != "", resp.Status))
-	})
-}
-
-func (d *Daemon) sendSMSWithRetry(ctx context.Context, c *sms.Client, a *approval.Approval, msg sms.Message) (sms.MessageResponse, error) {
-	var last sms.MessageResponse
-	var lastErr error
-	for attempt := 1; attempt <= 3; attempt++ {
-		resp, err := c.Send(ctx, msg)
-		if err == nil {
-			return resp, nil
-		}
-		last = resp
-		lastErr = err
-		if attempt == 3 {
-			break
-		}
-		d.audit(ctx, "notify.sms.retry", a.SessionID, "", 0, fmt.Sprintf("approval=%s attempt=%d err=%s", a.ID, attempt, err.Error()))
-		timer := time.NewTimer(time.Duration(attempt) * 250 * time.Millisecond)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return last, ctx.Err()
-		case <-timer.C:
-		}
-	}
-	return last, lastErr
-}
-
-func smsApprovalBody(a *approval.Approval, approveURL, denyURL string) string {
-	return fmt.Sprintf("Onibi approval %s\n%s %s\nApprove: %s\nDeny: %s", a.ID, strings.TrimSpace(a.Agent), strings.TrimSpace(a.Tool), approveURL, denyURL)
 }
 
 func (d *Daemon) signedApprovalActionURLs(baseURL string, a *approval.Approval) (string, string, error) {

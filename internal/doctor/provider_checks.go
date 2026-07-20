@@ -17,7 +17,6 @@ import (
 	"github.com/gongahkia/onibi/internal/pushover"
 	"github.com/gongahkia/onibi/internal/secrets"
 	signalapi "github.com/gongahkia/onibi/internal/signal"
-	"github.com/gongahkia/onibi/internal/sms"
 	"github.com/gongahkia/onibi/internal/store"
 	"github.com/gongahkia/onibi/internal/telegram"
 	"github.com/gongahkia/onibi/internal/zulip"
@@ -71,9 +70,6 @@ var (
 	newSignalClient = func(baseURL, account string) *signalapi.Client {
 		return signalapi.New(baseURL, account)
 	}
-	newSMSClient = func(accountSID, authToken, from, messagingServiceSID string) *sms.Client {
-		return sms.New(accountSID, authToken, from, messagingServiceSID)
-	}
 )
 
 func Providers(ctx context.Context, opts Options) ProviderReport {
@@ -90,7 +86,6 @@ func Providers(ctx context.Context, opts Options) ProviderReport {
 		providerNtfy(ctx, opts, pa),
 		providerGotify(ctx, opts, pa),
 		providerAPNs(ctx, opts, pa),
-		providerSMS(ctx, opts, pa),
 	}
 	return ProviderReport{Providers: rows}
 }
@@ -451,35 +446,6 @@ func providerAPNs(ctx context.Context, opts Options, pa map[string]string) Provi
 	return row
 }
 
-func providerSMS(ctx context.Context, opts Options, pa map[string]string) ProviderRow {
-	row := providerRow("sms", pa)
-	missing := missingEnv("ONIBI_TWILIO_ACCOUNT_SID", "ONIBI_TWILIO_AUTH_TOKEN", "ONIBI_SMS_TO", "ONIBI_SMS_ACTION_BASE_URL")
-	if strings.TrimSpace(os.Getenv("ONIBI_TWILIO_FROM")) == "" && strings.TrimSpace(os.Getenv("ONIBI_TWILIO_MESSAGING_SERVICE_SID")) == "" {
-		missing = append(missing, "ONIBI_TWILIO_FROM or ONIBI_TWILIO_MESSAGING_SERVICE_SID")
-	}
-	row.Configured = len(missing) == 0
-	if !row.Configured {
-		row.Detail = "missing " + strings.Join(missing, ", ")
-		row.Fix = []string{"set Twilio account SID/auth token, sender, ONIBI_SMS_TO, and ONIBI_SMS_ACTION_BASE_URL", "run onibi up --transport=sms"}
-		return row
-	}
-	row.Detail = "env present; set ONIBI_DOCTOR_LIVE=1 for Twilio send probe"
-	if opts.Offline || !doctorLiveProbe() {
-		return row
-	}
-	withProviderTimeout(ctx, func(ctx context.Context) {
-		resp, err := newSMSClient(os.Getenv("ONIBI_TWILIO_ACCOUNT_SID"), os.Getenv("ONIBI_TWILIO_AUTH_TOKEN"), os.Getenv("ONIBI_TWILIO_FROM"), os.Getenv("ONIBI_TWILIO_MESSAGING_SERVICE_SID")).Send(ctx, sms.Message{To: os.Getenv("ONIBI_SMS_TO"), Body: "onibi doctor sms probe"})
-		if err != nil {
-			row.Reachable = ReachableNo
-			row.Detail = "send probe failed: " + err.Error()
-			return
-		}
-		row.Reachable = ReachableYes
-		row.Detail = "send probe ok sid=" + providerValueOrDefault(resp.SID, "unknown")
-	})
-	return row
-}
-
 func providerRow(name string, pa map[string]string) ProviderRow {
 	return ProviderRow{Name: name, Reachable: ReachableSkipped, LastAuditTimestamp: pa[name]}
 }
@@ -524,7 +490,7 @@ func providerAudit(ctx context.Context, paths config.Paths) map[string]string {
 	}
 	out := map[string]string{}
 	for _, e := range entries {
-		for _, name := range []string{"telegram", "matrix", "slack", "discord", "zulip", "irc", "signal", "pushover", "ntfy", "gotify", "apns", "sms"} {
+		for _, name := range []string{"telegram", "matrix", "slack", "discord", "zulip", "irc", "signal", "pushover", "ntfy", "gotify", "apns"} {
 			if providerAuditMatch(name, e) {
 				out[name] = e.TS.UTC().Format(time.RFC3339)
 			}
@@ -554,8 +520,6 @@ func providerAuditMatch(name string, e store.AuditEntry) bool {
 		return strings.Contains(action, "notify.gotify")
 	case "apns":
 		return strings.Contains(action, "notify.apns")
-	case "sms":
-		return strings.Contains(action, "notify.sms")
 	default:
 		return strings.Contains(action, name) || strings.Contains(detail, "provider="+name)
 	}

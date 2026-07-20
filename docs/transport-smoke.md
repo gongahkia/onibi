@@ -148,7 +148,6 @@ ONIBI_LIVE_IRC=1 ONIBI_IRC_NICK=onibi-bot ONIBI_IRC_USERNAME=onibi-bot ONIBI_IRC
 - Matrix: account ownership power, joined-room state, and encrypted-room refusal.
 - Gotify: token validation; set `ONIBI_DOCTOR_LIVE=1` for send/WS probe.
 - ntfy: topic secrecy validation; set `ONIBI_DOCTOR_LIVE=1` for publish/WebSocket subscribe probe.
-- SMS: Twilio env validation; set `ONIBI_DOCTOR_LIVE=1` for a paid send probe.
 
 ## Provider output policy
 
@@ -203,20 +202,6 @@ ONIBI_LIVE_GOTIFY=1 ONIBI_GOTIFY_URL=... ONIBI_GOTIFY_APP_TOKEN=... ONIBI_GOTIFY
 - Confirm WebSocket subscribe receives the message stream.
 - With `ONIBI_GOTIFY_ACTION_BASE_URL` set to a reachable Onibi web origin, tap the notification/link and confirm the signed approval page renders Approve/Deny.
 - Confirm startup validates the optional client token.
-- Confirm no terminal input path is exposed.
-
-SMS:
-
-```bash
-go test -race ./internal/sms
-ONIBI_LIVE_SMS=1 ONIBI_TWILIO_ACCOUNT_SID=AC... ONIBI_TWILIO_AUTH_TOKEN=... ONIBI_TWILIO_FROM=+15551234567 ONIBI_SMS_TO=+15557654321 go test ./internal/sms -run LiveTwilioSMS
-```
-
-- Confirm the Twilio test account/sender can send to the target phone. This can incur Twilio SMS cost.
-- Run `onibi up --transport=sms` with `ONIBI_SMS_ACTION_BASE_URL` set to a reachable Onibi web origin.
-- Trigger an approval, open the SMS Approve link, and confirm the approval completes once.
-- Reopen the same link and confirm the single-use link is rejected.
-- Confirm `notify.sms.sent`, retry, or error audit rows are written.
 - Confirm no terminal input path is exposed.
 
 Signal:

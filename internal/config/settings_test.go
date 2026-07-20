@@ -273,11 +273,15 @@ func TestTransportModeRejectsUnsupportedValue(t *testing.T) {
 	}
 }
 
-func TestTransportModeRejectsRemovedEmail(t *testing.T) {
-	cfg := Default()
-	err := Set(&cfg, "transport.mode", "email")
-	if err == nil || !strings.Contains(err.Error(), "no longer supported") {
-		t.Fatalf("unexpected err: %v", err)
+func TestTransportModeRejectsRemovedNotificationProviders(t *testing.T) {
+	for _, mode := range []string{"email", "sms"} {
+		t.Run(mode, func(t *testing.T) {
+			cfg := Default()
+			err := Set(&cfg, "transport.mode", mode)
+			if err == nil || !strings.Contains(err.Error(), "no longer supported") {
+				t.Fatalf("unexpected err: %v", err)
+			}
+		})
 	}
 }
 

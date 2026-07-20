@@ -30,7 +30,6 @@ import (
 	"github.com/gongahkia/onibi/internal/secrets"
 	"github.com/gongahkia/onibi/internal/service"
 	"github.com/gongahkia/onibi/internal/slack"
-	"github.com/gongahkia/onibi/internal/sms"
 	"github.com/gongahkia/onibi/internal/web"
 	"github.com/gongahkia/onibi/internal/web/transport"
 	"github.com/gongahkia/onibi/internal/zulip"
@@ -378,8 +377,6 @@ func (r *runner) checkTransportProvider() {
 		r.checkAPNsProvider()
 	case "signal":
 		r.checkSignalProvider()
-	case "sms":
-		r.checkSMSProvider()
 	default:
 		r.add("transport provider", Warn, "unknown transport "+mode)
 	}
@@ -720,29 +717,6 @@ func (r *runner) checkAPNsProvider() {
 		return
 	}
 	r.add("transport provider", Pass, "APNs live API ok: send")
-}
-
-func (r *runner) checkSMSProvider() {
-	missing := missingEnv("ONIBI_TWILIO_ACCOUNT_SID", "ONIBI_TWILIO_AUTH_TOKEN", "ONIBI_SMS_TO", "ONIBI_SMS_ACTION_BASE_URL")
-	if strings.TrimSpace(os.Getenv("ONIBI_TWILIO_FROM")) == "" && strings.TrimSpace(os.Getenv("ONIBI_TWILIO_MESSAGING_SERVICE_SID")) == "" {
-		missing = append(missing, "ONIBI_TWILIO_FROM or ONIBI_TWILIO_MESSAGING_SERVICE_SID")
-	}
-	if len(missing) > 0 {
-		r.add("transport provider", Warn, "SMS missing "+strings.Join(missing, ", "))
-		return
-	}
-	if r.opts.Offline || !doctorLiveProbe() {
-		r.add("transport provider", Pass, "SMS env present; set ONIBI_DOCTOR_LIVE=1 for Twilio send probe")
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.ctx, 8*time.Second)
-	defer cancel()
-	resp, err := newSMSClient(os.Getenv("ONIBI_TWILIO_ACCOUNT_SID"), os.Getenv("ONIBI_TWILIO_AUTH_TOKEN"), os.Getenv("ONIBI_TWILIO_FROM"), os.Getenv("ONIBI_TWILIO_MESSAGING_SERVICE_SID")).Send(ctx, sms.Message{To: os.Getenv("ONIBI_SMS_TO"), Body: "onibi doctor sms probe"})
-	if err != nil {
-		r.add("transport provider", Warn, "SMS send probe failed: "+err.Error())
-		return
-	}
-	r.add("transport provider", Pass, "SMS live API ok: send sid="+providerValueOrDefault(resp.SID, "unknown"))
 }
 
 func (r *runner) checkSignalProvider() {

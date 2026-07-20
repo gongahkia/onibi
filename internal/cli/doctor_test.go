@@ -73,7 +73,7 @@ func TestDoctorProvidersJSONShowsAllProviders(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
 		t.Fatalf("json: %v\n%s", err, out.String())
 	}
-	if len(report.Providers) != 12 {
+	if len(report.Providers) != 11 {
 		t.Fatalf("providers = %#v", report.Providers)
 	}
 }

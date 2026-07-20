@@ -82,7 +82,7 @@ func (o ProviderOutputOverrides) forProvider(provider string) ProviderOutputPoli
 		return o.IRC
 	case "signal":
 		return o.Signal
-	case "notify", "pushover", "ntfy", "gotify", "apns", "sms":
+	case "notify", "pushover", "ntfy", "gotify", "apns":
 		return o.Notify
 	default:
 		return ProviderOutputPolicy{}

@@ -64,7 +64,6 @@ type Daemon struct {
 	Ntfy                    NtfyOptions
 	Gotify                  GotifyOptions
 	APNs                    APNsOptions
-	SMS                     SMSOptions
 	ProviderOutput          ProviderOutputPolicy
 	ProviderOutputOverrides ProviderOutputOverrides
 	FleetLink               *FleetLink
@@ -125,7 +124,6 @@ type Options struct {
 	Ntfy                    NtfyOptions
 	Gotify                  GotifyOptions
 	APNs                    APNsOptions
-	SMS                     SMSOptions
 	ProviderOutput          ProviderOutputPolicy
 	ProviderOutputOverrides ProviderOutputOverrides
 	FleetLink               *FleetLink
@@ -213,15 +211,6 @@ type APNsOptions struct {
 	Environment string
 }
 
-type SMSOptions struct {
-	AccountSID          string
-	AuthToken           string
-	From                string
-	MessagingServiceSID string
-	To                  string
-	ActionBaseURL       string
-}
-
 // New constructs a daemon, wiring intake + registry + idle detector +
 // approval queue + local web cockpit.
 func New(opts Options) *Daemon {
@@ -265,7 +254,6 @@ func New(opts Options) *Daemon {
 		Ntfy:                    opts.Ntfy,
 		Gotify:                  opts.Gotify,
 		APNs:                    opts.APNs,
-		SMS:                     opts.SMS,
 		ProviderOutput:          opts.ProviderOutput.normalized(),
 		ProviderOutputOverrides: opts.ProviderOutputOverrides,
 		FleetLink:               opts.FleetLink,
@@ -493,7 +481,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 			}
 		}()
 	}
-	if (strings.TrimSpace(d.Ntfy.ActionBaseURL) != "" || strings.TrimSpace(d.Gotify.ActionBaseURL) != "" || strings.TrimSpace(d.SMS.ActionBaseURL) != "") && d.notifyActionSigner == nil {
+	if (strings.TrimSpace(d.Ntfy.ActionBaseURL) != "" || strings.TrimSpace(d.Gotify.ActionBaseURL) != "") && d.notifyActionSigner == nil {
 		signer, err := web.NewActionSigner(nil)
 		if err != nil {
 			return err
@@ -557,7 +545,6 @@ func (d *Daemon) Run(ctx context.Context) error {
 		d.startNtfyNotifier(ctx, &wg)
 		d.startGotifyNotifier(ctx, &wg)
 		d.startAPNsNotifier(ctx, &wg)
-		d.startSMSNotifier(ctx, &wg)
 	}
 	if !d.apnsConfigured() {
 		d.startWebPushNotifier(ctx, &wg)
