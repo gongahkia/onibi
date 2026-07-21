@@ -203,7 +203,7 @@ pub use tor_tonic::{TorSocksTonicConnector, TorSocksTonicConnectorError};
 pub use unix_listener::{DAEMON_UNIX_SOCKET_FILE, DaemonUnixListener, DaemonUnixListenerError};
 pub use upnp::{MAX_UPNP_LEASE_SECONDS, UpnpMapping, UpnpMappingError, UpnpMappingRequest};
 pub use wifi_direct_transport::WifiDirectTransport;
-pub use wifi_group_lifecycle::{ManagedWifiGroup, WifiGroupLifecycle};
+pub use wifi_group_lifecycle::{ManagedWifiGroup, WifiGroupActivationError, WifiGroupLifecycle};
 pub use wifi_hotspot_transport::WifiHotspotTransport;
 pub use windows_bluetooth_capability::WindowsBluetoothCapabilityProbe;
 #[cfg(windows)]

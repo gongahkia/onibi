@@ -189,8 +189,9 @@ pub use tor_maildrop_profile::{
 pub use version::{ProtocolVersion, VersionRange};
 pub use wifi_group_handoff::{
     MAX_WIFI_GROUP_CREDENTIAL_BYTES, MAX_WIFI_GROUP_IDENTIFIER_BYTES,
-    WIFI_GROUP_CONFIGURATION_SCHEMA_VERSION, WifiGroupConfiguration, WifiGroupConfigurationError,
-    WifiGroupCredential, WifiGroupCredentialError, WifiGroupHandoff, WifiGroupRole,
+    WIFI_GROUP_CONFIGURATION_SCHEMA_VERSION, WifiGroupBootstrap, WifiGroupConfiguration,
+    WifiGroupConfigurationError, WifiGroupCredential, WifiGroupCredentialError, WifiGroupHandoff,
+    WifiGroupRole,
 };
 pub use wire::{EnvelopeKind, WireEnvelope, WireError, WireLimits};
 pub use x3dh::{

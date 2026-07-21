@@ -218,6 +218,81 @@ impl fmt::Debug for WifiGroupHandoff {
     }
 }
 
+#[derive(Clone, Eq, PartialEq)]
+pub struct WifiGroupBootstrap {
+    transport: LocalMeshTransportKind,
+    identifier: String,
+    credential: WifiGroupCredential,
+}
+
+impl WifiGroupBootstrap {
+    pub fn new(
+        transport: LocalMeshTransportKind,
+        identifier: String,
+        credential: WifiGroupCredential,
+    ) -> Result<Self, WifiGroupConfigurationError> {
+        if !matches!(
+            transport,
+            LocalMeshTransportKind::WifiDirect | LocalMeshTransportKind::WifiHotspot
+        ) {
+            return Err(WifiGroupConfigurationError::NonWifiTransport(transport));
+        }
+        validate_identifier(&identifier)?;
+        Ok(Self {
+            transport,
+            identifier,
+            credential,
+        })
+    }
+
+    #[must_use]
+    pub const fn transport(&self) -> LocalMeshTransportKind {
+        self.transport
+    }
+
+    #[must_use]
+    pub const fn role(&self) -> WifiGroupRole {
+        WifiGroupRole::Owner
+    }
+
+    #[must_use]
+    pub fn identifier(&self) -> &str {
+        &self.identifier
+    }
+
+    #[must_use]
+    pub const fn credential(&self) -> &WifiGroupCredential {
+        &self.credential
+    }
+
+    pub fn activate(
+        &self,
+        direct_profile: DirectProfileConfig,
+    ) -> Result<WifiGroupHandoff, WifiGroupConfigurationError> {
+        Ok(WifiGroupHandoff::new(
+            WifiGroupConfiguration::new(
+                self.transport,
+                WifiGroupRole::Owner,
+                self.identifier.clone(),
+                direct_profile,
+            )?,
+            self.credential.clone(),
+        ))
+    }
+}
+
+impl fmt::Debug for WifiGroupBootstrap {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("WifiGroupBootstrap")
+            .field("transport", &self.transport)
+            .field("role", &WifiGroupRole::Owner)
+            .field("identifier", &self.identifier)
+            .field("credential", &"REDACTED")
+            .finish()
+    }
+}
+
 #[derive(Debug, Eq, PartialEq, thiserror::Error)]
 pub enum WifiGroupConfigurationError {
     #[error("unsupported Wi-Fi group configuration schema version: {0}")]
@@ -265,8 +340,8 @@ fn validate_identifier(identifier: &str) -> Result<(), WifiGroupConfigurationErr
 #[cfg(test)]
 mod tests {
     use super::{
-        WifiGroupConfiguration, WifiGroupConfigurationError, WifiGroupCredential,
-        WifiGroupCredentialError, WifiGroupHandoff, WifiGroupRole,
+        WifiGroupBootstrap, WifiGroupConfiguration, WifiGroupConfigurationError,
+        WifiGroupCredential, WifiGroupCredentialError, WifiGroupHandoff, WifiGroupRole,
     };
     use crate::{DirectProfileConfig, LocalMeshTransportKind};
 
@@ -338,5 +413,31 @@ mod tests {
             credential,
         );
         assert!(!format!("{handoff:?}").contains("secret-value"));
+    }
+
+    #[test]
+    fn activates_owner_bootstrap_only_after_the_endpoint_is_known() {
+        let bootstrap = WifiGroupBootstrap::new(
+            LocalMeshTransportKind::WifiHotspot,
+            "yeokcham-hotspot".to_owned(),
+            WifiGroupCredential::new(b"secret-value".to_vec()).unwrap(),
+        )
+        .unwrap();
+        let handoff = bootstrap.activate(profile()).unwrap();
+
+        assert_eq!(bootstrap.role(), WifiGroupRole::Owner);
+        assert_eq!(handoff.configuration().role(), WifiGroupRole::Owner);
+        assert_eq!(handoff.configuration().identifier(), "yeokcham-hotspot");
+        assert_eq!(handoff.configuration().direct_profile(), profile());
+        assert!(!format!("{bootstrap:?}").contains("secret-value"));
+        assert_eq!(
+            WifiGroupBootstrap::new(
+                LocalMeshTransportKind::Bluetooth,
+                "yeokcham".to_owned(),
+                WifiGroupCredential::new(b"secret-value".to_vec()).unwrap(),
+            )
+            .unwrap_err(),
+            WifiGroupConfigurationError::NonWifiTransport(LocalMeshTransportKind::Bluetooth)
+        );
     }
 }
