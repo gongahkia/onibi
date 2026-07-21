@@ -17,7 +17,8 @@
     <main id="content" class="prose"><div class="article-meta"><a href="index.html">Documentation</a><span>/</span><a href="telegram.md">Markdown source</a></div><h1>Telegram Chat Cockpit</h1>
 <p>Status: [Unverified] Telegram remains experimental until the live certification result below is recorded. It is not a PWA terminal replacement.</p>
 <p><code>onibi experimental telegram status --json</code> emits capability report version <code>1</code>. Its contract is owner-only, standalone, bounded/redacted output, and <code>approve</code>/<code>deny</code>/<code>edit</code> approval actions. It reports <code>pwa_required: false</code>, <code>live_terminal: false</code>, and <code>end_to_end_encrypted: false</code>.</p>
-<p>The local Telegram bridge starts from <code>onibi up --transport=telegram</code>; it creates one Onibi-managed tmux session and uses independent one-time owner enrollment. It neither starts a web listener nor requires browser pairing, browser cookies, Web Push, or an open PWA page.</p>
+<p>The local Telegram bridge starts from <code>onibi up --transport=telegram</code>; it creates one Onibi-managed tmux session and uses independent one-time owner enrollment in a private chat. It stores both the enrolled chat ID and Telegram user ID, and rejects group chats and callbacks from any other user. It neither starts a web listener nor requires browser pairing, browser cookies, Web Push, or an open PWA page.</p>
+<p>Legacy chat-ID-only enrollment is rejected. Reset it with <code>onibi experimental telegram disable</code>, run setup again, then pair from a private chat.</p>
 <p>Telegram Bot API messages are not treated as end-to-end encrypted. The bounded/redacted text and approval messages traverse Telegram infrastructure; use the web relay transport when an Onibi end-to-end relay boundary is required. Telegram&#39;s <a href="https://telegram.org/faq">FAQ</a> distinguishes end-to-end-encrypted Secret Chats from Cloud Chats.</p>
 <p>Every text response, including <code>/peek</code>, passes the configured <code>provider.output</code> bounds and redaction policy before it reaches Telegram.</p>
 <h2>Commands</h2>
@@ -27,7 +28,7 @@
 <p>This runbook is secret-gated and has not produced a committed real-device result in this repository state.</p>
 <ol start="1">
 <li>Export <code>ONIBI_LIVE_TELEGRAM_TOKEN</code> and <code>ONIBI_LIVE_TELEGRAM_CHAT_ID</code>; run <code>go test ./internal/telegram -run &#39;^TestLiveTelegram$&#39; -count=1</code> to record authenticated <code>getMe</code> and text-send artifacts.</li>
-<li>Run <code>onibi experimental telegram setup</code>, then <code>onibi up --transport=telegram</code>; enroll only the intended owner with the emitted <code>/start</code> code.</li>
+<li>Run <code>onibi experimental telegram setup</code>, then <code>onibi up --transport=telegram</code>; enroll only the intended owner from a private chat with the emitted <code>/start</code> code.</li>
 <li>From the enrolled chat, run <code>/new shell</code>, send text, select with <code>/target</code>, and verify bounded/redacted output.</li>
 <li>Trigger an Onibi approval; verify approve, deny, invalid edit rejection, valid JSON edit, non-owner rejection, duplicate callback handling, and reconnect after a temporary network interruption.</li>
 <li>Record the bot version, timestamp, device, redacted transcript, audit hashes, reconnect result, and limitations here before changing the status above or closing #289.</li>

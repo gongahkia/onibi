@@ -50,6 +50,9 @@ func TestTelegramSetupStatusDisableCLI(t *testing.T) {
 	if err := db.KVSetString(context.Background(), daemon.TelegramKVOwnerChatID, "42"); err != nil {
 		t.Fatal(err)
 	}
+	if err := db.KVSetString(context.Background(), daemon.TelegramKVOwnerUserID, "7"); err != nil {
+		t.Fatal(err)
+	}
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +70,7 @@ func TestTelegramSetupStatusDisableCLI(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	for _, key := range []string{daemon.TelegramKVOwnerChatID, daemon.TelegramKVPairCode} {
+	for _, key := range []string{daemon.TelegramKVOwnerChatID, daemon.TelegramKVOwnerUserID, daemon.TelegramKVPairCode} {
 		if _, ok, err := db.KVGetString(context.Background(), key); err != nil || ok {
 			t.Fatalf("%s after disable ok=%v err=%v", key, ok, err)
 		}
@@ -114,6 +117,21 @@ func TestTelegramStatusUsesEnvToken(t *testing.T) {
 	}
 	if !status.Token || status.SecretBackend != "env" || status.TokenValid == nil || !*status.TokenValid {
 		t.Fatalf("status = %+v", status)
+	}
+}
+
+func TestTelegramOwnerBindingRejectsLegacyChatOnlyState(t *testing.T) {
+	paths := withDefaultState(t)
+	db, err := store.Open(paths.DBFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.KVSetString(t.Context(), daemon.TelegramKVOwnerChatID, "42"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := telegramOwnerBinding(t.Context(), db); err == nil || !strings.Contains(err.Error(), "owner binding is incomplete") {
+		t.Fatalf("legacy binding error = %v", err)
 	}
 }
 

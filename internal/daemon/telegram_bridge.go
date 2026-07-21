@@ -24,6 +24,7 @@ import (
 const (
 	TelegramSecretBotToken = "TELEGRAM_BOT_TOKEN"
 	TelegramKVOwnerChatID  = "telegram.owner_chat_id"
+	TelegramKVOwnerUserID  = "telegram.owner_user_id"
 	TelegramKVPairCode     = "telegram.pair_code"
 	telegramTargetPrefix   = "telegram.target."
 )
@@ -32,10 +33,11 @@ type telegramBridge struct {
 	d      *Daemon
 	client *telegram.Client
 
-	mu        sync.Mutex
-	ownerID   int64
-	seen      map[string]bool
-	killArmed map[int64]time.Time
+	mu          sync.Mutex
+	ownerID     int64
+	ownerUserID int64
+	seen        map[string]bool
+	killArmed   map[int64]time.Time
 }
 
 func (d *Daemon) runTelegramBridge(ctx context.Context) error {
@@ -44,11 +46,12 @@ func (d *Daemon) runTelegramBridge(ctx context.Context) error {
 		d.Log.Warn("telegram delete webhook failed", "err", err)
 	}
 	b := &telegramBridge{
-		d:         d,
-		client:    c,
-		ownerID:   d.TelegramOwnerID,
-		seen:      map[string]bool{},
-		killArmed: map[int64]time.Time{},
+		d:           d,
+		client:      c,
+		ownerID:     d.TelegramOwnerID,
+		ownerUserID: d.TelegramOwnerUserID,
+		seen:        map[string]bool{},
+		killArmed:   map[int64]time.Time{},
 	}
 	go b.forwardApprovals(ctx)
 	var offset int64
@@ -116,19 +119,19 @@ func (b *telegramBridge) handleUpdate(ctx context.Context, u telegram.Update) {
 
 func (b *telegramBridge) authorizedOrPair(ctx context.Context, m *telegram.Message) bool {
 	chatID := m.Chat.ID
-	if b.owner() == chatID {
+	if b.isOwnerMessage(m) {
 		return true
 	}
 	text := strings.TrimSpace(m.Text)
 	if strings.HasPrefix(strings.ToLower(text), "/start") {
 		arg := strings.TrimSpace(strings.TrimPrefix(text, strings.Fields(text)[0]))
-		if arg != "" && arg == strings.TrimSpace(b.d.TelegramPair) {
-			b.setOwner(ctx, chatID)
+		if m.Chat.Type == "private" && m.From != nil && m.From.ID != 0 && arg != "" && arg == strings.TrimSpace(b.d.TelegramPair) {
+			b.setOwner(ctx, chatID, m.From.ID)
 			b.send(ctx, chatID, "Paired. Send /new shell or text an active session.", nil)
 			return true
 		}
 	}
-	if b.owner() == 0 {
+	if b.owner() == 0 && m.Chat.Type == "private" {
 		b.send(ctx, chatID, "Onibi is not paired. Run `onibi up --transport=telegram` and send /start <code> from that output.", nil)
 	}
 	return false
@@ -140,13 +143,26 @@ func (b *telegramBridge) owner() int64 {
 	return b.ownerID
 }
 
-func (b *telegramBridge) setOwner(ctx context.Context, chatID int64) {
+func (b *telegramBridge) ownerUser() int64 {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.ownerUserID
+}
+
+func (b *telegramBridge) isOwnerMessage(m *telegram.Message) bool {
+	return m != nil && m.Chat.Type == "private" && m.From != nil && m.Chat.ID == b.owner() && m.From.ID != 0 && m.From.ID == b.ownerUser()
+}
+
+func (b *telegramBridge) setOwner(ctx context.Context, chatID, userID int64) {
 	b.mu.Lock()
 	b.ownerID = chatID
+	b.ownerUserID = userID
 	b.mu.Unlock()
 	b.d.TelegramOwnerID = chatID
+	b.d.TelegramOwnerUserID = userID
 	if b.d.DB != nil {
 		_ = b.d.DB.KVSetString(ctx, TelegramKVOwnerChatID, strconv.FormatInt(chatID, 10))
+		_ = b.d.DB.KVSetString(ctx, TelegramKVOwnerUserID, strconv.FormatInt(userID, 10))
 		_ = b.d.DB.KVDel(ctx, TelegramKVPairCode)
 	}
 }
@@ -294,7 +310,7 @@ func (b *telegramBridge) handleCallback(ctx context.Context, q *telegram.Callbac
 	if q.Message != nil {
 		chatID = q.Message.Chat.ID
 	}
-	if chatID == 0 || b.owner() != chatID {
+	if chatID == 0 || q.Message.Chat.Type != "private" || b.owner() != chatID || q.From.ID == 0 || q.From.ID != b.ownerUser() {
 		_ = b.client.AnswerCallbackQuery(ctx, q.ID, "not authorized")
 		return
 	}

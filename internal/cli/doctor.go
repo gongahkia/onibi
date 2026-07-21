@@ -252,7 +252,9 @@ func telegramOptionalDoctorCheck(ctx context.Context, paths config.Paths) doctor
 	}
 	_, storedTokenOK, _ := st.Get(daemon.TelegramSecretBotToken)
 	tokenOK := storedTokenOK || strings.TrimSpace(os.Getenv(telegramTokenEnv)) != ""
-	_, ownerOK, _ := db.KVGetString(ctx, daemon.TelegramKVOwnerChatID)
+	_, ownerChatOK, _ := db.KVGetString(ctx, daemon.TelegramKVOwnerChatID)
+	_, ownerUserOK, _ := db.KVGetString(ctx, daemon.TelegramKVOwnerUserID)
+	ownerOK := ownerChatOK && ownerUserOK
 	if !tokenOK && !ownerOK {
 		return doctor.Check{Name: "telegram optional", Status: doctor.Pass, Detail: "not configured; optional", Code: "telegram_optional"}
 	}
@@ -262,7 +264,7 @@ func telegramOptionalDoctorCheck(ctx context.Context, paths config.Paths) doctor
 	c := doctor.Check{Name: "telegram optional", Status: doctor.Warn, Detail: "partially configured", Code: "telegram_optional", Next: "onibi telegram status"}
 	c.Impact = "Telegram transport may not start or pair cleanly."
 	c.SafeFix = "run onibi telegram setup, then onibi up --transport=telegram and complete pairing"
-	c.ManualFix = "inspect stored Telegram token and telegram.owner_chat_id in local state"
+	c.ManualFix = "inspect stored Telegram token, telegram.owner_chat_id, and telegram.owner_user_id in local state"
 	c.Retry = "onibi doctor --release"
 	c.Blocks = []string{"telegram"}
 	return c

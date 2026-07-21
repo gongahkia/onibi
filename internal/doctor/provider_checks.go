@@ -58,13 +58,13 @@ func providerTelegram(ctx context.Context, opts Options, pa map[string]string) P
 	case ownerErr != nil:
 		row.Detail = "owner lookup failed: " + ownerErr.Error()
 	case !tokenOK && !ownerOK:
-		row.Detail = "missing bot token and owner_chat_id"
+		row.Detail = "missing bot token and owner binding"
 	case !tokenOK:
 		row.Detail = "missing bot token"
 	case !ownerOK:
-		row.Detail = "missing owner_chat_id"
+		row.Detail = "missing owner binding"
 	default:
-		row.Detail = "token=" + source + " owner_chat_id=present"
+		row.Detail = "token=" + source + " owner binding=present"
 	}
 	if row.Configured && !opts.Offline {
 		withProviderTimeout(ctx, func(ctx context.Context) {
@@ -112,8 +112,12 @@ func telegramOwnerPaired(ctx context.Context, paths config.Paths) (bool, error) 
 		return false, err
 	}
 	defer db.Close()
-	_, ok, err := db.KVGetString(ctx, daemon.TelegramKVOwnerChatID)
-	return ok, err
+	_, chatOK, err := db.KVGetString(ctx, daemon.TelegramKVOwnerChatID)
+	if err != nil || !chatOK {
+		return false, err
+	}
+	_, userOK, err := db.KVGetString(ctx, daemon.TelegramKVOwnerUserID)
+	return userOK, err
 }
 
 func providerAudit(ctx context.Context, paths config.Paths) map[string]string {

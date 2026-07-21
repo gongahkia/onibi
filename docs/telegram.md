@@ -4,7 +4,9 @@ Status: [Unverified] Telegram remains experimental until the live certification 
 
 `onibi experimental telegram status --json` emits capability report version `1`. Its contract is owner-only, standalone, bounded/redacted output, and `approve`/`deny`/`edit` approval actions. It reports `pwa_required: false`, `live_terminal: false`, and `end_to_end_encrypted: false`.
 
-The local Telegram bridge starts from `onibi up --transport=telegram`; it creates one Onibi-managed tmux session and uses independent one-time owner enrollment. It neither starts a web listener nor requires browser pairing, browser cookies, Web Push, or an open PWA page.
+The local Telegram bridge starts from `onibi up --transport=telegram`; it creates one Onibi-managed tmux session and uses independent one-time owner enrollment in a private chat. It stores both the enrolled chat ID and Telegram user ID, and rejects group chats and callbacks from any other user. It neither starts a web listener nor requires browser pairing, browser cookies, Web Push, or an open PWA page.
+
+Legacy chat-ID-only enrollment is rejected. Reset it with `onibi experimental telegram disable`, run setup again, then pair from a private chat.
 
 Telegram Bot API messages are not treated as end-to-end encrypted. The bounded/redacted text and approval messages traverse Telegram infrastructure; use the web relay transport when an Onibi end-to-end relay boundary is required. Telegram's [FAQ](https://telegram.org/faq) distinguishes end-to-end-encrypted Secret Chats from Cloud Chats.
 
@@ -21,7 +23,7 @@ Non-owner messages and callbacks are rejected. Callback decisions are idempotent
 This runbook is secret-gated and has not produced a committed real-device result in this repository state.
 
 1. Export `ONIBI_LIVE_TELEGRAM_TOKEN` and `ONIBI_LIVE_TELEGRAM_CHAT_ID`; run `go test ./internal/telegram -run '^TestLiveTelegram$' -count=1` to record authenticated `getMe` and text-send artifacts.
-2. Run `onibi experimental telegram setup`, then `onibi up --transport=telegram`; enroll only the intended owner with the emitted `/start` code.
+2. Run `onibi experimental telegram setup`, then `onibi up --transport=telegram`; enroll only the intended owner from a private chat with the emitted `/start` code.
 3. From the enrolled chat, run `/new shell`, send text, select with `/target`, and verify bounded/redacted output.
 4. Trigger an Onibi approval; verify approve, deny, invalid edit rejection, valid JSON edit, non-owner rejection, duplicate callback handling, and reconnect after a temporary network interruption.
 5. Record the bot version, timestamp, device, redacted transcript, audit hashes, reconnect result, and limitations here before changing the status above or closing #289.

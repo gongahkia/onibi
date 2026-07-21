@@ -52,6 +52,7 @@ type Daemon struct {
 	ExperimentalProviders   bool
 	TelegramToken           string
 	TelegramOwnerID         int64
+	TelegramOwnerUserID     int64
 	TelegramPair            string
 	ProviderOutput          ProviderOutputPolicy
 	ProviderOutputOverrides ProviderOutputOverrides
@@ -90,6 +91,7 @@ type Options struct {
 	ExperimentalProviders   bool
 	TelegramToken           string
 	TelegramOwnerID         int64
+	TelegramOwnerUserID     int64
 	TelegramPair            string
 	ProviderOutput          ProviderOutputPolicy
 	ProviderOutputOverrides ProviderOutputOverrides
@@ -124,6 +126,7 @@ func New(opts Options) *Daemon {
 		ExperimentalProviders:   opts.ExperimentalProviders,
 		TelegramToken:           opts.TelegramToken,
 		TelegramOwnerID:         opts.TelegramOwnerID,
+		TelegramOwnerUserID:     opts.TelegramOwnerUserID,
 		TelegramPair:            opts.TelegramPair,
 		ProviderOutput:          opts.ProviderOutput.normalized(),
 		ProviderOutputOverrides: opts.ProviderOutputOverrides,

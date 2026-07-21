@@ -64,6 +64,9 @@ func runTelegramSetup(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	defer db.Close()
+	if _, _, err := telegramOwnerBinding(cmd.Context(), db); err != nil {
+		return err
+	}
 	token, _ := cmd.Flags().GetString("token")
 	if strings.TrimSpace(token) == "" {
 		token, err = promptTelegramToken(cmd)
@@ -130,13 +133,15 @@ func runTelegramStatus(cmd *cobra.Command, _ []string) error {
 		secretBackend = "env"
 	}
 	owner, ownerOK, _ := db.KVGetString(cmd.Context(), daemon.TelegramKVOwnerChatID)
+	ownerUser, ownerUserOK, _ := db.KVGetString(cmd.Context(), daemon.TelegramKVOwnerUserID)
 	liveCheck, _ := cmd.Flags().GetBool("check")
 	report := telegramStatusReport{
 		Capability:    telegramCapability(),
 		Token:         tokenOK,
 		SecretBackend: secretBackend,
-		OwnerPaired:   ownerOK,
+		OwnerPaired:   ownerOK && ownerUserOK,
 		OwnerChatID:   owner,
+		OwnerUserID:   ownerUser,
 		Check:         liveCheck,
 	}
 	if liveCheck && tokenOK {
@@ -160,6 +165,7 @@ func runTelegramStatus(cmd *cobra.Command, _ []string) error {
 	rows := [][]string{
 		{"token", style.bool(report.Token), report.SecretBackend},
 		{"owner_chat_id", style.bool(ownerOK), owner},
+		{"owner_user_id", style.bool(ownerUserOK), ownerUser},
 	}
 	if liveCheck {
 		valid := report.TokenValid != nil && *report.TokenValid
@@ -178,6 +184,7 @@ type telegramStatusReport struct {
 	SecretBackend string                   `json:"secret_backend"`
 	OwnerPaired   bool                     `json:"owner_paired"`
 	OwnerChatID   string                   `json:"owner_chat_id,omitempty"`
+	OwnerUserID   string                   `json:"owner_user_id,omitempty"`
 	Check         bool                     `json:"check"`
 	TokenValid    *bool                    `json:"token_valid,omitempty"`
 	BotID         int64                    `json:"bot_id,omitempty"`
@@ -224,6 +231,9 @@ func telegramStatusNext(report telegramStatusReport) []string {
 		}
 		return next
 	}
+	if (report.OwnerChatID == "") != (report.OwnerUserID == "") {
+		return append(next, "onibi experimental telegram disable")
+	}
 	if !report.OwnerPaired {
 		next = append(next, "onibi up --transport=telegram")
 	}
@@ -244,6 +254,7 @@ func runTelegramDisable(cmd *cobra.Command, _ []string) error {
 	}
 	_ = st.Delete(daemon.TelegramSecretBotToken)
 	_ = db.KVDel(cmd.Context(), daemon.TelegramKVOwnerChatID)
+	_ = db.KVDel(cmd.Context(), daemon.TelegramKVOwnerUserID)
 	_ = db.KVDel(cmd.Context(), daemon.TelegramKVPairCode)
 	fmt.Fprintln(cmd.OutOrStdout(), styleFor(cmd).green("[OK]"), "Telegram disabled.")
 	return nil
@@ -257,7 +268,7 @@ func runTelegramUp(cmd *cobra.Command, paths config.Paths, db *store.DB, cfg con
 	if err != nil {
 		return err
 	}
-	ownerID, err := telegramOwnerID(cmd.Context(), db)
+	ownerID, ownerUserID, err := telegramOwnerBinding(cmd.Context(), db)
 	if err != nil {
 		return err
 	}
@@ -282,6 +293,7 @@ func runTelegramUp(cmd *cobra.Command, paths config.Paths, db *store.DB, cfg con
 		ExperimentalProviders:   cfg.Experimental.Providers,
 		TelegramToken:           token,
 		TelegramOwnerID:         ownerID,
+		TelegramOwnerUserID:     ownerUserID,
 		TelegramPair:            pairCode,
 		ProviderOutput:          daemonProviderOutputPolicy(cfg),
 		ProviderOutputOverrides: daemonProviderOutputOverrides(cfg),
@@ -363,16 +375,30 @@ func validateTelegramToken(ctx context.Context, token string) (telegram.User, er
 	return newTelegramClient(token).GetMe(ctx)
 }
 
-func telegramOwnerID(ctx context.Context, db *store.DB) (int64, error) {
-	v, ok, err := db.KVGetString(ctx, daemon.TelegramKVOwnerChatID)
-	if err != nil || !ok {
-		return 0, err
-	}
-	n, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+func telegramOwnerBinding(ctx context.Context, db *store.DB) (int64, int64, error) {
+	chat, chatOK, err := db.KVGetString(ctx, daemon.TelegramKVOwnerChatID)
 	if err != nil {
-		return 0, nil
+		return 0, 0, err
 	}
-	return n, nil
+	user, userOK, err := db.KVGetString(ctx, daemon.TelegramKVOwnerUserID)
+	if err != nil {
+		return 0, 0, err
+	}
+	if !chatOK && !userOK {
+		return 0, 0, nil
+	}
+	if !chatOK || !userOK {
+		return 0, 0, errors.New("Telegram owner binding is incomplete; run onibi experimental telegram disable, then pair again")
+	}
+	chatID, err := strconv.ParseInt(strings.TrimSpace(chat), 10, 64)
+	if err != nil || chatID == 0 {
+		return 0, 0, errors.New("Telegram owner chat binding is invalid; run onibi experimental telegram disable, then pair again")
+	}
+	userID, err := strconv.ParseInt(strings.TrimSpace(user), 10, 64)
+	if err != nil || userID == 0 {
+		return 0, 0, errors.New("Telegram owner user binding is invalid; run onibi experimental telegram disable, then pair again")
+	}
+	return chatID, userID, nil
 }
 
 func ensureTelegramPairCode(ctx context.Context, db *store.DB) (string, error) {

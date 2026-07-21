@@ -17,7 +17,28 @@ import (
 	"github.com/gongahkia/onibi/internal/tmux"
 )
 
-const testTelegramToken = "123456:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi"
+const (
+	testTelegramToken       = "123456:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi"
+	testTelegramOwnerChatID = 42
+	testTelegramOwnerUserID = 7
+)
+
+func telegramOwnerMessage(text string) *telegram.Message {
+	return &telegram.Message{
+		Chat: telegram.Chat{ID: testTelegramOwnerChatID, Type: "private"},
+		Text: text,
+		From: &telegram.User{ID: testTelegramOwnerUserID},
+	}
+}
+
+func telegramOwnerCallback(id, data string) *telegram.CallbackQuery {
+	return &telegram.CallbackQuery{
+		ID:      id,
+		From:    telegram.User{ID: testTelegramOwnerUserID},
+		Message: telegramOwnerMessage(""),
+		Data:    data,
+	}
+}
 
 func TestSendSessionTextAndCaptureTmux(t *testing.T) {
 	r := &tmuxRunner{results: [][]byte{
@@ -64,16 +85,16 @@ func TestTelegramBridgePairsOwnerAndPersists(t *testing.T) {
 		killArmed: map[int64]time.Time{},
 	}
 
-	b.handleUpdate(context.Background(), telegram.Update{Message: &telegram.Message{
-		Chat: telegram.Chat{ID: 42},
-		Text: "/start 123456",
-	}})
+	b.handleUpdate(context.Background(), telegram.Update{Message: telegramOwnerMessage("/start 123456")})
 
-	if b.owner() != 42 || d.TelegramOwnerID != 42 {
+	if b.owner() != testTelegramOwnerChatID || b.ownerUser() != testTelegramOwnerUserID || d.TelegramOwnerID != testTelegramOwnerChatID || d.TelegramOwnerUserID != testTelegramOwnerUserID {
 		t.Fatalf("owner bridge=%d daemon=%d", b.owner(), d.TelegramOwnerID)
 	}
 	if got, ok, err := db.KVGetString(context.Background(), TelegramKVOwnerChatID); err != nil || !ok || got != "42" {
 		t.Fatalf("owner kv got=%q ok=%v err=%v", got, ok, err)
+	}
+	if got, ok, err := db.KVGetString(context.Background(), TelegramKVOwnerUserID); err != nil || !ok || got != "7" {
+		t.Fatalf("owner user kv got=%q ok=%v err=%v", got, ok, err)
 	}
 	if _, ok, err := db.KVGetString(context.Background(), TelegramKVPairCode); err != nil || ok {
 		t.Fatalf("pair kv ok=%v err=%v", ok, err)
@@ -91,6 +112,44 @@ func TestTelegramBridgePairsOwnerAndPersists(t *testing.T) {
 	}
 }
 
+func TestTelegramBridgeRejectsGroupPairingAndForeignCallbacks(t *testing.T) {
+	db := openDaemonTestDB(t)
+	spy, client := newTelegramAPISpy(t)
+	unpaired := &telegramBridge{d: New(Options{DB: db, TelegramPair: "123456"}), client: client, seen: map[string]bool{}, killArmed: map[int64]time.Time{}}
+
+	unpaired.handleUpdate(context.Background(), telegram.Update{Message: &telegram.Message{
+		Chat: telegram.Chat{ID: 99, Type: "group"},
+		Text: "/start 123456",
+		From: &telegram.User{ID: 99},
+	}})
+	if unpaired.owner() != 0 || len(spy.messageTexts()) != 0 {
+		t.Fatalf("group pairing changed owner=%d messages=%#v", unpaired.owner(), spy.messageTexts())
+	}
+
+	d := New(Options{DB: db, TelegramOwnerID: testTelegramOwnerChatID, TelegramOwnerUserID: testTelegramOwnerUserID})
+	b := &telegramBridge{d: d, client: client, ownerID: testTelegramOwnerChatID, ownerUserID: testTelegramOwnerUserID, seen: map[string]bool{}, killArmed: map[int64]time.Time{}}
+	id, _, err := d.Queue.Request(context.Background(), "s1", "claude", "Bash", `{"command":"ls"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.handleCallback(context.Background(), &telegram.CallbackQuery{
+		ID:      "foreign",
+		From:    telegram.User{ID: 99},
+		Message: &telegram.Message{Chat: telegram.Chat{ID: testTelegramOwnerChatID, Type: "group"}},
+		Data:    "dn:" + id,
+	})
+	a, err := d.Queue.Get(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.State != approval.StatePending {
+		t.Fatalf("foreign callback decided approval: %#v", a)
+	}
+	if got := spy.callbackTexts(); len(got) != 1 || got[0] != "not authorized" {
+		t.Fatalf("callbacks = %#v", got)
+	}
+}
+
 func TestTelegramBridgePlainTextRoutesToTargetSession(t *testing.T) {
 	r := &tmuxRunner{results: [][]byte{
 		nil,
@@ -104,7 +163,7 @@ func TestTelegramBridgePlainTextRoutesToTargetSession(t *testing.T) {
 	t.Cleanup(func() { newTmuxController = old })
 
 	db := openDaemonTestDB(t)
-	d := New(Options{DB: db, TelegramOwnerID: 42})
+	d := New(Options{DB: db, TelegramOwnerID: testTelegramOwnerChatID, TelegramOwnerUserID: testTelegramOwnerUserID})
 	s := NewSession("s1", "shell", "shell", nil, 0)
 	s.Transport = "tmux"
 	s.TmuxTarget = "onibi-s1"
@@ -113,18 +172,16 @@ func TestTelegramBridgePlainTextRoutesToTargetSession(t *testing.T) {
 	}
 	spy, client := newTelegramAPISpy(t)
 	b := &telegramBridge{
-		d:         d,
-		client:    client,
-		ownerID:   42,
-		seen:      map[string]bool{},
-		killArmed: map[int64]time.Time{},
+		d:           d,
+		client:      client,
+		ownerID:     testTelegramOwnerChatID,
+		ownerUserID: testTelegramOwnerUserID,
+		seen:        map[string]bool{},
+		killArmed:   map[int64]time.Time{},
 	}
 	b.setTarget(context.Background(), 42, "s1")
 
-	b.handleUpdate(context.Background(), telegram.Update{Message: &telegram.Message{
-		Chat: telegram.Chat{ID: 42},
-		Text: "pwd",
-	}})
+	b.handleUpdate(context.Background(), telegram.Update{Message: telegramOwnerMessage("pwd")})
 
 	if !containsCall(r.calls, "send-keys", "-t", "onibi-s1", "-l", "--", "pwd") {
 		t.Fatalf("missing text send: %#v", r.calls)
@@ -153,7 +210,7 @@ func TestTelegramBridgePlainTextRoutesToTargetSession(t *testing.T) {
 
 func TestTelegramBridgeTargetPersistsAcrossRestart(t *testing.T) {
 	db := openDaemonTestDB(t)
-	d := New(Options{DB: db, TelegramOwnerID: 42})
+	d := New(Options{DB: db, TelegramOwnerID: testTelegramOwnerChatID, TelegramOwnerUserID: testTelegramOwnerUserID})
 	s1 := NewSession("s1", "shell", "shell", nil, 0)
 	s2 := NewSession("s2", "claude", "claude", nil, 0)
 	if err := d.Registry.Add(s1); err != nil {
@@ -164,23 +221,21 @@ func TestTelegramBridgeTargetPersistsAcrossRestart(t *testing.T) {
 	}
 	spy, client := newTelegramAPISpy(t)
 	b := &telegramBridge{
-		d:         d,
-		client:    client,
-		ownerID:   42,
-		seen:      map[string]bool{},
-		killArmed: map[int64]time.Time{},
+		d:           d,
+		client:      client,
+		ownerID:     testTelegramOwnerChatID,
+		ownerUserID: testTelegramOwnerUserID,
+		seen:        map[string]bool{},
+		killArmed:   map[int64]time.Time{},
 	}
-	b.handleUpdate(context.Background(), telegram.Update{Message: &telegram.Message{
-		Chat: telegram.Chat{ID: 42},
-		Text: "/target claude",
-	}})
+	b.handleUpdate(context.Background(), telegram.Update{Message: telegramOwnerMessage("/target claude")})
 	if got := b.target(context.Background(), 42); got != "s2" {
 		t.Fatalf("target = %q", got)
 	}
 	if got := strings.Join(spy.messageTexts(), "\n"); !strings.Contains(got, "Target: claude (s2)") {
 		t.Fatalf("messages = %q", got)
 	}
-	restarted := &telegramBridge{d: New(Options{DB: db, TelegramOwnerID: 42}), ownerID: 42}
+	restarted := &telegramBridge{d: New(Options{DB: db, TelegramOwnerID: testTelegramOwnerChatID, TelegramOwnerUserID: testTelegramOwnerUserID}), ownerID: testTelegramOwnerChatID, ownerUserID: testTelegramOwnerUserID}
 	if got := restarted.target(context.Background(), 42); got != "s2" {
 		t.Fatalf("restarted target = %q", got)
 	}
@@ -188,9 +243,9 @@ func TestTelegramBridgeTargetPersistsAcrossRestart(t *testing.T) {
 
 func TestTelegramBridgeLongOutputChunks(t *testing.T) {
 	db := openDaemonTestDB(t)
-	d := New(Options{DB: db, TelegramOwnerID: 42})
+	d := New(Options{DB: db, TelegramOwnerID: testTelegramOwnerChatID, TelegramOwnerUserID: testTelegramOwnerUserID})
 	spy, client := newTelegramAPISpy(t)
-	b := &telegramBridge{d: d, client: client, ownerID: 42}
+	b := &telegramBridge{d: d, client: client, ownerID: testTelegramOwnerChatID, ownerUserID: testTelegramOwnerUserID}
 	b.sendChunks(context.Background(), 42, strings.Repeat("x", 9000))
 	msgs := spy.messageTexts()
 	if len(msgs) < 3 {
@@ -206,9 +261,10 @@ func TestTelegramBridgeLongOutputChunks(t *testing.T) {
 func TestTelegramBridgePeekUsesProviderOutputPolicy(t *testing.T) {
 	db := openDaemonTestDB(t)
 	d := New(Options{
-		DB:              db,
-		TelegramOwnerID: 42,
-		ProviderOutput:  ProviderOutputPolicy{MaxChunks: 1, MaxBytes: 120, Redaction: "default"},
+		DB:                  db,
+		TelegramOwnerID:     testTelegramOwnerChatID,
+		TelegramOwnerUserID: testTelegramOwnerUserID,
+		ProviderOutput:      ProviderOutputPolicy{MaxChunks: 1, MaxBytes: 120, Redaction: "default"},
 		ProviderOutputOverrides: ProviderOutputOverrides{
 			Telegram: ProviderOutputPolicy{Redaction: "strict"},
 		},
@@ -220,10 +276,10 @@ func TestTelegramBridgePeekUsesProviderOutputPolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	spy, client := newTelegramAPISpy(t)
-	b := &telegramBridge{d: d, client: client, ownerID: 42}
+	b := &telegramBridge{d: d, client: client, ownerID: testTelegramOwnerChatID, ownerUserID: testTelegramOwnerUserID}
 	b.setTarget(context.Background(), 42, "s1")
 
-	b.handleUpdate(context.Background(), telegram.Update{Message: &telegram.Message{Chat: telegram.Chat{ID: 42}, Text: "/peek"}})
+	b.handleUpdate(context.Background(), telegram.Update{Message: telegramOwnerMessage("/peek")})
 
 	got := strings.Join(spy.messageTexts(), "\n")
 	if strings.Contains(got, secret) || !strings.Contains(got, "[REDACTED]") || !strings.Contains(got, "truncated provider output") {
@@ -233,11 +289,11 @@ func TestTelegramBridgePeekUsesProviderOutputPolicy(t *testing.T) {
 
 func TestTelegramBridgeRejectsGraphicsCommand(t *testing.T) {
 	db := openDaemonTestDB(t)
-	d := New(Options{DB: db, TelegramOwnerID: 42})
+	d := New(Options{DB: db, TelegramOwnerID: testTelegramOwnerChatID, TelegramOwnerUserID: testTelegramOwnerUserID})
 	spy, client := newTelegramAPISpy(t)
-	b := &telegramBridge{d: d, client: client, ownerID: 42}
+	b := &telegramBridge{d: d, client: client, ownerID: testTelegramOwnerChatID, ownerUserID: testTelegramOwnerUserID}
 
-	b.handleUpdate(context.Background(), telegram.Update{Message: &telegram.Message{Chat: telegram.Chat{ID: 42}, Text: "/render"}})
+	b.handleUpdate(context.Background(), telegram.Update{Message: telegramOwnerMessage("/render")})
 
 	got := strings.Join(spy.messageTexts(), "\n")
 	if !strings.Contains(got, "Unknown command") {
@@ -252,7 +308,7 @@ func TestTelegramBridgeKillRequiresConfirmation(t *testing.T) {
 	t.Cleanup(func() { newTmuxController = old })
 
 	db := openDaemonTestDB(t)
-	d := New(Options{DB: db, TelegramOwnerID: 42})
+	d := New(Options{DB: db, TelegramOwnerID: testTelegramOwnerChatID, TelegramOwnerUserID: testTelegramOwnerUserID})
 	s := NewSession("s1", "shell", "shell", nil, 0)
 	s.Transport = "tmux"
 	s.TmuxTarget = "onibi-s1"
@@ -261,15 +317,16 @@ func TestTelegramBridgeKillRequiresConfirmation(t *testing.T) {
 	}
 	spy, client := newTelegramAPISpy(t)
 	b := &telegramBridge{
-		d:         d,
-		client:    client,
-		ownerID:   42,
-		seen:      map[string]bool{},
-		killArmed: map[int64]time.Time{},
+		d:           d,
+		client:      client,
+		ownerID:     testTelegramOwnerChatID,
+		ownerUserID: testTelegramOwnerUserID,
+		seen:        map[string]bool{},
+		killArmed:   map[int64]time.Time{},
 	}
 	b.setTarget(context.Background(), 42, "s1")
 
-	msg := telegram.Update{Message: &telegram.Message{Chat: telegram.Chat{ID: 42}, Text: "/kill"}}
+	msg := telegram.Update{Message: telegramOwnerMessage("/kill")}
 	b.handleUpdate(context.Background(), msg)
 	if containsCall(r.calls, "kill-session", "-t", "onibi-s1") {
 		t.Fatalf("first kill should only arm: %#v", r.calls)
@@ -285,14 +342,15 @@ func TestTelegramBridgeKillRequiresConfirmation(t *testing.T) {
 
 func TestTelegramBridgeApprovalDedupAndDenyCallback(t *testing.T) {
 	db := openDaemonTestDB(t)
-	d := New(Options{DB: db, TelegramOwnerID: 42})
+	d := New(Options{DB: db, TelegramOwnerID: testTelegramOwnerChatID, TelegramOwnerUserID: testTelegramOwnerUserID})
 	spy, client := newTelegramAPISpy(t)
 	b := &telegramBridge{
-		d:         d,
-		client:    client,
-		ownerID:   42,
-		seen:      map[string]bool{},
-		killArmed: map[int64]time.Time{},
+		d:           d,
+		client:      client,
+		ownerID:     testTelegramOwnerChatID,
+		ownerUserID: testTelegramOwnerUserID,
+		seen:        map[string]bool{},
+		killArmed:   map[int64]time.Time{},
 	}
 	id, _, err := d.Queue.Request(context.Background(), "s1", "claude", "Bash", `{"command":"ls"}`)
 	if err != nil {
@@ -309,11 +367,7 @@ func TestTelegramBridgeApprovalDedupAndDenyCallback(t *testing.T) {
 		t.Fatalf("messages = %#v", got)
 	}
 
-	b.handleCallback(context.Background(), &telegram.CallbackQuery{
-		ID:      "cb1",
-		Message: &telegram.Message{Chat: telegram.Chat{ID: 42}},
-		Data:    "dn:" + id,
-	})
+	b.handleCallback(context.Background(), telegramOwnerCallback("cb1", "dn:"+id))
 	decided, err := d.Queue.Get(context.Background(), id)
 	if err != nil {
 		t.Fatal(err)
@@ -329,25 +383,22 @@ func TestTelegramBridgeApprovalDedupAndDenyCallback(t *testing.T) {
 
 func TestTelegramBridgeApprovalCallbackAfterRestart(t *testing.T) {
 	db := openDaemonTestDB(t)
-	d1 := New(Options{DB: db, TelegramOwnerID: 42})
+	d1 := New(Options{DB: db, TelegramOwnerID: testTelegramOwnerChatID, TelegramOwnerUserID: testTelegramOwnerUserID})
 	id, _, err := d1.Queue.Request(context.Background(), "s1", "claude", "Bash", `{"command":"ls"}`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	d2 := New(Options{DB: db, TelegramOwnerID: 42})
+	d2 := New(Options{DB: db, TelegramOwnerID: testTelegramOwnerChatID, TelegramOwnerUserID: testTelegramOwnerUserID})
 	spy, client := newTelegramAPISpy(t)
 	b := &telegramBridge{
-		d:         d2,
-		client:    client,
-		ownerID:   42,
-		seen:      map[string]bool{},
-		killArmed: map[int64]time.Time{},
+		d:           d2,
+		client:      client,
+		ownerID:     testTelegramOwnerChatID,
+		ownerUserID: testTelegramOwnerUserID,
+		seen:        map[string]bool{},
+		killArmed:   map[int64]time.Time{},
 	}
-	b.handleCallback(context.Background(), &telegram.CallbackQuery{
-		ID:      "cb-restart",
-		Message: &telegram.Message{Chat: telegram.Chat{ID: 42}},
-		Data:    "dn:" + id,
-	})
+	b.handleCallback(context.Background(), telegramOwnerCallback("cb-restart", "dn:"+id))
 	a, err := d2.Queue.Get(context.Background(), id)
 	if err != nil {
 		t.Fatal(err)
@@ -362,25 +413,22 @@ func TestTelegramBridgeApprovalCallbackAfterRestart(t *testing.T) {
 
 func TestTelegramBridgeHighRiskApprovalRequiresConfirm(t *testing.T) {
 	db := openDaemonTestDB(t)
-	d := New(Options{DB: db, TelegramOwnerID: 42})
+	d := New(Options{DB: db, TelegramOwnerID: testTelegramOwnerChatID, TelegramOwnerUserID: testTelegramOwnerUserID})
 	spy, client := newTelegramAPISpy(t)
 	b := &telegramBridge{
-		d:         d,
-		client:    client,
-		ownerID:   42,
-		seen:      map[string]bool{},
-		killArmed: map[int64]time.Time{},
+		d:           d,
+		client:      client,
+		ownerID:     testTelegramOwnerChatID,
+		ownerUserID: testTelegramOwnerUserID,
+		seen:        map[string]bool{},
+		killArmed:   map[int64]time.Time{},
 	}
 	id, _, err := d.Queue.Request(context.Background(), "s1", "claude", "Bash", `{"command":"rm -rf /tmp/onibi"}`)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	b.handleCallback(context.Background(), &telegram.CallbackQuery{
-		ID:      "cb1",
-		Message: &telegram.Message{Chat: telegram.Chat{ID: 42}},
-		Data:    "ap:" + id,
-	})
+	b.handleCallback(context.Background(), telegramOwnerCallback("cb1", "ap:"+id))
 	a, err := d.Queue.Get(context.Background(), id)
 	if err != nil {
 		t.Fatal(err)
@@ -392,11 +440,7 @@ func TestTelegramBridgeHighRiskApprovalRequiresConfirm(t *testing.T) {
 		t.Fatalf("messages = %q", got)
 	}
 
-	b.handleCallback(context.Background(), &telegram.CallbackQuery{
-		ID:      "cb2",
-		Message: &telegram.Message{Chat: telegram.Chat{ID: 42}},
-		Data:    "cf:" + id,
-	})
+	b.handleCallback(context.Background(), telegramOwnerCallback("cb2", "cf:"+id))
 	a, err = d.Queue.Get(context.Background(), id)
 	if err != nil {
 		t.Fatal(err)

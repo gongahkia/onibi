@@ -139,6 +139,9 @@ func configureTelegramProvider(t *testing.T, paths config.Paths) {
 	if err := db.KVSetString(t.Context(), daemon.TelegramKVOwnerChatID, "42"); err != nil {
 		t.Fatal(err)
 	}
+	if err := db.KVSetString(t.Context(), daemon.TelegramKVOwnerUserID, "7"); err != nil {
+		t.Fatal(err)
+	}
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
