@@ -66,6 +66,9 @@ mod windows_listener;
 #[cfg(windows)]
 mod windows_runtime;
 mod windows_wifi_direct_capability;
+#[cfg(any(windows, test))]
+#[cfg_attr(test, allow(dead_code))]
+mod windows_wifi_direct_group;
 mod windows_wifi_hotspot_capability;
 #[cfg(any(windows, test))]
 #[cfg_attr(test, allow(dead_code))]
@@ -226,6 +229,11 @@ pub use windows_listener::{
     DaemonWindowsListenerError,
 };
 pub use windows_wifi_direct_capability::WindowsWifiDirectCapabilityProbe;
+#[cfg(windows)]
+pub use windows_wifi_direct_group::{
+    WINDOWS_WIFI_DIRECT_OPERATION_TIMEOUT, WindowsWifiDirectEndpoint, WindowsWifiDirectGroup,
+    WindowsWifiDirectGroupError, WindowsWifiDirectPeer,
+};
 pub use windows_wifi_hotspot_capability::WindowsWifiHotspotCapabilityProbe;
 #[cfg(windows)]
 pub use windows_wifi_hotspot_group::{

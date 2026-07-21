@@ -65,6 +65,12 @@ where
         self.active
     }
 
+    pub fn backend_mut(&mut self) -> &mut B {
+        self.backend
+            .as_mut()
+            .expect("managed Wi-Fi group always has a backend")
+    }
+
     pub fn owner_handoff(
         &self,
         bootstrap: &WifiGroupBootstrap,
