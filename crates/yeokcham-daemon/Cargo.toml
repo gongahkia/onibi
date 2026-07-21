@@ -45,12 +45,16 @@ windows = { version = "0.62.2", features = ["Devices_Bluetooth", "Devices_Enumer
 corebluetooth = "0.1.0"
 corewlan = "0.2.1"
 
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus.workspace = true
+
 [dev-dependencies]
 criterion.workspace = true
 prost.workspace = true
 proptest.workspace = true
 tonic-prost.workspace = true
 tracing-subscriber.workspace = true
+zbus.workspace = true
 
 [[bench]]
 name = "local_transport"

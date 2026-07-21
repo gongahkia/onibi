@@ -21,6 +21,9 @@ mod lan_transport;
 mod lifecycle;
 mod linux_bluetooth_capability;
 mod linux_network_manager;
+#[cfg(any(target_os = "linux", test))]
+#[cfg_attr(test, allow(dead_code))]
+mod linux_network_manager_wifi_group;
 mod linux_wifi_direct_capability;
 mod linux_wifi_hotspot_capability;
 mod local_auth;
@@ -125,6 +128,12 @@ pub use inbox_deduplication::{
 pub use lan_transport::LanDirectTransport;
 pub use lifecycle::{DAEMON_LOCK_FILE, DaemonLifecycleError, DaemonRuntime};
 pub use linux_bluetooth_capability::LinuxBluetoothCapabilityProbe;
+#[cfg(target_os = "linux")]
+pub use linux_network_manager_wifi_group::{
+    LinuxNetworkManagerWifiGroup, LinuxNetworkManagerWifiGroupError, LinuxWifiP2pPeer,
+    MAX_LINUX_NETWORK_INTERFACE_BYTES, NETWORK_MANAGER_ACTIVATION_TIMEOUT,
+    NETWORK_MANAGER_OPERATION_TIMEOUT,
+};
 pub use linux_wifi_direct_capability::LinuxWifiDirectCapabilityProbe;
 pub use linux_wifi_hotspot_capability::{
     LinuxWifiHotspotCapabilityProbe, MAX_LINUX_WIFI_HOTSPOT_PROBE_OUTPUT_BYTES,
@@ -203,7 +212,9 @@ pub use tor_tonic::{TorSocksTonicConnector, TorSocksTonicConnectorError};
 pub use unix_listener::{DAEMON_UNIX_SOCKET_FILE, DaemonUnixListener, DaemonUnixListenerError};
 pub use upnp::{MAX_UPNP_LEASE_SECONDS, UpnpMapping, UpnpMappingError, UpnpMappingRequest};
 pub use wifi_direct_transport::WifiDirectTransport;
-pub use wifi_group_lifecycle::{ManagedWifiGroup, WifiGroupActivationError, WifiGroupLifecycle};
+pub use wifi_group_lifecycle::{
+    ManagedWifiGroup, WifiGroupActivationError, WifiGroupHandoffError, WifiGroupLifecycle,
+};
 pub use wifi_hotspot_transport::WifiHotspotTransport;
 pub use windows_bluetooth_capability::WindowsBluetoothCapabilityProbe;
 #[cfg(windows)]
