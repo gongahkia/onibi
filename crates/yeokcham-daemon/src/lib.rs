@@ -32,6 +32,9 @@ mod local_transport;
 mod local_transport_availability;
 mod local_transport_reconnect;
 mod macos_bluetooth_capability;
+#[cfg(any(target_os = "macos", test))]
+#[cfg_attr(test, allow(dead_code))]
+mod macos_existing_hotspot_group;
 mod macos_wifi_hotspot_capability;
 mod mdns;
 mod message_session_store;
@@ -161,6 +164,8 @@ pub use local_transport_reconnect::{
     LocalTransportReconnectPolicyError, MAX_LOCAL_TRANSPORT_RECONNECT_ATTEMPTS,
 };
 pub use macos_bluetooth_capability::MacOsBluetoothCapabilityProbe;
+#[cfg(target_os = "macos")]
+pub use macos_existing_hotspot_group::{MacOsExistingHotspotGroup, MacOsExistingHotspotGroupError};
 pub use macos_wifi_hotspot_capability::MacOsWifiHotspotCapabilityProbe;
 pub use mdns::{LAN_MDNS_SERVICE_TYPE, LanPeer, LanPeerDiscovery, LanPeerDiscoveryError};
 pub use message_session_store::{MessageSessionStore, MessageSessionStoreError};
