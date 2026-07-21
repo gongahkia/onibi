@@ -95,6 +95,46 @@ func TestStatusReportsNativeDenyProviderFloor(t *testing.T) {
 	}
 }
 
+func TestInstallAndUninstallPreserveUserHooks(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "hooks.json")
+	t.Setenv("ONIBI_GOOSE_HOOKS", path)
+	userCommand := "echo user-hook"
+	writeHookFile(t, path, map[string]any{"hooks": map[string]any{"PreToolUse": []any{map[string]any{"matcher": "developer__shell", "hooks": []any{map[string]any{"type": "command", "command": userCommand, "timeout": 7}}}}}})
+	db, err := store.Open(filepath.Join(dir, "test.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	notify := filepath.Join(dir, "onibi-notify")
+	if err := os.WriteFile(notify, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ctx := t.Context()
+	if err := Install(ctx, db, notify); err != nil {
+		t.Fatal(err)
+	}
+	if err := Install(ctx, db, notify); err != nil {
+		t.Fatal(err)
+	}
+	if !hookFileContainsCommand(t, path, userCommand) || !hookFileContainsCommand(t, path, notify) {
+		t.Fatalf("install did not preserve user and managed hooks: %#v", readHookFile(t, path))
+	}
+	var backups int
+	if err := db.SQL().QueryRowContext(ctx, "SELECT count(*) FROM hook_backups WHERE agent = ? AND path = ?", Agent, path).Scan(&backups); err != nil {
+		t.Fatal(err)
+	}
+	if backups != 1 {
+		t.Fatalf("backups after idempotent install=%d", backups)
+	}
+	if err := Uninstall(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	if !hookFileContainsCommand(t, path, userCommand) || hookFileContainsCommand(t, path, notify) {
+		t.Fatalf("uninstall did not preserve only user hook: %#v", readHookFile(t, path))
+	}
+}
+
 func TestObservedHooksReportsOpenPluginsSchemaInvalid(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "hooks.json")
@@ -159,6 +199,21 @@ func writeHookFile(t *testing.T, path string, m map[string]any) {
 	if err := os.WriteFile(path, b, 0o600); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func hookFileContainsCommand(t *testing.T, path, want string) bool {
+	t.Helper()
+	hooks := readHookFile(t, path)["hooks"].(map[string]any)
+	for _, groups := range hooks {
+		for _, group := range groups.([]any) {
+			for _, hook := range group.(map[string]any)["hooks"].([]any) {
+				if strings.Contains(hook.(map[string]any)["command"].(string), want) {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func eventNames() []string {

@@ -77,15 +77,28 @@ func Install(ctx context.Context, db *store.DB, notifyBin string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := common.BackupOriginal(ctx, db, Agent, path); err != nil {
+	if err := VerifyHash(ctx, db); err == nil && installedVersion(path) == common.IntegrationVersion {
+		return nil
+	}
+	cfg, err := common.ReadJSON(path, map[string]any{"hooks": map[string]any{}})
+	if err != nil {
 		return err
 	}
-	cfg := map[string]any{
-		"hooks": map[string]any{},
+	if err := VerifyHash(ctx, db); err != nil {
+		if _, err := common.BackupOriginal(ctx, db, Agent, path); err != nil {
+			return err
+		}
 	}
-	hooks := cfg["hooks"].(map[string]any)
+	removeManaged(cfg)
+	delete(cfg, common.VersionField)
+	hooks, _ := cfg["hooks"].(map[string]any)
+	if hooks == nil {
+		hooks = map[string]any{}
+		cfg["hooks"] = hooks
+	}
 	for _, e := range events {
-		hooks[e.event] = []any{map[string]any{"hooks": []any{hook(notifyBin, e)}}}
+		groups, _ := hooks[e.event].([]any)
+		hooks[e.event] = append(groups, map[string]any{"hooks": []any{hook(notifyBin, e)}})
 	}
 	if err := common.WriteJSON(path, cfg); err != nil {
 		return err
@@ -102,10 +115,23 @@ func Uninstall(ctx context.Context, db *store.DB) error {
 	if err != nil {
 		return err
 	}
-	if _, err := common.BackupOriginal(ctx, db, Agent, path); err != nil {
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		return common.DeleteRecord(ctx, db, Agent, path)
+	} else if err != nil {
 		return err
 	}
-	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+	cfg, err := common.ReadJSON(path, map[string]any{"hooks": map[string]any{}})
+	if err != nil {
+		return err
+	}
+	if err := VerifyHash(ctx, db); err != nil {
+		if _, err := common.BackupOriginal(ctx, db, Agent, path); err != nil {
+			return err
+		}
+	}
+	removeManaged(cfg)
+	delete(cfg, common.VersionField)
+	if err := common.WriteJSON(path, cfg); err != nil {
 		return err
 	}
 	return common.DeleteRecord(ctx, db, Agent, path)
@@ -310,6 +336,38 @@ func installedVersion(path string) string {
 		}
 	}
 	return ""
+}
+
+func removeManaged(cfg map[string]any) {
+	hooks, _ := cfg["hooks"].(map[string]any)
+	if hooks == nil {
+		return
+	}
+	for event, groups := range hooks {
+		var keptGroups []any
+		for _, group := range asSlice(groups) {
+			gm, ok := group.(map[string]any)
+			if !ok {
+				keptGroups = append(keptGroups, group)
+				continue
+			}
+			var keptHooks []any
+			for _, h := range asSlice(gm["hooks"]) {
+				if !isManaged(h) {
+					keptHooks = append(keptHooks, h)
+				}
+			}
+			if len(keptHooks) > 0 {
+				gm["hooks"] = keptHooks
+				keptGroups = append(keptGroups, gm)
+			}
+		}
+		if len(keptGroups) == 0 {
+			delete(hooks, event)
+		} else {
+			hooks[event] = keptGroups
+		}
+	}
 }
 
 func isManaged(v any) bool {
