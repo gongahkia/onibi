@@ -273,6 +273,26 @@ func TestDeferredProviderTransportRequiresExplicitOptIn(t *testing.T) {
 	}
 }
 
+func TestExperimentalWorkspaceRequiresExplicitConfig(t *testing.T) {
+	paths := testPaths(t)
+	if err := os.WriteFile(paths.Config, []byte("experimental:\n  workspace: true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, meta, err := Load(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Experimental.Workspace || !meta.Explicit["experimental.workspace"] {
+		t.Fatalf("workspace=%t explicit=%#v", cfg.Experimental.Workspace, meta.Explicit)
+	}
+	if err := Set(&cfg, "experimental.workspace", "false"); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := Get(cfg, "experimental.workspace"); err != nil || got != "false" {
+		t.Fatalf("experimental.workspace=%q err=%v", got, err)
+	}
+}
+
 func TestTransportModeRejectsUnsupportedValue(t *testing.T) {
 	cfg := Default()
 	err := Set(&cfg, "transport.mode", "satellite")

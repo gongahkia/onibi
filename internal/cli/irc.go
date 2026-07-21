@@ -19,7 +19,7 @@ import (
 )
 
 func ircCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "irc", Short: "Manage IRC chat transport", RunE: runIRCStatus}
+	cmd := &cobra.Command{Use: "irc", Short: "Manage IRC chat transport", RunE: runIRCStatus, PersistentPreRunE: requireExperimentalProviders}
 	setup := &cobra.Command{Use: "setup", Short: "Store IRC TLS/SASL settings", RunE: runIRCSetup}
 	setup.Flags().String("address", irc.DefaultAddress, "TLS server address")
 	setup.Flags().String("nick", "", "registered bot nick")

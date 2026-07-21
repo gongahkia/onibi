@@ -13,22 +13,40 @@ func experimentalCmd() *cobra.Command {
 		Use:    "experimental",
 		Short:  "Run explicitly enabled experimental features",
 		Hidden: true,
-		PersistentPreRunE: func(*cobra.Command, []string) error {
-			paths, err := config.DefaultPaths()
-			if err != nil {
-				return err
-			}
-			cfg, _, err := config.Load(paths)
-			if err != nil {
-				return err
-			}
-			if !cfg.Experimental.Providers {
-				return errors.New("experimental provider commands are disabled; set experimental.providers=true")
-			}
-			return nil
-		},
 	}
 	cmd.AddCommand(telegramCmd())
 	cmd.AddCommand(ircCmd())
+	cmd.AddCommand(workspaceCmd())
 	return cmd
+}
+
+func requireExperimental(enabled bool, key string) error {
+	if enabled {
+		return nil
+	}
+	return errors.New("experimental command is disabled; set " + key + "=true")
+}
+
+func requireExperimentalProviders(cmd *cobra.Command, _ []string) error {
+	paths, err := config.DefaultPaths()
+	if err != nil {
+		return err
+	}
+	cfg, _, err := config.Load(paths)
+	if err != nil {
+		return err
+	}
+	return requireExperimental(cfg.Experimental.Providers, "experimental.providers")
+}
+
+func requireExperimentalWorkspace(cmd *cobra.Command, _ []string) error {
+	paths, err := config.DefaultPaths()
+	if err != nil {
+		return err
+	}
+	cfg, _, err := config.Load(paths)
+	if err != nil {
+		return err
+	}
+	return requireExperimental(cfg.Experimental.Workspace, "experimental.workspace")
 }

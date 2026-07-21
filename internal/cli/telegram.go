@@ -31,9 +31,10 @@ const (
 
 func telegramCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "telegram",
-		Short: "Manage Telegram chat transport",
-		RunE:  runTelegramStatus,
+		Use:               "telegram",
+		Short:             "Manage Telegram chat transport",
+		RunE:              runTelegramStatus,
+		PersistentPreRunE: requireExperimentalProviders,
 	}
 	setup := &cobra.Command{
 		Use:   "setup",

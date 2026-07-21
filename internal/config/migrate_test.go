@@ -57,3 +57,21 @@ func TestMigrateLeavesV1ConfigUntouched(t *testing.T) {
 		t.Fatalf("migration result = %#v", result)
 	}
 }
+
+func TestMigratePreservesExperimentalWorkspaceProfile(t *testing.T) {
+	paths := testPaths(t)
+	body := "workspace:\n  name: legacy\nexperimental:\n  workspace: true\n"
+	if err := os.WriteFile(paths.Config, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Migrate(paths); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, err := Load(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Experimental.Workspace {
+		t.Fatal("experimental workspace profile was removed")
+	}
+}

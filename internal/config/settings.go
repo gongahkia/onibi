@@ -83,6 +83,7 @@ type Provider struct {
 
 type Experimental struct {
 	Providers bool `yaml:"providers" json:"providers"`
+	Workspace bool `yaml:"workspace" json:"workspace"`
 }
 
 type ProviderOutput struct {
@@ -396,6 +397,12 @@ func Set(cfg *Config, key, value string) error {
 			return fmt.Errorf("experimental.providers must be boolean")
 		}
 		cfg.Experimental.Providers = v
+	case "experimental.workspace":
+		v, err := strconv.ParseBool(strings.TrimSpace(value))
+		if err != nil {
+			return fmt.Errorf("experimental.workspace must be boolean")
+		}
+		cfg.Experimental.Workspace = v
 	case "provider.output.max_chunks":
 		n, err := strconv.Atoi(strings.TrimSpace(value))
 		if err != nil {
@@ -452,6 +459,8 @@ func Get(cfg Config, key string) (string, error) {
 		return cfg.Transport.SAddr, nil
 	case "experimental.providers":
 		return strconv.FormatBool(cfg.Experimental.Providers), nil
+	case "experimental.workspace":
+		return strconv.FormatBool(cfg.Experimental.Workspace), nil
 	case "provider.output.max_chunks":
 		return strconv.Itoa(cfg.Provider.Output.MaxChunks), nil
 	case "provider.output.max_bytes":
@@ -483,6 +492,7 @@ func Keys(cfg Config, meta LoadMeta) []KeyInfo {
 		{"transport.mode", def.Transport.Mode, cfg.Transport.Mode, meta.Explicit["transport.mode"], "v1 web transport: lan, tailscale-private, wireguard, zerotier, cloudflare-quick, ngrok, or auto"},
 		{"transport.saddr", def.Transport.SAddr, cfg.Transport.SAddr, meta.Explicit["transport.saddr"], "optional transport service address"},
 		{"experimental.providers", strconv.FormatBool(def.Experimental.Providers), strconv.FormatBool(cfg.Experimental.Providers), meta.Explicit["experimental.providers"], "allow deferred and unsupported chat/notify provider transports"},
+		{"experimental.workspace", strconv.FormatBool(def.Experimental.Workspace), strconv.FormatBool(cfg.Experimental.Workspace), meta.Explicit["experimental.workspace"], "allow portable project workspace configuration commands"},
 		{"provider.output.max_chunks", strconv.Itoa(def.Provider.Output.MaxChunks), strconv.Itoa(cfg.Provider.Output.MaxChunks), meta.Explicit["provider.output.max_chunks"], "maximum provider reply chunks per session command"},
 		{"provider.output.max_bytes", strconv.Itoa(def.Provider.Output.MaxBytes), strconv.Itoa(cfg.Provider.Output.MaxBytes), meta.Explicit["provider.output.max_bytes"], "maximum provider reply bytes per session command"},
 		{"provider.output.redaction", def.Provider.Output.Redaction, cfg.Provider.Output.Redaction, meta.Explicit["provider.output.redaction"], "provider output redaction: default, strict, or off"},
@@ -553,6 +563,7 @@ type rawProvider struct {
 
 type rawExperimental struct {
 	Providers *bool `yaml:"providers"`
+	Workspace *bool `yaml:"workspace"`
 }
 
 type rawProviderOutput struct {
@@ -620,6 +631,10 @@ func applyRaw(cfg *Config, meta *LoadMeta, raw rawConfig) {
 	if raw.Experimental.Providers != nil {
 		cfg.Experimental.Providers = *raw.Experimental.Providers
 		meta.Explicit["experimental.providers"] = true
+	}
+	if raw.Experimental.Workspace != nil {
+		cfg.Experimental.Workspace = *raw.Experimental.Workspace
+		meta.Explicit["experimental.workspace"] = true
 	}
 	if raw.Provider.Output.MaxChunks != nil {
 		cfg.Provider.Output.MaxChunks = *raw.Provider.Output.MaxChunks
