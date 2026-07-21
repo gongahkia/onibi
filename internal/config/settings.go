@@ -247,7 +247,7 @@ func (c Config) Validate() error {
 	case mode == "cloudflare-named":
 		return fmt.Errorf("transport.mode=%q has been removed; set transport.mode to cloudflare-quick or a private transport", mode)
 	case capability.IsV1WebTransport(mode), capability.IsInternalWebTransport(mode):
-	case mode == "email" || mode == "sms" || mode == "apns" || mode == "gotify" || mode == "ntfy" || mode == "pushover" || mode == "signal" || mode == "irc" || mode == "zulip" || mode == "discord" || mode == "slack" || mode == "matrix":
+	case mode == "email" || mode == "sms" || mode == "apns" || mode == "gotify" || mode == "ntfy" || mode == "pushover" || mode == "signal" || mode == "zulip" || mode == "discord" || mode == "slack" || mode == "matrix":
 		return fmt.Errorf("transport.mode=%q is no longer supported; use web push or telegram", mode)
 	case capability.IsDeferredProviderTransport(mode):
 		if !c.Experimental.Providers {

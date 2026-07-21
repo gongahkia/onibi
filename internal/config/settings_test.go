@@ -250,14 +250,22 @@ func TestLoadRejectsRemovedCloudflareNamed(t *testing.T) {
 }
 
 func TestDeferredProviderTransportRequiresExplicitOptIn(t *testing.T) {
+	for _, mode := range []string{"telegram", "irc"} {
+		t.Run(mode, func(t *testing.T) {
+			cfg := Default()
+			if err := Set(&cfg, "transport.mode", mode); err == nil || !strings.Contains(err.Error(), "experimental.providers=true") {
+				t.Fatalf("unexpected err: %v", err)
+			}
+			if err := Set(&cfg, "experimental.providers", "true"); err != nil {
+				t.Fatal(err)
+			}
+			if err := Set(&cfg, "transport.mode", mode); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
 	cfg := Default()
-	if err := Set(&cfg, "transport.mode", "telegram"); err == nil || !strings.Contains(err.Error(), "experimental.providers=true") {
-		t.Fatalf("unexpected err: %v", err)
-	}
 	if err := Set(&cfg, "experimental.providers", "true"); err != nil {
-		t.Fatal(err)
-	}
-	if err := Set(&cfg, "transport.mode", "telegram"); err != nil {
 		t.Fatal(err)
 	}
 	if got, err := Get(cfg, "experimental.providers"); err != nil || got != "true" {
@@ -274,7 +282,7 @@ func TestTransportModeRejectsUnsupportedValue(t *testing.T) {
 }
 
 func TestTransportModeRejectsRemovedNotificationProviders(t *testing.T) {
-	for _, mode := range []string{"email", "sms", "apns", "gotify", "ntfy", "pushover", "signal", "irc", "zulip", "discord", "slack", "matrix"} {
+	for _, mode := range []string{"email", "sms", "apns", "gotify", "ntfy", "pushover", "signal", "zulip", "discord", "slack", "matrix"} {
 		t.Run(mode, func(t *testing.T) {
 			cfg := Default()
 			err := Set(&cfg, "transport.mode", mode)
@@ -307,14 +315,14 @@ func TestLoadRejectsRemovedSignalTransport(t *testing.T) {
 	}
 }
 
-func TestLoadRejectsRemovedIRCTransport(t *testing.T) {
+func TestLoadAllowsExperimentalIRCTransport(t *testing.T) {
 	paths := testPaths(t)
-	if err := os.WriteFile(paths.Config, []byte("transport:\n  mode: irc\n"), 0o600); err != nil {
+	if err := os.WriteFile(paths.Config, []byte("experimental:\n  providers: true\ntransport:\n  mode: irc\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, _, err := Load(paths)
-	if err == nil || !strings.Contains(err.Error(), "no longer supported") {
-		t.Fatalf("unexpected err: %v", err)
+	cfg, _, err := Load(paths)
+	if err != nil || cfg.Transport.Mode != "irc" {
+		t.Fatalf("config=%+v err=%v", cfg, err)
 	}
 }
 

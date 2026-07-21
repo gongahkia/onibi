@@ -29,5 +29,6 @@ func experimentalCmd() *cobra.Command {
 		},
 	}
 	cmd.AddCommand(telegramCmd())
+	cmd.AddCommand(ircCmd())
 	return cmd
 }

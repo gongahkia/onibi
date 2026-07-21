@@ -24,6 +24,20 @@ func (d *Daemon) startTelegramBridge(ctx context.Context, wg *sync.WaitGroup, ca
 	}()
 }
 
+func (d *Daemon) startIRCBridge(ctx context.Context, wg *sync.WaitGroup, cancel context.CancelFunc) {
+	if d.IRCClient == nil {
+		return
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := d.runIRCBridge(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			d.Log.Error("irc bridge", slog.Any("err", err))
+			cancel()
+		}
+	}()
+}
+
 func (d *Daemon) startWebPushNotifier(ctx context.Context, wg *sync.WaitGroup) {
 	if d.DB == nil {
 		return

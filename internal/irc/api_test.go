@@ -19,7 +19,7 @@ func TestParseMessage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if msg.Prefix != "owner!user@host" || msg.Command != "PRIVMSG" || len(msg.Params) != 2 || msg.Params[0] != "onibi" || msg.Params[1] != "hello world" {
+	if msg.Prefix != "owner!user@host" || msg.Command != "PRIVMSG" || msg.Tags["time"] != "1" || len(msg.Params) != 2 || msg.Params[0] != "onibi" || msg.Params[1] != "hello world" {
 		t.Fatalf("message = %#v", msg)
 	}
 	for _, line := range []string{"", ":bad", "@tag"} {
@@ -41,15 +41,15 @@ func TestClientConnectsWithSASLPlainAndSendsDM(t *testing.T) {
 				return
 			}
 		}
-		if _, err := server.Write([]byte(":irc.example CAP * LS :multi-prefix sasl\r\n")); err != nil {
+		if _, err := server.Write([]byte(":irc.example CAP * LS :multi-prefix sasl account-tag\r\n")); err != nil {
 			serverDone <- err
 			return
 		}
-		if got, err := readIRCLine(r); err != nil || got != "CAP REQ :sasl" {
+		if got, err := readIRCLine(r); err != nil || got != "CAP REQ :sasl account-tag" {
 			serverDone <- fmt.Errorf("cap req got %q err=%v", got, err)
 			return
 		}
-		if _, err := server.Write([]byte(":irc.example CAP * ACK :sasl\r\n")); err != nil {
+		if _, err := server.Write([]byte(":irc.example CAP * ACK :sasl account-tag\r\n")); err != nil {
 			serverDone <- err
 			return
 		}
@@ -117,6 +117,25 @@ func TestNormalizeConfigRequiresTLSDefaultsAndSASLValues(t *testing.T) {
 		if _, err := normalizeConfig(invalid); err == nil {
 			t.Fatalf("normalizeConfig(%#v) succeeded", invalid)
 		}
+	}
+}
+
+func TestParseMessagePreservesAccountTag(t *testing.T) {
+	msg, err := ParseMessage("@account=owner;example=one\\stwo\\:three :owner!u@h PRIVMSG onibi :pwd\r\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if msg.Tags["account"] != "owner" || msg.Tags["example"] != "one two;three" {
+		t.Fatalf("tags = %#v", msg.Tags)
+	}
+	if _, err := ParseMessage("@account=owner\\ :owner!u@h PRIVMSG onibi :pwd"); err == nil {
+		t.Fatal("invalid tag escape parsed")
+	}
+}
+
+func TestCapabilityContinuation(t *testing.T) {
+	if !hasCapabilityContinuation([]string{"*", "LS", "*", "sasl"}) || hasCapabilityContinuation([]string{"*", "LS", "sasl account-tag"}) {
+		t.Fatal("CAP LS continuation parsing failed")
 	}
 }
 

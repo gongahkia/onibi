@@ -16,6 +16,7 @@ import (
 	"github.com/gongahkia/onibi/internal/approval"
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/intake"
+	"github.com/gongahkia/onibi/internal/irc"
 	"github.com/gongahkia/onibi/internal/pty"
 	"github.com/gongahkia/onibi/internal/store"
 	"github.com/gongahkia/onibi/internal/web"
@@ -54,6 +55,10 @@ type Daemon struct {
 	TelegramOwnerID         int64
 	TelegramOwnerUserID     int64
 	TelegramPair            string
+	IRCClient               *irc.Client
+	IRCNick                 string
+	IRCOwnerNick            string
+	IRCOwnerAccount         string
 	ProviderOutput          ProviderOutputPolicy
 	ProviderOutputOverrides ProviderOutputOverrides
 
@@ -93,6 +98,10 @@ type Options struct {
 	TelegramOwnerID         int64
 	TelegramOwnerUserID     int64
 	TelegramPair            string
+	IRCClient               *irc.Client
+	IRCNick                 string
+	IRCOwnerNick            string
+	IRCOwnerAccount         string
 	ProviderOutput          ProviderOutputPolicy
 	ProviderOutputOverrides ProviderOutputOverrides
 	SkipRestore             bool
@@ -128,6 +137,10 @@ func New(opts Options) *Daemon {
 		TelegramOwnerID:         opts.TelegramOwnerID,
 		TelegramOwnerUserID:     opts.TelegramOwnerUserID,
 		TelegramPair:            opts.TelegramPair,
+		IRCClient:               opts.IRCClient,
+		IRCNick:                 opts.IRCNick,
+		IRCOwnerNick:            opts.IRCOwnerNick,
+		IRCOwnerAccount:         opts.IRCOwnerAccount,
 		ProviderOutput:          opts.ProviderOutput.normalized(),
 		ProviderOutputOverrides: opts.ProviderOutputOverrides,
 	}
@@ -385,6 +398,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 
 	if d.ExperimentalProviders {
 		d.startTelegramBridge(ctx, &wg, cancel)
+		d.startIRCBridge(ctx, &wg, cancel)
 	}
 	d.startWebPushNotifier(ctx, &wg)
 

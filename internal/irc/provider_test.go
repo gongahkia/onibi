@@ -2,6 +2,7 @@ package irc
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -11,7 +12,7 @@ import (
 )
 
 func TestProviderRoutesOwnerTextAndApprovalCommands(t *testing.T) {
-	p := NewProvider(nil, "onibi", "owner")
+	p := NewProvider(nil, "onibi", "owner", "owner-account")
 	var audit []chatout.AuditInteraction
 	p.Audit = func(_ context.Context, item chatout.AuditInteraction) error {
 		audit = append(audit, item)
@@ -30,19 +31,28 @@ func TestProviderRoutesOwnerTextAndApprovalCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := t.Context()
-	if err := p.route(ctx, Message{Prefix: "other!u@h", Command: "PRIVMSG", Params: []string{"onibi", "pwd"}}); err != nil {
-		t.Fatal(err)
-	}
 	if err := p.route(ctx, Message{Prefix: "owner!u@h", Command: "PRIVMSG", Params: []string{"onibi", "pwd"}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := p.route(ctx, Message{Prefix: "owner!u@h", Command: "PRIVMSG", Params: []string{"onibi", "!onibi approve apr_1"}}); err != nil {
+	if err := p.route(ctx, Message{Prefix: "other!u@h", Command: "PRIVMSG", Params: []string{"onibi", "pwd"}, Tags: map[string]string{"account": "other-account"}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := p.route(ctx, Message{Prefix: "owner!u@h", Command: "PRIVMSG", Params: []string{"onibi", "!onibi deny apr_2"}}); err != nil {
+	if err := p.route(ctx, Message{Prefix: "other!u@h", Command: "PRIVMSG", Params: []string{"onibi", "pwd"}, Tags: map[string]string{"account": "owner-account"}}); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(texts, []string{"pwd:owner"}) {
+	if err := p.route(ctx, Message{Prefix: "owner!u@h", Command: "PRIVMSG", Params: []string{"onibi", "pwd"}, Tags: map[string]string{"account": "owner-account"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.route(ctx, Message{Prefix: "owner!u@h", Command: "PRIVMSG", Params: []string{"onibi", "!onibi approve apr_1"}, Tags: map[string]string{"account": "owner-account"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.route(ctx, Message{Prefix: "owner!u@h", Command: "PRIVMSG", Params: []string{"onibi", "!onibi deny apr_2"}, Tags: map[string]string{"account": "owner-account"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.WaitForOwner(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(texts, []string{"pwd:owner-account"}) {
 		t.Fatalf("texts = %#v", texts)
 	}
 	if len(decisions) != 2 || decisions[0].ApprovalID != "apr_1" || decisions[0].Verdict != "approve" || decisions[1].ApprovalID != "apr_2" || decisions[1].Verdict != "deny" {
@@ -53,13 +63,22 @@ func TestProviderRoutesOwnerTextAndApprovalCommands(t *testing.T) {
 	}
 }
 
+func TestProviderBlocksOutboundBeforeAuthenticatedOwnerDM(t *testing.T) {
+	p := NewProvider(NewClient(Config{Nick: "onibi", Username: "onibi", Password: "password"}), "onibi", "owner", "owner-account")
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
+	defer cancel()
+	if err := p.SendText(ctx, "output"); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("output error = %v", err)
+	}
+}
+
 func TestProviderPreservesOrdinaryInputAndPacesOutbound(t *testing.T) {
-	p := NewProvider(nil, "onibi", "owner")
+	p := NewProvider(nil, "onibi", "owner", "owner-account")
 	var inbound string
 	if err := p.OnInboundText(func(text string, _ chatout.Sender) { inbound = text }); err != nil {
 		t.Fatal(err)
 	}
-	if err := p.route(t.Context(), Message{Prefix: "owner!u@h", Command: "PRIVMSG", Params: []string{"onibi", "echo hi  "}}); err != nil {
+	if err := p.route(t.Context(), Message{Prefix: "owner!u@h", Command: "PRIVMSG", Params: []string{"onibi", "echo hi  "}, Tags: map[string]string{"account": "owner-account"}}); err != nil {
 		t.Fatal(err)
 	}
 	if inbound != "echo hi  " {
@@ -83,7 +102,7 @@ func TestProviderPreservesOrdinaryInputAndPacesOutbound(t *testing.T) {
 }
 
 func TestProviderTailChunksAndAudits(t *testing.T) {
-	p := NewProvider(nil, "onibi", "owner")
+	p := NewProvider(nil, "onibi", "owner", "owner-account")
 	var sent []string
 	p.sendFn = func(_ context.Context, text string) error {
 		sent = append(sent, text)

@@ -257,6 +257,7 @@ func deleteSecrets(paths config.Paths) error {
 	}
 	return errors.Join(
 		sec.Delete(daemon.TelegramSecretBotToken),
+		sec.Delete(daemon.IRCSecretSASLPassword),
 		sec.Delete("bot_token"),
 		sec.Delete("totp_secret_hex"),
 	)

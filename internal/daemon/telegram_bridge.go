@@ -4,8 +4,6 @@ package daemon
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -22,11 +20,7 @@ import (
 )
 
 const (
-	TelegramSecretBotToken = "TELEGRAM_BOT_TOKEN"
-	TelegramKVOwnerChatID  = "telegram.owner_chat_id"
-	TelegramKVOwnerUserID  = "telegram.owner_user_id"
-	TelegramKVPairCode     = "telegram.pair_code"
-	telegramTargetPrefix   = "telegram.target."
+	telegramTargetPrefix = "telegram.target."
 )
 
 type telegramBridge struct {
@@ -520,15 +514,6 @@ Text this chat to send input to the current target.
 /approve <id>
 /deny <id> [reason]
 /edit <id> <edited JSON>`)
-}
-
-func NewTelegramPairCode() (string, error) {
-	var b [4]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return "", err
-	}
-	n := binary.BigEndian.Uint32(b[:]) % 1000000
-	return fmt.Sprintf("%06d", n), nil
 }
 
 func (d *Daemon) CaptureSessionText(ctx context.Context, id string) (string, error) {

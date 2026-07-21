@@ -24,8 +24,17 @@ Telegram is an experimental, owner-only text cockpit, not a web transport or liv
 
 The bridge uses capped exponential long-poll reconnect backoff and Telegram Bot API send limits (30 messages/second globally, one message/second per chat). It audits text input, approval callbacks, and output chunks with payload hashes rather than raw payloads. Bot API messages are not treated as end-to-end encrypted: Telegram's [FAQ](https://telegram.org/faq) distinguishes end-to-end-encrypted Secret Chats from Cloud Chats. See [Telegram Chat Cockpit](./telegram.md) for capability reporting and the secret-gated live verification runbook.
 
-## IRC (experimental provider)
+## IRC (experimental transport)
 
-The unexposed IRC provider uses TLS by default for `irc.libera.chat:6697` and authenticates a registered bot with SASL PLAIN. Libera.Chat [recommends TLS](https://libera.chat/guides/sasl) for SASL PLAIN and publishes `irc.libera.chat:6697` as its TLS endpoint. Store the NickServ password only in Onibi's secret storage when this provider is exposed through an approved experimental profile.
+Status: [Unverified] IRC is opt-in only. Set `experimental.providers=true`, then store a registered bot's TLS/SASL settings with:
 
-IRC is not end-to-end encrypted. A mapped owner DM accepts `!onibi approve <id>` and `!onibi deny <id>`; ordinary owner DM text is delivered to the configured session. Output is capped at 400 characters per line, paced conservatively at one message per second, and audited as compact interaction metadata with payload hashes. The provider reconnects with capped exponential backoff. Its live check requires a registered bot and is intentionally secret-gated; no real Libera.Chat result is committed in this repository state.
+```bash
+onibi experimental irc setup \
+  --nick onibi_bot --username onibi_bot --password '<NickServ password>' \
+  --owner-nick owner_nick --owner-account owner_account
+onibi up --transport=irc
+```
+
+The bridge defaults to `irc.libera.chat:6697`, requires verified TLS and SASL PLAIN, and stores the password in Onibi secret storage. Libera.Chat [recommends TLS](https://libera.chat/guides/sasl) for SASL PLAIN and publishes `irc.libera.chat:6697` as its TLS endpoint. It also requires IRCv3 [`account-tag`](https://ircv3.net/specs/extensions/account-tag): owner text and approval commands are accepted only from the configured services account, never from a nick alone.
+
+IRC is not end-to-end encrypted. The owner DM accepts `!onibi approve <id>` and `!onibi deny <id>`; ordinary owner text is delivered to the managed session. Live session output is sent as owner-DM messages. No approval or output is sent until that owner has sent an account-tag-authenticated DM on the current connection. Output is redacted/bounded before delivery, split at 400 characters, paced at one message per second, and audited with payload hashes. The bridge reconnects with capped exponential backoff. `onibi experimental irc status` reports local setup; `onibi experimental irc disable` removes it. Its live check requires a registered bot and is secret-gated; no real Libera.Chat result is committed in this repository state.

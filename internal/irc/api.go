@@ -22,6 +22,7 @@ type Message struct {
 	Prefix  string
 	Command string
 	Params  []string
+	Tags    map[string]string
 }
 
 type Config struct {
@@ -51,6 +52,11 @@ type Session struct {
 
 func NewClient(cfg Config) *Client {
 	return &Client{Config: cfg}
+}
+
+func ValidateConfig(cfg Config) error {
+	_, err := normalizeConfig(cfg)
+	return err
 }
 
 func (c *Client) Connect(ctx context.Context) error {
@@ -198,6 +204,10 @@ func (s *Session) authenticate(ctx context.Context, cfg Config) error {
 	}
 	requested := false
 	started := false
+	saslAck := false
+	accountTagAck := false
+	lsSASL := false
+	lsAccountTag := false
 	for {
 		msg, err := s.next(ctx)
 		if err != nil {
@@ -220,15 +230,28 @@ func (s *Session) authenticate(ctx context.Context, cfg Config) error {
 				if requested {
 					continue
 				}
-				if !hasCapability(msg.Params[2:], "sasl") {
+				lsSASL = lsSASL || hasCapability(msg.Params[2:], "sasl")
+				lsAccountTag = lsAccountTag || hasCapability(msg.Params[2:], "account-tag")
+				if hasCapabilityContinuation(msg.Params) {
+					continue
+				}
+				if !lsSASL {
 					return errors.New("irc server does not advertise SASL")
 				}
-				if err := s.write(ctx, "CAP REQ :sasl"); err != nil {
+				if !lsAccountTag {
+					return errors.New("irc server does not advertise account-tag")
+				}
+				if err := s.write(ctx, "CAP REQ :sasl account-tag"); err != nil {
 					return err
 				}
 				requested = true
 			case "ACK":
-				if !requested || started || !hasCapability(msg.Params[2:], "sasl") {
+				if !requested || started {
+					continue
+				}
+				saslAck = saslAck || hasCapability(msg.Params[2:], "sasl")
+				accountTagAck = accountTagAck || hasCapability(msg.Params[2:], "account-tag")
+				if !saslAck || !accountTagAck {
 					continue
 				}
 				if err := s.write(ctx, "AUTHENTICATE PLAIN"); err != nil {
@@ -349,14 +372,19 @@ func ParseMessage(line string) (Message, error) {
 	if line == "" {
 		return Message{}, errors.New("empty IRC line")
 	}
+	msg := Message{}
 	if strings.HasPrefix(line, "@") {
-		_, rest, ok := strings.Cut(line, " ")
+		tags, rest, ok := strings.Cut(line, " ")
 		if !ok {
 			return Message{}, errors.New("invalid IRC tags")
 		}
+		parsed, err := parseTags(strings.TrimPrefix(tags, "@"))
+		if err != nil {
+			return Message{}, err
+		}
+		msg.Tags = parsed
 		line = rest
 	}
-	msg := Message{}
 	if strings.HasPrefix(line, ":") {
 		var ok bool
 		msg.Prefix, line, ok = strings.Cut(strings.TrimPrefix(line, ":"), " ")
@@ -388,6 +416,55 @@ func ParseMessage(line string) (Message, error) {
 	return msg, nil
 }
 
+func parseTags(raw string) (map[string]string, error) {
+	if raw == "" {
+		return nil, errors.New("invalid IRC tags")
+	}
+	tags := map[string]string{}
+	for _, tag := range strings.Split(raw, ";") {
+		key, value, _ := strings.Cut(tag, "=")
+		key = strings.TrimSpace(key)
+		if key == "" || strings.ContainsAny(key, " \r\n") {
+			return nil, errors.New("invalid IRC tag")
+		}
+		unescaped, err := unescapeTag(value)
+		if err != nil {
+			return nil, err
+		}
+		tags[key] = unescaped
+	}
+	return tags, nil
+}
+
+func unescapeTag(value string) (string, error) {
+	var b strings.Builder
+	for i := 0; i < len(value); i++ {
+		if value[i] != '\\' {
+			b.WriteByte(value[i])
+			continue
+		}
+		i++
+		if i >= len(value) {
+			return "", errors.New("invalid IRC tag escape")
+		}
+		switch value[i] {
+		case ':':
+			b.WriteByte(';')
+		case 's':
+			b.WriteByte(' ')
+		case '\\':
+			b.WriteByte('\\')
+		case 'r':
+			b.WriteByte('\r')
+		case 'n':
+			b.WriteByte('\n')
+		default:
+			b.WriteByte(value[i])
+		}
+	}
+	return b.String(), nil
+}
+
 func hasCapability(params []string, want string) bool {
 	for _, param := range params {
 		for _, capability := range strings.Fields(param) {
@@ -398,6 +475,10 @@ func hasCapability(params []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func hasCapabilityContinuation(params []string) bool {
+	return len(params) >= 3 && params[2] == "*"
 }
 
 func sanitizeText(text string) string {

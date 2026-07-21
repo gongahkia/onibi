@@ -22,23 +22,26 @@ const (
 var _ chatout.Provider = (*Provider)(nil)
 
 type Provider struct {
-	Client    *Client
-	Nick      string
-	OwnerNick string
-	Sleep     chatout.Sleeper
-	Audit     func(context.Context, chatout.AuditInteraction) error
+	Client       *Client
+	Nick         string
+	OwnerNick    string
+	OwnerAccount string
+	Sleep        chatout.Sleeper
+	Audit        func(context.Context, chatout.AuditInteraction) error
 
-	mu        sync.Mutex
-	inbound   func(string, chatout.Sender)
-	decisions map[string]func(chatout.Decision)
-	sendFn    func(context.Context, string) error
-	rateMu    sync.Mutex
-	nextSend  time.Time
-	sentAt    []time.Time
+	mu          sync.Mutex
+	inbound     func(string, chatout.Sender)
+	decisions   map[string]func(chatout.Decision)
+	ownerTarget string
+	ownerReady  chan struct{}
+	sendFn      func(context.Context, string) error
+	rateMu      sync.Mutex
+	nextSend    time.Time
+	sentAt      []time.Time
 }
 
-func NewProvider(client *Client, nick, ownerNick string) *Provider {
-	return &Provider{Client: client, Nick: strings.TrimSpace(nick), OwnerNick: strings.TrimSpace(ownerNick), decisions: map[string]func(chatout.Decision){}}
+func NewProvider(client *Client, nick, ownerNick, ownerAccount string) *Provider {
+	return &Provider{Client: client, Nick: strings.TrimSpace(nick), OwnerNick: strings.TrimSpace(ownerNick), OwnerAccount: strings.TrimSpace(ownerAccount), decisions: map[string]func(chatout.Decision){}, ownerReady: make(chan struct{})}
 }
 
 func (p *Provider) Name() string {
@@ -126,9 +129,10 @@ func (p *Provider) Connect(ctx context.Context) error {
 	if p == nil || p.Client == nil {
 		return errors.New("irc provider client required")
 	}
-	if strings.TrimSpace(p.Nick) == "" || strings.TrimSpace(p.OwnerNick) == "" {
-		return errors.New("irc provider nick and owner nick are required")
+	if strings.TrimSpace(p.Nick) == "" || strings.TrimSpace(p.OwnerNick) == "" || strings.TrimSpace(p.OwnerAccount) == "" {
+		return errors.New("irc provider nick, owner nick, and owner account are required")
 	}
+	p.resetOwnerTarget()
 	if err := p.Client.Connect(ctx); err != nil {
 		return err
 	}
@@ -211,10 +215,13 @@ func (p *Provider) route(ctx context.Context, msg Message) error {
 	if msg.Command != "PRIVMSG" || len(msg.Params) < 2 || !sameNick(msg.Params[0], p.Nick) {
 		return nil
 	}
-	sender := chatout.Sender{ID: sourceNick(msg.Prefix), DisplayName: sourceNick(msg.Prefix), ChannelID: p.Nick}
-	if sender.ID == "" || !sameNick(sender.ID, p.OwnerNick) {
+	nick := sourceNick(msg.Prefix)
+	account := strings.TrimSpace(msg.Tags["account"])
+	sender := chatout.Sender{ID: account, DisplayName: nick, ChannelID: p.Nick}
+	if nick == "" || account == "" || !sameNick(nick, p.OwnerNick) || !sameNick(account, p.OwnerAccount) {
 		return nil
 	}
+	p.setOwnerTarget(nick)
 	text := msg.Params[len(msg.Params)-1]
 	if strings.TrimSpace(text) == "" {
 		return nil
@@ -276,7 +283,52 @@ func (p *Provider) send(ctx context.Context, text string) error {
 	if p == nil || p.Client == nil {
 		return errors.New("irc provider client required")
 	}
-	return p.Client.SendPrivmsg(ctx, p.OwnerNick, text)
+	target, err := p.waitForOwner(ctx)
+	if err != nil {
+		return err
+	}
+	return p.Client.SendPrivmsg(ctx, target, text)
+}
+
+func (p *Provider) WaitForOwner(ctx context.Context) error {
+	_, err := p.waitForOwner(ctx)
+	return err
+}
+
+func (p *Provider) waitForOwner(ctx context.Context) (string, error) {
+	if p == nil {
+		return "", errors.New("irc provider nil")
+	}
+	for {
+		p.mu.Lock()
+		target := p.ownerTarget
+		ready := p.ownerReady
+		p.mu.Unlock()
+		if target != "" {
+			return target, nil
+		}
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-ready:
+		}
+	}
+}
+
+func (p *Provider) resetOwnerTarget() {
+	p.mu.Lock()
+	p.ownerTarget = ""
+	p.ownerReady = make(chan struct{})
+	p.mu.Unlock()
+}
+
+func (p *Provider) setOwnerTarget(target string) {
+	p.mu.Lock()
+	if p.ownerTarget == "" {
+		close(p.ownerReady)
+	}
+	p.ownerTarget = target
+	p.mu.Unlock()
 }
 
 func (p *Provider) waitSendLimit(ctx context.Context) error {
