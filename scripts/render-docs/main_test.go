@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -74,6 +75,14 @@ func TestRepositoryPagesAreCurrentAndInternalHTMLLinksResolve(t *testing.T) {
 		for _, match := range hrefs.FindAllStringSubmatch(string(contents), -1) {
 			href := strings.SplitN(match[1], "#", 2)[0]
 			href = strings.SplitN(href, "?", 2)[0]
+			target, err := url.Parse(href)
+			if err != nil {
+				t.Errorf("%s has invalid link %s: %v", pagePath, href, err)
+				continue
+			}
+			if target.IsAbs() || target.Host != "" {
+				continue
+			}
 			if !strings.HasSuffix(href, ".html") {
 				continue
 			}
