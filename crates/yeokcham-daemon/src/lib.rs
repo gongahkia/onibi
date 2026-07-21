@@ -4,6 +4,7 @@ mod attachment_delivery;
 mod attachment_journal_store;
 mod attachment_submission_store;
 mod bluetooth_capability;
+mod bluetooth_gatt;
 mod bluetooth_transport;
 mod client_identity;
 mod client_state;
@@ -92,6 +93,14 @@ pub use attachment_submission_store::{
     AttachmentUploadSubmission, MAX_DAEMON_ATTACHMENT_CHUNKS, MAX_DAEMON_ATTACHMENT_MANIFEST_BYTES,
 };
 pub use bluetooth_capability::{BluetoothCapabilityProbe, BluetoothCapabilityStatus};
+pub use bluetooth_gatt::{
+    AuthenticatedBluetoothGattTransport, BLUETOOTH_GATT_NOTIFY_UUID, BLUETOOTH_GATT_SCHEMA_VERSION,
+    BLUETOOTH_GATT_SERVICE_UUID, BLUETOOTH_GATT_WRITE_UUID, BluetoothGattError, BluetoothGattLink,
+    BluetoothGattMessageKind, BluetoothGattRole, DEFAULT_BLUETOOTH_GATT_PACKET_BYTES,
+    MAX_BLUETOOTH_GATT_FRAGMENT_COUNT, MAX_BLUETOOTH_GATT_MESSAGE_BYTES,
+    MAX_BLUETOOTH_GATT_MESSAGES_PER_DIRECTION, MAX_BLUETOOTH_GATT_PACKET_BYTES,
+    MAX_PENDING_BLUETOOTH_GATT_MESSAGES, MIN_BLUETOOTH_GATT_PACKET_BYTES,
+};
 pub use bluetooth_transport::{BluetoothTransport, BluetoothTransportError};
 pub use client_identity::{
     CLIENT_IDENTITY_KEY_ENTRY, ClientIdentity, ClientIdentityError, ClientIdentityInitialization,
