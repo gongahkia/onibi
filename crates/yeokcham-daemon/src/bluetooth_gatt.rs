@@ -375,6 +375,10 @@ impl BluetoothGattLink {
         }
         Ok(())
     }
+
+    pub async fn close(&self) {
+        self.incoming.lock().await.close();
+    }
 }
 
 fn fragment_message(

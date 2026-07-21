@@ -47,6 +47,9 @@ corebluetooth = "0.1.0"
 corewlan = "0.2.1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
+bluer = { version = "0.17.4", default-features = false, features = ["bluetoothd"] }
+futures-util = "0.3.32"
+uuid = "1.23.5"
 zbus.workspace = true
 
 [dev-dependencies]

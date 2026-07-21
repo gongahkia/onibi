@@ -21,6 +21,8 @@ mod inbox_deduplication;
 mod lan_transport;
 mod lifecycle;
 mod linux_bluetooth_capability;
+#[cfg(target_os = "linux")]
+mod linux_bluetooth_gatt;
 mod linux_network_manager;
 #[cfg(any(target_os = "linux", test))]
 #[cfg_attr(test, allow(dead_code))]
@@ -146,6 +148,11 @@ pub use inbox_deduplication::{
 pub use lan_transport::LanDirectTransport;
 pub use lifecycle::{DAEMON_LOCK_FILE, DaemonLifecycleError, DaemonRuntime};
 pub use linux_bluetooth_capability::LinuxBluetoothCapabilityProbe;
+#[cfg(target_os = "linux")]
+pub use linux_bluetooth_gatt::{
+    LINUX_BLUETOOTH_GATT_OPERATION_TIMEOUT, LinuxBluetoothGattSession,
+    LinuxBluetoothGattSessionError, MAX_LINUX_BLUETOOTH_GATT_DISCOVERY_CANDIDATES,
+};
 #[cfg(target_os = "linux")]
 pub use linux_network_manager_wifi_group::{
     LinuxNetworkManagerWifiGroup, LinuxNetworkManagerWifiGroupError, LinuxWifiP2pPeer,
