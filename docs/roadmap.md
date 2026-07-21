@@ -14,3 +14,5 @@ Not part of the focused product:
 Release work focuses on the local cockpit, pairing security, approval correctness, Web Push, macOS distribution, and documented install verification.
 
 Future provider work is constrained by the [provider capability milestones](./provider-capabilities.md): notification delivery, inbound text, approvals, E2EE, lifecycle, audit, and device verification advance independently and never imply blanket parity.
+
+If product scope is ever reconsidered, shared control is constrained by the [deferred shared-control authorization boundary](./shared-control-boundary.md); it does not authorize a v1 team or multi-owner surface.

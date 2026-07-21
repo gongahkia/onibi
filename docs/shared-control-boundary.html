@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Deferred Shared-Control Authorization documentation for Onibi, a single-user local coding-agent host.">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/site.css">
+	<link rel="stylesheet" href="assets/responsive.css">
+  <title>Deferred Shared-Control Authorization · Onibi</title>
+</head>
+<body>
+  <a class="skip-link" href="#content">Skip to content</a>
+  <header class="site-header"><div class="site-header-inner"><a class="brand" href="index.html">Onibi <span>docs</span></a><nav class="top-nav" aria-label="Primary"><a href="getting-started.html">Getting Started</a><a href="security.html">Security</a><a href="transports.html">Transports</a><a href="web-push.html">Web Push</a><a href="https://github.com/gongahkia/onibi">GitHub</a></nav></div></header>
+  <div class="docs-shell">
+    <aside class="docs-sidebar"><p class="sidebar-label">Documentation</p><nav aria-label="All documentation"><a href="architecture.html">Architecture</a><a href="branding.html">Branding</a><a href="adapter-contract.html">Certified adapter contract</a><a href="cloudflare-quick-setup.html">Cloudflare Quick Setup</a><a href="adapters-registry.html">Community Adapter Registry</a><a href="shared-control-boundary.html" aria-current="page">Deferred Shared-Control Authorization</a><a href="fresh-machine-smoke.html">Fresh Machine Smoke</a><a href="getting-started.html">Getting Started</a><a href="tap-integrity.html">Homebrew Tap Integrity</a><a href="blog/2026-e2e-frame-protocol.html">How Onibi&#39;s E2E Frame Protocol Works</a><a href="install.html">Installer Publication</a><a href="linux-beta.html">Linux Beta Matrix</a><a href="SPEC-adapters.html">Onibi Adapter Manifest Spec</a><a href="SPEC-e2e.html">Onibi E2E Relay Protocol v1</a><a href="pwa-install.html">PWA Install</a><a href="comparison.html">Positioning</a><a href="roadmap.html">Product Scope</a><a href="provider-capabilities.html">Provider Capability Milestones</a><a href="release.html">Release</a><a href="security.html">Security</a><a href="snapshots.html">Snapshots</a><a href="telegram.html">Telegram Chat Cockpit</a><a href="terminal-fidelity.html">Terminal Fidelity Smoke Matrix</a><a href="transport-smoke.html">Transport Smoke</a><a href="transports.html">Transports</a><a href="troubleshooting.html">Troubleshooting</a><a href="web-push.html">Web Push</a><a href="ws-events-protocol.html">WebSocket events protocol</a><a href="wireguard-setup.html">WireGuard Setup</a><a href="zerotier-setup.html">ZeroTier Setup</a><a href="ios-cert-install.html">iOS Local Certificate Trust</a><a href="iphone-transport-smoke.html">iPhone transport smoke runner</a><a href="ngrok-setup.html">ngrok Setup</a></nav></aside>
+    <main id="content" class="prose"><div class="article-meta"><a href="index.html">Documentation</a><span>/</span><a href="shared-control-boundary.md">Markdown source</a></div><h1>Deferred Shared-Control Authorization</h1>
+<p>Status: rejected for v1. This is a prerequisite security design for any future scope change, not an available command, profile, or promotion plan.</p>
+<p>Onibi remains a personal, single-owner local cockpit. A shared-control feature must never convert an existing owner, browser session, device, local path, workspace, secret, or host into shared state by implication.</p>
+<h2>Identities and invariants</h2>
+<ul>
+<li><code>tenant_id</code> is an opaque stable identifier. Every host, session, approval, invite, policy, audit event, and authorization decision belongs to exactly one tenant.</li>
+<li><code>principal_id</code> is a human identity&#39;s public-key fingerprint; labels and email addresses are never authorization identities.</li>
+<li><code>device_id</code> is a public-key fingerprint bound to one principal and proves possession for every remote action.</li>
+<li><code>membership_version</code> increases on every membership, role, scope, invitation, device, or ownership change.</li>
+<li><code>scope</code> is an allowlist of tenant resource IDs and operations. An absent scope grants nothing.</li>
+</ul>
+<p>All future shared-control implementations must deny by default; authorize every request and again immediately before a persistent control action; bind grants to tenant, principal, device, scope, audience, expiry, nonce, and membership version; and reject unknown, stale, replayed, cross-tenant, or changed-identity requests. A grant may only reduce the grantor&#39;s authority.</p>
+<p>No resource can move between tenants. Tenant identity cannot be inferred from a host name, workspace path, browser session, or caller-controlled value. Existing personal-owner data remains authoritative until an explicit reviewed migration completes.</p>
+<h2>Roles</h2>
+<p>Each tenant has exactly one <code>primary_owner</code>, zero or more <code>owner</code>s, <code>operator</code>s, and <code>viewer</code>s. Roles apply only within their tenant.</p>
+<div class="table-wrap"><table><thead><tr><th>role</th><th>allowed</th><th>never allowed</th></tr></thead><tbody><tr><td><code>primary_owner</code></td><td>all tenant operations; owner management; ownership transfer; policy, paired-host, and identity-rekey changes</td><td>transfer authority without the target&#39;s device proof</td></tr><tr><td><code>owner</code></td><td>host/session operations; invite, modify, and revoke narrower memberships; issue narrower scopes</td><td>modify or revoke an owner; transfer primary ownership; alter tenant policy or rekey material</td></tr><tr><td><code>operator</code></td><td>explicitly scoped approve, deny, edit, and interrupt actions</td><td>invite, revoke, alter roles/policy, kill a host, access unscoped sessions, or transfer ownership</td></tr><tr><td><code>viewer</code></td><td>explicitly scoped read-only session and metadata observation</td><td>submit input, decide approvals, interrupt, export, alter policy, or access secret material</td></tr></tbody></table></div>
+<p>Only a primary owner can create an owner, after direct invitation acceptance and target device proof. An owner can never create another owner. Product review must explicitly approve the operator decision matrix; unspecified actions are denied.</p>
+<h2>Invitations and lifecycle</h2>
+<p>An invitation is a single-use, short-lived signed capability for one <code>principal_id</code> and pending <code>device_id</code>; maximum lifetime is 15 minutes. It binds tenant, role, scope, inviter, target, membership version, expiry, nonce, and Cockpit audience. It contains no bearer authority usable without the target device key.</p>
+<p>Acceptance requires the target device to sign the exact invitation. The authority service atomically consumes the nonce, increments <code>membership_version</code>, records the membership, and appends an audit event. Expired, replayed, altered, cross-audience, wrong-device, cancelled, and revoked invitations fail closed. There is no email-link recovery, anonymous acceptance, or self-service escalation.</p>
+<p>Revocation atomically increments <code>membership_version</code>, invalidates the member&#39;s device sessions and pending invitations, cancels queued controls, and appends an audit event. Connected clients reauthorize or disconnect; hosts reject controls bearing an older membership version. There is no grace period.</p>
+<p>Primary ownership transfer targets an existing owner. The current primary initiates a short-lived, nonce-bound transfer to a specific target principal/device; the target accepts with that device key; then the current primary confirms from a current paired device. The authority service atomically promotes the target, demotes the former primary, increments <code>membership_version</code>, rotates tenant authority material, invalidates affected sessions, and records a signed audit event. Partial failure leaves the prior primary unchanged. No transfer occurs on inactivity, lost credentials, or another owner&#39;s request.</p>
+<h2>Audit, protocol, and migration</h2>
+<p>Authority audit is immutable, append-only, and tamper-evident. It records tenant creation; invitation state; membership/scope/device/policy changes; authorization decisions; revocation; and ownership transfer. Each event includes event and request IDs, timestamp, tenant, result, policy/protocol version, actor and target fingerprints, role, hashed scope identifier, membership versions, previous-record hash, and authority signature.</p>
+<p>Audit records never contain terminal output, approval/tool payloads, secrets, raw workspace paths, invite material, or free text. Audit viewers, if ever introduced, are read-only and scope-limited.</p>
+<p>Shared control requires a new versioned protocol. Every authority-to-host control must be signed and must carry its complete authorization binding. Hosts validate signature, audience, tenant, resource scope, action, expiry, nonce, and membership version before execution. Browser tokens, if introduced, must be audience-restricted and sender-constrained; a bearer token alone cannot control a host.</p>
+<p>A migration must use tenant-keyed persistent state, never silently create memberships, alter the current owner, share workspace bindings, or activate shared access. Failed migration or downgrade preserves the original personal-owner data untouched.</p>
+<h2>Required implementation and review evidence</h2>
+<p>Before any experimental shared-control profile is exposed, implementation must test:</p>
+<ul>
+<li>every role/action/scope allow and deny path;</li>
+<li>cross-tenant and confused-deputy routing;</li>
+<li>invitation expiry, replay, cancellation, altered scope, wrong device, and concurrent acceptance;</li>
+<li>stale membership versions across HTTP, WebSocket, queued controls, and reconnects;</li>
+<li>revocation during active sessions and immediately before delivery;</li>
+<li>ownership-transfer concurrency, cancellation, partial failure, and authority rotation;</li>
+<li>audit-chain integrity and exclusion of terminal, approval, secret, path, and invite material; and</li>
+<li>migration, downgrade, and unchanged personal-owner defaults.</li>
+</ul>
+<p>The implementation must pass <code>go test -race ./internal/web ./internal/store</code> plus its protocol and migration suites. Promotion requires recorded product approval of roles/recovery and security approval of the threat model, migration, token binding, audit handling, and revocation behavior.</p>
+<h2>Sources</h2>
+<ul>
+<li><a href="https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html">OWASP Authorization Cheat Sheet</a></li>
+<li><a href="https://csrc.nist.gov/projects/role-based-access-control/faqs">NIST RBAC FAQ</a></li>
+<li><a href="https://www.rfc-editor.org/rfc/rfc9700.html">RFC 9700: OAuth 2.0 Security BCP</a></li>
+</ul>
+</main>
+  </div>
+  <footer class="site-footer"><a href="index.html">Onibi documentation</a><a href="https://github.com/gongahkia/onibi">GitHub</a></footer>
+</body>
+</html>
