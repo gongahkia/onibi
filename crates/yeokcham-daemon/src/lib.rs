@@ -67,6 +67,9 @@ mod windows_listener;
 mod windows_runtime;
 mod windows_wifi_direct_capability;
 mod windows_wifi_hotspot_capability;
+#[cfg(any(windows, test))]
+#[cfg_attr(test, allow(dead_code))]
+mod windows_wifi_hotspot_group;
 mod x3dh_session_service;
 
 use yeokcham_core::{Error, Result};
@@ -224,6 +227,10 @@ pub use windows_listener::{
 };
 pub use windows_wifi_direct_capability::WindowsWifiDirectCapabilityProbe;
 pub use windows_wifi_hotspot_capability::WindowsWifiHotspotCapabilityProbe;
+#[cfg(windows)]
+pub use windows_wifi_hotspot_group::{
+    WINDOWS_WIFI_GROUP_OPERATION_TIMEOUT, WindowsWifiHotspotGroup, WindowsWifiHotspotGroupError,
+};
 pub use x3dh_session_service::{
     X3dhSessionEstablishmentError, X3dhSessionEstablishmentService, initiate_x3dh_session,
 };

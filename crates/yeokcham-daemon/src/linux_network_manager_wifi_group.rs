@@ -2,7 +2,7 @@ use std::{
     collections::HashMap,
     fmt,
     future::Future,
-    net::{IpAddr, Ipv4Addr},
+    net::{IpAddr, Ipv4Addr, SocketAddr},
     time::Duration,
 };
 
@@ -34,6 +34,7 @@ pub struct LinuxNetworkManagerWifiGroup {
     interface: String,
     p2p_peer: Option<LinuxWifiP2pPeer>,
     active_connection: Option<OwnedObjectPath>,
+    owner_address: Option<IpAddr>,
 }
 
 impl LinuxNetworkManagerWifiGroup {
@@ -44,6 +45,7 @@ impl LinuxNetworkManagerWifiGroup {
             interface,
             p2p_peer: None,
             active_connection: None,
+            owner_address: None,
         })
     }
 
@@ -56,14 +58,17 @@ impl LinuxNetworkManagerWifiGroup {
     async fn activate_owner(
         &mut self,
         bootstrap: &WifiGroupBootstrap,
-    ) -> Result<IpAddr, LinuxNetworkManagerWifiGroupError> {
-        self.activate(
-            bootstrap.transport(),
-            bootstrap.identifier(),
-            bootstrap.credential(),
-            true,
-        )
-        .await
+    ) -> Result<(), LinuxNetworkManagerWifiGroupError> {
+        let owner_address = self
+            .activate(
+                bootstrap.transport(),
+                bootstrap.identifier(),
+                bootstrap.credential(),
+                true,
+            )
+            .await?;
+        self.owner_address = Some(owner_address);
+        Ok(())
     }
 
     async fn join_client(
@@ -205,6 +210,7 @@ impl LinuxNetworkManagerWifiGroup {
         };
         self.deactivate(&active_connection).await?;
         self.active_connection = None;
+        self.owner_address = None;
         Ok(())
     }
 
@@ -258,8 +264,21 @@ impl WifiGroupLifecycle for LinuxNetworkManagerWifiGroup {
     fn activate_owner(
         &mut self,
         bootstrap: &WifiGroupBootstrap,
-    ) -> impl Future<Output = Result<IpAddr, Self::Error>> + Send {
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
         self.activate_owner(bootstrap)
+    }
+
+    fn validate_owner_endpoint(&self, endpoint: SocketAddr) -> Result<(), Self::Error> {
+        let owner_address = self
+            .owner_address
+            .ok_or(LinuxNetworkManagerWifiGroupError::MissingOwnerAddress)?;
+        if endpoint.ip() != owner_address {
+            return Err(LinuxNetworkManagerWifiGroupError::EndpointAddressMismatch {
+                endpoint,
+                owner_address,
+            });
+        }
+        Ok(())
     }
 
     fn join_client(
@@ -325,6 +344,13 @@ pub enum LinuxNetworkManagerWifiGroupError {
     ActivationFailed,
     #[error("NetworkManager did not provide a usable IPv4 address")]
     MissingIpv4Address,
+    #[error("Linux Wi-Fi group owner address is unavailable")]
+    MissingOwnerAddress,
+    #[error("direct endpoint {endpoint} does not bind active owner address {owner_address}")]
+    EndpointAddressMismatch {
+        endpoint: SocketAddr,
+        owner_address: IpAddr,
+    },
     #[error("NetworkManager D-Bus operation timed out")]
     OperationTimedOut,
     #[error("NetworkManager D-Bus operation failed: {0}")]

@@ -4188,6 +4188,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "windows",
+ "windows-future",
  "yeokcham-core",
  "yeokcham-daemon-api",
  "yeokcham-protocol",

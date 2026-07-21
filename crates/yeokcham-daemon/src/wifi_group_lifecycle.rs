@@ -1,8 +1,4 @@
-use std::{
-    error::Error,
-    future::Future,
-    net::{IpAddr, SocketAddr},
-};
+use std::{error::Error, future::Future, net::SocketAddr};
 
 use yeokcham_protocol::{
     DirectProfileConfig, WifiGroupBootstrap, WifiGroupConfigurationError, WifiGroupHandoff,
@@ -14,7 +10,9 @@ pub trait WifiGroupLifecycle: Send + 'static {
     fn activate_owner(
         &mut self,
         bootstrap: &WifiGroupBootstrap,
-    ) -> impl Future<Output = Result<IpAddr, Self::Error>> + Send;
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
+
+    fn validate_owner_endpoint(&self, endpoint: SocketAddr) -> Result<(), Self::Error>;
 
     fn join_client(
         &mut self,
@@ -31,7 +29,7 @@ where
 {
     backend: Option<B>,
     active: bool,
-    owner_address: Option<IpAddr>,
+    owner: bool,
 }
 
 impl<B> ManagedWifiGroup<B>
@@ -42,14 +40,14 @@ where
         mut backend: B,
         bootstrap: &WifiGroupBootstrap,
     ) -> Result<Self, WifiGroupActivationError<B::Error>> {
-        let owner_address = backend
+        backend
             .activate_owner(bootstrap)
             .await
             .map_err(WifiGroupActivationError::Backend)?;
         Ok(Self {
             backend: Some(backend),
             active: true,
-            owner_address: Some(owner_address),
+            owner: true,
         })
     }
 
@@ -58,7 +56,7 @@ where
         Ok(Self {
             backend: Some(backend),
             active: true,
-            owner_address: None,
+            owner: false,
         })
     }
 
@@ -71,20 +69,19 @@ where
         &self,
         bootstrap: &WifiGroupBootstrap,
         direct_profile: DirectProfileConfig,
-    ) -> Result<WifiGroupHandoff, WifiGroupHandoffError> {
+    ) -> Result<WifiGroupHandoff, WifiGroupHandoffError<B::Error>> {
         if !self.active {
             return Err(WifiGroupHandoffError::Inactive);
         }
-        let owner_address = self
-            .owner_address
-            .ok_or(WifiGroupHandoffError::ClientGroup)?;
-        let endpoint = direct_profile.endpoint();
-        if endpoint.ip() != owner_address {
-            return Err(WifiGroupHandoffError::EndpointAddressMismatch {
-                endpoint,
-                owner_address,
-            });
+        if !self.owner {
+            return Err(WifiGroupHandoffError::ClientGroup);
         }
+        let endpoint = direct_profile.endpoint();
+        self.backend
+            .as_ref()
+            .expect("active Wi-Fi group always has a backend")
+            .validate_owner_endpoint(endpoint)
+            .map_err(WifiGroupHandoffError::Backend)?;
         bootstrap
             .activate(direct_profile)
             .map_err(WifiGroupHandoffError::Bootstrap)
@@ -111,7 +108,7 @@ where
     }
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Eq, PartialEq, thiserror::Error)]
 pub enum WifiGroupActivationError<E>
 where
     E: Error + Send + Sync + 'static,
@@ -121,16 +118,16 @@ where
 }
 
 #[derive(Debug, Eq, PartialEq, thiserror::Error)]
-pub enum WifiGroupHandoffError {
+pub enum WifiGroupHandoffError<E>
+where
+    E: Error + Send + Sync + 'static,
+{
     #[error("Wi-Fi group is inactive")]
     Inactive,
     #[error("a client Wi-Fi group cannot emit an owner handoff")]
     ClientGroup,
-    #[error("direct endpoint {endpoint} does not bind active owner address {owner_address}")]
-    EndpointAddressMismatch {
-        endpoint: SocketAddr,
-        owner_address: IpAddr,
-    },
+    #[error("direct endpoint does not bind the active Wi-Fi group: {0}")]
+    Backend(#[source] E),
     #[error("Wi-Fi group bootstrap is invalid: {0}")]
     Bootstrap(#[source] WifiGroupConfigurationError),
 }
@@ -149,16 +146,32 @@ mod tests {
     #[derive(Clone)]
     struct TestGroupBackend(Arc<Mutex<Vec<&'static str>>>);
 
+    #[derive(Debug, Eq, PartialEq, thiserror::Error)]
+    enum TestGroupError {
+        #[error("direct endpoint is not bound to the group")]
+        Endpoint,
+    }
+
     impl WifiGroupLifecycle for TestGroupBackend {
-        type Error = std::convert::Infallible;
+        type Error = TestGroupError;
 
         fn activate_owner(
             &mut self,
             _: &WifiGroupBootstrap,
-        ) -> impl std::future::Future<Output = Result<std::net::IpAddr, Self::Error>> + Send
-        {
+        ) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send {
             self.0.lock().unwrap().push("activate_owner");
-            std::future::ready(Ok("192.0.2.1".parse().unwrap()))
+            std::future::ready(Ok(()))
+        }
+
+        fn validate_owner_endpoint(
+            &self,
+            endpoint: std::net::SocketAddr,
+        ) -> Result<(), Self::Error> {
+            if endpoint.ip() == "192.0.2.1".parse::<std::net::IpAddr>().unwrap() {
+                Ok(())
+            } else {
+                Err(TestGroupError::Endpoint)
+            }
         }
 
         fn join_client(
@@ -208,10 +221,7 @@ mod tests {
         );
         assert_eq!(
             group.owner_handoff(&bootstrap(), profile("192.0.2.2:4444")),
-            Err(WifiGroupHandoffError::EndpointAddressMismatch {
-                endpoint: "192.0.2.2:4444".parse().unwrap(),
-                owner_address: "192.0.2.1".parse().unwrap(),
-            })
+            Err(WifiGroupHandoffError::Backend(TestGroupError::Endpoint))
         );
         group.cancel().await.unwrap();
         assert!(!group.is_active());

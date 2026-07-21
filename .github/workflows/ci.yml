@@ -46,6 +46,37 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.93.0
       - run: cargo test -p yeokcham-daemon --test direct_two_node --test lan_direct_transport --test local_mesh_two_node --test wifi_direct_transport --test wifi_hotspot_transport --locked
 
+  windows-msix:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@1.93.0
+      - id: certificate
+        shell: pwsh
+        env:
+          WINDOWS_MSIX_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_MSIX_CERTIFICATE_BASE64 }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_MSIX_CERTIFICATE_BASE64)) {
+            'signed=false' | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            exit 0
+          }
+          [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\yeokcham-msix.pfx", [Convert]::FromBase64String($env:WINDOWS_MSIX_CERTIFICATE_BASE64))
+          'signed=true' | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+      - if: steps.certificate.outputs.signed == 'true'
+        shell: pwsh
+        env:
+          WINDOWS_MSIX_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_MSIX_CERTIFICATE_PASSWORD }}
+        run: pwsh -File deploy/client/windows/package.ps1 -Output "$env:RUNNER_TEMP\yeokcham.msix" -CertificatePath "$env:RUNNER_TEMP\yeokcham-msix.pfx" -CertificatePassword $env:WINDOWS_MSIX_CERTIFICATE_PASSWORD
+      - if: steps.certificate.outputs.signed != 'true'
+        shell: pwsh
+        run: pwsh -File deploy/client/windows/package.ps1 -Output "$env:RUNNER_TEMP\yeokcham.msix" -SkipSigning
+      - uses: actions/upload-artifact@v4
+        with:
+          name: yeokcham-windows-msix
+          path: ${{ runner.temp }}\yeokcham.msix
+          if-no-files-found: error
+          retention-days: 7
+
   reproducible-release:
     runs-on: ubuntu-latest
     steps:
