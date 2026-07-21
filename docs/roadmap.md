@@ -12,3 +12,5 @@ Not part of the focused product:
 - Non-Ghostty desktop handover claims.
 
 Release work focuses on the local cockpit, pairing security, approval correctness, Web Push, macOS distribution, and documented install verification.
+
+Future provider work is constrained by the [provider capability milestones](./provider-capabilities.md): notification delivery, inbound text, approvals, E2EE, lifecycle, audit, and device verification advance independently and never imply blanket parity.
