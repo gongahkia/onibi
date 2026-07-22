@@ -22,7 +22,7 @@
         <h1>Remote Control Ghostty<br>from anywhere<br><em>Text Renders</em></h1>
         <div class="install-card">
           <pre><code>brew install gongahkia/onibi/onibi</code></pre>
-          <button class="copy-command" type="button" data-copy="brew install gongahkia/onibi/onibi">Copy command</button>
+          <button class="copy-command" type="button" data-copy="brew install gongahkia/onibi/onibi" aria-label="Copy command" title="Copy command"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="10" height="10" rx="1.5"></rect><path d="M15 9V6.5A1.5 1.5 0 0 0 13.5 5h-7A1.5 1.5 0 0 0 5 6.5v7A1.5 1.5 0 0 0 6.5 15H9"></path></svg></button>
         </div>
         <p class="hero-note">macOS focused · Linux beta · Apache-2.0</p>
       </div>
@@ -91,8 +91,9 @@
     document.querySelectorAll("[data-copy]").forEach((button) => {
       button.addEventListener("click", async () => {
         if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(button.dataset.copy);
-        button.textContent = "Copied";
-        window.setTimeout(() => { button.textContent = "Copy command"; }, 1400);
+        button.dataset.state = "copied";
+        button.setAttribute("aria-label", "Copied");
+        window.setTimeout(() => { delete button.dataset.state; button.setAttribute("aria-label", "Copy command"); }, 1400);
       });
     });
   </script>
