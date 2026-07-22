@@ -3,21 +3,106 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="description" content="Onibi documentation: a single-user local coding-agent host with a paired phone web cockpit.">
-  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <meta name="description" content="Onibi is a local coding-agent cockpit that keeps your terminal and approvals within reach.">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="assets/site.css">
-  <title>Onibi · Documentation</title>
+  <title>Onibi · Local coding-agent cockpit</title>
 </head>
-<body>
+<body class="onibi-home">
   <a class="skip-link" href="#content">Skip to content</a>
-  <header class="site-header"><div class="site-header-inner"><a class="brand" href="index.html">Onibi <span>docs</span></a><nav class="top-nav" aria-label="Primary"><a href="getting-started.html">Get started</a><a href="transports.html">Transports</a><a href="web-push.html">Web Push</a><a href="https://github.com/gongahkia/onibi">GitHub</a></nav></div></header>
-  <main id="content" class="landing">
-    <section class="hero"><p class="eyebrow">Local coding-agent cockpit</p><h1>Onibi</h1><p>Onibi is a single-user local coding-agent host with a paired phone web cockpit.</p><p>It runs a managed terminal session locally, serves it over HTTPS/WebSocket, and presents Claude Code approvals to the paired owner browser. Ghostty handover is macOS-only.</p><div class="quickstart"><p>Start on a local network</p><pre><code>brew install gongahkia/onibi/onibi
-onibi up --transport=lan</code></pre></div></section>
-    <section class="doc-section"><h2>Start here</h2><div class="card-grid"><a class="doc-card" href="getting-started.html"><strong>Getting started</strong><span>From a fresh machine to a working LAN web cockpit.</span></a><a class="doc-card" href="ios-cert-install.html"><strong>iOS certificate trust</strong><span>Trust the local certificate profile on an iPhone.</span></a><a class="doc-card" href="transports.html"><strong>Transport paths</strong><span>Choose LAN, relay, tunnel, or mesh networking.</span></a></div></section>
-    <section class="doc-section"><h2>Use and operate</h2><div class="card-grid"><a class="doc-card" href="web-push.html"><strong>Web Push</strong><span>Install the PWA and configure browser notifications.</span></a><a class="doc-card" href="architecture.html"><strong>Architecture</strong><span>PTY, pairing, approvals, and local-state boundaries.</span></a><a class="doc-card" href="security.html"><strong>Security</strong><span>Threat model, enforcement, and setup checklist.</span></a><a class="doc-card" href="transport-smoke.html"><strong>Phone transport smoke</strong><span>Verify a paired device across supported transport modes.</span></a><a class="doc-card" href="troubleshooting.html"><strong>Troubleshooting</strong><span>Common setup and connection failures.</span></a><a class="doc-card" href="release.html"><strong>Release verification</strong><span>Release gate and smoke-test procedures.</span></a></div></section>
-    <section class="doc-section"><h2>All documentation</h2><ul class="catalog"><li><a href="SPEC-adapters.html">Adapter manifest spec</a></li><li><a href="SPEC-e2e.html">E2E relay protocol</a></li><li><a href="adapter-contract.html">Certified adapter contract</a></li><li><a href="adapters-registry.html">Community adapter registry</a></li><li><a href="branding.html">Branding</a></li><li><a href="cloudflare-quick-setup.html">Cloudflare Quick Setup</a></li><li><a href="comparison.html">Positioning</a></li><li><a href="fresh-machine-smoke.html">Fresh machine smoke</a></li><li><a href="install.html">Installer publication</a></li><li><a href="iphone-transport-smoke.html">iPhone transport smoke runner</a></li><li><a href="linux-beta.html">Linux beta matrix</a></li><li><a href="ngrok-setup.html">ngrok setup</a></li><li><a href="provider-capabilities.html">Provider capability milestones</a></li><li><a href="pwa-install.html">PWA install</a></li><li><a href="roadmap.html">Product scope</a></li><li><a href="shared-control-boundary.html">Deferred shared-control boundary</a></li><li><a href="snapshots.html">Snapshots</a></li><li><a href="tap-integrity.html">Homebrew tap integrity</a></li><li><a href="terminal-fidelity.html">Terminal fidelity smoke matrix</a></li><li><a href="wireguard-setup.html">WireGuard setup</a></li><li><a href="workspace-config.html">Experimental workspace configuration</a></li><li><a href="ws-events-protocol.html">WebSocket events protocol</a></li><li><a href="zerotier-setup.html">ZeroTier setup</a></li><li><a href="blog/2026-e2e-frame-protocol.html">How the E2E frame protocol works</a></li></ul></section>
+  <header class="site-header home-header">
+    <div class="site-header-inner">
+      <a class="brand" href="index.html" aria-label="Onibi home"><span class="brand-mark" aria-hidden="true">◒</span>onibi</a>
+      <nav class="top-nav" aria-label="Primary"><a href="getting-started.html">Documentation</a><a href="https://github.com/gongahkia/onibi">GitHub</a></nav>
+    </div>
+  </header>
+  <main id="content">
+    <section class="home-hero">
+      <div class="hero-copy">
+        <p class="eyebrow">The local coding-agent cockpit</p>
+        <h1>Your coding agent,<br><em>close at hand.</em></h1>
+        <p class="lede">Onibi keeps a managed terminal and its approval requests on your own machine, then brings the same live session to your phone when you step away.</p>
+        <div class="install-card">
+          <p>Install Onibi</p>
+          <pre><code>brew install gongahkia/onibi/onibi</code></pre>
+          <button class="copy-command" type="button" data-copy="brew install gongahkia/onibi/onibi">Copy command</button>
+        </div>
+        <p class="hero-note">macOS focused · Linux beta · Apache-2.0</p>
+      </div>
+      <figure class="hero-art">
+        <img src="assets/onibi-marketing.png" alt="Two classical figures looking at a laptop and phone terminal">
+        <figcaption>There when a question needs you.</figcaption>
+      </figure>
+    </section>
+
+    <section class="brew-section install-section" aria-labelledby="start-title">
+      <div class="section-number">01</div>
+      <div class="section-content">
+        <p class="eyebrow">A short path from terminal to phone</p>
+        <h2 id="start-title">Start a private session.</h2>
+        <p>Onibi creates and manages a tmux-backed local shell. Pair one phone by QR, then use its browser as the same terminal—not a second, mirrored workflow.</p>
+        <div class="terminal-card" aria-label="Onibi setup commands">
+          <div class="terminal-bar"><span></span><span></span><span></span><b>onibi</b></div>
+          <pre><code><i>$</i> onibi install-hooks --agent claude
+<i>$</i> onibi up --transport=lan
+<small>pairing link ready · scan from your phone</small></code></pre>
+        </div>
+        <a class="text-link" href="getting-started.html">Read the getting-started guide <span aria-hidden="true">→</span></a>
+      </div>
+    </section>
+
+    <section class="brew-section feature-section" aria-labelledby="approval-title">
+      <div class="section-number">02</div>
+      <div class="section-content feature-grid">
+        <div>
+          <p class="eyebrow">The decisive moment, uninterrupted</p>
+          <h2 id="approval-title">Approve the work that needs your say.</h2>
+          <p>Supported agent hooks deliver approval requests directly to your paired cockpit. Read the action, allow it, or deny it before a local command runs.</p>
+          <ul class="feature-list">
+            <li>One owner device, paired over HTTPS</li>
+            <li>Live terminal over a local WebSocket</li>
+            <li>Managed session handover between phone and Mac</li>
+          </ul>
+        </div>
+        <figure class="lantern-art">
+          <img src="assets/onibi-lantern.jpg" alt="An antique lantern beside a laptop and phone in a neoclassical study">
+        </figure>
+      </div>
+    </section>
+
+    <section class="brew-section privacy-section" aria-labelledby="local-title">
+      <div class="section-number">03</div>
+      <div class="section-content">
+        <p class="eyebrow">Your machine remains the centre</p>
+        <h2 id="local-title">Local by design.</h2>
+        <p>Onibi hosts the terminal locally. Pairing tokens are single-use and short-lived; the owner browser uses a secure cookie; HTTPS is required. It is a deliberately narrow tool for a single operator and their own machine.</p>
+        <div class="principle-grid">
+          <article><h3>Managed sessions</h3><p>Onibi owns the tmux-backed PTY, so your terminal follows you without losing its state.</p></article>
+          <article><h3>Guarded actions</h3><p>Claude Code hooks can pause risky tool calls until you decide from the cockpit.</p></article>
+          <article><h3>Transport choices</h3><p>Use a LAN pairing flow or an authenticated tailnet when you need distance.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="resources" aria-labelledby="resources-title">
+      <p class="eyebrow">Go further</p>
+      <h2 id="resources-title">Make the cockpit yours.</h2>
+      <div class="resource-grid">
+        <a href="getting-started.html"><span>01</span><strong>Get started</strong><small>Set up Onibi, pair a phone, and start a session.</small></a>
+        <a href="transports.html"><span>02</span><strong>Choose a transport</strong><small>Compare LAN, private tailnet, and remote options.</small></a>
+        <a href="security.html"><span>03</span><strong>Read the security model</strong><small>Understand the local trust boundary and safeguards.</small></a>
+      </div>
+    </section>
   </main>
-  <footer class="site-footer"><a href="https://github.com/gongahkia/onibi">Onibi on GitHub</a></footer>
+  <footer class="site-footer home-footer"><span>Onibi is free and open source.</span><a href="https://github.com/gongahkia/onibi">View source on GitHub <span aria-hidden="true">↗</span></a></footer>
+  <script>
+    document.querySelectorAll("[data-copy]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(button.dataset.copy);
+        button.textContent = "Copied";
+        window.setTimeout(() => { button.textContent = "Copy command"; }, 1400);
+      });
+    });
+  </script>
 </body>
 </html>
