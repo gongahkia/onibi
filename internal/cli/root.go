@@ -14,7 +14,7 @@ const rootLong = "Onibi hosts coding agents (Claude Code, Codex, OpenCode, Goose
 func Root() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "onibi",
-		Short:         "Web-controlled coding-agent host",
+		Short:         "Your coding-agent cockpit",
 		Long:          rootLong,
 		RunE:          runRootLanding,
 		SilenceUsage:  true,
@@ -36,20 +36,7 @@ func Root() *cobra.Command {
 		}
 		defaultHelp(cmd, args)
 	})
-	root.AddGroup(
-		&cobra.Group{ID: "start", Title: "Start"},
-		&cobra.Group{ID: "control", Title: "Control"},
-		&cobra.Group{ID: "integrate", Title: "Integrate"},
-		&cobra.Group{ID: "inspect", Title: "Inspect"},
-		&cobra.Group{ID: "maintain", Title: "Maintain"},
-	)
-
-	addGrouped(root, "start", quickstartCmd(), setupCmd(), upCmd(), tunnelCmd(), pairCmd(), ngrokCmd(), logoCmd())
-	addGrouped(root, "control", runCmd(), wrapCmd(), newSessionCmd(), showCmd(), hideCmd(), snapshotCmd(), restoreCmd(), forkCmd(), snapshotsCmd(), shellCmd(), demoCmd())
-	addGrouped(root, "integrate", adaptersCmd(), installHooksCmd(), hooksCmd(), completionCmd())
-	addGrouped(root, "inspect", statusCmd(), devicesCmd(), sessionsCmd(), pingCmd(), doctorCmd(), logCmd(), tailLogCmd(), versionCmd())
-	addGrouped(root, "maintain", configCmd(), storeCmd(), pushCmd(), unpairCmd(), installServiceCmd(), uninstallServiceCmd(), uninstallCmd(), supportBundleCmd())
-	root.AddCommand(experimentalCmd())
+	root.AddCommand(startCmd(), phoneCmd(), sessionCmd(), agentCmd(), telegramCmd(), workspaceCmd(), transportCmd(), systemCmd(), demoCmd(), completionCmd(), versionCmd())
 
 	return root
 }
@@ -63,11 +50,4 @@ func rootHelpLong(cmd *cobra.Command) string {
 		return rootLong
 	}
 	return strings.TrimRight(brand.ANSIForWriterWidth(cmd.OutOrStdout(), logoWidth(cmd)), "\n") + "\n\n" + rootLong
-}
-
-func addGrouped(root *cobra.Command, group string, cmds ...*cobra.Command) {
-	for _, cmd := range cmds {
-		cmd.GroupID = group
-	}
-	root.AddCommand(cmds...)
 }

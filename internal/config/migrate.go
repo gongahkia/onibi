@@ -7,8 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/gongahkia/onibi/internal/capability"
 	"gopkg.in/yaml.v3"
 )
 
@@ -41,12 +39,6 @@ func Migrate(paths Paths) (MigrationResult, error) {
 		if mappingDelete(root, key) {
 			result.Changes = append(result.Changes, "removed deprecated "+key+" configuration")
 		}
-	}
-	if mode := transportMode(root); capability.IsDeferredProviderTransport(mode) && !experimentalProviders(root) {
-		if err := setExperimentalProviders(root); err != nil {
-			return result, fmt.Errorf("migrate %s: %w", path, err)
-		}
-		result.Changes = append(result.Changes, "enabled experimental.providers for existing "+mode+" transport")
 	}
 	if !result.Changed() {
 		return result, nil
@@ -112,58 +104,4 @@ func mappingDelete(mapping *yaml.Node, key string) bool {
 	}
 	mapping.Content = append(mapping.Content[:index], mapping.Content[index+2:]...)
 	return true
-}
-
-func mappingSetBool(mapping *yaml.Node, key string, value bool) {
-	if node, index := mappingValue(mapping, key); index >= 0 {
-		node.Kind = yaml.ScalarNode
-		node.Tag = "!!bool"
-		node.Value = fmt.Sprintf("%t", value)
-		node.Content = nil
-		return
-	}
-	mapping.Content = append(mapping.Content,
-		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key},
-		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: fmt.Sprintf("%t", value)},
-	)
-}
-
-func transportMode(root *yaml.Node) string {
-	transport, _ := mappingValue(root, "transport")
-	if transport == nil || transport.Kind != yaml.MappingNode {
-		return ""
-	}
-	mode, _ := mappingValue(transport, "mode")
-	if mode == nil || mode.Kind != yaml.ScalarNode {
-		return ""
-	}
-	return strings.ToLower(strings.TrimSpace(mode.Value))
-}
-
-func experimentalProviders(root *yaml.Node) bool {
-	experimental, _ := mappingValue(root, "experimental")
-	if experimental == nil || experimental.Kind != yaml.MappingNode {
-		return false
-	}
-	providers, _ := mappingValue(experimental, "providers")
-	if providers == nil || providers.Kind != yaml.ScalarNode {
-		return false
-	}
-	v := strings.ToLower(strings.TrimSpace(providers.Value))
-	return v == "true" || v == "1" || v == "yes"
-}
-
-func setExperimentalProviders(root *yaml.Node) error {
-	experimental, _ := mappingValue(root, "experimental")
-	if experimental == nil {
-		experimental = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
-		root.Content = append(root.Content,
-			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "experimental"}, experimental,
-		)
-	}
-	if experimental.Kind != yaml.MappingNode {
-		return errors.New("experimental must be a YAML mapping")
-	}
-	mappingSetBool(experimental, "providers", true)
-	return nil
 }

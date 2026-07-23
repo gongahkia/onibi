@@ -45,7 +45,6 @@ type Config struct {
 	Web          Web          `yaml:"web" json:"web"`
 	Transport    Transport    `yaml:"transport" json:"transport"`
 	Provider     Provider     `yaml:"provider" json:"provider"`
-	Experimental Experimental `yaml:"experimental" json:"experimental"`
 	Terminal     Terminal     `yaml:"terminal" json:"terminal"`
 }
 
@@ -79,11 +78,6 @@ type Transport struct {
 
 type Provider struct {
 	Output ProviderOutput `yaml:"output" json:"output"`
-}
-
-type Experimental struct {
-	Providers bool `yaml:"providers" json:"providers"`
-	Workspace bool `yaml:"workspace" json:"workspace"`
 }
 
 type ProviderOutput struct {
@@ -247,15 +241,11 @@ func (c Config) Validate() error {
 		return fmt.Errorf("transport.mode=%q is no longer supported; set transport.mode to tailscale-private or another supported transport", mode)
 	case mode == "cloudflare-named":
 		return fmt.Errorf("transport.mode=%q has been removed; set transport.mode to cloudflare-quick or a private transport", mode)
-	case capability.IsV1WebTransport(mode), capability.IsInternalWebTransport(mode):
+	case capability.IsV1WebTransport(mode), capability.IsInternalWebTransport(mode), capability.IsV1ProviderTransport(mode):
 	case mode == "email" || mode == "sms" || mode == "apns" || mode == "gotify" || mode == "ntfy" || mode == "pushover" || mode == "signal" || mode == "zulip" || mode == "discord" || mode == "slack" || mode == "matrix":
 		return fmt.Errorf("transport.mode=%q is no longer supported; use web push or telegram", mode)
-	case capability.IsDeferredProviderTransport(mode):
-		if !c.Experimental.Providers {
-			return fmt.Errorf("transport.mode %q is deferred in v1; run `onibi config --migrate` or set experimental.providers=true to opt into unsupported provider behavior", mode)
-		}
 	default:
-		return fmt.Errorf("transport.mode must be a v1 web transport or a deferred provider transport with experimental.providers=true")
+		return fmt.Errorf("transport.mode must be a supported web transport or telegram")
 	}
 	switch strings.ToLower(strings.TrimSpace(c.Terminal.Default)) {
 	case "auto", "ghostty", "none":
@@ -391,18 +381,6 @@ func Set(cfg *Config, key, value string) error {
 		cfg.Transport.Mode = strings.ToLower(strings.TrimSpace(value))
 	case "transport.saddr":
 		cfg.Transport.SAddr = strings.TrimSpace(value)
-	case "experimental.providers":
-		v, err := strconv.ParseBool(strings.TrimSpace(value))
-		if err != nil {
-			return fmt.Errorf("experimental.providers must be boolean")
-		}
-		cfg.Experimental.Providers = v
-	case "experimental.workspace":
-		v, err := strconv.ParseBool(strings.TrimSpace(value))
-		if err != nil {
-			return fmt.Errorf("experimental.workspace must be boolean")
-		}
-		cfg.Experimental.Workspace = v
 	case "provider.output.max_chunks":
 		n, err := strconv.Atoi(strings.TrimSpace(value))
 		if err != nil {
@@ -457,10 +435,6 @@ func Get(cfg Config, key string) (string, error) {
 		return cfg.Transport.Mode, nil
 	case "transport.saddr":
 		return cfg.Transport.SAddr, nil
-	case "experimental.providers":
-		return strconv.FormatBool(cfg.Experimental.Providers), nil
-	case "experimental.workspace":
-		return strconv.FormatBool(cfg.Experimental.Workspace), nil
 	case "provider.output.max_chunks":
 		return strconv.Itoa(cfg.Provider.Output.MaxChunks), nil
 	case "provider.output.max_bytes":
@@ -489,10 +463,8 @@ func Keys(cfg Config, meta LoadMeta) []KeyInfo {
 		{"shell.default", def.Shell.Default, cfg.Shell.Default, meta.Explicit["shell.default"], "shell launched by `onibi shell`: auto, shell name, or absolute path"},
 		{"shell.login", strconv.FormatBool(def.Shell.Login), strconv.FormatBool(cfg.Shell.Login), meta.Explicit["shell.login"], "start `onibi shell` as login+interactive when supported"},
 		{"terminal.default", def.Terminal.Default, cfg.Terminal.Default, meta.Explicit["terminal.default"], "visible session handover: auto/ghostty opens Ghostty on macOS; otherwise manual tmux attach"},
-		{"transport.mode", def.Transport.Mode, cfg.Transport.Mode, meta.Explicit["transport.mode"], "v1 web transport: lan, tailscale-private, wireguard, zerotier, cloudflare-quick, ngrok, or auto"},
+		{"transport.mode", def.Transport.Mode, cfg.Transport.Mode, meta.Explicit["transport.mode"], "transport: lan, tailscale-private, wireguard, zerotier, cloudflare-quick, ngrok, auto, or telegram"},
 		{"transport.saddr", def.Transport.SAddr, cfg.Transport.SAddr, meta.Explicit["transport.saddr"], "optional transport service address"},
-		{"experimental.providers", strconv.FormatBool(def.Experimental.Providers), strconv.FormatBool(cfg.Experimental.Providers), meta.Explicit["experimental.providers"], "allow deferred and unsupported chat/notify provider transports"},
-		{"experimental.workspace", strconv.FormatBool(def.Experimental.Workspace), strconv.FormatBool(cfg.Experimental.Workspace), meta.Explicit["experimental.workspace"], "allow portable project workspace configuration commands"},
 		{"provider.output.max_chunks", strconv.Itoa(def.Provider.Output.MaxChunks), strconv.Itoa(cfg.Provider.Output.MaxChunks), meta.Explicit["provider.output.max_chunks"], "maximum provider reply chunks per session command"},
 		{"provider.output.max_bytes", strconv.Itoa(def.Provider.Output.MaxBytes), strconv.Itoa(cfg.Provider.Output.MaxBytes), meta.Explicit["provider.output.max_bytes"], "maximum provider reply bytes per session command"},
 		{"provider.output.redaction", def.Provider.Output.Redaction, cfg.Provider.Output.Redaction, meta.Explicit["provider.output.redaction"], "provider output redaction: default, strict, or off"},
@@ -518,7 +490,6 @@ type rawConfig struct {
 	Web          rawWeb          `yaml:"web"`
 	Transport    rawTransport    `yaml:"transport"`
 	Provider     rawProvider     `yaml:"provider"`
-	Experimental rawExperimental `yaml:"experimental"`
 	Terminal     rawTerminal     `yaml:"terminal"`
 	Update       rawLegacyUpdate `yaml:"update"`
 }
@@ -559,11 +530,6 @@ type rawTransport struct {
 
 type rawProvider struct {
 	Output rawProviderOutput `yaml:"output"`
-}
-
-type rawExperimental struct {
-	Providers *bool `yaml:"providers"`
-	Workspace *bool `yaml:"workspace"`
 }
 
 type rawProviderOutput struct {
@@ -627,14 +593,6 @@ func applyRaw(cfg *Config, meta *LoadMeta, raw rawConfig) {
 	if raw.Transport.SAddr != nil {
 		cfg.Transport.SAddr = strings.TrimSpace(*raw.Transport.SAddr)
 		meta.Explicit["transport.saddr"] = true
-	}
-	if raw.Experimental.Providers != nil {
-		cfg.Experimental.Providers = *raw.Experimental.Providers
-		meta.Explicit["experimental.providers"] = true
-	}
-	if raw.Experimental.Workspace != nil {
-		cfg.Experimental.Workspace = *raw.Experimental.Workspace
-		meta.Explicit["experimental.workspace"] = true
 	}
 	if raw.Provider.Output.MaxChunks != nil {
 		cfg.Provider.Output.MaxChunks = *raw.Provider.Output.MaxChunks
