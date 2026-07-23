@@ -72,13 +72,13 @@ func promptWebTransport(cmd *cobra.Command, sc *bufio.Scanner, current string, s
 
 func pairTransportChoices(current string) []pairTransportChoice {
 	return []pairTransportChoice{
-		{key: "1", mode: "lan", label: "LAN / hotspot", detail: "same Wi-Fi or phone hotspot", coverage: "unit + local integration + manual device", command: "onibi up --transport=lan", active: current == "lan"},
-		{key: "2", mode: "tailscale-private", label: "Tailscale Serve", detail: "private tailnet HTTPS", coverage: "unit + fake runner", command: "onibi up --transport=tailscale-private", active: current == "tailscale-private"},
-		{key: "3", mode: "wireguard", label: "WireGuard", detail: "self-hosted mesh VPN", coverage: "unit + interface probe + live opt-in", command: "onibi up --transport=wireguard", active: current == "wireguard"},
-		{key: "4", mode: "zerotier", label: "ZeroTier", detail: "self-hosted mesh overlay", coverage: "unit + CLI probe + live opt-in", command: "onibi up --transport=zerotier", active: current == "zerotier"},
-		{key: "5", mode: "cloudflare-quick", label: "Cloudflare Quick", detail: "temporary trycloudflare URL", coverage: "unit + fake process + live opt-in", command: "onibi up --transport=cloudflare-quick", active: current == "cloudflare-quick"},
-		{key: "6", mode: "ngrok", label: "ngrok", detail: "dev/demo public URL", coverage: "unit + fake agent API + live opt-in", command: "onibi up --transport=ngrok", active: current == "ngrok"},
-		{key: "7", mode: "auto", label: "Auto", detail: "LAN default", coverage: "LAN only", command: "onibi up --transport=auto", active: current == "auto"},
+		{key: "1", mode: "lan", label: "LAN / hotspot", detail: "same Wi-Fi or phone hotspot", coverage: "unit + local integration + manual device", command: "onibi start --transport=lan", active: current == "lan"},
+		{key: "2", mode: "tailscale-private", label: "Tailscale Serve", detail: "private tailnet HTTPS", coverage: "unit + fake runner", command: "onibi start --transport=tailscale-private", active: current == "tailscale-private"},
+		{key: "3", mode: "wireguard", label: "WireGuard", detail: "self-hosted mesh VPN", coverage: "unit + interface probe + live opt-in", command: "onibi start --transport=wireguard", active: current == "wireguard"},
+		{key: "4", mode: "zerotier", label: "ZeroTier", detail: "self-hosted mesh overlay", coverage: "unit + CLI probe + live opt-in", command: "onibi start --transport=zerotier", active: current == "zerotier"},
+		{key: "5", mode: "cloudflare-quick", label: "Cloudflare Quick", detail: "temporary trycloudflare URL", coverage: "unit + fake process + live opt-in", command: "onibi start --transport=cloudflare-quick", active: current == "cloudflare-quick"},
+		{key: "6", mode: "ngrok", label: "ngrok", detail: "dev/demo public URL", coverage: "unit + fake agent API + live opt-in", command: "onibi start --transport=ngrok", active: current == "ngrok"},
+		{key: "7", mode: "auto", label: "Auto", detail: "LAN default", coverage: "LAN only", command: "onibi start --transport=auto", active: current == "auto"},
 	}
 }
 

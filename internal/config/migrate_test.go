@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestMigrateArchivesRemovedFeaturesAndGatesProvider(t *testing.T) {
+func TestMigrateArchivesRemovedFeatures(t *testing.T) {
 	paths := testPaths(t)
 	original := "voice:\n  enabled: true\nworkspace:\n  name: legacy\nteam:\n  owner: legacy\ntransport:\n  mode: telegram\n"
 	if err := os.WriteFile(paths.Config, []byte(original), 0o600); err != nil {
@@ -16,7 +16,7 @@ func TestMigrateArchivesRemovedFeaturesAndGatesProvider(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Changed() || len(result.Changes) != 4 {
+	if !result.Changed() || len(result.Changes) != 3 {
 		t.Fatalf("migration result = %#v", result)
 	}
 	backup, err := os.ReadFile(result.BackupPath)
@@ -30,7 +30,7 @@ func TestMigrateArchivesRemovedFeaturesAndGatesProvider(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Transport.Mode != "telegram" || !cfg.Experimental.Providers {
+	if cfg.Transport.Mode != "telegram" {
 		t.Fatalf("config = %#v", cfg)
 	}
 	migrated, err := os.ReadFile(paths.Config)
@@ -55,23 +55,5 @@ func TestMigrateLeavesV1ConfigUntouched(t *testing.T) {
 	}
 	if result.Changed() || result.BackupPath != "" {
 		t.Fatalf("migration result = %#v", result)
-	}
-}
-
-func TestMigratePreservesExperimentalWorkspaceProfile(t *testing.T) {
-	paths := testPaths(t)
-	body := "workspace:\n  name: legacy\nexperimental:\n  workspace: true\n"
-	if err := os.WriteFile(paths.Config, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := Migrate(paths); err != nil {
-		t.Fatal(err)
-	}
-	cfg, _, err := Load(paths)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !cfg.Experimental.Workspace {
-		t.Fatal("experimental workspace profile was removed")
 	}
 }

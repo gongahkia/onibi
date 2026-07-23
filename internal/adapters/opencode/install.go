@@ -124,8 +124,8 @@ func Status(ctx context.Context, db *store.DB) common.Info {
 	info.Installed = strings.Contains(src, "ONIBI_AGENT = \"opencode\"")
 	if !info.Installed {
 		if strings.Contains(src, "onibi-notify") {
-			info.Message = "unmanaged onibi-like hook; run onibi install-hooks --agent opencode to adopt"
-			info.Next = "onibi install-hooks --agent opencode"
+			info.Message = "unmanaged onibi-like hook; run onibi agent install --agent opencode to adopt"
+			info.Next = "onibi agent install --agent opencode"
 		} else {
 			common.MarkNotInstalled(&info)
 		}
@@ -133,7 +133,7 @@ func Status(ctx context.Context, db *store.DB) common.Info {
 	}
 	info.InstalledVersion = common.VersionPtr(version)
 	info.Outdated = version != common.IntegrationVersion
-	common.ApplyManagedStatus(ctx, db, &info, Agent, path, body, "OpenCode plugin installed", "onibi install-hooks --agent opencode")
+	common.ApplyManagedStatus(ctx, db, &info, Agent, path, body, "OpenCode plugin installed", "onibi agent install --agent opencode")
 	return info
 }
 

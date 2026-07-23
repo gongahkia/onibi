@@ -13,7 +13,7 @@ import (
 
 func TestInstallHooksCodexPrintsTrustInstructions(t *testing.T) {
 	_, hooksPath, _ := hooksCLIFixture(t)
-	out, _ := executeRoot(t, "install-hooks", "--agent", "codex", "--color", "never")
+	out, _ := executeRoot(t, "agent", "install", "--agent", "codex", "--color", "never")
 	got := out.String()
 	for _, want := range []string{
 		"Codex next step: run codex, choose Review hooks, inspect onibi-notify commands, then trust if they match.",
@@ -37,7 +37,7 @@ func TestInstallHooksAutoDetectDryRun(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(home, ".config", "codex"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	out, _ := executeRoot(t, "install-hooks", "--dry-run", "--color", "never")
+	out, _ := executeRoot(t, "agent", "install", "--dry-run", "--color", "never")
 	got := out.String()
 	for _, want := range []string{
 		"[PLAN] Install agent claude hook:",
@@ -60,7 +60,7 @@ func TestInstallHooksAutoDetectAllInstallsPresent(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	out, _ := executeRoot(t, "install-hooks", "--all", "--color", "never")
+	out, _ := executeRoot(t, "agent", "install", "--all", "--color", "never")
 	got := out.String()
 	for _, want := range []string{"Installed claude hooks"} {
 		if !strings.Contains(got, want) {
@@ -77,7 +77,7 @@ func TestInstallHooksAutoDetectPrompts(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	out, _ := executeRootInput(t, "n\n", "install-hooks", "--color", "never")
+	out, _ := executeRootInput(t, "n\n", "agent", "install", "--color", "never")
 	if !strings.Contains(out.String(), "Install agent claude hook? [Y/n]") {
 		t.Fatalf("missing prompt:\n%s", out.String())
 	}
@@ -89,8 +89,8 @@ func TestInstallHooksAutoDetectPrompts(t *testing.T) {
 func TestShellHookFlagsRejected(t *testing.T) {
 	hooksCLIFixture(t)
 	for _, args := range [][]string{
-		{"install-hooks", "--shell", "zsh", "--color", "never"},
-		{"hooks", "--show", "--shell", "zsh", "--color", "never"},
+		{"agent", "install", "--shell", "zsh", "--color", "never"},
+		{"agent", "inspect", "--shell", "zsh", "--color", "never"},
 	} {
 		_, _, err := executeRootAllowError(t, args...)
 		if err == nil || !strings.Contains(err.Error(), "unknown flag: --shell") {
@@ -107,8 +107,8 @@ func TestHooksShowCodexJSONReportsCommandsBackupAndUserHook(t *testing.T) {
 	if err := os.WriteFile(hooksPath, []byte(`{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"echo user-hook"}]}]}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	executeRoot(t, "install-hooks", "--agent", "codex", "--color", "never")
-	out, _ := executeRoot(t, "hooks", "--show", "--agent", "codex", "--json", "--color", "never")
+	executeRoot(t, "agent", "install", "--agent", "codex", "--color", "never")
+	out, _ := executeRoot(t, "agent", "inspect", "--agent", "codex", "--json", "--color", "never")
 	var report hooksShowReport
 	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
 		t.Fatalf("json: %v\n%s", err, out.String())
@@ -140,8 +140,8 @@ func TestHooksShowCodexJSONReportsCommandsBackupAndUserHook(t *testing.T) {
 
 func TestHooksShowCodexJSONAllowsMissingBackup(t *testing.T) {
 	hooksCLIFixture(t)
-	executeRoot(t, "install-hooks", "--agent", "codex", "--color", "never")
-	out, _ := executeRoot(t, "hooks", "--show", "--agent", "codex", "--json", "--color", "never")
+	executeRoot(t, "agent", "install", "--agent", "codex", "--color", "never")
+	out, _ := executeRoot(t, "agent", "inspect", "--agent", "codex", "--json", "--color", "never")
 	var report hooksShowReport
 	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
 		t.Fatalf("json: %v\n%s", err, out.String())
@@ -163,8 +163,8 @@ func TestHooksShowClaudeJSONReportsCommandsBackupAndTrust(t *testing.T) {
 	if err := os.WriteFile(settingsPath, []byte(`{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"echo user-hook"}]}]}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	executeRoot(t, "install-hooks", "--agent", "claude", "--color", "never")
-	out, _ := executeRoot(t, "hooks", "--show", "--agent", "claude", "--json", "--color", "never")
+	executeRoot(t, "agent", "install", "--agent", "claude", "--color", "never")
+	out, _ := executeRoot(t, "agent", "inspect", "--agent", "claude", "--json", "--color", "never")
 	var report hooksShowReport
 	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
 		t.Fatalf("json: %v\n%s", err, out.String())
@@ -200,8 +200,8 @@ func TestHooksShowGooseJSONReportsCommandsAndBackup(t *testing.T) {
 	if err := os.WriteFile(hooksPath, []byte(`{"hooks":{}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	executeRoot(t, "install-hooks", "--agent", "goose", "--color", "never")
-	out, _ := executeRoot(t, "hooks", "--show", "--agent", "goose", "--json", "--color", "never")
+	executeRoot(t, "agent", "install", "--agent", "goose", "--color", "never")
+	out, _ := executeRoot(t, "agent", "inspect", "--agent", "goose", "--json", "--color", "never")
 	var report hooksShowReport
 	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
 		t.Fatalf("json: %v\n%s", err, out.String())
@@ -232,8 +232,8 @@ func TestHooksShowGeminiJSONReportsCommandsBackupAndDisable(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("ONIBI_GEMINI_SETTINGS", settingsPath)
-	executeRoot(t, "install-hooks", "--agent", "gemini", "--color", "never")
-	out, _ := executeRoot(t, "hooks", "--show", "--agent", "gemini", "--json", "--color", "never")
+	executeRoot(t, "agent", "install", "--agent", "gemini", "--color", "never")
+	out, _ := executeRoot(t, "agent", "inspect", "--agent", "gemini", "--json", "--color", "never")
 	var report hooksShowReport
 	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
 		t.Fatalf("json: %v\n%s", err, out.String())
@@ -250,7 +250,7 @@ func TestHooksShowGeminiJSONReportsCommandsBackupAndDisable(t *testing.T) {
 		}
 	}
 	trust := strings.Join(report.TrustInstructions, "\n")
-	if !strings.Contains(trust, "inspect the configured hooks") || !strings.Contains(trust, "hooks --show") {
+	if !strings.Contains(trust, "inspect the configured hooks") || !strings.Contains(trust, "agent inspect") {
 		t.Fatalf("trust=%q", trust)
 	}
 }
@@ -264,7 +264,7 @@ func TestHooksShowCopilotJSONReportsCommandsBackupTrustAndDisabled(t *testing.T)
 	if err := os.WriteFile(hooksPath, []byte(`{"version":1,"disableAllHooks":true,"hooks":{}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	executeRoot(t, "install-hooks", "--agent", "copilot", "--color", "never")
+	executeRoot(t, "agent", "install", "--agent", "copilot", "--color", "never")
 	var cfg map[string]any
 	b, err := os.ReadFile(hooksPath)
 	if err != nil {
@@ -281,7 +281,7 @@ func TestHooksShowCopilotJSONReportsCommandsBackupTrustAndDisabled(t *testing.T)
 	if err := os.WriteFile(hooksPath, append(b, '\n'), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	out, _ := executeRoot(t, "hooks", "--show", "--agent", "copilot", "--json", "--color", "never")
+	out, _ := executeRoot(t, "agent", "inspect", "--agent", "copilot", "--json", "--color", "never")
 	var report hooksShowReport
 	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
 		t.Fatalf("json: %v\n%s", err, out.String())
@@ -320,8 +320,8 @@ func TestHooksShowAmpJSONReportsPluginPathAndReload(t *testing.T) {
 	if err := os.WriteFile(pluginPath, []byte("old amp plugin"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	executeRoot(t, "install-hooks", "--agent", "amp", "--color", "never")
-	out, _ := executeRoot(t, "hooks", "--show", "--agent", "amp", "--json", "--color", "never")
+	executeRoot(t, "agent", "install", "--agent", "amp", "--color", "never")
+	out, _ := executeRoot(t, "agent", "inspect", "--agent", "amp", "--json", "--color", "never")
 	var report hooksShowReport
 	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
 		t.Fatalf("json: %v\n%s", err, out.String())
@@ -358,8 +358,8 @@ func TestHooksShowOpenCodeJSONReportsPluginStateAndReload(t *testing.T) {
 	if err := os.WriteFile(pluginPath, []byte("old OpenCode plugin"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	executeRoot(t, "install-hooks", "--agent", "opencode", "--color", "never")
-	out, _ := executeRoot(t, "hooks", "--show", "--agent", "opencode", "--json", "--color", "never")
+	executeRoot(t, "agent", "install", "--agent", "opencode", "--color", "never")
+	out, _ := executeRoot(t, "agent", "inspect", "--agent", "opencode", "--json", "--color", "never")
 	var report hooksShowReport
 	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
 		t.Fatalf("json: %v\n%s", err, out.String())
@@ -392,8 +392,8 @@ func TestHooksShowPiJSONReportsExtensionPathAndReload(t *testing.T) {
 	if err := os.WriteFile(extensionPath, []byte("old pi extension"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	executeRoot(t, "install-hooks", "--agent", "pi", "--color", "never")
-	out, _ := executeRoot(t, "hooks", "--show", "--agent", "pi", "--json", "--color", "never")
+	executeRoot(t, "agent", "install", "--agent", "pi", "--color", "never")
+	out, _ := executeRoot(t, "agent", "inspect", "--agent", "pi", "--json", "--color", "never")
 	var report hooksShowReport
 	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
 		t.Fatalf("json: %v\n%s", err, out.String())
@@ -414,7 +414,7 @@ func TestHooksShowPiJSONReportsExtensionPathAndReload(t *testing.T) {
 
 func TestHooksShowCodexReportsSchemaInvalidAndTamperDrift(t *testing.T) {
 	_, hooksPath, _ := hooksCLIFixture(t)
-	executeRoot(t, "install-hooks", "--agent", "codex", "--color", "never")
+	executeRoot(t, "agent", "install", "--agent", "codex", "--color", "never")
 	var cfg map[string]any
 	b, err := os.ReadFile(hooksPath)
 	if err != nil {
@@ -435,7 +435,7 @@ func TestHooksShowCodexReportsSchemaInvalidAndTamperDrift(t *testing.T) {
 	if err := os.WriteFile(hooksPath, append(b, '\n'), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	out, _ := executeRoot(t, "hooks", "--show", "--agent", "codex", "--json", "--color", "never")
+	out, _ := executeRoot(t, "agent", "inspect", "--agent", "codex", "--json", "--color", "never")
 	var report hooksShowReport
 	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
 		t.Fatalf("json: %v\n%s", err, out.String())
@@ -450,7 +450,7 @@ func TestHooksShowCodexReportsSchemaInvalidAndTamperDrift(t *testing.T) {
 
 func TestHooksMatrixIncludesAgents(t *testing.T) {
 	hooksCLIFixture(t)
-	out, _ := executeRoot(t, "hooks", "--matrix", "--json", "--color", "never")
+	out, _ := executeRoot(t, "agent", "matrix", "--json", "--color", "never")
 	var rows []hooksMatrixRow
 	if err := json.Unmarshal(out.Bytes(), &rows); err != nil {
 		t.Fatalf("json: %v\n%s", err, out.String())
@@ -468,8 +468,8 @@ func TestHooksMatrixIncludesAgents(t *testing.T) {
 
 func TestHooksMatrixReportsInstalledCodexDriftAndManualStep(t *testing.T) {
 	hooksCLIFixture(t)
-	executeRoot(t, "install-hooks", "--agent", "codex", "--color", "never")
-	out, _ := executeRoot(t, "hooks", "--matrix", "--json", "--color", "never")
+	executeRoot(t, "agent", "install", "--agent", "codex", "--color", "never")
+	out, _ := executeRoot(t, "agent", "matrix", "--json", "--color", "never")
 	var rows []hooksMatrixRow
 	if err := json.Unmarshal(out.Bytes(), &rows); err != nil {
 		t.Fatalf("json: %v\n%s", err, out.String())
@@ -488,8 +488,8 @@ func TestHooksMatrixReportsInstalledCodexDriftAndManualStep(t *testing.T) {
 
 func TestHooksShowAllComparesBundledAndObservedVersions(t *testing.T) {
 	hooksCLIFixture(t)
-	executeRoot(t, "install-hooks", "--agent", "codex", "--color", "never")
-	out, _ := executeRoot(t, "hooks", "--show", "--all", "--json", "--color", "never")
+	executeRoot(t, "agent", "install", "--agent", "codex", "--color", "never")
+	out, _ := executeRoot(t, "agent", "inspect", "--all", "--json", "--color", "never")
 	var reports []hooksShowReport
 	if err := json.Unmarshal(out.Bytes(), &reports); err != nil {
 		t.Fatalf("json: %v\n%s", err, out.String())

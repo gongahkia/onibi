@@ -31,7 +31,7 @@ func TestFirstRunHappyPathInstallsDetectedHooksAndStartsUp(t *testing.T) {
 	}
 	t.Cleanup(func() { webPairRun = oldWebPair })
 
-	out, _ := executeRootInput(t, "all\n2\n", "up", "--first-run", "--color", "never", "--no-logo")
+	out, _ := executeRootInput(t, "all\n2\n", "start", "--first-run", "--color", "never", "--no-logo")
 	got := out.String()
 	for _, want := range []string{"First run", "Detected hooks", "Installed claude hooks", "Transport tailscale-private", "first-run pair stub"} {
 		if !strings.Contains(got, want) {
@@ -72,7 +72,7 @@ func TestFirstRunNoDetectedHooksSkipsInstallAndStartsUp(t *testing.T) {
 		locateNotifyBinary = oldLocate
 	})
 
-	out, _ := executeRootInput(t, "\n\n", "up", "--first-run", "--color", "never", "--no-logo")
+	out, _ := executeRootInput(t, "\n\n", "start", "--first-run", "--color", "never", "--no-logo")
 	got := out.String()
 	for _, want := range []string{"No detected agent config dirs", "Transport lan", "first-run skip pair stub"} {
 		if !strings.Contains(got, want) {
@@ -113,7 +113,7 @@ func TestFirstRunIdempotentKeepsExistingTransportDefault(t *testing.T) {
 	}
 	t.Cleanup(func() { webPairRun = oldWebPair })
 
-	out, _ := executeRootInput(t, "\n\n", "up", "--first-run", "--color", "never", "--no-logo")
+	out, _ := executeRootInput(t, "\n\n", "start", "--first-run", "--color", "never", "--no-logo")
 	got := out.String()
 	for _, want := range []string{"No detected agent config dirs", "Select transport [2]", "Transport tailscale-private", "first-run idempotent pair stub"} {
 		if !strings.Contains(got, want) {

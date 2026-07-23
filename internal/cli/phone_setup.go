@@ -41,7 +41,7 @@ func writePhoneSetupGuide(out io.Writer, state phoneSetupState) {
 		return
 	}
 	if !state.CertReady {
-		fmt.Fprintf(out, "1. Run `onibi up --transport=%s` to generate local HTTPS trust files and a fresh pairing QR.\n", mode)
+		fmt.Fprintf(out, "1. Run `onibi start --transport=%s` to generate local HTTPS trust files and a fresh pairing QR.\n", mode)
 		fmt.Fprintln(out, "2. Keep that command running; it prints the platform-specific next steps.")
 		return
 	}
@@ -64,7 +64,7 @@ func printDoctorPhoneSetup(cmd *cobra.Command, paths config.Paths, transportOver
 		transport = cfg.Transport.Mode
 	}
 	switch strings.ToLower(strings.TrimSpace(transport)) {
-	case "telegram", "irc":
+	case "telegram":
 		return
 	}
 	certPaths := web.LocalCertPaths(certDir(paths, cfg))

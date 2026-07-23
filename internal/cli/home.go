@@ -1,9 +1,11 @@
 package cli
 
 import (
+	"bufio"
 	"fmt"
 	"log/slog"
 	"strconv"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -13,40 +15,43 @@ import (
 func runRootLanding(cmd *cobra.Command, _ []string) error {
 	printCLIHeader(cmd, "")
 	style := styleFor(cmd)
-	fmt.Fprintln(cmd.OutOrStdout(), style.bold("Onibi")+" - web cockpit for local coding agents")
+	fmt.Fprintln(cmd.OutOrStdout(), style.bold("Onibi command center"))
+	fmt.Fprintln(cmd.OutOrStdout(), style.dim("Private control for coding agents. No local secrets are opened here."))
 	fmt.Fprintln(cmd.OutOrStdout())
 	rows := [][]string{
-		{"Start", "onibi up", "start the local web cockpit and print a pairing QR"},
-		{"Tailnet", "onibi up --transport=tailscale-private", "use private Tailscale Serve and print QR"},
-		{"Pair", "onibi pair", "mint another phone QR"},
-		{"Integrate", "onibi install-hooks --interactive", "install agent hooks"},
-		{"Check", "onibi status", "show daemon, devices, hooks, and doctor summary"},
-		{"Repair", "onibi doctor --fix", "apply safe local fixes"},
+		{"1", "Start cockpit", "guided first-run setup, then a phone pairing QR"},
+		{"2", "Pair phone", "show a fresh QR for the local web cockpit"},
+		{"3", "Connect agents", "install or inspect coding-agent hooks"},
+		{"4", "Check system", "review diagnostics, security, service, and config"},
+		{"5", "Telegram beta", "set up the owner-only chat cockpit"},
+		{"6", "Workspace", "create portable project metadata"},
 	}
-	if err := renderTable(cmd.OutOrStdout(), rows); err != nil {
+	if err := renderMenuPanel(cmd, "WORKFLOWS", rows); err != nil {
 		return err
 	}
-	fmt.Fprintln(cmd.OutOrStdout())
-	fmt.Fprintln(cmd.OutOrStdout(), style.dim("More: onibi --help | onibi quickstart | onibi logo"))
-	return nil
-}
-
-func quickstartCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:     "quickstart",
-		Aliases: []string{"intro", "getting-started"},
-		Short:   "Print the first-run flow",
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			printCLIHeader(cmd, "Quickstart")
-			rows := [][]string{
-				{"1", "onibi status", "inspect local state"},
-				{"2", "onibi up", "start the web cockpit and pair a device"},
-				{"3", "onibi install-hooks --interactive", "connect agents"},
-				{"4", "onibi doctor --fix", "apply safe local fixes"},
-			}
-			return renderTable(cmd.OutOrStdout(), rows)
-		},
+	if !shouldPromptPairTransport(cmd) {
+		fmt.Fprintln(cmd.OutOrStdout(), style.dim("Run `onibi --help` for every command."))
+		return nil
 	}
+	fmt.Fprint(cmd.OutOrStdout(), "Choose 1–6, or Enter to exit: ")
+	sc := bufio.NewScanner(cmd.InOrStdin())
+	if !sc.Scan() {
+		return sc.Err()
+	}
+	choice := strings.TrimSpace(strings.ToLower(sc.Text()))
+	if choice == "" || choice == "q" || choice == "quit" {
+		return nil
+	}
+	routes := map[string][]string{
+		"1": {"start"}, "2": {"phone", "pair"}, "3": {"agent", "install"},
+		"4": {"system", "doctor"}, "5": {"telegram", "status"}, "6": {"workspace", "init"},
+	}
+	args, ok := routes[choice]
+	if !ok {
+		return fmt.Errorf("choose a number from 1 through 6")
+	}
+	cmd.Root().SetArgs(args)
+	return cmd.Root().Execute()
 }
 
 func logoCmd() *cobra.Command {

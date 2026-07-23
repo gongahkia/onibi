@@ -75,7 +75,7 @@ func TestAdaptersAddLocalManifestCopiesAndRegisters(t *testing.T) {
 	if err := os.WriteFile(src, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	out, _ := executeRoot(t, "adapters", "add", src, "--color", "never")
+	out, _ := executeRoot(t, "agent", "adapter", "add", src, "--color", "never")
 	if !strings.Contains(out.String(), "Added adapter aiderlocal") {
 		t.Fatalf("out = %q", out.String())
 	}
@@ -89,7 +89,7 @@ func TestAdaptersAddLocalManifestCopiesAndRegisters(t *testing.T) {
 }
 
 func TestAdaptersAddHTTPSManifestRequiresSHA256Pin(t *testing.T) {
-	_, _, err := executeRootAllowError(t, "adapters", "add", "https://example.com/aider.toml", "--color", "never")
+	_, _, err := executeRootAllowError(t, "agent", "adapter", "add", "https://example.com/aider.toml", "--color", "never")
 	if err == nil || !strings.Contains(err.Error(), "--sha256 is required") {
 		t.Fatalf("err = %v", err)
 	}
@@ -107,7 +107,7 @@ func TestAdaptersAddHTTPSManifestWithSHA256Pin(t *testing.T) {
 	http.DefaultClient = ts.Client()
 	t.Cleanup(func() { http.DefaultClient = oldClient })
 	sum := sha256.Sum256([]byte(body))
-	out, _ := executeRoot(t, "adapters", "add", ts.URL, "--sha256", hex.EncodeToString(sum[:]), "--color", "never")
+	out, _ := executeRoot(t, "agent", "adapter", "add", ts.URL, "--sha256", hex.EncodeToString(sum[:]), "--color", "never")
 	if !strings.Contains(out.String(), "Added adapter aiderurl") {
 		t.Fatalf("out = %q", out.String())
 	}
@@ -125,8 +125,8 @@ func TestAdaptersAddManifestRoutesInstallHooks(t *testing.T) {
 	if err := os.WriteFile(src, []byte(testAdapterManifest("aiderhooks", installed)), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	executeRoot(t, "adapters", "add", src, "--color", "never")
-	executeRoot(t, "install-hooks", "--agent", "aiderhooks", "--color", "never")
+	executeRoot(t, "agent", "adapter", "add", src, "--color", "never")
+	executeRoot(t, "agent", "install", "--agent", "aiderhooks", "--color", "never")
 	got, err := os.ReadFile(installed)
 	if err != nil {
 		t.Fatal(err)
@@ -142,7 +142,7 @@ func TestAdaptersValidateManifestReportsOK(t *testing.T) {
 	if err := os.WriteFile(src, []byte(testAdapterManifest("aidervalid", filepath.Join(dir, "install.out"))), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	out, _ := executeRoot(t, "adapters", "validate", src, "--color", "never")
+	out, _ := executeRoot(t, "agent", "adapter", "validate", src, "--color", "never")
 	if !strings.Contains(out.String(), "OK aidervalid 1.0.0") {
 		t.Fatalf("out = %q", out.String())
 	}
@@ -167,7 +167,7 @@ func TestAdaptersValidateManifestReportsLineNumber(t *testing.T) {
 	if err := os.WriteFile(src, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, errOut, err := executeRootAllowError(t, "adapters", "validate", src, "--color", "never")
+	_, errOut, err := executeRootAllowError(t, "agent", "adapter", "validate", src, "--color", "never")
 	if err == nil {
 		t.Fatal("expected validation failure")
 	}
@@ -180,12 +180,12 @@ func TestExampleAiderAdapterIsNonCertifiedPostEditOnly(t *testing.T) {
 	home, _, _ := hooksCLIFixture(t)
 	t.Setenv("ONIBI_ADAPTERS_DIR", filepath.Join(home, ".config", "onibi", "adapters"))
 	path := filepath.Join("..", "..", "examples", "aider-adapter", "aider.toml")
-	executeRoot(t, "adapters", "validate", path, "--color", "never")
-	executeRoot(t, "adapters", "add", path, "--color", "never")
+	executeRoot(t, "agent", "adapter", "validate", path, "--color", "never")
+	executeRoot(t, "agent", "adapter", "add", path, "--color", "never")
 	if _, ok := adapters.ContractFor("aider"); ok {
 		t.Fatal("aider example has a certified contract")
 	}
-	executeRoot(t, "install-hooks", "--agent", "aider", "--color", "never")
+	executeRoot(t, "agent", "install", "--agent", "aider", "--color", "never")
 	for _, want := range []string{
 		filepath.Join(home, ".config", "onibi", "aider", "aider.onibi.conf.yml"),
 		filepath.Join(home, ".local", "bin", "onibi-aider-event"),

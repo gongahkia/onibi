@@ -90,7 +90,7 @@ func sessionRPC(ctx context.Context, ev intake.Event) (intake.Response, error) {
 	}
 	resp, err := intake.Request(paths.Socket, ev, 30*time.Second)
 	if err != nil {
-		return intake.Response{}, fmt.Errorf("onibi service unavailable; run `onibi up`: %w", err)
+		return intake.Response{}, fmt.Errorf("onibi service unavailable; run `onibi start`: %w", err)
 	}
 	if strings.TrimSpace(resp.Reason) != "" {
 		return resp, errors.New(resp.Reason)

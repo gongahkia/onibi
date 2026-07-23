@@ -189,11 +189,11 @@ func confirmUninstall(cmd *cobra.Command, stateFlag bool) (bool, error) {
 
 func uninstallHookInspectCommands(allHooks bool, agent string) []string {
 	if allHooks {
-		return []string{"onibi hooks --show --all"}
+		return []string{"onibi agent inspect --all"}
 	}
 	var out []string
 	if agent != "" {
-		out = append(out, "onibi hooks --show --agent "+agent)
+		out = append(out, "onibi agent inspect --agent "+agent)
 	}
 	return out
 }
@@ -257,7 +257,6 @@ func deleteSecrets(paths config.Paths) error {
 	}
 	return errors.Join(
 		sec.Delete(daemon.TelegramSecretBotToken),
-		sec.Delete(daemon.IRCSecretSASLPassword),
 		sec.Delete("bot_token"),
 		sec.Delete("totp_secret_hex"),
 	)

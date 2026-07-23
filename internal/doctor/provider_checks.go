@@ -79,7 +79,7 @@ func providerTelegram(ctx context.Context, opts Options, pa map[string]string) P
 		})
 	}
 	if !row.Configured {
-		row.Fix = []string{"run onibi telegram setup", "run onibi up --transport=telegram and send the printed /start code"}
+		row.Fix = []string{"run onibi telegram setup", "run onibi start --transport=telegram and send the printed /start code"}
 	}
 	return row
 }

@@ -50,7 +50,7 @@ func TestUpStartsWebPair(t *testing.T) {
 }
 
 func TestUpRejectsRemovedSSHFlags(t *testing.T) {
-	_, _, err := executeRootAllowError(t, "up", "--ssh", "onibi@host.example.test", "--color", "never")
+	_, _, err := executeRootAllowError(t, "start", "--ssh", "onibi@host.example.test", "--color", "never")
 	if err == nil || !strings.Contains(err.Error(), "unknown flag: --ssh") {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -70,7 +70,7 @@ func TestUpPassesExplicitFlags(t *testing.T) {
 		return nil
 	}
 	t.Cleanup(func() { webPairRun = oldWebPair })
-	_, _ = executeRoot(t, "up", "--transport", "tailscale-private", "--agent", "sh", "--cwd", cwd, "--color", "never")
+	_, _ = executeRoot(t, "start", "--transport", "tailscale-private", "--agent", "sh", "--cwd", cwd, "--color", "never")
 }
 
 func TestUpDetachInstallsServiceAndPrintsPIDLog(t *testing.T) {
@@ -90,7 +90,7 @@ func TestUpDetachInstallsServiceAndPrintsPIDLog(t *testing.T) {
 		installServiceRun = oldInstall
 		upServicePID = oldPID
 	})
-	out, _ := executeRoot(t, "up", "--detach", "--color", "never")
+	out, _ := executeRoot(t, "start", "--detach", "--color", "never")
 	for _, want := range []string{"service install stub", "PID: 4242", filepath.Join(paths.LogDir, "onibi.log")} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("detach output missing %q: %q", want, out.String())
@@ -231,7 +231,7 @@ func TestPublicRelayModesForceRelayE2E(t *testing.T) {
 }
 
 func TestUpHelpDocumentsPublicRelayE2ERequirement(t *testing.T) {
-	out, _, err := executeRootAllowError(t, "up", "--help", "--color", "never")
+	out, _, err := executeRootAllowError(t, "start", "--help", "--color", "never")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,7 +250,7 @@ func TestRuntimeTransportHealthIncludesProtectedTransports(t *testing.T) {
 
 func TestUnsafeCloudflareNoE2EFlagRemoved(t *testing.T) {
 	flag := "--unsafe-cloudflare-" + "no-e2e"
-	out, errOut, err := executeRootAllowError(t, "up", "--transport=cloudflare-quick", flag, "--color", "never")
+	out, errOut, err := executeRootAllowError(t, "start", "--transport=cloudflare-quick", flag, "--color", "never")
 	if err == nil || !strings.Contains(err.Error(), "unknown flag: "+flag) {
 		t.Fatalf("expected unknown flag, got err=%v out=%s err=%s", err, out.String(), errOut.String())
 	}

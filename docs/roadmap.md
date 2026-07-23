@@ -7,7 +7,7 @@ The supported path is a managed local terminal session, HTTPS pairing, WebSocket
 Not part of the focused product:
 
 - Hosted, remote, or multi-user control planes.
-- Third-party control bridges or credential-management surfaces by default. Experimental Telegram and IRC are explicit opt-ins and remain non-certified until their separate live evidence is recorded.
+- Third-party control bridges or credential-management surfaces by default. Telegram is a first-class beta with [unverified] live-device evidence.
 - Secondary product surfaces outside local terminal pairing and Web Push.
 - Non-Ghostty desktop handover claims.
 
@@ -17,4 +17,4 @@ Future provider work is constrained by the [provider capability milestones](./pr
 
 If product scope is ever reconsidered, shared control is constrained by the [deferred shared-control authorization boundary](./shared-control-boundary.md); it does not authorize a v1 team or multi-owner surface.
 
-Portable project metadata is available only through the explicit [experimental workspace configuration](./workspace-config.md); it does not bind a host, carry secrets, or change startup defaults.
+Portable project metadata is available through [workspace configuration](./workspace-config.md); it does not bind a host, carry secrets, or change startup defaults.

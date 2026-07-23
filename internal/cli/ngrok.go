@@ -68,7 +68,7 @@ func runNgrokSetup(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	fmt.Fprintln(cmd.OutOrStdout(), styleFor(cmd).green("[OK]"), "Stored ngrok authtoken")
-	fmt.Fprintf(cmd.OutOrStdout(), "Use: `onibi up --transport=ngrok`; optional reserved domain: %s.\n", webtransport.NgrokDomainEnv)
+	fmt.Fprintf(cmd.OutOrStdout(), "Use: `onibi start --transport=ngrok`; optional reserved domain: %s.\n", webtransport.NgrokDomainEnv)
 	return nil
 }
 
@@ -132,7 +132,7 @@ func ngrokStatusNext(report ngrokStatusReport) []string {
 	if report.Authtoken {
 		return nil
 	}
-	return []string{"onibi ngrok setup"}
+	return []string{"onibi transport ngrok setup"}
 }
 
 func runNgrokDisable(cmd *cobra.Command, _ []string) error {

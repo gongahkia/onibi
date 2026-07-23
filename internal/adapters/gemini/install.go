@@ -162,7 +162,7 @@ func Status(ctx context.Context, db *store.DB) common.Info {
 	version := installedVersion(path)
 	info.InstalledVersion = common.VersionPtr(version)
 	info.Outdated = version != common.IntegrationVersion
-	common.ApplyManagedStatus(ctx, db, &info, Agent, path, body, "Gemini hooks installed", "onibi install-hooks --agent gemini")
+	common.ApplyManagedStatus(ctx, db, &info, Agent, path, body, "Gemini hooks installed", "onibi agent install --agent gemini")
 	if geminiHooksDisabled(path) {
 		info.Disabled = true
 		info.Message = "Gemini hooks disabled by hooksConfig.enabled=false"
@@ -260,7 +260,7 @@ func ObservedHooks() ([]common.ObservedHook, error) {
 func TrustInstructions() []string {
 	return []string{
 		"Gemini CLI next step: inspect the configured hooks and verify the Onibi commands before use.",
-		"Use onibi hooks --show --agent gemini to compare expected commands, installed commands, backups, and drift.",
+		"Use onibi agent inspect --agent gemini to compare expected commands, installed commands, backups, and drift.",
 	}
 }
 

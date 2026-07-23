@@ -249,54 +249,30 @@ func TestLoadRejectsRemovedCloudflareNamed(t *testing.T) {
 	}
 }
 
-func TestDeferredProviderTransportRequiresExplicitOptIn(t *testing.T) {
-	for _, mode := range []string{"telegram", "irc"} {
-		t.Run(mode, func(t *testing.T) {
-			cfg := Default()
-			if err := Set(&cfg, "transport.mode", mode); err == nil || !strings.Contains(err.Error(), "experimental.providers=true") {
-				t.Fatalf("unexpected err: %v", err)
-			}
-			if err := Set(&cfg, "experimental.providers", "true"); err != nil {
-				t.Fatal(err)
-			}
-			if err := Set(&cfg, "transport.mode", mode); err != nil {
-				t.Fatal(err)
-			}
-		})
-	}
+func TestTelegramProviderTransportIsSupported(t *testing.T) {
 	cfg := Default()
-	if err := Set(&cfg, "experimental.providers", "true"); err != nil {
+	if err := Set(&cfg, "transport.mode", "telegram"); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := Get(cfg, "experimental.providers"); err != nil || got != "true" {
-		t.Fatalf("experimental.providers = %q, %v", got, err)
+	if cfg.Transport.Mode != "telegram" {
+		t.Fatalf("transport.mode = %q", cfg.Transport.Mode)
 	}
 }
 
-func TestExperimentalWorkspaceRequiresExplicitConfig(t *testing.T) {
+func TestWorkspaceConfigurationKeysAreRemoved(t *testing.T) {
 	paths := testPaths(t)
 	if err := os.WriteFile(paths.Config, []byte("experimental:\n  workspace: true\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	cfg, meta, err := Load(paths)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !cfg.Experimental.Workspace || !meta.Explicit["experimental.workspace"] {
-		t.Fatalf("workspace=%t explicit=%#v", cfg.Experimental.Workspace, meta.Explicit)
-	}
-	if err := Set(&cfg, "experimental.workspace", "false"); err != nil {
-		t.Fatal(err)
-	}
-	if got, err := Get(cfg, "experimental.workspace"); err != nil || got != "false" {
-		t.Fatalf("experimental.workspace=%q err=%v", got, err)
+	if _, _, err := Load(paths); err == nil || !strings.Contains(err.Error(), "experimental") {
+		t.Fatalf("err = %v", err)
 	}
 }
 
 func TestTransportModeRejectsUnsupportedValue(t *testing.T) {
 	cfg := Default()
 	err := Set(&cfg, "transport.mode", "satellite")
-	if err == nil || !strings.Contains(err.Error(), "transport.mode must be a v1 web transport") {
+	if err == nil || !strings.Contains(err.Error(), "supported web transport or telegram") {
 		t.Fatalf("unexpected err: %v", err)
 	}
 }
@@ -332,17 +308,6 @@ func TestLoadRejectsRemovedSignalTransport(t *testing.T) {
 	_, _, err := Load(paths)
 	if err == nil || !strings.Contains(err.Error(), "no longer supported") {
 		t.Fatalf("unexpected err: %v", err)
-	}
-}
-
-func TestLoadAllowsExperimentalIRCTransport(t *testing.T) {
-	paths := testPaths(t)
-	if err := os.WriteFile(paths.Config, []byte("experimental:\n  providers: true\ntransport:\n  mode: irc\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cfg, _, err := Load(paths)
-	if err != nil || cfg.Transport.Mode != "irc" {
-		t.Fatalf("config=%+v err=%v", cfg, err)
 	}
 }
 

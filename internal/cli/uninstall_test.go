@@ -9,9 +9,9 @@ import (
 
 func TestUninstallDryRunShowsAllHookInspection(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	out, _ := executeRoot(t, "uninstall", "--dry-run", "--color", "never")
+	out, _ := executeRoot(t, "system", "uninstall", "--dry-run", "--color", "never")
 	got := out.String()
-	for _, want := range []string{"inspect hooks", "onibi hooks --show --all", "remove hooks", "all supported agents", "remove legacy shell hook blocks"} {
+	for _, want := range []string{"inspect hooks", "onibi agent inspect --all", "remove hooks", "all supported agents", "remove legacy shell hook blocks"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("output missing %q:\n%s", want, got)
 		}
@@ -20,9 +20,9 @@ func TestUninstallDryRunShowsAllHookInspection(t *testing.T) {
 
 func TestUninstallDryRunShowsTargetedHookInspection(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	out, _ := executeRoot(t, "uninstall", "--dry-run", "--agent", "codex", "--color", "never")
+	out, _ := executeRoot(t, "system", "uninstall", "--dry-run", "--agent", "codex", "--color", "never")
 	got := out.String()
-	for _, want := range []string{"onibi hooks --show --agent codex", "agent:codex"} {
+	for _, want := range []string{"onibi agent inspect --agent codex", "agent:codex"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("output missing %q:\n%s", want, got)
 		}
@@ -31,7 +31,7 @@ func TestUninstallDryRunShowsTargetedHookInspection(t *testing.T) {
 
 func TestUninstallRejectsShellFlag(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	_, _, err := executeRootAllowError(t, "uninstall", "--dry-run", "--shell", "zsh", "--color", "never")
+	_, _, err := executeRootAllowError(t, "system", "uninstall", "--dry-run", "--shell", "zsh", "--color", "never")
 	if err == nil || !strings.Contains(err.Error(), "unknown flag: --shell") {
 		t.Fatalf("err = %v", err)
 	}
@@ -39,7 +39,7 @@ func TestUninstallRejectsShellFlag(t *testing.T) {
 
 func TestUninstallDryRunJSON(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	out, _ := executeRoot(t, "uninstall", "--dry-run", "--json", "--state", "--color", "never")
+	out, _ := executeRoot(t, "system", "uninstall", "--dry-run", "--json", "--state", "--color", "never")
 	var plan []uninstallPlanItem
 	if err := json.Unmarshal(out.Bytes(), &plan); err != nil {
 		t.Fatalf("json: %v\n%s", err, out.String())
@@ -63,7 +63,7 @@ func TestUninstallDryRunJSON(t *testing.T) {
 
 func TestUninstallJSONRequiresDryRun(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	_, _, err := executeRootAllowError(t, "uninstall", "--json", "--yes", "--color", "never")
+	_, _, err := executeRootAllowError(t, "system", "uninstall", "--json", "--yes", "--color", "never")
 	if err == nil || !strings.Contains(err.Error(), "--json requires --dry-run") {
 		t.Fatalf("err = %v", err)
 	}
@@ -71,7 +71,7 @@ func TestUninstallJSONRequiresDryRun(t *testing.T) {
 
 func TestUninstallNonInteractiveRequiresYes(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	_, _, err := executeRootAllowError(t, "uninstall", "--color", "never")
+	_, _, err := executeRootAllowError(t, "system", "uninstall", "--color", "never")
 	if err == nil || !strings.Contains(err.Error(), "uninstall requires --yes") {
 		t.Fatalf("err = %v", err)
 	}
@@ -79,7 +79,7 @@ func TestUninstallNonInteractiveRequiresYes(t *testing.T) {
 
 func TestUninstallAllHooksIsNoopOnFreshHome(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	if _, _, err := executeRootAllowError(t, "uninstall", "--yes", "--hooks", "--all-hooks", "--color", "never"); err != nil {
+	if _, _, err := executeRootAllowError(t, "system", "uninstall", "--yes", "--hooks", "--all-hooks", "--color", "never"); err != nil {
 		t.Fatalf("uninstall fresh hooks: %v", err)
 	}
 }
@@ -100,7 +100,7 @@ func TestUninstallInteractiveCancel(t *testing.T) {
 	cmd.SetIn(strings.NewReader("n\n"))
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"uninstall", "--color", "never"})
+	cmd.SetArgs([]string{"system", "uninstall", "--color", "never"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute uninstall cancel: %v\nstdout:\n%s\nstderr:\n%s", err, out.String(), errOut.String())
 	}
@@ -125,7 +125,7 @@ func TestUninstallStateRequiresTypedConfirmation(t *testing.T) {
 	cmd.SetIn(strings.NewReader("y\n"))
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"uninstall", "--state", "--color", "never"})
+	cmd.SetArgs([]string{"system", "uninstall", "--state", "--color", "never"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute uninstall state cancel: %v\nstdout:\n%s\nstderr:\n%s", err, out.String(), errOut.String())
 	}

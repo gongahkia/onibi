@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gongahkia/onibi/internal/capability"
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/secrets"
 	"github.com/gongahkia/onibi/internal/store"
@@ -263,9 +262,6 @@ func doctorTestPaths(t *testing.T, mode string) config.Paths {
 	}
 	cfg := config.Default()
 	cfg.Transport.Mode = mode
-	if capability.IsDeferredProviderTransport(mode) {
-		cfg.Experimental.Providers = true
-	}
 	if err := config.Save(paths.Config, cfg); err != nil {
 		t.Fatal(err)
 	}

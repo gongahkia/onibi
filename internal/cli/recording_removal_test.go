@@ -20,7 +20,7 @@ func TestMCPCommandIsAbsent(t *testing.T) {
 }
 
 func TestRemovedCommandSurfacesAreAbsent(t *testing.T) {
-	for _, args := range [][]string{{"profile"}, {"up", "legacy"}, {"workspace"}, {"project"}, {"share"}} {
+	for _, args := range [][]string{{"profile"}, {"up", "legacy"}, {"project"}, {"share"}} {
 		_, _, err := executeRootAllowError(t, append(args, "--color", "never")...)
 		if err == nil || !strings.Contains(err.Error(), "unknown command") {
 			t.Fatalf("args=%v err=%v", args, err)
@@ -30,7 +30,7 @@ func TestRemovedCommandSurfacesAreAbsent(t *testing.T) {
 
 func TestViewerUnpairFlagsAreAbsent(t *testing.T) {
 	for _, flag := range []string{"--viewer", "--all-viewers"} {
-		_, _, err := executeRootAllowError(t, "unpair", flag, "device", "--color", "never")
+		_, _, err := executeRootAllowError(t, "phone", "remove", flag, "device", "--color", "never")
 		if err == nil || !strings.Contains(err.Error(), "unknown flag") {
 			t.Fatalf("flag=%s err=%v", flag, err)
 		}

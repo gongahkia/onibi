@@ -111,8 +111,8 @@ func Status(ctx context.Context, db *store.DB) common.Info {
 	info.Installed = strings.Contains(src, `ONIBI_AGENT = "amp"`)
 	if !info.Installed {
 		if strings.Contains(src, "onibi-notify") {
-			info.Message = "unmanaged onibi-like hook; run onibi install-hooks --agent amp to adopt"
-			info.Next = "onibi install-hooks --agent amp"
+			info.Message = "unmanaged onibi-like hook; run onibi agent install --agent amp to adopt"
+			info.Next = "onibi agent install --agent amp"
 		} else {
 			common.MarkNotInstalled(&info)
 		}
@@ -120,7 +120,7 @@ func Status(ctx context.Context, db *store.DB) common.Info {
 	}
 	info.InstalledVersion = common.VersionPtr(version)
 	info.Outdated = version != common.IntegrationVersion
-	common.ApplyManagedStatus(ctx, db, &info, Agent, path, body, "Amp plugin installed", "onibi install-hooks --agent amp")
+	common.ApplyManagedStatus(ctx, db, &info, Agent, path, body, "Amp plugin installed", "onibi agent install --agent amp")
 	return info
 }
 

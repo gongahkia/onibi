@@ -15,7 +15,7 @@ import (
 
 func TestDoctorJSONIsValid(t *testing.T) {
 	withDotenvDoctor(t)
-	out, _, err := executeRootAllowError(t, "doctor", "--offline", "--mode", "preflight", "--json", "--color", "never")
+	out, _, err := executeRootAllowError(t, "system", "doctor", "--offline", "--mode", "preflight", "--json", "--color", "never")
 	if err != nil && !strings.Contains(err.Error(), "doctor failed") {
 		t.Fatalf("execute doctor: %v", err)
 	}
@@ -30,7 +30,7 @@ func TestDoctorJSONIsValid(t *testing.T) {
 
 func TestDoctorExplainPrintsRepairPlan(t *testing.T) {
 	withDotenvDoctor(t)
-	out, _, err := executeRootAllowError(t, "doctor", "--offline", "--mode", "preflight", "--explain", "--color", "never")
+	out, _, err := executeRootAllowError(t, "system", "doctor", "--offline", "--mode", "preflight", "--explain", "--color", "never")
 	if err != nil && !strings.Contains(err.Error(), "doctor failed") {
 		t.Fatalf("execute doctor: %v", err)
 	}
@@ -44,7 +44,7 @@ func TestDoctorExplainPrintsRepairPlan(t *testing.T) {
 
 func TestDoctorProvidersJSONShowsAllProviders(t *testing.T) {
 	withDotenvDoctor(t)
-	out, _, err := executeRootAllowError(t, "doctor", "--providers", "--offline", "--json", "--color", "never")
+	out, _, err := executeRootAllowError(t, "system", "doctor", "--providers", "--offline", "--json", "--color", "never")
 	if err != nil {
 		t.Fatalf("execute doctor --providers: %v\n%s", err, out.String())
 	}
@@ -59,7 +59,7 @@ func TestDoctorProvidersJSONShowsAllProviders(t *testing.T) {
 
 func TestDoctorProvidersFixPrintsSetupGuidance(t *testing.T) {
 	withDotenvDoctor(t)
-	out, _, err := executeRootAllowError(t, "doctor", "--providers", "--offline", "--fix", "--color", "never")
+	out, _, err := executeRootAllowError(t, "system", "doctor", "--providers", "--offline", "--fix", "--color", "never")
 	if err != nil {
 		t.Fatalf("execute doctor --providers --fix: %v\n%s", err, out.String())
 	}
@@ -81,7 +81,7 @@ func TestDoctorPushJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = db.Close()
-	out, _, err := executeRootAllowError(t, "doctor", "--push", "--json", "--color", "never")
+	out, _, err := executeRootAllowError(t, "system", "doctor", "--push", "--json", "--color", "never")
 	if err != nil {
 		t.Fatalf("execute doctor --push: %v\n%s", err, out.String())
 	}
@@ -100,7 +100,7 @@ func TestDoctorSecurityJSONRedactsFindings(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(paths.LogDir, "onibi.log"), []byte("leaked "+token+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	out, _, err := executeRootAllowError(t, "doctor", "--security", "--json", "--color", "never")
+	out, _, err := executeRootAllowError(t, "system", "doctor", "--security", "--json", "--color", "never")
 	if err == nil || !strings.Contains(err.Error(), "doctor security failed") {
 		t.Fatalf("expected security failure, got err=%v\n%s", err, out.String())
 	}
@@ -134,7 +134,7 @@ func TestDoctorFixDoesNotInstallHooksOnFreshState(t *testing.T) {
 	t.Setenv("ONIBI_AMP_PLUGIN", filepath.Join(home, ".config", "amp", "plugins", "onibi.ts"))
 	t.Setenv("ONIBI_OPENCODE_PLUGIN", filepath.Join(home, ".opencode", "plugins", "onibi.js"))
 	t.Setenv("ONIBI_PI_EXTENSION", filepath.Join(home, ".pi", "agent", "extensions", "onibi.ts"))
-	out, _, err := executeRootAllowError(t, "doctor", "--offline", "--fix", "--color", "never")
+	out, _, err := executeRootAllowError(t, "system", "doctor", "--offline", "--fix", "--color", "never")
 	if err != nil && !strings.Contains(err.Error(), "doctor failed") {
 		t.Fatalf("execute doctor --fix: %v\n%s", err, out.String())
 	}
@@ -161,7 +161,7 @@ func TestDoctorFixDoesNotInstallHooksOnFreshState(t *testing.T) {
 
 func TestDoctorReleaseModeIncludesTelegramAndAfterUpgrade(t *testing.T) {
 	withDotenvDoctor(t)
-	out, _, err := executeRootAllowError(t, "doctor", "--mode", "release", "--json", "--color", "never")
+	out, _, err := executeRootAllowError(t, "system", "doctor", "--mode", "release", "--json", "--color", "never")
 	if err != nil && !strings.Contains(err.Error(), "doctor failed") {
 		t.Fatalf("execute release doctor: %v\n%s", err, out.String())
 	}

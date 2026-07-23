@@ -19,7 +19,7 @@ go test -race -count=1 ./...
 go vet ./...
 staticcheck ./...
 make build
-./bin/onibi doctor --release --offline
+./bin/onibi system doctor --release --offline
 scripts/macos-release-gate.sh
 make macos-scenario-gate
 make security-regression-gate
@@ -60,8 +60,8 @@ GoReleaser publishes a cask to `gongahkia/homebrew-onibi` when
 ```sh
 brew install --cask ./Casks/onibi.rb
 onibi version
-onibi doctor --mode preflight --offline
-onibi hooks --show --all --json >/tmp/onibi-hooks.json
+onibi system doctor --mode preflight --offline
+onibi agent inspect --all --json >/tmp/onibi-hooks.json
 ```
 
 ## Notarization

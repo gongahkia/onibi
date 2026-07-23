@@ -85,10 +85,9 @@ type cliTerminalSummary struct {
 
 func statusCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "status",
-		Aliases: []string{"overview"},
-		Short:   "Show daemon, devices, sessions, hooks, and doctor summary",
-		RunE:    runStatus,
+		Use:   "status",
+		Short: "Show daemon, devices, sessions, hooks, and doctor summary",
+		RunE:  runStatus,
 	}
 	cmd.Flags().Bool("json", false, "print JSON")
 	cmd.Flags().Bool("strict", false, "exit non-zero on daemon or doctor failure")
@@ -204,33 +203,33 @@ func buildCLIStatus(cmd *cobra.Command) (cliStatusReport, error) {
 func renderCLIStatus(cmd *cobra.Command, report cliStatusReport) error {
 	printCLIHeader(cmd, "Status")
 	style := styleFor(cmd)
-	fmt.Fprintf(cmd.OutOrStdout(), "%s %s  commit=%s  date=%s\n\n", style.bold("onibi"), report.Version, report.Commit, report.Date)
+	if err := renderPanel(cmd.OutOrStdout(), style, "ONIBI", style.bold(report.Version)+"  "+style.dim("commit="+report.Commit+"  date="+report.Date)); err != nil {
+		return err
+	}
+	fmt.Fprintln(cmd.OutOrStdout())
 	runtimeRows := [][]string{
-		tableHeader(style, "RUNTIME", "STATUS", "DETAIL"),
 		{"daemon", style.status(report.Daemon.Status), report.Daemon.Detail},
-		{"web", style.status("INFO"), report.Config.ListenAddr},
-		{"transport", style.status("INFO"), report.Config.Transport},
-		{"shell", style.status("INFO"), report.Config.Shell},
+		{"web", report.Config.ListenAddr},
+		{"transport", report.Config.Transport},
+		{"shell", report.Config.Shell},
 		{"ghostty", style.status(statusStyleForGhostty(report.Terminal.Ghostty)), report.Terminal.Ghostty.Detail},
 	}
-	if err := renderTable(cmd.OutOrStdout(), runtimeRows); err != nil {
+	if err := renderKeyValuePanel(cmd, "RUNTIME", runtimeRows); err != nil {
 		return err
 	}
 	fmt.Fprintln(cmd.OutOrStdout())
 	countRows := [][]string{
-		tableHeader(style, "SURFACE", "ACTIVE", "TOTAL", "DETAIL"),
-		{"sessions", fmt.Sprint(report.Sessions.Active), fmt.Sprint(report.Sessions.Total), ""},
-		{"devices", fmt.Sprint(report.Devices.Active), fmt.Sprint(report.Devices.Total), fmt.Sprintf("revoked=%d", report.Devices.Revoked)},
-		{"notify", fmt.Sprint(report.Notify.Recent), fmt.Sprint(report.Notify.Recent), fmt.Sprintf("errors=%d last=%s", report.Notify.Errors, valueOrDash(report.Notify.LastAction))},
-		{"integrations", fmt.Sprint(report.Integrations.Installed), fmt.Sprint(report.Integrations.Total), fmt.Sprintf("detected=%d issues=%d", report.Integrations.Detected, report.Integrations.Issues)},
-		{"doctor", fmt.Sprint(report.Doctor.Pass), fmt.Sprint(report.Doctor.Pass + report.Doctor.Warn + report.Doctor.Fail), fmt.Sprintf("warn=%d fail=%d", report.Doctor.Warn, report.Doctor.Fail)},
+		{"sessions", fmt.Sprintf("active=%d total=%d", report.Sessions.Active, report.Sessions.Total)},
+		{"devices", fmt.Sprintf("active=%d total=%d revoked=%d", report.Devices.Active, report.Devices.Total, report.Devices.Revoked)},
+		{"notifications", fmt.Sprintf("recent=%d errors=%d last=%s", report.Notify.Recent, report.Notify.Errors, valueOrDash(report.Notify.LastAction))},
+		{"agents", fmt.Sprintf("installed=%d total=%d detected=%d issues=%d", report.Integrations.Installed, report.Integrations.Total, report.Integrations.Detected, report.Integrations.Issues)},
+		{"doctor", fmt.Sprintf("pass=%d warn=%d fail=%d", report.Doctor.Pass, report.Doctor.Warn, report.Doctor.Fail)},
 	}
-	if err := renderTable(cmd.OutOrStdout(), countRows); err != nil {
+	if err := renderKeyValuePanel(cmd, "SURFACE", countRows); err != nil {
 		return err
 	}
 	fmt.Fprintln(cmd.OutOrStdout())
-	fmt.Fprintln(cmd.OutOrStdout(), style.bold("Paths"))
-	return renderTable(cmd.OutOrStdout(), [][]string{
+	return renderKeyValuePanel(cmd, "PATHS & NEXT", [][]string{
 		{"state", report.Paths.StateDir},
 		{"db", report.Paths.DB},
 		{"socket", report.Paths.Socket},
@@ -264,7 +263,7 @@ func probeDaemon(cmd *cobra.Command, paths config.Paths) cliStatusProbe {
 	resp, err := pingSocket(cmd.Context(), paths.Socket, timeout)
 	rtt := time.Since(start).Round(time.Millisecond)
 	if err != nil {
-		return cliStatusProbe{Status: "WARN", Detail: "not running; run onibi up", RTTMS: rtt.Milliseconds()}
+		return cliStatusProbe{Status: "WARN", Detail: "not running; run onibi start", RTTMS: rtt.Milliseconds()}
 	}
 	detail := strings.TrimSpace(resp.Text)
 	if detail == "" {
@@ -368,19 +367,19 @@ func summarizeNotify(cmd *cobra.Command, db *store.DB) cliNotifySummary {
 func statusNextActions(report cliStatusReport) []string {
 	var next []string
 	if report.Daemon.Status != "PASS" {
-		next = append(next, "onibi up")
+		next = append(next, "onibi start")
 	}
 	if report.Devices.Active == 0 {
-		next = append(next, "onibi pair")
+		next = append(next, "onibi phone pair")
 	}
 	if report.Integrations.Total > 0 && report.Integrations.Installed == 0 {
-		next = append(next, "onibi install-hooks --interactive")
+		next = append(next, "onibi agent install --interactive")
 	}
 	if report.Doctor.Warn > 0 || report.Doctor.Fail > 0 {
-		next = appendUnique(next, "onibi doctor --explain")
+		next = appendUnique(next, "onibi system doctor --explain")
 	}
 	if len(next) == 0 {
-		next = append(next, "onibi up")
+		next = append(next, "onibi start")
 	}
 	return next
 }

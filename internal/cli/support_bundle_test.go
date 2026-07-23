@@ -18,7 +18,7 @@ func TestSupportBundleRequiresRedacted(t *testing.T) {
 	cmd := Root()
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"support-bundle"})
+	cmd.SetArgs([]string{"system", "support", "bundle"})
 	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "--redacted required") {
 		t.Fatalf("err=%v stdout=%s stderr=%s", err, out.String(), errOut.String())
 	}
@@ -28,7 +28,7 @@ func TestSupportBundleRedactsSecretsPromptChatIDAndHome(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	paths := supportBundleFixture(t, home)
-	out, _ := executeRoot(t, "support-bundle", "--redacted", "--color", "never")
+	out, _ := executeRoot(t, "system", "support", "bundle", "--redacted", "--color", "never")
 	body := out.String()
 	for _, forbidden := range []string{
 		home,
@@ -64,7 +64,7 @@ func TestSupportBundleCanIncludeChatID(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	supportBundleFixture(t, home)
-	out, _ := executeRoot(t, "support-bundle", "--redacted", "--include-chat-id", "--color", "never")
+	out, _ := executeRoot(t, "system", "support", "bundle", "--redacted", "--include-chat-id", "--color", "never")
 	var bundle supportBundle
 	if err := json.Unmarshal(out.Bytes(), &bundle); err != nil {
 		t.Fatalf("json: %v\n%s", err, out.String())

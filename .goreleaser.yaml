@@ -150,7 +150,7 @@ notarize:
         timeout: 20m
 
 snapshot:
-  version_template: "2.0.0-dev"
+  version_template: "3.0.0-dev"
 
 changelog:
   sort: asc
@@ -175,7 +175,7 @@ homebrew_casks:
     description: "Web-controlled coding-agent host"
     caveats: |
       After install or upgrade, run:
-        onibi doctor --after-upgrade
+        onibi system doctor --after-upgrade
       To compare bundled hook schemas with installed hooks, run:
-        onibi hooks show --all
+        onibi agent inspect --all
     commit_msg_template: "Brew cask update for {{ .ProjectName }} version {{ .Tag }}"

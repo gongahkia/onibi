@@ -14,9 +14,8 @@ import (
 
 func workspaceCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:               "workspace",
-		Short:             "Manage portable project workspace configuration",
-		PersistentPreRunE: requireExperimentalWorkspace,
+		Use:   "workspace",
+		Short: "Manage portable project workspace configuration",
 	}
 	init := &cobra.Command{
 		Use:   "init [directory]",

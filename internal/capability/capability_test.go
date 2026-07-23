@@ -15,19 +15,17 @@ func TestV1AgentsAreExactAndNormalized(t *testing.T) {
 	}
 }
 
-func TestV1WebTransportsExcludeProviders(t *testing.T) {
+func TestV1WebTransportsExcludeTelegram(t *testing.T) {
 	for _, mode := range []string{"lan", "tailscale-private", "wireguard", "zerotier", "cloudflare-quick", "ngrok", "auto"} {
 		if !IsV1WebTransport(mode) {
 			t.Fatalf("IsV1WebTransport(%q) = false", mode)
 		}
 	}
-	for _, mode := range DeferredProviderTransports() {
-		if IsV1WebTransport(mode) {
-			t.Fatalf("IsV1WebTransport(%q) = true", mode)
-		}
-		if !IsDeferredProviderTransport(mode) {
-			t.Fatalf("IsDeferredProviderTransport(%q) = false", mode)
-		}
+	if IsV1WebTransport("telegram") {
+		t.Fatal("Telegram must not be treated as a web transport")
+	}
+	if !IsV1ProviderTransport("telegram") {
+		t.Fatal("Telegram must be a supported provider transport")
 	}
 }
 

@@ -124,7 +124,7 @@ func createCA(paths CertPaths, now time.Time) (*x509.Certificate, *ecdsa.Private
 	removeCertPair(paths.CACert, paths.CAKey)
 	cert, key, err = createCAOnce(paths, now)
 	if err != nil {
-		return nil, nil, fmt.Errorf("local CA certificate write validation failed after retry: %w; remove %s and %s, then rerun onibi up", err, paths.CACert, paths.CAKey)
+		return nil, nil, fmt.Errorf("local CA certificate write validation failed after retry: %w; remove %s and %s, then rerun onibi start", err, paths.CACert, paths.CAKey)
 	}
 	return cert, key, nil
 }
@@ -182,7 +182,7 @@ func createServerCert(paths CertPaths, caCert *x509.Certificate, caKey *ecdsa.Pr
 	removeCertPair(paths.ServerCert, paths.ServerKey)
 	cert, err = createServerCertOnce(paths, caCert, caKey, lanIPs, now)
 	if err != nil {
-		return tls.Certificate{}, fmt.Errorf("server certificate write validation failed after retry: %w; remove %s and %s, then rerun onibi up", err, paths.ServerCert, paths.ServerKey)
+		return tls.Certificate{}, fmt.Errorf("server certificate write validation failed after retry: %w; remove %s and %s, then rerun onibi start", err, paths.ServerCert, paths.ServerKey)
 	}
 	return cert, nil
 }

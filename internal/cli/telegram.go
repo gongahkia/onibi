@@ -31,10 +31,9 @@ const (
 
 func telegramCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:               "telegram",
-		Short:             "Manage Telegram chat transport",
-		RunE:              runTelegramStatus,
-		PersistentPreRunE: requireExperimentalProviders,
+		Use:   "telegram",
+		Short: "Manage the Telegram chat cockpit (beta)",
+		RunE:  runTelegramStatus,
 	}
 	setup := &cobra.Command{
 		Use:   "setup",
@@ -105,9 +104,9 @@ func runTelegramSetup(cmd *cobra.Command, _ []string) error {
 			return err
 		}
 		if noCheck {
-			fmt.Fprintf(cmd.OutOrStdout(), "Pair: send /start %s while `onibi up --transport=telegram` is running.\n", code)
+			fmt.Fprintf(cmd.OutOrStdout(), "Pair: send /start %s while `onibi start --transport=telegram` is running.\n", code)
 		} else {
-			fmt.Fprintf(cmd.OutOrStdout(), "Pair: send /start %s to @%s while `onibi up --transport=telegram` is running.\n", code, user.Username)
+			fmt.Fprintf(cmd.OutOrStdout(), "Pair: send /start %s to @%s while `onibi start --transport=telegram` is running.\n", code, user.Username)
 		}
 	}
 	if noCheck {
@@ -233,10 +232,10 @@ func telegramStatusNext(report telegramStatusReport) []string {
 		return next
 	}
 	if (report.OwnerChatID == "") != (report.OwnerUserID == "") {
-		return append(next, "onibi experimental telegram disable")
+		return append(next, "onibi telegram disable")
 	}
 	if !report.OwnerPaired {
-		next = append(next, "onibi up --transport=telegram")
+		next = append(next, "onibi start --transport=telegram")
 	}
 	return next
 }
@@ -262,9 +261,6 @@ func runTelegramDisable(cmd *cobra.Command, _ []string) error {
 }
 
 func runTelegramUp(cmd *cobra.Command, paths config.Paths, db *store.DB, cfg config.Config, logger *slog.Logger, started time.Time, shellCWD string) error {
-	if !cfg.Experimental.Providers {
-		return errors.New("telegram is deferred in v1; set experimental.providers=true to opt into unsupported provider behavior")
-	}
 	token, botUser, err := telegramTokenForUp(cmd, paths)
 	if err != nil {
 		return err
@@ -291,7 +287,6 @@ func runTelegramUp(cmd *cobra.Command, paths config.Paths, db *store.DB, cfg con
 		IdleInterval:            cfg.Daemon.TurnIdleInterval.Std(),
 		BufferSize:              cfg.Daemon.PTYBufferBytes,
 		TerminalDefault:         cfg.Terminal.Default,
-		ExperimentalProviders:   cfg.Experimental.Providers,
 		TelegramToken:           token,
 		TelegramOwnerID:         ownerID,
 		TelegramOwnerUserID:     ownerUserID,
@@ -389,15 +384,15 @@ func telegramOwnerBinding(ctx context.Context, db *store.DB) (int64, int64, erro
 		return 0, 0, nil
 	}
 	if !chatOK || !userOK {
-		return 0, 0, errors.New("Telegram owner binding is incomplete; run onibi experimental telegram disable, then pair again")
+		return 0, 0, errors.New("Telegram owner binding is incomplete; run onibi telegram disable, then pair again")
 	}
 	chatID, err := strconv.ParseInt(strings.TrimSpace(chat), 10, 64)
 	if err != nil || chatID == 0 {
-		return 0, 0, errors.New("Telegram owner chat binding is invalid; run onibi experimental telegram disable, then pair again")
+		return 0, 0, errors.New("Telegram owner chat binding is invalid; run onibi telegram disable, then pair again")
 	}
 	userID, err := strconv.ParseInt(strings.TrimSpace(user), 10, 64)
 	if err != nil || userID == 0 {
-		return 0, 0, errors.New("Telegram owner user binding is invalid; run onibi experimental telegram disable, then pair again")
+		return 0, 0, errors.New("Telegram owner user binding is invalid; run onibi telegram disable, then pair again")
 	}
 	return chatID, userID, nil
 }

@@ -44,7 +44,7 @@ func runSetup(cmd *cobra.Command, _ []string) error {
 	defer db.Close()
 	printCLIHeader(cmd, "Setup")
 	fmt.Fprintln(cmd.OutOrStdout(), "Onibi setup is CLI-first: start the cockpit, scan the QR, then install hooks.")
-	fmt.Fprintln(cmd.OutOrStdout(), "`onibi up` prints iPhone/iPad and Android trust-file paths when local HTTPS is needed.")
+	fmt.Fprintln(cmd.OutOrStdout(), "`onibi start` prints iPhone/iPad and Android trust-file paths when local HTTPS is needed.")
 	if complete {
 		return runSetupComplete(cmd, paths, db)
 	}
@@ -92,11 +92,11 @@ func runSetupComplete(cmd *cobra.Command, paths config.Paths, db *store.DB) erro
 func printSetupNextActions(cmd *cobra.Command) {
 	fmt.Fprintln(cmd.OutOrStdout(), "\nNext:")
 	_ = renderTable(cmd.OutOrStdout(), [][]string{
-		{"1", "onibi status", "inspect local state"},
-		{"2", "onibi up", "choose category/provider, start control surface"},
-		{"3", "onibi install-hooks --interactive", "connect agents"},
-		{"4", "onibi hooks --show --all", "verify hook drift"},
-		{"5", "onibi doctor --fix", "apply safe local fixes"},
+		{"1", "onibi system status", "inspect local state"},
+		{"2", "onibi start", "choose transport and start the cockpit"},
+		{"3", "onibi agent install --interactive", "connect agents"},
+		{"4", "onibi agent inspect --all", "verify hook drift"},
+		{"5", "onibi system doctor --fix", "apply safe local fixes"},
 	})
 }
 
@@ -105,8 +105,8 @@ func handleMissingNotifyBinary(cmd *cobra.Command, br *bufio.Reader, cause error
 	fmt.Fprintln(cmd.ErrOrStderr(), "onibi-notify not found. Remediation:")
 	fmt.Fprintln(cmd.ErrOrStderr(), "  1) make install")
 	fmt.Fprintln(cmd.ErrOrStderr(), "  2) export ONIBI_NOTIFY_BIN=/abs/path/to/onibi-notify")
-	fmt.Fprintln(cmd.ErrOrStderr(), "  3) onibi adapters")
-	fmt.Fprintln(cmd.ErrOrStderr(), "  4) onibi install-hooks --interactive")
+	fmt.Fprintln(cmd.ErrOrStderr(), "  3) onibi agent adapter")
+	fmt.Fprintln(cmd.ErrOrStderr(), "  4) onibi agent install --interactive")
 	if inputIsTerminal(cmd.InOrStdin()) && askYesNo(cmd, br, "Continue without hooks? [y/N] ", false) {
 		return nil
 	}
@@ -129,10 +129,10 @@ func askYesNo(cmd *cobra.Command, br *bufio.Reader, prompt string, def bool) boo
 func printSetupChecklist(out interface{ Write([]byte) (int, error) }) {
 	body := `Setup checklist:
 
-  [ ] Phone trust file installed only from your own onibi up output
+  [ ] Phone trust file installed only from your own onibi start output
   [ ] Phone trusts the Onibi local CA before opening the local cockpit
   [ ] Hotspot available if managed Wi-Fi blocks peer traffic
-  [ ] State dir 0700, socket 0600 (run: onibi doctor)
+  [ ] State dir 0700, socket 0600 (run: onibi system doctor)
   [ ] All installed hook hashes match registry
 `
 	_, _ = out.Write([]byte(body))

@@ -3,23 +3,16 @@ package cli
 import "github.com/spf13/cobra"
 
 func startCmd() *cobra.Command {
-	cmd := upCmd()
-	cmd.Use = "start"
-	cmd.Short = "Start your Onibi cockpit"
-	cmd.Long = "Start a private coding-agent cockpit and pair a phone. On a fresh install, Onibi guides setup before starting."
-	return cmd
+	return upCmd()
 }
 
 func phoneCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "phone", Short: "Pair and manage your phone"}
 	pair := pairCmd()
-	pair.Use = "pair"
 	pair.Short = "Show a fresh phone pairing QR"
 	list := devicesCmd()
-	list.Use = "list"
 	list.Short = "List paired phones"
 	remove := unpairCmd()
-	remove.Use = "remove <device-id>"
 	remove.Short = "Remove a paired phone"
 	cmd.AddCommand(pair, list, remove)
 	return cmd

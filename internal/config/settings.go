@@ -40,12 +40,12 @@ func (d *Duration) UnmarshalYAML(n *yaml.Node) error {
 }
 
 type Config struct {
-	Daemon       Daemon       `yaml:"daemon" json:"daemon"`
-	Shell        Shell        `yaml:"shell" json:"shell"`
-	Web          Web          `yaml:"web" json:"web"`
-	Transport    Transport    `yaml:"transport" json:"transport"`
-	Provider     Provider     `yaml:"provider" json:"provider"`
-	Terminal     Terminal     `yaml:"terminal" json:"terminal"`
+	Daemon    Daemon    `yaml:"daemon" json:"daemon"`
+	Shell     Shell     `yaml:"shell" json:"shell"`
+	Web       Web       `yaml:"web" json:"web"`
+	Transport Transport `yaml:"transport" json:"transport"`
+	Provider  Provider  `yaml:"provider" json:"provider"`
+	Terminal  Terminal  `yaml:"terminal" json:"terminal"`
 }
 
 type Daemon struct {
@@ -485,13 +485,13 @@ func Keys(cfg Config, meta LoadMeta) []KeyInfo {
 }
 
 type rawConfig struct {
-	Daemon       rawDaemon       `yaml:"daemon"`
-	Shell        rawShell        `yaml:"shell"`
-	Web          rawWeb          `yaml:"web"`
-	Transport    rawTransport    `yaml:"transport"`
-	Provider     rawProvider     `yaml:"provider"`
-	Terminal     rawTerminal     `yaml:"terminal"`
-	Update       rawLegacyUpdate `yaml:"update"`
+	Daemon    rawDaemon       `yaml:"daemon"`
+	Shell     rawShell        `yaml:"shell"`
+	Web       rawWeb          `yaml:"web"`
+	Transport rawTransport    `yaml:"transport"`
+	Provider  rawProvider     `yaml:"provider"`
+	Terminal  rawTerminal     `yaml:"terminal"`
+	Update    rawLegacyUpdate `yaml:"update"`
 }
 
 type rawDaemon struct {

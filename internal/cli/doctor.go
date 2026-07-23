@@ -270,9 +270,9 @@ func telegramOptionalDoctorCheck(ctx context.Context, paths config.Paths) doctor
 	}
 	c := doctor.Check{Name: "telegram optional", Status: doctor.Warn, Detail: "partially configured", Code: "telegram_optional", Next: "onibi telegram status"}
 	c.Impact = "Telegram transport may not start or pair cleanly."
-	c.SafeFix = "run onibi telegram setup, then onibi up --transport=telegram and complete pairing"
+	c.SafeFix = "run onibi telegram setup, then onibi start --transport=telegram and complete pairing"
 	c.ManualFix = "inspect stored Telegram token, telegram.owner_chat_id, and telegram.owner_user_id in local state"
-	c.Retry = "onibi doctor --release"
+	c.Retry = "onibi system doctor --release"
 	c.Blocks = []string{"telegram"}
 	return c
 }

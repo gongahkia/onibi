@@ -39,7 +39,7 @@ func runHooks(cmd *cobra.Command, args []string) error {
 	}
 }
 
-// runInstallHooks implements `onibi install-hooks --agent <name>`.
+// runInstallHooks implements `onibi agent install --agent <name>`.
 func runInstallHooks(cmd *cobra.Command, _ []string) error {
 	agent, _ := cmd.Flags().GetString("agent")
 	all, _ := cmd.Flags().GetBool("all")
@@ -341,7 +341,7 @@ func buildHooksMatrix(cmd *cobra.Command, db *store.DB, notifyBin string) ([]hoo
 		if err != nil {
 			return nil, err
 		}
-		rows = append(rows, matrixRowFromInfo(info, &report, "onibi install-hooks --agent "+name))
+		rows = append(rows, matrixRowFromInfo(info, &report, "onibi agent install --agent "+name))
 	}
 	return rows, nil
 }

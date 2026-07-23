@@ -1,13 +1,10 @@
-# Experimental Workspace Configuration
+# Workspace Configuration
 
-Status: experimental. This is a portable project metadata file; it does not select a default project, alter daemon startup, bind a host, or grant another user access.
-
-Enable the profile before using it:
+This is a portable project metadata file; it does not select a default project, alter daemon startup, bind a host, or grant another user access.
 
 ```bash
-onibi config --set experimental.workspace true
-onibi experimental workspace init . --name example --agent claude
-onibi experimental workspace validate .
+onibi workspace init . --name example --agent claude
+onibi workspace validate .
 ```
 
 `init` creates `.onibi/workspace.toml` and refuses to overwrite an existing file. `validate` only parses and validates the supplied file; it does not search parent directories or start a session.
@@ -26,6 +23,6 @@ Unknown keys and tables fail closed. The file cannot contain host paths, owner i
 
 ## Current boundary
 
-The workspace file is safe to commit because it has no personal-host identity or secret material. It does not create a SQLite workspace record, sync to another machine, infer a tenant, change pairing, or affect `onibi up` until a separately reviewed future integration exists.
+The workspace file is safe to commit because it has no personal-host identity or secret material. It does not create a SQLite workspace record, sync to another machine, infer a tenant, change pairing, or affect `onibi start` until a separately reviewed future integration exists.
 
-Before any promotion beyond this explicit profile, Onibi requires portable-schema, migration/downgrade, path/secret rejection, default-owner, and integration tests, plus recorded product/security review.
+Before any broader integration, Onibi requires portable-schema, migration/downgrade, path/secret rejection, default-owner, and integration tests, plus recorded product/security review.

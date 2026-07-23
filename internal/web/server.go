@@ -29,48 +29,46 @@ const (
 )
 
 type Options struct {
-	TLSCert               tls.Certificate
-	DB                    *store.DB
-	ApprovalQueue         *approval.Queue
-	EventBus              *EventBus
-	PTYHosts              func() map[string]*pty.Host
-	SessionIDs            func() []string
-	SessionList           func(context.Context) ([]SessionSummary, error)
-	PTYHost               func(context.Context, string) (*pty.Host, error)
-	Handover              func(context.Context, string, string) (string, error)
-	Scroll                func(context.Context, string, string) error
-	Snapshots             func(context.Context) ([]Snapshot, error)
-	SnapshotRestore       func(context.Context, string) (SnapshotActionResult, error)
-	SnapshotFork          func(context.Context, SnapshotForkRequest) (SnapshotActionResult, error)
-	UploadDir             string
-	RelayKeys             *RelayKeys
-	RequireE2E            bool
-	ExperimentalProviders bool
-	Log                   *slog.Logger
+	TLSCert         tls.Certificate
+	DB              *store.DB
+	ApprovalQueue   *approval.Queue
+	EventBus        *EventBus
+	PTYHosts        func() map[string]*pty.Host
+	SessionIDs      func() []string
+	SessionList     func(context.Context) ([]SessionSummary, error)
+	PTYHost         func(context.Context, string) (*pty.Host, error)
+	Handover        func(context.Context, string, string) (string, error)
+	Scroll          func(context.Context, string, string) error
+	Snapshots       func(context.Context) ([]Snapshot, error)
+	SnapshotRestore func(context.Context, string) (SnapshotActionResult, error)
+	SnapshotFork    func(context.Context, SnapshotForkRequest) (SnapshotActionResult, error)
+	UploadDir       string
+	RelayKeys       *RelayKeys
+	RequireE2E      bool
+	Log             *slog.Logger
 }
 
 type Server struct {
-	tlsCert               tls.Certificate
-	db                    *store.DB
-	approvalQueue         *approval.Queue
-	eventBus              *EventBus
-	ptyHosts              func() map[string]*pty.Host
-	sessionIDs            func() []string
-	sessionList           func(context.Context) ([]SessionSummary, error)
-	ptyHost               func(context.Context, string) (*pty.Host, error)
-	handover              func(context.Context, string, string) (string, error)
-	scroll                func(context.Context, string, string) error
-	snapshots             func(context.Context) ([]Snapshot, error)
-	snapshotRestore       func(context.Context, string) (SnapshotActionResult, error)
-	snapshotFork          func(context.Context, SnapshotForkRequest) (SnapshotActionResult, error)
-	uploadDir             string
-	relayKeys             *RelayKeys
-	requireE2E            bool
-	experimentalProviders bool
-	log                   *slog.Logger
-	e2eMu                 sync.Mutex
-	e2eHTTPReplay         map[string]time.Time
-	e2eHTTPResponse       map[*http.Request]e2eHTTPMeta
+	tlsCert         tls.Certificate
+	db              *store.DB
+	approvalQueue   *approval.Queue
+	eventBus        *EventBus
+	ptyHosts        func() map[string]*pty.Host
+	sessionIDs      func() []string
+	sessionList     func(context.Context) ([]SessionSummary, error)
+	ptyHost         func(context.Context, string) (*pty.Host, error)
+	handover        func(context.Context, string, string) (string, error)
+	scroll          func(context.Context, string, string) error
+	snapshots       func(context.Context) ([]Snapshot, error)
+	snapshotRestore func(context.Context, string) (SnapshotActionResult, error)
+	snapshotFork    func(context.Context, SnapshotForkRequest) (SnapshotActionResult, error)
+	uploadDir       string
+	relayKeys       *RelayKeys
+	requireE2E      bool
+	log             *slog.Logger
+	e2eMu           sync.Mutex
+	e2eHTTPReplay   map[string]time.Time
+	e2eHTTPResponse map[*http.Request]e2eHTTPMeta
 }
 
 func New(opts Options) *Server {
@@ -78,24 +76,23 @@ func New(opts Options) *Server {
 		opts.Log = slog.Default()
 	}
 	return &Server{
-		tlsCert:               opts.TLSCert,
-		db:                    opts.DB,
-		approvalQueue:         opts.ApprovalQueue,
-		eventBus:              opts.EventBus,
-		ptyHosts:              opts.PTYHosts,
-		sessionIDs:            opts.SessionIDs,
-		sessionList:           opts.SessionList,
-		ptyHost:               opts.PTYHost,
-		handover:              opts.Handover,
-		scroll:                opts.Scroll,
-		snapshots:             opts.Snapshots,
-		snapshotRestore:       opts.SnapshotRestore,
-		snapshotFork:          opts.SnapshotFork,
-		uploadDir:             opts.UploadDir,
-		relayKeys:             opts.RelayKeys,
-		requireE2E:            opts.RequireE2E,
-		experimentalProviders: opts.ExperimentalProviders,
-		log:                   opts.Log,
+		tlsCert:         opts.TLSCert,
+		db:              opts.DB,
+		approvalQueue:   opts.ApprovalQueue,
+		eventBus:        opts.EventBus,
+		ptyHosts:        opts.PTYHosts,
+		sessionIDs:      opts.SessionIDs,
+		sessionList:     opts.SessionList,
+		ptyHost:         opts.PTYHost,
+		handover:        opts.Handover,
+		scroll:          opts.Scroll,
+		snapshots:       opts.Snapshots,
+		snapshotRestore: opts.SnapshotRestore,
+		snapshotFork:    opts.SnapshotFork,
+		uploadDir:       opts.UploadDir,
+		relayKeys:       opts.RelayKeys,
+		requireE2E:      opts.RequireE2E,
+		log:             opts.Log,
 	}
 }
 
@@ -240,7 +237,7 @@ func writeRootForbidden(w http.ResponseWriter, err error) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusForbidden)
 	if errors.Is(err, errAuthMissingCookie) || errors.Is(err, errAuthEmptyCookie) {
-		_, _ = w.Write([]byte(`<!doctype html><title>Onibi Forbidden</title><body><h1>Forbidden</h1><p>Owner cookie is missing. If this happened immediately after pairing, iOS likely did not trust Onibi's local HTTPS certificate.</p><p>Install the Onibi local CA profile printed by <code>onibi up</code>, enable full trust in iOS Certificate Trust Settings, then restart <code>onibi up</code> and scan the new QR.</p><p>Use a phone hotspot only when the phone cannot reach the pair URL at all.</p></body>`))
+		_, _ = w.Write([]byte(`<!doctype html><title>Onibi Forbidden</title><body><h1>Forbidden</h1><p>Owner cookie is missing. If this happened immediately after pairing, iOS likely did not trust Onibi's local HTTPS certificate.</p><p>Install the Onibi local CA profile printed by <code>onibi start</code>, enable full trust in iOS Certificate Trust Settings, then restart <code>onibi start</code> and scan the new QR.</p><p>Use a phone hotspot only when the phone cannot reach the pair URL at all.</p></body>`))
 		return
 	}
 	_, _ = w.Write([]byte("forbidden"))

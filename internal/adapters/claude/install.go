@@ -159,7 +159,7 @@ func Status(ctx context.Context, db *store.DB) common.Info {
 	version := InstalledVersion(path)
 	info.InstalledVersion = common.VersionPtr(version)
 	info.Outdated = version != common.IntegrationVersion
-	common.ApplyManagedStatus(ctx, db, &info, Agent, path, body, "Claude hooks installed", "onibi install-hooks --agent claude")
+	common.ApplyManagedStatus(ctx, db, &info, Agent, path, body, "Claude hooks installed", "onibi agent install --agent claude")
 	return info
 }
 
@@ -310,7 +310,7 @@ func ObservedHooks() ([]common.ObservedHook, error) {
 func TrustInstructions() []string {
 	return []string{
 		"Claude next step: run claude, open /hooks, inspect onibi-notify commands, then keep them enabled if they match.",
-		"Use onibi hooks --show --agent claude to compare expected commands, installed commands, backups, and drift.",
+		"Use onibi agent inspect --agent claude to compare expected commands, installed commands, backups, and drift.",
 	}
 }
 

@@ -9,7 +9,7 @@ func TestRootLandingShowsPrimaryFlow(t *testing.T) {
 	withDefaultState(t)
 	out, _ := executeRoot(t, "--color", "never")
 	got := out.String()
-	for _, want := range []string{"Onibi", "onibi up", "onibi status", "onibi install-hooks --interactive"} {
+	for _, want := range []string{"Onibi command center", "Start cockpit", "Pair phone", "Connect agents", "Telegram beta"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("landing missing %q:\n%s", want, got)
 		}
@@ -17,7 +17,7 @@ func TestRootLandingShowsPrimaryFlow(t *testing.T) {
 }
 
 func TestLogoCommandRendersASCII(t *testing.T) {
-	out, _ := executeRoot(t, "logo", "--width", "24", "--color", "never")
+	out, _ := executeRoot(t, "system", "logo", "--width", "24", "--color", "never")
 	got := strings.TrimSpace(out.String())
 	if got == "" {
 		t.Fatal("empty logo")
@@ -36,14 +36,14 @@ func TestQuietRootSuppressesLogo(t *testing.T) {
 	if strings.Contains(got, "#########") {
 		t.Fatalf("quiet output included logo:\n%s", got)
 	}
-	if !strings.Contains(got, "onibi up") {
+	if !strings.Contains(got, "Start cockpit") {
 		t.Fatalf("quiet output missing flow:\n%s", got)
 	}
 }
 
 func TestPairQuietHostPortOverride(t *testing.T) {
 	withDefaultState(t)
-	out, _ := executeRoot(t, "pair", "--quiet", "--host", "phone.local", "--port", "9443", "--no-qr", "--color", "never")
+	out, _ := executeRoot(t, "phone", "pair", "--quiet", "--host", "phone.local", "--port", "9443", "--no-qr", "--color", "never")
 	got := strings.TrimSpace(out.String())
 	if !strings.HasPrefix(got, "https://phone.local:9443/pair/") {
 		t.Fatalf("pair url = %q", got)

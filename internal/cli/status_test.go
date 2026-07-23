@@ -9,7 +9,7 @@ import (
 func TestStatusJSONIsValid(t *testing.T) {
 	withDefaultState(t)
 	appendDefaultAudit(t, "notify.webpush.error", "failed")
-	out, _ := executeRoot(t, "status", "--json", "--color", "never")
+	out, _ := executeRoot(t, "system", "status", "--json", "--color", "never")
 	var report cliStatusReport
 	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
 		t.Fatalf("json: %v\n%s", err, out.String())
@@ -24,8 +24,8 @@ func TestStatusJSONIsValid(t *testing.T) {
 
 func TestStatusTextShowsOverview(t *testing.T) {
 	withDefaultState(t)
-	out, _ := executeRoot(t, "status", "--color", "never")
-	for _, want := range []string{"Status", "daemon", "notify", "integrations", "Paths", "next"} {
+	out, _ := executeRoot(t, "system", "status", "--color", "never")
+	for _, want := range []string{"Status", "daemon", "notifications", "agents", "PATHS & NEXT", "next"} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("status missing %q:\n%s", want, out.String())
 		}
@@ -34,7 +34,7 @@ func TestStatusTextShowsOverview(t *testing.T) {
 
 func TestStatusCompactIsOneLine(t *testing.T) {
 	withDefaultState(t)
-	out, _ := executeRoot(t, "status", "--compact", "--no-doctor", "--no-hooks", "--color", "never")
+	out, _ := executeRoot(t, "system", "status", "--compact", "--no-doctor", "--no-hooks", "--color", "never")
 	got := strings.TrimSpace(out.String())
 	if strings.Count(got, "\n") != 0 {
 		t.Fatalf("compact status should be one line:\n%s", got)
@@ -48,7 +48,7 @@ func TestStatusCompactIsOneLine(t *testing.T) {
 
 func TestStatusRejectsRemovedUpdateFlags(t *testing.T) {
 	withDefaultState(t)
-	if _, _, err := executeRootAllowError(t, "status", "--no-update", "--color", "never"); err == nil || !strings.Contains(err.Error(), "unknown flag") {
+	if _, _, err := executeRootAllowError(t, "system", "status", "--no-update", "--color", "never"); err == nil || !strings.Contains(err.Error(), "unknown flag") {
 		t.Fatalf("err = %v", err)
 	}
 }

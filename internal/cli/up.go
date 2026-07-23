@@ -65,12 +65,11 @@ var runtimeTransportHealthInterval = 5 * time.Second
 
 func upCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "up",
-		Aliases: []string{"start"},
-		Short:   "Start the local web cockpit and print a pairing QR",
-		Long:    "Start the local web cockpit and print a pairing QR.\n\nE2E is required for public relay transport (Cloudflare and ngrok).",
-		Args:    cobra.NoArgs,
-		RunE:    runUp,
+		Use:   "start",
+		Short: "Start the local web cockpit and print a pairing QR",
+		Long:  "Start the local web cockpit and print a pairing QR.\n\nE2E is required for public relay transport (Cloudflare and ngrok).",
+		Args:  cobra.NoArgs,
+		RunE:  runUp,
 	}
 	cmd.Flags().String("transport", "", "pairing transport: "+webtransport.SupportedModeList())
 	cmd.Flags().String("agent", "", "agent executable for the managed session")
@@ -101,6 +100,14 @@ func runUp(cmd *cobra.Command, _ []string) error {
 		}
 		return runUpDetach(cmd, paths)
 	}
+	if !firstRun {
+		firstRun = freshInstall(paths)
+		if firstRun {
+			if err := cmd.Flags().Set("first-run", "true"); err != nil {
+				return err
+			}
+		}
+	}
 	db, err := openDefaultDBForCommand(cmd)
 	if err != nil {
 		return err
@@ -113,6 +120,11 @@ func runUp(cmd *cobra.Command, _ []string) error {
 	}
 
 	return webPairRun(cmd, paths, db)
+}
+
+func freshInstall(paths config.Paths) bool {
+	_, err := os.Stat(paths.Config)
+	return errors.Is(err, os.ErrNotExist)
 }
 
 func runUpDetach(cmd *cobra.Command, paths config.Paths) error {
@@ -155,7 +167,7 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 	defer stop()
 
 	cwd, _ := os.Getwd()
-	logger.Info("onibi up starting",
+	logger.Info("onibi start starting",
 		"version", buildinfo.Version,
 		"commit", buildinfo.Commit,
 		"build_date", buildinfo.Date,
@@ -228,9 +240,6 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 	logger.Info("terminfo ready", "name", terminfo.XtermGhostty, "path", terminfoPath)
 	if cfg.Transport.Mode == "telegram" {
 		return runTelegramUp(cmd, paths, db, cfg, logger, started, shellCWD)
-	}
-	if cfg.Transport.Mode == "irc" {
-		return runIRCUp(cmd, paths, db, cfg, logger, started, shellCWD)
 	}
 	port, err := listenPort(cfg.Web.ListenAddr)
 	if err != nil {
@@ -404,7 +413,7 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 		}
 	}
 	fmt.Fprintln(cmd.OutOrStdout(), "Waiting for pairing. Press Ctrl-C to stop.")
-	logger.Info("onibi up ready", "uptime_ms", time.Since(started).Milliseconds())
+	logger.Info("onibi start ready", "uptime_ms", time.Since(started).Milliseconds())
 
 	var runtimeTransportHealthC <-chan time.Time
 	var runtimeTransportTicker *time.Ticker
@@ -432,22 +441,22 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 			}
 			printFirstRunPairSuccess(cmd, notice.Session)
 		case <-ctx.Done():
-			logger.Info("onibi up stopping", "reason", "context_cancelled", "uptime", time.Since(started).Truncate(time.Millisecond).String())
+			logger.Info("onibi start stopping", "reason", "context_cancelled", "uptime", time.Since(started).Truncate(time.Millisecond).String())
 			select {
 			case err := <-errCh:
 				if err != nil && !errors.Is(err, http.ErrServerClosed) && !errors.Is(err, context.Canceled) {
 					return err
 				}
 			case <-time.After(5 * time.Second):
-				logger.Warn("onibi up shutdown timed out")
+				logger.Warn("onibi start shutdown timed out")
 			}
 			return nil
 		case err := <-errCh:
 			if errors.Is(err, http.ErrServerClosed) || errors.Is(err, context.Canceled) {
-				logger.Info("onibi up stopping", "reason", "server_closed", "uptime", time.Since(started).Truncate(time.Millisecond).String())
+				logger.Info("onibi start stopping", "reason", "server_closed", "uptime", time.Since(started).Truncate(time.Millisecond).String())
 				return nil
 			}
-			logger.Error("onibi up server error", "err", err, "uptime", time.Since(started).Truncate(time.Millisecond).String())
+			logger.Error("onibi start server error", "err", err, "uptime", time.Since(started).Truncate(time.Millisecond).String())
 			return err
 		}
 	}
@@ -490,7 +499,7 @@ func validatePrivatePairTransport(listenAddr string, pairTransport webtransport.
 		return fmt.Errorf("%s transport target has no host", provider)
 	}
 	if !sameListenHost(listenHost, target.Hostname()) {
-		return fmt.Errorf("%s endpoint changed from %s to %s; restart onibi up", provider, listenHost, target.Hostname())
+		return fmt.Errorf("%s endpoint changed from %s to %s; restart onibi start", provider, listenHost, target.Hostname())
 	}
 	return nil
 }

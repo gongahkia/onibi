@@ -16,18 +16,7 @@ func configCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "config",
 		Short: "Show and edit config.yaml",
-		RunE:  runConfig,
 	}
-	cmd.Flags().Bool("show", false, "print effective config")
-	cmd.Flags().Bool("list", false, "list supported config keys")
-	cmd.Flags().Bool("get", false, "print one config value")
-	cmd.Flags().Bool("set", false, "set one config value")
-	cmd.Flags().Bool("init", false, "create config.yaml with defaults")
-	cmd.Flags().Bool("migrate", false, "migrate legacy config for v1 and create a backup")
-	cmd.Flags().Bool("validate", false, "validate config.yaml")
-	cmd.Flags().Bool("path", false, "print config and state paths")
-	cmd.Flags().Bool("json", false, "print JSON with --show")
-	cmd.Flags().Bool("force", false, "overwrite config.yaml with --init")
 	cmd.AddCommand(
 		configShowCmd(),
 		configListCmd(),
@@ -41,62 +30,10 @@ func configCmd() *cobra.Command {
 	return cmd
 }
 
-func runConfig(cmd *cobra.Command, args []string) error {
-	action, err := selectedActionFlag(cmd, "show", "list", "get", "set", "init", "migrate", "validate", "path")
-	if err != nil {
-		return err
-	}
-	switch action {
-	case "show":
-		if err := cobra.ExactArgs(0)(cmd, args); err != nil {
-			return err
-		}
-		return runConfigShow(cmd)
-	case "list":
-		if err := cobra.ExactArgs(0)(cmd, args); err != nil {
-			return err
-		}
-		return runConfigList(cmd)
-	case "get":
-		if err := cobra.ExactArgs(1)(cmd, args); err != nil {
-			return err
-		}
-		return runConfigGet(cmd, args)
-	case "set":
-		if err := cobra.ExactArgs(2)(cmd, args); err != nil {
-			return err
-		}
-		return runConfigSet(cmd, args)
-	case "init":
-		if err := cobra.ExactArgs(0)(cmd, args); err != nil {
-			return err
-		}
-		return runConfigInit(cmd)
-	case "migrate":
-		if err := cobra.ExactArgs(0)(cmd, args); err != nil {
-			return err
-		}
-		return runConfigMigrate(cmd)
-	case "validate":
-		if err := cobra.ExactArgs(0)(cmd, args); err != nil {
-			return err
-		}
-		return runConfigValidate(cmd)
-	case "path":
-		if err := cobra.ExactArgs(0)(cmd, args); err != nil {
-			return err
-		}
-		return runConfigPath(cmd)
-	default:
-		return showActionHelp(cmd, args, "show", "list", "get", "set", "init", "migrate", "validate", "path")
-	}
-}
-
 func configShowCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Hidden: true,
-		Use:    "show",
-		Short:  "Print effective config",
+		Use:   "show",
+		Short: "Print effective config",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runConfigShow(cmd)
 		},
@@ -107,9 +44,8 @@ func configShowCmd() *cobra.Command {
 
 func configListCmd() *cobra.Command {
 	return &cobra.Command{
-		Hidden: true,
-		Use:    "list",
-		Short:  "List supported config keys",
+		Use:   "list",
+		Short: "List supported config keys",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runConfigList(cmd)
 		},
@@ -118,10 +54,9 @@ func configListCmd() *cobra.Command {
 
 func configGetCmd() *cobra.Command {
 	return &cobra.Command{
-		Hidden: true,
-		Use:    "get <key>",
-		Short:  "Print one config value",
-		Args:   cobra.ExactArgs(1),
+		Use:   "get <key>",
+		Short: "Print one config value",
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runConfigGet(cmd, args)
 		},
@@ -130,10 +65,9 @@ func configGetCmd() *cobra.Command {
 
 func configSetCmd() *cobra.Command {
 	return &cobra.Command{
-		Hidden: true,
-		Use:    "set <key> <value>",
-		Short:  "Set one config value",
-		Args:   cobra.ExactArgs(2),
+		Use:   "set <key> <value>",
+		Short: "Set one config value",
+		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runConfigSet(cmd, args)
 		},
@@ -142,9 +76,8 @@ func configSetCmd() *cobra.Command {
 
 func configInitCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Hidden: true,
-		Use:    "init",
-		Short:  "Create config.yaml with defaults",
+		Use:   "init",
+		Short: "Create config.yaml with defaults",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runConfigInit(cmd)
 		},
@@ -155,9 +88,8 @@ func configInitCmd() *cobra.Command {
 
 func configMigrateCmd() *cobra.Command {
 	return &cobra.Command{
-		Hidden: true,
-		Use:    "migrate",
-		Short:  "Migrate legacy config for v1",
+		Use:   "migrate",
+		Short: "Migrate legacy config for v1",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runConfigMigrate(cmd)
 		},
@@ -166,9 +98,8 @@ func configMigrateCmd() *cobra.Command {
 
 func configValidateCmd() *cobra.Command {
 	return &cobra.Command{
-		Hidden: true,
-		Use:    "validate",
-		Short:  "Validate config.yaml",
+		Use:   "validate",
+		Short: "Validate config.yaml",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runConfigValidate(cmd)
 		},
@@ -177,9 +108,8 @@ func configValidateCmd() *cobra.Command {
 
 func configPathCmd() *cobra.Command {
 	return &cobra.Command{
-		Hidden: true,
-		Use:    "path",
-		Short:  "Print config and state paths",
+		Use:   "path",
+		Short: "Print config and state paths",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runConfigPath(cmd)
 		},
@@ -204,7 +134,7 @@ func runConfigShow(cmd *cobra.Command) error {
 	if meta.Exists {
 		fmt.Fprintf(cmd.OutOrStdout(), "%s: file\n", style.bold("source"))
 	} else {
-		fmt.Fprintf(cmd.OutOrStdout(), "%s: defaults (run `onibi config --init` to create file)\n", style.bold("source"))
+		fmt.Fprintf(cmd.OutOrStdout(), "%s: defaults (run `onibi system config init` to create file)\n", style.bold("source"))
 	}
 	b, err := yaml.Marshal(cfg)
 	if err != nil {

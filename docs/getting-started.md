@@ -42,36 +42,36 @@ Confirm the binary works:
 
 ```bash
 ./bin/onibi version
-./bin/onibi doctor
+./bin/onibi system doctor
 ```
 
 Install Claude hooks when testing Claude approvals:
 
 ```bash
-./bin/onibi install-hooks --agent claude
-./bin/onibi hooks --show --agent claude
+./bin/onibi agent install --agent claude
+./bin/onibi agent inspect --agent claude
 ```
 
 For a new machine with multiple supported agents already configured, preview
 and install detected hooks:
 
 ```bash
-./bin/onibi install-hooks --dry-run
-./bin/onibi install-hooks --all
+./bin/onibi agent install --dry-run
+./bin/onibi agent install --all
 ```
 
 Claude may require you to open `/hooks` and trust the printed Onibi hook commands.
 
 ## 3. Pair The Phone
 
-`onibi doctor` gives the next safe action before you start. For local/private
-transports, `onibi up` then prints the exact trust files for both phone
+`onibi system doctor` gives the next safe action before you start. For local/private
+transports, `onibi start` then prints the exact trust files for both phone
 platforms and the fresh pairing QR.
 
 Start Onibi:
 
 ```bash
-./bin/onibi up
+./bin/onibi start
 ```
 
 Onibi prints:
@@ -161,27 +161,27 @@ Example edit test:
 ## 6. Common Commands
 
 ```bash
-./bin/onibi up
-./bin/onibi doctor
-./bin/onibi doctor --fix
-./bin/onibi doctor --release --offline
-./bin/onibi adapters
-./bin/onibi hooks --show --agent claude
-./bin/onibi install-hooks --agent claude
+./bin/onibi start
+./bin/onibi system doctor
+./bin/onibi system doctor --fix
+./bin/onibi system doctor --release --offline
+./bin/onibi agent adapter validate <path>
+./bin/onibi agent inspect --agent claude
+./bin/onibi agent install --agent claude
 ```
 
 ## 7. Clean Reset
 
-Stop `onibi up`, inspect the uninstall plan, then remove hooks/service/state:
+Stop `onibi start`, inspect the uninstall plan, then remove hooks/service/state:
 
 ```bash
-./bin/onibi uninstall --dry-run --service --hooks --all-hooks --state
-./bin/onibi uninstall --dry-run --json --service --hooks --all-hooks --state
-./bin/onibi uninstall --yes --service --hooks --all-hooks --state
+./bin/onibi system uninstall --dry-run --service --hooks --all-hooks --state
+./bin/onibi system uninstall --dry-run --json --service --hooks --all-hooks --state
+./bin/onibi system uninstall --yes --service --hooks --all-hooks --state
 ```
 
 Then pair again:
 
 ```bash
-./bin/onibi up
+./bin/onibi start
 ```

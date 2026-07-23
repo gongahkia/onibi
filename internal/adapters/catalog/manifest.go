@@ -203,7 +203,7 @@ func manifestAdapter(m Manifest) Adapter {
 				return info
 			}
 			if len(body) > 0 && db != nil {
-				common.ApplyManagedStatus(ctx, db, &info, m.Name, m.SourcePath, body, "third-party adapter manifest loaded", "onibi install-hooks --agent "+m.Name)
+				common.ApplyManagedStatus(ctx, db, &info, m.Name, m.SourcePath, body, "third-party adapter manifest loaded", "onibi agent install --agent "+m.Name)
 			}
 			return info
 		},

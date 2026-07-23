@@ -31,7 +31,7 @@ func TestWritePhoneSetupGuideForLocalTrust(t *testing.T) {
 func TestWritePhoneSetupGuideBeforeCertGeneration(t *testing.T) {
 	var out bytes.Buffer
 	writePhoneSetupGuide(&out, phoneSetupState{Transport: "lan"})
-	if !strings.Contains(out.String(), "onibi up --transport=lan") {
+	if !strings.Contains(out.String(), "onibi start --transport=lan") {
 		t.Fatalf("guide = %q", out.String())
 	}
 }
@@ -42,7 +42,7 @@ func TestNeedsLocalPhoneTrust(t *testing.T) {
 			t.Fatalf("%s should require local phone trust", mode)
 		}
 	}
-	for _, mode := range []string{"cloudflare-quick", "ngrok", "telegram", "irc"} {
+	for _, mode := range []string{"cloudflare-quick", "ngrok", "telegram"} {
 		if needsLocalPhoneTrust(mode) {
 			t.Fatalf("%s should not require local phone trust", mode)
 		}
@@ -66,7 +66,7 @@ func TestPrintDoctorPhoneSetupBeforeCertGeneration(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	printDoctorPhoneSetup(cmd, paths, "lan")
-	if !strings.Contains(out.String(), "onibi up --transport=lan") {
+	if !strings.Contains(out.String(), "onibi start --transport=lan") {
 		t.Fatalf("doctor guide = %q", out.String())
 	}
 }

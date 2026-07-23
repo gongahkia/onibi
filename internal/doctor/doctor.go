@@ -92,9 +92,9 @@ func (r *runner) add(name string, st Status, detail string) {
 	c := Check{Name: name, Status: st, Detail: detail, Code: codeFor(name)}
 	if st != Pass {
 		c.Impact = "Related Onibi functionality may be degraded."
-		c.SafeFix = "fix the reported condition and rerun onibi doctor"
+		c.SafeFix = "fix the reported condition and rerun onibi system doctor"
 		c.ManualFix = "inspect local state and config manually"
-		c.Retry = "onibi doctor"
+		c.Retry = "onibi system doctor"
 		c.Next = c.Retry
 	}
 	r.checks = append(r.checks, c)
@@ -133,16 +133,16 @@ func (r *runner) checkPlatform() {
 	case "darwin":
 		version, err := r.macOSVersion()
 		if err != nil {
-			r.addPlatform(Fail, "cannot verify macOS version: "+err.Error(), "install macOS 14+ and rerun onibi doctor --release")
+			r.addPlatform(Fail, "cannot verify macOS version: "+err.Error(), "install macOS 14+ and rerun onibi system doctor --release")
 			return
 		}
 		major, err := macOSMajor(version)
 		if err != nil {
-			r.addPlatform(Fail, "cannot parse macOS version "+strconv.Quote(version), "install macOS 14+ and rerun onibi doctor --release")
+			r.addPlatform(Fail, "cannot parse macOS version "+strconv.Quote(version), "install macOS 14+ and rerun onibi system doctor --release")
 			return
 		}
 		if major < 14 {
-			r.addPlatform(Fail, "macOS "+version+" is below the v1 minimum of macOS 14", "upgrade to macOS 14+ and rerun onibi doctor --release")
+			r.addPlatform(Fail, "macOS "+version+" is below the v1 minimum of macOS 14", "upgrade to macOS 14+ and rerun onibi system doctor --release")
 			return
 		}
 		r.add("platform", Pass, "macOS "+version+" is a v1 release host (Keychain + launchd)")
@@ -186,7 +186,7 @@ func (r *runner) addPlatform(st Status, detail, next string) {
 		c.Impact = "This host cannot satisfy the v1 release security and service-runtime requirements."
 		c.SafeFix = next
 		c.ManualFix = "verify the host OS, credential backend, and user service manually"
-		c.Retry = "onibi doctor"
+		c.Retry = "onibi system doctor"
 		c.Next = next
 		if st == Fail {
 			c.Blocks = []string{"release"}
@@ -237,7 +237,7 @@ func (r *runner) checkStoreKey() {
 			c.Impact = "Encrypted SQLite state cannot be decrypted."
 			c.SafeFix = "start Onibi once to create a key, or restore the key from backup"
 			c.ManualFix = "verify " + secrets.StoreKeyName + " in the active secret backend or fallback store"
-			c.Retry = "onibi doctor"
+			c.Retry = "onibi system doctor"
 			c.Next = c.Retry
 			r.checks = append(r.checks, c)
 			return
@@ -512,7 +512,7 @@ func (r *runner) checkLocalCerts() {
 	paths := web.LocalCertPaths(doctorCertDir(r.opts.Paths, cfg))
 	if _, err := os.Stat(paths.MobileConfig); err != nil {
 		if os.IsNotExist(err) {
-			r.add("local certs", Warn, "not generated; run onibi up")
+			r.add("local certs", Warn, "not generated; run onibi start")
 			return
 		}
 		r.add("local certs", Warn, err.Error())
@@ -613,7 +613,7 @@ func (r *runner) checkHooks() {
 		}
 	}
 	if problems > 0 {
-		r.add("hooks", Warn, fmt.Sprintf("%d hook issue(s); run onibi hooks --show --all", problems))
+		r.add("hooks", Warn, fmt.Sprintf("%d hook issue(s); run onibi agent inspect --all", problems))
 		return
 	}
 	r.add("hooks", Pass, "no managed hook drift detected")

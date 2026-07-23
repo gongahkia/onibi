@@ -20,10 +20,9 @@ import (
 
 func pairCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "pair",
-		Aliases: []string{"qr"},
-		Short:   "Mint a fresh web pairing QR",
-		RunE:    runPair,
+		Use:   "pair",
+		Short: "Mint a fresh web pairing QR",
+		RunE:  runPair,
 	}
 	cmd.Flags().Bool("json", false, "print JSON")
 	cmd.Flags().String("host", "", "override host in generated pair URL")
@@ -36,10 +35,9 @@ func pairCmd() *cobra.Command {
 
 func devicesCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "devices",
-		Aliases: []string{"phones"},
-		Short:   "List paired web devices",
-		RunE:    runDevices,
+		Use:   "list",
+		Short: "List paired web devices",
+		RunE:  runDevices,
 	}
 	cmd.Flags().Bool("all", false, "include revoked devices")
 	cmd.Flags().Bool("json", false, "print JSON")
@@ -48,7 +46,7 @@ func devicesCmd() *cobra.Command {
 
 func unpairCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "unpair [device-id]",
+		Use:   "remove [device-id]",
 		Short: "Revoke a paired web device",
 		Args:  cobra.MaximumNArgs(1),
 		RunE:  runUnpair,
@@ -92,18 +90,24 @@ func runPair(cmd *cobra.Command, _ []string) error {
 		return nil
 	}
 	printCLIHeader(cmd, "Pair")
-	fmt.Fprintln(cmd.OutOrStdout(), "Scan from the phone that should control this Onibi cockpit.")
-	fmt.Fprintln(cmd.OutOrStdout())
-	fmt.Fprintln(cmd.OutOrStdout(), "URL:", urls[0])
-	fmt.Fprintln(cmd.OutOrStdout(), "Expires:", setup.PairTokenTTL.String())
+	style := styleFor(cmd)
+	rows := [][]string{
+		{"purpose", "Scan from the phone that should control this cockpit."},
+		{"pair URL", urls[0]},
+		{"expires", setup.PairTokenTTL.String()},
+	}
 	if fallbacks, _ := cmd.Flags().GetBool("fallbacks"); fallbacks {
 		for _, alt := range urls[1:] {
-			fmt.Fprintln(cmd.OutOrStdout(), "Fallback:", alt)
+			rows = append(rows, []string{"fallback", alt})
 		}
+	}
+	if err := renderKeyValuePanel(cmd, "PHONE PAIRING", rows); err != nil {
+		return err
 	}
 	if noQR, _ := cmd.Flags().GetBool("no-qr"); noQR {
 		return nil
 	}
+	fmt.Fprintln(cmd.OutOrStdout(), style.dim("Scan this single-use QR from your phone:"))
 	return setup.PrintQR(cmd.OutOrStdout(), urls[0])
 }
 
@@ -159,6 +163,7 @@ func runDevices(cmd *cobra.Command, _ []string) error {
 			state,
 		})
 	}
+	printCLIHeader(cmd, "Phones")
 	return renderTable(cmd.OutOrStdout(), table)
 }
 

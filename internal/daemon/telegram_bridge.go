@@ -126,7 +126,7 @@ func (b *telegramBridge) authorizedOrPair(ctx context.Context, m *telegram.Messa
 		}
 	}
 	if b.owner() == 0 && m.Chat.Type == "private" {
-		b.send(ctx, chatID, "Onibi is not paired. Run `onibi up --transport=telegram` and send /start <code> from that output.", nil)
+		b.send(ctx, chatID, "Onibi is not paired. Run `onibi start --transport=telegram` and send /start <code> from that output.", nil)
 	}
 	return false
 }

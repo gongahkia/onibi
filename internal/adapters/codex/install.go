@@ -150,7 +150,7 @@ func Status(ctx context.Context, db *store.DB) common.Info {
 	version := InstalledVersion(path)
 	info.InstalledVersion = common.VersionPtr(version)
 	info.Outdated = version != common.IntegrationVersion
-	common.ApplyManagedStatus(ctx, db, &info, Agent, path, body, "Codex hooks installed", "onibi install-hooks --agent codex")
+	common.ApplyManagedStatus(ctx, db, &info, Agent, path, body, "Codex hooks installed", "onibi agent install --agent codex")
 	return info
 }
 

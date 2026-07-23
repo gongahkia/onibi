@@ -22,21 +22,21 @@ Status: focused local web cockpit. Onibi hosts a managed terminal locally, pairs
 
 ```bash
 brew install gongahkia/onibi/onibi
-onibi install-hooks --agent claude
-onibi doctor
-onibi up
+onibi agent install --agent claude
+onibi system doctor
+onibi start
 ```
 
-Use `onibi up --transport=lan` for local pairing or `--transport=tailscale-private` for an authenticated tailnet. Run `onibi status` and `onibi doctor --fix` when validating an install. Update Onibi through its package manager. Source-build setup lives in [`CONTRIBUTING.md`](./CONTRIBUTING.md).
+Use `onibi start --transport=lan` for local pairing or `--transport=tailscale-private` for an authenticated tailnet. Run `onibi system status` and `onibi system doctor --fix` when validating an install. Update Onibi through its package manager. Source-build setup lives in [`CONTRIBUTING.md`](./CONTRIBUTING.md).
 
 On any phone:
 
-1. Follow the step-by-step phone setup shown by `onibi doctor` and `onibi up`.
+1. Follow the step-by-step phone setup shown by `onibi system doctor` and `onibi start`.
 2. For local/private transports, transfer only the matching trust file generated on this Mac through a channel you control: `onibi-local-ca.mobileconfig` for iPhone/iPad or `onibi-local-ca.crt` for Android.
 3. Trust that file in the phone's system settings, scan the fresh QR, then add the cockpit to Home Screen or install it as a web app.
 4. Use `MAC` to open the same session in a visible macOS terminal and `PHONE` to return it to the phone cockpit.
 
-If a managed Wi-Fi blocks device-to-device traffic, connect the Mac to a phone hotspot, rerun `./bin/onibi up`, and scan the new QR.
+If a managed Wi-Fi blocks device-to-device traffic, connect the Mac to a phone hotspot, rerun `./bin/onibi start`, and scan the new QR.
 
 ## What Makes This Different
 
@@ -49,7 +49,7 @@ Branding note: Onibi is not affiliated with the [Ghostty](https://ghostty.org) t
 
 ## What Works Now
 
-- Managed tmux-backed session created by `onibi up`.
+- Managed tmux-backed session created by `onibi start`.
 - Live xterm.js terminal over `/ws/pty`.
 - Multi-session phone dashboard at `/#/sessions` with attach and guarded kill actions.
 - Pair-by-QR over local HTTPS.
@@ -59,7 +59,7 @@ Branding note: Onibi is not affiliated with the [Ghostty](https://ghostty.org) t
 - Claude Code hook approvals rendered as web overlay cards.
 - Deny flow blocks Claude Write calls before file creation.
 - Local shell fallback for arbitrary commands and `vim`.
-- `onibi show` / `onibi hide` for tmux-backed session visibility.
+- `onibi session show` / `onibi session hide` for tmux-backed session visibility.
 - [`docs/comparison.md`](./docs/comparison.md) states Onibi's focused scope and alternatives.
 
 ## Product Scope
@@ -70,37 +70,36 @@ See [`docs/roadmap.md`](./docs/roadmap.md) for the focused product boundary.
 
 ```bash
 ./bin/onibi
-./bin/onibi quickstart
-./bin/onibi status
-./bin/onibi up
-./bin/onibi show
-./bin/onibi hide --headless
-./bin/onibi pair
-./bin/onibi devices
-./bin/onibi unpair <device-id>
-./bin/onibi install-hooks --interactive
-./bin/onibi hooks --show --all
-./bin/onibi adapters
-./bin/onibi doctor
-./bin/onibi uninstall --dry-run
-./bin/onibi logo
+./bin/onibi start
+./bin/onibi phone pair
+./bin/onibi phone list
+./bin/onibi phone remove <device-id>
+./bin/onibi session show
+./bin/onibi session hide --headless
+./bin/onibi agent install --interactive
+./bin/onibi agent inspect --all
+./bin/onibi agent adapter validate <path>
+./bin/onibi system status
+./bin/onibi system doctor
+./bin/onibi system uninstall --dry-run
+./bin/onibi system logo
 ```
 
-CLI aliases include `start` for `up`, `qr` for `pair`, `phones` for `devices`, `integrations` for `adapters`, `integrate` for `install-hooks`, `check` for `doctor`, and `ps` for `sessions`.
+The v3 CLI intentionally has no legacy command aliases. Use `onibi --help` to browse the command groups.
 
 Useful CLI flags:
 
 - Global: `--quiet`, `--debug`, `--no-logo`, `--logo-width <cols>`, `--color auto|always|never`.
-- `up`: `--first-run`, `--shell <bin>`, `--cwd <dir>`, `--no-login-shell`, `--visible`, `--no-qr`, `--log-file <path>`.
-- `pair`: `--host <host>`, `--port <port>`, `--copy`, `--no-qr`, `--fallbacks=false`, `--json`.
-- `install-hooks`: installs supported agent hooks; `--all` installs detected agent hooks without prompting; `--dry-run` prints the plan.
-- `status`: `--compact`, `--watch`, `--interval <duration>`, `--timeout <duration>`, `--no-doctor`, `--no-hooks`, `--json`, `--strict`.
-- `doctor`: `--fix`, `--release`, `--explain`, `--offline`, `--json`.
-- `uninstall`: `--service`, `--hooks`, `--agent <name>`, `--state`, `--yes`, `--dry-run`, `--json`.
+- `start`: `--first-run`, `--shell <bin>`, `--cwd <dir>`, `--no-login-shell`, `--visible`, `--no-qr`, `--log-file <path>`.
+- `phone pair`: `--host <host>`, `--port <port>`, `--copy`, `--no-qr`, `--fallbacks=false`, `--json`.
+- `agent install`: installs supported agent hooks; `--all` installs detected agent hooks without prompting; `--dry-run` prints the plan.
+- `system status`: `--compact`, `--watch`, `--interval <duration>`, `--timeout <duration>`, `--no-doctor`, `--no-hooks`, `--json`, `--strict`.
+- `system doctor`: `--fix`, `--release`, `--explain`, `--offline`, `--json`.
+- `system uninstall`: `--service`, `--hooks`, `--agent <name>`, `--state`, `--yes`, `--dry-run`, `--json`.
 
 ## Current Test Flow
 
-After `./bin/onibi up` and phone pairing:
+After `./bin/onibi start` and phone pairing:
 
 1. Run `vim /tmp/onibi-smoke.txt` from the phone.
 2. Edit, press `ESC`, then `:wq`.
@@ -113,7 +112,7 @@ After `./bin/onibi up` and phone pairing:
 9. Ask Claude to create `/tmp/onibi-approval-deny.txt`.
 10. Tap `Deny` on the Onibi approval card.
 11. Verify the file does not exist.
-12. Stop `onibi up` and confirm no `onibi-*` tmux sessions remain.
+12. Stop `onibi start` and confirm no `onibi-*` tmux sessions remain.
 
 ## Architecture
 

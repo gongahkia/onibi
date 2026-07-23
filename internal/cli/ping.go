@@ -60,7 +60,7 @@ func runPing(cmd *cobra.Command, _ []string) error {
 		fmt.Fprintf(cmd.OutOrStdout(), "pong rtt=%s%s\n", rtt, suffix)
 	}
 	if failures > 0 {
-		return fmt.Errorf("%d/%d ping failed; run `onibi up`", failures, count)
+		return fmt.Errorf("%d/%d ping failed; run `onibi start`", failures, count)
 	}
 	return nil
 }

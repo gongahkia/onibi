@@ -122,8 +122,8 @@ func statusFile(ctx context.Context, db *store.DB, path string) common.Info {
 	info.Installed = strings.Contains(src, `ONIBI_AGENT = "pi"`)
 	if !info.Installed {
 		if strings.Contains(src, "onibi-notify") {
-			info.Message = "unmanaged onibi-like hook; run onibi install-hooks --agent pi to adopt"
-			info.Next = "onibi install-hooks --agent pi"
+			info.Message = "unmanaged onibi-like hook; run onibi agent install --agent pi to adopt"
+			info.Next = "onibi agent install --agent pi"
 		} else {
 			common.MarkNotInstalled(&info)
 		}
@@ -131,7 +131,7 @@ func statusFile(ctx context.Context, db *store.DB, path string) common.Info {
 	}
 	info.InstalledVersion = common.VersionPtr(version)
 	info.Outdated = version != common.IntegrationVersion
-	common.ApplyManagedStatus(ctx, db, &info, Agent, path, body, "Pi extension installed", "onibi install-hooks --agent pi")
+	common.ApplyManagedStatus(ctx, db, &info, Agent, path, body, "Pi extension installed", "onibi agent install --agent pi")
 	return info
 }
 

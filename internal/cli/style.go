@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -18,6 +19,7 @@ const (
 	ansiGreen  = "\x1b[32m"
 	ansiYellow = "\x1b[33m"
 	ansiCyan   = "\x1b[36m"
+	ansiBlue   = "\x1b[34m"
 )
 
 type cliStyle struct {
@@ -85,6 +87,7 @@ func (s cliStyle) red(text string) string    { return s.paint(ansiRed, text) }
 func (s cliStyle) green(text string) string  { return s.paint(ansiGreen, text) }
 func (s cliStyle) yellow(text string) string { return s.paint(ansiYellow, text) }
 func (s cliStyle) cyan(text string) string   { return s.paint(ansiCyan, text) }
+func (s cliStyle) blue(text string) string   { return s.paint(ansiBlue, text) }
 
 func (s cliStyle) status(status any) string {
 	text := strings.TrimSpace(fmt.Sprint(status))
@@ -113,6 +116,86 @@ func (s cliStyle) bool(v bool) string {
 		return s.green("true")
 	}
 	return s.dim("false")
+}
+
+func uiWidth(w io.Writer) int {
+	if width := tableWidthForWriter(w); width > 0 {
+		return width
+	}
+	return 96
+}
+
+func uiCompact(w io.Writer) bool { return uiWidth(w) < 50 }
+
+func renderPanel(w io.Writer, style cliStyle, title string, lines ...string) error {
+	width := uiWidth(w)
+	if width < 50 {
+		if title != "" {
+			if _, err := fmt.Fprintln(w, style.bold(title)); err != nil {
+				return err
+			}
+		}
+		for _, line := range lines {
+			for _, wrapped := range wrapTableCell(line, max(20, width)) {
+				if _, err := fmt.Fprintln(w, wrapped); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}
+	inner := min(94, width-4)
+	if inner < 38 {
+		inner = 38
+	}
+	heading := " " + strings.TrimSpace(title) + " "
+	if visibleLen(heading) > inner {
+		heading, _ = takeVisiblePrefix(heading, inner)
+	}
+	if _, err := fmt.Fprintln(w, style.dim("╭"+heading+strings.Repeat("─", max(0, inner-visibleLen(heading)))+"╮")); err != nil {
+		return err
+	}
+	for _, line := range lines {
+		for _, wrapped := range wrapTableCell(line, inner-2) {
+			if _, err := fmt.Fprintln(w, style.dim("│")+" "+wrapped+strings.Repeat(" ", max(0, inner-1-visibleLen(wrapped)))+style.dim("│")); err != nil {
+				return err
+			}
+		}
+	}
+	_, err := fmt.Fprintln(w, style.dim("╰"+strings.Repeat("─", inner)+"╯"))
+	return err
+}
+
+func renderKeyValuePanel(cmd *cobra.Command, title string, rows [][]string) error {
+	style := styleFor(cmd)
+	width := uiWidth(cmd.OutOrStdout())
+	lines := make([]string, 0, len(rows))
+	for _, row := range rows {
+		if len(row) == 0 {
+			continue
+		}
+		if len(row) == 1 || width < 64 {
+			lines = append(lines, strings.Join(row, " "))
+			continue
+		}
+		label := strings.TrimSpace(row[0])
+		value := strings.TrimSpace(strings.Join(row[1:], "  "))
+		lines = append(lines, style.dim(label)+"  "+value)
+	}
+	return renderPanel(cmd.OutOrStdout(), style, title, lines...)
+}
+
+func renderMenuPanel(cmd *cobra.Command, title string, rows [][]string) error {
+	style := styleFor(cmd)
+	lines := make([]string, 0, len(rows))
+	for _, row := range rows {
+		if len(row) < 3 {
+			continue
+		}
+		key := style.cyan("[" + row[0] + "]")
+		lines = append(lines, key+" "+style.bold(row[1])+"  "+style.dim(row[2]))
+	}
+	return renderPanel(cmd.OutOrStdout(), style, title, lines...)
 }
 
 func (s cliStyle) installed(v bool) string {
@@ -317,7 +400,11 @@ func takeVisiblePrefix(s string, width int) (string, int) {
 			}
 			continue
 		}
-		i++
+		_, size := utf8.DecodeRuneInString(s[i:])
+		if size == 0 {
+			break
+		}
+		i += size
 		seen++
 	}
 	return s[:i], i
@@ -341,6 +428,11 @@ func visibleLen(s string) int {
 			}
 			continue
 		}
+		_, size := utf8.DecodeRuneInString(s[i:])
+		if size == 0 {
+			break
+		}
+		i += size - 1
 		n++
 	}
 	return n

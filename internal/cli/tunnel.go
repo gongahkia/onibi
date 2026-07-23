@@ -144,7 +144,7 @@ func promptTunnelTransport(cmd *cobra.Command, current string) (string, bool, er
 		if c.active {
 			defaultKey = c.key
 		}
-		rows = append(rows, []string{c.key, c.label, c.detail, c.coverage, strings.Replace(c.command, "onibi up", "onibi tunnel <port>", 1)})
+		rows = append(rows, []string{c.key, c.label, c.detail, c.coverage, strings.Replace(c.command, "onibi start", "onibi transport expose <port>", 1)})
 	}
 	fmt.Fprintln(cmd.OutOrStdout(), style.bold("Tunnel provider"))
 	if err := renderTable(cmd.OutOrStdout(), rows); err != nil {

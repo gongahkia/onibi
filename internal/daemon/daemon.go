@@ -16,7 +16,6 @@ import (
 	"github.com/gongahkia/onibi/internal/approval"
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/intake"
-	"github.com/gongahkia/onibi/internal/irc"
 	"github.com/gongahkia/onibi/internal/pty"
 	"github.com/gongahkia/onibi/internal/store"
 	"github.com/gongahkia/onibi/internal/web"
@@ -50,15 +49,10 @@ type Daemon struct {
 	WebCertDir              string
 	RelayKeys               *web.RelayKeys
 	RequireWebE2E           bool
-	ExperimentalProviders   bool
 	TelegramToken           string
 	TelegramOwnerID         int64
 	TelegramOwnerUserID     int64
 	TelegramPair            string
-	IRCClient               *irc.Client
-	IRCNick                 string
-	IRCOwnerNick            string
-	IRCOwnerAccount         string
 	ProviderOutput          ProviderOutputPolicy
 	ProviderOutputOverrides ProviderOutputOverrides
 
@@ -93,15 +87,10 @@ type Options struct {
 	WebCertDir              string
 	RelayKeys               *web.RelayKeys
 	RequireWebE2E           bool
-	ExperimentalProviders   bool
 	TelegramToken           string
 	TelegramOwnerID         int64
 	TelegramOwnerUserID     int64
 	TelegramPair            string
-	IRCClient               *irc.Client
-	IRCNick                 string
-	IRCOwnerNick            string
-	IRCOwnerAccount         string
 	ProviderOutput          ProviderOutputPolicy
 	ProviderOutputOverrides ProviderOutputOverrides
 	SkipRestore             bool
@@ -132,15 +121,10 @@ func New(opts Options) *Daemon {
 		WebCertDir:              opts.WebCertDir,
 		RelayKeys:               opts.RelayKeys,
 		RequireWebE2E:           opts.RequireWebE2E,
-		ExperimentalProviders:   opts.ExperimentalProviders,
 		TelegramToken:           opts.TelegramToken,
 		TelegramOwnerID:         opts.TelegramOwnerID,
 		TelegramOwnerUserID:     opts.TelegramOwnerUserID,
 		TelegramPair:            opts.TelegramPair,
-		IRCClient:               opts.IRCClient,
-		IRCNick:                 opts.IRCNick,
-		IRCOwnerNick:            opts.IRCOwnerNick,
-		IRCOwnerAccount:         opts.IRCOwnerAccount,
 		ProviderOutput:          opts.ProviderOutput.normalized(),
 		ProviderOutputOverrides: opts.ProviderOutputOverrides,
 	}
@@ -367,24 +351,23 @@ func (d *Daemon) Run(ctx context.Context) error {
 			return err
 		}
 		webServer := web.New(web.Options{
-			TLSCert:               cert,
-			DB:                    d.DB,
-			ApprovalQueue:         d.Queue,
-			EventBus:              d.Events,
-			PTYHosts:              d.webPTYHosts,
-			SessionIDs:            d.webSessionIDs,
-			SessionList:           d.WebSessions,
-			PTYHost:               d.EnsureWebPTYHost,
-			Handover:              d.HandoverSession,
-			Scroll:                d.ScrollSession,
-			Snapshots:             d.WebSnapshots,
-			SnapshotRestore:       d.WebRestoreSnapshot,
-			SnapshotFork:          d.WebForkSnapshot,
-			UploadDir:             filepath.Join(d.Paths.StateDir, "uploads"),
-			RelayKeys:             d.RelayKeys,
-			RequireE2E:            d.RequireWebE2E,
-			ExperimentalProviders: d.ExperimentalProviders,
-			Log:                   d.Log,
+			TLSCert:         cert,
+			DB:              d.DB,
+			ApprovalQueue:   d.Queue,
+			EventBus:        d.Events,
+			PTYHosts:        d.webPTYHosts,
+			SessionIDs:      d.webSessionIDs,
+			SessionList:     d.WebSessions,
+			PTYHost:         d.EnsureWebPTYHost,
+			Handover:        d.HandoverSession,
+			Scroll:          d.ScrollSession,
+			Snapshots:       d.WebSnapshots,
+			SnapshotRestore: d.WebRestoreSnapshot,
+			SnapshotFork:    d.WebForkSnapshot,
+			UploadDir:       filepath.Join(d.Paths.StateDir, "uploads"),
+			RelayKeys:       d.RelayKeys,
+			RequireE2E:      d.RequireWebE2E,
+			Log:             d.Log,
 		})
 		wg.Add(1)
 		go func() {
@@ -396,10 +379,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 		}()
 	}
 
-	if d.ExperimentalProviders {
-		d.startTelegramBridge(ctx, &wg, cancel)
-		d.startIRCBridge(ctx, &wg, cancel)
-	}
+	d.startTelegramBridge(ctx, &wg, cancel)
 	d.startWebPushNotifier(ctx, &wg)
 
 	wg.Add(1)

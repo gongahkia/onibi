@@ -20,7 +20,7 @@ func TestStoreRekeyCommandKeepsDevicesReadable(t *testing.T) {
 	}
 	_ = db.Close()
 
-	out, _ := executeRoot(t, "store", "rekey", "--json", "--color", "never")
+	out, _ := executeRoot(t, "system", "data", "rekey", "--json", "--color", "never")
 	var rekeyed struct {
 		Rekeyed bool `json:"rekeyed"`
 	}
@@ -39,7 +39,7 @@ func TestStoreRekeyCommandKeepsDevicesReadable(t *testing.T) {
 	if err != nil || !ok || !session.Revoked || session.RevokedReason != store.WebSessionReasonStoreRekey {
 		t.Fatalf("session ok=%v err=%v session=%#v", ok, err, session)
 	}
-	out, _ = executeRoot(t, "devices", "--json", "--color", "never")
+	out, _ = executeRoot(t, "phone", "list", "--json", "--color", "never")
 	if !json.Valid(out.Bytes()) {
 		t.Fatalf("devices output is not JSON: %q", out.String())
 	}
@@ -59,7 +59,7 @@ func TestStoreRekeyDryRunReportsImpact(t *testing.T) {
 	}
 	_ = db.Close()
 
-	out, _ := executeRoot(t, "store", "rekey", "--dry-run", "--json", "--color", "never")
+	out, _ := executeRoot(t, "system", "data", "rekey", "--dry-run", "--json", "--color", "never")
 	var got struct {
 		DryRun                 bool   `json:"dry_run"`
 		ActiveWebSessions      int    `json:"active_web_sessions"`
@@ -97,7 +97,7 @@ func TestPushRotateCommandInvalidatesSubscriptions(t *testing.T) {
 	}
 	_ = db.Close()
 
-	out, _ := executeRoot(t, "push", "rotate", "--json", "--color", "never")
+	out, _ := executeRoot(t, "system", "push", "rotate", "--json", "--color", "never")
 	var got struct {
 		Rotated                  bool   `json:"rotated"`
 		PublicKey                string `json:"public_key"`

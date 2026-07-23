@@ -5,27 +5,20 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/gongahkia/onibi/internal/config"
 )
 
-func TestWorkspaceCommandsRequireExplicitProfile(t *testing.T) {
+func TestWorkspaceIsATopLevelCommand(t *testing.T) {
 	withDefaultState(t)
-	_, _, err := executeRootAllowError(t, "experimental", "workspace", "validate", "--color", "never")
-	if err == nil || !strings.Contains(err.Error(), "experimental.workspace=true") {
-		t.Fatalf("err = %v", err)
+	out, _ := executeRoot(t, "workspace", "--help", "--color", "never")
+	if !strings.Contains(out.String(), "portable project workspace") {
+		t.Fatalf("output = %q", out.String())
 	}
 }
 
 func TestWorkspaceInitAndValidateRemainPortable(t *testing.T) {
-	paths := withDefaultState(t)
-	cfg := config.Default()
-	cfg.Experimental.Workspace = true
-	if err := config.Save(paths.Config, cfg); err != nil {
-		t.Fatal(err)
-	}
+	withDefaultState(t)
 	root := t.TempDir()
-	out, _ := executeRoot(t, "experimental", "workspace", "init", root, "--name", "alpha", "--agent", "claude", "--color", "never")
+	out, _ := executeRoot(t, "workspace", "init", root, "--name", "alpha", "--agent", "claude", "--color", "never")
 	if !strings.Contains(out.String(), "Created portable workspace") {
 		t.Fatalf("out = %q", out.String())
 	}
@@ -39,7 +32,7 @@ func TestWorkspaceInitAndValidateRemainPortable(t *testing.T) {
 			t.Fatalf("private field %q in %s", private, body)
 		}
 	}
-	out, _ = executeRoot(t, "experimental", "workspace", "validate", path, "--color", "never")
+	out, _ = executeRoot(t, "workspace", "validate", path, "--color", "never")
 	if !strings.Contains(out.String(), "Valid portable workspace alpha") {
 		t.Fatalf("out = %q", out.String())
 	}
