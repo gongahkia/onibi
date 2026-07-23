@@ -48,7 +48,7 @@ onibi up --transport=zerotier
 <p>Onibi binds the web listener to the selected ZeroTier IP only, includes that exact IP in the local HTTPS certificate SAN, then prints a pair URL over that IP. It does not join or leave networks, authorize members, alter controller policy, or change routes.</p>
 <h2>Phone</h2>
 <p>Install the official ZeroTier app, join the same network, authorize the phone in the ZeroTier controller, and activate the network before scanning the Onibi QR.</p>
-<p>The Onibi local HTTPS profile is still required. Install and fully trust <code>onibi-local-ca.mobileconfig</code> once, then restart <code>onibi up</code> so the generated server certificate includes the active ZeroTier IP.</p>
+<p>The Onibi local HTTPS trust file is still required. Install and trust <code>onibi-local-ca.mobileconfig</code> on iPhone/iPad or <code>onibi-local-ca.crt</code> on Android, then restart <code>onibi up</code> so the generated server certificate includes the active ZeroTier IP.</p>
 <h2>Smoke</h2>
 <ol start="1">
 <li>Run <code>onibi doctor --transport=zerotier</code>.</li>

@@ -43,7 +43,7 @@ onibi up --transport=wireguard
 <p>Onibi binds the web listener to the selected WireGuard IP only, includes that exact IP in the local HTTPS certificate, and prints a pair URL over that IP. It does not modify WireGuard configurations, keys, peers, or routes.</p>
 <h2>Phone</h2>
 <p>Install the official WireGuard app, import the phone peer profile, and activate the tunnel before scanning the Onibi QR.</p>
-<p>The Onibi local HTTPS profile is still required. Install and fully trust <code>onibi-local-ca.mobileconfig</code> once, then restart <code>onibi up</code> so the generated server certificate includes the active WireGuard IP.</p>
+<p>The Onibi local HTTPS trust file is still required. Install and trust <code>onibi-local-ca.mobileconfig</code> on iPhone/iPad or <code>onibi-local-ca.crt</code> on Android, then restart <code>onibi up</code> so the generated server certificate includes the active WireGuard IP.</p>
 <h2>Smoke</h2>
 <ol start="1">
 <li>Run <code>onibi doctor --transport=wireguard</code>.</li>
