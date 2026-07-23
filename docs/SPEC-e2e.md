@@ -182,7 +182,7 @@ Plain `/healthz` may report whether E2E is required and the hex session verifier
 - Bad verifier: server rejects pairing or WS attach with 401.
 - AES-GCM auth failure: reject frame/request, audit sanitized reason, never surface decrypted partial data.
 - Replay or sequence gap: reject and require reconnect.
-- Volatile key missing after daemon restart: require fresh `onibi pair`.
+- Volatile key missing after daemon restart: require fresh `onibi phone pair`.
 
 ## Threat Model
 

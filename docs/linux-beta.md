@@ -1,6 +1,6 @@
 # Linux Beta Matrix
 
-Linux is beta. It is not a v1 release-approval host. `onibi doctor --release`
+Linux is beta. It is not a v1 release-approval host. `onibi system doctor --release`
 fails on Linux and names macOS 14+ with Keychain and launchd as the required
 release host.
 
@@ -10,11 +10,11 @@ release host.
 | Ubuntu 24.04 x86_64 | beta | Secret Service, `systemctl --user`, non-root user service | `scripts/linux-beta-smoke.sh` plus Ubuntu fresh-machine evidence |
 | Ubuntu 24.04 arm64 | beta | Secret Service, `systemctl --user`, non-root user service | `scripts/linux-beta-smoke.sh` |
 | other Linux distributions | unsupported beta variant | no coverage claim | port the Ubuntu evidence set before deployment |
-| non-macOS/non-Linux | unsupported | no v1 host contract | `onibi doctor` fails with the host name |
+| non-macOS/non-Linux | unsupported | no v1 host contract | `onibi system doctor` fails with the host name |
 
 ## Diagnostics
 
-`onibi doctor` emits a `platform` check before state checks:
+`onibi system doctor` emits a `platform` check before state checks:
 
 - macOS below 14: `FAIL`; upgrade macOS.
 - macOS version unavailable: `FAIL`; release status cannot be verified.

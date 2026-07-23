@@ -1,12 +1,12 @@
 # Claude Code hook templates
 
-Source-of-truth templates installed by `onibi install-hooks --agent claude`
+Source-of-truth templates installed by `onibi agent install --agent claude`
 into `~/.claude/settings.json` as managed command hooks.
 
 Inspect with:
 
 ```sh
-onibi hooks --show --agent claude
+onibi agent inspect --agent claude
 ```
 
 `hooks --show` prints the settings path, Onibi's recorded hash/version, latest backup path if present, expected commands, installed commands, drift, and `/hooks` review guidance.
@@ -31,5 +31,5 @@ Hook script body invokes `onibi-notify` which talks to the daemon over the
 local Unix socket. If the daemon is down the hook exits 0 silently — never
 blocks the user's session.
 
-Hashes recorded in the SQLite `hooks` table on install; `onibi doctor`
+Hashes recorded in the SQLite `hooks` table on install; `onibi system doctor`
 verifies hook integrity.

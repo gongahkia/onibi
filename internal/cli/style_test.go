@@ -15,7 +15,7 @@ func TestRenderTableWrapsToTerminalWidth(t *testing.T) {
 	var out bytes.Buffer
 	err := renderTable(&out, [][]string{
 		tableHeader(cliStyle{}, "#", "PROVIDER", "BEST FOR", "COMMAND"),
-		{"2", "Tailscale Serve", "private tailnet HTTPS", "onibi up --transport=tailscale-private"},
+		{"2", "Tailscale Serve", "private tailnet HTTPS", "onibi start --transport=tailscale-private"},
 		{"-", "Cloudflare Tunnel", "public web URL", "not in this build"},
 	})
 	if err != nil {

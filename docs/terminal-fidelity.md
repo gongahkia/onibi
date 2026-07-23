@@ -2,7 +2,7 @@
 
 Status: [Unverified] real iPhone Safari screenshots have not been captured in this repo state.
 
-Test surface: iPhone Safari paired to `onibi up`, using the live web terminal cockpit over HTTPS/WebSocket.
+Test surface: iPhone Safari paired to `onibi start`, using the live web terminal cockpit over HTTPS/WebSocket.
 
 Use `scripts/terminal-smoke.sh` from inside the paired phone terminal to cover host-side checks. The script verifies commands that can run without human keypresses and reports manual rows separately.
 
@@ -36,7 +36,7 @@ Save real phone captures under `docs/assets/terminal-fidelity/` and replace the 
 
 ## Runbook
 
-1. Start Onibi on the Mac: `onibi up --transport=lan`.
+1. Start Onibi on the Mac: `onibi start --transport=lan`.
 2. Pair from iPhone Safari and open the terminal cockpit.
 3. Run `scripts/terminal-smoke.sh` from the phone terminal.
 4. Run each manual phone action in the matrix.

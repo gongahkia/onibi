@@ -17,7 +17,7 @@ The core shape is simple:
 
 ```mermaid
 sequenceDiagram
-  participant CLI as onibi up
+  participant CLI as onibi start
   participant Phone as phone browser
   participant Relay as Cloudflare relay
   participant Web as local Onibi daemon

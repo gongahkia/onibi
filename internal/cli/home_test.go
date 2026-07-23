@@ -41,6 +41,20 @@ func TestQuietRootSuppressesLogo(t *testing.T) {
 	}
 }
 
+func TestV3CommandTreeHasNoLegacyRoots(t *testing.T) {
+	for _, name := range []string{"start", "phone", "session", "agent", "telegram", "workspace", "transport", "system", "demo", "completion", "version"} {
+		cmd, _, err := Root().Find([]string{name})
+		if err != nil || cmd == nil || cmd.Name() != name {
+			t.Fatalf("root command %q: cmd=%v err=%v", name, cmd, err)
+		}
+	}
+	for _, name := range []string{"up", "pair", "status", "doctor", "config", "install-hooks", "hooks", "adapters", "ngrok"} {
+		if _, _, err := Root().Find([]string{name}); err == nil {
+			t.Fatalf("legacy command %q is still registered", name)
+		}
+	}
+}
+
 func TestPairQuietHostPortOverride(t *testing.T) {
 	withDefaultState(t)
 	out, _ := executeRoot(t, "phone", "pair", "--quiet", "--host", "phone.local", "--port", "9443", "--no-qr", "--color", "never")

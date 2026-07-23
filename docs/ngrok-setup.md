@@ -15,7 +15,7 @@ ngrok documents the local Agent API and `ngrok http https://localhost:8443` upst
 Store the authtoken if needed:
 
 ```bash
-onibi ngrok setup --authtoken ...
+onibi transport ngrok setup --authtoken ...
 ```
 
 Optionally select a reserved HTTPS domain:
@@ -27,11 +27,11 @@ export ONIBI_NGROK_DOMAIN=example.ngrok.app
 Preflight and start:
 
 ```bash
-onibi doctor --transport=ngrok
-onibi up --transport=ngrok
+onibi system doctor --transport=ngrok
+onibi start --transport=ngrok
 ```
 
-Onibi starts only `ngrok http https://localhost:<port>`, accepts only the matching Agent API tunnel with an HTTPS public origin, and rechecks that tunnel while `onibi up` waits. It deletes that Agent API tunnel and stops its own ngrok process during cleanup; it does not manage account endpoints, domains, or credentials beyond the selected authtoken/domain.
+Onibi starts only `ngrok http https://localhost:<port>`, accepts only the matching Agent API tunnel with an HTTPS public origin, and rechecks that tunnel while `onibi start` waits. It deletes that Agent API tunnel and stops its own ngrok process during cleanup; it does not manage account endpoints, domains, or credentials beyond the selected authtoken/domain.
 
 ## Relay E2E
 
@@ -42,7 +42,7 @@ The relay can still observe public host, request paths, timing, sizes, and conne
 ## Phone smoke
 
 1. Run the live tunnel check: `ONIBI_LIVE_NGROK=1 go test ./internal/web/transport -run LiveNgrok`.
-2. Start `onibi up --transport=ngrok`, scan the new QR on iPhone Safari and Chrome over LTE, and open a terminal.
+2. Start `onibi start --transport=ngrok`, scan the new QR on iPhone Safari and Chrome over LTE, and open a terminal.
 3. Verify typed input, output, one approval allow, and one approval deny.
 4. Open the pair URL without `#k=` and verify it cannot attach.
-5. Stop the Agent API tunnel; Onibi must stop on its next health check. Restart `onibi up`, scan its new URL, and repeat a terminal command.
+5. Stop the Agent API tunnel; Onibi must stop on its next health check. Restart `onibi start`, scan its new URL, and repeat a terminal command.

@@ -5,8 +5,8 @@ This file is the adapter registry. There is no hosted registry service, package 
 Adapters listed here are maintained by their authors. Onibi only provides the manifest format and local CLI checks:
 
 ```sh
-onibi adapters validate ./adapter.toml
-onibi adapters add ./adapter.toml
+onibi agent adapter validate ./adapter.toml
+onibi agent adapter add ./adapter.toml
 ```
 
 ## Official Examples
@@ -19,12 +19,12 @@ onibi adapters add ./adapter.toml
 
 | Adapter | Hook surface | Verified deny blocks tool | Test | Notes |
 |---|---|---:|---|---|
-| Amp | `tool.call` plugin approval | Yes | `TestAdapterAmpDenyBlocksTool` | Deny returns `reject-and-continue`; edits return `modify` with object input. No `session.end` event exists; daemon-unavailable and timeout return `allow`. `onibi adapters --json` exposes non-certified contract v1 but omits `minimum_provider_version`: the official API has no documented compatibility floor. Authenticated live evidence remains required. |
+| Amp | `tool.call` plugin approval | Yes | `TestAdapterAmpDenyBlocksTool` | Deny returns `reject-and-continue`; edits return `modify` with object input. No `session.end` event exists; daemon-unavailable and timeout return `allow`. `onibi agent status --json` exposes non-certified contract v1 but omits `minimum_provider_version`: the official API has no documented compatibility floor. Authenticated live evidence remains required. |
 | Claude | `PreToolUse` command hook | Yes | `TestAdapterClaudeDenyBlocksTool` | Deny exits non-zero with `permissionDecision=deny`. |
 | Codex | `PreToolUse` command hook | Yes | `TestAdapterCodexDenyBlocksTool` | Deny exits non-zero with `permissionDecision=deny`. |
-| Copilot | `preToolUse` command hook | Yes | `TestAdapterCopilotDenyBlocksTool` | Deny emits provider JSON `permissionDecision=deny`; edit, expiry, daemon-unavailable, timeout, lifecycle, disabled-hook, and drift behavior have provider-shaped local fixtures. `onibi adapters --json` exposes its non-certified contract v1 and documented Copilot CLI `1.0.54` floor. A missing notifier command fails closed; authenticated live evidence remains required. |
-| Gemini | `BeforeTool` command hook | Yes | `TestAdapterGeminiDenyBlocksTool` | Deny emits provider JSON `decision=deny`; approve, expiry, edit, timeout, daemon-unavailable, lifecycle, disabled-hook, install drift, and millisecond timeout behavior have provider-shaped local fixtures. `onibi adapters --json` exposes its non-certified contract v1 and documented Gemini CLI `0.43.0` floor. Authenticated live evidence is still required. |
-| OpenCode | `tool.execute.before` plugin hook | Yes | `TestAdapterOpenCodeDenyBlocksTool` | Deny throws before fixture write; approve, expiry, edit, timeout, daemon-unavailable, lifecycle, global/project scope, install drift, and reload instruction have provider-shaped local fixtures. `onibi adapters --json` exposes its non-certified contract v1 and documented OpenCode `1.18.3` floor. Authenticated live evidence is still required. |
+| Copilot | `preToolUse` command hook | Yes | `TestAdapterCopilotDenyBlocksTool` | Deny emits provider JSON `permissionDecision=deny`; edit, expiry, daemon-unavailable, timeout, lifecycle, disabled-hook, and drift behavior have provider-shaped local fixtures. `onibi agent status --json` exposes its non-certified contract v1 and documented Copilot CLI `1.0.54` floor. A missing notifier command fails closed; authenticated live evidence remains required. |
+| Gemini | `BeforeTool` command hook | Yes | `TestAdapterGeminiDenyBlocksTool` | Deny emits provider JSON `decision=deny`; approve, expiry, edit, timeout, daemon-unavailable, lifecycle, disabled-hook, install drift, and millisecond timeout behavior have provider-shaped local fixtures. `onibi agent status --json` exposes its non-certified contract v1 and documented Gemini CLI `0.43.0` floor. Authenticated live evidence is still required. |
+| OpenCode | `tool.execute.before` plugin hook | Yes | `TestAdapterOpenCodeDenyBlocksTool` | Deny throws before fixture write; approve, expiry, edit, timeout, daemon-unavailable, lifecycle, global/project scope, install drift, and reload instruction have provider-shaped local fixtures. `onibi agent status --json` exposes its non-certified contract v1 and documented OpenCode `1.18.3` floor. Authenticated live evidence is still required. |
 | Pi | `tool_call` extension hook | Yes | `TestAdapterPiDenyBlocksTool` | Deny returns `{ block: true }`; fixture writes only if the hook allows. |
 | Goose | `PreToolUse` native blocking hook | Yes - deny only | `TestAdapterGooseDenyBlocksTool` | Goose v1.35.0 added `PreToolUse` denial: exit 2 or `{"decision":"block"}` blocks the tool. Install/uninstall preserves unrelated hook groups and reports managed-hook drift. `TestLiveGooseDeny` is secret-gated by `ONIBI_LIVE_GOOSE`, `ONIBI_LIVE_GOOSE_ALLOW_RUN`, provider, and model values. Onibi reports this as its provider floor. Edited input is denied because Goose has no documented input-replacement response; no authenticated live evidence exists, so Goose remains non-certified. |
 
@@ -50,12 +50,12 @@ Required evidence:
 
 - Public repository link.
 - Direct link to the adapter TOML.
-- `onibi adapters validate <path>` output in the PR.
+- `onibi agent adapter validate <path>` output in the PR.
 - Minimum supported Onibi version.
 - Short explanation of what hook surface the provider exposes.
 
 The manifest URL must be HTTPS. Users installing from a URL must pin the manifest hash:
 
 ```sh
-onibi adapters add https://example.com/adapter.toml --sha256=<64-hex>
+onibi agent adapter add https://example.com/adapter.toml --sha256=<64-hex>
 ```

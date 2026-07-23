@@ -13,8 +13,8 @@ Cloudflare assigns a random `https://*.trycloudflare.com` URL for the running pr
 ## Start
 
 ```bash
-onibi doctor --transport=cloudflare-quick
-onibi up --transport=cloudflare-quick
+onibi system doctor --transport=cloudflare-quick
+onibi start --transport=cloudflare-quick
 ```
 
 Onibi starts a child `cloudflared tunnel --url https://localhost:<port> --no-tls-verify` process, accepts only an HTTPS `trycloudflare.com` origin printed by that process, and stops when the child exits. It does not create, configure, or manage a Cloudflare account, domain, route, or token.
@@ -32,6 +32,6 @@ Cloudflare can still observe the public hostname, request paths, timing, byte si
 ## Phone smoke
 
 1. Run `ONIBI_LIVE_CLOUDFLARE_QUICK=1 go test ./internal/web/transport -run LiveCloudflareQuick`.
-2. Start `onibi up --transport=cloudflare-quick`, scan the new QR on iPhone Safari and Chrome over LTE, and verify terminal input, output, approval allow, and approval deny.
+2. Start `onibi start --transport=cloudflare-quick`, scan the new QR on iPhone Safari and Chrome over LTE, and verify terminal input, output, approval allow, and approval deny.
 3. Open the pair URL after removing `#k=`; it must not attach.
 4. Stop `cloudflared`; Onibi must stop on its next health check. Restart it, scan its new QR, and repeat a terminal command.

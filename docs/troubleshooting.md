@@ -8,7 +8,7 @@ browser did not trust Onibi's local HTTPS certificate for that run.
 Do this:
 
 ```bash
-./bin/onibi up
+./bin/onibi start
 ```
 
 Then on the phone:
@@ -17,7 +17,7 @@ Then on the phone:
    full trust for the Onibi local CA.
 2. Android: install the printed `onibi-local-ca.crt` as a CA certificate in
    system Security settings.
-3. Stop and restart `./bin/onibi up`.
+3. Stop and restart `./bin/onibi start`.
 4. Scan the new QR.
 
 Old pair URLs expire and should not be reused.
@@ -37,7 +37,7 @@ Install and fully trust the matching printed CA file, restart Onibi, then scan a
 Check:
 
 ```bash
-./bin/onibi up
+./bin/onibi start
 ```
 
 Use the printed IP URL first. If `.local` fails, keep using the IP URL.
@@ -49,7 +49,7 @@ Common causes:
 - VPN or firewall blocks inbound local HTTPS.
 - The QR was generated before switching networks.
 
-Current fallback: connect the Mac to a phone hotspot, rerun `./bin/onibi up`, scan the new QR.
+Current fallback: connect the Mac to a phone hotspot, rerun `./bin/onibi start`, scan the new QR.
 
 ## WebSocket Token Mismatch
 
@@ -58,8 +58,8 @@ Logs like `reason=token_mismatch` usually mean a stale tab, stale token, or relo
 Try:
 
 1. Refresh the phone page once.
-2. If it repeats, stop `onibi up`.
-3. Run `./bin/onibi up` again.
+2. If it repeats, stop `onibi start`.
+3. Run `./bin/onibi start` again.
 4. Scan the new QR.
 
 ## Claude Shows Native Approval Instead Of Onibi Card
@@ -67,13 +67,13 @@ Try:
 Check hooks:
 
 ```bash
-./bin/onibi install-hooks --agent claude
-./bin/onibi hooks --show --agent claude
+./bin/onibi agent install --agent claude
+./bin/onibi agent inspect --agent claude
 ```
 
 Then in Claude Code, open `/hooks` and keep the Onibi hook commands enabled if they match.
 
-Start Claude from the managed session created by `./bin/onibi up`, whether you are viewing it on the phone or after tapping `MAC`. That shell exports:
+Start Claude from the managed session created by `./bin/onibi start`, whether you are viewing it on the phone or after tapping `MAC`. That shell exports:
 
 ```bash
 echo "$ONIBI_SOCK"
@@ -128,23 +128,23 @@ If the terminal looks stale after returning from the app switcher:
 1. Wait for the `Resuming session...` marker to clear.
 2. Rotate once, then rotate back.
 3. If input is still frozen, reload the paired URL.
-4. If reload fails, rerun `./bin/onibi up` and scan a fresh QR.
+4. If reload fails, rerun `./bin/onibi start` and scan a fresh QR.
 
 ## Hook Drift
 
 If hooks are missing or stale:
 
 ```bash
-./bin/onibi adapters
-./bin/onibi hooks --show --all
-./bin/onibi install-hooks --agent claude
+./bin/onibi agent status
+./bin/onibi agent inspect --all
+./bin/onibi agent install --agent claude
 ```
 
 Agent-specific trust or reload prompts printed by `install-hooks` are required for that adapter.
 
 ## Clean Reset
 
-Stop `onibi up`, then remove local state:
+Stop `onibi start`, then remove local state:
 
 ```bash
 # macOS
@@ -154,4 +154,4 @@ rm -rf ~/Library/Application\ Support/onibi/
 rm -rf ~/.local/share/onibi/
 ```
 
-Run `./bin/onibi up` and pair again.
+Run `./bin/onibi start` and pair again.

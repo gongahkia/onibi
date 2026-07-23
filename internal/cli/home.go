@@ -44,7 +44,7 @@ func runRootLanding(cmd *cobra.Command, _ []string) error {
 	}
 	routes := map[string][]string{
 		"1": {"start"}, "2": {"phone", "pair"}, "3": {"agent", "install"},
-		"4": {"system", "doctor"}, "5": {"telegram", "status"}, "6": {"workspace", "init"},
+		"4": {"system", "doctor"}, "5": {"telegram", "status"}, "6": {"workspace", "--help"},
 	}
 	args, ok := routes[choice]
 	if !ok {

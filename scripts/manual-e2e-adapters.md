@@ -19,10 +19,10 @@ Run for each installed provider:
 
 ```sh
 make install
-onibi adapters
-onibi install-hooks --agent <provider>
-onibi doctor --mode installed
-onibi up
+onibi agent status
+onibi agent install --agent <provider>
+onibi system doctor --mode installed
+onibi start
 ```
 
 From the provider session:
@@ -35,8 +35,8 @@ From the provider session:
 
 Expected:
 
-- `onibi adapters` shows detected + installed status.
-- hook hash passes in `onibi doctor`.
+- `onibi agent status` shows detected + installed status.
+- hook hash passes in `onibi system doctor`.
 - the phone terminal remains live.
 - phone input reaches the provider PTY.
 - blocking approval works where the provider supports it.

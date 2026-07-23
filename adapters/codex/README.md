@@ -3,7 +3,7 @@
 Installed by:
 
 ```sh
-onibi install-hooks --agent codex
+onibi agent install --agent codex
 ```
 
 Writes `~/.codex/hooks.json` or `$ONIBI_CODEX_HOOKS`.
@@ -11,7 +11,7 @@ Writes `~/.codex/hooks.json` or `$ONIBI_CODEX_HOOKS`.
 Inspect with:
 
 ```sh
-onibi hooks --show --agent codex
+onibi agent inspect --agent codex
 ```
 
 `hooks --show` prints the provider config path, Onibi's recorded hash/version, the latest backup path if one exists, expected commands, installed commands, drift, and Codex trust instructions.

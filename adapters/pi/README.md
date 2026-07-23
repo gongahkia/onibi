@@ -3,7 +3,7 @@
 Install:
 
 ```sh
-onibi install-hooks --agent pi
+onibi agent install --agent pi
 ```
 
 Onibi writes a TypeScript extension to `~/.pi/agent/extensions/onibi.ts` by default.
@@ -19,7 +19,7 @@ After install, run `/reload` in Pi so auto-discovered extensions are reloaded.
 Inspect:
 
 ```sh
-onibi hooks --show --agent pi
+onibi agent inspect --agent pi
 ```
 
 Events:

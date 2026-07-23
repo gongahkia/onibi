@@ -78,7 +78,7 @@ Only then install:
 ```bash
 brew install --cask "$tap/Casks/onibi.rb"
 onibi version
-onibi doctor --mode preflight --offline
+onibi system doctor --mode preflight --offline
 ```
 
 ## Compromise Model

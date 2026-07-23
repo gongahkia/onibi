@@ -108,12 +108,12 @@ for screenshot in "${screenshots[@]}"; do
 done
 
 for os in macos ubuntu; do
-  require_regex "onibi status --json --no-doctor --no-hooks >\"\\\$ONIBI_SMOKE_DIR/${os}-status-initial\\.json\"" "$doc"
-  require_text "onibi install-hooks --dry-run 2>&1 | tee \"\$ONIBI_SMOKE_DIR/${os}-hooks-dry-run.txt\"" "$doc"
-  require_text "onibi doctor --mode preflight --offline --color=never 2>&1 | tee \"\$ONIBI_SMOKE_DIR/${os}-doctor-preflight.txt\"" "$doc"
-  require_text "onibi up --transport=lan --log-file \"\$ONIBI_SMOKE_DIR/${os}-up.log\" 2>&1 | tee \"\$ONIBI_SMOKE_DIR/${os}-up.txt\"" "$doc"
-  require_text "onibi uninstall --dry-run --service --hooks --all-hooks --state 2>&1 | tee \"\$ONIBI_SMOKE_DIR/${os}-uninstall-dry-run.txt\"" "$doc"
-  require_text "onibi uninstall --yes --service --hooks --all-hooks --state 2>&1 | tee \"\$ONIBI_SMOKE_DIR/${os}-uninstall.txt\"" "$doc"
+  require_regex "onibi system status --json --no-doctor --no-hooks >\"\\\$ONIBI_SMOKE_DIR/${os}-status-initial\\.json\"" "$doc"
+  require_text "onibi agent install --dry-run 2>&1 | tee \"\$ONIBI_SMOKE_DIR/${os}-hooks-dry-run.txt\"" "$doc"
+  require_text "onibi system doctor --mode preflight --offline --color=never 2>&1 | tee \"\$ONIBI_SMOKE_DIR/${os}-doctor-preflight.txt\"" "$doc"
+  require_text "onibi start --transport=lan --log-file \"\$ONIBI_SMOKE_DIR/${os}-up.log\" 2>&1 | tee \"\$ONIBI_SMOKE_DIR/${os}-up.txt\"" "$doc"
+  require_text "onibi system uninstall --dry-run --service --hooks --all-hooks --state 2>&1 | tee \"\$ONIBI_SMOKE_DIR/${os}-uninstall-dry-run.txt\"" "$doc"
+  require_text "onibi system uninstall --yes --service --hooks --all-hooks --state 2>&1 | tee \"\$ONIBI_SMOKE_DIR/${os}-uninstall.txt\"" "$doc"
 done
 
 require_text "brew install gongahkia/onibi/onibi 2>&1 | tee \"\$ONIBI_SMOKE_DIR/macos-install.txt\"" "$doc"

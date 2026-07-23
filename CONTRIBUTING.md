@@ -4,8 +4,8 @@
 
 ```sh
 make build
-./bin/onibi install-hooks --agent claude
-./bin/onibi up
+./bin/onibi agent install --agent claude
+./bin/onibi start
 ```
 
 Use the source-built `./bin/onibi` path for local development and docs changes.
@@ -33,7 +33,7 @@ For security-sensitive changes, also run:
 
 ```sh
 go test -race ./...
-onibi doctor --offline
+onibi system doctor --offline
 ```
 
 ## Reporting Security Issues
@@ -50,7 +50,7 @@ Start with [docs/transports.md](docs/transports.md) and [docs/transport-smoke.md
 Minimum PR checklist:
 
 - Add the transport implementation and config/env validation.
-- Add or update `onibi doctor --transport <name>` checks.
+- Add or update `onibi system doctor --transport <name>` checks.
 - Add hermetic tests plus a live smoke path guarded by `ONIBI_LIVE_*` env vars.
 - Document setup, cleanup, QR URL shape, and failure modes in `docs/transports.md`.
 
@@ -63,7 +63,7 @@ Minimum PR checklist:
 - Define the manifest schema or in-tree adapter entry, including hook install, verify, adopt, and uninstall behavior.
 - Document the provider hook signature, event names, blocking/notify-only behavior, and trust step.
 - Add install, uninstall, status, verify, adopt, and hook-deny tests when the provider can block tools.
-- Add `onibi adapters validate <path>` output and registry evidence for community manifests.
+- Add `onibi agent adapter validate <path>` output and registry evidence for community manifests.
 
 Rules:
 

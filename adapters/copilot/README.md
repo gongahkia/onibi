@@ -3,7 +3,7 @@
 Install:
 
 ```sh
-onibi install-hooks --agent copilot
+onibi agent install --agent copilot
 ```
 
 Onibi writes `~/.copilot/hooks/onibi.json` by default. If `COPILOT_HOME` is set, Onibi writes `$COPILOT_HOME/hooks/onibi.json`. `ONIBI_COPILOT_HOOK=/abs/path/onibi.json` overrides both.
@@ -13,7 +13,7 @@ After install, restart Copilot CLI. Hook configuration changes are loaded when t
 Inspect:
 
 ```sh
-onibi hooks --show --agent copilot
+onibi agent inspect --agent copilot
 ```
 
 Events:
@@ -31,13 +31,13 @@ Approval behavior:
 Notes:
 
 - Onibi does not write legacy `onibiManaged` or `onibiIntegrationVersion` fields into Copilot JSON.
-- If `disableAllHooks` is true in `onibi.json`, Copilot skips the file's hooks; `onibi hooks --show --agent copilot` and `onibi doctor` report it.
+- If `disableAllHooks` is true in `onibi.json`, Copilot skips the file's hooks; `onibi agent inspect --agent copilot` and `onibi system doctor` report it.
 
 ## Evidence and limits
 
 [GitHub Copilot CLI's hooks reference](https://docs.github.com/en/copilot/reference/hooks-reference) documents `preToolUse` allow/deny/ask decisions, `modifiedArgs`, `sessionEnd`, and second-based `timeoutSec`. Onibi uses `30` seconds for lifecycle hooks and `360` seconds for approval, leaving one minute above its five-minute approval wait.
 
-`onibi hooks --show --agent copilot` reports generated and observed hooks, backup, hash drift, and `disableAllHooks=true`; `onibi adapters --json` marks Copilot `certified: false` with no v1 contract. Hermetic fixtures cover approve, deny, expiry, edit, daemon-unavailable no-decision behavior, timeout no-decision behavior, restart instructions, and session end.
+`onibi agent inspect --agent copilot` reports generated and observed hooks, backup, hash drift, and `disableAllHooks=true`; `onibi agent status --json` marks Copilot `certified: false` with no v1 contract. Hermetic fixtures cover approve, deny, expiry, edit, daemon-unavailable no-decision behavior, timeout no-decision behavior, restart instructions, and session end.
 
 Copilot fails `preToolUse` closed when a command hook exits nonzero, but its hook timeout fails open to normal permission handling. Onibi returns exit 0 with no provider decision when its daemon/socket is unavailable. A missing or corrupt `onibi-notify` command is a Copilot hook failure and therefore fails closed; repair the hook installation.
 

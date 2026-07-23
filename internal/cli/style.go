@@ -220,8 +220,28 @@ func renderTable(w io.Writer, rows [][]string) error {
 			}
 		}
 	}
-	if terminalWidth := tableWidthForWriter(w); terminalWidth > 0 {
-		widths = fitTableWidths(widths, terminalWidth)
+	terminalWidth := tableWidthForWriter(w)
+	if terminalWidth > 0 {
+		if terminalWidth < 80 && tableHeaderRow(rows[0]) {
+			return renderStackedTable(w, rows)
+		}
+		contentWidth := terminalWidth - (3*len(widths) + 1)
+		if contentWidth > 0 {
+			widths = fitTableWidths(widths, contentWidth+2*(len(widths)-1))
+			for sumInts(widths) > contentWidth {
+				widest := -1
+				for i, width := range widths {
+					if width > 1 && (widest < 0 || width > widths[widest]) {
+						widest = i
+					}
+				}
+				if widest < 0 {
+					break
+				}
+				widths[widest]--
+			}
+		}
+		return renderBoxTable(w, rows, widths)
 	}
 	for _, row := range rows {
 		wrapped := make([][]string, len(widths))
@@ -262,6 +282,114 @@ func renderTable(w io.Writer, rows [][]string) error {
 		}
 	}
 	return nil
+}
+
+func renderStackedTable(w io.Writer, rows [][]string) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	headers := rows[0]
+	for rowIndex, row := range rows[1:] {
+		if rowIndex > 0 {
+			if _, err := fmt.Fprintln(w, "─"); err != nil {
+				return err
+			}
+		}
+		for i, header := range headers {
+			value := ""
+			if i < len(row) {
+				value = row[i]
+			}
+			for _, line := range wrapTableCell(value, max(20, tableWidthForWriter(w)-visibleLen(stripANSI(header))-3)) {
+				if _, err := fmt.Fprintf(w, "%s: %s\n", header, line); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func renderBoxTable(w io.Writer, rows [][]string, widths []int) error {
+	if len(widths) == 0 {
+		return nil
+	}
+	border := func(left, join, right string) string {
+		parts := make([]string, len(widths))
+		for i, width := range widths {
+			parts[i] = strings.Repeat("─", width+2)
+		}
+		return left + strings.Join(parts, join) + right
+	}
+	if _, err := fmt.Fprintln(w, border("╭", "┬", "╮")); err != nil {
+		return err
+	}
+	for rowIndex, row := range rows {
+		wrapped := make([][]string, len(widths))
+		lines := 1
+		for i := range widths {
+			cell := ""
+			if i < len(row) {
+				cell = row[i]
+			}
+			wrapped[i] = wrapTableCell(cell, widths[i])
+			if len(wrapped[i]) > lines {
+				lines = len(wrapped[i])
+			}
+		}
+		for line := 0; line < lines; line++ {
+			if _, err := io.WriteString(w, "│"); err != nil {
+				return err
+			}
+			for i, cellLines := range wrapped {
+				cell := ""
+				if line < len(cellLines) {
+					cell = cellLines[line]
+				}
+				if _, err := io.WriteString(w, " "+cell+strings.Repeat(" ", widths[i]-visibleLen(cell))+" │"); err != nil {
+					return err
+				}
+			}
+			if _, err := io.WriteString(w, "\n"); err != nil {
+				return err
+			}
+		}
+		if rowIndex == 0 && tableHeaderRow(row) {
+			if _, err := fmt.Fprintln(w, border("├", "┼", "┤")); err != nil {
+				return err
+			}
+		}
+	}
+	_, err := fmt.Fprintln(w, border("╰", "┴", "╯"))
+	return err
+}
+
+func tableHeaderRow(row []string) bool {
+	if len(row) == 0 {
+		return false
+	}
+	for _, cell := range row {
+		plain := strings.TrimSpace(stripANSI(cell))
+		if plain == "" || plain != strings.ToUpper(plain) {
+			return false
+		}
+	}
+	return true
+}
+
+func stripANSI(s string) string {
+	var out strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == 0x1b && i+1 < len(s) && s[i+1] == '[' {
+			i += 2
+			for i < len(s) && (s[i] < 0x40 || s[i] > 0x7e) {
+				i++
+			}
+			continue
+		}
+		out.WriteByte(s[i])
+	}
+	return out.String()
 }
 
 func fitTableWidths(widths []int, maxWidth int) []int {

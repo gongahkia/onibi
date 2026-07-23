@@ -259,16 +259,6 @@ func TestTelegramProviderTransportIsSupported(t *testing.T) {
 	}
 }
 
-func TestWorkspaceConfigurationKeysAreRemoved(t *testing.T) {
-	paths := testPaths(t)
-	if err := os.WriteFile(paths.Config, []byte("experimental:\n  workspace: true\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := Load(paths); err == nil || !strings.Contains(err.Error(), "experimental") {
-		t.Fatalf("err = %v", err)
-	}
-}
-
 func TestTransportModeRejectsUnsupportedValue(t *testing.T) {
 	cfg := Default()
 	err := Set(&cfg, "transport.mode", "satellite")

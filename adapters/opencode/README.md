@@ -3,7 +3,7 @@
 Installed by:
 
 ```sh
-onibi install-hooks --agent opencode
+onibi agent install --agent opencode
 ```
 
 Writes `~/.config/opencode/plugins/onibi.js` or `$ONIBI_OPENCODE_PLUGIN`.
@@ -35,7 +35,7 @@ Edited approval input is parsed as JSON and must be an object before assigning t
 
 [OpenCode's plugin documentation](https://opencode.ai/docs/plugins/) specifies global and project local-plugin paths, startup loading, and mutable `tool.execute.before` output. It does not specify a compatible-version floor for this adapter or certify subagent interception.
 
-`onibi hooks --show --agent opencode` reports the four generated plugin hooks, recorded hash, backup, and source drift. Hermetic fixtures cover approve, deny, expiry, edit, timeout, daemon-unavailable, session exit, and turn completion.
+`onibi agent inspect --agent opencode` reports the four generated plugin hooks, recorded hash, backup, and source drift. Hermetic fixtures cover approve, deny, expiry, edit, timeout, daemon-unavailable, session exit, and turn completion.
 
 The authenticated live probe is opt-in and runs a model with OpenCode `--auto` inside a temporary directory. Run it only with an isolated provider account and a reviewed model:
 

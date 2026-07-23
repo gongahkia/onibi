@@ -9,7 +9,7 @@ usage() {
   cat >&2 <<'EOF'
 usage: scripts/bench-coldstart.sh [--binary PATH] [--iterations N]
 
-Measures process start -> HTTPS /healthz ready for `onibi up --transport=lan`.
+Measures process start -> HTTPS /healthz ready for `onibi start --transport=lan`.
 
 Environment:
   ONIBI_BENCH_BINARY           onibi binary path

@@ -4,7 +4,7 @@ Default CI is hermetic. Run this checklist on the actual Mac and paired phone be
 
 ## LAN and hotspot
 
-1. Run `onibi up --transport=lan`.
+1. Run `onibi start --transport=lan`.
 2. Install and trust the matching printed local CA file on the phone.
 3. Scan the single-use pair QR and confirm the terminal loads.
 4. Send text, `Esc`, arrows, `Ctrl-C`, and paste; confirm the managed terminal receives each input.
@@ -24,14 +24,14 @@ Network reachability is not authorization. Onibi does not provide remote-host ma
 
 ## ngrok
 
-1. Run `onibi doctor --transport=ngrok`; confirm binary/auth readiness, loopback Agent API configuration, and required relay E2E. Tunnel health is checked during `onibi up`.
-2. Start `onibi up --transport=ngrok`, scan the new QR on iPhone Safari and Chrome over LTE, and verify terminal input, output, approval allow, and approval deny.
+1. Run `onibi system doctor --transport=ngrok`; confirm binary/auth readiness, loopback Agent API configuration, and required relay E2E. Tunnel health is checked during `onibi start`.
+2. Start `onibi start --transport=ngrok`, scan the new QR on iPhone Safari and Chrome over LTE, and verify terminal input, output, approval allow, and approval deny.
 3. Open the pair URL after removing `#k=`; it must not attach.
 4. Stop the Agent API tunnel; Onibi must stop on its next health check. Restart it, scan its new QR, and repeat a terminal command.
 
 ## Cloudflare Quick
 
-1. Run `onibi doctor --transport=cloudflare-quick`; confirm `cloudflared` is available and no account configuration is required.
-2. Start `onibi up --transport=cloudflare-quick`, scan the new QR on iPhone Safari and Chrome over LTE, and verify terminal input, output, approval allow, and approval deny.
+1. Run `onibi system doctor --transport=cloudflare-quick`; confirm `cloudflared` is available and no account configuration is required.
+2. Start `onibi start --transport=cloudflare-quick`, scan the new QR on iPhone Safari and Chrome over LTE, and verify terminal input, output, approval allow, and approval deny.
 3. Open the pair URL after removing `#k=`; it must not attach.
 4. Stop `cloudflared`; Onibi must stop on its next health check. Restart it, scan its new QR, and repeat a terminal command.

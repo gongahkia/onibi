@@ -50,7 +50,7 @@ Onibi stores the current VAPID keypair in the OS secret backend as `onibi.push.v
 Run:
 
 ```sh
-onibi push rotate
+onibi system push rotate
 ```
 
 Rotation generates a fresh VAPID keypair, updates `push_vapid_pub`, and deletes all existing `push_subscriptions` rows. Existing browser subscriptions were created for the old public key, so reopen the installed Home Screen app and tap `PUSH` to subscribe again. The app also compares the browser subscription key against `/push/vapid-public-key` on refresh and replaces stale subscriptions after rotation.
@@ -58,7 +58,7 @@ Rotation generates a fresh VAPID keypair, updates `push_vapid_pub`, and deletes 
 Check state with:
 
 ```sh
-onibi doctor --push
+onibi system doctor --push
 ```
 
 The push doctor verifies the keyring VAPID item, the SQLite public key, legacy DB-stored private key migration state, and subscription count.

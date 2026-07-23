@@ -3,7 +3,7 @@
 Installed by:
 
 ```sh
-onibi install-hooks --agent goose
+onibi agent install --agent goose
 ```
 
 Writes `~/.agents/plugins/onibi/hooks/hooks.json` or `$ONIBI_GOOSE_HOOKS`.
@@ -11,7 +11,7 @@ Writes `~/.agents/plugins/onibi/hooks/hooks.json` or `$ONIBI_GOOSE_HOOKS`.
 Inspect with:
 
 ```sh
-onibi hooks --show --agent goose
+onibi agent inspect --agent goose
 ```
 
 Events used:

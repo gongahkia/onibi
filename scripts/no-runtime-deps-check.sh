@@ -100,9 +100,9 @@ case "$status" in
   *)
     cat "$stdout" >&2 || true
     cat "$stderr" >&2 || true
-    die "onibi up exited with status $status"
+    die "onibi start exited with status $status"
     ;;
 esac
 
 check_trace "$trace"
-echo "no-runtime-deps-check: passed ${duration}s onibi up audit"
+echo "no-runtime-deps-check: passed ${duration}s onibi start audit"

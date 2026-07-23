@@ -18,12 +18,12 @@ Reference docs checked:
 | file | source |
 |---|---|
 | `docs/assets/fresh-machine/macos-install.png` | terminal after install |
-| `docs/assets/fresh-machine/macos-doctor-preflight.png` | `onibi doctor --mode preflight --offline` |
-| `docs/assets/fresh-machine/macos-up.png` | `onibi up` printing pair URL/QR |
+| `docs/assets/fresh-machine/macos-doctor-preflight.png` | `onibi system doctor --mode preflight --offline` |
+| `docs/assets/fresh-machine/macos-up.png` | `onibi start` printing pair URL/QR |
 | `docs/assets/fresh-machine/macos-uninstall.png` | uninstall plan + final command |
 | `docs/assets/fresh-machine/ubuntu-install.png` | terminal after install |
-| `docs/assets/fresh-machine/ubuntu-doctor-preflight.png` | `onibi doctor --mode preflight --offline` |
-| `docs/assets/fresh-machine/ubuntu-up.png` | `onibi up` printing pair URL/QR |
+| `docs/assets/fresh-machine/ubuntu-doctor-preflight.png` | `onibi system doctor --mode preflight --offline` |
+| `docs/assets/fresh-machine/ubuntu-up.png` | `onibi start` printing pair URL/QR |
 | `docs/assets/fresh-machine/ubuntu-uninstall.png` | uninstall plan + final command |
 
 Do not replace this table with prose. The release note needs one file per state.
@@ -86,7 +86,7 @@ password only in that dialog and choose `Allow`; do not enter it in the
 terminal. Do not choose `Always Allow` for an untrusted or ad-hoc binary.
 
 ```bash
-onibi status --json --no-doctor --no-hooks >"$ONIBI_SMOKE_DIR/macos-status-initial.json"
+onibi system status --json --no-doctor --no-hooks >"$ONIBI_SMOKE_DIR/macos-status-initial.json"
 ```
 
 Expected: command exits `0` and creates the local state directory.
@@ -96,14 +96,14 @@ Expected: command exits `0` and creates the local state directory.
 Preview first:
 
 ```bash
-onibi install-hooks --dry-run 2>&1 | tee "$ONIBI_SMOKE_DIR/macos-hooks-dry-run.txt"
+onibi agent install --dry-run 2>&1 | tee "$ONIBI_SMOKE_DIR/macos-hooks-dry-run.txt"
 ```
 
 If supported agents are present on the machine:
 
 ```bash
-onibi install-hooks --all 2>&1 | tee "$ONIBI_SMOKE_DIR/macos-hooks-install.txt"
-onibi hooks --show --all 2>&1 | tee "$ONIBI_SMOKE_DIR/macos-hooks-show.txt"
+onibi agent install --all 2>&1 | tee "$ONIBI_SMOKE_DIR/macos-hooks-install.txt"
+onibi agent inspect --all 2>&1 | tee "$ONIBI_SMOKE_DIR/macos-hooks-show.txt"
 ```
 
 Expected:
@@ -114,17 +114,17 @@ Expected:
 ### Doctor Before Pairing
 
 ```bash
-onibi doctor --mode preflight --offline --color=never 2>&1 | tee "$ONIBI_SMOKE_DIR/macos-doctor-preflight.txt"
+onibi system doctor --mode preflight --offline --color=never 2>&1 | tee "$ONIBI_SMOKE_DIR/macos-doctor-preflight.txt"
 ```
 
-Expected shape before `onibi up` has generated certs or started a service:
+Expected shape before `onibi start` has generated certs or started a service:
 
 ```text
 [PASS] state dir: ...
 [PASS] store key: present
 [PASS] sqlite db: ...
 [PASS] transport: lan
-[WARN] local certs: not generated; run onibi up
+[WARN] local certs: not generated; run onibi start
 [WARN] unix socket: not running
 [WARN] service: not installed
 [PASS] hooks: ...
@@ -137,7 +137,7 @@ Expected shape before `onibi up` has generated certs or started a service:
 Use LAN first. Use an iPhone hotspot when managed Wi-Fi blocks peer traffic.
 
 ```bash
-onibi up --transport=lan --log-file "$ONIBI_SMOKE_DIR/macos-up.log" 2>&1 | tee "$ONIBI_SMOKE_DIR/macos-up.txt"
+onibi start --transport=lan --log-file "$ONIBI_SMOKE_DIR/macos-up.log" 2>&1 | tee "$ONIBI_SMOKE_DIR/macos-up.txt"
 ```
 
 Expected:
@@ -155,8 +155,8 @@ On macOS, tap `MAC` and confirm Ghostty opens the managed tmux session. If Ghost
 ### Uninstall
 
 ```bash
-onibi uninstall --dry-run --service --hooks --all-hooks --state 2>&1 | tee "$ONIBI_SMOKE_DIR/macos-uninstall-dry-run.txt"
-onibi uninstall --yes --service --hooks --all-hooks --state 2>&1 | tee "$ONIBI_SMOKE_DIR/macos-uninstall.txt"
+onibi system uninstall --dry-run --service --hooks --all-hooks --state 2>&1 | tee "$ONIBI_SMOKE_DIR/macos-uninstall-dry-run.txt"
+onibi system uninstall --yes --service --hooks --all-hooks --state 2>&1 | tee "$ONIBI_SMOKE_DIR/macos-uninstall.txt"
 brew uninstall onibi 2>&1 | tee "$ONIBI_SMOKE_DIR/macos-brew-uninstall.txt"
 ```
 
@@ -213,7 +213,7 @@ Expected:
 ### Initialize State
 
 ```bash
-onibi status --json --no-doctor --no-hooks >"$ONIBI_SMOKE_DIR/ubuntu-status-initial.json"
+onibi system status --json --no-doctor --no-hooks >"$ONIBI_SMOKE_DIR/ubuntu-status-initial.json"
 ```
 
 Expected: command exits `0` and creates `~/.local/share/onibi`.
@@ -221,14 +221,14 @@ Expected: command exits `0` and creates `~/.local/share/onibi`.
 ### Hooks Install
 
 ```bash
-onibi install-hooks --dry-run 2>&1 | tee "$ONIBI_SMOKE_DIR/ubuntu-hooks-dry-run.txt"
+onibi agent install --dry-run 2>&1 | tee "$ONIBI_SMOKE_DIR/ubuntu-hooks-dry-run.txt"
 ```
 
 If supported agents are present:
 
 ```bash
-onibi install-hooks --all 2>&1 | tee "$ONIBI_SMOKE_DIR/ubuntu-hooks-install.txt"
-onibi hooks --show --all 2>&1 | tee "$ONIBI_SMOKE_DIR/ubuntu-hooks-show.txt"
+onibi agent install --all 2>&1 | tee "$ONIBI_SMOKE_DIR/ubuntu-hooks-install.txt"
+onibi agent inspect --all 2>&1 | tee "$ONIBI_SMOKE_DIR/ubuntu-hooks-show.txt"
 ```
 
 Expected: installed hooks reference `$HOME/.local/bin/onibi-notify`.
@@ -236,17 +236,17 @@ Expected: installed hooks reference `$HOME/.local/bin/onibi-notify`.
 ### Doctor Before Pairing
 
 ```bash
-onibi doctor --mode preflight --offline --color=never 2>&1 | tee "$ONIBI_SMOKE_DIR/ubuntu-doctor-preflight.txt"
+onibi system doctor --mode preflight --offline --color=never 2>&1 | tee "$ONIBI_SMOKE_DIR/ubuntu-doctor-preflight.txt"
 ```
 
-Expected shape before `onibi up`:
+Expected shape before `onibi start`:
 
 ```text
 [PASS] state dir: ...
 [PASS] store key: present
 [PASS] sqlite db: ...
 [PASS] transport: lan
-[WARN] local certs: not generated; run onibi up
+[WARN] local certs: not generated; run onibi start
 [WARN] unix socket: not running
 [WARN] service: not installed
 [PASS] hooks: ...
@@ -255,7 +255,7 @@ Expected shape before `onibi up`:
 ### Up And Pair
 
 ```bash
-onibi up --transport=lan --log-file "$ONIBI_SMOKE_DIR/ubuntu-up.log" 2>&1 | tee "$ONIBI_SMOKE_DIR/ubuntu-up.txt"
+onibi start --transport=lan --log-file "$ONIBI_SMOKE_DIR/ubuntu-up.log" 2>&1 | tee "$ONIBI_SMOKE_DIR/ubuntu-up.txt"
 ```
 
 Expected:
@@ -269,8 +269,8 @@ Stop with `Ctrl-C` after pairing and a simple terminal command.
 ### Uninstall
 
 ```bash
-onibi uninstall --dry-run --service --hooks --all-hooks --state 2>&1 | tee "$ONIBI_SMOKE_DIR/ubuntu-uninstall-dry-run.txt"
-onibi uninstall --yes --service --hooks --all-hooks --state 2>&1 | tee "$ONIBI_SMOKE_DIR/ubuntu-uninstall.txt"
+onibi system uninstall --dry-run --service --hooks --all-hooks --state 2>&1 | tee "$ONIBI_SMOKE_DIR/ubuntu-uninstall-dry-run.txt"
+onibi system uninstall --yes --service --hooks --all-hooks --state 2>&1 | tee "$ONIBI_SMOKE_DIR/ubuntu-uninstall.txt"
 rm -f "$HOME/.local/bin/onibi" "$HOME/.local/bin/onibi-notify"
 ```
 

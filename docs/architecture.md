@@ -31,7 +31,7 @@ flowchart TB
 
 ## Pairing And Web
 
-`onibi up` starts the local web server, mints a pair token, prints the pair URL, and renders a QR code.
+`onibi start` starts the local web server, mints a pair token, prints the pair URL, and renders a QR code.
 
 The pair route sets the owner cookie and redirects to `/`. The frontend then opens:
 
@@ -42,7 +42,7 @@ iOS requires the printed Onibi local CA profile to be installed and fully truste
 
 ## Session, PTY, And Handover
 
-`onibi up` creates one managed tmux-backed session. The spawned shell receives:
+`onibi start` creates one managed tmux-backed session. The spawned shell receives:
 
 ```bash
 ONIBI_SOCK=/path/to/onibi.sock

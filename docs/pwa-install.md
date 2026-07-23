@@ -19,7 +19,7 @@ For a separately run Onibi host, open that host directly and add its own browser
 
 ## iPhone And iPad
 
-1. Run `onibi up`.
+1. Run `onibi start`.
 2. Transfer and fully trust the printed `onibi-local-ca.mobileconfig` through
    a channel you control.
 3. Pair from Safari or a browser that offers Add to Home Screen.
@@ -39,7 +39,7 @@ icon, reopen the paired Safari page, and add it again.
 
 ## Android
 
-1. Run `onibi up`.
+1. Run `onibi start`.
 2. Transfer and trust the printed `onibi-local-ca.crt` through Android system
    Security settings.
 3. Pair from Chrome.

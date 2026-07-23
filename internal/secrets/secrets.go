@@ -150,7 +150,7 @@ func openKeyring() (keyring.Keyring, error) {
 	})
 }
 
-// Backend returns the active backend (informational, e.g. for `onibi doctor`).
+// Backend returns the active backend (informational, e.g. for `onibi system doctor`).
 func (s *Store) Backend() Backend { return s.backend }
 
 func (s *Store) GetOrCreateStoreKey(ctx context.Context) ([]byte, error) {

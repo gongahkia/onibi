@@ -16,9 +16,9 @@ It does not satisfy the [certified adapter contract](../../docs/adapter-contract
 ## Install
 
 ```sh
-onibi adapters validate ./examples/aider-adapter/aider.toml
-onibi adapters add ./examples/aider-adapter/aider.toml
-onibi install-hooks --agent aider
+onibi agent adapter validate ./examples/aider-adapter/aider.toml
+onibi agent adapter add ./examples/aider-adapter/aider.toml
+onibi agent install --agent aider
 ```
 
 The install step writes:
@@ -37,5 +37,5 @@ aider --config ~/.config/onibi/aider/aider.onibi.conf.yml
 ## Uninstall
 
 ```sh
-onibi install-hooks --agent aider --uninstall
+onibi agent install --agent aider --uninstall
 ```

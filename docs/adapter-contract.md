@@ -2,11 +2,11 @@
 
 This is the v1 contract for the certified coding-agent adapters: Claude, Codex, and Pi. Other installed adapters are deferred or experimental and are not covered by this contract.
 
-`onibi adapters --json` reports `certified: true` and a versioned `contract` object for these three adapters. The CLI is the authoritative machine-readable capability report.
+`onibi agent status --json` reports `certified: true` and a versioned `contract` object for these three adapters. The CLI is the authoritative machine-readable capability report.
 
 ## Installation
 
-Each certified adapter uses managed, idempotent hook installation; records an integrity hash; and backs up the original config before modification. `onibi hooks --show --agent <name>` reports expected and observed hook state. Do not trust a hook command without inspecting it.
+Each certified adapter uses managed, idempotent hook installation; records an integrity hash; and backs up the original config before modification. `onibi agent inspect --agent <name>` reports expected and observed hook state. Do not trust a hook command without inspecting it.
 
 ## Approval decisions
 

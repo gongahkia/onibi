@@ -16,8 +16,8 @@ Current verified baseline: macOS Apple Silicon only. Linux amd64, Raspberry Pi 4
 | --- | --- | --- | --- |
 | Cold start to HTTPS health ready | median 103 ms, mean 227 ms, min 100 ms, max 728 ms, n=5 | local-macos-arm64 | `scripts/bench-coldstart.sh --iterations 5`; first run includes fresh cert/state setup |
 | Idle RSS, daemon only | 27.5 MiB | local-macos-arm64 | `scripts/bench-idle-rss.sh --idle-seconds 5`; foreground `onibi run` |
-| Idle RSS, daemon + web + active session | 31.1 MiB | local-macos-arm64 | `scripts/bench-idle-rss.sh --idle-seconds 5`; `onibi up --transport=lan` |
-| Idle RSS, daemon + web without active session | [Unverified] not supported by current foreground CLI | local-macos-arm64 | `onibi up` starts a managed session by design |
+| Idle RSS, daemon + web + active session | 31.1 MiB | local-macos-arm64 | `scripts/bench-idle-rss.sh --idle-seconds 5`; `onibi start --transport=lan` |
+| Idle RSS, daemon + web without active session | [Unverified] not supported by current foreground CLI | local-macos-arm64 | `onibi start` starts a managed session by design |
 | PTY throughput over `/ws/pty`, local handler | median 585.1 MiB/s, range 483.4-670.7 MiB/s, n=5 | local-macos-arm64 | `scripts/bench-throughput.sh --bytes 1048576 --count 5`; in-process web benchmark, no relay |
 | PTY throughput over LAN | [Unverified] not run | local-macos-arm64 | needs paired browser/client runner |
 | PTY throughput over Tailscale Private | [Unverified] not run | external | needs live tailnet runner |

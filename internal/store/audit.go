@@ -84,7 +84,7 @@ func (d *DB) AuditAll(ctx context.Context) ([]AuditEntry, error) {
 	return out, rows.Err()
 }
 
-// AuditCount reports total rows; useful for `onibi doctor` summary.
+// AuditCount reports total rows; useful for `onibi system doctor` summary.
 func (d *DB) AuditCount(ctx context.Context) (int64, error) {
 	var n int64
 	err := d.sql.QueryRowContext(ctx, `SELECT COUNT(*) FROM audit`).Scan(&n)

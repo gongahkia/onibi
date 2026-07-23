@@ -10,13 +10,13 @@ Detailed controls live in [`docs/security.md`](docs/security.md). Relay E2E deta
 |---|---|---|---|
 | T1 | local network attacker | probes the web server or tries to steal a pair URL | HTTPS, short-lived single-use pair tokens, owner cookie, WebSocket token checks |
 | T2 | untrusted Wi-Fi | blocks or interferes with device-to-device traffic | hotspot fallback, local-only server, QR regenerated per run |
-| T3 | stolen paired phone | can use an active owner browser session | stop `onibi up`, clear browser data, rotate local state if needed |
+| T3 | stolen paired phone | can use an active owner browser session | stop `onibi start`, clear browser data, rotate local state if needed |
 | T4 | same-user local malware | can read files, socket, hooks, and agent output | out of scope; hook hashes and doctor checks are detection only |
 | T5 | hook tampering | redirects approval data or bypasses Onibi | hook hashes, `hooks --show`, provider trust review |
 | T6 | stale approval replay | repeats an old decision | terminal approval states are final and idempotent |
 | T7 | edited JSON abuse | changes tool inputs before approval | JSON validation, provider schemas where available, audit records |
 | T8 | Unix socket impersonation | injects fake local events | state dir/socket perms plus peer UID checks |
-| T9 | local CA misuse | user trusts the wrong certificate profile | profile is generated locally; install only the path printed by `onibi up` |
+| T9 | local CA misuse | user trusts the wrong certificate profile | profile is generated locally; install only the path printed by `onibi start` |
 | T10 | Linux host without Secret Service | steals a powered-off disk and reads the SQLite master-key fallback file | not a defense; `<config-dir>/onibi/store.key` is 0600 but unencrypted at rest. Prefer an active credential store and full-disk encryption |
 | T11 | cross-site requester on a relay hostname | tries to drive owner-only writes with ambient cookies | owner mutating routes require `X-Onibi-CSRF`, minted via `/session-info` and bound to the owner session |
 
@@ -24,7 +24,7 @@ Detailed controls live in [`docs/security.md`](docs/security.md). Relay E2E deta
 
 - Telegram can see message plaintext unless its provider path has real end-to-end encryption. Do not route terminal secrets or approval payloads through plaintext chat transports.
 - Cloudflare relay E2E hides PTY bytes, typed input, approval payloads, and control bodies from Cloudflare, but relay metadata remains visible: host, timing, byte lengths, connection count, request paths, `session_id`, stream id, channel, direction, and sequence numbers.
-- Hook failures are provider-specific. Blocking approval hooks fail closed when the provider honors non-zero exit or deny JSON. Notify-only hooks and providers that ignore hook failures can fail open; use `onibi hooks --show` and provider trust review to confirm behavior.
+- Hook failures are provider-specific. Blocking approval hooks fail closed when the provider honors non-zero exit or deny JSON. Notify-only hooks and providers that ignore hook failures can fail open; use `onibi agent inspect` and provider trust review to confirm behavior.
 
 ## Enforcements
 
@@ -36,8 +36,8 @@ Detailed controls live in [`docs/security.md`](docs/security.md). Relay E2E deta
 - Approval decisions update pending rows atomically.
 - Edited approval input must be valid JSON.
 - Hook installers record SHA-256 hashes.
-- `onibi doctor` reports hook drift and state permission problems.
-- `onibi doctor` verifies the encrypted store key is present and can decrypt existing encrypted SQLite rows.
+- `onibi system doctor` reports hook drift and state permission problems.
+- `onibi system doctor` verifies the encrypted store key is present and can decrypt existing encrypted SQLite rows.
 - `/control` actions operate on the hosted PTY process, not arbitrary system processes.
 
 ## Non-Defenses
@@ -53,13 +53,13 @@ Detailed controls live in [`docs/security.md`](docs/security.md). Relay E2E deta
 
 ## Setup Checklist
 
-- [ ] Install only the `onibi-local-ca.mobileconfig` printed by your own `onibi up`.
+- [ ] Install only the `onibi-local-ca.mobileconfig` printed by your own `onibi start`.
 - [ ] Enable full trust for that CA only when you intend to use the phone cockpit.
 - [ ] Use iPhone hotspot when managed Wi-Fi blocks local peer traffic.
-- [ ] Verify hook commands with `./bin/onibi hooks --show --agent claude`.
+- [ ] Verify hook commands with `./bin/onibi agent inspect --agent claude`.
 - [ ] Review Claude `/hooks` before trusting Onibi hooks.
 - [ ] Keep state dir permissions restricted.
-- [ ] Stop `onibi up` when you are done.
+- [ ] Stop `onibi start` when you are done.
 
 ## Reporting
 
