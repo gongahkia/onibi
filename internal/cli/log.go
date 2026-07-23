@@ -17,7 +17,7 @@ func runLog(cmd *cobra.Command, _ []string) error {
 	exportPath, _ := cmd.Flags().GetString("export")
 	jsonOut, _ := cmd.Flags().GetBool("json")
 	notifyOnly, _ := cmd.Flags().GetBool("notify")
-	db, err := openDefaultDB()
+	db, err := openDefaultDBForCommand(cmd)
 	if err != nil {
 		return err
 	}

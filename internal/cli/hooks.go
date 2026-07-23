@@ -53,7 +53,7 @@ func runInstallHooks(cmd *cobra.Command, _ []string) error {
 	if err := paths.EnsureDirs(); err != nil {
 		return err
 	}
-	db, err := openDefaultDB()
+	db, err := openDefaultDBForCommand(cmd)
 	if err != nil {
 		return err
 	}
@@ -259,7 +259,7 @@ func runHooksShow(cmd *cobra.Command, _ []string) error {
 	if agent == "" && !all {
 		return errors.New("--agent or --all required")
 	}
-	db, err := openDefaultDB()
+	db, err := openDefaultDBForCommand(cmd)
 	if err != nil {
 		return err
 	}
@@ -299,7 +299,7 @@ func runHooksShow(cmd *cobra.Command, _ []string) error {
 }
 func runHooksMatrix(cmd *cobra.Command, _ []string) error {
 	asJSON, _ := cmd.Flags().GetBool("json")
-	db, err := openDefaultDB()
+	db, err := openDefaultDBForCommand(cmd)
 	if err != nil {
 		return err
 	}

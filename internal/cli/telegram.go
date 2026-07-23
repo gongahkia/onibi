@@ -60,7 +60,7 @@ func telegramCmd() *cobra.Command {
 }
 
 func runTelegramSetup(cmd *cobra.Command, _ []string) error {
-	paths, db, err := openCLIStore()
+	paths, db, err := openCLIStoreForCommand(cmd)
 	if err != nil {
 		return err
 	}
@@ -117,7 +117,7 @@ func runTelegramSetup(cmd *cobra.Command, _ []string) error {
 }
 
 func runTelegramStatus(cmd *cobra.Command, _ []string) error {
-	paths, db, err := openCLIStore()
+	paths, db, err := openCLIStoreForCommand(cmd)
 	if err != nil {
 		return err
 	}
@@ -244,7 +244,7 @@ func telegramStatusNext(report telegramStatusReport) []string {
 func boolPtr(v bool) *bool { return &v }
 
 func runTelegramDisable(cmd *cobra.Command, _ []string) error {
-	paths, db, err := openCLIStore()
+	paths, db, err := openCLIStoreForCommand(cmd)
 	if err != nil {
 		return err
 	}

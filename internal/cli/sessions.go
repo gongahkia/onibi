@@ -13,7 +13,7 @@ import (
 func runSessions(cmd *cobra.Command, _ []string) error {
 	all, _ := cmd.Flags().GetBool("all")
 	n, _ := cmd.Flags().GetInt("n")
-	db, err := openDefaultDB()
+	db, err := openDefaultDBForCommand(cmd)
 	if err != nil {
 		return err
 	}

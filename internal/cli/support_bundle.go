@@ -106,7 +106,7 @@ func runSupportBundle(cmd *cobra.Command, _ []string) error {
 	if err := paths.EnsureDirs(); err != nil {
 		return err
 	}
-	db, err := openDefaultDB()
+	db, err := openDefaultDBForCommand(cmd)
 	if err != nil {
 		return err
 	}

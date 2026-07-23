@@ -16,6 +16,9 @@ import (
 )
 
 func runDoctor(cmd *cobra.Command, _ []string) error {
+	if _, err := openDefaultSecretStoreForCommand(cmd); err != nil {
+		return err
+	}
 	offline, _ := cmd.Flags().GetBool("offline")
 	mode, _ := cmd.Flags().GetString("mode")
 	transportMode, _ := cmd.Flags().GetString("transport")

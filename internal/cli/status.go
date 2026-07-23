@@ -158,7 +158,7 @@ func runStatusWatch(cmd *cobra.Command) error {
 }
 
 func buildCLIStatus(cmd *cobra.Command) (cliStatusReport, error) {
-	paths, db, err := openCLIStore()
+	paths, db, err := openCLIStoreForCommand(cmd)
 	if err != nil {
 		return cliStatusReport{}, err
 	}

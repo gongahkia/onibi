@@ -25,7 +25,7 @@ func pushCmd() *cobra.Command {
 }
 
 func runPushRotate(cmd *cobra.Command, _ []string) error {
-	_, db, err := openCLIStore()
+	_, db, err := openCLIStoreForCommand(cmd)
 	if err != nil {
 		return err
 	}

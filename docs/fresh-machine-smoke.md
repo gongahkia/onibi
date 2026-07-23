@@ -80,6 +80,11 @@ Expected:
 
 ### Initialize State
 
+The first Onibi command that accesses encrypted state may show a native macOS
+Keychain dialog for `Onibi — onibi.store.key.v1`. Enter the login keychain
+password only in that dialog and choose `Allow`; do not enter it in the
+terminal. Do not choose `Always Allow` for an untrusted or ad-hoc binary.
+
 ```bash
 onibi status --json --no-doctor --no-hooks >"$ONIBI_SMOKE_DIR/macos-status-initial.json"
 ```

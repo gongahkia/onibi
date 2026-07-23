@@ -202,7 +202,7 @@ func uninstallHooks(ctx context.Context, cmd *cobra.Command, paths config.Paths,
 	if err := paths.EnsureDirs(); err != nil {
 		return err
 	}
-	db, err := openDefaultDB()
+	db, err := openDefaultDBForCommand(cmd)
 	if err != nil {
 		return err
 	}

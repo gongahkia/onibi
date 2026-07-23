@@ -57,7 +57,7 @@ func unpairCmd() *cobra.Command {
 }
 
 func runPair(cmd *cobra.Command, _ []string) error {
-	paths, db, err := openCLIStore()
+	paths, db, err := openCLIStoreForCommand(cmd)
 	if err != nil {
 		return err
 	}
@@ -131,7 +131,7 @@ func copyToClipboard(s string) error {
 }
 
 func runDevices(cmd *cobra.Command, _ []string) error {
-	_, db, err := openCLIStore()
+	_, db, err := openCLIStoreForCommand(cmd)
 	if err != nil {
 		return err
 	}
@@ -163,7 +163,7 @@ func runDevices(cmd *cobra.Command, _ []string) error {
 }
 
 func runUnpair(cmd *cobra.Command, args []string) error {
-	_, db, err := openCLIStore()
+	_, db, err := openCLIStoreForCommand(cmd)
 	if err != nil {
 		return err
 	}
@@ -192,6 +192,10 @@ func runUnpair(cmd *cobra.Command, args []string) error {
 }
 
 func openCLIStore() (config.Paths, *store.DB, error) {
+	return openCLIStoreForCommand(nil)
+}
+
+func openCLIStoreForCommand(cmd *cobra.Command) (config.Paths, *store.DB, error) {
 	paths, err := config.DefaultPaths()
 	if err != nil {
 		return config.Paths{}, nil, err
@@ -199,7 +203,7 @@ func openCLIStore() (config.Paths, *store.DB, error) {
 	if err := paths.EnsureDirs(); err != nil {
 		return config.Paths{}, nil, err
 	}
-	db, err := openDefaultDB()
+	db, err := openDefaultDBForCommand(cmd)
 	if err != nil {
 		return config.Paths{}, nil, err
 	}

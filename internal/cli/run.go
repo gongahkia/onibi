@@ -60,7 +60,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 		approvalTTL = 0
 	}
 
-	db, err := openDefaultDB()
+	db, err := openDefaultDBForCommand(cmd)
 	if err != nil {
 		return err
 	}

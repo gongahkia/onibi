@@ -59,6 +59,7 @@ onibi version | tee &#34;$ONIBI_SMOKE_DIR/macos-version.txt&#34;
 <li><code>which onibi</code> resolves under the Homebrew prefix.</li>
 </ul>
 <h3>Initialize State</h3>
+<p>The first Onibi command that accesses encrypted state may show a native macOS Keychain dialog for <code>Onibi — onibi.store.key.v1</code>. Enter the login keychain password only in that dialog and choose <code>Allow</code>; do not enter it in the terminal. Do not choose <code>Always Allow</code> for an untrusted or ad-hoc binary.</p>
 <pre><code class="language-bash">onibi status --json --no-doctor --no-hooks &gt;&#34;$ONIBI_SMOKE_DIR/macos-status-initial.json&#34;
 </code></pre>
 <p>Expected: command exits <code>0</code> and creates the local state directory.</p>

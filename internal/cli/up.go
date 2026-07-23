@@ -101,7 +101,7 @@ func runUp(cmd *cobra.Command, _ []string) error {
 		}
 		return runUpDetach(cmd, paths)
 	}
-	db, err := openDefaultDB()
+	db, err := openDefaultDBForCommand(cmd)
 	if err != nil {
 		return err
 	}

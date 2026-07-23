@@ -8,7 +8,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/gongahkia/onibi/internal/config"
-	"github.com/gongahkia/onibi/internal/secrets"
 	stored "github.com/gongahkia/onibi/internal/store"
 )
 
@@ -36,7 +35,11 @@ func runStoreRekey(cmd *cobra.Command, _ []string) error {
 	if err := paths.EnsureDirs(); err != nil {
 		return err
 	}
-	oldKey, err := secrets.GetOrCreateStoreKey(cmd.Context())
+	secretStore, err := openDefaultSecretStoreForCommand(cmd)
+	if err != nil {
+		return err
+	}
+	oldKey, err := secretStore.GetOrCreateStoreKey(cmd.Context())
 	if err != nil {
 		return err
 	}
@@ -78,7 +81,7 @@ func runStoreRekey(cmd *cobra.Command, _ []string) error {
 	if err := db.Rekey(cmd.Context(), newKey); err != nil {
 		return err
 	}
-	if err := secrets.SetStoreKey(cmd.Context(), newKey); err != nil {
+	if err := secretStore.SetStoreKey(cmd.Context(), newKey); err != nil {
 		rollbackErr := db.Rekey(cmd.Context(), oldKey)
 		if rollbackErr != nil {
 			return fmt.Errorf("store key write failed after DB rekey; rollback failed too: write=%w rollback=%v", err, rollbackErr)

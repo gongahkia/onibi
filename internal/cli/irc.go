@@ -35,7 +35,7 @@ func ircCmd() *cobra.Command {
 }
 
 func runIRCSetup(cmd *cobra.Command, _ []string) error {
-	paths, db, err := openCLIStore()
+	paths, db, err := openCLIStoreForCommand(cmd)
 	if err != nil {
 		return err
 	}
@@ -90,7 +90,7 @@ type ircStatusReport struct {
 }
 
 func runIRCStatus(cmd *cobra.Command, _ []string) error {
-	paths, db, err := openCLIStore()
+	paths, db, err := openCLIStoreForCommand(cmd)
 	if err != nil {
 		return err
 	}
@@ -134,7 +134,7 @@ func runIRCStatus(cmd *cobra.Command, _ []string) error {
 }
 
 func runIRCDisable(cmd *cobra.Command, _ []string) error {
-	paths, db, err := openCLIStore()
+	paths, db, err := openCLIStoreForCommand(cmd)
 	if err != nil {
 		return err
 	}
