@@ -4,33 +4,20 @@ Onibi is a local coding-agent host with a phone web cockpit. It hosts shells and
 
 ## Component Map
 
-```text
-phone browser
-  | HTTPS /pair, /, /session-info
-  | WebSocket /ws/pty, /ws/events
-  | POST /approval, /control
-  v
-internal/web
-  | terminal I/O, handover, control signals
-  v
-managed tmux session
-  |
-  v
-shell / claude / codex / other agent
+```mermaid
+flowchart TB
+  Phone["phone browser or installed PWA"] <-->|"HTTPS + WebSocket"| Web["internal/web"]
+  Web <-->|"PTY attach, terminal I/O, handover"| PTY["internal/pty"]
+  PTY <-->|"managed session"| Tmux["tmux-backed session"]
+  Tmux --> Agent["shell or coding agent"]
 
-agent hook
-  |
-  v
-onibi-notify
-  | JSON over same-UID Unix socket
-  v
-internal/intake
-  |
-  v
-internal/approval queue
-  |
-  v
-/ws/events approval card on phone
+  Hook["agent hook"] --> Notify["onibi-notify"]
+  Notify -->|"JSON over same-UID Unix socket"| Intake["internal/intake"]
+  Intake <-->|"blocking request and decision"| Approval["internal/approval queue"]
+  Approval <-->|"approval events and decisions"| Web
+
+  Web <--> Store[("SQLite")]
+  Approval <--> Store
 ```
 
 ## Invariants

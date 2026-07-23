@@ -43,6 +43,38 @@ func TestRenderDocsWritesStyledPagesAndRewritesInternalLinks(t *testing.T) {
 	}
 }
 
+func TestRenderDocsRendersMermaidWithoutFooter(t *testing.T) {
+	root := t.TempDir()
+	writeDoc(t, root, "architecture.md", "# Architecture\n\n```mermaid\nflowchart TB\n  Phone --> Web\n```\n")
+	writeDoc(t, root, "plain.md", "# Plain\n\nNo diagram.\n")
+	if err := renderDocs(root, false); err != nil {
+		t.Fatal(err)
+	}
+	architecture, err := os.ReadFile(filepath.Join(root, "architecture.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := string(architecture)
+	for _, want := range []string{
+		`<pre class="mermaid">flowchart TB`,
+		`https://cdn.jsdelivr.net/npm/mermaid@11.16.0/dist/mermaid.esm.min.mjs`,
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("rendered Mermaid page missing %q", want)
+		}
+	}
+	if strings.Contains(output, "site-footer") || strings.Contains(output, "<footer") {
+		t.Fatal("rendered Mermaid page contains a footer")
+	}
+	plain, err := os.ReadFile(filepath.Join(root, "plain.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(plain), "mermaid.esm.min.mjs") {
+		t.Fatal("plain page loads Mermaid")
+	}
+}
+
 func TestRewriteDocLinkLeavesExternalAndOutOfTreeMarkdownUntouched(t *testing.T) {
 	known := map[string]struct{}{"security.md": {}}
 	for input, want := range map[string]string{
@@ -71,6 +103,9 @@ func TestRepositoryPagesAreCurrentAndInternalHTMLLinksResolve(t *testing.T) {
 		contents, err := os.ReadFile(pagePath)
 		if err != nil {
 			return err
+		}
+		if strings.Contains(string(contents), "site-footer") || strings.Contains(string(contents), "<footer") {
+			t.Errorf("%s contains a footer", pagePath)
 		}
 		for _, match := range hrefs.FindAllStringSubmatch(string(contents), -1) {
 			href := strings.SplitN(match[1], "#", 2)[0]

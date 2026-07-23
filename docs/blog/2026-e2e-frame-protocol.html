@@ -19,7 +19,7 @@
 <p>Onibi&#39;s Cloudflare Quick transport has a hard constraint: the relay is useful for reachability, but it is not trusted with terminal bytes. The phone may be on LTE, the laptop may be behind a NAT, and Cloudflare may terminate TLS for the public <code>trycloudflare.com</code> hostname. Even in that mode, the relay should only move ciphertext. It should not see PTY output, typed input, approval payloads, control requests, or approval decisions.</p>
 <p>That is what the Onibi E2E relay protocol is for. It is not a replacement for TLS and it is not a general messaging protocol. It is an app-layer frame format that sits inside Onibi&#39;s HTTP and WebSocket traffic when a third-party relay is selected. The reference version is <code>onibi.e2e.v1</code>, implemented in Go under <code>internal/envelope/relay.go</code> and in the browser under <code>frontend/src/e2e.ts</code>.</p>
 <p>The core shape is simple:</p>
-<pre><code class="language-mermaid">sequenceDiagram
+<pre class="mermaid">sequenceDiagram
   participant CLI as onibi up
   participant Phone as phone browser
   participant Relay as Cloudflare relay
@@ -35,7 +35,7 @@
   Phone-&gt;&gt;Web: encrypted WebSocket hello with verifier
   Phone-&gt;&gt;Web: encrypted HTTP and WebSocket frames
   Relay--&gt;&gt;Relay: sees host, path, timing, sizes, ciphertext
-</code></pre>
+</pre>
 <h2>Fragment-Keyed Bootstrap</h2>
 <p>The QR URL looks like this:</p>
 <pre><code class="language-text">https://&lt;id&gt;.trycloudflare.com/pair/&lt;pair-token&gt;#k=&lt;base64url-key&gt;
@@ -128,6 +128,10 @@ t
 <p>[^mdn-fragment]: MDN Web Docs, &#34;URI fragment&#34;, <a href="https://developer.mozilla.org/en-US/docs/Web/URI/Reference/Fragment">https://developer.mozilla.org/en-US/docs/Web/URI/Reference/Fragment</a>. [^rfc5869]: RFC 5869, &#34;HMAC-based Extract-and-Expand Key Derivation Function (HKDF)&#34;, <a href="https://www.rfc-editor.org/info/rfc5869/">https://www.rfc-editor.org/info/rfc5869/</a>. [^rfc5116]: RFC 5116, &#34;An Interface and Algorithms for Authenticated Encryption&#34;, <a href="https://www.rfc-editor.org/info/rfc5116/">https://www.rfc-editor.org/info/rfc5116/</a>. [^nist-gcm]: NIST SP 800-38D, &#34;Recommendation for Block Cipher Modes of Operation: Galois/Counter Mode (GCM) and GMAC&#34;, <a href="https://csrc.nist.gov/pubs/sp/800/38/d/final">https://csrc.nist.gov/pubs/sp/800/38/d/final</a>.</p>
 </main>
   </div>
-  <footer class="site-footer"><a href="../index.html">Onibi documentation</a><a href="https://github.com/gongahkia/onibi">GitHub</a></footer>
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11.16.0/dist/mermaid.esm.min.mjs";
+    mermaid.initialize({startOnLoad:true,securityLevel:"strict",theme:"base",themeVariables:{background:"#f7f5ef",primaryColor:"#eee8dc",primaryTextColor:"#171511",primaryBorderColor:"#b9431c",lineColor:"#706b62",secondaryColor:"#f7f5ef",tertiaryColor:"#f7f5ef"},flowchart:{htmlLabels:false,useMaxWidth:true}});
+  </script>
+
 </body>
 </html>

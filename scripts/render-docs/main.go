@@ -17,10 +17,11 @@ import (
 )
 
 type document struct {
-	Source string
-	Output string
-	Title  string
-	Body   htmltemplate.HTML
+	Source     string
+	Output     string
+	Title      string
+	Body       htmltemplate.HTML
+	HasMermaid bool
 }
 
 type link struct {
@@ -40,6 +41,7 @@ type page struct {
 	Source      string
 	Top         []link
 	Documents   []link
+	HasMermaid  bool
 }
 
 var (
@@ -64,7 +66,11 @@ var (
     <aside class="docs-sidebar"><p class="sidebar-label">Documentation</p><nav aria-label="All documentation">{{range .Documents}}<a href="{{.Href}}"{{if .Active}} aria-current="page"{{end}}>{{.Title}}</a>{{end}}</nav></aside>
     <main id="content" class="prose">{{.Body}}</main>
   </div>
-  <footer class="site-footer"><a href="{{.Home}}">Onibi documentation</a><a href="https://github.com/gongahkia/onibi">GitHub</a></footer>
+{{if .HasMermaid}}  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11.16.0/dist/mermaid.esm.min.mjs";
+    mermaid.initialize({startOnLoad:true,securityLevel:"strict",theme:"base",themeVariables:{background:"#f7f5ef",primaryColor:"#eee8dc",primaryTextColor:"#171511",primaryBorderColor:"#b9431c",lineColor:"#706b62",secondaryColor:"#f7f5ef",tertiaryColor:"#f7f5ef"},flowchart:{htmlLabels:false,useMaxWidth:true}});
+  </script>
+{{end}}
 </body>
 </html>
 `))
@@ -96,6 +102,7 @@ func renderDocs(root string, check bool) error {
 		if err != nil {
 			return err
 		}
+		docs[i].HasMermaid = hasMermaidFence(string(source))
 		docs[i].Body = htmltemplate.HTML(renderMarkdown(string(source), docs[i].Source, known))
 	}
 	for _, doc := range docs {
@@ -110,6 +117,7 @@ func renderDocs(root string, check bool) error {
 			Source:      relativeLink(doc.Output, doc.Source),
 			Top:         navigation(doc, docs, []string{"getting-started.md", "transports.md", "web-push.md", "security.md"}),
 			Documents:   navigation(doc, docs, nil),
+			HasMermaid:  doc.HasMermaid,
 		}
 		var rendered bytes.Buffer
 		if err := pageTmpl.Execute(&rendered, data); err != nil {
@@ -233,7 +241,11 @@ func renderMarkdown(source, doc string, known map[string]struct{}) string {
 			if i < len(lines) {
 				i++
 			}
-			fmt.Fprintf(&out, "<pre><code class=\"language-%s\">%s</code></pre>\n", html.EscapeString(language), html.EscapeString(strings.Join(code, "\n")+"\n"))
+			if language == "mermaid" {
+				fmt.Fprintf(&out, "<pre class=\"mermaid\">%s</pre>\n", html.EscapeString(strings.Join(code, "\n")+"\n"))
+			} else {
+				fmt.Fprintf(&out, "<pre><code class=\"language-%s\">%s</code></pre>\n", html.EscapeString(language), html.EscapeString(strings.Join(code, "\n")+"\n"))
+			}
 			continue
 		}
 		if level, heading, ok := heading(line); ok {
@@ -314,6 +326,16 @@ func renderMarkdown(source, doc string, known map[string]struct{}) string {
 		fmt.Fprintf(&out, "<p>%s</p>\n", renderInline(strings.Join(paragraph, " "), doc, known))
 	}
 	return out.String()
+}
+
+func hasMermaidFence(source string) bool {
+	for _, line := range strings.Split(strings.ReplaceAll(source, "\r\n", "\n"), "\n") {
+		_, language, ok := fencedCode(line)
+		if ok && language == "mermaid" {
+			return true
+		}
+	}
+	return false
 }
 
 func startsBlock(lines []string, i int) bool {

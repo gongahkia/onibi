@@ -39,6 +39,6 @@ onibi up --transport=irc
 <p>IRC is not end-to-end encrypted. The owner DM accepts <code>!onibi approve &lt;id&gt;</code> and <code>!onibi deny &lt;id&gt;</code>; ordinary owner text is delivered to the managed session. Live session output is sent as owner-DM messages. No approval or output is sent until that owner has sent an account-tag-authenticated DM on the current connection. Output is redacted/bounded before delivery, split at 400 characters, paced at one message per second, and audited with payload hashes. The bridge reconnects with capped exponential backoff. <code>onibi experimental irc status</code> reports local setup; <code>onibi experimental irc disable</code> removes it. Its live check requires a registered bot and is secret-gated; no real Libera.Chat result is committed in this repository state.</p>
 </main>
   </div>
-  <footer class="site-footer"><a href="index.html">Onibi documentation</a><a href="https://github.com/gongahkia/onibi">GitHub</a></footer>
+
 </body>
 </html>

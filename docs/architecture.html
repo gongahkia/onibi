@@ -18,33 +18,20 @@
     <main id="content" class="prose"><h1>Architecture</h1>
 <p>Onibi is a local coding-agent host with a phone web cockpit. It hosts shells and agents under PTYs, serves a local HTTPS/WebSocket UI, accepts hook events on a same-UID Unix socket, and stores durable state in SQLite.</p>
 <h2>Component Map</h2>
-<pre><code class="language-text">phone browser
-  | HTTPS /pair, /, /session-info
-  | WebSocket /ws/pty, /ws/events
-  | POST /approval, /control
-  v
-internal/web
-  | terminal I/O, handover, control signals
-  v
-managed tmux session
-  |
-  v
-shell / claude / codex / other agent
+<pre class="mermaid">flowchart TB
+  Phone[&#34;phone browser or installed PWA&#34;] &lt;--&gt;|&#34;HTTPS + WebSocket&#34;| Web[&#34;internal/web&#34;]
+  Web &lt;--&gt;|&#34;PTY attach, terminal I/O, handover&#34;| PTY[&#34;internal/pty&#34;]
+  PTY &lt;--&gt;|&#34;managed session&#34;| Tmux[&#34;tmux-backed session&#34;]
+  Tmux --&gt; Agent[&#34;shell or coding agent&#34;]
 
-agent hook
-  |
-  v
-onibi-notify
-  | JSON over same-UID Unix socket
-  v
-internal/intake
-  |
-  v
-internal/approval queue
-  |
-  v
-/ws/events approval card on phone
-</code></pre>
+  Hook[&#34;agent hook&#34;] --&gt; Notify[&#34;onibi-notify&#34;]
+  Notify --&gt;|&#34;JSON over same-UID Unix socket&#34;| Intake[&#34;internal/intake&#34;]
+  Intake &lt;--&gt;|&#34;blocking request and decision&#34;| Approval[&#34;internal/approval queue&#34;]
+  Approval &lt;--&gt;|&#34;approval events and decisions&#34;| Web
+
+  Web &lt;--&gt; Store[(&#34;SQLite&#34;)]
+  Approval &lt;--&gt; Store
+</pre>
 <h2>Invariants</h2>
 <ul>
 <li>Pair tokens are single-use and short-lived.</li>
@@ -99,6 +86,10 @@ pending -&gt; cancelled
 <p>No v2 Telegram MiniApp/webapp transport code remains. Current user flows use the LAN web cockpit described here; generated frontend bundles may still contain unrelated third-party syntax aliases.</p>
 </main>
   </div>
-  <footer class="site-footer"><a href="index.html">Onibi documentation</a><a href="https://github.com/gongahkia/onibi">GitHub</a></footer>
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11.16.0/dist/mermaid.esm.min.mjs";
+    mermaid.initialize({startOnLoad:true,securityLevel:"strict",theme:"base",themeVariables:{background:"#f7f5ef",primaryColor:"#eee8dc",primaryTextColor:"#171511",primaryBorderColor:"#b9431c",lineColor:"#706b62",secondaryColor:"#f7f5ef",tertiaryColor:"#f7f5ef"},flowchart:{htmlLabels:false,useMaxWidth:true}});
+  </script>
+
 </body>
 </html>
