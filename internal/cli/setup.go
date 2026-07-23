@@ -44,7 +44,7 @@ func runSetup(cmd *cobra.Command, _ []string) error {
 	defer db.Close()
 	printCLIHeader(cmd, "Setup")
 	fmt.Fprintln(cmd.OutOrStdout(), "Onibi setup is CLI-first: start the cockpit, scan the QR, then install hooks.")
-	fmt.Fprintln(cmd.OutOrStdout(), "The iPhone CA profile is printed by `onibi up` when local HTTPS is needed.")
+	fmt.Fprintln(cmd.OutOrStdout(), "`onibi up` prints iPhone/iPad and Android trust-file paths when local HTTPS is needed.")
 	if complete {
 		return runSetupComplete(cmd, paths, db)
 	}
@@ -129,8 +129,8 @@ func askYesNo(cmd *cobra.Command, br *bufio.Reader, prompt string, def bool) boo
 func printSetupChecklist(out interface{ Write([]byte) (int, error) }) {
 	body := `Setup checklist:
 
-  [ ] Onibi local CA profile installed only from your own onibi up output
-  [ ] iPhone trusts the Onibi local CA when using Safari cockpit
+  [ ] Phone trust file installed only from your own onibi up output
+  [ ] Phone trusts the Onibi local CA before opening the local cockpit
   [ ] Hotspot available if managed Wi-Fi blocks peer traffic
   [ ] State dir 0700, socket 0600 (run: onibi doctor)
   [ ] All installed hook hashes match registry

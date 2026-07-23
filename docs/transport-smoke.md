@@ -5,13 +5,13 @@ Default CI is hermetic. Run this checklist on the actual Mac and paired phone be
 ## LAN and hotspot
 
 1. Run `onibi up --transport=lan`.
-2. Install and fully trust the printed local CA profile on the phone.
+2. Install and trust the matching printed local CA file on the phone.
 3. Scan the single-use pair QR and confirm the terminal loads.
 4. Send text, `Esc`, arrows, `Ctrl-C`, and paste; confirm the managed terminal receives each input.
 5. Trigger one Claude Code approval, approve it, then trigger another and deny it.
 6. Stop Onibi and confirm the pair URL no longer works.
 
-Repeat with an iPhone hotspot when the normal Wi-Fi blocks device-to-device traffic.
+Repeat with a phone hotspot when the normal Wi-Fi blocks device-to-device traffic.
 
 ## Tailscale Private and other web paths
 

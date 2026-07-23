@@ -55,28 +55,36 @@ make build
 </code></pre>
 <p>Claude may require you to open <code>/hooks</code> and trust the printed Onibi hook commands.</p>
 <h2>3. Pair The Phone</h2>
+<p><code>onibi doctor</code> gives the next safe action before you start. For local/private transports, <code>onibi up</code> then prints the exact trust files for both phone platforms and the fresh pairing QR.</p>
 <p>Start Onibi:</p>
 <pre><code class="language-bash">./bin/onibi up
 </code></pre>
 <p>Onibi prints:</p>
 <ul>
-<li>A local CA profile path, usually <code>onibi-local-ca.mobileconfig</code>.</li>
+<li>An iPhone/iPad profile path, <code>onibi-local-ca.mobileconfig</code>.</li>
+<li>An Android CA certificate path, <code>onibi-local-ca.crt</code>.</li>
 <li>A LAN or hotspot pair URL.</li>
 <li>A QR code for the pair URL.</li>
 </ul>
-<p>On iPhone:</p>
+<p>For a local/private transport, use a transfer channel you control to move only the matching trust file from the Mac to the phone. Do not download a CA file from the local network.</p>
 <ol start="1">
-<li>Install the printed CA profile if Safari warns about trust.</li>
-<li>Enable full trust for the Onibi local CA in iOS certificate trust settings.</li>
-<li>Restart <code>./bin/onibi up</code>.</li>
-<li>Scan the new QR.</li>
+<li>iPhone/iPad: install <code>onibi-local-ca.mobileconfig</code>, then enable full trust</li>
+</ol>
+<p>for <code>Onibi local CA</code> in Certificate Trust Settings.</p>
+<ol start="2">
+<li>Android: install <code>onibi-local-ca.crt</code> as a CA certificate through system</li>
+</ol>
+<p>Security settings; the menu names vary by device.</p>
+<ol start="3">
+<li>Scan the QR only after the certificate is trusted.</li>
+<li>Add the paired cockpit to Home Screen or install it as a web app.</li>
 </ol>
 <p>If pairing returns <code>Forbidden owner cookie is missing</code>, the browser did not complete trusted local HTTPS setup. Install and fully trust the profile, restart Onibi, then scan the new QR. Do not reuse an old QR.</p>
 <p>Network rule:</p>
 <ul>
 <li>Same Wi-Fi works only when the network allows client-to-client traffic.</li>
 <li>Managed Wi-Fi may block pairing or WebSockets.</li>
-<li>iPhone hotspot is the current recommended fallback.</li>
+<li>A phone hotspot is the current recommended fallback.</li>
 </ul>
 <h2>4. Use The Cockpit</h2>
 <p>After pairing, Safari opens the terminal cockpit.</p>

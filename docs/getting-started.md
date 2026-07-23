@@ -13,7 +13,7 @@ You need:
 - macOS or Linux.
 - Go 1.26.4 or newer when building from source.
 - `git`, `make`, and a local shell.
-- A phone browser on the same reachable network as the Mac, or an iPhone hotspot.
+- A phone browser on the same reachable network as the Mac, or a phone hotspot.
 - Optional: Claude Code installed if you want approval overlay tests.
 
 Onibi stores local state in:
@@ -64,6 +64,10 @@ Claude may require you to open `/hooks` and trust the printed Onibi hook command
 
 ## 3. Pair The Phone
 
+`onibi doctor` gives the next safe action before you start. For local/private
+transports, `onibi up` then prints the exact trust files for both phone
+platforms and the fresh pairing QR.
+
 Start Onibi:
 
 ```bash
@@ -72,16 +76,21 @@ Start Onibi:
 
 Onibi prints:
 
-- A local CA profile path, usually `onibi-local-ca.mobileconfig`.
+- An iPhone/iPad profile path, `onibi-local-ca.mobileconfig`.
+- An Android CA certificate path, `onibi-local-ca.crt`.
 - A LAN or hotspot pair URL.
 - A QR code for the pair URL.
 
-On iPhone:
+For a local/private transport, use a transfer channel you control, such as
+private file sync or a USB cable, to move only the matching trust file from the
+Mac to the phone. Do not download a CA file from the local network.
 
-1. Install the printed CA profile if Safari warns about trust.
-2. Enable full trust for the Onibi local CA in iOS certificate trust settings.
-3. Restart `./bin/onibi up`.
-4. Scan the new QR.
+1. iPhone/iPad: install `onibi-local-ca.mobileconfig`, then enable full trust
+   for `Onibi local CA` in Certificate Trust Settings.
+2. Android: install `onibi-local-ca.crt` as a CA certificate through system
+   Security settings; the menu names vary by device.
+3. Scan the QR only after the certificate is trusted.
+4. Add the paired cockpit to Home Screen or install it as a web app.
 
 If pairing returns `Forbidden owner cookie is missing`, the browser did not complete trusted local HTTPS setup. Install and fully trust the profile, restart Onibi, then scan the new QR. Do not reuse an old QR.
 
@@ -89,7 +98,7 @@ Network rule:
 
 - Same Wi-Fi works only when the network allows client-to-client traffic.
 - Managed Wi-Fi may block pairing or WebSockets.
-- iPhone hotspot is the current recommended fallback.
+- A phone hotspot is the current recommended fallback.
 
 ## 4. Use The Cockpit
 

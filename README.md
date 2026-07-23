@@ -23,18 +23,20 @@ Status: focused local web cockpit. Onibi hosts a managed terminal locally, pairs
 ```bash
 brew install gongahkia/onibi/onibi
 onibi install-hooks --agent claude
+onibi doctor
 onibi up
 ```
 
 Use `onibi up --transport=lan` for local pairing or `--transport=tailscale-private` for an authenticated tailnet. Run `onibi status` and `onibi doctor --fix` when validating an install. Update Onibi through its package manager. Source-build setup lives in [`CONTRIBUTING.md`](./CONTRIBUTING.md).
 
-On iPhone:
+On any phone:
 
-1. Install and fully trust the printed `onibi-local-ca.mobileconfig` once.
-2. Scan the QR printed by `onibi up`.
-3. Use the terminal cockpit from Safari. Use `MAC` to open the same session in a visible macOS terminal and `PHONE` to return it to Safari.
+1. Follow the step-by-step phone setup shown by `onibi doctor` and `onibi up`.
+2. For local/private transports, transfer only the matching trust file generated on this Mac through a channel you control: `onibi-local-ca.mobileconfig` for iPhone/iPad or `onibi-local-ca.crt` for Android.
+3. Trust that file in the phone's system settings, scan the fresh QR, then add the cockpit to Home Screen or install it as a web app.
+4. Use `MAC` to open the same session in a visible macOS terminal and `PHONE` to return it to the phone cockpit.
 
-If a managed Wi-Fi blocks device-to-device traffic, connect the Mac to the iPhone hotspot, rerun `./bin/onibi up`, and scan the new QR.
+If a managed Wi-Fi blocks device-to-device traffic, connect the Mac to a phone hotspot, rerun `./bin/onibi up`, and scan the new QR.
 
 ## What Makes This Different
 
@@ -51,7 +53,7 @@ Branding note: Onibi is not affiliated with the [Ghostty](https://ghostty.org) t
 - Live xterm.js terminal over `/ws/pty`.
 - Multi-session phone dashboard at `/#/sessions` with attach and guarded kill actions.
 - Pair-by-QR over local HTTPS.
-- iPhone trusted local CA profile.
+- Phone trust files: iPhone/iPad profile and Android CA certificate.
 - Top controls: `MAC`, `PHONE`, `INT`, `KILL`.
 - Bottom soft-key bar: `Esc`, `Tab`, `Ctrl`, `Alt`, arrows, `^C`, `^D`, `^Z`, `Paste`, theme toggle.
 - Claude Code hook approvals rendered as web overlay cards.

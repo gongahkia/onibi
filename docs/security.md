@@ -54,9 +54,9 @@ Keychain caveat: the `zalando/go-keyring` issue tracker documents macOS concerns
 
 ## Setup Checklist
 
-- [ ] Install only the `onibi-local-ca.mobileconfig` printed by your own `onibi up`.
+- [ ] Install only the trust file printed by your own `onibi up`: `onibi-local-ca.mobileconfig` on iPhone/iPad or `onibi-local-ca.crt` on Android.
 - [ ] Enable full trust for that CA only when you intend to use the phone cockpit.
-- [ ] Use iPhone hotspot when managed Wi-Fi blocks local peer traffic.
+- [ ] Use a phone hotspot when managed Wi-Fi blocks local peer traffic.
 - [ ] Verify hook commands with `./bin/onibi hooks --show --agent claude`.
 - [ ] Review Claude `/hooks` before trusting Onibi hooks.
 - [ ] Keep state dir permissions restricted.

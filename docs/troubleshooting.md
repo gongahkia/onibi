@@ -2,7 +2,8 @@
 
 ## Pairing Shows Forbidden
 
-If the phone shows `Forbidden owner cookie is missing` right after pairing, iOS did not trust Onibi's local HTTPS certificate for that run.
+If the phone shows `Forbidden owner cookie is missing` right after pairing, its
+browser did not trust Onibi's local HTTPS certificate for that run.
 
 Do this:
 
@@ -10,10 +11,12 @@ Do this:
 ./bin/onibi up
 ```
 
-Then on iPhone:
+Then on the phone:
 
-1. Install the printed `onibi-local-ca.mobileconfig`.
-2. Enable full trust for the Onibi local CA.
+1. iPhone/iPad: install the printed `onibi-local-ca.mobileconfig`, then enable
+   full trust for the Onibi local CA.
+2. Android: install the printed `onibi-local-ca.crt` as a CA certificate in
+   system Security settings.
 3. Stop and restart `./bin/onibi up`.
 4. Scan the new QR.
 
@@ -27,7 +30,7 @@ Server logs like this mean the phone rejected the local cert:
 TLS handshake error ... remote error: tls: unknown certificate
 ```
 
-Install and fully trust the printed CA profile, restart Onibi, then scan a new QR.
+Install and fully trust the matching printed CA file, restart Onibi, then scan a new QR.
 
 ## Phone Cannot Reach The Mac
 
@@ -46,7 +49,7 @@ Common causes:
 - VPN or firewall blocks inbound local HTTPS.
 - The QR was generated before switching networks.
 
-Current fallback: connect the Mac to the iPhone hotspot, rerun `./bin/onibi up`, scan the new QR.
+Current fallback: connect the Mac to a phone hotspot, rerun `./bin/onibi up`, scan the new QR.
 
 ## WebSocket Token Mismatch
 

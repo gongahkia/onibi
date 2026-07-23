@@ -149,6 +149,10 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 			printExplainLine(cmd, "blocks", strings.Join(c.Blocks, ", "))
 		}
 	}
+	if !release && mode != "ci" {
+		fmt.Fprintln(cmd.OutOrStdout())
+		printDoctorPhoneSetup(cmd, paths, transportMode)
+	}
 	if report.Failed() {
 		return fmt.Errorf("doctor failed")
 	}

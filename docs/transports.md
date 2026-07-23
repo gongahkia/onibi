@@ -4,7 +4,7 @@ Onibi is a single-user phone web cockpit. Use a local network path that reaches 
 
 ## LAN and hotspot
 
-`onibi up --transport=lan` starts the local HTTPS cockpit and prints a single-use pair URL. A phone on the same LAN can open that URL after trusting the generated local CA profile. When managed Wi-Fi blocks peer traffic, use the iPhone hotspot and start Onibi again to obtain a new URL.
+`onibi up --transport=lan` starts the local HTTPS cockpit and prints a single-use pair URL. A phone on the same LAN can open that URL after trusting the generated local CA file for its platform. When managed Wi-Fi blocks peer traffic, use a phone hotspot and start Onibi again to obtain a new URL.
 
 ## Tailscale Private
 

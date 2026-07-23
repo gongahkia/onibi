@@ -367,6 +367,15 @@ func runWebPairUp(cmd *cobra.Command, paths config.Paths, db *store.DB) error {
 		if !headerPrinted {
 			printCLIHeader(cmd, "Onibi up")
 		}
+		if needsLocalPhoneTrust(string(pairTransport.Mode)) {
+			printPhoneSetupGuide(cmd, phoneSetupState{
+				Transport:    string(pairTransport.Mode),
+				MobileConfig: certPaths.MobileConfig,
+				CACert:       certPaths.CACert,
+				CertReady:    true,
+			})
+			fmt.Fprintln(cmd.OutOrStdout())
+		}
 		if debugMode {
 			_ = renderTable(cmd.OutOrStdout(), [][]string{
 				{"web", style.status("PASS"), cfg.Web.ListenAddr},

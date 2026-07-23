@@ -197,11 +197,11 @@ func firstRunSelectTransport(cmd *cobra.Command, sc *bufio.Scanner, current stri
 func printFirstRunTrustStep(cmd *cobra.Command, transport string) {
 	out := cmd.OutOrStdout()
 	if firstRunNeedsLocalCert(transport) {
-		fmt.Fprintln(out, "Install the printed onibi-local-ca.mobileconfig on iPhone if Safari warns or pairing returns Forbidden.")
-		fmt.Fprintln(out, "Then enable full trust in iOS Certificate Trust Settings.")
+		fmt.Fprintln(out, "The next step prints iPhone/iPad and Android trust-file paths.")
+		fmt.Fprintln(out, "Transfer only the matching file through a channel you control, then complete the printed trust steps before scanning the QR.")
 		return
 	}
-	fmt.Fprintln(out, "No local CA profile step for this transport.")
+	fmt.Fprintln(out, "This transport uses its public HTTPS URL; no local CA trust file is needed on the phone.")
 }
 
 func firstRunNeedsLocalCert(transport string) bool {

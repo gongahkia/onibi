@@ -20,12 +20,12 @@ For a separately run Onibi host, open that host directly and add its own browser
 ## iPhone And iPad
 
 1. Run `onibi up`.
-2. Install and fully trust `onibi-local-ca.mobileconfig` if Safari warns about HTTPS.
-3. Pair from Safari.
-4. Tap Share.
-5. Tap Add to Home Screen.
-6. Confirm the name `Onibi` and the launcher icon.
-7. Launch Onibi from the Home Screen icon.
+2. Transfer and fully trust the printed `onibi-local-ca.mobileconfig` through
+   a channel you control.
+3. Pair from Safari or a browser that offers Add to Home Screen.
+4. Use Share, then Add to Home Screen.
+5. Confirm the name `Onibi` and the launcher icon.
+6. Launch Onibi from the Home Screen icon.
 
 Expected:
 
@@ -33,18 +33,20 @@ Expected:
 - `window.matchMedia("(display-mode: standalone)").matches` is `true`.
 - The toolbar `PUSH` button can request notification permission from a user tap.
 
-If Add to Home Screen is missing, confirm the page was loaded in Safari over
-trusted HTTPS. If the installed app opens as a normal tab, delete the icon,
-reopen the paired Safari page, and add it again.
+If Add to Home Screen is missing, confirm the page was loaded over trusted
+HTTPS and use Safari. If the installed app opens as a normal tab, delete the
+icon, reopen the paired Safari page, and add it again.
 
 ## Android
 
 1. Run `onibi up`.
-2. Pair from Chrome.
-3. Open the Chrome menu.
-4. Tap Add to Home screen or Install app.
-5. Confirm the name `Onibi` and the launcher icon.
-6. Launch Onibi from the installed icon.
+2. Transfer and trust the printed `onibi-local-ca.crt` through Android system
+   Security settings.
+3. Pair from Chrome.
+4. Open the Chrome menu.
+5. Tap Add to Home screen or Install app.
+6. Confirm the name `Onibi` and the launcher icon.
+7. Launch Onibi from the installed icon.
 
 Expected:
 

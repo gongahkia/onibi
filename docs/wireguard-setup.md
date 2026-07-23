@@ -46,7 +46,10 @@ Onibi binds the web listener to the selected WireGuard IP only, includes that ex
 
 Install the official WireGuard app, import the phone peer profile, and activate the tunnel before scanning the Onibi QR.
 
-The Onibi local HTTPS profile is still required. Install and fully trust `onibi-local-ca.mobileconfig` once, then restart `onibi up` so the generated server certificate includes the active WireGuard IP.
+The Onibi local HTTPS trust file is still required. Install and trust
+`onibi-local-ca.mobileconfig` on iPhone/iPad or `onibi-local-ca.crt` on
+Android, then restart `onibi up` so the generated server certificate includes
+the active WireGuard IP.
 
 ## Smoke
 

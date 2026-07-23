@@ -55,7 +55,10 @@ Onibi binds the web listener to the selected ZeroTier IP only, includes that exa
 
 Install the official ZeroTier app, join the same network, authorize the phone in the ZeroTier controller, and activate the network before scanning the Onibi QR.
 
-The Onibi local HTTPS profile is still required. Install and fully trust `onibi-local-ca.mobileconfig` once, then restart `onibi up` so the generated server certificate includes the active ZeroTier IP.
+The Onibi local HTTPS trust file is still required. Install and trust
+`onibi-local-ca.mobileconfig` on iPhone/iPad or `onibi-local-ca.crt` on
+Android, then restart `onibi up` so the generated server certificate includes
+the active ZeroTier IP.
 
 ## Smoke
 

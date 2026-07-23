@@ -31,10 +31,12 @@
 <h2>iPhone And iPad</h2>
 <ol start="1">
 <li>Run <code>onibi up</code>.</li>
-<li>Install and fully trust <code>onibi-local-ca.mobileconfig</code> if Safari warns about HTTPS.</li>
-<li>Pair from Safari.</li>
-<li>Tap Share.</li>
-<li>Tap Add to Home Screen.</li>
+<li>Transfer and fully trust the printed <code>onibi-local-ca.mobileconfig</code> through</li>
+</ol>
+<p>a channel you control.</p>
+<ol start="3">
+<li>Pair from Safari or a browser that offers Add to Home Screen.</li>
+<li>Use Share, then Add to Home Screen.</li>
 <li>Confirm the name <code>Onibi</code> and the launcher icon.</li>
 <li>Launch Onibi from the Home Screen icon.</li>
 </ol>
@@ -44,10 +46,14 @@
 <li><code>window.matchMedia(&#34;(display-mode: standalone)&#34;).matches</code> is <code>true</code>.</li>
 <li>The toolbar <code>PUSH</code> button can request notification permission from a user tap.</li>
 </ul>
-<p>If Add to Home Screen is missing, confirm the page was loaded in Safari over trusted HTTPS. If the installed app opens as a normal tab, delete the icon, reopen the paired Safari page, and add it again.</p>
+<p>If Add to Home Screen is missing, confirm the page was loaded over trusted HTTPS and use Safari. If the installed app opens as a normal tab, delete the icon, reopen the paired Safari page, and add it again.</p>
 <h2>Android</h2>
 <ol start="1">
 <li>Run <code>onibi up</code>.</li>
+<li>Transfer and trust the printed <code>onibi-local-ca.crt</code> through Android system</li>
+</ol>
+<p>Security settings.</p>
+<ol start="3">
 <li>Pair from Chrome.</li>
 <li>Open the Chrome menu.</li>
 <li>Tap Add to Home screen or Install app.</li>

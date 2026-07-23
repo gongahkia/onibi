@@ -18,7 +18,7 @@
     <main id="content" class="prose"><h1>Transports</h1>
 <p>Onibi is a single-user phone web cockpit. Use a local network path that reaches the Mac running Onibi; pairing and owner authentication remain required on every path.</p>
 <h2>LAN and hotspot</h2>
-<p><code>onibi up --transport=lan</code> starts the local HTTPS cockpit and prints a single-use pair URL. A phone on the same LAN can open that URL after trusting the generated local CA profile. When managed Wi-Fi blocks peer traffic, use the iPhone hotspot and start Onibi again to obtain a new URL.</p>
+<p><code>onibi up --transport=lan</code> starts the local HTTPS cockpit and prints a single-use pair URL. A phone on the same LAN can open that URL after trusting the generated local CA file for its platform. When managed Wi-Fi blocks peer traffic, use a phone hotspot and start Onibi again to obtain a new URL.</p>
 <h2>Tailscale Private</h2>
 <p><code>onibi up --transport=tailscale-private</code> exposes the same cockpit only through the authenticated tailnet. Tailnet reachability is not authorization: the phone still needs the pair URL and owner session.</p>
 <p><code>tailscale</code> has been removed because it exposed the cockpit publicly. Existing <code>transport.mode: tailscale</code> configuration fails before cockpit startup; select <code>tailscale-private</code>, LAN, WireGuard, ZeroTier, Cloudflare Quick, or ngrok instead.</p>
