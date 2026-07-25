@@ -1,6 +1,6 @@
 # Provider Capability Milestones
 
-Status: Telegram beta evidence policy. This document does not certify an unverified live result.
+Status: Telegram beta and IRC experimental evidence policy. This document does not certify an unverified live result.
 
 Onibi's product remains single-owner. Telegram is a first-class beta chat cockpit; its remaining live-device evidence is unverified. It cannot add a browser owner, bypass pairing for the web cockpit, or expand the personal-owner trust boundary.
 
@@ -26,4 +26,4 @@ Provider work must fail closed when identity, encryption, or required decision s
 
 ## Current boundary
 
-Telegram is the only supported chat transport. Its exact capabilities and remaining live evidence are documented in [Transports](./transports.md) and [Telegram Chat Cockpit](./telegram.md). Other provider transports are not latent compatibility promises.
+Telegram is the only beta-supported chat transport. IRC is an explicit experimental Libera-only transport with its own owner-token boundary, local tests, and live-evidence gate; its exact contract is in [Transports](./transports.md). Other provider transports are not latent compatibility promises.

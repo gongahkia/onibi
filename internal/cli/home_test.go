@@ -42,7 +42,7 @@ func TestQuietRootSuppressesLogo(t *testing.T) {
 }
 
 func TestV3CommandTreeHasNoLegacyRoots(t *testing.T) {
-	for _, name := range []string{"start", "phone", "session", "agent", "telegram", "workspace", "transport", "system", "demo", "completion", "version"} {
+	for _, name := range []string{"start", "phone", "session", "agent", "telegram", "irc", "workspace", "transport", "system", "demo", "completion", "version"} {
 		cmd, _, err := Root().Find([]string{name})
 		if err != nil || cmd == nil || cmd.Name() != name {
 			t.Fatalf("root command %q: cmd=%v err=%v", name, cmd, err)

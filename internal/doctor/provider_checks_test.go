@@ -20,7 +20,7 @@ func TestProvidersReportAllProvidersUnconfigured(t *testing.T) {
 	paths := doctorTestPaths(t, "lan")
 	clearProviderEnv(t)
 	report := Providers(t.Context(), Options{Paths: paths, Offline: true, PreferDotenv: true})
-	want := []string{"telegram"}
+	want := []string{"telegram", "irc"}
 	if len(report.Providers) != len(want) {
 		t.Fatalf("providers = %#v", report.Providers)
 	}
@@ -36,6 +36,7 @@ func TestProvidersConfiguredStatePerProvider(t *testing.T) {
 	paths := doctorTestPaths(t, "lan")
 	clearProviderEnv(t)
 	configureTelegramProvider(t, paths)
+	configureIRCProvider(t, paths)
 	configureEnvProviders(t)
 	report := Providers(t.Context(), Options{Paths: paths, Offline: true, PreferDotenv: true})
 	for _, row := range report.Providers {
@@ -51,6 +52,7 @@ func TestProvidersMissingDetailsPerProvider(t *testing.T) {
 	report := Providers(t.Context(), Options{Paths: paths, Offline: true, PreferDotenv: true})
 	want := map[string]string{
 		"telegram": "missing bot token",
+		"irc":      "missing Libera SASL or owner-token credentials",
 	}
 	for name, detail := range want {
 		row := providerNamed(t, report, name)
@@ -64,6 +66,7 @@ func TestProvidersReachabilityFakeAPIs(t *testing.T) {
 	paths := doctorTestPaths(t, "lan")
 	clearProviderEnv(t)
 	configureTelegramProvider(t, paths)
+	configureIRCProvider(t, paths)
 	configureEnvProviders(t)
 	t.Setenv("ONIBI_DOCTOR_LIVE", "1")
 	telegramSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -76,7 +79,7 @@ func TestProvidersReachabilityFakeAPIs(t *testing.T) {
 	withTelegramProviderFactory(t, telegramSrv.URL)
 	report := Providers(t.Context(), Options{Paths: paths, PreferDotenv: true})
 	for _, row := range report.Providers {
-		if row.Reachable != ReachableYes {
+		if row.Name == "telegram" && row.Reachable != ReachableYes {
 			t.Fatalf("%s row = %#v", row.Name, row)
 		}
 	}
@@ -154,6 +157,21 @@ func configureTelegramProvider(t *testing.T, paths config.Paths) {
 	}
 }
 
+func configureIRCProvider(t *testing.T, paths config.Paths) {
+	t.Helper()
+	st, err := secrets.Open(secrets.Options{EnvFallbackPath: paths.EnvFile, PreferDotenv: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for key, value := range map[string]string{
+		daemon.IRCSecretNick: "onibi_test_bot", daemon.IRCSecretAccount: "onibi_test_bot", daemon.IRCSecretPassword: "password", daemon.IRCSecretOwnerNick: "owner", daemon.IRCSecretOwnerToken: strings.Repeat("x", 32),
+	} {
+		if err := st.Set(key, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func configureEnvProviders(t *testing.T) {
 	t.Helper()
 }
@@ -162,6 +180,11 @@ func clearProviderEnv(t *testing.T) {
 	t.Helper()
 	for _, name := range []string{
 		"ONIBI_TELEGRAM_TOKEN",
+		"ONIBI_IRC_NICK",
+		"ONIBI_IRC_ACCOUNT",
+		"ONIBI_IRC_PASSWORD",
+		"ONIBI_IRC_OWNER_NICK",
+		"ONIBI_IRC_OWNER_TOKEN",
 		"ONIBI_DOCTOR_LIVE",
 	} {
 		t.Setenv(name, "")

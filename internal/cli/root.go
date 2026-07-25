@@ -36,7 +36,7 @@ func Root() *cobra.Command {
 		}
 		defaultHelp(cmd, args)
 	})
-	root.AddCommand(startCmd(), phoneCmd(), sessionCmd(), agentCmd(), telegramCmd(), workspaceCmd(), transportCmd(), systemCmd(), demoCmd(), completionCmd(), versionCmd())
+	root.AddCommand(startCmd(), phoneCmd(), sessionCmd(), agentCmd(), telegramCmd(), ircCmd(), workspaceCmd(), transportCmd(), systemCmd(), demoCmd(), completionCmd(), versionCmd())
 
 	return root
 }
