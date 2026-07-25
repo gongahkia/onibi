@@ -29,7 +29,7 @@ Hook details:
 
 [Gemini CLI's hooks reference](https://geminicli.com/docs/hooks/reference/) documents `BeforeTool` deny and input replacement, `SessionEnd`, and millisecond hook timeouts. Onibi leaves a one-minute margin between its five-minute approval wait and Gemini's six-minute approval-hook timeout.
 
-`onibi agent inspect --agent gemini` reports generated and observed hooks, backup, hash drift, and `hooksConfig.enabled=false`. Hermetic fixtures cover denial, expiry/edit response mapping, lifecycle, timeout units, unavailable-notifier warning output, and session end.
+`onibi agent inspect --agent gemini` reports generated and observed hooks, backup, hash drift, and `hooksConfig.enabled=false`; `onibi agent status --json` reports a versioned contract with `certified: false` and `minimum_provider_version: "0.43.0"`. Hermetic fixtures cover denial, expiry/edit response mapping, lifecycle, timeout units, unavailable-notifier warning output, and session end.
 
 The authenticated deny probe creates a project-local hook in a temporary directory and blocks every tool before execution. Run it only with an isolated provider account and a reviewed model:
 
@@ -40,7 +40,7 @@ ONIBI_LIVE_GEMINI=1 ONIBI_LIVE_GEMINI_MODEL=model \
 
 It records a redacted artifact at `ONIBI_LIVE_ARTIFACT_DIR` or the temporary artifact directory.
 
-The current docs do not state a compatible Gemini CLI version floor. Gemini remains non-certified until a reviewed authenticated live artifact and a supported version floor are recorded.
+The current upstream docs do not publish Onibi's compatibility floor; Onibi currently reports `0.43.0`. Gemini remains non-certified until a reviewed authenticated live artifact and promotion review.
 
 Deliberate scope:
 

@@ -37,7 +37,7 @@ Notes:
 
 [GitHub Copilot CLI's hooks reference](https://docs.github.com/en/copilot/reference/hooks-reference) documents `preToolUse` allow/deny/ask decisions, `modifiedArgs`, `sessionEnd`, and second-based `timeoutSec`. Onibi uses `30` seconds for lifecycle hooks and `360` seconds for approval, leaving one minute above its five-minute approval wait.
 
-`onibi agent inspect --agent copilot` reports generated and observed hooks, backup, hash drift, and `disableAllHooks=true`; `onibi agent status --json` marks Copilot `certified: false` with no v1 contract. Hermetic fixtures cover approve, deny, expiry, edit, daemon-unavailable no-decision behavior, timeout no-decision behavior, restart instructions, and session end.
+`onibi agent inspect --agent copilot` reports generated and observed hooks, backup, hash drift, and `disableAllHooks=true`; `onibi agent status --json` reports a versioned contract with `certified: false` and `minimum_provider_version: "1.0.54"`. Hermetic fixtures cover approve, deny, expiry, edit, daemon-unavailable no-decision behavior, timeout no-decision behavior, restart instructions, and session end.
 
 Copilot fails `preToolUse` closed when a command hook exits nonzero, but its hook timeout fails open to normal permission handling. Onibi returns exit 0 with no provider decision when its daemon/socket is unavailable. A missing or corrupt `onibi-notify` command is a Copilot hook failure and therefore fails closed; repair the hook installation.
 
@@ -49,4 +49,4 @@ ONIBI_LIVE_COPILOT=1 ONIBI_LIVE_COPILOT_ALLOW_ALL=1 \
   go test ./internal/adapters/copilot -run TestLiveCopilotDeny -count=1
 ```
 
-It records a redacted artifact at `ONIBI_LIVE_ARTIFACT_DIR` or the temporary artifact directory. The current hooks reference does not state a compatible Copilot CLI version floor. Copilot remains non-certified until a reviewed authenticated live artifact and a supported version floor are recorded.
+It records a redacted artifact at `ONIBI_LIVE_ARTIFACT_DIR` or the temporary artifact directory. The current hooks reference does not publish Onibi's compatibility floor; Onibi currently reports `1.0.54`. Copilot remains non-certified until a reviewed authenticated live artifact and promotion review.
