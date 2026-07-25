@@ -76,11 +76,16 @@ func TestProviderOutputOverrideSelection(t *testing.T) {
 		ProviderOutput: ProviderOutputPolicy{MaxChunks: 8, MaxBytes: 4096, Redaction: "default"},
 		ProviderOutputOverrides: ProviderOutputOverrides{
 			Telegram: ProviderOutputPolicy{MaxBytes: 900, Redaction: "strict"},
+			IRC:      ProviderOutputPolicy{MaxBytes: 1200, Redaction: "strict"},
 		},
 	})
 	telegramPolicy := d.providerOutputPolicy("telegram")
 	if telegramPolicy.MaxBytes != 900 || telegramPolicy.MaxChunks != 8 || telegramPolicy.Redaction != "strict" {
 		t.Fatalf("telegram policy = %#v", telegramPolicy)
+	}
+	ircPolicy := d.providerOutputPolicy("irc")
+	if ircPolicy.MaxBytes != 1200 || ircPolicy.MaxChunks != 8 || ircPolicy.Redaction != "strict" {
+		t.Fatalf("irc policy = %#v", ircPolicy)
 	}
 	defaultPolicy := d.providerOutputPolicy("unknown")
 	if defaultPolicy.MaxBytes != 4096 || defaultPolicy.Redaction != "default" {

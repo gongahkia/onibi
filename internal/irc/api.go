@@ -140,6 +140,7 @@ func (c *Client) handshake(ctx context.Context) error {
 	}
 	seenLS := false
 	sentAuth := false
+	sentPayload := false
 	sentEnd := false
 	for {
 		msg, err := c.readMessage(ctx)
@@ -175,7 +176,8 @@ func (c *Client) handshake(ctx context.Context) error {
 				}
 			}
 		case "AUTHENTICATE":
-			if sentAuth && strings.TrimSpace(msg.Params[0]) == "+" {
+			if sentAuth && !sentPayload && len(msg.Params) > 0 && strings.TrimSpace(msg.Params[0]) == "+" {
+				sentPayload = true
 				blob := base64.StdEncoding.EncodeToString([]byte(c.Config.Account + "\x00" + c.Config.Account + "\x00" + c.Config.Password))
 				for len(blob) > 400 {
 					if err := c.writeLine(ctx, "AUTHENTICATE "+blob[:400], false); err != nil {
@@ -185,6 +187,11 @@ func (c *Client) handshake(ctx context.Context) error {
 				}
 				if err := c.writeLine(ctx, "AUTHENTICATE "+blob, false); err != nil {
 					return err
+				}
+				if len(blob) == 400 {
+					if err := c.writeLine(ctx, "AUTHENTICATE +", false); err != nil {
+						return err
+					}
 				}
 			}
 		case "903":
@@ -244,7 +251,11 @@ func (c *Client) SendPrivmsg(ctx context.Context, target, text string) error {
 	if strings.TrimSpace(target) == "" {
 		return errors.New("irc target required")
 	}
-	for _, chunk := range ChunkText(text, MaxMessageRunes) {
+	maxBytes := 510 - len("PRIVMSG "+target+" :")
+	if maxBytes < 1 {
+		return errors.New("irc target too long")
+	}
+	for _, chunk := range chunkText(text, MaxMessageRunes, maxBytes) {
 		if err := c.writeLine(ctx, "PRIVMSG "+target+" :"+chunk, true); err != nil {
 			return err
 		}
@@ -253,24 +264,32 @@ func (c *Client) SendPrivmsg(ctx context.Context, target, text string) error {
 }
 
 func ChunkText(text string, limit int) []string {
+	return chunkText(text, limit, 0)
+}
+
+func chunkText(text string, runeLimit, byteLimit int) []string {
 	text = strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(text, "\r", ""), "\n", " "))
 	if text == "" {
 		return []string{"(empty)"}
 	}
-	if limit <= 0 {
-		limit = MaxMessageRunes
+	if runeLimit <= 0 {
+		runeLimit = MaxMessageRunes
 	}
-	if utf8.RuneCountInString(text) <= limit {
+	if utf8.RuneCountInString(text) <= runeLimit && (byteLimit <= 0 || len(text) <= byteLimit) {
 		return []string{text}
 	}
 	var out []string
-	buf := make([]rune, 0, limit)
+	buf := make([]rune, 0, runeLimit)
+	bytes := 0
 	for _, r := range text {
-		buf = append(buf, r)
-		if len(buf) == limit {
+		runeBytes := utf8.RuneLen(r)
+		if len(buf) > 0 && (len(buf) == runeLimit || (byteLimit > 0 && bytes+runeBytes > byteLimit)) {
 			out = append(out, string(buf))
 			buf = buf[:0]
+			bytes = 0
 		}
+		buf = append(buf, r)
+		bytes += runeBytes
 	}
 	if len(buf) > 0 {
 		out = append(out, string(buf))
@@ -306,14 +325,29 @@ func (c *Client) readMessage(ctx context.Context) (Message, error) {
 	if r == nil {
 		return Message{}, errors.New("irc client not connected")
 	}
-	line, err := r.ReadString('\n')
+	line, err := readLine(r)
 	if err != nil {
 		return Message{}, err
 	}
-	if len(line) > MaxLineBytes {
-		return Message{}, errors.New("irc line exceeds limit")
-	}
 	return ParseLine(line)
+}
+
+func readLine(r *bufio.Reader) (string, error) {
+	var out []byte
+	for {
+		part, err := r.ReadSlice('\n')
+		out = append(out, part...)
+		if len(out) > MaxLineBytes {
+			return "", errors.New("irc line exceeds limit")
+		}
+		if err == nil {
+			return string(out), nil
+		}
+		if errors.Is(err, bufio.ErrBufferFull) {
+			continue
+		}
+		return "", err
+	}
 }
 
 func (c *Client) writeLine(ctx context.Context, line string, limited bool) error {

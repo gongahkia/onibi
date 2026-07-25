@@ -240,11 +240,26 @@ func printExplainLine(cmd *cobra.Command, label, value string) {
 var doctorOptionsHook func(*doctor.Options)
 
 func augmentReleaseDoctorReport(ctx context.Context, paths config.Paths, report doctor.Report) doctor.Report {
-	checks := make([]doctor.Check, 0, len(report.Checks)+1)
+	checks := make([]doctor.Check, 0, len(report.Checks)+2)
 	checks = append(checks, telegramOptionalDoctorCheck(ctx, paths))
+	checks = append(checks, ircOptionalDoctorCheck(ctx, paths))
 	checks = append(checks, report.Checks...)
 	report.Checks = checks
 	return report
+}
+
+func ircOptionalDoctorCheck(ctx context.Context, paths config.Paths) doctor.Check {
+	settings, err := loadIRCSettings(ctx, paths)
+	if err != nil {
+		return doctor.Check{Name: "irc experimental", Status: doctor.Warn, Detail: err.Error(), Code: "irc_experimental", Next: "onibi irc status"}
+	}
+	if err := settings.valid(); err != nil {
+		if settings.Nick == "" && settings.Account == "" && settings.Password == "" && settings.OwnerNick == "" && settings.OwnerToken == "" {
+			return doctor.Check{Name: "irc experimental", Status: doctor.Pass, Detail: "not configured; optional", Code: "irc_experimental"}
+		}
+		return doctor.Check{Name: "irc experimental", Status: doctor.Warn, Detail: err.Error(), Code: "irc_experimental", Next: "onibi irc status --check", Impact: "IRC transport cannot authenticate safely.", SafeFix: "run onibi irc setup", ManualFix: "inspect Libera SASL credentials and owner token", Retry: "onibi system doctor --release", Blocks: []string{"irc"}}
+	}
+	return doctor.Check{Name: "irc experimental", Status: doctor.Pass, Detail: "configured; run onibi irc status --check before use", Code: "irc_experimental"}
 }
 
 func telegramOptionalDoctorCheck(ctx context.Context, paths config.Paths) doctor.Check {

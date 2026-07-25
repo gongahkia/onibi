@@ -121,9 +121,21 @@ func TestChunkTextAndParseLine(t *testing.T) {
 	if len(chunks) != 2 || len([]rune(chunks[0])) != 400 || len([]rune(chunks[1])) != 1 {
 		t.Fatalf("chunks = %#v", chunks)
 	}
+	for _, chunk := range chunkText(strings.Repeat("界", 400), 400, 400) {
+		if len(chunk) > 400 || len([]rune(chunk)) > 400 {
+			t.Fatalf("wire chunk = %q", chunk)
+		}
+	}
 	m, err := ParseLine("@account=owner :owner!u@h PRIVMSG bot :hello\r\n")
 	if err != nil || m.Nick() != "owner" || m.Tags["account"] != "owner" || m.Trailing != "hello" {
 		t.Fatalf("message = %#v, %v", m, err)
+	}
+}
+
+func TestReadLineRejectsOversizedInput(t *testing.T) {
+	_, err := readLine(bufio.NewReader(strings.NewReader(strings.Repeat("x", MaxLineBytes+1) + "\n")))
+	if err == nil || !strings.Contains(err.Error(), "exceeds limit") {
+		t.Fatalf("err = %v", err)
 	}
 }
 

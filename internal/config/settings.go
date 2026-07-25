@@ -244,9 +244,9 @@ func (c Config) Validate() error {
 		return fmt.Errorf("transport.mode=%q has been removed; set transport.mode to cloudflare-quick or a private transport", mode)
 	case capability.IsV1WebTransport(mode), capability.IsInternalWebTransport(mode), capability.IsV1ProviderTransport(mode):
 	case mode == "email" || mode == "sms" || mode == "apns" || mode == "gotify" || mode == "ntfy" || mode == "pushover" || mode == "signal" || mode == "zulip" || mode == "discord" || mode == "slack" || mode == "matrix":
-		return fmt.Errorf("transport.mode=%q is no longer supported; use web push or telegram", mode)
+		return fmt.Errorf("transport.mode=%q is no longer supported; use web push, telegram, or experimental irc", mode)
 	default:
-		return fmt.Errorf("transport.mode must be a supported web transport or telegram")
+		return fmt.Errorf("transport.mode must be a supported web transport, telegram, or experimental irc")
 	}
 	switch strings.ToLower(strings.TrimSpace(c.Terminal.Default)) {
 	case "auto", "ghostty", "none":

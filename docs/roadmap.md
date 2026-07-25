@@ -7,7 +7,7 @@ The supported path is a managed local terminal session, HTTPS pairing, WebSocket
 Not part of the focused product:
 
 - Hosted, remote, or multi-user control planes.
-- Third-party control bridges or credential-management surfaces by default. Telegram is a first-class beta with [unverified] live-device evidence.
+- Third-party control bridges or credential-management surfaces by default. Telegram is a first-class beta with [unverified] live-device evidence; Libera IRC is an explicit experimental opt-in with a separate owner-token and live-evidence gate.
 - Secondary product surfaces outside local terminal pairing and Web Push.
 - Non-Ghostty desktop handover claims.
 
