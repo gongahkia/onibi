@@ -21,7 +21,7 @@ var v1WebTransports = []string{
 	"auto",
 }
 
-var v1ProviderTransports = []string{"telegram", "irc"}
+var v1ProviderTransports = []string{"telegram"}
 
 func V1Agents() []string { return append([]string(nil), v1Agents...) }
 

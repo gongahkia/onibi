@@ -8,5 +8,4 @@ import (
 )
 
 func (d *Daemon) startTelegramBridge(context.Context, *sync.WaitGroup, context.CancelFunc) {}
-func (d *Daemon) startIRCBridge(context.Context, *sync.WaitGroup, context.CancelFunc)      {}
 func (d *Daemon) startWebPushNotifier(context.Context, *sync.WaitGroup)                    {}

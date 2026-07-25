@@ -9,7 +9,6 @@ import (
 
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/daemon"
-	"github.com/gongahkia/onibi/internal/irc"
 	"github.com/gongahkia/onibi/internal/secrets"
 	"github.com/gongahkia/onibi/internal/store"
 	"github.com/gongahkia/onibi/internal/telegram"
@@ -44,67 +43,8 @@ func Providers(ctx context.Context, opts Options) ProviderReport {
 	pa := providerAudit(ctx, opts.Paths)
 	rows := []ProviderRow{
 		providerTelegram(ctx, opts, pa),
-		providerIRC(ctx, opts, pa),
 	}
 	return ProviderReport{Providers: rows}
-}
-
-func providerIRC(ctx context.Context, opts Options, pa map[string]string) ProviderRow {
-	row := providerRow("irc", pa)
-	settings, err := providerIRCSettings(ctx, opts)
-	row.Configured = err == nil && settings.Validate() == nil && strings.TrimSpace(settings.OwnerNick) != "" && len(settings.OwnerToken) >= 32
-	if err != nil {
-		row.Detail = "credential lookup failed: " + err.Error()
-	} else if !row.Configured {
-		row.Detail = "missing Libera SASL or owner-token credentials"
-	} else {
-		row.Detail = "configured; run onibi irc status --check for TLS/SASL validation"
-	}
-	if !row.Configured {
-		row.Fix = []string{"run onibi irc setup", "run onibi irc status --check"}
-	}
-	return row
-}
-
-type ircProviderSettings struct {
-	irc.Config
-	OwnerNick  string
-	OwnerToken string
-}
-
-func providerIRCSettings(ctx context.Context, opts Options) (ircProviderSettings, error) {
-	st, err := secrets.Open(secrets.Options{EnvFallbackPath: opts.Paths.EnvFile, PreferDotenv: opts.PreferDotenv})
-	if err != nil {
-		return ircProviderSettings{}, err
-	}
-	get := func(env, key string) (string, error) {
-		if value := strings.TrimSpace(os.Getenv(env)); value != "" {
-			return value, nil
-		}
-		value, _, err := st.GetWithTimeout(ctx, key, time.Second)
-		return strings.TrimSpace(value), err
-	}
-	nick, err := get("ONIBI_IRC_NICK", daemon.IRCSecretNick)
-	if err != nil {
-		return ircProviderSettings{}, err
-	}
-	account, err := get("ONIBI_IRC_ACCOUNT", daemon.IRCSecretAccount)
-	if err != nil {
-		return ircProviderSettings{}, err
-	}
-	password, err := get("ONIBI_IRC_PASSWORD", daemon.IRCSecretPassword)
-	if err != nil {
-		return ircProviderSettings{}, err
-	}
-	ownerNick, err := get("ONIBI_IRC_OWNER_NICK", daemon.IRCSecretOwnerNick)
-	if err != nil {
-		return ircProviderSettings{}, err
-	}
-	ownerToken, err := get("ONIBI_IRC_OWNER_TOKEN", daemon.IRCSecretOwnerToken)
-	if err != nil {
-		return ircProviderSettings{}, err
-	}
-	return ircProviderSettings{Config: irc.Config{Nick: nick, Account: account, Password: password}, OwnerNick: ownerNick, OwnerToken: ownerToken}, nil
 }
 
 func providerTelegram(ctx context.Context, opts Options, pa map[string]string) ProviderRow {
@@ -192,7 +132,7 @@ func providerAudit(ctx context.Context, paths config.Paths) map[string]string {
 	}
 	out := map[string]string{}
 	for _, e := range entries {
-		for _, name := range []string{"telegram", "irc"} {
+		for _, name := range []string{"telegram"} {
 			if providerAuditMatch(name, e) {
 				out[name] = e.TS.UTC().Format(time.RFC3339)
 			}

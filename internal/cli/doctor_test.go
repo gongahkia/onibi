@@ -52,7 +52,7 @@ func TestDoctorProvidersJSONShowsAllProviders(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
 		t.Fatalf("json: %v\n%s", err, out.String())
 	}
-	if len(report.Providers) != 2 {
+	if len(report.Providers) != 1 {
 		t.Fatalf("providers = %#v", report.Providers)
 	}
 }
@@ -64,7 +64,7 @@ func TestDoctorProvidersFixPrintsSetupGuidance(t *testing.T) {
 		t.Fatalf("execute doctor --providers --fix: %v\n%s", err, out.String())
 	}
 	got := out.String()
-	for _, want := range []string{"telegram", "onibi telegram setup", "irc", "onibi irc setup"} {
+	for _, want := range []string{"telegram", "onibi telegram setup"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("output missing %q:\n%s", want, got)
 		}

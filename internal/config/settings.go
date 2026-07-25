@@ -85,7 +85,6 @@ type ProviderOutput struct {
 	MaxBytes  int                    `yaml:"max_bytes" json:"max_bytes"`
 	Redaction string                 `yaml:"redaction" json:"redaction"`
 	Telegram  ProviderOutputOverride `yaml:"telegram,omitempty" json:"telegram,omitempty"`
-	IRC       ProviderOutputOverride `yaml:"irc,omitempty" json:"irc,omitempty"`
 }
 
 type ProviderOutputOverride struct {
@@ -538,7 +537,6 @@ type rawProviderOutput struct {
 	MaxBytes  *int                      `yaml:"max_bytes"`
 	Redaction *string                   `yaml:"redaction"`
 	Telegram  rawProviderOutputOverride `yaml:"telegram"`
-	IRC       rawProviderOutputOverride `yaml:"irc"`
 }
 
 type rawProviderOutputOverride struct {
@@ -609,7 +607,6 @@ func applyRaw(cfg *Config, meta *LoadMeta, raw rawConfig) {
 		meta.Explicit["provider.output.redaction"] = true
 	}
 	applyRawProviderOutputOverride(&cfg.Provider.Output.Telegram, meta, "telegram", raw.Provider.Output.Telegram)
-	applyRawProviderOutputOverride(&cfg.Provider.Output.IRC, meta, "irc", raw.Provider.Output.IRC)
 	if raw.Terminal.Default != nil {
 		cfg.Terminal.Default = strings.ToLower(strings.TrimSpace(*raw.Terminal.Default))
 		meta.Explicit["terminal.default"] = true
@@ -617,15 +614,13 @@ func applyRaw(cfg *Config, meta *LoadMeta, raw rawConfig) {
 }
 
 func providerOutputProviderNames() []string {
-	return []string{"telegram", "irc"}
+	return []string{"telegram"}
 }
 
 func providerOutputOverride(out ProviderOutput, provider string) ProviderOutputOverride {
 	switch provider {
 	case "telegram":
 		return out.Telegram
-	case "irc":
-		return out.IRC
 	default:
 		return ProviderOutputOverride{}
 	}
@@ -635,8 +630,6 @@ func providerOutputOverridePtr(out *ProviderOutput, provider string) *ProviderOu
 	switch provider {
 	case "telegram":
 		return &out.Telegram
-	case "irc":
-		return &out.IRC
 	default:
 		return nil
 	}

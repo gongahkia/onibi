@@ -259,16 +259,6 @@ func TestTelegramProviderTransportIsSupported(t *testing.T) {
 	}
 }
 
-func TestIRCProviderTransportIsSupported(t *testing.T) {
-	cfg := Default()
-	if err := Set(&cfg, "transport.mode", "irc"); err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Transport.Mode != "irc" {
-		t.Fatalf("mode = %q", cfg.Transport.Mode)
-	}
-}
-
 func TestTransportModeRejectsUnsupportedValue(t *testing.T) {
 	cfg := Default()
 	err := Set(&cfg, "transport.mode", "satellite")

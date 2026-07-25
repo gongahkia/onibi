@@ -11,11 +11,6 @@ const (
 	TelegramKVOwnerChatID  = "telegram.owner_chat_id"
 	TelegramKVOwnerUserID  = "telegram.owner_user_id"
 	TelegramKVPairCode     = "telegram.pair_code"
-	IRCSecretNick          = "IRC_NICK"
-	IRCSecretAccount       = "IRC_ACCOUNT"
-	IRCSecretPassword      = "IRC_PASSWORD"
-	IRCSecretOwnerNick     = "IRC_OWNER_NICK"
-	IRCSecretOwnerToken    = "IRC_OWNER_TOKEN"
 )
 
 func NewTelegramPairCode() (string, error) {
