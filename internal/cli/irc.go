@@ -13,8 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/term"
-
 	"github.com/spf13/cobra"
 
 	"github.com/gongahkia/onibi/internal/config"
@@ -151,14 +149,11 @@ func runIRCStatus(cmd *cobra.Command, _ []string) error {
 	}
 	defer db.Close()
 	settings, err := loadIRCSettings(cmd.Context(), paths)
-	validErr := settings.valid()
-	configured := err == nil && validErr == nil
+	configured := err == nil && settings.valid() == nil
 	check, _ := cmd.Flags().GetBool("check")
 	report := ircStatusReport{Configured: configured, SecretBackend: settings.Backend, Check: check, Endpoint: irc.DefaultHost + ":" + irc.DefaultPort}
 	if err != nil {
 		report.Error = err.Error()
-	} else if validErr != nil {
-		report.Error = validErr.Error()
 	}
 	if check && configured {
 		if err := checkIRC(cmd.Context(), settings); err != nil {
@@ -295,17 +290,6 @@ func promptIRCField(cmd *cobra.Command, name string) (string, error) {
 		return "", fmt.Errorf("--%s required when stdin is not a terminal", name)
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "%s: ", name)
-	if name == "password" && cmd.InOrStdin() == os.Stdin {
-		value, err := term.ReadPassword(int(os.Stdin.Fd()))
-		fmt.Fprintln(cmd.OutOrStdout())
-		if err != nil {
-			return "", err
-		}
-		if text := strings.TrimSpace(string(value)); text != "" {
-			return text, nil
-		}
-		return "", errors.New("password required")
-	}
 	sc := bufio.NewScanner(cmd.InOrStdin())
 	if !sc.Scan() {
 		return "", sc.Err()

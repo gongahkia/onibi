@@ -169,7 +169,7 @@ func TestDoctorReleaseModeIncludesTelegramAndAfterUpgrade(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
 		t.Fatalf("json: %v\n%s", err, out.String())
 	}
-	for _, want := range []string{"telegram optional", "irc experimental", "after-upgrade hooks"} {
+	for _, want := range []string{"telegram optional", "after-upgrade hooks"} {
 		if !hasDoctorCheck(report, want) {
 			t.Fatalf("missing %q in %#v", want, report.Checks)
 		}

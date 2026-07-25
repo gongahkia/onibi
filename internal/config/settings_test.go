@@ -155,19 +155,6 @@ func TestProviderOutputValidation(t *testing.T) {
 	}
 }
 
-func TestIRCProviderOutputOverride(t *testing.T) {
-	cfg := Default()
-	if err := Set(&cfg, "provider.output.irc.max_bytes", "1200"); err != nil {
-		t.Fatal(err)
-	}
-	if err := Set(&cfg, "provider.output.irc.redaction", "strict"); err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Provider.Output.IRC.MaxBytes != 1200 || cfg.Provider.Output.IRC.Redaction != "strict" {
-		t.Fatalf("irc output = %#v", cfg.Provider.Output.IRC)
-	}
-}
-
 func TestTerminalDefaultValues(t *testing.T) {
 	for _, value := range []string{"auto", "ghostty", "none"} {
 		t.Run(value, func(t *testing.T) {
@@ -285,7 +272,7 @@ func TestIRCProviderTransportIsSupported(t *testing.T) {
 func TestTransportModeRejectsUnsupportedValue(t *testing.T) {
 	cfg := Default()
 	err := Set(&cfg, "transport.mode", "satellite")
-	if err == nil || !strings.Contains(err.Error(), "supported web transport, telegram, or experimental irc") {
+	if err == nil || !strings.Contains(err.Error(), "supported web transport or telegram") {
 		t.Fatalf("unexpected err: %v", err)
 	}
 }

@@ -2,7 +2,6 @@ package irc
 
 import (
 	"context"
-	"crypto/sha256"
 	"crypto/subtle"
 	"errors"
 	"fmt"
@@ -103,15 +102,6 @@ func (p *Provider) Connect(ctx context.Context) error {
 	if p == nil || p.Client == nil {
 		return errors.New("irc provider client missing")
 	}
-	done := make(chan struct{})
-	go func() {
-		select {
-		case <-ctx.Done():
-			_ = p.Client.Close()
-		case <-done:
-		}
-	}()
-	defer close(done)
 	failures := 0
 	for {
 		if err := p.Client.Connect(ctx); err != nil {
@@ -191,9 +181,7 @@ func (p *Provider) authorizedPayload(text string) (string, bool) {
 	if len(parts) != 3 || !strings.EqualFold(parts[0], commandPrefix) || strings.TrimSpace(p.OwnerToken) == "" {
 		return "", false
 	}
-	presented := sha256.Sum256([]byte(parts[1]))
-	expected := sha256.Sum256([]byte(p.OwnerToken))
-	if subtle.ConstantTimeCompare(presented[:], expected[:]) != 1 {
+	if subtle.ConstantTimeCompare([]byte(parts[1]), []byte(p.OwnerToken)) != 1 {
 		return "", false
 	}
 	payload := strings.TrimSpace(parts[2])
