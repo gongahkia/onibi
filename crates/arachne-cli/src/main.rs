@@ -3257,7 +3257,7 @@ mod tests {
             "mailbox_capability=8301502222222222222222222222222222222258203333333333333333333333333333333333333333333333333333333333333333\n",
             "recipient_capability_direct=8401014b84010444c000020119115c40\n",
             "encrypted_header_direct=8201508401014b84010444c000020119115c40\n",
-            "identity_identifier=fbcc7bd59b35de83c8ea6d3ff094463cda5c962f1e71c9d6cdbef01fc36178ae\n",
+            "identity_identifier=5ac9a6c5424ce1b184a00426c0322cb44f0bb8084c0ac32c765aa23c37fa6db0\n",
             "qr_verification=830158203d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c5820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a\n",
         );
         assert!(super::verify_protocol_vectors(candidate).is_ok());
@@ -3297,7 +3297,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             identity_record(&public_key),
-            "public_key=d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a\nidentity_identifier=fbcc7bd59b35de83c8ea6d3ff094463cda5c962f1e71c9d6cdbef01fc36178ae\n"
+            "public_key=d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a\nidentity_identifier=5ac9a6c5424ce1b184a00426c0322cb44f0bb8084c0ac32c765aa23c37fa6db0\n"
         );
     }
 

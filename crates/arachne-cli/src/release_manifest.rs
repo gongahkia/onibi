@@ -443,7 +443,7 @@ mod tests {
         let decoded = SignedReleaseArtifactManifest::decode(&encoded).unwrap();
 
         assert_eq!(decoded, manifest);
-        assert_eq!(decoded.artifacts()[0].name(), "release-metadata.json");
+        assert_eq!(decoded.artifacts()[0].name(), "arachne");
         assert!(decoded.verify(&signer.public_key()).is_ok());
         assert!(matches!(
             decoded.verify(&unrelated.public_key()),

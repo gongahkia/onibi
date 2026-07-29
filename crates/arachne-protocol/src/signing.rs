@@ -42,7 +42,7 @@ mod tests {
 
     #[test]
     fn signing_input_is_canonical_and_domain_separated() {
-        let mut expected = vec![0x82, 0x58, 0x1e];
+        let mut expected = vec![0x82, 0x58, 0x1d];
         expected.extend(b"arachne/v1/envelope-signature");
         expected.extend([0x47, 0x83, 0x01, 0x02, 0x43, 0x01, 0x02, 0x03]);
 
