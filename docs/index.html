@@ -10,80 +10,62 @@
 </head>
 <body class="onibi-home">
   <a class="skip-link" href="#content">Skip to content</a>
-  <a class="github-corner" href="https://github.com/gongahkia/onibi" target="_blank" rel="noopener" aria-label="View Onibi on GitHub"><svg viewBox="0 0 250 250" aria-hidden="true"><path d="M0,0 L115,115 L130,115 L142,142 L250,250 L250,0 Z"></path><path class="octo-arm" d="M128.3,109C113.8,99.7,119,89.6,119,89.6c3-7.6,1.5-11,1.5-11-1.3-6.6,2.9-2.3,2.9-2.3,3.9,4.6,2.1,11,2.1,11-2.9,10.3,4.5,14.6,8.9,15.9" fill="currentColor"></path><path class="octo-body" d="M115,115c-.1.1,3,1.5,4.8.4l13.9-13.8c3.2-2.4,6.2-3.2,8.5-3-8.4-10.6-8.5-24.6,1.6-40.6,4.7-4.6,10.2-6.9,15.9-7,1.3-1.6,2.7-7.6,10.9-10.9,0,0,4.7,1.9,7.4,15.9,4.1,1.9,7.3,5.1,11,8.8,3.7,3.7,6.9,10.2,9.3,14.6,13.7,2.6,16.2,5.5,16.2,5.5-4.2,8.2-7.6,11.1-9.1,11.7.2,5.8-2,10.4-6.7,15.9-16.4,16.4-30.6,9-41.2,1.6.2,2.8-1.8,6.8-5.8,10.8L141,136.5c-1.2,1.2.8,5.2.8,5.3Z" fill="currentColor"></path></svg></a>
-  <header class="site-header home-header">
-    <div class="site-header-inner">
-      <a class="brand" href="index.html" aria-label="Onibi home"><span class="brand-mark" aria-hidden="true">◒</span>onibi</a>
-      <nav class="top-nav" aria-label="Primary"><a href="getting-started.html">Documentation</a></nav>
-    </div>
-  </header>
-  <main id="content">
-    <section class="home-hero">
-      <div class="hero-copy">
-        <h1>Remote Control Ghostty<br>from anywhere<br><em>Text Renders</em></h1>
-        <div class="install-card">
-          <pre><code>brew install gongahkia/onibi/onibi</code></pre>
-          <button class="copy-command" type="button" data-copy="brew install gongahkia/onibi/onibi" aria-label="Copy command" title="Copy command"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="10" height="10" rx="1.5"></rect><path d="M15 9V6.5A1.5 1.5 0 0 0 13.5 5h-7A1.5 1.5 0 0 0 5 6.5v7A1.5 1.5 0 0 0 6.5 15H9"></path></svg></button>
-        </div>
-        <p class="hero-note">macOS focused · Linux beta · Apache-2.0</p>
-      </div>
-      <figure class="hero-art">
+  <main id="content" class="home-shell">
+    <header class="home-header">
+      <a class="home-brand" href="index.html" aria-label="Onibi home"><span aria-hidden="true">◒</span>onibi</a>
+      <nav aria-label="Primary"><a href="getting-started.html">Documentation</a><a href="https://github.com/gongahkia/onibi" target="_blank" rel="noopener">GitHub</a></nav>
+    </header>
+
+    <section class="home-hero" aria-labelledby="home-title">
+      <h1 id="home-title">Onibi <span>for coding agents</span></h1>
+      <figure class="home-banner">
         <img src="assets/onibi-marketing.png" alt="Two classical figures looking at a laptop and phone terminal">
+      </figure>
+      <p class="home-tagline">Remote Control Ghostty from anywhere.<br><em>Text Renders.</em></p>
+      <p class="install-line">→ <button class="install-command" type="button" data-copy="brew install gongahkia/onibi/onibi" aria-label="Copy brew install command"><code>brew install gongahkia/onibi/onibi</code></button></p>
+      <p class="hero-note">macOS focused · Linux beta · Apache-2.0</p>
+      <p class="down-arrow" aria-hidden="true">☟</p>
+    </section>
+
+    <section class="home-section" aria-labelledby="start-title">
+      <h2 id="start-title"><span>01</span> Start a private session.</h2>
+      <p>Onibi creates and manages a tmux-backed local shell. Pair one phone by QR, then use its browser as the same terminal—not a second, mirrored workflow.</p>
+      <pre class="command-block"><code>$ onibi agent install --agent claude
+$ onibi start --transport=lan</code></pre>
+      <p>→ <a href="getting-started.html">Read the getting-started guide</a></p>
+    </section>
+
+    <section class="home-section" aria-labelledby="approval-title">
+      <h2 id="approval-title"><span>02</span> Approve the work that needs your say.</h2>
+      <p>Supported agent hooks deliver approval requests directly to your paired cockpit. Read the action, allow it, or deny it before a local command runs.</p>
+      <ul>
+        <li>One owner device, paired over HTTPS</li>
+        <li>Live terminal over a local WebSocket</li>
+        <li>Managed session handover between phone and Mac</li>
+      </ul>
+      <figure class="detail-art">
+        <img src="assets/onibi-lantern.jpg" alt="An antique lantern beside a laptop and phone in a neoclassical study">
       </figure>
     </section>
 
-    <section class="brew-section install-section" aria-labelledby="start-title">
-      <div class="section-number">01</div>
-      <div class="section-content">
-        <h2 id="start-title">Start a private session.</h2>
-        <p>Onibi creates and manages a tmux-backed local shell. Pair one phone by QR, then use its browser as the same terminal—not a second, mirrored workflow.</p>
-        <div class="terminal-card" aria-label="Onibi setup commands">
-          <div class="terminal-bar"><span></span><span></span><span></span><b>onibi</b></div>
-          <pre><code><i>$</i> onibi agent install --agent claude
-<i>$</i> onibi start --transport=lan</code></pre>
-        </div>
-        <a class="text-link" href="getting-started.html">Read the getting-started guide <span aria-hidden="true">→</span></a>
-      </div>
+    <section class="home-section" aria-labelledby="local-title">
+      <h2 id="local-title"><span>03</span> Local by design.</h2>
+      <p>Onibi hosts the terminal locally. Pairing tokens are single-use and short-lived; the owner browser uses a secure cookie; HTTPS is required. It is a deliberately narrow tool for a single operator and their own machine.</p>
+      <h3>Managed sessions</h3>
+      <p>Onibi owns the tmux-backed PTY, so your terminal follows you without losing its state.</p>
+      <h3>Guarded actions</h3>
+      <p>Claude Code hooks can pause risky tool calls until you decide from the cockpit.</p>
+      <h3>Transport choices</h3>
+      <p>Use a LAN pairing flow or an authenticated tailnet when you need distance.</p>
     </section>
 
-    <section class="brew-section feature-section" aria-labelledby="approval-title">
-      <div class="section-number">02</div>
-      <div class="section-content feature-grid">
-        <div>
-          <h2 id="approval-title">Approve the work that needs your say.</h2>
-          <p>Supported agent hooks deliver approval requests directly to your paired cockpit. Read the action, allow it, or deny it before a local command runs.</p>
-          <ul class="feature-list">
-            <li>One owner device, paired over HTTPS</li>
-            <li>Live terminal over a local WebSocket</li>
-            <li>Managed session handover between phone and Mac</li>
-          </ul>
-        </div>
-        <figure class="lantern-art">
-          <img src="assets/onibi-lantern.jpg" alt="An antique lantern beside a laptop and phone in a neoclassical study">
-        </figure>
-      </div>
-    </section>
-
-    <section class="brew-section privacy-section" aria-labelledby="local-title">
-      <div class="section-number">03</div>
-      <div class="section-content">
-        <h2 id="local-title">Local by design.</h2>
-        <p>Onibi hosts the terminal locally. Pairing tokens are single-use and short-lived; the owner browser uses a secure cookie; HTTPS is required. It is a deliberately narrow tool for a single operator and their own machine.</p>
-        <div class="principle-grid">
-          <article><h3>Managed sessions</h3><p>Onibi owns the tmux-backed PTY, so your terminal follows you without losing its state.</p></article>
-          <article><h3>Guarded actions</h3><p>Claude Code hooks can pause risky tool calls until you decide from the cockpit.</p></article>
-          <article><h3>Transport choices</h3><p>Use a LAN pairing flow or an authenticated tailnet when you need distance.</p></article>
-        </div>
-      </div>
-    </section>
-
-    <section class="resources" aria-labelledby="resources-title">
+    <section class="home-section resources" aria-labelledby="resources-title">
       <h2 id="resources-title">Make the cockpit yours.</h2>
-      <div class="resource-grid">
-        <a href="getting-started.html"><span>01</span><strong>Get started</strong><small>Set up Onibi, pair a phone, and start a session.</small></a>
-        <a href="transports.html"><span>02</span><strong>Choose a transport</strong><small>Compare LAN, private tailnet, and remote options.</small></a>
-        <a href="security.html"><span>03</span><strong>Read the security model</strong><small>Understand the local trust boundary and safeguards.</small></a>
-      </div>
+      <ol class="resource-list">
+        <li><a href="getting-started.html">Get started</a><small>Set up Onibi, pair a phone, and start a session.</small></li>
+        <li><a href="transports.html">Choose a transport</a><small>Compare LAN, private tailnet, and remote options.</small></li>
+        <li><a href="security.html">Read the security model</a><small>Understand the local trust boundary and safeguards.</small></li>
+      </ol>
     </section>
   </main>
   <script>
@@ -92,7 +74,7 @@
         if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(button.dataset.copy);
         button.dataset.state = "copied";
         button.setAttribute("aria-label", "Copied");
-        window.setTimeout(() => { delete button.dataset.state; button.setAttribute("aria-label", "Copy command"); }, 1400);
+        window.setTimeout(() => { delete button.dataset.state; button.setAttribute("aria-label", "Copy brew install command"); }, 1400);
       });
     });
   </script>
