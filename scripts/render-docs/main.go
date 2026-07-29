@@ -35,7 +35,6 @@ type page struct {
 	Description string
 	Body        htmltemplate.HTML
 	Stylesheet  string
-	Responsive  string
 	Favicon     string
 	Home        string
 	Source      string
@@ -55,17 +54,13 @@ var (
   <meta name="description" content="{{.Description}}">
   <link rel="icon" href="{{.Favicon}}" type="image/svg+xml">
   <link rel="stylesheet" href="{{.Stylesheet}}">
-	<link rel="stylesheet" href="{{.Responsive}}">
   <title>{{.Title}} · Onibi</title>
 </head>
 <body>
   <a class="skip-link" href="#content">Skip to content</a>
   <a class="github-corner" href="https://github.com/gongahkia/onibi" target="_blank" rel="noopener" aria-label="View Onibi on GitHub"><svg viewBox="0 0 250 250" aria-hidden="true"><path d="M0,0 L115,115 L130,115 L142,142 L250,250 L250,0 Z"></path><path class="octo-arm" d="M128.3,109C113.8,99.7,119,89.6,119,89.6c3-7.6,1.5-11,1.5-11-1.3-6.6,2.9-2.3,2.9-2.3,3.9,4.6,2.1,11,2.1,11-2.9,10.3,4.5,14.6,8.9,15.9" fill="currentColor"></path><path class="octo-body" d="M115,115c-.1.1,3,1.5,4.8.4l13.9-13.8c3.2-2.4,6.2-3.2,8.5-3-8.4-10.6-8.5-24.6,1.6-40.6,4.7-4.6,10.2-6.9,15.9-7,1.3-1.6,2.7-7.6,10.9-10.9,0,0,4.7,1.9,7.4,15.9,4.1,1.9,7.3,5.1,11,8.8,3.7,3.7,6.9,10.2,9.3,14.6,13.7,2.6,16.2,5.5,16.2,5.5-4.2,8.2-7.6,11.1-9.1,11.7.2,5.8-2,10.4-6.7,15.9-16.4,16.4-30.6,9-41.2,1.6.2,2.8-1.8,6.8-5.8,10.8L141,136.5c-1.2,1.2.8,5.2.8,5.3Z" fill="currentColor"></path></svg></a>
-  <header class="site-header"><div class="site-header-inner"><a class="brand" href="{{.Home}}">Onibi <span>docs</span></a><nav class="top-nav" aria-label="Primary">{{range .Top}}<a href="{{.Href}}"{{if .Active}} aria-current="page"{{end}}>{{.Title}}</a>{{end}}</nav></div></header>
-  <div class="docs-shell">
-    <aside class="docs-sidebar"><p class="sidebar-label">Documentation</p><nav aria-label="All documentation">{{range .Documents}}<a href="{{.Href}}"{{if .Active}} aria-current="page"{{end}}>{{.Title}}</a>{{end}}</nav></aside>
-    <main id="content" class="prose">{{.Body}}</main>
-  </div>
+  <header class="site-header"><nav class="top-nav" aria-label="Primary">{{range .Top}}<a href="{{.Href}}"{{if .Active}} aria-current="page"{{end}}>{{.Title}}</a>{{end}}</nav></header>
+  <main id="content" class="prose docs-shell">{{.Body}}</main>
 {{if .HasMermaid}}  <script type="module">
     import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11.16.0/dist/mermaid.esm.min.mjs";
     mermaid.initialize({startOnLoad:true,securityLevel:"strict",theme:"base",themeVariables:{background:"#f7f5ef",primaryColor:"#eee8dc",primaryTextColor:"#171511",primaryBorderColor:"#b9431c",lineColor:"#706b62",secondaryColor:"#f7f5ef",tertiaryColor:"#f7f5ef"},flowchart:{htmlLabels:false,useMaxWidth:true}});
@@ -111,7 +106,6 @@ func renderDocs(root string, check bool) error {
 			Description: description(doc.Title),
 			Body:        doc.Body,
 			Stylesheet:  relativeLink(doc.Output, "assets/site.css"),
-			Responsive:  relativeLink(doc.Output, "assets/responsive.css"),
 			Favicon:     relativeLink(doc.Output, "favicon.svg"),
 			Home:        relativeLink(doc.Output, "index.html"),
 			Source:      relativeLink(doc.Output, doc.Source),

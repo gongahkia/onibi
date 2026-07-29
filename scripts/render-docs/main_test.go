@@ -24,7 +24,7 @@ func TestRenderDocsWritesStyledPagesAndRewritesInternalLinks(t *testing.T) {
 	for _, want := range []string{
 		`href="assets/site.css"`,
 		`href="security.html#at-rest-state"`,
-		`class="prose"`,
+		`class="prose docs-shell"`,
 		`<h1>Getting Started</h1>`,
 	} {
 		if !strings.Contains(output, want) {
