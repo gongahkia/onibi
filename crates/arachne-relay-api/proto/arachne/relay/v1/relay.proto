@@ -1,0 +1,86 @@
+syntax = "proto3";
+
+package arachne.relay.v1;
+
+service RelayService {
+  rpc RegisterMailbox(RegisterMailboxRequest) returns (RegisterMailboxResponse);
+  rpc StoreEnvelope(StoreEnvelopeRequest) returns (StoreEnvelopeResponse);
+  rpc RetrieveEnvelopes(RetrieveEnvelopesRequest) returns (RetrieveEnvelopesResponse);
+  rpc AcknowledgeEnvelope(AcknowledgeEnvelopeRequest) returns (AcknowledgeEnvelopeResponse);
+  rpc UploadAttachmentChunk(UploadAttachmentChunkRequest) returns (UploadAttachmentChunkResponse);
+  rpc DownloadAttachmentChunk(DownloadAttachmentChunkRequest) returns (DownloadAttachmentChunkResponse);
+  rpc GetMailboxQuota(GetMailboxQuotaRequest) returns (GetMailboxQuotaResponse);
+  rpc StoreEnvelopeWithReceipt(StoreEnvelopeRequest) returns (StoreEnvelopeWithReceiptResponse);
+}
+
+message RegisterMailboxRequest {
+  bytes mailbox_capability = 1;
+}
+
+message RegisterMailboxResponse {}
+
+message StoreEnvelopeRequest {
+  bytes mailbox_capability = 1;
+  bytes envelope = 2;
+}
+
+message StoreEnvelopeResponse {
+  uint64 sequence = 1;
+}
+
+message StoreEnvelopeWithReceiptResponse {
+  bytes receipt = 1;
+}
+
+message RetrieveEnvelopesRequest {
+  bytes mailbox_capability = 1;
+  optional uint64 after_sequence = 2;
+  uint32 limit = 3;
+}
+
+message RetrieveEnvelopesResponse {
+  repeated RelayEnvelope envelopes = 1;
+}
+
+message RelayEnvelope {
+  uint64 sequence = 1;
+  bytes envelope = 2;
+  uint64 received_at = 3;
+  uint64 expires_at = 4;
+}
+
+message AcknowledgeEnvelopeRequest {
+  bytes mailbox_capability = 1;
+  uint64 sequence = 2;
+}
+
+message AcknowledgeEnvelopeResponse {}
+
+message UploadAttachmentChunkRequest {
+  bytes mailbox_capability = 1;
+  bytes chunk = 2;
+}
+
+message UploadAttachmentChunkResponse {
+  bool stored = 1;
+}
+
+message DownloadAttachmentChunkRequest {
+  bytes mailbox_capability = 1;
+  bytes attachment_identifier = 2;
+  uint32 chunk_index = 3;
+}
+
+message DownloadAttachmentChunkResponse {
+  bytes chunk = 1;
+}
+
+message GetMailboxQuotaRequest {
+  bytes mailbox_capability = 1;
+}
+
+message GetMailboxQuotaResponse {
+  uint64 capacity_bytes = 1;
+  uint64 used_bytes = 2;
+  uint64 remaining_bytes = 3;
+}

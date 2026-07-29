@@ -14,7 +14,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$packagePublisher = 'CN=Yeokcham Development'
+$packagePublisher = 'CN=Arachne Development'
 
 function Find-WindowsSdkTool {
     param([Parameter(Mandatory = $true)][string]$Name)
@@ -59,9 +59,9 @@ function Get-MsixVersion {
     if ($LASTEXITCODE -ne 0) {
         throw 'cargo metadata failed'
     }
-    $packages = @($metadata.packages | Where-Object { $_.name -eq 'yeokcham-cli' })
+    $packages = @($metadata.packages | Where-Object { $_.name -eq 'arachne-cli' })
     if ($packages.Count -ne 1 -or [string]$packages[0].version -notmatch '^([0-9]+)\.([0-9]+)\.([0-9]+)$') {
-        throw 'yeokcham-cli version must be numeric semantic versioning'
+        throw 'arachne-cli version must be numeric semantic versioning'
     }
     return "$($Matches[1]).$($Matches[2]).$($Matches[3]).0"
 }
@@ -107,7 +107,7 @@ function Assert-MsixPayload {
     if ($null -eq $manifest.SelectSingleNode('/f:Package/f:Capabilities/f:DeviceCapability[@Name="wiFiControl"]', $namespace) -or $null -eq $manifest.SelectSingleNode('/f:Package/f:Capabilities/f:Capability[@Name="proximity"]', $namespace) -or $null -eq $manifest.SelectSingleNode('/f:Package/f:Capabilities/rescap:Capability[@Name="runFullTrust"]', $namespace)) {
         throw 'MSIX capabilities are invalid'
     }
-    foreach ($asset in @('yeokcham.exe', 'Assets\StoreLogo.png', 'Assets\Square150x150Logo.png', 'Assets\Square44x44Logo.png')) {
+    foreach ($asset in @('arachne.exe', 'Assets\StoreLogo.png', 'Assets\Square150x150Logo.png', 'Assets\Square44x44Logo.png')) {
         if (-not (Test-Path -LiteralPath (Join-Path $unpacked $asset) -PathType Leaf)) {
             throw 'MSIX payload is incomplete'
         }
@@ -157,27 +157,27 @@ if ($signingRequested) {
     $signTool = Resolve-WindowsSdkTool -ProvidedPath $SignToolPath -Name 'signtool.exe'
 }
 
-$temporaryDirectory = Join-Path ([IO.Path]::GetTempPath()) ("yeokcham-msix-" + [IO.Path]::GetRandomFileName())
+$temporaryDirectory = Join-Path ([IO.Path]::GetTempPath()) ("arachne-msix-" + [IO.Path]::GetRandomFileName())
 New-Item -ItemType Directory -Path $temporaryDirectory | Out-Null
 try {
     Set-Location $repositoryRoot
-    & cargo build --release --locked --package yeokcham-cli --bin yeokcham --target $Target
+    & cargo build --release --locked --package arachne-cli --bin arachne --target $Target
     if ($LASTEXITCODE -ne 0) {
         throw 'cargo build failed'
     }
     $targetDirectory = Get-TargetDirectory -RepositoryRoot $repositoryRoot
-    $binary = Join-Path $targetDirectory "$Target\release\yeokcham.exe"
+    $binary = Join-Path $targetDirectory "$Target\release\arachne.exe"
     if (-not (Test-Path -LiteralPath $binary -PathType Leaf) -or (Get-Item -LiteralPath $binary).Length -le 0) {
         throw 'release binary was not produced'
     }
     $staging = Join-Path $temporaryDirectory 'staging'
     New-Item -ItemType Directory -Path $staging | Out-Null
-    Copy-Item -LiteralPath $binary -Destination (Join-Path $staging 'yeokcham.exe')
+    Copy-Item -LiteralPath $binary -Destination (Join-Path $staging 'arachne.exe')
     Copy-Item -LiteralPath $assets -Destination (Join-Path $staging 'Assets') -Recurse
     $version = Get-MsixVersion
     $manifest = (Get-Content -LiteralPath $manifestTemplate -Raw).Replace('__VERSION__', $version)
     [IO.File]::WriteAllText((Join-Path $staging 'AppxManifest.xml'), $manifest, [Text.UTF8Encoding]::new($false))
-    $package = Join-Path $temporaryDirectory 'yeokcham.msix'
+    $package = Join-Path $temporaryDirectory 'arachne.msix'
     & $makeAppx pack /d $staging /p $package /o | Out-Null
     if ($LASTEXITCODE -ne 0) {
         throw 'MakeAppx pack failed'

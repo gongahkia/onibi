@@ -1,0 +1,27 @@
+[package]
+name = "arachne-sdk"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+
+[dependencies]
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+arachne-core = { path = "../arachne-core" }
+arachne-daemon = { path = "../arachne-daemon" }
+arachne-protocol = { path = "../arachne-protocol" }
+
+[dev-dependencies]
+hyper-util.workspace = true
+tonic.workspace = true
+tower.workspace = true
+arachne-daemon-api = { path = "../arachne-daemon-api" }
+
+[lints]
+workspace = true

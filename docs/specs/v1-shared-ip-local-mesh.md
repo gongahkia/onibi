@@ -5,7 +5,7 @@ under WSL. Supported profiles are `lan` and `wifi_hotspot`; a hotspot must alrea
 devices must already be attached. The implementation neither creates a hotspot nor controls Wi-Fi
 Direct or Bluetooth hardware.
 
-`yeokcham local-mesh init` creates a versioned mesh configuration, creates or loads the local
+`arachne local-mesh init` creates a versioned mesh configuration, creates or loads the local
 Ed25519 identity, and stores a self-signed QUIC private key in the OS keystore. Its public
 certificate is state-directory data. The listen endpoint must be a specific reachable IP address
 and a nonzero UDP port; wildcard and IPv6 link-local addresses are rejected.
@@ -16,7 +16,7 @@ link type only. Discovery is untrusted: a connection requires the configured exa
 pin and the existing direct-peer proof bound to the QUIC TLS exporter. Unknown identities, pin
 changes, malformed advertisements, and profile mismatches fail closed.
 
-Run `yeokcham daemon serve --config <path>` on the receiving device. Run `yeokcham local-mesh
+Run `arachne daemon serve --config <path>` on the receiving device. Run `arachne local-mesh
 connect --config <path> --identity <peer-key>` on the initiating device; it advertises locally,
 browses for the explicitly trusted peer, performs the authenticated connection, reports its remote
 endpoint, then closes the connectivity check. A connect invocation requires its configured listen

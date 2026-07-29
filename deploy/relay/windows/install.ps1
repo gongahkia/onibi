@@ -4,14 +4,14 @@ param()
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$serviceName = 'YeokchamRelay'
-$programFilesDirectory = Join-Path $env:ProgramFiles 'Yeokcham Relay'
-$stateDirectory = Join-Path $env:ProgramData 'Yeokcham'
+$serviceName = 'ArachneRelay'
+$programFilesDirectory = Join-Path $env:ProgramFiles 'Arachne Relay'
+$stateDirectory = Join-Path $env:ProgramData 'Arachne'
 $dataDirectory = Join-Path $stateDirectory 'data'
 $configuration = Join-Path $stateDirectory 'relay.conf'
 $identity = Join-Path $stateDirectory 'relay.identity'
-$relayBinary = Join-Path $programFilesDirectory 'yeokcham-relay.exe'
-$serviceBinary = Join-Path $programFilesDirectory 'yeokcham-relay-service.exe'
+$relayBinary = Join-Path $programFilesDirectory 'arachne-relay.exe'
+$serviceBinary = Join-Path $programFilesDirectory 'arachne-relay-service.exe'
 
 function Assert-Administrator {
     $principal = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
@@ -38,13 +38,13 @@ Assert-Administrator
 if (Test-ServiceExists) {
     throw "service $serviceName already exists; remove it before installing"
 }
-if (-not (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'yeokcham-relay.exe') -PathType Leaf) -or -not (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'yeokcham-relay-service.exe') -PathType Leaf)) {
+if (-not (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'arachne-relay.exe') -PathType Leaf) -or -not (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'arachne-relay-service.exe') -PathType Leaf)) {
     throw 'package binaries are missing'
 }
 
 New-Item -ItemType Directory -Path $programFilesDirectory -Force | Out-Null
-Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'yeokcham-relay.exe') -Destination $relayBinary -Force
-Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'yeokcham-relay-service.exe') -Destination $serviceBinary -Force
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'arachne-relay.exe') -Destination $relayBinary -Force
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'arachne-relay-service.exe') -Destination $serviceBinary -Force
 New-Item -ItemType Directory -Path $stateDirectory -Force | Out-Null
 Invoke-Icacls -Arguments @($stateDirectory, '/inheritance:r', '/grant:r', 'BUILTIN\Administrators:(OI)(CI)F', 'NT AUTHORITY\SYSTEM:(OI)(CI)F', 'NT AUTHORITY\LOCAL SERVICE:(OI)(CI)RX')
 New-Item -ItemType Directory -Path $dataDirectory -Force | Out-Null
@@ -72,7 +72,7 @@ Invoke-Icacls -Arguments @($dataDirectory, '/inheritance:r', '/grant:r', 'BUILTI
 Invoke-Icacls -Arguments @($configuration, '/inheritance:r', '/grant:r', 'BUILTIN\Administrators:F', 'NT AUTHORITY\SYSTEM:F', 'NT AUTHORITY\LOCAL SERVICE:R')
 Invoke-Icacls -Arguments @($identity, '/inheritance:r', '/grant:r', 'BUILTIN\Administrators:F', 'NT AUTHORITY\SYSTEM:F', 'NT AUTHORITY\LOCAL SERVICE:R')
 
-& sc.exe create $serviceName "binPath= `"$serviceBinary`"" 'type= own' 'start= demand' 'obj= NT AUTHORITY\LocalService' 'displayname= Yeokcham Relay'
+& sc.exe create $serviceName "binPath= `"$serviceBinary`"" 'type= own' 'start= demand' 'obj= NT AUTHORITY\LocalService' 'displayname= Arachne Relay'
 if ($LASTEXITCODE -ne 0) {
     throw 'service registration failed'
 }

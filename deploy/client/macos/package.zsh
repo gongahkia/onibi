@@ -4,7 +4,7 @@ emulate -L zsh
 setopt errexit nounset pipefail
 
 function usage() {
-    print -r -- 'Usage: deploy/client/macos/package.zsh --output /absolute/path/yeokcham.pkg [--target <aarch64-apple-darwin|x86_64-apple-darwin>] [--application-identity "Developer ID Application: …"] [--installer-identity "Developer ID Installer: …"]'
+    print -r -- 'Usage: deploy/client/macos/package.zsh --output /absolute/path/arachne.pkg [--target <aarch64-apple-darwin|x86_64-apple-darwin>] [--application-identity "Developer ID Application: …"] [--installer-identity "Developer ID Installer: …"]'
 }
 
 function die() {
@@ -16,7 +16,7 @@ function package_payload_is_valid() {
     local payload_path
     local found=0
     while IFS= read -r payload_path; do
-        if [[ "$payload_path" == ./usr/local/bin/yeokcham ]]; then
+        if [[ "$payload_path" == ./usr/local/bin/arachne ]]; then
             found=1
         fi
     done < <(pkgutil --payload-files "$1")
@@ -84,22 +84,22 @@ case "$target" in
     *) die '--target must be a supported macOS Rust target' ;;
 esac
 
-temporary_directory="$(mktemp -d "${TMPDIR:-/tmp}/yeokcham-macos-package.XXXXXX")"
+temporary_directory="$(mktemp -d "${TMPDIR:-/tmp}/arachne-macos-package.XXXXXX")"
 function cleanup() {
     rm -rf -- "$temporary_directory"
 }
 trap cleanup EXIT INT TERM
 
 cd "$repository_root"
-cargo build --release --locked --package yeokcham-cli --bin yeokcham --target "$target"
+cargo build --release --locked --package arachne-cli --bin arachne --target "$target"
 
-binary="$repository_root/target/$target/release/yeokcham"
+binary="$repository_root/target/$target/release/arachne"
 [[ -f "$binary" && -x "$binary" ]] || die 'release binary was not produced'
 version="$("$binary" --version | awk 'NR == 1 { package_version = $2 } END { print package_version }')"
 [[ "$version" == <->.<->.<-> ]] || die 'binary version must be numeric semantic versioning'
 
 payload_root="$temporary_directory/root"
-packaged_binary="$payload_root/usr/local/bin/yeokcham"
+packaged_binary="$payload_root/usr/local/bin/arachne"
 mkdir -p "$payload_root/usr/local/bin"
 install -m 0755 "$binary" "$packaged_binary"
 
@@ -108,11 +108,11 @@ if [[ -n "$application_identity" ]]; then
     codesign --verify --strict --verbose=2 "$packaged_binary"
 fi
 
-package="$temporary_directory/yeokcham-$version-$target.pkg"
+package="$temporary_directory/arachne-$version-$target.pkg"
 typeset -a package_arguments
 package_arguments=(
     --root "$payload_root"
-    --identifier com.yeokcham.cli
+    --identifier com.arachne.cli
     --version "$version"
     --install-location /
     --ownership recommended

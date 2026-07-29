@@ -1,0 +1,39 @@
+[package]
+name = "arachne-relay"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[features]
+default = []
+
+[[bin]]
+name = "arachne-relay-service"
+path = "src/windows_service.rs"
+
+[dependencies]
+clap.workspace = true
+getrandom.workspace = true
+rusqlite.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["signal"] }
+tokio-stream.workspace = true
+tonic = { workspace = true, features = ["tls-ring"] }
+arachne-core = { path = "../arachne-core" }
+arachne-protocol = { path = "../arachne-protocol" }
+arachne-relay-api = { path = "../arachne-relay-api" }
+zeroize.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-service = "0.8.1"
+
+[dev-dependencies]
+rcgen = "0.14.7"
+arachne-daemon = { path = "../arachne-daemon" }
+
+[lints]
+workspace = true

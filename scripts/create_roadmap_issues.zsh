@@ -1,7 +1,7 @@
 #!/usr/bin/env zsh
 set -euo pipefail
 
-repo="gongahkia/yeokcham"
+repo="gongahkia/arachne"
 count=0
 previous_gate=""
 typeset -A stage_gates

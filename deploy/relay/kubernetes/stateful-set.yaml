@@ -1,28 +1,28 @@
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: yeokcham-relay
+  name: arachne-relay
   labels:
     app.kubernetes.io/component: relay
-    app.kubernetes.io/name: yeokcham
+    app.kubernetes.io/name: arachne
 spec:
   replicas: 1
   podManagementPolicy: OrderedReady
-  serviceName: yeokcham-relay-headless
+  serviceName: arachne-relay-headless
   updateStrategy:
     type: OnDelete
   selector:
     matchLabels:
       app.kubernetes.io/component: relay
-      app.kubernetes.io/name: yeokcham
+      app.kubernetes.io/name: arachne
   template:
     metadata:
       labels:
         app.kubernetes.io/component: relay
-        app.kubernetes.io/name: yeokcham
+        app.kubernetes.io/name: arachne
     spec:
       automountServiceAccountToken: false
-      serviceAccountName: yeokcham-relay
+      serviceAccountName: arachne-relay
       terminationGracePeriodSeconds: 35
       securityContext:
         fsGroup: 65532
@@ -34,12 +34,12 @@ spec:
           type: RuntimeDefault
       containers:
         - name: relay
-          image: ghcr.io/gongahkia/yeokcham-relay:0.1.0
+          image: ghcr.io/gongahkia/arachne-relay:0.1.0
           imagePullPolicy: IfNotPresent
           args:
             - run
             - --config
-            - /etc/yeokcham/relay.conf
+            - /etc/arachne/relay.conf
             - --identity
             - /run/secrets/relay.identity
             - --health-address
@@ -68,7 +68,7 @@ spec:
           startupProbe:
             exec:
               command:
-                - /usr/local/bin/yeokcham-relay
+                - /usr/local/bin/arachne-relay
                 - healthcheck
                 - --address
                 - 127.0.0.1:8080
@@ -78,7 +78,7 @@ spec:
           livenessProbe:
             exec:
               command:
-                - /usr/local/bin/yeokcham-relay
+                - /usr/local/bin/arachne-relay
                 - healthcheck
                 - --address
                 - 127.0.0.1:8080
@@ -88,7 +88,7 @@ spec:
           readinessProbe:
             exec:
               command:
-                - /usr/local/bin/yeokcham-relay
+                - /usr/local/bin/arachne-relay
                 - healthcheck
                 - --address
                 - 127.0.0.1:8080
@@ -96,17 +96,17 @@ spec:
             periodSeconds: 5
             timeoutSeconds: 2
           volumeMounts:
-            - mountPath: /etc/yeokcham
+            - mountPath: /etc/arachne
               name: config
               readOnly: true
             - mountPath: /run/secrets
               name: relay-identity
               readOnly: true
-            - mountPath: /var/lib/yeokcham
+            - mountPath: /var/lib/arachne
               name: data
       volumes:
         - configMap:
-            name: yeokcham-relay-config
+            name: arachne-relay-config
           name: config
         - name: relay-identity
           secret:
@@ -114,12 +114,12 @@ spec:
             items:
               - key: relay.identity
                 path: relay.identity
-            secretName: yeokcham-relay-identity
+            secretName: arachne-relay-identity
   volumeClaimTemplates:
     - metadata:
         labels:
           app.kubernetes.io/component: relay
-          app.kubernetes.io/name: yeokcham
+          app.kubernetes.io/name: arachne
         name: data
       spec:
         accessModes:

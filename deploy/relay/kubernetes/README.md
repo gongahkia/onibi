@@ -7,15 +7,15 @@ The namespace enforces the Kubernetes `restricted` Pod Security Standard. The re
 Before applying, generate the binary identity on a secure admin host and create the Secret. Its key must be named `relay.identity`:
 
 ```sh
-yeokcham-relay generate-identity --output /secure/path/relay.identity
-kubectl create namespace yeokcham-relay
-kubectl -n yeokcham-relay create secret generic yeokcham-relay-identity --from-file=relay.identity=/secure/path/relay.identity
+arachne-relay generate-identity --output /secure/path/relay.identity
+kubectl create namespace arachne-relay
+kubectl -n arachne-relay create secret generic arachne-relay-identity --from-file=relay.identity=/secure/path/relay.identity
 kubectl apply -k deploy/relay/kubernetes
 ```
 
 The Secret volume is mounted read-only as group-readable by the relay UID; the relay rejects writable, malformed, and wrong-length identity material. Kubernetes Secret encryption at rest and access-control policy are cluster-admin responsibilities.
 
-The only allowed ingress is TCP/50051 from namespaces labeled `yeokcham.io/relay-client=true`; all other ingress and all relay egress are denied. Apply a separately reviewed Gateway, LoadBalancer, or policy patch for public exposure. The manifests require a default dynamic `ReadWriteOnce` StorageClass; add an environment-specific Kustomize patch if the cluster has none. Replace the default `ghcr.io/gongahkia/yeokcham-relay:0.1.0` image with a digest-pinned release image before production use.
+The only allowed ingress is TCP/50051 from namespaces labeled `arachne.io/relay-client=true`; all other ingress and all relay egress are denied. Apply a separately reviewed Gateway, LoadBalancer, or policy patch for public exposure. The manifests require a default dynamic `ReadWriteOnce` StorageClass; add an environment-specific Kustomize patch if the cluster has none. Replace the default `ghcr.io/gongahkia/arachne-relay:0.1.0` image with a digest-pinned release image before production use.
 
 Run the real Kind integration test with Docker, Kind, and kubectl installed:
 

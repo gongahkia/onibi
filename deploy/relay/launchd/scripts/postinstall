@@ -4,11 +4,11 @@ emulate -L zsh
 setopt errexit nounset pipefail
 
 [[ "$3" == / ]] || exit 1
-account='_yeokcham'
+account='_arachne'
 group_path="/Groups/$account"
 user_path="/Users/$account"
 if ! dscl . -read "$group_path" >/dev/null 2>&1; then
-    dseditgroup -q -o create -r 'Yeokcham relay service' "$account"
+    dseditgroup -q -o create -r 'Arachne relay service' "$account"
 fi
 group_id="$(dscl . -read "$group_path" PrimaryGroupID | awk 'NR == 1 { print $2 }')"
 [[ "$group_id" == <-> ]] || exit 1
@@ -16,14 +16,14 @@ if ! dscl . -read "$user_path" >/dev/null 2>&1; then
     user_id="$(dscl . -list /Users UniqueID | awk '$2 ~ /^[0-9]+$/ && $2 >= 500 { if ($2 > maximum) maximum = $2 } END { print maximum + 1 }')"
     [[ "$user_id" == <-> ]] || exit 1
     dscl . -create "$user_path"
-    dscl . -create "$user_path" RealName 'Yeokcham relay service'
+    dscl . -create "$user_path" RealName 'Arachne relay service'
     dscl . -create "$user_path" UniqueID "$user_id"
     dscl . -create "$user_path" PrimaryGroupID "$group_id"
     dscl . -create "$user_path" UserShell /usr/bin/false
     dscl . -create "$user_path" NFSHomeDirectory /var/empty
     dscl . -create "$user_path" IsHidden 1
 fi
-directory='/Library/Application Support/Yeokcham'
+directory='/Library/Application Support/Arachne'
 example="$directory/relay.conf.example"
 config="$directory/relay.conf"
 identity="$directory/relay.identity"
@@ -40,6 +40,6 @@ if [[ -e "$identity" ]]; then
     chown root:"$account" "$identity"
     chmod 0440 "$identity"
 fi
-chown root:wheel /usr/local/libexec/yeokcham-relay /Library/LaunchDaemons/com.yeokcham.relay.plist
-chmod 0755 /usr/local/libexec/yeokcham-relay
-chmod 0644 /Library/LaunchDaemons/com.yeokcham.relay.plist
+chown root:wheel /usr/local/libexec/arachne-relay /Library/LaunchDaemons/com.arachne.relay.plist
+chmod 0755 /usr/local/libexec/arachne-relay
+chmod 0644 /Library/LaunchDaemons/com.arachne.relay.plist

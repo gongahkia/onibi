@@ -4304,7 +4304,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "yeokcham-cli"
+name = "arachne-cli"
 version = "0.1.0"
 dependencies = [
  "clap",
@@ -4316,15 +4316,15 @@ dependencies = [
  "tokio",
  "tonic",
  "tower",
- "yeokcham-core",
- "yeokcham-daemon",
- "yeokcham-daemon-api",
- "yeokcham-protocol",
- "yeokcham-sdk",
+ "arachne-core",
+ "arachne-daemon",
+ "arachne-daemon-api",
+ "arachne-protocol",
+ "arachne-sdk",
 ]
 
 [[package]]
-name = "yeokcham-core"
+name = "arachne-core"
 version = "0.1.0"
 dependencies = [
  "ed25519-dalek",
@@ -4342,7 +4342,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "yeokcham-daemon"
+name = "arachne-daemon"
 version = "0.1.0"
 dependencies = [
  "bluer",
@@ -4378,15 +4378,15 @@ dependencies = [
  "uuid",
  "windows",
  "windows-future",
- "yeokcham-core",
- "yeokcham-daemon-api",
- "yeokcham-protocol",
+ "arachne-core",
+ "arachne-daemon-api",
+ "arachne-protocol",
  "zbus",
  "zeroize",
 ]
 
 [[package]]
-name = "yeokcham-daemon-api"
+name = "arachne-daemon-api"
 version = "0.1.0"
 dependencies = [
  "prost",
@@ -4397,19 +4397,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "yeokcham-ffi"
+name = "arachne-ffi"
 version = "0.1.0"
 dependencies = [
  "cc",
  "tokio",
- "yeokcham-core",
- "yeokcham-protocol",
- "yeokcham-sdk",
+ "arachne-core",
+ "arachne-protocol",
+ "arachne-sdk",
  "zeroize",
 ]
 
 [[package]]
-name = "yeokcham-protocol"
+name = "arachne-protocol"
 version = "0.1.0"
 dependencies = [
  "argon2",
@@ -4422,12 +4422,12 @@ dependencies = [
  "sha2 0.11.0",
  "subtle",
  "thiserror 2.0.18",
- "yeokcham-core",
+ "arachne-core",
  "zeroize",
 ]
 
 [[package]]
-name = "yeokcham-relay"
+name = "arachne-relay"
 version = "0.1.0"
 dependencies = [
  "clap",
@@ -4440,15 +4440,15 @@ dependencies = [
  "tokio-stream",
  "tonic",
  "windows-service",
- "yeokcham-core",
- "yeokcham-daemon",
- "yeokcham-protocol",
- "yeokcham-relay-api",
+ "arachne-core",
+ "arachne-daemon",
+ "arachne-protocol",
+ "arachne-relay-api",
  "zeroize",
 ]
 
 [[package]]
-name = "yeokcham-relay-api"
+name = "arachne-relay-api"
 version = "0.1.0"
 dependencies = [
  "prost",
@@ -4461,17 +4461,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "yeokcham-rust-integrator-example"
+name = "arachne-rust-integrator-example"
 version = "0.1.0"
 dependencies = [
  "thiserror 2.0.18",
  "tokio",
- "yeokcham-core",
- "yeokcham-sdk",
+ "arachne-core",
+ "arachne-sdk",
 ]
 
 [[package]]
-name = "yeokcham-sdk"
+name = "arachne-sdk"
 version = "0.1.0"
 dependencies = [
  "hyper-util",
@@ -4480,10 +4480,10 @@ dependencies = [
  "tokio-util",
  "tonic",
  "tower",
- "yeokcham-core",
- "yeokcham-daemon",
- "yeokcham-daemon-api",
- "yeokcham-protocol",
+ "arachne-core",
+ "arachne-daemon",
+ "arachne-daemon-api",
+ "arachne-protocol",
 ]
 
 [[package]]

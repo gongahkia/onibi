@@ -33,7 +33,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@1.93.0
-      - run: cargo test -p yeokcham-daemon --test tor_maildrop_topology --locked
+      - run: cargo test -p arachne-daemon --test tor_maildrop_topology --locked
 
   end-to-end:
     strategy:
@@ -44,7 +44,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@1.93.0
-      - run: cargo test -p yeokcham-daemon --test direct_two_node --test lan_direct_transport --test local_mesh_two_node --test wifi_direct_transport --test wifi_hotspot_transport --locked
+      - run: cargo test -p arachne-daemon --test direct_two_node --test lan_direct_transport --test local_mesh_two_node --test wifi_direct_transport --test wifi_hotspot_transport --locked
 
   windows-msix:
     runs-on: windows-latest
@@ -60,20 +60,20 @@ jobs:
             'signed=false' | Out-File -FilePath $env:GITHUB_OUTPUT -Append
             exit 0
           }
-          [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\yeokcham-msix.pfx", [Convert]::FromBase64String($env:WINDOWS_MSIX_CERTIFICATE_BASE64))
+          [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\arachne-msix.pfx", [Convert]::FromBase64String($env:WINDOWS_MSIX_CERTIFICATE_BASE64))
           'signed=true' | Out-File -FilePath $env:GITHUB_OUTPUT -Append
       - if: steps.certificate.outputs.signed == 'true'
         shell: pwsh
         env:
           WINDOWS_MSIX_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_MSIX_CERTIFICATE_PASSWORD }}
-        run: pwsh -File deploy/client/windows/package.ps1 -Output "$env:RUNNER_TEMP\yeokcham.msix" -CertificatePath "$env:RUNNER_TEMP\yeokcham-msix.pfx" -CertificatePassword $env:WINDOWS_MSIX_CERTIFICATE_PASSWORD
+        run: pwsh -File deploy/client/windows/package.ps1 -Output "$env:RUNNER_TEMP\arachne.msix" -CertificatePath "$env:RUNNER_TEMP\arachne-msix.pfx" -CertificatePassword $env:WINDOWS_MSIX_CERTIFICATE_PASSWORD
       - if: steps.certificate.outputs.signed != 'true'
         shell: pwsh
-        run: pwsh -File deploy/client/windows/package.ps1 -Output "$env:RUNNER_TEMP\yeokcham.msix" -SkipSigning
+        run: pwsh -File deploy/client/windows/package.ps1 -Output "$env:RUNNER_TEMP\arachne.msix" -SkipSigning
       - uses: actions/upload-artifact@v4
         with:
-          name: yeokcham-windows-msix
-          path: ${{ runner.temp }}\yeokcham.msix
+          name: arachne-windows-msix
+          path: ${{ runner.temp }}\arachne.msix
           if-no-files-found: error
           retention-days: 7
 
@@ -84,11 +84,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.93.0
       - run: |
           export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
-          CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=target/repro-a cargo build --release -p yeokcham-cli --locked
-          CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=target/repro-b cargo build --release -p yeokcham-cli --locked
-          cmp target/repro-a/release/yeokcham target/repro-b/release/yeokcham
-          target/repro-a/release/yeokcham release-metadata --source-revision "$GITHUB_SHA" --source-date-epoch "$SOURCE_DATE_EPOCH" --output target/repro-a/release-metadata.json
-          target/repro-b/release/yeokcham release-metadata --source-revision "$GITHUB_SHA" --source-date-epoch "$SOURCE_DATE_EPOCH" --output target/repro-b/release-metadata.json
+          CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=target/repro-a cargo build --release -p arachne-cli --locked
+          CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=target/repro-b cargo build --release -p arachne-cli --locked
+          cmp target/repro-a/release/arachne target/repro-b/release/arachne
+          target/repro-a/release/arachne release-metadata --source-revision "$GITHUB_SHA" --source-date-epoch "$SOURCE_DATE_EPOCH" --output target/repro-a/release-metadata.json
+          target/repro-b/release/arachne release-metadata --source-revision "$GITHUB_SHA" --source-date-epoch "$SOURCE_DATE_EPOCH" --output target/repro-b/release-metadata.json
           cmp target/repro-a/release-metadata.json target/repro-b/release-metadata.json
 
   audit:
@@ -107,8 +107,8 @@ jobs:
         with:
           components: miri
       - run: cargo +nightly miri setup
-      - run: cargo +nightly miri test -p yeokcham-core --lib
-      - run: "cargo +nightly miri test -p yeokcham-core --features test-fixtures --lib test_fixture::tests::"
+      - run: cargo +nightly miri test -p arachne-core --lib
+      - run: "cargo +nightly miri test -p arachne-core --features test-fixtures --lib test_fixture::tests::"
 
   dependency-policy:
     runs-on: ubuntu-latest

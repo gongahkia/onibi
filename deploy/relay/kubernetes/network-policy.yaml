@@ -16,14 +16,14 @@ spec:
   podSelector:
     matchLabels:
       app.kubernetes.io/component: relay
-      app.kubernetes.io/name: yeokcham
+      app.kubernetes.io/name: arachne
   policyTypes:
     - Ingress
   ingress:
     - from:
         - namespaceSelector:
             matchLabels:
-              yeokcham.io/relay-client: "true"
+              arachne.io/relay-client: "true"
       ports:
         - port: 50051
           protocol: TCP

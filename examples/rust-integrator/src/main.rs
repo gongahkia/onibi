@@ -1,15 +1,15 @@
 use std::error::Error;
 
-use yeokcham_core::OsKeystore;
-use yeokcham_rust_integrator_example::config_from_environment;
-use yeokcham_sdk::{SdkClient, SdkConfig, SdkIdentityManager};
+use arachne_core::OsKeystore;
+use arachne_rust_integrator_example::config_from_environment;
+use arachne_sdk::{SdkClient, SdkConfig, SdkIdentityManager};
 
 #[cfg(target_os = "linux")]
-use yeokcham_core::LinuxKeystore;
+use arachne_core::LinuxKeystore;
 #[cfg(target_os = "macos")]
-use yeokcham_core::MacOsKeystore;
+use arachne_core::MacOsKeystore;
 #[cfg(target_os = "windows")]
-use yeokcham_core::WindowsKeystore;
+use arachne_core::WindowsKeystore;
 
 #[cfg(target_os = "linux")]
 #[tokio::main]

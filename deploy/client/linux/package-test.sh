@@ -11,12 +11,12 @@ package_payload_is_valid() {
     package_name=$(dpkg-deb -f "$1" Package)
     package_architecture=$(dpkg-deb -f "$1" Architecture)
     package_contents=$(dpkg-deb --contents "$1")
-    [ "$package_name" = yeokcham ] && [ "$package_architecture" = "$2" ] && printf '%s\n' "$package_contents" | grep -F ' ./usr/bin/yeokcham' >/dev/null
+    [ "$package_name" = arachne ] && [ "$package_architecture" = "$2" ] && printf '%s\n' "$package_contents" | grep -F ' ./usr/bin/arachne' >/dev/null
 }
 
 script_directory=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
 package_script="$script_directory/package.sh"
-temporary_directory=$(mktemp -d "${TMPDIR:-/tmp}/yeokcham-linux-package-test.XXXXXX")
+temporary_directory=$(mktemp -d "${TMPDIR:-/tmp}/arachne-linux-package-test.XXXXXX")
 cleanup() {
     rm -rf -- "$temporary_directory"
 }
@@ -30,7 +30,7 @@ if "$package_script" --output "$temporary_directory/invalid.deb" --target invali
     die 'unsupported target was accepted'
 fi
 
-package="$temporary_directory/yeokcham.deb"
+package="$temporary_directory/arachne.deb"
 "$package_script" --output "$package"
 [ -s "$package" ] || die 'package was not created'
 architecture=$(dpkg-deb -f "$package" Architecture)

@@ -1,10 +1,10 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use yeokcham_protocol::{
+use arachne_protocol::{
     MAILBOX_CAPABILITY_TOKEN_BYTES, MAILBOX_IDENTIFIER_BYTES, MailboxCapability,
 };
-use yeokcham_relay::MailboxIngress;
+use arachne_relay::MailboxIngress;
 
 fn capability() -> MailboxCapability {
     MailboxCapability::new(

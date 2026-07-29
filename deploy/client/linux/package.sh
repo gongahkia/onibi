@@ -3,7 +3,7 @@
 set -eu
 
 usage() {
-    printf '%s\n' 'Usage: deploy/client/linux/package.sh --output /absolute/path/yeokcham.deb [--target <aarch64-unknown-linux-gnu|x86_64-unknown-linux-gnu>]'
+    printf '%s\n' 'Usage: deploy/client/linux/package.sh --output /absolute/path/arachne.deb [--target <aarch64-unknown-linux-gnu|x86_64-unknown-linux-gnu>]'
 }
 
 die() {
@@ -15,7 +15,7 @@ package_payload_is_valid() {
     package_name=$(dpkg-deb -f "$1" Package)
     package_architecture=$(dpkg-deb -f "$1" Architecture)
     package_contents=$(dpkg-deb --contents "$1")
-    [ "$package_name" = yeokcham ] && [ "$package_architecture" = "$2" ] && printf '%s\n' "$package_contents" | grep -F ' ./usr/bin/yeokcham' >/dev/null
+    [ "$package_name" = arachne ] && [ "$package_architecture" = "$2" ] && printf '%s\n' "$package_contents" | grep -F ' ./usr/bin/arachne' >/dev/null
 }
 
 output=''
@@ -66,39 +66,39 @@ case "$target" in
     *) die '--target must be a supported Linux Rust target' ;;
 esac
 
-temporary_directory=$(mktemp -d "${TMPDIR:-/tmp}/yeokcham-linux-package.XXXXXX")
+temporary_directory=$(mktemp -d "${TMPDIR:-/tmp}/arachne-linux-package.XXXXXX")
 cleanup() {
     rm -rf -- "$temporary_directory"
 }
 trap cleanup EXIT HUP INT TERM
 
 cd "$repository_root"
-cargo build --release --locked --package yeokcham-cli --bin yeokcham --target "$target"
+cargo build --release --locked --package arachne-cli --bin arachne --target "$target"
 
 case "${CARGO_TARGET_DIR:-}" in
     '') target_directory="$repository_root/target" ;;
     /*) target_directory="$CARGO_TARGET_DIR" ;;
     *) target_directory="$repository_root/$CARGO_TARGET_DIR" ;;
 esac
-binary="$target_directory/$target/release/yeokcham"
+binary="$target_directory/$target/release/arachne"
 [ -f "$binary" ] && [ -x "$binary" ] || die 'release binary was not produced'
 version=$("$binary" --version | awk 'NR == 1 { package_version = $2 } END { print package_version }')
 printf '%s\n' "$version" | grep -Eq '^[0-9]+(\.[0-9]+){2}$' || die 'binary version must be numeric semantic versioning'
 
 payload_root="$temporary_directory/root"
 mkdir -p "$payload_root/DEBIAN" "$payload_root/usr/bin"
-install -m 0755 "$binary" "$payload_root/usr/bin/yeokcham"
+install -m 0755 "$binary" "$payload_root/usr/bin/arachne"
 cat > "$payload_root/DEBIAN/control" <<EOF
-Package: yeokcham
+Package: arachne
 Version: $version
 Section: net
 Priority: optional
 Architecture: $architecture
-Maintainer: Yeokcham
-Description: Yeokcham secure courier terminal client
+Maintainer: Arachne
+Description: Arachne secure courier terminal client
 EOF
 
-package="$temporary_directory/yeokcham_${version}_${architecture}.deb"
+package="$temporary_directory/arachne_${version}_${architecture}.deb"
 dpkg-deb --root-owner-group --build "$payload_root" "$package"
 package_payload_is_valid "$package" "$architecture" || die 'package payload is invalid'
 mv "$package" "$output"

@@ -6,7 +6,7 @@ Build and validate a native Debian package on Linux:
 deploy/client/linux/package-test.sh
 ```
 
-The builder uses locked dependencies, supports native `aarch64-unknown-linux-gnu` and `x86_64-unknown-linux-gnu` targets, installs `yeokcham` at `/usr/bin/yeokcham`, sets root-owned package payload metadata, and refuses relative or existing output paths.
+The builder uses locked dependencies, supports native `aarch64-unknown-linux-gnu` and `x86_64-unknown-linux-gnu` targets, installs `arachne` at `/usr/bin/arachne`, sets root-owned package payload metadata, and refuses relative or existing output paths.
 
 On macOS, validate the Linux package in the official Rust Debian image:
 

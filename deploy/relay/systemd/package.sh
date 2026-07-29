@@ -3,7 +3,7 @@
 set -eu
 
 usage() {
-    printf '%s\n' 'Usage: deploy/relay/systemd/package.sh --output /absolute/path/yeokcham-relay.deb [--target <aarch64-unknown-linux-gnu|x86_64-unknown-linux-gnu>]'
+    printf '%s\n' 'Usage: deploy/relay/systemd/package.sh --output /absolute/path/arachne-relay.deb [--target <aarch64-unknown-linux-gnu|x86_64-unknown-linux-gnu>]'
 }
 
 die() {
@@ -16,7 +16,7 @@ package_payload_is_valid() {
     package_architecture=$(dpkg-deb -f "$1" Architecture)
     package_depends=$(dpkg-deb -f "$1" Depends)
     package_contents=$(dpkg-deb --contents "$1")
-    [ "$package_name" = yeokcham-relay ] && [ "$package_architecture" = "$2" ] && [ "$package_depends" = 'systemd (>= 247)' ] && printf '%s\n' "$package_contents" | grep -F ' ./usr/bin/yeokcham-relay' >/dev/null && printf '%s\n' "$package_contents" | grep -F ' ./etc/yeokcham/relay.conf' >/dev/null && printf '%s\n' "$package_contents" | grep -F ' ./lib/systemd/system/yeokcham-relay.service' >/dev/null
+    [ "$package_name" = arachne-relay ] && [ "$package_architecture" = "$2" ] && [ "$package_depends" = 'systemd (>= 247)' ] && printf '%s\n' "$package_contents" | grep -F ' ./usr/bin/arachne-relay' >/dev/null && printf '%s\n' "$package_contents" | grep -F ' ./etc/arachne/relay.conf' >/dev/null && printf '%s\n' "$package_contents" | grep -F ' ./lib/systemd/system/arachne-relay.service' >/dev/null
 }
 
 output=''
@@ -68,43 +68,43 @@ case "$target" in
     *) die '--target must be a supported Linux Rust target' ;;
 esac
 
-temporary_directory=$(mktemp -d "${TMPDIR:-/tmp}/yeokcham-systemd-package.XXXXXX")
+temporary_directory=$(mktemp -d "${TMPDIR:-/tmp}/arachne-systemd-package.XXXXXX")
 cleanup() {
     rm -rf -- "$temporary_directory"
 }
 trap cleanup EXIT HUP INT TERM
 
 cd "$repository_root"
-cargo build --release --locked --package yeokcham-relay --bin yeokcham-relay --target "$target"
+cargo build --release --locked --package arachne-relay --bin arachne-relay --target "$target"
 
 case "${CARGO_TARGET_DIR:-}" in
     '') target_directory="$repository_root/target" ;;
     /*) target_directory="$CARGO_TARGET_DIR" ;;
     *) target_directory="$repository_root/$CARGO_TARGET_DIR" ;;
 esac
-binary="$target_directory/$target/release/yeokcham-relay"
+binary="$target_directory/$target/release/arachne-relay"
 [ -f "$binary" ] && [ -x "$binary" ] || die 'release binary was not produced'
 version=$("$binary" --version | awk 'NR == 1 { package_version = $2 } END { print package_version }')
 printf '%s\n' "$version" | grep -Eq '^[0-9]+(\.[0-9]+){2}$' || die 'binary version must be numeric semantic versioning'
 
 payload_root="$temporary_directory/root"
-mkdir -p "$payload_root/DEBIAN" "$payload_root/usr/bin" "$payload_root/etc/yeokcham" "$payload_root/lib/systemd/system"
-install -m 0755 "$binary" "$payload_root/usr/bin/yeokcham-relay"
-install -m 0644 "$repository_root/deploy/relay/relay.conf.example" "$payload_root/etc/yeokcham/relay.conf"
-install -m 0644 "$script_directory/yeokcham-relay.service" "$payload_root/lib/systemd/system/yeokcham-relay.service"
+mkdir -p "$payload_root/DEBIAN" "$payload_root/usr/bin" "$payload_root/etc/arachne" "$payload_root/lib/systemd/system"
+install -m 0755 "$binary" "$payload_root/usr/bin/arachne-relay"
+install -m 0644 "$repository_root/deploy/relay/relay.conf.example" "$payload_root/etc/arachne/relay.conf"
+install -m 0644 "$script_directory/arachne-relay.service" "$payload_root/lib/systemd/system/arachne-relay.service"
 cat > "$payload_root/DEBIAN/control" <<EOF
-Package: yeokcham-relay
+Package: arachne-relay
 Version: $version
 Section: net
 Priority: optional
 Architecture: $architecture
 Depends: systemd (>= 247)
-Maintainer: Yeokcham
-Description: Yeokcham secure courier relay service
+Maintainer: Arachne
+Description: Arachne secure courier relay service
 EOF
-printf '%s\n' '/etc/yeokcham/relay.conf' > "$payload_root/DEBIAN/conffiles"
+printf '%s\n' '/etc/arachne/relay.conf' > "$payload_root/DEBIAN/conffiles"
 
-package="$temporary_directory/yeokcham-relay_${version}_${architecture}.deb"
+package="$temporary_directory/arachne-relay_${version}_${architecture}.deb"
 dpkg-deb --root-owner-group --build "$payload_root" "$package"
 package_payload_is_valid "$package" "$architecture" || die 'package payload is invalid'
 mv "$package" "$output"

@@ -12,7 +12,7 @@ function package_payload_is_valid() {
     local payload_path
     local found=0
     while IFS= read -r payload_path; do
-        if [[ "$payload_path" == ./usr/local/bin/yeokcham ]]; then
+        if [[ "$payload_path" == ./usr/local/bin/arachne ]]; then
             found=1
         fi
     done < <(pkgutil --payload-files "$1")
@@ -21,7 +21,7 @@ function package_payload_is_valid() {
 
 script_directory=${0:A:h}
 package_script="$script_directory/package.zsh"
-temporary_directory="$(mktemp -d "${TMPDIR:-/tmp}/yeokcham-macos-package-test.XXXXXX")"
+temporary_directory="$(mktemp -d "${TMPDIR:-/tmp}/arachne-macos-package-test.XXXXXX")"
 function cleanup() {
     rm -rf -- "$temporary_directory"
 }
@@ -35,7 +35,7 @@ if "$package_script" --output "$temporary_directory/signed.pkg" --application-id
     die 'partial signing configuration was accepted'
 fi
 
-package="$temporary_directory/yeokcham.pkg"
+package="$temporary_directory/arachne.pkg"
 "$package_script" --output "$package"
 [[ -s "$package" ]] || die 'package was not created'
 package_payload_is_valid "$package" || die 'package payload is invalid'

@@ -1,6 +1,6 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-namespace: yeokcham-relay
+namespace: arachne-relay
 resources:
   - namespace.yaml
   - service-account.yaml
@@ -9,11 +9,11 @@ resources:
   - pod-disruption-budget.yaml
   - network-policy.yaml
 configMapGenerator:
-  - name: yeokcham-relay-config
+  - name: arachne-relay-config
     files:
       - relay.conf=relay.conf
 generatorOptions:
   immutable: true
 images:
-  - name: ghcr.io/gongahkia/yeokcham-relay
+  - name: ghcr.io/gongahkia/arachne-relay
     newTag: "0.1.0"

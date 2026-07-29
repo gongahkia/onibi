@@ -63,12 +63,12 @@ function Get-TargetDirectory {
     return [IO.Path]::GetFullPath((Join-Path $RepositoryRoot $env:CARGO_TARGET_DIR))
 }
 
-function Get-YeokchamVersion {
+function Get-ArachneVersion {
     $metadata = (& cargo metadata --locked --no-deps --format-version 1 | ConvertFrom-Json)
     if ($LASTEXITCODE -ne 0) {
         throw 'cargo metadata failed'
     }
-    $packages = @($metadata.packages | Where-Object { $_.name -eq 'yeokcham-relay' })
+    $packages = @($metadata.packages | Where-Object { $_.name -eq 'arachne-relay' })
     if ($packages.Count -ne 1 -or [string]$packages[0].version -notmatch '^[0-9]+(\.[0-9]+){2}$') {
         throw 'relay package version is invalid'
     }
@@ -93,14 +93,14 @@ function Test-PackagePayload {
 
     $archive = [IO.Compression.ZipFile]::OpenRead($Package)
     try {
-        $required = @('install.ps1', 'uninstall.ps1', 'relay.conf.example', 'yeokcham-relay-service.exe', 'yeokcham-relay.exe', 'SHA256SUMS.txt')
+        $required = @('install.ps1', 'uninstall.ps1', 'relay.conf.example', 'arachne-relay-service.exe', 'arachne-relay.exe', 'SHA256SUMS.txt')
         foreach ($name in $required) {
             $entry = $archive.GetEntry("$PackageDirectory/$name")
             if ($null -eq $entry -or $entry.Length -le 0) {
                 return $false
             }
         }
-        foreach ($binaryName in @('yeokcham-relay-service.exe', 'yeokcham-relay.exe')) {
+        foreach ($binaryName in @('arachne-relay-service.exe', 'arachne-relay.exe')) {
             $entry = $archive.GetEntry("$PackageDirectory/$binaryName")
             $temporaryFile = [IO.Path]::GetTempFileName()
             try {
@@ -140,30 +140,30 @@ if ($signingRequested -and -not (Test-Path -LiteralPath $SignToolPath -PathType 
 
 $repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../..'))
 if (-not (Test-Path -LiteralPath (Join-Path $repositoryRoot 'Cargo.toml') -PathType Leaf)) { throw 'repository root could not be located' }
-$temporaryDirectory = Join-Path ([IO.Path]::GetTempPath()) ("yeokcham-relay-windows-package-" + [IO.Path]::GetRandomFileName())
+$temporaryDirectory = Join-Path ([IO.Path]::GetTempPath()) ("arachne-relay-windows-package-" + [IO.Path]::GetRandomFileName())
 New-Item -ItemType Directory -Path $temporaryDirectory | Out-Null
 try {
     Set-Location $repositoryRoot
-    & cargo build --release --locked --package yeokcham-relay --bin yeokcham-relay --bin yeokcham-relay-service --target $Target
+    & cargo build --release --locked --package arachne-relay --bin arachne-relay --bin arachne-relay-service --target $Target
     if ($LASTEXITCODE -ne 0) { throw 'cargo build failed' }
     $targetDirectory = Get-TargetDirectory -RepositoryRoot $repositoryRoot
-    $relayBinary = Join-Path $targetDirectory "$Target/release/yeokcham-relay.exe"
-    $serviceBinary = Join-Path $targetDirectory "$Target/release/yeokcham-relay-service.exe"
+    $relayBinary = Join-Path $targetDirectory "$Target/release/arachne-relay.exe"
+    $serviceBinary = Join-Path $targetDirectory "$Target/release/arachne-relay-service.exe"
     foreach ($binary in @($relayBinary, $serviceBinary)) {
         if (-not (Test-Path -LiteralPath $binary -PathType Leaf) -or -not (Test-PeFile -Path $binary)) { throw 'release binary is not an x86-64 PE executable' }
         if ($signingRequested) { Invoke-SignTool -Binary $binary }
     }
 
-    $version = Get-YeokchamVersion
-    $packageDirectory = "yeokcham-relay-$version-$Target"
+    $version = Get-ArachneVersion
+    $packageDirectory = "arachne-relay-$version-$Target"
     $payloadRoot = Join-Path $temporaryDirectory $packageDirectory
     New-Item -ItemType Directory -Path $payloadRoot | Out-Null
-    Copy-Item -LiteralPath $relayBinary -Destination (Join-Path $payloadRoot 'yeokcham-relay.exe')
-    Copy-Item -LiteralPath $serviceBinary -Destination (Join-Path $payloadRoot 'yeokcham-relay-service.exe')
+    Copy-Item -LiteralPath $relayBinary -Destination (Join-Path $payloadRoot 'arachne-relay.exe')
+    Copy-Item -LiteralPath $serviceBinary -Destination (Join-Path $payloadRoot 'arachne-relay-service.exe')
     foreach ($resource in @('install.ps1', 'uninstall.ps1', 'relay.conf.example')) {
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot $resource) -Destination (Join-Path $payloadRoot $resource)
     }
-    $checksumNames = @('install.ps1', 'relay.conf.example', 'uninstall.ps1', 'yeokcham-relay-service.exe', 'yeokcham-relay.exe')
+    $checksumNames = @('install.ps1', 'relay.conf.example', 'uninstall.ps1', 'arachne-relay-service.exe', 'arachne-relay.exe')
     $checksums = foreach ($name in $checksumNames) {
         $hash = (Get-FileHash -LiteralPath (Join-Path $payloadRoot $name) -Algorithm SHA256).Hash.ToLowerInvariant()
         "$hash  $name"

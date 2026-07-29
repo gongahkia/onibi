@@ -1,0 +1,68 @@
+[package]
+name = "arachne-daemon"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[features]
+default = []
+experimental-relay-replication = ["arachne-protocol/experimental-relay-replication"]
+
+[dependencies]
+chacha20poly1305.workspace = true
+fs2.workspace = true
+getrandom.workspace = true
+hyper-util.workspace = true
+igd-next.workspace = true
+minicbor.workspace = true
+mdns-sd.workspace = true
+natpmp.workspace = true
+quinn.workspace = true
+rcgen = "0.14.7"
+rusqlite.workspace = true
+sha2.workspace = true
+stunclient.workspace = true
+subtle.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-stream.workspace = true
+tokio-socks.workspace = true
+tonic = { workspace = true, features = ["tls-ring"] }
+tower.workspace = true
+tracing.workspace = true
+arachne-core = { path = "../arachne-core" }
+arachne-daemon-api = { path = "../arachne-daemon-api" }
+arachne-protocol = { path = "../arachne-protocol" }
+zeroize.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62.2", features = ["Devices_Bluetooth", "Devices_Enumeration", "Devices_Radios", "Devices_WiFi", "Devices_WiFiDirect", "Foundation", "Networking_Connectivity", "Networking_NetworkOperators", "Security_Credentials", "Win32_Foundation", "Win32_NetworkManagement_WiFi", "Win32_System_WinRT"] }
+windows-future = "=0.3.2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+corebluetooth = "0.1.0"
+corewlan = "0.2.1"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+bluer = { version = "0.17.4", default-features = false, features = ["bluetoothd"] }
+futures-util = "0.3.32"
+uuid = "1.23.5"
+zbus.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+prost.workspace = true
+proptest.workspace = true
+tonic-prost.workspace = true
+tracing-subscriber.workspace = true
+zbus.workspace = true
+
+[[bench]]
+name = "local_transport"
+harness = false
+
+[lints]
+workspace = true

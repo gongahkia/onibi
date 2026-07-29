@@ -29,7 +29,7 @@ function Test-PeStream {
 
 $scriptDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
 $packageScript = Join-Path $scriptDirectory 'package.ps1'
-$temporaryDirectory = Join-Path ([IO.Path]::GetTempPath()) ("yeokcham-relay-windows-package-test-" + [IO.Path]::GetRandomFileName())
+$temporaryDirectory = Join-Path ([IO.Path]::GetTempPath()) ("arachne-relay-windows-package-test-" + [IO.Path]::GetRandomFileName())
 New-Item -ItemType Directory -Path $temporaryDirectory | Out-Null
 $previousLinker = $env:CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER
 try {
@@ -40,7 +40,7 @@ try {
     $linker = Get-Command x86_64-w64-mingw32-gcc -ErrorAction SilentlyContinue
     if ($null -eq $linker) { throw 'x86_64-w64-mingw32-gcc is required to test the GNU Windows relay package' }
     $env:CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER = $linker.Name
-    $package = Join-Path $temporaryDirectory 'yeokcham-relay.zip'
+    $package = Join-Path $temporaryDirectory 'arachne-relay.zip'
     & $packageScript -Output $package -Target x86_64-pc-windows-gnu
     if (-not (Test-Path -LiteralPath $package -PathType Leaf) -or (Get-Item -LiteralPath $package).Length -le 0) { throw 'package was not created' }
 
@@ -48,21 +48,21 @@ try {
     try {
         $metadata = (& cargo metadata --locked --no-deps --format-version 1 | ConvertFrom-Json)
         if ($LASTEXITCODE -ne 0) { throw 'cargo metadata failed' }
-        $relayPackages = @($metadata.packages | Where-Object { $_.name -eq 'yeokcham-relay' })
+        $relayPackages = @($metadata.packages | Where-Object { $_.name -eq 'arachne-relay' })
         if ($relayPackages.Count -ne 1) { throw 'relay package metadata is ambiguous' }
-        $prefix = "yeokcham-relay-$($relayPackages[0].version)-x86_64-pc-windows-gnu/"
-        foreach ($name in @('install.ps1', 'uninstall.ps1', 'relay.conf.example', 'SHA256SUMS.txt', 'yeokcham-relay-service.exe', 'yeokcham-relay.exe')) {
+        $prefix = "arachne-relay-$($relayPackages[0].version)-x86_64-pc-windows-gnu/"
+        foreach ($name in @('install.ps1', 'uninstall.ps1', 'relay.conf.example', 'SHA256SUMS.txt', 'arachne-relay-service.exe', 'arachne-relay.exe')) {
             $entry = $archive.GetEntry("$prefix$name")
             if ($null -eq $entry -or $entry.Length -le 0) { throw "package entry $name is invalid" }
         }
-        foreach ($binaryName in @('yeokcham-relay-service.exe', 'yeokcham-relay.exe')) {
+        foreach ($binaryName in @('arachne-relay-service.exe', 'arachne-relay.exe')) {
             $stream = $archive.GetEntry("$prefix$binaryName").Open()
             try { if (-not (Test-PeStream -Stream $stream)) { throw "$binaryName is not an x86-64 PE executable" } } finally { $stream.Dispose() }
         }
         $installerReader = [IO.StreamReader]::new($archive.GetEntry("${prefix}install.ps1").Open())
         try { $installer = $installerReader.ReadToEnd() } finally { $installerReader.Dispose() }
         if ($installer -notmatch 'sc\.exe create \$serviceName' -or $installer -match '(?m)^\s*&?\s*(?:Start-Service|sc\.exe start)\b') { throw 'installer does not register a demand-start SCM service' }
-        if ($installer -notmatch 'NT AUTHORITY\\LocalService' -or $installer -notmatch 'yeokcham-relay-service\.exe') { throw 'installer does not use the restricted service host' }
+        if ($installer -notmatch 'NT AUTHORITY\\LocalService' -or $installer -notmatch 'arachne-relay-service\.exe') { throw 'installer does not use the restricted service host' }
         if ($installer -notmatch 'LOCAL SERVICE:\(OI\)\(CI\)M' -or $installer -notmatch 'LOCAL SERVICE:R') { throw 'installer does not protect writable and secret relay state separately' }
     } finally {
         $archive.Dispose()

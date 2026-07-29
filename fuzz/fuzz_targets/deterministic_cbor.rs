@@ -1,7 +1,7 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use yeokcham_protocol::{
+use arachne_protocol::{
     DeliveryProfile, DirectProfileConfig, ExtensionFrame, LocalMeshProfileConfig, MessagePayload,
     RecipientCapability, TorMaildropProfileConfig, VersionNegotiation, WireEnvelope, WireLimits,
 };

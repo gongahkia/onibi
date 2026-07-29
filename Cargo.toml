@@ -1,14 +1,14 @@
 [workspace]
 members = [
-  "crates/yeokcham-core",
-  "crates/yeokcham-protocol",
-  "crates/yeokcham-daemon",
-  "crates/yeokcham-relay",
-  "crates/yeokcham-ffi",
-  "crates/yeokcham-cli",
-  "crates/yeokcham-daemon-api",
-  "crates/yeokcham-relay-api",
-  "crates/yeokcham-sdk",
+  "crates/arachne-core",
+  "crates/arachne-protocol",
+  "crates/arachne-daemon",
+  "crates/arachne-relay",
+  "crates/arachne-ffi",
+  "crates/arachne-cli",
+  "crates/arachne-daemon-api",
+  "crates/arachne-relay-api",
+  "crates/arachne-sdk",
   "examples/rust-integrator",
 ]
 resolver = "3"
@@ -18,7 +18,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.93"
 license = "Apache-2.0"
-repository = "https://github.com/gongahkia/yeokcham"
+repository = "https://github.com/gongahkia/arachne"
 
 [workspace.dependencies]
 argon2 = { version = "=0.5.3", default-features = false, features = ["alloc", "zeroize"] }

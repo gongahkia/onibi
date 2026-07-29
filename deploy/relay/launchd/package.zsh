@@ -4,14 +4,14 @@ emulate -L zsh
 setopt errexit nounset pipefail
 
 function die() { print -u2 -r -- "package error: $1"; exit 1 }
-function usage() { print -r -- 'Usage: deploy/relay/launchd/package.zsh --output /absolute/path/yeokcham-relay.pkg [--target <aarch64-apple-darwin|x86_64-apple-darwin>] [--application-identity "Developer ID Application: …"] [--installer-identity "Developer ID Installer: …"]' }
+function usage() { print -r -- 'Usage: deploy/relay/launchd/package.zsh --output /absolute/path/arachne-relay.pkg [--target <aarch64-apple-darwin|x86_64-apple-darwin>] [--application-identity "Developer ID Application: …"] [--installer-identity "Developer ID Installer: …"]' }
 function package_payload_is_valid() {
     local payload_path binary=0 config=0 plist=0
     while IFS= read -r payload_path; do
         case "$payload_path" in
-            ./usr/local/libexec/yeokcham-relay) binary=1 ;;
-            './Library/Application Support/Yeokcham/relay.conf.example') config=1 ;;
-            ./Library/LaunchDaemons/com.yeokcham.relay.plist) plist=1 ;;
+            ./usr/local/libexec/arachne-relay) binary=1 ;;
+            './Library/Application Support/Arachne/relay.conf.example') config=1 ;;
+            ./Library/LaunchDaemons/com.arachne.relay.plist) plist=1 ;;
         esac
     done < <(pkgutil --payload-files "$1")
     (( binary == 1 && config == 1 && plist == 1 ))
@@ -48,35 +48,35 @@ fi
 script_directory=${0:A:h}
 repository_root=${script_directory:h:h:h}
 [[ -f "$repository_root/Cargo.toml" ]] || die 'repository root could not be located'
-plutil -lint "$script_directory/com.yeokcham.relay.plist" >/dev/null
+plutil -lint "$script_directory/com.arachne.relay.plist" >/dev/null
 zsh -n "$script_directory/scripts/postinstall"
 if [[ -z "$target" ]]; then
     target="$(rustc -vV | awk '$1 == "host:" { host = $2 } END { print host }')"
 fi
 case "$target" in aarch64-apple-darwin|x86_64-apple-darwin) ;; *) die '--target must be a supported macOS Rust target' ;; esac
-temporary_directory="$(mktemp -d "${TMPDIR:-/tmp}/yeokcham-launchd-package.XXXXXX")"
+temporary_directory="$(mktemp -d "${TMPDIR:-/tmp}/arachne-launchd-package.XXXXXX")"
 function cleanup() { rm -rf -- "$temporary_directory" }
 trap cleanup EXIT INT TERM
 cd "$repository_root"
-cargo build --release --locked --package yeokcham-relay --bin yeokcham-relay --target "$target"
+cargo build --release --locked --package arachne-relay --bin arachne-relay --target "$target"
 case "${CARGO_TARGET_DIR:-}" in '') target_directory="$repository_root/target" ;; /*) target_directory="$CARGO_TARGET_DIR" ;; *) target_directory="$repository_root/$CARGO_TARGET_DIR" ;; esac
-binary="$target_directory/$target/release/yeokcham-relay"
+binary="$target_directory/$target/release/arachne-relay"
 [[ -f "$binary" && -x "$binary" ]] || die 'release binary was not produced'
 version="$("$binary" --version | awk 'NR == 1 { print $2 }')"
 [[ "$version" == <->.<->.<-> ]] || die 'binary version must be numeric semantic versioning'
 payload_root="$temporary_directory/root"
-packaged_binary="$payload_root/usr/local/libexec/yeokcham-relay"
-mkdir -p "$payload_root/usr/local/libexec" "$payload_root/Library/Application Support/Yeokcham" "$payload_root/Library/LaunchDaemons"
+packaged_binary="$payload_root/usr/local/libexec/arachne-relay"
+mkdir -p "$payload_root/usr/local/libexec" "$payload_root/Library/Application Support/Arachne" "$payload_root/Library/LaunchDaemons"
 install -m 0755 "$binary" "$packaged_binary"
-install -m 0644 "$script_directory/relay.conf" "$payload_root/Library/Application Support/Yeokcham/relay.conf.example"
-install -m 0644 "$script_directory/com.yeokcham.relay.plist" "$payload_root/Library/LaunchDaemons/com.yeokcham.relay.plist"
+install -m 0644 "$script_directory/relay.conf" "$payload_root/Library/Application Support/Arachne/relay.conf.example"
+install -m 0644 "$script_directory/com.arachne.relay.plist" "$payload_root/Library/LaunchDaemons/com.arachne.relay.plist"
 if [[ -n "$application_identity" ]]; then
     codesign --force --options runtime --timestamp --sign "$application_identity" "$packaged_binary"
     codesign --verify --strict --verbose=2 "$packaged_binary"
 fi
-package="$temporary_directory/yeokcham-relay-$version-$target.pkg"
+package="$temporary_directory/arachne-relay-$version-$target.pkg"
 typeset -a arguments
-arguments=(--root "$payload_root" --scripts "$script_directory/scripts" --identifier com.yeokcham.relay --version "$version" --install-location / --ownership recommended)
+arguments=(--root "$payload_root" --scripts "$script_directory/scripts" --identifier com.arachne.relay --version "$version" --install-location / --ownership recommended)
 [[ -n "$installer_identity" ]] && arguments+=(--sign "$installer_identity" --timestamp)
 pkgbuild "${arguments[@]}" "$package"
 package_payload_is_valid "$package" || die 'package payload is invalid'

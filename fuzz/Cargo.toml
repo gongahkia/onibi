@@ -1,5 +1,5 @@
 [package]
-name = "yeokcham-fuzz"
+name = "arachne-fuzz"
 version = "0.0.0"
 publish = false
 edition = "2024"
@@ -9,9 +9,9 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
-yeokcham-ffi = { path = "../crates/yeokcham-ffi" }
-yeokcham-protocol = { path = "../crates/yeokcham-protocol" }
-yeokcham-relay = { path = "../crates/yeokcham-relay" }
+arachne-ffi = { path = "../crates/arachne-ffi" }
+arachne-protocol = { path = "../crates/arachne-protocol" }
+arachne-relay = { path = "../crates/arachne-relay" }
 
 [[bin]]
 name = "deterministic_cbor"

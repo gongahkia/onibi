@@ -1,9 +1,9 @@
 use std::{ffi::OsString, path::PathBuf};
 
-use yeokcham_sdk::{SdkClientBuilder, SdkConfig, SdkConfigError};
+use arachne_sdk::{SdkClientBuilder, SdkConfig, SdkConfigError};
 
 pub const DEFAULT_EVENT_BUFFER_CAPACITY: usize = 64;
-pub const STATE_DIRECTORY_ENV: &str = "YEOKCHAM_STATE_DIRECTORY";
+pub const STATE_DIRECTORY_ENV: &str = "ARACHNE_STATE_DIRECTORY";
 
 pub fn config_from_environment() -> Result<SdkConfig, IntegratorExampleError> {
     let state_directory = state_directory_from(std::env::var_os(STATE_DIRECTORY_ENV))?;
@@ -25,7 +25,7 @@ fn state_directory_from(value: Option<OsString>) -> Result<PathBuf, IntegratorEx
 
 #[derive(Debug, Eq, PartialEq, thiserror::Error)]
 pub enum IntegratorExampleError {
-    #[error("YEOKCHAM_STATE_DIRECTORY must be set to an absolute state directory")]
+    #[error("ARACHNE_STATE_DIRECTORY must be set to an absolute state directory")]
     MissingStateDirectory,
     #[error("SDK configuration is invalid")]
     Configuration(#[from] SdkConfigError),
@@ -43,13 +43,13 @@ mod tests {
         DEFAULT_EVENT_BUFFER_CAPACITY, IntegratorExampleError, build_embedded_config,
         state_directory_from,
     };
-    use yeokcham_sdk::{RuntimeMode, SdkClient, SdkConfigError};
+    use arachne_sdk::{RuntimeMode, SdkClient, SdkConfigError};
 
     static NEXT_TEST_PATH: AtomicU64 = AtomicU64::new(0);
 
     fn state_directory() -> PathBuf {
         std::env::temp_dir().join(format!(
-            "yeokcham-rust-integrator-example-{}-{}",
+            "arachne-rust-integrator-example-{}-{}",
             std::process::id(),
             NEXT_TEST_PATH.fetch_add(1, Ordering::Relaxed)
         ))
@@ -91,7 +91,7 @@ mod tests {
 
     #[test]
     fn accepts_an_explicit_state_directory_value() {
-        let state_directory = PathBuf::from("/var/lib/yeokcham/example");
+        let state_directory = PathBuf::from("/var/lib/arachne/example");
         assert_eq!(
             state_directory_from(Some(OsString::from(&state_directory))),
             Ok(state_directory)

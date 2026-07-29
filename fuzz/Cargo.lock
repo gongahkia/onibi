@@ -3108,7 +3108,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "yeokcham-core"
+name = "arachne-core"
 version = "0.1.0"
 dependencies = [
  "ed25519-dalek",
@@ -3125,7 +3125,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "yeokcham-daemon"
+name = "arachne-daemon"
 version = "0.1.0"
 dependencies = [
  "chacha20poly1305",
@@ -3148,14 +3148,14 @@ dependencies = [
  "tonic",
  "tower",
  "tracing",
- "yeokcham-core",
- "yeokcham-daemon-api",
- "yeokcham-protocol",
+ "arachne-core",
+ "arachne-daemon-api",
+ "arachne-protocol",
  "zeroize",
 ]
 
 [[package]]
-name = "yeokcham-daemon-api"
+name = "arachne-daemon-api"
 version = "0.1.0"
 dependencies = [
  "prost",
@@ -3165,27 +3165,27 @@ dependencies = [
 ]
 
 [[package]]
-name = "yeokcham-ffi"
+name = "arachne-ffi"
 version = "0.1.0"
 dependencies = [
  "cc",
- "yeokcham-protocol",
- "yeokcham-sdk",
+ "arachne-protocol",
+ "arachne-sdk",
  "zeroize",
 ]
 
 [[package]]
-name = "yeokcham-fuzz"
+name = "arachne-fuzz"
 version = "0.0.0"
 dependencies = [
  "libfuzzer-sys",
- "yeokcham-ffi",
- "yeokcham-protocol",
- "yeokcham-relay",
+ "arachne-ffi",
+ "arachne-protocol",
+ "arachne-relay",
 ]
 
 [[package]]
-name = "yeokcham-protocol"
+name = "arachne-protocol"
 version = "0.1.0"
 dependencies = [
  "argon2",
@@ -3196,12 +3196,12 @@ dependencies = [
  "sha2 0.11.0",
  "subtle",
  "thiserror 2.0.18",
- "yeokcham-core",
+ "arachne-core",
  "zeroize",
 ]
 
 [[package]]
-name = "yeokcham-relay"
+name = "arachne-relay"
 version = "0.1.0"
 dependencies = [
  "getrandom 0.4.3",
@@ -3211,14 +3211,14 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tonic",
- "yeokcham-core",
- "yeokcham-protocol",
- "yeokcham-relay-api",
+ "arachne-core",
+ "arachne-protocol",
+ "arachne-relay-api",
  "zeroize",
 ]
 
 [[package]]
-name = "yeokcham-relay-api"
+name = "arachne-relay-api"
 version = "0.1.0"
 dependencies = [
  "prost",
@@ -3228,14 +3228,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "yeokcham-sdk"
+name = "arachne-sdk"
 version = "0.1.0"
 dependencies = [
  "thiserror 2.0.18",
  "tokio",
- "yeokcham-core",
- "yeokcham-daemon",
- "yeokcham-protocol",
+ "arachne-core",
+ "arachne-daemon",
+ "arachne-protocol",
 ]
 
 [[package]]

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>Label</key><string>com.arachne.relay</string>
+<key>ProgramArguments</key><array>
+<string>/usr/local/libexec/arachne-relay</string><string>run</string>
+<string>--config</string><string>/Library/Application Support/Arachne/relay.conf</string>
+<string>--identity</string><string>/Library/Application Support/Arachne/relay.identity</string>
+<string>--health-address</string><string>127.0.0.1:8080</string>
+<string>--metrics-address</string><string>127.0.0.1:9090</string>
+</array>
+<key>WorkingDirectory</key><string>/Library/Application Support/Arachne</string>
+<key>UserName</key><string>_arachne</string>
+<key>GroupName</key><string>_arachne</string>
+<key>RunAtLoad</key><true/>
+<key>KeepAlive</key><dict><key>Crashed</key><true/></dict>
+<key>ThrottleInterval</key><integer>5</integer>
+<key>ProcessType</key><string>Background</string>
+<key>Umask</key><integer>63</integer>
+</dict></plist>

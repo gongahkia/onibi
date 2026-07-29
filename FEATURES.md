@@ -9,7 +9,7 @@ All workspace crates declare `default = []`; every capability is explicit opt-in
 - Each new feature documents its enabled dependencies, compatible combinations, and protocol or security effect here.
 - CI tests the workspace with `--no-default-features` and `--all-features`.
 
-## `yeokcham-core/test-fixtures`
+## `arachne-core/test-fixtures`
 
 - Enables deterministic bounded byte fixtures and synthetic `Secret<Vec<u8>>` test inputs; no dependencies.
 - Compatible with every workspace feature combination.

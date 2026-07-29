@@ -1,0 +1,6 @@
+# Arachne security regression vectors, schema version 1.
+wire_trailing_data=8301024000
+wire_nested_payload=8301028101
+direct_profile_unspecified=84010444000000001901bb
+direct_profile_broadcast=84010444ffffffff1901bb
+mailbox_capability_zero_token=8301501111111111111111111111111111111158200000000000000000000000000000000000000000000000000000000000000000

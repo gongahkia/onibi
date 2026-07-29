@@ -2,7 +2,7 @@
 
 ## Durable state
 
-`yeokcham-daemon` owns client durable state. SQLite provides atomic durability only; every
+`arachne-daemon` owns client durable state. SQLite provides atomic durability only; every
 logical record is contained in one canonical CBOR document encrypted with
 XChaCha20-Poly1305. A random 32-byte database key exists only in the OS keystore. The
 database stores a random database ID, a key ID, a format version, nonce, and ciphertext.
