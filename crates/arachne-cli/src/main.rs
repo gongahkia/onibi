@@ -33,9 +33,10 @@ use crossterm::{
     cursor::{Hide, MoveTo, Show},
     event::{self, Event, KeyCode, KeyEventKind},
     execute, queue,
-    style::Print,
     terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
 };
+#[cfg(test)]
+use crossterm::style::Print;
 use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeMap,
