@@ -29,14 +29,14 @@ use arachne_sdk::{
     SdkLocalMeshTransportKind, SdkMessageEnvelope, SdkMessageExpiry, SdkMessageSendRequest,
 };
 use clap::{Args, Parser, Subcommand};
+#[cfg(test)]
+use crossterm::style::Print;
 use crossterm::{
     cursor::{Hide, MoveTo, Show},
     event::{self, Event, KeyCode, KeyEventKind},
     execute, queue,
     terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
 };
-#[cfg(test)]
-use crossterm::style::Print;
 use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeMap,
@@ -2706,7 +2706,8 @@ fn render_tui_dashboard(output: &mut impl Write, dashboard: &TuiDashboard) -> st
         return render_tui_route_policy(output, dashboard);
     }
     queue!(output, MoveTo(0, 0), Clear(ClearType::All))?;
-    let mut content = dashboard.dashboard.snapshot();
+    let mut content = String::from("Arachne | secure courier\n───────────────────────\n\n");
+    content.push_str(&dashboard.dashboard.snapshot());
     if let Some(input) = &dashboard.contact_input {
         let _ = writeln!(content, "{}: {}", input.kind.prompt(), input.value);
         content.push_str("Enter submits; Esc cancels.\n");
@@ -2721,9 +2722,10 @@ fn render_tui_dashboard(output: &mut impl Write, dashboard: &TuiDashboard) -> st
             "The encrypted envelope is never rendered. Enter advances or queues; Esc cancels.\n",
         );
     } else {
-        content.push_str(
-            "a: attachments; b: inbox; m: queue encrypted message; o: status; p: route policy; i: import invitation; r: verify QR; s: verify safety number; q: exit.\n",
-        );
+        content.push('\n');
+        content.push_str("───────────────────────\n");
+        content.push_str("[a] attachments  [b] inbox  [m] message  [o] status  [p] route\n");
+        content.push_str("[i] invite  [r] verify QR  [s] safety number  [q] exit\n");
     }
     if let Some(notice) = dashboard.notice {
         let _ = writeln!(content, "{notice}");
