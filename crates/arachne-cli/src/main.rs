@@ -2704,41 +2704,30 @@ fn render_tui_dashboard(output: &mut impl Write, dashboard: &TuiDashboard) -> st
     if dashboard.screen == TuiScreen::RoutePolicy {
         return render_tui_route_policy(output, dashboard);
     }
-    queue!(
-        output,
-        MoveTo(0, 0),
-        Clear(ClearType::All),
-        Print(dashboard.dashboard.snapshot())
-    )?;
+    queue!(output, MoveTo(0, 0), Clear(ClearType::All))?;
+    let mut content = dashboard.dashboard.snapshot();
     if let Some(input) = &dashboard.contact_input {
-        queue!(
-            output,
-            Print(format!("{}: {}\n", input.kind.prompt(), input.value)),
-            Print("Enter submits; Esc cancels.\n")
-        )?;
+        let _ = writeln!(content, "{}: {}", input.kind.prompt(), input.value);
+        content.push_str("Enter submits; Esc cancels.\n");
     } else if let Some(input) = &dashboard.message_input {
-        queue!(
-            output,
-            Print(format!(
-                "{}: {}\n",
-                input.stage.prompt(),
-                input.rendered_value()
-            )),
-            Print(
-                "The encrypted envelope is never rendered. Enter advances or queues; Esc cancels.\n"
-            )
-        )?;
+        let _ = writeln!(
+            content,
+            "{}: {}",
+            input.stage.prompt(),
+            input.rendered_value()
+        );
+        content.push_str(
+            "The encrypted envelope is never rendered. Enter advances or queues; Esc cancels.\n",
+        );
     } else {
-        queue!(
-            output,
-            Print(
-                "a: attachments; b: inbox; m: queue encrypted message; o: status; p: route policy; i: import invitation; r: verify QR; s: verify safety number; q: exit.\n"
-            )
-        )?;
+        content.push_str(
+            "a: attachments; b: inbox; m: queue encrypted message; o: status; p: route policy; i: import invitation; r: verify QR; s: verify safety number; q: exit.\n",
+        );
     }
     if let Some(notice) = dashboard.notice {
-        queue!(output, Print(format!("{notice}\n")))?;
+        let _ = writeln!(content, "{notice}");
     }
+    write_tui_text(output, &content)?;
     output.flush()
 }
 
@@ -2746,70 +2735,57 @@ fn render_tui_route_policy(
     output: &mut impl Write,
     dashboard: &TuiDashboard,
 ) -> std::io::Result<()> {
-    queue!(
-        output,
-        MoveTo(0, 0),
-        Clear(ClearType::All),
-        Print("Route policy:\n"),
-        Print(format!(
-            "selected={}\n",
-            dashboard
-                .route_policy
-                .selection
-                .map_or("none", TuiRouteSelection::label)
-        )),
-        Print("d: direct (requires IP-disclosure acknowledgement); t: Tor maildrop.\n"),
-        Print("l: LAN; h: Wi-Fi hotspot; w: Wi-Fi Direct; b: Bluetooth.\n"),
-        Print("Every route change is explicit; no automatic route replacement occurs.\n")
-    )?;
+    queue!(output, MoveTo(0, 0), Clear(ClearType::All))?;
+    let mut content = String::from("Route policy:\n");
+    let _ = writeln!(
+        content,
+        "selected={}",
+        dashboard
+            .route_policy
+            .selection
+            .map_or("none", TuiRouteSelection::label)
+    );
+    content.push_str("d: direct (requires IP-disclosure acknowledgement); t: Tor maildrop.\n");
+    content.push_str("l: LAN; h: Wi-Fi hotspot; w: Wi-Fi Direct; b: Bluetooth.\n");
+    content.push_str("Every route change is explicit; no automatic route replacement occurs.\n");
     if dashboard.route_policy.direct_acknowledgement_pending {
-        queue!(
-            output,
-            Print(
-                "Direct delivery may disclose your IP address. Press y to acknowledge or n/Esc to cancel.\n"
-            )
-        )?;
+        content.push_str(
+            "Direct delivery may disclose your IP address. Press y to acknowledge or n/Esc to cancel.\n",
+        );
     } else {
-        queue!(output, Print("p or Esc returns; q returns to overview.\n"))?;
+        content.push_str("p or Esc returns; q returns to overview.\n");
     }
     if let Some(notice) = dashboard.notice {
-        queue!(output, Print(format!("{notice}\n")))?;
+        let _ = writeln!(content, "{notice}");
     }
     if let Some(error) = dashboard.last_error {
-        queue!(output, Print(format!("error={error}\n")))?;
+        let _ = writeln!(content, "error={error}");
     }
+    write_tui_text(output, &content)?;
     output.flush()
 }
 
 fn render_tui_inbox(output: &mut impl Write, dashboard: &TuiDashboard) -> std::io::Result<()> {
-    queue!(
-        output,
-        MoveTo(0, 0),
-        Clear(ClearType::All),
-        Print("Inbox:\n")
-    )?;
+    queue!(output, MoveTo(0, 0), Clear(ClearType::All))?;
+    let mut content = String::from("Inbox:\n");
     let count = dashboard.dashboard.inbox_messages.len();
     if let Some(message) = dashboard.selected_inbox_message() {
-        queue!(
-            output,
-            Print(format!(
-                "message={} of {} received_at={} encrypted_header_bytes={} ciphertext_bytes={}\n",
-                dashboard.inbox_selection + 1,
-                count,
-                message.received_at(),
-                message.encrypted_header_bytes(),
-                message.ciphertext_bytes()
-            )),
-            Print("content=unavailable\n"),
-            Print("Use Up/Down or j/k to select; b or Esc returns; q exits.\n")
-        )?;
+        let _ = writeln!(
+            content,
+            "message={} of {} received_at={} encrypted_header_bytes={} ciphertext_bytes={}",
+            dashboard.inbox_selection + 1,
+            count,
+            message.received_at(),
+            message.encrypted_header_bytes(),
+            message.ciphertext_bytes()
+        );
+        content.push_str("content=unavailable\n");
+        content.push_str("Use Up/Down or j/k to select; b or Esc returns; q exits.\n");
     } else {
-        queue!(
-            output,
-            Print("no retained message metadata\n"),
-            Print("b or Esc returns; q exits.\n")
-        )?;
+        content.push_str("no retained message metadata\n");
+        content.push_str("b or Esc returns; q exits.\n");
     }
+    write_tui_text(output, &content)?;
     output.flush()
 }
 
@@ -2817,40 +2793,48 @@ fn render_tui_attachments(
     output: &mut impl Write,
     dashboard: &TuiDashboard,
 ) -> std::io::Result<()> {
-    queue!(
-        output,
-        MoveTo(0, 0),
-        Clear(ClearType::All),
-        Print("Attachment transfers:\n")
-    )?;
+    queue!(output, MoveTo(0, 0), Clear(ClearType::All))?;
+    let mut content = String::from("Attachment transfers:\n");
     for transfer in &dashboard.dashboard.attachments {
-        queue!(output, Print(format!("  {transfer}\n")))?;
+        let _ = writeln!(content, "  {transfer}");
     }
-    queue!(output, Print("a or Esc returns; q exits.\n"))?;
+    content.push_str("a or Esc returns; q exits.\n");
+    write_tui_text(output, &content)?;
     output.flush()
 }
 
 fn render_tui_status(output: &mut impl Write, dashboard: &TuiDashboard) -> std::io::Result<()> {
-    queue!(
-        output,
-        MoveTo(0, 0),
-        Clear(ClearType::All),
-        Print("Operational status:\n"),
-        Print(format!(
-            "runtime={}\n",
-            if dashboard.runtime_running {
-                "running"
-            } else {
-                "unavailable"
-            }
-        )),
-        Print(format!(
-            "last_error={}\n",
-            dashboard.last_error.unwrap_or("none")
-        )),
-        Print("o or Esc returns; q exits.\n")
-    )?;
+    queue!(output, MoveTo(0, 0), Clear(ClearType::All))?;
+    let mut content = String::from("Operational status:\n");
+    let _ = writeln!(
+        content,
+        "runtime={}",
+        if dashboard.runtime_running {
+            "running"
+        } else {
+            "unavailable"
+        }
+    );
+    let _ = writeln!(
+        content,
+        "last_error={}",
+        dashboard.last_error.unwrap_or("none")
+    );
+    content.push_str("o or Esc returns; q exits.\n");
+    write_tui_text(output, &content)?;
     output.flush()
+}
+
+fn write_tui_text(output: &mut impl Write, text: &str) -> std::io::Result<()> {
+    for line in text.split_inclusive('\n') {
+        if let Some(line) = line.strip_suffix('\n') {
+            output.write_all(line.as_bytes())?;
+            output.write_all(b"\r\n")?;
+        } else {
+            output.write_all(line.as_bytes())?;
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -3190,6 +3174,16 @@ mod tests {
 
     const REVISION: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     static NEXT_TEST_STATE_DIRECTORY: AtomicU64 = AtomicU64::new(0);
+
+    #[test]
+    fn tui_output_uses_carriage_return_newlines_in_raw_mode() {
+        let tui = TuiDashboard::new(dashboard_from_stores(None, None, None), true);
+        let mut rendered = Vec::new();
+        render_tui_dashboard(&mut rendered, &tui).unwrap();
+        let rendered = String::from_utf8(rendered).unwrap();
+        assert!(rendered.contains("Identity:\r\n"));
+        assert!(!rendered.contains("Identity:\n"));
+    }
 
     #[derive(Default)]
     struct InMemoryKeystore {
