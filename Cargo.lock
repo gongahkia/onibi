@@ -104,6 +104,189 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2a4385e2e34eb35d6b3efe798b9eb88096925d87726c0798709bf56d9ed84af3"
 
 [[package]]
+name = "arachne-cli"
+version = "0.1.0"
+dependencies = [
+ "arachne-core",
+ "arachne-daemon",
+ "arachne-daemon-api",
+ "arachne-protocol",
+ "arachne-sdk",
+ "clap",
+ "crossterm",
+ "hyper-util",
+ "minicbor",
+ "sha2 0.11.0",
+ "thiserror 2.0.18",
+ "tokio",
+ "tonic",
+ "tower",
+]
+
+[[package]]
+name = "arachne-core"
+version = "0.1.0"
+dependencies = [
+ "ed25519-dalek",
+ "getrandom 0.4.3",
+ "keyring-core",
+ "security-framework",
+ "security-framework-sys",
+ "thiserror 2.0.18",
+ "tracing",
+ "tracing-subscriber",
+ "windows-native-keyring-store",
+ "x25519-dalek",
+ "zbus-secret-service-keyring-store",
+ "zeroize",
+]
+
+[[package]]
+name = "arachne-daemon"
+version = "0.1.0"
+dependencies = [
+ "arachne-core",
+ "arachne-daemon-api",
+ "arachne-protocol",
+ "bluer",
+ "chacha20poly1305",
+ "corebluetooth",
+ "corewlan",
+ "criterion",
+ "fs2",
+ "futures-util",
+ "getrandom 0.4.3",
+ "hyper-util",
+ "igd-next",
+ "mdns-sd",
+ "minicbor",
+ "natpmp",
+ "proptest",
+ "prost",
+ "quinn",
+ "rcgen",
+ "rusqlite",
+ "sha2 0.11.0",
+ "stunclient",
+ "subtle",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-socks",
+ "tokio-stream",
+ "tonic",
+ "tonic-prost",
+ "tower",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+ "windows",
+ "windows-future",
+ "zbus",
+ "zeroize",
+]
+
+[[package]]
+name = "arachne-daemon-api"
+version = "0.1.0"
+dependencies = [
+ "prost",
+ "protoc-bin-vendored",
+ "tonic",
+ "tonic-prost",
+ "tonic-prost-build",
+]
+
+[[package]]
+name = "arachne-ffi"
+version = "0.1.0"
+dependencies = [
+ "arachne-core",
+ "arachne-protocol",
+ "arachne-sdk",
+ "cc",
+ "tokio",
+ "zeroize",
+]
+
+[[package]]
+name = "arachne-protocol"
+version = "0.1.0"
+dependencies = [
+ "arachne-core",
+ "argon2",
+ "chacha20poly1305",
+ "criterion",
+ "getrandom 0.4.3",
+ "hkdf 0.13.0",
+ "minicbor",
+ "proptest",
+ "sha2 0.11.0",
+ "subtle",
+ "thiserror 2.0.18",
+ "zeroize",
+]
+
+[[package]]
+name = "arachne-relay"
+version = "0.1.0"
+dependencies = [
+ "arachne-core",
+ "arachne-daemon",
+ "arachne-protocol",
+ "arachne-relay-api",
+ "clap",
+ "getrandom 0.4.3",
+ "rcgen",
+ "rusqlite",
+ "sha2 0.11.0",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-stream",
+ "tonic",
+ "windows-service",
+ "zeroize",
+]
+
+[[package]]
+name = "arachne-relay-api"
+version = "0.1.0"
+dependencies = [
+ "prost",
+ "protoc-bin-vendored",
+ "tokio",
+ "tokio-stream",
+ "tonic",
+ "tonic-prost",
+ "tonic-prost-build",
+]
+
+[[package]]
+name = "arachne-rust-integrator-example"
+version = "0.1.0"
+dependencies = [
+ "arachne-core",
+ "arachne-sdk",
+ "thiserror 2.0.18",
+ "tokio",
+]
+
+[[package]]
+name = "arachne-sdk"
+version = "0.1.0"
+dependencies = [
+ "arachne-core",
+ "arachne-daemon",
+ "arachne-daemon-api",
+ "arachne-protocol",
+ "hyper-util",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "tonic",
+ "tower",
+]
+
+[[package]]
 name = "argon2"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4301,189 +4484,6 @@ checksum = "b5f6765e852b9b4dc8e2a76843e4d64d1cea8e79bcde0b6901aea8e7c7f08282"
 dependencies = [
  "bit-vec 0.9.1",
  "time",
-]
-
-[[package]]
-name = "arachne-cli"
-version = "0.1.0"
-dependencies = [
- "clap",
- "crossterm",
- "hyper-util",
- "minicbor",
- "sha2 0.11.0",
- "thiserror 2.0.18",
- "tokio",
- "tonic",
- "tower",
- "arachne-core",
- "arachne-daemon",
- "arachne-daemon-api",
- "arachne-protocol",
- "arachne-sdk",
-]
-
-[[package]]
-name = "arachne-core"
-version = "0.1.0"
-dependencies = [
- "ed25519-dalek",
- "getrandom 0.4.3",
- "keyring-core",
- "security-framework",
- "security-framework-sys",
- "thiserror 2.0.18",
- "tracing",
- "tracing-subscriber",
- "windows-native-keyring-store",
- "x25519-dalek",
- "zbus-secret-service-keyring-store",
- "zeroize",
-]
-
-[[package]]
-name = "arachne-daemon"
-version = "0.1.0"
-dependencies = [
- "bluer",
- "chacha20poly1305",
- "corebluetooth",
- "corewlan",
- "criterion",
- "fs2",
- "futures-util",
- "getrandom 0.4.3",
- "hyper-util",
- "igd-next",
- "mdns-sd",
- "minicbor",
- "natpmp",
- "proptest",
- "prost",
- "quinn",
- "rcgen",
- "rusqlite",
- "sha2 0.11.0",
- "stunclient",
- "subtle",
- "thiserror 2.0.18",
- "tokio",
- "tokio-socks",
- "tokio-stream",
- "tonic",
- "tonic-prost",
- "tower",
- "tracing",
- "tracing-subscriber",
- "uuid",
- "windows",
- "windows-future",
- "arachne-core",
- "arachne-daemon-api",
- "arachne-protocol",
- "zbus",
- "zeroize",
-]
-
-[[package]]
-name = "arachne-daemon-api"
-version = "0.1.0"
-dependencies = [
- "prost",
- "protoc-bin-vendored",
- "tonic",
- "tonic-prost",
- "tonic-prost-build",
-]
-
-[[package]]
-name = "arachne-ffi"
-version = "0.1.0"
-dependencies = [
- "cc",
- "tokio",
- "arachne-core",
- "arachne-protocol",
- "arachne-sdk",
- "zeroize",
-]
-
-[[package]]
-name = "arachne-protocol"
-version = "0.1.0"
-dependencies = [
- "argon2",
- "chacha20poly1305",
- "criterion",
- "getrandom 0.4.3",
- "hkdf 0.13.0",
- "minicbor",
- "proptest",
- "sha2 0.11.0",
- "subtle",
- "thiserror 2.0.18",
- "arachne-core",
- "zeroize",
-]
-
-[[package]]
-name = "arachne-relay"
-version = "0.1.0"
-dependencies = [
- "clap",
- "getrandom 0.4.3",
- "rcgen",
- "rusqlite",
- "sha2 0.11.0",
- "thiserror 2.0.18",
- "tokio",
- "tokio-stream",
- "tonic",
- "windows-service",
- "arachne-core",
- "arachne-daemon",
- "arachne-protocol",
- "arachne-relay-api",
- "zeroize",
-]
-
-[[package]]
-name = "arachne-relay-api"
-version = "0.1.0"
-dependencies = [
- "prost",
- "protoc-bin-vendored",
- "tokio",
- "tokio-stream",
- "tonic",
- "tonic-prost",
- "tonic-prost-build",
-]
-
-[[package]]
-name = "arachne-rust-integrator-example"
-version = "0.1.0"
-dependencies = [
- "thiserror 2.0.18",
- "tokio",
- "arachne-core",
- "arachne-sdk",
-]
-
-[[package]]
-name = "arachne-sdk"
-version = "0.1.0"
-dependencies = [
- "hyper-util",
- "thiserror 2.0.18",
- "tokio",
- "tokio-util",
- "tonic",
- "tower",
- "arachne-core",
- "arachne-daemon",
- "arachne-daemon-api",
- "arachne-protocol",
 ]
 
 [[package]]
