@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -22,6 +23,7 @@ import (
 type bridgeRunner struct {
 	mu    sync.Mutex
 	calls [][]string
+	err   error
 }
 
 func (r *bridgeRunner) Run(_ context.Context, name string, args ...string) ([]byte, error) {
@@ -29,9 +31,9 @@ func (r *bridgeRunner) Run(_ context.Context, name string, args ...string) ([]by
 	r.calls = append(r.calls, append([]string{name}, args...))
 	r.mu.Unlock()
 	if len(args) > 0 && args[0] == "capture-pane" {
-		return []byte("ready\n"), nil
+		return []byte("ready\n"), r.err
 	}
-	return nil, nil
+	return nil, r.err
 }
 
 func testTelegramBridge(t *testing.T) (*telegramBridge, *bridgeRunner, func()) {
@@ -122,6 +124,25 @@ func TestTelegramDoubleSlashForcesKnownCommandToSelectedSession(t *testing.T) {
 	b.handleUpdate(t.Context(), telegram.Update{Message: &telegram.Message{Chat: telegram.Chat{ID: 42, Type: "private"}, From: &telegram.User{ID: 7}, Text: "//help"}})
 	if len(runner.calls) != 3 || !reflect.DeepEqual(runner.calls[0], []string{"tmux", "send-keys", "-t", "onibi-session-double-slash", "-l", "--", "/help"}) {
 		t.Fatalf("calls=%#v", runner.calls)
+	}
+}
+
+func TestTelegramScreenMarksExitedSessionAndClearsTarget(t *testing.T) {
+	b, runner, cleanup := testTelegramBridge(t)
+	defer cleanup()
+	s := NewSession("session-ended", "pi", "pi", 4096)
+	s.TmuxTarget = "onibi-session-ended"
+	if err := b.d.Registry.Add(s); err != nil {
+		t.Fatal(err)
+	}
+	runner.err = errors.New("no server running on /private/tmp/tmux-501/default")
+	b.setTarget(t.Context(), 42, s.ID)
+	b.sendScreen(t.Context(), 42, s.ID, "Screen")
+	if !s.Ended() {
+		t.Fatal("session was not marked ended")
+	}
+	if got := b.target(t.Context(), 42); got != "" {
+		t.Fatalf("target=%q", got)
 	}
 }
 

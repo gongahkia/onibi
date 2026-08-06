@@ -18,6 +18,8 @@ import (
 
 const BufferSize = 64 * 1024
 
+var ErrSessionEnded = errors.New("session ended")
+
 type Daemon struct {
 	Paths               config.Paths
 	DB                  *store.DB
@@ -186,6 +188,9 @@ func (d *Daemon) sessionByID(id string) (*Session, error) {
 }
 func (d *Daemon) sessionForRPCTarget(id string) (*Session, error) {
 	if strings.TrimSpace(id) != "" {
+		if s, err := d.Registry.Get(id); err == nil && s.Ended() {
+			return nil, ErrSessionEnded
+		}
 		return d.sessionByID(id)
 	}
 	list := d.liveSessions()
@@ -196,6 +201,13 @@ func (d *Daemon) sessionForRPCTarget(id string) (*Session, error) {
 		return nil, ErrUnknownSession
 	}
 	return nil, errors.New("select a session")
+}
+func (d *Daemon) tmuxSessionError(ctx context.Context, s *Session, err error) error {
+	if err != nil && tmuxSessionGone(err) {
+		d.markSessionEnded(ctx, s)
+		return ErrSessionEnded
+	}
+	return err
 }
 func (d *Daemon) sessionName(name, fallback string) (string, error) {
 	name = strings.TrimSpace(name)

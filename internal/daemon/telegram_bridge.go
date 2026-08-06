@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strconv"
@@ -183,6 +184,10 @@ func (b *telegramBridge) handleCommand(ctx context.Context, chatID int64, text s
 	case "/keys":
 		s, err := b.d.sessionForRPCTarget(b.target(ctx, chatID))
 		if err != nil {
+			if errors.Is(err, ErrSessionEnded) {
+				b.send(ctx, chatID, b.sessionEndedText(ctx, chatID, b.target(ctx, chatID)), nil)
+				return true
+			}
 			b.send(ctx, chatID, "Controls failed: "+err.Error(), nil)
 			return true
 		}
@@ -204,6 +209,10 @@ func (b *telegramBridge) handleCommand(ctx context.Context, chatID int64, text s
 func (b *telegramBridge) handleInput(ctx context.Context, m *telegram.Message) {
 	s, err := b.d.sessionForRPCTarget(b.target(ctx, m.Chat.ID))
 	if err != nil {
+		if errors.Is(err, ErrSessionEnded) {
+			b.send(ctx, m.Chat.ID, b.sessionEndedText(ctx, m.Chat.ID, b.target(ctx, m.Chat.ID)), nil)
+			return
+		}
 		b.send(ctx, m.Chat.ID, "Select a session with /sessions or create one with /new shell.", nil)
 		return
 	}
@@ -217,6 +226,10 @@ func (b *telegramBridge) handleInput(ctx context.Context, m *telegram.Message) {
 	}
 	out, err := b.d.SendSessionTextAndCapture(ctx, s.ID, m.Text, !paste)
 	if err != nil {
+		if errors.Is(err, ErrSessionEnded) {
+			b.edit(ctx, m.Chat.ID, status.MessageID, b.sessionEndedText(ctx, m.Chat.ID, s.ID), nil)
+			return
+		}
 		b.edit(ctx, m.Chat.ID, status.MessageID, "Input failed: "+err.Error(), nil)
 		if s.Transport == "tmux" {
 			b.sendScreen(ctx, m.Chat.ID, s.ID, "Failed · "+s.Name)
@@ -299,11 +312,19 @@ func (b *telegramBridge) handleTail(ctx context.Context, chatID int64, arg strin
 	}
 	s, err := b.d.sessionForRPCTarget(b.target(ctx, chatID))
 	if err != nil {
+		if errors.Is(err, ErrSessionEnded) {
+			b.send(ctx, chatID, b.sessionEndedText(ctx, chatID, b.target(ctx, chatID)), nil)
+			return
+		}
 		b.send(ctx, chatID, "Tail failed: "+err.Error(), nil)
 		return
 	}
 	out, err := b.d.CaptureSessionTail(ctx, s.ID, lines)
 	if err != nil {
+		if errors.Is(err, ErrSessionEnded) {
+			b.send(ctx, chatID, b.sessionEndedText(ctx, chatID, s.ID), nil)
+			return
+		}
 		b.send(ctx, chatID, "Tail failed: "+err.Error(), nil)
 		return
 	}
@@ -424,7 +445,11 @@ func (b *telegramBridge) key(ctx context.Context, chatID int64, sessionID, key s
 	err := b.d.SendSessionKey(ctx, sessionID, key)
 	text := key + " sent."
 	if err != nil {
-		text = key + " failed: " + err.Error()
+		if errors.Is(err, ErrSessionEnded) {
+			text = b.sessionEndedText(ctx, chatID, sessionID)
+		} else {
+			text = key + " failed: " + err.Error()
+		}
 	}
 	if messageID == 0 {
 		b.send(ctx, chatID, text, nil)
@@ -439,7 +464,13 @@ func (b *telegramBridge) control(ctx context.Context, chatID int64, sessionID, a
 	err := b.d.ControlSession(ctx, sessionID, action)
 	text := strings.ToUpper(action[:1]) + action[1:] + " sent."
 	if err != nil {
-		text = strings.ToUpper(action[:1]) + action[1:] + " failed: " + err.Error()
+		if errors.Is(err, ErrSessionEnded) {
+			text = b.sessionEndedText(ctx, chatID, sessionID)
+		} else {
+			text = strings.ToUpper(action[:1]) + action[1:] + " failed: " + err.Error()
+		}
+	} else if action == "kill" {
+		text = b.sessionEndedText(ctx, chatID, sessionID)
 	}
 	if messageID == 0 {
 		b.send(ctx, chatID, text, nil)
@@ -997,12 +1028,20 @@ func (b *telegramBridge) finishCodexInput(ctx context.Context, chatID int64, sta
 }
 
 func (b *telegramBridge) sendScreen(ctx context.Context, chatID int64, sessionID, caption string) {
+	if strings.TrimSpace(sessionID) == "" {
+		b.send(ctx, chatID, "No active session. Use /new shell, /new codex, or /new pi.", nil)
+		return
+	}
 	if s, err := b.d.sessionByID(sessionID); err == nil && s.Transport == "codex" && len(s.Buf.Snapshot()) == 0 {
 		b.send(ctx, chatID, "Codex has no activity yet. Send a normal message to start a turn.", b.sessionControls(ctx, s.ID))
 		return
 	}
 	png, err := b.d.CaptureSessionScreen(ctx, sessionID)
 	if err != nil {
+		if errors.Is(err, ErrSessionEnded) {
+			b.send(ctx, chatID, b.sessionEndedText(ctx, chatID, sessionID), nil)
+			return
+		}
 		b.send(ctx, chatID, "Screen unavailable: "+err.Error(), nil)
 		return
 	}
@@ -1011,6 +1050,17 @@ func (b *telegramBridge) sendScreen(ctx context.Context, chatID int64, sessionID
 		return
 	}
 	b.d.audit(ctx, "telegram.screen", sessionID, "", chatID, "sent")
+}
+func (b *telegramBridge) sessionEndedText(ctx context.Context, chatID int64, sessionID string) string {
+	name := "Selected session"
+	agent := "session"
+	if s, err := b.d.Registry.Get(sessionID); err == nil {
+		name, agent = s.Name, s.Agent
+	}
+	if b.target(ctx, chatID) == sessionID {
+		b.setTarget(ctx, chatID, "")
+	}
+	return name + " ended. Screens, input, and controls are unavailable. Use /new " + agent + " to start another."
 }
 func (b *telegramBridge) newCard(ctx context.Context, card telegramCard) (string, error) {
 	now := time.Now()

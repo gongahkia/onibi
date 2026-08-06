@@ -112,7 +112,7 @@ func (d *Daemon) CaptureSessionTail(ctx context.Context, id string, lines int) (
 	}
 	out, err := newTmuxController().Capture(ctx, s.TmuxTarget, lines)
 	if err != nil {
-		return "", err
+		return "", d.tmuxSessionError(ctx, s, err)
 	}
 	s.Buf.Reset()
 	_, _ = s.Buf.Write([]byte(out))
@@ -132,7 +132,7 @@ func (d *Daemon) CaptureSessionScreen(ctx context.Context, id string) ([]byte, e
 	}
 	out, err := newTmuxController().Capture(ctx, s.TmuxTarget, 160)
 	if err != nil {
-		return nil, err
+		return nil, d.tmuxSessionError(ctx, s, err)
 	}
 	s.Buf.Reset()
 	_, _ = s.Buf.Write([]byte(out))
@@ -153,10 +153,15 @@ func (d *Daemon) SendSessionTextAndCapture(ctx context.Context, id, text string,
 		return d.sendCodexTurn(ctx, s.ID, text)
 	}
 	if err := newTmuxController().SendText(ctx, s.TmuxTarget, text, enter); err != nil {
-		return "", err
+		return "", d.tmuxSessionError(ctx, s, err)
 	}
 	d.touchSession(ctx, s)
 	return d.CaptureSessionTail(ctx, s.ID, 80)
+}
+
+func tmuxSessionGone(err error) bool {
+	text := strings.ToLower(err.Error())
+	return strings.Contains(text, "no server running") || strings.Contains(text, "can't find session") || strings.Contains(text, "no such session")
 }
 func commandLine(bin string, args []string) string {
 	return strings.TrimSpace(strings.Join(append([]string{bin}, args...), " "))

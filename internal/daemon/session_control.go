@@ -13,7 +13,7 @@ func (d *Daemon) SendSessionKey(ctx context.Context, id, key string) error {
 	if s.Transport == "codex" {
 		return errors.New("Codex app-server sessions do not accept terminal keys")
 	}
-	return newTmuxController().SendKey(ctx, s.TmuxTarget, key)
+	return d.tmuxSessionError(ctx, s, newTmuxController().SendKey(ctx, s.TmuxTarget, key))
 }
 func (d *Daemon) ControlSession(ctx context.Context, id, action string) error {
 	s, err := d.sessionForRPCTarget(id)
@@ -31,10 +31,10 @@ func (d *Daemon) ControlSession(ctx context.Context, id, action string) error {
 	}
 	switch action {
 	case "interrupt":
-		return newTmuxController().SendKey(ctx, s.TmuxTarget, "C-c")
+		return d.tmuxSessionError(ctx, s, newTmuxController().SendKey(ctx, s.TmuxTarget, "C-c"))
 	case "kill":
 		if err := newTmuxController().KillSession(ctx, s.TmuxTarget); err != nil {
-			return err
+			return d.tmuxSessionError(ctx, s, err)
 		}
 		d.markSessionEnded(ctx, s)
 		return nil
