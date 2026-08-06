@@ -182,6 +182,28 @@ func TestClaudeFinalScreenFollowsStopHook(t *testing.T) {
 	}
 }
 
+func TestCodexEndedStatusClearsTarget(t *testing.T) {
+	b, _, cleanup := testTelegramBridge(t)
+	defer cleanup()
+	s := NewSession("codex-ended", "codex", "codex", 4096)
+	s.Transport = "codex"
+	if err := b.d.Registry.Add(s); err != nil {
+		t.Fatal(err)
+	}
+	if !s.MarkEnded() {
+		t.Fatal("could not end Codex session")
+	}
+	b.setTarget(t.Context(), 42, s.ID)
+	oldDelay := codexStatusDelay
+	codexStatusDelay = time.Millisecond
+	defer func() { codexStatusDelay = oldDelay }()
+	b.updateCodexStatus(t.Context(), CodexEvent{SessionID: s.ID, Kind: "failed", Text: "Codex App Server stopped."})
+	<-time.After(20 * time.Millisecond)
+	if got := b.target(t.Context(), 42); got != "" {
+		t.Fatalf("target=%q", got)
+	}
+}
+
 func TestScreenFontPersistsWithoutRestart(t *testing.T) {
 	b, _, cleanup := testTelegramBridge(t)
 	defer cleanup()
