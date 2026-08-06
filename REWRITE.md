@@ -58,12 +58,12 @@ Telegram should be an operations console, not a log spam bot.
 - Atomically apply a selection, resume or deny the underlying action, then edit the decision card to its final state.
 - Require a second confirmation for high-risk approvals.
 - Coalesce streaming output into one editable status message, then send a final state card. Do not send one message per output chunk.
-- Default to a screenshot when a session becomes actionable, completes/fails, or the owner invokes `/screen`.
+- Default to a screenshot when a generic session updates, a Pi turn ends, a structured session becomes actionable/completes/fails, or the owner invokes `/screen`.
 - For generic interactive programs, a screenshot is visual context only. The bot must not pretend it knows what a screen means.
 
 ## Screenshot design
 
-Render the managed tmux/terminal state, not the Ghostty window. This keeps screenshots headless and avoids macOS screen-recording permissions.
+Render the managed tmux/terminal state, not the Ghostty window. Capture tmux's resolved screen rather than replaying escape sequences; this keeps screenshots headless, Unicode-safe, and independent of macOS screen-recording permissions.
 
 The repository uses `internal/render/png.go` and `internal/telegram/api.go` to send rendered managed-session screens on state transitions or on demand, never continuously.
 
@@ -94,7 +94,8 @@ The existing Pi extension reports session, input, and tool events and can block 
 ## Implementation invariants
 
 - Generic terminal input is literal. No output parser promotes a TUI prompt into a decision.
-- Generic completion and actionable states send rendered screens; structured Codex requests send decision previews and native inline cards.
+- Generic input is never mislabeled as completion; Pi lifecycle completion and structured Codex events send fresh final state.
+- Screens use a bundled, owner-selectable monospaced font; external fonts are opt-in local paths.
 - Callback state is session-bound, opaque, persisted, 24-hour bounded, and single-use.
 - Codex streaming output is coalesced into an edited status card rather than emitted per chunk.
 - Codex approval and input requests are only answered while the corresponding App Server request remains pending.

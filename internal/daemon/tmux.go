@@ -128,7 +128,7 @@ func (d *Daemon) CaptureSessionScreen(ctx context.Context, id string) ([]byte, e
 		return nil, err
 	}
 	if s.Transport != "tmux" {
-		return render.RenderPNG(s.Buf.Snapshot(), render.PNGOptions{Rows: 26, Cols: 100, Scale: 1})
+		return render.RenderPNG(s.Buf.Snapshot(), d.screenPNGOptions(26, 100))
 	}
 	out, err := newTmuxController().Capture(ctx, s.TmuxTarget, 160)
 	if err != nil {
@@ -136,7 +136,7 @@ func (d *Daemon) CaptureSessionScreen(ctx context.Context, id string) ([]byte, e
 	}
 	s.Buf.Reset()
 	_, _ = s.Buf.Write([]byte(out))
-	return render.RenderPNG([]byte(out), render.PNGOptions{Rows: 26, Cols: 100, Scale: 1})
+	return render.RenderPNG([]byte(out), d.screenPNGOptions(26, 100))
 }
 func (d *Daemon) SendSessionTextAndCapture(ctx context.Context, id, text string, enter bool) (string, error) {
 	s, err := d.sessionForRPCTarget(id)

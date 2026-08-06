@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -26,5 +27,28 @@ func TestLoadAndSaveOutputBuffer(t *testing.T) {
 func TestSetRejectsUnknownKey(t *testing.T) {
 	if err := Set(&Config{}, "daemon.unused", "8192"); err == nil {
 		t.Fatal("accepted unknown key")
+	}
+}
+
+func TestScreenFontConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "font.ttf")
+	if err := os.WriteFile(path, []byte("font"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := Default()
+	if err := Set(&cfg, "screen.font", "caskaydia-cove-nerd"); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Screen.Font != "caskaydia-cove-nerd" {
+		t.Fatalf("font=%q", cfg.Screen.Font)
+	}
+	if err := Set(&cfg, "screen.font_path", path); err != nil {
+		t.Fatal(err)
+	}
+	if err := Set(&cfg, "screen.font", "custom"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Set(&cfg, "screen.font", "unknown"); err == nil {
+		t.Fatal("accepted unknown font")
 	}
 }

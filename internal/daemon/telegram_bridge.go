@@ -54,6 +54,10 @@ type codexStatus struct {
 	Kind      string
 	Pending   bool
 }
+type piStatus struct {
+	MessageID int64
+	RunID     string
+}
 type telegramBridge struct {
 	d           *Daemon
 	client      *telegram.Client
@@ -65,6 +69,7 @@ type telegramBridge struct {
 	killArmed   map[int64]time.Time
 	cards       map[string]telegramCard
 	statuses    map[string]codexStatus
+	piStatuses  map[string]piStatus
 }
 
 func (d *Daemon) runTelegramBridge(ctx context.Context) error {
@@ -72,9 +77,10 @@ func (d *Daemon) runTelegramBridge(ctx context.Context) error {
 	if err := c.DeleteWebhook(ctx); err != nil {
 		d.Log.Warn("Telegram delete webhook", "err", err)
 	}
-	b := &telegramBridge{d: d, client: c, ownerID: d.TelegramOwnerID, ownerUserID: d.TelegramOwnerUserID, seen: map[string]bool{}, sending: map[string]bool{}, killArmed: map[int64]time.Time{}, cards: map[string]telegramCard{}, statuses: map[string]codexStatus{}}
+	b := &telegramBridge{d: d, client: c, ownerID: d.TelegramOwnerID, ownerUserID: d.TelegramOwnerUserID, seen: map[string]bool{}, sending: map[string]bool{}, killArmed: map[int64]time.Time{}, cards: map[string]telegramCard{}, statuses: map[string]codexStatus{}, piStatuses: map[string]piStatus{}}
 	go b.forwardApprovals(ctx)
 	go b.forwardCodexEvents(ctx)
+	go b.forwardPiEvents(ctx)
 	var offset int64
 	failures := 0
 	for {
@@ -164,6 +170,8 @@ func (b *telegramBridge) handleCommand(ctx context.Context, chatID int64, text s
 		b.handleTail(ctx, chatID, arg)
 	case "/screen":
 		b.sendScreen(ctx, chatID, b.target(ctx, chatID), "Screen")
+	case "/font":
+		b.sendFonts(ctx, chatID)
 	case "/paste":
 		b.setPaste(ctx, chatID)
 		b.send(ctx, chatID, "Paste mode armed. Your next message is sent literally without Enter.", nil)
@@ -209,13 +217,23 @@ func (b *telegramBridge) handleInput(ctx context.Context, m *telegram.Message) {
 		}
 		return
 	}
-	label := "Result · " + s.Name
+	if s.Transport == "codex" {
+		b.setCodexStatusMessage(s.ID, status.MessageID)
+		b.edit(ctx, m.Chat.ID, status.MessageID, terminalCard("Codex working · "+s.Name, out), b.sessionControls(ctx, s.ID))
+		return
+	}
+	if s.Agent == "pi" && !paste {
+		b.setPiStatusMessage(s.ID, status.MessageID)
+		b.edit(ctx, m.Chat.ID, status.MessageID, terminalCard("Pi working · "+s.Name, out), b.sessionControls(ctx, s.ID))
+		return
+	}
+	label := "Sent · " + s.Name
 	if paste {
 		label = "Pasted · " + s.Name + "\nUse /enter to submit when ready"
 	}
 	b.edit(ctx, m.Chat.ID, status.MessageID, terminalCard(label, out), b.sessionControls(ctx, s.ID))
 	if !paste && s.Transport == "tmux" {
-		b.sendScreen(ctx, m.Chat.ID, s.ID, "Completed · "+s.Name)
+		b.sendScreen(ctx, m.Chat.ID, s.ID, "Updated · "+s.Name)
 	}
 }
 
@@ -241,7 +259,7 @@ func (b *telegramBridge) handleNew(ctx context.Context, chatID int64, arg string
 			return
 		}
 		b.setTarget(ctx, chatID, s.ID)
-		b.send(ctx, chatID, "Started Codex session ("+shortID(s.ID)+").", b.sessionControls(ctx, s.ID))
+		b.send(ctx, chatID, "Codex ready · "+s.Name+"\nSend a normal message to start a turn.", b.sessionControls(ctx, s.ID))
 		return
 	}
 	bin, _, args, ok := b.d.agentCommand(agent, args)
@@ -298,6 +316,40 @@ func (b *telegramBridge) handleKill(ctx context.Context, chatID int64) {
 	b.mu.Unlock()
 	b.control(ctx, chatID, b.target(ctx, chatID), "kill", 0)
 }
+
+func (b *telegramBridge) sendFonts(ctx context.Context, chatID int64) {
+	current, _ := b.d.screenFont()
+	rows := make([][]telegram.InlineKeyboardButton, 0, 4)
+	for _, choice := range b.d.screenFontChoices() {
+		token, err := b.newCard(ctx, telegramCard{Kind: "font", Decision: choice.ID})
+		if err != nil {
+			b.send(ctx, chatID, "Font controls unavailable.", nil)
+			return
+		}
+		label := choice.Label
+		if choice.ID == current {
+			label = "✓ " + label
+		}
+		rows = append(rows, []telegram.InlineKeyboardButton{{Text: label, CallbackData: "c:" + token}})
+	}
+	b.send(ctx, chatID, "Screen font", &telegram.InlineKeyboardMarkup{InlineKeyboard: rows})
+}
+
+func (b *telegramBridge) setFont(ctx context.Context, chatID, messageID int64, name string) {
+	if err := b.d.SetScreenFont(name); err != nil {
+		b.edit(ctx, chatID, messageID, "Font change failed: "+err.Error(), nil)
+		return
+	}
+	label := name
+	for _, choice := range b.d.screenFontChoices() {
+		if choice.ID == name {
+			label = choice.Label
+			break
+		}
+	}
+	b.edit(ctx, chatID, messageID, "Screen font: "+label, nil)
+}
+
 func (b *telegramBridge) sendSessions(ctx context.Context, chatID int64) {
 	list := b.d.liveSessions()
 	if len(list) == 0 {
@@ -348,6 +400,8 @@ func (b *telegramBridge) handleCallback(ctx context.Context, q *telegram.Callbac
 		b.control(ctx, q.Message.Chat.ID, card.SessionID, card.Decision, q.Message.MessageID)
 	case "screen":
 		b.sendScreen(ctx, q.Message.Chat.ID, card.SessionID, "Screen")
+	case "font":
+		b.setFont(ctx, q.Message.Chat.ID, q.Message.MessageID, card.Decision)
 	case "approval":
 		b.resolveApproval(ctx, q.Message.Chat.ID, q.Message.MessageID, card)
 	case "codex_approval":
@@ -394,11 +448,10 @@ func (b *telegramBridge) sessionControls(ctx context.Context, sessionID string) 
 	}
 	if s.Transport == "codex" {
 		interrupt, e1 := b.newCard(ctx, telegramCard{Kind: "control", SessionID: sessionID, Decision: "interrupt"})
-		screen, e2 := b.newCard(ctx, telegramCard{Kind: "screen", SessionID: sessionID})
-		if e1 != nil || e2 != nil {
+		if e1 != nil {
 			return nil
 		}
-		return &telegram.InlineKeyboardMarkup{InlineKeyboard: [][]telegram.InlineKeyboardButton{{{Text: "Interrupt", CallbackData: "c:" + interrupt}, {Text: "Screen", CallbackData: "c:" + screen}}}}
+		return &telegram.InlineKeyboardMarkup{InlineKeyboard: [][]telegram.InlineKeyboardButton{{{Text: "Interrupt", CallbackData: "c:" + interrupt}}}}
 	}
 	esc, e1 := b.newCard(ctx, telegramCard{Kind: "key", SessionID: sessionID, Decision: "Escape"})
 	interrupt, e2 := b.newCard(ctx, telegramCard{Kind: "control", SessionID: sessionID, Decision: "interrupt"})
@@ -553,6 +606,90 @@ func (b *telegramBridge) forwardCodexEvents(ctx context.Context) {
 		}
 	}
 }
+
+func (b *telegramBridge) setCodexStatusMessage(sessionID string, messageID int64) {
+	b.mu.Lock()
+	state := b.statuses[sessionID]
+	if state.MessageID == 0 {
+		state.MessageID = messageID
+		b.statuses[sessionID] = state
+	}
+	b.mu.Unlock()
+}
+
+func (b *telegramBridge) forwardPiEvents(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case event, ok := <-b.d.PiEvents():
+			if !ok {
+				return
+			}
+			b.updatePiStatus(ctx, event)
+		}
+	}
+}
+
+func (b *telegramBridge) setPiStatusMessage(sessionID string, messageID int64) {
+	b.mu.Lock()
+	state := b.piStatuses[sessionID]
+	if state.MessageID == 0 {
+		state.MessageID = messageID
+		b.piStatuses[sessionID] = state
+	}
+	b.mu.Unlock()
+}
+
+func (b *telegramBridge) updatePiStatus(ctx context.Context, event PiEvent) {
+	if b.owner() == 0 {
+		return
+	}
+	s, err := b.d.Registry.Get(event.SessionID)
+	if err != nil {
+		return
+	}
+	b.mu.Lock()
+	state := b.piStatuses[event.SessionID]
+	b.mu.Unlock()
+	if event.Kind == "agent_start" {
+		b.mu.Lock()
+		state = b.piStatuses[event.SessionID]
+		state.RunID = event.RunID
+		b.piStatuses[event.SessionID] = state
+		b.mu.Unlock()
+		if state.MessageID == 0 {
+			m, err := b.client.SendMessage(ctx, b.owner(), "Pi working · "+s.Name, b.sessionControls(ctx, s.ID))
+			if err != nil {
+				return
+			}
+			b.setPiStatusMessage(s.ID, m.MessageID)
+			return
+		}
+		b.edit(ctx, b.owner(), state.MessageID, "Pi working · "+s.Name, b.sessionControls(ctx, s.ID))
+		return
+	}
+	if event.Kind != "agent_end" {
+		return
+	}
+	if state.MessageID == 0 || state.RunID != event.RunID {
+		return
+	}
+	tail, err := b.d.CaptureSessionTail(ctx, s.ID, 80)
+	if err != nil {
+		tail = "Final output unavailable: " + err.Error()
+	}
+	if state.MessageID == 0 {
+		b.send(ctx, b.owner(), terminalCard("Pi completed · "+s.Name, tail), b.sessionControls(ctx, s.ID))
+	} else {
+		b.edit(ctx, b.owner(), state.MessageID, terminalCard("Pi completed · "+s.Name, tail), b.sessionControls(ctx, s.ID))
+	}
+	b.sendScreen(ctx, b.owner(), s.ID, "Pi completed · "+s.Name)
+	b.mu.Lock()
+	delete(b.piStatuses, s.ID)
+	b.mu.Unlock()
+}
+
 func (b *telegramBridge) updateCodexStatus(ctx context.Context, event CodexEvent) {
 	if b.owner() == 0 {
 		return
@@ -854,6 +991,10 @@ func (b *telegramBridge) finishCodexInput(ctx context.Context, chatID int64, sta
 }
 
 func (b *telegramBridge) sendScreen(ctx context.Context, chatID int64, sessionID, caption string) {
+	if s, err := b.d.sessionByID(sessionID); err == nil && s.Transport == "codex" && len(s.Buf.Snapshot()) == 0 {
+		b.send(ctx, chatID, "Codex has no activity yet. Send a normal message to start a turn.", b.sessionControls(ctx, s.ID))
+		return
+	}
 	png, err := b.d.CaptureSessionScreen(ctx, sessionID)
 	if err != nil {
 		b.send(ctx, chatID, "Screen unavailable: "+err.Error(), nil)
@@ -1152,7 +1293,7 @@ func extractNewCWD(args []string) (cwd string, rest []string, err error) {
 	return cwd, rest, nil
 }
 func telegramHelp() string {
-	return "Onibi\n\n/new shell|codex|pi [--name name] [--cwd path]\n/sessions\n/target <id|name>\n/tail [lines]\n/screen\n/paste\n/keys\n/interrupt\n/esc\n/enter\n/kill\n\nNormal text sends literal input followed by Enter. /paste makes exactly the next message literal without Enter."
+	return "Onibi\n\n/new shell|codex|pi [--name name] [--cwd path]\n/sessions\n/target <id|name>\n/tail [lines]\n/screen\n/font\n/paste\n/keys\n/interrupt\n/esc\n/enter\n/kill\n\nNormal text sends literal input followed by Enter. /paste makes exactly the next message literal without Enter."
 }
 func formatApproval(item *approval.Approval, sessionName string) string {
 	if item == nil {

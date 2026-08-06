@@ -14,6 +14,7 @@ import (
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/daemon"
 	"github.com/gongahkia/onibi/internal/logging"
+	"github.com/gongahkia/onibi/internal/render"
 	"github.com/spf13/cobra"
 )
 
@@ -31,6 +32,9 @@ func runStart(cmd *cobra.Command, _ []string) error {
 	cfg, _, err := config.Load(paths)
 	if err != nil {
 		return err
+	}
+	if err := render.ValidateFont(cfg.Screen.Font, cfg.Screen.FontPath); err != nil {
+		return fmt.Errorf("screen font: %w", err)
 	}
 	token, err := telegramToken(paths)
 	if err != nil {
@@ -67,7 +71,7 @@ func runStart(cmd *cobra.Command, _ []string) error {
 	logger := logging.New(writer, level)
 	ctx, stop := signal.NotifyContext(contextOrBackground(cmd.Context()), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	d := daemon.New(daemon.Options{Paths: paths, DB: db, Log: logger, ApprovalTTL: cfg.Daemon.ApprovalTimeout.Std(), ApprovalSweepInterval: cfg.Daemon.ApprovalSweepInterval.Std(), ApprovalMaxSubscribers: cfg.Daemon.MaxSubscribers, OutputBufferSize: cfg.Daemon.OutputBufferBytes, ShellDefault: cfg.Shell.Default, ShellLogin: cfg.Shell.Login, TelegramToken: token, TelegramOwnerID: ownerChat, TelegramOwnerUserID: ownerUser, TelegramPair: pair})
+	d := daemon.New(daemon.Options{Paths: paths, DB: db, Log: logger, ApprovalTTL: cfg.Daemon.ApprovalTimeout.Std(), ApprovalSweepInterval: cfg.Daemon.ApprovalSweepInterval.Std(), ApprovalMaxSubscribers: cfg.Daemon.MaxSubscribers, OutputBufferSize: cfg.Daemon.OutputBufferBytes, ShellDefault: cfg.Shell.Default, ShellLogin: cfg.Shell.Login, ScreenFont: cfg.Screen.Font, ScreenFontPath: cfg.Screen.FontPath, TelegramToken: token, TelegramOwnerID: ownerChat, TelegramOwnerUserID: ownerUser, TelegramPair: pair})
 	return d.Run(ctx)
 }
 func telegramBinding(ctx context.Context, db interface {

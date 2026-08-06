@@ -64,3 +64,14 @@ func TestCaptureWrapsTmuxError(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+func TestCaptureUsesCanonicalScreenWithoutEscapes(t *testing.T) {
+	r := &fakeRunner{out: []byte("screen")}
+	if _, err := NewWithRunner(r).Capture(t.Context(), "%1", 80); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"tmux", "capture-pane", "-p", "-t", "%1", "-S", "-80"}
+	if !reflect.DeepEqual(r.calls[0], want) {
+		t.Fatalf("calls = %#v", r.calls)
+	}
+}

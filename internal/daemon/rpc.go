@@ -44,6 +44,8 @@ func (d *Daemon) handleRPCRequest(ctx context.Context, ev intake.Event) (intake.
 		return intake.Response{SessionID: s.ID, Text: "started " + s.Name}, nil
 	case intake.TypeSessionControl:
 		return intake.Response{SessionID: ev.Session, Text: ev.Action}, d.ControlSession(ctx, ev.Session, ev.Action)
+	case intake.TypeAgentLifecycle:
+		return d.handlePiLifecycle(ctx, ev)
 	default:
 		return intake.Response{}, errors.New("unsupported rpc")
 	}

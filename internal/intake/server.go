@@ -186,7 +186,7 @@ func (s *Server) handleApproval(ctx context.Context, c net.Conn, ev Event) {
 }
 
 func isRPCType(typ string) bool {
-	return typ == TypeSessionInput || typ == TypeSessionPeek || typ == TypeSessionNew || typ == TypeSessionControl || typ == TypePing
+	return typ == TypeSessionInput || typ == TypeSessionPeek || typ == TypeSessionNew || typ == TypeSessionControl || typ == TypeAgentLifecycle || typ == TypePing
 }
 
 func writeResponse(c net.Conn, r Response) error {

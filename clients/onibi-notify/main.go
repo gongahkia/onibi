@@ -25,6 +25,14 @@ type piPayload struct {
 	PiSession string          `json:"pi_session_id"`
 }
 
+type piLifecyclePayload struct {
+	Version   string `json:"version"`
+	Lifecycle string `json:"lifecycle"`
+	RunID     string `json:"run_id"`
+	CWD       string `json:"cwd"`
+	PiSession string `json:"pi_session_id"`
+}
+
 func main() {
 	_ = run(os.Args[1:], os.Stdin, os.Stdout, os.Getenv)
 }
@@ -40,7 +48,13 @@ func run(args []string, input io.Reader, output io.Writer, getenv func(string) s
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if *typ != "approval_request" || *agent != "pi" || *format != "pi" || *response != "onibi-json" || !*wait {
+	if *agent != "pi" || *format != "pi" {
+		return nil
+	}
+	if *typ == "agent_lifecycle" {
+		return sendPiLifecycle(input, getenv)
+	}
+	if *typ != "approval_request" || *response != "onibi-json" || !*wait {
 		return nil
 	}
 	write := func(decision, reason string) error {
@@ -68,6 +82,20 @@ func run(args []string, input io.Reader, output io.Writer, getenv func(string) s
 	return err
 }
 
+func sendPiLifecycle(input io.Reader, getenv func(string) string) error {
+	sessionID := strings.TrimSpace(getenv("ONIBI_SESSION_ID"))
+	socket := resolveSocket(getenv)
+	if sessionID == "" || socket == "" {
+		return errors.New("Onibi session unavailable")
+	}
+	payload, err := parsePiLifecyclePayload(io.LimitReader(input, maxPayloadBytes+1))
+	if err != nil {
+		return err
+	}
+	_, err = intake.Request(socket, intake.Event{Type: intake.TypeAgentLifecycle, Session: sessionID, Agent: "pi", CWD: payload.CWD, Lifecycle: payload.Lifecycle, RunID: payload.RunID}, 2*time.Second)
+	return err
+}
+
 func parsePiPayload(r io.Reader) (piPayload, error) {
 	raw, err := io.ReadAll(r)
 	if err != nil {
@@ -87,6 +115,26 @@ func parsePiPayload(r io.Reader) (piPayload, error) {
 	var object map[string]json.RawMessage
 	if err := json.Unmarshal(payload.ToolInput, &object); err != nil || object == nil {
 		return piPayload{}, os.ErrInvalid
+	}
+	return payload, nil
+}
+
+func parsePiLifecyclePayload(r io.Reader) (piLifecyclePayload, error) {
+	raw, err := io.ReadAll(r)
+	if err != nil {
+		return piLifecyclePayload{}, err
+	}
+	if len(raw) > maxPayloadBytes {
+		return piLifecyclePayload{}, errors.New("Pi lifecycle exceeds 64 KiB")
+	}
+	var payload piLifecyclePayload
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return piLifecyclePayload{}, err
+	}
+	payload.Lifecycle = strings.TrimSpace(payload.Lifecycle)
+	payload.RunID = strings.TrimSpace(payload.RunID)
+	if payload.Version != "onibi.pi.v1" || payload.RunID == "" || (payload.Lifecycle != "agent_start" && payload.Lifecycle != "agent_end") {
+		return piLifecyclePayload{}, os.ErrInvalid
 	}
 	return payload, nil
 }

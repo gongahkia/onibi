@@ -26,7 +26,7 @@ func TestExtensionPathAndInstall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"pi.on(\"tool_call\"", "approval_request", "onibi.pi.v1", "timeout: 305_000", "decision.decision === \"approve\"", notify} {
+	for _, want := range []string{"pi.on(\"tool_call\"", "pi.on(\"agent_start\"", "pi.on(\"agent_end\"", "agent_lifecycle", "run_id", "approval_request", "onibi.pi.v1", "timeout: 305_000", "decision.decision === \"approve\"", notify} {
 		if !strings.Contains(string(body), want) {
 			t.Fatalf("missing %q", want)
 		}

@@ -52,10 +52,12 @@ func Install(ctx context.Context, notify string) (string, error) {
 	return path, nil
 }
 func extensionSource(notify string) string {
-	return fmt.Sprintf(`import { spawnSync } from "node:child_process";
+	return fmt.Sprintf(`import { spawn, spawnSync } from "node:child_process";
 import type { ExtensionAPI, ExtensionContext, ToolCallEvent } from "@earendil-works/pi-coding-agent";
 
 const ONIBI_NOTIFY = %q;
+let activeRun = "";
+let runCount = 0;
 
 function requestApproval(event: ToolCallEvent, ctx: ExtensionContext) {
   if (!process.env.ONIBI_SESSION_ID) return undefined;
@@ -74,8 +76,28 @@ function requestApproval(event: ToolCallEvent, ctx: ExtensionContext) {
   return { block: true, reason: decision.reason || "Denied by Onibi" };
 }
 
+function sendLifecycle(lifecycle: "agent_start" | "agent_end", ctx: ExtensionContext) {
+  if (!process.env.ONIBI_SESSION_ID) return;
+  if (lifecycle === "agent_start") activeRun = Date.now().toString() + "-" + (++runCount).toString();
+	if (!activeRun) return;
+  const payload = JSON.stringify({
+    version: "onibi.pi.v1",
+    lifecycle,
+	  run_id: activeRun,
+    cwd: ctx.sessionManager.getCwd(),
+    pi_session_id: ctx.sessionManager.getSessionId(),
+  });
+  const child = spawn(ONIBI_NOTIFY, ["--agent", "pi", "--format", "pi", "--type", "agent_lifecycle"], { stdio: ["pipe", "ignore", "ignore"] });
+  child.on("error", () => undefined);
+  child.stdin.end(payload);
+  child.unref();
+	if (lifecycle === "agent_end") activeRun = "";
+}
+
 export default function (pi: ExtensionAPI) {
   pi.on("tool_call", requestApproval);
+  pi.on("agent_start", (_event, ctx) => sendLifecycle("agent_start", ctx));
+  pi.on("agent_end", (_event, ctx) => sendLifecycle("agent_end", ctx));
 }
 `, notify)
 }

@@ -5,8 +5,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/gongahkia/onibi/internal/config"
+	"github.com/gongahkia/onibi/internal/intake"
+	"github.com/gongahkia/onibi/internal/render"
 	"github.com/gongahkia/onibi/internal/service"
 	"github.com/spf13/cobra"
 )
@@ -63,7 +66,19 @@ func runSystemStatus(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "state=%s\nsessions=%d\n", paths.StateDir, len(rows))
+	ping, err := intake.Request(paths.Socket, intake.Event{Type: intake.TypePing}, 750*time.Millisecond)
+	daemonRunning := err == nil
+	m, managerErr := manager()
+	serviceRunning := false
+	serviceInstalled := false
+	if managerErr == nil {
+		status := m.Status(cmd.Context())
+		serviceRunning, serviceInstalled = status.Running, status.Installed
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "state=%s\nsessions=%d\ndaemon_running=%t\nservice_installed=%t\nservice_running=%t\n", paths.StateDir, len(rows), daemonRunning, serviceInstalled, serviceRunning)
+	if daemonRunning {
+		fmt.Fprintf(cmd.OutOrStdout(), "daemon_status=%s\n", strings.ReplaceAll(strings.TrimSpace(ping.Text), "\n", "; "))
+	}
 	return runTelegramStatus(cmd, nil)
 }
 func loadConfig() (config.Paths, config.Config, error) {
@@ -92,6 +107,11 @@ func runConfigSet(cmd *cobra.Command, args []string) error {
 	}
 	if err := config.Set(&cfg, args[0], args[1]); err != nil {
 		return err
+	}
+	if strings.HasPrefix(args[0], "screen.") {
+		if err := render.ValidateFont(cfg.Screen.Font, cfg.Screen.FontPath); err != nil {
+			return fmt.Errorf("screen font: %w", err)
+		}
 	}
 	return config.Save(paths.Config, cfg)
 }

@@ -29,6 +29,9 @@ type Daemon struct {
 	OutputBufferSize    int
 	ShellDefault        string
 	ShellLogin          bool
+	screenMu            sync.RWMutex
+	ScreenFont          string
+	ScreenFontPath      string
 	TelegramToken       string
 	TelegramOwnerID     int64
 	TelegramOwnerUserID int64
@@ -38,6 +41,7 @@ type Daemon struct {
 	codexMu             sync.Mutex
 	codex               map[string]*codexRuntime
 	codexEvents         chan CodexEvent
+	piEvents            chan PiEvent
 	SkipRestore         bool
 }
 
@@ -51,6 +55,8 @@ type Options struct {
 	OutputBufferSize       int
 	ShellDefault           string
 	ShellLogin             bool
+	ScreenFont             string
+	ScreenFontPath         string
 	TelegramToken          string
 	TelegramOwnerID        int64
 	TelegramOwnerUserID    int64
@@ -62,7 +68,7 @@ func New(opts Options) *Daemon {
 	if opts.Log == nil {
 		opts.Log = slog.Default()
 	}
-	d := &Daemon{Paths: opts.Paths, DB: opts.DB, Log: opts.Log, Registry: NewRegistry(), OutputBufferSize: opts.OutputBufferSize, ShellDefault: opts.ShellDefault, ShellLogin: opts.ShellLogin, TelegramToken: opts.TelegramToken, TelegramOwnerID: opts.TelegramOwnerID, TelegramOwnerUserID: opts.TelegramOwnerUserID, TelegramPair: opts.TelegramPair, started: time.Now(), codex: map[string]*codexRuntime{}, codexEvents: make(chan CodexEvent, 128), SkipRestore: opts.SkipRestore}
+	d := &Daemon{Paths: opts.Paths, DB: opts.DB, Log: opts.Log, Registry: NewRegistry(), OutputBufferSize: opts.OutputBufferSize, ShellDefault: opts.ShellDefault, ShellLogin: opts.ShellLogin, ScreenFont: opts.ScreenFont, ScreenFontPath: opts.ScreenFontPath, TelegramToken: opts.TelegramToken, TelegramOwnerID: opts.TelegramOwnerID, TelegramOwnerUserID: opts.TelegramOwnerUserID, TelegramPair: opts.TelegramPair, started: time.Now(), codex: map[string]*codexRuntime{}, codexEvents: make(chan CodexEvent, 128), piEvents: make(chan PiEvent, 128), SkipRestore: opts.SkipRestore}
 	d.Queue = approval.New(opts.DB, opts.ApprovalTTL)
 	if opts.ApprovalMaxSubscribers > 0 {
 		d.Queue.MaxSubscribers = opts.ApprovalMaxSubscribers
@@ -242,7 +248,13 @@ func (d *Daemon) touchSession(ctx context.Context, s *Session) {
 	}
 }
 func (d *Daemon) pingText(context.Context) string {
-	return fmt.Sprintf("onibi\nuptime=%s\nsessions=%d", time.Since(d.started).Truncate(time.Second), len(d.liveSessions()))
+	codexSessions := 0
+	for _, s := range d.liveSessions() {
+		if s.Transport == "codex" {
+			codexSessions++
+		}
+	}
+	return fmt.Sprintf("onibi\nuptime=%s\nsessions=%d\ncodex_sessions=%d", time.Since(d.started).Truncate(time.Second), len(d.liveSessions()), codexSessions)
 }
 
 func (d *Daemon) handleApprovalRequest(ctx context.Context, ev intake.Event) (intake.Response, error) {

@@ -31,6 +31,8 @@ func TestFakeAppServer(t *testing.T) {
 			_ = enc.Encode(map[string]any{"id": json.RawMessage(message["id"]), "result": map[string]any{"turn": map[string]string{"id": "turn-1"}}})
 			_ = enc.Encode(map[string]any{"method": "item/agentMessage/delta", "params": map[string]string{"delta": "working", "turnId": "turn-1"}})
 			_ = enc.Encode(map[string]any{"id": "approval-1", "method": "item/commandExecution/requestApproval", "params": map[string]string{"command": "pwd"}})
+		case "turn/steer":
+			_ = enc.Encode(map[string]any{"id": json.RawMessage(message["id"]), "result": map[string]string{"turnId": "turn-1"}})
 		}
 	}
 }
@@ -51,6 +53,9 @@ func TestStartThreadTurnAndServerRequest(t *testing.T) {
 	turn, err := client.StartTurn(ctx, thread, "hello")
 	if err != nil || turn != "turn-1" {
 		t.Fatalf("turn=%q err=%v", turn, err)
+	}
+	if err := client.SteerTurn(ctx, thread, turn, "continue"); err != nil {
+		t.Fatal(err)
 	}
 	select {
 	case notification := <-client.Notifications:

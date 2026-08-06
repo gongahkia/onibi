@@ -35,6 +35,7 @@ func (d *Duration) UnmarshalYAML(n *yaml.Node) error {
 type Config struct {
 	Daemon Daemon `yaml:"daemon" json:"daemon"`
 	Shell  Shell  `yaml:"shell" json:"shell"`
+	Screen Screen `yaml:"screen" json:"screen"`
 }
 
 type Daemon struct {
@@ -47,6 +48,11 @@ type Daemon struct {
 type Shell struct {
 	Default string `yaml:"default" json:"default"`
 	Login   bool   `yaml:"login" json:"login"`
+}
+
+type Screen struct {
+	Font     string `yaml:"font" json:"font"`
+	FontPath string `yaml:"font_path" json:"font_path"`
 }
 
 type LoadMeta struct {
@@ -67,6 +73,7 @@ func Default() Config {
 	return Config{
 		Daemon: Daemon{ApprovalTimeout: Duration(5 * time.Minute), ApprovalSweepInterval: Duration(15 * time.Second), OutputBufferBytes: 64 * 1024, MaxSubscribers: 32},
 		Shell:  Shell{Default: "auto", Login: true},
+		Screen: Screen{Font: "jetbrains-mono-nerd"},
 	}
 }
 
@@ -100,6 +107,10 @@ func loadBytes(path string, b []byte, cfg Config, meta LoadMeta) (Config, LoadMe
 			Default *string `yaml:"default"`
 			Login   *bool   `yaml:"login"`
 		} `yaml:"shell"`
+		Screen struct {
+			Font     *string `yaml:"font"`
+			FontPath *string `yaml:"font_path"`
+		} `yaml:"screen"`
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(b))
 	if err := dec.Decode(&raw); err != nil {
@@ -128,6 +139,14 @@ func loadBytes(path string, b []byte, cfg Config, meta LoadMeta) (Config, LoadMe
 	if raw.Shell.Login != nil {
 		cfg.Shell.Login = *raw.Shell.Login
 		meta.Explicit["shell.login"] = true
+	}
+	if raw.Screen.Font != nil {
+		cfg.Screen.Font = strings.TrimSpace(*raw.Screen.Font)
+		meta.Explicit["screen.font"] = true
+	}
+	if raw.Screen.FontPath != nil {
+		cfg.Screen.FontPath = strings.TrimSpace(*raw.Screen.FontPath)
+		meta.Explicit["screen.font_path"] = true
 	}
 	if err := cfg.Validate(); err != nil {
 		return cfg, meta, fmt.Errorf("validate %s: %w", path, err)
@@ -171,6 +190,19 @@ func (c Config) Validate() error {
 	}
 	if strings.TrimSpace(c.Shell.Default) == "" {
 		return errors.New("shell.default required")
+	}
+	switch c.Screen.Font {
+	case "jetbrains-mono-nerd", "caskaydia-cove-nerd", "go-mono-nerd":
+	case "custom":
+		if c.Screen.FontPath == "" {
+			return errors.New("screen.font_path required when screen.font=custom")
+		}
+		info, err := os.Stat(c.Screen.FontPath)
+		if err != nil || info.IsDir() {
+			return errors.New("screen.font_path must be a readable font file")
+		}
+	default:
+		return errors.New("screen.font must be jetbrains-mono-nerd, caskaydia-cove-nerd, go-mono-nerd, or custom")
 	}
 	return nil
 }
@@ -224,6 +256,10 @@ func Set(cfg *Config, key, value string) error {
 			return err
 		}
 		cfg.Shell.Login = v
+	case "screen.font":
+		cfg.Screen.Font = strings.TrimSpace(value)
+	case "screen.font_path":
+		cfg.Screen.FontPath = strings.TrimSpace(value)
 	default:
 		return fmt.Errorf("unknown config key %q", key)
 	}
@@ -244,6 +280,10 @@ func Get(cfg Config, key string) (string, error) {
 		return cfg.Shell.Default, nil
 	case "shell.login":
 		return strconv.FormatBool(cfg.Shell.Login), nil
+	case "screen.font":
+		return cfg.Screen.Font, nil
+	case "screen.font_path":
+		return cfg.Screen.FontPath, nil
 	default:
 		return "", fmt.Errorf("unknown config key %q", key)
 	}
@@ -258,5 +298,7 @@ func Keys(cfg Config, meta LoadMeta) []KeyInfo {
 		{"daemon.max_subscribers", strconv.Itoa(def.Daemon.MaxSubscribers), strconv.Itoa(cfg.Daemon.MaxSubscribers), meta.Explicit["daemon.max_subscribers"], "maximum internal decision subscribers"},
 		{"shell.default", def.Shell.Default, cfg.Shell.Default, meta.Explicit["shell.default"], "default shell for new tmux sessions"},
 		{"shell.login", strconv.FormatBool(def.Shell.Login), strconv.FormatBool(cfg.Shell.Login), meta.Explicit["shell.login"], "run default shell as a login shell"},
+		{"screen.font", def.Screen.Font, cfg.Screen.Font, meta.Explicit["screen.font"], "font used for rendered terminal screens"},
+		{"screen.font_path", def.Screen.FontPath, cfg.Screen.FontPath, meta.Explicit["screen.font_path"], "external TTF/OTF path when screen.font=custom"},
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"sync/atomic"
 )
@@ -57,6 +58,29 @@ type Client struct {
 	Requests      chan ServerRequest
 	Notifications chan Notification
 	Done          chan error
+	stderr        *tailBuffer
+}
+
+type tailBuffer struct {
+	mu    sync.Mutex
+	data  []byte
+	limit int
+}
+
+func (b *tailBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	b.data = append(b.data, p...)
+	if len(b.data) > b.limit {
+		b.data = append([]byte(nil), b.data[len(b.data)-b.limit:]...)
+	}
+	b.mu.Unlock()
+	return len(p), nil
+}
+
+func (b *tailBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return string(b.data)
 }
 
 func Start(ctx context.Context, opts Options) (*Client, error) {
@@ -70,6 +94,8 @@ func Start(ctx context.Context, opts Options) (*Client, error) {
 	}
 	cmd := exec.CommandContext(ctx, command, args...)
 	cmd.Dir = opts.Dir
+	stderr := &tailBuffer{limit: 8 << 10}
+	cmd.Stderr = stderr
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -81,7 +107,7 @@ func Start(ctx context.Context, opts Options) (*Client, error) {
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
-	c := &Client{cmd: cmd, stdin: stdin, pending: map[int64]chan response{}, Requests: make(chan ServerRequest, 64), Notifications: make(chan Notification, 256), Done: make(chan error, 1)}
+	c := &Client{cmd: cmd, stdin: stdin, pending: map[int64]chan response{}, Requests: make(chan ServerRequest, 64), Notifications: make(chan Notification, 256), Done: make(chan error, 1), stderr: stderr}
 	go c.read(stdout)
 	go func() {
 		err := cmd.Wait()
@@ -96,7 +122,11 @@ func Start(ctx context.Context, opts Options) (*Client, error) {
 		version = "dev"
 	}
 	if _, err := c.Call(ctx, "initialize", map[string]any{"clientInfo": map[string]any{"name": "onibi", "title": "Onibi", "version": version}, "capabilities": map[string]any{"experimentalApi": true}}); err != nil {
+		detail := c.StderrTail()
 		_ = c.Close()
+		if detail != "" {
+			return nil, fmt.Errorf("initialize app-server: %w: %s", err, detail)
+		}
 		return nil, err
 	}
 	if err := c.Notify("initialized", map[string]any{}); err != nil {
@@ -155,6 +185,13 @@ func (c *Client) StartTurn(ctx context.Context, threadID, text string) (string, 
 	}
 	return decoded.Turn.ID, nil
 }
+func (c *Client) SteerTurn(ctx context.Context, threadID, turnID, text string) error {
+	if threadID == "" || turnID == "" || text == "" {
+		return errors.New("thread id, turn id, and text required")
+	}
+	_, err := c.Call(ctx, "turn/steer", map[string]any{"threadId": threadID, "expectedTurnId": turnID, "input": []map[string]string{{"type": "text", "text": text}}})
+	return err
+}
 func (c *Client) Interrupt(ctx context.Context, threadID, turnID string) error {
 	if threadID == "" || turnID == "" {
 		return errors.New("thread and turn id required")
@@ -209,6 +246,12 @@ func (c *Client) Close() error {
 		}
 	}
 	return nil
+}
+func (c *Client) StderrTail() string {
+	if c == nil || c.stderr == nil {
+		return ""
+	}
+	return strings.TrimSpace(c.stderr.String())
 }
 func (c *Client) read(stdout io.Reader) {
 	scanner := bufio.NewScanner(stdout)

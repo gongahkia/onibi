@@ -36,6 +36,16 @@ func TestPiResponse(t *testing.T) {
 	}
 }
 
+func TestParsePiLifecyclePayload(t *testing.T) {
+	payload, err := parsePiLifecyclePayload(strings.NewReader(`{"version":"onibi.pi.v1","lifecycle":"agent_end","run_id":"run-1","cwd":"/tmp","pi_session_id":"pi-1"}`))
+	if err != nil || payload.Lifecycle != "agent_end" || payload.PiSession != "pi-1" || payload.RunID != "run-1" {
+		t.Fatalf("payload=%#v err=%v", payload, err)
+	}
+	if _, err := parsePiLifecyclePayload(strings.NewReader(`{"version":"onibi.pi.v1","lifecycle":"unknown","run_id":"run-1"}`)); err == nil {
+		t.Fatal("accepted unknown lifecycle")
+	}
+}
+
 func TestRunFailsClosedWhenDaemonIsUnavailable(t *testing.T) {
 	var output bytes.Buffer
 	err := run(

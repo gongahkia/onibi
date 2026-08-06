@@ -36,11 +36,12 @@ func (r *bridgeRunner) Run(_ context.Context, name string, args ...string) ([]by
 
 func testTelegramBridge(t *testing.T) (*telegramBridge, *bridgeRunner, func()) {
 	t.Helper()
-	db, err := store.Open(filepath.Join(t.TempDir(), "onibi.sqlite"))
+	state := t.TempDir()
+	db, err := store.Open(filepath.Join(state, "onibi.sqlite"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	d := New(Options{DB: db, Paths: config.Paths{Socket: filepath.Join(t.TempDir(), "onibi.sock")}, OutputBufferSize: 4096})
+	d := New(Options{DB: db, Paths: config.Paths{StateDir: state, Socket: filepath.Join(state, "onibi.sock"), Config: filepath.Join(state, "config.yaml")}, OutputBufferSize: 4096})
 	runner := &bridgeRunner{}
 	oldController := newTmuxController
 	newTmuxController = func() *tmux.Controller { return tmux.NewWithRunner(runner) }
@@ -63,7 +64,7 @@ func testTelegramBridge(t *testing.T) (*telegramBridge, *bridgeRunner, func()) {
 	client := telegram.NewClient("123456:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi")
 	client.BaseURL = server.URL
 	client.RetrySleep = func(context.Context, time.Duration) error { return nil }
-	b := &telegramBridge{d: d, client: client, ownerID: 42, ownerUserID: 7, seen: map[string]bool{}, sending: map[string]bool{}, killArmed: map[int64]time.Time{}, cards: map[string]telegramCard{}, statuses: map[string]codexStatus{}}
+	b := &telegramBridge{d: d, client: client, ownerID: 42, ownerUserID: 7, seen: map[string]bool{}, sending: map[string]bool{}, killArmed: map[int64]time.Time{}, cards: map[string]telegramCard{}, statuses: map[string]codexStatus{}, piStatuses: map[string]piStatus{}}
 	cleanup := func() { newTmuxController = oldController; server.Close(); _ = db.Close() }
 	return b, runner, cleanup
 }
@@ -86,11 +87,46 @@ func TestTelegramInputUsesLiteralTextEnterAndScreen(t *testing.T) {
 	want := [][]string{
 		{"tmux", "send-keys", "-t", "onibi-session-1", "-l", "--", "printf ok"},
 		{"tmux", "send-keys", "-t", "onibi-session-1", "Enter"},
-		{"tmux", "capture-pane", "-p", "-e", "-t", "onibi-session-1", "-S", "-80"},
-		{"tmux", "capture-pane", "-p", "-e", "-t", "onibi-session-1", "-S", "-160"},
+		{"tmux", "capture-pane", "-p", "-t", "onibi-session-1", "-S", "-80"},
+		{"tmux", "capture-pane", "-p", "-t", "onibi-session-1", "-S", "-160"},
 	}
 	if !reflect.DeepEqual(runner.calls, want) {
 		t.Fatalf("calls=%#v", runner.calls)
+	}
+}
+
+func TestPiFinalScreenWaitsForAgentEnd(t *testing.T) {
+	b, runner, cleanup := testTelegramBridge(t)
+	defer cleanup()
+	s := NewSession("pi-1", "pi", "pi", 4096)
+	s.TmuxTarget = "onibi-pi-1"
+	if err := b.d.Registry.Add(s); err != nil {
+		t.Fatal(err)
+	}
+	b.setTarget(t.Context(), 42, s.ID)
+	b.handleInput(t.Context(), &telegram.Message{Chat: telegram.Chat{ID: 42, Type: "private"}, From: &telegram.User{ID: 7}, Text: "summarize"})
+	if len(runner.calls) != 3 || runner.calls[2][1] != "capture-pane" || runner.calls[2][len(runner.calls[2])-1] != "-80" {
+		t.Fatalf("premature Pi completion=%#v", runner.calls)
+	}
+	b.updatePiStatus(t.Context(), PiEvent{SessionID: s.ID, Kind: "agent_start", RunID: "run-1"})
+	b.updatePiStatus(t.Context(), PiEvent{SessionID: s.ID, Kind: "agent_end", RunID: "run-1"})
+	if len(runner.calls) != 5 || runner.calls[4][len(runner.calls[4])-1] != "-160" {
+		t.Fatalf("Pi final capture=%#v", runner.calls)
+	}
+}
+
+func TestScreenFontPersistsWithoutRestart(t *testing.T) {
+	b, _, cleanup := testTelegramBridge(t)
+	defer cleanup()
+	if err := b.d.SetScreenFont("go-mono-nerd"); err != nil {
+		t.Fatal(err)
+	}
+	if opts := b.d.screenPNGOptions(2, 2); opts.Font != "go-mono-nerd" {
+		t.Fatalf("font=%q", opts.Font)
+	}
+	cfg, _, err := config.Load(b.d.Paths)
+	if err != nil || cfg.Screen.Font != "go-mono-nerd" {
+		t.Fatalf("config=%#v err=%v", cfg.Screen, err)
 	}
 }
 

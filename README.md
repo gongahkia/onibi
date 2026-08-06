@@ -28,12 +28,15 @@ The first start prints a pairing command. Send it from the one Telegram account 
 /sessions
 /tail 120
 /screen
+/font
 /paste
 /interrupt
 /kill
 ```
 
 Plain messages go to the selected session and append Enter. `/paste` makes the next message literal, with no implicit Enter, and expires after five minutes. Use `/keys` for session-bound `Esc`, `Ctrl-C`, `Enter`, and screen controls.
+
+Codex sessions are semantic, not tmux windows: after `/new codex`, send a normal message to start a turn. A later normal message steers the active turn. `/font` selects the terminal-screen font remotely; JetBrainsMono Nerd Font Mono, Caskaydia Cove Nerd Font Mono, and Go Mono Nerd Font Mono are embedded. To use a locally installed BigBlueTerminal Nerd Font Mono, set `screen.font_path` then `screen.font=custom` locally.
 
 ## Local CLI
 
@@ -43,10 +46,13 @@ Plain messages go to the selected session and append Enter. `/paste` makes the n
 ./bin/onibi telegram status --check
 ./bin/onibi system status
 ./bin/onibi system logs --tail 100
+./bin/onibi system config set screen.font caskaydia-cove-nerd
 ./bin/onibi system service install
 ```
 
 `onibi session new` needs a running daemon. `onibi system service install` starts `onibi start` in the per-user service manager.
+
+`onibi system status` reports actual daemon socket and service liveness. If `daemon_running=false`, start the daemon or install/restart the service before using Telegram.
 
 ## Decisions and safety
 
@@ -67,3 +73,5 @@ make build
 ## License
 
 Apache-2.0.
+
+Bundled screenshot fonts and their licenses are listed in [third-party notices](THIRD_PARTY_NOTICES.md).

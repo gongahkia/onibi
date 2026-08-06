@@ -106,6 +106,9 @@ func (d *Daemon) watchCodexRuntime(ctx context.Context, s *Session, runtime *cod
 		if err != nil {
 			message = "Codex App Server stopped: " + err.Error()
 		}
+		if detail := runtime.client.StderrTail(); detail != "" {
+			message += "\n" + detail
+		}
 		d.Log.Warn("Codex App Server stopped", "session", s.ID, "err", err)
 		select {
 		case d.codexEvents <- CodexEvent{SessionID: s.ID, Kind: "failed", Text: message}:
@@ -133,6 +136,13 @@ func (d *Daemon) forwardCodexNotifications(ctx context.Context, s *Session, r *c
 		if turnID != "" {
 			r.mu.Lock()
 			r.turnID = turnID
+			r.mu.Unlock()
+		}
+		if kind == "completed" || kind == "failed" {
+			r.mu.Lock()
+			if turnID == "" || r.turnID == turnID {
+				r.turnID = ""
+			}
 			r.mu.Unlock()
 		}
 		if text == "" {
@@ -247,7 +257,18 @@ func (d *Daemon) sendCodexTurn(ctx context.Context, sessionID, text string) (str
 	if err != nil {
 		return "", err
 	}
-	turnID, err := r.client.StartTurn(ctx, r.threadID, text)
+	r.mu.Lock()
+	threadID, activeTurnID := r.threadID, r.turnID
+	r.mu.Unlock()
+	if activeTurnID != "" {
+		if err := r.client.SteerTurn(ctx, threadID, activeTurnID, text); err != nil {
+			return "", err
+		}
+		d.audit(ctx, "codex.turn.steer", s.ID, text, 0, "turn="+activeTurnID)
+		d.Log.Info("Codex turn steered", "session", s.ID, "turn", activeTurnID)
+		return "Codex turn steered.", nil
+	}
+	turnID, err := r.client.StartTurn(ctx, threadID, text)
 	if err != nil {
 		return "", err
 	}
@@ -266,6 +287,9 @@ func (d *Daemon) interruptCodexTurn(ctx context.Context, sessionID string) error
 	r.mu.Lock()
 	threadID, turnID := r.threadID, r.turnID
 	r.mu.Unlock()
+	if turnID == "" {
+		return errors.New("no active Codex turn")
+	}
 	return r.client.Interrupt(ctx, threadID, turnID)
 }
 func (d *Daemon) killCodexSession(ctx context.Context, sessionID string) error {
