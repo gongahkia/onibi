@@ -13,112 +13,38 @@ import (
 func (d *Daemon) handleRPCRequest(ctx context.Context, ev intake.Event) (intake.Response, error) {
 	switch ev.Type {
 	case intake.TypePing:
-		return intake.Response{Text: d.pingText(ctx, -1)}, nil
+		return intake.Response{Text: d.pingText(ctx)}, nil
 	case intake.TypeSessionInput:
-		s, err := d.sessionForRPCTarget(ev.Session)
-		if err != nil {
-			return intake.Response{}, err
-		}
-		if s.Host == nil {
-			return intake.Response{}, errors.New("session has no writable PTY")
-		}
-		payload := ev.Text
-		if ev.Enter && !strings.HasSuffix(payload, "\n") {
-			payload += "\n"
-		}
-		if payload == "" {
-			return intake.Response{}, errors.New("text required")
-		}
-		if _, err := s.Host.Write([]byte(payload)); err != nil {
-			return intake.Response{}, fmt.Errorf("write PTY: %w", err)
-		}
-		d.touchSession(ctx, s)
-		d.audit(ctx, "session.input", s.ID, ev.Text, 0, "")
-		return intake.Response{Text: "sent to " + s.Name + " (" + s.ID + ")"}, nil
+		out, err := d.SendSessionTextAndCapture(ctx, ev.Session, ev.Text, ev.Enter)
+		return intake.Response{SessionID: ev.Session, Text: out}, err
 	case intake.TypeSessionPeek:
-		s, err := d.sessionForRPCTarget(ev.Session)
-		if err != nil {
-			return intake.Response{}, err
-		}
-		out := s.Buf.Snapshot()
-		limit := ev.Limit
-		if limit <= 0 || limit > 64*1024 {
-			limit = 8000
-		}
-		if len(out) > limit {
-			out = out[len(out)-limit:]
-		}
-		return intake.Response{Text: string(out)}, nil
+		out, err := d.CaptureSessionText(ctx, ev.Session)
+		return intake.Response{SessionID: ev.Session, Text: out}, err
 	case intake.TypeSessionNew:
 		agent := strings.ToLower(strings.TrimSpace(ev.Agent))
-		if agent == "" {
-			return intake.Response{}, errors.New("agent required")
+		if agent == "codex" {
+			s, err := d.StartCodexSession(ctx, ev.Name, ev.CWD)
+			if err != nil {
+				return intake.Response{}, err
+			}
+			return intake.Response{SessionID: s.ID, Text: "started Codex session"}, nil
 		}
-		bin, spawnAgent, spawnArgs, ok := agentCommand(agent, ev.Args)
+		bin, name, args, ok := d.agentCommand(agent, ev.Args)
 		if !ok {
-			return intake.Response{}, errors.New("unsupported target")
+			return intake.Response{}, errors.New("supported agents: shell, codex, pi")
 		}
 		path, err := exec.LookPath(bin)
 		if err != nil {
 			return intake.Response{}, fmt.Errorf("%s not found in PATH", bin)
 		}
-		s, err := d.StartTmuxSession(ctx, ev.Name, spawnAgent, path, spawnArgs, ev.CWD)
+		s, err := d.StartTmuxSession(ctx, ev.Name, name, path, args, ev.CWD)
 		if err != nil {
 			return intake.Response{}, err
 		}
-		mode := strings.ToLower(strings.TrimSpace(ev.Mode))
-		if mode == "visible" {
-			msg, err := d.ShowSession(ctx, s.ID)
-			if err != nil {
-				return intake.Response{SessionID: s.ID, Mode: "headless", Text: "Started headless; show failed: " + err.Error()}, nil
-			}
-			return intake.Response{SessionID: s.ID, Mode: "visible", Text: "Started " + s.Name + " (" + s.ID + "). " + msg}, nil
-		}
-		return intake.Response{SessionID: s.ID, Mode: "headless", Text: "Started " + s.Name + " (" + s.ID + ") headless."}, nil
-	case intake.TypeSessionShow:
-		msg, err := d.ShowSession(ctx, ev.Session)
-		if err != nil {
-			return intake.Response{}, err
-		}
-		return intake.Response{SessionID: ev.Session, Mode: "visible", Text: msg}, nil
-	case intake.TypeSessionHide:
-		msg, err := d.HideSession(ctx, ev.Session, ev.Mode)
-		if err != nil {
-			return intake.Response{}, err
-		}
-		mode := "headless"
-		if strings.ToLower(strings.TrimSpace(ev.Mode)) == "end" {
-			mode = "ended"
-		}
-		return intake.Response{SessionID: ev.Session, Mode: mode, Text: msg}, nil
+		return intake.Response{SessionID: s.ID, Text: "started " + s.Name}, nil
 	case intake.TypeSessionControl:
-		action := strings.ToLower(strings.TrimSpace(ev.Action))
-		if action != "interrupt" && action != "kill" {
-			return intake.Response{}, errors.New("session_control action must be interrupt or kill")
-		}
-		if err := d.ControlSession(ctx, ev.Session, action); err != nil {
-			return intake.Response{}, err
-		}
-		return intake.Response{SessionID: ev.Session, Text: action}, nil
-	case intake.TypeDemoApproval:
-		return d.handleDemoApprovalRequest(ctx, ev)
-	case intake.TypeSnapshot:
-		return d.handleSnapshotRPC(ctx, ev)
+		return intake.Response{SessionID: ev.Session, Text: ev.Action}, d.ControlSession(ctx, ev.Session, ev.Action)
 	default:
-		return intake.Response{}, errors.New("unknown rpc type")
+		return intake.Response{}, errors.New("unsupported rpc")
 	}
-}
-
-func (d *Daemon) sessionForRPCTarget(id string) (*Session, error) {
-	if strings.TrimSpace(id) != "" {
-		return d.sessionByID(id)
-	}
-	live := d.liveSessions()
-	if len(live) == 1 {
-		return live[0], nil
-	}
-	if len(live) == 0 {
-		return nil, ErrUnknownSession
-	}
-	return nil, errAmbiguousTarget
 }

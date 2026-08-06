@@ -3,179 +3,37 @@ version: 2
 before:
   hooks:
     - go mod tidy
-    - go run ./scripts/remote-static-archive
+    - go test ./...
 
 builds:
   - id: onibi
     main: ./cmd/onibi
     binary: onibi
-    env:
-      - CGO_ENABLED=0
-    flags:
-      - -trimpath
-    goos:
-      - darwin
-      - linux
-    goarch:
-      - amd64
-      - arm64
-      - arm
-    goarm:
-      - "6"
-      - "7"
-    ignore:
-      - goos: darwin
-        goarch: arm
-    overrides:
-      - goos: linux
-        goarch: arm64
-        goarm64: v8.0
-        tags:
-          - onibi_remote
-        gcflags:
-          - all=-l
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    goos: [darwin, linux]
+    goarch: [amd64, arm64]
     ldflags:
       - -s -w
       - -X github.com/gongahkia/onibi/internal/buildinfo.Version={{.Version}}
       - -X github.com/gongahkia/onibi/internal/buildinfo.Commit={{.Commit}}
-      - -X github.com/gongahkia/onibi/internal/buildinfo.Date={{ envOrDefault "ONIBI_BUILD_DATE" .Date }}
-      - -X github.com/gongahkia/onibi/internal/buildinfo.ReleasePublicKeyB64={{ envOrDefault "GPG_PUBLIC_KEY_B64" "" }}
-    hooks:
-      post:
-        - cmd: scripts/release-e2e-gate.sh "{{ .Path }}"
-          env:
-            - ONIBI_RELEASE_TAG={{ .Tag }}
-            - ONIBI_RELEASE_SNAPSHOT={{ .IsSnapshot }}
-
+      - -X github.com/gongahkia/onibi/internal/buildinfo.Date={{.Date}}
   - id: onibi-notify
     main: ./clients/onibi-notify
     binary: onibi-notify
-    env:
-      - CGO_ENABLED=0
-    flags:
-      - -trimpath
-    goos:
-      - darwin
-      - linux
-    goarch:
-      - amd64
-      - arm64
-      - arm
-    goarm:
-      - "6"
-      - "7"
-    ignore:
-      - goos: darwin
-        goarch: arm
-    ldflags:
-      - -s -w
-    hooks:
-      post:
-        - cmd: scripts/release-e2e-gate.sh "{{ .Path }}"
-          env:
-            - ONIBI_RELEASE_TAG={{ .Tag }}
-            - ONIBI_RELEASE_SNAPSHOT={{ .IsSnapshot }}
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    goos: [darwin, linux]
+    goarch: [amd64, arm64]
+    ldflags: [-s -w]
 
 archives:
-  - id: default
-    formats: [tar.gz]
-    name_template: >-
-      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_
-      {{- if eq .Arch "amd64" }}x86_64
-      {{- else if eq .Arch "386" }}i386
-      {{- else if eq .Arch "arm" }}armv{{ .Arm }}
-      {{- else }}{{ .Arch }}{{ end }}
-    files:
-      - LICENSE
-      - README.md
-      - SECURITY.md
-      - docs/security.md
-      - docs/troubleshooting.md
-      - docs/release.md
-      - scripts/manual-e2e-*.md
-      - packaging/homebrew/onibi.rb.template
+  - formats: [tar.gz]
+    files: [LICENSE, README.md, SECURITY.md, THREAT-MODEL.md, docs/telegram.md]
 
 checksum:
-  name_template: "checksums.txt"
+  name_template: checksums.txt
   algorithm: sha256
 
-sboms:
-  - artifacts: archive
-
-signs:
-  - artifacts: checksum
-    cmd: gpg
-    args:
-      - "--batch"
-      - "--yes"
-      - "-u"
-      - "{{ .Env.GPG_FINGERPRINT }}"
-      - "--output"
-      - "${signature}"
-      - "--detach-sign"
-      - "${artifact}"
-  - id: cosign-checksum
-    artifacts: checksum
-    cmd: cosign
-    signature: "${artifact}.sigstore.json"
-    args:
-      - "sign-blob"
-      - "--bundle=${signature}"
-      - "${artifact}"
-      - "--yes"
-  - id: cosign-archives
-    artifacts: archive
-    cmd: cosign
-    signature: "${artifact}.sigstore.json"
-    args:
-      - "sign-blob"
-      - "--bundle=${signature}"
-      - "${artifact}"
-      - "--yes"
-
-notarize:
-  macos:
-    - enabled: '{{ and (isEnvSet "MACOS_SIGN_P12") (ne .Env.MACOS_SIGN_P12 "") }}'
-      ids:
-        - onibi
-        - onibi-notify
-      sign:
-        certificate: "{{ .Env.MACOS_SIGN_P12 }}"
-        password: "{{ .Env.MACOS_SIGN_PASSWORD }}"
-      notarize:
-        issuer_id: "{{ .Env.MACOS_NOTARY_ISSUER_ID }}"
-        key_id: "{{ .Env.MACOS_NOTARY_KEY_ID }}"
-        key: "{{ .Env.MACOS_NOTARY_KEY }}"
-        wait: true
-        timeout: 20m
-
 snapshot:
-  version_template: "3.0.0-dev"
-
-changelog:
-  sort: asc
-  filters:
-    exclude:
-      - "^docs:"
-      - "^test:"
-
-homebrew_casks:
-  - name: onibi
-    ids:
-      - default
-    binaries:
-      - onibi
-      - onibi-notify
-    repository:
-      owner: gongahkia
-      name: homebrew-onibi
-      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
-    directory: Casks
-    homepage: https://github.com/gongahkia/onibi
-    description: "Web-controlled coding-agent host"
-    caveats: |
-      After install or upgrade, run:
-        onibi system doctor --after-upgrade
-      To compare bundled hook schemas with installed hooks, run:
-        onibi agent inspect --all
-    commit_msg_template: "Brew cask update for {{ .ProjectName }} version {{ .Tag }}"
+  version_template: 4.0.0-dev

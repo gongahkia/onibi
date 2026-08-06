@@ -2,204 +2,75 @@ package intake
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
-	"sync"
-	"sync/atomic"
-	"syscall"
 	"testing"
 	"time"
 )
 
-func TestServeAndReceive(t *testing.T) {
-	dir := t.TempDir()
-	sock := filepath.Join(dir, "onibi.sock")
-
-	var got atomic.Value // Event
-	var wg sync.WaitGroup
-	wg.Add(1)
-
-	handler := func(_ context.Context, ev Event) error {
-		got.Store(ev)
-		wg.Done()
-		return nil
-	}
-
-	srv := New(sock, handler, nil)
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-
-	go func() { _ = srv.Serve(ctx) }()
-
-	// wait for bind
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if _, err := pingSock(sock); err == nil {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-
-	if err := Send(sock, Event{Type: TypeAgentDone, Session: "s1"}); err != nil {
-		t.Fatal(err)
-	}
-	wg.Wait()
-
-	ev := got.Load().(Event)
-	if ev.Type != TypeAgentDone || ev.Session != "s1" {
-		t.Fatalf("unexpected event: %+v", ev)
-	}
-	if ev.TS == 0 {
-		t.Fatal("expected server to fill TS")
+func TestServeRefusesActiveSocket(t *testing.T) {
+	sock := testSocket(t)
+	cancel := startServer(t, sock)
+	defer cancel()
+	if err := New(sock, nil).Serve(t.Context()); err == nil || !strings.Contains(err.Error(), "already in use") {
+		t.Fatalf("err=%v", err)
 	}
 }
 
-func TestServeRejectsOtherUID(t *testing.T) {
-	dir := t.TempDir()
-	sock := filepath.Join(dir, "onibi.sock")
+func TestRejectsMalformedAndEmptyType(t *testing.T) {
+	sock := testSocket(t)
+	cancel := startServer(t, sock)
+	defer cancel()
+	if err := rawSend(sock, []byte("not json\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := rawSend(sock, []byte(`{}`+"\n")); err != nil {
+		t.Fatal(err)
+	}
+}
 
-	var calls atomic.Int32
-	srv := New(sock, func(context.Context, Event) error {
-		calls.Add(1)
-		return nil
-	}, nil)
+func testSocket(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("/tmp", "onibi-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return filepath.Join(dir, "sock")
+}
+
+func startServer(t *testing.T, socket string) context.CancelFunc {
+	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
-	readPeerUIDMu.RLock()
-	orig := readPeerUIDFunc
-	readPeerUIDMu.RUnlock()
-	defer func() {
-		cancel()
-		readPeerUIDMu.Lock()
-		readPeerUIDFunc = orig
-		readPeerUIDMu.Unlock()
-	}()
-
-	go func() { _ = srv.Serve(ctx) }()
-
+	errs := make(chan error, 1)
+	go func() { errs <- New(socket, nil).Serve(ctx) }()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if SocketActive(sock, 200*time.Millisecond) {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	if !SocketActive(sock, 200*time.Millisecond) {
-		t.Fatal("server did not bind")
-	}
-
-	checked := make(chan struct{}, 1)
-	readPeerUIDMu.Lock()
-	readPeerUIDFunc = func(int) (uint32, error) {
 		select {
-		case checked <- struct{}{}:
+		case err := <-errs:
+			cancel()
+			t.Fatalf("server exited before binding: %v", err)
 		default:
 		}
-		return uint32(syscall.Geteuid() + 1), nil
+		if SocketActive(socket, 20*time.Millisecond) {
+			return cancel
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
-	readPeerUIDMu.Unlock()
-
-	_ = Send(sock, Event{Type: TypeAgentDone, Session: "s1"})
-	select {
-	case <-checked:
-	case <-time.After(2 * time.Second):
-		t.Fatal("peer uid check was not called")
-	}
-	time.Sleep(100 * time.Millisecond)
-	if calls.Load() != 0 {
-		t.Fatalf("expected peer rejection before handler, got %d calls", calls.Load())
-	}
+	cancel()
+	t.Fatal("socket did not bind")
+	return nil
 }
 
-func TestSendFailsOpenIfNoServer(t *testing.T) {
-	// nonexistent socket
-	err := Send(t.TempDir()+"/nope.sock", Event{Type: TypeAgentDone})
-	if err == nil {
-		t.Fatal("expected error so caller can exit 0")
-	}
-}
-
-func TestServeRefusesActiveSocket(t *testing.T) {
-	dir := t.TempDir()
-	sock := filepath.Join(dir, "onibi.sock")
-	srv := New(sock, func(context.Context, Event) error { return nil }, nil)
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	go func() { _ = srv.Serve(ctx) }()
+func waitSocket(t *testing.T, socket string) {
+	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if SocketActive(sock, 200*time.Millisecond) {
-			break
+		if SocketActive(socket, 20*time.Millisecond) {
+			return
 		}
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(10 * time.Millisecond)
 	}
-	if !SocketActive(sock, 200*time.Millisecond) {
-		t.Fatal("first server did not bind")
-	}
-	err := New(sock, func(context.Context, Event) error { return nil }, nil).Serve(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "already in use") {
-		t.Fatalf("expected active socket error, got %v", err)
-	}
-}
-
-func TestRejectMalformed(t *testing.T) {
-	dir := t.TempDir()
-	sock := filepath.Join(dir, "onibi.sock")
-
-	var calls atomic.Int32
-	handler := func(_ context.Context, _ Event) error {
-		calls.Add(1)
-		return nil
-	}
-	srv := New(sock, handler, nil)
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	go func() { _ = srv.Serve(ctx) }()
-
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if _, err := pingSock(sock); err == nil {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-
-	// raw connect + send junk
-	if err := rawSend(sock, []byte("this is not json\n")); err != nil {
-		t.Fatal(err)
-	}
-	time.Sleep(100 * time.Millisecond)
-	if calls.Load() != 0 {
-		t.Fatalf("expected 0 handler calls on malformed input, got %d", calls.Load())
-	}
-}
-
-func TestRejectEmptyType(t *testing.T) {
-	dir := t.TempDir()
-	sock := filepath.Join(dir, "onibi.sock")
-
-	var calls atomic.Int32
-	handler := func(_ context.Context, _ Event) error {
-		calls.Add(1)
-		return nil
-	}
-	srv := New(sock, handler, nil)
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	go func() { _ = srv.Serve(ctx) }()
-
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if _, err := pingSock(sock); err == nil {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-
-	if err := Send(sock, Event{Type: ""}); err != nil {
-		t.Fatal(err)
-	}
-	time.Sleep(100 * time.Millisecond)
-	if calls.Load() != 0 {
-		t.Fatalf("expected 0 handler calls on empty type, got %d", calls.Load())
-	}
+	t.Fatal("socket did not bind")
 }

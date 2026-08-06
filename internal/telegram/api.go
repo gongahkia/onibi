@@ -138,6 +138,37 @@ func (c *Client) SendMessage(ctx context.Context, chatID int64, text string, mar
 	return out, nil
 }
 
+func (c *Client) EditMessageText(ctx context.Context, chatID, messageID int64, text string, markup *InlineKeyboardMarkup) (Message, error) {
+	if messageID == 0 {
+		return Message{}, errors.New("message id required")
+	}
+	if strings.TrimSpace(text) == "" {
+		text = "(empty)"
+	}
+	if err := c.waitSendLimit(ctx, chatID); err != nil {
+		return Message{}, err
+	}
+	req := map[string]any{"chat_id": chatID, "message_id": messageID, "text": text}
+	if markup != nil {
+		req["reply_markup"] = markup
+	}
+	var out Message
+	if err := c.callJSON(ctx, "editMessageText", req, &out); err != nil {
+		return Message{}, err
+	}
+	return out, nil
+}
+
+func (c *Client) EditMessageReplyMarkup(ctx context.Context, chatID, messageID int64, markup *InlineKeyboardMarkup) error {
+	if messageID == 0 {
+		return errors.New("message id required")
+	}
+	if err := c.waitSendLimit(ctx, chatID); err != nil {
+		return err
+	}
+	return c.callJSON(ctx, "editMessageReplyMarkup", map[string]any{"chat_id": chatID, "message_id": messageID, "reply_markup": markup}, nil)
+}
+
 func (c *Client) SendPhoto(ctx context.Context, chatID int64, png []byte, caption string) error {
 	if len(png) == 0 {
 		return errors.New("photo bytes required")

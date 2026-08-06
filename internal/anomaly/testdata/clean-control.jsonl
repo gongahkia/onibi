@@ -1,3 +1,0 @@
-{"SessionID":"s1","Tool":"Write","InputJSON":"{\"file_path\":\"internal/main.go\",\"content\":\"ok\"}","CWD":"$ROOT"}
-{"SessionID":"s1","Tool":"Bash","InputJSON":"{\"command\":\"curl https://api.github.com/repos/gongahkia/onibi\"}"}
-{"SessionID":"s1","Tool":"Bash","InputJSON":"{\"command\":\"echo done\"}"}

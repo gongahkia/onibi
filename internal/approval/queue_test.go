@@ -27,7 +27,7 @@ func TestRequestAndDecideApprove(t *testing.T) {
 	q := New(openDB(t), DefaultTTL)
 	ctx := context.Background()
 
-	id, ch, err := q.Request(ctx, "sess1", "claude", "Bash", `{"command":"ls"}`)
+	id, ch, err := q.Request(ctx, "sess1", "pi", "Bash", `{"command":"ls"}`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func TestDecideEditedCarriesPayload(t *testing.T) {
 	db := openDB(t)
 	q := New(db, DefaultTTL)
 	ctx := context.Background()
-	id, ch, _ := q.Request(ctx, "s", "claude", "Bash", `{"command":"rm -rf /tmp/data"}`)
+	id, ch, _ := q.Request(ctx, "s", "pi", "Bash", `{"command":"rm -rf /tmp/data"}`)
 	edited := `{"command":"mv /tmp/data /tmp/data.bak"}`
 	if err := q.Decide(ctx, id, VerdictEdit, edited, "", 1); err != nil {
 		t.Fatal(err)
@@ -103,7 +103,7 @@ func TestDecideEditedRejectsNonObjectPayload(t *testing.T) {
 func TestDecideOnlyOnceWins(t *testing.T) {
 	q := New(openDB(t), DefaultTTL)
 	ctx := context.Background()
-	id, ch, _ := q.Request(ctx, "s", "claude", "Bash", "{}")
+	id, ch, _ := q.Request(ctx, "s", "pi", "Bash", "{}")
 
 	var wins, races atomic.Int32
 	var wg sync.WaitGroup
@@ -143,7 +143,7 @@ func TestDecideIdempotentlyReplaysOnlySameDecision(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer unsubscribe()
-	id, ch, err := q.Request(ctx, "s", "claude", "Bash", "{}")
+	id, ch, err := q.Request(ctx, "s", "pi", "Bash", "{}")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,7 +219,7 @@ func TestDecideRejectsUnknown(t *testing.T) {
 func TestExpireOverdueDelivers(t *testing.T) {
 	q := New(openDB(t), DefaultTTL)
 	ctx := context.Background()
-	id, ch, _ := q.Request(ctx, "s", "claude", "Bash", "{}")
+	id, ch, _ := q.Request(ctx, "s", "pi", "Bash", "{}")
 
 	// force expiry by rewriting expires_at to the past
 	_, err := q.db.SQL().ExecContext(ctx,
@@ -249,7 +249,7 @@ func TestLateUserDecisionExpiresInsteadOfApproving(t *testing.T) {
 	db := openDB(t)
 	q := New(db, DefaultTTL)
 	ctx := context.Background()
-	id, ch, _ := q.Request(ctx, "s", "claude", "Bash", "{}")
+	id, ch, _ := q.Request(ctx, "s", "pi", "Bash", "{}")
 
 	_, err := q.db.SQL().ExecContext(ctx,
 		`UPDATE approvals SET expires_at = ? WHERE id = ?`,
@@ -281,9 +281,9 @@ func TestLateUserDecisionExpiresInsteadOfApproving(t *testing.T) {
 func TestPendingReturnsOnlyUnexpiredPending(t *testing.T) {
 	q := New(openDB(t), DefaultTTL)
 	ctx := context.Background()
-	keep, _, _ := q.Request(ctx, "s1", "claude", "Bash", "{}")
-	expired, _, _ := q.Request(ctx, "s2", "claude", "Bash", "{}")
-	decided, _, _ := q.Request(ctx, "s3", "claude", "Bash", "{}")
+	keep, _, _ := q.Request(ctx, "s1", "pi", "Bash", "{}")
+	expired, _, _ := q.Request(ctx, "s2", "pi", "Bash", "{}")
+	decided, _, _ := q.Request(ctx, "s3", "pi", "Bash", "{}")
 	_, err := q.db.SQL().ExecContext(ctx,
 		`UPDATE approvals SET expires_at = ? WHERE id = ?`,
 		time.Now().Add(-time.Minute).Unix(), expired)
@@ -305,7 +305,7 @@ func TestPendingReturnsOnlyUnexpiredPending(t *testing.T) {
 func TestDropWaiterStopsDelivery(t *testing.T) {
 	q := New(openDB(t), DefaultTTL)
 	ctx := context.Background()
-	id, ch, _ := q.Request(ctx, "s", "claude", "Bash", "{}")
+	id, ch, _ := q.Request(ctx, "s", "pi", "Bash", "{}")
 	q.DropWaiter(id)
 	// decide should not panic and channel should not receive
 	if err := q.Decide(ctx, id, VerdictApprove, "", "", 1); err != nil {
@@ -327,7 +327,7 @@ func TestDropWaiterStopsDelivery(t *testing.T) {
 func TestCancelDeliversCancelled(t *testing.T) {
 	q := New(openDB(t), DefaultTTL)
 	ctx := context.Background()
-	id, ch, _ := q.Request(ctx, "s", "claude", "Bash", "{}")
+	id, ch, _ := q.Request(ctx, "s", "pi", "Bash", "{}")
 	if err := q.Cancel(ctx, id, "shutting down"); err != nil {
 		t.Fatal(err)
 	}
@@ -344,10 +344,29 @@ func TestCancelDeliversCancelled(t *testing.T) {
 	}
 }
 
+func TestCancelPendingFailsClosed(t *testing.T) {
+	q := New(openDB(t), DefaultTTL)
+	ctx := context.Background()
+	id, ch, err := q.Request(ctx, "s", "pi", "Bash", `{}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := q.CancelPending(ctx, "daemon restarted")
+	if err != nil || n != 1 {
+		t.Fatalf("cancelled=%d err=%v", n, err)
+	}
+	if got := <-ch; got.Verdict != VerdictCancel || got.Reason != "daemon restarted" {
+		t.Fatalf("decision=%#v", got)
+	}
+	if err := q.Decide(ctx, id, VerdictApprove, "", "", 1); !errors.Is(err, ErrAlreadyDecided) {
+		t.Fatalf("late decision=%v", err)
+	}
+}
+
 func TestDenyPersistsReasonAndDecider(t *testing.T) {
 	q := New(openDB(t), DefaultTTL)
 	ctx := context.Background()
-	id, ch, _ := q.Request(ctx, "s", "claude", "Bash", "{}")
+	id, ch, _ := q.Request(ctx, "s", "pi", "Bash", "{}")
 	if err := q.Decide(ctx, id, VerdictDeny, "", "too risky", 42); err != nil {
 		t.Fatal(err)
 	}
@@ -364,7 +383,7 @@ func TestDenyPersistsReasonAndDecider(t *testing.T) {
 func TestSetMessagePersists(t *testing.T) {
 	q := New(openDB(t), DefaultTTL)
 	ctx := context.Background()
-	id, _, _ := q.Request(ctx, "s", "claude", "Bash", "{}")
+	id, _, _ := q.Request(ctx, "s", "pi", "Bash", "{}")
 	if err := q.SetMessage(ctx, id, 100, 200); err != nil {
 		t.Fatal(err)
 	}
@@ -382,7 +401,7 @@ func TestSubscribeReceivesQueueTransitions(t *testing.T) {
 	}
 	defer unsub()
 	ctx := context.Background()
-	id, _, err := q.Request(ctx, "s", "claude", "Bash", `{"command":"ls"}`, "diff")
+	id, _, err := q.Request(ctx, "s", "pi", "Bash", `{"command":"ls"}`, "diff")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -397,7 +416,7 @@ func TestSubscribeReceivesQueueTransitions(t *testing.T) {
 	if ev.Type != EventDecided || ev.Approval.State != StateDenied || ev.Decision.Verdict != VerdictDeny {
 		t.Fatalf("decision event = %#v", ev)
 	}
-	expID, _, err := q.Request(ctx, "s", "claude", "Bash", `{}`)
+	expID, _, err := q.Request(ctx, "s", "pi", "Bash", `{}`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -451,7 +470,7 @@ func TestRequestSilentSkipsRequestedEvent(t *testing.T) {
 	}
 	defer unsub()
 	ctx := context.Background()
-	id, ch, err := q.RequestSilent(ctx, "s", "claude", "Bash", `{"command":"ls"}`)
+	id, ch, err := q.RequestSilent(ctx, "s", "pi", "Bash", `{"command":"ls"}`)
 	if err != nil {
 		t.Fatal(err)
 	}

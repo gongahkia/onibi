@@ -73,12 +73,12 @@ func (m *Manager) systemdStatus(ctx context.Context) Status {
 
 func (m *Manager) systemdUnit() string {
 	return `[Unit]
-Description=Onibi web-controlled coding-agent host
+Description=Onibi Telegram command center
 After=network-online.target
 
 [Service]
 Type=simple
-ExecStart=` + systemdQuote(m.Executable) + ` run
+ExecStart=` + systemdQuote(m.Executable) + ` start
 WorkingDirectory=` + systemdQuote(m.Paths.StateDir) + `
 Restart=on-abnormal
 RestartSec=5

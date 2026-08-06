@@ -1,4 +1,3 @@
-// Package intake serves the local Unix-domain socket that adapter hooks and
-// the onibi-notify client write JSON events to. Permissions 0600, peer-cred
-// verified, schema-validated.
+// Package intake serves the same-user Unix-domain socket used by local CLI
+// control and the narrow Pi approval client.
 package intake

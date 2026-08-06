@@ -1,43 +1,39 @@
 package daemon
 
 import (
-	"strings"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
-func TestAgentCommandUsesConfiguredAgentBinary(t *testing.T) {
-	t.Setenv("ONIBI_CODEX_BIN", "/opt/bin/codex-dev")
-	bin, agent, args, ok := agentCommand("codex", []string{"--model", "gpt"})
-	if !ok || bin != "/opt/bin/codex-dev" || agent != "codex" || strings.Join(args, " ") != "--model gpt" {
-		t.Fatalf("bin=%q agent=%q args=%#v ok=%v", bin, agent, args, ok)
-	}
-	if _, ok := agentBinary("unknown"); ok {
-		t.Fatal("expected unknown agent to be rejected")
-	}
-}
-
-func TestAgentCommandShellDefaultsAndOverrides(t *testing.T) {
-	t.Setenv("SHELL", "/usr/local/bin/fish")
-	bin, agent, args, ok := agentCommand("shell", nil)
-	if !ok || bin != "fish" || agent != "shell" || len(args) != 1 || args[0] != "--interactive" {
-		t.Fatalf("bin=%q agent=%q args=%#v ok=%v", bin, agent, args, ok)
-	}
-	bin, agent, args, ok = agentCommand("shell", []string{"bash", "-lc", "echo ok"})
-	if !ok || bin != "bash" || agent != "shell" || strings.Join(args, " ") != "-i -lc echo ok" {
-		t.Fatalf("bin=%q agent=%q args=%#v ok=%v", bin, agent, args, ok)
-	}
-	if _, _, ok := shellCommand("not-a-shell", nil); ok {
-		t.Fatal("expected shell rejection")
-	}
-}
-
-func TestPingTextIncludesLiveSessions(t *testing.T) {
-	d := New(Options{})
-	if err := d.Registry.Add(NewSession("s1", "shell", "shell", nil, 0)); err != nil {
+func TestNormalizeSessionCWD(t *testing.T) {
+	dir := t.TempDir()
+	want, err := filepath.EvalSymlinks(dir)
+	if err != nil {
 		t.Fatal(err)
 	}
-	got := d.pingText(t.Context(), 0)
-	if !strings.Contains(got, "pong") || !strings.Contains(got, "sessions=1") {
-		t.Fatalf("ping = %q", got)
+	got, err := normalizeSessionCWD(dir)
+	if err != nil || got != want {
+		t.Fatalf("cwd=%q err=%v", got, err)
+	}
+	file := filepath.Join(dir, "file")
+	if err := os.WriteFile(file, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := normalizeSessionCWD(file); err == nil {
+		t.Fatal("file accepted as working directory")
+	}
+	if _, err := normalizeSessionCWD(filepath.Join(dir, "missing")); err == nil {
+		t.Fatal("missing directory accepted")
+	}
+}
+
+func TestSessionNameRejectsTerminalControlCharacters(t *testing.T) {
+	d := New(Options{})
+	if _, err := d.sessionName("work\nnext", "shell"); err == nil {
+		t.Fatal("control character accepted")
+	}
+	if got, err := d.sessionName("work-1", "shell"); err != nil || got != "work-1" {
+		t.Fatalf("name=%q err=%v", got, err)
 	}
 }

@@ -47,7 +47,7 @@ type SessionEntry struct {
 
 func (d *DB) SessionUpsertStart(ctx context.Context, id, name, agent, cwd, command, transport, tmuxTarget string, started time.Time) error {
 	if transport == "" {
-		transport = "pty"
+		transport = "tmux"
 	}
 	_, err := d.sql.ExecContext(ctx,
 		`INSERT INTO sessions(id, name, agent, cwd, cmd, transport, tmux_target, started_at, last_activity, recovery_state, recovery_reason, recovery_updated_at, ended_at)

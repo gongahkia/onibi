@@ -3,7 +3,6 @@ package approval
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
@@ -105,31 +104,19 @@ func (q *Queue) Subscribe() (<-chan Event, func(), error) {
 //   - reading the Decision from the returned channel
 //   - context-cancelling if it gives up (no need to call Cancel — the
 //     waiter map is GC'd when the approval is decided OR purged)
-func (q *Queue) Request(ctx context.Context, sessionID, agent, tool, inputJSON string, unifiedDiff ...string) (string, <-chan Decision, error) {
-	diff := ""
-	if len(unifiedDiff) > 0 {
-		diff = unifiedDiff[0]
-	}
-	return q.RequestModel(ctx, Request{SessionID: sessionID, Agent: agent, Tool: tool, Input: json.RawMessage(inputJSON)}, diff)
+func (q *Queue) Request(ctx context.Context, sessionID, agent, tool, inputJSON string) (string, <-chan Decision, error) {
+	return q.RequestModel(ctx, Request{SessionID: sessionID, Agent: agent, Tool: tool, Input: json.RawMessage(inputJSON)})
 }
 
-func (q *Queue) RequestSilent(ctx context.Context, sessionID, agent, tool, inputJSON string) (string, <-chan Decision, error) {
-	req, err := NormalizeRequest(Request{SessionID: sessionID, Agent: agent, Tool: tool, Input: json.RawMessage(inputJSON)})
-	if err != nil {
-		return "", nil, err
-	}
-	return q.request(ctx, req, "", false)
-}
-
-func (q *Queue) RequestModel(ctx context.Context, req Request, unifiedDiff string) (string, <-chan Decision, error) {
+func (q *Queue) RequestModel(ctx context.Context, req Request) (string, <-chan Decision, error) {
 	req, err := NormalizeRequest(req)
 	if err != nil {
 		return "", nil, err
 	}
-	return q.request(ctx, req, unifiedDiff, true)
+	return q.request(ctx, req)
 }
 
-func (q *Queue) request(ctx context.Context, req Request, unifiedDiff string, publish bool) (string, <-chan Decision, error) {
+func (q *Queue) request(ctx context.Context, req Request) (string, <-chan Decision, error) {
 	id, err := newID()
 	if err != nil {
 		return "", nil, err
@@ -149,45 +136,33 @@ func (q *Queue) request(ctx context.Context, req Request, unifiedDiff string, pu
 	q.mu.Lock()
 	q.waiters[id] = ch
 	q.mu.Unlock()
-	if publish {
-		q.publish(Event{
-			Type: EventRequested,
-			Approval: Approval{
-				ID:          id,
-				SessionID:   req.SessionID,
-				Agent:       req.Agent,
-				Tool:        req.Tool,
-				InputJSON:   string(req.Input),
-				UnifiedDiff: unifiedDiff,
-				State:       StatePending,
-				CreatedAt:   now,
-				ExpiresAt:   exp,
-			},
-			At: now,
-		})
-	}
+	q.publish(Event{
+		Type: EventRequested,
+		Approval: Approval{
+			ID:        id,
+			SessionID: req.SessionID,
+			Agent:     req.Agent,
+			Tool:      req.Tool,
+			InputJSON: string(req.Input),
+			State:     StatePending,
+			CreatedAt: now,
+			ExpiresAt: exp,
+		},
+		At: now,
+	})
 	return id, ch, nil
-}
-
-// SetMessage records a legacy rendered-message target.
-func (q *Queue) SetMessage(ctx context.Context, id string, chatID, msgID int64) error {
-	_, err := q.db.SQL().ExecContext(ctx,
-		`UPDATE approvals SET chat_id = ?, msg_id = ? WHERE id = ?`,
-		chatID, msgID, id)
-	return err
 }
 
 // Get returns the approval row.
 func (q *Queue) Get(ctx context.Context, id string) (*Approval, error) {
 	row := q.db.SQL().QueryRowContext(ctx,
-		`SELECT id, session_id, agent, tool, input_json, state,
-		        COALESCE(edited_json, ''), COALESCE(reason, ''), COALESCE(msg_id, 0), COALESCE(chat_id, 0),
+		`SELECT id, session_id, agent, tool, input_json, state, COALESCE(reason, ''),
 		        created_at, COALESCE(decided_at, 0), COALESCE(decided_by, 0), expires_at
 		 FROM approvals WHERE id = ?`, id)
 	a := &Approval{}
 	var createdAt, decidedAt, decidedBy, expiresAt int64
 	err := row.Scan(&a.ID, &a.SessionID, &a.Agent, &a.Tool, &a.InputJSON, &a.State,
-		&a.EditedJSON, &a.Reason, &a.MsgID, &a.ChatID, &createdAt, &decidedAt, &decidedBy, &expiresAt)
+		&a.Reason, &createdAt, &decidedAt, &decidedBy, &expiresAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrUnknownApproval
 	}
@@ -206,8 +181,7 @@ func (q *Queue) Get(ctx context.Context, id string) (*Approval, error) {
 // Pending returns unexpired pending approvals, oldest first.
 func (q *Queue) Pending(ctx context.Context) ([]*Approval, error) {
 	rows, err := q.db.SQL().QueryContext(ctx,
-		`SELECT id, session_id, agent, tool, input_json, state,
-		        COALESCE(edited_json, ''), COALESCE(reason, ''), COALESCE(msg_id, 0), COALESCE(chat_id, 0),
+		`SELECT id, session_id, agent, tool, input_json, state, COALESCE(reason, ''),
 		        created_at, COALESCE(decided_at, 0), COALESCE(decided_by, 0), expires_at
 		   FROM approvals
 		  WHERE state = ? AND expires_at > ?
@@ -222,7 +196,7 @@ func (q *Queue) Pending(ctx context.Context) ([]*Approval, error) {
 		a := &Approval{}
 		var createdAt, decidedAt, decidedBy, expiresAt int64
 		if err := rows.Scan(&a.ID, &a.SessionID, &a.Agent, &a.Tool, &a.InputJSON, &a.State,
-			&a.EditedJSON, &a.Reason, &a.MsgID, &a.ChatID, &createdAt, &decidedAt, &decidedBy, &expiresAt); err != nil {
+			&a.Reason, &createdAt, &decidedAt, &decidedBy, &expiresAt); err != nil {
 			return nil, err
 		}
 		a.CreatedAt = time.Unix(createdAt, 0)
@@ -243,20 +217,17 @@ func (q *Queue) Pending(ctx context.Context) ([]*Approval, error) {
 // On success, delivers the Decision to the registered waiter (if any) and
 // removes it from the waiters map. Returns ErrAlreadyDecided if another
 // caller won.
-func (q *Queue) Decide(ctx context.Context, id string, verdict Verdict, editedJSON, reason string, decidedBy int64) error {
-	_, err := q.DecideWithResult(ctx, id, verdict, editedJSON, reason, decidedBy)
+func (q *Queue) Decide(ctx context.Context, id string, verdict Verdict, reason string, decidedBy int64) error {
+	_, err := q.DecideWithResult(ctx, id, verdict, reason, decidedBy)
 	return err
 }
 
 // DecideWithResult is Decide plus delivery metadata for callers that must
 // handle orphaned approvals after daemon restart.
-func (q *Queue) DecideWithResult(ctx context.Context, id string, verdict Verdict, editedJSON, reason string, decidedBy int64) (DecisionResult, error) {
+func (q *Queue) DecideWithResult(ctx context.Context, id string, verdict Verdict, reason string, decidedBy int64) (DecisionResult, error) {
 	st := StateForVerdict(verdict)
 	if st == "" {
 		return DecisionResult{}, fmt.Errorf("invalid verdict %q", verdict)
-	}
-	if verdict == VerdictEdit && !jsonObject(editedJSON) {
-		return DecisionResult{}, fmt.Errorf("edited approval input must be a JSON object")
 	}
 	now := time.Now()
 	a, err := q.Get(ctx, id)
@@ -267,22 +238,17 @@ func (q *Queue) DecideWithResult(ctx context.Context, id string, verdict Verdict
 		return DecisionResult{}, ErrAlreadyDecided
 	}
 	if userVerdict(verdict) && !a.ExpiresAt.After(now) {
-		res, err := q.finish(ctx, a, VerdictExpire, "", "approval expired (5 min TTL)", 0, now)
+		res, err := q.finish(ctx, a, VerdictExpire, "approval expired (5 min TTL)", 0, now)
 		if err != nil {
 			return res, err
 		}
 		return res, ErrExpired
 	}
-	return q.finish(ctx, a, verdict, editedJSON, reason, decidedBy, now)
+	return q.finish(ctx, a, verdict, reason, decidedBy, now)
 }
 
-func jsonObject(raw string) bool {
-	var value map[string]json.RawMessage
-	return json.Unmarshal([]byte(raw), &value) == nil && value != nil
-}
-
-func (q *Queue) DecideIdempotently(ctx context.Context, id string, verdict Verdict, editedJSON, reason string, decidedBy int64) (DecisionResult, error) {
-	res, err := q.DecideWithResult(ctx, id, verdict, editedJSON, reason, decidedBy)
+func (q *Queue) DecideIdempotently(ctx context.Context, id string, verdict Verdict, reason string, decidedBy int64) (DecisionResult, error) {
+	res, err := q.DecideWithResult(ctx, id, verdict, reason, decidedBy)
 	if !errors.Is(err, ErrAlreadyDecided) {
 		return res, err
 	}
@@ -290,7 +256,7 @@ func (q *Queue) DecideIdempotently(ctx context.Context, id string, verdict Verdi
 	if getErr != nil {
 		return DecisionResult{}, getErr
 	}
-	if a.State != StateForVerdict(verdict) || (verdict == VerdictEdit && a.EditedJSON != editedJSON) {
+	if a.State != StateForVerdict(verdict) {
 		return DecisionResult{}, ErrAlreadyDecided
 	}
 	d, ok := decisionFromApproval(a)
@@ -300,17 +266,16 @@ func (q *Queue) DecideIdempotently(ctx context.Context, id string, verdict Verdi
 	return DecisionResult{Decision: d, Replayed: true}, nil
 }
 
-func (q *Queue) finish(ctx context.Context, a *Approval, verdict Verdict, editedJSON, reason string, decidedBy int64, now time.Time) (DecisionResult, error) {
+func (q *Queue) finish(ctx context.Context, a *Approval, verdict Verdict, reason string, decidedBy int64, now time.Time) (DecisionResult, error) {
 	st := StateForVerdict(verdict)
 	res, err := q.db.SQL().ExecContext(ctx,
 		`UPDATE approvals
 		   SET state = ?,
-		       edited_json = ?,
 		       reason = ?,
 		       decided_at = ?,
 		       decided_by = ?
 		 WHERE id = ? AND state = ?`,
-		st, nullIfEmpty(editedJSON), nullIfEmpty(reason), now.Unix(), nullIfZero(decidedBy), a.ID, StatePending)
+		st, nullIfEmpty(reason), now.Unix(), nullIfZero(decidedBy), a.ID, StatePending)
 	if err != nil {
 		return DecisionResult{}, fmt.Errorf("update approval: %w", err)
 	}
@@ -328,26 +293,14 @@ func (q *Queue) finish(ctx context.Context, a *Approval, verdict Verdict, edited
 		DecidedBy: decidedBy,
 		DecidedAt: now.Unix(),
 	}
-	if verdict == VerdictEdit && editedJSON != "" {
-		d.UpdatedInput = json.RawMessage(editedJSON)
-	}
-	payload := a.InputJSON
-	if editedJSON != "" {
-		payload = editedJSON
-	}
 	detail := fmt.Sprintf("id=%s verdict=%s", a.ID, verdict)
-	if verdict == VerdictEdit && editedJSON != "" {
-		detail += fmt.Sprintf(" original_sha256=%s edited_sha256=%s diff_sha256=%s",
-			sha256Hex(a.InputJSON), sha256Hex(editedJSON), sha256Hex(a.InputJSON+"\x00"+editedJSON))
-	}
-	if err := q.db.AuditAppend(ctx, "approval.decided", a.SessionID, payload, decidedBy,
+	if err := q.db.AuditAppend(ctx, "approval.decided", a.SessionID, a.InputJSON, decidedBy,
 		detail); err != nil && q.Log != nil {
 		q.Log.Warn("audit append", slog.String("action", "approval.decided"), slog.Any("err", err))
 	}
 	delivered := q.deliver(a.ID, d)
 	evApproval := *a
 	evApproval.State = st
-	evApproval.EditedJSON = editedJSON
 	evApproval.Reason = reason
 	evApproval.DecidedAt = now
 	evApproval.DecidedBy = decidedBy
@@ -358,7 +311,25 @@ func (q *Queue) finish(ctx context.Context, a *Approval, verdict Verdict, edited
 // Cancel is a convenience that decides with VerdictCancel. Use this when
 // the daemon is shutting down with approvals still pending.
 func (q *Queue) Cancel(ctx context.Context, id, reason string) error {
-	return q.Decide(ctx, id, VerdictCancel, "", reason, 0)
+	return q.Decide(ctx, id, VerdictCancel, reason, 0)
+}
+
+// CancelPending fails closed when the process that was waiting on a Pi
+// decision no longer exists, such as after a daemon restart.
+func (q *Queue) CancelPending(ctx context.Context, reason string) (int, error) {
+	ids, err := q.PendingIDs(ctx)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, id := range ids {
+		if err := q.Cancel(ctx, id, reason); err == nil {
+			n++
+		} else if !errors.Is(err, ErrAlreadyDecided) {
+			return n, err
+		}
+	}
+	return n, nil
 }
 
 // PendingIDs returns the ids of all currently-pending approvals, including
@@ -404,7 +375,7 @@ func (q *Queue) ExpireOverdue(ctx context.Context) (int, error) {
 
 	n := 0
 	for _, id := range ids {
-		if err := q.Decide(ctx, id, VerdictExpire, "", "approval expired (5 min TTL)", 0); err == nil {
+		if err := q.Decide(ctx, id, VerdictExpire, "approval expired (5 min TTL)", 0); err == nil {
 			n++
 		} else if errors.Is(err, ErrAlreadyDecided) {
 			// raced with a real decision — fine
@@ -417,7 +388,7 @@ func (q *Queue) ExpireOverdue(ctx context.Context) (int, error) {
 }
 
 // deliver sends the decision to the registered waiter and removes it.
-// Idempotent — if no waiter is registered (e.g. daemon restart, the hook's
+// Idempotent — if no waiter is registered (e.g. daemon restart, the Pi
 // socket connection already EOF'd), this is a no-op. The DB row still
 // reflects the decision for audit and `onibi log`.
 func (q *Queue) deliver(id string, d Decision) bool {
@@ -437,24 +408,6 @@ func (q *Queue) deliver(id string, d Decision) bool {
 	ch <- d
 	close(ch)
 	return true
-}
-
-// DropWaiter removes the in-memory waiter for id without changing the DB
-// state. Used by the intake handler when its socket connection drops
-// (client gave up); the approval row remains pending and may still be
-// decided later; that decision will not go anywhere (no waiter), which is
-// fine.
-func (q *Queue) DropWaiter(id string) {
-	q.mu.Lock()
-	delete(q.waiters, id)
-	q.mu.Unlock()
-}
-
-func (q *Queue) InvalidateWaiters(ids []string, reason string) {
-	decision := Decision{Verdict: VerdictCancel, Reason: reason, DecidedAt: time.Now().UTC().Unix()}
-	for _, id := range ids {
-		q.deliver(id, decision)
-	}
 }
 
 func (q *Queue) publish(ev Event) {
@@ -504,7 +457,7 @@ func nullIfZero(n int64) any {
 
 func userVerdict(v Verdict) bool {
 	switch v {
-	case VerdictApprove, VerdictDeny, VerdictEdit:
+	case VerdictApprove, VerdictDeny:
 		return true
 	default:
 		return false
@@ -528,8 +481,6 @@ func decisionFromApproval(a *Approval) (Decision, bool) {
 		verdict = VerdictApprove
 	case StateDenied:
 		verdict = VerdictDeny
-	case StateEdited:
-		verdict = VerdictEdit
 	case StateExpired:
 		verdict = VerdictExpire
 	case StateCancelled:
@@ -537,14 +488,5 @@ func decisionFromApproval(a *Approval) (Decision, bool) {
 	default:
 		return Decision{}, false
 	}
-	d := Decision{Verdict: verdict, Reason: a.Reason, DecidedBy: a.DecidedBy, DecidedAt: a.DecidedAt.Unix()}
-	if verdict == VerdictEdit && a.EditedJSON != "" {
-		d.UpdatedInput = json.RawMessage(a.EditedJSON)
-	}
-	return d, true
-}
-
-func sha256Hex(s string) string {
-	sum := sha256.Sum256([]byte(s))
-	return hex.EncodeToString(sum[:])
+	return Decision{Verdict: verdict, Reason: a.Reason, DecidedBy: a.DecidedBy, DecidedAt: a.DecidedAt.Unix()}, true
 }

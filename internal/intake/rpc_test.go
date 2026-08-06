@@ -21,7 +21,7 @@ func TestApprovalRPCRoundtrip(t *testing.T) {
 		}, nil
 	}
 
-	srv := New(sock, func(context.Context, Event) error { return nil }, nil)
+	srv := New(sock, nil)
 	srv.SetApprovalHandler(approver)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -55,7 +55,7 @@ func TestApprovalRPCRoundtrip(t *testing.T) {
 func TestApprovalNoHandlerCancels(t *testing.T) {
 	dir := t.TempDir()
 	sock := filepath.Join(dir, "onibi.sock")
-	srv := New(sock, func(context.Context, Event) error { return nil }, nil)
+	srv := New(sock, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	go func() { _ = srv.Serve(ctx) }()
@@ -79,7 +79,7 @@ func TestApprovalNoHandlerCancels(t *testing.T) {
 func TestGenericRPCRoundtrip(t *testing.T) {
 	dir := t.TempDir()
 	sock := filepath.Join(dir, "onibi.sock")
-	srv := New(sock, func(context.Context, Event) error { return nil }, nil)
+	srv := New(sock, nil)
 	srv.SetRPCHandler(func(_ context.Context, ev Event) (Response, error) {
 		if ev.Type != TypeSessionPeek || ev.Session != "s1" {
 			t.Fatalf("bad event: %#v", ev)

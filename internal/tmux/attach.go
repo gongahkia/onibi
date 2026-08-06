@@ -19,8 +19,7 @@ type Runner interface {
 type execRunner struct{}
 
 func (execRunner) Run(ctx context.Context, name string, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, name, args...)
-	return cmd.CombinedOutput()
+	return exec.CommandContext(ctx, name, args...).CombinedOutput()
 }
 
 type Controller struct {
@@ -28,17 +27,7 @@ type Controller struct {
 	Bin    string
 }
 
-type Pane struct {
-	ID      string
-	Session string
-	Window  string
-	Command string
-	Title   string
-}
-
-type Session struct {
-	Name string
-}
+type Session struct{ Name string }
 
 type StartOptions struct {
 	WindowName string
@@ -48,8 +37,7 @@ type StartOptions struct {
 	Args       []string
 }
 
-func New() *Controller { return &Controller{Runner: execRunner{}, Bin: DefaultBin()} }
-
+func New() *Controller                   { return &Controller{Runner: execRunner{}, Bin: DefaultBin()} }
 func NewWithRunner(r Runner) *Controller { return &Controller{Runner: r, Bin: "tmux"} }
 
 func DefaultBin() string {
@@ -59,57 +47,16 @@ func DefaultBin() string {
 	if path, err := exec.LookPath("tmux"); err == nil {
 		return path
 	}
-	candidates := []string{
-		"/opt/homebrew/bin/tmux",
-		"/usr/local/bin/tmux",
-		"/opt/local/bin/tmux",
-	}
+	candidates := []string{"/opt/homebrew/bin/tmux", "/usr/local/bin/tmux", "/opt/local/bin/tmux"}
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		candidates = append(candidates,
-			filepath.Join(home, ".nix-profile/bin/tmux"),
-			filepath.Join(home, ".local/bin/tmux"),
-		)
+		candidates = append(candidates, filepath.Join(home, ".nix-profile/bin/tmux"), filepath.Join(home, ".local/bin/tmux"))
 	}
 	for _, path := range candidates {
-		if isExecutable(path) {
+		if info, err := os.Stat(path); err == nil && !info.IsDir() && info.Mode()&0111 != 0 {
 			return path
 		}
 	}
 	return "tmux"
-}
-
-func isExecutable(path string) bool {
-	st, err := os.Stat(path)
-	if err != nil || st.IsDir() {
-		return false
-	}
-	return st.Mode()&0111 != 0
-}
-
-func (c *Controller) ListPanes(ctx context.Context) ([]Pane, error) {
-	out, err := c.run(ctx, "list-panes", "-a", "-F", "#{pane_id}\t#{session_name}\t#{window_name}\t#{pane_current_command}\t#{pane_title}")
-	if err != nil {
-		return nil, err
-	}
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-	panes := make([]Pane, 0, len(lines))
-	for _, line := range lines {
-		if strings.TrimSpace(line) == "" {
-			continue
-		}
-		parts := strings.Split(line, "\t")
-		for len(parts) < 5 {
-			parts = append(parts, "")
-		}
-		panes = append(panes, Pane{
-			ID:      parts[0],
-			Session: parts[1],
-			Window:  parts[2],
-			Command: parts[3],
-			Title:   parts[4],
-		})
-	}
-	return panes, nil
 }
 
 func (c *Controller) ListSessions(ctx context.Context) ([]Session, error) {
@@ -117,38 +64,16 @@ func (c *Controller) ListSessions(ctx context.Context) ([]Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-	sessions := make([]Session, 0, len(lines))
-	seen := make(map[string]bool, len(lines))
-	for _, line := range lines {
+	seen := map[string]bool{}
+	var sessions []Session
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 		name := strings.TrimSpace(line)
-		if name == "" || seen[name] {
-			continue
+		if name != "" && !seen[name] {
+			seen[name] = true
+			sessions = append(sessions, Session{Name: name})
 		}
-		seen[name] = true
-		sessions = append(sessions, Session{Name: name})
 	}
 	return sessions, nil
-}
-
-func (c *Controller) SessionEnvironment(ctx context.Context, target, variable string) (string, bool, error) {
-	if strings.TrimSpace(target) == "" || strings.TrimSpace(variable) == "" {
-		return "", false, errors.New("tmux session environment target and variable required")
-	}
-	out, err := c.run(ctx, "show-environment", "-t", target, variable)
-	if err != nil {
-		return "", false, err
-	}
-	line := strings.TrimSpace(string(out))
-	prefix := variable + "="
-	if !strings.HasPrefix(line, prefix) {
-		return "", false, nil
-	}
-	value := strings.TrimSpace(strings.TrimPrefix(line, prefix))
-	if value == "" {
-		return "", false, nil
-	}
-	return value, true, nil
 }
 
 func (c *Controller) Capture(ctx context.Context, target string, lines int) (string, error) {
@@ -166,11 +91,8 @@ func (c *Controller) Capture(ctx context.Context, target string, lines int) (str
 }
 
 func (c *Controller) StartSession(ctx context.Context, target string, opts StartOptions) error {
-	if strings.TrimSpace(target) == "" {
-		return errors.New("tmux target required")
-	}
-	if strings.TrimSpace(opts.Command) == "" {
-		return errors.New("tmux command required")
+	if strings.TrimSpace(target) == "" || strings.TrimSpace(opts.Command) == "" {
+		return errors.New("tmux target and command required")
 	}
 	args := []string{"new-session", "-d", "-s", target}
 	if strings.TrimSpace(opts.WindowName) != "" {
@@ -189,38 +111,25 @@ func (c *Controller) StartSession(ctx context.Context, target string, opts Start
 	return err
 }
 
-func (c *Controller) AttachCount(ctx context.Context, target string) (int, error) {
-	if strings.TrimSpace(target) == "" {
-		return 0, errors.New("tmux target required")
-	}
-	out, err := c.run(ctx, "display-message", "-p", "-t", target, "#{session_attached}")
-	if err != nil {
-		return 0, err
-	}
-	n, err := strconv.Atoi(strings.TrimSpace(string(out)))
-	if err != nil {
-		return 0, err
-	}
-	return n, nil
-}
-
-func (c *Controller) DetachClients(ctx context.Context, target string) error {
-	n, err := c.AttachCount(ctx, target)
-	if err != nil {
-		return err
-	}
-	if n == 0 {
-		return nil
-	}
-	_, err = c.run(ctx, "detach-client", "-s", target)
-	return err
-}
-
-func (c *Controller) EnablePassthrough(ctx context.Context, target string) error {
+func (c *Controller) SendText(ctx context.Context, target, text string, enter bool) error {
 	if strings.TrimSpace(target) == "" {
 		return errors.New("tmux target required")
 	}
-	_, err := c.run(ctx, "set-option", "-t", target, "allow-passthrough", "on")
+	if _, err := c.run(ctx, "send-keys", "-t", target, "-l", "--", text); err != nil {
+		return err
+	}
+	if !enter {
+		return nil
+	}
+	_, err := c.run(ctx, "send-keys", "-t", target, "Enter")
+	return err
+}
+
+func (c *Controller) SendKey(ctx context.Context, target, key string) error {
+	if strings.TrimSpace(target) == "" || strings.TrimSpace(key) == "" {
+		return errors.New("tmux target and key required")
+	}
+	_, err := c.run(ctx, "send-keys", "-t", target, key)
 	return err
 }
 
@@ -232,102 +141,12 @@ func (c *Controller) KillSession(ctx context.Context, target string) error {
 	return err
 }
 
-func (c *Controller) CopyModePageUp(ctx context.Context, target string) error {
-	if strings.TrimSpace(target) == "" {
-		return errors.New("tmux target required")
-	}
-	_, err := c.run(ctx, "copy-mode", "-u", "-t", target)
-	return err
-}
-
-func (c *Controller) CopyModePageDown(ctx context.Context, target string) error {
-	if strings.TrimSpace(target) == "" {
-		return errors.New("tmux target required")
-	}
-	_, err := c.run(ctx, "send-keys", "-X", "-t", target, "page-down")
-	return err
-}
-
-func (c *Controller) SendText(ctx context.Context, target, text string, enter bool) error {
-	if strings.TrimSpace(target) == "" {
-		return errors.New("tmux target required")
-	}
-	if _, err := c.run(ctx, "send-keys", "-t", target, "-l", "--", text); err != nil {
-		return err
-	}
-	if enter {
-		if _, err := c.run(ctx, "send-keys", "-t", target, "Enter"); err != nil {
-			return err
-		}
-		return c.verifyMultilineSend(ctx, target, text)
-	}
-	return nil
-}
-
 func shellJoin(parts ...string) string {
 	quoted := make([]string, 0, len(parts))
 	for _, part := range parts {
-		quoted = append(quoted, shellQuote(part))
+		quoted = append(quoted, "'"+strings.ReplaceAll(part, "'", "'\\''")+"'")
 	}
 	return strings.Join(quoted, " ")
-}
-
-func shellQuote(s string) string {
-	if s == "" {
-		return "''"
-	}
-	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
-}
-
-func (c *Controller) verifyMultilineSend(ctx context.Context, target, text string) error {
-	if !strings.ContainsAny(text, "\r\n") {
-		return nil
-	}
-	want := finalNonEmptyLine(text)
-	if want == "" {
-		return nil
-	}
-	captured, err := c.Capture(ctx, target, 50)
-	if err != nil {
-		return nil
-	}
-	if strings.Contains(captured, want) {
-		return nil
-	}
-	_, err = c.run(ctx, "send-keys", "-t", target, "Enter")
-	return err
-}
-
-func finalNonEmptyLine(text string) string {
-	text = strings.ReplaceAll(text, "\r\n", "\n")
-	text = strings.ReplaceAll(text, "\r", "\n")
-	lines := strings.Split(text, "\n")
-	for i := len(lines) - 1; i >= 0; i-- {
-		line := strings.TrimSpace(lines[i])
-		if line != "" {
-			return line
-		}
-	}
-	return ""
-}
-
-func (c *Controller) SendKey(ctx context.Context, target, key string) error {
-	if strings.TrimSpace(target) == "" {
-		return errors.New("tmux target required")
-	}
-	if strings.TrimSpace(key) == "" {
-		return errors.New("tmux key required")
-	}
-	_, err := c.run(ctx, "send-keys", "-t", target, key)
-	return err
-}
-
-func (c *Controller) KillPane(ctx context.Context, target string) error {
-	if strings.TrimSpace(target) == "" {
-		return errors.New("tmux target required")
-	}
-	_, err := c.run(ctx, "kill-pane", "-t", target)
-	return err
 }
 
 func (c *Controller) run(ctx context.Context, args ...string) ([]byte, error) {
@@ -343,15 +162,14 @@ func (c *Controller) run(ctx context.Context, args ...string) ([]byte, error) {
 		bin = "tmux"
 	}
 	out, err := r.Run(ctx, bin, args...)
-	if err != nil {
-		if errors.Is(err, exec.ErrNotFound) {
-			return nil, fmt.Errorf("tmux executable not found (%s); set ONIBI_TMUX_BIN or install tmux in /opt/homebrew/bin or /usr/local/bin: %w", bin, err)
-		}
-		out = bytes.TrimSpace(out)
-		if len(out) > 0 {
-			return nil, fmt.Errorf("tmux %s: %w: %s", strings.Join(args, " "), err, out)
-		}
-		return nil, fmt.Errorf("tmux %s: %w", strings.Join(args, " "), err)
+	if err == nil {
+		return out, nil
 	}
-	return out, nil
+	if errors.Is(err, exec.ErrNotFound) {
+		return nil, fmt.Errorf("tmux executable not found (%s); set ONIBI_TMUX_BIN or install tmux: %w", bin, err)
+	}
+	if out = bytes.TrimSpace(out); len(out) > 0 {
+		return nil, fmt.Errorf("tmux %s: %w: %s", strings.Join(args, " "), err, out)
+	}
+	return nil, fmt.Errorf("tmux %s: %w", strings.Join(args, " "), err)
 }

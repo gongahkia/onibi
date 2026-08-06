@@ -1,411 +1,120 @@
 package cli
 
 import (
-	"bufio"
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
-	"os"
 	"strconv"
 	"strings"
-	"time"
 
-	"github.com/spf13/cobra"
-
-	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/daemon"
-	"github.com/gongahkia/onibi/internal/secrets"
-	"github.com/gongahkia/onibi/internal/store"
 	"github.com/gongahkia/onibi/internal/telegram"
-)
-
-var newTelegramClient = telegram.NewClient
-var openSecretStore = secrets.Open
-
-const (
-	telegramTokenEnv          = "ONIBI_TELEGRAM_TOKEN"
-	telegramCapabilityVersion = "1"
+	"github.com/spf13/cobra"
 )
 
 func telegramCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "telegram",
-		Short: "Manage the Telegram chat cockpit (beta)",
-		RunE:  runTelegramStatus,
-	}
-	setup := &cobra.Command{
-		Use:   "setup",
-		Short: "Store and validate a Telegram bot token",
-		RunE:  runTelegramSetup,
-	}
+	cmd := &cobra.Command{Use: "telegram", Short: "Configure the Telegram command center", RunE: runTelegramStatus}
+	setup := &cobra.Command{Use: "setup", Short: "Store and validate a BotFather token", RunE: runTelegramSetup}
 	setup.Flags().String("token", "", "BotFather token")
-	setup.Flags().Bool("no-check", false, "store token after local syntax validation only")
-	status := &cobra.Command{
-		Use:   "status",
-		Short: "Show Telegram setup state",
-		RunE:  runTelegramStatus,
-	}
+	setup.Flags().Bool("no-check", false, "skip Telegram getMe validation")
+	status := &cobra.Command{Use: "status", Short: "Show Telegram setup state", RunE: runTelegramStatus}
+	status.Flags().Bool("check", false, "validate token with Telegram")
 	status.Flags().Bool("json", false, "print JSON")
-	status.Flags().Bool("check", false, "validate token with Telegram getMe")
-	disable := &cobra.Command{
-		Use:   "disable",
-		Short: "Remove Telegram token and owner pairing",
-		RunE:  runTelegramDisable,
-	}
+	disable := &cobra.Command{Use: "disable", Short: "Remove token and pairing", RunE: runTelegramDisable}
 	cmd.AddCommand(setup, status, disable)
 	return cmd
 }
-
 func runTelegramSetup(cmd *cobra.Command, _ []string) error {
-	paths, db, err := openCLIStoreForCommand(cmd)
+	paths, db, err := pathsAndStore()
 	if err != nil {
 		return err
 	}
 	defer db.Close()
-	if _, _, err := telegramOwnerBinding(cmd.Context(), db); err != nil {
-		return err
-	}
 	token, _ := cmd.Flags().GetString("token")
-	if strings.TrimSpace(token) == "" {
-		token, err = promptTelegramToken(cmd)
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return errors.New("--token required")
+	}
+	skip, _ := cmd.Flags().GetBool("no-check")
+	if !telegram.ValidBotToken(token) {
+		return errors.New("token does not look like a BotFather token")
+	}
+	var bot telegram.User
+	if !skip {
+		bot, err = telegram.NewClient(token).GetMe(cmd.Context())
 		if err != nil {
 			return err
 		}
 	}
-	noCheck, _ := cmd.Flags().GetBool("no-check")
-	var user telegram.User
-	if noCheck {
-		if !telegram.ValidBotToken(token) {
-			return errors.New("token does not look like a BotFather token")
-		}
-	} else {
-		user, err = validateTelegramToken(cmd.Context(), token)
-		if err != nil {
-			return err
-		}
-	}
-	st, err := openSecretStore(secrets.Options{EnvFallbackPath: paths.EnvFile})
+	secretsStore, err := telegramSecrets(paths)
 	if err != nil {
 		return err
 	}
-	if err := st.Set(daemon.TelegramSecretBotToken, strings.TrimSpace(token)); err != nil {
+	if err := secretsStore.Set(daemon.TelegramSecretBotToken, token); err != nil {
 		return err
 	}
-	if noCheck {
-		fmt.Fprintf(cmd.OutOrStdout(), "%s Stored Telegram bot token (live check skipped)\n", styleFor(cmd).green("[OK]"))
-	} else {
-		fmt.Fprintf(cmd.OutOrStdout(), "%s Stored Telegram bot @%s\n", styleFor(cmd).green("[OK]"), user.Username)
-	}
-	if _, ok, _ := db.KVGetString(cmd.Context(), daemon.TelegramKVOwnerChatID); !ok {
-		code, err := ensureTelegramPairCode(cmd.Context(), db)
+	chat, user := telegramBinding(cmd.Context(), db)
+	if chat == 0 || user == 0 {
+		code, err := ensurePairCode(cmd.Context(), db)
 		if err != nil {
 			return err
 		}
-		if noCheck {
-			fmt.Fprintf(cmd.OutOrStdout(), "Pair: send /start %s while `onibi start --transport=telegram` is running.\n", code)
+		if skip {
+			fmt.Fprintf(cmd.OutOrStdout(), "Pair: send /start %s while onibi start is running.\n", code)
 		} else {
-			fmt.Fprintf(cmd.OutOrStdout(), "Pair: send /start %s to @%s while `onibi start --transport=telegram` is running.\n", code, user.Username)
+			fmt.Fprintf(cmd.OutOrStdout(), "Bot @%s stored. Pair: send /start %s while onibi start is running.\n", bot.Username, code)
 		}
-	}
-	if noCheck {
-		fmt.Fprintln(cmd.OutOrStdout(), "Check: onibi telegram status --check")
 	}
 	return nil
 }
-
 func runTelegramStatus(cmd *cobra.Command, _ []string) error {
-	paths, db, err := openCLIStoreForCommand(cmd)
+	paths, db, err := pathsAndStore()
 	if err != nil {
 		return err
 	}
 	defer db.Close()
-	st, err := openSecretStore(secrets.Options{EnvFallbackPath: paths.EnvFile})
+	token, err := telegramToken(paths)
 	if err != nil {
 		return err
 	}
-	token, tokenOK, _ := st.Get(daemon.TelegramSecretBotToken)
-	secretBackend := string(st.Backend())
-	if envToken := strings.TrimSpace(os.Getenv(telegramTokenEnv)); envToken != "" {
-		token = envToken
-		tokenOK = true
-		secretBackend = "env"
-	}
-	owner, ownerOK, _ := db.KVGetString(cmd.Context(), daemon.TelegramKVOwnerChatID)
-	ownerUser, ownerUserOK, _ := db.KVGetString(cmd.Context(), daemon.TelegramKVOwnerUserID)
-	liveCheck, _ := cmd.Flags().GetBool("check")
-	report := telegramStatusReport{
-		Capability:    telegramCapability(),
-		Token:         tokenOK,
-		SecretBackend: secretBackend,
-		OwnerPaired:   ownerOK && ownerUserOK,
-		OwnerChatID:   owner,
-		OwnerUserID:   ownerUser,
-		Check:         liveCheck,
-	}
-	if liveCheck && tokenOK {
-		user, err := validateTelegramToken(cmd.Context(), token)
+	chat, user := telegramBinding(cmd.Context(), db)
+	check, _ := cmd.Flags().GetBool("check")
+	report := map[string]any{"token": token != "", "owner_paired": chat != 0 && user != 0, "owner_chat_id": chat, "owner_user_id": user, "e2e_encrypted": false, "surface": "Telegram only"}
+	if check && token != "" {
+		bot, err := telegram.NewClient(token).GetMe(cmd.Context())
+		report["token_valid"] = err == nil
 		if err != nil {
-			report.TokenValid = boolPtr(false)
-			report.CheckError = err.Error()
+			report["check_error"] = err.Error()
 		} else {
-			report.TokenValid = boolPtr(true)
-			report.BotID = user.ID
-			report.BotUsername = user.Username
+			report["bot"] = "@" + bot.Username
 		}
 	}
-	report.Next = telegramStatusNext(report)
-	if asJSON, _ := cmd.Flags().GetBool("json"); asJSON {
-		enc := json.NewEncoder(cmd.OutOrStdout())
-		enc.SetIndent("", "  ")
-		return enc.Encode(report)
+	asJSON, _ := cmd.Flags().GetBool("json")
+	if asJSON {
+		return json.NewEncoder(cmd.OutOrStdout()).Encode(report)
 	}
-	style := styleFor(cmd)
-	rows := [][]string{
-		{"token", style.bool(report.Token), report.SecretBackend},
-		{"owner_chat_id", style.bool(ownerOK), owner},
-		{"owner_user_id", style.bool(ownerUserOK), ownerUser},
+	fmt.Fprintf(cmd.OutOrStdout(), "token=%t\nowner_paired=%t\n", token != "", chat != 0 && user != 0)
+	if chat == 0 || user == 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), "next=onibi telegram setup; onibi start")
 	}
-	if liveCheck {
-		valid := report.TokenValid != nil && *report.TokenValid
-		detail := report.CheckError
-		if detail == "" && report.BotUsername != "" {
-			detail = "@" + report.BotUsername
-		}
-		rows = append(rows, []string{"token_valid", style.bool(valid), detail})
-	}
-	return renderTable(cmd.OutOrStdout(), rows)
+	return nil
 }
-
-type telegramStatusReport struct {
-	Capability    telegramCapabilityReport `json:"capability"`
-	Token         bool                     `json:"token"`
-	SecretBackend string                   `json:"secret_backend"`
-	OwnerPaired   bool                     `json:"owner_paired"`
-	OwnerChatID   string                   `json:"owner_chat_id,omitempty"`
-	OwnerUserID   string                   `json:"owner_user_id,omitempty"`
-	Check         bool                     `json:"check"`
-	TokenValid    *bool                    `json:"token_valid,omitempty"`
-	BotID         int64                    `json:"bot_id,omitempty"`
-	BotUsername   string                   `json:"bot_username,omitempty"`
-	CheckError    string                   `json:"check_error,omitempty"`
-	Next          []string                 `json:"next,omitempty"`
-}
-
-type telegramCapabilityReport struct {
-	Version               string   `json:"version"`
-	OwnerOnly             bool     `json:"owner_only"`
-	Standalone            bool     `json:"standalone"`
-	PWARequired           bool     `json:"pwa_required"`
-	LiveTerminal          bool     `json:"live_terminal"`
-	EndToEndEncrypted     bool     `json:"end_to_end_encrypted"`
-	BoundedRedactedOutput bool     `json:"bounded_redacted_output"`
-	ApprovalVerdicts      []string `json:"approval_verdicts"`
-}
-
-func telegramCapability() telegramCapabilityReport {
-	return telegramCapabilityReport{
-		Version:               telegramCapabilityVersion,
-		OwnerOnly:             true,
-		Standalone:            true,
-		PWARequired:           false,
-		LiveTerminal:          false,
-		EndToEndEncrypted:     false,
-		BoundedRedactedOutput: true,
-		ApprovalVerdicts:      []string{"approve", "deny", "edit"},
-	}
-}
-
-func telegramStatusNext(report telegramStatusReport) []string {
-	var next []string
-	if !report.Token {
-		next = append(next, "onibi telegram setup")
-		return next
-	}
-	if report.Check && report.TokenValid != nil && !*report.TokenValid {
-		if report.SecretBackend == "env" {
-			next = append(next, "set "+telegramTokenEnv)
-		} else {
-			next = append(next, "onibi telegram setup")
-		}
-		return next
-	}
-	if (report.OwnerChatID == "") != (report.OwnerUserID == "") {
-		return append(next, "onibi telegram disable")
-	}
-	if !report.OwnerPaired {
-		next = append(next, "onibi start --transport=telegram")
-	}
-	return next
-}
-
-func boolPtr(v bool) *bool { return &v }
-
 func runTelegramDisable(cmd *cobra.Command, _ []string) error {
-	paths, db, err := openCLIStoreForCommand(cmd)
+	paths, db, err := pathsAndStore()
 	if err != nil {
 		return err
 	}
 	defer db.Close()
-	st, err := openSecretStore(secrets.Options{EnvFallbackPath: paths.EnvFile})
+	secretsStore, err := telegramSecrets(paths)
 	if err != nil {
 		return err
 	}
-	_ = st.Delete(daemon.TelegramSecretBotToken)
-	_ = db.KVDel(cmd.Context(), daemon.TelegramKVOwnerChatID)
-	_ = db.KVDel(cmd.Context(), daemon.TelegramKVOwnerUserID)
-	_ = db.KVDel(cmd.Context(), daemon.TelegramKVPairCode)
-	fmt.Fprintln(cmd.OutOrStdout(), styleFor(cmd).green("[OK]"), "Telegram disabled.")
+	_ = secretsStore.Delete(daemon.TelegramSecretBotToken)
+	for _, key := range []string{daemon.TelegramKVOwnerChatID, daemon.TelegramKVOwnerUserID, daemon.TelegramKVPairCode} {
+		_ = db.KVDel(cmd.Context(), key)
+	}
+	fmt.Fprintln(cmd.OutOrStdout(), "Telegram disabled.")
 	return nil
 }
 
-func runTelegramUp(cmd *cobra.Command, paths config.Paths, db *store.DB, cfg config.Config, logger *slog.Logger, started time.Time, shellCWD string) error {
-	token, botUser, err := telegramTokenForUp(cmd, paths)
-	if err != nil {
-		return err
-	}
-	ownerID, ownerUserID, err := telegramOwnerBinding(cmd.Context(), db)
-	if err != nil {
-		return err
-	}
-	pairCode := ""
-	if ownerID == 0 {
-		pairCode, err = ensureTelegramPairCode(cmd.Context(), db)
-		if err != nil {
-			return err
-		}
-	}
-	d := daemon.New(daemon.Options{
-		Paths:                   paths,
-		DB:                      db,
-		Log:                     logger,
-		ApprovalTTL:             cfg.Daemon.ApprovalTimeout.Std(),
-		ApprovalSweepInterval:   cfg.Daemon.ApprovalSweepInterval.Std(),
-		ApprovalMaxSubscribers:  cfg.Daemon.MaxSubscribers,
-		IdleThreshold:           cfg.Daemon.TurnIdleThreshold.Std(),
-		IdleInterval:            cfg.Daemon.TurnIdleInterval.Std(),
-		BufferSize:              cfg.Daemon.PTYBufferBytes,
-		TerminalDefault:         cfg.Terminal.Default,
-		TelegramToken:           token,
-		TelegramOwnerID:         ownerID,
-		TelegramOwnerUserID:     ownerUserID,
-		TelegramPair:            pairCode,
-		ProviderOutput:          daemonProviderOutputPolicy(cfg),
-		ProviderOutputOverrides: daemonProviderOutputOverrides(cfg),
-		SkipRestore:             true,
-	})
-	session, err := startManagedWebPairShell(cmd.Context(), d, cfg, shellCWD, logger)
-	if err != nil {
-		return err
-	}
-	defer cleanupManagedWebPairShell(logger, d, session.ID, session.TmuxTarget)
-	if quiet(cmd) {
-		fmt.Fprintln(cmd.OutOrStdout(), "@"+botUser.Username)
-	} else {
-		printCLIHeader(cmd, "Telegram")
-		fmt.Fprintln(cmd.OutOrStdout(), "Bot:", "@"+botUser.Username)
-		if ownerID == 0 {
-			fmt.Fprintln(cmd.OutOrStdout(), "Pair:", "/start "+pairCode)
-		} else {
-			fmt.Fprintln(cmd.OutOrStdout(), "Owner:", ownerID)
-		}
-		fmt.Fprintln(cmd.OutOrStdout(), "Session:", session.ID)
-		fmt.Fprintln(cmd.OutOrStdout(), "Text the bot to send input. Press Ctrl-C to stop.")
-	}
-	logger.Info("onibi telegram ready", "uptime_ms", time.Since(started).Milliseconds(), "bot", botUser.Username, "owner", ownerID != 0)
-	return d.Run(cmd.Context())
-}
-
-func telegramTokenForUp(cmd *cobra.Command, paths config.Paths) (string, telegram.User, error) {
-	if token := strings.TrimSpace(os.Getenv(telegramTokenEnv)); token != "" {
-		u, err := validateTelegramToken(cmd.Context(), token)
-		return token, u, err
-	}
-	st, err := openSecretStore(secrets.Options{EnvFallbackPath: paths.EnvFile})
-	if err != nil {
-		return "", telegram.User{}, err
-	}
-	if token, ok, err := st.Get(daemon.TelegramSecretBotToken); err != nil {
-		return "", telegram.User{}, err
-	} else if ok && strings.TrimSpace(token) != "" {
-		u, err := validateTelegramToken(cmd.Context(), token)
-		return token, u, err
-	}
-	if !inputIsTerminal(cmd.InOrStdin()) {
-		return "", telegram.User{}, errors.New("telegram token missing; run `onibi telegram setup` or set " + telegramTokenEnv)
-	}
-	token, err := promptTelegramToken(cmd)
-	if err != nil {
-		return "", telegram.User{}, err
-	}
-	u, err := validateTelegramToken(cmd.Context(), token)
-	if err != nil {
-		return "", telegram.User{}, err
-	}
-	if err := st.Set(daemon.TelegramSecretBotToken, strings.TrimSpace(token)); err != nil {
-		return "", telegram.User{}, err
-	}
-	return token, u, nil
-}
-
-func promptTelegramToken(cmd *cobra.Command) (string, error) {
-	fmt.Fprint(cmd.OutOrStdout(), "Paste Telegram BotFather token: ")
-	sc := bufio.NewScanner(cmd.InOrStdin())
-	if !sc.Scan() {
-		return "", sc.Err()
-	}
-	token := strings.TrimSpace(sc.Text())
-	if !telegram.ValidBotToken(token) {
-		return "", errors.New("token does not look like a BotFather token")
-	}
-	return token, nil
-}
-
-func validateTelegramToken(ctx context.Context, token string) (telegram.User, error) {
-	if !telegram.ValidBotToken(token) {
-		return telegram.User{}, errors.New("token does not look like a BotFather token")
-	}
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	return newTelegramClient(token).GetMe(ctx)
-}
-
-func telegramOwnerBinding(ctx context.Context, db *store.DB) (int64, int64, error) {
-	chat, chatOK, err := db.KVGetString(ctx, daemon.TelegramKVOwnerChatID)
-	if err != nil {
-		return 0, 0, err
-	}
-	user, userOK, err := db.KVGetString(ctx, daemon.TelegramKVOwnerUserID)
-	if err != nil {
-		return 0, 0, err
-	}
-	if !chatOK && !userOK {
-		return 0, 0, nil
-	}
-	if !chatOK || !userOK {
-		return 0, 0, errors.New("Telegram owner binding is incomplete; run onibi telegram disable, then pair again")
-	}
-	chatID, err := strconv.ParseInt(strings.TrimSpace(chat), 10, 64)
-	if err != nil || chatID == 0 {
-		return 0, 0, errors.New("Telegram owner chat binding is invalid; run onibi telegram disable, then pair again")
-	}
-	userID, err := strconv.ParseInt(strings.TrimSpace(user), 10, 64)
-	if err != nil || userID == 0 {
-		return 0, 0, errors.New("Telegram owner user binding is invalid; run onibi telegram disable, then pair again")
-	}
-	return chatID, userID, nil
-}
-
-func ensureTelegramPairCode(ctx context.Context, db *store.DB) (string, error) {
-	if code, ok, err := db.KVGetString(ctx, daemon.TelegramKVPairCode); err != nil {
-		return "", err
-	} else if ok && strings.TrimSpace(code) != "" {
-		return code, nil
-	}
-	code, err := daemon.NewTelegramPairCode()
-	if err != nil {
-		return "", err
-	}
-	return code, db.KVSet(ctx, daemon.TelegramKVPairCode, []byte(code), time.Now().Add(10*time.Minute).Unix())
-}
+var _ = strconv.IntSize

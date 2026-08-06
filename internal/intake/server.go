@@ -16,16 +16,7 @@ import (
 	"time"
 )
 
-// Handler processes a validated fire-and-forget event. Implementations
-// should be cheap (dispatch to a worker queue if heavy). Returning an error
-// logs the event but does not surface to the hook (fail-open contract).
-type Handler func(context.Context, Event) error
-
-// ApprovalHandler processes an approval_request event in RPC mode: returns
-// the Response the server should write back to the still-open client conn.
-// Implementations may block for up to the approval TTL waiting for a
-// decision. Return error to indicate transient failure (the server will
-// write a Cancelled response so the hook unblocks).
+// ApprovalHandler processes a Pi approval request while its local client waits.
 type ApprovalHandler func(context.Context, Event) (Response, error)
 
 type RPCHandler func(context.Context, Event) (Response, error)
@@ -33,29 +24,24 @@ type RPCHandler func(context.Context, Event) (Response, error)
 var readPeerUIDMu sync.RWMutex
 var readPeerUIDFunc = readPeerUID
 
-// Server listens on a Unix domain socket for JSON events from hooks.
+// Server listens on a Unix domain socket for local CLI requests and Pi approvals.
 type Server struct {
 	socketPath string
-	handler    Handler
 	approval   ApprovalHandler
 	rpc        RPCHandler
 	logger     *slog.Logger
 	ln         net.Listener
 }
 
-// New returns a Server bound to socketPath. Call Serve to begin accepting.
-// The socket file is created on Serve with 0600 perms.
-func New(socketPath string, handler Handler, logger *slog.Logger) *Server {
+// New returns a Server bound to socketPath. The socket is created with 0600 permissions.
+func New(socketPath string, logger *slog.Logger) *Server {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Server{socketPath: socketPath, handler: handler, logger: logger}
+	return &Server{socketPath: socketPath, logger: logger}
 }
 
-// SetApprovalHandler installs the RPC-mode handler used for approval_request
-// events. Without one, approval_request payloads are rejected with a
-// cancelled response (matches fail-open spirit on the daemon side: the
-// agent's tool call is blocked but the hook unblocks promptly).
+// SetApprovalHandler installs the blocking Pi approval handler.
 func (s *Server) SetApprovalHandler(h ApprovalHandler) { s.approval = h }
 
 func (s *Server) SetRPCHandler(h RPCHandler) { s.rpc = h }
@@ -152,9 +138,6 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 		ev.TS = time.Now().Unix()
 	}
 
-	// approval_request is RPC: hold the conn open while the daemon waits
-	// for a web decision. Disable the read deadline; set a long write
-	// deadline for when we eventually send the response.
 	if ev.Type == TypeApprovalRequest {
 		s.handleApproval(ctx, c, ev)
 		return
@@ -164,10 +147,7 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 		return
 	}
 
-	// fire-and-forget event
-	if err := s.handler(ctx, ev); err != nil {
-		s.logger.Warn("intake handler", slog.String("type", ev.Type), slog.Any("err", err))
-	}
+	s.logger.Warn("intake unsupported type", slog.String("type", ev.Type))
 }
 
 func (s *Server) handleRPC(ctx context.Context, c net.Conn, ev Event) {
@@ -192,9 +172,6 @@ func (s *Server) handleApproval(ctx context.Context, c net.Conn, ev Event) {
 		_ = writeResponse(c, Response{Decision: "cancelled", Reason: "daemon has no approval handler"})
 		return
 	}
-	// clear deadlines while we wait for the user (up to approval TTL —
-	// daemon's approval queue enforces a hard 5-min ceiling so the conn
-	// won't leak)
 	_ = c.SetReadDeadline(time.Time{})
 
 	resp, err := s.approval(ctx, ev)
@@ -209,7 +186,7 @@ func (s *Server) handleApproval(ctx context.Context, c net.Conn, ev Event) {
 }
 
 func isRPCType(typ string) bool {
-	return typ == TypeSessionInput || typ == TypeSessionPeek || typ == TypeSessionNew || typ == TypeSessionShow || typ == TypeSessionHide || typ == TypeSessionControl || typ == TypeDemoApproval || typ == TypeSnapshot || typ == TypePing
+	return typ == TypeSessionInput || typ == TypeSessionPeek || typ == TypeSessionNew || typ == TypeSessionControl || typ == TypePing
 }
 
 func writeResponse(c net.Conn, r Response) error {

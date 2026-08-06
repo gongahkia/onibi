@@ -1,161 +1,68 @@
-# `Onibi`
+# Onibi
 
-<p align="center">
-  <img src="./asset/logo/marketing.png" width="50%" alt="Onibi">
-</p>
+Onibi is a Telegram-native remote command center for one developer's persistent local terminal sessions.
 
-<p align="center">
-  <a href="https://github.com/gongahkia/onibi/actions/workflows/ci.yml"><img alt="ci" src="https://img.shields.io/github/actions/workflow/status/gongahkia/onibi/ci.yml?branch=main&style=flat-square"></a>
-  <img alt="go" src="https://img.shields.io/badge/go-1.26.4%2B-blue?style=flat-square">
-  <img alt="platform" src="https://img.shields.io/badge/platform-macOS%20focused%20%7C%20Linux%20beta-lightgrey?style=flat-square">
-  <img alt="transport" src="https://img.shields.io/badge/transport-local%20web%20cockpit-1f766f?style=flat-square">
-  <img alt="license" src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square">
-</p>
+It runs named `tmux` sessions on your machine. From Telegram you can select a session, send literal input, inspect bounded output or a rendered terminal screen, and send `Enter`, `Esc`, `Ctrl-C`, or a guarded kill. Codex uses the local App Server for structured progress, approvals, and questions; ordinary programs remain literal terminal control.
 
-Coding agents often run locally, but approvals and quick fixes arrive when you are away from the keyboard.
+## Scope
 
-Onibi runs local shells and coding agents in managed tmux-backed sessions, then gives your phone a live terminal and approval cockpit over HTTPS/WebSocket.
+Included: Telegram owner pairing, named durable sessions, generic `tmux` control, screenshots, audit/recovery, Codex semantic decisions, and an experimental narrow Pi approval extension.
 
-Status: focused local web cockpit. Onibi hosts a managed terminal locally, pairs one owner phone, and routes Claude Code approval requests to that cockpit.
+Not included: browser/PWA UI, QR pairing, Ghostty handover, LAN/relay transports, team collaboration, arbitrary terminal-prompt inference, snapshots, or generic agent-hook catalogues.
 
-## Quick Start
+## Start
 
-```bash
-brew install gongahkia/onibi/onibi
-onibi agent install --agent claude
-onibi system doctor
-onibi start
-```
+Prerequisites: `tmux`, a Telegram bot token from BotFather, and Go 1.26.4+ when building from source. Codex sessions also require a local authenticated `codex` CLI.
 
-Use `onibi start --transport=lan` for local pairing or `--transport=tailscale-private` for an authenticated tailnet. Run `onibi system status` and `onibi system doctor --fix` when validating an install. Update Onibi through its package manager. Source-build setup lives in [`CONTRIBUTING.md`](./CONTRIBUTING.md).
-
-On any phone:
-
-1. Follow the step-by-step phone setup shown by `onibi system doctor` and `onibi start`.
-2. For local/private transports, transfer only the matching trust file generated on this Mac through a channel you control: `onibi-local-ca.mobileconfig` for iPhone/iPad or `onibi-local-ca.crt` for Android.
-3. Trust that file in the phone's system settings, scan the fresh QR, then add the cockpit to Home Screen or install it as a web app.
-4. Use `MAC` to open the same session in a visible macOS terminal and `PHONE` to return it to the phone cockpit.
-
-If a managed Wi-Fi blocks device-to-device traffic, connect the Mac to a phone hotspot, rerun `./bin/onibi start`, and scan the new QR.
-
-## What Makes This Different
-
-- Host-local sessions: Onibi creates and owns tmux-backed PTYs instead of only monitoring another app's session.
-- Same session on phone and Mac: drive one live session from mobile Safari or Ghostty on macOS.
-- Approval enforcement: supported hooks can block risky tool calls before execution, including Claude Code `PreToolUse` deny flows.
-- Terminal fidelity: live xterm.js over WebSocket, `xterm-ghostty` terminfo, JetBrains Mono, Sixel/IIP rendering, Kitty graphics transcoding to IIP, and a [terminal fidelity smoke matrix](./docs/terminal-fidelity.md).
-
-Branding note: Onibi is not affiliated with the [Ghostty](https://ghostty.org) terminal emulator project; see [Branding](./docs/branding.md).
-
-## What Works Now
-
-- Managed tmux-backed session created by `onibi start`.
-- Live xterm.js terminal over `/ws/pty`.
-- Multi-session phone dashboard at `/#/sessions` with attach and guarded kill actions.
-- Pair-by-QR over local HTTPS.
-- Phone trust files: iPhone/iPad profile and Android CA certificate.
-- Top controls: `MAC`, `PHONE`, `INT`, `KILL`.
-- Bottom soft-key bar: `Esc`, `Tab`, `Ctrl`, `Alt`, arrows, `^C`, `^D`, `^Z`, `Paste`, theme toggle.
-- Claude Code hook approvals rendered as web overlay cards.
-- Deny flow blocks Claude Write calls before file creation.
-- Local shell fallback for arbitrary commands and `vim`.
-- `onibi session show` / `onibi session hide` for tmux-backed session visibility.
-- [`docs/comparison.md`](./docs/comparison.md) states Onibi's focused scope and alternatives.
-
-## Product Scope
-
-See [`docs/roadmap.md`](./docs/roadmap.md) for the focused product boundary.
-
-## Main Commands
-
-```bash
-./bin/onibi
+```sh
+make build
+./bin/onibi telegram setup --token "$ONIBI_TELEGRAM_TOKEN"
 ./bin/onibi start
-./bin/onibi phone pair
-./bin/onibi phone list
-./bin/onibi phone remove <device-id>
-./bin/onibi session show
-./bin/onibi session hide --headless
-./bin/onibi agent install --interactive
-./bin/onibi agent inspect --all
-./bin/onibi agent adapter validate <path>
-./bin/onibi system status
-./bin/onibi system doctor
-./bin/onibi system uninstall --dry-run
-./bin/onibi system logo
 ```
 
-The v3 CLI intentionally has no legacy command aliases. Use `onibi --help` to browse the command groups.
+The first start prints a pairing command. Send it from the one Telegram account that should control Onibi. The bot then accepts:
 
-Useful CLI flags:
+```text
+/new shell --name work --cwd /path/to/repo
+/new codex --cwd /path/to/repo
+/sessions
+/tail 120
+/screen
+/paste
+/interrupt
+/kill
+```
 
-- Global: `--quiet`, `--debug`, `--no-logo`, `--logo-width <cols>`, `--color auto|always|never`.
-- `start`: `--first-run`, `--shell <bin>`, `--cwd <dir>`, `--no-login-shell`, `--visible`, `--no-qr`, `--log-file <path>`.
-- `phone pair`: `--host <host>`, `--port <port>`, `--copy`, `--no-qr`, `--fallbacks=false`, `--json`.
-- `agent install`: installs supported agent hooks; `--all` installs detected agent hooks without prompting; `--dry-run` prints the plan.
-- `system status`: `--compact`, `--watch`, `--interval <duration>`, `--timeout <duration>`, `--no-doctor`, `--no-hooks`, `--json`, `--strict`.
-- `system doctor`: `--fix`, `--release`, `--explain`, `--offline`, `--json`.
-- `system uninstall`: `--service`, `--hooks`, `--agent <name>`, `--state`, `--yes`, `--dry-run`, `--json`.
+Plain messages go to the selected session and append Enter. `/paste` makes the next message literal, with no implicit Enter. Use `/keys` for session-bound `Esc`, `Ctrl-C`, `Enter`, and screen controls.
 
-## Current Test Flow
+## Local CLI
 
-After `./bin/onibi start` and phone pairing:
+```sh
+./bin/onibi session new shell --name work
+./bin/onibi session list
+./bin/onibi telegram status --check
+./bin/onibi system status
+./bin/onibi system logs --tail 100
+./bin/onibi system service install
+```
 
-1. Run `vim /tmp/onibi-smoke.txt` from the phone.
-2. Edit, press `ESC`, then `:wq`.
-3. Rotate the phone and confirm the terminal remains usable.
-4. Confirm no visible `ONIBI-RESIZE:*` marker appears.
-5. Tap `MAC`; confirm the same cwd/history/running process opens in a macOS terminal.
-6. Tap `PHONE`; confirm the same session returns to Safari.
-7. For hotspot mode, background Safari for 10 seconds and return; use airplane mode only on shared Wi-Fi.
-8. Run `claude`.
-9. Ask Claude to create `/tmp/onibi-approval-deny.txt`.
-10. Tap `Deny` on the Onibi approval card.
-11. Verify the file does not exist.
-12. Stop `onibi start` and confirm no `onibi-*` tmux sessions remain.
+`onibi session new` needs a running daemon. `onibi system service install` starts `onibi start` in the per-user service manager.
 
-## Architecture
+## Decisions and safety
 
-- `internal/tmux` creates managed tmux-backed sessions for handover.
-- `internal/pty` bridges web terminal I/O to local PTYs and tmux attach clients.
-- `internal/web` serves HTTPS, static frontend assets, `/ws/pty`, `/ws/events`, `/control`, `/approval`, and `/pair`.
-- `internal/intake` receives hook events from `onibi-notify` over a same-UID Unix socket.
-- `internal/approval` owns the approval queue and decision state machine.
-- `frontend/` contains the xterm.js cockpit.
+Telegram callback payloads are opaque local tokens. Decisions are persisted before agent resumption and are idempotent. High-risk Pi approvals require a second confirmation. Codex App Server approvals and user-input questions become native inline cards; `thread/shellCommand` is intentionally never exposed.
 
-## Docs
+Telegram is not end-to-end encrypted for bots. Treat every message, screenshot, and approval payload as terminal-access-sensitive; do not send secrets through this bot. The local OS account remains trusted.
 
-- [`docs/ios-cert-install.md`](./docs/ios-cert-install.md): iPhone certificate trust flow.
-- [`docs/pwa-install.md`](./docs/pwa-install.md): Home Screen install flow for iOS and Android.
-- [`docs/fresh-machine-smoke.md`](./docs/fresh-machine-smoke.md): fresh macOS/Ubuntu install dry-run.
-- [`docs/linux-beta.md`](./docs/linux-beta.md): Linux beta matrix and release-host policy.
-- [`BENCHMARKS.md`](./BENCHMARKS.md): local cold-start, RSS, and PTY-throughput baselines.
-- [`docs/transports.md`](./docs/transports.md): local web transport paths.
-- [`docs/wireguard-setup.md`](./docs/wireguard-setup.md): self-hosted WireGuard transport setup.
-- [`docs/zerotier-setup.md`](./docs/zerotier-setup.md): ZeroTier mesh transport setup.
-- [`docs/transport-smoke.md`](./docs/transport-smoke.md): real-device transport smoke checklist.
-- [`docs/ws-events-protocol.md`](./docs/ws-events-protocol.md): WebSocket event protocol.
-- [`docs/comparison.md`](./docs/comparison.md): focused product positioning and alternatives.
-- [`docs/terminal-fidelity.md`](./docs/terminal-fidelity.md): iPhone Safari terminal application smoke matrix.
-- [`docs/branding.md`](./docs/branding.md): Onibi and Ghostty naming boundaries.
-- [`docs/tap-integrity.md`](./docs/tap-integrity.md): Homebrew tap checksum and GPG verification.
-- [`docs/web-push.md`](./docs/web-push.md): iOS web push setup and troubleshooting.
-- [`docs/adapter-contract.md`](./docs/adapter-contract.md): v1-certified Claude, Codex, and Pi adapter capabilities and limits.
-- [`docs/roadmap.md`](./docs/roadmap.md): focused product boundary.
+See [Telegram operation details](docs/telegram.md), [threat model](THREAT-MODEL.md), and the implementation boundary in [REWRITE.md](REWRITE.md).
 
-## Security
+## Verification
 
-- HTTPS is required for the phone cockpit.
-- Pair tokens are single-use and short-lived.
-- Owner browser identity is stored in an HttpOnly Secure cookie.
-- WebSocket upgrades require the owner cookie plus matching token.
-- Approval hooks fail open if the local daemon is unavailable.
-- Linux without Secret Service stores the SQLite master key in an unencrypted 0600 fallback file; see [`docs/security.md#at-rest-state`](./docs/security.md#at-rest-state).
-- The local OS user account remains trusted.
-
-## Branding
-
-Onibi is not affiliated with the [Ghostty](https://ghostty.org) terminal emulator project. Onibi uses `xterm-ghostty` as a technical compatibility reference and may launch Ghostty for macOS handover; it does not claim visual matching or control. Usage boundaries live in [`docs/branding.md`](./docs/branding.md).
+```sh
+make vet
+make test
+make build
+```
 
 ## License
 

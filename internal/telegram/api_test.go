@@ -53,6 +53,35 @@ func TestClientGetMeAndSendMessage(t *testing.T) {
 	}
 }
 
+func TestClientEditsMessageAndKeyboard(t *testing.T) {
+	var methods []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		methods = append(methods, r.URL.Path)
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if body["chat_id"] != float64(42) || body["message_id"] != float64(9) {
+			t.Fatalf("body=%#v", body)
+		}
+		writeTG(t, w, Message{MessageID: 9, Chat: Chat{ID: 42}, Text: "updated"})
+	}))
+	defer srv.Close()
+	c := NewClient(testToken)
+	c.BaseURL = srv.URL
+	c.RetrySleep = func(context.Context, time.Duration) error { return nil }
+	markup := &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Allow", CallbackData: "c:abc"}}}}
+	if _, err := c.EditMessageText(t.Context(), 42, 9, "updated", markup); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.EditMessageReplyMarkup(t.Context(), 42, 9, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(methods) != 2 || !strings.HasSuffix(methods[0], "/editMessageText") || !strings.HasSuffix(methods[1], "/editMessageReplyMarkup") {
+		t.Fatalf("methods=%#v", methods)
+	}
+}
+
 func TestValidBotToken(t *testing.T) {
 	if !ValidBotToken(testToken) {
 		t.Fatal("expected valid token")

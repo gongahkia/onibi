@@ -1,2 +1,2 @@
-// Package render emits PTY-buffer snapshots as text or PNG.
+// Package render emits managed terminal snapshots as text or PNG.
 package render

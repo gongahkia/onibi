@@ -19,7 +19,7 @@ func BenchmarkApprovalDecisionRoundTrip(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		id, ch, err := q.Request(ctx, "bench", "claude", "Bash", `{"command":"true"}`)
+		id, ch, err := q.Request(ctx, "bench", "pi", "Bash", `{"command":"true"}`)
 		if err != nil {
 			b.Fatal(err)
 		}

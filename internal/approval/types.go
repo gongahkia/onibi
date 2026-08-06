@@ -1,9 +1,6 @@
 package approval
 
-import (
-	"encoding/json"
-	"time"
-)
+import "time"
 
 // State values for the approval row's lifecycle. Terminal states are
 // final — the Decide path enforces this via WHERE state='pending' guards.
@@ -11,7 +8,6 @@ const (
 	StatePending   = "pending"
 	StateApproved  = "approved"
 	StateDenied    = "denied"
-	StateEdited    = "edited"
 	StateExpired   = "expired"
 	StateCancelled = "cancelled"
 )
@@ -22,7 +18,6 @@ type Verdict string
 const (
 	VerdictApprove Verdict = "approve"
 	VerdictDeny    Verdict = "deny"
-	VerdictEdit    Verdict = "edited"
 	VerdictExpire  Verdict = "expired"
 	VerdictCancel  Verdict = "cancelled"
 )
@@ -30,7 +25,7 @@ const (
 // Terminal reports whether s is a final state.
 func Terminal(s string) bool {
 	switch s {
-	case StateApproved, StateDenied, StateEdited, StateExpired, StateCancelled:
+	case StateApproved, StateDenied, StateExpired, StateCancelled:
 		return true
 	}
 	return false
@@ -43,8 +38,6 @@ func StateForVerdict(v Verdict) string {
 		return StateApproved
 	case VerdictDeny:
 		return StateDenied
-	case VerdictEdit:
-		return StateEdited
 	case VerdictExpire:
 		return StateExpired
 	case VerdictCancel:
@@ -60,27 +53,22 @@ type Approval struct {
 	SessionID   string
 	Agent       string
 	Tool        string
-	InputJSON   string // raw tool input as provided by the hook
-	UnifiedDiff string // redacted best-effort diff for edit-like tools
-	State       string
-	EditedJSON  string // populated when State == StateEdited
-	Reason      string // populated when State == StateDenied/Expired/Cancelled
-	MsgID       int64  // legacy rendered-message id
-	ChatID      int64  // legacy target id
-	CreatedAt   time.Time
-	DecidedAt   time.Time
-	ExpiresAt   time.Time
-	DecidedBy   int64 // deciding actor id (audit)
+	InputJSON string // raw Pi tool input
+	State     string
+	Reason    string // populated when State == StateDenied/Expired/Cancelled
+	CreatedAt time.Time
+	DecidedAt time.Time
+	ExpiresAt time.Time
+	DecidedBy int64 // deciding actor id (audit)
 }
 
-// Decision is what the queue returns to the parked waiter (the blocked hook).
+// Decision is what the queue returns to the parked Pi extension.
 // Exactly one of these is produced per approval.
 type Decision struct {
-	Verdict      Verdict         `json:"verdict"`
-	UpdatedInput json.RawMessage `json:"updated_input,omitempty"`
-	Reason       string          `json:"reason,omitempty"`
-	DecidedBy    int64           `json:"decided_by,omitempty"`
-	DecidedAt    int64           `json:"decided_at,omitempty"` // unix sec
+	Verdict   Verdict `json:"verdict"`
+	Reason    string  `json:"reason,omitempty"`
+	DecidedBy int64   `json:"decided_by,omitempty"`
+	DecidedAt int64   `json:"decided_at,omitempty"` // unix sec
 }
 
 const (

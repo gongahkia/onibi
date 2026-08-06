@@ -2,668 +2,286 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
-	"os/signal"
-	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/gongahkia/onibi/internal/approval"
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/intake"
-	"github.com/gongahkia/onibi/internal/pty"
 	"github.com/gongahkia/onibi/internal/store"
-	"github.com/gongahkia/onibi/internal/web"
 )
 
-// BufferSize is the per-session ring-buffer capacity (bytes). 64 KiB is
-// generous for text-tail rendering and small enough to keep memory bounded.
 const BufferSize = 64 * 1024
 
-const sessionActivityEventMinInterval = 500 * time.Millisecond
-
-// Daemon is the long-running coordinator. Phase 2 model: single-session
-// per daemon process (spawned via `onibi run <agent> -- <args>`). Phase 6
-// will refactor to multi-session with a long-lived background daemon.
 type Daemon struct {
-	Paths config.Paths
-	DB    *store.DB
-	Log   *slog.Logger
-
-	Registry      *Registry
-	Intake        *intake.Server
-	Idle          *IdleDetector
-	Queue         *approval.Queue
-	Sweeper       *approval.Sweeper
-	Events        *web.EventBus
-	claudeBaseDir string
-	BufferSize    int
-
-	TerminalDefault         string
-	WebAddr                 string
-	WebCertDir              string
-	RelayKeys               *web.RelayKeys
-	RequireWebE2E           bool
-	TelegramToken           string
-	TelegramOwnerID         int64
-	TelegramOwnerUserID     int64
-	TelegramPair            string
-	ProviderOutput          ProviderOutputPolicy
-	ProviderOutputOverrides ProviderOutputOverrides
-
-	mu                    sync.Mutex
-	webAttachMu           sync.Mutex
-	webAttachHosts        map[string]*pty.Host
-	webAttachPending      map[string]chan struct{}
-	notified              map[string]bool // session id → already-fired turn-complete once
-	sessionActivityEvents map[string]time.Time
-	started               time.Time
-	tmuxCaptureInterval   time.Duration
-	tmuxRecoveryTimeout   time.Duration
-
-	ExitWhenIdle bool // interactive agent-run mode exits after hosted sessions end
-	SkipRestore  bool
+	Paths               config.Paths
+	DB                  *store.DB
+	Log                 *slog.Logger
+	Registry            *Registry
+	Intake              *intake.Server
+	Queue               *approval.Queue
+	Sweeper             *approval.Sweeper
+	OutputBufferSize    int
+	ShellDefault        string
+	ShellLogin          bool
+	TelegramToken       string
+	TelegramOwnerID     int64
+	TelegramOwnerUserID int64
+	TelegramPair        string
+	started             time.Time
+	mu                  sync.Mutex
+	codexMu             sync.Mutex
+	codex               map[string]*codexRuntime
+	codexEvents         chan CodexEvent
+	SkipRestore         bool
 }
 
-// Options bundles construction inputs.
 type Options struct {
-	Paths                   config.Paths
-	DB                      *store.DB
-	Log                     *slog.Logger
-	ExitWhenIdle            bool
-	ApprovalTTL             time.Duration
-	ApprovalSweepInterval   time.Duration
-	ApprovalMaxSubscribers  int
-	IdleThreshold           time.Duration
-	IdleInterval            time.Duration
-	BufferSize              int
-	TerminalDefault         string
-	WebAddr                 string
-	WebCertDir              string
-	RelayKeys               *web.RelayKeys
-	RequireWebE2E           bool
-	TelegramToken           string
-	TelegramOwnerID         int64
-	TelegramOwnerUserID     int64
-	TelegramPair            string
-	ProviderOutput          ProviderOutputPolicy
-	ProviderOutputOverrides ProviderOutputOverrides
-	SkipRestore             bool
+	Paths                  config.Paths
+	DB                     *store.DB
+	Log                    *slog.Logger
+	ApprovalTTL            time.Duration
+	ApprovalSweepInterval  time.Duration
+	ApprovalMaxSubscribers int
+	OutputBufferSize       int
+	ShellDefault           string
+	ShellLogin             bool
+	TelegramToken          string
+	TelegramOwnerID        int64
+	TelegramOwnerUserID    int64
+	TelegramPair           string
+	SkipRestore            bool
 }
 
-// New constructs a daemon, wiring intake + registry + idle detector +
-// approval queue + local web cockpit.
 func New(opts Options) *Daemon {
 	if opts.Log == nil {
 		opts.Log = slog.Default()
 	}
-	d := &Daemon{
-		Paths:                   opts.Paths,
-		DB:                      opts.DB,
-		Log:                     opts.Log,
-		Registry:                NewRegistry(),
-		Events:                  web.NewEventBus(),
-		webAttachHosts:          map[string]*pty.Host{},
-		webAttachPending:        map[string]chan struct{}{},
-		notified:                map[string]bool{},
-		sessionActivityEvents:   map[string]time.Time{},
-		started:                 time.Now(),
-		ExitWhenIdle:            opts.ExitWhenIdle,
-		SkipRestore:             opts.SkipRestore,
-		BufferSize:              opts.BufferSize,
-		TerminalDefault:         opts.TerminalDefault,
-		WebAddr:                 opts.WebAddr,
-		WebCertDir:              opts.WebCertDir,
-		RelayKeys:               opts.RelayKeys,
-		RequireWebE2E:           opts.RequireWebE2E,
-		TelegramToken:           opts.TelegramToken,
-		TelegramOwnerID:         opts.TelegramOwnerID,
-		TelegramOwnerUserID:     opts.TelegramOwnerUserID,
-		TelegramPair:            opts.TelegramPair,
-		ProviderOutput:          opts.ProviderOutput.normalized(),
-		ProviderOutputOverrides: opts.ProviderOutputOverrides,
-	}
-
-	// approval queue + expiry sweeper
-	ttl := opts.ApprovalTTL
-	if ttl <= 0 {
-		ttl = approval.DefaultTTL
-	}
-	if opts.DB != nil {
-		v, ok, _ := opts.DB.KVGetString(context.Background(), "paranoid")
-		if ok && v == "1" && ttl > approval.ParanoidTTL {
-			ttl = approval.ParanoidTTL
-		}
-	}
-	d.Queue = approval.New(opts.DB, ttl)
+	d := &Daemon{Paths: opts.Paths, DB: opts.DB, Log: opts.Log, Registry: NewRegistry(), OutputBufferSize: opts.OutputBufferSize, ShellDefault: opts.ShellDefault, ShellLogin: opts.ShellLogin, TelegramToken: opts.TelegramToken, TelegramOwnerID: opts.TelegramOwnerID, TelegramOwnerUserID: opts.TelegramOwnerUserID, TelegramPair: opts.TelegramPair, started: time.Now(), codex: map[string]*codexRuntime{}, codexEvents: make(chan CodexEvent, 128), SkipRestore: opts.SkipRestore}
+	d.Queue = approval.New(opts.DB, opts.ApprovalTTL)
 	if opts.ApprovalMaxSubscribers > 0 {
 		d.Queue.MaxSubscribers = opts.ApprovalMaxSubscribers
 	}
 	d.Queue.Log = opts.Log
-	d.Sweeper = &approval.Sweeper{Queue: d.Queue, Log: opts.Log, Interval: opts.ApprovalSweepInterval}
-
-	// intake server: fire-and-forget + approval RPC
-	d.Intake = intake.New(opts.Paths.Socket, d.handleEvent, opts.Log)
+	d.Sweeper = &approval.Sweeper{Queue: d.Queue, Interval: opts.ApprovalSweepInterval, Log: opts.Log}
+	d.Intake = intake.New(opts.Paths.Socket, opts.Log)
 	d.Intake.SetApprovalHandler(d.handleApprovalRequest)
 	d.Intake.SetRPCHandler(d.handleRPCRequest)
-
-	d.Idle = &IdleDetector{
-		Registry:  d.Registry,
-		Threshold: opts.IdleThreshold,
-		Interval:  opts.IdleInterval,
-		OnIdle:    d.onIdle,
-	}
-
 	return d
 }
 
-// SpawnAgent forks an agent process under a fresh PTY, registers it with
-// the registry, and starts the output-reader goroutine. envExtra is added
-// to the child environment (ONIBI_SOCK + ONIBI_SESSION_ID are always added).
-func (d *Daemon) SpawnAgent(ctx context.Context, name, agent, bin string, args []string, envExtra []string) (*Session, error) {
-	return d.spawnAgent(ctx, name, agent, bin, args, envExtra, "")
-}
-
-// SpawnAgentWithArgv0 is SpawnAgent with an argv[0] override. This is used
-// for shells whose login mode is selected by a leading '-' in argv[0].
-func (d *Daemon) SpawnAgentWithArgv0(ctx context.Context, name, agent, bin string, args []string, envExtra []string, argv0 string) (*Session, error) {
-	return d.spawnAgent(ctx, name, agent, bin, args, envExtra, argv0)
-}
-
-func (d *Daemon) spawnAgent(ctx context.Context, name, agent, bin string, args []string, envExtra []string, argv0 string) (*Session, error) {
-	id := NewID()
-	if name == "" {
-		name = agent
-	}
-
-	env := append([]string(nil), envExtra...)
-	env = append(env,
-		"ONIBI_SOCK="+d.Paths.Socket,
-		"ONIBI_SESSION_ID="+id,
-	)
-
-	host, err := pty.Spawn(ctx, pty.SpawnOptions{
-		Name:  bin,
-		Args:  args,
-		Argv0: argv0,
-		Env:   env,
-	})
-	if err != nil {
-		return nil, err
-	}
-	bufSize := d.bufferSize()
-	s := NewSession(id, name, agent, host, bufSize)
-	cwd, _ := os.Getwd()
-	s.CWD = cwd
-	if argv0 != "" {
-		s.Cmd = commandLine(argv0, args)
-	} else {
-		s.Cmd = commandLine(bin, args)
-	}
-	if err := d.Registry.Add(s); err != nil {
-		_ = host.Close()
-		return nil, err
-	}
-	d.persistSessionStart(ctx, s, cwd)
-	go d.readLoop(s)
-	go d.waitHost(s)
-	return s, nil
-}
-
-func (d *Daemon) bufferSize() int {
-	if d == nil || d.BufferSize <= 0 {
-		return BufferSize
-	}
-	return d.BufferSize
-}
-
-// readLoop copies the PTY output through the ring buffer and stdout (so the
-// user still sees their session live in the terminal). Touches the session
-// on every read for the idle detector.
-func (d *Daemon) readLoop(s *Session) {
-	_, ch, unsub := s.Host.Subscribe(context.Background(), 0)
-	defer unsub()
-	for p := range ch {
-		if len(p) > 0 {
-			_, _ = s.Buf.Write(p)
-			_, _ = os.Stdout.Write(p) // mirror to user's tty
-			d.touchSession(context.Background(), s)
-			// new activity means a future turn-complete should fire again
-			d.mu.Lock()
-			delete(d.notified, s.ID)
-			d.mu.Unlock()
-		}
-	}
-	d.markSessionEnded(context.Background(), s)
-}
-
-func (d *Daemon) waitHost(s *Session) {
-	if s == nil || s.Host == nil {
-		return
-	}
-	_ = s.Host.Wait()
-	d.markSessionEnded(context.Background(), s)
-}
-
-func (d *Daemon) persistSessionStart(ctx context.Context, s *Session, cwd string) {
-	if d.DB == nil || s == nil {
-		return
-	}
-	if cwd == "" {
-		cwd, _ = os.Getwd()
-	}
-	s.CWD = cwd
-	transport := s.Transport
-	if transport == "" {
-		transport = "pty"
-	}
-	if err := d.DB.SessionUpsertStart(ctx, s.ID, s.Name, s.Agent, cwd, s.Cmd, transport, s.TmuxTarget, s.StartedAt()); err != nil {
-		d.Log.Warn("persist session start", slog.String("session", s.ID), slog.Any("err", err))
-	}
-	d.audit(ctx, "session.start", s.ID, "", 0, fmt.Sprintf("agent=%s name=%s", s.Agent, s.Name))
-}
-
-func (d *Daemon) touchSession(ctx context.Context, s *Session) {
-	if s == nil {
-		return
-	}
-	s.Touch()
-	d.publishSessionActivity(s)
-	if d.DB != nil {
-		if err := d.DB.SessionTouch(ctx, s.ID, s.LastActivityAt()); err != nil {
-			d.Log.Warn("persist session activity", slog.String("session", s.ID), slog.Any("err", err))
-		}
-	}
-}
-
-func (d *Daemon) publishSessionActivity(s *Session) {
-	if d == nil || d.Events == nil || s == nil {
-		return
-	}
-	now := time.Now()
-	d.mu.Lock()
-	if d.sessionActivityEvents == nil {
-		d.sessionActivityEvents = map[string]time.Time{}
-	}
-	last := d.sessionActivityEvents[s.ID]
-	if !last.IsZero() && now.Sub(last) < sessionActivityEventMinInterval {
-		d.mu.Unlock()
-		return
-	}
-	d.sessionActivityEvents[s.ID] = now
-	d.mu.Unlock()
-	d.Events.Publish(web.Event{Type: "session.activity", Payload: map[string]any{
-		"session_id":    s.ID,
-		"agent":         s.Agent,
-		"last_activity": s.LastActivityAt().UTC().Format(time.RFC3339Nano),
-	}})
-}
-
-func (d *Daemon) markSessionEnded(ctx context.Context, s *Session) {
-	if s == nil || !s.MarkEnded() {
-		return
-	}
-	d.clearDefaultTargetsForSession(ctx, s.ID)
-	if d.DB == nil {
-		return
-	}
-	if n, err := d.DB.PromptFailQueued(ctx, s.ID); err == nil && n > 0 {
-		d.audit(ctx, "prompt.failed", s.ID, "", 0, fmt.Sprintf("%d queued prompt(s) failed: session ended", n))
-	}
-	if err := d.DB.SessionMarkEnded(ctx, s.ID, time.Now()); err != nil {
-		d.Log.Warn("persist session end", slog.String("session", s.ID), slog.Any("err", err))
-	}
-	d.audit(ctx, "session.end", s.ID, "", 0, "ended")
-}
-
-// Run starts intake + idle detector + (if running interactively) waits for
-// the first session's child to exit. Designed to run in `onibi run` mode.
 func (d *Daemon) Run(ctx context.Context) error {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	// catch SIGINT / SIGTERM for clean shutdown
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		<-sigCh
-		d.Log.Info("shutdown signal: closing socket and sessions")
-		cancel()
-	}()
-
-	var wg sync.WaitGroup
-	if d.WebAddr != "" {
-		// VAPID keys live in the OS secret store. On macOS, a locked or
-		// unapproved Keychain item can block SecItemCopyMatching indefinitely.
-		// Do not make the cockpit listener (or QR pairing) wait on that optional
-		// Web Push setup; the push endpoint initializes the keys on first use.
-		certDir := d.WebCertDir
-		if certDir == "" {
-			certDir = filepath.Join(d.Paths.StateDir, "web")
-		}
-		cert, err := web.GenerateOrLoadCert(certDir)
-		if err != nil {
-			return err
-		}
-		webServer := web.New(web.Options{
-			TLSCert:         cert,
-			DB:              d.DB,
-			ApprovalQueue:   d.Queue,
-			EventBus:        d.Events,
-			PTYHosts:        d.webPTYHosts,
-			SessionIDs:      d.webSessionIDs,
-			SessionList:     d.WebSessions,
-			PTYHost:         d.EnsureWebPTYHost,
-			Handover:        d.HandoverSession,
-			Scroll:          d.ScrollSession,
-			Snapshots:       d.WebSnapshots,
-			SnapshotRestore: d.WebRestoreSnapshot,
-			SnapshotFork:    d.WebForkSnapshot,
-			UploadDir:       filepath.Join(d.Paths.StateDir, "uploads"),
-			RelayKeys:       d.RelayKeys,
-			RequireE2E:      d.RequireWebE2E,
-			Log:             d.Log,
-		})
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			if err := webServer.StartContext(ctx, d.WebAddr); err != nil {
-				d.Log.Error("web server", slog.Any("err", err))
-				cancel()
-			}
-		}()
+	ctx, stop := context.WithCancel(ctx)
+	defer stop()
+	if strings.TrimSpace(d.TelegramToken) == "" {
+		return errors.New("Telegram bot token required; run onibi telegram setup")
 	}
-
-	d.startTelegramBridge(ctx, &wg, cancel)
-	d.startWebPushNotifier(ctx, &wg)
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if err := d.Intake.Serve(ctx); err != nil && !errors.Is(err, context.Canceled) {
-			d.Log.Error("intake server", slog.Any("err", err))
-		}
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		d.runStartupMaintenance(ctx)
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		d.Idle.Run(ctx)
-	}()
-
-	// approval expiry sweeper — marks pending approvals as expired after
-	// TTL, notifying any blocked hook so Claude unblocks promptly
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		d.Sweeper.Run(ctx)
-	}()
-
-	if d.ExitWhenIdle {
-		// wait for hosted session children to exit in interactive agent-run mode
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			d.waitForAllSessionsToExit(ctx)
-			cancel()
-		}()
+	if d.DB == nil {
+		return errors.New("state database required")
 	}
-
-	wg.Wait()
-	return nil
-}
-
-func (d *Daemon) webPTYHosts() map[string]*pty.Host {
-	out := map[string]*pty.Host{}
-	for _, s := range d.Registry.List() {
-		if s.Host != nil {
-			out[s.ID] = s.Host
-		}
-	}
-	return out
-}
-
-func (d *Daemon) webSessionIDs() []string {
-	live := d.liveSessions()
-	out := make([]string, 0, len(live))
-	for _, s := range live {
-		out = append(out, s.ID)
-	}
-	return out
-}
-
-func (d *Daemon) runStartupMaintenance(ctx context.Context) {
 	if d.DB != nil {
-		if err := d.DB.KVPurgeExpired(ctx); err != nil && !errors.Is(err, context.Canceled) {
-			d.Log.Warn("purge expired kv", slog.Any("err", err))
+		_ = d.DB.KVPurgeExpired(ctx)
+		if n, err := d.Queue.CancelPending(ctx, "daemon restarted"); err != nil {
+			d.Log.Warn("cancel stale Pi approvals", "err", err)
+		} else if n > 0 {
+			d.Log.Info("cancelled stale Pi approvals", "count", n)
 		}
 	}
 	if !d.SkipRestore {
 		d.restoreSessions(ctx)
 	}
-	if err := d.RestorePendingApprovals(ctx); err != nil && !errors.Is(err, context.Canceled) {
-		d.Log.Warn("restore pending approvals", slog.Any("err", err))
+	if d.DB != nil {
+		_, _ = d.Queue.ExpireOverdue(ctx)
 	}
+	d.Log.Info("daemon starting", "owner_paired", d.TelegramOwnerID != 0, "state", d.Paths.StateDir)
+	var wg sync.WaitGroup
+	errCh := make(chan error, 2)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := d.Intake.Serve(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			errCh <- err
+		}
+	}()
+	wg.Add(1)
+	go func() { defer wg.Done(); d.Sweeper.Run(ctx) }()
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := d.runTelegramBridge(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			errCh <- err
+		}
+	}()
+	var runErr error
+	select {
+	case <-ctx.Done():
+	case runErr = <-errCh:
+		stop()
+	}
+	if n, err := d.Queue.CancelPending(context.Background(), "daemon stopped"); err != nil {
+		d.Log.Warn("cancel pending Pi approvals", "err", err)
+	} else if n > 0 {
+		d.Log.Info("cancelled pending Pi approvals", "count", n)
+	}
+	wg.Wait()
+	if runErr != nil {
+		return runErr
+	}
+	return ctx.Err()
 }
 
-// waitForAllSessionsToExit polls registry; when all hosts have exited and
-// registry is empty (or all marked ended), we return. In Phase 2 a single-
-// session run; in Phase 6 this becomes a long-running idle loop.
-func (d *Daemon) waitForAllSessionsToExit(ctx context.Context) {
-	t := time.NewTicker(500 * time.Millisecond)
-	defer t.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-t.C:
-			all := d.Registry.List()
-			if len(all) == 0 {
-				return
+func (d *Daemon) bufferSize() int {
+	if d.OutputBufferSize < 4096 {
+		return BufferSize
+	}
+	return d.OutputBufferSize
+}
+func (d *Daemon) audit(ctx context.Context, action, sessionID, payload string, chatID int64, detail string) {
+	if d.DB != nil {
+		if err := d.DB.AuditAppend(ctx, action, sessionID, payload, chatID, detail); err != nil {
+			d.Log.Warn("audit", "err", err)
+		}
+	}
+	d.Log.Debug("audit", "action", action, "session", sessionID, "chat", chatID, "detail", detail)
+}
+func (d *Daemon) liveSessions() []*Session {
+	all := d.Registry.List()
+	out := make([]*Session, 0, len(all))
+	for _, s := range all {
+		if !s.Ended() {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+func (d *Daemon) sessionByID(id string) (*Session, error) {
+	id = strings.TrimSpace(id)
+	var name []*Session
+	for _, s := range d.liveSessions() {
+		if s.ID == id || strings.HasPrefix(s.ID, id) {
+			return s, nil
+		}
+		if s.Name == id {
+			name = append(name, s)
+		}
+	}
+	if len(name) == 1 {
+		return name[0], nil
+	}
+	if len(name) > 1 {
+		return nil, errors.New("ambiguous session name")
+	}
+	return nil, ErrUnknownSession
+}
+func (d *Daemon) sessionForRPCTarget(id string) (*Session, error) {
+	if strings.TrimSpace(id) != "" {
+		return d.sessionByID(id)
+	}
+	list := d.liveSessions()
+	if len(list) == 1 {
+		return list[0], nil
+	}
+	if len(list) == 0 {
+		return nil, ErrUnknownSession
+	}
+	return nil, errors.New("select a session")
+}
+func (d *Daemon) sessionName(name, fallback string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = fallback
+		for n := 2; ; n++ {
+			if !d.sessionNameTaken(name) {
+				return name, nil
 			}
-			anyAlive := false
-			for _, s := range all {
-				if !s.Ended() {
-					anyAlive = true
-					break
-				}
-			}
-			if !anyAlive {
-				return
-			}
+			name = fmt.Sprintf("%s-%d", fallback, n)
 		}
 	}
+	if len(name) > 64 {
+		return "", errors.New("session name exceeds 64 characters")
+	}
+	for _, r := range name {
+		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '.' && r != '_' && r != '-' {
+			return "", errors.New("session name may contain only letters, digits, dot, underscore, and hyphen")
+		}
+	}
+	if d.sessionNameTaken(name) {
+		return "", errors.New("session name already in use")
+	}
+	return name, nil
 }
-
-// ----------------------------------------------------------------------------
-// Event handlers
-// ----------------------------------------------------------------------------
-
-// handleEvent is the intake socket's dispatch entry.
-func (d *Daemon) handleEvent(ctx context.Context, ev intake.Event) error {
-	switch ev.Type {
-	case intake.TypeAgentDone, intake.TypeAgentAwaiting:
-		s, reason := d.sessionForEvent(ev)
-		if s == nil {
-			d.auditIgnoredHook(ctx, "hook.ignored", ev, reason)
-			return nil
+func (d *Daemon) sessionNameTaken(name string) bool {
+	for _, s := range d.liveSessions() {
+		if s.Name == name {
+			return true
 		}
-		d.appendEventOutput(s, ev)
-		return d.notifyTurnComplete(ctx, s.ID, ev.Type, ev.Text)
-	case intake.TypeAgentMessage:
-		s, reason := d.sessionForEvent(ev)
-		if s == nil {
-			d.auditIgnoredHook(ctx, "hook.ignored", ev, reason)
-			return nil
-		}
-		d.appendEventOutput(s, ev)
-		return nil
-	case intake.TypeApprovalTimeout:
-		s, reason := d.sessionForEvent(ev)
-		if s == nil {
-			d.auditIgnoredHook(ctx, "approval.timeout.ignored", ev, reason)
-			return nil
-		}
-		d.audit(ctx, "approval.timeout", s.ID, ev.InputJSON, 0,
-			fmt.Sprintf("tool=%s target=%s reason=%s", ev.Tool, ev.ToolTarget, ev.Text))
-		if strings.TrimSpace(ev.ApprovalID) != "" {
-			cancelReason := strings.TrimSpace(ev.Text)
-			if cancelReason == "" {
-				cancelReason = "approval request timed out"
-			}
-			err := d.Queue.Cancel(ctx, ev.ApprovalID, cancelReason)
-			if err != nil && !errors.Is(err, approval.ErrAlreadyDecided) && !errors.Is(err, approval.ErrUnknownApproval) {
-				return err
-			}
-		}
-		return nil
-	case intake.TypeSessionExited:
-		s, reason := d.sessionForEvent(ev)
-		if s == nil {
-			d.auditIgnoredHook(ctx, "hook.ignored", ev, reason)
-			return nil
-		}
-		d.appendEventOutput(s, ev)
-		d.markSessionEnded(ctx, s)
-		return nil
-	default:
-		// unknown / future types — ignore but log so we notice
-		d.Log.Info("intake: unhandled event type", slog.String("type", ev.Type))
-		return nil
 	}
+	return false
 }
-
-func (d *Daemon) sessionForEvent(ev intake.Event) (*Session, string) {
-	id := strings.TrimSpace(ev.Session)
-	if id == "" {
-		return nil, "missing Onibi session id"
-	}
-	if !ev.Managed {
-		return nil, "unmanaged provider hook"
-	}
-	if s, err := d.Registry.Get(id); err == nil {
-		return s, ""
-	}
-	return nil, "unknown Onibi session id"
-}
-
-func (d *Daemon) auditIgnoredHook(ctx context.Context, action string, ev intake.Event, reason string) {
-	if reason == "" {
-		reason = "unknown"
-	}
-	payload := ignoredHookPayload(ev)
-	d.audit(ctx, action, ev.Session, payload, 0,
-		fmt.Sprintf("type=%s agent=%s managed=%t provider=%s cwd=%s pid=%d reason=%s",
-			ev.Type, ev.Agent, ev.Managed, ev.ProviderSessionID, ev.CWD, ev.PID, reason))
-	if d.Log != nil {
-		d.Log.Warn("hook ignored",
-			slog.String("action", action),
-			slog.String("type", ev.Type),
-			slog.String("session", ev.Session),
-			slog.String("agent", ev.Agent),
-			slog.Bool("managed", ev.Managed),
-			slog.String("provider_session", ev.ProviderSessionID),
-			slog.String("cwd", ev.CWD),
-			slog.Int("pid", ev.PID),
-			slog.String("reason", reason))
-	}
-}
-
-func ignoredHookPayload(ev intake.Event) string {
-	for _, s := range []string{ev.InputJSON, ev.RawJSON, ev.Text, ev.Tail} {
-		if strings.TrimSpace(s) != "" {
-			return s
-		}
-	}
-	return ""
-}
-
-func commandLine(bin string, args []string) string {
-	parts := append([]string{bin}, args...)
-	return strings.Join(parts, " ")
-}
-
-func (d *Daemon) appendEventOutput(s *Session, ev intake.Event) {
-	if s == nil || s.Buf == nil {
+func (d *Daemon) markSessionEnded(ctx context.Context, s *Session) {
+	if s == nil || !s.MarkEnded() {
 		return
 	}
-	var b strings.Builder
-	if ev.EventName != "" {
-		fmt.Fprintf(&b, "[%s] %s\n", ev.Agent, ev.EventName)
+	if d.DB != nil {
+		_ = d.DB.SessionMarkEnded(ctx, s.ID, time.Now())
 	}
-	if ev.Tool != "" {
-		fmt.Fprintf(&b, "tool: %s\n", ev.Tool)
+	d.audit(ctx, "session.ended", s.ID, "", 0, "")
+}
+func (d *Daemon) touchSession(ctx context.Context, s *Session) {
+	if s == nil {
+		return
 	}
-	if ev.Text != "" {
-		b.WriteString(ev.Text)
-		if !strings.HasSuffix(ev.Text, "\n") {
-			b.WriteByte('\n')
-		}
-	}
-	if ev.Tail != "" {
-		b.WriteString(ev.Tail)
-		if !strings.HasSuffix(ev.Tail, "\n") {
-			b.WriteByte('\n')
-		}
-	}
-	if b.Len() == 0 && ev.RawJSON != "" {
-		raw := ev.RawJSON
-		if len(raw) > 2048 {
-			raw = raw[:2048] + "..."
-		}
-		b.WriteString(raw)
-		b.WriteByte('\n')
-	}
-	if b.Len() > 0 {
-		_, _ = s.Buf.Write([]byte(b.String()))
-		d.touchSession(context.Background(), s)
+	s.Touch()
+	if d.DB != nil {
+		_ = d.DB.SessionTouch(ctx, s.ID, s.LastActivityAt())
 	}
 }
-
-func shortID(s string) string {
-	if len(s) <= 6 {
-		return s
-	}
-	return s[:6]
+func (d *Daemon) pingText(context.Context) string {
+	return fmt.Sprintf("onibi\nuptime=%s\nsessions=%d", time.Since(d.started).Truncate(time.Second), len(d.liveSessions()))
 }
 
-// onIdle is the fallback turn-complete fired by the idle detector when no
-// hook event has arrived in time.
-func (d *Daemon) onIdle(s *Session) {
-	_ = d.notifyTurnComplete(context.Background(), s.ID, "idle_fallback", "")
-}
-
-// notifyTurnComplete records one turn-complete event with a
-// once-per-active-period guard so the hook path and idle fallback do not
-// both fire.
-func (d *Daemon) notifyTurnComplete(ctx context.Context, sessionID, kind, hint string) error {
-	_ = ctx
-	if sessionID == "" {
-		return nil
-	}
-	d.mu.Lock()
-	if d.notified[sessionID] {
-		d.mu.Unlock()
-		return nil
-	}
-	d.notified[sessionID] = true
-	d.mu.Unlock()
-
-	s, err := d.Registry.Get(sessionID)
+func (d *Daemon) handleApprovalRequest(ctx context.Context, ev intake.Event) (intake.Response, error) {
+	s, err := d.sessionByID(ev.Session)
 	if err != nil {
-		return nil // session not ours — likely a different daemon's hook firing
+		return intake.Response{Decision: "cancelled", Reason: "unknown Onibi session"}, nil
 	}
-	d.Log.Info("turn complete", slog.String("session", s.ID), slog.String("kind", kind), slog.String("hint", hint))
-	return nil
+	if s.Agent != "pi" || (ev.Agent != "" && ev.Agent != "pi") {
+		return intake.Response{Decision: "cancelled", Reason: "Pi approvals only"}, nil
+	}
+	req := approval.Request{SessionID: s.ID, Agent: "pi", Tool: ev.Tool, Input: json.RawMessage(ev.InputJSON)}
+	if ev.Approval != nil {
+		req = *ev.Approval
+		req.SessionID = s.ID
+		req.Agent = "pi"
+	}
+	normalized, err := approval.NormalizeRequest(req)
+	if err != nil {
+		return intake.Response{Decision: "cancelled", Reason: "invalid approval payload"}, nil
+	}
+	id, waiter, err := d.Queue.RequestModel(ctx, normalized)
+	if err != nil {
+		return intake.Response{Decision: "cancelled", Reason: err.Error()}, nil
+	}
+	d.audit(ctx, "approval.request", s.ID, string(normalized.Input), 0, "id="+id)
+	select {
+	case decision := <-waiter:
+		switch decision.Verdict {
+		case approval.VerdictApprove:
+			return intake.Response{Decision: "approve"}, nil
+		case approval.VerdictExpire:
+			return intake.Response{Decision: "expired", Reason: decision.Reason}, nil
+		case approval.VerdictCancel:
+			return intake.Response{Decision: "cancelled", Reason: decision.Reason}, nil
+		default:
+			return intake.Response{Decision: "deny", Reason: decision.Reason}, nil
+		}
+	case <-ctx.Done():
+		_ = d.Queue.Cancel(context.Background(), id, "daemon shutdown")
+		return intake.Response{Decision: "cancelled", Reason: "daemon shutdown"}, nil
+	}
 }

@@ -10,52 +10,30 @@ func (d *Daemon) SendSessionKey(ctx context.Context, id, key string) error {
 	if err != nil {
 		return err
 	}
-	if s.Transport == "tmux" && s.TmuxTarget != "" {
-		return newTmuxController().SendKey(ctx, s.TmuxTarget, key)
+	if s.Transport == "codex" {
+		return errors.New("Codex app-server sessions do not accept terminal keys")
 	}
-	if s.Host == nil {
-		return errors.New("session has no writable PTY")
-	}
-	switch key {
-	case "Enter":
-		_, err = s.Host.Write([]byte{'\n'})
-	case "Escape":
-		_, err = s.Host.Write([]byte{0x1b})
-	default:
-		err = errors.New("unsupported key")
-	}
-	return err
+	return newTmuxController().SendKey(ctx, s.TmuxTarget, key)
 }
-
 func (d *Daemon) ControlSession(ctx context.Context, id, action string) error {
 	s, err := d.sessionForRPCTarget(id)
 	if err != nil {
 		return err
 	}
-	if s.Transport == "tmux" && s.TmuxTarget != "" {
-		ctrl := newTmuxController()
-		switch action {
-		case "interrupt":
-			return ctrl.SendKey(ctx, s.TmuxTarget, "C-c")
-		case "kill":
-			if err := ctrl.KillSession(ctx, s.TmuxTarget); err != nil {
-				return err
-			}
-			d.markSessionEnded(ctx, s)
-			return nil
-		default:
-			return errors.New("unsupported action")
+	if s.Transport == "codex" {
+		if action == "interrupt" {
+			return d.interruptCodexTurn(ctx, s.ID)
 		}
-	}
-	if s.Host == nil {
-		return errors.New("session has no writable PTY")
+		if action == "kill" {
+			return d.killCodexSession(ctx, s.ID)
+		}
+		return errors.New("unsupported action")
 	}
 	switch action {
 	case "interrupt":
-		_, err = s.Host.Write([]byte{3})
-		return err
+		return newTmuxController().SendKey(ctx, s.TmuxTarget, "C-c")
 	case "kill":
-		if err := s.Host.Close(); err != nil {
+		if err := newTmuxController().KillSession(ctx, s.TmuxTarget); err != nil {
 			return err
 		}
 		d.markSessionEnded(ctx, s)

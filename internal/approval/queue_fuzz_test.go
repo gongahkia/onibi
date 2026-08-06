@@ -28,7 +28,7 @@ func FuzzDecide(f *testing.F) {
 		}
 		ctx := context.Background()
 		q := New(openDB(t), DefaultTTL)
-		id, ch, err := q.Request(ctx, "s", "claude", "Bash", `{"command":"original"}`)
+		id, ch, err := q.Request(ctx, "s", "pi", "Bash", `{"command":"original"}`)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -72,7 +72,7 @@ func fuzzConcurrentDecide(t *testing.T, a, b byte) {
 	t.Helper()
 	ctx := context.Background()
 	q := New(openDB(t), DefaultTTL)
-	id, ch, err := q.Request(ctx, "s", "claude", "Bash", `{}`)
+	id, ch, err := q.Request(ctx, "s", "pi", "Bash", `{}`)
 	if err != nil {
 		t.Fatal(err)
 	}

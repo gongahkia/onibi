@@ -1,53 +1,31 @@
-// Package cli wires cobra subcommands.
 package cli
 
 import (
-	"strings"
-
-	"github.com/gongahkia/onibi/internal/brand"
+	"github.com/gongahkia/onibi/internal/buildinfo"
 	"github.com/spf13/cobra"
 )
 
-const rootLong = "Onibi hosts coding agents (Claude Code, Codex, OpenCode, Goose, Gemini, Copilot, Pi, Amp) under PTYs and routes terminal I/O plus approval prompts to a local web cockpit for one-handed control from your phone."
-
-// Root returns the configured top-level command tree.
 func Root() *cobra.Command {
-	root := &cobra.Command{
-		Use:           "onibi",
-		Short:         "Your coding-agent cockpit",
-		Long:          rootLong,
-		RunE:          runRootLanding,
-		SilenceUsage:  true,
-		SilenceErrors: true,
-	}
-	root.PersistentFlags().String("color", "auto", "color output: auto, always, never")
-	root.PersistentFlags().Bool("quiet", false, "suppress banners and nonessential guidance")
-	root.PersistentFlags().Bool("debug", false, "enable debug logging and extra error context")
-	root.PersistentFlags().Bool("no-logo", false, "suppress ASCII logo in human output")
-	root.PersistentFlags().Int("logo-width", 0, "ASCII logo width; default adapts to terminal size")
-	defaultHelp := root.HelpFunc()
-	root.SetHelpFunc(func(cmd *cobra.Command, args []string) {
-		if cmd == root {
-			old := cmd.Long
-			cmd.Long = rootHelpLong(cmd)
-			defaultHelp(cmd, args)
-			cmd.Long = old
-			return
-		}
-		defaultHelp(cmd, args)
-	})
-	root.AddCommand(startCmd(), phoneCmd(), sessionCmd(), agentCmd(), telegramCmd(), workspaceCmd(), transportCmd(), systemCmd(), demoCmd(), completionCmd(), versionCmd())
-
+	root := &cobra.Command{Use: "onibi", Short: "Telegram command center for local tmux and coding sessions", SilenceUsage: true}
+	root.PersistentFlags().Bool("debug", false, "print debug errors")
+	root.AddCommand(startCmd(), telegramCmd(), sessionCmd(), piCmd(), systemCmd(), versionCmd(), completionCmd())
 	return root
 }
-
-func DebugEnabled(cmd *cobra.Command) bool {
-	return debug(cmd)
+func DebugEnabled(root *cobra.Command) bool { v, _ := root.Flags().GetBool("debug"); return v }
+func versionCmd() *cobra.Command {
+	return &cobra.Command{Use: "version", Short: "Print version", Run: func(cmd *cobra.Command, _ []string) { cmd.Println(buildinfo.Version) }}
 }
-
-func rootHelpLong(cmd *cobra.Command) string {
-	if !showLogo(cmd) {
-		return rootLong
-	}
-	return strings.TrimRight(brand.ANSIForWriterWidth(cmd.OutOrStdout(), logoWidth(cmd)), "\n") + "\n\n" + rootLong
+func completionCmd() *cobra.Command {
+	return &cobra.Command{Use: "completion [bash|zsh|fish]", Short: "Generate shell completion", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		switch args[0] {
+		case "bash":
+			return cmd.Root().GenBashCompletion(cmd.OutOrStdout())
+		case "zsh":
+			return cmd.Root().GenZshCompletion(cmd.OutOrStdout())
+		case "fish":
+			return cmd.Root().GenFishCompletion(cmd.OutOrStdout(), true)
+		default:
+			return cobra.OnlyValidArgs(cmd, args)
+		}
+	}}
 }

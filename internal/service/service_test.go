@@ -58,7 +58,7 @@ func TestInstallLaunchdWritesPlistAndBootstraps(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := string(b)
-	for _, want := range []string{Label, "/usr/local/bin/onibi", "<string>run</string>", "RunAtLoad", "KeepAlive", "Crashed", "Interactive", "EnvironmentVariables", "/opt/homebrew/bin"} {
+	for _, want := range []string{Label, "/usr/local/bin/onibi", "<string>start</string>", "RunAtLoad", "KeepAlive", "Crashed", "Interactive", "EnvironmentVariables", "/opt/homebrew/bin"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("plist missing %q:\n%s", want, body)
 		}
@@ -91,7 +91,7 @@ func TestInstallSystemdWritesUnitAndEnables(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := string(b)
-	for _, want := range []string{"ExecStart=\"/usr/local/bin/onibi\" run", "Restart=on-abnormal", "WantedBy=default.target"} {
+	for _, want := range []string{"ExecStart=\"/usr/local/bin/onibi\" start", "Restart=on-abnormal", "WantedBy=default.target"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("unit missing %q:\n%s", want, body)
 		}

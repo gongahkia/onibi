@@ -89,7 +89,7 @@ func (m *Manager) launchdPlist() string {
 	stderr := filepath.Join(m.Paths.LogDir, "onibi.err.log")
 	val := map[string]any{
 		"Label":            Label,
-		"ProgramArguments": []string{m.Executable, "run"},
+		"ProgramArguments": []string{m.Executable, "start"},
 		"RunAtLoad":        true,
 		"KeepAlive":        map[string]any{"Crashed": true},
 		"ProcessType":      "Interactive",

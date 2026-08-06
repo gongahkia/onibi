@@ -42,7 +42,7 @@ type Manager struct {
 	UID        int
 }
 
-// Status is the service manager state visible to doctor.
+// Status is the service manager state visible to the local CLI.
 type Status struct {
 	Path      string
 	Installed bool

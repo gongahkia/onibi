@@ -25,10 +25,13 @@ func NormalizeRequest(req Request) (Request, error) {
 	}
 	req.Version = ApprovalSchemaV1
 	req.SessionID = strings.TrimSpace(req.SessionID)
-	req.Agent = strings.TrimSpace(req.Agent)
+	req.Agent = strings.ToLower(strings.TrimSpace(req.Agent))
 	req.Tool = strings.TrimSpace(req.Tool)
 	if req.SessionID == "" || req.Agent == "" || req.Tool == "" {
 		return Request{}, fmt.Errorf("approval session_id, agent, and tool are required")
+	}
+	if req.Agent != "pi" {
+		return Request{}, fmt.Errorf("Pi is the only approval source")
 	}
 	input := bytes.TrimSpace(req.Input)
 	if len(input) == 0 {
@@ -68,7 +71,6 @@ type Payload struct {
 	ScrubbedInput string  `json:"scrubbed_input"`
 	Details       Details `json:"details"`
 	Risk          Risk    `json:"risk"`
-	UnifiedDiff   string  `json:"unified_diff,omitempty"`
 }
 
 func PayloadForApproval(a Approval) (Payload, error) {
@@ -90,6 +92,5 @@ func PayloadForApproval(a Approval) (Payload, error) {
 			FilePath: Scrub(req.Details.FilePath),
 		},
 		Risk:        req.Risk,
-		UnifiedDiff: a.UnifiedDiff,
 	}, nil
 }

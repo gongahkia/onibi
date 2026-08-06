@@ -1,29 +1,27 @@
-# Telegram Chat Cockpit
+# Telegram operation
 
-Status: beta. [Unverified] The live certification result below has not been recorded. It is not a PWA terminal replacement.
+Onibi long-polls one Telegram bot and accepts one paired private chat. Configure the token locally, start the daemon, then send the printed `/start <pair-code>` from the account that owns the bot.
 
-`onibi telegram status --json` emits capability report version `1`. Its contract is owner-only, standalone, bounded/redacted output, and `approve`/`deny`/`edit` approval actions. It reports `pwa_required: false`, `live_terminal: false`, and `end_to_end_encrypted: false`.
+## Session control
 
-The local Telegram bridge starts from `onibi start --transport=telegram`; it creates one Onibi-managed tmux session and uses independent one-time owner enrollment in a private chat. It stores both the enrolled chat ID and Telegram user ID, and rejects group chats and callbacks from any other user. It neither starts a web listener nor requires browser pairing, browser cookies, Web Push, or an open PWA page.
+- `/new shell|codex|pi [--name name] [--cwd path]`: create a session. The working directory must exist locally.
+- `/sessions`: select an active session.
+- Plain text: literal input plus Enter.
+- `/paste`: next text is literal input with no Enter.
+- `/tail [1..400]`, `/screen`: inspect output.
+- `/keys`, `/esc`, `/enter`, `/interrupt`, `/kill`: terminal controls. `/kill` requires a second command within two seconds.
 
-Legacy chat-ID-only enrollment is rejected. Reset it with `onibi telegram disable`, run setup again, then pair from a private chat.
+Screens are rendered from tmux capture, so Onibi does not require macOS screen-recording permission. It sends a screen when generic work completes or fails, an approval becomes actionable, a Codex turn completes/fails, and on `/screen`.
 
-Telegram Bot API messages are not treated as end-to-end encrypted. The bounded/redacted text and approval messages traverse Telegram infrastructure; use the web relay transport when an Onibi end-to-end relay boundary is required. Telegram's [FAQ](https://telegram.org/faq) distinguishes end-to-end-encrypted Secret Chats from Cloud Chats.
+## Decision cards
 
-Every text response, including `/peek`, passes the configured `provider.output` bounds and redaction policy before it reaches Telegram.
+Telegram inline keyboards, not polls, carry decisions. Callback data is a short opaque token whose complete state lives locally with a 24-hour expiry and is consumed after one use. Onibi records an audit event, applies the decision atomically, resumes/denies the agent, and edits the card to its terminal state.
 
-## Commands
+Codex uses the local [App Server](https://learn.chatgpt.com/docs/app-server) for structured approvals and questions. Its command, file, permission, and input requests map to inline buttons; free-form choices wait for the next message. Onibi never exposes the App Server shell-command endpoint.
 
-After owner enrollment, text targets the selected managed session. `/new`, `/sessions`, and `/target` create/select sessions; `/peek` returns bounded output; `/interrupt`, `/esc`, `/enter`, `/show`, `/hide`, `/end`, and the double-confirmed `/kill` control the selected session. Approvals use `/approve <id>`, `/deny <id> [reason]`, and `/edit <id> <edited JSON>`.
+Pi is experimental until its live event payload contract is validated. Its extension is intentionally limited to tool-approval events.
+If Onibi restarts while Pi is waiting, the tool call is cancelled rather than replayed against a stale process.
 
-Non-owner messages and callbacks are rejected. Callback decisions are idempotent, and polling uses bounded reconnect backoff and Telegram send-rate limits. Audit rows retain payload hashes and compact metadata rather than raw payloads.
+## Security
 
-## Live Certification Runbook
-
-This runbook is secret-gated and has not produced a committed real-device result in this repository state.
-
-1. Export `ONIBI_LIVE_TELEGRAM_TOKEN` and `ONIBI_LIVE_TELEGRAM_CHAT_ID`; run `go test ./internal/telegram -run '^TestLiveTelegram$' -count=1` to record authenticated `getMe` and text-send artifacts.
-2. Run `onibi telegram setup`, then `onibi start --transport=telegram`; enroll only the intended owner from a private chat with the emitted `/start` code.
-3. From the enrolled chat, run `/new shell`, send text, select with `/target`, and verify bounded/redacted output.
-4. Trigger an Onibi approval; verify approve, deny, invalid edit rejection, valid JSON edit, non-owner rejection, duplicate callback handling, and reconnect after a temporary network interruption.
-5. Record the bot version, timestamp, device, redacted transcript, audit hashes, reconnect result, and limitations here before changing the status above or closing #289.
+Telegram bots do not use end-to-end encryption. Do not send credentials, recovery phrases, or sensitive production output through the bot. Revoke access with `onibi telegram disable` and rotate the BotFather token if the paired account or token is compromised.

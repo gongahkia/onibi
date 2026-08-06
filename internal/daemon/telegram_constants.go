@@ -18,6 +18,5 @@ func NewTelegramPairCode() (string, error) {
 	if _, err := rand.Read(b[:]); err != nil {
 		return "", err
 	}
-	n := binary.BigEndian.Uint32(b[:]) % 1000000
-	return fmt.Sprintf("%06d", n), nil
+	return fmt.Sprintf("%06d", binary.BigEndian.Uint32(b[:])%1000000), nil
 }
