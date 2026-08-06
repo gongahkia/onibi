@@ -88,6 +88,8 @@ type telegramBridge struct {
 	outboxWake    chan struct{}
 }
 
+func newSessionHelp() string { return "/new shell, /new codex, /new pi, or /new claude" }
+
 func (d *Daemon) runTelegramBridge(ctx context.Context) error {
 	c := telegram.NewClient(d.TelegramToken)
 	if err := c.DeleteWebhook(ctx); err != nil {
@@ -188,7 +190,7 @@ func (b *telegramBridge) authorizedOrPair(ctx context.Context, m *telegram.Messa
 	fields := strings.Fields(strings.TrimSpace(m.Text))
 	if m.Chat.Type == "private" && m.From != nil && len(fields) == 2 && strings.EqualFold(fields[0], "/start") && fields[1] == strings.TrimSpace(b.d.TelegramPair) {
 		b.setOwner(ctx, m.Chat.ID, m.From.ID)
-		b.send(ctx, m.Chat.ID, "Paired. Use /new shell, /new codex, /new pi, or /new claude.", nil)
+		b.send(ctx, m.Chat.ID, "Paired. Use "+newSessionHelp()+".", nil)
 		return true
 	}
 	if b.owner() == 0 && m.Chat.Type == "private" {
@@ -266,7 +268,7 @@ func (b *telegramBridge) handleInput(ctx context.Context, m *telegram.Message) {
 			b.send(ctx, m.Chat.ID, b.sessionEndedText(ctx, m.Chat.ID, b.target(ctx, m.Chat.ID)), nil)
 			return
 		}
-		b.send(ctx, m.Chat.ID, "Select a session with /sessions or create one with /new shell.", nil)
+		b.send(ctx, m.Chat.ID, "Select a session with /sessions or create one with "+newSessionHelp()+".", nil)
 		return
 	}
 	paste := b.consumePaste(ctx, m.Chat.ID)
@@ -506,7 +508,7 @@ func (b *telegramBridge) setFont(ctx context.Context, chatID, messageID int64, n
 func (b *telegramBridge) sendSessions(ctx context.Context, chatID int64) {
 	list := b.d.liveSessions()
 	if len(list) == 0 {
-		b.send(ctx, chatID, "No active sessions. Use /new shell, /new codex, or /new pi.", nil)
+		b.send(ctx, chatID, "No active sessions. Use "+newSessionHelp()+".", nil)
 		return
 	}
 	rows := make([][]telegram.InlineKeyboardButton, 0, len(list))
