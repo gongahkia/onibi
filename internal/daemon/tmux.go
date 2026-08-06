@@ -129,22 +129,29 @@ func (d *Daemon) CaptureSessionText(ctx context.Context, id string) (string, err
 	return d.CaptureSessionTail(ctx, id, 80)
 }
 func (d *Daemon) CaptureSessionScreen(ctx context.Context, id string) ([]byte, error) {
-	s, err := d.sessionForRPCTarget(id)
+	frame, err := d.CaptureSessionFrame(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	if s.Transport != "tmux" {
-		return render.RenderPNG(s.Buf.Snapshot(), d.screenPNGOptions(26, 100))
-	}
-	ctrl := newTmuxController()
-	cols, rows := tmuxScreenDimensions(ctx, ctrl, s.TmuxTarget)
-	out, err := ctrl.Capture(ctx, s.TmuxTarget, maxInt(rows*3, 160))
+	return frame.PNG, nil
+}
+
+func (d *Daemon) SendSessionText(ctx context.Context, id, text string, enter bool) error {
+	s, err := d.sessionForRPCTarget(id)
 	if err != nil {
-		return nil, d.tmuxSessionError(ctx, s, err)
+		return err
 	}
-	s.Buf.Reset()
-	_, _ = s.Buf.Write([]byte(out))
-	return render.RenderPNG([]byte(out), d.screenPNGOptions(rows, cols))
+	if strings.TrimSpace(text) == "" {
+		return errors.New("text required")
+	}
+	if s.Transport == "codex" {
+		return errors.New("Codex sessions require a submitted turn")
+	}
+	if err := newTmuxController().SendText(ctx, s.TmuxTarget, text, enter); err != nil {
+		return d.tmuxSessionError(ctx, s, err)
+	}
+	d.touchSession(ctx, s)
+	return nil
 }
 func (d *Daemon) SendSessionTextAndCapture(ctx context.Context, id, text string, enter bool) (string, error) {
 	s, err := d.sessionForRPCTarget(id)
@@ -160,10 +167,9 @@ func (d *Daemon) SendSessionTextAndCapture(ctx context.Context, id, text string,
 		}
 		return d.sendCodexTurn(ctx, s.ID, text)
 	}
-	if err := newTmuxController().SendText(ctx, s.TmuxTarget, text, enter); err != nil {
-		return "", d.tmuxSessionError(ctx, s, err)
+	if err := d.SendSessionText(ctx, s.ID, text, enter); err != nil {
+		return "", err
 	}
-	d.touchSession(ctx, s)
 	return d.CaptureSessionTail(ctx, s.ID, 80)
 }
 

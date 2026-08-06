@@ -56,6 +56,10 @@ CREATE TABLE IF NOT EXISTS approvals (
  id TEXT PRIMARY KEY,session_id TEXT NOT NULL,agent TEXT NOT NULL,tool TEXT NOT NULL,input_json TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending',reason TEXT,created_at INTEGER NOT NULL,decided_at INTEGER,decided_by INTEGER,expires_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_approvals_state ON approvals(state,expires_at);
+CREATE TABLE IF NOT EXISTS claude_questions (
+ id TEXT PRIMARY KEY,session_id TEXT NOT NULL,input_json TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending',answers_json TEXT,reason TEXT,created_at INTEGER NOT NULL,decided_at INTEGER,decided_by INTEGER,expires_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_claude_questions_state ON claude_questions(state,expires_at);
 CREATE TABLE IF NOT EXISTS audit (id INTEGER PRIMARY KEY AUTOINCREMENT,ts INTEGER NOT NULL,action TEXT NOT NULL,session_id TEXT,payload_hash TEXT,decided_by_chat INTEGER,detail TEXT);
 CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit(ts);
 CREATE TABLE IF NOT EXISTS sessions (
@@ -70,7 +74,7 @@ CREATE TABLE IF NOT EXISTS telegram_updates (
 );
 CREATE INDEX IF NOT EXISTS idx_telegram_updates_state ON telegram_updates(state,received_at);
 CREATE TABLE IF NOT EXISTS telegram_outbox (
- id TEXT PRIMARY KEY,dedupe_key TEXT NOT NULL UNIQUE,kind TEXT NOT NULL,chat_id INTEGER NOT NULL,session_id TEXT,title TEXT NOT NULL,lines INTEGER NOT NULL DEFAULT 80,state TEXT NOT NULL,attempts INTEGER NOT NULL DEFAULT 0,next_attempt INTEGER NOT NULL,created_at INTEGER NOT NULL,expires_at INTEGER NOT NULL,last_error TEXT
+ id TEXT PRIMARY KEY,dedupe_key TEXT NOT NULL UNIQUE,kind TEXT NOT NULL,chat_id INTEGER NOT NULL,session_id TEXT,title TEXT NOT NULL,lines INTEGER NOT NULL DEFAULT 80,force_screen INTEGER NOT NULL DEFAULT 0,state TEXT NOT NULL,attempts INTEGER NOT NULL DEFAULT 0,next_attempt INTEGER NOT NULL,created_at INTEGER NOT NULL,expires_at INTEGER NOT NULL,last_error TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_telegram_outbox_ready ON telegram_outbox(state,next_attempt,created_at);
 `
@@ -81,7 +85,7 @@ func (d *DB) migrate() error {
 	if _, err := d.sql.ExecContext(ctx, schema); err != nil {
 		return fmt.Errorf("apply schema: %w", err)
 	}
-	for _, migration := range []string{"ALTER TABLE approvals ADD COLUMN reason TEXT", "ALTER TABLE approvals ADD COLUMN decided_by INTEGER", "ALTER TABLE sessions ADD COLUMN cmd TEXT", "ALTER TABLE sessions ADD COLUMN last_activity INTEGER"} {
+	for _, migration := range []string{"ALTER TABLE approvals ADD COLUMN reason TEXT", "ALTER TABLE approvals ADD COLUMN decided_by INTEGER", "ALTER TABLE sessions ADD COLUMN cmd TEXT", "ALTER TABLE sessions ADD COLUMN last_activity INTEGER", "ALTER TABLE telegram_outbox ADD COLUMN force_screen INTEGER NOT NULL DEFAULT 0"} {
 		_, _ = d.sql.ExecContext(ctx, migration)
 	}
 	_, err := d.sql.ExecContext(ctx, "INSERT OR IGNORE INTO schema_version(version) VALUES (1)")

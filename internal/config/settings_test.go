@@ -27,16 +27,19 @@ func TestLoadAndSaveOutputBuffer(t *testing.T) {
 
 func TestDaemonLivenessAndUploadConfig(t *testing.T) {
 	cfg := Default()
-	for key, value := range map[string]string{"daemon.liveness_interval": "15s", "daemon.upload_ttl": "48h", "daemon.upload_max_bytes": "3145728"} {
+	for key, value := range map[string]string{"daemon.liveness_interval": "15s", "daemon.claude_question_timeout": "4m", "daemon.upload_ttl": "48h", "daemon.upload_max_bytes": "3145728"} {
 		if err := Set(&cfg, key, value); err != nil {
 			t.Fatalf("%s: %v", key, err)
 		}
 	}
-	if cfg.Daemon.LivenessInterval.Std() != 15*time.Second || cfg.Daemon.UploadTTL.Std() != 48*time.Hour || cfg.Daemon.UploadMaxBytes != 3<<20 {
+	if cfg.Daemon.LivenessInterval.Std() != 15*time.Second || cfg.Daemon.ClaudeQuestionTimeout.Std() != 4*time.Minute || cfg.Daemon.UploadTTL.Std() != 48*time.Hour || cfg.Daemon.UploadMaxBytes != 3<<20 {
 		t.Fatalf("config=%#v", cfg.Daemon)
 	}
 	if err := Set(&cfg, "daemon.upload_ttl", "30m"); err == nil {
 		t.Fatal("accepted short upload ttl")
+	}
+	if err := Set(&cfg, "daemon.claude_question_timeout", "10s"); err == nil {
+		t.Fatal("accepted short question timeout")
 	}
 }
 

@@ -12,5 +12,6 @@ type Response struct {
 	// Text is used by non-approval request/response calls.
 	Text string `json:"text,omitempty"`
 	// SessionID is used by session lifecycle RPC calls.
-	SessionID string `json:"session_id,omitempty"`
+	SessionID string            `json:"session_id,omitempty"`
+	Answers   map[string]string `json:"answers,omitempty"`
 }

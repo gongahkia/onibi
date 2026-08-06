@@ -40,6 +40,7 @@ type Config struct {
 
 type Daemon struct {
 	ApprovalTimeout       Duration `yaml:"approval_timeout" json:"approval_timeout"`
+	ClaudeQuestionTimeout Duration `yaml:"claude_question_timeout" json:"claude_question_timeout"`
 	ApprovalSweepInterval Duration `yaml:"approval_sweep_interval" json:"approval_sweep_interval"`
 	OutputBufferBytes     int      `yaml:"output_buffer_bytes" json:"output_buffer_bytes"`
 	MaxSubscribers        int      `yaml:"max_subscribers" json:"max_subscribers"`
@@ -74,7 +75,7 @@ type KeyInfo struct {
 
 func Default() Config {
 	return Config{
-		Daemon: Daemon{ApprovalTimeout: Duration(5 * time.Minute), ApprovalSweepInterval: Duration(15 * time.Second), OutputBufferBytes: 64 * 1024, MaxSubscribers: 32, LivenessInterval: Duration(5 * time.Second), UploadTTL: Duration(7 * 24 * time.Hour), UploadMaxBytes: 20 << 20},
+		Daemon: Daemon{ApprovalTimeout: Duration(5 * time.Minute), ClaudeQuestionTimeout: Duration(3 * time.Minute), ApprovalSweepInterval: Duration(15 * time.Second), OutputBufferBytes: 64 * 1024, MaxSubscribers: 32, LivenessInterval: Duration(5 * time.Second), UploadTTL: Duration(7 * 24 * time.Hour), UploadMaxBytes: 20 << 20},
 		Shell:  Shell{Default: "auto", Login: true},
 		Screen: Screen{Font: "jetbrains-mono-nerd"},
 	}
@@ -102,6 +103,7 @@ func loadBytes(path string, b []byte, cfg Config, meta LoadMeta) (Config, LoadMe
 	var raw struct {
 		Daemon struct {
 			ApprovalTimeout       *Duration `yaml:"approval_timeout"`
+			ClaudeQuestionTimeout *Duration `yaml:"claude_question_timeout"`
 			ApprovalSweepInterval *Duration `yaml:"approval_sweep_interval"`
 			OutputBufferBytes     *int      `yaml:"output_buffer_bytes"`
 			MaxSubscribers        *int      `yaml:"max_subscribers"`
@@ -125,6 +127,10 @@ func loadBytes(path string, b []byte, cfg Config, meta LoadMeta) (Config, LoadMe
 	if raw.Daemon.ApprovalTimeout != nil {
 		cfg.Daemon.ApprovalTimeout = *raw.Daemon.ApprovalTimeout
 		meta.Explicit["daemon.approval_timeout"] = true
+	}
+	if raw.Daemon.ClaudeQuestionTimeout != nil {
+		cfg.Daemon.ClaudeQuestionTimeout = *raw.Daemon.ClaudeQuestionTimeout
+		meta.Explicit["daemon.claude_question_timeout"] = true
 	}
 	if raw.Daemon.ApprovalSweepInterval != nil {
 		cfg.Daemon.ApprovalSweepInterval = *raw.Daemon.ApprovalSweepInterval
@@ -197,6 +203,9 @@ func (c Config) Validate() error {
 	if c.Daemon.ApprovalTimeout.Std() < 10*time.Second || c.Daemon.ApprovalTimeout.Std() > 5*time.Minute {
 		return errors.New("daemon.approval_timeout must be between 10s and 5m")
 	}
+	if c.Daemon.ClaudeQuestionTimeout.Std() < 30*time.Second || c.Daemon.ClaudeQuestionTimeout.Std() > 10*time.Minute {
+		return errors.New("daemon.claude_question_timeout must be between 30s and 10m")
+	}
 	if c.Daemon.ApprovalSweepInterval.Std() < time.Second || c.Daemon.ApprovalSweepInterval.Std() > 5*time.Minute {
 		return errors.New("daemon.approval_sweep_interval must be between 1s and 5m")
 	}
@@ -257,6 +266,12 @@ func Set(cfg *Config, key, value string) error {
 			return err
 		}
 		cfg.Daemon.ApprovalTimeout = Duration(d)
+	case "daemon.claude_question_timeout":
+		d, err := ParseDuration(value)
+		if err != nil {
+			return err
+		}
+		cfg.Daemon.ClaudeQuestionTimeout = Duration(d)
 	case "daemon.approval_sweep_interval":
 		d, err := ParseDuration(value)
 		if err != nil {
@@ -315,6 +330,8 @@ func Get(cfg Config, key string) (string, error) {
 	switch strings.TrimSpace(key) {
 	case "daemon.approval_timeout":
 		return cfg.Daemon.ApprovalTimeout.String(), nil
+	case "daemon.claude_question_timeout":
+		return cfg.Daemon.ClaudeQuestionTimeout.String(), nil
 	case "daemon.approval_sweep_interval":
 		return cfg.Daemon.ApprovalSweepInterval.String(), nil
 	case "daemon.output_buffer_bytes":
@@ -344,6 +361,7 @@ func Keys(cfg Config, meta LoadMeta) []KeyInfo {
 	def := Default()
 	return []KeyInfo{
 		{"daemon.approval_timeout", def.Daemon.ApprovalTimeout.String(), cfg.Daemon.ApprovalTimeout.String(), meta.Explicit["daemon.approval_timeout"], "approval lifetime before default denial"},
+		{"daemon.claude_question_timeout", def.Daemon.ClaudeQuestionTimeout.String(), cfg.Daemon.ClaudeQuestionTimeout.String(), meta.Explicit["daemon.claude_question_timeout"], "Claude question lifetime before default denial"},
 		{"daemon.approval_sweep_interval", def.Daemon.ApprovalSweepInterval.String(), cfg.Daemon.ApprovalSweepInterval.String(), meta.Explicit["daemon.approval_sweep_interval"], "pending-approval expiry cadence"},
 		{"daemon.output_buffer_bytes", strconv.Itoa(def.Daemon.OutputBufferBytes), strconv.Itoa(cfg.Daemon.OutputBufferBytes), meta.Explicit["daemon.output_buffer_bytes"], "output retained for Telegram tail and screen capture"},
 		{"daemon.max_subscribers", strconv.Itoa(def.Daemon.MaxSubscribers), strconv.Itoa(cfg.Daemon.MaxSubscribers), meta.Explicit["daemon.max_subscribers"], "maximum internal decision subscribers"},

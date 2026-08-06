@@ -43,6 +43,7 @@ func (d *Daemon) SetScreenFont(name string) error {
 	d.screenMu.Lock()
 	d.ScreenFont, d.ScreenFontPath = cfg.Screen.Font, cfg.Screen.FontPath
 	d.screenMu.Unlock()
+	d.InvalidateAllSessionFrames()
 	return nil
 }
 

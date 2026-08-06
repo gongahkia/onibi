@@ -52,12 +52,12 @@ func TestTelegramOutboxRetriesAndDoesNotStoreTerminalPayload(t *testing.T) {
 	}
 	defer db.Close()
 	ctx := context.Background()
-	item := TelegramOutboxIntent{ID: "out-1", DedupeKey: "screen:42:s1", Kind: "screen", ChatID: 42, SessionID: "s1", Title: "Updated · work", Lines: 80}
+	item := TelegramOutboxIntent{ID: "out-1", DedupeKey: "screen:42:s1", Kind: "screen", ChatID: 42, SessionID: "s1", Title: "Updated · work", Lines: 80, ForceScreen: true}
 	if err := db.TelegramOutboxUpsert(ctx, item); err != nil {
 		t.Fatal(err)
 	}
 	claimed, err := db.TelegramOutboxClaim(ctx)
-	if err != nil || claimed == nil || claimed.State != OutboxRunning || claimed.Title != item.Title {
+	if err != nil || claimed == nil || claimed.State != OutboxRunning || claimed.Title != item.Title || !claimed.ForceScreen {
 		t.Fatalf("claimed=%#v err=%v", claimed, err)
 	}
 	if err := db.TelegramOutboxRetry(ctx, claimed.ID, "temporary failure", time.Now().Add(-time.Second)); err != nil {

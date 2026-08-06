@@ -95,6 +95,9 @@ func runClaude(typ, response string, wait bool, input io.Reader, output io.Write
 	if typ == "agent_lifecycle" {
 		return sendClaudeLifecycle(input, getenv)
 	}
+	if typ == "question_request" && response == "claude-question-json" && wait {
+		return runClaudeQuestion(input, output, getenv)
+	}
 	if typ != "approval_request" || response != "claude-json" || !wait {
 		return nil
 	}
@@ -120,6 +123,27 @@ func runClaude(typ, response string, wait bool, input io.Reader, output io.Write
 		return write("deny", "Onibi unavailable")
 	}
 	return write(resp.Decision, resp.Reason)
+}
+
+func runClaudeQuestion(input io.Reader, output io.Writer, getenv func(string) string) error {
+	write := func(payload claudePayload, resp intake.Response) error {
+		_, err := output.Write(append(mustJSON(claudeQuestionResponse(payload.ToolInput, resp)), '\n'))
+		return err
+	}
+	sessionID := strings.TrimSpace(getenv("ONIBI_SESSION_ID"))
+	socket := resolveSocket(getenv)
+	payload, err := parseClaudePayload(io.LimitReader(input, maxPayloadBytes+1))
+	if err != nil || payload.HookEventName != "PreToolUse" || payload.ToolName != "AskUserQuestion" || !validClaudeQuestionInput(payload.ToolInput) {
+		return write(payload, intake.Response{Decision: "cancelled", Reason: "Invalid Onibi question request"})
+	}
+	if sessionID == "" || socket == "" {
+		return write(payload, intake.Response{Decision: "cancelled", Reason: "Onibi session unavailable"})
+	}
+	resp, err := intake.Request(socket, intake.Event{Type: intake.TypeClaudeQuestion, Session: sessionID, Agent: "claude", CWD: payload.CWD, Tool: payload.ToolName, InputJSON: string(payload.ToolInput)}, 11*time.Minute)
+	if err != nil {
+		return write(payload, intake.Response{Decision: "cancelled", Reason: "Onibi unavailable"})
+	}
+	return write(payload, resp)
 }
 
 func sendPiLifecycle(input io.Reader, getenv func(string) string) error {
@@ -225,7 +249,7 @@ func parseClaudePayload(r io.Reader) (claudePayload, error) {
 	if payload.HookEventName == "" {
 		return claudePayload{}, os.ErrInvalid
 	}
-	if payload.HookEventName == "PermissionRequest" {
+	if payload.HookEventName == "PermissionRequest" || payload.HookEventName == "PreToolUse" {
 		if payload.ToolName == "" || len(payload.ToolInput) == 0 {
 			return claudePayload{}, os.ErrInvalid
 		}
@@ -235,6 +259,13 @@ func parseClaudePayload(r io.Reader) (claudePayload, error) {
 		}
 	}
 	return payload, nil
+}
+
+func validClaudeQuestionInput(raw json.RawMessage) bool {
+	var input struct {
+		Questions []json.RawMessage `json:"questions"`
+	}
+	return json.Unmarshal(raw, &input) == nil && len(input.Questions) > 0
 }
 
 func piResponse(resp intake.Response) map[string]string {
@@ -253,6 +284,23 @@ func claudeResponse(decision, reason string) map[string]any {
 		output = map[string]any{"behavior": "allow"}
 	}
 	return map[string]any{"hookSpecificOutput": map[string]any{"hookEventName": "PermissionRequest", "decision": output}}
+}
+
+func claudeQuestionResponse(raw json.RawMessage, resp intake.Response) map[string]any {
+	output := map[string]any{"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": firstNonEmpty(strings.TrimSpace(resp.Reason), "Onibi question unavailable")}
+	if resp.Decision != "approve" || len(resp.Answers) == 0 {
+		return map[string]any{"hookSpecificOutput": output}
+	}
+	var input struct {
+		Questions json.RawMessage `json:"questions"`
+	}
+	if json.Unmarshal(raw, &input) != nil || len(input.Questions) == 0 {
+		return map[string]any{"hookSpecificOutput": output}
+	}
+	output["permissionDecision"] = "allow"
+	delete(output, "permissionDecisionReason")
+	output["updatedInput"] = map[string]any{"questions": json.RawMessage(input.Questions), "answers": resp.Answers}
+	return map[string]any{"hookSpecificOutput": output}
 }
 
 func firstNonEmpty(values ...string) string {

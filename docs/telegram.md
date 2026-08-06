@@ -16,7 +16,7 @@ Onibi long-polls one Telegram bot and accepts one paired private chat. Configure
 - `/size small|medium|large`: resize the selected tmux window to 80×24, 100×30, or 120×40. Codex App Server sessions do not have a tmux viewport.
 - `/esc`, `/enter`, `/interrupt`, `/kill`: fast controls. `/kill` requires a second command within two seconds.
 
-Screens use tmux's resolved screen capture, so Onibi does not require macOS screen-recording permission or brittle ANSI replay. It sends a screen after generic input updates, an approval becomes actionable, a Pi turn ends, a Codex turn completes/fails, and on `/screen`.
+Screens use tmux's resolved pane size and screen capture, so Onibi does not require macOS screen-recording permission or brittle ANSI replay. Generic-input screen updates are debounced by 500ms, rendered once for both the status tail and PNG, and suppressed when the visible frame has not changed; `/screen` always captures and sends a fresh frame. It sends a screen after generic input updates, an approval becomes actionable, a Pi turn ends, a Codex turn completes/fails, and on `/screen`.
 
 `/font` persists the selection and applies to the next screen without a restart. The bundled choices are JetBrainsMono Nerd Font Mono, Caskaydia Cove Nerd Font Mono, and Go Mono Nerd Font Mono. BigBlueTerminal Nerd Font Mono is external-only: configure `screen.font_path` to its local TTF/OTF path, then set `screen.font=custom`; it appears as `External font` in `/font`.
 
@@ -29,7 +29,7 @@ Codex uses the local [App Server](https://learn.chatgpt.com/docs/app-server) for
 Pi uses documented `agent_start` and `agent_end` events for one working card and a final fresh tail/screen. Its extension remains intentionally limited to tool-approval events for decision handling.
 If Onibi restarts while Pi is waiting, the tool call is cancelled rather than replayed against a stale process.
 
-Claude Code runs in tmux. Onibi launches it with an owned settings file containing `PermissionRequest`, `Stop`, and `StopFailure` hooks. Permission requests become the same Telegram approval cards; successful or failed turns edit the working card and send a fresh tail/screen. Claude `--bare` and `--settings` arguments are rejected because they would bypass those hooks.
+Claude Code runs in tmux. Onibi launches it with an owned settings file containing `PermissionRequest`, `PreToolUse` for `AskUserQuestion`, `Stop`, and `StopFailure` hooks. Permission requests become the same Telegram approval cards; `AskUserQuestion` becomes sequential single-select, multi-select, or free-text cards and resumes Claude with its original questions plus Telegram answers. Questions default to a three-minute expiry; configure `daemon.claude_question_timeout` from 30s to 10m. Successful or failed turns edit the working card and send a fresh tail/screen. Claude `--bare`, `--settings`, `--dangerously-skip-permissions`, `--allow-dangerously-skip-permissions`, and `--permission-mode` values `bypassPermissions` and `dontAsk` are rejected because they bypass Onibi's decision path.
 
 ## Codex sessions
 

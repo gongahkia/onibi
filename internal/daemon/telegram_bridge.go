@@ -30,12 +30,14 @@ const (
 )
 
 var codexStatusDelay = time.Second
+var screenAutoDelay = 500 * time.Millisecond
 
 type telegramCard struct {
 	Kind       string              `json:"kind"`
 	SessionID  string              `json:"session_id,omitempty"`
 	ApprovalID string              `json:"approval_id,omitempty"`
 	RequestID  json.RawMessage     `json:"request_id,omitempty"`
+	QuestionID string              `json:"question_id,omitempty"`
 	Decision   string              `json:"decision,omitempty"`
 	Payload    json.RawMessage     `json:"payload,omitempty"`
 	Question   int                 `json:"question,omitempty"`
@@ -43,12 +45,14 @@ type telegramCard struct {
 	ExpiresAt  int64               `json:"expires_at"`
 }
 type telegramReply struct {
-	SessionID string              `json:"session_id"`
-	RequestID json.RawMessage     `json:"request_id"`
-	Payload   json.RawMessage     `json:"payload"`
-	Question  int                 `json:"question"`
-	Answers   map[string][]string `json:"answers"`
-	MessageID int64               `json:"message_id"`
+	Kind       string              `json:"kind,omitempty"`
+	SessionID  string              `json:"session_id"`
+	QuestionID string              `json:"question_id,omitempty"`
+	RequestID  json.RawMessage     `json:"request_id"`
+	Payload    json.RawMessage     `json:"payload"`
+	Question   int                 `json:"question"`
+	Answers    map[string][]string `json:"answers"`
+	MessageID  int64               `json:"message_id"`
 }
 type codexStatus struct {
 	MessageID int64
@@ -59,6 +63,13 @@ type codexStatus struct {
 type agentStatus struct {
 	MessageID int64
 	RunID     string
+}
+type scheduledScreen struct {
+	ChatID    int64
+	SessionID string
+	Title     string
+	Statuses  []int64
+	Timer     *time.Timer
 }
 type telegramBridge struct {
 	d             *Daemon
@@ -72,6 +83,8 @@ type telegramBridge struct {
 	cards         map[string]telegramCard
 	statuses      map[string]codexStatus
 	agentStatuses map[string]agentStatus
+	autoScreens   map[string]*scheduledScreen
+	lastScreens   map[string]string
 	outboxWake    chan struct{}
 }
 
@@ -80,7 +93,7 @@ func (d *Daemon) runTelegramBridge(ctx context.Context) error {
 	if err := c.DeleteWebhook(ctx); err != nil {
 		d.Log.Warn("Telegram delete webhook", "err", err)
 	}
-	b := &telegramBridge{d: d, client: c, ownerID: d.TelegramOwnerID, ownerUserID: d.TelegramOwnerUserID, seen: map[string]bool{}, sending: map[string]bool{}, killArmed: map[int64]time.Time{}, cards: map[string]telegramCard{}, statuses: map[string]codexStatus{}, agentStatuses: map[string]agentStatus{}, outboxWake: make(chan struct{}, 1)}
+	b := &telegramBridge{d: d, client: c, ownerID: d.TelegramOwnerID, ownerUserID: d.TelegramOwnerUserID, seen: map[string]bool{}, sending: map[string]bool{}, killArmed: map[int64]time.Time{}, cards: map[string]telegramCard{}, statuses: map[string]codexStatus{}, agentStatuses: map[string]agentStatus{}, autoScreens: map[string]*scheduledScreen{}, lastScreens: map[string]string{}, outboxWake: make(chan struct{}, 1)}
 	if err := d.DB.TelegramOutboxRecover(ctx); err != nil {
 		d.Log.Warn("recover Telegram outbox", "err", err)
 	}
@@ -92,6 +105,7 @@ func (d *Daemon) runTelegramBridge(ctx context.Context) error {
 	go b.forwardApprovals(ctx)
 	go b.forwardCodexEvents(ctx)
 	go b.forwardAgentEvents(ctx)
+	go b.forwardClaudeQuestions(ctx)
 	go b.forwardSessionEvents(ctx)
 	go b.runOutbox(ctx)
 	offset, err := d.DB.TelegramNextOffset(ctx)
@@ -262,7 +276,12 @@ func (b *telegramBridge) handleInput(ctx context.Context, m *telegram.Message) {
 	if err != nil {
 		b.d.Log.Warn("Telegram status", "err", err)
 	}
-	out, err := b.d.SendSessionTextAndCapture(ctx, s.ID, m.Text, !paste)
+	var out string
+	if s.Transport == "codex" {
+		out, err = b.d.SendSessionTextAndCapture(ctx, s.ID, m.Text, !paste)
+	} else {
+		err = b.d.SendSessionText(ctx, s.ID, m.Text, !paste)
+	}
 	if err != nil {
 		if errors.Is(err, ErrSessionEnded) {
 			b.enqueueOutbox(ctx, "ended", m.Chat.ID, s.ID, "", 0, "ended:"+s.ID)
@@ -297,7 +316,7 @@ func (b *telegramBridge) handleInput(ctx context.Context, m *telegram.Message) {
 			b.enqueueTail(ctx, m.Chat.ID, s.ID, claudeAgentTitle(s.Agent)+" working · "+s.Name)
 		} else {
 			b.setAgentStatusMessage(s.ID, status.MessageID)
-			if b.edit(ctx, m.Chat.ID, status.MessageID, terminalCard(claudeAgentTitle(s.Agent)+" working · "+s.Name, out), b.sessionControls(ctx, s.ID)) != nil {
+			if b.edit(ctx, m.Chat.ID, status.MessageID, claudeAgentTitle(s.Agent)+" working · "+s.Name, b.sessionControls(ctx, s.ID)) != nil {
 				b.enqueueTail(ctx, m.Chat.ID, s.ID, claudeAgentTitle(s.Agent)+" working · "+s.Name)
 			}
 		}
@@ -307,14 +326,15 @@ func (b *telegramBridge) handleInput(ctx context.Context, m *telegram.Message) {
 	if paste {
 		label = "Pasted · " + s.Name + "\nUse /enter to submit when ready"
 	}
-	if status.MessageID == 0 {
-		b.enqueueTail(ctx, m.Chat.ID, s.ID, label)
-	} else if b.edit(ctx, m.Chat.ID, status.MessageID, terminalCard(label, out), b.sessionControls(ctx, s.ID)) != nil {
-		b.enqueueTail(ctx, m.Chat.ID, s.ID, label)
+	if paste {
+		if status.MessageID == 0 {
+			b.enqueueTail(ctx, m.Chat.ID, s.ID, label)
+		} else if b.edit(ctx, m.Chat.ID, status.MessageID, label, b.sessionControls(ctx, s.ID)) != nil {
+			b.enqueueTail(ctx, m.Chat.ID, s.ID, label)
+		}
+		return
 	}
-	if !paste && s.Transport == "tmux" {
-		b.sendScreen(ctx, m.Chat.ID, s.ID, "Updated · "+s.Name)
-	}
+	b.scheduleAutoScreen(ctx, m.Chat.ID, s.ID, label, status.MessageID)
 }
 
 func (b *telegramBridge) handleDocument(ctx context.Context, m *telegram.Message) {
@@ -543,6 +563,8 @@ func (b *telegramBridge) handleCallback(ctx context.Context, q *telegram.Callbac
 		b.resolveCodexApproval(ctx, q.Message.Chat.ID, q.Message.MessageID, card)
 	case "codex_input":
 		b.resolveCodexInput(ctx, q.Message.Chat.ID, q.Message.MessageID, card)
+	case "claude_question":
+		b.resolveClaudeQuestion(ctx, q.Message.Chat.ID, q.Message.MessageID, card)
 	default:
 		b.edit(ctx, q.Message.Chat.ID, q.Message.MessageID, "Expired control.", nil)
 	}
@@ -824,6 +846,22 @@ func (b *telegramBridge) forwardAgentEvents(ctx context.Context) {
 	}
 }
 
+func (b *telegramBridge) forwardClaudeQuestions(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case event, ok := <-b.d.ClaudeQuestionEvents():
+			if !ok {
+				return
+			}
+			if event.Question != nil && b.owner() != 0 {
+				b.sendClaudeQuestion(ctx, b.owner(), event.Question, 0, map[string][]string{}, 0)
+			}
+		}
+	}
+}
+
 func (b *telegramBridge) forwardSessionEvents(ctx context.Context) {
 	for {
 		select {
@@ -856,6 +894,73 @@ func (b *telegramBridge) enqueueOutbox(ctx context.Context, kind string, chatID 
 	if err := b.d.DB.TelegramOutboxUpsert(ctx, store.TelegramOutboxIntent{ID: NewID(), DedupeKey: dedupe, Kind: kind, ChatID: chatID, SessionID: sessionID, Title: title, Lines: lines}); err != nil {
 		b.d.Log.Warn("queue Telegram outbox", "kind", kind, "err", err)
 		return
+	}
+	b.wakeOutbox()
+	b.deliverOutbox(ctx)
+}
+
+func (b *telegramBridge) queueScreen(ctx context.Context, chatID int64, sessionID, title string, force bool, at time.Time, deliver bool) {
+	if b.d.DB == nil || chatID == 0 {
+		return
+	}
+	item := store.TelegramOutboxIntent{ID: NewID(), DedupeKey: "screen:" + strconv.FormatInt(chatID, 10) + ":" + sessionID, Kind: "screen", ChatID: chatID, SessionID: sessionID, Title: title, ForceScreen: force, NextAttempt: at}
+	if err := b.d.DB.TelegramOutboxUpsert(ctx, item); err != nil {
+		b.d.Log.Warn("queue Telegram screen", "err", err)
+		return
+	}
+	if deliver {
+		b.wakeOutbox()
+		b.deliverOutbox(ctx)
+	}
+}
+
+func (b *telegramBridge) scheduleAutoScreen(ctx context.Context, chatID int64, sessionID, title string, statusID int64) {
+	key := strconv.FormatInt(chatID, 10) + ":" + sessionID
+	at := time.Now().Add(screenAutoDelay)
+	b.queueScreen(ctx, chatID, sessionID, "Updated · "+title, false, at, false)
+	b.mu.Lock()
+	if b.autoScreens == nil {
+		b.autoScreens = map[string]*scheduledScreen{}
+	}
+	state := b.autoScreens[key]
+	if state == nil {
+		state = &scheduledScreen{ChatID: chatID, SessionID: sessionID}
+		b.autoScreens[key] = state
+	}
+	if state.Timer != nil {
+		state.Timer.Stop()
+	}
+	state.Title = title
+	if statusID != 0 {
+		state.Statuses = append(state.Statuses, statusID)
+	}
+	state.Timer = time.AfterFunc(screenAutoDelay, func() { b.flushAutoScreen(ctx, key) })
+	b.mu.Unlock()
+}
+
+func (b *telegramBridge) flushAutoScreen(ctx context.Context, key string) {
+	if ctx.Err() != nil {
+		return
+	}
+	b.mu.Lock()
+	state := b.autoScreens[key]
+	delete(b.autoScreens, key)
+	b.mu.Unlock()
+	if state == nil {
+		return
+	}
+	frame, err := b.d.CaptureSessionFrame(ctx, state.SessionID)
+	if err != nil {
+		for _, statusID := range state.Statuses {
+			_ = b.edit(ctx, state.ChatID, statusID, "Output unavailable: "+err.Error(), nil)
+		}
+		b.wakeOutbox()
+		return
+	}
+	for _, statusID := range state.Statuses {
+		if b.edit(ctx, state.ChatID, statusID, terminalCard(state.Title, frame.Tail), b.sessionControls(ctx, state.SessionID)) != nil {
+			b.enqueueTail(ctx, state.ChatID, state.SessionID, state.Title)
+		}
 	}
 	b.wakeOutbox()
 	b.deliverOutbox(ctx)
@@ -912,22 +1017,44 @@ func (b *telegramBridge) dispatchOutbox(ctx context.Context, item store.Telegram
 	case "tail":
 		return b.sendOutboxTail(ctx, item)
 	case "screen":
-		png, err := b.d.CaptureSessionScreen(ctx, item.SessionID)
-		if errors.Is(err, ErrSessionEnded) {
-			b.enqueueOutbox(ctx, "ended", item.ChatID, item.SessionID, "", 0, "ended:"+item.SessionID)
+		frame, ok := b.d.CachedSessionFrame(item.SessionID)
+		if !ok {
+			var err error
+			frame, err = b.d.CaptureSessionFrame(ctx, item.SessionID)
+			if errors.Is(err, ErrSessionEnded) {
+				b.enqueueOutbox(ctx, "ended", item.ChatID, item.SessionID, "", 0, "ended:"+item.SessionID)
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+		}
+		if !item.ForceScreen && b.screenAlreadySent(item.ChatID, item.SessionID, frame.Fingerprint) {
 			return nil
 		}
-		if err != nil {
+		if err := b.client.SendPhoto(ctx, item.ChatID, frame.PNG, item.Title); err != nil {
 			return err
 		}
-		if err := b.client.SendPhoto(ctx, item.ChatID, png, item.Title); err != nil {
-			return err
-		}
+		b.rememberScreen(item.ChatID, item.SessionID, frame.Fingerprint)
 		b.d.audit(ctx, "telegram.screen", item.SessionID, "", item.ChatID, "sent")
 		return nil
 	default:
 		return errors.New("unknown Telegram outbox intent")
 	}
+}
+
+func (b *telegramBridge) screenAlreadySent(chatID int64, sessionID, fingerprint string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.lastScreens != nil && b.lastScreens[strconv.FormatInt(chatID, 10)+":"+sessionID] == fingerprint
+}
+func (b *telegramBridge) rememberScreen(chatID int64, sessionID, fingerprint string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.lastScreens == nil {
+		b.lastScreens = map[string]string{}
+	}
+	b.lastScreens[strconv.FormatInt(chatID, 10)+":"+sessionID] = fingerprint
 }
 
 func (b *telegramBridge) sendOutboxTail(ctx context.Context, item store.TelegramOutboxIntent) error {
@@ -1019,7 +1146,8 @@ func (b *telegramBridge) updateAgentStatus(ctx context.Context, event AgentEvent
 	if event.Agent != "claude" && (state.MessageID == 0 || state.RunID != event.RunID) {
 		return
 	}
-	tail, err := b.d.CaptureSessionTail(ctx, s.ID, 80)
+	frame, err := b.d.CaptureSessionFrame(ctx, s.ID)
+	tail := frame.Tail
 	if err != nil {
 		tail = "Final output unavailable: " + err.Error()
 	}
@@ -1035,7 +1163,9 @@ func (b *telegramBridge) updateAgentStatus(ctx context.Context, event AgentEvent
 	} else if b.edit(ctx, b.owner(), state.MessageID, terminalCard(title, tail), b.sessionControls(ctx, s.ID)) != nil {
 		b.enqueueTail(ctx, b.owner(), s.ID, title)
 	}
-	b.sendScreen(ctx, b.owner(), s.ID, title)
+	if err == nil {
+		b.queueScreen(ctx, b.owner(), s.ID, title, true, time.Now(), true)
+	}
 	b.mu.Lock()
 	delete(b.agentStatuses, s.ID)
 	b.mu.Unlock()
@@ -1307,6 +1437,10 @@ func (b *telegramBridge) handleReply(ctx context.Context, m *telegram.Message) {
 		return
 	}
 	b.clearReply(ctx, m.Chat.ID)
+	if state.Kind == "claude_question" {
+		b.advanceClaudeQuestion(ctx, m.Chat.ID, state.QuestionID, state.Question, state.Answers, strings.TrimSpace(m.Text), state.MessageID)
+		return
+	}
 	b.advanceCodexInput(ctx, m.Chat.ID, state, m.Text)
 }
 func (b *telegramBridge) advanceCodexInput(ctx context.Context, chatID int64, state telegramReply, answer string) {
@@ -1347,6 +1481,187 @@ func (b *telegramBridge) finishCodexInput(ctx context.Context, chatID int64, sta
 	}
 }
 
+func (b *telegramBridge) sendClaudeQuestion(ctx context.Context, chatID int64, item *store.ClaudeQuestion, question int, answers map[string][]string, messageID int64) {
+	if item == nil || item.State != store.ClaudeQuestionPending || !time.Now().Before(item.ExpiresAt) {
+		return
+	}
+	input, _, err := parseClaudeQuestionInput(item.InputJSON)
+	if err != nil || question < 0 || question >= len(input.Questions) {
+		return
+	}
+	q := input.Questions[question]
+	var out strings.Builder
+	fmt.Fprintf(&out, "Claude needs input (%d/%d)\n%s\n\n%s", question+1, len(input.Questions), q.Header, q.Question)
+	selected := map[string]bool{}
+	for _, value := range answers[q.Question] {
+		selected[value] = true
+	}
+	rows := make([][]telegram.InlineKeyboardButton, 0, len(q.Options)+2)
+	card := func(decision, choice string) (string, error) {
+		payload, err := json.Marshal(choice)
+		if err != nil {
+			return "", err
+		}
+		return b.newCard(ctx, telegramCard{Kind: "claude_question", SessionID: item.SessionID, QuestionID: item.ID, Decision: decision, Payload: payload, Question: question, Answers: answers, ExpiresAt: item.ExpiresAt.Unix()})
+	}
+	for _, option := range q.Options {
+		token, err := card("select", option.Label)
+		if err != nil {
+			return
+		}
+		label := option.Label
+		if selected[option.Label] {
+			label = "✓ " + label
+		}
+		if option.Description != "" {
+			label += " · " + option.Description
+		}
+		rows = append(rows, []telegram.InlineKeyboardButton{{Text: boundedButton(label), CallbackData: "c:" + token}})
+	}
+	other, err := card("other", "")
+	if err != nil {
+		return
+	}
+	cancel, err := card("cancel", "")
+	if err != nil {
+		return
+	}
+	last := []telegram.InlineKeyboardButton{{Text: "Other…", CallbackData: "c:" + other}}
+	if q.MultiSelect {
+		continueToken, err := card("continue", "")
+		if err != nil {
+			return
+		}
+		last = append(last, telegram.InlineKeyboardButton{Text: "Continue", CallbackData: "c:" + continueToken})
+	}
+	last = append(last, telegram.InlineKeyboardButton{Text: "Cancel", CallbackData: "c:" + cancel})
+	rows = append(rows, last)
+	markup := &telegram.InlineKeyboardMarkup{InlineKeyboard: rows}
+	if messageID == 0 {
+		_, _ = b.client.SendMessage(ctx, chatID, boundedText(out.String()), markup)
+		return
+	}
+	_ = b.edit(ctx, chatID, messageID, boundedText(out.String()), markup)
+}
+
+func (b *telegramBridge) resolveClaudeQuestion(ctx context.Context, chatID, messageID int64, card telegramCard) {
+	item, found, err := b.d.ClaudeQuestion(ctx, card.QuestionID)
+	if err != nil || !found || item.State != store.ClaudeQuestionPending || !time.Now().Before(item.ExpiresAt) {
+		b.edit(ctx, chatID, messageID, "Claude question expired.", nil)
+		return
+	}
+	if card.Decision == "cancel" {
+		if err := b.d.CancelClaudeQuestion(ctx, item.ID, "cancelled from Telegram", chatID); err != nil {
+			b.edit(ctx, chatID, messageID, "Claude question expired.", nil)
+			return
+		}
+		b.edit(ctx, chatID, messageID, "Claude question cancelled.", nil)
+		return
+	}
+	input, _, err := parseClaudeQuestionInput(item.InputJSON)
+	if err != nil || card.Question < 0 || card.Question >= len(input.Questions) {
+		b.edit(ctx, chatID, messageID, "Claude question expired.", nil)
+		return
+	}
+	q := input.Questions[card.Question]
+	if card.Decision == "other" {
+		b.setReply(ctx, chatID, telegramReply{Kind: "claude_question", SessionID: item.SessionID, QuestionID: item.ID, Question: card.Question, Answers: card.Answers, MessageID: messageID})
+		b.edit(ctx, chatID, messageID, "Reply with your Claude answer.", nil)
+		return
+	}
+	answers := cloneAnswers(card.Answers)
+	if card.Decision == "select" {
+		var choice string
+		if json.Unmarshal(card.Payload, &choice) != nil {
+			b.edit(ctx, chatID, messageID, "Claude option expired.", nil)
+			return
+		}
+		choice = strings.TrimSpace(choice)
+		if !claudeOptionExists(q, choice) {
+			b.edit(ctx, chatID, messageID, "Claude option expired.", nil)
+			return
+		}
+		if q.MultiSelect {
+			answers[q.Question] = toggleAnswer(answers[q.Question], choice)
+			b.sendClaudeQuestion(ctx, chatID, item, card.Question, answers, messageID)
+			return
+		}
+		b.advanceClaudeQuestion(ctx, chatID, item.ID, card.Question, answers, choice, messageID)
+		return
+	}
+	if card.Decision == "continue" {
+		if len(answers[q.Question]) == 0 {
+			b.edit(ctx, chatID, messageID, "Select at least one option.", nil)
+			return
+		}
+		b.advanceClaudeQuestion(ctx, chatID, item.ID, card.Question, answers, "", messageID)
+	}
+}
+
+func (b *telegramBridge) advanceClaudeQuestion(ctx context.Context, chatID int64, id string, question int, answers map[string][]string, answer string, messageID int64) {
+	item, found, err := b.d.ClaudeQuestion(ctx, id)
+	if err != nil || !found || item.State != store.ClaudeQuestionPending {
+		b.edit(ctx, chatID, messageID, "Claude question expired.", nil)
+		return
+	}
+	input, _, err := parseClaudeQuestionInput(item.InputJSON)
+	if err != nil || question < 0 || question >= len(input.Questions) {
+		b.edit(ctx, chatID, messageID, "Claude question expired.", nil)
+		return
+	}
+	if answers == nil {
+		answers = map[string][]string{}
+	}
+	q := input.Questions[question]
+	answer = strings.TrimSpace(answer)
+	if answer != "" {
+		if q.MultiSelect && len(answers[q.Question]) > 0 {
+			answers[q.Question] = append(answers[q.Question], answer)
+		} else {
+			answers[q.Question] = []string{answer}
+		}
+	}
+	question++
+	if question < len(input.Questions) {
+		b.edit(ctx, chatID, messageID, "Selected.", nil)
+		b.sendClaudeQuestion(ctx, chatID, item, question, answers, 0)
+		return
+	}
+	final := make(map[string]string, len(answers))
+	for key, values := range answers {
+		final[key] = strings.Join(values, ",")
+	}
+	if _, err := b.d.AnswerClaudeQuestion(ctx, item.ID, final, chatID); err != nil {
+		b.edit(ctx, chatID, messageID, "Claude input failed: "+err.Error(), nil)
+		return
+	}
+	b.edit(ctx, chatID, messageID, "Claude input sent.", nil)
+}
+
+func cloneAnswers(in map[string][]string) map[string][]string {
+	out := map[string][]string{}
+	for key, values := range in {
+		out[key] = append([]string(nil), values...)
+	}
+	return out
+}
+func toggleAnswer(values []string, target string) []string {
+	for i, value := range values {
+		if value == target {
+			return append(values[:i], values[i+1:]...)
+		}
+	}
+	return append(values, target)
+}
+func claudeOptionExists(q claudeQuestionSpec, value string) bool {
+	for _, option := range q.Options {
+		if option.Label == value {
+			return true
+		}
+	}
+	return false
+}
+
 func (b *telegramBridge) sendScreen(ctx context.Context, chatID int64, sessionID, caption string) {
 	if strings.TrimSpace(sessionID) == "" {
 		b.send(ctx, chatID, "No active session. Use /new shell, /new codex, /new pi, or /new claude.", nil)
@@ -1365,7 +1680,8 @@ func (b *telegramBridge) sendScreen(ctx context.Context, chatID int64, sessionID
 		b.send(ctx, chatID, "Codex has no activity yet. Send a normal message to start a turn.", b.sessionControls(ctx, s.ID))
 		return
 	}
-	b.enqueueOutbox(ctx, "screen", chatID, sessionID, caption, 0, "screen:"+strconv.FormatInt(chatID, 10)+":"+sessionID)
+	b.d.InvalidateSessionFrame(sessionID)
+	b.queueScreen(ctx, chatID, sessionID, caption, true, time.Now(), true)
 }
 func (b *telegramBridge) sessionEndedText(ctx context.Context, chatID int64, sessionID string) string {
 	name := "Selected session"

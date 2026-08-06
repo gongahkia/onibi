@@ -21,35 +21,41 @@ const BufferSize = 64 * 1024
 var ErrSessionEnded = errors.New("session ended")
 
 type Daemon struct {
-	Paths               config.Paths
-	DB                  *store.DB
-	Log                 *slog.Logger
-	Registry            *Registry
-	Intake              *intake.Server
-	Queue               *approval.Queue
-	Sweeper             *approval.Sweeper
-	OutputBufferSize    int
-	LivenessInterval    time.Duration
-	UploadTTL           time.Duration
-	UploadMaxBytes      int64
-	ShellDefault        string
-	ShellLogin          bool
-	screenMu            sync.RWMutex
-	ScreenFont          string
-	ScreenFontPath      string
-	TelegramToken       string
-	TelegramOwnerID     int64
-	TelegramOwnerUserID int64
-	TelegramPair        string
-	started             time.Time
-	mu                  sync.Mutex
-	codexMu             sync.Mutex
-	claudeMu            sync.Mutex
-	codex               map[string]*codexRuntime
-	codexEvents         chan CodexEvent
-	agentEvents         chan AgentEvent
-	sessionEvents       chan SessionEvent
-	SkipRestore         bool
+	Paths                 config.Paths
+	DB                    *store.DB
+	Log                   *slog.Logger
+	Registry              *Registry
+	Intake                *intake.Server
+	Queue                 *approval.Queue
+	Sweeper               *approval.Sweeper
+	OutputBufferSize      int
+	LivenessInterval      time.Duration
+	ClaudeQuestionTimeout time.Duration
+	UploadTTL             time.Duration
+	UploadMaxBytes        int64
+	ShellDefault          string
+	ShellLogin            bool
+	screenMu              sync.RWMutex
+	frameMu               sync.Mutex
+	frames                map[string]terminalFrame
+	ScreenFont            string
+	ScreenFontPath        string
+	TelegramToken         string
+	TelegramOwnerID       int64
+	TelegramOwnerUserID   int64
+	TelegramPair          string
+	started               time.Time
+	mu                    sync.Mutex
+	codexMu               sync.Mutex
+	claudeMu              sync.Mutex
+	codex                 map[string]*codexRuntime
+	codexEvents           chan CodexEvent
+	agentEvents           chan AgentEvent
+	claudeQuestionMu      sync.Mutex
+	claudeQuestions       map[string]chan struct{}
+	claudeQuestionEvents  chan ClaudeQuestionEvent
+	sessionEvents         chan SessionEvent
+	SkipRestore           bool
 }
 
 type SessionEvent struct {
@@ -66,6 +72,7 @@ type Options struct {
 	ApprovalMaxSubscribers int
 	OutputBufferSize       int
 	LivenessInterval       time.Duration
+	ClaudeQuestionTimeout  time.Duration
 	UploadTTL              time.Duration
 	UploadMaxBytes         int64
 	ShellDefault           string
@@ -86,13 +93,16 @@ func New(opts Options) *Daemon {
 	if opts.LivenessInterval <= 0 {
 		opts.LivenessInterval = 5 * time.Second
 	}
+	if opts.ClaudeQuestionTimeout <= 0 {
+		opts.ClaudeQuestionTimeout = 3 * time.Minute
+	}
 	if opts.UploadTTL <= 0 {
 		opts.UploadTTL = 7 * 24 * time.Hour
 	}
 	if opts.UploadMaxBytes <= 0 {
 		opts.UploadMaxBytes = 20 << 20
 	}
-	d := &Daemon{Paths: opts.Paths, DB: opts.DB, Log: opts.Log, Registry: NewRegistry(), OutputBufferSize: opts.OutputBufferSize, LivenessInterval: opts.LivenessInterval, UploadTTL: opts.UploadTTL, UploadMaxBytes: opts.UploadMaxBytes, ShellDefault: opts.ShellDefault, ShellLogin: opts.ShellLogin, ScreenFont: opts.ScreenFont, ScreenFontPath: opts.ScreenFontPath, TelegramToken: opts.TelegramToken, TelegramOwnerID: opts.TelegramOwnerID, TelegramOwnerUserID: opts.TelegramOwnerUserID, TelegramPair: opts.TelegramPair, started: time.Now(), codex: map[string]*codexRuntime{}, codexEvents: make(chan CodexEvent, 128), agentEvents: make(chan AgentEvent, 128), sessionEvents: make(chan SessionEvent, 128), SkipRestore: opts.SkipRestore}
+	d := &Daemon{Paths: opts.Paths, DB: opts.DB, Log: opts.Log, Registry: NewRegistry(), OutputBufferSize: opts.OutputBufferSize, LivenessInterval: opts.LivenessInterval, ClaudeQuestionTimeout: opts.ClaudeQuestionTimeout, UploadTTL: opts.UploadTTL, UploadMaxBytes: opts.UploadMaxBytes, ShellDefault: opts.ShellDefault, ShellLogin: opts.ShellLogin, ScreenFont: opts.ScreenFont, ScreenFontPath: opts.ScreenFontPath, TelegramToken: opts.TelegramToken, TelegramOwnerID: opts.TelegramOwnerID, TelegramOwnerUserID: opts.TelegramOwnerUserID, TelegramPair: opts.TelegramPair, started: time.Now(), frames: map[string]terminalFrame{}, codex: map[string]*codexRuntime{}, codexEvents: make(chan CodexEvent, 128), agentEvents: make(chan AgentEvent, 128), claudeQuestions: map[string]chan struct{}{}, claudeQuestionEvents: make(chan ClaudeQuestionEvent, 128), sessionEvents: make(chan SessionEvent, 128), SkipRestore: opts.SkipRestore}
 	d.Queue = approval.New(opts.DB, opts.ApprovalTTL)
 	if opts.ApprovalMaxSubscribers > 0 {
 		d.Queue.MaxSubscribers = opts.ApprovalMaxSubscribers
@@ -101,6 +111,7 @@ func New(opts Options) *Daemon {
 	d.Sweeper = &approval.Sweeper{Queue: d.Queue, Interval: opts.ApprovalSweepInterval, Log: opts.Log}
 	d.Intake = intake.New(opts.Paths.Socket, opts.Log)
 	d.Intake.SetApprovalHandler(d.handleApprovalRequest)
+	d.Intake.SetQuestionHandler(d.handleClaudeQuestion)
 	d.Intake.SetRPCHandler(d.handleRPCRequest)
 	return d
 }
@@ -120,6 +131,11 @@ func (d *Daemon) Run(ctx context.Context) error {
 			d.Log.Warn("cancel stale Pi approvals", "err", err)
 		} else if n > 0 {
 			d.Log.Info("cancelled stale Pi approvals", "count", n)
+		}
+		if n, err := d.DB.ClaudeQuestionsCancelPending(ctx, "daemon restarted"); err != nil {
+			d.Log.Warn("cancel stale Claude questions", "err", err)
+		} else if n > 0 {
+			d.Log.Info("cancelled stale Claude questions", "count", n)
 		}
 	}
 	if !d.SkipRestore {
@@ -161,6 +177,11 @@ func (d *Daemon) Run(ctx context.Context) error {
 		d.Log.Warn("cancel pending Pi approvals", "err", err)
 	} else if n > 0 {
 		d.Log.Info("cancelled pending Pi approvals", "count", n)
+	}
+	if n, err := d.DB.ClaudeQuestionsCancelPending(context.Background(), "daemon stopped"); err != nil {
+		d.Log.Warn("cancel pending Claude questions", "err", err)
+	} else if n > 0 {
+		d.Log.Info("cancelled pending Claude questions", "count", n)
 	}
 	wg.Wait()
 	if runErr != nil {
@@ -279,6 +300,8 @@ func (d *Daemon) markSessionEndedReason(ctx context.Context, s *Session, reason 
 	if d.DB != nil {
 		_ = d.DB.SessionMarkEnded(ctx, s.ID, time.Now())
 	}
+	d.cancelClaudeQuestionsForSession(ctx, s.ID, "session ended")
+	d.InvalidateSessionFrame(s.ID)
 	d.queueSessionEndedNotice(ctx, s.ID, s.Name, s.Agent)
 	d.audit(ctx, "session.ended", s.ID, "", 0, "")
 	select {

@@ -71,7 +71,7 @@ func runStart(cmd *cobra.Command, _ []string) error {
 	logger := logging.New(writer, level)
 	ctx, stop := signal.NotifyContext(contextOrBackground(cmd.Context()), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	d := daemon.New(daemon.Options{Paths: paths, DB: db, Log: logger, ApprovalTTL: cfg.Daemon.ApprovalTimeout.Std(), ApprovalSweepInterval: cfg.Daemon.ApprovalSweepInterval.Std(), ApprovalMaxSubscribers: cfg.Daemon.MaxSubscribers, OutputBufferSize: cfg.Daemon.OutputBufferBytes, LivenessInterval: cfg.Daemon.LivenessInterval.Std(), UploadTTL: cfg.Daemon.UploadTTL.Std(), UploadMaxBytes: cfg.Daemon.UploadMaxBytes, ShellDefault: cfg.Shell.Default, ShellLogin: cfg.Shell.Login, ScreenFont: cfg.Screen.Font, ScreenFontPath: cfg.Screen.FontPath, TelegramToken: token, TelegramOwnerID: ownerChat, TelegramOwnerUserID: ownerUser, TelegramPair: pair})
+	d := daemon.New(daemon.Options{Paths: paths, DB: db, Log: logger, ApprovalTTL: cfg.Daemon.ApprovalTimeout.Std(), ClaudeQuestionTimeout: cfg.Daemon.ClaudeQuestionTimeout.Std(), ApprovalSweepInterval: cfg.Daemon.ApprovalSweepInterval.Std(), ApprovalMaxSubscribers: cfg.Daemon.MaxSubscribers, OutputBufferSize: cfg.Daemon.OutputBufferBytes, LivenessInterval: cfg.Daemon.LivenessInterval.Std(), UploadTTL: cfg.Daemon.UploadTTL.Std(), UploadMaxBytes: cfg.Daemon.UploadMaxBytes, ShellDefault: cfg.Shell.Default, ShellLogin: cfg.Shell.Login, ScreenFont: cfg.Screen.Font, ScreenFontPath: cfg.Screen.FontPath, TelegramToken: token, TelegramOwnerID: ownerChat, TelegramOwnerUserID: ownerUser, TelegramPair: pair})
 	return d.Run(ctx)
 }
 func telegramBinding(ctx context.Context, db interface {

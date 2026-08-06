@@ -40,7 +40,7 @@ The first start prints a pairing command. Send it from the one Telegram account 
 
 Plain messages go to the selected session and append Enter. Unknown slash commands go to that session too; prefix a conflicting Onibi command with `//` (for example, `//help`). `/paste` makes the next message literal, with no implicit Enter, and expires after five minutes. `/keys` exposes arrows, Tab, Shift-Tab, Backspace, Delete, Home, End, PgUp, PgDn, Esc, Ctrl-C, Ctrl-D, Ctrl-Z, Ctrl-L, Ctrl-R, Enter, and tmux size presets; `/key <name>` accepts the same keys plus `ctrl-a` through `ctrl-z`, `meta-a` through `meta-z`, and `f1` through `f12`.
 
-Codex sessions are semantic, not tmux windows: after `/new codex`, send a normal message to start a turn. A later normal message steers the active turn. Claude Code runs in tmux; Onibi attaches an owned Claude settings file containing permission and completion hooks for that session. `/font` selects the terminal-screen font remotely; JetBrainsMono Nerd Font Mono, Caskaydia Cove Nerd Font Mono, and Go Mono Nerd Font Mono are embedded. To use a locally installed BigBlueTerminal Nerd Font Mono, set `screen.font_path` then `screen.font=custom` locally.
+Codex sessions are semantic, not tmux windows: after `/new codex`, send a normal message to start a turn. A later normal message steers the active turn. Claude Code runs in tmux; Onibi attaches an owned settings file with permission, structured `AskUserQuestion`, and completion hooks. Claude question cards support sequential single-select, multi-select, and free-text answers; their default expiry is three minutes and is configurable with `daemon.claude_question_timeout` (30s–10m). `/font` selects the terminal-screen font remotely; JetBrainsMono Nerd Font Mono, Caskaydia Cove Nerd Font Mono, and Go Mono Nerd Font Mono are embedded. To use a locally installed BigBlueTerminal Nerd Font Mono, set `screen.font_path` then `screen.font=custom` locally.
 
 ## Local CLI
 
@@ -60,7 +60,7 @@ Codex sessions are semantic, not tmux windows: after `/new codex`, send a normal
 
 ## Delivery and uploads
 
-Onibi persists Telegram update claims before executing an input. If it restarts mid-update, it marks that input uncertain and asks you to inspect/resend rather than executing it again. Screens, final tails, and session-ended notices are queued as durable intents and retried; terminal text and PNGs are captured only at delivery time and are not stored in that queue.
+Onibi persists Telegram update claims before executing an input. If it restarts mid-update, it marks that input uncertain and asks you to inspect/resend rather than executing it again. Screens, final tails, and session-ended notices are queued as durable intents and retried; terminal text and PNGs are held only in memory around delivery and never stored in that queue. Automatic generic-input screens are debounced for 500ms, deduplicated by rendered terminal state, and share one capture between the status tail and PNG.
 
 The daemon checks managed tmux sessions every five seconds. A locally ended tmux session becomes unavailable immediately on the next check and sends one ended notice. Change the cadence with `daemon.liveness_interval` (1s–5m).
 
@@ -68,7 +68,7 @@ Send a Telegram document to stage it privately for the selected live tmux sessio
 
 ## Decisions and safety
 
-Telegram callback payloads are opaque local tokens. Decisions are persisted before agent resumption and are idempotent. High-risk Pi approvals require a second confirmation. Codex App Server approvals and user-input questions become native inline cards; `thread/shellCommand` is intentionally never exposed.
+Telegram callback payloads are opaque local tokens. Decisions are persisted before agent resumption and are idempotent. High-risk Pi approvals require a second confirmation. Codex App Server approvals and user-input questions become native inline cards; Claude `AskUserQuestion` calls receive the same structured interaction; `thread/shellCommand` is intentionally never exposed. Claude `--bare`, `--settings`, permission-bypass, and `dontAsk` modes are rejected at session creation.
 
 Telegram is not end-to-end encrypted for bots. Treat every message, screenshot, and approval payload as terminal-access-sensitive; do not send secrets through this bot. The local OS account remains trusted.
 

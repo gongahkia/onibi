@@ -25,6 +25,7 @@ type TelegramOutboxIntent struct {
 	SessionID   string
 	Title       string
 	Lines       int
+	ForceScreen bool
 	State       string
 	Attempts    int
 	NextAttempt time.Time
@@ -122,10 +123,10 @@ func (d *DB) TelegramOutboxUpsert(ctx context.Context, item TelegramOutboxIntent
 			return err
 		}
 	}
-	_, err := d.sql.ExecContext(ctx, `INSERT INTO telegram_outbox(id,dedupe_key,kind,chat_id,session_id,title,lines,state,attempts,next_attempt,created_at,expires_at)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
-		ON CONFLICT(dedupe_key) DO UPDATE SET kind=excluded.kind,chat_id=excluded.chat_id,session_id=excluded.session_id,title=excluded.title,lines=excluded.lines,state=?,attempts=0,next_attempt=excluded.next_attempt,created_at=excluded.created_at,expires_at=excluded.expires_at,last_error=NULL`,
-		item.ID, item.DedupeKey, item.Kind, item.ChatID, nullIfEmpty(item.SessionID), item.Title, item.Lines, OutboxPending, 0, item.NextAttempt.Unix(), item.CreatedAt.Unix(), item.ExpiresAt.Unix(), OutboxPending)
+	_, err := d.sql.ExecContext(ctx, `INSERT INTO telegram_outbox(id,dedupe_key,kind,chat_id,session_id,title,lines,force_screen,state,attempts,next_attempt,created_at,expires_at)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+		ON CONFLICT(dedupe_key) DO UPDATE SET kind=excluded.kind,chat_id=excluded.chat_id,session_id=excluded.session_id,title=excluded.title,lines=excluded.lines,force_screen=excluded.force_screen,state=?,attempts=0,next_attempt=excluded.next_attempt,created_at=excluded.created_at,expires_at=excluded.expires_at,last_error=NULL`,
+		item.ID, item.DedupeKey, item.Kind, item.ChatID, nullIfEmpty(item.SessionID), item.Title, item.Lines, boolInt(item.ForceScreen), OutboxPending, 0, item.NextAttempt.Unix(), item.CreatedAt.Unix(), item.ExpiresAt.Unix(), OutboxPending)
 	return err
 }
 
@@ -144,7 +145,7 @@ func (d *DB) TelegramOutboxClaim(ctx context.Context) (*TelegramOutboxIntent, er
 	if _, err := tx.ExecContext(ctx, `UPDATE telegram_outbox SET state=? WHERE state IN (?,?) AND expires_at<=?`, OutboxExpired, OutboxPending, OutboxRunning, now); err != nil {
 		return nil, err
 	}
-	row := tx.QueryRowContext(ctx, `SELECT id,dedupe_key,kind,chat_id,COALESCE(session_id,''),title,lines,state,attempts,next_attempt,created_at,expires_at,COALESCE(last_error,'') FROM telegram_outbox WHERE state=? AND next_attempt<=? ORDER BY created_at LIMIT 1`, OutboxPending, now)
+	row := tx.QueryRowContext(ctx, `SELECT id,dedupe_key,kind,chat_id,COALESCE(session_id,''),title,lines,force_screen,state,attempts,next_attempt,created_at,expires_at,COALESCE(last_error,'') FROM telegram_outbox WHERE state=? AND next_attempt<=? ORDER BY created_at LIMIT 1`, OutboxPending, now)
 	item, err := scanTelegramOutbox(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, tx.Commit()
@@ -177,10 +178,19 @@ type telegramOutboxRow interface{ Scan(...any) error }
 func scanTelegramOutbox(row telegramOutboxRow) (TelegramOutboxIntent, error) {
 	var item TelegramOutboxIntent
 	var next, created, expires int64
-	err := row.Scan(&item.ID, &item.DedupeKey, &item.Kind, &item.ChatID, &item.SessionID, &item.Title, &item.Lines, &item.State, &item.Attempts, &next, &created, &expires, &item.LastError)
+	var force int
+	err := row.Scan(&item.ID, &item.DedupeKey, &item.Kind, &item.ChatID, &item.SessionID, &item.Title, &item.Lines, &force, &item.State, &item.Attempts, &next, &created, &expires, &item.LastError)
 	if err != nil {
 		return TelegramOutboxIntent{}, err
 	}
+	item.ForceScreen = force != 0
 	item.NextAttempt, item.CreatedAt, item.ExpiresAt = time.Unix(next, 0), time.Unix(created, 0), time.Unix(expires, 0)
 	return item, nil
+}
+
+func boolInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
 }

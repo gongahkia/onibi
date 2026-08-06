@@ -35,6 +35,15 @@ func (r *bridgeRunner) Run(_ context.Context, name string, args ...string) ([]by
 	}
 	return nil, r.err
 }
+func (r *bridgeRunner) snapshot() [][]string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([][]string, len(r.calls))
+	for i := range r.calls {
+		out[i] = append([]string(nil), r.calls[i]...)
+	}
+	return out
+}
 
 func testTelegramBridge(t *testing.T) (*telegramBridge, *bridgeRunner, func()) {
 	t.Helper()
@@ -79,6 +88,9 @@ func writeBridgeTelegram(w http.ResponseWriter, result any) {
 func TestTelegramInputUsesLiteralTextEnterAndScreen(t *testing.T) {
 	b, runner, cleanup := testTelegramBridge(t)
 	defer cleanup()
+	oldDelay := screenAutoDelay
+	screenAutoDelay = time.Millisecond
+	defer func() { screenAutoDelay = oldDelay }()
 	s := NewSession("session-1", "work", "shell", 4096)
 	s.TmuxTarget = "onibi-session-1"
 	if err := b.d.Registry.Add(s); err != nil {
@@ -89,12 +101,13 @@ func TestTelegramInputUsesLiteralTextEnterAndScreen(t *testing.T) {
 	want := [][]string{
 		{"tmux", "send-keys", "-t", "onibi-session-1", "-l", "--", "printf ok"},
 		{"tmux", "send-keys", "-t", "onibi-session-1", "Enter"},
-		{"tmux", "capture-pane", "-e", "-p", "-t", "onibi-session-1", "-S", "-80"},
-		{"tmux", "display-message", "-p", "-t", "onibi-session-1", "#{pane_width} #{pane_height}"},
-		{"tmux", "capture-pane", "-e", "-p", "-t", "onibi-session-1", "-S", "-160"},
 	}
-	if !reflect.DeepEqual(runner.calls, want) {
-		t.Fatalf("calls=%#v", runner.calls)
+	if calls := runner.snapshot(); !reflect.DeepEqual(calls, want) {
+		t.Fatalf("calls=%#v", calls)
+	}
+	<-time.After(20 * time.Millisecond)
+	if calls := runner.snapshot(); len(calls) != 4 || calls[2][1] != "display-message" || calls[3][1] != "capture-pane" || calls[3][len(calls[3])-1] != "-160" {
+		t.Fatalf("screen calls=%#v", calls)
 	}
 }
 
@@ -108,8 +121,8 @@ func TestTelegramUnknownSlashCommandReachesSelectedSession(t *testing.T) {
 	}
 	b.setTarget(t.Context(), 42, s.ID)
 	b.handleUpdate(t.Context(), telegram.Update{Message: &telegram.Message{Chat: telegram.Chat{ID: 42, Type: "private"}, From: &telegram.User{ID: 7}, Text: "/usage"}})
-	if len(runner.calls) != 3 || !reflect.DeepEqual(runner.calls[0], []string{"tmux", "send-keys", "-t", "onibi-session-slash", "-l", "--", "/usage"}) {
-		t.Fatalf("calls=%#v", runner.calls)
+	if calls := runner.snapshot(); len(calls) != 2 || !reflect.DeepEqual(calls[0], []string{"tmux", "send-keys", "-t", "onibi-session-slash", "-l", "--", "/usage"}) {
+		t.Fatalf("calls=%#v", calls)
 	}
 }
 
@@ -123,8 +136,8 @@ func TestTelegramDoubleSlashForcesKnownCommandToSelectedSession(t *testing.T) {
 	}
 	b.setTarget(t.Context(), 42, s.ID)
 	b.handleUpdate(t.Context(), telegram.Update{Message: &telegram.Message{Chat: telegram.Chat{ID: 42, Type: "private"}, From: &telegram.User{ID: 7}, Text: "//help"}})
-	if len(runner.calls) != 3 || !reflect.DeepEqual(runner.calls[0], []string{"tmux", "send-keys", "-t", "onibi-session-double-slash", "-l", "--", "/help"}) {
-		t.Fatalf("calls=%#v", runner.calls)
+	if calls := runner.snapshot(); len(calls) != 2 || !reflect.DeepEqual(calls[0], []string{"tmux", "send-keys", "-t", "onibi-session-double-slash", "-l", "--", "/help"}) {
+		t.Fatalf("calls=%#v", calls)
 	}
 }
 
@@ -157,13 +170,13 @@ func TestPiFinalScreenWaitsForAgentEnd(t *testing.T) {
 	}
 	b.setTarget(t.Context(), 42, s.ID)
 	b.handleInput(t.Context(), &telegram.Message{Chat: telegram.Chat{ID: 42, Type: "private"}, From: &telegram.User{ID: 7}, Text: "summarize"})
-	if len(runner.calls) != 3 || runner.calls[2][1] != "capture-pane" || runner.calls[2][len(runner.calls[2])-1] != "-80" {
-		t.Fatalf("premature Pi completion=%#v", runner.calls)
+	if calls := runner.snapshot(); len(calls) != 2 {
+		t.Fatalf("premature Pi completion=%#v", calls)
 	}
 	b.updateAgentStatus(t.Context(), AgentEvent{SessionID: s.ID, Agent: "pi", Kind: "agent_start", RunID: "run-1"})
 	b.updateAgentStatus(t.Context(), AgentEvent{SessionID: s.ID, Agent: "pi", Kind: "agent_end", RunID: "run-1"})
-	if len(runner.calls) != 6 || runner.calls[5][len(runner.calls[5])-1] != "-160" {
-		t.Fatalf("Pi final capture=%#v", runner.calls)
+	if calls := runner.snapshot(); len(calls) != 4 || calls[2][1] != "display-message" || calls[3][len(calls[3])-1] != "-160" {
+		t.Fatalf("Pi final capture=%#v", calls)
 	}
 }
 
@@ -178,8 +191,8 @@ func TestClaudeFinalScreenFollowsStopHook(t *testing.T) {
 	b.setTarget(t.Context(), 42, s.ID)
 	b.handleInput(t.Context(), &telegram.Message{Chat: telegram.Chat{ID: 42, Type: "private"}, From: &telegram.User{ID: 7}, Text: "summarize"})
 	b.updateAgentStatus(t.Context(), AgentEvent{SessionID: s.ID, Agent: "claude", Kind: "agent_end"})
-	if len(runner.calls) != 6 || runner.calls[5][len(runner.calls[5])-1] != "-160" {
-		t.Fatalf("Claude final capture=%#v", runner.calls)
+	if calls := runner.snapshot(); len(calls) != 4 || calls[2][1] != "display-message" || calls[3][len(calls[3])-1] != "-160" {
+		t.Fatalf("Claude final capture=%#v", calls)
 	}
 }
 
@@ -241,8 +254,8 @@ func TestTmuxSessionsAutoNameAndPersist(t *testing.T) {
 	if err != nil || len(rows) != 2 {
 		t.Fatalf("sessions=%#v err=%v", rows, err)
 	}
-	if len(runner.calls) != 4 {
-		t.Fatalf("tmux calls=%#v", runner.calls)
+	if calls := runner.snapshot(); len(calls) != 4 {
+		t.Fatalf("tmux calls=%#v", calls)
 	}
 }
 

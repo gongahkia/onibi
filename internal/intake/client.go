@@ -12,7 +12,7 @@ func Request(socketPath string, ev Event, timeout time.Duration) (Response, erro
 	if socketPath == "" {
 		return Response{}, errors.New("intake: empty socket path")
 	}
-	if ev.Type != TypeApprovalRequest && !isRPCType(ev.Type) {
+	if ev.Type != TypeApprovalRequest && ev.Type != TypeClaudeQuestion && !isRPCType(ev.Type) {
 		return Response{}, errors.New("intake: unsupported request type")
 	}
 	c, err := net.DialTimeout("unix", socketPath, time.Second)

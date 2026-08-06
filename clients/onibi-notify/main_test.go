@@ -71,6 +71,27 @@ func TestClaudeResponse(t *testing.T) {
 	}
 }
 
+func TestClaudeQuestionResponse(t *testing.T) {
+	raw := json.RawMessage(`{"questions":[{"header":"Mode","question":"Choose mode","options":[{"label":"Safe"}]}]}`)
+	response := claudeQuestionResponse(raw, intake.Response{Decision: "approve", Answers: map[string]string{"Choose mode": "Safe"}})
+	hook := response["hookSpecificOutput"].(map[string]any)
+	if hook["permissionDecision"] != "allow" {
+		t.Fatalf("response=%#v", response)
+	}
+	updated := hook["updatedInput"].(map[string]any)
+	if updated["answers"].(map[string]string)["Choose mode"] != "Safe" {
+		t.Fatalf("response=%#v", response)
+	}
+}
+
+func TestRunClaudeQuestionFailsClosed(t *testing.T) {
+	var output bytes.Buffer
+	err := run([]string{"--agent", "claude", "--format", "claude", "--type", "question_request", "--wait", "--response", "claude-question-json"}, strings.NewReader(`{"hook_event_name":"PreToolUse","tool_name":"AskUserQuestion","tool_input":{"questions":[{"header":"Mode","question":"Choose mode","options":[{"label":"Safe"}]}]}}`), &output, func(string) string { return "" })
+	if err != nil || !strings.Contains(output.String(), `"permissionDecision":"deny"`) {
+		t.Fatalf("err=%v output=%s", err, output.String())
+	}
+}
+
 func TestRunClaudeFailsClosedWhenDaemonIsUnavailable(t *testing.T) {
 	var output bytes.Buffer
 	err := run(
