@@ -34,7 +34,7 @@ The first start prints a pairing command. Send it from the one Telegram account 
 /kill
 ```
 
-Plain messages go to the selected session and append Enter. `/paste` makes the next message literal, with no implicit Enter, and expires after five minutes. Use `/keys` for session-bound `Esc`, `Ctrl-C`, `Enter`, and screen controls.
+Plain messages go to the selected session and append Enter. Unknown slash commands go to that session too; prefix a conflicting Onibi command with `//` (for example, `//help`). `/paste` makes the next message literal, with no implicit Enter, and expires after five minutes. Use `/keys` for session-bound `Esc`, `Ctrl-C`, `Enter`, and screen controls.
 
 Codex sessions are semantic, not tmux windows: after `/new codex`, send a normal message to start a turn. A later normal message steers the active turn. `/font` selects the terminal-screen font remotely; JetBrainsMono Nerd Font Mono, Caskaydia Cove Nerd Font Mono, and Go Mono Nerd Font Mono are embedded. To use a locally installed BigBlueTerminal Nerd Font Mono, set `screen.font_path` then `screen.font=custom` locally.
 

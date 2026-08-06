@@ -8,6 +8,7 @@ Onibi long-polls one Telegram bot and accepts one paired private chat. Configure
 - `/sessions`: select an active session.
 - Plain text: literal input plus Enter.
 - `/paste`: next text is literal input with no Enter; the armed state expires after five minutes.
+- Unknown `/commands` go to the selected session. Prefix a conflicting Onibi command with `//`, such as `//help`.
 - `/tail [1..400]`, `/screen`: inspect output.
 - `/font`: choose the terminal screenshot font.
 - `/keys`, `/esc`, `/enter`, `/interrupt`, `/kill`: terminal controls. `/kill` requires a second command within two seconds.

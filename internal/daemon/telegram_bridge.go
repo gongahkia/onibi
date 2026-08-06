@@ -124,8 +124,13 @@ func (b *telegramBridge) handleUpdate(ctx context.Context, update telegram.Updat
 		b.handleReply(ctx, m)
 		return
 	}
-	if strings.HasPrefix(strings.TrimSpace(m.Text), "/") {
-		b.handleCommand(ctx, m.Chat.ID, m.Text)
+	if strings.HasPrefix(m.Text, "//") {
+		literal := *m
+		literal.Text = strings.TrimPrefix(m.Text, "/")
+		b.handleInput(ctx, &literal)
+		return
+	}
+	if strings.HasPrefix(strings.TrimSpace(m.Text), "/") && b.handleCommand(ctx, m.Chat.ID, m.Text) {
 		return
 	}
 	b.handleInput(ctx, m)
@@ -147,7 +152,7 @@ func (b *telegramBridge) authorizedOrPair(ctx context.Context, m *telegram.Messa
 	return false
 }
 
-func (b *telegramBridge) handleCommand(ctx context.Context, chatID int64, text string) {
+func (b *telegramBridge) handleCommand(ctx context.Context, chatID int64, text string) bool {
 	command, arg := splitCommand(text)
 	switch command {
 	case "/start", "/help":
@@ -160,7 +165,7 @@ func (b *telegramBridge) handleCommand(ctx context.Context, chatID int64, text s
 		s, err := b.d.sessionByID(strings.TrimSpace(arg))
 		if err != nil {
 			b.send(ctx, chatID, "Target failed: "+err.Error(), nil)
-			return
+			return true
 		}
 		b.setTarget(ctx, chatID, s.ID)
 		b.send(ctx, chatID, "Target: "+s.Name+" ("+shortID(s.ID)+").", b.sessionControls(ctx, s.ID))
@@ -179,7 +184,7 @@ func (b *telegramBridge) handleCommand(ctx context.Context, chatID int64, text s
 		s, err := b.d.sessionForRPCTarget(b.target(ctx, chatID))
 		if err != nil {
 			b.send(ctx, chatID, "Controls failed: "+err.Error(), nil)
-			return
+			return true
 		}
 		b.send(ctx, chatID, "Controls · "+s.Name, b.sessionControls(ctx, s.ID))
 	case "/interrupt":
@@ -191,8 +196,9 @@ func (b *telegramBridge) handleCommand(ctx context.Context, chatID int64, text s
 	case "/kill":
 		b.handleKill(ctx, chatID)
 	default:
-		b.send(ctx, chatID, "Unknown command. Send /help.", nil)
+		return false
 	}
+	return true
 }
 
 func (b *telegramBridge) handleInput(ctx context.Context, m *telegram.Message) {
@@ -1293,7 +1299,7 @@ func extractNewCWD(args []string) (cwd string, rest []string, err error) {
 	return cwd, rest, nil
 }
 func telegramHelp() string {
-	return "Onibi\n\n/new shell|codex|pi [--name name] [--cwd path]\n/sessions\n/target <id|name>\n/tail [lines]\n/screen\n/font\n/paste\n/keys\n/interrupt\n/esc\n/enter\n/kill\n\nNormal text sends literal input followed by Enter. /paste makes exactly the next message literal without Enter."
+	return "Onibi\n\n/new shell|codex|pi [--name name] [--cwd path]\n/sessions\n/target <id|name>\n/tail [lines]\n/screen\n/font\n/paste\n/keys\n/interrupt\n/esc\n/enter\n/kill\n\nNormal text sends literal input followed by Enter. Unknown /commands go to the selected session; // forces a command through when it conflicts with Onibi. /paste makes exactly the next message literal without Enter."
 }
 func formatApproval(item *approval.Approval, sessionName string) string {
 	if item == nil {

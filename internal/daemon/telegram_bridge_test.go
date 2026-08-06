@@ -95,6 +95,36 @@ func TestTelegramInputUsesLiteralTextEnterAndScreen(t *testing.T) {
 	}
 }
 
+func TestTelegramUnknownSlashCommandReachesSelectedSession(t *testing.T) {
+	b, runner, cleanup := testTelegramBridge(t)
+	defer cleanup()
+	s := NewSession("session-slash", "pi", "pi", 4096)
+	s.TmuxTarget = "onibi-session-slash"
+	if err := b.d.Registry.Add(s); err != nil {
+		t.Fatal(err)
+	}
+	b.setTarget(t.Context(), 42, s.ID)
+	b.handleUpdate(t.Context(), telegram.Update{Message: &telegram.Message{Chat: telegram.Chat{ID: 42, Type: "private"}, From: &telegram.User{ID: 7}, Text: "/usage"}})
+	if len(runner.calls) != 3 || !reflect.DeepEqual(runner.calls[0], []string{"tmux", "send-keys", "-t", "onibi-session-slash", "-l", "--", "/usage"}) {
+		t.Fatalf("calls=%#v", runner.calls)
+	}
+}
+
+func TestTelegramDoubleSlashForcesKnownCommandToSelectedSession(t *testing.T) {
+	b, runner, cleanup := testTelegramBridge(t)
+	defer cleanup()
+	s := NewSession("session-double-slash", "pi", "pi", 4096)
+	s.TmuxTarget = "onibi-session-double-slash"
+	if err := b.d.Registry.Add(s); err != nil {
+		t.Fatal(err)
+	}
+	b.setTarget(t.Context(), 42, s.ID)
+	b.handleUpdate(t.Context(), telegram.Update{Message: &telegram.Message{Chat: telegram.Chat{ID: 42, Type: "private"}, From: &telegram.User{ID: 7}, Text: "//help"}})
+	if len(runner.calls) != 3 || !reflect.DeepEqual(runner.calls[0], []string{"tmux", "send-keys", "-t", "onibi-session-double-slash", "-l", "--", "/help"}) {
+		t.Fatalf("calls=%#v", runner.calls)
+	}
+}
+
 func TestPiFinalScreenWaitsForAgentEnd(t *testing.T) {
 	b, runner, cleanup := testTelegramBridge(t)
 	defer cleanup()
