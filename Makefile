@@ -1,4 +1,4 @@
-.PHONY: build install test vet tidy run clean
+.PHONY: build install test unit e2e-live vet tidy run clean
 
 BINARY := onibi
 NOTIFY_BINARY := onibi-notify
@@ -19,7 +19,14 @@ install: build
 	install -m 0755 $(BUILD_DIR)/$(NOTIFY_BINARY) $(HOME)/.local/bin/$(NOTIFY_BINARY)
 
 test:
+	$(MAKE) unit
+	$(MAKE) e2e-live
+
+unit:
 	go test -race -count=1 ./...
+
+e2e-live:
+	go run ./cmd/onibi-e2e-live
 
 vet:
 	go vet ./...
