@@ -60,7 +60,7 @@ Codex sessions are semantic, not tmux windows: after `/new codex`, send a normal
 
 ## Delivery and uploads
 
-Onibi persists Telegram update claims before executing an input. If it restarts mid-update, it marks that input uncertain and asks you to inspect/resend rather than executing it again. Screens, final tails, and session-ended notices are queued as durable intents and retried; terminal text and PNGs are held only in memory around delivery and never stored in that queue. Automatic generic-input screens are debounced for 500ms, deduplicated by rendered terminal state, and share one capture between the status tail and PNG.
+Onibi persists Telegram update claims before executing an input. If it restarts mid-update, it marks that input uncertain and asks you to inspect/resend rather than executing it again. Screens, final tails, and session-ended notices are queued as durable intents and retried; terminal text and PNGs are held only in memory around delivery and never stored in that queue. Automatic generic-input screens are debounced for 500ms, deduplicated by rendered terminal state, and share one capture between the status tail and PNG. `/status` reports poll freshness, delivery failures, queue depth, and tmux health for each live session; it alerts after three consecutive poll failures, on permanent delivery failures, and once on recovery.
 
 The daemon checks managed tmux sessions every five seconds. A locally ended tmux session becomes unavailable immediately on the next check and sends one ended notice. Change the cadence with `daemon.liveness_interval` (1s–5m).
 
@@ -81,6 +81,19 @@ make vet
 make test
 make build
 ```
+
+`go test ./...` is hermetic. `make test` also runs the mandatory live production-Telegram E2E against a dedicated test account and bot; it creates shell, Codex, and Claude sessions, sends agent prompts, verifies a daemon restart, and attempts cleanup of its temporary state and managed sessions. It fails before execution unless all required credentials are set:
+
+```sh
+export ONIBI_E2E_API_ID=...
+export ONIBI_E2E_API_HASH=...
+export ONIBI_E2E_SESSION_FILE=/secure/path/to/authorized-gotd.session
+export ONIBI_E2E_BOT_USERNAME=your_dedicated_test_bot
+export ONIBI_E2E_BOT_TOKEN=...
+make test
+```
+
+The MTProto account must already be authorized in the supplied `gotd` session file and must be the dedicated bot's private-chat owner. Keep this bot separate from normal Onibi use: the test launches a real daemon and real Codex and Claude turns.
 
 ## License
 

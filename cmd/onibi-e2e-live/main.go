@@ -31,10 +31,9 @@ type liveConfig struct {
 }
 
 type runningDaemon struct {
-	d     *daemon.Daemon
-	stop  context.CancelFunc
-	done  <-chan error
-	state string
+	d    *daemon.Daemon
+	stop context.CancelFunc
+	done <-chan error
 }
 
 func main() {
@@ -137,7 +136,7 @@ func runScenario(ctx context.Context, cfg liveConfig, api *tg.Client, peer *tg.I
 	}
 	defer db.Close()
 	run := startDaemon(ctx, paths, db, cfg.botToken, ownerID)
-	defer run.stop()
+	defer stopAndCleanup(run)
 	if err := exerciseTelegramShell(ctx, api, peer, run.d, root); err != nil {
 		return err
 	}
@@ -152,7 +151,7 @@ func runScenario(ctx context.Context, cfg liveConfig, api *tg.Client, peer *tg.I
 		return err
 	}
 	restarted := startDaemon(ctx, paths, db, cfg.botToken, ownerID)
-	defer restarted.stop()
+	defer stopAndCleanup(restarted)
 	if err := exerciseRestart(ctx, api, peer, restarted.d); err != nil {
 		return err
 	}
@@ -164,7 +163,25 @@ func startDaemon(parent context.Context, paths config.Paths, db *store.DB, token
 	d := daemon.New(daemon.Options{Paths: paths, DB: db, Log: slog.New(slog.NewTextHandler(io.Discard, nil)), TelegramToken: token, TelegramOwnerID: ownerID, TelegramOwnerUserID: ownerID, ShellDefault: "zsh", ShellLogin: false, SkipRestore: false})
 	done := make(chan error, 1)
 	go func() { done <- d.Run(ctx) }()
-	return runningDaemon{d: d, stop: stop, done: done, state: paths.StateDir}
+	return runningDaemon{d: d, stop: stop, done: done}
+}
+
+func cleanupSessions(d *daemon.Daemon) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	for _, session := range d.Registry.List() {
+		if !session.Ended() {
+			_ = d.ControlSession(ctx, session.ID, "kill")
+		}
+	}
+}
+
+func stopAndCleanup(run runningDaemon) {
+	cleanupSessions(run.d)
+	run.stop()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	_ = awaitStop(ctx, run.done)
 }
 
 func awaitStop(ctx context.Context, done <-chan error) error {
