@@ -94,6 +94,29 @@ func TestTelegramInputUsesLiteralTextEnterAndScreen(t *testing.T) {
 	}
 }
 
+func TestTmuxSessionsAutoNameAndPersist(t *testing.T) {
+	b, runner, cleanup := testTelegramBridge(t)
+	defer cleanup()
+	first, err := b.d.StartTmuxSession(t.Context(), "", "shell", "/bin/sh", nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := b.d.StartTmuxSession(t.Context(), "", "shell", "/bin/sh", nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Name != "shell" || second.Name != "shell-2" {
+		t.Fatalf("names=%q,%q", first.Name, second.Name)
+	}
+	rows, err := b.d.DB.SessionsActive(t.Context())
+	if err != nil || len(rows) != 2 {
+		t.Fatalf("sessions=%#v err=%v", rows, err)
+	}
+	if len(runner.calls) != 4 {
+		t.Fatalf("tmux calls=%#v", runner.calls)
+	}
+}
+
 func TestTelegramTargetCardBindsSession(t *testing.T) {
 	b, _, cleanup := testTelegramBridge(t)
 	defer cleanup()
@@ -123,6 +146,23 @@ func TestTelegramCardsAreSingleUse(t *testing.T) {
 	}
 	if _, ok := b.takeCard(t.Context(), token); ok {
 		t.Fatal("card could be replayed")
+	}
+}
+
+func TestTelegramCardsExpireInMemory(t *testing.T) {
+	b, _, cleanup := testTelegramBridge(t)
+	defer cleanup()
+	token, err := b.newCard(t.Context(), telegramCard{Kind: "screen", SessionID: "session-5"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.mu.Lock()
+	card := b.cards[token]
+	card.ExpiresAt = time.Now().Add(-time.Second).Unix()
+	b.cards[token] = card
+	b.mu.Unlock()
+	if _, ok := b.takeCard(t.Context(), token); ok {
+		t.Fatal("expired card accepted")
 	}
 }
 
@@ -177,5 +217,19 @@ func TestExtractNewCWD(t *testing.T) {
 	}
 	if _, _, err := extractNewCWD([]string{"--cwd"}); err == nil {
 		t.Fatal("missing cwd accepted")
+	}
+}
+
+func TestParseNewSessionSupportsQuotedArguments(t *testing.T) {
+	agent, name, args, err := parseNewSession(`shell --name work-tree --cwd '/tmp/a project' --flag "value here"`)
+	if err != nil || agent != "shell" || name != "work-tree" {
+		t.Fatalf("agent=%q name=%q args=%#v err=%v", agent, name, args, err)
+	}
+	cwd, args, err := extractNewCWD(args)
+	if err != nil || cwd != "/tmp/a project" || !reflect.DeepEqual(args, []string{"--flag", "value here"}) {
+		t.Fatalf("cwd=%q args=%#v err=%v", cwd, args, err)
+	}
+	if _, _, _, err := parseNewSession(`shell --cwd "unfinished`); err == nil {
+		t.Fatal("unterminated quote accepted")
 	}
 }

@@ -61,11 +61,12 @@ func (d *Daemon) restoreSessions(ctx context.Context) {
 	live, err := ctrl.ListSessions(ctx)
 	if err != nil {
 		d.Log.Warn("tmux discovery", "err", err)
-		return
 	}
 	present := map[string]bool{}
-	for _, s := range live {
-		present[s.Name] = true
+	if err == nil {
+		for _, s := range live {
+			present[s.Name] = true
+		}
 	}
 	for _, row := range rows {
 		if row.Transport == "codex" {
@@ -74,10 +75,14 @@ func (d *Daemon) restoreSessions(ctx context.Context) {
 			}
 			continue
 		}
-		if row.Transport != "tmux" || !present[row.TmuxTarget] {
-			if row.Transport == "tmux" {
-				_ = d.DB.SessionMarkEnded(ctx, row.ID, row.LastActivity)
-			}
+		if row.Transport != "tmux" {
+			continue
+		}
+		if err != nil {
+			continue
+		}
+		if !present[row.TmuxTarget] {
+			_ = d.DB.SessionMarkEnded(ctx, row.ID, row.LastActivity)
 			continue
 		}
 		s := newSessionAt(row.ID, row.Name, row.Agent, d.bufferSize(), row.StartedAt, row.LastActivity)

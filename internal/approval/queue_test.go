@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -34,7 +33,7 @@ func TestRequestAndDecideApprove(t *testing.T) {
 	if id == "" {
 		t.Fatal("empty id")
 	}
-	if err := q.Decide(ctx, id, VerdictApprove, "", "", 1234); err != nil {
+	if err := q.Decide(ctx, id, VerdictApprove, "", 1234); err != nil {
 		t.Fatalf("decide: %v", err)
 	}
 	select {
@@ -54,52 +53,6 @@ func TestRequestAndDecideApprove(t *testing.T) {
 	}
 }
 
-func TestDecideEditedCarriesPayload(t *testing.T) {
-	db := openDB(t)
-	q := New(db, DefaultTTL)
-	ctx := context.Background()
-	id, ch, _ := q.Request(ctx, "s", "pi", "Bash", `{"command":"rm -rf /tmp/data"}`)
-	edited := `{"command":"mv /tmp/data /tmp/data.bak"}`
-	if err := q.Decide(ctx, id, VerdictEdit, edited, "", 1); err != nil {
-		t.Fatal(err)
-	}
-	d := <-ch
-	if d.Verdict != VerdictEdit {
-		t.Fatalf("verdict = %s", d.Verdict)
-	}
-	if string(d.UpdatedInput) != edited {
-		t.Fatalf("updated_input = %q", string(d.UpdatedInput))
-	}
-	audit, err := db.AuditRecent(ctx, 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(audit) != 1 || !strings.Contains(audit[0].Detail, "original_sha256=") ||
-		!strings.Contains(audit[0].Detail, "edited_sha256=") ||
-		!strings.Contains(audit[0].Detail, "diff_sha256=") {
-		t.Fatalf("audit = %#v", audit)
-	}
-}
-
-func TestDecideEditedRejectsNonObjectPayload(t *testing.T) {
-	q := New(openDB(t), DefaultTTL)
-	for _, edited := range []string{"", "null", "[]", `"text"`, "1", "true", "{"} {
-		t.Run(edited, func(t *testing.T) {
-			id, _, err := q.Request(t.Context(), "s", "pi", "write", `{}`)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := q.Decide(t.Context(), id, VerdictEdit, edited, "", 1); err == nil {
-				t.Fatalf("accepted %q", edited)
-			}
-			a, err := q.Get(t.Context(), id)
-			if err != nil || a.State != StatePending {
-				t.Fatalf("approval=%+v err=%v", a, err)
-			}
-		})
-	}
-}
-
 func TestDecideOnlyOnceWins(t *testing.T) {
 	q := New(openDB(t), DefaultTTL)
 	ctx := context.Background()
@@ -111,7 +64,7 @@ func TestDecideOnlyOnceWins(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			err := q.Decide(ctx, id, VerdictApprove, "", "", 1)
+			err := q.Decide(ctx, id, VerdictApprove, "", 1)
 			switch {
 			case err == nil:
 				wins.Add(1)
@@ -156,7 +109,7 @@ func TestDecideIdempotentlyReplaysOnlySameDecision(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			res, err := q.DecideIdempotently(ctx, id, VerdictApprove, "", "", 1)
+			res, err := q.DecideIdempotently(ctx, id, VerdictApprove, "", 1)
 			if err != nil {
 				errs <- err
 				return
@@ -196,7 +149,7 @@ func TestDecideIdempotentlyReplaysOnlySameDecision(t *testing.T) {
 		t.Fatalf("duplicate event = %#v", ev)
 	case <-time.After(50 * time.Millisecond):
 	}
-	if _, err := q.DecideIdempotently(ctx, id, VerdictDeny, "", "", 1); !errors.Is(err, ErrAlreadyDecided) {
+	if _, err := q.DecideIdempotently(ctx, id, VerdictDeny, "", 1); !errors.Is(err, ErrAlreadyDecided) {
 		t.Fatalf("conflicting replay err = %v", err)
 	}
 	n, err := q.db.AuditCount(ctx)
@@ -210,7 +163,7 @@ func TestDecideIdempotentlyReplaysOnlySameDecision(t *testing.T) {
 
 func TestDecideRejectsUnknown(t *testing.T) {
 	q := New(openDB(t), DefaultTTL)
-	err := q.Decide(context.Background(), "deadbeef", VerdictApprove, "", "", 1)
+	err := q.Decide(context.Background(), "deadbeef", VerdictApprove, "", 1)
 	if !errors.Is(err, ErrUnknownApproval) {
 		t.Fatalf("expected ErrUnknownApproval, got %v", err)
 	}
@@ -257,7 +210,7 @@ func TestLateUserDecisionExpiresInsteadOfApproving(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = q.DecideWithResult(ctx, id, VerdictApprove, "", "", 1)
+	_, err = q.DecideWithResult(ctx, id, VerdictApprove, "", 1)
 	if !errors.Is(err, ErrExpired) {
 		t.Fatalf("expected ErrExpired, got %v", err)
 	}
@@ -290,7 +243,7 @@ func TestPendingReturnsOnlyUnexpiredPending(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := q.Decide(ctx, decided, VerdictDeny, "", "no", 1); err != nil {
+	if err := q.Decide(ctx, decided, VerdictDeny, "no", 1); err != nil {
 		t.Fatal(err)
 	}
 	got, err := q.Pending(ctx)
@@ -299,28 +252,6 @@ func TestPendingReturnsOnlyUnexpiredPending(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].ID != keep {
 		t.Fatalf("pending = %+v", got)
-	}
-}
-
-func TestDropWaiterStopsDelivery(t *testing.T) {
-	q := New(openDB(t), DefaultTTL)
-	ctx := context.Background()
-	id, ch, _ := q.Request(ctx, "s", "pi", "Bash", "{}")
-	q.DropWaiter(id)
-	// decide should not panic and channel should not receive
-	if err := q.Decide(ctx, id, VerdictApprove, "", "", 1); err != nil {
-		t.Fatal(err)
-	}
-	select {
-	case <-ch:
-		t.Fatal("channel received after DropWaiter")
-	case <-time.After(50 * time.Millisecond):
-		// good — orphaned waiter, no delivery
-	}
-	// row still terminal in DB (audit trail preserved)
-	a, _ := q.Get(ctx, id)
-	if a.State != StateApproved {
-		t.Fatalf("state = %s", a.State)
 	}
 }
 
@@ -358,7 +289,7 @@ func TestCancelPendingFailsClosed(t *testing.T) {
 	if got := <-ch; got.Verdict != VerdictCancel || got.Reason != "daemon restarted" {
 		t.Fatalf("decision=%#v", got)
 	}
-	if err := q.Decide(ctx, id, VerdictApprove, "", "", 1); !errors.Is(err, ErrAlreadyDecided) {
+	if err := q.Decide(ctx, id, VerdictApprove, "", 1); !errors.Is(err, ErrAlreadyDecided) {
 		t.Fatalf("late decision=%v", err)
 	}
 }
@@ -367,7 +298,7 @@ func TestDenyPersistsReasonAndDecider(t *testing.T) {
 	q := New(openDB(t), DefaultTTL)
 	ctx := context.Background()
 	id, ch, _ := q.Request(ctx, "s", "pi", "Bash", "{}")
-	if err := q.Decide(ctx, id, VerdictDeny, "", "too risky", 42); err != nil {
+	if err := q.Decide(ctx, id, VerdictDeny, "too risky", 42); err != nil {
 		t.Fatal(err)
 	}
 	d := <-ch
@@ -380,19 +311,6 @@ func TestDenyPersistsReasonAndDecider(t *testing.T) {
 	}
 }
 
-func TestSetMessagePersists(t *testing.T) {
-	q := New(openDB(t), DefaultTTL)
-	ctx := context.Background()
-	id, _, _ := q.Request(ctx, "s", "pi", "Bash", "{}")
-	if err := q.SetMessage(ctx, id, 100, 200); err != nil {
-		t.Fatal(err)
-	}
-	a, _ := q.Get(ctx, id)
-	if a.ChatID != 100 || a.MsgID != 200 {
-		t.Fatalf("got chat=%d msg=%d", a.ChatID, a.MsgID)
-	}
-}
-
 func TestSubscribeReceivesQueueTransitions(t *testing.T) {
 	q := New(openDB(t), DefaultTTL)
 	events, unsub, err := q.Subscribe()
@@ -401,15 +319,15 @@ func TestSubscribeReceivesQueueTransitions(t *testing.T) {
 	}
 	defer unsub()
 	ctx := context.Background()
-	id, _, err := q.Request(ctx, "s", "pi", "Bash", `{"command":"ls"}`, "diff")
+	id, _, err := q.Request(ctx, "s", "pi", "Bash", `{"command":"ls"}`)
 	if err != nil {
 		t.Fatal(err)
 	}
 	ev := readApprovalEvent(t, events)
-	if ev.Type != EventRequested || ev.Approval.ID != id || ev.Approval.State != StatePending || ev.Approval.UnifiedDiff != "diff" {
+	if ev.Type != EventRequested || ev.Approval.ID != id || ev.Approval.State != StatePending {
 		t.Fatalf("request event = %#v", ev)
 	}
-	if err := q.Decide(ctx, id, VerdictDeny, "", "no", 1); err != nil {
+	if err := q.Decide(ctx, id, VerdictDeny, "no", 1); err != nil {
 		t.Fatal(err)
 	}
 	ev = readApprovalEvent(t, events)
@@ -460,35 +378,6 @@ func TestSubscribeRejectsWhenFullAndUnsubscribeReleasesSlot(t *testing.T) {
 		t.Fatalf("subscribe after unsubscribe: %v", err)
 	}
 	defer unsub3()
-}
-
-func TestRequestSilentSkipsRequestedEvent(t *testing.T) {
-	q := New(openDB(t), DefaultTTL)
-	events, unsub, err := q.Subscribe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer unsub()
-	ctx := context.Background()
-	id, ch, err := q.RequestSilent(ctx, "s", "pi", "Bash", `{"command":"ls"}`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	select {
-	case ev := <-events:
-		t.Fatalf("unexpected event before decision: %#v", ev)
-	default:
-	}
-	if err := q.Decide(ctx, id, VerdictApprove, "", "", 0); err != nil {
-		t.Fatal(err)
-	}
-	if got := <-ch; got.Verdict != VerdictApprove {
-		t.Fatalf("verdict = %s", got.Verdict)
-	}
-	ev := readApprovalEvent(t, events)
-	if ev.Type != EventDecided || ev.Approval.ID != id {
-		t.Fatalf("event = %#v", ev)
-	}
 }
 
 func readApprovalEvent(t *testing.T, events <-chan Event) Event {

@@ -36,4 +36,4 @@ checksum:
   algorithm: sha256
 
 snapshot:
-  version_template: 4.0.0-dev
+  version_template: 0.1.0-dev

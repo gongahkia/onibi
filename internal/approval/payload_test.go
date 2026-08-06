@@ -79,11 +79,11 @@ func TestDecisionAuditHashesCanonicalInputOnly(t *testing.T) {
 		Agent:     "pi",
 		Tool:      "Bash",
 		Input:     []byte(`{"command":"deploy --token raw-sensitive-value"}`),
-	}, "")
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := q.Decide(context.Background(), id, VerdictDeny, "", "no", 7); err != nil {
+	if err := q.Decide(context.Background(), id, VerdictDeny, "no", 7); err != nil {
 		t.Fatal(err)
 	}
 	entries, err := db.AuditRecent(context.Background(), 1)

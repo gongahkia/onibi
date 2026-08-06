@@ -5,9 +5,9 @@ import (
 	"testing"
 )
 
-func TestLoadMapsLegacyOutputBufferAndSaveWritesCurrentKey(t *testing.T) {
+func TestLoadAndSaveOutputBuffer(t *testing.T) {
 	paths := Paths{StateDir: t.TempDir(), Config: filepath.Join(t.TempDir(), "config.yaml")}
-	cfg, meta, err := loadBytes(paths.Config, []byte("daemon:\n  pty_buffer_bytes: 8192\nshell:\n  default: bash\n  login: false\n"), Default(), LoadMeta{Path: paths.Config, Explicit: map[string]bool{}})
+	cfg, meta, err := loadBytes(paths.Config, []byte("daemon:\n  output_buffer_bytes: 8192\nshell:\n  default: bash\n  login: false\n"), Default(), LoadMeta{Path: paths.Config, Explicit: map[string]bool{}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -23,8 +23,8 @@ func TestLoadMapsLegacyOutputBufferAndSaveWritesCurrentKey(t *testing.T) {
 	}
 }
 
-func TestSetRejectsRemovedPTYKey(t *testing.T) {
-	if err := Set(&Config{}, "daemon.pty_buffer_bytes", "8192"); err == nil {
-		t.Fatal("accepted removed key")
+func TestSetRejectsUnknownKey(t *testing.T) {
+	if err := Set(&Config{}, "daemon.unused", "8192"); err == nil {
+		t.Fatal("accepted unknown key")
 	}
 }

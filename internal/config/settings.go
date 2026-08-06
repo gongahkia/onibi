@@ -94,7 +94,6 @@ func loadBytes(path string, b []byte, cfg Config, meta LoadMeta) (Config, LoadMe
 			ApprovalTimeout       *Duration `yaml:"approval_timeout"`
 			ApprovalSweepInterval *Duration `yaml:"approval_sweep_interval"`
 			OutputBufferBytes     *int      `yaml:"output_buffer_bytes"`
-			LegacyPTYBufferBytes  *int      `yaml:"pty_buffer_bytes"`
 			MaxSubscribers        *int      `yaml:"max_subscribers"`
 		} `yaml:"daemon"`
 		Shell struct {
@@ -116,9 +115,6 @@ func loadBytes(path string, b []byte, cfg Config, meta LoadMeta) (Config, LoadMe
 	}
 	if raw.Daemon.OutputBufferBytes != nil {
 		cfg.Daemon.OutputBufferBytes = *raw.Daemon.OutputBufferBytes
-		meta.Explicit["daemon.output_buffer_bytes"] = true
-	} else if raw.Daemon.LegacyPTYBufferBytes != nil {
-		cfg.Daemon.OutputBufferBytes = *raw.Daemon.LegacyPTYBufferBytes
 		meta.Explicit["daemon.output_buffer_bytes"] = true
 	}
 	if raw.Daemon.MaxSubscribers != nil {

@@ -23,7 +23,7 @@ func BenchmarkApprovalDecisionRoundTrip(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		if err := q.Decide(ctx, id, VerdictApprove, "", "", 1); err != nil {
+		if err := q.Decide(ctx, id, VerdictApprove, "", 1); err != nil {
 			b.Fatal(err)
 		}
 		select {

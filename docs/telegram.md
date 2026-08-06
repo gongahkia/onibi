@@ -4,10 +4,10 @@ Onibi long-polls one Telegram bot and accepts one paired private chat. Configure
 
 ## Session control
 
-- `/new shell|codex|pi [--name name] [--cwd path]`: create a session. The working directory must exist locally.
+- `/new shell|codex|pi [--name name] [--cwd path]`: create a session. The working directory must exist locally; names use letters, digits, `.`, `_`, and `-`.
 - `/sessions`: select an active session.
 - Plain text: literal input plus Enter.
-- `/paste`: next text is literal input with no Enter.
+- `/paste`: next text is literal input with no Enter; the armed state expires after five minutes.
 - `/tail [1..400]`, `/screen`: inspect output.
 - `/keys`, `/esc`, `/enter`, `/interrupt`, `/kill`: terminal controls. `/kill` requires a second command within two seconds.
 

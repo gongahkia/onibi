@@ -91,6 +91,6 @@ func PayloadForApproval(a Approval) (Payload, error) {
 			Command:  Scrub(req.Details.Command),
 			FilePath: Scrub(req.Details.FilePath),
 		},
-		Risk:        req.Risk,
+		Risk: req.Risk,
 	}, nil
 }

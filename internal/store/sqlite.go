@@ -53,14 +53,13 @@ CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY);
 CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY,value BLOB NOT NULL,expire INTEGER NOT NULL DEFAULT 0);
 CREATE INDEX IF NOT EXISTS idx_kv_expire ON kv(expire);
 CREATE TABLE IF NOT EXISTS approvals (
- id TEXT PRIMARY KEY,session_id TEXT NOT NULL,agent TEXT NOT NULL,tool TEXT NOT NULL,input_json TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending',edited_json TEXT,reason TEXT,msg_id INTEGER,chat_id INTEGER,created_at INTEGER NOT NULL,decided_at INTEGER,decided_by INTEGER,expires_at INTEGER NOT NULL
+ id TEXT PRIMARY KEY,session_id TEXT NOT NULL,agent TEXT NOT NULL,tool TEXT NOT NULL,input_json TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending',reason TEXT,created_at INTEGER NOT NULL,decided_at INTEGER,decided_by INTEGER,expires_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_approvals_state ON approvals(state,expires_at);
-CREATE INDEX IF NOT EXISTS idx_approvals_msg ON approvals(chat_id,msg_id);
 CREATE TABLE IF NOT EXISTS audit (id INTEGER PRIMARY KEY AUTOINCREMENT,ts INTEGER NOT NULL,action TEXT NOT NULL,session_id TEXT,payload_hash TEXT,decided_by_chat INTEGER,detail TEXT);
 CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit(ts);
 CREATE TABLE IF NOT EXISTS sessions (
- id TEXT PRIMARY KEY,name TEXT NOT NULL,agent TEXT NOT NULL,cwd TEXT,cmd TEXT,transport TEXT NOT NULL DEFAULT 'tmux',tmux_target TEXT,started_at INTEGER NOT NULL,last_activity INTEGER,recovery_state TEXT NOT NULL DEFAULT 'healthy',recovery_reason TEXT NOT NULL DEFAULT '',recovery_updated_at INTEGER NOT NULL DEFAULT 0,ended_at INTEGER
+ id TEXT PRIMARY KEY,name TEXT NOT NULL,agent TEXT NOT NULL,cwd TEXT,cmd TEXT,transport TEXT NOT NULL DEFAULT 'tmux',tmux_target TEXT,started_at INTEGER NOT NULL,last_activity INTEGER,ended_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_name ON sessions(name);
 `
@@ -71,7 +70,7 @@ func (d *DB) migrate() error {
 	if _, err := d.sql.ExecContext(ctx, schema); err != nil {
 		return fmt.Errorf("apply schema: %w", err)
 	}
-	for _, migration := range []string{"ALTER TABLE approvals ADD COLUMN reason TEXT", "ALTER TABLE approvals ADD COLUMN decided_by INTEGER", "ALTER TABLE sessions ADD COLUMN cmd TEXT", "ALTER TABLE sessions ADD COLUMN last_activity INTEGER", "ALTER TABLE sessions ADD COLUMN recovery_state TEXT NOT NULL DEFAULT 'healthy'", "ALTER TABLE sessions ADD COLUMN recovery_reason TEXT NOT NULL DEFAULT ''", "ALTER TABLE sessions ADD COLUMN recovery_updated_at INTEGER NOT NULL DEFAULT 0"} {
+	for _, migration := range []string{"ALTER TABLE approvals ADD COLUMN reason TEXT", "ALTER TABLE approvals ADD COLUMN decided_by INTEGER", "ALTER TABLE sessions ADD COLUMN cmd TEXT", "ALTER TABLE sessions ADD COLUMN last_activity INTEGER"} {
 		_, _ = d.sql.ExecContext(ctx, migration)
 	}
 	_, err := d.sql.ExecContext(ctx, "INSERT OR IGNORE INTO schema_version(version) VALUES (1)")

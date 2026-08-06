@@ -33,7 +33,7 @@ The first start prints a pairing command. Send it from the one Telegram account 
 /kill
 ```
 
-Plain messages go to the selected session and append Enter. `/paste` makes the next message literal, with no implicit Enter. Use `/keys` for session-bound `Esc`, `Ctrl-C`, `Enter`, and screen controls.
+Plain messages go to the selected session and append Enter. `/paste` makes the next message literal, with no implicit Enter, and expires after five minutes. Use `/keys` for session-bound `Esc`, `Ctrl-C`, `Enter`, and screen controls.
 
 ## Local CLI
 

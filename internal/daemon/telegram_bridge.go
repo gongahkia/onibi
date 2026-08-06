@@ -24,6 +24,7 @@ const (
 	telegramCardPrefix   = "telegram.card."
 	telegramReplyPrefix  = "telegram.reply."
 	telegramCardTTL      = 24 * time.Hour
+	telegramPasteTTL     = 5 * time.Minute
 )
 
 var codexStatusDelay = time.Second
@@ -37,6 +38,7 @@ type telegramCard struct {
 	Payload    json.RawMessage     `json:"payload,omitempty"`
 	Question   int                 `json:"question,omitempty"`
 	Answers    map[string][]string `json:"answers,omitempty"`
+	ExpiresAt  int64               `json:"expires_at"`
 }
 type telegramReply struct {
 	SessionID string              `json:"session_id"`
@@ -864,6 +866,10 @@ func (b *telegramBridge) sendScreen(ctx context.Context, chatID int64, sessionID
 	b.d.audit(ctx, "telegram.screen", sessionID, "", chatID, "sent")
 }
 func (b *telegramBridge) newCard(ctx context.Context, card telegramCard) (string, error) {
+	now := time.Now()
+	if card.ExpiresAt == 0 {
+		card.ExpiresAt = now.Add(telegramCardTTL).Unix()
+	}
 	payload, err := json.Marshal(card)
 	if err != nil {
 		return "", err
@@ -875,6 +881,11 @@ func (b *telegramBridge) newCard(ctx context.Context, card telegramCard) (string
 		}
 		token := hex.EncodeToString(raw[:])
 		b.mu.Lock()
+		for key, existing := range b.cards {
+			if existing.ExpiresAt > 0 && existing.ExpiresAt <= now.Unix() {
+				delete(b.cards, key)
+			}
+		}
 		_, exists := b.cards[token]
 		if !exists {
 			b.cards[token] = card
@@ -884,7 +895,7 @@ func (b *telegramBridge) newCard(ctx context.Context, card telegramCard) (string
 			continue
 		}
 		if b.d.DB != nil {
-			if err := b.d.DB.KVSet(ctx, telegramCardPrefix+token, payload, time.Now().Add(telegramCardTTL).Unix()); err != nil {
+			if err := b.d.DB.KVSet(ctx, telegramCardPrefix+token, payload, card.ExpiresAt); err != nil {
 				b.mu.Lock()
 				delete(b.cards, token)
 				b.mu.Unlock()
@@ -909,6 +920,9 @@ func (b *telegramBridge) takeCard(ctx context.Context, token string) (telegramCa
 	}
 	if b.d.DB != nil {
 		_ = b.d.DB.KVDel(ctx, telegramCardPrefix+token)
+	}
+	if !ok || (card.ExpiresAt > 0 && card.ExpiresAt <= time.Now().Unix()) {
+		return telegramCard{}, false
 	}
 	return card, ok
 }
@@ -946,7 +960,7 @@ func (b *telegramBridge) setTarget(ctx context.Context, chat int64, id string) {
 }
 func (b *telegramBridge) setPaste(ctx context.Context, chat int64) {
 	if b.d.DB != nil {
-		_ = b.d.DB.KVSetString(ctx, telegramPastePrefix+strconv.FormatInt(chat, 10), "1")
+		_ = b.d.DB.KVSet(ctx, telegramPastePrefix+strconv.FormatInt(chat, 10), []byte("1"), time.Now().Add(telegramPasteTTL).Unix())
 	}
 }
 func (b *telegramBridge) consumePaste(ctx context.Context, chat int64) bool {
@@ -1052,7 +1066,10 @@ func splitCommand(text string) (string, string) {
 	return command, strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(text), fields[0]))
 }
 func parseNewSession(arg string) (agent, name string, args []string, err error) {
-	fields := strings.Fields(arg)
+	fields, err := splitTelegramArgs(arg)
+	if err != nil {
+		return "", "", nil, err
+	}
 	if len(fields) == 0 {
 		return "shell", "", nil, nil
 	}
@@ -1072,6 +1089,53 @@ func parseNewSession(arg string) (agent, name string, args []string, err error) 
 		return "", "", nil, fmt.Errorf("name too long")
 	}
 	return agent, name, args, nil
+}
+
+func splitTelegramArgs(input string) ([]string, error) {
+	var fields []string
+	var current strings.Builder
+	quote := byte(0)
+	escaped := false
+	flush := func() {
+		if current.Len() > 0 {
+			fields = append(fields, current.String())
+			current.Reset()
+		}
+	}
+	for i := 0; i < len(input); i++ {
+		ch := input[i]
+		if escaped {
+			current.WriteByte(ch)
+			escaped = false
+			continue
+		}
+		if ch == '\\' && quote != '\'' {
+			escaped = true
+			continue
+		}
+		if quote != 0 {
+			if ch == quote {
+				quote = 0
+			} else {
+				current.WriteByte(ch)
+			}
+			continue
+		}
+		if ch == '\'' || ch == '"' {
+			quote = ch
+			continue
+		}
+		if ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' {
+			flush()
+			continue
+		}
+		current.WriteByte(ch)
+	}
+	if escaped || quote != 0 {
+		return nil, fmt.Errorf("unterminated quoted argument")
+	}
+	flush()
+	return fields, nil
 }
 func extractNewCWD(args []string) (cwd string, rest []string, err error) {
 	for i := 0; i < len(args); i++ {

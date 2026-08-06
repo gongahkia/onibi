@@ -49,10 +49,10 @@ func StateForVerdict(v Verdict) string {
 // Approval is the in-memory record of a pending or decided approval.
 // Persistence schema lives in internal/store (table: approvals).
 type Approval struct {
-	ID          string
-	SessionID   string
-	Agent       string
-	Tool        string
+	ID        string
+	SessionID string
+	Agent     string
+	Tool      string
 	InputJSON string // raw Pi tool input
 	State     string
 	Reason    string // populated when State == StateDenied/Expired/Cancelled
