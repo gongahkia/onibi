@@ -43,6 +43,9 @@ type Daemon struct {
 	ApprovalSweepInterval Duration `yaml:"approval_sweep_interval" json:"approval_sweep_interval"`
 	OutputBufferBytes     int      `yaml:"output_buffer_bytes" json:"output_buffer_bytes"`
 	MaxSubscribers        int      `yaml:"max_subscribers" json:"max_subscribers"`
+	LivenessInterval      Duration `yaml:"liveness_interval" json:"liveness_interval"`
+	UploadTTL             Duration `yaml:"upload_ttl" json:"upload_ttl"`
+	UploadMaxBytes        int64    `yaml:"upload_max_bytes" json:"upload_max_bytes"`
 }
 
 type Shell struct {
@@ -71,7 +74,7 @@ type KeyInfo struct {
 
 func Default() Config {
 	return Config{
-		Daemon: Daemon{ApprovalTimeout: Duration(5 * time.Minute), ApprovalSweepInterval: Duration(15 * time.Second), OutputBufferBytes: 64 * 1024, MaxSubscribers: 32},
+		Daemon: Daemon{ApprovalTimeout: Duration(5 * time.Minute), ApprovalSweepInterval: Duration(15 * time.Second), OutputBufferBytes: 64 * 1024, MaxSubscribers: 32, LivenessInterval: Duration(5 * time.Second), UploadTTL: Duration(7 * 24 * time.Hour), UploadMaxBytes: 20 << 20},
 		Shell:  Shell{Default: "auto", Login: true},
 		Screen: Screen{Font: "jetbrains-mono-nerd"},
 	}
@@ -102,6 +105,9 @@ func loadBytes(path string, b []byte, cfg Config, meta LoadMeta) (Config, LoadMe
 			ApprovalSweepInterval *Duration `yaml:"approval_sweep_interval"`
 			OutputBufferBytes     *int      `yaml:"output_buffer_bytes"`
 			MaxSubscribers        *int      `yaml:"max_subscribers"`
+			LivenessInterval      *Duration `yaml:"liveness_interval"`
+			UploadTTL             *Duration `yaml:"upload_ttl"`
+			UploadMaxBytes        *int64    `yaml:"upload_max_bytes"`
 		} `yaml:"daemon"`
 		Shell struct {
 			Default *string `yaml:"default"`
@@ -131,6 +137,18 @@ func loadBytes(path string, b []byte, cfg Config, meta LoadMeta) (Config, LoadMe
 	if raw.Daemon.MaxSubscribers != nil {
 		cfg.Daemon.MaxSubscribers = *raw.Daemon.MaxSubscribers
 		meta.Explicit["daemon.max_subscribers"] = true
+	}
+	if raw.Daemon.LivenessInterval != nil {
+		cfg.Daemon.LivenessInterval = *raw.Daemon.LivenessInterval
+		meta.Explicit["daemon.liveness_interval"] = true
+	}
+	if raw.Daemon.UploadTTL != nil {
+		cfg.Daemon.UploadTTL = *raw.Daemon.UploadTTL
+		meta.Explicit["daemon.upload_ttl"] = true
+	}
+	if raw.Daemon.UploadMaxBytes != nil {
+		cfg.Daemon.UploadMaxBytes = *raw.Daemon.UploadMaxBytes
+		meta.Explicit["daemon.upload_max_bytes"] = true
 	}
 	if raw.Shell.Default != nil {
 		cfg.Shell.Default = strings.TrimSpace(*raw.Shell.Default)
@@ -187,6 +205,15 @@ func (c Config) Validate() error {
 	}
 	if c.Daemon.MaxSubscribers < 1 || c.Daemon.MaxSubscribers > 4096 {
 		return errors.New("daemon.max_subscribers must be between 1 and 4096")
+	}
+	if c.Daemon.LivenessInterval.Std() < time.Second || c.Daemon.LivenessInterval.Std() > 5*time.Minute {
+		return errors.New("daemon.liveness_interval must be between 1s and 5m")
+	}
+	if c.Daemon.UploadTTL.Std() < time.Hour || c.Daemon.UploadTTL.Std() > 30*24*time.Hour {
+		return errors.New("daemon.upload_ttl must be between 1h and 720h")
+	}
+	if c.Daemon.UploadMaxBytes < 1<<20 || c.Daemon.UploadMaxBytes > 100<<20 {
+		return errors.New("daemon.upload_max_bytes must be between 1048576 and 104857600")
 	}
 	if strings.TrimSpace(c.Shell.Default) == "" {
 		return errors.New("shell.default required")
@@ -248,6 +275,24 @@ func Set(cfg *Config, key, value string) error {
 			return err
 		}
 		cfg.Daemon.MaxSubscribers = n
+	case "daemon.liveness_interval":
+		d, err := ParseDuration(value)
+		if err != nil {
+			return err
+		}
+		cfg.Daemon.LivenessInterval = Duration(d)
+	case "daemon.upload_ttl":
+		d, err := ParseDuration(value)
+		if err != nil {
+			return err
+		}
+		cfg.Daemon.UploadTTL = Duration(d)
+	case "daemon.upload_max_bytes":
+		n, err := strconv.ParseInt(value, 10, 64)
+		if err != nil {
+			return err
+		}
+		cfg.Daemon.UploadMaxBytes = n
 	case "shell.default":
 		cfg.Shell.Default = strings.TrimSpace(value)
 	case "shell.login":
@@ -276,6 +321,12 @@ func Get(cfg Config, key string) (string, error) {
 		return strconv.Itoa(cfg.Daemon.OutputBufferBytes), nil
 	case "daemon.max_subscribers":
 		return strconv.Itoa(cfg.Daemon.MaxSubscribers), nil
+	case "daemon.liveness_interval":
+		return cfg.Daemon.LivenessInterval.String(), nil
+	case "daemon.upload_ttl":
+		return cfg.Daemon.UploadTTL.String(), nil
+	case "daemon.upload_max_bytes":
+		return strconv.FormatInt(cfg.Daemon.UploadMaxBytes, 10), nil
 	case "shell.default":
 		return cfg.Shell.Default, nil
 	case "shell.login":

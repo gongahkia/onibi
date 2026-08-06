@@ -62,6 +62,17 @@ CREATE TABLE IF NOT EXISTS sessions (
  id TEXT PRIMARY KEY,name TEXT NOT NULL,agent TEXT NOT NULL,cwd TEXT,cmd TEXT,transport TEXT NOT NULL DEFAULT 'tmux',tmux_target TEXT,started_at INTEGER NOT NULL,last_activity INTEGER,ended_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_name ON sessions(name);
+CREATE TABLE IF NOT EXISTS telegram_cursor (
+ id INTEGER PRIMARY KEY CHECK(id=1),next_offset INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS telegram_updates (
+ update_id INTEGER PRIMARY KEY,state TEXT NOT NULL,received_at INTEGER NOT NULL,completed_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_telegram_updates_state ON telegram_updates(state,received_at);
+CREATE TABLE IF NOT EXISTS telegram_outbox (
+ id TEXT PRIMARY KEY,dedupe_key TEXT NOT NULL UNIQUE,kind TEXT NOT NULL,chat_id INTEGER NOT NULL,session_id TEXT,title TEXT NOT NULL,lines INTEGER NOT NULL DEFAULT 80,state TEXT NOT NULL,attempts INTEGER NOT NULL DEFAULT 0,next_attempt INTEGER NOT NULL,created_at INTEGER NOT NULL,expires_at INTEGER NOT NULL,last_error TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_telegram_outbox_ready ON telegram_outbox(state,next_attempt,created_at);
 `
 
 func (d *DB) migrate() error {

@@ -90,6 +90,7 @@ func TestTelegramInputUsesLiteralTextEnterAndScreen(t *testing.T) {
 		{"tmux", "send-keys", "-t", "onibi-session-1", "-l", "--", "printf ok"},
 		{"tmux", "send-keys", "-t", "onibi-session-1", "Enter"},
 		{"tmux", "capture-pane", "-e", "-p", "-t", "onibi-session-1", "-S", "-80"},
+		{"tmux", "display-message", "-p", "-t", "onibi-session-1", "#{pane_width} #{pane_height}"},
 		{"tmux", "capture-pane", "-e", "-p", "-t", "onibi-session-1", "-S", "-160"},
 	}
 	if !reflect.DeepEqual(runner.calls, want) {
@@ -161,7 +162,7 @@ func TestPiFinalScreenWaitsForAgentEnd(t *testing.T) {
 	}
 	b.updateAgentStatus(t.Context(), AgentEvent{SessionID: s.ID, Agent: "pi", Kind: "agent_start", RunID: "run-1"})
 	b.updateAgentStatus(t.Context(), AgentEvent{SessionID: s.ID, Agent: "pi", Kind: "agent_end", RunID: "run-1"})
-	if len(runner.calls) != 5 || runner.calls[4][len(runner.calls[4])-1] != "-160" {
+	if len(runner.calls) != 6 || runner.calls[5][len(runner.calls[5])-1] != "-160" {
 		t.Fatalf("Pi final capture=%#v", runner.calls)
 	}
 }
@@ -177,7 +178,7 @@ func TestClaudeFinalScreenFollowsStopHook(t *testing.T) {
 	b.setTarget(t.Context(), 42, s.ID)
 	b.handleInput(t.Context(), &telegram.Message{Chat: telegram.Chat{ID: 42, Type: "private"}, From: &telegram.User{ID: 7}, Text: "summarize"})
 	b.updateAgentStatus(t.Context(), AgentEvent{SessionID: s.ID, Agent: "claude", Kind: "agent_end"})
-	if len(runner.calls) != 5 || runner.calls[4][len(runner.calls[4])-1] != "-160" {
+	if len(runner.calls) != 6 || runner.calls[5][len(runner.calls[5])-1] != "-160" {
 		t.Fatalf("Claude final capture=%#v", runner.calls)
 	}
 }

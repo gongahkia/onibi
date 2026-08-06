@@ -101,7 +101,7 @@ func (d *Daemon) watchCodexRuntime(ctx context.Context, s *Session, runtime *cod
 		}
 		delete(d.codex, s.ID)
 		d.codexMu.Unlock()
-		d.markSessionEnded(context.Background(), s)
+		d.markSessionEndedReason(context.Background(), s, "Codex App Server stopped")
 		message := "Codex App Server stopped."
 		if err != nil {
 			message = "Codex App Server stopped: " + err.Error()
@@ -302,7 +302,7 @@ func (d *Daemon) killCodexSession(ctx context.Context, sessionID string) error {
 	delete(d.codex, sessionID)
 	d.codexMu.Unlock()
 	if s, err := d.sessionByID(sessionID); err == nil {
-		d.markSessionEnded(ctx, s)
+		d.markSessionEndedReason(ctx, s, "ended by /kill")
 	}
 	return nil
 }

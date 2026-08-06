@@ -36,7 +36,7 @@ func (d *Daemon) ControlSession(ctx context.Context, id, action string) error {
 		if err := newTmuxController().KillSession(ctx, s.TmuxTarget); err != nil {
 			return d.tmuxSessionError(ctx, s, err)
 		}
-		d.markSessionEnded(ctx, s)
+		d.markSessionEndedReason(ctx, s, "ended by /kill")
 		return nil
 	default:
 		return errors.New("unsupported action")

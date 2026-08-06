@@ -48,10 +48,25 @@ type Chat struct {
 }
 
 type Message struct {
-	MessageID int64  `json:"message_id"`
-	Chat      Chat   `json:"chat"`
-	Text      string `json:"text"`
-	From      *User  `json:"from"`
+	MessageID int64     `json:"message_id"`
+	Chat      Chat      `json:"chat"`
+	Text      string    `json:"text"`
+	From      *User     `json:"from"`
+	Document  *Document `json:"document,omitempty"`
+}
+
+type Document struct {
+	FileID       string `json:"file_id"`
+	FileUniqueID string `json:"file_unique_id"`
+	FileName     string `json:"file_name"`
+	MIMEType     string `json:"mime_type"`
+	FileSize     int64  `json:"file_size"`
+}
+
+type File struct {
+	FileID   string `json:"file_id"`
+	FilePath string `json:"file_path"`
+	FileSize int64  `json:"file_size"`
 }
 
 type CallbackQuery struct {
@@ -115,6 +130,57 @@ func (c *Client) GetUpdates(ctx context.Context, offset int64, timeout int) ([]U
 		return nil, err
 	}
 	return out, nil
+}
+
+func (c *Client) GetFile(ctx context.Context, fileID string) (File, error) {
+	if strings.TrimSpace(fileID) == "" {
+		return File{}, errors.New("Telegram file id required")
+	}
+	var out File
+	if err := c.callJSON(ctx, "getFile", map[string]any{"file_id": fileID}, &out); err != nil {
+		return File{}, err
+	}
+	if strings.TrimSpace(out.FilePath) == "" {
+		return File{}, errors.New("Telegram file path unavailable")
+	}
+	return out, nil
+}
+
+func (c *Client) DownloadFile(ctx context.Context, filePath string) (io.ReadCloser, int64, error) {
+	if c == nil || !ValidBotToken(c.Token) {
+		return nil, 0, errors.New("invalid Telegram bot token")
+	}
+	filePath = strings.TrimPrefix(strings.TrimSpace(filePath), "/")
+	if filePath == "" || strings.Contains(filePath, "..") {
+		return nil, 0, errors.New("invalid Telegram file path")
+	}
+	base := strings.TrimRight(c.BaseURL, "/")
+	if base == "" || base == DefaultBaseURL {
+		base = DefaultBaseURL + "/file"
+	} else {
+		base += "/file"
+	}
+	u, err := url.JoinPath(base, "bot"+c.Token, filePath)
+	if err != nil {
+		return nil, 0, err
+	}
+	hc := c.HTTP
+	if hc == nil {
+		hc = http.DefaultClient
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, 0, err
+	}
+	resp, err := hc.Do(req)
+	if err != nil {
+		return nil, 0, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		resp.Body.Close()
+		return nil, 0, fmt.Errorf("telegram file download: %s", resp.Status)
+	}
+	return resp.Body, resp.ContentLength, nil
 }
 
 func (c *Client) SendMessage(ctx context.Context, chatID int64, text string, markup *InlineKeyboardMarkup) (Message, error) {

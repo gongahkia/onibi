@@ -29,6 +29,9 @@ type Daemon struct {
 	Queue               *approval.Queue
 	Sweeper             *approval.Sweeper
 	OutputBufferSize    int
+	LivenessInterval    time.Duration
+	UploadTTL           time.Duration
+	UploadMaxBytes      int64
 	ShellDefault        string
 	ShellLogin          bool
 	screenMu            sync.RWMutex
@@ -45,7 +48,13 @@ type Daemon struct {
 	codex               map[string]*codexRuntime
 	codexEvents         chan CodexEvent
 	agentEvents         chan AgentEvent
+	sessionEvents       chan SessionEvent
 	SkipRestore         bool
+}
+
+type SessionEvent struct {
+	SessionID string
+	Reason    string
 }
 
 type Options struct {
@@ -56,6 +65,9 @@ type Options struct {
 	ApprovalSweepInterval  time.Duration
 	ApprovalMaxSubscribers int
 	OutputBufferSize       int
+	LivenessInterval       time.Duration
+	UploadTTL              time.Duration
+	UploadMaxBytes         int64
 	ShellDefault           string
 	ShellLogin             bool
 	ScreenFont             string
@@ -71,7 +83,16 @@ func New(opts Options) *Daemon {
 	if opts.Log == nil {
 		opts.Log = slog.Default()
 	}
-	d := &Daemon{Paths: opts.Paths, DB: opts.DB, Log: opts.Log, Registry: NewRegistry(), OutputBufferSize: opts.OutputBufferSize, ShellDefault: opts.ShellDefault, ShellLogin: opts.ShellLogin, ScreenFont: opts.ScreenFont, ScreenFontPath: opts.ScreenFontPath, TelegramToken: opts.TelegramToken, TelegramOwnerID: opts.TelegramOwnerID, TelegramOwnerUserID: opts.TelegramOwnerUserID, TelegramPair: opts.TelegramPair, started: time.Now(), codex: map[string]*codexRuntime{}, codexEvents: make(chan CodexEvent, 128), agentEvents: make(chan AgentEvent, 128), SkipRestore: opts.SkipRestore}
+	if opts.LivenessInterval <= 0 {
+		opts.LivenessInterval = 5 * time.Second
+	}
+	if opts.UploadTTL <= 0 {
+		opts.UploadTTL = 7 * 24 * time.Hour
+	}
+	if opts.UploadMaxBytes <= 0 {
+		opts.UploadMaxBytes = 20 << 20
+	}
+	d := &Daemon{Paths: opts.Paths, DB: opts.DB, Log: opts.Log, Registry: NewRegistry(), OutputBufferSize: opts.OutputBufferSize, LivenessInterval: opts.LivenessInterval, UploadTTL: opts.UploadTTL, UploadMaxBytes: opts.UploadMaxBytes, ShellDefault: opts.ShellDefault, ShellLogin: opts.ShellLogin, ScreenFont: opts.ScreenFont, ScreenFontPath: opts.ScreenFontPath, TelegramToken: opts.TelegramToken, TelegramOwnerID: opts.TelegramOwnerID, TelegramOwnerUserID: opts.TelegramOwnerUserID, TelegramPair: opts.TelegramPair, started: time.Now(), codex: map[string]*codexRuntime{}, codexEvents: make(chan CodexEvent, 128), agentEvents: make(chan AgentEvent, 128), sessionEvents: make(chan SessionEvent, 128), SkipRestore: opts.SkipRestore}
 	d.Queue = approval.New(opts.DB, opts.ApprovalTTL)
 	if opts.ApprovalMaxSubscribers > 0 {
 		d.Queue.MaxSubscribers = opts.ApprovalMaxSubscribers
@@ -119,6 +140,10 @@ func (d *Daemon) Run(ctx context.Context) error {
 	}()
 	wg.Add(1)
 	go func() { defer wg.Done(); d.Sweeper.Run(ctx) }()
+	wg.Add(1)
+	go func() { defer wg.Done(); d.watchTmuxSessions(ctx) }()
+	wg.Add(1)
+	go func() { defer wg.Done(); d.sweepUploads(ctx) }()
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -205,7 +230,7 @@ func (d *Daemon) sessionForRPCTarget(id string) (*Session, error) {
 }
 func (d *Daemon) tmuxSessionError(ctx context.Context, s *Session, err error) error {
 	if err != nil && tmuxSessionGone(err) {
-		d.markSessionEnded(ctx, s)
+		d.markSessionEndedReason(ctx, s, "tmux session exited")
 		return ErrSessionEnded
 	}
 	return err
@@ -242,7 +267,12 @@ func (d *Daemon) sessionNameTaken(name string) bool {
 	}
 	return false
 }
+func (d *Daemon) SessionEvents() <-chan SessionEvent { return d.sessionEvents }
+
 func (d *Daemon) markSessionEnded(ctx context.Context, s *Session) {
+	d.markSessionEndedReason(ctx, s, "session ended")
+}
+func (d *Daemon) markSessionEndedReason(ctx context.Context, s *Session, reason string) {
 	if s == nil || !s.MarkEnded() {
 		return
 	}
@@ -250,6 +280,11 @@ func (d *Daemon) markSessionEnded(ctx context.Context, s *Session) {
 		_ = d.DB.SessionMarkEnded(ctx, s.ID, time.Now())
 	}
 	d.audit(ctx, "session.ended", s.ID, "", 0, "")
+	select {
+	case d.sessionEvents <- SessionEvent{SessionID: s.ID, Reason: reason}:
+	default:
+		d.Log.Warn("dropping session ended event", "session", s.ID)
+	}
 }
 func (d *Daemon) touchSession(ctx context.Context, s *Session) {
 	if s == nil {

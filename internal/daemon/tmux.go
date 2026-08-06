@@ -134,13 +134,15 @@ func (d *Daemon) CaptureSessionScreen(ctx context.Context, id string) ([]byte, e
 	if s.Transport != "tmux" {
 		return render.RenderPNG(s.Buf.Snapshot(), d.screenPNGOptions(26, 100))
 	}
-	out, err := newTmuxController().Capture(ctx, s.TmuxTarget, 160)
+	ctrl := newTmuxController()
+	cols, rows := tmuxScreenDimensions(ctx, ctrl, s.TmuxTarget)
+	out, err := ctrl.Capture(ctx, s.TmuxTarget, maxInt(rows*3, 160))
 	if err != nil {
 		return nil, d.tmuxSessionError(ctx, s, err)
 	}
 	s.Buf.Reset()
 	_, _ = s.Buf.Write([]byte(out))
-	return render.RenderPNG([]byte(out), d.screenPNGOptions(26, 100))
+	return render.RenderPNG([]byte(out), d.screenPNGOptions(rows, cols))
 }
 func (d *Daemon) SendSessionTextAndCapture(ctx context.Context, id, text string, enter bool) (string, error) {
 	s, err := d.sessionForRPCTarget(id)
@@ -166,6 +168,12 @@ func (d *Daemon) SendSessionTextAndCapture(ctx context.Context, id, text string,
 func tmuxSessionGone(err error) bool {
 	text := strings.ToLower(err.Error())
 	return strings.Contains(text, "no server running") || strings.Contains(text, "can't find session") || strings.Contains(text, "no such session")
+}
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 func commandLine(bin string, args []string) string {
 	return strings.TrimSpace(strings.Join(append([]string{bin}, args...), " "))
