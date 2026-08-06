@@ -3,6 +3,7 @@ package render
 import (
 	"bytes"
 	"image"
+	"image/color"
 	"image/png"
 	"os"
 	"path/filepath"
@@ -53,6 +54,32 @@ func TestScreenLinesKeepsLastRowsAndClipsColumns(t *testing.T) {
 	lines := screenLines([]byte("one\ntwo\nthree"), 2, 3)
 	if strings.Join(lines, "|") != "two|thr" {
 		t.Fatalf("lines=%q", lines)
+	}
+}
+
+func TestScreenCellsPreserveSGRColors(t *testing.T) {
+	lines := screenCells([]byte("\x1b[31mred\x1b[0m \x1b[38;2;1;2;3mrgb\x1b[48;5;27m!"), 1, 16)
+	line := lines[0]
+	if got := line[0].fg; got != ansiColor(1) {
+		t.Fatalf("red foreground=%#v", got)
+	}
+	if got := line[4].fg; got != (color.RGBA{R: 1, G: 2, B: 3, A: 255}) {
+		t.Fatalf("rgb foreground=%#v", got)
+	}
+	wantBG, _ := ansi256Color(27)
+	if got := line[7].bg; got != wantBG {
+		t.Fatalf("indexed background=%#v", got)
+	}
+}
+
+func TestScreenCellsIgnoreUnsafeTerminalSequences(t *testing.T) {
+	lines := screenCells([]byte("safe\x1b]52;c;clipboard\x07\x1b[31mred\x1b[0m\u202eevil"), 1, 24)
+	var b strings.Builder
+	for _, cell := range lines[0] {
+		b.WriteRune(cell.r)
+	}
+	if got := b.String(); got != "saferedevil" {
+		t.Fatalf("text=%q", got)
 	}
 }
 

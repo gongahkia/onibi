@@ -83,7 +83,7 @@ func (c *Controller) Capture(ctx context.Context, target string, lines int) (str
 	if lines <= 0 {
 		lines = 50
 	}
-	out, err := c.run(ctx, "capture-pane", "-p", "-t", target, "-S", "-"+strconv.Itoa(lines))
+	out, err := c.run(ctx, "capture-pane", "-e", "-p", "-t", target, "-S", "-"+strconv.Itoa(lines))
 	if err != nil {
 		return "", err
 	}

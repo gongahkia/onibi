@@ -70,7 +70,7 @@ func RenderPNG(buf []byte, opts PNGOptions) ([]byte, error) {
 		return nil, err
 	}
 	defer face.Close()
-	img := drawTerminal(screenLines(buf, opts.Rows, opts.Cols), opts.Rows, opts.Cols, face)
+	img := drawTerminal(screenCells(buf, opts.Rows, opts.Cols), opts.Rows, opts.Cols, face)
 	if opts.Scale > 1 {
 		img = scaleNearest(img, opts.Scale)
 	}
@@ -145,44 +145,221 @@ func fontData(name, path string) ([]byte, string, error) {
 	}
 }
 
-func screenLines(buf []byte, rows, cols int) []string {
-	clean := strings.ReplaceAll(string(StripANSI(buf)), "\r\n", "\n")
-	clean = strings.ReplaceAll(clean, "\r", "")
-	lines := strings.Split(clean, "\n")
+type terminalStyle struct {
+	fg color.RGBA
+	bg color.RGBA
+}
+
+type screenCell struct {
+	r  rune
+	fg color.RGBA
+	bg color.RGBA
+}
+
+func defaultTerminalStyle() terminalStyle { return terminalStyle{fg: defaultFG, bg: defaultBG} }
+
+func screenCells(buf []byte, rows, cols int) [][]screenCell {
+	lines := parseScreenCells(buf, cols)
 	if len(lines) > rows {
 		lines = lines[len(lines)-rows:]
 	}
-	out := make([]string, rows)
-	for i := range lines {
-		out[rows-len(lines)+i] = sanitizeLine(lines[i], cols)
+	out := make([][]screenCell, rows)
+	copy(out[rows-len(lines):], lines)
+	return out
+}
+
+func screenLines(buf []byte, rows, cols int) []string {
+	cells := screenCells(buf, rows, cols)
+	out := make([]string, len(cells))
+	for i, line := range cells {
+		var b strings.Builder
+		for _, cell := range line {
+			b.WriteRune(cell.r)
+		}
+		out[i] = b.String()
 	}
 	return out
 }
 
-func sanitizeLine(s string, cols int) string {
-	var b strings.Builder
-	cells := 0
-	for _, r := range s {
-		if cells >= cols {
-			break
-		}
-		if r == '\t' {
-			for n := 0; n < 4 && cells < cols; n++ {
-				b.WriteByte(' ')
-				cells++
+func parseScreenCells(buf []byte, cols int) [][]screenCell {
+	style := defaultTerminalStyle()
+	lines := make([][]screenCell, 0, 1)
+	line := make([]screenCell, 0, cols)
+	for i := 0; i < len(buf); {
+		if buf[i] == 0x1b {
+			next, params, sgr := ansiSequence(buf, i)
+			if sgr {
+				style = applySGR(style, params)
 			}
+			i = next
 			continue
 		}
-		if r == utf8.RuneError || unicode.IsControl(r) || unicode.In(r, unicode.Bidi_Control) {
+		switch buf[i] {
+		case '\r':
+			i++
+			continue
+		case '\n':
+			lines = append(lines, line)
+			line = make([]screenCell, 0, cols)
+			i++
+			continue
+		case '\t':
+			for n := 0; n < 4 && len(line) < cols; n++ {
+				line = append(line, screenCell{r: ' ', fg: style.fg, bg: style.bg})
+			}
+			i++
 			continue
 		}
-		b.WriteRune(r)
-		cells++
+		r, size := utf8.DecodeRune(buf[i:])
+		i += size
+		if len(line) >= cols || r == utf8.RuneError || unicode.IsControl(r) || unicode.In(r, unicode.Bidi_Control) {
+			continue
+		}
+		line = append(line, screenCell{r: r, fg: style.fg, bg: style.bg})
 	}
-	return b.String()
+	return append(lines, line)
 }
 
-func drawTerminal(lines []string, rows, cols int, face font.Face) *image.RGBA {
+func ansiSequence(buf []byte, start int) (next int, params []int, sgr bool) {
+	if start+1 >= len(buf) {
+		return start + 1, nil, false
+	}
+	switch buf[start+1] {
+	case '[':
+		end := start + 2
+		for end < len(buf) && (buf[end] < 0x40 || buf[end] > 0x7e) {
+			end++
+		}
+		if end >= len(buf) {
+			return len(buf), nil, false
+		}
+		if buf[end] != 'm' {
+			return end + 1, nil, false
+		}
+		return end + 1, parseSGRParams(buf[start+2 : end]), true
+	case ']':
+		end := start + 2
+		for end < len(buf) {
+			if buf[end] == 0x07 {
+				return end + 1, nil, false
+			}
+			if buf[end] == 0x1b && end+1 < len(buf) && buf[end+1] == '\\' {
+				return end + 2, nil, false
+			}
+			end++
+		}
+		return len(buf), nil, false
+	case '(', ')':
+		return minInt(len(buf), start+3), nil, false
+	default:
+		return start + 2, nil, false
+	}
+}
+
+func parseSGRParams(raw []byte) []int {
+	if len(raw) == 0 {
+		return []int{0}
+	}
+	parts := strings.Split(string(raw), ";")
+	params := make([]int, 0, len(parts))
+	for _, part := range parts {
+		if part == "" {
+			params = append(params, 0)
+			continue
+		}
+		n, err := strconv.Atoi(part)
+		if err != nil {
+			params = append(params, -1)
+			continue
+		}
+		params = append(params, n)
+	}
+	return params
+}
+
+func applySGR(style terminalStyle, params []int) terminalStyle {
+	for i := 0; i < len(params); i++ {
+		code := params[i]
+		switch {
+		case code == 0:
+			style = defaultTerminalStyle()
+		case code == 39:
+			style.fg = defaultFG
+		case code == 49:
+			style.bg = defaultBG
+		case code >= 30 && code <= 37:
+			style.fg = ansiColor(code - 30)
+		case code >= 40 && code <= 47:
+			style.bg = ansiColor(code - 40)
+		case code >= 90 && code <= 97:
+			style.fg = ansiColor(code - 90 + 8)
+		case code >= 100 && code <= 107:
+			style.bg = ansiColor(code - 100 + 8)
+		case code == 38 || code == 48:
+			isFG := code == 38
+			if i+2 < len(params) && params[i+1] == 5 {
+				if c, ok := ansi256Color(params[i+2]); ok {
+					if isFG {
+						style.fg = c
+					} else {
+						style.bg = c
+					}
+				}
+				i += 2
+				continue
+			}
+			if i+4 < len(params) && params[i+1] == 2 {
+				c := color.RGBA{R: byte(clampByte(params[i+2])), G: byte(clampByte(params[i+3])), B: byte(clampByte(params[i+4])), A: 255}
+				if isFG {
+					style.fg = c
+				} else {
+					style.bg = c
+				}
+				i += 4
+			}
+		}
+	}
+	return style
+}
+
+func ansiColor(index int) color.RGBA {
+	return ansiPalette[index]
+}
+
+func ansi256Color(index int) (color.RGBA, bool) {
+	if index < 0 || index > 255 {
+		return color.RGBA{}, false
+	}
+	if index < len(ansiPalette) {
+		return ansiColor(index), true
+	}
+	if index < 232 {
+		index -= 16
+		levels := [...]uint8{0, 95, 135, 175, 215, 255}
+		return color.RGBA{R: levels[index/36], G: levels[index/6%6], B: levels[index%6], A: 255}, true
+	}
+	shade := uint8(8 + (index-232)*10)
+	return color.RGBA{R: shade, G: shade, B: shade, A: 255}, true
+}
+
+func clampByte(n int) int {
+	if n < 0 {
+		return 0
+	}
+	if n > 255 {
+		return 255
+	}
+	return n
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func drawTerminal(lines [][]screenCell, rows, cols int, face font.Face) *image.RGBA {
 	metrics := face.Metrics()
 	cellW := maxInt(1, font.MeasureString(face, "M").Round())
 	cellH := maxInt(1, metrics.Height.Ceil())
@@ -191,11 +368,18 @@ func drawTerminal(lines []string, rows, cols int, face font.Face) *image.RGBA {
 	img := image.NewRGBA(image.Rect(0, 0, cols*cellW+pad*2, rows*cellH+pad*2))
 	draw.Draw(img, img.Bounds(), &image.Uniform{C: defaultBG}, image.Point{}, draw.Src)
 	for row, line := range lines {
-		if line == "" {
-			continue
+		for col, cell := range line {
+			x := pad + col*cellW
+			y := pad + row*cellH
+			if cell.bg != defaultBG {
+				draw.Draw(img, image.Rect(x, y, x+cellW, y+cellH), &image.Uniform{C: cell.bg}, image.Point{}, draw.Src)
+			}
+			if cell.r == 0 || cell.r == ' ' {
+				continue
+			}
+			d := font.Drawer{Dst: img, Src: &image.Uniform{C: cell.fg}, Face: face, Dot: fixed.P(x, y+ascent)}
+			d.DrawString(string(cell.r))
 		}
-		d := font.Drawer{Dst: img, Src: &image.Uniform{C: defaultFG}, Face: face, Dot: fixed.P(pad, pad+row*cellH+ascent)}
-		d.DrawString(line)
 	}
 	drawActiveBorder(img)
 	return img
@@ -242,4 +426,10 @@ var (
 	defaultBG         = color.RGBA{R: 12, G: 14, B: 18, A: 255}
 	activeBorder      = color.RGBA{R: 156, G: 255, B: 184, A: 255}
 	activeBorderInner = color.RGBA{R: 50, G: 110, B: 74, A: 255}
+	ansiPalette       = [...]color.RGBA{
+		{R: 40, G: 44, B: 52, A: 255}, {R: 224, G: 108, B: 117, A: 255}, {R: 152, G: 195, B: 121, A: 255}, {R: 229, G: 192, B: 123, A: 255},
+		{R: 97, G: 175, B: 239, A: 255}, {R: 198, G: 120, B: 221, A: 255}, {R: 86, G: 182, B: 194, A: 255}, {R: 171, G: 178, B: 191, A: 255},
+		{R: 92, G: 99, B: 112, A: 255}, {R: 224, G: 108, B: 117, A: 255}, {R: 152, G: 195, B: 121, A: 255}, {R: 229, G: 192, B: 123, A: 255},
+		{R: 97, G: 175, B: 239, A: 255}, {R: 198, G: 120, B: 221, A: 255}, {R: 86, G: 182, B: 194, A: 255}, {R: 255, G: 255, B: 255, A: 255},
+	}
 )

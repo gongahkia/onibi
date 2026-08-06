@@ -87,8 +87,8 @@ func TestTelegramInputUsesLiteralTextEnterAndScreen(t *testing.T) {
 	want := [][]string{
 		{"tmux", "send-keys", "-t", "onibi-session-1", "-l", "--", "printf ok"},
 		{"tmux", "send-keys", "-t", "onibi-session-1", "Enter"},
-		{"tmux", "capture-pane", "-p", "-t", "onibi-session-1", "-S", "-80"},
-		{"tmux", "capture-pane", "-p", "-t", "onibi-session-1", "-S", "-160"},
+		{"tmux", "capture-pane", "-e", "-p", "-t", "onibi-session-1", "-S", "-80"},
+		{"tmux", "capture-pane", "-e", "-p", "-t", "onibi-session-1", "-S", "-160"},
 	}
 	if !reflect.DeepEqual(runner.calls, want) {
 		t.Fatalf("calls=%#v", runner.calls)
