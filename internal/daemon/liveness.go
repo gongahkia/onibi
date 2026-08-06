@@ -30,8 +30,10 @@ func (d *Daemon) checkTmuxSessions(ctx context.Context) {
 		live, err := ctrl.HasSession(ctx, s.TmuxTarget)
 		if err != nil {
 			d.Log.Warn("tmux liveness", "session", s.ID, "err", err)
+			d.queueHealthEvent(ctx, d.health.tmuxResult(ctx, s, false, err))
 			continue
 		}
+		d.queueHealthEvent(ctx, d.health.tmuxResult(ctx, s, live, nil))
 		if !live {
 			d.markSessionEndedReason(ctx, s, "tmux session exited")
 		}

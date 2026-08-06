@@ -122,6 +122,7 @@ func (d *Daemon) runTelegramBridge(ctx context.Context) error {
 		updates, err := c.GetUpdates(ctx, offset, 25)
 		if err != nil {
 			failures++
+			d.queueHealthEvent(ctx, d.health.pollResult(ctx, err))
 			delay := telegram.ReconnectBackoff(failures)
 			d.Log.Warn("Telegram poll", "err", err, "backoff", delay)
 			timer := time.NewTimer(delay)
@@ -134,6 +135,7 @@ func (d *Daemon) runTelegramBridge(ctx context.Context) error {
 			continue
 		}
 		failures = 0
+		d.queueHealthEvent(ctx, d.health.pollResult(ctx, nil))
 		for _, update := range updates {
 			claimed, err := d.DB.TelegramClaimUpdate(ctx, update.UpdateID)
 			if err != nil {
@@ -997,7 +999,9 @@ func (b *telegramBridge) deliverOutbox(ctx context.Context) {
 			return
 		}
 		if err := b.dispatchOutbox(ctx, *item); err != nil {
-			if outboxPermanent(err) {
+			permanent := outboxPermanent(err)
+			b.recordDelivery(ctx, err, permanent)
+			if permanent {
 				_ = b.d.DB.TelegramOutboxDelivered(ctx, item.ID)
 			} else {
 				next := time.Now().Add(outboxDelay(item.Attempts + 1))
@@ -1005,6 +1009,7 @@ func (b *telegramBridge) deliverOutbox(ctx context.Context) {
 			}
 			continue
 		}
+		b.recordDelivery(ctx, nil, false)
 		_ = b.d.DB.TelegramOutboxDelivered(ctx, item.ID)
 	}
 }
@@ -1093,6 +1098,9 @@ func outboxDelay(attempt int) time.Duration {
 }
 
 func outboxPermanent(err error) bool {
+	if err == nil {
+		return false
+	}
 	text := strings.ToLower(err.Error())
 	return strings.Contains(text, "chat not found") || strings.Contains(text, "bot was blocked") || strings.Contains(text, "forbidden")
 }
@@ -1874,6 +1882,7 @@ func (b *telegramBridge) sessionsText(ctx context.Context, chat int64) string {
 }
 func (b *telegramBridge) send(ctx context.Context, chat int64, text string, markup *telegram.InlineKeyboardMarkup) (telegram.Message, error) {
 	message, err := b.client.SendMessage(ctx, chat, boundedText(text), markup)
+	b.recordDelivery(ctx, err, outboxPermanent(err))
 	if err != nil {
 		b.d.Log.Warn("Telegram send", "chat", chat, "err", err)
 	}
@@ -1881,10 +1890,20 @@ func (b *telegramBridge) send(ctx context.Context, chat int64, text string, mark
 }
 func (b *telegramBridge) edit(ctx context.Context, chat, message int64, text string, markup *telegram.InlineKeyboardMarkup) error {
 	if _, err := b.client.EditMessageText(ctx, chat, message, boundedText(text), markup); err != nil {
+		b.recordDelivery(ctx, err, outboxPermanent(err))
 		b.d.Log.Warn("Telegram edit", "chat", chat, "err", err)
 		return err
 	}
+	b.recordDelivery(ctx, nil, false)
 	return nil
+}
+
+func (b *telegramBridge) recordDelivery(ctx context.Context, err error, permanent bool) {
+	event := b.d.health.deliveryResult(ctx, err, permanent)
+	b.d.queueHealthEvent(ctx, event)
+	if event != nil {
+		b.wakeOutbox()
+	}
 }
 func terminalCard(title, body string) string { return title + "\n\n" + strings.TrimSpace(body) }
 func boundedText(text string) string {

@@ -34,6 +34,40 @@ type TelegramOutboxIntent struct {
 	LastError   string
 }
 
+type TelegramOutboxStats struct {
+	Pending   int
+	Running   int
+	Delivered int
+	Expired   int
+}
+
+func (d *DB) TelegramOutboxStats(ctx context.Context) (TelegramOutboxStats, error) {
+	rows, err := d.sql.QueryContext(ctx, `SELECT state,COUNT(*) FROM telegram_outbox GROUP BY state`)
+	if err != nil {
+		return TelegramOutboxStats{}, err
+	}
+	defer rows.Close()
+	var stats TelegramOutboxStats
+	for rows.Next() {
+		var state string
+		var count int
+		if err := rows.Scan(&state, &count); err != nil {
+			return TelegramOutboxStats{}, err
+		}
+		switch state {
+		case OutboxPending:
+			stats.Pending = count
+		case OutboxRunning:
+			stats.Running = count
+		case OutboxDelivered:
+			stats.Delivered = count
+		case OutboxExpired:
+			stats.Expired = count
+		}
+	}
+	return stats, rows.Err()
+}
+
 func (d *DB) TelegramNextOffset(ctx context.Context) (int64, error) {
 	var offset int64
 	err := d.sql.QueryRowContext(ctx, `SELECT next_offset FROM telegram_cursor WHERE id=1`).Scan(&offset)

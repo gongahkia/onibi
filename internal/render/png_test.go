@@ -83,6 +83,47 @@ func TestScreenCellsIgnoreUnsafeTerminalSequences(t *testing.T) {
 	}
 }
 
+func TestTerminalTracksGraphemesStylesAndCursor(t *testing.T) {
+	screen := parseTerminal([]byte("A界e\u0301\x1b[1;3;4;9mB\x1b]8;;https://example.test\x07C"), 1, 8)
+	line := screen.cells[0]
+	if line[1].text != "界" || line[1].width != 2 || !line[2].continuation {
+		t.Fatalf("wide glyph=%+v", line[1:3])
+	}
+	if line[3].text != "e\u0301" || line[3].width != 1 {
+		t.Fatalf("combining glyph=%+v", line[3])
+	}
+	if !line[4].bold || !line[4].italic || !line[4].underline || !line[4].strike {
+		t.Fatalf("style=%+v", line[4])
+	}
+	if line[5].hyperlink != "https://example.test" || screen.cursorCol != 6 || !screen.cursorVisible {
+		t.Fatalf("link/cursor=%+v cursor=%d", line[5], screen.cursorCol)
+	}
+}
+
+func TestTerminalCSIAlternateBufferAndCursorVisibility(t *testing.T) {
+	screen := parseTerminal([]byte("main\x1b[?1049halt\x1b[?1049l\x1b[?25l"), 1, 8)
+	if got := screenLines([]byte("main\x1b[?1049halt\x1b[?1049l"), 1, 8)[0]; got != "main" {
+		t.Fatalf("primary buffer=%q", got)
+	}
+	if screen.cursorVisible {
+		t.Fatal("cursor remained visible")
+	}
+	screen = parseTerminal([]byte("abcdef\rX\x1b[K"), 1, 8)
+	if got := terminalText(screen.cells[0]); got != "X" {
+		t.Fatalf("erase line=%q", got)
+	}
+}
+
+func terminalText(line []screenCell) string {
+	var out strings.Builder
+	for _, cell := range line {
+		if cell.r != 0 && !cell.continuation {
+			out.WriteString(cell.text)
+		}
+	}
+	return out.String()
+}
+
 func countChanged(img image.Image) int {
 	b := img.Bounds()
 	base := img.At(b.Min.X, b.Min.Y)

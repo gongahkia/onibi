@@ -44,6 +44,7 @@ type Daemon struct {
 	TelegramOwnerID       int64
 	TelegramOwnerUserID   int64
 	TelegramPair          string
+	health                *healthTracker
 	started               time.Time
 	mu                    sync.Mutex
 	codexMu               sync.Mutex
@@ -103,6 +104,7 @@ func New(opts Options) *Daemon {
 		opts.UploadMaxBytes = 20 << 20
 	}
 	d := &Daemon{Paths: opts.Paths, DB: opts.DB, Log: opts.Log, Registry: NewRegistry(), OutputBufferSize: opts.OutputBufferSize, LivenessInterval: opts.LivenessInterval, ClaudeQuestionTimeout: opts.ClaudeQuestionTimeout, UploadTTL: opts.UploadTTL, UploadMaxBytes: opts.UploadMaxBytes, ShellDefault: opts.ShellDefault, ShellLogin: opts.ShellLogin, ScreenFont: opts.ScreenFont, ScreenFontPath: opts.ScreenFontPath, TelegramToken: opts.TelegramToken, TelegramOwnerID: opts.TelegramOwnerID, TelegramOwnerUserID: opts.TelegramOwnerUserID, TelegramPair: opts.TelegramPair, started: time.Now(), frames: map[string]terminalFrame{}, codex: map[string]*codexRuntime{}, codexEvents: make(chan CodexEvent, 128), agentEvents: make(chan AgentEvent, 128), claudeQuestions: map[string]chan struct{}{}, claudeQuestionEvents: make(chan ClaudeQuestionEvent, 128), sessionEvents: make(chan SessionEvent, 128), SkipRestore: opts.SkipRestore}
+	d.health = newHealthTracker(opts.DB, opts.Log)
 	d.Queue = approval.New(opts.DB, opts.ApprovalTTL)
 	if opts.ApprovalMaxSubscribers > 0 {
 		d.Queue.MaxSubscribers = opts.ApprovalMaxSubscribers
@@ -126,6 +128,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 		return errors.New("state database required")
 	}
 	if d.DB != nil {
+		d.health.load(ctx)
 		_ = d.DB.KVPurgeExpired(ctx)
 		if n, err := d.Queue.CancelPending(ctx, "daemon restarted"); err != nil {
 			d.Log.Warn("cancel stale Pi approvals", "err", err)
@@ -301,6 +304,7 @@ func (d *Daemon) markSessionEndedReason(ctx context.Context, s *Session, reason 
 		_ = d.DB.SessionMarkEnded(ctx, s.ID, time.Now())
 	}
 	d.cancelClaudeQuestionsForSession(ctx, s.ID, "session ended")
+	d.health.sessionEnded(ctx, s)
 	d.InvalidateSessionFrame(s.ID)
 	d.queueSessionEndedNotice(ctx, s.ID, s.Name, s.Agent)
 	d.audit(ctx, "session.ended", s.ID, "", 0, "")
@@ -329,16 +333,6 @@ func (d *Daemon) touchSession(ctx context.Context, s *Session) {
 		_ = d.DB.SessionTouch(ctx, s.ID, s.LastActivityAt())
 	}
 }
-func (d *Daemon) pingText(context.Context) string {
-	codexSessions := 0
-	for _, s := range d.liveSessions() {
-		if s.Transport == "codex" {
-			codexSessions++
-		}
-	}
-	return fmt.Sprintf("onibi\nuptime=%s\nsessions=%d\ncodex_sessions=%d", time.Since(d.started).Truncate(time.Second), len(d.liveSessions()), codexSessions)
-}
-
 func (d *Daemon) handleApprovalRequest(ctx context.Context, ev intake.Event) (intake.Response, error) {
 	s, err := d.sessionByID(ev.Session)
 	if err != nil {
