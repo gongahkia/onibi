@@ -88,9 +88,7 @@ func (d *Daemon) PurgeExpiredUploads(now time.Time) error {
 }
 
 func (d *Daemon) sweepUploads(ctx context.Context) {
-	if err := d.PurgeExpiredUploads(time.Now()); err != nil {
-		d.Log.Warn("purge uploads", "err", err)
-	}
+	d.purgeTransientState(ctx, time.Now())
 	ticker := time.NewTicker(time.Hour)
 	defer ticker.Stop()
 	for {
@@ -98,9 +96,18 @@ func (d *Daemon) sweepUploads(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case now := <-ticker.C:
-			if err := d.PurgeExpiredUploads(now); err != nil {
-				d.Log.Warn("purge uploads", "err", err)
-			}
+			d.purgeTransientState(ctx, now)
+		}
+	}
+}
+
+func (d *Daemon) purgeTransientState(ctx context.Context, now time.Time) {
+	if err := d.PurgeExpiredUploads(now); err != nil {
+		d.Log.Warn("purge uploads", "err", err)
+	}
+	if d.DB != nil {
+		if err := d.DB.TelegramPurge(ctx, now.Add(-7*24*time.Hour)); err != nil {
+			d.Log.Warn("purge Telegram state", "err", err)
 		}
 	}
 }

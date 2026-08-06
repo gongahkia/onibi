@@ -279,11 +279,22 @@ func (d *Daemon) markSessionEndedReason(ctx context.Context, s *Session, reason 
 	if d.DB != nil {
 		_ = d.DB.SessionMarkEnded(ctx, s.ID, time.Now())
 	}
+	d.queueSessionEndedNotice(ctx, s.ID, s.Name, s.Agent)
 	d.audit(ctx, "session.ended", s.ID, "", 0, "")
 	select {
 	case d.sessionEvents <- SessionEvent{SessionID: s.ID, Reason: reason}:
 	default:
 		d.Log.Warn("dropping session ended event", "session", s.ID)
+	}
+}
+
+func (d *Daemon) queueSessionEndedNotice(ctx context.Context, sessionID, name, agent string) {
+	if d.DB == nil || d.TelegramOwnerID == 0 || strings.TrimSpace(sessionID) == "" {
+		return
+	}
+	text := name + " ended. Screens, input, and controls are unavailable. Use /new " + agent + " to start another."
+	if err := d.DB.TelegramOutboxUpsert(ctx, store.TelegramOutboxIntent{ID: NewID(), DedupeKey: "ended:" + sessionID, Kind: "ended", ChatID: d.TelegramOwnerID, SessionID: sessionID, Title: text}); err != nil {
+		d.Log.Warn("queue session ended notice", "session", sessionID, "err", err)
 	}
 }
 func (d *Daemon) touchSession(ctx context.Context, s *Session) {

@@ -2,7 +2,7 @@
 
 Onibi is a Telegram-native remote command center for one developer's persistent local terminal sessions.
 
-It runs named `tmux` sessions on your machine. From Telegram you can select a session, send literal input, inspect bounded output or a rendered terminal screen, and send `Enter`, `Esc`, `Ctrl-C`, or a guarded kill. Codex uses the local App Server for structured progress, approvals, and questions; Pi and Claude Code use local hooks for remote approvals and completion updates.
+It runs named `tmux` sessions on your machine. From Telegram you can select a session, send literal input, inspect bounded output or a rendered terminal screen, send navigation/modifier keys, resize a tmux window, or use a guarded kill. Codex uses the local App Server for structured progress, approvals, and questions; Pi and Claude Code use local hooks for remote approvals and completion updates.
 
 ## Scope
 
@@ -30,12 +30,15 @@ The first start prints a pairing command. Send it from the one Telegram account 
 /tail 120
 /screen
 /font
+/keys
+/key ctrl-d
+/size large
 /paste
 /interrupt
 /kill
 ```
 
-Plain messages go to the selected session and append Enter. Unknown slash commands go to that session too; prefix a conflicting Onibi command with `//` (for example, `//help`). `/paste` makes the next message literal, with no implicit Enter, and expires after five minutes. Use `/keys` for session-bound `Esc`, `Ctrl-C`, `Enter`, and screen controls.
+Plain messages go to the selected session and append Enter. Unknown slash commands go to that session too; prefix a conflicting Onibi command with `//` (for example, `//help`). `/paste` makes the next message literal, with no implicit Enter, and expires after five minutes. `/keys` exposes arrows, Tab, Shift-Tab, Backspace, Delete, Home, End, PgUp, PgDn, Esc, Ctrl-C, Ctrl-D, Ctrl-Z, Ctrl-L, Ctrl-R, Enter, and tmux size presets; `/key <name>` accepts the same keys plus `ctrl-a` through `ctrl-z`, `meta-a` through `meta-z`, and `f1` through `f12`.
 
 Codex sessions are semantic, not tmux windows: after `/new codex`, send a normal message to start a turn. A later normal message steers the active turn. Claude Code runs in tmux; Onibi attaches an owned Claude settings file containing permission and completion hooks for that session. `/font` selects the terminal-screen font remotely; JetBrainsMono Nerd Font Mono, Caskaydia Cove Nerd Font Mono, and Go Mono Nerd Font Mono are embedded. To use a locally installed BigBlueTerminal Nerd Font Mono, set `screen.font_path` then `screen.font=custom` locally.
 
@@ -54,6 +57,14 @@ Codex sessions are semantic, not tmux windows: after `/new codex`, send a normal
 `onibi session new` needs a running daemon. `onibi system service install` starts `onibi start` in the per-user service manager.
 
 `onibi system status` reports actual daemon socket and service liveness. If `daemon_running=false`, start the daemon or install/restart the service before using Telegram.
+
+## Delivery and uploads
+
+Onibi persists Telegram update claims before executing an input. If it restarts mid-update, it marks that input uncertain and asks you to inspect/resend rather than executing it again. Screens, final tails, and session-ended notices are queued as durable intents and retried; terminal text and PNGs are captured only at delivery time and are not stored in that queue.
+
+The daemon checks managed tmux sessions every five seconds. A locally ended tmux session becomes unavailable immediately on the next check and sends one ended notice. Change the cadence with `daemon.liveness_interval` (1s–5m).
+
+Send a Telegram document to stage it privately for the selected live tmux session. Onibi downloads it to `state/uploads/<session-id>/`, reports its local path, and does not insert or execute it. Defaults: 20 MiB, seven-day retention; configure `daemon.upload_max_bytes` (1–100 MiB) and `daemon.upload_ttl` (1h–30d).
 
 ## Decisions and safety
 

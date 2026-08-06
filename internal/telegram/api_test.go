@@ -124,6 +124,41 @@ func TestClientGetUpdatesPayload(t *testing.T) {
 	}
 }
 
+func TestClientGetsAndDownloadsDocument(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/bot" + testToken + "/getFile":
+			writeTG(t, w, File{FileID: "file-1", FilePath: "documents/report..txt", FileSize: 5})
+		case "/file/bot" + testToken + "/documents/report..txt":
+			w.Header().Set("Content-Length", "5")
+			_, _ = w.Write([]byte("hello"))
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+	c := NewClient(testToken)
+	c.BaseURL = srv.URL
+	file, err := c.GetFile(t.Context(), "file-1")
+	if err != nil || file.FilePath != "documents/report..txt" {
+		t.Fatalf("file=%#v err=%v", file, err)
+	}
+	body, length, err := c.DownloadFile(t.Context(), file.FilePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer body.Close()
+	data, err := io.ReadAll(body)
+	if err != nil || length != 5 || string(data) != "hello" {
+		t.Fatalf("length=%d data=%q err=%v", length, data, err)
+	}
+	for _, path := range []string{"", "../secret", "documents/%2e%2e/secret", "documents/a%2Fb"} {
+		if _, _, err := c.DownloadFile(t.Context(), path); err == nil {
+			t.Fatalf("accepted unsafe path %q", path)
+		}
+	}
+}
+
 func TestClientSendPhotoMultipart(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasSuffix(r.URL.Path, "/sendPhoto") {

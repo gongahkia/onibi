@@ -151,7 +151,7 @@ func (c *Client) DownloadFile(ctx context.Context, filePath string) (io.ReadClos
 		return nil, 0, errors.New("invalid Telegram bot token")
 	}
 	filePath = strings.TrimPrefix(strings.TrimSpace(filePath), "/")
-	if filePath == "" || strings.Contains(filePath, "..") {
+	if !validFilePath(filePath) {
 		return nil, 0, errors.New("invalid Telegram file path")
 	}
 	base := strings.TrimRight(c.BaseURL, "/")
@@ -181,6 +181,19 @@ func (c *Client) DownloadFile(ctx context.Context, filePath string) (io.ReadClos
 		return nil, 0, fmt.Errorf("telegram file download: %s", resp.Status)
 	}
 	return resp.Body, resp.ContentLength, nil
+}
+
+func validFilePath(filePath string) bool {
+	if filePath == "" {
+		return false
+	}
+	for _, part := range strings.Split(filePath, "/") {
+		decoded, err := url.PathUnescape(part)
+		if err != nil || decoded == "" || decoded == "." || decoded == ".." || strings.Contains(decoded, "/") || strings.Contains(decoded, "\\") {
+			return false
+		}
+	}
+	return true
 }
 
 func (c *Client) SendMessage(ctx context.Context, chatID int64, text string, markup *InlineKeyboardMarkup) (Message, error) {

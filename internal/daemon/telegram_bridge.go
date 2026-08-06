@@ -214,7 +214,7 @@ func (b *telegramBridge) handleCommand(ctx context.Context, chatID int64, text s
 	case "/keys":
 		s, err := b.d.sessionForRPCTarget(b.target(ctx, chatID))
 		if err != nil {
-			if errors.Is(err, ErrSessionEnded) {
+			if errors.Is(err, ErrSessionEnded) || b.isSessionEnded(ctx, b.target(ctx, chatID)) {
 				b.send(ctx, chatID, b.sessionEndedText(ctx, chatID, b.target(ctx, chatID)), nil)
 				return true
 			}
@@ -248,7 +248,7 @@ func (b *telegramBridge) handleCommand(ctx context.Context, chatID int64, text s
 func (b *telegramBridge) handleInput(ctx context.Context, m *telegram.Message) {
 	s, err := b.d.sessionForRPCTarget(b.target(ctx, m.Chat.ID))
 	if err != nil {
-		if errors.Is(err, ErrSessionEnded) {
+		if errors.Is(err, ErrSessionEnded) || b.isSessionEnded(ctx, b.target(ctx, m.Chat.ID)) {
 			b.send(ctx, m.Chat.ID, b.sessionEndedText(ctx, m.Chat.ID, b.target(ctx, m.Chat.ID)), nil)
 			return
 		}
@@ -267,14 +267,14 @@ func (b *telegramBridge) handleInput(ctx context.Context, m *telegram.Message) {
 		if errors.Is(err, ErrSessionEnded) {
 			b.enqueueOutbox(ctx, "ended", m.Chat.ID, s.ID, "", 0, "ended:"+s.ID)
 			if status.MessageID != 0 {
-				b.edit(ctx, m.Chat.ID, status.MessageID, "Session ended.", nil)
+				_ = b.edit(ctx, m.Chat.ID, status.MessageID, "Session ended.", nil)
 			}
 			return
 		}
 		if status.MessageID == 0 {
-			b.enqueueOutbox(ctx, "tail", m.Chat.ID, s.ID, "Input failed · "+s.Name, 80, "tail:"+strconv.FormatInt(m.Chat.ID, 10)+":"+s.ID)
-		} else {
-			b.edit(ctx, m.Chat.ID, status.MessageID, "Input failed: "+err.Error(), nil)
+			b.enqueueTail(ctx, m.Chat.ID, s.ID, "Input failed · "+s.Name)
+		} else if b.edit(ctx, m.Chat.ID, status.MessageID, "Input failed: "+err.Error(), nil) != nil {
+			b.enqueueOutbox(ctx, "notice", m.Chat.ID, "", "Input failed in "+s.Name+". Inspect the session with /tail or /screen.", 0, "input-failed:"+strconv.FormatInt(m.Chat.ID, 10)+":"+s.ID)
 		}
 		if s.Transport == "tmux" {
 			b.sendScreen(ctx, m.Chat.ID, s.ID, "Failed · "+s.Name)
@@ -283,19 +283,23 @@ func (b *telegramBridge) handleInput(ctx context.Context, m *telegram.Message) {
 	}
 	if s.Transport == "codex" {
 		if status.MessageID == 0 {
-			b.enqueueOutbox(ctx, "tail", m.Chat.ID, s.ID, "Codex working · "+s.Name, 80, "tail:"+strconv.FormatInt(m.Chat.ID, 10)+":"+s.ID)
+			b.enqueueTail(ctx, m.Chat.ID, s.ID, "Codex working · "+s.Name)
 		} else {
 			b.setCodexStatusMessage(s.ID, status.MessageID)
-			b.edit(ctx, m.Chat.ID, status.MessageID, terminalCard("Codex working · "+s.Name, out), b.sessionControls(ctx, s.ID))
+			if b.edit(ctx, m.Chat.ID, status.MessageID, terminalCard("Codex working · "+s.Name, out), b.sessionControls(ctx, s.ID)) != nil {
+				b.enqueueTail(ctx, m.Chat.ID, s.ID, "Codex working · "+s.Name)
+			}
 		}
 		return
 	}
 	if (s.Agent == "pi" || s.Agent == "claude") && !paste {
 		if status.MessageID == 0 {
-			b.enqueueOutbox(ctx, "tail", m.Chat.ID, s.ID, claudeAgentTitle(s.Agent)+" working · "+s.Name, 80, "tail:"+strconv.FormatInt(m.Chat.ID, 10)+":"+s.ID)
+			b.enqueueTail(ctx, m.Chat.ID, s.ID, claudeAgentTitle(s.Agent)+" working · "+s.Name)
 		} else {
 			b.setAgentStatusMessage(s.ID, status.MessageID)
-			b.edit(ctx, m.Chat.ID, status.MessageID, terminalCard(claudeAgentTitle(s.Agent)+" working · "+s.Name, out), b.sessionControls(ctx, s.ID))
+			if b.edit(ctx, m.Chat.ID, status.MessageID, terminalCard(claudeAgentTitle(s.Agent)+" working · "+s.Name, out), b.sessionControls(ctx, s.ID)) != nil {
+				b.enqueueTail(ctx, m.Chat.ID, s.ID, claudeAgentTitle(s.Agent)+" working · "+s.Name)
+			}
 		}
 		return
 	}
@@ -304,9 +308,9 @@ func (b *telegramBridge) handleInput(ctx context.Context, m *telegram.Message) {
 		label = "Pasted · " + s.Name + "\nUse /enter to submit when ready"
 	}
 	if status.MessageID == 0 {
-		b.enqueueOutbox(ctx, "tail", m.Chat.ID, s.ID, label, 80, "tail:"+strconv.FormatInt(m.Chat.ID, 10)+":"+s.ID)
-	} else {
-		b.edit(ctx, m.Chat.ID, status.MessageID, terminalCard(label, out), b.sessionControls(ctx, s.ID))
+		b.enqueueTail(ctx, m.Chat.ID, s.ID, label)
+	} else if b.edit(ctx, m.Chat.ID, status.MessageID, terminalCard(label, out), b.sessionControls(ctx, s.ID)) != nil {
+		b.enqueueTail(ctx, m.Chat.ID, s.ID, label)
 	}
 	if !paste && s.Transport == "tmux" {
 		b.sendScreen(ctx, m.Chat.ID, s.ID, "Updated · "+s.Name)
@@ -319,7 +323,7 @@ func (b *telegramBridge) handleDocument(ctx context.Context, m *telegram.Message
 	}
 	s, err := b.d.sessionForRPCTarget(b.target(ctx, m.Chat.ID))
 	if err != nil {
-		if errors.Is(err, ErrSessionEnded) {
+		if errors.Is(err, ErrSessionEnded) || b.isSessionEnded(ctx, b.target(ctx, m.Chat.ID)) {
 			b.send(ctx, m.Chat.ID, b.sessionEndedText(ctx, m.Chat.ID, b.target(ctx, m.Chat.ID)), nil)
 			return
 		}
@@ -414,7 +418,7 @@ func (b *telegramBridge) handleTail(ctx context.Context, chatID int64, arg strin
 	}
 	s, err := b.d.sessionForRPCTarget(b.target(ctx, chatID))
 	if err != nil {
-		if errors.Is(err, ErrSessionEnded) {
+		if errors.Is(err, ErrSessionEnded) || b.isSessionEnded(ctx, b.target(ctx, chatID)) {
 			b.send(ctx, chatID, b.sessionEndedText(ctx, chatID, b.target(ctx, chatID)), nil)
 			return
 		}
@@ -549,7 +553,7 @@ func (b *telegramBridge) key(ctx context.Context, chatID int64, sessionID, key s
 	err := b.d.SendSessionKey(ctx, sessionID, key)
 	text := key + " sent."
 	if err != nil {
-		if errors.Is(err, ErrSessionEnded) {
+		if errors.Is(err, ErrSessionEnded) || b.isSessionEnded(ctx, sessionID) {
 			b.enqueueOutbox(ctx, "ended", chatID, sessionID, "", 0, "ended:"+sessionID)
 			text = "Session ended."
 		} else {
@@ -566,7 +570,7 @@ func (b *telegramBridge) resize(ctx context.Context, chatID int64, sessionID, si
 	cols, rows, err := b.d.ResizeSession(ctx, sessionID, size)
 	text := "Viewport: " + strconv.Itoa(cols) + "×" + strconv.Itoa(rows) + "."
 	if err != nil {
-		if errors.Is(err, ErrSessionEnded) {
+		if errors.Is(err, ErrSessionEnded) || b.isSessionEnded(ctx, sessionID) {
 			text = b.sessionEndedText(ctx, chatID, sessionID)
 		} else {
 			text = "Resize failed: " + err.Error()
@@ -588,7 +592,7 @@ func (b *telegramBridge) control(ctx context.Context, chatID int64, sessionID, a
 	err := b.d.ControlSession(ctx, sessionID, action)
 	text := strings.ToUpper(action[:1]) + action[1:] + " sent."
 	if err != nil {
-		if errors.Is(err, ErrSessionEnded) {
+		if errors.Is(err, ErrSessionEnded) || b.isSessionEnded(ctx, sessionID) {
 			b.enqueueOutbox(ctx, "ended", chatID, sessionID, "", 0, "ended:"+sessionID)
 			text = "Session ended."
 		} else {
@@ -829,13 +833,8 @@ func (b *telegramBridge) forwardSessionEvents(ctx context.Context) {
 			if !ok {
 				return
 			}
-			if b.owner() == 0 {
-				continue
-			}
-			if event.Reason == "Codex App Server stopped" {
-				continue
-			}
-			b.enqueueOutbox(ctx, "ended", b.owner(), event.SessionID, "", 0, "ended:"+event.SessionID)
+			b.d.Log.Debug("session event", "session", event.SessionID, "reason", event.Reason)
+			b.wakeOutbox()
 		}
 	}
 }
@@ -860,6 +859,10 @@ func (b *telegramBridge) enqueueOutbox(ctx context.Context, kind string, chatID 
 	}
 	b.wakeOutbox()
 	b.deliverOutbox(ctx)
+}
+
+func (b *telegramBridge) enqueueTail(ctx context.Context, chatID int64, sessionID, title string) {
+	b.enqueueOutbox(ctx, "tail", chatID, sessionID, title, 80, "tail:"+strconv.FormatInt(chatID, 10)+":"+sessionID)
 }
 
 func (b *telegramBridge) runOutbox(ctx context.Context) {
@@ -942,6 +945,9 @@ func (b *telegramBridge) sendOutboxTail(ctx context.Context, item store.Telegram
 
 func (b *telegramBridge) sendOutboxEnded(ctx context.Context, item store.TelegramOutboxIntent) error {
 	text := b.sessionEndedText(ctx, item.ChatID, item.SessionID)
+	if strings.TrimSpace(item.Title) != "" {
+		text = item.Title
+	}
 	_, err := b.client.SendMessage(ctx, item.ChatID, text, nil)
 	return err
 }
@@ -1023,9 +1029,11 @@ func (b *telegramBridge) updateAgentStatus(ctx context.Context, event AgentEvent
 	}
 	title := claudeAgentTitle(event.Agent) + " " + result + " · " + s.Name
 	if state.MessageID == 0 {
-		b.send(ctx, b.owner(), terminalCard(title, tail), b.sessionControls(ctx, s.ID))
-	} else {
-		b.edit(ctx, b.owner(), state.MessageID, terminalCard(title, tail), b.sessionControls(ctx, s.ID))
+		if _, err := b.send(ctx, b.owner(), terminalCard(title, tail), b.sessionControls(ctx, s.ID)); err != nil {
+			b.enqueueTail(ctx, b.owner(), s.ID, title)
+		}
+	} else if b.edit(ctx, b.owner(), state.MessageID, terminalCard(title, tail), b.sessionControls(ctx, s.ID)) != nil {
+		b.enqueueTail(ctx, b.owner(), s.ID, title)
 	}
 	b.sendScreen(ctx, b.owner(), s.ID, title)
 	b.mu.Lock()
@@ -1112,9 +1120,11 @@ func (b *telegramBridge) flushCodexStatus(ctx context.Context, sessionID string)
 			latest.MessageID = m.MessageID
 			b.statuses[sessionID] = latest
 			b.mu.Unlock()
+		} else if state.Kind == "completed" || state.Kind == "failed" {
+			b.enqueueTail(ctx, b.owner(), s.ID, title)
 		}
-	} else {
-		b.edit(ctx, b.owner(), state.MessageID, terminalCard(title, body), b.sessionControls(ctx, s.ID))
+	} else if b.edit(ctx, b.owner(), state.MessageID, terminalCard(title, body), b.sessionControls(ctx, s.ID)) != nil && (state.Kind == "completed" || state.Kind == "failed") {
+		b.enqueueTail(ctx, b.owner(), s.ID, title)
 	}
 	if (state.Kind == "completed" || state.Kind == "failed") && !s.Ended() {
 		b.sendScreen(ctx, b.owner(), s.ID, title)
@@ -1342,7 +1352,16 @@ func (b *telegramBridge) sendScreen(ctx context.Context, chatID int64, sessionID
 		b.send(ctx, chatID, "No active session. Use /new shell, /new codex, /new pi, or /new claude.", nil)
 		return
 	}
-	if s, err := b.d.sessionByID(sessionID); err == nil && s.Transport == "codex" && len(s.Buf.Snapshot()) == 0 {
+	if b.isSessionEnded(ctx, sessionID) {
+		b.send(ctx, chatID, b.sessionEndedText(ctx, chatID, sessionID), nil)
+		return
+	}
+	s, err := b.d.sessionByID(sessionID)
+	if err != nil {
+		b.send(ctx, chatID, "Screen unavailable: session not found. Use /sessions or /new.", nil)
+		return
+	}
+	if s.Transport == "codex" && len(s.Buf.Snapshot()) == 0 {
 		b.send(ctx, chatID, "Codex has no activity yet. Send a normal message to start a turn.", b.sessionControls(ctx, s.ID))
 		return
 	}
@@ -1353,11 +1372,29 @@ func (b *telegramBridge) sessionEndedText(ctx context.Context, chatID int64, ses
 	agent := "session"
 	if s, err := b.d.Registry.Get(sessionID); err == nil {
 		name, agent = s.Name, s.Agent
+	} else if b.d.DB != nil {
+		if entry, found, err := b.d.DB.Session(ctx, sessionID); err == nil && found && entry.Ended {
+			name, agent = entry.Name, entry.Agent
+		}
 	}
 	if b.target(ctx, chatID) == sessionID {
 		b.setTarget(ctx, chatID, "")
 	}
 	return name + " ended. Screens, input, and controls are unavailable. Use /new " + agent + " to start another."
+}
+
+func (b *telegramBridge) isSessionEnded(ctx context.Context, sessionID string) bool {
+	if strings.TrimSpace(sessionID) == "" {
+		return false
+	}
+	if s, err := b.d.Registry.Get(sessionID); err == nil {
+		return s.Ended()
+	}
+	if b.d.DB == nil {
+		return false
+	}
+	entry, found, err := b.d.DB.Session(ctx, sessionID)
+	return err == nil && found && entry.Ended
 }
 func (b *telegramBridge) newCard(ctx context.Context, card telegramCard) (string, error) {
 	now := time.Now()
@@ -1524,10 +1561,12 @@ func (b *telegramBridge) send(ctx context.Context, chat int64, text string, mark
 	}
 	return message, err
 }
-func (b *telegramBridge) edit(ctx context.Context, chat, message int64, text string, markup *telegram.InlineKeyboardMarkup) {
+func (b *telegramBridge) edit(ctx context.Context, chat, message int64, text string, markup *telegram.InlineKeyboardMarkup) error {
 	if _, err := b.client.EditMessageText(ctx, chat, message, boundedText(text), markup); err != nil {
 		b.d.Log.Warn("Telegram edit", "chat", chat, "err", err)
+		return err
 	}
+	return nil
 }
 func terminalCard(title, body string) string { return title + "\n\n" + strings.TrimSpace(body) }
 func boundedText(text string) string {

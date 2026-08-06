@@ -75,3 +75,30 @@ func TestCapturePreservesTerminalStyles(t *testing.T) {
 		t.Fatalf("calls = %#v", r.calls)
 	}
 }
+
+func TestHasSessionAndPaneSize(t *testing.T) {
+	r := &fakeRunner{out: []byte("120 40\n")}
+	c := NewWithRunner(r)
+	live, err := c.HasSession(t.Context(), "onibi-a")
+	if err != nil || !live {
+		t.Fatalf("live=%t err=%v", live, err)
+	}
+	cols, rows, err := c.PaneSize(t.Context(), "onibi-a")
+	if err != nil || cols != 120 || rows != 40 {
+		t.Fatalf("size=%dx%d err=%v", cols, rows, err)
+	}
+	if err := c.ResizeWindow(t.Context(), "onibi-a", 80, 24); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"tmux", "resize-window", "-t", "onibi-a", "-x", "80", "-y", "24"}
+	if !reflect.DeepEqual(r.calls[2], want) {
+		t.Fatalf("calls=%#v", r.calls)
+	}
+}
+
+func TestHasSessionTreatsMissingTargetAsNotLive(t *testing.T) {
+	live, err := NewWithRunner(&fakeRunner{out: []byte("can't find session: onibi-a"), err: errors.New("exit status 1")}).HasSession(t.Context(), "onibi-a")
+	if err != nil || live {
+		t.Fatalf("live=%t err=%v", live, err)
+	}
+}

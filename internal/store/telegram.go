@@ -80,6 +80,21 @@ func (d *DB) TelegramMarkUncertainUpdates(ctx context.Context) (int64, error) {
 	return result.RowsAffected()
 }
 
+func (d *DB) TelegramPurge(ctx context.Context, before time.Time) error {
+	tx, err := d.sql.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM telegram_updates WHERE state IN (?,?) AND received_at<?`, TelegramUpdateCompleted, TelegramUpdateUncertain, before.Unix()); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM telegram_outbox WHERE state IN (?,?) AND created_at<?`, OutboxDelivered, OutboxExpired, before.Unix()); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func (d *DB) TelegramOutboxUpsert(ctx context.Context, item TelegramOutboxIntent) error {
 	if item.ID == "" || item.DedupeKey == "" || item.Kind == "" || item.ChatID == 0 || (item.Kind != "ended" && item.Title == "") {
 		return errors.New("telegram outbox id, dedupe key, kind, chat id, and title required")

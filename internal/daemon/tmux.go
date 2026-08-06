@@ -63,6 +63,7 @@ func (d *Daemon) restoreSessions(ctx context.Context) {
 	}
 	ctrl := newTmuxController()
 	live, err := ctrl.ListSessions(ctx)
+	tmuxMissing := err != nil && tmuxSessionGone(err)
 	if err != nil {
 		d.Log.Warn("tmux discovery", "err", err)
 	}
@@ -82,11 +83,12 @@ func (d *Daemon) restoreSessions(ctx context.Context) {
 		if row.Transport != "tmux" {
 			continue
 		}
-		if err != nil {
+		if err != nil && !tmuxMissing {
 			continue
 		}
 		if !present[row.TmuxTarget] {
 			_ = d.DB.SessionMarkEnded(ctx, row.ID, row.LastActivity)
+			d.queueSessionEndedNotice(ctx, row.ID, row.Name, row.Agent)
 			continue
 		}
 		s := newSessionAt(row.ID, row.Name, row.Agent, d.bufferSize(), row.StartedAt, row.LastActivity)
