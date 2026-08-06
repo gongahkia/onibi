@@ -202,6 +202,9 @@ func TestCodexEndedStatusClearsTarget(t *testing.T) {
 	if got := b.target(t.Context(), 42); got != "" {
 		t.Fatalf("target=%q", got)
 	}
+	if controls := b.sessionControls(t.Context(), s.ID); controls != nil {
+		t.Fatalf("ended session controls=%#v", controls)
+	}
 }
 
 func TestScreenFontPersistsWithoutRestart(t *testing.T) {

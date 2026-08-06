@@ -41,6 +41,7 @@ type Daemon struct {
 	started             time.Time
 	mu                  sync.Mutex
 	codexMu             sync.Mutex
+	claudeMu            sync.Mutex
 	codex               map[string]*codexRuntime
 	codexEvents         chan CodexEvent
 	agentEvents         chan AgentEvent

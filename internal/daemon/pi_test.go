@@ -50,4 +50,10 @@ func TestClaudeLifecyclePublishesManagedSessionEnd(t *testing.T) {
 	if event := <-d.AgentEvents(); event.Agent != "claude" || event.Kind != "agent_end" {
 		t.Fatalf("event=%#v", event)
 	}
+	if _, err := d.handleAgentLifecycle(t.Context(), intake.Event{Session: s.ID, Agent: "claude", Lifecycle: "agent_failed"}); err != nil {
+		t.Fatal(err)
+	}
+	if event := <-d.AgentEvents(); event.Agent != "claude" || event.Kind != "agent_failed" {
+		t.Fatalf("event=%#v", event)
+	}
 }

@@ -480,7 +480,7 @@ func (b *telegramBridge) control(ctx context.Context, chatID int64, sessionID, a
 }
 func (b *telegramBridge) sessionControls(ctx context.Context, sessionID string) *telegram.InlineKeyboardMarkup {
 	s, err := b.d.sessionByID(sessionID)
-	if err != nil {
+	if err != nil || s.Ended() {
 		return nil
 	}
 	if s.Transport == "codex" {
@@ -706,7 +706,7 @@ func (b *telegramBridge) updateAgentStatus(ctx context.Context, event AgentEvent
 		b.edit(ctx, b.owner(), state.MessageID, claudeAgentTitle(event.Agent)+" working · "+s.Name, b.sessionControls(ctx, s.ID))
 		return
 	}
-	if event.Kind != "agent_end" {
+	if event.Kind != "agent_end" && event.Kind != "agent_failed" {
 		return
 	}
 	if event.Agent != "claude" && (state.MessageID == 0 || state.RunID != event.RunID) {
@@ -716,12 +716,17 @@ func (b *telegramBridge) updateAgentStatus(ctx context.Context, event AgentEvent
 	if err != nil {
 		tail = "Final output unavailable: " + err.Error()
 	}
-	if state.MessageID == 0 {
-		b.send(ctx, b.owner(), terminalCard(claudeAgentTitle(event.Agent)+" completed · "+s.Name, tail), b.sessionControls(ctx, s.ID))
-	} else {
-		b.edit(ctx, b.owner(), state.MessageID, terminalCard(claudeAgentTitle(event.Agent)+" completed · "+s.Name, tail), b.sessionControls(ctx, s.ID))
+	result := "completed"
+	if event.Kind == "agent_failed" {
+		result = "failed"
 	}
-	b.sendScreen(ctx, b.owner(), s.ID, claudeAgentTitle(event.Agent)+" completed · "+s.Name)
+	title := claudeAgentTitle(event.Agent) + " " + result + " · " + s.Name
+	if state.MessageID == 0 {
+		b.send(ctx, b.owner(), terminalCard(title, tail), b.sessionControls(ctx, s.ID))
+	} else {
+		b.edit(ctx, b.owner(), state.MessageID, terminalCard(title, tail), b.sessionControls(ctx, s.ID))
+	}
+	b.sendScreen(ctx, b.owner(), s.ID, title)
 	b.mu.Lock()
 	delete(b.agentStatuses, s.ID)
 	b.mu.Unlock()

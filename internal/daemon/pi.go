@@ -27,7 +27,7 @@ func (d *Daemon) handleAgentLifecycle(ctx context.Context, ev intake.Event) (int
 			return intake.Response{}, errors.New("unsupported Pi lifecycle")
 		}
 	case "claude":
-		if kind != "agent_end" {
+		if kind != "agent_end" && kind != "agent_failed" {
 			return intake.Response{}, errors.New("unsupported Claude lifecycle")
 		}
 	default:

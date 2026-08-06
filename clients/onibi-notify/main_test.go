@@ -95,6 +95,18 @@ func TestRunClaudeFailsClosedWhenDaemonIsUnavailable(t *testing.T) {
 	}
 }
 
+func TestClaudeLifecycle(t *testing.T) {
+	for hook, want := range map[string]string{"Stop": "agent_end", "StopFailure": "agent_failed"} {
+		got, err := claudeLifecycle(hook)
+		if err != nil || got != want {
+			t.Fatalf("hook=%q lifecycle=%q err=%v", hook, got, err)
+		}
+	}
+	if _, err := claudeLifecycle("PermissionRequest"); err == nil {
+		t.Fatal("accepted PermissionRequest as lifecycle")
+	}
+}
+
 func TestRunFailsClosedWhenDaemonIsUnavailable(t *testing.T) {
 	var output bytes.Buffer
 	err := run(

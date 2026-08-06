@@ -42,6 +42,8 @@ func onibiNotifyPath() (string, error) {
 }
 
 func (d *Daemon) writeClaudeHooks(notify string) (string, error) {
+	d.claudeMu.Lock()
+	defer d.claudeMu.Unlock()
 	if strings.TrimSpace(d.Paths.StateDir) == "" {
 		return "", errors.New("Onibi state directory required for Claude hooks")
 	}

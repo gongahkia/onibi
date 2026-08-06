@@ -146,11 +146,23 @@ func sendClaudeLifecycle(input io.Reader, getenv func(string) string) error {
 	if err != nil {
 		return err
 	}
-	if payload.HookEventName != "Stop" && payload.HookEventName != "StopFailure" {
-		return os.ErrInvalid
+	lifecycle, err := claudeLifecycle(payload.HookEventName)
+	if err != nil {
+		return err
 	}
-	_, err = intake.Request(socket, intake.Event{Type: intake.TypeAgentLifecycle, Session: sessionID, Agent: "claude", CWD: payload.CWD, Lifecycle: "agent_end"}, 2*time.Second)
+	_, err = intake.Request(socket, intake.Event{Type: intake.TypeAgentLifecycle, Session: sessionID, Agent: "claude", CWD: payload.CWD, Lifecycle: lifecycle}, 2*time.Second)
 	return err
+}
+
+func claudeLifecycle(hook string) (string, error) {
+	switch hook {
+	case "Stop":
+		return "agent_end", nil
+	case "StopFailure":
+		return "agent_failed", nil
+	default:
+		return "", os.ErrInvalid
+	}
 }
 
 func parsePiPayload(r io.Reader) (piPayload, error) {
