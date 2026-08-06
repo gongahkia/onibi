@@ -18,6 +18,7 @@ Keep:
 - Durable audit, recovery, reconnect, and idempotent decisions.
 - Codex as the first semantic agent integration.
 - Pi tool-approval cards after event-payload validation.
+- Claude Code permission and completion hooks.
 
 Cut or hide:
 
@@ -91,15 +92,20 @@ Do not expose Codex App Server's `thread/shellCommand` as a Telegram convenience
 
 The existing Pi extension reports session, input, and tool events and can block or edit tool input. Reuse the approval-card model, but do not claim native mapping for every Pi prompt until live event payloads are validated.
 
+### Claude Code
+
+Run Claude Code in the managed tmux lane with an Onibi-owned settings file. Map documented `PermissionRequest` hooks to the approval-card model and `Stop`/`StopFailure` hooks to an edited final card plus fresh screen. Do not infer generic terminal prompts or override the user's Claude settings outside that session.
+
 ## Implementation invariants
 
 - Generic terminal input is literal. No output parser promotes a TUI prompt into a decision.
-- Generic input is never mislabeled as completion; Pi lifecycle completion and structured Codex events send fresh final state.
+- Generic input is never mislabeled as completion; Pi/Claude lifecycle completion and structured Codex events send fresh final state.
 - Screens use a bundled, owner-selectable monospaced font; external fonts are opt-in local paths.
 - Callback state is session-bound, opaque, persisted, 24-hour bounded, and single-use.
 - Codex streaming output is coalesced into an edited status card rather than emitted per chunk.
 - Codex approval and input requests are only answered while the corresponding App Server request remains pending.
 - Pi waits are fail-closed. A daemon restart cancels an in-flight Pi approval because the original blocking process cannot safely be resumed.
+- Claude permission waits are fail-closed. Its per-session settings file is private to Onibi's state directory.
 - Audit records hash terminal payloads instead of storing them in the audit table.
 
 ## Sources
@@ -109,3 +115,4 @@ The existing Pi extension reports session, input, and tool events and can block 
 - tmux advanced use and control mode: <https://github.com/tmux/tmux/wiki/Advanced-Use>, <https://github.com/tmux/tmux/wiki/Control-Mode>
 - Codex App Server: <https://learn.chatgpt.com/docs/app-server>
 - Codex approvals and sandboxing: <https://learn.chatgpt.com/docs/agent-approvals-security>
+- Claude Code hooks: <https://code.claude.com/docs/en/hooks>
