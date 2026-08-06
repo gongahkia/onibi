@@ -55,22 +55,22 @@ type codexStatus struct {
 	Kind      string
 	Pending   bool
 }
-type piStatus struct {
+type agentStatus struct {
 	MessageID int64
 	RunID     string
 }
 type telegramBridge struct {
-	d           *Daemon
-	client      *telegram.Client
-	mu          sync.Mutex
-	ownerID     int64
-	ownerUserID int64
-	seen        map[string]bool
-	sending     map[string]bool
-	killArmed   map[int64]time.Time
-	cards       map[string]telegramCard
-	statuses    map[string]codexStatus
-	piStatuses  map[string]piStatus
+	d             *Daemon
+	client        *telegram.Client
+	mu            sync.Mutex
+	ownerID       int64
+	ownerUserID   int64
+	seen          map[string]bool
+	sending       map[string]bool
+	killArmed     map[int64]time.Time
+	cards         map[string]telegramCard
+	statuses      map[string]codexStatus
+	agentStatuses map[string]agentStatus
 }
 
 func (d *Daemon) runTelegramBridge(ctx context.Context) error {
@@ -78,10 +78,10 @@ func (d *Daemon) runTelegramBridge(ctx context.Context) error {
 	if err := c.DeleteWebhook(ctx); err != nil {
 		d.Log.Warn("Telegram delete webhook", "err", err)
 	}
-	b := &telegramBridge{d: d, client: c, ownerID: d.TelegramOwnerID, ownerUserID: d.TelegramOwnerUserID, seen: map[string]bool{}, sending: map[string]bool{}, killArmed: map[int64]time.Time{}, cards: map[string]telegramCard{}, statuses: map[string]codexStatus{}, piStatuses: map[string]piStatus{}}
+	b := &telegramBridge{d: d, client: c, ownerID: d.TelegramOwnerID, ownerUserID: d.TelegramOwnerUserID, seen: map[string]bool{}, sending: map[string]bool{}, killArmed: map[int64]time.Time{}, cards: map[string]telegramCard{}, statuses: map[string]codexStatus{}, agentStatuses: map[string]agentStatus{}}
 	go b.forwardApprovals(ctx)
 	go b.forwardCodexEvents(ctx)
-	go b.forwardPiEvents(ctx)
+	go b.forwardAgentEvents(ctx)
 	var offset int64
 	failures := 0
 	for {
@@ -241,9 +241,9 @@ func (b *telegramBridge) handleInput(ctx context.Context, m *telegram.Message) {
 		b.edit(ctx, m.Chat.ID, status.MessageID, terminalCard("Codex working · "+s.Name, out), b.sessionControls(ctx, s.ID))
 		return
 	}
-	if s.Agent == "pi" && !paste {
-		b.setPiStatusMessage(s.ID, status.MessageID)
-		b.edit(ctx, m.Chat.ID, status.MessageID, terminalCard("Pi working · "+s.Name, out), b.sessionControls(ctx, s.ID))
+	if (s.Agent == "pi" || s.Agent == "claude") && !paste {
+		b.setAgentStatusMessage(s.ID, status.MessageID)
+		b.edit(ctx, m.Chat.ID, status.MessageID, terminalCard(claudeAgentTitle(s.Agent)+" working · "+s.Name, out), b.sessionControls(ctx, s.ID))
 		return
 	}
 	label := "Sent · " + s.Name
@@ -283,7 +283,7 @@ func (b *telegramBridge) handleNew(ctx context.Context, chatID int64, arg string
 	}
 	bin, _, args, ok := b.d.agentCommand(agent, args)
 	if !ok {
-		b.send(ctx, chatID, "Supported sessions: shell, codex, pi.", nil)
+		b.send(ctx, chatID, "Supported sessions: shell, codex, pi, claude.", nil)
 		return
 	}
 	path, err := exec.LookPath(bin)
@@ -654,31 +654,31 @@ func (b *telegramBridge) setCodexStatusMessage(sessionID string, messageID int64
 	b.mu.Unlock()
 }
 
-func (b *telegramBridge) forwardPiEvents(ctx context.Context) {
+func (b *telegramBridge) forwardAgentEvents(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case event, ok := <-b.d.PiEvents():
+		case event, ok := <-b.d.AgentEvents():
 			if !ok {
 				return
 			}
-			b.updatePiStatus(ctx, event)
+			b.updateAgentStatus(ctx, event)
 		}
 	}
 }
 
-func (b *telegramBridge) setPiStatusMessage(sessionID string, messageID int64) {
+func (b *telegramBridge) setAgentStatusMessage(sessionID string, messageID int64) {
 	b.mu.Lock()
-	state := b.piStatuses[sessionID]
+	state := b.agentStatuses[sessionID]
 	if state.MessageID == 0 {
 		state.MessageID = messageID
-		b.piStatuses[sessionID] = state
+		b.agentStatuses[sessionID] = state
 	}
 	b.mu.Unlock()
 }
 
-func (b *telegramBridge) updatePiStatus(ctx context.Context, event PiEvent) {
+func (b *telegramBridge) updateAgentStatus(ctx context.Context, event AgentEvent) {
 	if b.owner() == 0 {
 		return
 	}
@@ -687,29 +687,29 @@ func (b *telegramBridge) updatePiStatus(ctx context.Context, event PiEvent) {
 		return
 	}
 	b.mu.Lock()
-	state := b.piStatuses[event.SessionID]
+	state := b.agentStatuses[event.SessionID]
 	b.mu.Unlock()
 	if event.Kind == "agent_start" {
 		b.mu.Lock()
-		state = b.piStatuses[event.SessionID]
+		state = b.agentStatuses[event.SessionID]
 		state.RunID = event.RunID
-		b.piStatuses[event.SessionID] = state
+		b.agentStatuses[event.SessionID] = state
 		b.mu.Unlock()
 		if state.MessageID == 0 {
-			m, err := b.client.SendMessage(ctx, b.owner(), "Pi working · "+s.Name, b.sessionControls(ctx, s.ID))
+			m, err := b.client.SendMessage(ctx, b.owner(), claudeAgentTitle(event.Agent)+" working · "+s.Name, b.sessionControls(ctx, s.ID))
 			if err != nil {
 				return
 			}
-			b.setPiStatusMessage(s.ID, m.MessageID)
+			b.setAgentStatusMessage(s.ID, m.MessageID)
 			return
 		}
-		b.edit(ctx, b.owner(), state.MessageID, "Pi working · "+s.Name, b.sessionControls(ctx, s.ID))
+		b.edit(ctx, b.owner(), state.MessageID, claudeAgentTitle(event.Agent)+" working · "+s.Name, b.sessionControls(ctx, s.ID))
 		return
 	}
 	if event.Kind != "agent_end" {
 		return
 	}
-	if state.MessageID == 0 || state.RunID != event.RunID {
+	if event.Agent != "claude" && (state.MessageID == 0 || state.RunID != event.RunID) {
 		return
 	}
 	tail, err := b.d.CaptureSessionTail(ctx, s.ID, 80)
@@ -717,13 +717,13 @@ func (b *telegramBridge) updatePiStatus(ctx context.Context, event PiEvent) {
 		tail = "Final output unavailable: " + err.Error()
 	}
 	if state.MessageID == 0 {
-		b.send(ctx, b.owner(), terminalCard("Pi completed · "+s.Name, tail), b.sessionControls(ctx, s.ID))
+		b.send(ctx, b.owner(), terminalCard(claudeAgentTitle(event.Agent)+" completed · "+s.Name, tail), b.sessionControls(ctx, s.ID))
 	} else {
-		b.edit(ctx, b.owner(), state.MessageID, terminalCard("Pi completed · "+s.Name, tail), b.sessionControls(ctx, s.ID))
+		b.edit(ctx, b.owner(), state.MessageID, terminalCard(claudeAgentTitle(event.Agent)+" completed · "+s.Name, tail), b.sessionControls(ctx, s.ID))
 	}
-	b.sendScreen(ctx, b.owner(), s.ID, "Pi completed · "+s.Name)
+	b.sendScreen(ctx, b.owner(), s.ID, claudeAgentTitle(event.Agent)+" completed · "+s.Name)
 	b.mu.Lock()
-	delete(b.piStatuses, s.ID)
+	delete(b.agentStatuses, s.ID)
 	b.mu.Unlock()
 }
 
@@ -793,6 +793,10 @@ func (b *telegramBridge) flushCodexStatus(ctx context.Context, sessionID string)
 	}
 	if state.Kind == "failed" {
 		title = "Codex failed · " + s.Name
+	}
+	if s.Ended() {
+		title = "Codex ended · " + s.Name
+		body = strings.TrimSpace(body + "\n\n" + b.sessionEndedText(ctx, b.owner(), s.ID))
 	}
 	if state.MessageID == 0 {
 		m, err := b.client.SendMessage(ctx, b.owner(), terminalCard(title, body), b.sessionControls(ctx, s.ID))
@@ -1349,7 +1353,7 @@ func extractNewCWD(args []string) (cwd string, rest []string, err error) {
 	return cwd, rest, nil
 }
 func telegramHelp() string {
-	return "Onibi\n\n/new shell|codex|pi [--name name] [--cwd path]\n/sessions\n/target <id|name>\n/tail [lines]\n/screen\n/font\n/paste\n/keys\n/interrupt\n/esc\n/enter\n/kill\n\nNormal text sends literal input followed by Enter. Unknown /commands go to the selected session; // forces a command through when it conflicts with Onibi. /paste makes exactly the next message literal without Enter."
+	return "Onibi\n\n/new shell|codex|pi|claude [--name name] [--cwd path]\n/sessions\n/target <id|name>\n/tail [lines]\n/screen\n/font\n/paste\n/keys\n/interrupt\n/esc\n/enter\n/kill\n\nNormal text sends literal input followed by Enter. Unknown /commands go to the selected session; // forces a command through when it conflicts with Onibi. /paste makes exactly the next message literal without Enter."
 }
 func formatApproval(item *approval.Approval, sessionName string) string {
 	if item == nil {

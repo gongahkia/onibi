@@ -45,8 +45,11 @@ func TestNormalizeRequestRejectsInvalidBoundary(t *testing.T) {
 	if _, err := NormalizeRequest(Request{Agent: "pi", Tool: "Bash", Input: []byte(`{}`)}); err == nil {
 		t.Fatal("missing session accepted")
 	}
+	if _, err := NormalizeRequest(Request{SessionID: "s1", Agent: "claude", Tool: "Bash", Input: []byte(`{}`)}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := NormalizeRequest(Request{SessionID: "s1", Agent: "codex", Tool: "Bash", Input: []byte(`{}`)}); err == nil {
-		t.Fatal("non-Pi approval accepted")
+		t.Fatal("unsupported approval accepted")
 	}
 }
 

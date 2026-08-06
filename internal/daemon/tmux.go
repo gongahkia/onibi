@@ -21,6 +21,10 @@ func (d *Daemon) StartTmuxSession(ctx context.Context, name, agent, bin string, 
 	if err != nil {
 		return nil, fmt.Errorf("working directory: %w", err)
 	}
+	args, err = d.prepareClaudeSessionArgs(agent, args)
+	if err != nil {
+		return nil, err
+	}
 	id := NewID()
 	name, err = d.sessionName(name, agent)
 	if err != nil {

@@ -11,7 +11,7 @@ import (
 
 func sessionCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "session", Short: "Create and inspect managed sessions"}
-	newCmd := &cobra.Command{Use: "new <shell|codex|pi> [args...]", Short: "Create a persistent session", Args: cobra.MinimumNArgs(1), RunE: runSessionNew}
+	newCmd := &cobra.Command{Use: "new <shell|codex|pi|claude> [args...]", Short: "Create a persistent session", Args: cobra.MinimumNArgs(1), RunE: runSessionNew}
 	newCmd.Flags().String("name", "", "session name")
 	newCmd.Flags().String("cwd", "", "working directory")
 	list := &cobra.Command{Use: "list", Short: "List active and recent sessions", RunE: runSessionList}

@@ -44,6 +44,9 @@ func (d *Daemon) agentCommand(agent string, args []string) (string, string, []st
 	if agent == "pi" {
 		return agentBinary("pi"), "pi", args, true
 	}
+	if agent == "claude" {
+		return agentBinary("claude"), "claude", args, true
+	}
 	return "", "", nil, false
 }
 func agentBinary(name string) string {

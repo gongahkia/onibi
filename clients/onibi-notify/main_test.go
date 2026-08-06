@@ -46,6 +46,55 @@ func TestParsePiLifecyclePayload(t *testing.T) {
 	}
 }
 
+func TestParseClaudePayload(t *testing.T) {
+	payload, err := parseClaudePayload(strings.NewReader(`{"hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"pwd"},"cwd":"/tmp"}`))
+	if err != nil || payload.ToolName != "Bash" || string(payload.ToolInput) != `{"command":"pwd"}` {
+		t.Fatalf("payload=%#v err=%v", payload, err)
+	}
+	if _, err := parseClaudePayload(strings.NewReader(`{"hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":[]}`)); err == nil {
+		t.Fatal("accepted invalid Claude payload")
+	}
+}
+
+func TestClaudeResponse(t *testing.T) {
+	approved := claudeResponse("approve", "")
+	hook := approved["hookSpecificOutput"].(map[string]any)
+	decision := hook["decision"].(map[string]any)
+	if decision["behavior"] != "allow" {
+		t.Fatalf("approval=%#v", approved)
+	}
+	denied := claudeResponse("deny", "no")
+	hook = denied["hookSpecificOutput"].(map[string]any)
+	decision = hook["decision"].(map[string]any)
+	if decision["behavior"] != "deny" || decision["message"] != "no" {
+		t.Fatalf("denial=%#v", denied)
+	}
+}
+
+func TestRunClaudeFailsClosedWhenDaemonIsUnavailable(t *testing.T) {
+	var output bytes.Buffer
+	err := run(
+		[]string{"--agent", "claude", "--format", "claude", "--type", "approval_request", "--wait", "--response", "claude-json"},
+		strings.NewReader(`{"hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"pwd"}}`),
+		&output,
+		func(key string) string {
+			if key == "ONIBI_SESSION_ID" {
+				return "session-1"
+			}
+			if key == "ONIBI_SOCK" {
+				return "/tmp/onibi-missing.sock"
+			}
+			return ""
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), `"behavior":"deny"`) {
+		t.Fatalf("output=%s", output.String())
+	}
+}
+
 func TestRunFailsClosedWhenDaemonIsUnavailable(t *testing.T) {
 	var output bytes.Buffer
 	err := run(

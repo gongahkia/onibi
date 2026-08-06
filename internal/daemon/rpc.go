@@ -31,7 +31,7 @@ func (d *Daemon) handleRPCRequest(ctx context.Context, ev intake.Event) (intake.
 		}
 		bin, name, args, ok := d.agentCommand(agent, ev.Args)
 		if !ok {
-			return intake.Response{}, errors.New("supported agents: shell, codex, pi")
+			return intake.Response{}, errors.New("supported agents: shell, codex, pi, claude")
 		}
 		path, err := exec.LookPath(bin)
 		if err != nil {
@@ -45,7 +45,7 @@ func (d *Daemon) handleRPCRequest(ctx context.Context, ev intake.Event) (intake.
 	case intake.TypeSessionControl:
 		return intake.Response{SessionID: ev.Session, Text: ev.Action}, d.ControlSession(ctx, ev.Session, ev.Action)
 	case intake.TypeAgentLifecycle:
-		return d.handlePiLifecycle(ctx, ev)
+		return d.handleAgentLifecycle(ctx, ev)
 	default:
 		return intake.Response{}, errors.New("unsupported rpc")
 	}

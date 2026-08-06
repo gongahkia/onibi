@@ -43,7 +43,7 @@ type Daemon struct {
 	codexMu             sync.Mutex
 	codex               map[string]*codexRuntime
 	codexEvents         chan CodexEvent
-	piEvents            chan PiEvent
+	agentEvents         chan AgentEvent
 	SkipRestore         bool
 }
 
@@ -70,7 +70,7 @@ func New(opts Options) *Daemon {
 	if opts.Log == nil {
 		opts.Log = slog.Default()
 	}
-	d := &Daemon{Paths: opts.Paths, DB: opts.DB, Log: opts.Log, Registry: NewRegistry(), OutputBufferSize: opts.OutputBufferSize, ShellDefault: opts.ShellDefault, ShellLogin: opts.ShellLogin, ScreenFont: opts.ScreenFont, ScreenFontPath: opts.ScreenFontPath, TelegramToken: opts.TelegramToken, TelegramOwnerID: opts.TelegramOwnerID, TelegramOwnerUserID: opts.TelegramOwnerUserID, TelegramPair: opts.TelegramPair, started: time.Now(), codex: map[string]*codexRuntime{}, codexEvents: make(chan CodexEvent, 128), piEvents: make(chan PiEvent, 128), SkipRestore: opts.SkipRestore}
+	d := &Daemon{Paths: opts.Paths, DB: opts.DB, Log: opts.Log, Registry: NewRegistry(), OutputBufferSize: opts.OutputBufferSize, ShellDefault: opts.ShellDefault, ShellLogin: opts.ShellLogin, ScreenFont: opts.ScreenFont, ScreenFontPath: opts.ScreenFontPath, TelegramToken: opts.TelegramToken, TelegramOwnerID: opts.TelegramOwnerID, TelegramOwnerUserID: opts.TelegramOwnerUserID, TelegramPair: opts.TelegramPair, started: time.Now(), codex: map[string]*codexRuntime{}, codexEvents: make(chan CodexEvent, 128), agentEvents: make(chan AgentEvent, 128), SkipRestore: opts.SkipRestore}
 	d.Queue = approval.New(opts.DB, opts.ApprovalTTL)
 	if opts.ApprovalMaxSubscribers > 0 {
 		d.Queue.MaxSubscribers = opts.ApprovalMaxSubscribers
@@ -274,14 +274,18 @@ func (d *Daemon) handleApprovalRequest(ctx context.Context, ev intake.Event) (in
 	if err != nil {
 		return intake.Response{Decision: "cancelled", Reason: "unknown Onibi session"}, nil
 	}
-	if s.Agent != "pi" || (ev.Agent != "" && ev.Agent != "pi") {
-		return intake.Response{Decision: "cancelled", Reason: "Pi approvals only"}, nil
+	agent := strings.ToLower(strings.TrimSpace(ev.Agent))
+	if agent == "" {
+		agent = s.Agent
 	}
-	req := approval.Request{SessionID: s.ID, Agent: "pi", Tool: ev.Tool, Input: json.RawMessage(ev.InputJSON)}
+	if (agent != "pi" && agent != "claude") || s.Agent != agent {
+		return intake.Response{Decision: "cancelled", Reason: "unsupported approval source"}, nil
+	}
+	req := approval.Request{SessionID: s.ID, Agent: agent, Tool: ev.Tool, Input: json.RawMessage(ev.InputJSON)}
 	if ev.Approval != nil {
 		req = *ev.Approval
 		req.SessionID = s.ID
-		req.Agent = "pi"
+		req.Agent = agent
 	}
 	normalized, err := approval.NormalizeRequest(req)
 	if err != nil {

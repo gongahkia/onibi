@@ -30,8 +30,8 @@ func NormalizeRequest(req Request) (Request, error) {
 	if req.SessionID == "" || req.Agent == "" || req.Tool == "" {
 		return Request{}, fmt.Errorf("approval session_id, agent, and tool are required")
 	}
-	if req.Agent != "pi" {
-		return Request{}, fmt.Errorf("Pi is the only approval source")
+	if req.Agent != "pi" && req.Agent != "claude" {
+		return Request{}, fmt.Errorf("unsupported approval source")
 	}
 	input := bytes.TrimSpace(req.Input)
 	if len(input) == 0 {

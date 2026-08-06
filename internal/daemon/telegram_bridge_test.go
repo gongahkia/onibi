@@ -66,7 +66,7 @@ func testTelegramBridge(t *testing.T) (*telegramBridge, *bridgeRunner, func()) {
 	client := telegram.NewClient("123456:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi")
 	client.BaseURL = server.URL
 	client.RetrySleep = func(context.Context, time.Duration) error { return nil }
-	b := &telegramBridge{d: d, client: client, ownerID: 42, ownerUserID: 7, seen: map[string]bool{}, sending: map[string]bool{}, killArmed: map[int64]time.Time{}, cards: map[string]telegramCard{}, statuses: map[string]codexStatus{}, piStatuses: map[string]piStatus{}}
+	b := &telegramBridge{d: d, client: client, ownerID: 42, ownerUserID: 7, seen: map[string]bool{}, sending: map[string]bool{}, killArmed: map[int64]time.Time{}, cards: map[string]telegramCard{}, statuses: map[string]codexStatus{}, agentStatuses: map[string]agentStatus{}}
 	cleanup := func() { newTmuxController = oldController; server.Close(); _ = db.Close() }
 	return b, runner, cleanup
 }
@@ -159,10 +159,26 @@ func TestPiFinalScreenWaitsForAgentEnd(t *testing.T) {
 	if len(runner.calls) != 3 || runner.calls[2][1] != "capture-pane" || runner.calls[2][len(runner.calls[2])-1] != "-80" {
 		t.Fatalf("premature Pi completion=%#v", runner.calls)
 	}
-	b.updatePiStatus(t.Context(), PiEvent{SessionID: s.ID, Kind: "agent_start", RunID: "run-1"})
-	b.updatePiStatus(t.Context(), PiEvent{SessionID: s.ID, Kind: "agent_end", RunID: "run-1"})
+	b.updateAgentStatus(t.Context(), AgentEvent{SessionID: s.ID, Agent: "pi", Kind: "agent_start", RunID: "run-1"})
+	b.updateAgentStatus(t.Context(), AgentEvent{SessionID: s.ID, Agent: "pi", Kind: "agent_end", RunID: "run-1"})
 	if len(runner.calls) != 5 || runner.calls[4][len(runner.calls[4])-1] != "-160" {
 		t.Fatalf("Pi final capture=%#v", runner.calls)
+	}
+}
+
+func TestClaudeFinalScreenFollowsStopHook(t *testing.T) {
+	b, runner, cleanup := testTelegramBridge(t)
+	defer cleanup()
+	s := NewSession("claude-1", "claude", "claude", 4096)
+	s.TmuxTarget = "onibi-claude-1"
+	if err := b.d.Registry.Add(s); err != nil {
+		t.Fatal(err)
+	}
+	b.setTarget(t.Context(), 42, s.ID)
+	b.handleInput(t.Context(), &telegram.Message{Chat: telegram.Chat{ID: 42, Type: "private"}, From: &telegram.User{ID: 7}, Text: "summarize"})
+	b.updateAgentStatus(t.Context(), AgentEvent{SessionID: s.ID, Agent: "claude", Kind: "agent_end"})
+	if len(runner.calls) != 5 || runner.calls[4][len(runner.calls[4])-1] != "-160" {
+		t.Fatalf("Claude final capture=%#v", runner.calls)
 	}
 }
 

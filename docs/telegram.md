@@ -4,7 +4,7 @@ Onibi long-polls one Telegram bot and accepts one paired private chat. Configure
 
 ## Session control
 
-- `/new shell|codex|pi [--name name] [--cwd path]`: create a session. The working directory must exist locally; names use letters, digits, `.`, `_`, and `-`.
+- `/new shell|codex|pi|claude [--name name] [--cwd path]`: create a session. The working directory must exist locally; names use letters, digits, `.`, `_`, and `-`.
 - `/sessions`: select an active session.
 - Plain text: literal input plus Enter.
 - `/paste`: next text is literal input with no Enter; the armed state expires after five minutes.
@@ -25,6 +25,8 @@ Codex uses the local [App Server](https://learn.chatgpt.com/docs/app-server) for
 
 Pi uses documented `agent_start` and `agent_end` events for one working card and a final fresh tail/screen. Its extension remains intentionally limited to tool-approval events for decision handling.
 If Onibi restarts while Pi is waiting, the tool call is cancelled rather than replayed against a stale process.
+
+Claude Code runs in tmux. Onibi launches it with an owned settings file containing `PermissionRequest`, `Stop`, and `StopFailure` hooks. Permission requests become the same Telegram approval cards; successful or failed turns edit the working card and send a fresh tail/screen. Claude `--bare` and `--settings` arguments are rejected because they would bypass those hooks.
 
 ## Codex sessions
 

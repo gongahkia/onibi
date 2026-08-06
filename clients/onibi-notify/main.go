@@ -32,6 +32,12 @@ type piLifecyclePayload struct {
 	CWD       string `json:"cwd"`
 	PiSession string `json:"pi_session_id"`
 }
+type claudePayload struct {
+	HookEventName string          `json:"hook_event_name"`
+	ToolName      string          `json:"tool_name"`
+	ToolInput     json.RawMessage `json:"tool_input"`
+	CWD           string          `json:"cwd"`
+}
 
 func main() {
 	_ = run(os.Args[1:], os.Stdin, os.Stdout, os.Getenv)
@@ -47,6 +53,9 @@ func run(args []string, input io.Reader, output io.Writer, getenv func(string) s
 	wait := fs.Bool("wait", false, "wait for an approval")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if *agent == "claude" && *format == "claude" {
+		return runClaude(*typ, *response, *wait, input, output, getenv)
 	}
 	if *agent != "pi" || *format != "pi" {
 		return nil
@@ -82,6 +91,37 @@ func run(args []string, input io.Reader, output io.Writer, getenv func(string) s
 	return err
 }
 
+func runClaude(typ, response string, wait bool, input io.Reader, output io.Writer, getenv func(string) string) error {
+	if typ == "agent_lifecycle" {
+		return sendClaudeLifecycle(input, getenv)
+	}
+	if typ != "approval_request" || response != "claude-json" || !wait {
+		return nil
+	}
+	write := func(decision, reason string) error {
+		_, err := output.Write(append(mustJSON(claudeResponse(decision, reason)), '\n'))
+		return err
+	}
+	sessionID := strings.TrimSpace(getenv("ONIBI_SESSION_ID"))
+	socket := resolveSocket(getenv)
+	if sessionID == "" || socket == "" {
+		return write("deny", "Onibi session unavailable")
+	}
+	payload, err := parseClaudePayload(io.LimitReader(input, maxPayloadBytes+1))
+	if err != nil {
+		return write("deny", "Invalid Onibi approval request")
+	}
+	req, err := approval.NormalizeRequest(approval.Request{SessionID: sessionID, Agent: "claude", Tool: payload.ToolName, Input: payload.ToolInput})
+	if err != nil {
+		return write("deny", "Invalid Onibi approval request")
+	}
+	resp, err := intake.Request(socket, intake.Event{Type: intake.TypeApprovalRequest, Session: sessionID, Agent: "claude", CWD: payload.CWD, Tool: req.Tool, InputJSON: string(req.Input), Approval: &req}, 5*time.Minute)
+	if err != nil {
+		return write("deny", "Onibi unavailable")
+	}
+	return write(resp.Decision, resp.Reason)
+}
+
 func sendPiLifecycle(input io.Reader, getenv func(string) string) error {
 	sessionID := strings.TrimSpace(getenv("ONIBI_SESSION_ID"))
 	socket := resolveSocket(getenv)
@@ -93,6 +133,23 @@ func sendPiLifecycle(input io.Reader, getenv func(string) string) error {
 		return err
 	}
 	_, err = intake.Request(socket, intake.Event{Type: intake.TypeAgentLifecycle, Session: sessionID, Agent: "pi", CWD: payload.CWD, Lifecycle: payload.Lifecycle, RunID: payload.RunID}, 2*time.Second)
+	return err
+}
+
+func sendClaudeLifecycle(input io.Reader, getenv func(string) string) error {
+	sessionID := strings.TrimSpace(getenv("ONIBI_SESSION_ID"))
+	socket := resolveSocket(getenv)
+	if sessionID == "" || socket == "" {
+		return errors.New("Onibi session unavailable")
+	}
+	payload, err := parseClaudePayload(io.LimitReader(input, maxPayloadBytes+1))
+	if err != nil {
+		return err
+	}
+	if payload.HookEventName != "Stop" && payload.HookEventName != "StopFailure" {
+		return os.ErrInvalid
+	}
+	_, err = intake.Request(socket, intake.Event{Type: intake.TypeAgentLifecycle, Session: sessionID, Agent: "claude", CWD: payload.CWD, Lifecycle: "agent_end"}, 2*time.Second)
 	return err
 }
 
@@ -139,6 +196,35 @@ func parsePiLifecyclePayload(r io.Reader) (piLifecyclePayload, error) {
 	return payload, nil
 }
 
+func parseClaudePayload(r io.Reader) (claudePayload, error) {
+	raw, err := io.ReadAll(r)
+	if err != nil {
+		return claudePayload{}, err
+	}
+	if len(raw) > maxPayloadBytes {
+		return claudePayload{}, errors.New("Claude payload exceeds 64 KiB")
+	}
+	var payload claudePayload
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return claudePayload{}, err
+	}
+	payload.HookEventName = strings.TrimSpace(payload.HookEventName)
+	payload.ToolName = strings.TrimSpace(payload.ToolName)
+	if payload.HookEventName == "" {
+		return claudePayload{}, os.ErrInvalid
+	}
+	if payload.HookEventName == "PermissionRequest" {
+		if payload.ToolName == "" || len(payload.ToolInput) == 0 {
+			return claudePayload{}, os.ErrInvalid
+		}
+		var object map[string]json.RawMessage
+		if err := json.Unmarshal(payload.ToolInput, &object); err != nil || object == nil {
+			return claudePayload{}, os.ErrInvalid
+		}
+	}
+	return payload, nil
+}
+
 func piResponse(resp intake.Response) map[string]string {
 	if resp.Decision == "approve" {
 		return map[string]string{"decision": "approve"}
@@ -147,6 +233,23 @@ func piResponse(resp intake.Response) map[string]string {
 		return map[string]string{"decision": resp.Decision, "reason": resp.Reason}
 	}
 	return map[string]string{"decision": "cancelled", "reason": resp.Reason}
+}
+
+func claudeResponse(decision, reason string) map[string]any {
+	output := map[string]any{"behavior": "deny", "message": firstNonEmpty(strings.TrimSpace(reason), "Denied by Onibi")}
+	if decision == "approve" {
+		output = map[string]any{"behavior": "allow"}
+	}
+	return map[string]any{"hookSpecificOutput": map[string]any{"hookEventName": "PermissionRequest", "decision": output}}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func resolveSocket(getenv func(string) string) string {
