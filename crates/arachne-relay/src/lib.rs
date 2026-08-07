@@ -11,13 +11,13 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
 use arachne_core::{
-    ED25519_SIGNATURE_BYTES, Error, KeystoreEntryName, KeystoreSecret, OsKeystore, RelayPublicKey,
-    RelaySigningKeypair, Result,
+    ED25519_SIGNATURE_BYTES, Error, IdentityPublicKey, KeystoreEntryName, KeystoreSecret,
+    OneTimePrekeyId, OsKeystore, RelayPublicKey, RelaySigningKeypair, Result,
 };
 use arachne_protocol::{
-    AttachmentIdentifier, CryptoDomain, EncryptedAttachmentChunk, EncryptedMessageEnvelope,
-    MAILBOX_IDENTIFIER_BYTES, MAX_RELAY_INVITATION_TTL_SECONDS, MailboxCapability,
-    RelayStorageReceipt,
+    AttachmentIdentifier, CourierBundle, CryptoDomain, EncryptedAttachmentChunk,
+    EncryptedMessageEnvelope, MAILBOX_IDENTIFIER_BYTES, MAX_RELAY_INVITATION_TTL_SECONDS,
+    MailboxCapability, RelayStorageReceipt,
 };
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use sha2::{Digest, Sha256};
@@ -29,7 +29,7 @@ pub use relay_runner::{
     DEFAULT_RELAY_HEALTH_ADDRESS, DEFAULT_RELAY_METRICS_ADDRESS,
     MAX_RELAY_GRACEFUL_SHUTDOWN_TIMEOUT, RelayHealthcheckError, RelayIdentityFileError,
     RelayIdentityFileGenerationError, RelayRuntimeConfig, RelayRuntimeConfigError,
-    RelayRuntimeError, check_relay_health, generate_relay_identity_file,
+    RelayRuntimeError, check_relay_health, generate_relay_identity_file, load_relay_identity,
 };
 pub use relay_server::{RelayServer, RelayServerError};
 
@@ -39,7 +39,8 @@ pub const MAX_RELAY_INGRESS_REQUESTS_PER_WINDOW: u16 = 1024;
 pub const MAX_RELAY_INGRESS_WINDOW_SECONDS: u32 = 3600;
 pub const SELF_HOSTED_RELAY_CONFIG_SCHEMA_VERSION: u8 = 1;
 pub const MAX_SELF_HOSTED_RELAY_CONFIG_BYTES: usize = 16 * 1024;
-pub const RELAY_SCHEMA_VERSION: u32 = 4;
+pub const RELAY_SCHEMA_VERSION: u32 = 6;
+pub const RELAY_ENVELOPE_IDEMPOTENCY_KEY_BYTES: usize = 32;
 const RELAY_IDENTITY_KEY_ENTRY: &str = "relay_identity_v1";
 
 pub const RELAY_HEALTH_PATH: &str = "/healthz";
@@ -50,6 +51,7 @@ pub const RELAY_METRICS_PATH: &str = "/metrics";
 pub struct RelayOperationalMetrics {
     registered_mailboxes: u64,
     stored_envelopes: u64,
+    stored_attachment_chunks: u64,
     stored_bytes: u64,
 }
 
@@ -62,6 +64,11 @@ impl RelayOperationalMetrics {
     #[must_use]
     pub const fn stored_envelopes(self) -> u64 {
         self.stored_envelopes
+    }
+
+    #[must_use]
+    pub const fn stored_attachment_chunks(self) -> u64 {
+        self.stored_attachment_chunks
     }
 
     #[must_use]
@@ -107,9 +114,10 @@ impl RelayMetricsEndpoint {
             .operational_metrics()
             .map_err(|_| RelayMetricsEndpointError::Unavailable)?;
         Ok(format!(
-            "# TYPE arachne_relay_registered_mailboxes gauge\narachne_relay_registered_mailboxes {}\n# TYPE arachne_relay_stored_envelopes gauge\narachne_relay_stored_envelopes {}\n# TYPE arachne_relay_stored_bytes gauge\narachne_relay_stored_bytes {}\n",
+            "# TYPE arachne_relay_registered_mailboxes gauge\narachne_relay_registered_mailboxes {}\n# TYPE arachne_relay_stored_envelopes gauge\narachne_relay_stored_envelopes {}\n# TYPE arachne_relay_stored_attachment_chunks gauge\narachne_relay_stored_attachment_chunks {}\n# TYPE arachne_relay_stored_bytes gauge\narachne_relay_stored_bytes {}\n",
             metrics.registered_mailboxes(),
             metrics.stored_envelopes(),
+            metrics.stored_attachment_chunks(),
             metrics.stored_bytes(),
         ))
     }
@@ -847,6 +855,7 @@ impl RelayDatabase {
         self.schema_version()?;
         let registered_mailboxes = count_rows(&self.connection, "relay_mailboxes")?;
         let stored_envelopes = count_rows(&self.connection, "relay_envelopes")?;
+        let stored_attachment_chunks = count_rows(&self.connection, "relay_attachment_chunks")?;
         let stored_bytes = self.connection.query_row(
             "SELECT COALESCE((SELECT SUM(length(ciphertext)) FROM relay_envelopes), 0)
              + COALESCE((SELECT SUM(length(encoded_chunk)) FROM relay_attachment_chunks), 0)",
@@ -856,6 +865,7 @@ impl RelayDatabase {
         Ok(RelayOperationalMetrics {
             registered_mailboxes,
             stored_envelopes,
+            stored_attachment_chunks,
             stored_bytes: u64::try_from(stored_bytes)
                 .map_err(|_| RelayDatabaseError::InvalidMailboxRecord)?,
         })
@@ -1045,12 +1055,138 @@ impl RelayDatabase {
         Ok(tracker)
     }
 
+    pub fn publish_courier_bundle(
+        &mut self,
+        bundle: &CourierBundle,
+        now: u64,
+    ) -> Result<(), RelayDatabaseError> {
+        bundle
+            .validate(now)
+            .map_err(|_| RelayDatabaseError::InvalidCourierBundle)?;
+        let encoded = bundle
+            .encode()
+            .map_err(|_| RelayDatabaseError::InvalidCourierBundle)?;
+        let now = database_timestamp(now)?;
+        let transaction = self.connection.transaction()?;
+        let previous = transaction
+            .query_row(
+                "SELECT generation, encoded_bundle FROM relay_courier_bundles WHERE publisher = ?1",
+                [bundle.publisher().as_bytes().as_slice()],
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Vec<u8>>(1)?)),
+            )
+            .optional()?;
+        if let Some((previous, prior_encoded)) = previous {
+            let previous =
+                u64::try_from(previous).map_err(|_| RelayDatabaseError::InvalidCourierBundle)?;
+            if bundle.generation() == previous && prior_encoded == encoded {
+                transaction.commit()?;
+                return Ok(());
+            }
+            if bundle.generation() <= previous {
+                return Err(RelayDatabaseError::CourierBundleRollback);
+            }
+        }
+        transaction.execute(
+            "INSERT INTO relay_courier_bundles(publisher, encoded_bundle, generation, updated_at)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(publisher) DO UPDATE SET
+                 encoded_bundle = excluded.encoded_bundle,
+                 generation = excluded.generation,
+                 updated_at = excluded.updated_at",
+            params![
+                bundle.publisher().as_bytes().as_slice(),
+                encoded,
+                i64::try_from(bundle.generation())
+                    .map_err(|_| RelayDatabaseError::InvalidCourierBundle)?,
+                now,
+            ],
+        )?;
+        transaction.execute(
+            "DELETE FROM relay_courier_one_time_prekeys WHERE publisher = ?1",
+            [bundle.publisher().as_bytes().as_slice()],
+        )?;
+        for prekey in bundle.prekey_bundle().one_time_prekeys() {
+            transaction.execute(
+                "INSERT INTO relay_courier_one_time_prekeys(publisher, prekey_identifier)
+                 VALUES (?1, ?2)",
+                params![
+                    bundle.publisher().as_bytes().as_slice(),
+                    i64::try_from(prekey.identifier().get())
+                        .map_err(|_| RelayDatabaseError::InvalidCourierBundle)?,
+                ],
+            )?;
+        }
+        transaction.commit()?;
+        Ok(())
+    }
+
+    pub fn fetch_courier_bundle(
+        &mut self,
+        recipient: &IdentityPublicKey,
+        now: u64,
+    ) -> Result<(CourierBundle, Option<OneTimePrekeyId>), RelayDatabaseError> {
+        let now = database_timestamp(now)?;
+        let transaction = self.connection.transaction()?;
+        let encoded = transaction
+            .query_row(
+                "SELECT encoded_bundle FROM relay_courier_bundles WHERE publisher = ?1",
+                [recipient.as_bytes().as_slice()],
+                |row| row.get::<_, Vec<u8>>(0),
+            )
+            .optional()?
+            .ok_or(RelayDatabaseError::UnknownCourierBundle)?;
+        let bundle = CourierBundle::decode(&encoded)
+            .map_err(|_| RelayDatabaseError::InvalidCourierBundle)?;
+        bundle
+            .validate(u64::try_from(now).map_err(|_| RelayDatabaseError::TimestampOutOfRange)?)
+            .map_err(|_| RelayDatabaseError::InvalidCourierBundle)?;
+        let selected = transaction
+            .query_row(
+                "SELECT prekey_identifier FROM relay_courier_one_time_prekeys
+                 WHERE publisher = ?1 ORDER BY prekey_identifier ASC LIMIT 1",
+                [recipient.as_bytes().as_slice()],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?
+            .map(|identifier| {
+                u64::try_from(identifier)
+                    .ok()
+                    .and_then(|identifier| OneTimePrekeyId::new(identifier).ok())
+                    .ok_or(RelayDatabaseError::InvalidCourierBundle)
+            })
+            .transpose()?;
+        if let Some(selected) = selected {
+            transaction.execute(
+                "DELETE FROM relay_courier_one_time_prekeys
+                 WHERE publisher = ?1 AND prekey_identifier = ?2",
+                params![
+                    recipient.as_bytes().as_slice(),
+                    i64::try_from(selected.get())
+                        .map_err(|_| RelayDatabaseError::InvalidCourierBundle)?,
+                ],
+            )?;
+        }
+        transaction.commit()?;
+        Ok((bundle, selected))
+    }
+
     pub fn insert_envelope(
         &mut self,
         capability: &MailboxCapability,
         envelope: &EncryptedMessageEnvelope,
         received_at: u64,
         retention: RelayRetentionPolicy,
+    ) -> Result<u64, RelayDatabaseError> {
+        self.insert_envelope_idempotent(capability, envelope, received_at, retention, None)
+    }
+
+    pub fn insert_envelope_idempotent(
+        &mut self,
+        capability: &MailboxCapability,
+        envelope: &EncryptedMessageEnvelope,
+        received_at: u64,
+        retention: RelayRetentionPolicy,
+        idempotency_key: Option<[u8; RELAY_ENVELOPE_IDEMPOTENCY_KEY_BYTES]>,
     ) -> Result<u64, RelayDatabaseError> {
         let ciphertext = envelope
             .encode()
@@ -1064,6 +1200,23 @@ impl RelayDatabase {
         let expires_at = database_timestamp(expires_at)?;
         let capability_digest = capability_digest(capability)?;
         let transaction = self.connection.transaction()?;
+        if let Some(idempotency_key) = idempotency_key {
+            if let Some(sequence) = transaction
+                .query_row(
+                    "SELECT sequence FROM relay_envelopes
+                     WHERE mailbox_id = ?1 AND idempotency_key = ?2",
+                    params![
+                        capability.mailbox_id().as_slice(),
+                        idempotency_key.as_slice(),
+                    ],
+                    |row| row.get::<_, i64>(0),
+                )
+                .optional()?
+            {
+                transaction.commit()?;
+                return u64::try_from(sequence).map_err(|_| RelayDatabaseError::SequenceExhausted);
+            }
+        }
         let (quota_bytes, used_bytes): (Vec<u8>, Vec<u8>) = transaction
             .query_row(
                 "SELECT quota_bytes, used_bytes FROM relay_mailboxes
@@ -1099,14 +1252,16 @@ impl RelayDatabase {
             .transpose()?
             .unwrap_or(0);
         transaction.execute(
-            "INSERT INTO relay_envelopes(mailbox_id, sequence, ciphertext, received_at, expires_at)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
+            "INSERT INTO relay_envelopes(
+                 mailbox_id, sequence, ciphertext, received_at, expires_at, idempotency_key
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![
                 capability.mailbox_id().as_slice(),
                 sequence,
                 ciphertext,
                 received_at,
                 expires_at,
+                idempotency_key.map(|key| key.to_vec()),
             ],
         )?;
         transaction.execute(
@@ -1529,6 +1684,12 @@ pub enum RelayDatabaseError {
     InvalidEnvelope,
     #[error("encrypted relay attachment chunk is invalid")]
     InvalidAttachmentChunk,
+    #[error("courier prekey bundle is invalid")]
+    InvalidCourierBundle,
+    #[error("courier prekey bundle publication is not newer than the current generation")]
+    CourierBundleRollback,
+    #[error("courier prekey bundle is unknown")]
+    UnknownCourierBundle,
     #[error("corrupted relay blob was quarantined")]
     CorruptBlobQuarantined,
     #[error("relay attachment chunk conflicts with an existing chunk")]
@@ -1716,6 +1877,37 @@ fn apply_migrations(connection: &mut Connection) -> Result<(), RelayDatabaseErro
         )?;
         transaction.commit()?;
     }
+    if current_version < 5 {
+        let transaction = connection.transaction()?;
+        transaction.execute_batch(
+            "ALTER TABLE relay_envelopes ADD COLUMN idempotency_key BLOB
+             CHECK(idempotency_key IS NULL OR length(idempotency_key) = 32);
+             CREATE UNIQUE INDEX relay_envelopes_idempotency
+             ON relay_envelopes(mailbox_id, idempotency_key)
+             WHERE idempotency_key IS NOT NULL;
+             INSERT INTO relay_schema_migrations(version) VALUES (5);",
+        )?;
+        transaction.commit()?;
+    }
+    if current_version < 6 {
+        let transaction = connection.transaction()?;
+        transaction.execute_batch(
+            "CREATE TABLE relay_courier_bundles(
+                 publisher BLOB PRIMARY KEY NOT NULL CHECK(length(publisher) = 32),
+                 encoded_bundle BLOB NOT NULL CHECK(length(encoded_bundle) > 0),
+                 generation INTEGER NOT NULL CHECK(generation > 0),
+                 updated_at INTEGER NOT NULL CHECK(updated_at >= 0)
+             ) STRICT;
+             CREATE TABLE relay_courier_one_time_prekeys(
+                 publisher BLOB NOT NULL CHECK(length(publisher) = 32),
+                 prekey_identifier INTEGER NOT NULL CHECK(prekey_identifier > 0),
+                 PRIMARY KEY(publisher, prekey_identifier),
+                 FOREIGN KEY(publisher) REFERENCES relay_courier_bundles(publisher) ON DELETE CASCADE
+             ) STRICT;
+             INSERT INTO relay_schema_migrations(version) VALUES (6);",
+        )?;
+        transaction.commit()?;
+    }
     Ok(())
 }
 
@@ -1733,6 +1925,7 @@ fn count_rows(connection: &Connection, table: &str) -> Result<u64, RelayDatabase
     let query = match table {
         "relay_mailboxes" => "SELECT COUNT(*) FROM relay_mailboxes",
         "relay_envelopes" => "SELECT COUNT(*) FROM relay_envelopes",
+        "relay_attachment_chunks" => "SELECT COUNT(*) FROM relay_attachment_chunks",
         _ => return Err(RelayDatabaseError::InvalidMailboxRecord),
     };
     let count = connection.query_row(query, [], |row| row.get::<_, i64>(0))?;
@@ -2992,6 +3185,7 @@ ingress_window_seconds = 30
             vec![RelayOperationalMetrics {
                 registered_mailboxes: 1,
                 stored_envelopes: 1,
+                stored_attachment_chunks: 0,
                 stored_bytes: 6,
             }]
         );
@@ -3005,7 +3199,7 @@ ingress_window_seconds = 30
 
         assert_eq!(
             endpoint.response(RELAY_METRICS_PATH, &database).unwrap(),
-            "# TYPE arachne_relay_registered_mailboxes gauge\narachne_relay_registered_mailboxes 0\n# TYPE arachne_relay_stored_envelopes gauge\narachne_relay_stored_envelopes 0\n# TYPE arachne_relay_stored_bytes gauge\narachne_relay_stored_bytes 0\n"
+            "# TYPE arachne_relay_registered_mailboxes gauge\narachne_relay_registered_mailboxes 0\n# TYPE arachne_relay_stored_envelopes gauge\narachne_relay_stored_envelopes 0\n# TYPE arachne_relay_stored_attachment_chunks gauge\narachne_relay_stored_attachment_chunks 0\n# TYPE arachne_relay_stored_bytes gauge\narachne_relay_stored_bytes 0\n"
         );
         assert_eq!(
             endpoint.response(RELAY_HEALTH_PATH, &database),
@@ -3511,6 +3705,15 @@ ingress_window_seconds = 30
                      quota_bytes BLOB NOT NULL CHECK(length(quota_bytes) = 8),
                      used_bytes BLOB NOT NULL CHECK(length(used_bytes) = 8),
                      created_at INTEGER NOT NULL CHECK(created_at >= 0)
+                 ) STRICT;
+                 CREATE TABLE relay_envelopes(
+                     mailbox_id BLOB NOT NULL CHECK(length(mailbox_id) = 16),
+                     sequence INTEGER NOT NULL CHECK(sequence >= 0),
+                     ciphertext BLOB NOT NULL CHECK(length(ciphertext) > 0),
+                     received_at INTEGER NOT NULL CHECK(received_at >= 0),
+                     expires_at INTEGER NOT NULL CHECK(expires_at > received_at),
+                     PRIMARY KEY(mailbox_id, sequence),
+                     FOREIGN KEY(mailbox_id) REFERENCES relay_mailboxes(mailbox_id) ON DELETE CASCADE
                  ) STRICT;",
             )
             .unwrap();
@@ -3537,13 +3740,13 @@ ingress_window_seconds = 30
                 "CREATE TABLE relay_schema_migrations(
                      version INTEGER PRIMARY KEY CHECK(version > 0)
                  ) STRICT;
-                 INSERT INTO relay_schema_migrations(version) VALUES (5);",
+                 INSERT INTO relay_schema_migrations(version) VALUES (7);",
             )
             .unwrap();
 
         assert!(matches!(
             RelayDatabase::from_connection(connection),
-            Err(RelayDatabaseError::UnsupportedSchemaVersion(5))
+            Err(RelayDatabaseError::UnsupportedSchemaVersion(7))
         ));
     }
 }

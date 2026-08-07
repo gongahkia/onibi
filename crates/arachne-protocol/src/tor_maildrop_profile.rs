@@ -1,9 +1,14 @@
 use arachne_core::IdentityPublicKey;
 use minicbor::{Decoder, Encoder};
+use sha3::{Digest, Sha3_256};
 
 pub const TOR_MAILDROP_PROFILE_CONFIG_SCHEMA_VERSION: u8 = 1;
 pub const TOR_ONION_SERVICE_PUBLIC_KEY_BYTES: usize = 32;
+pub const TOR_V3_ONION_HOSTNAME_BYTES: usize = 62;
 const TOR_MAILDROP_PROFILE_CONFIG_FIELDS: u64 = 3;
+const TOR_V3_ADDRESS_BYTES: usize = 35;
+const TOR_V3_VERSION: u8 = 3;
+const TOR_V3_CHECKSUM_PREFIX: &[u8] = b".onion checksum";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TorMaildropProfileConfig {
@@ -35,6 +40,24 @@ impl TorMaildropProfileConfig {
     #[must_use]
     pub const fn virtual_port(self) -> u16 {
         self.virtual_port
+    }
+
+    #[must_use]
+    pub fn onion_hostname(self) -> String {
+        let mut address = [0; TOR_V3_ADDRESS_BYTES];
+        address[..TOR_ONION_SERVICE_PUBLIC_KEY_BYTES]
+            .copy_from_slice(&self.onion_service_public_key);
+        let mut hasher = Sha3_256::new();
+        hasher.update(TOR_V3_CHECKSUM_PREFIX);
+        hasher.update(self.onion_service_public_key);
+        hasher.update([TOR_V3_VERSION]);
+        let digest = hasher.finalize();
+        address[TOR_ONION_SERVICE_PUBLIC_KEY_BYTES..TOR_ONION_SERVICE_PUBLIC_KEY_BYTES + 2]
+            .copy_from_slice(&digest[..2]);
+        address[TOR_V3_ADDRESS_BYTES - 1] = TOR_V3_VERSION;
+        let mut hostname = base32_lower(&address);
+        hostname.push_str(".onion");
+        hostname
     }
 
     pub fn encode(self) -> Result<Vec<u8>, TorMaildropProfileConfigError> {
@@ -86,6 +109,27 @@ impl TorMaildropProfileConfig {
     }
 }
 
+fn base32_lower(input: &[u8]) -> String {
+    const ALPHABET: &[u8; 32] = b"abcdefghijklmnopqrstuvwxyz234567";
+    let mut output = String::with_capacity((input.len() * 8).div_ceil(5));
+    let mut accumulator = 0u16;
+    let mut bits = 0u8;
+    for byte in input {
+        accumulator = (accumulator << 8) | u16::from(*byte);
+        bits += 8;
+        while bits >= 5 {
+            bits -= 5;
+            let index = usize::from((accumulator >> bits) & 0x1f);
+            output.push(char::from(ALPHABET[index]));
+        }
+    }
+    if bits > 0 {
+        let index = usize::from((accumulator << (5 - bits)) & 0x1f);
+        output.push(char::from(ALPHABET[index]));
+    }
+    output
+}
+
 #[derive(Debug, Eq, PartialEq, thiserror::Error)]
 pub enum TorMaildropProfileConfigError {
     #[error("unsupported Tor-maildrop-profile configuration schema version: {0}")]
@@ -112,7 +156,7 @@ pub enum TorMaildropProfileConfigError {
 mod tests {
     use super::{
         TOR_MAILDROP_PROFILE_CONFIG_SCHEMA_VERSION, TOR_ONION_SERVICE_PUBLIC_KEY_BYTES,
-        TorMaildropProfileConfig, TorMaildropProfileConfigError,
+        TOR_V3_ONION_HOSTNAME_BYTES, TorMaildropProfileConfig, TorMaildropProfileConfigError,
     };
 
     fn config() -> TorMaildropProfileConfig {
@@ -132,6 +176,14 @@ mod tests {
             [0x11; TOR_ONION_SERVICE_PUBLIC_KEY_BYTES]
         );
         assert_eq!(config.virtual_port(), 4444);
+        let hostname = config.onion_hostname();
+        assert_eq!(hostname.len(), TOR_V3_ONION_HOSTNAME_BYTES);
+        assert!(hostname.ends_with(".onion"));
+        assert!(
+            hostname
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'.')
+        );
     }
 
     #[test]

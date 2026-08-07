@@ -14,6 +14,7 @@ use crate::{
     RelayHealthEndpoint, RelayHealthEndpointError, RelayMetricsEndpoint, RelayMetricsEndpointError,
     RelayServer, RelayServerError, SelfHostedRelayConfig, SelfHostedRelayConfigError,
 };
+use tonic::transport::{Identity, ServerTlsConfig};
 
 pub const DEFAULT_RELAY_HEALTH_ADDRESS: &str = "127.0.0.1:8080";
 pub const DEFAULT_RELAY_METRICS_ADDRESS: &str = "127.0.0.1:8081";
@@ -27,6 +28,8 @@ pub struct RelayRuntimeConfig {
     health: RelayHealthEndpoint,
     metrics: RelayMetricsEndpoint,
     graceful_shutdown_timeout: Duration,
+    tls_certificate_path: Option<PathBuf>,
+    tls_private_key_path: Option<PathBuf>,
 }
 
 impl RelayRuntimeConfig {
@@ -57,7 +60,22 @@ impl RelayRuntimeConfig {
             metrics: RelayMetricsEndpoint::new(metrics_address)
                 .map_err(RelayRuntimeConfigError::MetricsEndpoint)?,
             graceful_shutdown_timeout,
+            tls_certificate_path: None,
+            tls_private_key_path: None,
         })
+    }
+
+    pub fn with_tls_pem(
+        mut self,
+        certificate_path: PathBuf,
+        private_key_path: PathBuf,
+    ) -> Result<Self, RelayRuntimeConfigError> {
+        if !certificate_path.is_absolute() || !private_key_path.is_absolute() {
+            return Err(RelayRuntimeConfigError::RelativeTlsPath);
+        }
+        self.tls_certificate_path = Some(certificate_path);
+        self.tls_private_key_path = Some(private_key_path);
+        Ok(self)
     }
 
     #[must_use]
@@ -80,14 +98,27 @@ impl RelayRuntimeConfig {
         self.metrics.address()
     }
 
+    #[must_use]
+    pub fn tls_certificate_path(&self) -> Option<&Path> {
+        self.tls_certificate_path.as_deref()
+    }
+
     pub async fn bind(&self) -> Result<RelayServer, RelayRuntimeError> {
         let config = SelfHostedRelayConfig::load(&self.config_path)
             .map_err(RelayRuntimeError::ConfigurationFile)?;
         let identity =
             load_relay_identity(&self.identity_path).map_err(RelayRuntimeError::Identity)?;
-        RelayServer::bind_with_health_and_metrics(&config, identity, self.health, self.metrics)
-            .await
-            .map_err(RelayRuntimeError::Server)
+        let relay =
+            RelayServer::bind_with_health_and_metrics(&config, identity, self.health, self.metrics)
+                .await
+                .map_err(RelayRuntimeError::Server)?;
+        match (&self.tls_certificate_path, &self.tls_private_key_path) {
+            (Some(certificate), Some(private_key)) => {
+                Ok(relay.with_tls_config(load_tls_config(certificate, private_key)?))
+            }
+            (None, None) => Ok(relay),
+            _ => Err(RelayRuntimeError::TlsConfiguration),
+        }
     }
 
     pub async fn serve_until<F>(self, shutdown: F) -> Result<(), RelayRuntimeError>
@@ -108,6 +139,8 @@ pub enum RelayRuntimeConfigError {
     RelativeConfigPath,
     #[error("relay runtime identity path must be absolute")]
     RelativeIdentityPath,
+    #[error("relay runtime TLS paths must be absolute")]
+    RelativeTlsPath,
     #[error("relay runtime graceful shutdown timeout must be nonzero")]
     ZeroGracefulShutdownTimeout,
     #[error("relay runtime graceful shutdown timeout exceeds the configured limit")]
@@ -126,6 +159,19 @@ pub enum RelayRuntimeError {
     Identity(#[source] RelayIdentityFileError),
     #[error("relay runtime server could not start or stop")]
     Server(#[source] RelayServerError),
+    #[error("relay runtime TLS configuration is invalid")]
+    TlsConfiguration,
+    #[error("relay runtime TLS material could not be read")]
+    TlsMaterial(#[source] io::Error),
+}
+
+fn load_tls_config(
+    certificate_path: &Path,
+    private_key_path: &Path,
+) -> Result<ServerTlsConfig, RelayRuntimeError> {
+    let certificate = fs::read(certificate_path).map_err(RelayRuntimeError::TlsMaterial)?;
+    let private_key = fs::read(private_key_path).map_err(RelayRuntimeError::TlsMaterial)?;
+    Ok(ServerTlsConfig::new().identity(Identity::from_pem(certificate, private_key)))
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -244,7 +290,7 @@ pub enum RelayHealthcheckError {
     Unhealthy,
 }
 
-fn load_relay_identity(path: &Path) -> Result<RelaySigningKeypair, RelayIdentityFileError> {
+pub fn load_relay_identity(path: &Path) -> Result<RelaySigningKeypair, RelayIdentityFileError> {
     let file = File::open(path).map_err(RelayIdentityFileError::Read)?;
     let metadata = file.metadata().map_err(RelayIdentityFileError::Read)?;
     if !metadata.file_type().is_file() {

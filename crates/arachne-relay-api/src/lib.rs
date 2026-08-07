@@ -14,10 +14,11 @@ mod tests {
 
     use super::v1::{
         AcknowledgeEnvelopeRequest, AcknowledgeEnvelopeResponse, DownloadAttachmentChunkRequest,
-        DownloadAttachmentChunkResponse, GetMailboxQuotaRequest, GetMailboxQuotaResponse,
-        RegisterMailboxRequest, RegisterMailboxResponse, RelayEnvelope, RetrieveEnvelopesRequest,
-        RetrieveEnvelopesResponse, StoreEnvelopeRequest, StoreEnvelopeResponse,
-        StoreEnvelopeWithReceiptResponse, UploadAttachmentChunkRequest,
+        DownloadAttachmentChunkResponse, FetchCourierBundleRequest, FetchCourierBundleResponse,
+        GetMailboxQuotaRequest, GetMailboxQuotaResponse, PublishCourierBundleRequest,
+        PublishCourierBundleResponse, RegisterMailboxRequest, RegisterMailboxResponse,
+        RelayEnvelope, RetrieveEnvelopesRequest, RetrieveEnvelopesResponse, StoreEnvelopeRequest,
+        StoreEnvelopeResponse, StoreEnvelopeWithReceiptResponse, UploadAttachmentChunkRequest,
         UploadAttachmentChunkResponse,
         relay_service_client::RelayServiceClient,
         relay_service_server::{RelayService, RelayServiceServer},
@@ -94,6 +95,23 @@ mod tests {
         ) -> Result<Response<StoreEnvelopeWithReceiptResponse>, Status> {
             Err(Status::unimplemented("contract test"))
         }
+
+        async fn publish_courier_bundle(
+            &self,
+            request: Request<PublishCourierBundleRequest>,
+        ) -> Result<Response<PublishCourierBundleResponse>, Status> {
+            if request.into_inner().bundle.is_empty() {
+                return Err(Status::invalid_argument("bundle is required"));
+            }
+            Ok(Response::new(PublishCourierBundleResponse {}))
+        }
+
+        async fn fetch_courier_bundle(
+            &self,
+            _request: Request<FetchCourierBundleRequest>,
+        ) -> Result<Response<FetchCourierBundleResponse>, Status> {
+            Err(Status::unimplemented("contract test"))
+        }
     }
 
     #[test]
@@ -103,10 +121,12 @@ mod tests {
         let store = StoreEnvelopeRequest {
             mailbox_capability: capability.clone(),
             envelope: envelope.clone(),
+            idempotency_key: vec![0x55; 32],
         };
         let decoded = StoreEnvelopeRequest::decode(store.encode_to_vec().as_slice()).unwrap();
         assert_eq!(decoded.mailbox_capability, capability);
         assert_eq!(decoded.envelope, envelope);
+        assert_eq!(decoded.idempotency_key, vec![0x55; 32]);
 
         let retrieval = RetrieveEnvelopesRequest {
             mailbox_capability: vec![3; 53],
@@ -172,6 +192,7 @@ mod tests {
             .store_envelope(StoreEnvelopeRequest {
                 mailbox_capability: vec![1; 53],
                 envelope: vec![2],
+                idempotency_key: vec![3; 32],
             })
             .await
             .unwrap()
@@ -192,6 +213,7 @@ mod tests {
             .store_envelope(StoreEnvelopeRequest {
                 mailbox_capability: vec![1; 53],
                 envelope: vec![],
+                idempotency_key: vec![4; 32],
             })
             .await
             .unwrap_err();

@@ -22,6 +22,14 @@ impl SignedPrekeyLifecycle {
         keystore: &mut K,
     ) -> Result<Self, SignedPrekeyLifecycleError> {
         let entry = signed_prekey_entry()?;
+        Self::create_with_entry(identity, keystore, entry)
+    }
+
+    pub(crate) fn create_with_entry<K: OsKeystore>(
+        identity: &IdentityKeypair,
+        keystore: &mut K,
+        entry: KeystoreEntryName,
+    ) -> Result<Self, SignedPrekeyLifecycleError> {
         if keystore
             .load(&entry)
             .map_err(|_| SignedPrekeyLifecycleError::Keystore)?
@@ -40,6 +48,14 @@ impl SignedPrekeyLifecycle {
         keystore: &K,
     ) -> Result<Self, SignedPrekeyLifecycleError> {
         let entry = signed_prekey_entry()?;
+        Self::load_with_entry(identity, keystore, entry)
+    }
+
+    pub(crate) fn load_with_entry<K: OsKeystore>(
+        identity: &IdentityKeypair,
+        keystore: &K,
+        entry: KeystoreEntryName,
+    ) -> Result<Self, SignedPrekeyLifecycleError> {
         let secret = keystore
             .load(&entry)
             .map_err(|_| SignedPrekeyLifecycleError::Keystore)?
@@ -52,10 +68,19 @@ impl SignedPrekeyLifecycle {
         identity: &IdentityKeypair,
         keystore: &mut K,
     ) -> Result<(Self, SignedPrekeyInitialization), SignedPrekeyLifecycleError> {
-        match Self::load(identity, keystore) {
+        let entry = signed_prekey_entry()?;
+        Self::create_or_load_with_entry(identity, keystore, entry)
+    }
+
+    pub(crate) fn create_or_load_with_entry<K: OsKeystore>(
+        identity: &IdentityKeypair,
+        keystore: &mut K,
+        entry: KeystoreEntryName,
+    ) -> Result<(Self, SignedPrekeyInitialization), SignedPrekeyLifecycleError> {
+        match Self::load_with_entry(identity, keystore, entry.clone()) {
             Ok(signed_prekey) => Ok((signed_prekey, SignedPrekeyInitialization::Loaded)),
             Err(SignedPrekeyLifecycleError::NotInitialized) => {
-                let signed_prekey = Self::create(identity, keystore)?;
+                let signed_prekey = Self::create_with_entry(identity, keystore, entry)?;
                 Ok((signed_prekey, SignedPrekeyInitialization::Created))
             }
             Err(error) => Err(error),

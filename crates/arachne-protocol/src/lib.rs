@@ -7,6 +7,9 @@ mod attachment_manifest;
 mod attachment_upload;
 mod ble_frame;
 mod contact_invitation;
+mod courier_attachment;
+mod courier_bundle;
+mod courier_frame;
 mod delivery_acknowledgement;
 mod delivery_profile;
 mod direct_peer_auth;
@@ -80,6 +83,17 @@ pub use ble_frame::{
 pub use contact_invitation::{
     CONTACT_INVITATION_BYTES, CONTACT_INVITATION_NONCE_BYTES, CONTACT_INVITATION_SCHEMA_VERSION,
     ContactInvitation, ContactInvitationError,
+};
+pub use courier_attachment::{
+    COURIER_ATTACHMENT_REFERENCE_SCHEMA_VERSION, CourierAttachmentReference,
+    CourierAttachmentReferenceError, MAX_COURIER_ATTACHMENT_REFERENCE_BYTES,
+};
+pub use courier_bundle::{
+    COURIER_BUNDLE_SCHEMA_VERSION, CourierBundle, CourierBundleError, MAX_COURIER_BUNDLE_BYTES,
+    RELAY_TLS_CERTIFICATE_PIN_BYTES, courier_directory_fetch_signing_input,
+};
+pub use courier_frame::{
+    COURIER_FRAME_SCHEMA_VERSION, CourierFrame, CourierFrameError, MAX_COURIER_FRAME_BYTES,
 };
 pub use delivery_acknowledgement::{
     DELIVERY_ACKNOWLEDGEMENT_SCHEMA_VERSION, DeliveryAcknowledgement, DeliveryAcknowledgementError,
@@ -184,7 +198,7 @@ pub use state_export::{
 };
 pub use tor_maildrop_profile::{
     TOR_MAILDROP_PROFILE_CONFIG_SCHEMA_VERSION, TOR_ONION_SERVICE_PUBLIC_KEY_BYTES,
-    TorMaildropProfileConfig, TorMaildropProfileConfigError,
+    TOR_V3_ONION_HOSTNAME_BYTES, TorMaildropProfileConfig, TorMaildropProfileConfigError,
 };
 pub use version::{ProtocolVersion, VersionRange};
 pub use wifi_group_handoff::{
@@ -198,5 +212,6 @@ pub use x3dh::{
     MAX_X3DH_INITIAL_MESSAGE_BYTES, MAX_X3DH_PREKEY_BUNDLE_BYTES,
     X3DH_INITIAL_MESSAGE_SCHEMA_VERSION, X3DH_PREKEY_BUNDLE_SCHEMA_VERSION, X3DH_ROOT_KEY_BYTES,
     X3dhError, X3dhInitialMessage, X3dhPrekeyBundle, X3dhSession,
-    X25519_IDENTITY_BINDING_SCHEMA_VERSION, X25519IdentityBinding, initiate_x3dh, respond_x3dh,
+    X25519_IDENTITY_BINDING_SCHEMA_VERSION, X25519IdentityBinding, initiate_x3dh,
+    initiate_x3dh_with_one_time_prekey, respond_x3dh,
 };

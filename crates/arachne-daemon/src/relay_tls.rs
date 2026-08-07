@@ -16,6 +16,11 @@ pub struct RelayTlsPin([u8; RELAY_TLS_PIN_BYTES]);
 
 impl RelayTlsPin {
     #[must_use]
+    pub const fn from_bytes(bytes: [u8; RELAY_TLS_PIN_BYTES]) -> Self {
+        Self(bytes)
+    }
+
+    #[must_use]
     pub fn from_certificate_der(certificate_der: &[u8]) -> Self {
         let digest = Sha256::digest(certificate_der);
         let mut pin = [0; RELAY_TLS_PIN_BYTES];

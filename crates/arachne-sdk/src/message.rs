@@ -219,6 +219,7 @@ pub const fn map_delivery_state(state: DeliveryState) -> SdkDeliveryStatus {
     match state {
         DeliveryState::Queued => SdkDeliveryStatus::Queued,
         DeliveryState::Attempted => SdkDeliveryStatus::Attempted,
+        DeliveryState::AwaitingRecipientAcknowledgement => SdkDeliveryStatus::Attempted,
         DeliveryState::Delivered => SdkDeliveryStatus::Delivered,
         DeliveryState::Expired => SdkDeliveryStatus::Expired,
         DeliveryState::Failed => SdkDeliveryStatus::Failed,

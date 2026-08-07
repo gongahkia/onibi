@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     future::Future,
     io,
     net::SocketAddr,
@@ -6,7 +7,8 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use arachne_core::RelaySigningKeypair;
+use arachne_core::{ED25519_SIGNATURE_BYTES, IdentityPublicKey, RelaySigningKeypair};
+use arachne_protocol::courier_directory_fetch_signing_input;
 use arachne_relay_api::v1::{
     self,
     relay_service_server::{RelayService, RelayServiceServer},
@@ -24,10 +26,11 @@ use tonic::{
 };
 
 use crate::{
-    AttachmentIdentifier, EncryptedAttachmentChunk, EncryptedMessageEnvelope, MailboxCapability,
-    MailboxQuota, RELAY_HEALTH_PATH, RELAY_METRICS_PATH, RELAY_READINESS_PATH, RelayDatabase,
-    RelayDatabaseError, RelayHealthEndpoint, RelayIngressError, RelayIngressRateLimit,
-    RelayIngressRateLimiter, RelayMetricsEndpoint, RelayRetentionPolicy, SelfHostedRelayConfig,
+    AttachmentIdentifier, CourierBundle, EncryptedAttachmentChunk, EncryptedMessageEnvelope,
+    MailboxCapability, MailboxQuota, RELAY_ENVELOPE_IDEMPOTENCY_KEY_BYTES, RELAY_HEALTH_PATH,
+    RELAY_METRICS_PATH, RELAY_READINESS_PATH, RelayDatabase, RelayDatabaseError,
+    RelayHealthEndpoint, RelayIngressError, RelayIngressRateLimit, RelayIngressRateLimiter,
+    RelayMetricsEndpoint, RelayRetentionPolicy, SelfHostedRelayConfig,
 };
 
 pub struct RelayServer {
@@ -42,6 +45,8 @@ const RETENTION_GARBAGE_COLLECTION_INTERVAL: Duration = Duration::from_secs(60);
 pub const DEFAULT_RELAY_GRACEFUL_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(30);
 const OBSERVABILITY_REQUEST_TIMEOUT: Duration = Duration::from_secs(1);
 const MAX_OBSERVABILITY_REQUEST_BYTES: usize = 1024;
+const MAX_COURIER_DIRECTORY_FETCHES_PER_HOUR: u16 = 64;
+const COURIER_DIRECTORY_FETCH_WINDOW_SECONDS: u64 = 3_600;
 const HEALTHY_RESPONSE: &[u8] = b"HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\ncontent-length: 3\r\nconnection: close\r\n\r\nok\n";
 const UNHEALTHY_RESPONSE: &[u8] = b"HTTP/1.1 503 Service Unavailable\r\ncontent-type: text/plain\r\ncontent-length: 12\r\nconnection: close\r\n\r\nunavailable\n";
 const NOT_FOUND_RESPONSE: &[u8] = b"HTTP/1.1 404 Not Found\r\ncontent-type: text/plain\r\ncontent-length: 10\r\nconnection: close\r\n\r\nnot found\n";
@@ -376,6 +381,13 @@ struct RelayGrpcService {
     retention: RelayRetentionPolicy,
     relay: RelaySigningKeypair,
     ingress: Arc<Mutex<RelayIngressRateLimiter>>,
+    directory_fetches: Arc<Mutex<HashMap<([u8; 32], [u8; 32]), DirectoryFetchWindow>>>,
+}
+
+#[derive(Clone, Copy)]
+struct DirectoryFetchWindow {
+    started_at: u64,
+    count: u16,
 }
 
 impl RelayGrpcService {
@@ -392,6 +404,7 @@ impl RelayGrpcService {
             retention,
             relay,
             ingress: Arc::new(Mutex::new(RelayIngressRateLimiter::new(ingress_rate_limit))),
+            directory_fetches: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -423,6 +436,41 @@ impl RelayGrpcService {
             }
             Err(_) => Err(Status::internal("relay ingress admission failed")),
         }
+    }
+
+    fn admit_directory_fetch(
+        &self,
+        requester: &IdentityPublicKey,
+        recipient: &IdentityPublicKey,
+        now: u64,
+    ) -> Result<(), Status> {
+        let mut windows = self
+            .directory_fetches
+            .lock()
+            .map_err(|_| Status::internal("courier directory limiter is unavailable"))?;
+        let key = (*requester.as_bytes(), *recipient.as_bytes());
+        let window = windows.entry(key).or_insert(DirectoryFetchWindow {
+            started_at: now,
+            count: 0,
+        });
+        if now < window.started_at {
+            return Err(Status::unavailable(
+                "courier directory clock is unavailable",
+            ));
+        }
+        if now.saturating_sub(window.started_at) >= COURIER_DIRECTORY_FETCH_WINDOW_SECONDS {
+            *window = DirectoryFetchWindow {
+                started_at: now,
+                count: 0,
+            };
+        }
+        if window.count >= MAX_COURIER_DIRECTORY_FETCHES_PER_HOUR {
+            return Err(Status::resource_exhausted(
+                "courier directory fetch rate limit is exhausted",
+            ));
+        }
+        window.count += 1;
+        Ok(())
     }
 }
 
@@ -674,11 +722,21 @@ impl RelayService for RelayGrpcService {
         self.admit_ingress(&capability, received_at)?;
         let envelope = EncryptedMessageEnvelope::decode(&request.envelope)
             .map_err(|_| Status::invalid_argument("envelope is invalid"))?;
+        let idempotency_key: [u8; RELAY_ENVELOPE_IDEMPOTENCY_KEY_BYTES] = request
+            .idempotency_key
+            .try_into()
+            .map_err(|_| Status::invalid_argument("envelope idempotency key is invalid"))?;
         let mut database = self
             .database
             .lock()
             .map_err(|_| Status::internal("relay database is unavailable"))?;
-        match database.insert_envelope(&capability, &envelope, received_at, self.retention) {
+        match database.insert_envelope_idempotent(
+            &capability,
+            &envelope,
+            received_at,
+            self.retention,
+            Some(idempotency_key),
+        ) {
             Ok(sequence) => Ok(Response::new(v1::StoreEnvelopeResponse { sequence })),
             Err(RelayDatabaseError::InvalidCapability) => {
                 Err(Status::permission_denied("mailbox capability is invalid"))
@@ -908,6 +966,83 @@ impl RelayService for RelayGrpcService {
             receipt,
         }))
     }
+
+    async fn publish_courier_bundle(
+        &self,
+        request: Request<v1::PublishCourierBundleRequest>,
+    ) -> Result<Response<v1::PublishCourierBundleResponse>, Status> {
+        let now = current_unix_seconds()?;
+        let bundle = CourierBundle::decode(&request.into_inner().bundle)
+            .map_err(|_| Status::invalid_argument("courier bundle is invalid"))?;
+        let mut database = self
+            .database
+            .lock()
+            .map_err(|_| Status::internal("relay database is unavailable"))?;
+        match database.publish_courier_bundle(&bundle, now) {
+            Ok(()) => Ok(Response::new(v1::PublishCourierBundleResponse {})),
+            Err(RelayDatabaseError::CourierBundleRollback) => {
+                Err(Status::already_exists("courier bundle generation is stale"))
+            }
+            Err(RelayDatabaseError::InvalidCourierBundle) => {
+                Err(Status::invalid_argument("courier bundle is invalid"))
+            }
+            Err(_) => Err(Status::internal("courier bundle publication failed")),
+        }
+    }
+
+    async fn fetch_courier_bundle(
+        &self,
+        request: Request<v1::FetchCourierBundleRequest>,
+    ) -> Result<Response<v1::FetchCourierBundleResponse>, Status> {
+        let request = request.into_inner();
+        let recipient = IdentityPublicKey::from_bytes(
+            request
+                .recipient_identity
+                .as_slice()
+                .try_into()
+                .map_err(|_| Status::invalid_argument("courier recipient identity is invalid"))?,
+        )
+        .map_err(|_| Status::invalid_argument("courier recipient identity is invalid"))?;
+        let requester = IdentityPublicKey::from_bytes(
+            request
+                .requester_identity
+                .as_slice()
+                .try_into()
+                .map_err(|_| Status::invalid_argument("courier requester identity is invalid"))?,
+        )
+        .map_err(|_| Status::invalid_argument("courier requester identity is invalid"))?;
+        let signature: [u8; ED25519_SIGNATURE_BYTES] = request
+            .requester_signature
+            .try_into()
+            .map_err(|_| Status::invalid_argument("courier requester signature is invalid"))?;
+        requester
+            .verify(
+                &courier_directory_fetch_signing_input(&recipient),
+                &signature,
+            )
+            .map_err(|_| Status::permission_denied("courier requester proof is invalid"))?;
+        let now = current_unix_seconds()?;
+        self.admit_directory_fetch(&requester, &recipient, now)?;
+        let mut database = self
+            .database
+            .lock()
+            .map_err(|_| Status::internal("relay database is unavailable"))?;
+        match database.fetch_courier_bundle(&recipient, now) {
+            Ok((bundle, leased)) => Ok(Response::new(v1::FetchCourierBundleResponse {
+                bundle: bundle
+                    .encode()
+                    .map_err(|_| Status::internal("stored courier bundle is invalid"))?,
+                leased_one_time_prekey_identifier: leased.map(|identifier| identifier.get()),
+            })),
+            Err(RelayDatabaseError::UnknownCourierBundle) => {
+                Err(Status::not_found("courier bundle is unavailable"))
+            }
+            Err(RelayDatabaseError::InvalidCourierBundle) => {
+                Err(Status::internal("stored courier bundle is invalid"))
+            }
+            Err(_) => Err(Status::internal("courier bundle fetch failed")),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -942,8 +1077,8 @@ mod tests {
 
     use super::{RelayServer, RelayServerError};
     use crate::{
-        MailboxQuota, RelayDatabase, RelayHealthEndpoint, RelayIngressRateLimit,
-        RelayMetricsEndpoint, RelayRetentionPolicy, SelfHostedRelayConfig,
+        MailboxQuota, RELAY_ENVELOPE_IDEMPOTENCY_KEY_BYTES, RelayDatabase, RelayHealthEndpoint,
+        RelayIngressRateLimit, RelayMetricsEndpoint, RelayRetentionPolicy, SelfHostedRelayConfig,
     };
 
     static NEXT_TEST_PATH: AtomicU64 = AtomicU64::new(0);
@@ -1051,6 +1186,7 @@ mod tests {
                 .store_envelope(StoreEnvelopeRequest {
                     mailbox_capability: capability,
                     envelope: envelope(),
+                    idempotency_key: vec![1; RELAY_ENVELOPE_IDEMPOTENCY_KEY_BYTES],
                 })
                 .await;
             let _ = shutdown_sender.send(());
@@ -1104,6 +1240,7 @@ mod tests {
                 .store_envelope(StoreEnvelopeRequest {
                     mailbox_capability: encoded_capability.to_vec(),
                     envelope: envelope.clone(),
+                    idempotency_key: vec![1; RELAY_ENVELOPE_IDEMPOTENCY_KEY_BYTES],
                 })
                 .await
                 .unwrap()
@@ -1116,6 +1253,7 @@ mod tests {
                 .store_envelope(StoreEnvelopeRequest {
                     mailbox_capability: encoded_capability.to_vec(),
                     envelope: envelope.clone(),
+                    idempotency_key: vec![2; RELAY_ENVELOPE_IDEMPOTENCY_KEY_BYTES],
                 })
                 .await
                 .unwrap_err()
@@ -1127,6 +1265,7 @@ mod tests {
                 .store_envelope(StoreEnvelopeRequest {
                     mailbox_capability: encoded_capability.to_vec(),
                     envelope: vec![0],
+                    idempotency_key: vec![3; RELAY_ENVELOPE_IDEMPOTENCY_KEY_BYTES],
                 })
                 .await
                 .unwrap_err()
@@ -1138,6 +1277,7 @@ mod tests {
                 .store_envelope(StoreEnvelopeRequest {
                     mailbox_capability: capability(0x33, 0x44),
                     envelope,
+                    idempotency_key: vec![4; RELAY_ENVELOPE_IDEMPOTENCY_KEY_BYTES],
                 })
                 .await
                 .unwrap_err()
@@ -1279,6 +1419,7 @@ mod tests {
                 .store_envelope(StoreEnvelopeRequest {
                     mailbox_capability: encoded_capability.to_vec(),
                     envelope: envelope(),
+                    idempotency_key: vec![5; RELAY_ENVELOPE_IDEMPOTENCY_KEY_BYTES],
                 })
                 .await
                 .unwrap()
@@ -1560,6 +1701,7 @@ mod tests {
             .store_envelope_with_receipt(StoreEnvelopeRequest {
                 mailbox_capability: encoded_capability.to_vec(),
                 envelope: envelope(),
+                idempotency_key: vec![6; RELAY_ENVELOPE_IDEMPOTENCY_KEY_BYTES],
             })
             .await
             .unwrap()
@@ -1570,6 +1712,7 @@ mod tests {
                 .store_envelope_with_receipt(StoreEnvelopeRequest {
                     mailbox_capability: encoded_capability.to_vec(),
                     envelope: envelope(),
+                    idempotency_key: vec![7; RELAY_ENVELOPE_IDEMPOTENCY_KEY_BYTES],
                 })
                 .await
                 .unwrap_err()
@@ -1581,6 +1724,7 @@ mod tests {
                 .store_envelope_with_receipt(StoreEnvelopeRequest {
                     mailbox_capability: capability(0x33, 0x44),
                     envelope: envelope(),
+                    idempotency_key: vec![8; RELAY_ENVELOPE_IDEMPOTENCY_KEY_BYTES],
                 })
                 .await
                 .unwrap_err()
@@ -1592,6 +1736,7 @@ mod tests {
                 .store_envelope_with_receipt(StoreEnvelopeRequest {
                     mailbox_capability: encoded_capability.to_vec(),
                     envelope: vec![0],
+                    idempotency_key: vec![9; RELAY_ENVELOPE_IDEMPOTENCY_KEY_BYTES],
                 })
                 .await
                 .unwrap_err()
@@ -1716,6 +1861,7 @@ mod tests {
             assert!(response.starts_with("HTTP/1.1 200 OK"));
             assert!(response.contains("arachne_relay_registered_mailboxes 0"));
             assert!(response.contains("arachne_relay_stored_envelopes 0"));
+            assert!(response.contains("arachne_relay_stored_attachment_chunks 0"));
             assert!(response.contains("arachne_relay_stored_bytes 0"));
             assert!(
                 health_response(address, "GET /healthz HTTP/1.1\r\n\r\n")
@@ -1875,6 +2021,7 @@ mod tests {
                 .store_envelope(StoreEnvelopeRequest {
                     mailbox_capability: first.clone(),
                     envelope: envelope(),
+                    idempotency_key: vec![10; RELAY_ENVELOPE_IDEMPOTENCY_KEY_BYTES],
                 })
                 .await
                 .unwrap();
@@ -1883,6 +2030,7 @@ mod tests {
                     .store_envelope(StoreEnvelopeRequest {
                         mailbox_capability: first,
                         envelope: envelope(),
+                        idempotency_key: vec![11; RELAY_ENVELOPE_IDEMPOTENCY_KEY_BYTES],
                     })
                     .await
                     .unwrap_err()
@@ -1893,6 +2041,7 @@ mod tests {
                 .store_envelope(StoreEnvelopeRequest {
                     mailbox_capability: second,
                     envelope: envelope(),
+                    idempotency_key: vec![12; RELAY_ENVELOPE_IDEMPOTENCY_KEY_BYTES],
                 })
                 .await
                 .unwrap();
@@ -1901,6 +2050,7 @@ mod tests {
                     .store_envelope(StoreEnvelopeRequest {
                         mailbox_capability: capability(0x55, 0x66),
                         envelope: envelope(),
+                        idempotency_key: vec![13; RELAY_ENVELOPE_IDEMPOTENCY_KEY_BYTES],
                     })
                     .await
                     .unwrap_err()

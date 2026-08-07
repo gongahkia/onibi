@@ -18,6 +18,7 @@ getrandom.workspace = true
 hkdf.workspace = true
 minicbor.workspace = true
 sha2.workspace = true
+sha3.workspace = true
 subtle.workspace = true
 thiserror.workspace = true
 arachne-core = { path = "../arachne-core" }

@@ -1,16 +1,30 @@
 use arachne_core::{IdentityPublicKey, OsKeystore};
-use arachne_daemon::{ClientIdentity, ClientIdentityError, ClientIdentityInitialization};
+use arachne_daemon::{
+    ClientIdentity, ClientIdentityError, ClientIdentityInitialization, ClientProfile,
+};
 
 use crate::{SdkRecoveryArchive, SdkRecoveryError, SdkRecoveryPassphrase};
 
 pub struct SdkIdentityManager<K> {
     keystore: K,
+    profile: Option<ClientProfile>,
 }
 
 impl<K> SdkIdentityManager<K> {
     #[must_use]
     pub const fn new(keystore: K) -> Self {
-        Self { keystore }
+        Self {
+            keystore,
+            profile: None,
+        }
+    }
+
+    #[must_use]
+    pub fn for_profile(keystore: K, profile: ClientProfile) -> Self {
+        Self {
+            keystore,
+            profile: Some(profile),
+        }
     }
 
     #[must_use]
@@ -25,45 +39,57 @@ impl<K> SdkIdentityManager<K> {
 
 impl<K: OsKeystore> SdkIdentityManager<K> {
     pub fn create(&mut self) -> Result<SdkIdentity, SdkIdentityError> {
-        ClientIdentity::create(&mut self.keystore)
-            .map(|identity| {
-                SdkIdentity::new(identity.public_key(), SdkIdentityInitialization::Created)
-            })
-            .map_err(SdkIdentityError::from)
+        let profile = self.profile.as_ref();
+        match profile {
+            Some(profile) => profile.create_identity(&mut self.keystore),
+            None => ClientIdentity::create(&mut self.keystore),
+        }
+        .map(|identity| SdkIdentity::new(identity.public_key(), SdkIdentityInitialization::Created))
+        .map_err(SdkIdentityError::from)
     }
 
     pub fn load(&self) -> Result<SdkIdentity, SdkIdentityError> {
-        ClientIdentity::load(&self.keystore)
-            .map(|identity| {
-                SdkIdentity::new(identity.public_key(), SdkIdentityInitialization::Loaded)
-            })
-            .map_err(SdkIdentityError::from)
+        let profile = self.profile.as_ref();
+        match profile {
+            Some(profile) => profile.load_identity(&self.keystore),
+            None => ClientIdentity::load(&self.keystore),
+        }
+        .map(|identity| SdkIdentity::new(identity.public_key(), SdkIdentityInitialization::Loaded))
+        .map_err(SdkIdentityError::from)
     }
 
     pub fn create_or_load(&mut self) -> Result<SdkIdentity, SdkIdentityError> {
-        ClientIdentity::create_or_load(&mut self.keystore)
-            .map(|(identity, initialization)| {
-                let initialization = match initialization {
-                    ClientIdentityInitialization::Created => SdkIdentityInitialization::Created,
-                    ClientIdentityInitialization::Loaded => SdkIdentityInitialization::Loaded,
-                };
-                SdkIdentity::new(identity.public_key(), initialization)
-            })
-            .map_err(SdkIdentityError::from)
+        let profile = self.profile.as_ref();
+        match profile {
+            Some(profile) => profile.create_or_load_identity(&mut self.keystore),
+            None => ClientIdentity::create_or_load(&mut self.keystore),
+        }
+        .map(|(identity, initialization)| {
+            let initialization = match initialization {
+                ClientIdentityInitialization::Created => SdkIdentityInitialization::Created,
+                ClientIdentityInitialization::Loaded => SdkIdentityInitialization::Loaded,
+            };
+            SdkIdentity::new(identity.public_key(), initialization)
+        })
+        .map_err(SdkIdentityError::from)
     }
 
     pub fn export_recovery(
         &self,
         passphrase: &SdkRecoveryPassphrase,
     ) -> Result<SdkRecoveryArchive, SdkRecoveryError> {
-        ClientIdentity::load(&self.keystore)
-            .map_err(map_recovery_error)
-            .and_then(|identity| {
-                identity
-                    .export_recovery(passphrase.as_inner())
-                    .map(SdkRecoveryArchive::from_trusted_bytes)
-                    .map_err(map_recovery_error)
-            })
+        let profile = self.profile.as_ref();
+        match profile {
+            Some(profile) => profile.load_identity(&self.keystore),
+            None => ClientIdentity::load(&self.keystore),
+        }
+        .map_err(map_recovery_error)
+        .and_then(|identity| {
+            identity
+                .export_recovery(passphrase.as_inner())
+                .map(SdkRecoveryArchive::from_trusted_bytes)
+                .map_err(map_recovery_error)
+        })
     }
 
     pub fn import_recovery(
@@ -71,11 +97,18 @@ impl<K: OsKeystore> SdkIdentityManager<K> {
         archive: &SdkRecoveryArchive,
         passphrase: &SdkRecoveryPassphrase,
     ) -> Result<SdkIdentity, SdkRecoveryError> {
-        ClientIdentity::import_recovery(
-            &mut self.keystore,
-            archive.as_bytes(),
-            passphrase.as_inner(),
-        )
+        match self.profile.as_ref() {
+            Some(profile) => profile.import_identity_recovery(
+                &mut self.keystore,
+                archive.as_bytes(),
+                passphrase.as_inner(),
+            ),
+            None => ClientIdentity::import_recovery(
+                &mut self.keystore,
+                archive.as_bytes(),
+                passphrase.as_inner(),
+            ),
+        }
         .map(|identity| {
             SdkIdentity::new(identity.public_key(), SdkIdentityInitialization::Recovered)
         })

@@ -9,6 +9,11 @@ pub const RATCHETS_DATABASE_FILE: &str = "arachne-ratchets.sqlite";
 pub const ONE_TIME_PREKEY_INVENTORY_DATABASE_FILE: &str = "arachne-one-time-prekeys.sqlite";
 pub const ATTACHMENT_UPLOAD_DIRECTORY: &str = "attachment-uploads";
 pub const SHARED_IP_MESH_CERTIFICATE_FILE: &str = "arachne-shared-ip-mesh-cert.der";
+pub const COURIER_BUNDLES_DATABASE_FILE: &str = "arachne-courier-bundles.sqlite";
+pub const COURIER_INBOX_DATABASE_FILE: &str = "arachne-courier-inbox.sqlite";
+pub const COURIER_SESSIONS_DATABASE_FILE: &str = "arachne-courier-sessions.sqlite";
+pub const COURIER_ONE_TIME_PREKEYS_DATABASE_FILE: &str = "arachne-courier-one-time-prekeys.sqlite";
+pub const COURIER_ATTACHMENT_JOBS_DATABASE_FILE: &str = "arachne-courier-attachment-jobs.sqlite";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ClientStateDirectory {
@@ -82,6 +87,31 @@ impl ClientStateDirectory {
     pub fn shared_ip_mesh_certificate_path(&self) -> PathBuf {
         self.root.join(SHARED_IP_MESH_CERTIFICATE_FILE)
     }
+
+    #[must_use]
+    pub fn courier_bundles_path(&self) -> PathBuf {
+        self.root.join(COURIER_BUNDLES_DATABASE_FILE)
+    }
+
+    #[must_use]
+    pub fn courier_inbox_path(&self) -> PathBuf {
+        self.root.join(COURIER_INBOX_DATABASE_FILE)
+    }
+
+    #[must_use]
+    pub fn courier_sessions_path(&self) -> PathBuf {
+        self.root.join(COURIER_SESSIONS_DATABASE_FILE)
+    }
+
+    #[must_use]
+    pub fn courier_one_time_prekeys_path(&self) -> PathBuf {
+        self.root.join(COURIER_ONE_TIME_PREKEYS_DATABASE_FILE)
+    }
+
+    #[must_use]
+    pub fn courier_attachment_jobs_path(&self) -> PathBuf {
+        self.root.join(COURIER_ATTACHMENT_JOBS_DATABASE_FILE)
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
@@ -102,9 +132,11 @@ mod tests {
 
     use super::{
         ATTACHMENT_UPLOAD_DIRECTORY, CLIENT_STATE_DIRECTORY_LAYOUT_VERSION, CONTACTS_DATABASE_FILE,
-        ClientStateDirectory, ClientStateDirectoryError, DAEMON_LOCK_FILE, INBOX_DATABASE_FILE,
-        ONE_TIME_PREKEY_INVENTORY_DATABASE_FILE, OUTBOX_DATABASE_FILE, RATCHETS_DATABASE_FILE,
-        SHARED_IP_MESH_CERTIFICATE_FILE,
+        COURIER_ATTACHMENT_JOBS_DATABASE_FILE, COURIER_BUNDLES_DATABASE_FILE,
+        COURIER_INBOX_DATABASE_FILE, COURIER_ONE_TIME_PREKEYS_DATABASE_FILE,
+        COURIER_SESSIONS_DATABASE_FILE, ClientStateDirectory, ClientStateDirectoryError,
+        DAEMON_LOCK_FILE, INBOX_DATABASE_FILE, ONE_TIME_PREKEY_INVENTORY_DATABASE_FILE,
+        OUTBOX_DATABASE_FILE, RATCHETS_DATABASE_FILE, SHARED_IP_MESH_CERTIFICATE_FILE,
     };
 
     #[test]
@@ -143,6 +175,26 @@ mod tests {
         assert_eq!(
             layout.shared_ip_mesh_certificate_path(),
             Path::new("/var/lib/arachne/alice").join(SHARED_IP_MESH_CERTIFICATE_FILE)
+        );
+        assert_eq!(
+            layout.courier_bundles_path(),
+            Path::new("/var/lib/arachne/alice").join(COURIER_BUNDLES_DATABASE_FILE)
+        );
+        assert_eq!(
+            layout.courier_inbox_path(),
+            Path::new("/var/lib/arachne/alice").join(COURIER_INBOX_DATABASE_FILE)
+        );
+        assert_eq!(
+            layout.courier_sessions_path(),
+            Path::new("/var/lib/arachne/alice").join(COURIER_SESSIONS_DATABASE_FILE)
+        );
+        assert_eq!(
+            layout.courier_one_time_prekeys_path(),
+            Path::new("/var/lib/arachne/alice").join(COURIER_ONE_TIME_PREKEYS_DATABASE_FILE)
+        );
+        assert_eq!(
+            layout.courier_attachment_jobs_path(),
+            Path::new("/var/lib/arachne/alice").join(COURIER_ATTACHMENT_JOBS_DATABASE_FILE)
         );
     }
 

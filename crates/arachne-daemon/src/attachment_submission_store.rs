@@ -94,6 +94,64 @@ impl AttachmentSubmissionStore {
             next_pending_index: journal.next_pending_index(),
         })
     }
+
+    pub fn load_manifest(
+        &self,
+        identifier: AttachmentIdentifier,
+    ) -> Result<EncryptedAttachmentManifest, AttachmentSubmissionStoreError> {
+        let encoded = self.read_artifact(identifier, MANIFEST_FILE)?;
+        decode_manifest(&encoded)
+    }
+
+    pub fn load_chunk(
+        &self,
+        identifier: AttachmentIdentifier,
+        index: u32,
+    ) -> Result<EncryptedAttachmentChunk, AttachmentSubmissionStoreError> {
+        let encoded = self.read_artifact(identifier, &chunk_file_name(index))?;
+        decode_chunk(&encoded)
+    }
+
+    pub fn delete(
+        &self,
+        identifier: AttachmentIdentifier,
+    ) -> Result<(), AttachmentSubmissionStoreError> {
+        let directory = self
+            .layout
+            .attachment_uploads_path()
+            .join(encode_identifier(identifier));
+        match fs::symlink_metadata(&directory) {
+            Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
+                Err(AttachmentSubmissionStoreError::InvalidDirectory)
+            }
+            Ok(_) => fs::remove_dir_all(directory).map_err(|_| AttachmentSubmissionStoreError::Io),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(_) => Err(AttachmentSubmissionStoreError::Io),
+        }
+    }
+
+    fn read_artifact(
+        &self,
+        identifier: AttachmentIdentifier,
+        name: &str,
+    ) -> Result<Vec<u8>, AttachmentSubmissionStoreError> {
+        let directory = self
+            .layout
+            .attachment_uploads_path()
+            .join(encode_identifier(identifier));
+        let metadata =
+            fs::symlink_metadata(&directory).map_err(|_| AttachmentSubmissionStoreError::Io)?;
+        if metadata.file_type().is_symlink() || !metadata.is_dir() {
+            return Err(AttachmentSubmissionStoreError::InvalidDirectory);
+        }
+        let path = directory.join(name);
+        let metadata =
+            fs::symlink_metadata(&path).map_err(|_| AttachmentSubmissionStoreError::Io)?;
+        if metadata.file_type().is_symlink() || !metadata.is_file() {
+            return Err(AttachmentSubmissionStoreError::InvalidDirectory);
+        }
+        fs::read(path).map_err(|_| AttachmentSubmissionStoreError::Io)
+    }
 }
 
 pub struct AttachmentUploadSubmission {

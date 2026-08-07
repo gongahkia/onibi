@@ -12,6 +12,10 @@ pub struct StoreEnvelopeRequest {
     pub mailbox_capability: ::prost::alloc::vec::Vec<u8>,
     #[prost(bytes = "vec", tag = "2")]
     pub envelope: ::prost::alloc::vec::Vec<u8>,
+    /// SHA-256 of the canonical envelope encoding. Replays with the same key are
+    /// idempotent within a mailbox and return the original sequence.
+    #[prost(bytes = "vec", tag = "3")]
+    pub idempotency_key: ::prost::alloc::vec::Vec<u8>,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct StoreEnvelopeResponse {
@@ -96,6 +100,29 @@ pub struct GetMailboxQuotaResponse {
     pub used_bytes: u64,
     #[prost(uint64, tag = "3")]
     pub remaining_bytes: u64,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct PublishCourierBundleRequest {
+    #[prost(bytes = "vec", tag = "1")]
+    pub bundle: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct PublishCourierBundleResponse {}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct FetchCourierBundleRequest {
+    #[prost(bytes = "vec", tag = "1")]
+    pub recipient_identity: ::prost::alloc::vec::Vec<u8>,
+    #[prost(bytes = "vec", tag = "2")]
+    pub requester_identity: ::prost::alloc::vec::Vec<u8>,
+    #[prost(bytes = "vec", tag = "3")]
+    pub requester_signature: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct FetchCourierBundleResponse {
+    #[prost(bytes = "vec", tag = "1")]
+    pub bundle: ::prost::alloc::vec::Vec<u8>,
+    #[prost(uint64, optional, tag = "2")]
+    pub leased_one_time_prekey_identifier: ::core::option::Option<u64>,
 }
 /// Generated client implementations.
 pub mod relay_service_client {
@@ -408,6 +435,64 @@ pub mod relay_service_client {
                 );
             self.inner.unary(req, path, codec).await
         }
+        pub async fn publish_courier_bundle(
+            &mut self,
+            request: impl tonic::IntoRequest<super::PublishCourierBundleRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::PublishCourierBundleResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic_prost::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/arachne.relay.v1.RelayService/PublishCourierBundle",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "arachne.relay.v1.RelayService",
+                        "PublishCourierBundle",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
+        pub async fn fetch_courier_bundle(
+            &mut self,
+            request: impl tonic::IntoRequest<super::FetchCourierBundleRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::FetchCourierBundleResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic_prost::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/arachne.relay.v1.RelayService/FetchCourierBundle",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "arachne.relay.v1.RelayService",
+                        "FetchCourierBundle",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
     }
 }
 /// Generated server implementations.
@@ -477,6 +562,20 @@ pub mod relay_service_server {
             request: tonic::Request<super::StoreEnvelopeRequest>,
         ) -> std::result::Result<
             tonic::Response<super::StoreEnvelopeWithReceiptResponse>,
+            tonic::Status,
+        >;
+        async fn publish_courier_bundle(
+            &self,
+            request: tonic::Request<super::PublishCourierBundleRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::PublishCourierBundleResponse>,
+            tonic::Status,
+        >;
+        async fn fetch_courier_bundle(
+            &self,
+            request: tonic::Request<super::FetchCourierBundleRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::FetchCourierBundleResponse>,
             tonic::Status,
         >;
     }
@@ -918,6 +1017,98 @@ pub mod relay_service_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = StoreEnvelopeWithReceiptSvc(inner);
+                        let codec = tonic_prost::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/arachne.relay.v1.RelayService/PublishCourierBundle" => {
+                    #[allow(non_camel_case_types)]
+                    struct PublishCourierBundleSvc<T: RelayService>(pub Arc<T>);
+                    impl<
+                        T: RelayService,
+                    > tonic::server::UnaryService<super::PublishCourierBundleRequest>
+                    for PublishCourierBundleSvc<T> {
+                        type Response = super::PublishCourierBundleResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::PublishCourierBundleRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as RelayService>::publish_courier_bundle(&inner, request)
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = PublishCourierBundleSvc(inner);
+                        let codec = tonic_prost::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/arachne.relay.v1.RelayService/FetchCourierBundle" => {
+                    #[allow(non_camel_case_types)]
+                    struct FetchCourierBundleSvc<T: RelayService>(pub Arc<T>);
+                    impl<
+                        T: RelayService,
+                    > tonic::server::UnaryService<super::FetchCourierBundleRequest>
+                    for FetchCourierBundleSvc<T> {
+                        type Response = super::FetchCourierBundleResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::FetchCourierBundleRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as RelayService>::fetch_courier_bundle(&inner, request)
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = FetchCourierBundleSvc(inner);
                         let codec = tonic_prost::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

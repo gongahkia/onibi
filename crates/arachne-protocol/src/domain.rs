@@ -34,6 +34,8 @@ pub enum CryptoDomain {
     ProfileBinding,
     ProjectTestRelaySyntheticTraffic,
     RecipientInboxDeduplication,
+    CourierBundleSignature,
+    CourierDirectoryFetchSignature,
 }
 
 impl CryptoDomain {
@@ -70,6 +72,8 @@ impl CryptoDomain {
         Self::ProfileBinding,
         Self::ProjectTestRelaySyntheticTraffic,
         Self::RecipientInboxDeduplication,
+        Self::CourierBundleSignature,
+        Self::CourierDirectoryFetchSignature,
     ];
 
     #[must_use]
@@ -111,6 +115,8 @@ impl CryptoDomain {
                 b"arachne/v1/project-test-relay-synthetic-traffic"
             }
             Self::RecipientInboxDeduplication => b"arachne/v1/recipient-inbox-deduplication",
+            Self::CourierBundleSignature => b"arachne/v1/courier-bundle-signature",
+            Self::CourierDirectoryFetchSignature => b"arachne/v1/courier-directory-fetch-signature",
         };
         debug_assert!(context.starts_with(PREFIX));
         context

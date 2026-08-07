@@ -56,6 +56,7 @@ async fn recovers_durable_maildrop_state_after_a_grpc_transport_fault() {
         .store_envelope(StoreEnvelopeRequest {
             mailbox_capability: capability.clone(),
             envelope: envelope.clone(),
+            idempotency_key: vec![1; 32],
         })
         .await
         .unwrap();

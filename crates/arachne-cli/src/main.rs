@@ -4,10 +4,16 @@ mod release_manifest;
 
 #[cfg(any(test, unix))]
 use arachne_core::KeystoreSecret;
-use arachne_core::{IdentityKeypair, IdentityPublicKey, KeystoreEntryName, OsKeystore};
+use arachne_core::{
+    IdentityKeypair, IdentityPublicKey, KeystoreEntryName, OsKeystore, initialize_file_tracing,
+    list_log_files, log_directory, prune_log_files,
+};
 use arachne_daemon::{
-    AttachmentSubmissionStore, ClientIdentity, ClientIdentityInitialization, ClientStateDirectory,
-    ContactLifecycleService, ContactStatus, ContactStore, ContactVerificationMethod, DaemonRuntime,
+    AttachmentSubmissionStore, COURIER_ONE_TIME_PREKEY_TARGET, ClientIdentity,
+    ClientIdentityInitialization, ClientProfile, ClientStateDirectory, ContactLifecycleService,
+    ContactStatus, ContactStore, ContactVerificationMethod, CourierAttachmentJobStore,
+    CourierBundleStore, CourierCryptographer, CourierDaemon, CourierDaemonConfig,
+    CourierMaildropClient, CourierOneTimePrekeyInventory, CourierSessionStore, DaemonRuntime,
     InboxMessage, MessageExpiry, PendingContactImportService, QrContactVerificationService,
     RecipientInboxDeduplication, SafetyNumberVerificationService, SenderOutbox,
     SharedIpMeshCertificatePin, SharedIpMeshConfig, SharedIpMeshEndpoint, SharedIpMeshPeer,
@@ -16,11 +22,14 @@ use arachne_daemon::{
 #[cfg(any(test, unix))]
 use arachne_daemon::{DaemonLocalAuth, DaemonLocalAuthToken};
 use arachne_protocol::{
-    ATTACHMENT_IDENTIFIER_BYTES, AttachmentIdentifier, AttachmentUploadJournal,
-    CONTACT_INVITATION_BYTES, ContactInvitation, EncryptedAttachmentChunk,
-    EncryptedAttachmentManifest, EncryptedMessageEnvelope, IDENTITY_ROTATION_BYTES,
-    IdentityIdentifier, MAX_ENCODED_ATTACHMENT_CHUNK_BYTES, MAX_ENCODED_ATTACHMENT_MANIFEST_BYTES,
-    QR_VERIFICATION_PAYLOAD_BYTES, SAFETY_NUMBER_FINGERPRINT_BYTES,
+    ATTACHMENT_CHUNK_BYTES, ATTACHMENT_IDENTIFIER_BYTES, AttachmentIdentifier, AttachmentKey,
+    AttachmentManifest, AttachmentUploadJournal, CONTACT_INVITATION_BYTES, ContactInvitation,
+    CourierAttachmentReference, CourierBundle, DEFAULT_REFERENCE_ATTACHMENT_MAX_BYTES,
+    EncryptedAttachmentChunk, EncryptedAttachmentManifest, EncryptedMessageEnvelope,
+    IDENTITY_ROTATION_BYTES, IdentityIdentifier, MAX_ENCODED_ATTACHMENT_CHUNK_BYTES,
+    MAX_ENCODED_ATTACHMENT_MANIFEST_BYTES, MAX_RELAY_INVITATION_BYTES, MessageContentType,
+    MessageIdentifier, MessagePayload, QR_VERIFICATION_PAYLOAD_BYTES,
+    RELAY_TLS_CERTIFICATE_PIN_BYTES, RelayInvitation, SAFETY_NUMBER_FINGERPRINT_BYTES,
     TOR_ONION_SERVICE_PUBLIC_KEY_BYTES, TorMaildropProfileConfig,
 };
 use arachne_sdk::{
@@ -37,6 +46,7 @@ use crossterm::{
     execute, queue,
     terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use getrandom::{SysRng, rand_core::TryRng};
 use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeMap,
@@ -116,6 +126,10 @@ enum Command {
         #[command(subcommand)]
         command: AttachmentCommand,
     },
+    Courier {
+        #[command(subcommand)]
+        command: CourierCommand,
+    },
     Daemon {
         #[command(subcommand)]
         command: DaemonCommand,
@@ -123,6 +137,14 @@ enum Command {
     LocalMesh {
         #[command(subcommand)]
         command: LocalMeshCommand,
+    },
+    Logs {
+        #[command(subcommand)]
+        command: LogCommand,
+    },
+    Diagnose {
+        #[arg(long)]
+        state_directory: PathBuf,
     },
     Tui(TuiCommand),
     ReleaseManifest {
@@ -147,8 +169,14 @@ enum Command {
 
 #[derive(Subcommand)]
 enum IdentityCommand {
-    Create,
-    Show,
+    Create {
+        #[arg(long)]
+        state_directory: PathBuf,
+    },
+    Show {
+        #[arg(long)]
+        state_directory: PathBuf,
+    },
 }
 
 #[derive(Subcommand)]
@@ -187,7 +215,10 @@ enum ContactCommand {
 
 #[derive(Subcommand)]
 enum ContactInvitationCommand {
-    Create,
+    Create {
+        #[arg(long)]
+        state_directory: PathBuf,
+    },
     Import {
         #[arg(long)]
         state_directory: PathBuf,
@@ -239,6 +270,80 @@ enum AttachmentCommand {
         manifest: PathBuf,
         #[arg(long, required = true, num_args = 1..)]
         chunk: Vec<PathBuf>,
+    },
+}
+
+#[derive(Subcommand)]
+enum CourierCommand {
+    Bundle {
+        #[command(subcommand)]
+        command: CourierBundleCommand,
+    },
+    Send {
+        #[arg(long)]
+        config: PathBuf,
+        #[arg(long)]
+        recipient_public_key: String,
+        #[arg(long)]
+        text: String,
+        #[arg(long, default_value_t = 86_400)]
+        ttl_seconds: u32,
+    },
+    Inbox {
+        #[arg(long)]
+        state_directory: PathBuf,
+    },
+    Attachment {
+        #[command(subcommand)]
+        command: CourierAttachmentCommand,
+    },
+    Daemon {
+        #[arg(long)]
+        config: PathBuf,
+    },
+}
+
+#[derive(Subcommand)]
+enum CourierAttachmentCommand {
+    Send {
+        #[arg(long)]
+        config: PathBuf,
+        #[arg(long)]
+        recipient_public_key: String,
+        #[arg(long)]
+        path: PathBuf,
+        #[arg(long, default_value_t = 86_400)]
+        ttl_seconds: u32,
+    },
+    Receive {
+        #[arg(long)]
+        config: PathBuf,
+        #[arg(long)]
+        message_identifier: String,
+        #[arg(long)]
+        output: PathBuf,
+    },
+}
+
+#[derive(Subcommand)]
+enum CourierBundleCommand {
+    Create {
+        #[arg(long)]
+        state_directory: PathBuf,
+        #[arg(long)]
+        relay_invitation: String,
+        #[arg(long)]
+        relay_tls_pin: String,
+    },
+    Import {
+        #[arg(long)]
+        state_directory: PathBuf,
+        #[arg(long)]
+        bundle: String,
+    },
+    Export {
+        #[arg(long)]
+        state_directory: PathBuf,
     },
 }
 
@@ -296,6 +401,20 @@ enum LocalMeshPeerCommand {
     },
 }
 
+#[derive(Subcommand)]
+enum LogCommand {
+    List {
+        #[arg(long)]
+        state_directory: PathBuf,
+    },
+    Prune {
+        #[arg(long)]
+        state_directory: PathBuf,
+        #[arg(long)]
+        older_than_days: u16,
+    },
+}
+
 #[derive(Args)]
 struct TuiCommand {
     #[arg(long)]
@@ -339,8 +458,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         ),
         Command::Identity { command } => {
             let public_key = match command {
-                IdentityCommand::Create => create_client_system_identity()?,
-                IdentityCommand::Show => load_client_system_identity()?.public_key(),
+                IdentityCommand::Create { state_directory } => {
+                    create_client_system_identity(&state_directory)?
+                }
+                IdentityCommand::Show { state_directory } => {
+                    load_client_system_identity(&state_directory)?.public_key()
+                }
             };
             print!("{}", identity_record(&public_key));
         }
@@ -387,10 +510,13 @@ fn main() -> Result<(), Box<dyn Error>> {
                 queue_system_attachment(&state_directory, &manifest, &chunk)?
             ),
         },
+        Command::Courier { command } => run_courier_command(command)?,
         Command::Daemon { command } => match command {
             DaemonCommand::Serve { config } => daemon_serve(&config)?,
         },
         Command::LocalMesh { command } => run_local_mesh_command(command)?,
+        Command::Logs { command } => print!("{}", run_log_command(command)?),
+        Command::Diagnose { state_directory } => print!("{}", diagnose(&state_directory)?),
         Command::Tui(command) => tui(&command.state_directory, command.snapshot, command.daemon)?,
         Command::ReleaseManifest { command } => release_manifest(command)?,
         Command::ReleaseMetadata {
@@ -487,7 +613,8 @@ fn initialize_shared_ip_mesh_with_keystore<K: OsKeystore>(
 ) -> Result<String, Box<dyn Error>> {
     let layout = ClientStateDirectory::new(config.state_directory())?;
     fs::create_dir_all(layout.root())?;
-    let (identity, _) = ClientIdentity::create_or_load(keystore)?;
+    let profile = ClientProfile::open_or_create(&layout)?;
+    let (identity, _) = profile.create_or_load_identity(keystore)?;
     let tls = SharedIpMeshTlsIdentity::create_or_load(&layout, keystore)?;
     config.write_new(config_path)?;
     Ok(format!(
@@ -584,8 +711,9 @@ async fn connect_shared_ip_mesh_with_keystore<K: OsKeystore + Sync>(
     keystore: &K,
 ) -> Result<String, Box<dyn Error>> {
     let config = SharedIpMeshConfig::load(config_path)?;
-    let local_identity = ClientIdentity::load(keystore)?;
     let layout = ClientStateDirectory::new(config.state_directory())?;
+    let profile = ClientProfile::open_or_create(&layout)?;
+    let local_identity = profile.load_identity(keystore)?;
     let tls_identity = SharedIpMeshTlsIdentity::load(&layout, keystore)?;
     let endpoint = SharedIpMeshEndpoint::start(config, local_identity.public_key(), &tls_identity)?;
     let connected = async {
@@ -663,9 +791,11 @@ fn protocol_vectors(verify: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
 fn run_contact_command(command: ContactCommand) -> Result<(), Box<dyn Error>> {
     match command {
         ContactCommand::Invitation { command } => match command {
-            ContactInvitationCommand::Create => print!(
+            ContactInvitationCommand::Create { state_directory } => print!(
                 "{}",
-                contact_invitation_record(load_client_system_identity()?.keypair())?
+                contact_invitation_record(
+                    load_client_system_identity(&state_directory)?.keypair()
+                )?
             ),
             ContactInvitationCommand::Import {
                 state_directory,
@@ -870,7 +1000,7 @@ fn import_system_contact_invitation(
     validate_state_directory(state_directory)?;
     let _runtime =
         DaemonRuntime::start(arachne_protocol::ProtocolVersion::INITIAL, state_directory)?;
-    let local_identity = load_client_system_identity()?.public_key();
+    let local_identity = load_client_system_identity(state_directory)?.public_key();
     #[cfg(target_os = "linux")]
     {
         let mut keystore = LinuxKeystore::new()?;
@@ -919,7 +1049,7 @@ fn verify_system_contact_qr(
     validate_state_directory(state_directory)?;
     let _runtime =
         DaemonRuntime::start(arachne_protocol::ProtocolVersion::INITIAL, state_directory)?;
-    let local_identity = load_client_system_identity()?.public_key();
+    let local_identity = load_client_system_identity(state_directory)?.public_key();
     #[cfg(target_os = "linux")]
     {
         let mut keystore = LinuxKeystore::new()?;
@@ -969,7 +1099,7 @@ fn verify_system_contact_safety_number(
     validate_state_directory(state_directory)?;
     let _runtime =
         DaemonRuntime::start(arachne_protocol::ProtocolVersion::INITIAL, state_directory)?;
-    let local_identity = load_client_system_identity()?.public_key();
+    let local_identity = load_client_system_identity(state_directory)?.public_key();
     let remote_identity = decode_identity_public_key(contact_public_key)?;
     #[cfg(target_os = "linux")]
     {
@@ -1035,7 +1165,7 @@ fn rotate_system_contact(state_directory: &Path, encoded: &str) -> Result<String
     validate_state_directory(state_directory)?;
     let _runtime =
         DaemonRuntime::start(arachne_protocol::ProtocolVersion::INITIAL, state_directory)?;
-    let local_identity = load_client_system_identity()?.public_key();
+    let local_identity = load_client_system_identity(state_directory)?.public_key();
     #[cfg(target_os = "linux")]
     {
         let mut keystore = LinuxKeystore::new()?;
@@ -1083,7 +1213,7 @@ fn revoke_system_contact(
     validate_state_directory(state_directory)?;
     let _runtime =
         DaemonRuntime::start(arachne_protocol::ProtocolVersion::INITIAL, state_directory)?;
-    let local_identity = load_client_system_identity()?.public_key();
+    let local_identity = load_client_system_identity(state_directory)?.public_key();
     let contact_identity = decode_identity_public_key(contact_public_key)?;
     #[cfg(target_os = "linux")]
     {
@@ -1209,6 +1339,668 @@ fn decode_envelope(encoded: &str) -> Result<EncryptedMessageEnvelope, Box<dyn Er
     Ok(envelope)
 }
 
+fn run_courier_command(command: CourierCommand) -> Result<(), Box<dyn Error>> {
+    match command {
+        CourierCommand::Bundle { command } => match command {
+            CourierBundleCommand::Create {
+                state_directory,
+                relay_invitation,
+                relay_tls_pin,
+            } => print!(
+                "{}",
+                create_courier_bundle(&state_directory, &relay_invitation, &relay_tls_pin)?
+            ),
+            CourierBundleCommand::Import {
+                state_directory,
+                bundle,
+            } => print!("{}", import_courier_bundle(&state_directory, &bundle)?),
+            CourierBundleCommand::Export { state_directory } => {
+                print!("{}", export_courier_bundle(&state_directory)?)
+            }
+        },
+        CourierCommand::Send {
+            config,
+            recipient_public_key,
+            text,
+            ttl_seconds,
+        } => print!(
+            "{}",
+            queue_courier_text(&config, &recipient_public_key, text, ttl_seconds,)?
+        ),
+        CourierCommand::Inbox { state_directory } => {
+            print!("{}", read_courier_inbox(&state_directory)?)
+        }
+        CourierCommand::Attachment { command } => match command {
+            CourierAttachmentCommand::Send {
+                config,
+                recipient_public_key,
+                path,
+                ttl_seconds,
+            } => print!(
+                "{}",
+                send_courier_attachment(&config, &recipient_public_key, &path, ttl_seconds)?
+            ),
+            CourierAttachmentCommand::Receive {
+                config,
+                message_identifier,
+                output,
+            } => print!(
+                "{}",
+                receive_courier_attachment(&config, &message_identifier, &output)?
+            ),
+        },
+        CourierCommand::Daemon { config } => courier_daemon_serve(&config)?,
+    }
+    Ok(())
+}
+
+fn decode_courier_bundle(encoded: &str) -> Result<CourierBundle, Box<dyn Error>> {
+    let encoded =
+        decode_bounded_canonical_hex(encoded, arachne_protocol::MAX_COURIER_BUNDLE_BYTES)?;
+    let bundle = CourierBundle::decode(&encoded)?;
+    if bundle.encode()? != encoded {
+        return Err("courier bundle is not canonically encoded".into());
+    }
+    Ok(bundle)
+}
+
+fn decode_relay_invitation(encoded: &str) -> Result<RelayInvitation, Box<dyn Error>> {
+    let encoded = decode_bounded_canonical_hex(encoded, MAX_RELAY_INVITATION_BYTES)?;
+    let invitation = RelayInvitation::decode(&encoded)?;
+    if invitation.encode()? != encoded {
+        return Err("relay invitation is not canonically encoded".into());
+    }
+    Ok(invitation)
+}
+
+fn decode_relay_tls_pin(
+    encoded: &str,
+) -> Result<[u8; RELAY_TLS_CERTIFICATE_PIN_BYTES], Box<dyn Error>> {
+    let mut pin = [0; RELAY_TLS_CERTIFICATE_PIN_BYTES];
+    decode_canonical_hex(encoded, &mut pin)?;
+    if pin.iter().all(|byte| *byte == 0) {
+        return Err("relay TLS pin must not be all zeroes".into());
+    }
+    Ok(pin)
+}
+
+fn create_courier_bundle(
+    state_directory: &Path,
+    relay_invitation: &str,
+    relay_tls_pin: &str,
+) -> Result<String, Box<dyn Error>> {
+    validate_state_directory(state_directory)?;
+    initialize_client_logging(state_directory)?;
+    let _runtime =
+        DaemonRuntime::start(arachne_protocol::ProtocolVersion::INITIAL, state_directory)?;
+    let invitation = decode_relay_invitation(relay_invitation)?;
+    let pin = decode_relay_tls_pin(relay_tls_pin)?;
+    let now = unix_time_seconds()?;
+    #[cfg(target_os = "linux")]
+    {
+        let mut keystore = LinuxKeystore::new()?;
+        return create_courier_bundle_with_keystore(
+            &mut keystore,
+            state_directory,
+            invitation,
+            pin,
+            now,
+        );
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let mut keystore = MacOsKeystore::new();
+        return create_courier_bundle_with_keystore(
+            &mut keystore,
+            state_directory,
+            invitation,
+            pin,
+            now,
+        );
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let mut keystore = WindowsKeystore::new()?;
+        return create_courier_bundle_with_keystore(
+            &mut keystore,
+            state_directory,
+            invitation,
+            pin,
+            now,
+        );
+    }
+    #[allow(unreachable_code)]
+    Err("unsupported operating system keystore".into())
+}
+
+fn create_courier_bundle_with_keystore<K: OsKeystore>(
+    keystore: &mut K,
+    state_directory: &Path,
+    invitation: RelayInvitation,
+    pin: [u8; RELAY_TLS_CERTIFICATE_PIN_BYTES],
+    now: u64,
+) -> Result<String, Box<dyn Error>> {
+    let layout = ClientStateDirectory::new(state_directory)?;
+    let profile = ClientProfile::open_or_create(&layout)?;
+    let (identity, _) = profile.create_or_load_identity(keystore)?;
+    if invitation.recipient() != &identity.public_key() {
+        return Err("relay invitation is not bound to the local identity".into());
+    }
+    let cryptographer = CourierCryptographer::load_or_create_for_profile(
+        identity.keypair(),
+        profile.id(),
+        keystore,
+    )?;
+    let mut inventory =
+        CourierOneTimePrekeyInventory::open(&layout.courier_one_time_prekeys_path(), keystore)?;
+    inventory.replenish(COURIER_ONE_TIME_PREKEY_TARGET)?;
+    let mut store = CourierBundleStore::open(&layout.courier_bundles_path(), keystore)?;
+    let generation = match store.bundle_for(&identity.public_key(), now)? {
+        Some(previous) => previous
+            .generation()
+            .checked_add(1)
+            .ok_or("courier bundle generation exhausted")?,
+        None => 1,
+    };
+    let bundle = cryptographer.bundle_with_prekeys(
+        identity.keypair(),
+        invitation,
+        pin,
+        generation,
+        inventory.unpublished_public(),
+    )?;
+    store.import(&bundle, now)?;
+    Ok(format!("bundle={}\n", hexadecimal(&bundle.encode()?)))
+}
+
+fn import_courier_bundle(state_directory: &Path, encoded: &str) -> Result<String, Box<dyn Error>> {
+    validate_state_directory(state_directory)?;
+    initialize_client_logging(state_directory)?;
+    let _runtime =
+        DaemonRuntime::start(arachne_protocol::ProtocolVersion::INITIAL, state_directory)?;
+    let bundle = decode_courier_bundle(encoded)?;
+    let now = unix_time_seconds()?;
+    #[cfg(target_os = "linux")]
+    {
+        let mut keystore = LinuxKeystore::new()?;
+        return import_courier_bundle_with_keystore(&mut keystore, state_directory, &bundle, now);
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let mut keystore = MacOsKeystore::new();
+        return import_courier_bundle_with_keystore(&mut keystore, state_directory, &bundle, now);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let mut keystore = WindowsKeystore::new()?;
+        return import_courier_bundle_with_keystore(&mut keystore, state_directory, &bundle, now);
+    }
+    #[allow(unreachable_code)]
+    Err("unsupported operating system keystore".into())
+}
+
+fn import_courier_bundle_with_keystore<K: OsKeystore>(
+    keystore: &mut K,
+    state_directory: &Path,
+    bundle: &CourierBundle,
+    now: u64,
+) -> Result<String, Box<dyn Error>> {
+    let layout = ClientStateDirectory::new(state_directory)?;
+    let contacts = ContactStore::open(&layout.contacts_path(), keystore)?;
+    if contacts
+        .contact(bundle.publisher())
+        .is_none_or(|contact| contact.status() != ContactStatus::Verified)
+    {
+        return Err("courier bundle publisher is not a verified contact".into());
+    }
+    let mut store = CourierBundleStore::open(&layout.courier_bundles_path(), keystore)?;
+    store.import(bundle, now)?;
+    Ok(format!(
+        "contact_public_key={}\n",
+        hexadecimal(bundle.publisher().as_bytes())
+    ))
+}
+
+fn export_courier_bundle(state_directory: &Path) -> Result<String, Box<dyn Error>> {
+    validate_state_directory(state_directory)?;
+    let now = unix_time_seconds()?;
+    #[cfg(target_os = "linux")]
+    {
+        let mut keystore = LinuxKeystore::new()?;
+        return export_courier_bundle_with_keystore(&mut keystore, state_directory, now);
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let mut keystore = MacOsKeystore::new();
+        return export_courier_bundle_with_keystore(&mut keystore, state_directory, now);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let mut keystore = WindowsKeystore::new()?;
+        return export_courier_bundle_with_keystore(&mut keystore, state_directory, now);
+    }
+    #[allow(unreachable_code)]
+    Err("unsupported operating system keystore".into())
+}
+
+fn export_courier_bundle_with_keystore<K: OsKeystore>(
+    keystore: &mut K,
+    state_directory: &Path,
+    now: u64,
+) -> Result<String, Box<dyn Error>> {
+    let layout = ClientStateDirectory::new(state_directory)?;
+    let profile = ClientProfile::open_or_create(&layout)?;
+    let identity = profile.load_identity(keystore)?;
+    let store = CourierBundleStore::open(&layout.courier_bundles_path(), keystore)?;
+    let bundle = store
+        .bundle_for(&identity.public_key(), now)?
+        .ok_or("local courier bundle is unavailable")?;
+    Ok(format!("bundle={}\n", hexadecimal(&bundle.encode()?)))
+}
+
+fn queue_courier_text(
+    config_path: &Path,
+    recipient_public_key: &str,
+    text: String,
+    ttl_seconds: u32,
+) -> Result<String, Box<dyn Error>> {
+    let config = CourierDaemonConfig::load(config_path)?;
+    validate_state_directory(config.state_directory())?;
+    initialize_client_logging(config.state_directory())?;
+    let recipient = decode_identity_public_key(recipient_public_key)?;
+    let now = unix_time_seconds()?;
+    let expiry = MessageExpiry::new(now, ttl_seconds)?;
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    #[cfg(target_os = "linux")]
+    {
+        let mut keystore = LinuxKeystore::new()?;
+        return runtime.block_on(queue_courier_text_with_keystore(
+            &mut keystore,
+            &config,
+            recipient,
+            text,
+            expiry,
+            now,
+        ));
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let mut keystore = MacOsKeystore::new();
+        return runtime.block_on(queue_courier_text_with_keystore(
+            &mut keystore,
+            &config,
+            recipient,
+            text,
+            expiry,
+            now,
+        ));
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let mut keystore = WindowsKeystore::new()?;
+        return runtime.block_on(queue_courier_text_with_keystore(
+            &mut keystore,
+            &config,
+            recipient,
+            text,
+            expiry,
+            now,
+        ));
+    }
+    #[allow(unreachable_code)]
+    Err("unsupported operating system keystore".into())
+}
+
+async fn queue_courier_text_with_keystore<K: OsKeystore>(
+    keystore: &mut K,
+    config: &CourierDaemonConfig,
+    recipient: IdentityPublicKey,
+    text: String,
+    expiry: MessageExpiry,
+    now: u64,
+) -> Result<String, Box<dyn Error>> {
+    let layout = ClientStateDirectory::new(config.state_directory())?;
+    let profile = ClientProfile::open_or_create(&layout)?;
+    let identity = profile.load_identity(keystore)?;
+    let contacts = ContactStore::open(&layout.contacts_path(), keystore)?;
+    if contacts
+        .contact(&recipient)
+        .is_none_or(|contact| contact.status() != ContactStatus::Verified)
+    {
+        return Err("courier recipient is not a verified contact".into());
+    }
+    let mut bundles = CourierBundleStore::open(&layout.courier_bundles_path(), keystore)?;
+    let directory = bundles
+        .bundle_for(&recipient, now)?
+        .ok_or("courier recipient bundle is unavailable")?;
+    let mut sessions = CourierSessionStore::open(&layout.courier_sessions_path(), keystore)?;
+    let cryptographer = CourierCryptographer::load_or_create_for_profile(
+        identity.keypair(),
+        profile.id(),
+        keystore,
+    )?;
+    let (bundle, selected_one_time_prekey) = if sessions.contains(&recipient) {
+        (directory, None)
+    } else {
+        let fetched = CourierMaildropClient::new(config.tor().runtime())
+            .fetch_courier_bundle(&directory, identity.keypair(), &recipient)
+            .await?;
+        bundles.import(fetched.bundle(), now)?;
+        fetched.into_parts()
+    };
+    let payload = MessagePayload::new(MessageContentType::TextUtf8, text.into_bytes())?;
+    let frame = cryptographer.encrypt_with_one_time_prekey(
+        &identity.public_key(),
+        &bundle,
+        &mut sessions,
+        &payload,
+        selected_one_time_prekey,
+    )?;
+    let identifier = frame
+        .message_identifier()
+        .ok_or("courier text frame is missing its message identifier")?;
+    let envelope = frame.into_envelope()?;
+    let mut outbox = SenderOutbox::open(&layout.outbox_path(), keystore)?;
+    outbox.enqueue_with_identifier(identifier, recipient, envelope, expiry)?;
+    tracing::info!(
+        target: "arachne.courier.delivery",
+        event = "text_queued",
+        "courier delivery event"
+    );
+    Ok(format!(
+        "message_identifier={}\n",
+        hexadecimal(identifier.as_bytes())
+    ))
+}
+
+fn read_courier_inbox(state_directory: &Path) -> Result<String, Box<dyn Error>> {
+    validate_state_directory(state_directory)?;
+    #[cfg(target_os = "linux")]
+    {
+        let mut keystore = LinuxKeystore::new()?;
+        return read_courier_inbox_with_keystore(&mut keystore, state_directory);
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let mut keystore = MacOsKeystore::new();
+        return read_courier_inbox_with_keystore(&mut keystore, state_directory);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let mut keystore = WindowsKeystore::new()?;
+        return read_courier_inbox_with_keystore(&mut keystore, state_directory);
+    }
+    #[allow(unreachable_code)]
+    Err("unsupported operating system keystore".into())
+}
+
+fn read_courier_inbox_with_keystore<K: OsKeystore>(
+    keystore: &mut K,
+    state_directory: &Path,
+) -> Result<String, Box<dyn Error>> {
+    let layout = ClientStateDirectory::new(state_directory)?;
+    let sessions = CourierSessionStore::open(&layout.courier_sessions_path(), keystore)?;
+    let mut output = String::new();
+    for message in sessions.inbox_messages() {
+        let text = match message.payload().content_type() {
+            MessageContentType::TextUtf8 => std::str::from_utf8(message.payload().body())?,
+            MessageContentType::Binary => "<binary payload>",
+        };
+        let _ = writeln!(
+            output,
+            "message_identifier={}\nsender_public_key={}\nreceived_at={}\ntext={}\n",
+            hexadecimal(message.identifier().as_bytes()),
+            hexadecimal(message.sender().as_bytes()),
+            message.received_at(),
+            text,
+        );
+    }
+    Ok(output)
+}
+
+fn send_courier_attachment(
+    config_path: &Path,
+    recipient_public_key: &str,
+    path: &Path,
+    ttl_seconds: u32,
+) -> Result<String, Box<dyn Error>> {
+    let config = CourierDaemonConfig::load(config_path)?;
+    validate_state_directory(config.state_directory())?;
+    initialize_client_logging(config.state_directory())?;
+    let recipient = decode_identity_public_key(recipient_public_key)?;
+    let plaintext = fs::read(path)?;
+    let now = unix_time_seconds()?;
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    #[cfg(target_os = "linux")]
+    {
+        let mut keystore = LinuxKeystore::new()?;
+        return runtime.block_on(send_courier_attachment_with_keystore(
+            &mut keystore,
+            &config,
+            recipient,
+            plaintext,
+            ttl_seconds,
+            now,
+        ));
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let mut keystore = MacOsKeystore::new();
+        return runtime.block_on(send_courier_attachment_with_keystore(
+            &mut keystore,
+            &config,
+            recipient,
+            plaintext,
+            ttl_seconds,
+            now,
+        ));
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let mut keystore = WindowsKeystore::new()?;
+        return runtime.block_on(send_courier_attachment_with_keystore(
+            &mut keystore,
+            &config,
+            recipient,
+            plaintext,
+            ttl_seconds,
+            now,
+        ));
+    }
+    #[allow(unreachable_code)]
+    Err("unsupported operating system keystore".into())
+}
+
+async fn send_courier_attachment_with_keystore<K: OsKeystore>(
+    keystore: &mut K,
+    config: &CourierDaemonConfig,
+    recipient: IdentityPublicKey,
+    plaintext: Vec<u8>,
+    ttl_seconds: u32,
+    now: u64,
+) -> Result<String, Box<dyn Error>> {
+    if plaintext.is_empty() || plaintext.len() > DEFAULT_REFERENCE_ATTACHMENT_MAX_BYTES as usize {
+        return Err("attachment size is outside the supported courier bounds".into());
+    }
+    let layout = ClientStateDirectory::new(config.state_directory())?;
+    let _profile = ClientProfile::open_or_create(&layout)?;
+    let contacts = ContactStore::open(&layout.contacts_path(), keystore)?;
+    if contacts
+        .contact(&recipient)
+        .is_none_or(|contact| contact.status() != ContactStatus::Verified)
+    {
+        return Err("courier recipient is not a verified contact".into());
+    }
+    let identifier = AttachmentIdentifier::generate()?;
+    let mut message_key = [0; 32];
+    SysRng
+        .try_fill_bytes(&mut message_key)
+        .map_err(|_| "attachment message key could not be generated")?;
+    let key = AttachmentKey::derive(&message_key, identifier)?;
+    let mut chunks = Vec::new();
+    let mut hashes = Vec::new();
+    for (index, plaintext_chunk) in plaintext.chunks(ATTACHMENT_CHUNK_BYTES).enumerate() {
+        let mut padded = vec![0; ATTACHMENT_CHUNK_BYTES];
+        padded[..plaintext_chunk.len()].copy_from_slice(plaintext_chunk);
+        let index = u32::try_from(index).map_err(|_| "attachment has too many chunks")?;
+        let chunk = EncryptedAttachmentChunk::encrypt(
+            identifier,
+            index,
+            &key.derive_chunk_key(index)?,
+            &padded,
+        )?;
+        hashes.push(chunk.hash()?);
+        chunks.push(chunk);
+    }
+    let manifest =
+        AttachmentManifest::new(identifier, plaintext.len() as u64, hashes)?.encrypt(&key)?;
+    let reference = CourierAttachmentReference::new(identifier, message_key, manifest)?;
+    let encoded_manifest = reference.manifest().encode()?;
+    let store = AttachmentSubmissionStore::new(layout.clone());
+    let mut submission = store.begin(&encoded_manifest)?;
+    for chunk in &chunks {
+        submission.append_chunk(&chunk.encode()?)?;
+    }
+    submission.finish()?;
+
+    let message_identifier = MessageIdentifier::generate()?;
+    let expiry = MessageExpiry::new(now, ttl_seconds)?;
+    let mut jobs =
+        CourierAttachmentJobStore::open(&layout.courier_attachment_jobs_path(), keystore)?;
+    if let Err(error) = jobs.enqueue(recipient, message_identifier, reference, expiry) {
+        let _ = store.delete(identifier);
+        return Err(error.into());
+    }
+    tracing::info!(
+        target: "arachne.courier.attachment",
+        event = "staged",
+        chunks = chunks.len(),
+        "courier attachment awaits daemon upload"
+    );
+    Ok(format!(
+        "message_identifier={}\nattachment_identifier={}\n",
+        hexadecimal(message_identifier.as_bytes()),
+        hexadecimal(identifier.as_bytes())
+    ))
+}
+
+fn receive_courier_attachment(
+    config_path: &Path,
+    message_identifier: &str,
+    output: &Path,
+) -> Result<String, Box<dyn Error>> {
+    let config = CourierDaemonConfig::load(config_path)?;
+    validate_state_directory(config.state_directory())?;
+    let message_identifier = decode_message_identifier(message_identifier)?;
+    let now = unix_time_seconds()?;
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    #[cfg(target_os = "linux")]
+    {
+        let mut keystore = LinuxKeystore::new()?;
+        return runtime.block_on(receive_courier_attachment_with_keystore(
+            &mut keystore,
+            &config,
+            message_identifier,
+            output,
+            now,
+        ));
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let mut keystore = MacOsKeystore::new();
+        return runtime.block_on(receive_courier_attachment_with_keystore(
+            &mut keystore,
+            &config,
+            message_identifier,
+            output,
+            now,
+        ));
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let mut keystore = WindowsKeystore::new()?;
+        return runtime.block_on(receive_courier_attachment_with_keystore(
+            &mut keystore,
+            &config,
+            message_identifier,
+            output,
+            now,
+        ));
+    }
+    #[allow(unreachable_code)]
+    Err("unsupported operating system keystore".into())
+}
+
+async fn receive_courier_attachment_with_keystore<K: OsKeystore>(
+    keystore: &mut K,
+    config: &CourierDaemonConfig,
+    message_identifier: MessageIdentifier,
+    output: &Path,
+    now: u64,
+) -> Result<String, Box<dyn Error>> {
+    let layout = ClientStateDirectory::new(config.state_directory())?;
+    let profile = ClientProfile::open_or_create(&layout)?;
+    let identity = profile.load_identity(keystore)?;
+    let sessions = CourierSessionStore::open(&layout.courier_sessions_path(), keystore)?;
+    let message = sessions
+        .inbox_message(message_identifier)
+        .ok_or("courier attachment message is unavailable")?;
+    if message.payload().content_type() != MessageContentType::Binary {
+        return Err("courier message is not an attachment reference".into());
+    }
+    let reference = CourierAttachmentReference::decode(message.payload().body())?;
+    let key = AttachmentKey::derive(reference.message_key(), reference.identifier())?;
+    let manifest = reference.manifest().decrypt(&key)?;
+    let bundles = CourierBundleStore::open(&layout.courier_bundles_path(), keystore)?;
+    let local_bundle = bundles
+        .bundle_for(&identity.public_key(), now)?
+        .ok_or("local courier bundle is unavailable")?;
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(output)?;
+    let maildrop = CourierMaildropClient::new(config.tor().runtime());
+    let mut remaining = manifest.plaintext_length();
+    for (index, expected_hash) in manifest.chunk_hashes().iter().enumerate() {
+        let index = u32::try_from(index).map_err(|_| "attachment has too many chunks")?;
+        let chunk = maildrop
+            .download_attachment_chunk(&local_bundle, manifest.identifier(), index)
+            .await?;
+        chunk.validate_hash(expected_hash)?;
+        let plaintext = chunk.decrypt(&key.derive_chunk_key(index)?)?;
+        let write_length = usize::try_from(remaining.min(ATTACHMENT_CHUNK_BYTES as u64))?;
+        file.write_all(&plaintext[..write_length])?;
+        remaining = remaining.saturating_sub(write_length as u64);
+    }
+    if remaining != 0 {
+        return Err("attachment manifest does not cover its plaintext length".into());
+    }
+    file.sync_all()?;
+    tracing::info!(
+        target: "arachne.courier.attachment",
+        event = "received",
+        chunk_count = manifest.chunk_hashes().len(),
+        "courier attachment event"
+    );
+    Ok(format!("output={}\n", output.display()))
+}
+
+fn decode_message_identifier(encoded: &str) -> Result<MessageIdentifier, Box<dyn Error>> {
+    let mut bytes = [0; 16];
+    decode_canonical_hex(encoded, &mut bytes)?;
+    Ok(MessageIdentifier::from_bytes(bytes)?)
+}
+
+fn unix_time_seconds() -> Result<u64, Box<dyn Error>> {
+    Ok(SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs())
+}
+
 fn queue_system_message(
     state_directory: &Path,
     recipient_public_key: &str,
@@ -1217,6 +2009,7 @@ fn queue_system_message(
     ttl_seconds: u32,
 ) -> Result<String, Box<dyn Error>> {
     validate_state_directory(state_directory)?;
+    initialize_client_logging(state_directory)?;
     let _runtime =
         DaemonRuntime::start(arachne_protocol::ProtocolVersion::INITIAL, state_directory)?;
     let recipient = decode_identity_public_key(recipient_public_key)?;
@@ -1256,6 +2049,11 @@ fn queue_message<K: OsKeystore>(
         .last()
         .ok_or("enqueued message is missing")?
         .identifier();
+    tracing::info!(
+        target: "arachne.client.delivery",
+        event = "message_queued",
+        "client delivery event"
+    );
     Ok(format!(
         "message_identifier={}\n",
         hexadecimal(identifier.as_bytes())
@@ -1370,11 +2168,18 @@ async fn serve_daemon_with_keystore<K: OsKeystore>(
     keystore: &mut K,
 ) -> Result<(), Box<dyn Error>> {
     let config = SharedIpMeshConfig::load(config_path)?;
+    initialize_file_tracing(config.state_directory(), "daemon")?;
+    tracing::info!(
+        target: "arachne.daemon.lifecycle",
+        event = "starting",
+        "daemon lifecycle event"
+    );
     let mut runtime = DaemonRuntime::start(
         arachne_protocol::ProtocolVersion::INITIAL,
         config.state_directory(),
     )?;
-    let local_identity = ClientIdentity::load(keystore)?;
+    let profile = ClientProfile::open_or_create(runtime.state_directory())?;
+    let local_identity = profile.load_identity(keystore)?;
     let tls_identity = SharedIpMeshTlsIdentity::load(runtime.state_directory(), keystore)?;
     let mesh = Arc::new(SharedIpMeshEndpoint::start(
         config,
@@ -1415,13 +2220,30 @@ async fn serve_daemon_with_keystore<K: OsKeystore>(
     let mesh_shutdown = mesh.shutdown();
     let accepted = accept_task.await;
     let shutdown = runtime.shutdown();
-    served?;
-    revoked?;
-    deleted?;
-    mesh_shutdown?;
-    accepted?;
-    shutdown?;
-    Ok(())
+    let result = (|| {
+        served?;
+        revoked?;
+        deleted?;
+        mesh_shutdown?;
+        accepted?;
+        shutdown?;
+        Ok(())
+    })();
+    if result.is_ok() {
+        tracing::info!(
+            target: "arachne.daemon.lifecycle",
+            event = "stopped",
+            "daemon lifecycle event"
+        );
+    } else {
+        tracing::error!(
+            target: "arachne.daemon.lifecycle",
+            event = "stopped_with_error",
+            error_class = "runtime",
+            "daemon lifecycle event"
+        );
+    }
+    result
 }
 
 #[cfg(unix)]
@@ -1443,6 +2265,88 @@ fn daemon_serve(config_path: &Path) -> Result<(), Box<dyn Error>> {
     Err("unsupported operating system keystore".into())
 }
 
+async fn serve_courier_daemon_with_keystore<K: OsKeystore>(
+    config_path: &Path,
+    keystore: &mut K,
+) -> Result<(), Box<dyn Error>> {
+    let config = CourierDaemonConfig::load(config_path)?;
+    initialize_file_tracing(config.state_directory(), "courier")?;
+    let mut runtime = DaemonRuntime::start(
+        arachne_protocol::ProtocolVersion::INITIAL,
+        config.state_directory(),
+    )?;
+    let mut daemon = CourierDaemon::start(&config, keystore, unix_time_seconds()?)?;
+    tracing::info!(
+        target: "arachne.courier.lifecycle",
+        event = "started",
+        "courier daemon lifecycle event"
+    );
+    let mut interval = tokio::time::interval(config.poll_interval());
+    loop {
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => break,
+            _ = interval.tick() => match daemon.run_cycle(unix_time_seconds()?).await {
+                Ok(cycle) => tracing::info!(
+                    target: "arachne.courier.cycle",
+                    event = "completed",
+                    uploaded = cycle.uploaded(),
+                    received = cycle.received(),
+                    acknowledged = cycle.acknowledged(),
+                    expired = cycle.expired(),
+                    failed = cycle.failed(),
+                    attachment_chunks = cycle.attachment_chunks(),
+                    "courier daemon cycle"
+                ),
+                Err(_) => tracing::warn!(
+                    target: "arachne.courier.cycle",
+                    event = "failed",
+                    error_class = "courier_cycle",
+                    "courier daemon cycle failed"
+                ),
+            }
+        }
+    }
+    runtime.shutdown()?;
+    tracing::info!(
+        target: "arachne.courier.lifecycle",
+        event = "stopped",
+        "courier daemon lifecycle event"
+    );
+    Ok(())
+}
+
+fn courier_daemon_serve(config_path: &Path) -> Result<(), Box<dyn Error>> {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    #[cfg(target_os = "linux")]
+    {
+        let mut keystore = LinuxKeystore::new()?;
+        return runtime.block_on(serve_courier_daemon_with_keystore(
+            config_path,
+            &mut keystore,
+        ));
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let mut keystore = MacOsKeystore::new();
+        return runtime.block_on(serve_courier_daemon_with_keystore(
+            config_path,
+            &mut keystore,
+        ));
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let mut keystore = WindowsKeystore::new()?;
+        return runtime.block_on(serve_courier_daemon_with_keystore(
+            config_path,
+            &mut keystore,
+        ));
+    }
+    #[allow(unreachable_code)]
+    Err("unsupported operating system keystore".into())
+}
+
 #[cfg(windows)]
 async fn serve_mesh_daemon_with_keystore<K: OsKeystore + Sync>(
     config_path: &Path,
@@ -1453,7 +2357,8 @@ async fn serve_mesh_daemon_with_keystore<K: OsKeystore + Sync>(
         arachne_protocol::ProtocolVersion::INITIAL,
         config.state_directory(),
     )?;
-    let local_identity = ClientIdentity::load(keystore)?;
+    let profile = ClientProfile::open_or_create(runtime.state_directory())?;
+    let local_identity = profile.load_identity(keystore)?;
     let tls_identity = SharedIpMeshTlsIdentity::load(runtime.state_directory(), keystore)?;
     let mesh = Arc::new(SharedIpMeshEndpoint::start(
         config,
@@ -1532,9 +2437,13 @@ impl TuiRuntime {
         }
     }
 
-    fn submit_message(&mut self, input: &TuiMessageInput) -> Result<(), Box<dyn Error>> {
+    fn submit_message(
+        &mut self,
+        state_directory: &Path,
+        input: &TuiMessageInput,
+    ) -> Result<(), Box<dyn Error>> {
         match self {
-            Self::Embedded(client) => submit_tui_message(client, input),
+            Self::Embedded(client) => submit_tui_message(client, state_directory, input),
             #[cfg(unix)]
             Self::Daemon(client) => client.submit_message(input),
         }
@@ -1800,6 +2709,7 @@ const fn daemon_contact_verification_label(method: RpcContactVerificationMethod)
 
 fn tui(state_directory: &Path, snapshot: bool, daemon: bool) -> Result<(), Box<dyn Error>> {
     validate_state_directory(state_directory)?;
+    initialize_client_logging(state_directory)?;
     let (mut runtime, dashboard) = if daemon {
         #[cfg(unix)]
         {
@@ -1810,7 +2720,7 @@ fn tui(state_directory: &Path, snapshot: bool, daemon: bool) -> Result<(), Box<d
         #[cfg(not(unix))]
         return Err("daemon TUI mode is unavailable on this platform".into());
     } else {
-        let (identity, initialization) = create_or_load_client_system_identity()?;
+        let (identity, initialization) = create_or_load_client_system_identity(state_directory)?;
         let client = start_embedded_tui_client(state_directory)?;
         let dashboard = match load_system_dashboard_with_keystore(state_directory) {
             Ok(dashboard) => dashboard.with_identity(identity, initialization),
@@ -2532,7 +3442,7 @@ fn handle_tui_message_input(
                     .message_input
                     .take()
                     .ok_or("message input is unavailable")?;
-                if runtime.submit_message(&input).is_ok() {
+                if runtime.submit_message(state_directory, &input).is_ok() {
                     if let Ok(updated) = runtime.refresh_dashboard(state_directory) {
                         let identity = dashboard.dashboard.identity.clone();
                         dashboard.dashboard = updated;
@@ -2559,22 +3469,24 @@ fn handle_tui_message_input(
 
 fn submit_tui_message(
     client: &mut SdkClient,
+    state_directory: &Path,
     input: &TuiMessageInput,
 ) -> Result<(), Box<dyn Error>> {
     let created_at = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+    let profile = ClientProfile::open_or_create(&ClientStateDirectory::new(state_directory)?)?;
     #[cfg(target_os = "linux")]
     {
-        let mut identity = SdkIdentityManager::new(LinuxKeystore::new()?);
+        let mut identity = SdkIdentityManager::for_profile(LinuxKeystore::new()?, profile);
         return submit_tui_message_with_identity(client, &mut identity, input, created_at);
     }
     #[cfg(target_os = "macos")]
     {
-        let mut identity = SdkIdentityManager::new(MacOsKeystore::new());
+        let mut identity = SdkIdentityManager::for_profile(MacOsKeystore::new(), profile);
         return submit_tui_message_with_identity(client, &mut identity, input, created_at);
     }
     #[cfg(target_os = "windows")]
     {
-        let mut identity = SdkIdentityManager::new(WindowsKeystore::new()?);
+        let mut identity = SdkIdentityManager::for_profile(WindowsKeystore::new()?, profile);
         return submit_tui_message_with_identity(client, &mut identity, input, created_at);
     }
     #[allow(unreachable_code)]
@@ -2614,7 +3526,7 @@ fn submit_tui_contact_input(
     state_directory: &Path,
     input: &TuiContactInput,
 ) -> Result<(), Box<dyn Error>> {
-    let local_identity = load_client_system_identity()?.public_key();
+    let local_identity = load_client_system_identity(state_directory)?.public_key();
     #[cfg(target_os = "linux")]
     {
         let mut keystore = LinuxKeystore::new()?;
@@ -2858,12 +3770,79 @@ fn validate_state_directory(state_directory: &Path) -> Result<(), &'static str> 
         .map_err(|_| "state directory must be an absolute non-root path without parent traversal")
 }
 
+fn initialize_client_logging(state_directory: &Path) -> Result<(), Box<dyn Error>> {
+    let layout = ClientStateDirectory::new(state_directory)?;
+    initialize_file_tracing(layout.root(), "client")?;
+    Ok(())
+}
+
+fn run_log_command(command: LogCommand) -> Result<String, Box<dyn Error>> {
+    match command {
+        LogCommand::List { state_directory } => {
+            let layout = ClientStateDirectory::new(state_directory)?;
+            let directory = log_directory(layout.root())?;
+            let files = list_log_files(layout.root())?;
+            let bytes = files.iter().map(arachne_core::LogFile::bytes).sum::<u64>();
+            let mut output = String::new();
+            let _ = writeln!(
+                output,
+                "log_directory={}\nlog_files={}\nlog_bytes={bytes}",
+                directory.display(),
+                files.len()
+            );
+            for file in files {
+                let _ = writeln!(output, "log_file={} bytes={}", file.name(), file.bytes());
+            }
+            Ok(output)
+        }
+        LogCommand::Prune {
+            state_directory,
+            older_than_days,
+        } => {
+            let layout = ClientStateDirectory::new(state_directory)?;
+            let age = Duration::from_secs(u64::from(older_than_days).saturating_mul(86_400));
+            let pruned = prune_log_files(layout.root(), age, SystemTime::now())?;
+            Ok(format!("pruned_log_files={pruned}\n"))
+        }
+    }
+}
+
+fn diagnose(state_directory: &Path) -> Result<String, Box<dyn Error>> {
+    let layout = ClientStateDirectory::new(state_directory)?;
+    let mut output = format!("state_directory={}\n", layout.root().display());
+    for (name, path) in [
+        ("daemon_lock", layout.lock_path()),
+        ("contacts", layout.contacts_path()),
+        ("inbox", layout.inbox_path()),
+        ("outbox", layout.outbox_path()),
+        ("ratchets", layout.ratchets_path()),
+        ("one_time_prekeys", layout.one_time_prekey_inventory_path()),
+    ] {
+        let state = match fs::metadata(path) {
+            Ok(metadata) if metadata.is_file() => "present",
+            Ok(_) => "invalid",
+            Err(error) if error.kind() == io::ErrorKind::NotFound => "absent",
+            Err(_) => "unavailable",
+        };
+        let _ = writeln!(output, "{name}={state}");
+    }
+    let files = list_log_files(layout.root())?;
+    let _ = writeln!(output, "log_files={}", files.len());
+    let _ = writeln!(
+        output,
+        "log_bytes={}",
+        files.iter().map(arachne_core::LogFile::bytes).sum::<u64>()
+    );
+    Ok(output)
+}
+
 fn queue_system_attachment(
     state_directory: &Path,
     manifest_path: &Path,
     chunk_paths: &[PathBuf],
 ) -> Result<String, Box<dyn Error>> {
     validate_state_directory(state_directory)?;
+    initialize_client_logging(state_directory)?;
     let _runtime =
         DaemonRuntime::start(arachne_protocol::ProtocolVersion::INITIAL, state_directory)?;
     queue_attachment_submission(state_directory, manifest_path, chunk_paths)
@@ -2916,6 +3895,12 @@ fn queue_attachment_submission(
         let _ = fs::remove_dir_all(&staging);
         return Err(error);
     }
+    tracing::info!(
+        target: "arachne.client.attachment",
+        event = "attachment_queued",
+        chunk_count = chunks.len(),
+        "client attachment event"
+    );
     Ok(format!(
         "attachment_identifier={identifier}\nchunk_count={}\n",
         chunks.len()
@@ -2952,51 +3937,69 @@ const fn hexadecimal_nibble(byte: u8) -> Option<u8> {
     }
 }
 
-fn create_client_system_identity() -> Result<IdentityPublicKey, Box<dyn Error>> {
+fn create_client_system_identity(
+    state_directory: &Path,
+) -> Result<IdentityPublicKey, Box<dyn Error>> {
+    validate_state_directory(state_directory)?;
+    let layout = ClientStateDirectory::new(state_directory)?;
+    let profile = ClientProfile::open_or_create(&layout)?;
     #[cfg(target_os = "linux")]
     {
         let mut keystore = LinuxKeystore::new()?;
-        return Ok(ClientIdentity::create(&mut keystore)?.public_key());
+        return Ok(profile.create_identity(&mut keystore)?.public_key());
     }
     #[cfg(target_os = "macos")]
     {
         let mut keystore = MacOsKeystore::new();
-        return Ok(ClientIdentity::create(&mut keystore)?.public_key());
+        return Ok(profile.create_identity(&mut keystore)?.public_key());
     }
     #[cfg(target_os = "windows")]
     {
         let mut keystore = WindowsKeystore::new()?;
-        return Ok(ClientIdentity::create(&mut keystore)?.public_key());
+        return Ok(profile.create_identity(&mut keystore)?.public_key());
     }
     #[allow(unreachable_code)]
     Err("unsupported operating system keystore".into())
 }
 
-fn create_or_load_client_system_identity()
--> Result<(IdentityPublicKey, ClientIdentityInitialization), Box<dyn Error>> {
+fn create_or_load_client_system_identity(
+    state_directory: &Path,
+) -> Result<(IdentityPublicKey, ClientIdentityInitialization), Box<dyn Error>> {
+    validate_state_directory(state_directory)?;
+    let layout = ClientStateDirectory::new(state_directory)?;
+    let profile = ClientProfile::open_or_create(&layout)?;
     #[cfg(target_os = "linux")]
     {
         let mut keystore = LinuxKeystore::new()?;
-        return initialize_tui_identity(&mut keystore);
+        return initialize_tui_profile_identity(&profile, &mut keystore);
     }
     #[cfg(target_os = "macos")]
     {
         let mut keystore = MacOsKeystore::new();
-        return initialize_tui_identity(&mut keystore);
+        return initialize_tui_profile_identity(&profile, &mut keystore);
     }
     #[cfg(target_os = "windows")]
     {
         let mut keystore = WindowsKeystore::new()?;
-        return initialize_tui_identity(&mut keystore);
+        return initialize_tui_profile_identity(&profile, &mut keystore);
     }
     #[allow(unreachable_code)]
     Err("unsupported operating system keystore".into())
 }
 
+#[cfg(test)]
 fn initialize_tui_identity<K: OsKeystore>(
     keystore: &mut K,
 ) -> Result<(IdentityPublicKey, ClientIdentityInitialization), Box<dyn Error>> {
     let (identity, initialization) = ClientIdentity::create_or_load(keystore)?;
+    Ok((identity.public_key(), initialization))
+}
+
+fn initialize_tui_profile_identity<K: OsKeystore>(
+    profile: &ClientProfile,
+    keystore: &mut K,
+) -> Result<(IdentityPublicKey, ClientIdentityInitialization), Box<dyn Error>> {
+    let (identity, initialization) = profile.create_or_load_identity(keystore)?;
     Ok((identity.public_key(), initialization))
 }
 
@@ -3007,21 +4010,24 @@ fn identity_initialization_label(initialization: ClientIdentityInitialization) -
     }
 }
 
-fn load_client_system_identity() -> Result<ClientIdentity, Box<dyn Error>> {
+fn load_client_system_identity(state_directory: &Path) -> Result<ClientIdentity, Box<dyn Error>> {
+    validate_state_directory(state_directory)?;
+    let layout = ClientStateDirectory::new(state_directory)?;
+    let profile = ClientProfile::open_or_create(&layout)?;
     #[cfg(target_os = "linux")]
     {
         let keystore = LinuxKeystore::new()?;
-        return Ok(ClientIdentity::load(&keystore)?);
+        return Ok(profile.load_identity(&keystore)?);
     }
     #[cfg(target_os = "macos")]
     {
         let keystore = MacOsKeystore::new();
-        return Ok(ClientIdentity::load(&keystore)?);
+        return Ok(profile.load_identity(&keystore)?);
     }
     #[cfg(target_os = "windows")]
     {
         let keystore = WindowsKeystore::new()?;
-        return Ok(ClientIdentity::load(&keystore)?);
+        return Ok(profile.load_identity(&keystore)?);
     }
     #[allow(unreachable_code)]
     Err("unsupported operating system keystore".into())
@@ -3137,18 +4143,19 @@ mod tests {
         Arguments, AttachmentCommand, Command, ContactCommand, ContactInvitation,
         ContactInvitationCommand, DaemonCommand, EncryptedMessageEnvelope, IdentityCommand,
         IdentityKeypair, IdentityPublicKey, KeystoreEntryName, LocalMeshCommand,
-        LocalMeshPeerCommand, MAX_ENCRYPTED_MESSAGE_SUBMISSION_BYTES, MAX_TUI_CONTACT_INPUT_BYTES,
-        MessageCommand, MessageExpiry, OsKeystore, RecipientInboxDeduplication,
-        RelayProfileCommand, ReleaseManifestCommand, SenderOutbox, TorMaildropProfileConfig,
-        TuiCommand, TuiContactInput, TuiContactInputKind, TuiDashboard, TuiMessageInput,
-        TuiMessageInputStage, TuiRouteSelection, TuiScreen, apply_contact_rotation,
-        contact_invitation_record, create_identity, daemon_auth_token_entry, dashboard_from_stores,
-        decode_canonical_hex, decode_envelope, handle_tui_route_policy_key, hexadecimal,
-        identity_record, import_contact_invitation, initialize_tui_identity,
-        inspect_contact_invitation, inspect_relay_profile, load_attachment_transfers,
-        load_identity, queue_attachment_submission, queue_message, relay_profile_record,
-        release_metadata, render_dashboard, render_tui_attachments, render_tui_dashboard,
-        render_tui_route_policy, render_tui_status, revoke_contact, sign_release_manifest,
+        LocalMeshPeerCommand, LogCommand, MAX_ENCRYPTED_MESSAGE_SUBMISSION_BYTES,
+        MAX_TUI_CONTACT_INPUT_BYTES, MessageCommand, MessageExpiry, OsKeystore,
+        RecipientInboxDeduplication, RelayProfileCommand, ReleaseManifestCommand, SenderOutbox,
+        TorMaildropProfileConfig, TuiCommand, TuiContactInput, TuiContactInputKind, TuiDashboard,
+        TuiMessageInput, TuiMessageInputStage, TuiRouteSelection, TuiScreen,
+        apply_contact_rotation, contact_invitation_record, create_identity,
+        daemon_auth_token_entry, dashboard_from_stores, decode_canonical_hex, decode_envelope,
+        diagnose, handle_tui_route_policy_key, hexadecimal, identity_record,
+        import_contact_invitation, initialize_tui_identity, inspect_contact_invitation,
+        inspect_relay_profile, load_attachment_transfers, load_identity,
+        queue_attachment_submission, queue_message, relay_profile_record, release_metadata,
+        render_dashboard, render_tui_attachments, render_tui_dashboard, render_tui_route_policy,
+        render_tui_status, revoke_contact, run_log_command, sign_release_manifest,
         start_embedded_tui_client, submit_tui_contact_input_with_keystore,
         submit_tui_message_with_identity, tui_safety_number_parts, validate_state_directory,
         verify_contact_qr, verify_contact_safety_number, verify_release_manifest,
@@ -3300,19 +4307,33 @@ mod tests {
 
     #[test]
     fn parses_identity_create_and_show_commands() {
-        let create = Arguments::try_parse_from(["arachne", "identity", "create"]).unwrap();
+        let create = Arguments::try_parse_from([
+            "arachne",
+            "identity",
+            "create",
+            "--state-directory",
+            "/tmp/alice",
+        ])
+        .unwrap();
         assert!(matches!(
             create.command,
             Command::Identity {
-                command: IdentityCommand::Create
-            }
+                command: IdentityCommand::Create { state_directory }
+            } if state_directory == Path::new("/tmp/alice")
         ));
-        let show = Arguments::try_parse_from(["arachne", "identity", "show"]).unwrap();
+        let show = Arguments::try_parse_from([
+            "arachne",
+            "identity",
+            "show",
+            "--state-directory",
+            "/tmp/alice",
+        ])
+        .unwrap();
         assert!(matches!(
             show.command,
             Command::Identity {
-                command: IdentityCommand::Show
-            }
+                command: IdentityCommand::Show { state_directory }
+            } if state_directory == Path::new("/tmp/alice")
         ));
     }
 
@@ -3580,15 +4601,22 @@ mod tests {
 
     #[test]
     fn parses_contact_invitation_commands() {
-        let create =
-            Arguments::try_parse_from(["arachne", "contact", "invitation", "create"]).unwrap();
+        let create = Arguments::try_parse_from([
+            "arachne",
+            "contact",
+            "invitation",
+            "create",
+            "--state-directory",
+            "/tmp/alice",
+        ])
+        .unwrap();
         assert!(matches!(
             create.command,
             Command::Contact {
                 command: ContactCommand::Invitation {
-                    command: ContactInvitationCommand::Create
+                    command: ContactInvitationCommand::Create { state_directory }
                 }
-            }
+            } if state_directory == Path::new("/tmp/alice")
         ));
         let inspect = Arguments::try_parse_from([
             "arachne",
@@ -3991,6 +5019,71 @@ mod tests {
             command.command,
             Command::Tui(TuiCommand { daemon: true, .. })
         ));
+    }
+
+    #[test]
+    fn parses_log_and_diagnostics_commands() {
+        let logs = Arguments::try_parse_from([
+            "arachne",
+            "logs",
+            "prune",
+            "--state-directory",
+            "/state",
+            "--older-than-days",
+            "7",
+        ])
+        .unwrap();
+        assert!(matches!(
+            logs.command,
+            Command::Logs {
+                command: LogCommand::Prune {
+                    state_directory,
+                    older_than_days: 7,
+                }
+            } if state_directory.as_path() == Path::new("/state")
+        ));
+        let diagnose =
+            Arguments::try_parse_from(["arachne", "diagnose", "--state-directory", "/state"])
+                .unwrap();
+        assert!(matches!(
+            diagnose.command,
+            Command::Diagnose { state_directory } if state_directory.as_path() == Path::new("/state")
+        ));
+    }
+
+    #[test]
+    fn logs_and_diagnostics_report_only_local_operational_state() {
+        let state_directory = std::env::temp_dir().join(format!(
+            "arachne-cli-observability-{}-{}",
+            std::process::id(),
+            NEXT_TEST_STATE_DIRECTORY.fetch_add(1, Ordering::Relaxed)
+        ));
+        let log_directory = arachne_core::log_directory(&state_directory).unwrap();
+        fs::create_dir_all(&log_directory).unwrap();
+        fs::write(log_directory.join("arachne-client.jsonl"), b"{}\n").unwrap();
+        fs::write(log_directory.join("notes.txt"), b"do-not-report").unwrap();
+
+        let listed = run_log_command(LogCommand::List {
+            state_directory: state_directory.clone(),
+        })
+        .unwrap();
+        assert!(listed.contains("log_files=1\n"));
+        assert!(listed.contains("log_file=arachne-client.jsonl bytes=3\n"));
+        assert!(!listed.contains("notes.txt"));
+
+        let diagnostics = diagnose(&state_directory).unwrap();
+        assert!(diagnostics.contains("contacts=absent\n"));
+        assert!(diagnostics.contains("log_files=1\n"));
+        assert!(!diagnostics.contains("do-not-report"));
+
+        let pruned = run_log_command(LogCommand::Prune {
+            state_directory: state_directory.clone(),
+            older_than_days: 0,
+        })
+        .unwrap();
+        assert_eq!(pruned, "pruned_log_files=1\n");
+        assert!(log_directory.join("notes.txt").is_file());
+        fs::remove_dir_all(state_directory).unwrap();
     }
 
     #[test]

@@ -15,6 +15,13 @@ pub struct ClientIdentity {
 impl ClientIdentity {
     pub fn create<K: OsKeystore>(keystore: &mut K) -> Result<Self, ClientIdentityError> {
         let entry = identity_entry()?;
+        Self::create_with_entry(keystore, entry)
+    }
+
+    pub(crate) fn create_with_entry<K: OsKeystore>(
+        keystore: &mut K,
+        entry: KeystoreEntryName,
+    ) -> Result<Self, ClientIdentityError> {
         if keystore
             .load(&entry)
             .map_err(|_| ClientIdentityError::Keystore)?
@@ -33,6 +40,13 @@ impl ClientIdentity {
 
     pub fn load<K: OsKeystore>(keystore: &K) -> Result<Self, ClientIdentityError> {
         let entry = identity_entry()?;
+        Self::load_with_entry(keystore, entry)
+    }
+
+    pub(crate) fn load_with_entry<K: OsKeystore>(
+        keystore: &K,
+        entry: KeystoreEntryName,
+    ) -> Result<Self, ClientIdentityError> {
         let secret = keystore
             .load(&entry)
             .map_err(|_| ClientIdentityError::Keystore)?
@@ -45,10 +59,18 @@ impl ClientIdentity {
     pub fn create_or_load<K: OsKeystore>(
         keystore: &mut K,
     ) -> Result<(Self, ClientIdentityInitialization), ClientIdentityError> {
-        match Self::load(keystore) {
+        let entry = identity_entry()?;
+        Self::create_or_load_with_entry(keystore, entry)
+    }
+
+    pub(crate) fn create_or_load_with_entry<K: OsKeystore>(
+        keystore: &mut K,
+        entry: KeystoreEntryName,
+    ) -> Result<(Self, ClientIdentityInitialization), ClientIdentityError> {
+        match Self::load_with_entry(keystore, entry.clone()) {
             Ok(identity) => Ok((identity, ClientIdentityInitialization::Loaded)),
             Err(ClientIdentityError::NotInitialized) => {
-                let identity = Self::create(keystore)?;
+                let identity = Self::create_with_entry(keystore, entry)?;
                 Ok((identity, ClientIdentityInitialization::Created))
             }
             Err(error) => Err(error),
@@ -68,6 +90,15 @@ impl ClientIdentity {
         passphrase: &IdentityExportPassphrase,
     ) -> Result<Self, ClientIdentityError> {
         let entry = identity_entry()?;
+        Self::import_recovery_with_entry(keystore, entry, encoded, passphrase)
+    }
+
+    pub(crate) fn import_recovery_with_entry<K: OsKeystore>(
+        keystore: &mut K,
+        entry: KeystoreEntryName,
+        encoded: &[u8],
+        passphrase: &IdentityExportPassphrase,
+    ) -> Result<Self, ClientIdentityError> {
         if keystore
             .load(&entry)
             .map_err(|_| ClientIdentityError::Keystore)?

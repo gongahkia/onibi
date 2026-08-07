@@ -7,9 +7,16 @@ mod bluetooth_capability;
 mod bluetooth_gatt;
 mod bluetooth_transport;
 mod client_identity;
+mod client_profile;
 mod client_state;
 mod contact_lifecycle;
 mod contact_store;
+mod courier;
+mod courier_attachment_job;
+mod courier_config;
+mod courier_daemon;
+mod courier_inbox;
+mod courier_maildrop;
 mod daemon_config;
 mod daemon_endpoint;
 #[cfg(unix)]
@@ -107,16 +114,44 @@ pub use bluetooth_transport::{BluetoothTransport, BluetoothTransportError};
 pub use client_identity::{
     CLIENT_IDENTITY_KEY_ENTRY, ClientIdentity, ClientIdentityError, ClientIdentityInitialization,
 };
+pub use client_profile::{CLIENT_PROFILE_FILE, ClientProfile, ClientProfileError, ClientProfileId};
 pub use client_state::{
     ATTACHMENT_UPLOAD_DIRECTORY, CLIENT_STATE_DIRECTORY_LAYOUT_VERSION, CONTACTS_DATABASE_FILE,
-    ClientStateDirectory, ClientStateDirectoryError, INBOX_DATABASE_FILE,
-    ONE_TIME_PREKEY_INVENTORY_DATABASE_FILE, OUTBOX_DATABASE_FILE, RATCHETS_DATABASE_FILE,
-    SHARED_IP_MESH_CERTIFICATE_FILE,
+    COURIER_ATTACHMENT_JOBS_DATABASE_FILE, COURIER_BUNDLES_DATABASE_FILE,
+    COURIER_INBOX_DATABASE_FILE, COURIER_ONE_TIME_PREKEYS_DATABASE_FILE,
+    COURIER_SESSIONS_DATABASE_FILE, ClientStateDirectory, ClientStateDirectoryError,
+    INBOX_DATABASE_FILE, ONE_TIME_PREKEY_INVENTORY_DATABASE_FILE, OUTBOX_DATABASE_FILE,
+    RATCHETS_DATABASE_FILE, SHARED_IP_MESH_CERTIFICATE_FILE,
 };
 pub use contact_lifecycle::{ContactLifecycleError, ContactLifecycleService};
 pub use contact_store::{
     CONTACT_STATE_SCHEMA_VERSION, Contact, ContactStatus, ContactStore, ContactStoreError,
     ContactVerificationMethod,
+};
+pub use courier::{
+    COURIER_EXCHANGE_IDENTITY_KEY_ENTRY, COURIER_ONE_TIME_PREKEY_REPLENISH_THRESHOLD,
+    COURIER_ONE_TIME_PREKEY_TARGET, COURIER_SESSION_STATE_SCHEMA_VERSION, CourierBundleStore,
+    CourierBundleStoreError, CourierCryptographer, CourierCryptographerError,
+    CourierOneTimePrekeyInventory, CourierOneTimePrekeyInventoryError, CourierSessionStore,
+    CourierSessionStoreError, DecryptedCourierMessage,
+};
+pub use courier_attachment_job::{
+    CourierAttachmentJob, CourierAttachmentJobError, CourierAttachmentJobState,
+    CourierAttachmentJobStore, MAX_COURIER_ATTACHMENT_JOBS,
+};
+pub use courier_config::{
+    COURIER_DAEMON_CONFIG_SCHEMA_VERSION, CourierDaemonConfig, CourierDaemonConfigError,
+    DEFAULT_COURIER_POLL_INTERVAL, MAX_COURIER_DAEMON_CONFIG_BYTES, MAX_COURIER_POLL_INTERVAL,
+    MIN_COURIER_POLL_INTERVAL,
+};
+pub use courier_daemon::{CourierDaemon, CourierDaemonCycle, CourierDaemonError};
+pub use courier_inbox::{
+    COURIER_INBOX_STATE_SCHEMA_VERSION, CourierInboxMessage, CourierInboxStore,
+    CourierInboxStoreError, MAX_COURIER_INBOX_MESSAGES,
+};
+pub use courier_maildrop::{
+    CourierMaildropClient, CourierMaildropError, MAX_COURIER_MAILDROP_RETRIEVAL,
+    RetrievedCourierEnvelope,
 };
 pub use daemon_config::{
     DAEMON_CONFIG_SCHEMA_VERSION, DaemonConfig, DaemonConfigError, MAX_DAEMON_CONFIG_BYTES,

@@ -365,13 +365,39 @@ pub fn initiate_x3dh(
     local_binding: X25519IdentityBinding,
     remote_bundle: &X3dhPrekeyBundle,
 ) -> Result<(X3dhInitialMessage, X3dhSession), X3dhError> {
+    initiate_x3dh_with_one_time_prekey(
+        local_identity,
+        local_binding,
+        remote_bundle,
+        remote_bundle
+            .one_time_prekeys()
+            .first()
+            .map(|prekey| prekey.identifier()),
+    )
+}
+
+pub fn initiate_x3dh_with_one_time_prekey(
+    local_identity: &X25519IdentityKeypair,
+    local_binding: X25519IdentityBinding,
+    remote_bundle: &X3dhPrekeyBundle,
+    selected_one_time_prekey: Option<OneTimePrekeyId>,
+) -> Result<(X3dhInitialMessage, X3dhSession), X3dhError> {
     local_binding.verify()?;
     remote_bundle.verify()?;
     if local_binding.exchange_identity() != &local_identity.public_key() {
         return Err(X3dhError::LocalIdentityMismatch);
     }
     let ephemeral = X25519Prekey::generate().map_err(|_| X3dhError::Randomness)?;
-    let one_time_prekey = remote_bundle.one_time_prekeys().first().copied();
+    let one_time_prekey = selected_one_time_prekey
+        .map(|identifier| {
+            remote_bundle
+                .one_time_prekeys()
+                .iter()
+                .copied()
+                .find(|prekey| prekey.identifier() == identifier)
+                .ok_or(X3dhError::UnknownOneTimePrekey)
+        })
+        .transpose()?;
     let mut secrets = vec![
         local_identity
             .shared_secret(remote_bundle.signed_prekey().prekey().as_bytes())
@@ -490,6 +516,8 @@ pub enum X3dhError {
     MissingOneTimePrekey,
     #[error("X3DH received an unexpected one-time prekey")]
     UnexpectedOneTimePrekey,
+    #[error("X3DH selected one-time prekey is absent from the remote bundle")]
+    UnknownOneTimePrekey,
     #[error("X3DH key agreement failed: {0}")]
     KeyAgreement(#[source] X25519KeyAgreementError),
     #[error("X3DH root-key derivation failed")]

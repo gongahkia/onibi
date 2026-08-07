@@ -11,6 +11,8 @@ service RelayService {
   rpc DownloadAttachmentChunk(DownloadAttachmentChunkRequest) returns (DownloadAttachmentChunkResponse);
   rpc GetMailboxQuota(GetMailboxQuotaRequest) returns (GetMailboxQuotaResponse);
   rpc StoreEnvelopeWithReceipt(StoreEnvelopeRequest) returns (StoreEnvelopeWithReceiptResponse);
+  rpc PublishCourierBundle(PublishCourierBundleRequest) returns (PublishCourierBundleResponse);
+  rpc FetchCourierBundle(FetchCourierBundleRequest) returns (FetchCourierBundleResponse);
 }
 
 message RegisterMailboxRequest {
@@ -22,6 +24,9 @@ message RegisterMailboxResponse {}
 message StoreEnvelopeRequest {
   bytes mailbox_capability = 1;
   bytes envelope = 2;
+  // SHA-256 of the canonical envelope encoding. Replays with the same key are
+  // idempotent within a mailbox and return the original sequence.
+  bytes idempotency_key = 3;
 }
 
 message StoreEnvelopeResponse {
@@ -83,4 +88,21 @@ message GetMailboxQuotaResponse {
   uint64 capacity_bytes = 1;
   uint64 used_bytes = 2;
   uint64 remaining_bytes = 3;
+}
+
+message PublishCourierBundleRequest {
+  bytes bundle = 1;
+}
+
+message PublishCourierBundleResponse {}
+
+message FetchCourierBundleRequest {
+  bytes recipient_identity = 1;
+  bytes requester_identity = 2;
+  bytes requester_signature = 3;
+}
+
+message FetchCourierBundleResponse {
+  bytes bundle = 1;
+  optional uint64 leased_one_time_prekey_identifier = 2;
 }

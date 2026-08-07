@@ -9,7 +9,7 @@ use minicbor::{Decoder, Encoder};
 
 use crate::{EncryptedStateStore, StateDocument, StateDocumentError, StateStoreError};
 
-pub const OUTBOX_STATE_SCHEMA_VERSION: u8 = 5;
+pub const OUTBOX_STATE_SCHEMA_VERSION: u8 = 6;
 pub const MAX_OUTBOX_MESSAGES: usize = 256;
 pub const MAX_DELIVERY_STATE_HISTORY: usize = 1024;
 pub const MAX_DELIVERY_ATTEMPTS: u8 = 3;
@@ -21,10 +21,12 @@ const OUTBOX_STATE_SCHEMA_VERSION_V1: u8 = 1;
 const OUTBOX_STATE_SCHEMA_VERSION_V2: u8 = 2;
 const OUTBOX_STATE_SCHEMA_VERSION_V3: u8 = 3;
 const OUTBOX_STATE_SCHEMA_VERSION_V4: u8 = 4;
+const OUTBOX_STATE_SCHEMA_VERSION_V5: u8 = 5;
 const OUTBOX_MESSAGE_FIELDS_V1: u64 = 2;
 const OUTBOX_MESSAGE_FIELDS_V2_V3: u64 = 3;
 const OUTBOX_MESSAGE_FIELDS_V4: u64 = 5;
-const OUTBOX_MESSAGE_FIELDS: u64 = 6;
+const OUTBOX_MESSAGE_FIELDS_V5: u64 = 6;
+const OUTBOX_MESSAGE_FIELDS: u64 = 7;
 const DELIVERY_STATUS_FIELDS: u64 = 2;
 const DELIVERED_STATE: u8 = 1;
 const EXPIRED_STATE: u8 = 2;
@@ -38,6 +40,7 @@ pub struct OutboxMessage {
     envelope: EncryptedMessageEnvelope,
     expiry: MessageExpiry,
     delivery_attempts: u8,
+    relay_uploaded: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -100,6 +103,7 @@ pub enum MessageExpiryError {
 pub enum DeliveryState {
     Queued,
     Attempted,
+    AwaitingRecipientAcknowledgement,
     Delivered,
     Expired,
     Failed,
@@ -148,6 +152,11 @@ impl OutboxMessage {
     pub const fn delivery_attempts(&self) -> u8 {
         self.delivery_attempts
     }
+
+    #[must_use]
+    pub const fn relay_uploaded(&self) -> bool {
+        self.relay_uploaded
+    }
 }
 
 impl fmt::Debug for OutboxMessage {
@@ -159,6 +168,7 @@ impl fmt::Debug for OutboxMessage {
             .field("envelope", &"REDACTED")
             .field("expiry", &self.expiry)
             .field("delivery_attempts", &self.delivery_attempts)
+            .field("relay_uploaded", &self.relay_uploaded)
             .finish()
     }
 }
@@ -203,7 +213,9 @@ impl SenderOutbox {
             .iter()
             .find(|message| message.identifier == identifier)
             .map(|message| {
-                if message.delivery_attempts == 0 {
+                if message.relay_uploaded {
+                    DeliveryState::AwaitingRecipientAcknowledgement
+                } else if message.delivery_attempts == 0 {
                     DeliveryState::Queued
                 } else {
                     DeliveryState::Attempted
@@ -228,16 +240,38 @@ impl SenderOutbox {
         envelope: EncryptedMessageEnvelope,
         expiry: MessageExpiry,
     ) -> Result<(), SenderOutboxError> {
+        let identifier = next_identifier(&self.messages, &self.statuses)?;
+        self.enqueue_with_identifier(identifier, recipient, envelope, expiry)
+    }
+
+    pub fn enqueue_with_identifier(
+        &mut self,
+        identifier: MessageIdentifier,
+        recipient: IdentityPublicKey,
+        envelope: EncryptedMessageEnvelope,
+        expiry: MessageExpiry,
+    ) -> Result<(), SenderOutboxError> {
         if self.messages.len() >= MAX_OUTBOX_MESSAGES {
             return Err(SenderOutboxError::QueueFull);
         }
-        let identifier = next_identifier(&self.messages, &self.statuses)?;
+        if self
+            .messages
+            .iter()
+            .any(|message| message.identifier == identifier)
+            || self
+                .statuses
+                .iter()
+                .any(|status| status.identifier == identifier)
+        {
+            return Err(SenderOutboxError::DuplicateIdentifier);
+        }
         self.messages.push(OutboxMessage {
             identifier,
             recipient,
             envelope,
             expiry,
             delivery_attempts: 0,
+            relay_uploaded: false,
         });
         if let Err(error) = self.persist() {
             self.messages.pop();
@@ -300,6 +334,26 @@ impl SenderOutbox {
             return Err(error);
         }
         Ok(attempts + 1)
+    }
+
+    pub fn mark_relay_uploaded(
+        &mut self,
+        identifier: MessageIdentifier,
+    ) -> Result<(), SenderOutboxError> {
+        let index = self
+            .messages
+            .iter()
+            .position(|message| message.identifier == identifier)
+            .ok_or(SenderOutboxError::UnknownMessageIdentifier)?;
+        if self.messages[index].relay_uploaded {
+            return Ok(());
+        }
+        self.messages[index].relay_uploaded = true;
+        if let Err(error) = self.persist() {
+            self.messages[index].relay_uploaded = false;
+            return Err(error);
+        }
+        Ok(())
     }
 
     pub fn fail_delivery(
@@ -442,7 +496,9 @@ fn encode_outbox(
     for (index, status) in statuses.iter().enumerate() {
         if matches!(
             status.state,
-            DeliveryState::Queued | DeliveryState::Attempted
+            DeliveryState::Queued
+                | DeliveryState::Attempted
+                | DeliveryState::AwaitingRecipientAcknowledgement
         ) {
             return Err(SenderOutboxError::InvalidDeliveryState);
         }
@@ -484,6 +540,8 @@ fn encode_outbox(
             .u32(message.expiry.ttl_seconds())
             .map_err(|_| SenderOutboxError::Encode)?
             .u8(message.delivery_attempts)
+            .map_err(|_| SenderOutboxError::Encode)?
+            .bool(message.relay_uploaded)
             .map_err(|_| SenderOutboxError::Encode)?;
     }
     encoder
@@ -512,6 +570,7 @@ fn decode_outbox(
     let version = decoder.u8().map_err(SenderOutboxError::InvalidState)?;
     if version != OUTBOX_STATE_SCHEMA_VERSION
         && version != OUTBOX_STATE_SCHEMA_VERSION_V4
+        && version != OUTBOX_STATE_SCHEMA_VERSION_V5
         && version != OUTBOX_STATE_SCHEMA_VERSION_V3
         && version != OUTBOX_STATE_SCHEMA_VERSION_V2
         && version != OUTBOX_STATE_SCHEMA_VERSION_V1
@@ -519,6 +578,7 @@ fn decode_outbox(
         return Err(SenderOutboxError::UnsupportedSchemaVersion(version));
     }
     if (version == OUTBOX_STATE_SCHEMA_VERSION
+        || version == OUTBOX_STATE_SCHEMA_VERSION_V5
         || version == OUTBOX_STATE_SCHEMA_VERSION_V4
         || version == OUTBOX_STATE_SCHEMA_VERSION_V3)
         != (fields == Some(OUTBOX_FIELDS))
@@ -538,13 +598,14 @@ fn decode_outbox(
         messages.push(decode_message(&mut decoder, version, &messages)?);
     }
     let mut statuses = if version == OUTBOX_STATE_SCHEMA_VERSION
+        || version == OUTBOX_STATE_SCHEMA_VERSION_V5
         || version == OUTBOX_STATE_SCHEMA_VERSION_V4
         || version == OUTBOX_STATE_SCHEMA_VERSION_V3
     {
         decode_delivery_statuses(
             &mut decoder,
             &messages,
-            version == OUTBOX_STATE_SCHEMA_VERSION,
+            version == OUTBOX_STATE_SCHEMA_VERSION || version == OUTBOX_STATE_SCHEMA_VERSION_V5,
         )?
     } else {
         Vec::new()
@@ -555,7 +616,10 @@ fn decode_outbox(
     if version == OUTBOX_STATE_SCHEMA_VERSION && encode_outbox(&messages, &statuses)? != encoded {
         return Err(SenderOutboxError::NonCanonicalEncoding);
     }
-    if version != OUTBOX_STATE_SCHEMA_VERSION && version != OUTBOX_STATE_SCHEMA_VERSION_V4 {
+    if version != OUTBOX_STATE_SCHEMA_VERSION
+        && version != OUTBOX_STATE_SCHEMA_VERSION_V5
+        && version != OUTBOX_STATE_SCHEMA_VERSION_V4
+    {
         for message in std::mem::take(&mut messages) {
             push_delivery_status(&mut statuses, message.identifier, DeliveryState::Expired);
         }
@@ -570,6 +634,8 @@ fn decode_message(
 ) -> Result<OutboxMessage, SenderOutboxError> {
     let expected_fields = if version == OUTBOX_STATE_SCHEMA_VERSION {
         OUTBOX_MESSAGE_FIELDS
+    } else if version == OUTBOX_STATE_SCHEMA_VERSION_V5 {
+        OUTBOX_MESSAGE_FIELDS_V5
     } else if version == OUTBOX_STATE_SCHEMA_VERSION_V4 {
         OUTBOX_MESSAGE_FIELDS_V4
     } else if version == OUTBOX_STATE_SCHEMA_VERSION_V3 || version == OUTBOX_STATE_SCHEMA_VERSION_V2
@@ -582,6 +648,7 @@ fn decode_message(
         return Err(SenderOutboxError::InvalidShape);
     }
     let identifier = if version == OUTBOX_STATE_SCHEMA_VERSION
+        || version == OUTBOX_STATE_SCHEMA_VERSION_V5
         || version == OUTBOX_STATE_SCHEMA_VERSION_V4
         || version == OUTBOX_STATE_SCHEMA_VERSION_V3
         || version == OUTBOX_STATE_SCHEMA_VERSION_V2
@@ -606,24 +673,32 @@ fn decode_message(
     let envelope =
         EncryptedMessageEnvelope::decode(decoder.bytes().map_err(SenderOutboxError::InvalidState)?)
             .map_err(|_| SenderOutboxError::InvalidEnvelope)?;
-    let expiry =
-        if version == OUTBOX_STATE_SCHEMA_VERSION || version == OUTBOX_STATE_SCHEMA_VERSION_V4 {
-            MessageExpiry::new(
-                decoder.u64().map_err(SenderOutboxError::InvalidState)?,
-                decoder.u32().map_err(SenderOutboxError::InvalidState)?,
-            )
-            .map_err(SenderOutboxError::Expiry)?
-        } else {
-            MessageExpiry::legacy_expired()
-        };
-    let delivery_attempts = if version == OUTBOX_STATE_SCHEMA_VERSION {
-        let attempts = decoder.u8().map_err(SenderOutboxError::InvalidState)?;
-        if attempts > MAX_DELIVERY_ATTEMPTS {
-            return Err(SenderOutboxError::InvalidDeliveryAttempts);
-        }
-        attempts
+    let expiry = if version == OUTBOX_STATE_SCHEMA_VERSION
+        || version == OUTBOX_STATE_SCHEMA_VERSION_V5
+        || version == OUTBOX_STATE_SCHEMA_VERSION_V4
+    {
+        MessageExpiry::new(
+            decoder.u64().map_err(SenderOutboxError::InvalidState)?,
+            decoder.u32().map_err(SenderOutboxError::InvalidState)?,
+        )
+        .map_err(SenderOutboxError::Expiry)?
     } else {
-        0
+        MessageExpiry::legacy_expired()
+    };
+    let delivery_attempts =
+        if version == OUTBOX_STATE_SCHEMA_VERSION || version == OUTBOX_STATE_SCHEMA_VERSION_V5 {
+            let attempts = decoder.u8().map_err(SenderOutboxError::InvalidState)?;
+            if attempts > MAX_DELIVERY_ATTEMPTS {
+                return Err(SenderOutboxError::InvalidDeliveryAttempts);
+            }
+            attempts
+        } else {
+            0
+        };
+    let relay_uploaded = if version == OUTBOX_STATE_SCHEMA_VERSION {
+        decoder.bool().map_err(SenderOutboxError::InvalidState)?
+    } else {
+        false
     };
     Ok(OutboxMessage {
         identifier,
@@ -631,6 +706,7 @@ fn decode_message(
         envelope,
         expiry,
         delivery_attempts,
+        relay_uploaded,
     })
 }
 
@@ -692,7 +768,9 @@ fn decode_delivery_statuses(
 
 fn delivery_state_value(state: DeliveryState) -> Result<u8, SenderOutboxError> {
     match state {
-        DeliveryState::Queued | DeliveryState::Attempted => {
+        DeliveryState::Queued
+        | DeliveryState::Attempted
+        | DeliveryState::AwaitingRecipientAcknowledgement => {
             Err(SenderOutboxError::InvalidDeliveryState)
         }
         DeliveryState::Delivered => Ok(DELIVERED_STATE),
@@ -897,6 +975,39 @@ mod tests {
                 .delivery_state(identifier),
             Some(DeliveryState::Expired)
         );
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn persists_relay_upload_before_recipient_acknowledgement() {
+        let path = path("relay-uploaded");
+        let mut keystore = MemoryKeystore::default();
+        let recipient = IdentityKeypair::generate().unwrap().public_key();
+        let identifier = {
+            let mut outbox = SenderOutbox::open(&path, &mut keystore).unwrap();
+            outbox
+                .enqueue(
+                    recipient,
+                    EncryptedMessageEnvelope::new(vec![0xa1], vec![0xb2]).unwrap(),
+                    expiry(),
+                )
+                .unwrap();
+            let identifier = outbox.next().unwrap().identifier();
+            outbox.mark_relay_uploaded(identifier).unwrap();
+            assert!(outbox.next().unwrap().relay_uploaded());
+            assert_eq!(
+                outbox.delivery_state(identifier),
+                Some(DeliveryState::AwaitingRecipientAcknowledgement)
+            );
+            identifier
+        };
+        let outbox = SenderOutbox::open(&path, &mut keystore).unwrap();
+        assert!(outbox.next().unwrap().relay_uploaded());
+        assert_eq!(
+            outbox.delivery_state(identifier),
+            Some(DeliveryState::AwaitingRecipientAcknowledgement)
+        );
+        drop(outbox);
         fs::remove_file(path).unwrap();
     }
 

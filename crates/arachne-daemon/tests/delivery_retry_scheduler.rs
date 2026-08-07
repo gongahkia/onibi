@@ -175,7 +175,7 @@ fn fails_closed_for_a_persisted_attempt_count_above_the_limit() {
         .unwrap()
         .array(1)
         .unwrap()
-        .array(6)
+        .array(7)
         .unwrap()
         .bytes(&[1; 16])
         .unwrap()
@@ -188,6 +188,8 @@ fn fails_closed_for_a_persisted_attempt_count_above_the_limit() {
         .u32(60)
         .unwrap()
         .u8(MAX_DELIVERY_ATTEMPTS + 1)
+        .unwrap()
+        .bool(false)
         .unwrap()
         .array(0)
         .unwrap();

@@ -23,6 +23,7 @@ thiserror.workspace = true
 tokio = { workspace = true, features = ["signal"] }
 tokio-stream.workspace = true
 tonic = { workspace = true, features = ["tls-ring"] }
+tracing.workspace = true
 arachne-core = { path = "../arachne-core" }
 arachne-protocol = { path = "../arachne-protocol" }
 arachne-relay-api = { path = "../arachne-relay-api" }

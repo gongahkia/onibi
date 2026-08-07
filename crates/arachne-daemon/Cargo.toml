@@ -36,6 +36,7 @@ tracing.workspace = true
 arachne-core = { path = "../arachne-core" }
 arachne-daemon-api = { path = "../arachne-daemon-api" }
 arachne-protocol = { path = "../arachne-protocol" }
+arachne-relay-api = { path = "../arachne-relay-api" }
 zeroize.workspace = true
 
 [target.'cfg(windows)'.dependencies]

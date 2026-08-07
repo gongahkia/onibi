@@ -9,6 +9,7 @@ mod keystore_linux;
 mod keystore_macos;
 #[cfg(any(target_os = "windows", test))]
 mod keystore_windows;
+mod observability;
 mod one_time_prekey;
 mod prekey;
 mod relay_identity;
@@ -35,6 +36,10 @@ pub use keystore_macos::{MACOS_KEYCHAIN_SERVICE, MacOsKeystore, MacOsKeystoreErr
 pub use keystore_windows::{
     MAX_WINDOWS_CREDENTIAL_SECRET_BYTES, WINDOWS_CREDENTIAL_SERVICE, WindowsKeystore,
     WindowsKeystoreError,
+};
+pub use observability::{
+    LOG_DIRECTORY_NAME, LogFile, LogFileError, initialize_file_tracing, list_log_files,
+    log_directory, prune_log_files,
 };
 pub use one_time_prekey::{
     OneTimePrekeyId, OneTimePrekeyIdError, OneTimePrekeyStore, OneTimePrekeyStoreError,

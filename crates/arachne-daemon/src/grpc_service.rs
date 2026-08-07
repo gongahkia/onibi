@@ -897,6 +897,7 @@ fn delivery_status_response(state: StoredDeliveryState) -> GetDeliveryStatusResp
     let status = match state {
         StoredDeliveryState::Queued => RpcDeliveryStatus::Queued,
         StoredDeliveryState::Attempted => RpcDeliveryStatus::Attempted,
+        StoredDeliveryState::AwaitingRecipientAcknowledgement => RpcDeliveryStatus::Attempted,
         StoredDeliveryState::Delivered => RpcDeliveryStatus::Delivered,
         StoredDeliveryState::Expired => RpcDeliveryStatus::Expired,
         StoredDeliveryState::Failed => RpcDeliveryStatus::Failed,

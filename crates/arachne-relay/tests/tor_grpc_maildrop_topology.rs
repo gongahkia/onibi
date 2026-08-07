@@ -110,6 +110,7 @@ async fn exercise_relay_maildrop(client: &mut RelayServiceClient<Channel>) {
             .store_envelope(StoreEnvelopeRequest {
                 mailbox_capability: capability.clone(),
                 envelope: envelope.clone(),
+                idempotency_key: vec![1; 32],
             })
             .await
             .unwrap_err()
@@ -127,6 +128,7 @@ async fn exercise_relay_maildrop(client: &mut RelayServiceClient<Channel>) {
             .store_envelope(StoreEnvelopeRequest {
                 mailbox_capability: capability.clone(),
                 envelope: envelope.clone(),
+                idempotency_key: vec![2; 32],
             })
             .await
             .unwrap()
