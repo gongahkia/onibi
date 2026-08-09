@@ -136,6 +136,16 @@ let test_renderer_selection_viewport_and_tiny_terminal () =
   expect
     (deep.viewport.top_line > 0)
     "viewport did not follow an off-screen primary selection";
+  let horizontal_context = document_context ~selections:[ (8, 8) ] "abcdefgh" in
+  let horizontal =
+    Renderer.render ~context:horizontal_context
+      ~status:(status Model_status.Key_commands)
+      ~filename:"wide" ~dirty:false ~message:None
+      ~viewport:Zenbu_view.Viewport.origin ~dimensions:{ columns = 3; rows = 3 }
+  in
+  expect
+    (horizontal.viewport.left_column > 0)
+    "viewport did not follow a horizontally off-screen primary selection";
   let tiny =
     Renderer.render ~context
       ~status:(status Model_status.Key_commands)

@@ -24,8 +24,9 @@ and does not write the file.
 requires stdin and stdout TTYs, enters raw non-canonical input plus an alternate
 screen, hides the physical cursor, maps terminal events to `Terminal.Event`,
 and restores input, cursor, and normal screen through `Fun.protect`. The
-backend's process-exit disposal fallback also covers initialization paths that
-cannot return a usable adapter. Mouse and bracketed paste are disabled.
+backend also snapshots input attributes before creation and uses a conservative
+cleanup fallback if creation or release raises; its process-exit disposal is an
+additional last resort. Mouse and bracketed paste are disabled.
 
 The rest of the program sees no Notty values. `Input_decoder` maps printable
 UTF-8 keys, Escape, Enter, Backspace, Tab, Delete, arrows, Home/End, and

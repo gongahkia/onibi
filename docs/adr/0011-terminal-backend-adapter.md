@@ -16,9 +16,11 @@ events to Zenbu's own `Terminal.Event`, and draws only pure `zenbu.view.Frame`
 values. `Backend.t` is opaque and no public terminal type mentions Notty.
 
 `Backend.with_terminal` releases the terminal in `Fun.protect`; the underlying
-terminal is also created with its process-exit disposal fallback. Release is
-idempotent in the backend package and restores input mode, cursor, and normal
-screen.
+terminal is also created with its process-exit disposal fallback. Before
+creation, the adapter captures the input terminal attributes. If backend
+creation or release raises, it restores those attributes and emits conservative
+cursor/mouse/paste/alternate-screen cleanup escapes. Release is idempotent in
+the backend package and normally restores input mode, cursor, and normal screen.
 
 ## Alternatives considered
 

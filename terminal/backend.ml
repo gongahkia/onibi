@@ -1,14 +1,33 @@
-type t = { terminal : Notty_unix.Term.t; mutable released : bool }
+type t = {
+  terminal : Notty_unix.Term.t;
+  original_input : Unix.terminal_io option;
+  mutable released : bool;
+}
 
 open Zenbu_view
 
 let terminal_error exception_ = Printexc.to_string exception_
+
+let restore_partial_terminal original_input =
+  Option.iter
+    (fun attributes ->
+      try Unix.tcsetattr Unix.stdin Unix.TCSANOW attributes
+      with Unix.Unix_error _ -> ())
+    original_input;
+  try
+    output_string stdout
+      "\027[?25h\027[?1000;1002;1005;1015;1006l\027[?2004l\027[?1049l";
+    flush stdout
+  with Sys_error _ -> ()
 
 let create () =
   if not (Unix.isatty Unix.stdin) then Error "standard input is not a terminal"
   else if not (Unix.isatty Unix.stdout) then
     Error "standard output is not a terminal"
   else
+    let original_input =
+      try Some (Unix.tcgetattr Unix.stdin) with Unix.Unix_error _ -> None
+    in
     try
       (* [dispose] retains a process-exit fallback if initialization is only
          partially completed before an exception reaches the host. *)
@@ -16,14 +35,20 @@ let create () =
         {
           terminal =
             Notty_unix.Term.create ~dispose:true ~mouse:false ~bpaste:false ();
+          original_input;
           released = false;
         }
-    with exception_ -> Error (terminal_error exception_)
+    with exception_ ->
+      restore_partial_terminal original_input;
+      Error (terminal_error exception_)
 
 let release terminal =
   if not terminal.released then (
     terminal.released <- true;
-    Notty_unix.Term.release terminal.terminal)
+    try Notty_unix.Term.release terminal.terminal
+    with exception_ ->
+      restore_partial_terminal terminal.original_input;
+      raise exception_)
 
 let with_terminal run =
   match create () with
