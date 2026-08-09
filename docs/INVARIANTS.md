@@ -11,7 +11,7 @@ The M0/M1 constructors and commit path enforce these invariants.
 4. A selection retains anchor and head direction. A selection set is non-empty,
    has one primary selection, is sorted by its normalized range, has no
    duplicate selections, and has no overlapping non-empty ranges. Touching
-   ranges and distinct empty carets are allowed.
+   ranges and empty carets at different offsets are allowed.
 5. A transaction has a source document/version, at least one edit or selection
    change, and non-conflicting edits. Commit validates all buffer bounds and
    code-point boundaries before creating any new document value.
@@ -23,4 +23,3 @@ The following rule is architectural rather than merely local:
 
 > Core mutation APIs must not expose arbitrary `mutable Editor` access to
 > extensions.
-

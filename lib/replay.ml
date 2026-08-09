@@ -21,13 +21,16 @@ type t = {
 let ( let* ) result f = Result.bind result f
 
 let create ~document_id ~contents ~initial_selections ~actions =
-  let* id = Document_id.of_string document_id in
-  let* _ = Text_buffer.of_utf8 contents in
-  let* _ =
-    Document.create ~id ~contents ~initial_selections:initial_selections.selections
-      ~primary:initial_selections.primary ()
-  in
-  Ok { document_id; contents; initial_selections; actions }
+  if initial_selections.selections = [] then
+    Error (Error.Invalid_selection_set "a replay must declare at least one initial selection")
+  else
+    let* id = Document_id.of_string document_id in
+    let* _ = Text_buffer.of_utf8 contents in
+    let* _ =
+      Document.create ~id ~contents ~initial_selections:initial_selections.selections
+        ~primary:initial_selections.primary ()
+    in
+    Ok { document_id; contents; initial_selections; actions }
 
 let document_id value = value.document_id
 let contents value = value.contents

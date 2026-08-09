@@ -211,6 +211,10 @@ let test_replay_fixtures_and_serialization () =
   let encoded = Replay.to_string basic in
   let decoded = Replay.of_string encoded |> must in
   expect (final_state decoded = basic_state) "replay serialization changed semantics";
+  expect_error
+    (Replay.create ~document_id:"empty" ~contents:""
+       ~initial_selections:{ Replay.selections = []; primary = 0 }
+       ~actions:[]);
   expect_error (Replay.of_string "zenbu-replay-v1\ndocument=bad\n")
 
 let random_text state length =
