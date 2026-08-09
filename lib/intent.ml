@@ -3,12 +3,15 @@ type t =
   | Delete_selected_ranges
   | Replace_selected_ranges of string
   | Set_selections of { selections : Selection_spec.t list; primary : int }
+  | Apply of { selector : Selector.t; transformation : Transformation.t }
 
 let identity = function
   | Insert_text _ -> "insert-text"
   | Delete_selected_ranges -> "delete-selected-ranges"
   | Replace_selected_ranges _ -> "replace-selected-ranges"
   | Set_selections _ -> "set-selections"
+  | Apply { selector; transformation } ->
+      "apply:" ^ Selector.to_string selector ^ ":" ^ Transformation.name transformation
 
 let collect results =
   let rec loop values = function
@@ -19,10 +22,13 @@ let collect results =
   loop [] results
 
 let edits_for_selections snapshot ~text =
+  edits_for_selection_set (Document_snapshot.selections snapshot) ~text
+
+and edits_for_selection_set selections ~text =
   let edits =
     List.map
       (fun selection -> Edit.replace (Selection.range selection) ~text)
-      (Selection_set.to_list (Document_snapshot.selections snapshot))
+      (Selection_set.to_list selections)
   in
   collect edits
 
@@ -85,3 +91,27 @@ let resolve ~source ?description snapshot = function
           transaction snapshot ~edits:[]
             ~selection_change:(Some selection_change) ~source
             ~intent:"set-selections" ~description)
+  | Apply { selector; transformation } -> (
+      match Selector.resolve snapshot selector with
+      | Error _ as error -> error
+      | Ok selection_change ->
+          let intent = identity (Apply { selector; transformation }) in
+          match transformation with
+          | Transformation.Select ->
+              transaction snapshot ~edits:[]
+                ~selection_change:(Some selection_change) ~source ~intent
+                ~description
+          | Transformation.Delete -> (
+              match edits_for_selection_set selection_change ~text:"" with
+              | Error _ as error -> error
+              | Ok edits ->
+                  transaction snapshot ~edits
+                    ~selection_change:(Some selection_change) ~source ~intent
+                    ~description)
+          | Transformation.Replace_text text -> (
+              match edits_for_selection_set selection_change ~text with
+              | Error _ as error -> error
+              | Ok edits ->
+                  transaction snapshot ~edits
+                    ~selection_change:(Some selection_change) ~source ~intent
+                    ~description))

@@ -11,11 +11,20 @@ type t =
   | Empty_transaction
   | Invalid_target_version of { source : int; target : int }
   | Malformed_intent of string
+  | Invalid_selector of string
+  | Invalid_transformation of string
   | Malformed_replay of string
   | Replay_diverged of { step : int; cause : t }
   | History_at_root
   | History_no_redo
   | Unknown_history_node of int
+  | Invalid_input_event of string
+  | Invalid_command_id of string
+  | Invalid_model_status of string
+  | Duplicate_command of string
+  | Unknown_command of string
+  | Invalid_command_arguments of string
+  | Model_execution_failed of string
 
 let rec to_string = function
   | Invalid_document_id value -> Printf.sprintf "invalid document id: %S" value
@@ -38,9 +47,21 @@ let rec to_string = function
       Printf.sprintf "target version %d is not newer than source version %d"
         target source
   | Malformed_intent message -> Printf.sprintf "malformed intent: %s" message
+  | Invalid_selector message -> Printf.sprintf "invalid selector: %s" message
+  | Invalid_transformation message ->
+      Printf.sprintf "invalid transformation: %s" message
   | Malformed_replay message -> Printf.sprintf "malformed replay: %s" message
   | Replay_diverged { step; cause } ->
       Printf.sprintf "replay diverged at action %d: %s" step (to_string cause)
   | History_at_root -> "cannot undo at history root"
   | History_no_redo -> "no redo branch is available"
   | Unknown_history_node id -> Printf.sprintf "unknown history node %d" id
+  | Invalid_input_event message -> Printf.sprintf "invalid input event: %s" message
+  | Invalid_command_id value -> Printf.sprintf "invalid command id: %S" value
+  | Invalid_model_status message -> Printf.sprintf "invalid model status: %s" message
+  | Duplicate_command id -> Printf.sprintf "duplicate command: %s" id
+  | Unknown_command id -> Printf.sprintf "unknown command: %s" id
+  | Invalid_command_arguments message ->
+      Printf.sprintf "invalid command arguments: %s" message
+  | Model_execution_failed message ->
+      Printf.sprintf "model execution failed: %s" message

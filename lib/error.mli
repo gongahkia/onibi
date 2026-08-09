@@ -11,10 +11,19 @@ type t =
   | Empty_transaction
   | Invalid_target_version of { source : int; target : int }
   | Malformed_intent of string
+  | Invalid_selector of string
+  | Invalid_transformation of string
   | Malformed_replay of string
   | Replay_diverged of { step : int; cause : t }
   | History_at_root
   | History_no_redo
   | Unknown_history_node of int
+  | Invalid_input_event of string
+  | Invalid_command_id of string
+  | Invalid_model_status of string
+  | Duplicate_command of string
+  | Unknown_command of string
+  | Invalid_command_arguments of string
+  | Model_execution_failed of string
 
 val to_string : t -> string

@@ -1,3 +1,5 @@
+open Zenbu_kernel
+
 let fail error =
   prerr_endline (Error.to_string error);
   exit 1

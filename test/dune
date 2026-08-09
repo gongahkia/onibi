@@ -1,5 +1,5 @@
 (test
  (name test_kernel)
- (libraries zenbu)
+ (libraries zenbu_kernel)
  (deps
   (glob_files fixtures/*.replay)))

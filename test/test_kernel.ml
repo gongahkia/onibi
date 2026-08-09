@@ -1,3 +1,5 @@
+open Zenbu_kernel
+
 exception Test_failure of string
 
 let failf format =

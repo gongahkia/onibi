@@ -1,4 +1,41 @@
 (library
- (name zenbu)
- (public_name zenbu)
- (wrapped false))
+ (name zenbu_kernel)
+ (public_name zenbu.kernel)
+ (modules
+  error
+  document_id
+  document_version
+  selection_spec
+  text_buffer
+  anchor
+  range
+  selection
+  selection_set
+  edit
+  selector
+  transformation
+  transaction
+  document_snapshot
+  document
+  intent
+  history
+  replay))
+
+(library
+ (name zenbu_model_api)
+ (public_name zenbu.model_api)
+ (modules
+  command_id
+  command_descriptor
+  input_event
+  model_status
+  editor_context
+  model_intent
+  command_argument
+  command_invocation
+  model_effect
+  editing_model
+  command
+  command_registry
+  model_runtime)
+ (libraries zenbu_kernel))
