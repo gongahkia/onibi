@@ -128,7 +128,18 @@ let test_vim_pending_counts_and_cancellation () =
   expect_string ~expected:"alpha" ~actual:(text (Vim_runtime.history runtime));
   expect
     (Model_status.id (Vim_runtime.status runtime) = "normal")
-    "Escape did not clear pending grammar"
+    "Escape did not clear pending grammar";
+  let runtime = vim "a b c d e f g" in
+  let runtime =
+    fold_vim runtime [ key "3"; key "d"; key "2"; key "w" ]
+  in
+  expect_string ~expected:"g" ~actual:(text (Vim_runtime.history runtime));
+  let runtime = vim "a b c d e f g h i j k l m" in
+  let runtime, _ = send_vim runtime (key "1") in
+  let _, status = send_vim runtime (key "2") in
+  expect
+    (List.mem ("count", "12") (Model_status.metadata (Vim_runtime.status_after status)))
+    "multiple count digits were not retained"
 
 let test_vim_insert_change_and_character_edits () =
   let runtime = vim "" in
@@ -174,6 +185,101 @@ let test_vim_text_objects_and_line_counts () =
   let runtime = vim "  alpha" in
   let runtime = fold_vim runtime [ key "^"; key "x" ] in
   expect_string ~expected:"  lpha" ~actual:(text (Vim_runtime.history runtime))
+
+let test_m3_boundaries_and_atomic_failures () =
+  let runtime = vim "" in
+  (match Vim_runtime.handle_input runtime (key "x") with
+  | Error _ -> ()
+  | Ok _ -> failf "x on an empty document should reject rather than clip");
+  expect_string ~expected:"" ~actual:(text (Vim_runtime.history runtime));
+  expect
+    (Vim_runtime.input_trace runtime = [])
+    "failed empty-document edit entered the input trace";
+  let runtime = vim "a" in
+  let runtime, _ = send_vim runtime (key "4") in
+  (match Vim_runtime.handle_input runtime (key "x") with
+  | Error _ -> ()
+  | Ok _ -> failf "4x beyond document end should reject atomically");
+  expect_string ~expected:"a" ~actual:(text (Vim_runtime.history runtime));
+  let runtime = selection "" in
+  let runtime =
+    fold_selection runtime
+      [ key "i"; committed "界"; named Input_event.Escape; key "h"; key "y"; key "d"; key "p" ]
+  in
+  expect_string ~expected:"界"
+    ~actual:(text (Selection_runtime.history runtime))
+
+let test_selector_property_boundaries () =
+  let selectors =
+    [
+      Selector.Next_text_unit;
+      Selector.Previous_text_unit;
+      Selector.Next_word;
+      Selector.Previous_word;
+      Selector.Word_end;
+      Selector.Current_line;
+      Selector.Line_start;
+      Selector.Line_end;
+      Selector.Next_line;
+      Selector.Previous_line;
+    ]
+  in
+  let state = Random.State.make [| 0x4D33; 0x5345 |] in
+  for case = 1 to 80 do
+    let units = [| "a"; " "; ","; "é"; "界"; "\n" |] in
+    let count = Random.State.int state 20 in
+    let contents =
+      List.init count (fun _ -> units.(Random.State.int state (Array.length units)))
+      |> String.concat ""
+    in
+    let offsets =
+      let rec collect offset values =
+        if offset = String.length contents then List.rev (offset :: values)
+        else
+          let next =
+            if Char.code contents.[offset] land 0x80 = 0 then offset + 1
+            else
+              let rec seek index =
+                if index = String.length contents
+                   || Char.code contents.[index] land 0xC0 <> 0x80
+                then index
+                else seek (index + 1)
+              in
+              seek (offset + 1)
+          in
+          collect next (offset :: values)
+      in
+      collect 0 []
+    in
+    List.iter
+      (fun offset ->
+        let document =
+          Document.create ~id:(Document_id.of_string ("selector-property-" ^ string_of_int case) |> must)
+            ~contents
+            ~initial_selections:[ Selection_spec.make ~anchor_offset:offset ~head_offset:offset |> must ]
+            ()
+          |> must
+        in
+        let snapshot = Document.snapshot document in
+        List.iter
+          (fun selector ->
+            match Selector.resolve snapshot selector with
+            | Error _ -> ()
+            | Ok selections ->
+                List.iter
+                  (fun selection ->
+                    ignore
+                      (Document_snapshot.validate_anchor snapshot
+                         (Selection.anchor selection)
+                      |> must);
+                    ignore
+                      (Document_snapshot.validate_anchor snapshot
+                         (Selection.head selection)
+                      |> must))
+                  (Selection_set.to_list selections))
+          selectors)
+      offsets
+  done
 
 let test_selection_first_semantics_and_multiple_selections () =
   let selection_runtime = selection "alpha beta" in
@@ -230,6 +336,8 @@ let tests =
     ("Vim insert, change, and character edits", test_vim_insert_change_and_character_edits);
     ("Vim linewise register, history, and repeat", test_vim_linewise_register_history_and_repeat);
     ("Vim text objects and line counts", test_vim_text_objects_and_line_counts);
+    ("M3 boundaries and atomic failures", test_m3_boundaries_and_atomic_failures);
+    ("M3 selector property boundaries", test_selector_property_boundaries);
     ( "selection-first semantics and multiple selections",
       test_selection_first_semantics_and_multiple_selections );
     ("cross-model equivalence and replay boundary", test_cross_model_equivalence_and_replay_boundary);

@@ -1,6 +1,6 @@
 # Editing-model API
 
-M2 defines the smallest public boundary through which an editing grammar turns
+M2/M3 defines the public boundary through which an editing grammar turns
 logical input into semantic editing. A model is not a terminal backend and it
 is not a privileged part of the editor.
 
@@ -50,7 +50,7 @@ model's states mean.
 
 `Editor_context` is an immutable snapshot facade. It exposes active document
 id/version, contents, byte length, selections as anchor/head byte offsets, and
-the registered command descriptors. It deliberately does not expose a mutable
+registered command descriptors plus read-only clipboard-slot entries. It deliberately does not expose a mutable
 document, `Document.apply`, history internals, text-buffer representation,
 transaction construction, terminal state, or arbitrary callbacks.
 
@@ -66,16 +66,17 @@ Model effects are values, never closures:
 - `Invoke_command` names a registered command id and typed arguments.
 - `Emit_message` reports an inspectable message.
 
-`Model_intent` is the model-facing facade for M1 intents plus M2 composition.
-It has primitive selectors (`current selections`, whole document, next/previous
-UTF-8 text unit) and transformations (`select`, `delete`, `replace text`). The
-runtime converts it to the kernel intent and lets existing transaction/history
-validation perform the mutation.
+`Model_intent` is the model-facing facade for M1 intents plus selector/
+transformation composition. M3 adds word, line, document, vertical, and literal
+all-occurrences selectors along with generic `collapse to start/end`
+transformations. The runtime converts it to the kernel intent and lets existing
+transaction/history validation perform the mutation.
 
 Selectors answer *which regions?*; transformations answer *what happens?*.
-The proof models share `next-text-unit` and `delete`, though one obtains it
-after an operator and the other makes it visible first. M2 deliberately does
-not define word, regex, syntax, LSP, or display-width selectors.
+The M3 models share `next-word`, line, and delete selectors/transformations,
+though one obtains them after an operator and the other makes them visible
+first. M3 still deliberately excludes regex, syntax, LSP, grapheme, and
+display-width selectors.
 
 ## Commands
 
@@ -88,6 +89,15 @@ order, and invokes commands semantically. Command handlers receive only an
 Bindings are not commands. A model may interpret a key grammar however it
 wants, then invoke `editor.apply` or another command directly; it never needs
 to synthesize keystrokes. M2 has no global keymap language.
+
+## Runtime services and M3 effects
+
+M3 retains declarative effects and adds model-neutral effects to copy a selector
+to a clipboard slot, paste a slot at a documented placement, undo, redo, and
+repeat the latest repeatable semantic edit. The runtime owns these immutable
+services; a model cannot mutate a document, history, or clipboard directly.
+Clipboard slots are generic UTF-8 entries with characterwise or linewise
+shape. A grammar may call a slot a register, but the API does not.
 
 ## Runtime behavior and traces
 
@@ -109,7 +119,33 @@ semantic replay:   apply(next-text-unit, delete)
 Input traces help state-machine tests and debugging. Semantic replay remains
 model-independent and is suitable for macros, bug reports, and automation.
 
-## Proof models
+## M3 API Pressure Test
+
+The M2 state-machine API handled pending grammars, counts, statuses, committed
+Unicode input, command invocation, immutable contexts, and trace separation
+unchanged. M3 exposed four concrete deficiencies:
+
+1. Character selectors could not express reusable word, line, vertical, or
+   literal-occurrence targets. M3 added generic selectors in the kernel rather
+   than Vim motions or Helix selections.
+2. Navigation needs to turn a target range into a caret without losing selector
+   reuse. M3 added `collapse-to-start/end` transformations rather than a
+   model-specific movement API.
+3. Copied text must survive beyond one grammar state and be usable by both
+   models. M3 added runtime clipboard slots with neutral text-shape metadata;
+   no model gets a buffer escape hatch.
+4. Undo/redo and limited semantic repeat require runtime/history ownership.
+   M3 added declarative effects rather than private Vim histories or raw-key
+   replay.
+
+Counts, operator pending state, text-object prefixes, model statuses, desired
+grammar semantics, and slot-prefix syntax remain model-owned. The Vim-style
+model uses selector targets as operator operands; the selection-first model
+makes selectors visible first and subsequently transforms the current set.
+Both use `editor.apply`, so their cross-model equivalence is semantic rather
+than keybinding-based.
+
+## M2 proof models
 
 `zenbu.proof_models` contains intentionally incomplete examples, both linked
 only to `zenbu.model_api`:

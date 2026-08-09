@@ -33,6 +33,14 @@ The M0/M1 constructors and commit path enforce these invariants.
 10. A command registry is an explicit immutable value. Command ids are stable,
     unique, deterministically enumerated identifiers; a command handler
     receives only an `Editor_context` and returns semantic intents.
+11. M3 selectors resolve only to valid snapshot-local UTF-8 ranges. Word and
+    line classification is deterministic and documented; unavailable targets
+    reject rather than silently clipping. `collapse-to-start/end` only changes
+    selections and never bypasses transaction validation.
+12. Clipboard slots are immutable runtime state containing validated UTF-8 text
+    and model-neutral characterwise/linewise shape. Copy does not mutate a
+    document. Paste, undo, redo, and semantic repeat are declarative runtime
+    effects; no model owns a private mutable history or buffer mutation path.
 
 The following rule is architectural rather than merely local:
 
@@ -43,3 +51,7 @@ The M2 dogfood invariant is equally strict:
 
 > Anything a first-party editing model can do must ultimately be possible for a
 > third-party editing model using the public API.
+
+M3 verifies that invariant with separate Vim-style and selection-first clients.
+Their grammar states differ, but each enters edits through the same command,
+selector, transformation, transaction, and history path.

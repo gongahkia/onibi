@@ -1,0 +1,8 @@
+# A realistic headless Vim-style session: delete a word, then insert Unicode.
+model=vim
+text=alpha beta gamma
+input=d
+input=w
+input=i
+text-input=界
+input=Escape

@@ -1,0 +1,6 @@
+# Select one word, select every literal occurrence, then transform all at once.
+model=selection-first
+text=foo bar foo baz foo
+input=W
+input=*
+input=d

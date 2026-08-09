@@ -1,13 +1,13 @@
 # Roadmap
 
-This repository implements M0/M2 only.
+This repository implements M0/M3.
 
 | milestone | goal | status |
 | --- | --- | --- |
 | M0 | kernel primitives | implemented here |
 | M1 | headless editing, transactions, history, replay | implemented here |
 | M2 | public editing-model API and input/state-machine abstraction | implemented here |
-| M3 | small Vim model and small selection-first model | future |
+| M3 | substantial Vim-style and selection-first models | implemented here |
 | M4 | terminal host and rendering | future |
 | M5 | Tree-sitter integration and structural editing model | future |
 | M6 | introspection: `:describe`, `:why`, `:bindings`, `:history`, `:trace` | future |
@@ -19,5 +19,6 @@ M7-M9 are goals and constraints, not current API commitments. Any future
 first-party model or plugin must use the same public editing APIs as a third
 party; the core must not acquire a privileged builtin mutation path.
 
-M2 includes only two small proof models to validate the API. M3 remains the
-first milestone for actual editing-model behavior, not compatibility claims.
+M2 includes two retained proof models. M3 adds substantial first-party models
+as ordinary clients of the same public API; they remain documented subsets, not
+Vim/Helix/Kakoune compatibility claims.

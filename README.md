@@ -1,9 +1,10 @@
 # zenbu
 
 Zenbu is a terminal-first programmable modal editor under development. This
-repository contains M0/M2: a headless semantic kernel and public
-editing-model/state-machine protocol. It deliberately contains no terminal UI,
-complete Vim/Helix/Kakoune implementation, syntax service, or plugin runtime.
+repository contains M0/M3: a headless semantic kernel, public editing-model
+protocol, and two substantial first-party modal models. It deliberately
+contains no terminal UI, complete Vim/Helix/Kakoune implementation, syntax
+service, or plugin runtime.
 
 The project thesis is that no editing model is fundamental. A future Vim-like
 model, selection-first model, structural model, and third-party model must all
@@ -29,6 +30,7 @@ third-party runtime or test dependencies.
 make check
 make demo
 dune exec bin/zenbu_headless.exe -- replay test/fixtures/unicode.replay
+dune exec bin/zenbu_headless.exe -- session test/fixtures/sessions/vim-edit.session
 ```
 
 `make check` runs Dune's formatting check, build, and the dependency-free unit,
@@ -53,8 +55,9 @@ make check
   validated `Transaction` values. It also contains the separate
   `zenbu.model_api` public library, which exposes logical input, constrained
   contexts, model effects, commands, and the runtime.
-- `models/` contains two deliberately tiny proof models. They link only to
-  `zenbu.model_api`, never directly to `zenbu.kernel`.
+- `models/` contains the retained M2 proof models plus a Vim-style and a
+  selection-first M3 model. Every model links only to `zenbu.model_api`, never
+  directly to `zenbu.kernel`.
 - `test/` contains deterministic unit/property tests and inspectable replay
   fixtures, including model-runtime and cross-model tests.
 - `bin/` is a small headless demonstration, not a terminal editor.
@@ -64,7 +67,7 @@ make check
 See [architecture](docs/ARCHITECTURE.md), the [editing protocol](docs/EDITING_PROTOCOL.md),
 and [invariants](docs/INVARIANTS.md) before extending the kernel.
 
-## M2 limitations
+## M3 limitations
 
 Coordinates are UTF-8 byte offsets at Unicode code-point boundaries. They are
 not grapheme-cluster, line/column, or terminal display-cell coordinates.
@@ -73,10 +76,16 @@ unless carried forward by the transaction's documented selection transform.
 Branching history is retained as an immutable tree, but no history UI or merge
 policy exists yet.
 
-The two proof models validate the API boundary; they are not Vim, Helix, or
-Kakoune compatibility layers. Input remains logical and headless: terminal
-decoding, rendering, keymap configuration UI, Tree-sitter, LSP, scripting, and
-plugin isolation are deferred.
+The M3 Vim-style model implements a documented, intentionally incomplete
+subset; it is not Vim compatible. The selection-first model is inspired by
+Kakoune/Helix's select-then-transform principle, not a compatibility layer.
+See [the Vim-style subset](docs/models/VIM.md) and the
+[selection-first subset](docs/models/SELECTION_FIRST.md).
 
-The recommended next goal is M3: build a small real Vim-style model and a small
-selection-first model as ordinary clients of the public M2 API.
+Input remains logical and headless: terminal decoding, rendering, keymap
+configuration UI, Tree-sitter, LSP, scripting, and plugin isolation are
+deferred.
+
+The recommended next goal is M4: build Zenbu's first real terminal host around
+the already-usable headless editor while keeping the terminal layer strictly
+above the editing-model API.

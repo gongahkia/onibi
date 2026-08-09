@@ -114,16 +114,27 @@ let retain_primary context =
   | Ok intent -> [ Model_effect.Execute_intent intent ]
   | Error _ -> []
 
+let has_nonempty_selection context =
+  Editor_context.selections context |> fun selections ->
+  List.exists
+    (fun selection ->
+      selection.Editor_context.anchor_offset <> selection.Editor_context.head_offset)
+    selections.Editor_context.selections
+
 let select_input selecting event context =
   match text_key event with
   | Some "\"" -> (Register_prefix { count = selecting.count }, [])
   | Some "g" -> (Go_pending { count = selecting.count }, [])
   | Some "d" | Some "x" ->
       ( Select default_select,
-        [ apply Model_intent.Current_selections Model_intent.Delete ] )
+        if has_nonempty_selection context then
+          [ apply Model_intent.Current_selections Model_intent.Delete ]
+        else [] )
   | Some "c" ->
       ( Insert,
-        [ apply Model_intent.Current_selections Model_intent.Delete ] )
+        if has_nonempty_selection context then
+          [ apply Model_intent.Current_selections Model_intent.Delete ]
+        else [] )
   | Some "y" ->
       ( Select default_select,
         [
