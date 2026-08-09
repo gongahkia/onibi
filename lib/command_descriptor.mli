@@ -9,7 +9,7 @@ val create :
   ?parameters:parameter list ->
   ?examples:string list ->
   unit ->
-  (t, Error.t) result
+  (t, Zenbu_kernel.Error.t) result
 
 val id : t -> Command_id.t
 val title : t -> string
@@ -17,4 +17,3 @@ val description : t -> string option
 val category : t -> string option
 val parameters : t -> parameter list
 val examples : t -> string list
-

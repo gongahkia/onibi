@@ -1,7 +1,11 @@
 type descriptor
 
 val descriptor :
-  id:string -> title:string -> ?description:string -> unit -> (descriptor, Error.t) result
+  id:string ->
+  title:string ->
+  ?description:string ->
+  unit ->
+  (descriptor, Zenbu_kernel.Error.t) result
 
 val id : descriptor -> string
 val title : descriptor -> string
@@ -16,4 +20,3 @@ module type S = sig
   val reset : state -> Editor_context.t -> state
   val status : state -> Model_status.t
 end
-

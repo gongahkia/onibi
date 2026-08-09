@@ -1,3 +1,5 @@
+open Zenbu_kernel
+
 type value =
   | Text of string
   | Selector of Model_intent.selector
@@ -13,3 +15,10 @@ let make ~name ~value =
 let name value = value.name
 let value value = value.value
 
+let as_selector = function
+  | Selector selector -> Ok selector
+  | _ -> Error (Error.Invalid_command_arguments "expected a selector argument")
+
+let as_transformation = function
+  | Transformation transformation -> Ok transformation
+  | _ -> Error (Error.Invalid_command_arguments "expected a transformation argument")

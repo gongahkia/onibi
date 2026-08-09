@@ -1,0 +1,6 @@
+(library
+ (name zenbu_proof_models)
+ (public_name zenbu.proof_models)
+ (modules proof_commands operator_first_model selection_first_model)
+ (libraries zenbu_model_api))
+

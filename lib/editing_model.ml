@@ -1,3 +1,5 @@
+open Zenbu_kernel
+
 type descriptor = { id : string; title : string; description : string option }
 
 let descriptor ~id ~title ?description () =
@@ -18,4 +20,3 @@ module type S = sig
   val reset : state -> Editor_context.t -> state
   val status : state -> Model_status.t
 end
-

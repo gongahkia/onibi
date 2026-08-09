@@ -268,6 +268,44 @@ let parse_actions lines =
         let* action, remaining = parse_transaction rest in
         loop (action :: values) remaining
     | line :: rest -> (
+        match after_prefix "action=intent-apply\t" line with
+        | Some value -> (
+            let* parts =
+              if List.length (String.split_on_char '\t' value) >= 2 then
+                Ok (String.split_on_char '\t' value)
+              else Error (Error.Malformed_replay "invalid apply intent")
+            in
+            match parts with
+            | [ selector; "select" ] ->
+                let* selector = Selector.of_string selector in
+                loop
+                  (Intent
+                     (Intent.Apply
+                        { selector; transformation = Transformation.Select })
+                  :: values)
+                  rest
+            | [ selector; "delete" ] ->
+                let* selector = Selector.of_string selector in
+                loop
+                  (Intent
+                     (Intent.Apply
+                        { selector; transformation = Transformation.Delete })
+                  :: values)
+                  rest
+            | [ selector; "replace"; text ] ->
+                let* selector = Selector.of_string selector in
+                let* text = unescape text in
+                loop
+                  (Intent
+                     (Intent.Apply
+                        {
+                          selector;
+                          transformation = Transformation.Replace_text text;
+                        })
+                  :: values)
+                  rest
+            | _ -> Error (Error.Malformed_replay "invalid apply intent"))
+        | None -> (
         match after_prefix "action=intent-insert\t" line with
         | Some text ->
             let* text = unescape text in
@@ -290,7 +328,7 @@ let parse_actions lines =
                       :: values)
                       rest
                 | None ->
-                    Error (Error.Malformed_replay ("unknown action " ^ line)))))
+                    Error (Error.Malformed_replay ("unknown action " ^ line))))))
   in
   loop [] lines
 
@@ -332,6 +370,15 @@ let add_action buffer = function
       add_line buffer
         ("action=intent-set\t"
         ^ selection_state_to_string { selections; primary })
+  | Intent (Intent.Apply { selector; transformation }) ->
+      let body =
+        match transformation with
+        | Transformation.Select -> Selector.to_string selector ^ "\tselect"
+        | Transformation.Delete -> Selector.to_string selector ^ "\tdelete"
+        | Transformation.Replace_text text ->
+            Selector.to_string selector ^ "\treplace\t" ^ escape text
+      in
+      add_line buffer ("action=intent-apply\t" ^ body)
   | Transaction spec ->
       add_line buffer "action=transaction";
       add_line buffer ("source=" ^ Transaction.source_to_string spec.source);

@@ -1,3 +1,5 @@
+open Zenbu_kernel
+
 type t = {
   id : string;
   label : string;
@@ -20,4 +22,3 @@ let label value = value.label
 let description value = value.description
 let pending_input value = value.pending_input
 let metadata value = value.metadata
-

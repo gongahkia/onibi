@@ -1,3 +1,5 @@
+open Zenbu_kernel
+
 module Command_map = Map.Make (struct
   type t = Command_id.t
 
@@ -26,4 +28,3 @@ let invoke registry ~context invocation =
   match find registry (Command_invocation.id invocation) with
   | Error _ as error -> error
   | Ok command -> Command.execute command context invocation
-

@@ -1,4 +1,5 @@
 module Make (Model : Editing_model.S) : sig
+  type model_state = Model.state
   type t
   type step
 
@@ -6,10 +7,10 @@ module Make (Model : Editing_model.S) : sig
     ?commands:Command_registry.t ->
     document:Zenbu_kernel.Document.t ->
     unit ->
-    (t, Error.t) result
+    (t, Zenbu_kernel.Error.t) result
 
-  val handle_input : t -> Input_event.t -> (t * step, Error.t) result
-  val reset : t -> (t, Error.t) result
+  val handle_input : t -> Input_event.t -> (t * step, Zenbu_kernel.Error.t) result
+  val reset : t -> (t, Zenbu_kernel.Error.t) result
   val history : t -> Zenbu_kernel.History.t
   val context : t -> Editor_context.t
   val status : t -> Model_status.t
@@ -24,4 +25,3 @@ module Make (Model : Editing_model.S) : sig
   val document_version : step -> int
   val status_after : step -> Model_status.t
 end
-

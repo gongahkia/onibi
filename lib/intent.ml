@@ -21,7 +21,7 @@ let collect results =
   in
   loop [] results
 
-let edits_for_selections snapshot ~text =
+let rec edits_for_selections snapshot ~text =
   edits_for_selection_set (Document_snapshot.selections snapshot) ~text
 
 and edits_for_selection_set selections ~text =

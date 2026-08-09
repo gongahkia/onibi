@@ -1,3 +1,5 @@
+open Zenbu_kernel
+
 type t = string
 
 let valid_character = function
@@ -12,4 +14,3 @@ let of_string value =
 let to_string value = value
 let compare = String.compare
 let equal = String.equal
-

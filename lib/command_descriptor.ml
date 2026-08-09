@@ -1,3 +1,5 @@
+open Zenbu_kernel
+
 type parameter = { name : string; description : string; required : bool }
 
 type t = {
@@ -27,4 +29,3 @@ let description value = value.description
 let category value = value.category
 let parameters value = value.parameters
 let examples value = value.examples
-

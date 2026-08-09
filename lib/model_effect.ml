@@ -1,3 +1,5 @@
+open Zenbu_kernel
+
 type message_level = Info | Warning | Error
 type message = { level : message_level; text : string }
 
@@ -8,7 +10,7 @@ type t =
 
 let message ~level ~text =
   if String.length text = 0 then
-    Error (Error.Invalid_model_status "messages must not be empty")
+    Result.Error (Error.Invalid_model_status "messages must not be empty")
   else Ok (Emit_message { level; text })
 
 let describe = function
@@ -18,4 +20,3 @@ let describe = function
   | Emit_message { level; text } ->
       let level = match level with Info -> "info" | Warning -> "warning" | Error -> "error" in
       level ^ ": " ^ text
-

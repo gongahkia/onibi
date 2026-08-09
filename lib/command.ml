@@ -1,3 +1,5 @@
+open Zenbu_kernel
+
 type handler =
   Editor_context.t -> Command_invocation.t -> (Model_intent.t list, Error.t) result
 
@@ -12,4 +14,3 @@ let execute value context invocation =
       (Error.Invalid_command_arguments
          "invocation id does not match the command descriptor")
   else value.handler context invocation
-

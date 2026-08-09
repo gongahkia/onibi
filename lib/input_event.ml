@@ -1,3 +1,5 @@
+open Zenbu_kernel
+
 type modifier = Shift | Control | Alt | Meta
 type physical_key = string
 
@@ -90,4 +92,3 @@ let to_string = function
         | Named_key named -> named_key_to_string named
       in
       if String.length prefix = 0 then key else prefix ^ "+" ^ key
-

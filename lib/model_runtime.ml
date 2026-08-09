@@ -1,6 +1,8 @@
 open Zenbu_kernel
 
 module Make (Model : Editing_model.S) = struct
+  type model_state = Model.state
+
   type t = {
     history : History.t;
     commands : Command_registry.t;
@@ -52,8 +54,8 @@ module Make (Model : Editing_model.S) = struct
     in
     loop history [] intents
 
-  let interpret_effect commands history effect =
-    match effect with
+  let interpret_effect commands history model_effect =
+    match model_effect with
     | Model_effect.Execute_intent intent -> (
         match apply_intents history [ intent ] with
         | Error _ as error -> error
@@ -74,8 +76,8 @@ module Make (Model : Editing_model.S) = struct
   let interpret_effects commands history effects =
     let rec loop history intents changes messages = function
       | [] -> Ok (history, List.rev intents, List.rev changes, List.rev messages)
-      | effect :: rest -> (
-          match interpret_effect commands history effect with
+      | model_effect :: rest -> (
+          match interpret_effect commands history model_effect with
           | Error _ as error -> error
           | Ok (history, effect_intents, effect_changes, effect_messages) ->
               loop history
@@ -137,4 +139,3 @@ module Make (Model : Editing_model.S) = struct
   let document_version step = step.document_version
   let status_after step = step.status_after
 end
-
