@@ -51,6 +51,16 @@ The M0/M1 constructors and commit path enforce these invariants.
     contents naturally becomes clean. Saving an existing file writes an adjacent
     temporary file then renames it; save and quit policy are host commands, not
     model effects.
+15. M5 syntax snapshots name exactly one immutable document id/version. A
+    syntax node is usable only through its owning snapshot; conversion to a
+    kernel range reuses `Document_snapshot.range`, so it cannot create an
+    unvalidated or cross-version selection. `Editor_context` exposes syntax
+    only when `Snapshot.matches_document` holds.
+16. The syntax service owns parser/tree lifetime and only a bounded current
+    cache. It copies a backend tree before incremental editing, keeps no global
+    syntax state, and may fully reparse when no matching cached predecessor
+    exists. Models receive no parser, raw node, query, or backend handle and
+    must reach structural mutations through ordinary semantic intents.
 
 The following rule is architectural rather than merely local:
 

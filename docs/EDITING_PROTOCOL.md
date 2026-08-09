@@ -107,6 +107,39 @@ model that requested them.
 Semantic replay serializes `Apply` as a selector/transformation operation. It
 does not record logical input events or model states.
 
+## M5 syntax snapshots and structural selection
+
+`zenbu.syntax` is not a kernel selector vocabulary. It is an optional,
+model-neutral service that parses one immutable `Document_snapshot` into a
+`Syntax.Snapshot` for exactly the same document id and version. Syntax nodes
+are opaque, version-bound references exposing a grammar-defined textual kind,
+byte range, named/error/missing flags, named traversal, and no parser pointer.
+`Snapshot.matches_document` is the explicit identity check; the model runtime
+only puts a matching syntax snapshot into `Editor_context`.
+
+A syntax node converts to an ordinary kernel `Range` through the source
+document snapshot. That validates the same document/version and UTF-8
+code-point boundaries used by every other selection. Structural models then
+convert node ranges into ordinary `set-selections` intents; the kernel neither
+knows nor needs to know that those offsets came from syntax.
+
+`Syntax.Selector` deliberately names editing operations rather than OCaml
+grammar rules: focus primary, containing node, parent, first child, next or
+previous named sibling, expand, and same-kind named siblings. Same-kind selects
+siblings under the current parent, giving deterministic non-overlapping
+multi-selection. A selector has no raw Tree-sitter query string in its public
+contract.
+
+The service receives committed transactions after the normal document commit.
+For a cached predecessor it copies the backend tree, derives Tree-sitter edit
+byte/point data from the existing transaction edits in reverse source order,
+and incrementally reparses the resulting source. A selection-only transaction
+copies the tree without parsing. If there is no matching cached predecessor,
+including undo/redo, it fully reparses. Concrete syntax selections resolve to
+ordinary transactions and therefore retain M1 deterministic replay; M5 does
+not attempt future semantic re-evaluation of a structural selector during
+replay.
+
 ## M3 clipboard, history, and repeat effects
 
 The model runtime owns immutable model-neutral clipboard slots. A slot contains

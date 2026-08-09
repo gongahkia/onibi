@@ -1,10 +1,10 @@
 # zenbu
 
 Zenbu is a terminal-first programmable modal editor under development. This
-repository contains M0-M4: a semantic kernel, public editing-model protocol,
-two substantial first-party modal models, and the first interactive terminal
-host. It deliberately contains no complete Vim/Helix/Kakoune implementation,
-syntax service, or plugin runtime.
+repository contains M0-M5: a semantic kernel, public editing-model and syntax
+protocols, three first-party editing models, and an interactive terminal host.
+It deliberately contains no complete Vim/Helix/Kakoune implementation, syntax
+highlighting, LSP, or plugin runtime.
 
 The project thesis is that no editing model is fundamental. A future Vim-like
 model, selection-first model, structural model, and third-party model must all
@@ -24,15 +24,16 @@ does not expose arbitrary `mutable Editor` access to extensions.
 ## Quick start
 
 The checked environment uses OCaml 5.3.0 and Dune 3.20.2. The M4 host uses
-`notty-community`, `uuseg`, and `uucp`; install project dependencies before
-building a fresh checkout.
+`notty-community`, `uuseg`, `uucp`, and the OCaml Tree-sitter binding; install
+project dependencies before building a fresh checkout.
 
 ```sh
 make check
 make demo
 dune exec bin/zenbu_headless.exe -- replay test/fixtures/unicode.replay
 dune exec bin/zenbu_headless.exe -- session test/fixtures/sessions/vim-edit.session
-dune exec bin/zenbu.exe -- --model vim README.md
+dune exec bin/zenbu_headless.exe -- syntax test/fixtures/syntax_sample.ml
+dune exec bin/zenbu.exe -- --model structural test/fixtures/syntax_sample.ml
 ```
 
 `make check` runs Dune's formatting check, build, and the dependency-free unit,
@@ -58,9 +59,11 @@ make check
   validated `Transaction` values. It also contains the separate
   `zenbu.model_api` public library, which exposes logical input, constrained
   contexts, model effects, commands, and the runtime.
+- `syntax/` is the public `zenbu.syntax` library. Its snapshots and nodes are
+  Zenbu-owned, version-bound abstractions; its Tree-sitter backend is private.
 - `models/` contains the retained M2 proof models plus a Vim-style and a
-  selection-first M3 model. Every model links only to `zenbu.model_api`, never
-  directly to `zenbu.kernel`.
+  selection-first M3 model and the M5 structural model. The structural model
+  links only to `zenbu.model_api` and `zenbu.syntax`, never to Tree-sitter.
 - `test/` contains deterministic unit/property tests and inspectable replay
   fixtures, including model-runtime and cross-model tests.
 - `view/` projects immutable editor contexts into pure, terminal-independent
@@ -74,9 +77,25 @@ make check
 See [architecture](docs/ARCHITECTURE.md), the [editing protocol](docs/EDITING_PROTOCOL.md),
 and [invariants](docs/INVARIANTS.md) before extending the kernel.
 
-## M4 terminal host
+## M5 syntax and structural editing
 
-`zenbu [--model vim|selection] [FILE]` opens an existing UTF-8 file or an
+Tree-sitter is a private M5 backend. `zenbu.syntax` currently registers OCaml
+(`.ml`, `.mli`) and JSON (`.json`) and exposes only language metadata,
+version-bound syntax snapshots, opaque nodes, editing-useful traversal, and
+generic structural selectors. Unknown extensions simply produce no syntax
+snapshot; ordinary text editing continues.
+
+`zenbu [--model vim|selection|structural] [--language ID] [FILE]` detects a
+language from the file extension unless the optional override is supplied. The
+structural model uses `f` to focus the smallest named node; arrows select its
+parent, first child, next sibling, or previous sibling; `e`/`r` expand/shrink;
+`m` selects same-kind siblings; `x`, `c`, `y`, `p`, `u`, and `Ctrl-R` reuse the
+shared transformation, clipboard, and history services. See
+[syntax](docs/SYNTAX.md) and [the structural model](docs/models/STRUCTURAL.md).
+
+## Terminal host
+
+`zenbu [--model vim|selection|structural] [FILE]` opens an existing UTF-8 file or an
 unnamed empty buffer. `Ctrl-S` atomically saves an existing file. `Ctrl-Q`
 exits a clean session; a dirty session requires a second `Ctrl-Q`. The
 selection-first model is a different editing grammar over the same kernel, not
@@ -100,13 +119,16 @@ policy exists yet.
 The M3 Vim-style model implements a documented, intentionally incomplete
 subset; it is not Vim compatible. The selection-first model is inspired by
 Kakoune/Helix's select-then-transform principle, not a compatibility layer.
-See [the Vim-style subset](docs/models/VIM.md) and the
-[selection-first subset](docs/models/SELECTION_FIRST.md).
+The structural model is intentionally a small generic AST grammar rather than
+an OCaml refactoring engine. See [the Vim-style subset](docs/models/VIM.md),
+[selection-first subset](docs/models/SELECTION_FIRST.md), and
+[structural model](docs/models/STRUCTURAL.md).
 
 Terminal decoding and rendering are intentionally narrow: no mouse, bracketed
 paste, terminal capability probing beyond the chosen backend, save-as prompt,
 or model switching in a live session exists yet. Keymap configuration UI,
-Tree-sitter, LSP, scripting, and plugin isolation remain deferred.
+Syntax highlighting, LSP, scripting, and plugin isolation remain deferred.
 
-The recommended next goal is M5: add Tree-sitter integration and a structural
-editing model through the same public model API.
+The recommended next goal is M6: make editor behavior inspectable through
+generic description, reasoning, bindings, history, traces, syntax inspection,
+and lightweight profiling.

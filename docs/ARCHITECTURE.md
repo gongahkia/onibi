@@ -1,7 +1,7 @@
 # Architecture
 
-Zenbu M0-M4 is a functional semantic editing kernel plus a public
-editing-model protocol and a narrow terminal host. The central kernel transition is
+Zenbu M0-M5 is a functional semantic editing kernel plus public editing-model
+and syntax protocols and a narrow terminal host. The central kernel transition is
 conceptually:
 
 ```text
@@ -82,6 +82,46 @@ M3 pressure-tested that API without moving an editing grammar into the kernel:
 the Vim-style model owns Normal/Insert/OperatorPending/count state, while the
 selection-first model owns its select-then-transform grammar. See [the
 editing-model API](EDITING_MODEL_API.md) for the public protocol.
+
+## M5 syntax boundary
+
+M5 adds a second optional source of selections without teaching the kernel what
+a syntax tree is:
+
+```text
+tree-sitter binding
+      ↑
+private Tree_sitter_backend
+      ↑
+      zenbu.syntax
+      ↑
+zenbu.model_api.Editor_context.syntax
+      ↑
+zenbu.structural
+```
+
+`zenbu.syntax` owns language identities, a small registry, synchronous
+services, version-bound syntax snapshots, opaque nodes, and generic structural
+selectors. The Tree-sitter parser, tree, node, query, and FFI lifetime rules
+are private implementation details. A snapshot holds an immutable kernel
+document snapshot and cannot match a different document id/version. The service
+has no global state; one service owns one parser and a bounded current snapshot
+cache. It copies the old backend tree before applying transaction-derived edits
+for incremental parsing, so a caller retaining an old Zenbu snapshot cannot
+observe a tree mutation.
+
+The runtime refreshes syntax before constructing a model context and updates a
+cached syntax snapshot after each committed transaction. Undo/redo can safely
+fall back to a full parse because syntax history is intentionally not retained.
+The optional context field is absent for unknown languages or backend failure;
+models must not infer syntax from byte heuristics.
+
+The structural model is an ordinary client of `zenbu.model_api` and
+`zenbu.syntax`. It owns keybindings and small expand/shrink offset history, but
+derives visible selections through `Model_intent.set_selections` and edits
+through existing intents/effects. It does not link to Tree-sitter, another
+model, the terminal, or kernel mutation APIs. See [syntax](SYNTAX.md) and
+[structural model](models/STRUCTURAL.md).
 
 ## M4 host and view boundary
 

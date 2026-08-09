@@ -49,10 +49,15 @@ so it can retain model state without inspecting it. It does not know what a
 model's states mean.
 
 `Editor_context` is an immutable snapshot facade. It exposes active document
-id/version, contents, byte length, selections as anchor/head byte offsets, and
-registered command descriptors plus read-only clipboard-slot entries. It deliberately does not expose a mutable
-document, `Document.apply`, history internals, text-buffer representation,
-transaction construction, terminal state, or arbitrary callbacks.
+id/version, contents, byte length, selections as anchor/head byte offsets,
+registered command descriptors, read-only clipboard-slot entries, and an
+optional matching `zenbu.syntax` snapshot. The syntax value contains only
+Zenbu's opaque snapshot/node abstraction, never a parser, tree, query, or
+backend handle. It is absent for unsupported languages and is filtered out if
+its document id/version does not match the context snapshot. The context
+deliberately does not expose a mutable document, `Document.apply`, history
+internals, text-buffer representation, transaction construction, terminal
+state, or arbitrary callbacks.
 
 `Model_status` is generic: stable id, human label, optional description,
 optional pending input, small metadata, and an input disposition. The latter is
@@ -76,11 +81,18 @@ all-occurrences selectors along with generic `collapse to start/end`
 transformations. The runtime converts it to the kernel intent and lets existing
 transaction/history validation perform the mutation.
 
+M5 adds generic syntax commands (`syntax.focus`, `syntax.parent`,
+`syntax.child`, `syntax.next-sibling`, `syntax.previous-sibling`,
+`syntax.expand`, and `syntax.select-same-kind`). Their handlers use only the
+optional abstract syntax snapshot and return ordinary `set-selections` intents.
+They do not encode a structural-model keybinding, an OCaml node kind, or a
+Tree-sitter query. Syntax-aware models can use the same public syntax selectors
+directly when they need model-owned status or navigation history.
+
 Selectors answer *which regions?*; transformations answer *what happens?*.
 The M3 models share `next-word`, line, and delete selectors/transformations,
 though one obtains them after an operator and the other makes them visible
-first. M3 still deliberately excludes regex, syntax, LSP, grapheme, and
-display-width selectors.
+first. Regex, LSP, grapheme, and display-width selectors remain excluded.
 
 ## Commands
 
@@ -123,15 +135,20 @@ semantic replay:   apply(next-text-unit, delete)
 Input traces help state-machine tests and debugging. Semantic replay remains
 model-independent and is suitable for macros, bug reports, and automation.
 
-## Headless M3 sessions
+## Headless sessions
 
 `zenbu-headless session <file>` runs a small inspectable session format for
-tests and debugging. A fixture has `model=vim` or `model=selection-first`, one
+tests and debugging. A fixture has `model=vim`, `model=selection-first`, or
+`model=structural`; structural fixtures set `language=ocaml`. One
 escaped `text=` line, `input=` logical key lines, and `text-input=` committed
 UTF-8 text lines. Named `Escape`, `Backspace`, `Enter`, and `Ctrl-r` inputs are
 also supported. The runner prints model status transitions, declared effects,
 semantic intents, resulting documents, selections, and history. It is not a
 user configuration language or terminal-event format.
+
+`zenbu-headless syntax <file>` prints stable language/document identity and the
+named-node tree (kind, byte range, named/error/missing flags), never backend
+pointers.
 
 ## M4 terminal input
 
@@ -168,6 +185,29 @@ model uses selector targets as operator operands; the selection-first model
 makes selectors visible first and subsequently transforms the current set.
 Both use `editor.apply`, so their cross-model equivalence is semantic rather
 than keybinding-based.
+
+## M5 Syntax/API Pressure Test
+
+M0-M4 documents, snapshots, UTF-8 anchors/ranges, transactions, history,
+selection sets, semantic intents, clipboard effects, repeat, status rendering,
+terminal decoding, and the view survived unchanged. The sole model-context
+addition is optional `Editor_context.syntax`; it is version-filtered and owns
+no mutation authority.
+
+Transactions supplied sufficient edit ranges and replacement text to derive
+Tree-sitter byte/point edits without changing transaction semantics.
+Snapshot-local anchors aligned directly with syntax ranges after revalidation
+through `Document_snapshot.range`. Old syntax snapshots are never exposed in a
+new context, and the runtime refreshes synchronously before model invocation.
+
+The public API nearly leaked Tree-sitter node and query types; M5 instead keeps
+opaque Zenbu nodes, grammar-textual `Syntax.Kind`, and a small structural
+selector vocabulary. The structural model navigates AST relationships with
+arrows and produces selections before shared transformations. Its `.` repeats
+the last shared textual intent over the current selection; it deliberately does
+not re-run a previous syntax selector. Plugin API stabilization should still
+decide how language packages register grammars and how a future background
+syntax worker delivers versioned results.
 
 ## M2 proof models
 

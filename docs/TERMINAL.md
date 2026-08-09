@@ -1,6 +1,7 @@
-# M4 terminal host
+# M4/M5 terminal host
 
-`zenbu [--model vim|selection] [FILE]` is the interactive M4 executable.
+`zenbu [--model vim|selection|structural] [--language ID] [FILE]` is the
+interactive M4/M5 executable.
 It loads an existing UTF-8 file, or creates an unnamed empty buffer when no
 file is supplied. File open and UTF-8 validation happen before terminal mode
 is entered; errors are reported on stderr. The deterministic
@@ -11,6 +12,7 @@ Run an installed development switch with:
 ```sh
 dune exec bin/zenbu.exe -- --model vim FILE
 dune exec bin/zenbu.exe -- --model selection FILE
+dune exec bin/zenbu.exe -- --model structural FILE
 ```
 
 `Ctrl-S` saves an existing file. `Ctrl-Q` exits when clean; when dirty it shows
@@ -34,6 +36,8 @@ reported modifiers into the public logical `Input_event` protocol. Resize stays
 a host event. For an unmodified printable key, the model's generic
 `Model_status.input_mode` decides between `Key_press` and `Text_input`; the
 adapter never branches on a model id, Vim mode, or selection-model state.
+M5's structural model uses the existing named arrow events and generic status
+line; the terminal does not inspect syntax nodes or grammar kinds.
 
 ## Coordinates and rendering
 
@@ -85,3 +89,13 @@ terminal cells, or filenames to documents. M4 tests exercise terminal-event
 decoding, Unicode/tab display mapping, primary and secondary frame styling,
 viewport/tiny-terminal behavior, both model choices, safe file save, dirty
 state after undo, and quit policy.
+
+## M5 terminal integration
+
+The session detects OCaml and JSON from file extensions, or accepts the narrow
+`--language ID` override. It constructs an optional syntax service above the
+model runtime; unsupported extensions remain ordinary buffers. The session's
+only structural-specific work is selecting the registered `Structural` model,
+exactly as it selects the other models. Rendering still consumes document text,
+ordinary selections, and generic model status. No terminal module imports or
+names Tree-sitter or AST types.
