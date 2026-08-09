@@ -1,1 +1,9 @@
+_build/
+.opam-switch/
+*.install
+*.cm[ioxat]
+*.annot
+*.orig
+*.rej
 AGENTS.md
+
