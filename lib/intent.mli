@@ -1,0 +1,15 @@
+type t =
+  | Insert_text of string
+  | Delete_selected_ranges
+  | Replace_selected_ranges of string
+  | Set_selections of { selections : Selection_spec.t list; primary : int }
+
+val identity : t -> string
+
+val resolve :
+  source:Transaction.source ->
+  ?description:string ->
+  Document_snapshot.t ->
+  t ->
+  (Transaction.t, Error.t) result
+

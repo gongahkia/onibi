@@ -80,12 +80,20 @@ let map_anchors value ~f =
   | Error _ as error -> error
   | Ok selections ->
       let mapped_primary = nth value.primary_index selections in
+      let sorted = List.sort Selection.compare selections in
+      let rec deduplicate previous = function
+        | [] -> []
+        | selection :: rest ->
+            if Option.fold ~none:false ~some:(Selection.equal selection) previous then
+              deduplicate previous rest
+            else selection :: deduplicate (Some selection) rest
+      in
+      let normalized = deduplicate None sorted in
       let rec index_of index = function
         | [] -> Error (Error.Invalid_selection_set "mapped primary selection was lost")
         | selection :: _ when Selection.equal selection mapped_primary -> Ok index
         | _ :: rest -> index_of (index + 1) rest
       in
-      (match index_of 0 selections with
+      (match index_of 0 normalized with
       | Error _ as error -> error
-      | Ok primary -> create ~primary selections)
-
+      | Ok primary -> create ~primary normalized)
