@@ -37,6 +37,11 @@ let language () =
   | Some language -> language
   | None -> failf "OCaml grammar is not registered"
 
+let json_language () =
+  match Syntax.Language.find "json" with
+  | Some language -> language
+  | None -> failf "JSON grammar is not registered"
+
 let edit snapshot start_offset stop_offset replacement =
   Document_snapshot.range snapshot ~start_offset ~stop_offset |> must
   |> fun range -> Edit.replace range ~text:replacement |> must
@@ -199,6 +204,18 @@ let test_invalid_syntax_and_registry () =
     (Option.is_none (Editor_context.syntax context))
     "a stale syntax snapshot reached an editor context"
 
+let test_json_syntax () =
+  let document = document "json" {|{"items": [1, 2, 3], "ok": true}|} in
+  let snapshot = Document.snapshot document in
+  let syntax =
+    Syntax.Service.refresh (Syntax.Service.create (json_language ())) snapshot
+    |> must_syntax
+  in
+  expect
+    (not (Syntax.Snapshot.has_error syntax))
+    "registered JSON grammar did not parse a valid JSON fixture";
+  assert_ranges snapshot (Syntax.Snapshot.root syntax)
+
 let structural_runtime contents =
   let service = Syntax.Service.create (language ()) in
   let module Runtime = Model_runtime.Make (Structural_model) in
@@ -210,6 +227,13 @@ let structural_runtime contents =
 let key text = Input_event.key_press (Input_event.logical_text text |> must)
 let named value = Input_event.key_press (Input_event.named_key value)
 let text_input text = Input_event.text_input text |> must
+
+let selection_offsets history =
+  Document.snapshot (History.current history)
+  |> Document_snapshot.selections |> Selection_set.to_list
+  |> List.map (fun selection ->
+      ( Anchor.byte_offset (Selection.anchor selection),
+        Anchor.byte_offset (Selection.head selection) ))
 
 let test_structural_model_and_shared_effects () =
   let module Runtime = Model_runtime.Make (Structural_model) in
@@ -233,6 +257,12 @@ let test_structural_model_and_shared_effects () =
     (List.map Model_intent.identity (Runtime.intents child)
     = [ "set-selections" ])
     "child navigation did not produce an ordinary selection intent";
+  let child_offsets = selection_offsets (Runtime.history runtime) in
+  let runtime, _ = Runtime.handle_input runtime (key "e") |> must in
+  let runtime, _ = Runtime.handle_input runtime (key "r") |> must in
+  expect
+    (selection_offsets (Runtime.history runtime) = child_offsets)
+    "structural shrink did not restore the previous expanded selection";
   let runtime, sibling =
     Runtime.handle_input runtime (named Input_event.Arrow_right) |> must
   in
@@ -280,6 +310,21 @@ let test_structural_model_and_shared_effects () =
     | None -> false)
     "temporarily invalid structural text did not remain parseable"
 
+let test_structural_model_without_syntax () =
+  let module Runtime = Model_runtime.Make (Structural_model) in
+  let runtime =
+    Runtime.create ~document:(document "plain" "plain text") () |> must
+  in
+  expect
+    (Model_status.id (Runtime.status runtime) = "struct-no-syntax")
+    "structural model did not report missing syntax";
+  let runtime, step = Runtime.handle_input runtime (key "f") |> must in
+  expect
+    (Runtime.intents step = [])
+    "structural focus invented a selection without syntax";
+  expect_string ~expected:"plain text"
+    ~actual:(text (History.current (Runtime.history runtime)))
+
 let test_syntax_commands_are_described () =
   let ids =
     Syntax_commands.commands ()
@@ -319,7 +364,9 @@ let () =
     ( "repeated incremental syntax performance",
       test_repeated_incremental_edits_performance );
     ("invalid syntax and version safety", test_invalid_syntax_and_registry);
+    ("registered JSON syntax", test_json_syntax);
     ("structural model shared effects", test_structural_model_and_shared_effects);
+    ("structural model without syntax", test_structural_model_without_syntax);
     ("syntax command descriptors", test_syntax_commands_are_described);
   ]
   |> List.iter (fun (name, test) -> run name test)
