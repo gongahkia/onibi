@@ -1,6 +1,0 @@
-# Copy to a project's .onibi.yaml to override its terminal backend.
-# This configures Onibi-managed Telegram sessions, not existing Ghostty panes.
-multiplexer:
-  default: auto
-  tmux:
-    config: auto
