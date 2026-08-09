@@ -29,7 +29,8 @@ let status = function
   | Inserting ->
       static
         (Model_status.create ~id:"inserting" ~label:"INSERT"
-           ~description:"committed text becomes a semantic insertion" ())
+           ~description:"committed text becomes a semantic insertion"
+           ~input_mode:Model_status.Text_entry ())
 
 let is_text event expected =
   match Input_event.key event with

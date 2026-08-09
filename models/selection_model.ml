@@ -43,7 +43,7 @@ let status = function
       static
         (Model_status.create ~id:"insert" ~label:"INSERT"
            ~description:"committed text replaces active selections semantically"
-           ())
+           ~input_mode:Model_status.Text_entry ())
   | Register_prefix { count } ->
       static
         (Model_status.create ~id:"clipboard-slot-prefix" ~label:"SLOT…"

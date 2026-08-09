@@ -55,7 +55,8 @@ let status = function
   | Insert ->
       static
         (Model_status.create ~id:"insert" ~label:"INSERT"
-           ~description:"committed text is inserted through semantic intents" ())
+           ~description:"committed text is inserted through semantic intents"
+           ~input_mode:Model_status.Text_entry ())
   | Operator_pending { operator; operator_count; motion_count; slot } ->
       let name =
         match operator with

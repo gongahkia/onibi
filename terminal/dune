@@ -1,0 +1,5 @@
+(library
+ (name zenbu_terminal)
+ (public_name zenbu.terminal)
+ (modules event input_decoder backend)
+ (libraries zenbu_kernel zenbu_model_api zenbu_view notty-community notty-community.unix unix))

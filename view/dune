@@ -1,0 +1,5 @@
+(library
+ (name zenbu_view)
+ (public_name zenbu.view)
+ (modules display frame viewport renderer)
+ (libraries zenbu_model_api uucp uuseg))

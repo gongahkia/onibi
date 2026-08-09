@@ -1,0 +1,5 @@
+(library
+ (name zenbu_app)
+ (public_name zenbu.app)
+ (modules file_io session)
+ (libraries zenbu_kernel zenbu_model_api zenbu_proof_models zenbu_view unix))

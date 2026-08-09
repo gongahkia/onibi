@@ -11,3 +11,7 @@
 (test
  (name test_m3_models)
  (libraries zenbu_kernel zenbu_model_api zenbu_proof_models))
+
+(test
+ (name test_m4_terminal)
+ (libraries zenbu_kernel zenbu_model_api zenbu_proof_models zenbu_view zenbu_terminal zenbu_app unix))
