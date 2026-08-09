@@ -3,3 +3,7 @@
  (libraries zenbu_kernel)
  (deps
   (glob_files fixtures/*.replay)))
+
+(test
+ (name test_model_runtime)
+ (libraries zenbu_kernel zenbu_model_api zenbu_proof_models))
