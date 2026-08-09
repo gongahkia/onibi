@@ -167,6 +167,10 @@ let test_vim_pending_counts_and_cancellation () =
   expect
     (List.length (Vim_runtime.input_trace runtime) = 3)
     "input trace did not retain count/operator/motion events";
+  let runtime, _ = send_vim runtime (key "l") in
+  expect
+    (offsets (Vim_runtime.history runtime) = [ (1, 1) ])
+    "completed commands did not reset the count before the next motion";
   let runtime = vim "alpha" in
   let runtime =
     fold_vim runtime [ key "2"; key "d"; named Input_event.Escape ]
