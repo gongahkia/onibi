@@ -29,8 +29,8 @@ let create () =
       try Some (Unix.tcgetattr Unix.stdin) with Unix.Unix_error _ -> None
     in
     try
-      (* [dispose] retains a process-exit fallback if initialization is only
-         partially completed before an exception reaches the host. *)
+      (* [dispose] keeps a process-exit cleanup fallback after successful
+         creation; the exception path below handles partial creation. *)
       Ok
         {
           terminal =
