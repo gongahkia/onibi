@@ -1,0 +1,6 @@
+(library
+ (name zenbu_syntax)
+ (public_name zenbu.syntax)
+ (modules syntax tree_sitter_backend)
+ (private_modules tree_sitter_backend)
+ (libraries zenbu_kernel tree-sitter tree-sitter.ocaml tree-sitter.json))

@@ -11,9 +11,10 @@ type t = {
   selections : selection_set;
   commands : Command_descriptor.t list;
   clipboard : Clipboard.t;
+  syntax : Zenbu_syntax.Syntax.Snapshot.t option;
 }
 
-let from_snapshot ~snapshot ~commands ?(clipboard = Clipboard.empty) () =
+let from_snapshot ~snapshot ~commands ?(clipboard = Clipboard.empty) ?syntax () =
   let selections =
     List.map
       (fun selection ->
@@ -37,6 +38,12 @@ let from_snapshot ~snapshot ~commands ?(clipboard = Clipboard.empty) () =
       };
     commands;
     clipboard;
+    syntax =
+      (match syntax with
+      | Some syntax
+        when Zenbu_syntax.Syntax.Snapshot.matches_document syntax snapshot ->
+          Some syntax
+      | Some _ | None -> None);
   }
 
 let document_id value = value.document_id
@@ -46,3 +53,4 @@ let byte_length value = value.byte_length
 let selections value = value.selections
 let command_descriptors value = value.commands
 let clipboard_entry value ~slot = Clipboard.find value.clipboard ~slot
+let syntax value = value.syntax

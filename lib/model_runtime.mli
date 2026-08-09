@@ -5,6 +5,7 @@ module Make (Model : Editing_model.S) : sig
 
   val create :
     ?commands:Command_registry.t ->
+    ?syntax_service:Zenbu_syntax.Syntax.Service.t ->
     document:Zenbu_kernel.Document.t ->
     unit ->
     (t, Zenbu_kernel.Error.t) result

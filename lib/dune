@@ -32,6 +32,7 @@
   clipboard
   editor_context
   model_intent
+  syntax_commands
   command_argument
   command_invocation
   model_effect
@@ -39,4 +40,4 @@
   command
   command_registry
   model_runtime)
- (libraries zenbu_kernel))
+ (libraries zenbu_kernel zenbu_syntax))

@@ -6,6 +6,7 @@ module Make (Model : Editing_model.S) = struct
   type t = {
     history : History.t;
     commands : Command_registry.t;
+    syntax_service : Zenbu_syntax.Syntax.Service.t option;
     clipboard : Clipboard.t;
     state : Model.state;
     input_trace : Input_event.t list;
@@ -22,22 +23,29 @@ module Make (Model : Editing_model.S) = struct
     status_after : Model_status.t;
   }
 
-  let make_context history commands clipboard =
+  let make_context ?syntax_service history commands clipboard =
+    let snapshot = Document.snapshot (History.current history) in
+    let syntax =
+      match syntax_service with
+      | None -> None
+      | Some service -> (
+          match Zenbu_syntax.Syntax.Service.refresh service snapshot with
+          | Ok syntax -> Some syntax
+          | Error _ -> None)
+    in
     Editor_context.from_snapshot
-      ~snapshot:(Document.snapshot (History.current history))
-      ~clipboard
-      ~commands:(Command_registry.descriptors commands)
-      ()
+      ~snapshot ~clipboard ~commands:(Command_registry.descriptors commands)
+      ?syntax ()
 
   let model_call call =
     try Ok (call ())
     with exception_ ->
       Error (Error.Model_execution_failed (Printexc.to_string exception_))
 
-  let create ?(commands = Command_registry.empty) ~document () =
+  let create ?(commands = Command_registry.empty) ?syntax_service ~document () =
     let history = History.create document in
     let clipboard = Clipboard.empty in
-    let context = make_context history commands clipboard in
+    let context = make_context ?syntax_service history commands clipboard in
     match model_call (fun () -> Model.initialize context) with
     | Error _ as error -> error
     | Ok state ->
@@ -45,15 +53,32 @@ module Make (Model : Editing_model.S) = struct
           {
             history;
             commands;
+            syntax_service;
             clipboard;
             state;
             input_trace = [];
             repeatable_intents = None;
           }
 
-  let apply_intent history ?description intent =
-    History.apply_intent ~source:Transaction.User ?description history
-      (Model_intent.to_kernel intent)
+  let sync_syntax_after_commit syntax_service history =
+    match (syntax_service, History.current_change history) with
+    | Some service, Some change ->
+        ignore
+          (Zenbu_syntax.Syntax.Service.update service
+             ~before:(Document.snapshot (History.before change))
+             ~transaction:(History.transaction change)
+             ~after:(Document.snapshot (History.after change)))
+    | None, _ | _, None -> ()
+
+  let apply_intent ?syntax_service history ?description intent =
+    match
+      History.apply_intent ~source:Transaction.User ?description history
+        (Model_intent.to_kernel intent)
+    with
+    | Error _ as error -> error
+    | Ok history ->
+        sync_syntax_after_commit syntax_service history;
+        Ok history
 
   let change_id history =
     match History.current_change history with
@@ -61,11 +86,11 @@ module Make (Model : Editing_model.S) = struct
     | None ->
         failwith "history invariant violated: committed intent has no change"
 
-  let apply_intents history ?description intents =
+  let apply_intents ?syntax_service history ?description intents =
     let rec loop history change_ids = function
       | [] -> Ok (history, List.rev change_ids)
       | intent :: rest -> (
-          match apply_intent history ?description intent with
+          match apply_intent ?syntax_service history ?description intent with
           | Error _ as error -> error
           | Ok history -> loop history (change_id history :: change_ids) rest)
     in
@@ -169,11 +194,11 @@ module Make (Model : Editing_model.S) = struct
             | Error _ as error -> error
             | Ok set -> Ok [ set; Model_intent.insert_text contents ]))
 
-  let interpret_effect commands history clipboard repeatable_intents
+  let interpret_effect ?syntax_service commands history clipboard repeatable_intents
       model_effect =
     match model_effect with
     | Model_effect.Execute_intent intent -> (
-        match apply_intents history [ intent ] with
+        match apply_intents ?syntax_service history [ intent ] with
         | Error _ as error -> error
         | Ok (history, changes) ->
             Ok
@@ -184,7 +209,7 @@ module Make (Model : Editing_model.S) = struct
                 [],
                 retain_repeatable repeatable_intents [ intent ] ))
     | Model_effect.Invoke_command invocation -> (
-        let context = make_context history commands clipboard in
+        let context = make_context ?syntax_service history commands clipboard in
         match Command_registry.invoke commands ~context invocation with
         | Error _ as error -> error
         | Ok intents -> (
@@ -192,7 +217,7 @@ module Make (Model : Editing_model.S) = struct
               "command "
               ^ Command_id.to_string (Command_invocation.id invocation)
             in
-            match apply_intents history ~description intents with
+            match apply_intents ?syntax_service history ~description intents with
             | Error _ as error -> error
             | Ok (history, changes) ->
                 Ok
@@ -225,7 +250,10 @@ module Make (Model : Editing_model.S) = struct
             match paste_intents history entry placement with
             | Error _ as error -> error
             | Ok intents -> (
-                match apply_intents history ~description:"paste" intents with
+                match
+                  apply_intents ?syntax_service history ~description:"paste"
+                    intents
+                with
                 | Error _ as error -> error
                 | Ok (history, changes) ->
                     Ok
@@ -248,14 +276,16 @@ module Make (Model : Editing_model.S) = struct
         | None -> Error Error.No_repeatable_edit
         | Some intents -> (
             match
-              apply_intents history ~description:"repeat semantic edit" intents
+              apply_intents ?syntax_service history
+                ~description:"repeat semantic edit" intents
             with
             | Error _ as error -> error
             | Ok (history, changes) ->
                 Ok (history, clipboard, intents, changes, [], repeatable_intents)
             ))
 
-  let interpret_effects commands history clipboard repeatable_intents effects =
+  let interpret_effects ?syntax_service commands history clipboard repeatable_intents
+      effects =
     let rec loop history clipboard intents changes messages repeatable_intents =
       function
       | [] ->
@@ -268,7 +298,8 @@ module Make (Model : Editing_model.S) = struct
               repeatable_intents )
       | model_effect :: rest -> (
           match
-            interpret_effect commands history clipboard repeatable_intents
+            interpret_effect ?syntax_service commands history clipboard
+              repeatable_intents
               model_effect
           with
           | Error _ as error -> error
@@ -289,7 +320,8 @@ module Make (Model : Editing_model.S) = struct
 
   let handle_input runtime input =
     let context =
-      make_context runtime.history runtime.commands runtime.clipboard
+      make_context ?syntax_service:runtime.syntax_service runtime.history
+        runtime.commands runtime.clipboard
     in
     match
       model_call (fun () -> Model.handle_input runtime.state input context)
@@ -297,8 +329,8 @@ module Make (Model : Editing_model.S) = struct
     | Error _ as error -> error
     | Ok (state, effects) -> (
         match
-          interpret_effects runtime.commands runtime.history runtime.clipboard
-            runtime.repeatable_intents effects
+          interpret_effects ?syntax_service:runtime.syntax_service runtime.commands
+            runtime.history runtime.clipboard runtime.repeatable_intents effects
         with
         | Error _ as error -> error
         | Ok
@@ -315,6 +347,7 @@ module Make (Model : Editing_model.S) = struct
                   {
                     history;
                     commands = runtime.commands;
+                    syntax_service = runtime.syntax_service;
                     clipboard;
                     state;
                     input_trace = runtime.input_trace @ [ input ];
@@ -337,7 +370,8 @@ module Make (Model : Editing_model.S) = struct
 
   let reset runtime =
     let context =
-      make_context runtime.history runtime.commands runtime.clipboard
+      make_context ?syntax_service:runtime.syntax_service runtime.history
+        runtime.commands runtime.clipboard
     in
     match model_call (fun () -> Model.reset runtime.state context) with
     | Error _ as error -> error
@@ -346,7 +380,8 @@ module Make (Model : Editing_model.S) = struct
   let history runtime = runtime.history
 
   let context runtime =
-    make_context runtime.history runtime.commands runtime.clipboard
+    make_context ?syntax_service:runtime.syntax_service runtime.history
+      runtime.commands runtime.clipboard
 
   let status runtime = Model.status runtime.state
   let model_descriptor _ = Model.descriptor
