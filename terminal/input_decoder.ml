@@ -30,13 +30,15 @@ let decode ~input_mode = function
   | Event.Key { key = Event.Text text; modifiers } ->
       Input_event.logical_text text
       |> Result.map (fun key ->
-             Some (Input_event.key_press ~modifiers:(input_modifiers modifiers) key))
+          Some
+            (Input_event.key_press ~modifiers:(input_modifiers modifiers) key))
   | Event.Key { key; modifiers } -> (
       match named_key key with
       | None -> Ok None
       | Some key ->
           Ok
             (Some
-               (Input_event.key_press ~modifiers:(input_modifiers modifiers)
+               (Input_event.key_press
+                  ~modifiers:(input_modifiers modifiers)
                   (Input_event.named_key key))))
   | Event.Resize _ | Event.End | Event.Unsupported _ -> Ok None

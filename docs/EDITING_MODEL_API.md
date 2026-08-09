@@ -1,11 +1,11 @@
 # Editing-model API
 
-M2/M3 defines the public boundary through which an editing grammar turns
+M2-M4 defines the public boundary through which an editing grammar turns
 logical input into semantic editing. A model is not a terminal backend and it
 is not a privileged part of the editor.
 
 ```text
-terminal decoder (future)
+terminal decoder
           ↓
      Input_event
           ↓
@@ -55,8 +55,12 @@ document, `Document.apply`, history internals, text-buffer representation,
 transaction construction, terminal state, or arbitrary callbacks.
 
 `Model_status` is generic: stable id, human label, optional description,
-optional pending input, and small metadata. A statusline may display it later,
-but a model with no modes fits equally well.
+optional pending input, small metadata, and an input disposition. The latter is
+either `Key_commands` or `Text_entry`. It is not a mode name: the terminal
+decoder uses it only to decide whether an unmodified printable terminal event
+becomes `Key_press` or committed `Text_input`. This lets the host preserve
+command grammars and insertion text without inspecting a Vim/selection state
+or model id. A model with no modes fits equally well.
 
 ## Effects, selectors, and transformations
 
@@ -128,6 +132,16 @@ UTF-8 text lines. Named `Escape`, `Backspace`, `Enter`, and `Ctrl-r` inputs are
 also supported. The runner prints model status transitions, declared effects,
 semantic intents, resulting documents, selections, and history. It is not a
 user configuration language or terminal-event format.
+
+## M4 terminal input
+
+M4's terminal adapter maps Unicode printable keys, Escape, Enter, Backspace,
+Tab, arrows, Home/End, Delete, Ctrl/Alt/Meta/Shift modifiers, and resize into
+host events. Only key events pass through `Input_decoder` into `Input_event`;
+resize, save, quit, terminal lifecycle, and physical cursor presentation stay
+above the model API. The adapter consults `Model_status.input_mode`, never a
+model status id or private model state. Mouse and bracketed paste are disabled
+for this milestone.
 
 ## M3 API Pressure Test
 

@@ -1,7 +1,7 @@
 # Architecture
 
-Zenbu M0/M3 is a functional semantic editing kernel plus a public
-editing-model protocol. The central kernel transition is
+Zenbu M0-M4 is a functional semantic editing kernel plus a public
+editing-model protocol and a narrow terminal host. The central kernel transition is
 conceptually:
 
 ```text
@@ -82,3 +82,35 @@ M3 pressure-tested that API without moving an editing grammar into the kernel:
 the Vim-style model owns Normal/Insert/OperatorPending/count state, while the
 selection-first model owns its select-then-transform grammar. See [the
 editing-model API](EDITING_MODEL_API.md) for the public protocol.
+
+## M4 host and view boundary
+
+M4 adds a second one-way dependency path without changing the editing-model
+contract:
+
+```text
+notty-community
+      ↑
+zenbu.terminal (opaque backend adapter)
+      ↑
+    bin/zenbu
+      ↑
+ zenbu.app ─────── zenbu.view
+      ↑                 ↑
+zenbu.model_api ─── immutable Editor_context
+      ↑
+ first-party models
+```
+
+`zenbu.terminal.Backend` is the sole module that imports Notty and owns raw
+input, alternate-screen, cursor, resize, and event conversion. Its public
+surface exposes only Zenbu terminal events and pure `Frame` values. The kernel
+and model libraries neither link to nor name a terminal backend.
+
+`zenbu.app.Session` is a coherent immutable session value: active model
+runtime, file path, saved document version, viewport, terminal dimensions,
+message, and quit confirmation. It handles host-only save and quit policy;
+models still receive only logical input and return semantic effects. The pure
+view layer converts immutable context selections to styled cells, while the
+backend alone places the physical cursor. See [terminal host notes](TERMINAL.md)
+and ADRs 0011-0013.

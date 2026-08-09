@@ -1,5 +1,4 @@
 type input_mode = Key_commands | Text_entry
-
 type t
 
 val create :

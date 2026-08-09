@@ -38,9 +38,19 @@ The M0/M1 constructors and commit path enforce these invariants.
     reject rather than silently clipping. `collapse-to-start/end` only changes
     selections and never bypasses transaction validation.
 12. Clipboard slots are immutable runtime state containing validated UTF-8 text
-    and model-neutral characterwise/linewise shape. Copy does not mutate a
-    document. Paste, undo, redo, and semantic repeat are declarative runtime
-    effects; no model owns a private mutable history or buffer mutation path.
+   and model-neutral characterwise/linewise shape. Copy does not mutate a
+   document. Paste, undo, redo, and semantic repeat are declarative runtime
+   effects; no model owns a private mutable history or buffer mutation path.
+13. M4 display geometry is a host projection, never a kernel coordinate
+    replacement. Documents and model contexts retain validated UTF-8 byte
+    offsets. The view maps source grapheme clusters to terminal display columns
+    without rewriting document text; terminal cursor coordinates are frame-local.
+14. M4 dirty state uses a saved document version as a fast clean check and
+    compares source contents when a later version is selected. Selection-only
+    history transitions therefore do not mark a file dirty; undoing to saved
+    contents naturally becomes clean. Saving an existing file writes an adjacent
+    temporary file then renames it; save and quit policy are host commands, not
+    model effects.
 
 The following rule is architectural rather than merely local:
 

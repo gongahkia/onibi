@@ -8,9 +8,7 @@ type style =
 
 type cell = { text : string; width : int; style : style }
 type row = cell list
-
 type cursor = { column : int; row : int }
-
 type t = { width : int; height : int; rows : row list; cursor : cursor option }
 
 let create ~width ~height ~rows ~cursor =

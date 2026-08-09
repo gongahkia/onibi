@@ -21,10 +21,13 @@ let parse_arguments () =
   in
   let specifications =
     [
-      ( "--model",
-        Arg.String set_model,
-        "vim or selection (default: vim)" );
-      ("--version", Arg.Unit (fun () -> print_endline "zenbu M4"; exit 0), "print version");
+      ("--model", Arg.String set_model, "vim or selection (default: vim)");
+      ( "--version",
+        Arg.Unit
+          (fun () ->
+            print_endline "zenbu M4";
+            exit 0),
+        "print version" );
     ]
   in
   try
@@ -38,12 +41,16 @@ let parse_arguments () =
 
 let load_contents = function
   | None -> Ok ""
-  | Some path -> Zenbu_app.File_io.read path |> Result.map_error Zenbu_app.File_io.to_string
+  | Some path ->
+      Zenbu_app.File_io.read path
+      |> Result.map_error Zenbu_app.File_io.to_string
 
 let create_session options contents backend =
   let columns, rows = Zenbu_terminal.Backend.size backend in
   Zenbu_app.Session.create ~model:options.model ?file_path:options.file_path
-    ~contents ~dimensions:{ Zenbu_view.Renderer.columns; rows } ()
+    ~contents
+    ~dimensions:{ Zenbu_view.Renderer.columns; rows }
+    ()
 
 let is_control modifiers = modifiers = [ Zenbu_terminal.Event.Control ]
 
@@ -57,14 +64,12 @@ let rec run backend session =
       if Zenbu_app.Session.dirty session then Unsaved_end else Exited
   | Zenbu_terminal.Event.Unsupported description ->
       run backend (Zenbu_app.Session.notice session description)
-  | Zenbu_terminal.Event.Key
-      { key = Zenbu_terminal.Event.Text "s"; modifiers }
+  | Zenbu_terminal.Event.Key { key = Zenbu_terminal.Event.Text "s"; modifiers }
     when is_control modifiers -> (
       match Zenbu_app.Session.handle_host session Zenbu_app.Session.Save with
       | Zenbu_app.Session.Continue session -> run backend session
       | Zenbu_app.Session.Exit _ -> Exited)
-  | Zenbu_terminal.Event.Key
-      { key = Zenbu_terminal.Event.Text "q"; modifiers }
+  | Zenbu_terminal.Event.Key { key = Zenbu_terminal.Event.Text "q"; modifiers }
     when is_control modifiers -> (
       match Zenbu_app.Session.handle_host session Zenbu_app.Session.Quit with
       | Zenbu_app.Session.Continue session -> run backend session
@@ -72,14 +77,15 @@ let rec run backend session =
   | event -> (
       match
         Zenbu_terminal.Input_decoder.decode
-          ~input_mode:(Model_status.input_mode (Zenbu_app.Session.status session))
+          ~input_mode:
+            (Model_status.input_mode (Zenbu_app.Session.status session))
           event
       with
       | Error error ->
-          run backend
-            (Zenbu_app.Session.notice session (Error.to_string error))
+          run backend (Zenbu_app.Session.notice session (Error.to_string error))
       | Ok None -> run backend session
-      | Ok (Some input) -> run backend (Zenbu_app.Session.handle_input session input))
+      | Ok (Some input) ->
+          run backend (Zenbu_app.Session.handle_input session input))
 
 let fail message =
   prerr_endline ("zenbu: " ^ message);
@@ -94,13 +100,14 @@ let () =
       | Ok contents -> (
           match
             Zenbu_terminal.Backend.with_terminal (fun backend ->
-                match create_session options contents backend with
-                | Ok session -> run backend session
-                | Error error -> fail (Error.to_string error))
+                create_session options contents backend
+                |> Result.map (run backend))
           with
           | Error message -> fail message
-          | Ok Exited -> ()
-          | Ok Unsaved_end ->
+          | Ok (Error error) -> fail (Error.to_string error)
+          | Ok (Ok Exited) -> ()
+          | Ok (Ok Unsaved_end) ->
               prerr_endline
-                "zenbu: input ended with unsaved changes; the file was not saved";
+                "zenbu: input ended with unsaved changes; the file was not \
+                 saved";
               exit 1))

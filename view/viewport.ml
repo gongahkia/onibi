@@ -6,7 +6,8 @@ let reconcile viewport ~line ~column ~width ~height =
   let usable_height = max 1 (height - 1) in
   let top_line =
     if line < viewport.top_line then line
-    else if line >= viewport.top_line + usable_height then line - usable_height + 1
+    else if line >= viewport.top_line + usable_height then
+      line - usable_height + 1
     else viewport.top_line
   in
   let left_column =

@@ -6,7 +6,8 @@ let terminal_error exception_ = Printexc.to_string exception_
 
 let create () =
   if not (Unix.isatty Unix.stdin) then Error "standard input is not a terminal"
-  else if not (Unix.isatty Unix.stdout) then Error "standard output is not a terminal"
+  else if not (Unix.isatty Unix.stdout) then
+    Error "standard output is not a terminal"
   else
     try
       (* [dispose] retains a process-exit fallback if initialization is only
@@ -28,7 +29,9 @@ let with_terminal run =
   match create () with
   | Error _ as error -> error
   | Ok terminal ->
-      Fun.protect ~finally:(fun () -> release terminal) (fun () -> Ok (run terminal))
+      Fun.protect
+        ~finally:(fun () -> release terminal)
+        (fun () -> Ok (run terminal))
 
 let size terminal =
   let columns, rows = Notty_unix.Term.size terminal.terminal in
@@ -57,13 +60,24 @@ let map_special = function
 
 let key_of_notty (key, modifiers) =
   let modifiers = Event.normalize_modifiers (List.map modifier modifiers) in
+  let normalize_control_character character =
+    if List.mem Event.Control modifiers && character >= 'A' && character <= 'Z'
+    then Char.lowercase_ascii character
+    else character
+  in
   match key with
-  | `ASCII character -> Event.Key { key = Event.Text (String.make 1 character); modifiers }
+  | `ASCII character ->
+      Event.Key
+        {
+          key =
+            Event.Text (String.make 1 (normalize_control_character character));
+          modifiers;
+        }
   | `Uchar uchar ->
       let buffer = Buffer.create 4 in
       Buffer.add_utf_8_uchar buffer uchar;
       Event.Key { key = Event.Text (Buffer.contents buffer); modifiers }
-  | (#Notty.Unescape.special as value) -> (
+  | #Notty.Unescape.special as value -> (
       match map_special value with
       | Some key -> Event.Key { key; modifiers }
       | None -> Event.Unsupported "unsupported terminal special key")
@@ -89,11 +103,15 @@ let image_of_cell cell =
   Notty.I.hsnap ~align:`Left cell.width image
 
 let image_of_row width row =
-  row |> List.map image_of_cell |> Notty.I.hcat |> Notty.I.hsnap ~align:`Left width
+  row |> List.map image_of_cell |> Notty.I.hcat
+  |> Notty.I.hsnap ~align:`Left width
 
 let draw terminal frame =
   let rows = Frame.rows frame |> List.map (image_of_row (Frame.width frame)) in
-  let image = Notty.I.vcat rows |> Notty.I.vsnap ~align:`Top (Frame.height frame) in
+  let image =
+    Notty.I.vcat rows |> Notty.I.vsnap ~align:`Top (Frame.height frame)
+  in
   Notty_unix.Term.image terminal.terminal image;
   Notty_unix.Term.cursor terminal.terminal
-    (Frame.cursor frame |> Option.map (fun cursor -> (cursor.Frame.column, cursor.row)))
+    (Frame.cursor frame
+    |> Option.map (fun cursor -> (cursor.Frame.column, cursor.row)))

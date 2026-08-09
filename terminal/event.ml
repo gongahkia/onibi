@@ -22,4 +22,6 @@ type t =
 
 let normalize_modifiers modifiers =
   let rank = function Shift -> 0 | Control -> 1 | Alt -> 2 | Meta -> 3 in
-  List.sort_uniq (fun left right -> Int.compare (rank left) (rank right)) modifiers
+  List.sort_uniq
+    (fun left right -> Int.compare (rank left) (rank right))
+    modifiers

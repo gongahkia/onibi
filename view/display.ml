@@ -113,7 +113,12 @@ let source_lines contents =
     match String.index_from_opt contents start_offset '\n' with
     | Some newline ->
         let line =
-          { number; start_offset; stop_offset = newline; end_offset = newline + 1 }
+          {
+            number;
+            start_offset;
+            stop_offset = newline;
+            end_offset = newline + 1;
+          }
         in
         loop (number + 1) (newline + 1) (line :: lines)
     | None ->
@@ -175,4 +180,5 @@ let visible_graphemes (line : line) ~left_column ~width =
         && grapheme.column < right_column)
       line.graphemes
 
-let text_width value = (layout_source_line ~number:0 ~start_offset:0 value).width
+let text_width value =
+  (layout_source_line ~number:0 ~start_offset:0 value).width

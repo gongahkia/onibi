@@ -1,4 +1,4 @@
-(** Document offsets remain UTF-8 byte offsets.  This module maps valid source
+(** Document offsets remain UTF-8 byte offsets. This module maps valid source
     text to grapheme-aware terminal columns without changing the source. *)
 
 type grapheme = {

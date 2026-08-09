@@ -1,6 +1,6 @@
 # Roadmap
 
-This repository implements M0/M3.
+This repository implements M0-M4.
 
 | milestone | goal | status |
 | --- | --- | --- |
@@ -8,8 +8,8 @@ This repository implements M0/M3.
 | M1 | headless editing, transactions, history, replay | implemented here |
 | M2 | public editing-model API and input/state-machine abstraction | implemented here |
 | M3 | substantial Vim-style and selection-first models | implemented here |
-| M4 | terminal host and rendering | future |
-| M5 | Tree-sitter integration and structural editing model | future |
+| M4 | terminal host and rendering | implemented here |
+| M5 | Tree-sitter integration and structural editing model | next recommended milestone |
 | M6 | introspection: `:describe`, `:why`, `:bindings`, `:history`, `:trace` | future |
 | M7 | hot-reloadable scripting/configuration | future |
 | M8 | stable plugin contract, capabilities, SDK, generated docs | future |
@@ -21,4 +21,6 @@ party; the core must not acquire a privileged builtin mutation path.
 
 M2 includes two retained proof models. M3 adds substantial first-party models
 as ordinary clients of the same public API; they remain documented subsets, not
-Vim/Helix/Kakoune compatibility claims.
+Vim/Helix/Kakoune compatibility claims. M4 adds no editing grammar to the
+kernel: it hosts both models, owns file/session policy above them, and keeps
+terminal-library types inside its backend adapter.

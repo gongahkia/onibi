@@ -1,6 +1,5 @@
 open Zenbu_kernel
 open Zenbu_model_api
-
 module App = Zenbu_app
 module Display = Zenbu_view.Display
 module Frame = Zenbu_view.Frame
@@ -65,23 +64,29 @@ let test_input_decoder_is_model_neutral () =
     |> must
   in
   expect
-    (Input_event.key (Option.get tab) = Some (Input_event.Named_key Input_event.Tab))
+    (Input_event.key (Option.get tab)
+    = Some (Input_event.Named_key Input_event.Tab))
     "named terminal keys must remain logical key presses"
 
 let test_display_coordinates () =
   let line = List.hd (Display.lines "é\t界\r") in
   match line.graphemes with
-  | combining :: tab :: wide :: carriage_return :: [] ->
-      expect (combining.start_offset = 0 && combining.stop_offset = 3)
+  | [ combining; tab; wide; carriage_return ] ->
+      expect
+        (combining.start_offset = 0 && combining.stop_offset = 3)
         "combining grapheme was split at a byte boundary";
-      expect (combining.width = 1 && combining.column = 0)
+      expect
+        (combining.width = 1 && combining.column = 0)
         "combining grapheme has the wrong display width";
-      expect (tab.column = 1 && tab.width = 3)
+      expect
+        (tab.column = 1 && tab.width = 3)
         "tab did not expand relative to its display column";
-      expect (wide.column = 4 && wide.width = 2)
+      expect
+        (wide.column = 4 && wide.width = 2)
         "wide Unicode character did not occupy two display columns";
       expect_string ~expected:"^M" ~actual:carriage_return.text;
-      expect (carriage_return.column = 6 && carriage_return.width = 2)
+      expect
+        (carriage_return.column = 6 && carriage_return.width = 2)
         "control rendering lost its display coordinates"
   | _ -> failf "unexpected grapheme segmentation"
 
@@ -94,43 +99,54 @@ let document_context ?(selections = [ (0, 0) ]) ?(primary = 0) contents =
       selections
   in
   let document =
-    Document.create ~id ~contents ~initial_selections:selections ~primary () |> must
+    Document.create ~id ~contents ~initial_selections:selections ~primary ()
+    |> must
   in
-  Editor_context.from_snapshot ~snapshot:(Document.snapshot document) ~commands:[] ()
+  Editor_context.from_snapshot
+    ~snapshot:(Document.snapshot document)
+    ~commands:[] ()
 
-let styles frame = Frame.rows frame |> List.concat |> List.map (fun cell -> cell.Frame.style)
+let styles frame =
+  Frame.rows frame |> List.concat |> List.map (fun cell -> cell.Frame.style)
 
 let test_renderer_selection_viewport_and_tiny_terminal () =
   let context =
     document_context ~selections:[ (0, 2); (2, 3) ] ~primary:0 "éx\nline two"
   in
   let rendered =
-    Renderer.render ~context ~status:(status Model_status.Key_commands)
+    Renderer.render ~context
+      ~status:(status Model_status.Key_commands)
       ~filename:"unicode.txt" ~dirty:true ~message:(Some "saved later")
-      ~viewport:Zenbu_view.Viewport.origin ~dimensions:{ columns = 12; rows = 3 }
+      ~viewport:Zenbu_view.Viewport.origin
+      ~dimensions:{ columns = 12; rows = 3 }
   in
   expect
     (List.mem Frame.Primary_selection (styles rendered.frame)
     && List.mem Frame.Secondary_selection (styles rendered.frame))
     "primary and secondary selections were not rendered distinctly";
-  let deep_context = document_context ~selections:[ (16, 16) ] "a\na\na\na\na\na\na\na\na" in
+  let deep_context =
+    document_context ~selections:[ (16, 16) ] "a\na\na\na\na\na\na\na\na"
+  in
   let deep =
-    Renderer.render ~context:deep_context ~status:(status Model_status.Key_commands)
+    Renderer.render ~context:deep_context
+      ~status:(status Model_status.Key_commands)
       ~filename:"deep" ~dirty:false ~message:None
       ~viewport:Zenbu_view.Viewport.origin ~dimensions:{ columns = 3; rows = 3 }
   in
-  expect (deep.viewport.top_line > 0)
+  expect
+    (deep.viewport.top_line > 0)
     "viewport did not follow an off-screen primary selection";
   let tiny =
-    Renderer.render ~context ~status:(status Model_status.Key_commands)
+    Renderer.render ~context
+      ~status:(status Model_status.Key_commands)
       ~filename:"tiny" ~dirty:false ~message:None
       ~viewport:Zenbu_view.Viewport.origin ~dimensions:{ columns = 5; rows = 1 }
   in
-  expect (List.length (Frame.rows tiny.frame) = 1)
+  expect
+    (List.length (Frame.rows tiny.frame) = 1)
     "tiny terminals need a safe fallback frame"
 
 let temporary_file () = Filename.temp_file "zenbu-m4-" ".txt"
-
 let remove path = try Unix.unlink path with Unix.Unix_error _ -> ()
 
 let test_session_file_dirty_and_models () =
@@ -140,16 +156,25 @@ let test_session_file_dirty_and_models () =
     (fun () ->
       let dimensions = { Renderer.columns = 20; rows = 4 } in
       let session =
-        App.Session.create ~model:App.Session.Vim ~file_path:path ~contents:"abc"
-          ~dimensions ()
+        App.Session.create ~model:App.Session.Vim ~file_path:path
+          ~contents:"abc" ~dimensions ()
         |> must
       in
       expect (not (App.Session.dirty session)) "newly loaded file is dirty";
       let session = App.Session.handle_input session (key "i") in
+      expect
+        (Model_status.input_mode (App.Session.status session)
+        = Model_status.Text_entry)
+        "Vim insert did not declare committed-text input";
       let session = App.Session.handle_input session (text_input "界") in
-      let session = App.Session.handle_input session (Input_event.key_press (Input_event.named_key Input_event.Escape)) in
+      let session =
+        App.Session.handle_input session
+          (Input_event.key_press (Input_event.named_key Input_event.Escape))
+      in
       expect_string ~expected:"界abc" ~actual:(App.Session.contents session);
-      expect (App.Session.dirty session) "editing did not mark the session dirty";
+      expect
+        (App.Session.dirty session)
+        "editing did not mark the session dirty";
       expect
         (match App.Session.handle_host session App.Session.Quit with
         | App.Session.Continue _ -> true
@@ -160,13 +185,20 @@ let test_session_file_dirty_and_models () =
         | App.Session.Continue session -> session
         | App.Session.Exit _ -> failf "save unexpectedly exited"
       in
-      expect (not (App.Session.dirty session)) "save did not establish clean state";
-      expect_string ~expected:"界abc" ~actual:(App.File_io.read path |> Result.get_ok);
+      expect
+        (not (App.Session.dirty session))
+        "save did not establish clean state";
+      expect_string ~expected:"界abc"
+        ~actual:(App.File_io.read path |> Result.get_ok);
       let session = App.Session.handle_input session (key "i") in
       let session = App.Session.handle_input session (text_input "x") in
-      let session = App.Session.handle_input session (Input_event.key_press (Input_event.named_key Input_event.Escape)) in
+      let session =
+        App.Session.handle_input session
+          (Input_event.key_press (Input_event.named_key Input_event.Escape))
+      in
       let session = App.Session.handle_input session (key "u") in
-      expect (not (App.Session.dirty session))
+      expect
+        (not (App.Session.dirty session))
         "undoing to the saved document version did not become clean";
       expect
         (match App.Session.handle_host session App.Session.Quit with
@@ -177,10 +209,23 @@ let test_session_file_dirty_and_models () =
         App.Session.create ~model:App.Session.Selection ~contents:"alpha beta"
           ~dimensions ()
         |> must
-        |> fun session -> App.Session.handle_input session (key "W")
+        |> fun session -> App.Session.handle_input session (key "i")
       in
+      expect
+        (Model_status.input_mode (App.Session.status selection)
+        = Model_status.Text_entry)
+        "selection-first insert did not declare committed-text input";
+      let selection =
+        App.Session.handle_input selection
+          (Input_event.key_press (Input_event.named_key Input_event.Escape))
+      in
+      let selection = App.Session.handle_input selection (key "W") in
+      expect
+        (not (App.Session.dirty selection))
+        "selection-only history must not mark file contents dirty";
       let _, frame = App.Session.render selection in
-      expect (List.mem Frame.Primary_selection (styles frame))
+      expect
+        (List.mem Frame.Primary_selection (styles frame))
         "selection-first model did not render its semantic selection")
 
 let run name test =
@@ -200,7 +245,8 @@ let () =
   [
     ("terminal input disposition", test_input_decoder_is_model_neutral);
     ("display coordinates", test_display_coordinates);
-    ("renderer selections viewport tiny", test_renderer_selection_viewport_and_tiny_terminal);
+    ( "renderer selections viewport tiny",
+      test_renderer_selection_viewport_and_tiny_terminal );
     ("session file dirty and model host", test_session_file_dirty_and_models);
   ]
   |> List.iter (fun (name, test) -> run name test)

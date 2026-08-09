@@ -11,7 +11,9 @@ type row = cell list
 type cursor = { column : int; row : int }
 type t
 
-val create : width:int -> height:int -> rows:row list -> cursor:cursor option -> t
+val create :
+  width:int -> height:int -> rows:row list -> cursor:cursor option -> t
+
 val cell : ?style:style -> width:int -> string -> cell
 val row_text : row -> string
 val width : t -> int

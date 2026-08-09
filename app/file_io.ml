@@ -3,8 +3,10 @@ type error =
   | Write_error of { path : string; message : string }
 
 let to_string = function
-  | Read_error { path; message } -> Printf.sprintf "cannot read %s: %s" path message
-  | Write_error { path; message } -> Printf.sprintf "cannot save %s: %s" path message
+  | Read_error { path; message } ->
+      Printf.sprintf "cannot read %s: %s" path message
+  | Write_error { path; message } ->
+      Printf.sprintf "cannot save %s: %s" path message
 
 let read path =
   try
@@ -12,7 +14,12 @@ let read path =
     Fun.protect
       ~finally:(fun () -> close_in_noerr channel)
       (fun () -> Ok (really_input_string channel (in_channel_length channel)))
-  with Sys_error message -> Error (Read_error { path; message })
+  with
+  | Sys_error message -> Error (Read_error { path; message })
+  | Unix.Unix_error (error, _, _) ->
+      Error (Read_error { path; message = Unix.error_message error })
+  | exception_ ->
+      Error (Read_error { path; message = Printexc.to_string exception_ })
 
 let open_temporary path =
   let directory = Filename.dirname path in
@@ -29,10 +36,14 @@ let open_temporary path =
       in
       try
         Ok
-          (temporary,
-           Unix.openfile temporary [ Unix.O_WRONLY; Unix.O_CREAT; Unix.O_EXCL ]
-             0o600)
-      with Unix.Unix_error (Unix.EEXIST, _, _) -> attempt (number + 1)
+          ( temporary,
+            Unix.openfile temporary
+              [ Unix.O_WRONLY; Unix.O_CREAT; Unix.O_EXCL ]
+              0o600 )
+      with
+      | Unix.Unix_error (Unix.EEXIST, _, _) -> attempt (number + 1)
+      | Unix.Unix_error (error, _, _) ->
+          Error (Write_error { path; message = Unix.error_message error })
   in
   attempt 0
 
@@ -40,21 +51,23 @@ let write_all descriptor contents =
   let rec loop offset =
     if offset < String.length contents then
       let written =
-        Unix.write_substring descriptor contents offset (String.length contents - offset)
+        Unix.write_substring descriptor contents offset
+          (String.length contents - offset)
       in
-      if written = 0 then raise (Failure "short write") else loop (offset + written)
+      if written = 0 then raise (Failure "short write")
+      else loop (offset + written)
   in
   loop 0
 
 let save_atomic ~path ~contents =
   match open_temporary path with
   | Error _ as error -> error
-  | Ok (temporary, descriptor) ->
+  | Ok (temporary, descriptor) -> (
       let descriptor_open = ref true in
       let cleanup () =
         if !descriptor_open then (
           descriptor_open := false;
-          (try Unix.close descriptor with Unix.Unix_error _ -> ()));
+          try Unix.close descriptor with Unix.Unix_error _ -> ());
         try Unix.unlink temporary with Unix.Unix_error _ -> ()
       in
       try
@@ -73,3 +86,6 @@ let save_atomic ~path ~contents =
       | Failure message ->
           cleanup ();
           Error (Write_error { path; message })
+      | exception_ ->
+          cleanup ();
+          Error (Write_error { path; message = Printexc.to_string exception_ }))
