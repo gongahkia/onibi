@@ -1,9 +1,9 @@
 # zenbu
 
 Zenbu is a terminal-first programmable modal editor under development. This
-repository contains only M0/M1: a headless, model-neutral semantic editing
-kernel. It deliberately contains no terminal UI, keybinding grammar, Vim
-semantics, selection-first semantics, syntax service, or plugin runtime.
+repository contains M0/M2: a headless semantic kernel and public
+editing-model/state-machine protocol. It deliberately contains no terminal UI,
+complete Vim/Helix/Kakoune implementation, syntax service, or plugin runtime.
 
 The project thesis is that no editing model is fundamental. A future Vim-like
 model, selection-first model, structural model, and third-party model must all
@@ -50,9 +50,13 @@ make check
 
 - `lib/` contains the public kernel modules. Text storage is hidden behind
   `Text_buffer`; all mutations are `Document.apply` transitions driven by
-  validated `Transaction` values.
+  validated `Transaction` values. It also contains the separate
+  `zenbu.model_api` public library, which exposes logical input, constrained
+  contexts, model effects, commands, and the runtime.
+- `models/` contains two deliberately tiny proof models. They link only to
+  `zenbu.model_api`, never directly to `zenbu.kernel`.
 - `test/` contains deterministic unit/property tests and inspectable replay
-  fixtures.
+  fixtures, including model-runtime and cross-model tests.
 - `bin/` is a small headless demonstration, not a terminal editor.
 - `docs/` records protocol semantics, invariants, architecture, roadmap, and
   durable architectural decisions.
@@ -60,7 +64,7 @@ make check
 See [architecture](docs/ARCHITECTURE.md), the [editing protocol](docs/EDITING_PROTOCOL.md),
 and [invariants](docs/INVARIANTS.md) before extending the kernel.
 
-## M1 limitations
+## M2 limitations
 
 Coordinates are UTF-8 byte offsets at Unicode code-point boundaries. They are
 not grapheme-cluster, line/column, or terminal display-cell coordinates.
@@ -69,5 +73,10 @@ unless carried forward by the transaction's documented selection transform.
 Branching history is retained as an immutable tree, but no history UI or merge
 policy exists yet.
 
-The recommended next goal is M2: define the public editing-model/state-machine
-API on top of this kernel.
+The two proof models validate the API boundary; they are not Vim, Helix, or
+Kakoune compatibility layers. Input remains logical and headless: terminal
+decoding, rendering, keymap configuration UI, Tree-sitter, LSP, scripting, and
+plugin isolation are deferred.
+
+The recommended next goal is M3: build a small real Vim-style model and a small
+selection-first model as ordinary clients of the public M2 API.

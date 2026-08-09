@@ -22,7 +22,8 @@ let find registry id =
   | None -> Error (Error.Unknown_command (Command_id.to_string id))
 
 let descriptors registry =
-  registry |> Command_map.bindings |> List.map (fun (_, command) -> Command.descriptor command)
+  registry |> Command_map.bindings
+  |> List.map (fun (_, command) -> Command.descriptor command)
 
 let invoke registry ~context invocation =
   match find registry (Command_invocation.id invocation) with

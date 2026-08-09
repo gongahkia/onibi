@@ -56,9 +56,11 @@ let rec to_string = function
   | History_at_root -> "cannot undo at history root"
   | History_no_redo -> "no redo branch is available"
   | Unknown_history_node id -> Printf.sprintf "unknown history node %d" id
-  | Invalid_input_event message -> Printf.sprintf "invalid input event: %s" message
+  | Invalid_input_event message ->
+      Printf.sprintf "invalid input event: %s" message
   | Invalid_command_id value -> Printf.sprintf "invalid command id: %S" value
-  | Invalid_model_status message -> Printf.sprintf "invalid model status: %s" message
+  | Invalid_model_status message ->
+      Printf.sprintf "invalid model status: %s" message
   | Duplicate_command id -> Printf.sprintf "duplicate command: %s" id
   | Unknown_command id -> Printf.sprintf "unknown command: %s" id
   | Invalid_command_arguments message ->

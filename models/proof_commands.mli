@@ -5,4 +5,3 @@ val apply_invocation :
   selector:Zenbu_model_api.Model_intent.selector ->
   transformation:Zenbu_model_api.Model_intent.transformation ->
   Zenbu_model_api.Command_invocation.t
-

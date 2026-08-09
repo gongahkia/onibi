@@ -33,14 +33,13 @@ let document ?(selections = []) ?(primary = 0) id contents =
 let text document = Document_snapshot.contents (Document.snapshot document)
 
 let selection_offsets document =
-  Selection_set.to_list (Document_snapshot.selections (Document.snapshot document))
+  Selection_set.to_list
+    (Document_snapshot.selections (Document.snapshot document))
   |> List.map (fun selection ->
-         ( Anchor.byte_offset (Selection.anchor selection),
-           Anchor.byte_offset (Selection.head selection) ))
+      ( Anchor.byte_offset (Selection.anchor selection),
+        Anchor.byte_offset (Selection.head selection) ))
 
-let key text =
-  Input_event.key_press (Input_event.logical_text text |> must)
-
+let key text = Input_event.key_press (Input_event.logical_text text |> must)
 let text_input text = Input_event.text_input text |> must
 
 let registry () =
@@ -55,7 +54,8 @@ let test_logical_input_representation () =
   let event =
     Input_event.key_press
       ~modifiers:[ Input_event.Alt; Input_event.Control; Input_event.Alt ]
-      ~physical_key:physical (Input_event.logical_text "ω" |> must)
+      ~physical_key:physical
+      (Input_event.logical_text "ω" |> must)
   in
   expect
     (Input_event.modifiers event = [ Input_event.Control; Input_event.Alt ])
@@ -135,13 +135,15 @@ let test_command_registry () =
   in
   let zeta = make_command "test.zeta" "Zeta" "z" in
   let alpha = make_command "test.alpha" "Alpha" "a" in
-  let registry = Command_registry.register Command_registry.empty zeta |> must in
+  let registry =
+    Command_registry.register Command_registry.empty zeta |> must
+  in
   let registry = Command_registry.register registry alpha |> must in
   expect_error (Command_registry.register registry alpha);
   let descriptor_ids =
     Command_registry.descriptors registry
     |> List.map (fun descriptor ->
-           Command_id.to_string (Command_descriptor.id descriptor))
+        Command_id.to_string (Command_descriptor.id descriptor))
   in
   expect
     (descriptor_ids = [ "test.alpha"; "test.zeta" ])
@@ -150,7 +152,9 @@ let test_command_registry () =
   ignore (Command_registry.find registry alpha_id |> must);
   let unknown = Command_id.of_string "test.unknown" |> must in
   expect_error (Command_registry.find registry unknown);
-  let invocation = Command_invocation.create ~id:alpha_id ~arguments:[] |> must in
+  let invocation =
+    Command_invocation.create ~id:alpha_id ~arguments:[] |> must
+  in
   let context =
     Editor_context.from_snapshot
       ~snapshot:(Document.snapshot (document "command" "abc"))
@@ -159,14 +163,32 @@ let test_command_registry () =
   let intents = Command_registry.invoke registry ~context invocation |> must in
   expect
     (List.map Model_intent.identity intents = [ "insert-text" ])
-    "command invocation did not return semantic intents"
+    "command invocation did not return semantic intents";
+  let apply_descriptor = Command.descriptor Proof_commands.apply_command in
+  expect
+    (Command_descriptor.description apply_descriptor
+    = Some "Apply a model-neutral selector and transformation.")
+    "command description metadata was lost";
+  expect
+    (List.map
+       (fun parameter -> parameter.Command_descriptor.name)
+       (Command_descriptor.parameters apply_descriptor)
+    = [ "selector"; "transformation" ])
+    "command parameter metadata was lost";
+  expect
+    (Command_descriptor.examples apply_descriptor
+    = [ "editor.apply(selector: next-text-unit, transformation: delete)" ])
+    "command examples metadata was lost"
 
 let test_operator_runtime_state_machine () =
   let original = document "operator" "alpha beta" in
   let runtime =
-    Operator_runtime.create ~commands:(registry ()) ~document:original () |> must
+    Operator_runtime.create ~commands:(registry ()) ~document:original ()
+    |> must
   in
-  let runtime, pending = Operator_runtime.handle_input runtime (key "d") |> must in
+  let runtime, pending =
+    Operator_runtime.handle_input runtime (key "d") |> must
+  in
   expect
     (Model_status.id (Operator_runtime.status_after pending) = "pending-delete")
     "operator model did not enter its pending state";
@@ -184,7 +206,9 @@ let test_operator_runtime_state_machine () =
     (Model_status.id (Operator_runtime.status_after cancelled) = "command")
     "Escape did not cancel the pending state";
   let runtime, _ = Operator_runtime.handle_input runtime (key "d") |> must in
-  let runtime, applied = Operator_runtime.handle_input runtime (key "w") |> must in
+  let runtime, applied =
+    Operator_runtime.handle_input runtime (key "w") |> must
+  in
   expect_string ~expected:"lpha beta"
     ~actual:(text (History.current (Operator_runtime.history runtime)));
   expect
@@ -195,7 +219,9 @@ let test_operator_runtime_state_machine () =
     (List.length (Operator_runtime.input_trace runtime) = 4)
     "input trace did not retain logical events";
   expect_string ~expected:"alpha beta" ~actual:(text original);
-  let runtime, inserting = Operator_runtime.handle_input runtime (key "i") |> must in
+  let runtime, inserting =
+    Operator_runtime.handle_input runtime (key "i") |> must
+  in
   expect
     (Model_status.id (Operator_runtime.status_after inserting) = "inserting")
     "operator model did not enter insertion state";
@@ -203,7 +229,8 @@ let test_operator_runtime_state_machine () =
     Operator_runtime.handle_input runtime (text_input "界") |> must
   in
   expect
-    (List.map Model_intent.identity (Operator_runtime.intents insertion) = [ "insert-text" ])
+    (List.map Model_intent.identity (Operator_runtime.intents insertion)
+    = [ "insert-text" ])
     "committed text did not resolve into an insertion intent";
   expect_string ~expected:"界lpha beta"
     ~actual:(text (History.current (Operator_runtime.history runtime)));
@@ -214,7 +241,9 @@ let test_operator_runtime_state_machine () =
 
 let test_runtime_rejected_effect_is_atomic () =
   let bad_id = Command_id.of_string "missing.command" |> must in
-  let bad_invocation = Command_invocation.create ~id:bad_id ~arguments:[] |> must in
+  let bad_invocation =
+    Command_invocation.create ~id:bad_id ~arguments:[] |> must
+  in
   let descriptor =
     Editing_model.descriptor ~id:"test.failing" ~title:"Failing test model" ()
     |> must
@@ -248,7 +277,8 @@ let test_runtime_rejected_effect_is_atomic () =
 let test_runtime_selector_failure_is_atomic () =
   let runtime =
     Selection_runtime.create ~commands:(registry ())
-      ~document:(document ~selections:[ selection 5 5 ] "runtime-end" "alpha") ()
+      ~document:(document ~selections:[ selection 5 5 ] "runtime-end" "alpha")
+      ()
     |> must
   in
   expect_error (Selection_runtime.handle_input runtime (key "w"));
@@ -261,7 +291,8 @@ let test_runtime_selector_failure_is_atomic () =
 let run_operator contents inputs =
   let runtime =
     Operator_runtime.create ~commands:(registry ())
-      ~document:(document "operator-cross" contents) ()
+      ~document:(document "operator-cross" contents)
+      ()
     |> must
   in
   let runtime =
@@ -275,7 +306,8 @@ let run_operator contents inputs =
 let run_selection contents inputs =
   let runtime =
     Selection_runtime.create ~commands:(registry ())
-      ~document:(document "selection-cross" contents) ()
+      ~document:(document "selection-cross" contents)
+      ()
     |> must
   in
   let runtime =
@@ -337,7 +369,8 @@ let test_semantic_replay_is_not_input_trace () =
 let test_model_determinism () =
   let create () =
     Operator_runtime.create ~commands:(registry ())
-      ~document:(document "deterministic" "alpha") ()
+      ~document:(document "deterministic" "alpha")
+      ()
     |> must
   in
   let left, left_step =
@@ -362,9 +395,11 @@ let tests =
     ("command registry", test_command_registry);
     ("operator-first runtime state machine", test_operator_runtime_state_machine);
     ("rejected runtime effect is atomic", test_runtime_rejected_effect_is_atomic);
-    ("rejected runtime selector is atomic", test_runtime_selector_failure_is_atomic);
+    ( "rejected runtime selector is atomic",
+      test_runtime_selector_failure_is_atomic );
     ("cross-model proof", test_cross_model_proof);
-    ("semantic replay versus input trace", test_semantic_replay_is_not_input_trace);
+    ( "semantic replay versus input trace",
+      test_semantic_replay_is_not_input_trace );
     ("model determinism", test_model_determinism);
   ]
 

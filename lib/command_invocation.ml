@@ -12,6 +12,10 @@ let id value = value.id
 let arguments value = value.arguments
 
 let find value ~name =
-  match List.find_opt (fun argument -> String.equal (Command_argument.name argument) name) value.arguments with
+  match
+    List.find_opt
+      (fun argument -> String.equal (Command_argument.name argument) name)
+      value.arguments
+  with
   | Some argument -> Ok (Command_argument.value argument)
   | None -> Error (Error.Invalid_command_arguments ("missing argument " ^ name))

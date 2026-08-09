@@ -6,14 +6,10 @@ let fail error =
   prerr_endline (Error.to_string error);
   exit 1
 
-let selection anchor_offset head_offset =
-  match Selection_spec.make ~anchor_offset ~head_offset with
-  | Ok selection -> selection
-  | Error error -> fail error
-
 let proof_registry () =
   match
-    Command_registry.register Command_registry.empty Proof_commands.apply_command
+    Command_registry.register Command_registry.empty
+      Proof_commands.apply_command
   with
   | Ok registry -> registry
   | Error error -> fail error
@@ -76,12 +72,14 @@ let print_effects effects =
   | [] -> Printf.printf "Effect: none\n"
   | effects ->
       List.iter
-        (fun effect -> Printf.printf "Effect: %s\n" (Model_effect.describe effect))
+        (fun model_effect ->
+          Printf.printf "Effect: %s\n" (Model_effect.describe model_effect))
         effects
 
 let print_intents intents =
   List.iter
-    (fun intent -> Printf.printf "Semantic intent: %s\n" (Model_intent.identity intent))
+    (fun intent ->
+      Printf.printf "Semantic intent: %s\n" (Model_intent.identity intent))
     intents
 
 let demo () =
@@ -139,7 +137,8 @@ let demo () =
   print_intents (Selection_runtime.intents delete_step);
   Printf.printf "Result:\n%S\n"
     (Document_snapshot.contents
-       (Document.snapshot (History.current (Selection_runtime.history selection))))
+       (Document.snapshot
+          (History.current (Selection_runtime.history selection))))
 
 let usage () =
   prerr_endline "usage: zenbu-headless demo | replay <fixture.replay>";

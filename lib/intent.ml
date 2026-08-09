@@ -11,7 +11,10 @@ let identity = function
   | Replace_selected_ranges _ -> "replace-selected-ranges"
   | Set_selections _ -> "set-selections"
   | Apply { selector; transformation } ->
-      "apply:" ^ Selector.to_string selector ^ ":" ^ Transformation.name transformation
+      "apply:"
+      ^ Selector.to_string selector
+      ^ ":"
+      ^ Transformation.name transformation
 
 let collect results =
   let rec loop values = function
@@ -94,7 +97,7 @@ let resolve ~source ?description snapshot = function
   | Apply { selector; transformation } -> (
       match Selector.resolve snapshot selector with
       | Error _ as error -> error
-      | Ok selection_change ->
+      | Ok selection_change -> (
           let intent = identity (Apply { selector; transformation }) in
           match transformation with
           | Transformation.Select ->
@@ -114,4 +117,4 @@ let resolve ~source ?description snapshot = function
               | Ok edits ->
                   transaction snapshot ~edits
                     ~selection_change:(Some selection_change) ~source ~intent
-                    ~description))
+                    ~description)))

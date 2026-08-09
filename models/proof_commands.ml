@@ -24,7 +24,8 @@ let apply_descriptor =
              required = true;
            };
          ]
-       ~examples:[ "editor.apply(selector: next-text-unit, transformation: delete)" ]
+       ~examples:
+         [ "editor.apply(selector: next-text-unit, transformation: delete)" ]
        ())
 
 let apply_handler _context invocation =
@@ -37,7 +38,8 @@ let apply_handler _context invocation =
   let* transformation = Command_argument.as_transformation transformation in
   Ok [ Model_intent.apply ~selector ~transformation ]
 
-let apply_command = Command.create ~descriptor:apply_descriptor ~handler:apply_handler
+let apply_command =
+  Command.create ~descriptor:apply_descriptor ~handler:apply_handler
 
 let apply_invocation ~selector ~transformation =
   let selector =
@@ -50,5 +52,6 @@ let apply_invocation ~selector ~transformation =
       (Command_argument.make ~name:"transformation"
          ~value:(Command_argument.Transformation transformation))
   in
-  static (Command_invocation.create ~id:apply_id ~arguments:[ selector; transformation ])
-
+  static
+    (Command_invocation.create ~id:apply_id
+       ~arguments:[ selector; transformation ])

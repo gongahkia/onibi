@@ -42,11 +42,14 @@ let valid_text text =
 
 let physical_key value =
   if String.length value = 0 then
-    Error (Error.Invalid_input_event "physical key identifier must not be empty")
+    Error
+      (Error.Invalid_input_event "physical key identifier must not be empty")
   else Ok value
 
 let logical_text text =
-  match valid_text text with Error _ as error -> error | Ok text -> Ok (Logical_text text)
+  match valid_text text with
+  | Error _ as error -> error
+  | Ok text -> Ok (Logical_text text)
 
 let named_key value = Named_key value
 
@@ -54,11 +57,20 @@ let key_press ?(modifiers = []) ?physical_key key =
   Key_press { key; modifiers = normalize_modifiers modifiers; physical_key }
 
 let text_input text =
-  match valid_text text with Error _ as error -> error | Ok text -> Ok (Text_input text)
+  match valid_text text with
+  | Error _ as error -> error
+  | Ok text -> Ok (Text_input text)
 
-let modifiers = function Key_press value -> value.modifiers | Text_input _ -> []
+let modifiers = function
+  | Key_press value -> value.modifiers
+  | Text_input _ -> []
+
 let key = function Key_press value -> Some value.key | Text_input _ -> None
-let physical = function Key_press value -> value.physical_key | Text_input _ -> None
+
+let physical = function
+  | Key_press value -> value.physical_key
+  | Text_input _ -> None
+
 let text = function Text_input value -> Some value | Key_press _ -> None
 
 let modifier_to_string = function
@@ -83,9 +95,7 @@ let named_key_to_string = function
 let to_string = function
   | Text_input text -> "text-input(" ^ String.escaped text ^ ")"
   | Key_press { key; modifiers; physical_key = _ } ->
-      let prefix =
-        String.concat "+" (List.map modifier_to_string modifiers)
-      in
+      let prefix = String.concat "+" (List.map modifier_to_string modifiers) in
       let key =
         match key with
         | Logical_text text -> "text(" ^ String.escaped text ^ ")"

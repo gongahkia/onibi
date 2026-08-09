@@ -7,5 +7,6 @@ val create :
 
 val id : t -> Command_id.t
 val arguments : t -> Command_argument.t list
+
 val find :
   t -> name:string -> (Command_argument.value, Zenbu_kernel.Error.t) result

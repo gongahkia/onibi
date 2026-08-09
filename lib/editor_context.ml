@@ -24,7 +24,8 @@ let from_snapshot ~snapshot ~commands =
   in
   {
     document_id = Document_id.to_string (Document_snapshot.document_id snapshot);
-    document_version = Document_version.to_int (Document_snapshot.version snapshot);
+    document_version =
+      Document_version.to_int (Document_snapshot.version snapshot);
     contents = Document_snapshot.contents snapshot;
     byte_length = Document_snapshot.byte_length snapshot;
     selections =
@@ -42,4 +43,3 @@ let contents value = value.contents
 let byte_length value = value.byte_length
 let selections value = value.selections
 let command_descriptors value = value.commands
-

@@ -306,29 +306,32 @@ let parse_actions lines =
                   rest
             | _ -> Error (Error.Malformed_replay "invalid apply intent"))
         | None -> (
-        match after_prefix "action=intent-insert\t" line with
-        | Some text ->
-            let* text = unescape text in
-            loop (Intent (Intent.Insert_text text) :: values) rest
-        | None -> (
-            match after_prefix "action=intent-replace\t" line with
+            match after_prefix "action=intent-insert\t" line with
             | Some text ->
                 let* text = unescape text in
-                loop
-                  (Intent (Intent.Replace_selected_ranges text) :: values)
-                  rest
+                loop (Intent (Intent.Insert_text text) :: values) rest
             | None -> (
-                match after_prefix "action=intent-set\t" line with
-                | Some state ->
-                    let* { selections; primary } =
-                      parse_selection_state state
-                    in
+                match after_prefix "action=intent-replace\t" line with
+                | Some text ->
+                    let* text = unescape text in
                     loop
-                      (Intent (Intent.Set_selections { selections; primary })
-                      :: values)
+                      (Intent (Intent.Replace_selected_ranges text) :: values)
                       rest
-                | None ->
-                    Error (Error.Malformed_replay ("unknown action " ^ line))))))
+                | None -> (
+                    match after_prefix "action=intent-set\t" line with
+                    | Some state ->
+                        let* { selections; primary } =
+                          parse_selection_state state
+                        in
+                        loop
+                          (Intent
+                             (Intent.Set_selections { selections; primary })
+                          :: values)
+                          rest
+                    | None ->
+                        Error
+                          (Error.Malformed_replay ("unknown action " ^ line)))))
+        )
   in
   loop [] lines
 

@@ -11,16 +11,23 @@ type t = {
   examples : string list;
 }
 
-let create ~id ~title ?description ?category ?(parameters = []) ?(examples = []) () =
+let create ~id ~title ?description ?category ?(parameters = []) ?(examples = [])
+    () =
   if String.length title = 0 then
     Error (Error.Invalid_command_arguments "command title must not be empty")
   else if
     List.exists (fun parameter -> String.length parameter.name = 0) parameters
-  then Error (Error.Invalid_command_arguments "command parameter name must not be empty")
+  then
+    Error
+      (Error.Invalid_command_arguments
+         "command parameter name must not be empty")
   else
     let names = List.map (fun parameter -> parameter.name) parameters in
-    if List.length names <> List.length (List.sort_uniq String.compare names) then
-      Error (Error.Invalid_command_arguments "command parameter names must be unique")
+    if List.length names <> List.length (List.sort_uniq String.compare names)
+    then
+      Error
+        (Error.Invalid_command_arguments
+           "command parameter names must be unique")
     else Ok { id; title; description; category; parameters; examples }
 
 let id value = value.id

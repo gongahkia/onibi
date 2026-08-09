@@ -1,0 +1,124 @@
+# Editing-model API
+
+M2 defines the smallest public boundary through which an editing grammar turns
+logical input into semantic editing. A model is not a terminal backend and it
+is not a privileged part of the editor.
+
+```text
+terminal decoder (future)
+          ↓
+     Input_event
+          ↓
+  Editing_model.handle_input
+          ↓
+   Model_effect values
+          ↓
+    Model_runtime
+          ↓
+      Intent / command
+          ↓
+ transaction + history commit
+```
+
+The runtime is synchronous and functional at its public boundary: given the
+same model state, input event, editor context, command registry, and document
+history, a deterministic model produces the same next state and semantic
+effects. The runtime stores no mutable global editor object.
+
+## Logical input
+
+`Input_event` describes decoded, logical input. A `Key_press` contains a
+logical key (`Logical_text` or a named key such as `Escape`/`Enter`), a
+normalized modifier set, and optional physical-key metadata. `Text_input`
+represents committed UTF-8 text, such as IME output or paste.
+
+Physical key metadata is diagnostic only; editing models should interpret the
+logical key. `Logical_text "d"` is a key the model may treat as a command;
+`Text_input "d"` is committed text that an insertion state may choose to turn
+into `insert-text`. Neither automatically changes the document. This avoids
+US-QWERTY assumptions and keeps terminal escape decoding below the API.
+
+M2 intentionally excludes mouse, resize, raw terminal bytes, release events,
+Notty, Lambda-Term, and curses from editing grammar input.
+
+## Context and lifecycle
+
+An `Editing_model.S` has an opaque `state` plus `initialize`, `handle_input`,
+`reset`, and `status` functions. The runtime is a functor over that module only
+so it can retain model state without inspecting it. It does not know what a
+model's states mean.
+
+`Editor_context` is an immutable snapshot facade. It exposes active document
+id/version, contents, byte length, selections as anchor/head byte offsets, and
+the registered command descriptors. It deliberately does not expose a mutable
+document, `Document.apply`, history internals, text-buffer representation,
+transaction construction, terminal state, or arbitrary callbacks.
+
+`Model_status` is generic: stable id, human label, optional description,
+optional pending input, and small metadata. A statusline may display it later,
+but a model with no modes fits equally well.
+
+## Effects, selectors, and transformations
+
+Model effects are values, never closures:
+
+- `Execute_intent` requests a model-neutral semantic intent.
+- `Invoke_command` names a registered command id and typed arguments.
+- `Emit_message` reports an inspectable message.
+
+`Model_intent` is the model-facing facade for M1 intents plus M2 composition.
+It has primitive selectors (`current selections`, whole document, next/previous
+UTF-8 text unit) and transformations (`select`, `delete`, `replace text`). The
+runtime converts it to the kernel intent and lets existing transaction/history
+validation perform the mutation.
+
+Selectors answer *which regions?*; transformations answer *what happens?*.
+The proof models share `next-text-unit` and `delete`, though one obtains it
+after an operator and the other makes it visible first. M2 deliberately does
+not define word, regex, syntax, LSP, or display-width selectors.
+
+## Commands
+
+`Command_descriptor` contains a stable `Command_id`, title, optional
+description/category, a small named parameter list, and examples. The explicit
+immutable `Command_registry` rejects duplicate ids, lists descriptors in id
+order, and invokes commands semantically. Command handlers receive only an
+`Editor_context` and return `Model_intent` values.
+
+Bindings are not commands. A model may interpret a key grammar however it
+wants, then invoke `editor.apply` or another command directly; it never needs
+to synthesize keystrokes. M2 has no global keymap language.
+
+## Runtime behavior and traces
+
+`Model_runtime.Make(Model).handle_input` builds a fresh context, calls the
+model, then interprets effects in order. Intents commit through `History` using
+the existing transaction path. The returned step exposes input, effects,
+intents, messages, committed change ids, resulting version, and status.
+
+If an effect or command fails, the call returns its specific error. The
+runtime's prior model state, history, and input trace remain unchanged.
+
+The runtime's `input_trace` is intentionally separate from M1 semantic replay:
+
+```text
+input trace:       d, w
+semantic replay:   apply(next-text-unit, delete)
+```
+
+Input traces help state-machine tests and debugging. Semantic replay remains
+model-independent and is suitable for macros, bug reports, and automation.
+
+## Proof models
+
+`zenbu.proof_models` contains intentionally incomplete examples, both linked
+only to `zenbu.model_api`:
+
+```text
+operator-first:    d → pending delete; w → delete(next-text-unit)
+selection-first:   w → select(next-text-unit); d → delete(current-selections)
+```
+
+Thus `d w` means different things under the two models, while operator-first
+`d w` and selection-first `w d` converge on the same semantic deletion. This
+is the M2 architectural proof, not a Vim/Helix/Kakoune compatibility claim.

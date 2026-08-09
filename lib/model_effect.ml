@@ -18,5 +18,10 @@ let describe = function
   | Invoke_command invocation ->
       "invoke " ^ Command_id.to_string (Command_invocation.id invocation)
   | Emit_message { level; text } ->
-      let level = match level with Info -> "info" | Warning -> "warning" | Error -> "error" in
+      let level =
+        match level with
+        | Info -> "info"
+        | Warning -> "warning"
+        | Error -> "error"
+      in
       level ^ ": " ^ text

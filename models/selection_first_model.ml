@@ -38,4 +38,3 @@ let handle_input () event _context =
   else if is_text event "d" then
     ((), [ apply Model_intent.Current_selections Model_intent.Delete ])
   else ((), [])
-

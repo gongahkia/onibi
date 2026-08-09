@@ -21,7 +21,7 @@ let status = function
   | Command ->
       static
         (Model_status.create ~id:"command" ~label:"COMMAND"
-           ~description:("awaiting an operator or direct command") ())
+           ~description:"awaiting an operator or direct command" ())
   | Pending_delete ->
       static
         (Model_status.create ~id:"pending-delete" ~label:"DELETE PENDING"
@@ -40,7 +40,8 @@ let is_text event expected =
 let is_escape event =
   match Input_event.key event with
   | Some (Input_event.Named_key Input_event.Escape) -> true
-  | Some (Input_event.Logical_text _) | Some (Input_event.Named_key _) | None -> false
+  | Some (Input_event.Logical_text _) | Some (Input_event.Named_key _) | None ->
+      false
 
 let apply selector transformation =
   Model_effect.Invoke_command
@@ -51,18 +52,16 @@ let handle_input state event _context =
   | Command when is_text event "d" -> (Pending_delete, [])
   | Command when is_text event "i" -> (Inserting, [])
   | Command when is_text event "x" ->
-      ( Command,
-        [
-          apply Model_intent.Current_selections Model_intent.Delete;
-        ] )
+      (Command, [ apply Model_intent.Current_selections Model_intent.Delete ])
   | Pending_delete when is_text event "w" ->
-      ( Command,
-        [ apply Model_intent.Next_text_unit Model_intent.Delete ] )
+      (Command, [ apply Model_intent.Next_text_unit Model_intent.Delete ])
   | Pending_delete when is_escape event -> (Command, [])
   | Pending_delete -> (Pending_delete, [])
   | Inserting when is_escape event -> (Command, [])
   | Inserting -> (
       match Input_event.text event with
-      | Some text -> (Inserting, [ Model_effect.Execute_intent (Model_intent.insert_text text) ])
+      | Some text ->
+          ( Inserting,
+            [ Model_effect.Execute_intent (Model_intent.insert_text text) ] )
       | None -> (Inserting, []))
   | Command -> (Command, [])

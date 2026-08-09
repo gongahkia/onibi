@@ -1,6 +1,11 @@
 open Zenbu_kernel
 
-type selector = Current_selections | Document | Next_text_unit | Previous_text_unit
+type selector =
+  | Current_selections
+  | Document
+  | Next_text_unit
+  | Previous_text_unit
+
 type transformation = Select | Delete | Replace_text of string
 type t = Intent.t
 
@@ -40,4 +45,3 @@ let apply ~selector ~transformation =
 
 let identity = Intent.identity
 let to_kernel value = value
-

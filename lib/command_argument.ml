@@ -21,4 +21,6 @@ let as_selector = function
 
 let as_transformation = function
   | Transformation transformation -> Ok transformation
-  | _ -> Error (Error.Invalid_command_arguments "expected a transformation argument")
+  | _ ->
+      Error
+        (Error.Invalid_command_arguments "expected a transformation argument")

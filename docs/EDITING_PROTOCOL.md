@@ -58,3 +58,26 @@ specified transaction. Replay runs from supplied contents and selections,
 records the first failing zero-based action index, and is deterministic for the
 same input.
 
+## M2 selector/transformation composition
+
+M2 preserves the M1 intent variants and adds a model-neutral `Apply` intent:
+
+```text
+selector + transformation -> semantic intent -> transaction
+```
+
+The primitive selectors are `current-selections`, `document`,
+`next-text-unit`, and `previous-text-unit`. A text unit is exactly one UTF-8
+code point beginning or ending at each selection head; it is not a word,
+grapheme cluster, terminal cell, or Vim motion. `next` and `previous` reject a
+selection at the corresponding document boundary.
+
+The initial transformations are `select`, `delete`, and `replace-text`. A
+selection transformation changes the selection set without text edits. Delete
+and replace first resolve the selector, then use those target ranges for both
+edits and post-transaction selection rebasing. The same selector and
+transformation values therefore compose independently of the model that
+requested them.
+
+Semantic replay serializes `Apply` as a selector/transformation operation. It
+does not record logical input events or model states.

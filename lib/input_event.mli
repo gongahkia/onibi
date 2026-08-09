@@ -1,13 +1,36 @@
 type modifier = Shift | Control | Alt | Meta
 type physical_key
-type named_key = Escape | Enter | Backspace | Tab | Delete | Arrow_up | Arrow_down | Arrow_left | Arrow_right | Home | End
+
+type named_key =
+  | Escape
+  | Enter
+  | Backspace
+  | Tab
+  | Delete
+  | Arrow_up
+  | Arrow_down
+  | Arrow_left
+  | Arrow_right
+  | Home
+  | End
+
 type key = Logical_text of string | Named_key of named_key
-type t = Key_press of { key : key; modifiers : modifier list; physical_key : physical_key option } | Text_input of string
+
+type t =
+  | Key_press of {
+      key : key;
+      modifiers : modifier list;
+      physical_key : physical_key option;
+    }
+  | Text_input of string
 
 val physical_key : string -> (physical_key, Zenbu_kernel.Error.t) result
 val logical_text : string -> (key, Zenbu_kernel.Error.t) result
 val named_key : named_key -> key
-val key_press : ?modifiers:modifier list -> ?physical_key:physical_key -> key -> t
+
+val key_press :
+  ?modifiers:modifier list -> ?physical_key:physical_key -> key -> t
+
 val text_input : string -> (t, Zenbu_kernel.Error.t) result
 val modifiers : t -> modifier list
 val key : t -> key option

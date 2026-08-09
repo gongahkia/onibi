@@ -18,8 +18,28 @@ The M0/M1 constructors and commit path enforce these invariants.
 6. History nodes retain immutable before/after documents and transaction
    metadata. Undo/redo selects existing nodes rather than applying inverse
    mutations.
+7. Editing models only receive immutable `Input_event` values and an immutable
+   `Editor_context` facade. The facade provides document text, byte length,
+   selection offsets, document identity/version, and command descriptors; it
+   intentionally omits mutable documents, history nodes, text-buffer storage,
+   transaction commit, and arbitrary callbacks.
+8. Model effects are inspectable data: execute a semantic intent, invoke a
+   stable command id with typed arguments, or emit a message. They never carry
+   an editor-mutation closure. Model status is derived from model-owned state.
+9. The model runtime interprets an input event against a snapshot, then commits
+   all resulting effects through normal history/transaction APIs. If any effect
+   fails, it returns the detailed error and retains the prior runtime state,
+   history, and input trace.
+10. A command registry is an explicit immutable value. Command ids are stable,
+    unique, deterministically enumerated identifiers; a command handler
+    receives only an `Editor_context` and returns semantic intents.
 
 The following rule is architectural rather than merely local:
 
 > Core mutation APIs must not expose arbitrary `mutable Editor` access to
 > extensions.
+
+The M2 dogfood invariant is equally strict:
+
+> Anything a first-party editing model can do must ultimately be possible for a
+> third-party editing model using the public API.

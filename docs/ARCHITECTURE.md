@@ -1,6 +1,7 @@
 # Architecture
 
-Zenbu M0/M1 is a functional semantic editing kernel. The central transition is
+Zenbu M0/M2 is a functional semantic editing kernel plus a public
+editing-model protocol. The central kernel transition is
 conceptually:
 
 ```text
@@ -35,14 +36,45 @@ creates a branch instead of discarding future history. `Replay` serializes
 headless intents and transaction specifications, then reports the index of the
 first failing action.
 
+## M2 model boundary
+
+M2 adds this deliberately one-way dependency graph:
+
+```text
+zenbu.kernel
+      ↑
+zenbu.model_api
+      ↑
+zenbu.proof_models
+```
+
+`zenbu.kernel` owns documents, snapshots, selectors, transformations, intents,
+transactions, history, and semantic replay. It has no input event, editing
+model, command registry, normal mode, motion, or keybinding type.
+
+`zenbu.model_api` supplies immutable logical `Input_event` values, a restricted
+`Editor_context`, inspectable `Model_effect` values, commands and their
+immutable registry, and a synchronous state-machine runtime. A model returns a
+new opaque state and effects; the runtime is the only API component that
+interprets effects into existing kernel intents and commits.
+
+The two M2 proof models link only to `zenbu.model_api`. Their source cannot
+call `Document.apply`, `History.commit`, or a storage implementation; command
+handlers receive only `Editor_context` and return semantic intents. Dune's
+separate library dependencies enforce this direct dependency boundary. OCaml
+does not make public libraries a security sandbox, so actual untrusted-plugin
+isolation remains an M8/M9 concern.
+
 ## Extension boundary
 
 > First-party editing models and first-party plugins must eventually use only
 > the same public editing APIs available to third parties. No editing model
 > receives privileged access to editor mutation.
 
-There is no `Editor` object with a public mutable escape hatch. M2 will define
-an editing-model/state-machine API that resolves input into the M1 `Intent` and
+There is no `Editor` object with a public mutable escape hatch. M2 defines an
+editing-model/state-machine API that resolves input into the M1 `Intent` and
 `Transaction` interfaces. M0/M1 does not decide whether commands are
 operator-motion, selection-action, structural, or something else.
 
+M2 implements that API without moving an editing grammar into the kernel. See
+[the editing-model API](EDITING_MODEL_API.md) for the public protocol.

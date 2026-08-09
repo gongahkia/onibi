@@ -26,7 +26,9 @@ module Make (Model : Editing_model.S) = struct
       ~commands:(Command_registry.descriptors commands)
 
   let model_call call =
-    try Ok (call ()) with exception_ -> Error (Error.Model_execution_failed (Printexc.to_string exception_))
+    try Ok (call ())
+    with exception_ ->
+      Error (Error.Model_execution_failed (Printexc.to_string exception_))
 
   let create ?(commands = Command_registry.empty) ~document () =
     let history = History.create document in
@@ -42,7 +44,8 @@ module Make (Model : Editing_model.S) = struct
   let change_id history =
     match History.current_change history with
     | Some change -> History.change_id change
-    | None -> failwith "history invariant violated: committed intent has no change"
+    | None ->
+        failwith "history invariant violated: committed intent has no change"
 
   let apply_intents history ?description intents =
     let rec loop history change_ids = function
@@ -60,15 +63,16 @@ module Make (Model : Editing_model.S) = struct
         match apply_intents history [ intent ] with
         | Error _ as error -> error
         | Ok (history, changes) -> Ok (history, [ intent ], changes, []))
-    | Model_effect.Invoke_command invocation ->
+    | Model_effect.Invoke_command invocation -> (
         let context = make_context history commands in
-        (match Command_registry.invoke commands ~context invocation with
+        match Command_registry.invoke commands ~context invocation with
         | Error _ as error -> error
-        | Ok intents ->
+        | Ok intents -> (
             let description =
-              "command " ^ Command_id.to_string (Command_invocation.id invocation)
+              "command "
+              ^ Command_id.to_string (Command_invocation.id invocation)
             in
-            (match apply_intents history ~description intents with
+            match apply_intents history ~description intents with
             | Error _ as error -> error
             | Ok (history, changes) -> Ok (history, intents, changes, [])))
     | Model_effect.Emit_message message -> Ok (history, [], [], [ message ])
@@ -90,7 +94,9 @@ module Make (Model : Editing_model.S) = struct
 
   let handle_input runtime input =
     let context = make_context runtime.history runtime.commands in
-    match model_call (fun () -> Model.handle_input runtime.state input context) with
+    match
+      model_call (fun () -> Model.handle_input runtime.state input context)
+    with
     | Error _ as error -> error
     | Ok (state, effects) -> (
         match interpret_effects runtime.commands runtime.history effects with
@@ -116,9 +122,10 @@ module Make (Model : Editing_model.S) = struct
                       messages;
                       change_ids;
                       document_version =
-                        Document_version.to_int (Document.version (History.current history));
+                        Document_version.to_int
+                          (Document.version (History.current history));
                       status_after = status;
-                    })))
+                    } )))
 
   let reset runtime =
     let context = make_context runtime.history runtime.commands in

@@ -1,8 +1,4 @@
-type t =
-  | Current_selections
-  | Document
-  | Next_text_unit
-  | Previous_text_unit
+type t = Current_selections | Document | Next_text_unit | Previous_text_unit
 
 let to_string = function
   | Current_selections -> "current-selections"
@@ -17,13 +13,13 @@ let of_string = function
   | "previous-text-unit" -> Ok Previous_text_unit
   | value -> Error (Error.Malformed_replay ("unknown selector " ^ value))
 
-let is_continuation text index =
-  Char.code text.[index] land 0xC0 = 0x80
+let is_continuation text index = Char.code text.[index] land 0xC0 = 0x80
 
 let next_boundary text offset =
   let length = String.length text in
   if offset >= length then
-    Error (Error.Invalid_selector "next text unit is unavailable at document end")
+    Error
+      (Error.Invalid_selector "next text unit is unavailable at document end")
   else
     let rec find index =
       if index = length || not (is_continuation text index) then index
@@ -33,7 +29,9 @@ let next_boundary text offset =
 
 let previous_boundary text offset =
   if offset <= 0 then
-    Error (Error.Invalid_selector "previous text unit is unavailable at document start")
+    Error
+      (Error.Invalid_selector
+         "previous text unit is unavailable at document start")
   else
     let rec find index =
       if not (is_continuation text index) then index else find (index - 1)
@@ -58,7 +56,9 @@ let collect selections =
 
 let resolve_text_unit snapshot direction =
   let text = Document_snapshot.contents snapshot in
-  let existing = Selection_set.to_list (Document_snapshot.selections snapshot) in
+  let existing =
+    Selection_set.to_list (Document_snapshot.selections snapshot)
+  in
   let selections =
     List.map
       (fun selection ->
@@ -82,7 +82,8 @@ let resolve_text_unit snapshot direction =
   | Error _ as error -> error
   | Ok selections ->
       Selection_set.create
-        ~primary:(Selection_set.primary_index (Document_snapshot.selections snapshot))
+        ~primary:
+          (Selection_set.primary_index (Document_snapshot.selections snapshot))
         selections
 
 let resolve snapshot = function
@@ -96,4 +97,3 @@ let resolve snapshot = function
       | Ok selection -> Selection_set.create ~primary:0 [ selection ])
   | Next_text_unit -> resolve_text_unit snapshot `Next
   | Previous_text_unit -> resolve_text_unit snapshot `Previous
-
