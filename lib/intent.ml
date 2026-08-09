@@ -63,20 +63,21 @@ let collapse_selections snapshot selections endpoint =
   let collapsed =
     Selection_set.to_list selections
     |> List.map (fun selection ->
-           let range = Selection.range selection in
-           let offset =
-             match endpoint with
-             | `Start -> Anchor.byte_offset (Range.start range)
-             | `End -> Anchor.byte_offset (Range.stop range)
-           in
-           match Document_snapshot.anchor snapshot ~byte_offset:offset with
-           | Error _ as error -> error
-           | Ok anchor -> Selection.make ~anchor ~head:anchor)
+        let range = Selection.range selection in
+        let offset =
+          match endpoint with
+          | `Start -> Anchor.byte_offset (Range.start range)
+          | `End -> Anchor.byte_offset (Range.stop range)
+        in
+        match Document_snapshot.anchor snapshot ~byte_offset:offset with
+        | Error _ as error -> error
+        | Ok anchor -> Selection.make ~anchor ~head:anchor)
   in
   match collect collapsed with
   | Error _ as error -> error
   | Ok collapsed ->
-      Selection_set.create ~primary:(Selection_set.primary_index selections)
+      Selection_set.create
+        ~primary:(Selection_set.primary_index selections)
         collapsed
 
 let transaction snapshot ~edits ~selection_change ~source ~intent ~description =

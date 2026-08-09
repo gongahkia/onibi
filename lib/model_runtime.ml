@@ -24,8 +24,10 @@ module Make (Model : Editing_model.S) = struct
 
   let make_context history commands clipboard =
     Editor_context.from_snapshot
-      ~snapshot:(Document.snapshot (History.current history)) ~clipboard
-      ~commands:(Command_registry.descriptors commands) ()
+      ~snapshot:(Document.snapshot (History.current history))
+      ~clipboard
+      ~commands:(Command_registry.descriptors commands)
+      ()
 
   let model_call call =
     try Ok (call ())
@@ -73,7 +75,9 @@ module Make (Model : Editing_model.S) = struct
     if List.exists Model_intent.is_textual intents then Some intents else None
 
   let retain_repeatable previous intents =
-    match repeatable intents with Some intents -> Some intents | None -> previous
+    match repeatable intents with
+    | Some intents -> Some intents
+    | None -> previous
 
   let selection_set_for_selector history selector =
     let snapshot = Document.snapshot (History.current history) in
@@ -96,15 +100,16 @@ module Make (Model : Editing_model.S) = struct
     | Error _ as error -> error
     | Ok selections ->
         let contents =
-          Document_snapshot.contents (Document.snapshot (History.current history))
+          Document_snapshot.contents
+            (Document.snapshot (History.current history))
         in
         let text =
           Selection_set.to_list selections
           |> List.map (fun selection ->
-                 let range = Selection.range selection in
-                 let start = Anchor.byte_offset (Range.start range) in
-                 let stop = Anchor.byte_offset (Range.stop range) in
-                 String.sub contents start (stop - start))
+              let range = Selection.range selection in
+              let start = Anchor.byte_offset (Range.start range) in
+              let stop = Anchor.byte_offset (Range.stop range) in
+              String.sub contents start (stop - start))
           |> String.concat ""
         in
         Ok text
@@ -113,7 +118,7 @@ module Make (Model : Editing_model.S) = struct
     let contents = Clipboard.contents entry in
     match placement with
     | Clipboard.Replace -> Ok [ Model_intent.replace_selected_ranges contents ]
-    | Clipboard.Before | Clipboard.After ->
+    | Clipboard.Before | Clipboard.After -> (
         let offsets =
           match Clipboard.kind entry with
           | Clipboard.Characterwise ->
@@ -135,7 +140,9 @@ module Make (Model : Editing_model.S) = struct
                       | Clipboard.Replace -> assert false)
                     selections.Editor_context.selections )
           | Clipboard.Linewise -> (
-              match selection_set_for_selector history Model_intent.Current_line with
+              match
+                selection_set_for_selector history Model_intent.Current_line
+              with
               | Error _ as error -> error
               | Ok selections ->
                   Ok
@@ -160,9 +167,10 @@ module Make (Model : Editing_model.S) = struct
                 ~primary
             with
             | Error _ as error -> error
-            | Ok set -> Ok [ set; Model_intent.insert_text contents ])
+            | Ok set -> Ok [ set; Model_intent.insert_text contents ]))
 
-  let interpret_effect commands history clipboard repeatable_intents model_effect =
+  let interpret_effect commands history clipboard repeatable_intents
+      model_effect =
     match model_effect with
     | Model_effect.Execute_intent intent -> (
         match apply_intents history [ intent ] with
@@ -174,7 +182,7 @@ module Make (Model : Editing_model.S) = struct
                 [ intent ],
                 changes,
                 [],
-                retain_repeatable repeatable_intents [ intent] ))
+                retain_repeatable repeatable_intents [ intent ] ))
     | Model_effect.Invoke_command invocation -> (
         let context = make_context history commands clipboard in
         match Command_registry.invoke commands ~context invocation with
@@ -239,16 +247,13 @@ module Make (Model : Editing_model.S) = struct
         match repeatable_intents with
         | None -> Error Error.No_repeatable_edit
         | Some intents -> (
-            match apply_intents history ~description:"repeat semantic edit" intents with
+            match
+              apply_intents history ~description:"repeat semantic edit" intents
+            with
             | Error _ as error -> error
             | Ok (history, changes) ->
-                Ok
-                  ( history,
-                    clipboard,
-                    intents,
-                    changes,
-                    [],
-                    repeatable_intents )))
+                Ok (history, clipboard, intents, changes, [], repeatable_intents)
+            ))
 
   let interpret_effects commands history clipboard repeatable_intents effects =
     let rec loop history clipboard intents changes messages repeatable_intents =
@@ -283,7 +288,9 @@ module Make (Model : Editing_model.S) = struct
     loop history clipboard [] [] [] repeatable_intents effects
 
   let handle_input runtime input =
-    let context = make_context runtime.history runtime.commands runtime.clipboard in
+    let context =
+      make_context runtime.history runtime.commands runtime.clipboard
+    in
     match
       model_call (fun () -> Model.handle_input runtime.state input context)
     with
@@ -329,13 +336,18 @@ module Make (Model : Editing_model.S) = struct
                     } )))
 
   let reset runtime =
-    let context = make_context runtime.history runtime.commands runtime.clipboard in
+    let context =
+      make_context runtime.history runtime.commands runtime.clipboard
+    in
     match model_call (fun () -> Model.reset runtime.state context) with
     | Error _ as error -> error
     | Ok state -> Ok { runtime with state }
 
   let history runtime = runtime.history
-  let context runtime = make_context runtime.history runtime.commands runtime.clipboard
+
+  let context runtime =
+    make_context runtime.history runtime.commands runtime.clipboard
+
   let status runtime = Model.status runtime.state
   let model_descriptor _ = Model.descriptor
   let input_trace runtime = runtime.input_trace

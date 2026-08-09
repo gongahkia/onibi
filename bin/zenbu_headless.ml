@@ -31,7 +31,8 @@ module Selection_runtime = Model_runtime.Make (Selection_model)
 
 let semantic_registry () =
   match
-    Command_registry.register Command_registry.empty Semantic_commands.apply_command
+    Command_registry.register Command_registry.empty
+      Semantic_commands.apply_command
   with
   | Ok registry -> registry
   | Error error -> fail error
@@ -52,8 +53,8 @@ let print_history history =
       in
       Printf.printf "change %d: %s %s (%s), v%d -> v%d\n"
         (History.change_id change)
-        (Transaction.source_to_string (Transaction.source metadata)) intent
-        description
+        (Transaction.source_to_string (Transaction.source metadata))
+        intent description
         (Document_version.to_int (Document.version (History.before change)))
         (Document_version.to_int (Document.version (History.after change))))
     (History.lineage history)
@@ -88,7 +89,8 @@ let print_intents intents =
     intents
 
 let print_step index input effects intents status history =
-  Printf.printf "step %d: %s -> %s\n" index (Input_event.to_string input)
+  Printf.printf "step %d: %s -> %s\n" index
+    (Input_event.to_string input)
     (Model_status.label status);
   print_effects effects;
   print_intents intents;
@@ -99,7 +101,8 @@ let run_vim_session contents inputs =
   let runtime =
     match
       Vim_runtime.create ~commands:(semantic_registry ())
-        ~document:(document_for "vim-session" contents) ()
+        ~document:(document_for "vim-session" contents)
+        ()
     with
     | Ok runtime -> runtime
     | Error error -> fail error
@@ -110,9 +113,11 @@ let run_vim_session contents inputs =
         match Vim_runtime.handle_input runtime input with
         | Error error -> fail error
         | Ok (runtime, step) ->
-            print_step (List.length (Vim_runtime.input_trace runtime)) input
-              (Vim_runtime.effects step) (Vim_runtime.intents step)
-              (Vim_runtime.status_after step) (Vim_runtime.history runtime);
+            print_step
+              (List.length (Vim_runtime.input_trace runtime))
+              input (Vim_runtime.effects step) (Vim_runtime.intents step)
+              (Vim_runtime.status_after step)
+              (Vim_runtime.history runtime);
             runtime)
       runtime inputs
   in
@@ -122,7 +127,8 @@ let run_selection_session contents inputs =
   let runtime =
     match
       Selection_runtime.create ~commands:(semantic_registry ())
-        ~document:(document_for "selection-session" contents) ()
+        ~document:(document_for "selection-session" contents)
+        ()
     with
     | Ok runtime -> runtime
     | Error error -> fail error
@@ -133,8 +139,11 @@ let run_selection_session contents inputs =
         match Selection_runtime.handle_input runtime input with
         | Error error -> fail error
         | Ok (runtime, step) ->
-            print_step (List.length (Selection_runtime.input_trace runtime)) input
-              (Selection_runtime.effects step) (Selection_runtime.intents step)
+            print_step
+              (List.length (Selection_runtime.input_trace runtime))
+              input
+              (Selection_runtime.effects step)
+              (Selection_runtime.intents step)
               (Selection_runtime.status_after step)
               (Selection_runtime.history runtime);
             runtime)
@@ -217,7 +226,8 @@ let demo () =
 
 let usage () =
   prerr_endline
-    "usage: zenbu-headless demo | replay <fixture.replay> | session <fixture.session>";
+    "usage: zenbu-headless demo | replay <fixture.replay> | session \
+     <fixture.session>";
   exit 2
 
 let () =

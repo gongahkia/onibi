@@ -20,7 +20,8 @@ let valid_slot_name value =
        value
 
 let slot value =
-  if valid_slot_name value then Ok value else Error (Error.Invalid_clipboard_slot value)
+  if valid_slot_name value then Ok value
+  else Error (Error.Invalid_clipboard_slot value)
 
 let slot_name value = value
 
@@ -34,7 +35,10 @@ let kind value = value.kind
 let empty = Slot_map.empty
 let find value ~slot = Slot_map.find_opt slot value
 let store value ~slot ~entry = Slot_map.add slot entry value
-let kind_name = function Characterwise -> "characterwise" | Linewise -> "linewise"
+
+let kind_name = function
+  | Characterwise -> "characterwise"
+  | Linewise -> "linewise"
 
 let placement_name = function
   | Before -> "before"

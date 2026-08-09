@@ -26,6 +26,7 @@ type transformation =
   | Replace_text of string
   | Collapse_to_start
   | Collapse_to_end
+
 type t = Intent.t
 
 let selector_to_kernel = function
@@ -81,17 +82,17 @@ let apply ~selector ~transformation =
 let identity = Intent.identity
 
 let is_textual = function
-  | Intent.Insert_text _
-  | Intent.Delete_selected_ranges
-  | Intent.Replace_selected_ranges _ -> true
+  | Intent.Insert_text _ | Intent.Delete_selected_ranges
+  | Intent.Replace_selected_ranges _ ->
+      true
   | Intent.Set_selections _ -> false
   | Intent.Apply { transformation = Transformation.Delete; _ }
-  | Intent.Apply { transformation = Transformation.Replace_text _; _ } -> true
+  | Intent.Apply { transformation = Transformation.Replace_text _; _ } ->
+      true
   | Intent.Apply
       {
         transformation =
-          ( Transformation.Select
-          | Transformation.Collapse_to_start
+          ( Transformation.Select | Transformation.Collapse_to_start
           | Transformation.Collapse_to_end );
         _;
       } ->

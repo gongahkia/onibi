@@ -110,13 +110,14 @@ let selection_set snapshot selections =
         selections
 
 let selection_heads snapshot f =
-  Document_snapshot.selections snapshot |> Selection_set.to_list
+  Document_snapshot.selections snapshot
+  |> Selection_set.to_list
   |> List.map (fun selection ->
-         let head = Anchor.byte_offset (Selection.head selection) in
-         match f head with
-         | Error _ as error -> error
-         | Ok (anchor_offset, head_offset) ->
-             selection_from_offsets snapshot ~anchor_offset ~head_offset)
+      let head = Anchor.byte_offset (Selection.head selection) in
+      match f head with
+      | Error _ as error -> error
+      | Ok (anchor_offset, head_offset) ->
+          selection_from_offsets snapshot ~anchor_offset ~head_offset)
   |> selection_set snapshot
 
 let resolve_text_unit snapshot direction =
@@ -136,8 +137,11 @@ type word_class = Whitespace | Word | Punctuation
 
 let word_class_at text offset =
   let code = Char.code text.[offset] in
-  if code = Char.code ' ' || code = Char.code '\t' || code = Char.code '\n'
-     || code = Char.code '\r'
+  if
+    code = Char.code ' '
+    || code = Char.code '\t'
+    || code = Char.code '\n'
+    || code = Char.code '\r'
   then Whitespace
   else if
     code >= 0x80
@@ -188,10 +192,12 @@ let next_word_stop text offset =
 
 let previous_word_start text offset =
   if offset <= 0 then
-    Error (Error.Invalid_selector "previous word is unavailable at document start")
+    Error
+      (Error.Invalid_selector "previous word is unavailable at document start")
   else
     let after_space =
-      skip_backward_while text offset (fun word_class -> word_class = Whitespace)
+      skip_backward_while text offset (fun word_class ->
+          word_class = Whitespace)
     in
     if after_space = 0 then Ok 0
     else
@@ -212,7 +218,8 @@ let word_bounds text offset =
       Error (Error.Invalid_selector "word is unavailable on whitespace")
     else
       let start =
-        skip_backward_while text offset (fun candidate -> candidate = word_class)
+        skip_backward_while text offset (fun candidate ->
+            candidate = word_class)
       in
       let stop =
         skip_forward_while text offset (fun candidate -> candidate = word_class)
@@ -227,8 +234,7 @@ let word_end text offset =
     Error (Error.Invalid_selector "word end is unavailable at document end")
   else
     let word_class = word_class_at text start in
-    Ok
-      (skip_forward_while text start (fun candidate -> candidate = word_class))
+    Ok (skip_forward_while text start (fun candidate -> candidate = word_class))
 
 let resolve_word snapshot selector =
   let text = Document_snapshot.contents snapshot in
@@ -314,7 +320,8 @@ let resolve_line snapshot selector =
       | Next_line ->
           let next_start = line_after text head in
           if next_start >= String.length text then
-            Error (Error.Invalid_selector "next line is unavailable at document end")
+            Error
+              (Error.Invalid_selector "next line is unavailable at document end")
           else
             let column = scalar_column text ~start ~offset:head in
             let next_stop = line_stop text next_start in
@@ -325,7 +332,8 @@ let resolve_line snapshot selector =
       | Previous_line ->
           if start = 0 then
             Error
-              (Error.Invalid_selector "previous line is unavailable at document start")
+              (Error.Invalid_selector
+                 "previous line is unavailable at document start")
           else
             let previous_start = line_start text (start - 1) in
             let previous_stop = line_stop text previous_start in
@@ -351,8 +359,9 @@ let resolve_all_occurrences snapshot =
     let rec find offset values primary_index =
       try
         let occurrence = String.index_from text offset needle.[0] in
-        if occurrence + String.length needle <= String.length text
-           && String.sub text occurrence (String.length needle) = needle
+        if
+          occurrence + String.length needle <= String.length text
+          && String.sub text occurrence (String.length needle) = needle
         then
           match
             selection_from_offsets snapshot ~anchor_offset:occurrence
@@ -363,13 +372,15 @@ let resolve_all_occurrences snapshot =
               let primary_index =
                 if occurrence = start then List.length values else primary_index
               in
-              find (occurrence + String.length needle)
+              find
+                (occurrence + String.length needle)
                 (selection :: values) primary_index
         else find (occurrence + 1) values primary_index
-      with Not_found ->
+      with Not_found -> (
         match List.rev values with
-        | [] -> Error (Error.Invalid_selector "selected text has no occurrences")
-        | selections -> Selection_set.create ~primary:primary_index selections
+        | [] ->
+            Error (Error.Invalid_selector "selected text has no occurrences")
+        | selections -> Selection_set.create ~primary:primary_index selections)
     in
     find 0 [] 0
 
@@ -385,14 +396,9 @@ let resolve snapshot = function
   | Next_text_unit -> resolve_text_unit snapshot `Next
   | Previous_text_unit -> resolve_text_unit snapshot `Previous
   | (Next_word | Previous_word | Word_end | Current_word | Around_word) as
-    selector -> resolve_word snapshot selector
-  | ( Current_line
-    | Line_start
-    | Line_end
-    | First_nonblank
-    | Document_start
-    | Document_end
-    | Next_line
-    | Previous_line ) as selector ->
+    selector ->
+      resolve_word snapshot selector
+  | ( Current_line | Line_start | Line_end | First_nonblank | Document_start
+    | Document_end | Next_line | Previous_line ) as selector ->
       resolve_line snapshot selector
   | All_occurrences -> resolve_all_occurrences snapshot

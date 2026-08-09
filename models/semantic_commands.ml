@@ -10,7 +10,8 @@ let descriptor =
   static
     (Command_descriptor.create ~id:apply_id ~title:"Apply semantic operation"
        ~description:
-         "Apply a reusable selector and transformation through the editing runtime."
+         "Apply a reusable selector and transformation through the editing \
+          runtime."
        ~category:"editing"
        ~parameters:
          [
@@ -25,8 +26,7 @@ let descriptor =
              required = true;
            };
          ]
-       ~examples:
-         [ "editor.apply(selector: next-word, transformation: delete)" ]
+       ~examples:[ "editor.apply(selector: next-word, transformation: delete)" ]
        ())
 
 let handler _context invocation =

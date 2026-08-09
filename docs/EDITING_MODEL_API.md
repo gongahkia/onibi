@@ -119,6 +119,16 @@ semantic replay:   apply(next-text-unit, delete)
 Input traces help state-machine tests and debugging. Semantic replay remains
 model-independent and is suitable for macros, bug reports, and automation.
 
+## Headless M3 sessions
+
+`zenbu-headless session <file>` runs a small inspectable session format for
+tests and debugging. A fixture has `model=vim` or `model=selection-first`, one
+escaped `text=` line, `input=` logical key lines, and `text-input=` committed
+UTF-8 text lines. Named `Escape`, `Backspace`, `Enter`, and `Ctrl-r` inputs are
+also supported. The runner prints model status transitions, declared effects,
+semantic intents, resulting documents, selections, and history. It is not a
+user configuration language or terminal-event format.
+
 ## M3 API Pressure Test
 
 The M2 state-machine API handled pending grammars, counts, statuses, committed

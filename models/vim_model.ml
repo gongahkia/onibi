@@ -1,7 +1,6 @@
 open Zenbu_model_api
 
 type operator = Delete | Change | Yank
-
 type normal = { count : int option; slot : Clipboard.slot }
 
 type state =
@@ -31,7 +30,8 @@ let descriptor =
     (Editing_model.descriptor ~id:"zenbu.vim-style"
        ~title:"Vim-style editing model"
        ~description:
-         "A documented Vim-inspired modal subset implemented only through zenbu.model_api."
+         "A documented Vim-inspired modal subset implemented only through \
+          zenbu.model_api."
        ())
 
 let default_normal = { count = None; slot = Clipboard.unnamed }
@@ -39,7 +39,9 @@ let initialize _context = Normal default_normal
 let reset _state _context = Normal default_normal
 
 let count_metadata count =
-  match count with None -> [] | Some count -> [ ("count", string_of_int count) ]
+  match count with
+  | None -> []
+  | Some count -> [ ("count", string_of_int count) ]
 
 let status = function
   | Normal { count; slot } ->
@@ -47,7 +49,8 @@ let status = function
         (Model_status.create ~id:"normal" ~label:"NORMAL"
            ~description:"Vim-style command state"
            ~metadata:
-             (("clipboard-slot", Clipboard.slot_name slot) :: count_metadata count)
+             (("clipboard-slot", Clipboard.slot_name slot)
+             :: count_metadata count)
            ())
   | Insert ->
       static
@@ -55,7 +58,10 @@ let status = function
            ~description:"committed text is inserted through semantic intents" ())
   | Operator_pending { operator; operator_count; motion_count; slot } ->
       let name =
-        match operator with Delete -> "DELETE" | Change -> "CHANGE" | Yank -> "YANK"
+        match operator with
+        | Delete -> "DELETE"
+        | Change -> "CHANGE"
+        | Yank -> "YANK"
       in
       static
         (Model_status.create ~id:"operator-pending" ~label:(name ^ "…")
@@ -72,13 +78,17 @@ let status = function
            ())
   | Text_object_pending { operator; count; around; _ } ->
       let name =
-        match operator with Delete -> "DELETE" | Change -> "CHANGE" | Yank -> "YANK"
+        match operator with
+        | Delete -> "DELETE"
+        | Change -> "CHANGE"
+        | Yank -> "YANK"
       in
       static
         (Model_status.create ~id:"text-object-pending"
            ~label:(name ^ if around then " A…" else " I…")
            ~description:"awaiting a text-object key" ~pending_input:name
-           ~metadata:[ ("count", string_of_int count) ] ())
+           ~metadata:[ ("count", string_of_int count) ]
+           ())
   | Register_prefix { count } ->
       static
         (Model_status.create ~id:"clipboard-slot-prefix" ~label:"SLOT…"
@@ -87,8 +97,8 @@ let status = function
   | Go_pending { count } ->
       static
         (Model_status.create ~id:"go-pending" ~label:"G…"
-           ~description:"awaiting the second document-start key" ~pending_input:"g"
-           ~metadata:(count_metadata count) ())
+           ~description:"awaiting the second document-start key"
+           ~pending_input:"g" ~metadata:(count_metadata count) ())
 
 let is_text event expected =
   match Input_event.key event with
@@ -98,7 +108,8 @@ let is_text event expected =
 
 let text_key event =
   match Input_event.key event with
-  | Some (Input_event.Logical_text text) when Input_event.modifiers event = [] ->
+  | Some (Input_event.Logical_text text) when Input_event.modifiers event = []
+    ->
       Some text
   | Some (Input_event.Named_key _) | Some (Input_event.Logical_text _) | None ->
       None
@@ -118,7 +129,9 @@ let is_control event text =
 let count_value = function None -> 1 | Some value -> value
 
 let add_digit count digit =
-  match count with None -> Some digit | Some value -> Some ((value * 10) + digit)
+  match count with
+  | None -> Some digit
+  | Some value -> Some ((value * 10) + digit)
 
 let repeated count value = List.init count (fun _ -> value)
 
@@ -153,12 +166,14 @@ let operator_effects operator ~slot ~selector ~linewise count =
             slot;
             selector;
             kind =
-              if linewise then Clipboard.Linewise else Clipboard.Characterwise;
+              (if linewise then Clipboard.Linewise else Clipboard.Characterwise);
           };
       ]
 
 let operator_next_state operator =
-  match operator with Change -> Insert | Delete | Yank -> Normal default_normal
+  match operator with
+  | Change -> Insert
+  | Delete | Yank -> Normal default_normal
 
 let run_operator operator ~count ~slot ~selector ~linewise =
   ( operator_next_state operator,
@@ -237,9 +252,16 @@ let normal_input normal event context =
   | Some "." -> (Normal default_normal, [ Model_effect.Repeat_last_edit ])
   | Some "G" ->
       ( Normal default_normal,
-        motion_effect Model_intent.Document_end Model_intent.Collapse_to_end 1 )
-  | Some value when String.length value = 1 && value.[0] >= '1' && value.[0] <= '9' ->
-      (Normal { normal with count = add_digit normal.count (Char.code value.[0] - Char.code '0') }, [])
+        motion_effect Model_intent.Document_end Model_intent.Collapse_to_end 1
+      )
+  | Some value
+    when String.length value = 1 && value.[0] >= '1' && value.[0] <= '9' ->
+      ( Normal
+          {
+            normal with
+            count = add_digit normal.count (Char.code value.[0] - Char.code '0');
+          },
+        [] )
   | Some "0" when Option.is_some normal.count ->
       (Normal { normal with count = add_digit normal.count 0 }, [])
   | Some key -> (
@@ -248,7 +270,8 @@ let normal_input normal event context =
           ( Normal default_normal,
             motion_effect selector transformation (count_value normal.count) )
       | None -> (Normal default_normal, []))
-  | None when is_control event "r" -> (Normal default_normal, [ Model_effect.Redo ])
+  | None when is_control event "r" ->
+      (Normal default_normal, [ Model_effect.Redo ])
   | None when is_named event Input_event.Escape -> (Normal default_normal, [])
   | None -> (Normal normal, [])
 
@@ -268,7 +291,8 @@ let pending_input operator operator_count motion_count slot event =
   | Some "y" when operator = Yank ->
       run_operator operator ~count ~slot ~selector:Model_intent.Current_line
         ~linewise:true
-  | Some value when String.length value = 1 && value.[0] >= '1' && value.[0] <= '9' ->
+  | Some value
+    when String.length value = 1 && value.[0] >= '1' && value.[0] <= '9' ->
       ( Operator_pending
           {
             operator;
@@ -279,20 +303,30 @@ let pending_input operator operator_count motion_count slot event =
           },
         [] )
   | Some "0" when Option.is_some motion_count ->
-      (Operator_pending { operator; operator_count; motion_count = add_digit motion_count 0; slot }, [])
+      ( Operator_pending
+          {
+            operator;
+            operator_count;
+            motion_count = add_digit motion_count 0;
+            slot;
+          },
+        [] )
   | Some key -> (
       match motion key with
       | Some (selector, _) ->
           run_operator operator ~count ~slot ~selector ~linewise:false
       | None -> (Normal default_normal, []))
   | None when is_named event Input_event.Escape -> (Normal default_normal, [])
-  | None -> (Operator_pending { operator; operator_count; motion_count; slot }, [])
+  | None ->
+      (Operator_pending { operator; operator_count; motion_count; slot }, [])
 
 let text_object_input operator count slot around event =
   match text_key event with
   | Some "w" ->
       run_operator operator ~count ~slot
-        ~selector:(if around then Model_intent.Around_word else Model_intent.Current_word)
+        ~selector:
+          (if around then Model_intent.Around_word
+           else Model_intent.Current_word)
         ~linewise:false
   | _ when is_named event Input_event.Escape -> (Normal default_normal, [])
   | _ -> (Text_object_pending { operator; count; slot; around }, [])
@@ -302,13 +336,14 @@ let handle_input state event context =
   | Normal normal -> normal_input normal event context
   | Insert when is_named event Input_event.Escape -> (Normal default_normal, [])
   | Insert when is_named event Input_event.Backspace ->
-      ( Insert,
-        [ apply Model_intent.Previous_text_unit Model_intent.Delete ] )
+      (Insert, [ apply Model_intent.Previous_text_unit Model_intent.Delete ])
   | Insert when is_named event Input_event.Enter ->
       (Insert, [ Model_effect.Execute_intent (Model_intent.insert_text "\n") ])
   | Insert -> (
       match Input_event.text event with
-      | Some text -> (Insert, [ Model_effect.Execute_intent (Model_intent.insert_text text) ])
+      | Some text ->
+          ( Insert,
+            [ Model_effect.Execute_intent (Model_intent.insert_text text) ] )
       | None -> (Insert, []))
   | Operator_pending { operator; operator_count; motion_count; slot } ->
       pending_input operator operator_count motion_count slot event
@@ -316,13 +351,16 @@ let handle_input state event context =
       text_object_input operator count slot around event
   | Register_prefix { count } -> (
       match text_key event with
-      | Some value when String.length value = 1 && value.[0] >= 'a' && value.[0] <= 'z' ->
+      | Some value
+        when String.length value = 1 && value.[0] >= 'a' && value.[0] <= 'z' ->
           let slot = static (Clipboard.slot value) in
           (Normal { count; slot }, [])
       | _ when is_named event Input_event.Escape -> (Normal default_normal, [])
       | _ -> (Register_prefix { count }, []))
   | Go_pending { count = _ } when is_text event "g" ->
       ( Normal default_normal,
-        motion_effect Model_intent.Document_start Model_intent.Collapse_to_start 1 )
-  | Go_pending _ when is_named event Input_event.Escape -> (Normal default_normal, [])
+        motion_effect Model_intent.Document_start Model_intent.Collapse_to_start
+          1 )
+  | Go_pending _ when is_named event Input_event.Escape ->
+      (Normal default_normal, [])
   | Go_pending pending -> (Go_pending pending, [])

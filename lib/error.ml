@@ -64,8 +64,10 @@ let rec to_string = function
   | Invalid_command_id value -> Printf.sprintf "invalid command id: %S" value
   | Invalid_model_status message ->
       Printf.sprintf "invalid model status: %s" message
-  | Invalid_clipboard_slot slot -> Printf.sprintf "invalid clipboard slot: %s" slot
-  | Clipboard_slot_empty slot -> Printf.sprintf "clipboard slot is empty: %s" slot
+  | Invalid_clipboard_slot slot ->
+      Printf.sprintf "invalid clipboard slot: %s" slot
+  | Clipboard_slot_empty slot ->
+      Printf.sprintf "clipboard slot is empty: %s" slot
   | Duplicate_command id -> Printf.sprintf "duplicate command: %s" id
   | Unknown_command id -> Printf.sprintf "unknown command: %s" id
   | Invalid_command_arguments message ->

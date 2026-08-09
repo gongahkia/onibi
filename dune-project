@@ -6,4 +6,4 @@
  (name zenbu)
  (synopsis "A model-neutral semantic text editor kernel and editing-model API")
  (description
-  "The M0/M2 foundation for a terminal-first programmable modal text editor."))
+  "The M0/M3 headless foundation for a terminal-first programmable modal text editor."))

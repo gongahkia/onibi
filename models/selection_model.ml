@@ -17,7 +17,8 @@ let descriptor =
     (Editing_model.descriptor ~id:"zenbu.selection-first"
        ~title:"Selection-first editing model"
        ~description:
-         "A Kakoune/Helix-inspired select-then-transform model using shared Zenbu semantics."
+         "A Kakoune/Helix-inspired select-then-transform model using shared \
+          Zenbu semantics."
        ())
 
 let default_select = { count = None; slot = Clipboard.unnamed }
@@ -25,7 +26,9 @@ let initialize _context = Select default_select
 let reset _state _context = Select default_select
 
 let count_metadata count =
-  match count with None -> [] | Some count -> [ ("count", string_of_int count) ]
+  match count with
+  | None -> []
+  | Some count -> [ ("count", string_of_int count) ]
 
 let status = function
   | Select { count; slot } ->
@@ -33,12 +36,14 @@ let status = function
         (Model_status.create ~id:"select" ~label:"SELECT"
            ~description:"selectors visibly update the active selection set"
            ~metadata:
-             (("clipboard-slot", Clipboard.slot_name slot) :: count_metadata count)
+             (("clipboard-slot", Clipboard.slot_name slot)
+             :: count_metadata count)
            ())
   | Insert ->
       static
         (Model_status.create ~id:"insert" ~label:"INSERT"
-           ~description:"committed text replaces active selections semantically" ())
+           ~description:"committed text replaces active selections semantically"
+           ())
   | Register_prefix { count } ->
       static
         (Model_status.create ~id:"clipboard-slot-prefix" ~label:"SLOT…"
@@ -47,8 +52,8 @@ let status = function
   | Go_pending { count } ->
       static
         (Model_status.create ~id:"go-pending" ~label:"G…"
-           ~description:"awaiting the second document-start key" ~pending_input:"g"
-           ~metadata:(count_metadata count) ())
+           ~description:"awaiting the second document-start key"
+           ~pending_input:"g" ~metadata:(count_metadata count) ())
 
 let is_text event expected =
   match Input_event.key event with
@@ -58,7 +63,8 @@ let is_text event expected =
 
 let text_key event =
   match Input_event.key event with
-  | Some (Input_event.Logical_text text) when Input_event.modifiers event = [] ->
+  | Some (Input_event.Logical_text text) when Input_event.modifiers event = []
+    ->
       Some text
   | Some (Input_event.Named_key _) | Some (Input_event.Logical_text _) | None ->
       None
@@ -78,7 +84,9 @@ let is_control event text =
 let count_value = function None -> 1 | Some value -> value
 
 let add_digit count digit =
-  match count with None -> Some digit | Some value -> Some ((value * 10) + digit)
+  match count with
+  | None -> Some digit
+  | Some value -> Some ((value * 10) + digit)
 
 let repeated count value = List.init count (fun _ -> value)
 
@@ -104,11 +112,16 @@ let selector key =
 
 let retain_primary context =
   let selections = Editor_context.selections context in
-  let primary = List.nth selections.Editor_context.selections selections.primary_index in
+  let primary =
+    List.nth selections.Editor_context.selections selections.primary_index
+  in
   match
     Model_intent.set_selections
       ~selections:
-        [ (primary.Editor_context.anchor_offset, primary.Editor_context.head_offset) ]
+        [
+          ( primary.Editor_context.anchor_offset,
+            primary.Editor_context.head_offset );
+        ]
       ~primary:0
   with
   | Ok intent -> [ Model_effect.Execute_intent intent ]
@@ -118,7 +131,8 @@ let has_nonempty_selection context =
   Editor_context.selections context |> fun selections ->
   List.exists
     (fun selection ->
-      selection.Editor_context.anchor_offset <> selection.Editor_context.head_offset)
+      selection.Editor_context.anchor_offset
+      <> selection.Editor_context.head_offset)
     selections.Editor_context.selections
 
 let select_input selecting event context =
@@ -164,11 +178,13 @@ let select_input selecting event context =
   | Some "G" ->
       ( Select default_select,
         [ apply Model_intent.Document_end Model_intent.Select ] )
-  | Some value when String.length value = 1 && value.[0] >= '1' && value.[0] <= '9' ->
+  | Some value
+    when String.length value = 1 && value.[0] >= '1' && value.[0] <= '9' ->
       ( Select
           {
             selecting with
-            count = add_digit selecting.count (Char.code value.[0] - Char.code '0');
+            count =
+              add_digit selecting.count (Char.code value.[0] - Char.code '0');
           },
         [] )
   | Some "0" when Option.is_some selecting.count ->
@@ -177,13 +193,16 @@ let select_input selecting event context =
       match selector key with
       | Some selector ->
           ( Select default_select,
-            repeated (count_value selecting.count)
+            repeated
+              (count_value selecting.count)
               (apply selector Model_intent.Select) )
       | None -> (Select default_select, []))
-  | None when is_control event "r" -> (Select default_select, [ Model_effect.Redo ])
+  | None when is_control event "r" ->
+      (Select default_select, [ Model_effect.Redo ])
   | None when is_named event Input_event.Escape ->
       ( Select default_select,
-        [ apply Model_intent.Current_selections Model_intent.Collapse_to_end ] )
+        [ apply Model_intent.Current_selections Model_intent.Collapse_to_end ]
+      )
   | None -> (Select selecting, [])
 
 let handle_input state event context =
@@ -200,11 +219,14 @@ let handle_input state event context =
       (Insert, [ Model_effect.Execute_intent (Model_intent.insert_text "\n") ])
   | Insert -> (
       match Input_event.text event with
-      | Some text -> (Insert, [ Model_effect.Execute_intent (Model_intent.insert_text text) ])
+      | Some text ->
+          ( Insert,
+            [ Model_effect.Execute_intent (Model_intent.insert_text text) ] )
       | None -> (Insert, []))
   | Register_prefix { count } -> (
       match text_key event with
-      | Some value when String.length value = 1 && value.[0] >= 'a' && value.[0] <= 'z' ->
+      | Some value
+        when String.length value = 1 && value.[0] >= 'a' && value.[0] <= 'z' ->
           let slot = static (Clipboard.slot value) in
           (Select { count; slot }, [])
       | _ when is_named event Input_event.Escape -> (Select default_select, [])
@@ -212,5 +234,6 @@ let handle_input state event context =
   | Go_pending { count = _ } when is_text event "g" ->
       ( Select default_select,
         [ apply Model_intent.Document_start Model_intent.Select ] )
-  | Go_pending _ when is_named event Input_event.Escape -> (Select default_select, [])
+  | Go_pending _ when is_named event Input_event.Escape ->
+      (Select default_select, [])
   | Go_pending pending -> (Go_pending pending, [])

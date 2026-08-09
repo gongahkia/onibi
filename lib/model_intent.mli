@@ -24,6 +24,7 @@ type transformation =
   | Replace_text of string
   | Collapse_to_start
   | Collapse_to_end
+
 type t
 
 val insert_text : string -> t
