@@ -1,0 +1,16 @@
+zenbu-replay-v1
+document=basic
+text=alpha beta
+selections=0:5
+primary=0
+action=intent-replace	zenbu
+action=intent-set	0	10:10
+action=intent-insert	!
+action=transaction
+source=test
+intent=1fixture-replace
+description=1replace beta semantically
+selection-change=-
+edit=6:10	kernel
+end-transaction
+

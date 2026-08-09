@@ -111,8 +111,7 @@ let escape = String.escaped
 
 let unescape value =
   try Ok (Scanf.unescaped value)
-  with Scan_failure _ | Failure _ | Invalid_argument _ ->
-    Error (Error.Malformed_replay "invalid escaped string")
+  with Failure _ | Invalid_argument _ -> Error (Error.Malformed_replay "invalid escaped string")
 
 let option_to_string = function None -> "0" | Some value -> "1" ^ escape value
 
@@ -223,37 +222,33 @@ let parse_transaction lines =
   in
   edits [] lines
 
-let parse_intent_insert prefix line make =
-  match after_prefix prefix line with
-  | None -> Error (Error.Malformed_replay "invalid intent action")
-  | Some text ->
-      let* text = unescape text in
-      Ok (make text)
-
 let parse_actions lines =
   let rec loop values = function
     | [] -> Ok (List.rev values)
     | "" :: rest -> loop values rest
-    | "action=intent-delete" :: rest -> loop (Intent Delete_selected_ranges :: values) rest
+    | "action=intent-delete" :: rest ->
+        loop (Intent Intent.Delete_selected_ranges :: values) rest
     | "action=transaction" :: rest ->
         let* action, remaining = parse_transaction rest in
         loop (action :: values) remaining
-    | line :: rest -> (
+    | line :: rest ->
         match after_prefix "action=intent-insert\t" line with
         | Some text ->
             let* text = unescape text in
-            loop (Intent (Insert_text text) :: values) rest
-        | None -> (
+            loop (Intent (Intent.Insert_text text) :: values) rest
+        | None ->
             match after_prefix "action=intent-replace\t" line with
             | Some text ->
                 let* text = unescape text in
-                loop (Intent (Replace_selected_ranges text) :: values) rest
-            | None -> (
+                loop (Intent (Intent.Replace_selected_ranges text) :: values) rest
+            | None ->
                 match after_prefix "action=intent-set\t" line with
                 | Some state ->
                     let* { selections; primary } = parse_selection_state state in
-                    loop (Intent (Set_selections { selections; primary }) :: values) rest
-                | None -> Error (Error.Malformed_replay ("unknown action " ^ line))))
+                    loop
+                      (Intent (Intent.Set_selections { selections; primary }) :: values)
+                      rest
+                | None -> Error (Error.Malformed_replay ("unknown action " ^ line))
   in
   loop [] lines
 
@@ -282,12 +277,15 @@ let add_line buffer line =
   Buffer.add_char buffer '\n'
 
 let add_action buffer = function
-  | Intent (Insert_text text) -> add_line buffer ("action=intent-insert\t" ^ escape text)
-  | Intent Delete_selected_ranges -> add_line buffer "action=intent-delete"
-  | Intent (Replace_selected_ranges text) ->
+  | Intent (Intent.Insert_text text) ->
+      add_line buffer ("action=intent-insert\t" ^ escape text)
+  | Intent Intent.Delete_selected_ranges -> add_line buffer "action=intent-delete"
+  | Intent (Intent.Replace_selected_ranges text) ->
       add_line buffer ("action=intent-replace\t" ^ escape text)
-  | Intent (Set_selections state) ->
-      add_line buffer ("action=intent-set\t" ^ selection_state_to_string state)
+  | Intent (Intent.Set_selections { selections; primary }) ->
+      add_line buffer
+        ("action=intent-set\t"
+        ^ selection_state_to_string { selections; primary });
   | Transaction spec ->
       add_line buffer "action=transaction";
       add_line buffer ("source=" ^ Transaction.source_to_string spec.source);
@@ -295,9 +293,9 @@ let add_action buffer = function
       add_line buffer ("description=" ^ option_to_string spec.description);
       add_line buffer
         ("selection-change="
-        ^ match spec.selection_change with
+        ^ (match spec.selection_change with
           | None -> "-"
-          | Some state -> selection_state_to_string state);
+          | Some state -> selection_state_to_string state));
       List.iter
         (fun edit ->
           add_line buffer
@@ -316,4 +314,3 @@ let to_string replay =
   add_line buffer ("primary=" ^ string_of_int replay.initial_selections.primary);
   List.iter (add_action buffer) replay.actions;
   Buffer.contents buffer
-

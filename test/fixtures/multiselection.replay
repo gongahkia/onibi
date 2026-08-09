@@ -1,0 +1,7 @@
+zenbu-replay-v1
+document=multiselection
+text=one two three
+selections=0:3,4:7
+primary=1
+action=intent-replace	X
+

@@ -1,0 +1,9 @@
+zenbu-replay-v1
+document=unicode
+text=é🙂 sushi
+selections=0:3
+primary=0
+action=intent-replace	é
+action=intent-set	0	2:6
+action=intent-replace	🦀
+

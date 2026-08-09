@@ -111,7 +111,7 @@ let apply_edits buffer edits =
         let stop = stop_offset edit in
         Buffer.add_substring output source cursor (start - cursor);
         Buffer.add_string output (Edit.text edit);
-        append (if start = stop then cursor else stop) rest
+        append stop rest
   in
   append 0 edits
 
