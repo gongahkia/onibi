@@ -19,7 +19,8 @@ let validate_anchor value anchor =
            expected = Document_id.to_string value.document_id;
            actual = Document_id.to_string (Anchor.document_id anchor);
          })
-  else if not (Document_version.equal value.version (Anchor.version anchor)) then
+  else if not (Document_version.equal value.version (Anchor.version anchor))
+  then
     Error
       (Error.Stale_version
          {
@@ -31,7 +32,8 @@ let validate_anchor value anchor =
     let byte_length = Text_buffer.byte_length value.buffer in
     if offset < 0 || offset > byte_length then
       Error
-        (Error.Invalid_anchor { offset; byte_length; reason = "offset is out of bounds" })
+        (Error.Invalid_anchor
+           { offset; byte_length; reason = "offset is out of bounds" })
     else if not (Text_buffer.is_code_point_boundary value.buffer offset) then
       Error
         (Error.Invalid_anchor
@@ -39,10 +41,15 @@ let validate_anchor value anchor =
     else Ok ()
 
 let anchor value ~byte_offset =
-  match Anchor.make ~document_id:value.document_id ~version:value.version ~byte_offset with
+  match
+    Anchor.make ~document_id:value.document_id ~version:value.version
+      ~byte_offset
+  with
   | Error _ as error -> error
   | Ok anchor -> (
-      match validate_anchor value anchor with Error _ as error -> error | Ok () -> Ok anchor)
+      match validate_anchor value anchor with
+      | Error _ as error -> error
+      | Ok () -> Ok anchor)
 
 let validate_range value range =
   match validate_anchor value (Range.start range) with
@@ -58,14 +65,21 @@ let range value ~start_offset ~stop_offset =
       | Ok stop -> Range.make ~start ~stop)
 
 let validate_selection_set value selections =
-  if not (Document_id.equal value.document_id (Selection_set.document_id selections)) then
+  if
+    not
+      (Document_id.equal value.document_id
+         (Selection_set.document_id selections))
+  then
     Error
       (Error.Wrong_document
          {
            expected = Document_id.to_string value.document_id;
            actual = Document_id.to_string (Selection_set.document_id selections);
          })
-  else if not (Document_version.equal value.version (Selection_set.version selections)) then
+  else if
+    not
+      (Document_version.equal value.version (Selection_set.version selections))
+  then
     Error
       (Error.Stale_version
          {
@@ -90,4 +104,3 @@ let make ~document_id ~version ~buffer ~selections =
   match validate_selection_set snapshot selections with
   | Error _ as error -> error
   | Ok () -> Ok snapshot
-

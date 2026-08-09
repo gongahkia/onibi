@@ -29,7 +29,9 @@ let find_node history id =
   | None -> Error (Error.Unknown_history_node id)
 
 let create document =
-  let root = { id = 0; parent = None; children = []; change = None; document } in
+  let root =
+    { id = 0; parent = None; children = []; change = None; document }
+  in
   {
     nodes = Int_map.singleton root.id root;
     root_id = root.id;
@@ -41,7 +43,8 @@ let create document =
 let current history =
   match find_node history history.current_id with
   | Ok node -> node.document
-  | Error error -> failwith ("history invariant violated: " ^ Error.to_string error)
+  | Error error ->
+      failwith ("history invariant violated: " ^ Error.to_string error)
 
 let commit history transaction =
   match find_node history history.current_id with
@@ -54,12 +57,27 @@ let commit history transaction =
           | Error _ as error -> error
           | Ok after ->
               let id = history.next_change_id in
-              let change = { id; transaction; before = parent.document; after } in
-              let node = { id; parent = Some parent.id; children = []; change = Some change; document = after } in
-              let updated_parent = { parent with children = parent.children @ [ id ] } in
+              let change =
+                { id; transaction; before = parent.document; after }
+              in
+              let node =
+                {
+                  id;
+                  parent = Some parent.id;
+                  children = [];
+                  change = Some change;
+                  document = after;
+                }
+              in
+              let updated_parent =
+                { parent with children = parent.children @ [ id ] }
+              in
               Ok
                 {
-                  nodes = history.nodes |> Int_map.add parent.id updated_parent |> Int_map.add id node;
+                  nodes =
+                    history.nodes
+                    |> Int_map.add parent.id updated_parent
+                    |> Int_map.add id node;
                   root_id = history.root_id;
                   current_id = id;
                   next_change_id = id + 1;
@@ -67,7 +85,11 @@ let commit history transaction =
                 }))
 
 let apply_intent ~source ?description history intent =
-  match Intent.resolve ~source ?description (Document.snapshot (current history)) intent with
+  match
+    Intent.resolve ~source ?description
+      (Document.snapshot (current history))
+      intent
+  with
   | Error _ as error -> error
   | Ok transaction -> commit history transaction
 
@@ -76,37 +98,45 @@ let undo history =
   | Error _ as error -> error
   | Ok { parent = None; _ } -> Error Error.History_at_root
   | Ok { parent = Some parent_id; _ } ->
-      if Int_map.mem parent_id history.nodes then Ok { history with current_id = parent_id }
+      if Int_map.mem parent_id history.nodes then
+        Ok { history with current_id = parent_id }
       else Error (Error.Unknown_history_node parent_id)
 
 let redo ?change_id history =
   match find_node history history.current_id with
   | Error _ as error -> error
-  | Ok parent ->
+  | Ok parent -> (
       let selected_child =
         match change_id with
         | Some id -> if List.mem id parent.children then Some id else None
         | None -> (
-            match List.rev parent.children with [] -> None | child :: _ -> Some child)
+            match List.rev parent.children with
+            | [] -> None
+            | child :: _ -> Some child)
       in
-      (match selected_child with
+      match selected_child with
       | None -> Error Error.History_no_redo
       | Some id ->
-          if Int_map.mem id history.nodes then Ok { history with current_id = id }
+          if Int_map.mem id history.nodes then
+            Ok { history with current_id = id }
           else Error (Error.Unknown_history_node id))
 
 let current_change history =
   match find_node history history.current_id with
   | Ok node -> node.change
-  | Error error -> failwith ("history invariant violated: " ^ Error.to_string error)
+  | Error error ->
+      failwith ("history invariant violated: " ^ Error.to_string error)
 
 let lineage history =
   let rec collect id changes =
     match find_node history id with
-    | Error error -> failwith ("history invariant violated: " ^ Error.to_string error)
+    | Error error ->
+        failwith ("history invariant violated: " ^ Error.to_string error)
     | Ok { parent = None; _ } -> changes
-    | Ok { parent = Some parent; change = Some change; _ } -> collect parent (change :: changes)
-    | Ok { parent = Some _; change = None; _ } -> failwith "history invariant violated: child without change"
+    | Ok { parent = Some parent; change = Some change; _ } ->
+        collect parent (change :: changes)
+    | Ok { parent = Some _; change = None; _ } ->
+        failwith "history invariant violated: child without change"
   in
   collect history.current_id []
 

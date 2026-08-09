@@ -1,10 +1,18 @@
 type t = { anchor : Anchor.t; head : Anchor.t; range : Range.t }
 
 let make ~anchor ~head =
-  if not (Document_id.equal (Anchor.document_id anchor) (Anchor.document_id head)) then
-    Error (Error.Invalid_selection_set "anchor and head name different documents")
-  else if not (Document_version.equal (Anchor.version anchor) (Anchor.version head)) then
-    Error (Error.Invalid_selection_set "anchor and head name different document versions")
+  if
+    not
+      (Document_id.equal (Anchor.document_id anchor) (Anchor.document_id head))
+  then
+    Error
+      (Error.Invalid_selection_set "anchor and head name different documents")
+  else if
+    not (Document_version.equal (Anchor.version anchor) (Anchor.version head))
+  then
+    Error
+      (Error.Invalid_selection_set
+         "anchor and head name different document versions")
   else
     let start, stop =
       if Anchor.byte_offset anchor <= Anchor.byte_offset head then (anchor, head)
@@ -20,7 +28,8 @@ let range value = value.range
 let document_id value = Anchor.document_id value.anchor
 let version value = Anchor.version value.anchor
 
-let equal left right = Anchor.equal left.anchor right.anchor && Anchor.equal left.head right.head
+let equal left right =
+  Anchor.equal left.anchor right.anchor && Anchor.equal left.head right.head
 
 let compare left right =
   match Range.compare left.range right.range with
@@ -31,4 +40,3 @@ let compare left right =
   | difference -> difference
 
 let map_anchors value ~f = make ~anchor:(f value.anchor) ~head:(f value.head)
-

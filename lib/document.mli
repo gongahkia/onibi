@@ -13,5 +13,7 @@ val version : t -> Document_version.t
 val snapshot : t -> Document_snapshot.t
 
 val apply :
-  ?result_version:Document_version.t -> t -> Transaction.t -> (t, Error.t) result
-
+  ?result_version:Document_version.t ->
+  t ->
+  Transaction.t ->
+  (t, Error.t) result

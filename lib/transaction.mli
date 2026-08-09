@@ -2,7 +2,9 @@ type source = User | Test | Replay | System
 type metadata
 type t
 
-val metadata : source:source -> ?intent:string -> ?description:string -> unit -> metadata
+val metadata :
+  source:source -> ?intent:string -> ?description:string -> unit -> metadata
+
 val source : metadata -> source
 val intent : metadata -> string option
 val description : metadata -> string option
@@ -23,4 +25,3 @@ val source_version : t -> Document_version.t
 val edits : t -> Edit.t list
 val selection_change : t -> Selection_set.t option
 val metadata_of : t -> metadata
-

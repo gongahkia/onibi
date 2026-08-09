@@ -12,4 +12,3 @@ val byte_offset : t -> int
 val rebase : t -> version:Document_version.t -> byte_offset:int -> t
 val equal : t -> t -> bool
 val compare : t -> t -> int
-

@@ -9,5 +9,5 @@ let anchor_offset value = value.anchor_offset
 let head_offset value = value.head_offset
 
 let equal left right =
-  left.anchor_offset = right.anchor_offset && left.head_offset = right.head_offset
-
+  left.anchor_offset = right.anchor_offset
+  && left.head_offset = right.head_offset

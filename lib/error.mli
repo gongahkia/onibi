@@ -18,4 +18,3 @@ type t =
   | Unknown_history_node of int
 
 val to_string : t -> string
-

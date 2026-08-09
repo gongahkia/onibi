@@ -6,4 +6,3 @@ val to_int : t -> int
 val successor : t -> t
 val compare : t -> t -> int
 val equal : t -> t -> bool
-

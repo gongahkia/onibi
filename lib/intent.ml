@@ -31,12 +31,14 @@ let selection_set_of_specs snapshot ~selections ~primary =
     | [] -> Ok (List.rev values)
     | spec :: rest -> (
         match
-          Document_snapshot.anchor snapshot ~byte_offset:(Selection_spec.anchor_offset spec)
+          Document_snapshot.anchor snapshot
+            ~byte_offset:(Selection_spec.anchor_offset spec)
         with
         | Error _ as error -> error
         | Ok anchor -> (
             match
-              Document_snapshot.anchor snapshot ~byte_offset:(Selection_spec.head_offset spec)
+              Document_snapshot.anchor snapshot
+                ~byte_offset:(Selection_spec.head_offset spec)
             with
             | Error _ as error -> error
             | Ok head -> (
@@ -50,32 +52,36 @@ let selection_set_of_specs snapshot ~selections ~primary =
 
 let transaction snapshot ~edits ~selection_change ~source ~intent ~description =
   let metadata = Transaction.metadata ~source ~intent ?description () in
-  Transaction.create ~document_id:(Document_snapshot.document_id snapshot)
-    ~source_version:(Document_snapshot.version snapshot) ~edits ?selection_change ~metadata ()
+  Transaction.create
+    ~document_id:(Document_snapshot.document_id snapshot)
+    ~source_version:(Document_snapshot.version snapshot)
+    ~edits ?selection_change ~metadata ()
 
 let resolve ~source ?description snapshot = function
   | Insert_text text -> (
       match edits_for_selections snapshot ~text with
       | Error _ as error -> error
       | Ok edits ->
-          transaction snapshot ~edits ~selection_change:None ~source ~intent:"insert-text" ~description)
+          transaction snapshot ~edits ~selection_change:None ~source
+            ~intent:"insert-text" ~description)
   | Delete_selected_ranges ->
       let edits =
         List.map
           (fun selection -> Edit.delete (Selection.range selection))
           (Selection_set.to_list (Document_snapshot.selections snapshot))
       in
-      transaction snapshot ~edits ~selection_change:None ~source ~intent:"delete-selected-ranges"
-        ~description
+      transaction snapshot ~edits ~selection_change:None ~source
+        ~intent:"delete-selected-ranges" ~description
   | Replace_selected_ranges text -> (
       match edits_for_selections snapshot ~text with
       | Error _ as error -> error
       | Ok edits ->
-          transaction snapshot ~edits ~selection_change:None ~source ~intent:"replace-selected-ranges"
-            ~description)
+          transaction snapshot ~edits ~selection_change:None ~source
+            ~intent:"replace-selected-ranges" ~description)
   | Set_selections { selections; primary } -> (
       match selection_set_of_specs snapshot ~selections ~primary with
       | Error _ as error -> error
       | Ok selection_change ->
-          transaction snapshot ~edits:[] ~selection_change:(Some selection_change) ~source ~intent:"set-selections"
-            ~description)
+          transaction snapshot ~edits:[]
+            ~selection_change:(Some selection_change) ~source
+            ~intent:"set-selections" ~description)

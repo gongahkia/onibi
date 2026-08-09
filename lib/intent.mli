@@ -12,4 +12,3 @@ val resolve :
   Document_snapshot.t ->
   t ->
   (Transaction.t, Error.t) result
-

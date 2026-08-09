@@ -1,6 +1,7 @@
 exception Test_failure of string
 
-let failf format = Printf.ksprintf (fun message -> raise (Test_failure message)) format
+let failf format =
+  Printf.ksprintf (fun message -> raise (Test_failure message)) format
 
 let expect condition format =
   Printf.ksprintf
@@ -10,32 +11,37 @@ let expect condition format =
 let expect_string ~expected ~actual =
   expect (String.equal expected actual) "expected %S, got %S" expected actual
 
-let must = function Ok value -> value | Error error -> failf "%s" (Error.to_string error)
+let must = function
+  | Ok value -> value
+  | Error error -> failf "%s" (Error.to_string error)
 
-let expect_error = function
-  | Error _ -> ()
-  | Ok _ -> failf "expected an error"
-
+let expect_error = function Error _ -> () | Ok _ -> failf "expected an error"
 let document_id value = must (Document_id.of_string value)
 
 let selection anchor_offset head_offset =
   must (Selection_spec.make ~anchor_offset ~head_offset)
 
 let document ?(selections = []) ?(primary = 0) id contents =
-  Document.create ~id:(document_id id) ~contents ~initial_selections:selections ~primary () |> must
+  Document.create ~id:(document_id id) ~contents ~initial_selections:selections
+    ~primary ()
+  |> must
 
 let text document = Document_snapshot.contents (Document.snapshot document)
 
 let selection_offsets selections =
   List.map
     (fun selection ->
-      (Anchor.byte_offset (Selection.anchor selection), Anchor.byte_offset (Selection.head selection)))
+      ( Anchor.byte_offset (Selection.anchor selection),
+        Anchor.byte_offset (Selection.head selection) ))
     (Selection_set.to_list selections)
 
 let transaction snapshot edits =
-  Transaction.create ~document_id:(Document_snapshot.document_id snapshot)
-    ~source_version:(Document_snapshot.version snapshot) ~edits
-    ~metadata:(Transaction.metadata ~source:Transaction.Test ()) ()
+  Transaction.create
+    ~document_id:(Document_snapshot.document_id snapshot)
+    ~source_version:(Document_snapshot.version snapshot)
+    ~edits
+    ~metadata:(Transaction.metadata ~source:Transaction.Test ())
+    ()
   |> must
 
 let replace snapshot start_offset stop_offset replacement =
@@ -43,8 +49,8 @@ let replace snapshot start_offset stop_offset replacement =
   |> fun range -> Edit.replace range ~text:replacement |> must
 
 let insert snapshot offset replacement =
-  Document_snapshot.anchor snapshot ~byte_offset:offset |> must
-  |> fun anchor -> Edit.insert ~at:anchor ~text:replacement |> must
+  Document_snapshot.anchor snapshot ~byte_offset:offset |> must |> fun anchor ->
+  Edit.insert ~at:anchor ~text:replacement |> must
 
 let apply_intent history intent =
   History.apply_intent ~source:Transaction.Test history intent |> must
@@ -52,40 +58,63 @@ let apply_intent history intent =
 let test_document_snapshots_and_unicode_boundaries () =
   let doc = document "unicode-boundaries" "aé🙂" in
   let snapshot = Document.snapshot doc in
-  expect (Document_snapshot.byte_length snapshot = 7) "unexpected UTF-8 byte length";
+  expect
+    (Document_snapshot.byte_length snapshot = 7)
+    "unexpected UTF-8 byte length";
   List.iter
-    (fun offset -> ignore (Document_snapshot.anchor snapshot ~byte_offset:offset |> must))
+    (fun offset ->
+      ignore (Document_snapshot.anchor snapshot ~byte_offset:offset |> must))
     [ 0; 1; 3; 7 ];
   List.iter
-    (fun offset -> expect_error (Document_snapshot.anchor snapshot ~byte_offset:offset))
+    (fun offset ->
+      expect_error (Document_snapshot.anchor snapshot ~byte_offset:offset))
     [ -1; 2; 4; 8 ];
   let other = document "other" "aé🙂" in
-  let foreign_anchor = Document_snapshot.anchor (Document.snapshot other) ~byte_offset:0 |> must in
+  let foreign_anchor =
+    Document_snapshot.anchor (Document.snapshot other) ~byte_offset:0 |> must
+  in
   expect_error (Document_snapshot.validate_anchor snapshot foreign_anchor)
 
 let test_selection_set_invariants () =
   let document =
-    document ~selections:[ selection 5 3; selection 0 1 ] ~primary:0 "selection-invariants"
-      "abcdef"
+    document
+      ~selections:[ selection 5 3; selection 0 1 ]
+      ~primary:0 "selection-invariants" "abcdef"
   in
   let selections = Document_snapshot.selections (Document.snapshot document) in
-  expect (Selection_set.primary_index selections = 1) "primary index was not normalized";
+  expect
+    (Selection_set.primary_index selections = 1)
+    "primary index was not normalized";
   expect
     (selection_offsets selections = [ (0, 1); (5, 3) ])
     "selection ordering or direction changed";
   let snapshot = Document.snapshot document in
-  let range = Document_snapshot.range snapshot ~start_offset:0 ~stop_offset:2 |> must in
-  let range_overlap = Document_snapshot.range snapshot ~start_offset:1 ~stop_offset:3 |> must in
-  let first = Selection.make ~anchor:(Range.start range) ~head:(Range.stop range) |> must in
-  let duplicate = Selection.make ~anchor:(Range.start range) ~head:(Range.stop range) |> must in
+  let range =
+    Document_snapshot.range snapshot ~start_offset:0 ~stop_offset:2 |> must
+  in
+  let range_overlap =
+    Document_snapshot.range snapshot ~start_offset:1 ~stop_offset:3 |> must
+  in
+  let first =
+    Selection.make ~anchor:(Range.start range) ~head:(Range.stop range) |> must
+  in
+  let duplicate =
+    Selection.make ~anchor:(Range.start range) ~head:(Range.stop range) |> must
+  in
   let overlapping =
-    Selection.make ~anchor:(Range.start range_overlap) ~head:(Range.stop range_overlap) |> must
+    Selection.make
+      ~anchor:(Range.start range_overlap)
+      ~head:(Range.stop range_overlap)
+    |> must
   in
   expect_error (Selection_set.create ~primary:0 [ first; duplicate ]);
   expect_error (Selection_set.create ~primary:0 [ first; overlapping ]);
-  let touching = Document_snapshot.range snapshot ~start_offset:2 ~stop_offset:3 |> must in
+  let touching =
+    Document_snapshot.range snapshot ~start_offset:2 ~stop_offset:3 |> must
+  in
   let touching_selection =
-    Selection.make ~anchor:(Range.start touching) ~head:(Range.stop touching) |> must
+    Selection.make ~anchor:(Range.start touching) ~head:(Range.stop touching)
+    |> must
   in
   ignore (Selection_set.create ~primary:0 [ first; touching_selection ] |> must)
 
@@ -108,16 +137,22 @@ let test_transaction_ordering_and_conflicts () =
     [ replace conflict_snapshot 1 3 "Z"; insert conflict_snapshot 2 "inside" ]
   in
   expect_error
-    (Transaction.create ~document_id:(Document_snapshot.document_id conflict_snapshot)
-       ~source_version:(Document_snapshot.version conflict_snapshot) ~edits:conflicting
-       ~metadata:(Transaction.metadata ~source:Transaction.Test ()) ());
+    (Transaction.create
+       ~document_id:(Document_snapshot.document_id conflict_snapshot)
+       ~source_version:(Document_snapshot.version conflict_snapshot)
+       ~edits:conflicting
+       ~metadata:(Transaction.metadata ~source:Transaction.Test ())
+       ());
   let overlap =
     [ replace conflict_snapshot 0 2 "x"; replace conflict_snapshot 1 3 "y" ]
   in
   expect_error
-    (Transaction.create ~document_id:(Document_snapshot.document_id conflict_snapshot)
-       ~source_version:(Document_snapshot.version conflict_snapshot) ~edits:overlap
-       ~metadata:(Transaction.metadata ~source:Transaction.Test ()) ())
+    (Transaction.create
+       ~document_id:(Document_snapshot.document_id conflict_snapshot)
+       ~source_version:(Document_snapshot.version conflict_snapshot)
+       ~edits:overlap
+       ~metadata:(Transaction.metadata ~source:Transaction.Test ())
+       ())
 
 let test_rejection_is_atomic_and_versions_are_checked () =
   let document = document "atomic" "abc" in
@@ -170,8 +205,11 @@ let test_history_undo_redo_and_branches () =
   expect
     (Document_version.to_int (Document.version (History.current branch)) = 3)
     "branch commit did not allocate a unique next version";
-  let original_branch = History.redo ~change_id:second_change branch_point |> must in
-  expect_string ~expected:"xyabc" ~actual:(text (History.current original_branch))
+  let original_branch =
+    History.redo ~change_id:second_change branch_point |> must
+  in
+  expect_string ~expected:"xyabc"
+    ~actual:(text (History.current original_branch))
 
 let read_file path =
   let channel = open_in_bin path in
@@ -210,7 +248,9 @@ let test_replay_fixtures_and_serialization () =
     "multi-selection replay produced an unexpected final state";
   let encoded = Replay.to_string basic in
   let decoded = Replay.of_string encoded |> must in
-  expect (final_state decoded = basic_state) "replay serialization changed semantics";
+  expect
+    (final_state decoded = basic_state)
+    "replay serialization changed semantics";
   expect_error
     (Replay.create ~document_id:"empty" ~contents:""
        ~initial_selections:{ Replay.selections = []; primary = 0 }
@@ -218,13 +258,15 @@ let test_replay_fixtures_and_serialization () =
   expect_error (Replay.of_string "zenbu-replay-v1\ndocument=bad\n")
 
 let random_text state length =
-  String.init length (fun _ -> Char.chr (Char.code 'a' + Random.State.int state 26))
+  String.init length (fun _ ->
+      Char.chr (Char.code 'a' + Random.State.int state 26))
 
 let expected_insertions source insertions =
   let buffer = Buffer.create (String.length source + 16) in
   for offset = 0 to String.length source do
     List.iter
-      (fun (position, value) -> if position = offset then Buffer.add_string buffer value)
+      (fun (position, value) ->
+        if position = offset then Buffer.add_string buffer value)
       insertions;
     if offset < String.length source then Buffer.add_char buffer source.[offset]
   done;
@@ -245,7 +287,9 @@ let test_properties () =
     let insertions = insertions insertion_count [] in
     let document = document ("property-" ^ string_of_int case) source in
     let snapshot = Document.snapshot document in
-    let edits = List.map (fun (offset, value) -> insert snapshot offset value) insertions in
+    let edits =
+      List.map (fun (offset, value) -> insert snapshot offset value) insertions
+    in
     let transaction = transaction snapshot edits in
     let once = Document.apply document transaction |> must in
     let twice = Document.apply document transaction |> must in
@@ -257,14 +301,19 @@ let test_properties () =
       "property case %d: version did not increment" case
   done;
   let replay = load_fixture "basic.replay" in
-  expect (final_state replay = final_state replay) "replay was not deterministic"
+  expect
+    (final_state replay = final_state replay)
+    "replay was not deterministic"
 
 let tests =
   [
-    ("document snapshots and UTF-8 boundaries", test_document_snapshots_and_unicode_boundaries);
+    ( "document snapshots and UTF-8 boundaries",
+      test_document_snapshots_and_unicode_boundaries );
     ("selection set invariants", test_selection_set_invariants);
-    ("transaction ordering and conflicts", test_transaction_ordering_and_conflicts);
-    ("rejection atomicity and version checks", test_rejection_is_atomic_and_versions_are_checked);
+    ( "transaction ordering and conflicts",
+      test_transaction_ordering_and_conflicts );
+    ( "rejection atomicity and version checks",
+      test_rejection_is_atomic_and_versions_are_checked );
     ("semantic intent resolution", test_intents_resolve_to_transactions);
     ("history undo, redo, and branches", test_history_undo_redo_and_branches);
     ("replay fixtures and serialization", test_replay_fixtures_and_serialization);

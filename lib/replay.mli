@@ -26,4 +26,3 @@ val actions : t -> action list
 val run : t -> (History.t, Error.t) result
 val to_string : t -> string
 val of_string : string -> (t, Error.t) result
-

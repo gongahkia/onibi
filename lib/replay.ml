@@ -22,12 +22,15 @@ let ( let* ) result f = Result.bind result f
 
 let create ~document_id ~contents ~initial_selections ~actions =
   if initial_selections.selections = [] then
-    Error (Error.Invalid_selection_set "a replay must declare at least one initial selection")
+    Error
+      (Error.Invalid_selection_set
+         "a replay must declare at least one initial selection")
   else
     let* id = Document_id.of_string document_id in
     let* _ = Text_buffer.of_utf8 contents in
     let* _ =
-      Document.create ~id ~contents ~initial_selections:initial_selections.selections
+      Document.create ~id ~contents
+        ~initial_selections:initial_selections.selections
         ~primary:initial_selections.primary ()
     in
     Ok { document_id; contents; initial_selections; actions }
@@ -50,10 +53,12 @@ let selection_set_of_state snapshot state =
     List.map
       (fun spec ->
         let* anchor =
-          Document_snapshot.anchor snapshot ~byte_offset:(Selection_spec.anchor_offset spec)
+          Document_snapshot.anchor snapshot
+            ~byte_offset:(Selection_spec.anchor_offset spec)
         in
         let* head =
-          Document_snapshot.anchor snapshot ~byte_offset:(Selection_spec.head_offset spec)
+          Document_snapshot.anchor snapshot
+            ~byte_offset:(Selection_spec.head_offset spec)
         in
         Selection.make ~anchor ~head)
       state.selections
@@ -84,13 +89,18 @@ let transaction_of_spec snapshot spec =
     Transaction.metadata ~source:spec.source ?intent:spec.intent
       ?description:spec.description ()
   in
-  Transaction.create ~document_id:(Document_snapshot.document_id snapshot)
-    ~source_version:(Document_snapshot.version snapshot) ~edits ?selection_change ~metadata ()
+  Transaction.create
+    ~document_id:(Document_snapshot.document_id snapshot)
+    ~source_version:(Document_snapshot.version snapshot)
+    ~edits ?selection_change ~metadata ()
 
 let run_action history = function
-  | Intent intent -> History.apply_intent ~source:Transaction.Replay history intent
+  | Intent intent ->
+      History.apply_intent ~source:Transaction.Replay history intent
   | Transaction spec -> (
-      match transaction_of_spec (Document.snapshot (History.current history)) spec with
+      match
+        transaction_of_spec (Document.snapshot (History.current history)) spec
+      with
       | Error _ as error -> error
       | Ok transaction -> History.commit history transaction)
 
@@ -114,7 +124,8 @@ let escape = String.escaped
 
 let unescape value =
   try Ok (Scanf.unescaped value)
-  with Failure _ | Invalid_argument _ -> Error (Error.Malformed_replay "invalid escaped string")
+  with Failure _ | Invalid_argument _ ->
+    Error (Error.Malformed_replay "invalid escaped string")
 
 let option_to_string = function None -> "0" | Some value -> "1" ^ escape value
 
@@ -129,26 +140,34 @@ let selection_specs_to_string selections =
   String.concat ","
     (List.map
        (fun spec ->
-         Printf.sprintf "%d:%d" (Selection_spec.anchor_offset spec)
+         Printf.sprintf "%d:%d"
+           (Selection_spec.anchor_offset spec)
            (Selection_spec.head_offset spec))
        selections)
 
 let selection_state_to_string state =
-  Printf.sprintf "%d\t%s" state.primary (selection_specs_to_string state.selections)
+  Printf.sprintf "%d\t%s" state.primary
+    (selection_specs_to_string state.selections)
 
 let int_of_replay value =
   try Ok (int_of_string value)
-  with Failure _ -> Error (Error.Malformed_replay ("expected integer, got " ^ value))
+  with Failure _ ->
+    Error (Error.Malformed_replay ("expected integer, got " ^ value))
 
 let split_exactly expected parts context =
   if List.length parts = expected then Ok parts
   else Error (Error.Malformed_replay context)
 
 let parse_selection_specs value =
-  if String.length value = 0 then Error (Error.Malformed_replay "selection list is empty")
+  if String.length value = 0 then
+    Error (Error.Malformed_replay "selection list is empty")
   else
     let parse_one item =
-      let* parts = split_exactly 2 (String.split_on_char ':' item) "invalid selection position" in
+      let* parts =
+        split_exactly 2
+          (String.split_on_char ':' item)
+          "invalid selection position"
+      in
       match parts with
       | [ anchor; head ] ->
           let* anchor_offset = int_of_replay anchor in
@@ -171,8 +190,10 @@ let parse_selection_state value =
 
 let after_prefix prefix line =
   let prefix_length = String.length prefix in
-  if String.length line >= prefix_length && String.sub line 0 prefix_length = prefix then
-    Some (String.sub line prefix_length (String.length line - prefix_length))
+  if
+    String.length line >= prefix_length
+    && String.sub line 0 prefix_length = prefix
+  then Some (String.sub line prefix_length (String.length line - prefix_length))
   else None
 
 let require_field field = function
@@ -183,11 +204,15 @@ let require_field field = function
   | [] -> Error (Error.Malformed_replay ("missing " ^ field ^ " field"))
 
 let parse_edit value =
-  let* parts = split_exactly 2 (String.split_on_char '\t' value) "invalid edit" in
+  let* parts =
+    split_exactly 2 (String.split_on_char '\t' value) "invalid edit"
+  in
   match parts with
-  | [ range; text ] ->
-      let* positions = split_exactly 2 (String.split_on_char ':' range) "invalid edit range" in
-      (match positions with
+  | [ range; text ] -> (
+      let* positions =
+        split_exactly 2 (String.split_on_char ':' range) "invalid edit range"
+      in
+      match positions with
       | [ start_offset; stop_offset ] ->
           let* start_offset = int_of_replay start_offset in
           let* stop_offset = int_of_replay stop_offset in
@@ -214,11 +239,19 @@ let parse_transaction lines =
     | [] -> Error (Error.Malformed_replay "unterminated transaction")
     | "end-transaction" :: rest ->
         Ok
-          ( Transaction { source; intent; description; edits = List.rev values; selection_change },
+          ( Transaction
+              {
+                source;
+                intent;
+                description;
+                edits = List.rev values;
+                selection_change;
+              },
             rest )
     | line :: rest -> (
         match after_prefix "edit=" line with
-        | None -> Error (Error.Malformed_replay "expected edit or end-transaction")
+        | None ->
+            Error (Error.Malformed_replay "expected edit or end-transaction")
         | Some value ->
             let* edit = parse_edit value in
             edits (edit :: values) rest)
@@ -234,34 +267,42 @@ let parse_actions lines =
     | "action=transaction" :: rest ->
         let* action, remaining = parse_transaction rest in
         loop (action :: values) remaining
-    | line :: rest ->
+    | line :: rest -> (
         match after_prefix "action=intent-insert\t" line with
         | Some text ->
             let* text = unescape text in
             loop (Intent (Intent.Insert_text text) :: values) rest
-        | None ->
+        | None -> (
             match after_prefix "action=intent-replace\t" line with
             | Some text ->
                 let* text = unescape text in
-                loop (Intent (Intent.Replace_selected_ranges text) :: values) rest
-            | None ->
+                loop
+                  (Intent (Intent.Replace_selected_ranges text) :: values)
+                  rest
+            | None -> (
                 match after_prefix "action=intent-set\t" line with
                 | Some state ->
-                    let* { selections; primary } = parse_selection_state state in
+                    let* { selections; primary } =
+                      parse_selection_state state
+                    in
                     loop
-                      (Intent (Intent.Set_selections { selections; primary }) :: values)
+                      (Intent (Intent.Set_selections { selections; primary })
+                      :: values)
                       rest
-                | None -> Error (Error.Malformed_replay ("unknown action " ^ line))
+                | None ->
+                    Error (Error.Malformed_replay ("unknown action " ^ line)))))
   in
   loop [] lines
 
 let of_string text =
   match String.split_on_char '\n' text with
-  | "zenbu-replay-v1" :: document :: contents :: selections :: primary :: actions ->
+  | "zenbu-replay-v1" :: document :: contents :: selections :: primary
+    :: actions ->
       let parse_header field line =
         match after_prefix (field ^ "=") line with
         | Some value -> Ok value
-        | None -> Error (Error.Malformed_replay ("expected " ^ field ^ " header"))
+        | None ->
+            Error (Error.Malformed_replay ("expected " ^ field ^ " header"))
       in
       let* document_id = parse_header "document" document in
       let* document_id = unescape document_id in
@@ -272,7 +313,8 @@ let of_string text =
       let* primary = parse_header "primary" primary in
       let* primary = int_of_replay primary in
       let* actions = parse_actions actions in
-      create ~document_id ~contents ~initial_selections:{ selections; primary } ~actions
+      create ~document_id ~contents ~initial_selections:{ selections; primary }
+        ~actions
   | _ -> Error (Error.Malformed_replay "missing zenbu-replay-v1 header")
 
 let add_line buffer line =
@@ -282,13 +324,14 @@ let add_line buffer line =
 let add_action buffer = function
   | Intent (Intent.Insert_text text) ->
       add_line buffer ("action=intent-insert\t" ^ escape text)
-  | Intent Intent.Delete_selected_ranges -> add_line buffer "action=intent-delete"
+  | Intent Intent.Delete_selected_ranges ->
+      add_line buffer "action=intent-delete"
   | Intent (Intent.Replace_selected_ranges text) ->
       add_line buffer ("action=intent-replace\t" ^ escape text)
   | Intent (Intent.Set_selections { selections; primary }) ->
       add_line buffer
         ("action=intent-set\t"
-        ^ selection_state_to_string { selections; primary });
+        ^ selection_state_to_string { selections; primary })
   | Transaction spec ->
       add_line buffer "action=transaction";
       add_line buffer ("source=" ^ Transaction.source_to_string spec.source);
@@ -296,9 +339,10 @@ let add_action buffer = function
       add_line buffer ("description=" ^ option_to_string spec.description);
       add_line buffer
         ("selection-change="
-        ^ (match spec.selection_change with
-          | None -> "-"
-          | Some state -> selection_state_to_string state));
+        ^
+        match spec.selection_change with
+        | None -> "-"
+        | Some state -> selection_state_to_string state);
       List.iter
         (fun edit ->
           add_line buffer
@@ -313,7 +357,8 @@ let to_string replay =
   add_line buffer ("document=" ^ escape replay.document_id);
   add_line buffer ("text=" ^ escape replay.contents);
   add_line buffer
-    ("selections=" ^ selection_specs_to_string replay.initial_selections.selections);
+    ("selections="
+    ^ selection_specs_to_string replay.initial_selections.selections);
   add_line buffer ("primary=" ^ string_of_int replay.initial_selections.primary);
   List.iter (add_action buffer) replay.actions;
   Buffer.contents buffer

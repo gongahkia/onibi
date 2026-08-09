@@ -36,6 +36,16 @@ property, and replay test executable. Install `ocamlformat` (0.28.1-compatible)
 to run the formatter locally; if it is unavailable, Dune reports that rather
 than silently skipping format validation.
 
+On a machine without `ocamlformat`, bootstrap an ignored local opam switch once
+before running `make check`:
+
+```sh
+opam switch create . ocaml-system --no-install
+opam install ocamlformat.0.28.1
+eval "$(opam env)"
+make check
+```
+
 ## Scope and layout
 
 - `lib/` contains the public kernel modules. Text storage is hidden behind
@@ -61,4 +71,3 @@ policy exists yet.
 
 The recommended next goal is M2: define the public editing-model/state-machine
 API on top of this kernel.
-

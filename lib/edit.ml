@@ -14,4 +14,3 @@ let delete range = { range; text = "" }
 let range value = value.range
 let text value = value.text
 let is_insertion value = Range.is_empty value.range
-

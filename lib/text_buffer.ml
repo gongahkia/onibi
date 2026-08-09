@@ -1,7 +1,6 @@
 type t = string
 
 let byte text index = Char.code text.[index]
-
 let is_continuation byte = byte land 0xC0 = 0x80
 
 let valid_utf8 text =
@@ -27,7 +26,9 @@ let valid_utf8 text =
           && byte text (index + 1) <= 0x9F
           && continuation (index + 2)
           && loop (index + 3)
-      | value when value >= 0xE1 && value <= 0xEC || value >= 0xEE && value <= 0xEF ->
+      | value
+        when (value >= 0xE1 && value <= 0xEC) || (value >= 0xEE && value <= 0xEF)
+        ->
           continuation (index + 1)
           && continuation (index + 2)
           && loop (index + 3)
@@ -54,7 +55,8 @@ let valid_utf8 text =
   in
   loop 0
 
-let of_utf8 text = if valid_utf8 text then Ok text else Error (Error.Invalid_utf8 "text")
+let of_utf8 text =
+  if valid_utf8 text then Ok text else Error (Error.Invalid_utf8 "text")
 
 let empty = ""
 let contents text = text
@@ -70,8 +72,14 @@ let replace text ~start ~stop ~with_ =
   if start < 0 || stop < start || stop > length then
     Error
       (Error.Invalid_anchor
-         { offset = start; byte_length = length; reason = "replacement range is out of bounds" })
-  else if not (is_code_point_boundary text start && is_code_point_boundary text stop) then
+         {
+           offset = start;
+           byte_length = length;
+           reason = "replacement range is out of bounds";
+         })
+  else if
+    not (is_code_point_boundary text start && is_code_point_boundary text stop)
+  then
     Error
       (Error.Invalid_anchor
          {
@@ -79,8 +87,9 @@ let replace text ~start ~stop ~with_ =
            byte_length = length;
            reason = "replacement range splits a UTF-8 code point";
          })
-  else if not (valid_utf8 with_) then Error (Error.Invalid_utf8 "replacement text")
+  else if not (valid_utf8 with_) then
+    Error (Error.Invalid_utf8 "replacement text")
   else
     Ok
-      (String.sub text 0 start ^ with_ ^ String.sub text stop (String.length text - stop))
-
+      (String.sub text 0 start ^ with_
+      ^ String.sub text stop (String.length text - stop))

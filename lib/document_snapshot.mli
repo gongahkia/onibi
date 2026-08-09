@@ -13,8 +13,10 @@ val contents : t -> string
 val byte_length : t -> int
 val selections : t -> Selection_set.t
 val anchor : t -> byte_offset:int -> (Anchor.t, Error.t) result
-val range : t -> start_offset:int -> stop_offset:int -> (Range.t, Error.t) result
+
+val range :
+  t -> start_offset:int -> stop_offset:int -> (Range.t, Error.t) result
+
 val validate_anchor : t -> Anchor.t -> (unit, Error.t) result
 val validate_range : t -> Range.t -> (unit, Error.t) result
 val validate_selection_set : t -> Selection_set.t -> (unit, Error.t) result
-

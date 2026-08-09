@@ -9,4 +9,3 @@ val version : t -> Document_version.t
 val equal : t -> t -> bool
 val compare : t -> t -> int
 val map_anchors : t -> f:(Anchor.t -> Anchor.t) -> (t, Error.t) result
-

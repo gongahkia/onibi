@@ -31,10 +31,12 @@ let rec to_string = function
   | Invalid_range message -> Printf.sprintf "invalid range: %s" message
   | Overlapping_edits { first_index; second_index } ->
       Printf.sprintf "conflicting edits %d and %d" first_index second_index
-  | Invalid_selection_set message -> Printf.sprintf "invalid selection set: %s" message
+  | Invalid_selection_set message ->
+      Printf.sprintf "invalid selection set: %s" message
   | Empty_transaction -> "transaction has neither edits nor a selection change"
   | Invalid_target_version { source; target } ->
-      Printf.sprintf "target version %d is not newer than source version %d" target source
+      Printf.sprintf "target version %d is not newer than source version %d"
+        target source
   | Malformed_intent message -> Printf.sprintf "malformed intent: %s" message
   | Malformed_replay message -> Printf.sprintf "malformed replay: %s" message
   | Replay_diverged { step; cause } ->
