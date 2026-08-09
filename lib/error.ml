@@ -21,10 +21,13 @@ type t =
   | Invalid_input_event of string
   | Invalid_command_id of string
   | Invalid_model_status of string
+  | Invalid_clipboard_slot of string
+  | Clipboard_slot_empty of string
   | Duplicate_command of string
   | Unknown_command of string
   | Invalid_command_arguments of string
   | Model_execution_failed of string
+  | No_repeatable_edit
 
 let rec to_string = function
   | Invalid_document_id value -> Printf.sprintf "invalid document id: %S" value
@@ -61,9 +64,12 @@ let rec to_string = function
   | Invalid_command_id value -> Printf.sprintf "invalid command id: %S" value
   | Invalid_model_status message ->
       Printf.sprintf "invalid model status: %s" message
+  | Invalid_clipboard_slot slot -> Printf.sprintf "invalid clipboard slot: %s" slot
+  | Clipboard_slot_empty slot -> Printf.sprintf "clipboard slot is empty: %s" slot
   | Duplicate_command id -> Printf.sprintf "duplicate command: %s" id
   | Unknown_command id -> Printf.sprintf "unknown command: %s" id
   | Invalid_command_arguments message ->
       Printf.sprintf "invalid command arguments: %s" message
   | Model_execution_failed message ->
       Printf.sprintf "model execution failed: %s" message
+  | No_repeatable_edit -> "no repeatable semantic edit is available"

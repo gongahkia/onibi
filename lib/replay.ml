@@ -292,6 +292,28 @@ let parse_actions lines =
                         { selector; transformation = Transformation.Delete })
                   :: values)
                   rest
+            | [ selector; "collapse-start" ] ->
+                let* selector = Selector.of_string selector in
+                loop
+                  (Intent
+                     (Intent.Apply
+                        {
+                          selector;
+                          transformation = Transformation.Collapse_to_start;
+                        })
+                  :: values)
+                  rest
+            | [ selector; "collapse-end" ] ->
+                let* selector = Selector.of_string selector in
+                loop
+                  (Intent
+                     (Intent.Apply
+                        {
+                          selector;
+                          transformation = Transformation.Collapse_to_end;
+                        })
+                  :: values)
+                  rest
             | [ selector; "replace"; text ] ->
                 let* selector = Selector.of_string selector in
                 let* text = unescape text in
@@ -378,6 +400,10 @@ let add_action buffer = function
         match transformation with
         | Transformation.Select -> Selector.to_string selector ^ "\tselect"
         | Transformation.Delete -> Selector.to_string selector ^ "\tdelete"
+        | Transformation.Collapse_to_start ->
+            Selector.to_string selector ^ "\tcollapse-start"
+        | Transformation.Collapse_to_end ->
+            Selector.to_string selector ^ "\tcollapse-end"
         | Transformation.Replace_text text ->
             Selector.to_string selector ^ "\treplace\t" ^ escape text
       in

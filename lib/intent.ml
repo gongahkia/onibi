@@ -59,6 +59,26 @@ let selection_set_of_specs snapshot ~selections ~primary =
   | Error _ as error -> error
   | Ok selections -> Selection_set.create ~primary selections
 
+let collapse_selections snapshot selections endpoint =
+  let collapsed =
+    Selection_set.to_list selections
+    |> List.map (fun selection ->
+           let range = Selection.range selection in
+           let offset =
+             match endpoint with
+             | `Start -> Anchor.byte_offset (Range.start range)
+             | `End -> Anchor.byte_offset (Range.stop range)
+           in
+           match Document_snapshot.anchor snapshot ~byte_offset:offset with
+           | Error _ as error -> error
+           | Ok anchor -> Selection.make ~anchor ~head:anchor)
+  in
+  match collect collapsed with
+  | Error _ as error -> error
+  | Ok collapsed ->
+      Selection_set.create ~primary:(Selection_set.primary_index selections)
+        collapsed
+
 let transaction snapshot ~edits ~selection_change ~source ~intent ~description =
   let metadata = Transaction.metadata ~source ~intent ?description () in
   Transaction.create
@@ -104,6 +124,20 @@ let resolve ~source ?description snapshot = function
               transaction snapshot ~edits:[]
                 ~selection_change:(Some selection_change) ~source ~intent
                 ~description
+          | Transformation.Collapse_to_start -> (
+              match collapse_selections snapshot selection_change `Start with
+              | Error _ as error -> error
+              | Ok selection_change ->
+                  transaction snapshot ~edits:[]
+                    ~selection_change:(Some selection_change) ~source ~intent
+                    ~description)
+          | Transformation.Collapse_to_end -> (
+              match collapse_selections snapshot selection_change `End with
+              | Error _ as error -> error
+              | Ok selection_change ->
+                  transaction snapshot ~edits:[]
+                    ~selection_change:(Some selection_change) ~source ~intent
+                    ~description)
           | Transformation.Delete -> (
               match edits_for_selection_set selection_change ~text:"" with
               | Error _ as error -> error

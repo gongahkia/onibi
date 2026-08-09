@@ -29,6 +29,7 @@
   command_descriptor
   input_event
   model_status
+  clipboard
   editor_context
   model_intent
   command_argument

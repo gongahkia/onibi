@@ -7,6 +7,18 @@ type t =
   | Execute_intent of Model_intent.t
   | Invoke_command of Command_invocation.t
   | Emit_message of message
+  | Copy_to_clipboard of {
+      slot : Clipboard.slot;
+      selector : Model_intent.selector;
+      kind : Clipboard.kind;
+    }
+  | Paste_from_clipboard of {
+      slot : Clipboard.slot;
+      placement : Clipboard.placement;
+    }
+  | Undo
+  | Redo
+  | Repeat_last_edit
 
 let message ~level ~text =
   if String.length text = 0 then
@@ -25,3 +37,11 @@ let describe = function
         | Error -> "error"
       in
       level ^ ": " ^ text
+  | Copy_to_clipboard { slot; selector = _; kind } ->
+      "copy " ^ Clipboard.kind_name kind ^ " to " ^ Clipboard.slot_name slot
+  | Paste_from_clipboard { slot; placement } ->
+      "paste " ^ Clipboard.slot_name slot ^ " "
+      ^ Clipboard.placement_name placement
+  | Undo -> "undo"
+  | Redo -> "redo"
+  | Repeat_last_edit -> "repeat-last-edit"

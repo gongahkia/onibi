@@ -10,9 +10,10 @@ type t = {
   byte_length : int;
   selections : selection_set;
   commands : Command_descriptor.t list;
+  clipboard : Clipboard.t;
 }
 
-let from_snapshot ~snapshot ~commands =
+let from_snapshot ~snapshot ~commands ?(clipboard = Clipboard.empty) () =
   let selections =
     List.map
       (fun selection ->
@@ -35,6 +36,7 @@ let from_snapshot ~snapshot ~commands =
           Selection_set.primary_index (Document_snapshot.selections snapshot);
       };
     commands;
+    clipboard;
   }
 
 let document_id value = value.document_id
@@ -43,3 +45,4 @@ let contents value = value.contents
 let byte_length value = value.byte_length
 let selections value = value.selections
 let command_descriptors value = value.commands
+let clipboard_entry value ~slot = Clipboard.find value.clipboard ~slot

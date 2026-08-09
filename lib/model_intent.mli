@@ -3,8 +3,27 @@ type selector =
   | Document
   | Next_text_unit
   | Previous_text_unit
+  | Next_word
+  | Previous_word
+  | Word_end
+  | Current_word
+  | Around_word
+  | Current_line
+  | Line_start
+  | Line_end
+  | First_nonblank
+  | Document_start
+  | Document_end
+  | Next_line
+  | Previous_line
+  | All_occurrences
 
-type transformation = Select | Delete | Replace_text of string
+type transformation =
+  | Select
+  | Delete
+  | Replace_text of string
+  | Collapse_to_start
+  | Collapse_to_end
 type t
 
 val insert_text : string -> t
@@ -16,4 +35,5 @@ val set_selections :
 
 val apply : selector:selector -> transformation:transformation -> t
 val identity : t -> string
+val is_textual : t -> bool
 val to_kernel : t -> Zenbu_kernel.Intent.t

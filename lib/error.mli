@@ -21,9 +21,12 @@ type t =
   | Invalid_input_event of string
   | Invalid_command_id of string
   | Invalid_model_status of string
+  | Invalid_clipboard_slot of string
+  | Clipboard_slot_empty of string
   | Duplicate_command of string
   | Unknown_command of string
   | Invalid_command_arguments of string
   | Model_execution_failed of string
+  | No_repeatable_edit
 
 val to_string : t -> string

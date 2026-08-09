@@ -158,7 +158,7 @@ let test_command_registry () =
   let context =
     Editor_context.from_snapshot
       ~snapshot:(Document.snapshot (document "command" "abc"))
-      ~commands:(Command_registry.descriptors registry)
+      ~commands:(Command_registry.descriptors registry) ()
   in
   let intents = Command_registry.invoke registry ~context invocation |> must in
   expect
