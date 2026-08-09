@@ -1,4 +1,4 @@
 (library
  (name zenbu)
+ (public_name zenbu)
  (wrapped false))
-

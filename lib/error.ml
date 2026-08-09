@@ -17,7 +17,7 @@ type t =
   | History_no_redo
   | Unknown_history_node of int
 
-let to_string = function
+let rec to_string = function
   | Invalid_document_id value -> Printf.sprintf "invalid document id: %S" value
   | Invalid_version value -> Printf.sprintf "invalid document version: %d" value
   | Invalid_utf8 context -> Printf.sprintf "invalid UTF-8 in %s" context
@@ -42,4 +42,3 @@ let to_string = function
   | History_at_root -> "cannot undo at history root"
   | History_no_redo -> "no redo branch is available"
   | Unknown_history_node id -> Printf.sprintf "unknown history node %d" id
-
