@@ -9,3 +9,9 @@
   vim_model
   selection_model)
  (libraries zenbu_model_api))
+
+(library
+ (name zenbu_structural_model)
+ (public_name zenbu.structural_model)
+ (modules structural_model)
+ (libraries zenbu_model_api zenbu_syntax))

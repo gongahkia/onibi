@@ -236,7 +236,21 @@ let test_session_file_dirty_and_models () =
       let _, frame = App.Session.render selection in
       expect
         (List.mem Frame.Primary_selection (styles frame))
-        "selection-first model did not render its semantic selection")
+        "selection-first model did not render its semantic selection";
+      let structural =
+        App.Session.create ~model:App.Session.Structural ~language:"ocaml"
+          ~contents:"let alpha = 1\nlet beta = 2\n" ~dimensions ()
+        |> must
+        |> fun session -> App.Session.handle_input session (key "f")
+      in
+      expect
+        (String.starts_with ~prefix:"STRUCT |"
+           (Model_status.label (App.Session.status structural)))
+        "structural model did not consume the generic syntax context";
+      let _, frame = App.Session.render structural in
+      expect
+        (List.mem Frame.Primary_selection (styles frame))
+        "structural selection did not render through the existing view")
 
 let run name test =
   try

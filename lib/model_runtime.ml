@@ -33,8 +33,8 @@ module Make (Model : Editing_model.S) = struct
           | Ok syntax -> Some syntax
           | Error _ -> None)
     in
-    Editor_context.from_snapshot
-      ~snapshot ~clipboard ~commands:(Command_registry.descriptors commands)
+    Editor_context.from_snapshot ~snapshot ~clipboard
+      ~commands:(Command_registry.descriptors commands)
       ?syntax ()
 
   let model_call call =
@@ -194,8 +194,8 @@ module Make (Model : Editing_model.S) = struct
             | Error _ as error -> error
             | Ok set -> Ok [ set; Model_intent.insert_text contents ]))
 
-  let interpret_effect ?syntax_service commands history clipboard repeatable_intents
-      model_effect =
+  let interpret_effect ?syntax_service commands history clipboard
+      repeatable_intents model_effect =
     match model_effect with
     | Model_effect.Execute_intent intent -> (
         match apply_intents ?syntax_service history [ intent ] with
@@ -217,7 +217,9 @@ module Make (Model : Editing_model.S) = struct
               "command "
               ^ Command_id.to_string (Command_invocation.id invocation)
             in
-            match apply_intents ?syntax_service history ~description intents with
+            match
+              apply_intents ?syntax_service history ~description intents
+            with
             | Error _ as error -> error
             | Ok (history, changes) ->
                 Ok
@@ -284,8 +286,8 @@ module Make (Model : Editing_model.S) = struct
                 Ok (history, clipboard, intents, changes, [], repeatable_intents)
             ))
 
-  let interpret_effects ?syntax_service commands history clipboard repeatable_intents
-      effects =
+  let interpret_effects ?syntax_service commands history clipboard
+      repeatable_intents effects =
     let rec loop history clipboard intents changes messages repeatable_intents =
       function
       | [] ->
@@ -299,8 +301,7 @@ module Make (Model : Editing_model.S) = struct
       | model_effect :: rest -> (
           match
             interpret_effect ?syntax_service commands history clipboard
-              repeatable_intents
-              model_effect
+              repeatable_intents model_effect
           with
           | Error _ as error -> error
           | Ok
@@ -329,8 +330,9 @@ module Make (Model : Editing_model.S) = struct
     | Error _ as error -> error
     | Ok (state, effects) -> (
         match
-          interpret_effects ?syntax_service:runtime.syntax_service runtime.commands
-            runtime.history runtime.clipboard runtime.repeatable_intents effects
+          interpret_effects ?syntax_service:runtime.syntax_service
+            runtime.commands runtime.history runtime.clipboard
+            runtime.repeatable_intents effects
         with
         | Error _ as error -> error
         | Ok

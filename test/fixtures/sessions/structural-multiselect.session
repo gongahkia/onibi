@@ -1,0 +1,11 @@
+# Select all same-kind top-level declarations, delete atomically, then undo/redo.
+model=structural
+language=ocaml
+text=let alpha = 1\nlet beta = 2\n
+input=f
+input=ArrowUp
+input=ArrowDown
+input=m
+input=x
+input=u
+input=Ctrl-r

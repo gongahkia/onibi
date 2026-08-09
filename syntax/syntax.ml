@@ -14,10 +14,10 @@ module Error = struct
 
   let to_string = function
     | Unknown_language id -> "unknown syntax language: " ^ id
-    | Stale_document { expected_id; expected_version; actual_id; actual_version } ->
-        Printf.sprintf
-          "stale syntax document: expected %s@%d, got %s@%d" expected_id
-          expected_version actual_id actual_version
+    | Stale_document
+        { expected_id; expected_version; actual_id; actual_version } ->
+        Printf.sprintf "stale syntax document: expected %s@%d, got %s@%d"
+          expected_id expected_version actual_id actual_version
     | Invalid_edit message -> "invalid syntax edit: " ^ message
     | Backend_failure message -> "syntax backend failure: " ^ message
 end
@@ -51,7 +51,8 @@ module Language = struct
   let display_name value = value.display_name
   let extensions value = value.extensions
 
-  let find id = List.find_opt (fun language -> String.equal language.id id) (supported ())
+  let find id =
+    List.find_opt (fun language -> String.equal language.id id) (supported ())
 
   let detect_path path =
     let extension = String.lowercase_ascii (Filename.extension path) in
@@ -89,7 +90,8 @@ module Snapshot = struct
         (Document_snapshot.document_id value.snapshot.document)
 
     let document_version value =
-      Document_version.to_int (Document_snapshot.version value.snapshot.document)
+      Document_version.to_int
+        (Document_snapshot.version value.snapshot.document)
 
     let kind value = Kind.of_string (Tree_sitter_backend.kind value.node)
     let is_named value = Tree_sitter_backend.is_named value.node
@@ -105,7 +107,8 @@ module Snapshot = struct
           ~start_offset:(start_offset value) ~stop_offset:(stop_offset value)
       with
       | Ok range -> Ok range
-      | Error error -> Error (Error.Invalid_edit (Zenbu_kernel.Error.to_string error))
+      | Error error ->
+          Error (Error.Invalid_edit (Zenbu_kernel.Error.to_string error))
 
     let wrap snapshot = function
       | None -> None
@@ -130,7 +133,8 @@ module Snapshot = struct
       wrap value.snapshot (Tree_sitter_backend.next_named_sibling value.node)
 
     let previous_named_sibling value =
-      wrap value.snapshot (Tree_sitter_backend.previous_named_sibling value.node)
+      wrap value.snapshot
+        (Tree_sitter_backend.previous_named_sibling value.node)
   end
 
   let document_id value =
@@ -140,15 +144,20 @@ module Snapshot = struct
     Document_version.to_int (Document_snapshot.version value.document)
 
   let language value = value.language
-  let has_error value = Tree_sitter_backend.has_error (Tree_sitter_backend.root value.tree)
+
+  let has_error value =
+    Tree_sitter_backend.has_error (Tree_sitter_backend.root value.tree)
 
   let matches_document value document =
-    Document_id.equal (Document_snapshot.document_id value.document)
+    Document_id.equal
+      (Document_snapshot.document_id value.document)
       (Document_snapshot.document_id document)
-    && Document_version.equal (Document_snapshot.version value.document)
+    && Document_version.equal
+         (Document_snapshot.version value.document)
          (Document_snapshot.version document)
 
-  let root value = { Node.snapshot = value; node = Tree_sitter_backend.root value.tree }
+  let root value =
+    { Node.snapshot = value; node = Tree_sitter_backend.root value.tree }
 
   let smallest_named_containing value ~start_offset ~stop_offset =
     let root = Tree_sitter_backend.root value.tree in
@@ -177,28 +186,35 @@ module Selector = struct
     | Some node -> Some node
     | None when start_offset = stop_offset ->
         Snapshot.smallest_named_containing snapshot ~start_offset
-          ~stop_offset:(min (start_offset + 1) (Document_snapshot.byte_length snapshot.Snapshot.document))
+          ~stop_offset:
+            (min (start_offset + 1)
+               (Document_snapshot.byte_length snapshot.Snapshot.document))
     | None -> None
 
   let singleton = function None -> [] | Some node -> [ node ]
 
   let resolve snapshot ~anchor_offset ~head_offset = function
-    | Focus_primary | Containing -> singleton (current snapshot ~anchor_offset ~head_offset)
+    | Focus_primary | Containing ->
+        singleton (current snapshot ~anchor_offset ~head_offset)
     | Parent | Expand ->
         singleton
-          (Option.bind (current snapshot ~anchor_offset ~head_offset)
+          (Option.bind
+             (current snapshot ~anchor_offset ~head_offset)
              Snapshot.Node.parent_named)
     | First_child ->
         singleton
-          (Option.bind (current snapshot ~anchor_offset ~head_offset)
+          (Option.bind
+             (current snapshot ~anchor_offset ~head_offset)
              Snapshot.Node.first_named_child)
     | Next_sibling ->
         singleton
-          (Option.bind (current snapshot ~anchor_offset ~head_offset)
+          (Option.bind
+             (current snapshot ~anchor_offset ~head_offset)
              Snapshot.Node.next_named_sibling)
     | Previous_sibling ->
         singleton
-          (Option.bind (current snapshot ~anchor_offset ~head_offset)
+          (Option.bind
+             (current snapshot ~anchor_offset ~head_offset)
              Snapshot.Node.previous_named_sibling)
     | Same_kind_siblings -> (
         match current snapshot ~anchor_offset ~head_offset with
@@ -210,7 +226,7 @@ module Selector = struct
                 let kind = Snapshot.Node.kind node in
                 Snapshot.Node.named_children parent
                 |> List.filter (fun sibling ->
-                       Kind.equal kind (Snapshot.Node.kind sibling))))
+                    Kind.equal kind (Snapshot.Node.kind sibling))))
 end
 
 module Service = struct
@@ -235,7 +251,8 @@ module Service = struct
 
   let protect parse =
     try Ok (parse ())
-    with exception_ -> Error (Error.Backend_failure (Printexc.to_string exception_))
+    with exception_ ->
+      Error (Error.Backend_failure (Printexc.to_string exception_))
 
   let parse_full service document =
     Tree_sitter_backend.reset service.parser;
@@ -250,7 +267,8 @@ module Service = struct
 
   let refresh service document =
     match service.cached with
-    | Some snapshot when Snapshot.matches_document snapshot document -> Ok snapshot
+    | Some snapshot when Snapshot.matches_document snapshot document ->
+        Ok snapshot
     | _ -> parse_full service document
 
   let point_at source offset =
@@ -287,7 +305,8 @@ module Service = struct
           | Some last_newline ->
               let rows =
                 String.fold_left
-                  (fun count character -> if Char.equal character '\n' then count + 1 else count)
+                  (fun count character ->
+                    if Char.equal character '\n' then count + 1 else count)
                   0 (Edit.text edit)
               in
               Tree_sitter.
@@ -302,23 +321,35 @@ module Service = struct
               start_byte = start_offset;
               old_end_byte = old_end_offset;
               new_end_byte = new_end_offset;
-              start_point = start_point;
-              old_end_point = old_end_point;
+              start_point;
+              old_end_point;
               new_end_point = replacement_point;
             }
 
   let validate_transaction before transaction after =
-    let expected_id = Document_snapshot.document_id before |> Document_id.to_string in
-    let expected_version = Document_snapshot.version before |> Document_version.to_int in
-    let actual_id = Transaction.document_id transaction |> Document_id.to_string in
-    let actual_version = Transaction.source_version transaction |> Document_version.to_int in
-    if not (String.equal expected_id actual_id && expected_version = actual_version) then
+    let expected_id =
+      Document_snapshot.document_id before |> Document_id.to_string
+    in
+    let expected_version =
+      Document_snapshot.version before |> Document_version.to_int
+    in
+    let actual_id =
+      Transaction.document_id transaction |> Document_id.to_string
+    in
+    let actual_version =
+      Transaction.source_version transaction |> Document_version.to_int
+    in
+    if
+      not
+        (String.equal expected_id actual_id && expected_version = actual_version)
+    then
       Error
         (Error.Stale_document
            { expected_id; expected_version; actual_id; actual_version })
     else if
       not
-        (Document_id.equal (Document_snapshot.document_id before)
+        (Document_id.equal
+           (Document_snapshot.document_id before)
            (Document_snapshot.document_id after))
     then
       Error (Error.Invalid_edit "a transaction cannot change document identity")

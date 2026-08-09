@@ -56,7 +56,7 @@ let selection_intent nodes =
           | Error error ->
               failwith
                 ("syntax invariant violated while converting node range: "
-               ^ Zenbu_syntax.Syntax.Error.to_string error)
+                ^ Zenbu_syntax.Syntax.Error.to_string error)
         in
         ( Anchor.byte_offset (Range.start range),
           Anchor.byte_offset (Range.stop range) ))
@@ -75,8 +75,7 @@ let resolve context operation =
       let selection = primary_selection context in
       Zenbu_syntax.Syntax.Selector.resolve syntax
         ~anchor_offset:selection.Editor_context.anchor_offset
-        ~head_offset:selection.Editor_context.head_offset
-        (selector operation)
+        ~head_offset:selection.Editor_context.head_offset (selector operation)
       |> selection_intent
 
 let invocation operation =
@@ -90,7 +89,8 @@ let command operation =
          ~description:"Resolve an abstract, version-matched syntax selection."
          ~category:"syntax" ())
   in
-  Command.create ~descriptor ~handler:(fun context _ -> resolve context operation)
+  Command.create ~descriptor ~handler:(fun context _ ->
+      resolve context operation)
 
 let commands () =
   [

@@ -14,7 +14,8 @@ type t = {
   syntax : Zenbu_syntax.Syntax.Snapshot.t option;
 }
 
-let from_snapshot ~snapshot ~commands ?(clipboard = Clipboard.empty) ?syntax () =
+let from_snapshot ~snapshot ~commands ?(clipboard = Clipboard.empty) ?syntax ()
+    =
   let selections =
     List.map
       (fun selection ->

@@ -1,10 +1,11 @@
-type model = Vim | Selection
+type model = Vim | Selection | Structural
 type host_command = Save | Quit | Force_quit
 type t
 type outcome = Continue of t | Exit of t
 
 val create :
   model:model ->
+  ?language:string ->
   ?file_path:string ->
   ?contents:string ->
   dimensions:Zenbu_view.Renderer.dimensions ->

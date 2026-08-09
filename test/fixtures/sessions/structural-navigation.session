@@ -1,0 +1,9 @@
+# Structural navigation selects syntax nodes through ordinary selections.
+model=structural
+language=ocaml
+text=let alpha = 1\nlet beta = alpha\n
+input=f
+input=ArrowUp
+input=ArrowDown
+input=ArrowRight
+input=x

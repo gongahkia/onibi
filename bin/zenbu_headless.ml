@@ -1,6 +1,8 @@
 open Zenbu_kernel
 open Zenbu_model_api
+open Zenbu_syntax
 open Zenbu_proof_models
+open Zenbu_structural_model
 
 let fail error =
   prerr_endline (Error.to_string error);
@@ -28,14 +30,28 @@ let control_key text =
 
 module Vim_runtime = Model_runtime.Make (Vim_model)
 module Selection_runtime = Model_runtime.Make (Selection_model)
+module Structural_runtime = Model_runtime.Make (Structural_model)
 
 let semantic_registry () =
   match
     Command_registry.register Command_registry.empty
       Semantic_commands.apply_command
   with
-  | Ok registry -> registry
   | Error error -> fail error
+  | Ok registry -> (
+      List.fold_left
+        (fun registry command ->
+          match registry with
+          | Error error -> fail error
+          | Ok registry -> (
+              match Command_registry.register registry command with
+              | Ok registry -> Ok registry
+              | Error error -> Error error))
+        (Ok registry)
+        (Syntax_commands.commands ())
+      |> function
+      | Ok registry -> registry
+      | Error error -> fail error)
 
 let read_file path =
   let channel = open_in_bin path in
@@ -151,10 +167,45 @@ let run_selection_session contents inputs =
   in
   print_result (Selection_runtime.history runtime)
 
-type session_model = Vim | Selection_first
+let run_structural_session ?(language = "ocaml") contents inputs =
+  let syntax_service =
+    match Syntax.Language.find language with
+    | Some language -> Syntax.Service.create language
+    | None ->
+        fail (Error.Invalid_command_arguments ("unknown language: " ^ language))
+  in
+  let runtime =
+    match
+      Structural_runtime.create ~commands:(semantic_registry ()) ~syntax_service
+        ~document:(document_for "structural-session" contents)
+        ()
+    with
+    | Ok runtime -> runtime
+    | Error error -> fail error
+  in
+  let runtime =
+    List.fold_left
+      (fun runtime input ->
+        match Structural_runtime.handle_input runtime input with
+        | Error error -> fail error
+        | Ok (runtime, step) ->
+            print_step
+              (List.length (Structural_runtime.input_trace runtime))
+              input
+              (Structural_runtime.effects step)
+              (Structural_runtime.intents step)
+              (Structural_runtime.status_after step)
+              (Structural_runtime.history runtime);
+            runtime)
+      runtime inputs
+  in
+  print_result (Structural_runtime.history runtime)
+
+type session_model = Vim | Selection_first | Structural
 
 type session = {
   model : session_model;
+  language : string option;
   contents : string;
   inputs : Input_event.t list;
 }
@@ -168,6 +219,10 @@ let input_of_session_value = function
   | "Escape" -> Ok (named_key Input_event.Escape)
   | "Backspace" -> Ok (named_key Input_event.Backspace)
   | "Enter" -> Ok (named_key Input_event.Enter)
+  | "ArrowUp" -> Ok (named_key Input_event.Arrow_up)
+  | "ArrowDown" -> Ok (named_key Input_event.Arrow_down)
+  | "ArrowLeft" -> Ok (named_key Input_event.Arrow_left)
+  | "ArrowRight" -> Ok (named_key Input_event.Arrow_right)
   | "Ctrl-r" -> Ok (control_key "r")
   | value -> Ok (logical_key value)
 
@@ -179,6 +234,9 @@ let session_of_string text =
       | [ "model"; "vim" ] -> Ok { session with model = Vim }
       | [ "model"; "selection-first" ] ->
           Ok { session with model = Selection_first }
+      | [ "model"; "structural" ] -> Ok { session with model = Structural }
+      | "language" :: value ->
+          Ok { session with language = Some (String.concat "=" value) }
       | "text" :: value -> (
           match unescape (String.concat "=" value) with
           | Error _ as error -> error
@@ -197,7 +255,7 @@ let session_of_string text =
                   Ok { session with inputs = session.inputs @ [ input ] }))
       | _ -> Error (Error.Malformed_replay ("invalid session line " ^ line))
   in
-  let initial = { model = Vim; contents = ""; inputs = [] } in
+  let initial = { model = Vim; language = None; contents = ""; inputs = [] } in
   let rec loop session = function
     | [] -> Ok session
     | line :: rest -> (
@@ -210,30 +268,72 @@ let session_of_string text =
 let run_session path =
   match session_of_string (read_file path) with
   | Error error -> fail error
-  | Ok { model = Vim; contents; inputs } -> run_vim_session contents inputs
-  | Ok { model = Selection_first; contents; inputs } ->
+  | Ok { model = Vim; contents; inputs; _ } -> run_vim_session contents inputs
+  | Ok { model = Selection_first; contents; inputs; _ } ->
       run_selection_session contents inputs
+  | Ok { model = Structural; language; contents; inputs } ->
+      run_structural_session ?language contents inputs
 
 let demo () =
-  Printf.printf "Zenbu M3: incompatible grammars, shared semantics\n\n";
+  Printf.printf "Zenbu M5: three grammars, shared semantics\n\n";
   Printf.printf "Initial: \"alpha beta gamma\"\n\nVIM-STYLE: d w\n";
   run_vim_session "alpha beta gamma" [ logical_key "d"; logical_key "w" ];
   Printf.printf "\nSELECTION-FIRST: w d\n";
   run_selection_session "alpha beta gamma" [ logical_key "w"; logical_key "d" ];
   Printf.printf "\nSELECTION-FIRST MULTI-SELECTION: W * d\n";
   run_selection_session "foo bar foo baz foo"
-    [ logical_key "W"; logical_key "*"; logical_key "d" ]
+    [ logical_key "W"; logical_key "*"; logical_key "d" ];
+  Printf.printf "\nSTRUCTURAL: f ArrowUp ArrowDown ArrowRight x\n";
+  run_structural_session "let alpha = 1\nlet beta = 2\n"
+    [
+      logical_key "f";
+      named_key Input_event.Arrow_up;
+      named_key Input_event.Arrow_down;
+      named_key Input_event.Arrow_right;
+      logical_key "x";
+    ]
+
+let rec print_node indent node =
+  Printf.printf "%s%s %d:%d named=%b error=%b missing=%b\n" indent
+    (Syntax.Snapshot.Node.kind node |> Syntax.Kind.to_string)
+    (Syntax.Snapshot.Node.start_offset node)
+    (Syntax.Snapshot.Node.stop_offset node)
+    (Syntax.Snapshot.Node.is_named node)
+    (Syntax.Snapshot.Node.is_error node)
+    (Syntax.Snapshot.Node.is_missing node);
+  List.iter
+    (print_node (indent ^ "  "))
+    (Syntax.Snapshot.Node.named_children node)
+
+let inspect_syntax path =
+  match Syntax.Language.detect_path path with
+  | None ->
+      fail (Error.Invalid_command_arguments ("no syntax language for " ^ path))
+  | Some language -> (
+      let document = document_for path (read_file path) in
+      let service = Syntax.Service.create language in
+      match Syntax.Service.refresh service (Document.snapshot document) with
+      | Error error ->
+          fail (Error.Model_execution_failed (Syntax.Error.to_string error))
+      | Ok snapshot ->
+          Printf.printf "language: %s\ndocument: %s@%d\nhas-error: %b\n"
+            (Syntax.Language.id (Syntax.Snapshot.language snapshot))
+            (Syntax.Snapshot.document_id snapshot)
+            (Syntax.Snapshot.document_version snapshot)
+            (Syntax.Snapshot.has_error snapshot);
+          print_node "" (Syntax.Snapshot.root snapshot))
 
 let usage () =
   prerr_endline
     "usage: zenbu-headless demo | replay <fixture.replay> | session \
-     <fixture.session>";
+     <fixture.session> | syntax <file>";
   exit 2
 
 let () =
   match Array.to_list Sys.argv with
   | [ _; "demo" ] -> demo ()
   | [ _; "session"; path ] -> run_session path
+  | [ _; "syntax"; path ] -> inspect_syntax path
   | [ _; "replay"; path ] -> (
       match Replay.of_string (read_file path) with
       | Ok replay -> (

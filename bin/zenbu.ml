@@ -1,17 +1,25 @@
 open Zenbu_kernel
 open Zenbu_model_api
 
-type options = { model : Zenbu_app.Session.model; file_path : string option }
+type options = {
+  model : Zenbu_app.Session.model;
+  language : string option;
+  file_path : string option;
+}
+
 type run_result = Exited | Unsaved_end
 
-let usage = "usage: zenbu [--model vim|selection] [FILE]"
+let usage =
+  "usage: zenbu [--model vim|selection|structural] [--language ID] [FILE]"
 
 let parse_arguments () =
   let model = ref Zenbu_app.Session.Vim in
+  let language = ref None in
   let file_path = ref None in
   let set_model = function
     | "vim" -> model := Zenbu_app.Session.Vim
     | "selection" -> model := Zenbu_app.Session.Selection
+    | "structural" -> model := Zenbu_app.Session.Structural
     | value -> raise (Arg.Bad ("unknown model: " ^ value))
   in
   let set_file value =
@@ -21,7 +29,12 @@ let parse_arguments () =
   in
   let specifications =
     [
-      ("--model", Arg.String set_model, "vim or selection (default: vim)");
+      ( "--model",
+        Arg.String set_model,
+        "vim, selection, or structural (default: vim)" );
+      ( "--language",
+        Arg.String (fun value -> language := Some value),
+        "syntax language ID" );
       ( "--version",
         Arg.Unit
           (fun () ->
@@ -32,7 +45,7 @@ let parse_arguments () =
   in
   try
     Arg.parse specifications set_file usage;
-    Ok { model = !model; file_path = !file_path }
+    Ok { model = !model; language = !language; file_path = !file_path }
   with
   | Arg.Bad message -> Error message
   | Arg.Help message ->
@@ -47,8 +60,8 @@ let load_contents = function
 
 let create_session options contents backend =
   let columns, rows = Zenbu_terminal.Backend.size backend in
-  Zenbu_app.Session.create ~model:options.model ?file_path:options.file_path
-    ~contents
+  Zenbu_app.Session.create ~model:options.model ?language:options.language
+    ?file_path:options.file_path ~contents
     ~dimensions:{ Zenbu_view.Renderer.columns; rows }
     ()
 

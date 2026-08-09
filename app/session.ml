@@ -1,10 +1,13 @@
 open Zenbu_kernel
 open Zenbu_model_api
+open Zenbu_syntax
 open Zenbu_proof_models
+open Zenbu_structural_model
 module Vim_runtime = Model_runtime.Make (Vim_model)
 module Selection_runtime = Model_runtime.Make (Selection_model)
+module Structural_runtime = Model_runtime.Make (Structural_model)
 
-type model = Vim | Selection
+type model = Vim | Selection | Structural
 type host_command = Save | Quit | Force_quit
 
 type outcome = Continue of t | Exit of t
@@ -12,6 +15,7 @@ type outcome = Continue of t | Exit of t
 and active =
   | Vim_runtime of Vim_runtime.t
   | Selection_runtime of Selection_runtime.t
+  | Structural_runtime of Structural_runtime.t
 
 and t = {
   active : active;
@@ -29,52 +33,87 @@ let static = function
   | Error error -> failwith (Error.to_string error)
 
 let commands () =
-  Command_registry.register Command_registry.empty
-    Semantic_commands.apply_command
+  match
+    Command_registry.register Command_registry.empty
+      Semantic_commands.apply_command
+  with
+  | Error _ as error -> error
+  | Ok registry ->
+      List.fold_left
+        (fun registry command ->
+          match registry with
+          | Error _ -> registry
+          | Ok registry -> Command_registry.register registry command)
+        (Ok registry)
+        (Syntax_commands.commands ())
 
 let document ~contents =
   Document.create
     ~id:(static (Document_id.of_string "terminal-buffer"))
     ~contents ()
 
-let create ~model ?file_path ?(contents = "") ~dimensions () =
+let syntax_service ?language file_path =
+  match language with
+  | Some id -> (
+      match Syntax.Language.find id with
+      | Some language -> Ok (Some (Syntax.Service.create language))
+      | None ->
+          Error (Error.Invalid_command_arguments ("unknown language: " ^ id)))
+  | None -> (
+      match Option.bind file_path Syntax.Language.detect_path with
+      | Some language -> Ok (Some (Syntax.Service.create language))
+      | None -> Ok None)
+
+let create ~model ?language ?file_path ?(contents = "") ~dimensions () =
   match document ~contents with
   | Error _ as error -> error
   | Ok document -> (
-      match commands () with
+      match syntax_service ?language file_path with
       | Error _ as error -> error
-      | Ok commands ->
-          let runtime =
-            match model with
-            | Vim ->
-                Vim_runtime.create ~commands ~document ()
-                |> Result.map (fun runtime -> Vim_runtime runtime)
-            | Selection ->
-                Selection_runtime.create ~commands ~document ()
-                |> Result.map (fun runtime -> Selection_runtime runtime)
-          in
-          runtime
-          |> Result.map (fun active ->
-              {
-                active;
-                file_path;
-                saved_version = 0;
-                saved_contents = contents;
-                viewport = Zenbu_view.Viewport.origin;
-                dimensions;
-                message = None;
-                quit_armed = false;
-              }))
+      | Ok syntax_service -> (
+          match commands () with
+          | Error _ as error -> error
+          | Ok commands ->
+              let runtime =
+                match model with
+                | Vim ->
+                    Vim_runtime.create ~commands ?syntax_service ~document ()
+                    |> Result.map (fun runtime -> Vim_runtime runtime)
+                | Selection ->
+                    Selection_runtime.create ~commands ?syntax_service ~document
+                      ()
+                    |> Result.map (fun runtime -> Selection_runtime runtime)
+                | Structural ->
+                    Structural_runtime.create ~commands ?syntax_service
+                      ~document ()
+                    |> Result.map (fun runtime -> Structural_runtime runtime)
+              in
+              runtime
+              |> Result.map (fun active ->
+                  {
+                    active;
+                    file_path;
+                    saved_version = 0;
+                    saved_contents = contents;
+                    viewport = Zenbu_view.Viewport.origin;
+                    dimensions;
+                    message = None;
+                    quit_armed = false;
+                  })))
 
 let context = function
   | { active = Vim_runtime runtime; _ } -> Vim_runtime.context runtime
   | { active = Selection_runtime runtime; _ } ->
       Selection_runtime.context runtime
+  | { active = Structural_runtime runtime; _ } ->
+      Structural_runtime.context runtime
 
 let status = function
   | { active = Vim_runtime runtime; _ } -> Vim_runtime.status runtime
   | { active = Selection_runtime runtime; _ } ->
       Selection_runtime.status runtime
+  | { active = Structural_runtime runtime; _ } ->
+      Structural_runtime.status runtime
 
 let filename session =
   match session.file_path with
@@ -122,6 +161,21 @@ let handle_input session input =
               session with
               active = Selection_runtime runtime;
               message = last_message (Selection_runtime.messages step);
+              quit_armed = false;
+            })
+    | Structural_runtime runtime -> (
+        match Structural_runtime.handle_input runtime input with
+        | Error error ->
+            {
+              session with
+              message = Some (Error.to_string error);
+              quit_armed = false;
+            }
+        | Ok (runtime, step) ->
+            {
+              session with
+              active = Structural_runtime runtime;
+              message = last_message (Structural_runtime.messages step);
               quit_armed = false;
             })
   in

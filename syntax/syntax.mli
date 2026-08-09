@@ -1,10 +1,15 @@
-(** Zenbu's model-neutral, version-bound syntax service.  Parser and grammar
+(** Zenbu's model-neutral, version-bound syntax service. Parser and grammar
     implementation details intentionally remain private to this library. *)
 
 module Error : sig
   type t =
     | Unknown_language of string
-    | Stale_document of { expected_id : string; expected_version : int; actual_id : string; actual_version : int }
+    | Stale_document of {
+        expected_id : string;
+        expected_version : int;
+        actual_id : string;
+        actual_version : int;
+      }
     | Invalid_edit of string
     | Backend_failure of string
 
@@ -77,7 +82,11 @@ module Selector : sig
     | Same_kind_siblings
 
   val resolve :
-    Snapshot.t -> anchor_offset:int -> head_offset:int -> t -> Snapshot.Node.t list
+    Snapshot.t ->
+    anchor_offset:int ->
+    head_offset:int ->
+    t ->
+    Snapshot.Node.t list
 end
 
 module Service : sig
@@ -85,6 +94,7 @@ module Service : sig
 
   val create : Language.t -> t
   val language : t -> Language.t
+
   val refresh :
     t -> Zenbu_kernel.Document_snapshot.t -> (Snapshot.t, Error.t) result
 

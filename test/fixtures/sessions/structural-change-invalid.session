@@ -1,0 +1,12 @@
+# Change enters text mode, tolerates an incomplete declaration, and exits safely.
+model=structural
+language=ocaml
+text=let value = 1\n
+input=f
+input=c
+text-input=let repaired =
+input=Escape
+input=i
+text-input= 1
+input=Escape
+input=f

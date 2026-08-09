@@ -1,6 +1,6 @@
 opam-version: "2.0"
 synopsis: "A model-neutral semantic text editor kernel and editing-model API"
-description: "The M0/M4 terminal host for a model-neutral programmable modal text editor."
+description: "The M0/M5 syntax-aware terminal host for a model-neutral programmable modal text editor."
 maintainer: "Zenbu contributors"
 authors: "Zenbu contributors"
 license: "MIT"
@@ -12,6 +12,7 @@ depends: [
   "notty-community" {>= "0.2.4"}
   "uucp" {>= "17.0.0" & < "18.0.0"}
   "uuseg" {>= "17.0.0" & < "18.0.0"}
+  "tree-sitter" {= "0.1.0"}
 ]
 build: [
   ["dune" "build" "-p" name "-j" jobs]
