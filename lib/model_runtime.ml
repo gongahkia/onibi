@@ -22,6 +22,7 @@ module Make (Model : Editing_model.S) = struct
     profiler : Profiler.t;
     next_execution_id : int ref;
     last_execution : int option;
+    pending_interaction : (int * int * string list) option;
   }
 
   type step = {
@@ -122,6 +123,7 @@ module Make (Model : Editing_model.S) = struct
             profiler;
             next_execution_id = ref 1;
             last_execution = None;
+            pending_interaction = None;
           }
 
   let sync_syntax_after_commit runtime ~execution_id history =
@@ -576,6 +578,11 @@ module Make (Model : Editing_model.S) = struct
             ~model_id:(Editing_model.id Model.descriptor)
             ~provider:(Editing_model.provider Model.descriptor)
             ~input:(Input_event.to_string input)
+          |> fun provenance ->
+          match runtime.pending_interaction with
+          | Some (interaction_id, _, _) ->
+              Provenance.add provenance (Provenance.Interaction interaction_id)
+          | None -> provenance
         in
         (match
            interpret_effects runtime ~execution_id runtime.history runtime.clipboard
@@ -600,6 +607,33 @@ module Make (Model : Editing_model.S) = struct
                       { execution_id; reason = Error.to_string error });
                 Error error
             | Ok status_after ->
+                let interaction_id, started_execution, interaction_inputs =
+                  match runtime.pending_interaction with
+                  | Some (id, started_execution, inputs) ->
+                      ( id,
+                        started_execution,
+                        inputs @ [ Input_event.to_string input ] )
+                  | None -> (execution_id, execution_id, [ Input_event.to_string input ])
+                in
+                let pending_interaction =
+                  match Model_status.pending_input status_after with
+                  | Some _ ->
+                      trace runtime.trace (fun () ->
+                          Trace_event.Interaction_started
+                            { execution_id; interaction_id });
+                      Some (interaction_id, started_execution, interaction_inputs)
+                  | None ->
+                      if List.length interaction_inputs > 1 then
+                        trace runtime.trace (fun () ->
+                            Trace_event.Interaction_completed
+                              {
+                                execution_id;
+                                interaction_id;
+                                started_execution;
+                                inputs = interaction_inputs;
+                              });
+                      None
+                in
                 trace runtime.trace (fun () ->
                     Trace_event.Model_transition
                       {
@@ -621,6 +655,7 @@ module Make (Model : Editing_model.S) = struct
                     profiler = runtime.profiler;
                     next_execution_id = runtime.next_execution_id;
                     last_execution = Some execution_id;
+                    pending_interaction;
                   }
                 in
                 Ok

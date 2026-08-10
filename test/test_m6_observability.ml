@@ -192,6 +192,8 @@ let test_profiler_is_bounded_and_nonsemantic () =
     "profile capacity did not evict oldest samples";
   expect (Profiler.aggregate_max_seconds aggregate >= 0.)
     "profile reported a negative duration";
+  Profiler.reset profiler;
+  expect (Profiler.aggregates profiler = []) "profile reset retained samples";
   let with_profile =
     Vim_runtime.create ~commands:(registry ()) ~profiler
       ~document:(document "profiled" "alpha") () |> must
@@ -208,6 +210,37 @@ let test_profiler_is_bounded_and_nonsemantic () =
     (Editor_context.contents (Vim_runtime.context with_profile)
     = Editor_context.contents (Vim_runtime.context without_profile))
     "profiling changed semantic document output"
+
+let test_failed_and_repeated_execution_context () =
+  let trace = trace () in
+  let runtime =
+    Vim_runtime.create ~commands:(registry ()) ~trace
+      ~document:(document "failed-observe" "alpha beta gamma") ()
+    |> must
+  in
+  expect (Result.is_error (Vim_runtime.handle_input runtime (key "p")))
+    "empty paste unexpectedly succeeded";
+  let failure = Inspector.latest_why trace |> Option.get |> Inspector.format_why |> String.concat "\n" in
+  expect (contains failure "clipboard slot is empty")
+    "failed input omitted error execution context";
+  let runtime, _ = Vim_runtime.handle_input runtime (key "d") |> must in
+  let runtime, _ = Vim_runtime.handle_input runtime (key "w") |> must in
+  let runtime, repeated = Vim_runtime.handle_input runtime (key ".") |> must in
+  let repeated_change = History.current_change (Vim_runtime.history runtime) |> Option.get in
+  let provenance =
+    History.transaction repeated_change |> Transaction.metadata_of
+    |> Transaction.provenance |> Option.get |> Provenance.entries
+  in
+  expect
+    (List.exists (function Provenance.Repeat "apply:next-word:delete" -> true | _ -> false) provenance)
+    "semantic repeat did not retain replayed action identity";
+  let why =
+    Inspector.why (Vim_runtime.trace runtime)
+      ~execution_id:(Vim_runtime.execution_id repeated)
+    |> Option.get |> Inspector.format_why |> String.concat "\n"
+  in
+  expect (contains why "repeat apply:next-word:delete")
+    "repeat explanation omitted semantic repeat provenance"
 
 let run name test =
   try
@@ -229,5 +262,6 @@ let () =
     ("structural provenance and syntax status", test_structural_provenance_and_syntax_status);
     ("history view and descriptor registry", test_history_view_and_descriptor_registry);
     ("profiler bounded and nonsemantic", test_profiler_is_bounded_and_nonsemantic);
+    ("failed and repeated execution context", test_failed_and_repeated_execution_context);
   ]
   |> List.iter (fun (name, test) -> run name test)

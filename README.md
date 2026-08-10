@@ -1,8 +1,9 @@
 # zenbu
 
 Zenbu is a terminal-first programmable modal editor under development. This
-repository contains M0-M5: a semantic kernel, public editing-model and syntax
-protocols, three first-party editing models, and an interactive terminal host.
+repository contains M0-M6: a semantic kernel, public editing-model and syntax
+protocols, three first-party editing models, local observability, and an
+interactive terminal host.
 It deliberately contains no complete Vim/Helix/Kakoune implementation, syntax
 highlighting, LSP, or plugin runtime.
 
@@ -33,7 +34,9 @@ make demo
 dune exec bin/zenbu_headless.exe -- replay test/fixtures/unicode.replay
 dune exec bin/zenbu_headless.exe -- session test/fixtures/sessions/vim-edit.session
 dune exec bin/zenbu_headless.exe -- syntax test/fixtures/syntax_sample.ml
-dune exec bin/zenbu.exe -- --model structural test/fixtures/syntax_sample.ml
+dune exec bin/zenbu_headless.exe -- why test/fixtures/sessions/observability-vim.session
+dune exec bin/zenbu_headless.exe -- bindings structural
+dune exec bin/zenbu.exe -- --trace --profile --model structural test/fixtures/syntax_sample.ml
 ```
 
 `make check` runs Dune's formatting check, build, and the dependency-free unit,
@@ -75,7 +78,8 @@ make check
   durable architectural decisions.
 
 See [architecture](docs/ARCHITECTURE.md), the [editing protocol](docs/EDITING_PROTOCOL.md),
-and [invariants](docs/INVARIANTS.md) before extending the kernel.
+the [observability model](docs/OBSERVABILITY.md), and [invariants](docs/INVARIANTS.md)
+before extending the kernel.
 
 ## M5 syntax and structural editing
 
@@ -129,6 +133,19 @@ paste, terminal capability probing beyond the chosen backend, save-as prompt,
 or model switching in a live session exists yet. Keymap configuration UI,
 Syntax highlighting, LSP, scripting, and plugin isolation remain deferred.
 
-The recommended next goal is M6: make editor behavior inspectable through
-generic description, reasoning, bindings, history, traces, syntax inspection,
-and lightweight profiling.
+## M6 observability
+
+M6 adds local structured inspection instead of ad-hoc logging. Transactions
+retain optional deterministic provenance; bounded traces and CPU-time profiles
+are explicit runtime services. The generic inspector describes models,
+commands, selectors, transformations, current bindings, selections, history,
+syntax, and profile aggregates without importing model or backend internals.
+
+`zenbu-headless commands`, `api`, `describe`, `bindings`, `why`, `history`,
+`selection`, `syntax-session`, and `profile` expose those same typed views.
+Interactive `--trace` and `--profile` opt in to bounded recording; with trace
+enabled, `Ctrl-O` toggles a read-only generic explanation overlay and `Escape`
+dismisses it. This is Zenbu's host-level inspector, not Vim Ex.
+
+The recommended next goal is M7: add a hot-reloadable scripting layer that
+dogfoods Zenbu's public extension API without privileged mutation.

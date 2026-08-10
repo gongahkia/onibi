@@ -301,12 +301,31 @@ let input_rules = function
         input_rule "structural.child" (Input_rule.Named "ArrowDown")
           Input_rule.Binding "select the first child syntax node" ~selector_id:"syntax.child"
           ~transformation_id:"select" ~requires_syntax:true;
+        input_rule "structural.next-sibling" (Input_rule.Named "ArrowRight")
+          Input_rule.Binding "select the next named sibling"
+          ~selector_id:"syntax.next-sibling" ~transformation_id:"select"
+          ~requires_syntax:true;
+        input_rule "structural.previous-sibling" (Input_rule.Named "ArrowLeft")
+          Input_rule.Binding "select the previous named sibling"
+          ~selector_id:"syntax.previous-sibling" ~transformation_id:"select"
+          ~requires_syntax:true;
+        input_rule "structural.expand-shrink" (Input_rule.Text_range "e or r")
+          Input_rule.Binding "expand or shrink structural selection"
+          ~requires_syntax:true;
         input_rule "structural.siblings" (Input_rule.Exact "m") Input_rule.Binding
           "select same-kind syntax siblings" ~selector_id:"syntax.select-same-kind"
           ~transformation_id:"select" ~requires_syntax:true;
         input_rule "structural.delete" (Input_rule.Exact "x") Input_rule.Binding
           "delete visible structural selections" ~selector_id:"current-selections"
           ~transformation_id:"delete";
+        input_rule "structural.change" (Input_rule.Exact "c") Input_rule.Binding
+          "delete visible structural selections then enter text input"
+          ~next_status:"struct-insert" ~selector_id:"current-selections"
+          ~transformation_id:"delete";
+        input_rule "structural.clipboard" (Input_rule.Text_range "y or p")
+          Input_rule.Binding "copy or paste through the shared clipboard";
+        input_rule "structural.history" (Input_rule.Text_range "u, Ctrl-r, or .")
+          Input_rule.Binding "move through or repeat shared semantic history";
         input_rule "structural.insert" (Input_rule.Exact "i") Input_rule.Binding
           "enter committed text input" ~next_status:"struct-insert";
       ]

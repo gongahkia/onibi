@@ -99,3 +99,16 @@ only structural-specific work is selecting the registered `Structural` model,
 exactly as it selects the other models. Rendering still consumes document text,
 ordinary selections, and generic model status. No terminal module imports or
 names Tree-sitter or AST types.
+
+## M6 inspector
+
+`zenbu --trace` enables a bounded local trace (capacity 1024) and `--profile`
+enables bounded local CPU-time samples (also capacity 1024). Neither option
+sends information anywhere. With tracing enabled, `Ctrl-O` toggles a read-only
+generic `Why` overlay for the most recent input; `Escape` dismisses it. The
+overlay uses ordinary Zenbu frame rows, follows resize through the normal render
+loop, and never mutates the document.
+
+This is a host-level Zenbu inspector, not Vim's Ex language or a model-specific
+command mode. Headless inspection provides command, binding, history, syntax,
+and profile access without a command palette.

@@ -222,3 +222,23 @@ selection-first:   w → select(next-text-unit); d → delete(current-selections
 Thus `d w` means different things under the two models, while operator-first
 `d w` and selection-first `w d` converge on the same semantic deletion. This
 is the M2 architectural proof, not a Vim/Helix/Kakoune compatibility claim.
+
+## M6 observability/API pressure test
+
+M2 command descriptors needed provider identity, but their ids, descriptions,
+parameters, examples, and deterministic registry were otherwise sufficient.
+M2 status described current labels and pending input but needed model-owned
+`Input_rule` values to make multi-step grammars inspectable without flattening
+them into a keymap. Rules support exact/named inputs, prefixes, compact ranges,
+and committed-text catch-alls without executing an input.
+
+M3 effects and M1 transactions had enough semantic identity once provenance
+was added at the runtime boundary. M1 history needed a public read-only tree
+view, not a structural exposure of its map. M5 syntax already exposed enough
+Zenbu-owned node/status data once service strategy and current-node inspection
+were added; neither Tree-sitter nor terminal types enter the inspector.
+
+M7 can therefore register commands/selectors/transformations and contribute
+the same descriptors, providers, rules, and provenance. It still needs a
+careful scripting lifecycle and failure-isolation design; M6 does not add
+plugins or a dynamic reflection system.

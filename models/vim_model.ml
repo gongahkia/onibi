@@ -384,12 +384,42 @@ let input_rules = function
         input_rule "vim.normal.word" (Input_rule.Exact "w") Input_rule.Binding
           "move through the next word" ~selector_id:"next-word"
           ~transformation_id:"collapse-to-start";
+        input_rule "vim.normal.left" (Input_rule.Exact "h") Input_rule.Binding
+          "move to the previous text unit" ~selector_id:"previous-text-unit"
+          ~transformation_id:"collapse-to-start";
+        input_rule "vim.normal.right" (Input_rule.Exact "l") Input_rule.Binding
+          "move to the next text unit" ~selector_id:"next-text-unit"
+          ~transformation_id:"collapse-to-start";
+        input_rule "vim.normal.vertical" (Input_rule.Text_range "j or k")
+          Input_rule.Binding "move to the adjacent source line";
+        input_rule "vim.normal.word-boundary" (Input_rule.Text_range "b or e")
+          Input_rule.Binding "move to a word boundary";
+        input_rule "vim.normal.line-boundary" (Input_rule.Text_range "0, ^, or $")
+          Input_rule.Binding "move to a line boundary";
         input_rule "vim.normal.delete" (Input_rule.Exact "d") Input_rule.Prefix
           "begin a delete operator" ~next_status:"operator-pending";
         input_rule "vim.normal.change" (Input_rule.Exact "c") Input_rule.Prefix
           "begin a change operator" ~next_status:"operator-pending";
+        input_rule "vim.normal.yank" (Input_rule.Exact "y") Input_rule.Prefix
+          "begin a copy operator" ~next_status:"operator-pending";
         input_rule "vim.normal.insert" (Input_rule.Exact "i") Input_rule.Binding
           "enter committed text input" ~next_status:"insert";
+        input_rule "vim.normal.append" (Input_rule.Exact "a") Input_rule.Binding
+          "enter text input after the next text unit" ~next_status:"insert";
+        input_rule "vim.normal.character-delete" (Input_rule.Text_range "x, X, or s")
+          Input_rule.Binding "delete a neighboring text unit";
+        input_rule "vim.normal.paste" (Input_rule.Text_range "p or P")
+          Input_rule.Binding "paste the selected clipboard entry";
+        input_rule "vim.normal.history" (Input_rule.Text_range "u or Ctrl-r")
+          Input_rule.Binding "move through shared history";
+        input_rule "vim.normal.repeat" (Input_rule.Exact ".") Input_rule.Binding
+          "repeat the latest semantic edit";
+        input_rule "vim.normal.escape" (Input_rule.Named "Escape") Input_rule.Binding
+          "cancel pending input or return to normal state";
+        input_rule "vim.normal.document-end" (Input_rule.Exact "G")
+          Input_rule.Binding "move to document end";
+        input_rule "vim.normal.go" (Input_rule.Exact "g") Input_rule.Prefix
+          "begin document-start input" ~next_status:"go-pending";
         input_rule "vim.normal.count" (Input_rule.Text_range "1-9")
           Input_rule.Prefix "begin or extend a count";
         input_rule "vim.normal.slot" (Input_rule.Exact "\"") Input_rule.Prefix

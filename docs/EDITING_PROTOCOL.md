@@ -159,3 +159,16 @@ semantic batch, not literal input. M3 intentionally groups each committed text
 input as one transaction, so dot repeat of an insert session repeats its latest
 committed text input rather than the entire session. Paste is not repeatable in
 M3 because its target placement is context-sensitive.
+
+## M6 provenance and observation
+
+Every runtime-committed intent can attach `Transaction.metadata.provenance`.
+The optional chain records stable semantic ids and a runtime-local execution id:
+model/provider, logical input, pending-input interaction, effect, command/
+provider, selector, transformation, and repeat source where present. Old kernel
+and replay callers need not supply it.
+
+An execution trace explains how logical input was processed; semantic replay
+remains M1's deterministic intent/transaction format. Profiling aggregates
+local process CPU time separately. Enabling trace or profiling does not change
+document, selection, history, model-state, or replay semantics.

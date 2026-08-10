@@ -318,9 +318,23 @@ let syntax_service_cached_version (value : syntax_service) = value.cached_versio
 let syntax_service_last_strategy (value : syntax_service) = value.last_strategy
 
 let why trace ~execution_id =
+  let all_events = Trace.events trace in
+  let started_execution =
+    all_events
+    |> List.find_map (function
+         | Trace_event.Interaction_completed
+             { execution_id = completed; started_execution; _ }
+           when completed = execution_id ->
+             Some started_execution
+         | _ -> None)
+  in
   let events =
-    Trace.events trace
-    |> List.filter (fun event -> Trace_event.execution_id event = execution_id)
+    all_events
+    |> List.filter (fun event ->
+           let event_execution = Trace_event.execution_id event in
+           match started_execution with
+           | Some started -> started <= event_execution && event_execution <= execution_id
+           | None -> event_execution = execution_id)
   in
   if events = [] then None else Some { execution_id; events }
 
@@ -439,6 +453,11 @@ let format_syntax_service (value : syntax_service) =
 
 let format_event = function
   | Trace_event.Input_received { input; _ } -> "input: " ^ input
+  | Trace_event.Interaction_started { interaction_id; _ } ->
+      "interaction: " ^ string_of_int interaction_id ^ " awaiting input"
+  | Trace_event.Interaction_completed { interaction_id; inputs; _ } ->
+      "interaction: " ^ string_of_int interaction_id ^ " inputs "
+      ^ String.concat " " inputs
   | Model_before { model_id; status_label; _ } ->
       "model: " ^ model_id ^ " / " ^ status_label
   | Model_transition { previous_status; next_status; _ } ->

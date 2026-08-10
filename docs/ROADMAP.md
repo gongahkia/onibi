@@ -1,6 +1,6 @@
 # Roadmap
 
-This repository implements M0-M5.
+This repository implements M0-M6.
 
 | milestone | goal | status |
 | --- | --- | --- |
@@ -10,8 +10,8 @@ This repository implements M0-M5.
 | M3 | substantial Vim-style and selection-first models | implemented here |
 | M4 | terminal host and rendering | implemented here |
 | M5 | Tree-sitter-backed syntax service and structural editing model | implemented here |
-| M6 | generic observability: `describe`, `why`, bindings, discovery, history, trace, syntax inspection, profiling | next recommended milestone |
-| M7 | hot-reloadable scripting/configuration | future |
+| M6 | generic observability: `describe`, `why`, bindings, discovery, history, trace, syntax inspection, profiling | implemented here |
+| M7 | hot-reloadable scripting/configuration | next recommended milestone |
 | M8 | stable plugin contract, capabilities, SDK, generated docs | future |
 | M9 | isolated language-neutral plugin runtime, possibly WASM/components if appropriate for OCaml | future |
 

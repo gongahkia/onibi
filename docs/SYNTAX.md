@@ -114,3 +114,12 @@ latency before introducing a background worker.
 `zenbu-headless syntax FILE` is the supported inspection surface. It prints
 language/document identity, root error state, and stable named-node metadata,
 not backend handles.
+
+## M6 observability
+
+`Syntax.Service.status` exposes only Zenbu-owned service information: language,
+cached document version, and latest strategy (`cached`, `full`, `incremental`,
+or `tree-copy`). Runtime traces emit language, document version, strategy, and
+error state after refresh. `Inspector.syntax` enriches the primary selection
+with node kind/range, named parent kind, and child count. None of these APIs
+expose Tree-sitter trees, nodes, pointers, or ownership details.

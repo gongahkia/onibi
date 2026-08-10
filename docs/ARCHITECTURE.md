@@ -154,3 +154,27 @@ models still receive only logical input and return semantic effects. The pure
 view layer converts immutable context selections to styled cells, while the
 backend alone places the physical cursor. See [terminal host notes](TERMINAL.md)
 and ADRs 0011-0013.
+
+## M6 observability boundary
+
+M6 observes the existing semantic path rather than creating a second editing
+path:
+
+```text
+logical input → model transition → model effect → intent/command
+              → transaction → history → syntax refresh
+```
+
+`zenbu.kernel.Provenance` is deterministic transaction metadata: an ordered
+chain may name a model/provider, interaction, effect, command/provider,
+selector, transformation, or semantic repeat. It never contains timing,
+terminal, parser, or backend values. `zenbu.model_api.Trace` and `Profiler` are
+explicit runtime-owned bounded local services; their records are observations,
+not replay input or transaction equality.
+
+`Editing_model.S.input_rules` supplies model-owned descriptions of the current
+grammar state. The generic inspector consumes descriptors, statuses, rules,
+history views, syntax snapshots, traces, and profiles. It does not import
+Vim, selection-first, structural, Tree-sitter, or Notty internals. The app
+selects a registered runtime only to obtain generic values; the renderer sees
+ordinary inspector text lines and frame values.

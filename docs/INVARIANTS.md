@@ -60,7 +60,19 @@ The M0/M1 constructors and commit path enforce these invariants.
     cache. It copies a backend tree before incremental editing, keeps no global
     syntax state, and may fully reparse when no matching cached predecessor
     exists. Models receive no parser, raw node, query, or backend handle and
-    must reach structural mutations through ordinary semantic intents.
+   must reach structural mutations through ordinary semantic intents.
+17. Provenance contains only stable semantic ids and runtime-local execution or
+    interaction ids. It contains no timing, terminal, parser, or backend value
+    and remains optional so replay stays deterministic and compatible.
+18. Trace and profile records are explicitly owned by a runtime/session, have
+    positive bounded capacities, evict oldest records deterministically, and
+    are local-only. Disabled services retain no records.
+19. Generic inspection consumes public model descriptors/status/input rules,
+    kernel history/provenance, and Zenbu syntax values. It must not branch on a
+    model id or require Tree-sitter or Notty types.
+20. Model input rules describe the actual current state without executing an
+    input. Prefixes and catch-alls are first-class; a model need not pretend its
+    grammar is a flat keymap.
 
 The following rule is architectural rather than merely local:
 
