@@ -1,6 +1,16 @@
 type model = Vim | Selection | Structural
 type host_command = Save | Quit | Force_quit
-type inspection = Why | Bindings | Commands | History | Selection_view | Syntax | Profile | Api
+
+type inspection =
+  | Why
+  | Bindings
+  | Commands
+  | History
+  | Selection_view
+  | Syntax
+  | Profile
+  | Api
+
 type t
 type outcome = Continue of t | Exit of t
 

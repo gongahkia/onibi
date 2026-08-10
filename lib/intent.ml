@@ -103,7 +103,7 @@ let resolve ~source ?description ?provenance snapshot = function
           (fun selection -> Edit.delete (Selection.range selection))
           (Selection_set.to_list (Document_snapshot.selections snapshot))
       in
-  transaction snapshot ~edits ~selection_change:None ~source
+      transaction snapshot ~edits ~selection_change:None ~source
         ~intent:"delete-selected-ranges" ~description ~provenance
   | Replace_selected_ranges text -> (
       match edits_for_selections snapshot ~text with

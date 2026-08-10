@@ -9,7 +9,16 @@ module Structural_runtime = Model_runtime.Make (Structural_model)
 
 type model = Vim | Selection | Structural
 type host_command = Save | Quit | Force_quit
-type inspection = Why | Bindings | Commands | History | Selection_view | Syntax | Profile | Api
+
+type inspection =
+  | Why
+  | Bindings
+  | Commands
+  | History
+  | Selection_view
+  | Syntax
+  | Profile
+  | Api
 
 type outcome = Continue of t | Exit of t
 
@@ -80,8 +89,8 @@ let create ~model ?language ?file_path ?(contents = "") ?trace ?profiler
               let runtime =
                 match model with
                 | Vim ->
-                    Vim_runtime.create ~commands ?syntax_service ?trace ?profiler
-                      ~document ()
+                    Vim_runtime.create ~commands ?syntax_service ?trace
+                      ?profiler ~document ()
                     |> Result.map (fun runtime -> Vim_runtime runtime)
                 | Selection ->
                     Selection_runtime.create ~commands ?syntax_service ?trace
@@ -256,7 +265,12 @@ let dimensions session = session.dimensions
 let notice session message =
   { session with message = Some message; quit_armed = false; inspector = None }
 
-let all_models = [ Vim_model.descriptor; Selection_model.descriptor; Structural_model.descriptor ]
+let all_models =
+  [
+    Vim_model.descriptor;
+    Selection_model.descriptor;
+    Structural_model.descriptor;
+  ]
 
 let inspect session inspection =
   let format ~last_execution ~trace ~model_descriptor ~model_status ~rules
@@ -272,14 +286,17 @@ let inspect session inspection =
     | Bindings ->
         "Bindings"
         :: Inspector.format_bindings model_descriptor model_status rules
-    | Commands -> "Commands" :: Inspector.format_commands (Inspector.commands command_registry)
+    | Commands ->
+        "Commands"
+        :: Inspector.format_commands (Inspector.commands command_registry)
     | History ->
         "History"
         :: Inspector.format_history
              (Inspector.history ~saved_version:session.saved_version
                 runtime_history)
     | Selection_view ->
-        "Selection" :: Inspector.format_selection (Inspector.selections runtime_context)
+        "Selection"
+        :: Inspector.format_selection (Inspector.selections runtime_context)
     | Syntax -> (
         match Inspector.syntax runtime_context with
         | None -> [ "Syntax"; "syntax is unavailable" ]
@@ -292,7 +309,8 @@ let inspect session inspection =
   in
   match session.active with
   | Vim_runtime runtime ->
-      format ~last_execution:(Vim_runtime.last_execution runtime)
+      format
+        ~last_execution:(Vim_runtime.last_execution runtime)
         ~trace:(Vim_runtime.trace runtime)
         ~model_descriptor:(Vim_runtime.model_descriptor runtime)
         ~model_status:(Vim_runtime.status runtime)
@@ -302,7 +320,8 @@ let inspect session inspection =
         ~runtime_context:(Vim_runtime.context runtime)
         ~profiler:(Vim_runtime.profiler runtime)
   | Selection_runtime runtime ->
-      format ~last_execution:(Selection_runtime.last_execution runtime)
+      format
+        ~last_execution:(Selection_runtime.last_execution runtime)
         ~trace:(Selection_runtime.trace runtime)
         ~model_descriptor:(Selection_runtime.model_descriptor runtime)
         ~model_status:(Selection_runtime.status runtime)
@@ -312,7 +331,8 @@ let inspect session inspection =
         ~runtime_context:(Selection_runtime.context runtime)
         ~profiler:(Selection_runtime.profiler runtime)
   | Structural_runtime runtime ->
-      format ~last_execution:(Structural_runtime.last_execution runtime)
+      format
+        ~last_execution:(Structural_runtime.last_execution runtime)
         ~trace:(Structural_runtime.trace runtime)
         ~model_descriptor:(Structural_runtime.model_descriptor runtime)
         ~model_status:(Structural_runtime.status runtime)

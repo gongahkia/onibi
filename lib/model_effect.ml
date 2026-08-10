@@ -35,21 +35,23 @@ let execute ?selector_id ?transformation_id intent =
 
 let selector_id = function
   | Execute_intent intent -> fst (Model_intent.semantic_components intent)
-  | Execute_intent_with { intent; selector_id; _ } ->
-      (match selector_id with
+  | Execute_intent_with { intent; selector_id; _ } -> (
+      match selector_id with
       | Some _ -> selector_id
       | None -> fst (Model_intent.semantic_components intent))
-  | Invoke_command _ | Emit_message _ | Copy_to_clipboard _ | Paste_from_clipboard _
-  | Undo | Redo | Repeat_last_edit -> None
+  | Invoke_command _ | Emit_message _ | Copy_to_clipboard _
+  | Paste_from_clipboard _ | Undo | Redo | Repeat_last_edit ->
+      None
 
 let transformation_id = function
   | Execute_intent intent -> snd (Model_intent.semantic_components intent)
-  | Execute_intent_with { intent; transformation_id; _ } ->
-      (match transformation_id with
+  | Execute_intent_with { intent; transformation_id; _ } -> (
+      match transformation_id with
       | Some _ -> transformation_id
       | None -> snd (Model_intent.semantic_components intent))
-  | Invoke_command _ | Emit_message _ | Copy_to_clipboard _ | Paste_from_clipboard _
-  | Undo | Redo | Repeat_last_edit -> None
+  | Invoke_command _ | Emit_message _ | Copy_to_clipboard _
+  | Paste_from_clipboard _ | Undo | Redo | Repeat_last_edit ->
+      None
 
 let identity = function
   | Execute_intent intent | Execute_intent_with { intent; _ } ->

@@ -1,13 +1,25 @@
 (** A model-owned, state-specific description of accepted logical input. *)
 
-type pattern = Exact of string | Named of string | Text_input | Text_range of string
+type pattern =
+  | Exact of string
+  | Named of string
+  | Text_input
+  | Text_range of string
+
 type kind = Binding | Prefix | Catch_all
 type t
 
 val create :
-  id:string -> pattern:pattern -> kind:kind -> summary:string ->
-  ?next_status:string -> ?command_id:string -> ?selector_id:string ->
-  ?transformation_id:string -> ?requires_syntax:bool -> unit ->
+  id:string ->
+  pattern:pattern ->
+  kind:kind ->
+  summary:string ->
+  ?next_status:string ->
+  ?command_id:string ->
+  ?selector_id:string ->
+  ?transformation_id:string ->
+  ?requires_syntax:bool ->
+  unit ->
   (t, Zenbu_kernel.Error.t) result
 
 val id : t -> string

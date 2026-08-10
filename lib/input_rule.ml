@@ -1,4 +1,9 @@
-type pattern = Exact of string | Named of string | Text_input | Text_range of string
+type pattern =
+  | Exact of string
+  | Named of string
+  | Text_input
+  | Text_range of string
+
 type kind = Binding | Prefix | Catch_all
 
 type t = {

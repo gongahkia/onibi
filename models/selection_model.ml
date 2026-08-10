@@ -24,8 +24,7 @@ let descriptor =
        ~description:
          "A Kakoune/Helix-inspired select-then-transform model using shared \
           Zenbu semantics."
-       ~provider
-       ())
+       ~provider ())
 
 let default_select = { count = None; slot = Clipboard.unnamed }
 let initialize _context = Select default_select
@@ -256,22 +255,25 @@ let input_rules = function
         input_rule "selection.word" (Input_rule.Exact "w") Input_rule.Binding
           "select through the next word" ~selector_id:"next-word"
           ~transformation_id:"select";
-        input_rule "selection.navigation" (Input_rule.Text_range "h, j, k, l, b, or e")
-          Input_rule.Binding "select a shared navigation target";
+        input_rule "selection.navigation"
+          (Input_rule.Text_range "h, j, k, l, b, or e") Input_rule.Binding
+          "select a shared navigation target";
         input_rule "selection.line" (Input_rule.Text_range "0, ^, $, L, or G")
           Input_rule.Binding "select a line or document target";
         input_rule "selection.current-word" (Input_rule.Exact "W")
-          Input_rule.Binding "select the current word" ~selector_id:"current-word"
-          ~transformation_id:"select";
+          Input_rule.Binding "select the current word"
+          ~selector_id:"current-word" ~transformation_id:"select";
         input_rule "selection.delete" (Input_rule.Exact "d") Input_rule.Binding
           "delete visible selections" ~selector_id:"current-selections"
           ~transformation_id:"delete";
         input_rule "selection.occurrences" (Input_rule.Exact "*")
-          Input_rule.Binding "select all literal occurrences of the primary selection"
+          Input_rule.Binding
+          "select all literal occurrences of the primary selection"
           ~selector_id:"all-occurrences" ~transformation_id:"select";
         input_rule "selection.change" (Input_rule.Exact "c") Input_rule.Binding
-          "delete visible selections then enter text input" ~next_status:"insert"
-          ~selector_id:"current-selections" ~transformation_id:"delete";
+          "delete visible selections then enter text input"
+          ~next_status:"insert" ~selector_id:"current-selections"
+          ~transformation_id:"delete";
         input_rule "selection.copy-paste" (Input_rule.Text_range "y, p, or P")
           Input_rule.Binding "copy or paste through the shared clipboard";
         input_rule "selection.insert" (Input_rule.Exact "i") Input_rule.Binding
@@ -280,10 +282,10 @@ let input_rules = function
           Input_rule.Binding "move through or repeat shared semantic history";
         input_rule "selection.retain-primary" (Input_rule.Exact ",")
           Input_rule.Binding "retain only the primary selection";
-        input_rule "selection.escape" (Input_rule.Named "Escape") Input_rule.Binding
-          "collapse selections to their ends";
-        input_rule "selection.count" (Input_rule.Text_range "1-9") Input_rule.Prefix
-          "begin or extend a selector count";
+        input_rule "selection.escape" (Input_rule.Named "Escape")
+          Input_rule.Binding "collapse selections to their ends";
+        input_rule "selection.count" (Input_rule.Text_range "1-9")
+          Input_rule.Prefix "begin or extend a selector count";
         input_rule "selection.go" (Input_rule.Exact "g") Input_rule.Prefix
           "begin document-start input" ~next_status:"go-pending";
         input_rule "selection.slot" (Input_rule.Exact "\"") Input_rule.Prefix

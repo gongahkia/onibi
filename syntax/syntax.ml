@@ -295,8 +295,7 @@ module Service = struct
   let status value =
     {
       status_language = value.language;
-      status_cached_version =
-        Option.map Snapshot.document_version value.cached;
+      status_cached_version = Option.map Snapshot.document_version value.cached;
       status_last_strategy = value.last_strategy;
     }
 

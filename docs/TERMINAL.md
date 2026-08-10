@@ -1,7 +1,7 @@
-# M4/M5 terminal host
+# M4-M6 terminal host
 
 `zenbu [--model vim|selection|structural] [--language ID] [FILE]` is the
-interactive M4/M5 executable.
+interactive M4-M6 executable.
 It loads an existing UTF-8 file, or creates an unnamed empty buffer when no
 file is supplied. File open and UTF-8 validation happen before terminal mode
 is entered; errors are reported on stderr. The deterministic

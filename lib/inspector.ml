@@ -28,6 +28,9 @@ type change = {
   id : int;
   source_version : int;
   result_version : int;
+  source : string;
+  intent : string option;
+  description : string option;
   provenance : Provenance.t option;
   edits : edit_preview list;
 }
@@ -92,7 +95,8 @@ let describe_command descriptor =
     fields =
       provider_fields (Command_descriptor.provider descriptor)
       @ Option.to_list
-          (Option.map (fun category -> ("category", category))
+          (Option.map
+             (fun category -> ("category", category))
              (Command_descriptor.category descriptor));
   }
 
@@ -131,7 +135,8 @@ let description_summary (value : description) = value.summary
 let description_provider (value : description) = value.provider
 let description_fields (value : description) = value.fields
 
-let commands registry = Command_registry.descriptors registry |> List.map describe_command
+let commands registry =
+  Command_registry.descriptors registry |> List.map describe_command
 
 let find_command registry id =
   match Command_id.of_string id with
@@ -143,7 +148,8 @@ let find_command registry id =
 
 let semantic_registry () =
   let values =
-    Selector.descriptors () @ Transformation.descriptors ()
+    Selector.descriptors ()
+    @ Transformation.descriptors ()
     @ Zenbu_syntax.Syntax.Selector.descriptors ()
   in
   List.fold_left
@@ -180,36 +186,46 @@ let selection_stop_offset (value : selection) = value.stop_offset
 
 let preview text =
   let limit = 80 in
-  if String.length text <= limit then text
-  else String.sub text 0 limit ^ "…"
+  if String.length text <= limit then text else String.sub text 0 limit ^ "…"
 
 let change change =
   let before = Document.snapshot (History.before change) in
   let contents = Document_snapshot.contents before in
+  let metadata = History.transaction change |> Transaction.metadata_of in
   let edits =
     History.transaction change |> Transaction.edits
     |> List.map (fun edit ->
-           let range = Edit.range edit in
-           let start_offset = Anchor.byte_offset (Range.start range) in
-           let stop_offset = Anchor.byte_offset (Range.stop range) in
-           {
-             start_offset;
-             stop_offset;
-             replacement = Edit.text edit |> preview;
-             removed = String.sub contents start_offset (stop_offset - start_offset) |> preview;
-           })
+        let range = Edit.range edit in
+        let start_offset = Anchor.byte_offset (Range.start range) in
+        let stop_offset = Anchor.byte_offset (Range.stop range) in
+        {
+          start_offset;
+          stop_offset;
+          replacement = Edit.text edit |> preview;
+          removed =
+            String.sub contents start_offset (stop_offset - start_offset)
+            |> preview;
+        })
   in
   {
     id = History.change_id change;
-    source_version = Document.version (History.before change) |> Document_version.to_int;
-    result_version = Document.version (History.after change) |> Document_version.to_int;
-    provenance = History.transaction change |> Transaction.metadata_of |> Transaction.provenance;
+    source_version =
+      Document.version (History.before change) |> Document_version.to_int;
+    result_version =
+      Document.version (History.after change) |> Document_version.to_int;
+    source = Transaction.source metadata |> Transaction.source_to_string;
+    intent = Transaction.intent metadata;
+    description = Transaction.description metadata;
+    provenance = Transaction.provenance metadata;
     edits;
   }
 
 let change_id (value : change) = value.id
 let change_source_version (value : change) = value.source_version
 let change_result_version (value : change) = value.result_version
+let change_source (value : change) = value.source
+let change_intent (value : change) = value.intent
+let change_description (value : change) = value.description
 let change_edit_count (value : change) = List.length value.edits
 let change_provenance (value : change) = value.provenance
 let change_edits (value : change) = value.edits
@@ -222,20 +238,20 @@ let history ?saved_version source =
   let nodes =
     History.nodes source
     |> List.map (fun node ->
-           let change = History.node_change node |> Option.map change in
-           let saved =
-             match (saved_version, change) with
-             | Some version, Some change -> change.result_version = version
-             | None, _ | _, None -> false
-           in
-           {
-             id = History.node_id node;
-             parent_id = History.parent_id node;
-             child_ids = History.child_ids node;
-             change;
-             current = History.is_current source node;
-             saved;
-           })
+        let change = History.node_change node |> Option.map change in
+        let saved =
+          match saved_version with
+          | None -> false
+          | Some version -> History.node_document_version node = version
+        in
+        {
+          id = History.node_id node;
+          parent_id = History.parent_id node;
+          child_ids = History.child_ids node;
+          change;
+          current = History.is_current source node;
+          saved;
+        })
   in
   { current_id = History.current_id source; nodes }
 
@@ -249,8 +265,11 @@ let history_node_current (value : history_node) = value.current
 let history_node_saved (value : history_node) = value.saved
 
 let find_change history id =
-  history.nodes |> List.find_map (fun node ->
-      match node.change with Some change when change.id = id -> Some change | _ -> None)
+  history.nodes
+  |> List.find_map (fun node ->
+      match node.change with
+      | Some change when change.id = id -> Some change
+      | _ -> None)
 
 let syntax context =
   match Editor_context.syntax context with
@@ -261,30 +280,31 @@ let syntax context =
         Zenbu_syntax.Syntax.Snapshot.smallest_named_containing snapshot
           ~start_offset:primary.start_offset ~stop_offset:primary.stop_offset
         |> Option.map (fun node ->
-               {
-                 kind =
-                   Zenbu_syntax.Syntax.Snapshot.Node.kind node
-                   |> Zenbu_syntax.Syntax.Kind.to_string;
-                 start_offset = Zenbu_syntax.Syntax.Snapshot.Node.start_offset node;
-                 stop_offset = Zenbu_syntax.Syntax.Snapshot.Node.stop_offset node;
-                 parent_kind =
-                   Zenbu_syntax.Syntax.Snapshot.Node.parent_named node
-                   |> Option.map (fun parent ->
-                          Zenbu_syntax.Syntax.Snapshot.Node.kind parent
-                          |> Zenbu_syntax.Syntax.Kind.to_string);
-                 child_count =
-                   Zenbu_syntax.Syntax.Snapshot.Node.named_children node
-                   |> List.length;
-                 named = Zenbu_syntax.Syntax.Snapshot.Node.is_named node;
-                 error = Zenbu_syntax.Syntax.Snapshot.Node.has_error node;
-               })
+            {
+              kind =
+                Zenbu_syntax.Syntax.Snapshot.Node.kind node
+                |> Zenbu_syntax.Syntax.Kind.to_string;
+              start_offset = Zenbu_syntax.Syntax.Snapshot.Node.start_offset node;
+              stop_offset = Zenbu_syntax.Syntax.Snapshot.Node.stop_offset node;
+              parent_kind =
+                Zenbu_syntax.Syntax.Snapshot.Node.parent_named node
+                |> Option.map (fun parent ->
+                    Zenbu_syntax.Syntax.Snapshot.Node.kind parent
+                    |> Zenbu_syntax.Syntax.Kind.to_string);
+              child_count =
+                Zenbu_syntax.Syntax.Snapshot.Node.named_children node
+                |> List.length;
+              named = Zenbu_syntax.Syntax.Snapshot.Node.is_named node;
+              error = Zenbu_syntax.Syntax.Snapshot.Node.has_error node;
+            })
       in
       Some
         {
           language_id =
             Zenbu_syntax.Syntax.Snapshot.language snapshot
             |> Zenbu_syntax.Syntax.Language.id;
-          document_version = Zenbu_syntax.Syntax.Snapshot.document_version snapshot;
+          document_version =
+            Zenbu_syntax.Syntax.Snapshot.document_version snapshot;
           has_error = Zenbu_syntax.Syntax.Snapshot.has_error snapshot;
           node;
         }
@@ -314,7 +334,10 @@ let syntax_service service =
   }
 
 let syntax_service_language_id (value : syntax_service) = value.language_id
-let syntax_service_cached_version (value : syntax_service) = value.cached_version
+
+let syntax_service_cached_version (value : syntax_service) =
+  value.cached_version
+
 let syntax_service_last_strategy (value : syntax_service) = value.last_strategy
 
 let why trace ~execution_id =
@@ -322,19 +345,20 @@ let why trace ~execution_id =
   let started_execution =
     all_events
     |> List.find_map (function
-         | Trace_event.Interaction_completed
-             { execution_id = completed; started_execution; _ }
-           when completed = execution_id ->
-             Some started_execution
-         | _ -> None)
+      | Trace_event.Interaction_completed
+          { execution_id = completed; started_execution; _ }
+        when completed = execution_id ->
+          Some started_execution
+      | _ -> None)
   in
   let events =
     all_events
     |> List.filter (fun event ->
-           let event_execution = Trace_event.execution_id event in
-           match started_execution with
-           | Some started -> started <= event_execution && event_execution <= execution_id
-           | None -> event_execution = execution_id)
+        let event_execution = Trace_event.execution_id event in
+        match started_execution with
+        | Some started ->
+            started <= event_execution && event_execution <= execution_id
+        | None -> event_execution = execution_id)
   in
   if events = [] then None else Some { execution_id; events }
 
@@ -352,15 +376,18 @@ let api ~models ~commands:registry =
     models =
       List.map describe_model models
       |> List.sort (fun (a : description) (b : description) ->
-             String.compare a.id b.id);
+          String.compare a.id b.id);
     commands = commands registry;
     selectors =
       semantic
-      |> List.filter (fun descriptor -> Semantic_descriptor.kind descriptor = Semantic_descriptor.Selector)
+      |> List.filter (fun descriptor ->
+          Semantic_descriptor.kind descriptor = Semantic_descriptor.Selector)
       |> List.map describe_semantic;
     transformations =
       semantic
-      |> List.filter (fun descriptor -> Semantic_descriptor.kind descriptor = Semantic_descriptor.Transformation)
+      |> List.filter (fun descriptor ->
+          Semantic_descriptor.kind descriptor
+          = Semantic_descriptor.Transformation)
       |> List.map describe_semantic;
     languages = Zenbu_syntax.Syntax.Language.supported ();
   }
@@ -373,20 +400,23 @@ let api_languages value = value.languages
 
 let format_description (value : description) =
   [ value.kind ^ ": " ^ value.id; "title: " ^ value.title ]
-  @ Option.to_list (Option.map (fun summary -> "description: " ^ summary) value.summary)
+  @ Option.to_list
+      (Option.map (fun summary -> "description: " ^ summary) value.summary)
   @ List.map (fun (name, content) -> name ^ ": " ^ content) value.fields
 
 let format_commands values =
   values
   |> List.concat_map (fun (value : description) ->
-         (value.id ^ " — " ^ value.title)
-         :: Option.to_list (Option.map (fun summary -> "  " ^ summary) value.summary))
+      (value.id ^ " — " ^ value.title)
+      :: Option.to_list
+           (Option.map (fun summary -> "  " ^ summary) value.summary))
 
 let format_bindings model status rules =
   (Editing_model.title model ^ " / " ^ Model_status.label status)
   :: List.map
        (fun rule ->
-         Printf.sprintf "%-16s %s" (Input_rule.pattern rule |> Input_rule.pattern_to_string)
+         Printf.sprintf "%-16s %s"
+           (Input_rule.pattern rule |> Input_rule.pattern_to_string)
            (Input_rule.summary rule))
        rules
 
@@ -394,20 +424,31 @@ let format_selection values =
   List.map
     (fun value ->
       Printf.sprintf "%s anchor=%d head=%d range=%d:%d"
-        (if value.primary then "primary" else "secondary") value.anchor_offset
-        value.head_offset value.start_offset value.stop_offset)
+        (if value.primary then "primary" else "secondary")
+        value.anchor_offset value.head_offset value.start_offset
+        value.stop_offset)
     values
 
 let format_provenance provenance =
   Provenance.entries provenance
-  |> List.map Provenance.entry_name |> String.concat " -> "
+  |> List.map Provenance.entry_name
+  |> String.concat " -> "
 
 let format_change (value : change) =
-  (Printf.sprintf "change %d: v%d -> v%d (%d edit%s)" value.id
-     value.source_version value.result_version (List.length value.edits)
-     (if List.length value.edits = 1 then "" else "s"))
+  Printf.sprintf "change %d: v%d -> v%d (%d edit%s)" value.id
+    value.source_version value.result_version (List.length value.edits)
+    (if List.length value.edits = 1 then "" else "s")
+  :: ("source: " ^ value.source)
   :: Option.to_list
-       (Option.map (fun provenance -> "provenance: " ^ format_provenance provenance) value.provenance)
+       (Option.map (fun intent -> "intent: " ^ intent) value.intent)
+  @ Option.to_list
+      (Option.map
+         (fun description -> "description: " ^ description)
+         value.description)
+  @ Option.to_list
+      (Option.map
+         (fun provenance -> "provenance: " ^ format_provenance provenance)
+         value.provenance)
   @ List.map
       (fun (edit : edit_preview) ->
         Printf.sprintf "edit %d:%d removed=%S replacement=%S" edit.start_offset
@@ -417,14 +458,32 @@ let format_change (value : change) =
 let format_history (value : history) =
   value.nodes
   |> List.map (fun (node : history_node) ->
-         let marker = if node.current then "*" else " " in
-         let saved = if node.saved then " saved" else "" in
-         match node.change with
-         | None -> marker ^ " root"
-         | Some change ->
-             Printf.sprintf "%s %d v%d -> v%d%s children=%s" marker change.id
-               change.source_version change.result_version saved
-               (node.child_ids |> List.map string_of_int |> String.concat ","))
+      let marker = if node.current then "*" else " " in
+      let saved = if node.saved then " saved" else "" in
+      let parent =
+        Option.map string_of_int node.parent_id |> Option.value ~default:"none"
+      in
+      let children =
+        node.child_ids |> List.map string_of_int |> String.concat ","
+      in
+      match node.change with
+      | None -> Printf.sprintf "%s root%s children=%s" marker saved children
+      | Some change ->
+          let action =
+            (match change.description with
+              | Some _ as description -> description
+              | None -> change.intent)
+            |> Option.value ~default:"unspecified"
+          in
+          let provenance =
+            Option.map format_provenance change.provenance
+            |> Option.value ~default:"none"
+          in
+          Printf.sprintf "%s %d parent=%s v%d -> v%d%s action=%s children=%s"
+            marker change.id parent change.source_version change.result_version
+            saved action children
+          ^ Printf.sprintf " edits=%d provenance=%s" (List.length change.edits)
+              provenance)
 
 let format_syntax (value : syntax) =
   [
@@ -434,7 +493,7 @@ let format_syntax (value : syntax) =
   ]
   @
   match value.node with
-  | None -> ["node: none"]
+  | None -> [ "node: none" ]
   | Some node ->
       [
         "node: " ^ node.kind;
@@ -447,7 +506,9 @@ let format_syntax_service (value : syntax_service) =
   [
     "language: " ^ value.language_id;
     "cached-version: "
-    ^ Option.value (Option.map string_of_int value.cached_version) ~default:"none";
+    ^ Option.value
+        (Option.map string_of_int value.cached_version)
+        ~default:"none";
     "last-strategy: " ^ Option.value value.last_strategy ~default:"none";
   ]
 
@@ -456,8 +517,9 @@ let format_event = function
   | Trace_event.Interaction_started { interaction_id; _ } ->
       "interaction: " ^ string_of_int interaction_id ^ " awaiting input"
   | Trace_event.Interaction_completed { interaction_id; inputs; _ } ->
-      "interaction: " ^ string_of_int interaction_id ^ " inputs "
-      ^ String.concat " " inputs
+      "interaction: "
+      ^ string_of_int interaction_id
+      ^ " inputs " ^ String.concat " " inputs
   | Model_before { model_id; status_label; _ } ->
       "model: " ^ model_id ^ " / " ^ status_label
   | Model_transition { previous_status; next_status; _ } ->
@@ -470,14 +532,18 @@ let format_event = function
       "transformation: " ^ transformation_id
   | Transaction_created { source_version; edit_count; _ } ->
       Printf.sprintf "transaction: v%d (%d edits)" source_version edit_count
-  | Transaction_committed { change_id; source_version; result_version; edit_count; provenance; _ } ->
-      Printf.sprintf "committed: #%d v%d -> v%d (%d edits)\nprovenance: %s"
-        change_id source_version result_version edit_count (format_provenance provenance)
+  | Transaction_committed
+      { change_id; source_version; result_version; edit_count; provenance; _ }
+    ->
+      Printf.sprintf "committed: #%d v%d -> v%d (%d edits); provenance: %s"
+        change_id source_version result_version edit_count
+        (format_provenance provenance)
   | Transaction_rejected { reason; _ } -> "transaction rejected: " ^ reason
   | History_changed { operation; current_change; _ } ->
       "history: " ^ operation ^ " -> "
       ^ Option.value (Option.map string_of_int current_change) ~default:"root"
-  | Syntax_refreshed { language_id; document_version; strategy; has_error; _ } ->
+  | Syntax_refreshed { language_id; document_version; strategy; has_error; _ }
+    ->
       Printf.sprintf "syntax: %s v%d %s error=%b" language_id document_version
         strategy has_error
   | Error_reported { reason; _ } -> "error: " ^ reason
@@ -488,17 +554,19 @@ let format_why (value : why) =
 
 let format_profile profiler =
   let values = Profiler.aggregates profiler in
-  if values = [] then ["profile: no samples"]
+  if values = [] then [ "profile: no samples" ]
   else
     List.map
       (fun value ->
         let model =
-          Option.map (fun id -> " [" ^ id ^ "]")
+          Option.map
+            (fun id -> " [" ^ id ^ "]")
             (Profiler.aggregate_model_id value)
           |> Option.value ~default:""
         in
         Printf.sprintf "%s%s %d calls mean %.3fms max %.3fms"
-          (Profiler.aggregate_stage value |> Profiler.stage_name) model
+          (Profiler.aggregate_stage value |> Profiler.stage_name)
+          model
           (Profiler.aggregate_count value)
           (Profiler.aggregate_mean_seconds value *. 1000.)
           (Profiler.aggregate_max_seconds value *. 1000.))
@@ -512,5 +580,6 @@ let format_api (value : api) =
     Printf.sprintf "transformations: %d" (List.length value.transformations);
     "languages: "
     ^ (value.languages
-      |> List.map Zenbu_syntax.Syntax.Language.id |> String.concat ", ");
+      |> List.map Zenbu_syntax.Syntax.Language.id
+      |> String.concat ", ");
   ]

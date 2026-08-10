@@ -1,9 +1,9 @@
 type kind = Builtin | Editing_model | Syntax | Application | Plugin
-
 type t = { id : string; kind : kind }
 
 let create ~id ~kind =
-  if String.length id = 0 then Error (Error.Invalid_provenance "provider id is empty")
+  if String.length id = 0 then
+    Error (Error.Invalid_provenance "provider id is empty")
   else Ok { id; kind }
 
 let id value = value.id

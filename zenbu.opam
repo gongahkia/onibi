@@ -1,6 +1,6 @@
 opam-version: "2.0"
 synopsis: "A model-neutral semantic text editor kernel and editing-model API"
-description: "The M0/M5 syntax-aware terminal host for a model-neutral programmable modal text editor."
+description: "The M0-M6 observable syntax-aware terminal host for a model-neutral programmable modal text editor."
 maintainer: "Zenbu contributors"
 authors: "Zenbu contributors"
 license: "MIT"

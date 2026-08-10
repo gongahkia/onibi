@@ -32,8 +32,7 @@ let descriptor =
            };
          ]
        ~examples:[ "editor.apply(selector: next-word, transformation: delete)" ]
-       ~provider
-       ())
+       ~provider ())
 
 let handler _context invocation =
   let ( let* ) result f = Result.bind result f in

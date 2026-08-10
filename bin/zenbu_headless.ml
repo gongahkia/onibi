@@ -284,8 +284,10 @@ let app_model = function
 let observed_session inspection path =
   match session_of_string (read_file path) with
   | Error error -> fail error
-  | Ok session ->
-      let trace = Zenbu_model_api.Trace.enabled ~capacity:1024 |> Result.get_ok in
+  | Ok session -> (
+      let trace =
+        Zenbu_model_api.Trace.enabled ~capacity:1024 |> Result.get_ok
+      in
       let profiler =
         Zenbu_model_api.Profiler.enabled ~capacity:1024 |> Result.get_ok
       in
@@ -300,7 +302,7 @@ let observed_session inspection path =
           let current =
             List.fold_left Zenbu_app.Session.handle_input initial session.inputs
           in
-          Zenbu_app.Session.inspect current inspection |> print_lines
+          Zenbu_app.Session.inspect current inspection |> print_lines)
 
 let initial_bindings model =
   let session =
@@ -320,48 +322,91 @@ let initial_bindings model =
       ~dimensions ()
   with
   | Error error -> fail error
-  | Ok session -> Zenbu_app.Session.inspect session Zenbu_app.Session.Bindings |> print_lines
+  | Ok session ->
+      Zenbu_app.Session.inspect session Zenbu_app.Session.Bindings
+      |> print_lines
 
-let all_models = [ Vim_model.descriptor; Selection_model.descriptor; Structural_model.descriptor ]
+let all_models =
+  [
+    Vim_model.descriptor;
+    Selection_model.descriptor;
+    Structural_model.descriptor;
+  ]
 
 let inspect_api () =
   Inspector.api ~models:all_models ~commands:(semantic_registry ())
   |> Inspector.format_api |> print_lines
 
 let inspect_commands () =
-  Inspector.commands (semantic_registry ()) |> Inspector.format_commands |> print_lines
+  Inspector.commands (semantic_registry ())
+  |> Inspector.format_commands |> print_lines
 
 let inspect_description kind id =
   let print = function
-    | None -> fail (Error.Invalid_command_arguments ("unknown " ^ kind ^ ": " ^ id))
-    | Some description -> Inspector.format_description description |> print_lines
+    | None ->
+        fail (Error.Invalid_command_arguments ("unknown " ^ kind ^ ": " ^ id))
+    | Some description ->
+        Inspector.format_description description |> print_lines
   in
   match kind with
   | "command" -> print (Inspector.find_command (semantic_registry ()) id)
   | "model" ->
       all_models
       |> List.find_opt (fun descriptor -> Editing_model.id descriptor = id)
-      |> Option.map Inspector.describe_model |> print
+      |> Option.map Inspector.describe_model
+      |> print
   | "selector" | "transformation" ->
       Inspector.semantic_registry () |> fun registry ->
       (match Inspector.find_semantic registry id with
-      | Some description when Inspector.description_kind description = kind ->
-          Some description
-      | Some _ | None -> None)
+        | Some description when Inspector.description_kind description = kind ->
+            Some description
+        | Some _ | None -> None)
       |> print
-  | _ -> fail (Error.Invalid_command_arguments "describe expects command, model, selector, or transformation")
+  | _ ->
+      fail
+        (Error.Invalid_command_arguments
+           "describe expects command, model, selector, or transformation")
+
+let print_demo_why model ?language contents inputs =
+  let trace = Zenbu_model_api.Trace.enabled ~capacity:128 |> Result.get_ok in
+  let profiler = Zenbu_model_api.Profiler.disabled () in
+  let dimensions = Zenbu_view.Renderer.{ columns = 120; rows = 40 } in
+  match
+    Zenbu_app.Session.create ~model ?language ~contents ~trace ~profiler
+      ~dimensions ()
+  with
+  | Error error -> fail error
+  | Ok session ->
+      List.fold_left Zenbu_app.Session.handle_input session inputs
+      |> fun session ->
+      Zenbu_app.Session.inspect session Zenbu_app.Session.Why |> print_lines
 
 let demo () =
-  Printf.printf "Zenbu M5: three grammars, shared semantics\n\n";
+  Printf.printf "Zenbu M6: three grammars, one explanation\n\n";
   Printf.printf "Initial: \"alpha beta gamma\"\n\nVIM-STYLE: d w\n";
   run_vim_session "alpha beta gamma" [ logical_key "d"; logical_key "w" ];
+  print_demo_why Zenbu_app.Session.Vim "alpha beta gamma"
+    [ logical_key "d"; logical_key "w" ];
   Printf.printf "\nSELECTION-FIRST: w d\n";
   run_selection_session "alpha beta gamma" [ logical_key "w"; logical_key "d" ];
+  print_demo_why Zenbu_app.Session.Selection "alpha beta gamma"
+    [ logical_key "w"; logical_key "d" ];
   Printf.printf "\nSELECTION-FIRST MULTI-SELECTION: W * d\n";
   run_selection_session "foo bar foo baz foo"
     [ logical_key "W"; logical_key "*"; logical_key "d" ];
+  print_demo_why Zenbu_app.Session.Selection "foo bar foo baz foo"
+    [ logical_key "W"; logical_key "*"; logical_key "d" ];
   Printf.printf "\nSTRUCTURAL: f ArrowUp ArrowDown ArrowRight x\n";
   run_structural_session "let alpha = 1\nlet beta = 2\n"
+    [
+      logical_key "f";
+      named_key Input_event.Arrow_up;
+      named_key Input_event.Arrow_down;
+      named_key Input_event.Arrow_right;
+      logical_key "x";
+    ];
+  print_demo_why Zenbu_app.Session.Structural ~language:"ocaml"
+    "let alpha = 1\nlet beta = 2\n"
     [
       logical_key "f";
       named_key Input_event.Arrow_up;
@@ -405,10 +450,10 @@ let usage () =
     "usage: zenbu-headless demo | replay <fixture.replay> | session \
      <fixture.session> | syntax <file> | commands | api | describe \
      <command|model|selector|transformation> <id> | bindings \
-     <vim|selection|structural> | why <fixture.session> | \
-     bindings-session <fixture.session> | history <fixture.session> | \
-     selection <fixture.session> | syntax-session <fixture.session> | \
-     profile <fixture.session>";
+     <vim|selection|structural> | why <fixture.session> | bindings-session \
+     <fixture.session> | history <fixture.session> | selection \
+     <fixture.session> | syntax-session <fixture.session> | profile \
+     <fixture.session>";
   exit 2
 
 let () =

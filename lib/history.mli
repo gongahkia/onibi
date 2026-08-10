@@ -31,4 +31,5 @@ val node_id : node_view -> int
 val parent_id : node_view -> int option
 val child_ids : node_view -> int list
 val node_change : node_view -> change option
+val node_document_version : node_view -> int
 val is_current : t -> node_view -> bool

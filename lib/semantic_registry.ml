@@ -11,5 +11,4 @@ let register registry descriptor =
   else Ok (String_map.add id descriptor registry)
 
 let find registry id = String_map.find_opt id registry
-
 let descriptors registry = String_map.bindings registry |> List.map snd

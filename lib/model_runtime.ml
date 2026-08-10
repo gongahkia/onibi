@@ -22,7 +22,7 @@ module Make (Model : Editing_model.S) = struct
     profiler : Profiler.t;
     next_execution_id : int ref;
     last_execution : int option;
-    pending_interaction : (int * int * string list) option;
+    pending_interaction : (int * int * Input_event.t list) option;
   }
 
   type step = {
@@ -47,7 +47,8 @@ module Make (Model : Editing_model.S) = struct
             language_id =
               Zenbu_syntax.Syntax.Language.id
                 (Zenbu_syntax.Syntax.Snapshot.language syntax);
-            document_version = Zenbu_syntax.Syntax.Snapshot.document_version syntax;
+            document_version =
+              Zenbu_syntax.Syntax.Snapshot.document_version syntax;
             strategy;
             has_error = Zenbu_syntax.Syntax.Snapshot.has_error syntax;
           })
@@ -82,24 +83,26 @@ module Make (Model : Editing_model.S) = struct
           execution_id;
         None
 
-  let make_context ?execution_id ~trace ~profiler ?syntax_service history commands
-      clipboard =
+  let make_context ?execution_id ~trace ~profiler ?syntax_service history
+      commands clipboard =
     let snapshot = Document.snapshot (History.current history) in
     let syntax =
       match syntax_service with
       | None -> None
-      | Some service -> refresh_syntax ?execution_id ~trace ~profiler service snapshot
+      | Some service ->
+          refresh_syntax ?execution_id ~trace ~profiler service snapshot
     in
     Editor_context.from_snapshot ~snapshot ~clipboard
-      ~commands:(Command_registry.descriptors commands) ?syntax ()
+      ~commands:(Command_registry.descriptors commands)
+      ?syntax ()
 
   let model_call call =
     try Ok (call ())
     with exception_ ->
       Error (Error.Model_execution_failed (Printexc.to_string exception_))
 
-  let create ?(commands = Command_registry.empty) ?syntax_service ?trace ?profiler
-      ~document () =
+  let create ?(commands = Command_registry.empty) ?syntax_service ?trace
+      ?profiler ~document () =
     let history = History.create document in
     let clipboard = Clipboard.empty in
     let trace = Option.value trace ~default:(Trace.disabled ()) in
@@ -128,7 +131,7 @@ module Make (Model : Editing_model.S) = struct
 
   let sync_syntax_after_commit runtime ~execution_id history =
     match (runtime.syntax_service, History.current_change history) with
-    | Some service, Some change ->
+    | Some service, Some change -> (
         let result =
           Profiler.measure runtime.profiler Profiler.Syntax_update (fun () ->
               Zenbu_syntax.Syntax.Service.update service
@@ -136,9 +139,10 @@ module Make (Model : Editing_model.S) = struct
                 ~transaction:(History.transaction change)
                 ~after:(Document.snapshot (History.after change)))
         in
-        (match result with
+        match result with
         | Ok syntax ->
-            emit_syntax runtime.trace execution_id syntax (syntax_strategy service)
+            emit_syntax runtime.trace execution_id syntax
+              (syntax_strategy service)
         | Error error ->
             trace runtime.trace (fun () ->
                 Trace_event.Error_reported
@@ -152,8 +156,8 @@ module Make (Model : Editing_model.S) = struct
     match Transaction.selection_change transaction with
     | Some selections -> List.length (Selection_set.to_list selections)
     | None ->
-        Document.snapshot (History.current history) |> Document_snapshot.selections
-        |> Selection_set.to_list |> List.length
+        Document.snapshot (History.current history)
+        |> Document_snapshot.selections |> Selection_set.to_list |> List.length
 
   let record_transaction runtime ~execution_id action history =
     match History.current_change history with
@@ -218,7 +222,9 @@ module Make (Model : Editing_model.S) = struct
               { execution_id; reason = Error.to_string error });
         Error error
     | Ok history ->
-        let change_id = record_transaction runtime ~execution_id action history in
+        let change_id =
+          record_transaction runtime ~execution_id action history
+        in
         sync_syntax_after_commit runtime ~execution_id history;
         Ok (history, change_id)
 
@@ -236,7 +242,9 @@ module Make (Model : Editing_model.S) = struct
     if List.exists Model_intent.is_textual intents then Some intents else None
 
   let retain_repeatable previous intents =
-    match repeatable intents with Some intents -> Some intents | None -> previous
+    match repeatable intents with
+    | Some intents -> Some intents
+    | None -> previous
 
   let action ~base ?selector_id ?transformation_id intent =
     let inferred_selector, inferred_transformation =
@@ -253,15 +261,14 @@ module Make (Model : Editing_model.S) = struct
     {
       intent;
       provenance =
-        base
-        |> (fun value ->
-             match selector_id with
-             | None -> value
-             | Some id -> Provenance.add value (Provenance.Selector id))
-        |> (fun value ->
-             match transformation_id with
-             | None -> value
-             | Some id -> Provenance.add value (Provenance.Transformation id));
+        ( ( base |> fun value ->
+            match selector_id with
+            | None -> value
+            | Some id -> Provenance.add value (Provenance.Selector id) )
+        |> fun value ->
+          match transformation_id with
+          | None -> value
+          | Some id -> Provenance.add value (Provenance.Transformation id) );
       selector_id;
       transformation_id;
     }
@@ -287,15 +294,16 @@ module Make (Model : Editing_model.S) = struct
     | Error _ as error -> error
     | Ok selections ->
         let contents =
-          Document_snapshot.contents (Document.snapshot (History.current history))
+          Document_snapshot.contents
+            (Document.snapshot (History.current history))
         in
         let text =
           Selection_set.to_list selections
           |> List.map (fun selection ->
-                 let range = Selection.range selection in
-                 let start = Anchor.byte_offset (Range.start range) in
-                 let stop = Anchor.byte_offset (Range.stop range) in
-                 String.sub contents start (stop - start))
+              let range = Selection.range selection in
+              let start = Anchor.byte_offset (Range.start range) in
+              let stop = Anchor.byte_offset (Range.stop range) in
+              String.sub contents start (stop - start))
           |> String.concat ""
         in
         Ok text
@@ -314,30 +322,32 @@ module Make (Model : Editing_model.S) = struct
                 ( Selection_set.primary_index selections,
                   Selection_set.to_list selections
                   |> List.map (fun selection ->
-                         match placement with
-                         | Clipboard.Before ->
-                             Selection.range selection |> Range.start
-                             |> Anchor.byte_offset
-                         | Clipboard.After ->
-                             Selection.range selection |> Range.stop
-                             |> Anchor.byte_offset
-                         | Clipboard.Replace -> assert false) )
+                      match placement with
+                      | Clipboard.Before ->
+                          Selection.range selection |> Range.start
+                          |> Anchor.byte_offset
+                      | Clipboard.After ->
+                          Selection.range selection |> Range.stop
+                          |> Anchor.byte_offset
+                      | Clipboard.Replace -> assert false) )
           | Clipboard.Linewise -> (
-              match selection_set_for_selector history Model_intent.Current_line with
+              match
+                selection_set_for_selector history Model_intent.Current_line
+              with
               | Error _ as error -> error
               | Ok selections ->
                   Ok
                     ( Selection_set.primary_index selections,
                       Selection_set.to_list selections
                       |> List.map (fun selection ->
-                             match placement with
-                             | Clipboard.Before ->
-                                 Selection.range selection |> Range.start
-                                 |> Anchor.byte_offset
-                             | Clipboard.After ->
-                                 Selection.range selection |> Range.stop
-                                 |> Anchor.byte_offset
-                             | Clipboard.Replace -> assert false) ))
+                          match placement with
+                          | Clipboard.Before ->
+                              Selection.range selection |> Range.start
+                              |> Anchor.byte_offset
+                          | Clipboard.After ->
+                              Selection.range selection |> Range.stop
+                              |> Anchor.byte_offset
+                          | Clipboard.Replace -> assert false) ))
         in
         match offsets with
         | Error _ as error -> error
@@ -371,17 +381,17 @@ module Make (Model : Editing_model.S) = struct
     let transformation_id = Model_effect.transformation_id model_effect in
     List.map (action ~base ?selector_id ?transformation_id) intents
 
-  let interpret_effect runtime ~execution_id history clipboard repeatable_intents
-      base model_effect =
+  let interpret_effect runtime ~execution_id history clipboard
+      repeatable_intents base model_effect =
     trace runtime.trace (fun () ->
         Trace_event.Model_effect
           { execution_id; effect_id = Model_effect.identity model_effect });
     match model_effect with
     | Model_effect.Execute_intent intent
-    | Model_effect.Execute_intent_with { intent; _ } ->
+    | Model_effect.Execute_intent_with { intent; _ } -> (
         let base = effect_provenance base model_effect in
         let actions = direct_actions base model_effect [ intent ] in
-        (match apply_actions runtime ~execution_id history actions with
+        match apply_actions runtime ~execution_id history actions with
         | Error _ as error -> error
         | Ok (history, changes) ->
             Ok
@@ -391,23 +401,26 @@ module Make (Model : Editing_model.S) = struct
                 changes,
                 [],
                 retain_repeatable repeatable_intents [ intent ] ))
-    | Model_effect.Invoke_command invocation ->
+    | Model_effect.Invoke_command invocation -> (
         trace runtime.trace (fun () ->
             Trace_event.Command_invoked
               {
                 execution_id;
-                command_id = Command_invocation.id invocation |> Command_id.to_string;
+                command_id =
+                  Command_invocation.id invocation |> Command_id.to_string;
               });
         let context =
-          make_context ~execution_id ~trace:runtime.trace ~profiler:runtime.profiler
-            ?syntax_service:runtime.syntax_service history runtime.commands clipboard
+          make_context ~execution_id ~trace:runtime.trace
+            ~profiler:runtime.profiler ?syntax_service:runtime.syntax_service
+            history runtime.commands clipboard
         in
-        (match Command_registry.invoke runtime.commands ~context invocation with
+        match Command_registry.invoke runtime.commands ~context invocation with
         | Error _ as error -> error
-        | Ok intents ->
+        | Ok intents -> (
             let base =
               command_provenance runtime.commands
-                (effect_provenance base model_effect) invocation
+                (effect_provenance base model_effect)
+                invocation
             in
             let actions = List.map (action ~base) intents in
             match apply_actions runtime ~execution_id history actions with
@@ -419,7 +432,7 @@ module Make (Model : Editing_model.S) = struct
                     actions,
                     changes,
                     [],
-                    retain_repeatable repeatable_intents intents ))
+                    retain_repeatable repeatable_intents intents )))
     | Model_effect.Emit_message message ->
         Ok (history, clipboard, [], [], [ message ], repeatable_intents)
     | Model_effect.Copy_to_clipboard { slot; selector; kind } -> (
@@ -442,7 +455,7 @@ module Make (Model : Editing_model.S) = struct
         | Some entry -> (
             match paste_intents history entry placement with
             | Error _ as error -> error
-            | Ok intents ->
+            | Ok intents -> (
                 let base = effect_provenance base model_effect in
                 let actions = List.map (action ~base) intents in
                 match apply_actions runtime ~execution_id history actions with
@@ -454,7 +467,7 @@ module Make (Model : Editing_model.S) = struct
                         actions,
                         changes,
                         [],
-                        retain_repeatable repeatable_intents intents )))
+                        retain_repeatable repeatable_intents intents ))))
     | Model_effect.Undo -> (
         match History.undo history with
         | Error _ as error -> error
@@ -464,7 +477,9 @@ module Make (Model : Editing_model.S) = struct
                   {
                     execution_id;
                     operation = "undo";
-                    current_change = Option.map History.change_id (History.current_change history);
+                    current_change =
+                      Option.map History.change_id
+                        (History.current_change history);
                   });
             Ok (history, clipboard, [], [], [], repeatable_intents))
     | Model_effect.Redo -> (
@@ -476,13 +491,15 @@ module Make (Model : Editing_model.S) = struct
                   {
                     execution_id;
                     operation = "redo";
-                    current_change = Option.map History.change_id (History.current_change history);
+                    current_change =
+                      Option.map History.change_id
+                        (History.current_change history);
                   });
             Ok (history, clipboard, [], [], [], repeatable_intents))
     | Model_effect.Repeat_last_edit -> (
         match repeatable_intents with
         | None -> Error Error.No_repeatable_edit
-        | Some intents ->
+        | Some intents -> (
             let repeated =
               match intents with
               | [] -> "semantic edit"
@@ -496,10 +513,11 @@ module Make (Model : Editing_model.S) = struct
             match apply_actions runtime ~execution_id history actions with
             | Error _ as error -> error
             | Ok (history, changes) ->
-                Ok (history, clipboard, actions, changes, [], repeatable_intents))
+                Ok (history, clipboard, actions, changes, [], repeatable_intents)
+            ))
 
-  let interpret_effects runtime ~execution_id history clipboard repeatable_intents
-      base effects =
+  let interpret_effects runtime ~execution_id history clipboard
+      repeatable_intents base effects =
     let rec loop history clipboard actions changes messages repeatable_intents =
       function
       | [] ->
@@ -564,7 +582,8 @@ module Make (Model : Editing_model.S) = struct
     let model_result =
       Profiler.measure runtime.profiler
         ~model_id:(Editing_model.id Model.descriptor) Profiler.Model_handle
-        (fun () -> model_call (fun () -> Model.handle_input runtime.state input context))
+        (fun () ->
+          model_call (fun () -> Model.handle_input runtime.state input context))
     in
     match model_result with
     | Error error ->
@@ -572,7 +591,7 @@ module Make (Model : Editing_model.S) = struct
             Trace_event.Error_reported
               { execution_id; reason = Error.to_string error });
         Error error
-    | Ok (state, effects) ->
+    | Ok (state, effects) -> (
         let base () =
           Provenance.create ~execution_id
             ~model_id:(Editing_model.id Model.descriptor)
@@ -584,10 +603,10 @@ module Make (Model : Editing_model.S) = struct
               Provenance.add provenance (Provenance.Interaction interaction_id)
           | None -> provenance
         in
-        (match
-           interpret_effects runtime ~execution_id runtime.history runtime.clipboard
-             runtime.repeatable_intents base effects
-         with
+        match
+          interpret_effects runtime ~execution_id runtime.history
+            runtime.clipboard runtime.repeatable_intents base effects
+        with
         | Error error ->
             trace runtime.trace (fun () ->
                 Trace_event.Error_reported
@@ -607,31 +626,30 @@ module Make (Model : Editing_model.S) = struct
                       { execution_id; reason = Error.to_string error });
                 Error error
             | Ok status_after ->
-                let interaction_id, started_execution, interaction_inputs =
-                  match runtime.pending_interaction with
-                  | Some (id, started_execution, inputs) ->
-                      ( id,
-                        started_execution,
-                        inputs @ [ Input_event.to_string input ] )
-                  | None -> (execution_id, execution_id, [ Input_event.to_string input ])
-                in
                 let pending_interaction =
-                  match Model_status.pending_input status_after with
-                  | Some _ ->
+                  match
+                    ( runtime.pending_interaction,
+                      Model_status.pending_input status_after )
+                  with
+                  | None, None -> None
+                  | Some (interaction_id, started_execution, inputs), Some _ ->
+                      Some
+                        (interaction_id, started_execution, inputs @ [ input ])
+                  | None, Some _ ->
                       trace runtime.trace (fun () ->
                           Trace_event.Interaction_started
-                            { execution_id; interaction_id });
-                      Some (interaction_id, started_execution, interaction_inputs)
-                  | None ->
-                      if List.length interaction_inputs > 1 then
-                        trace runtime.trace (fun () ->
-                            Trace_event.Interaction_completed
-                              {
-                                execution_id;
-                                interaction_id;
-                                started_execution;
-                                inputs = interaction_inputs;
-                              });
+                            { execution_id; interaction_id = execution_id });
+                      Some (execution_id, execution_id, [ input ])
+                  | Some (interaction_id, started_execution, inputs), None ->
+                      let inputs = inputs @ [ input ] in
+                      trace runtime.trace (fun () ->
+                          Trace_event.Interaction_completed
+                            {
+                              execution_id;
+                              interaction_id;
+                              started_execution;
+                              inputs = List.map Input_event.to_string inputs;
+                            });
                       None
                 in
                 trace runtime.trace (fun () ->

@@ -12,7 +12,8 @@ type options = {
 type run_result = Exited | Unsaved_end
 
 let usage =
-  "usage: zenbu [--model vim|selection|structural] [--language ID] [--trace] [--profile] [FILE]"
+  "usage: zenbu [--model vim|selection|structural] [--language ID] [--trace] \
+   [--profile] [FILE]"
 
 let parse_arguments () =
   let model = ref Zenbu_app.Session.Vim in
@@ -101,8 +102,7 @@ let rec run backend session =
       if Zenbu_app.Session.dirty session then Unsaved_end else Exited
   | Zenbu_terminal.Event.Unsupported description ->
       run backend (Zenbu_app.Session.notice session description)
-  | Zenbu_terminal.Event.Key
-      { key = Zenbu_terminal.Event.Text "o"; modifiers }
+  | Zenbu_terminal.Event.Key { key = Zenbu_terminal.Event.Text "o"; modifiers }
     when is_control modifiers ->
       run backend (Zenbu_app.Session.toggle_inspector session)
   | Zenbu_terminal.Event.Key

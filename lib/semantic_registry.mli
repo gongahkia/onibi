@@ -1,6 +1,7 @@
 type t
 
 val empty : t
+
 val register :
   t -> Zenbu_kernel.Semantic_descriptor.t -> (t, Zenbu_kernel.Error.t) result
 

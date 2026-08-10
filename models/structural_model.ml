@@ -27,8 +27,7 @@ let descriptor =
        ~description:
          "An AST-navigation grammar that derives ordinary Zenbu selections \
           from the optional public syntax snapshot."
-       ~provider
-       ())
+       ~provider ())
 
 let available context = Option.is_some (Editor_context.syntax context)
 
@@ -123,12 +122,12 @@ let selection_effect selector nodes =
   | _ -> (
       match Model_intent.set_selections ~selections ~primary:0 with
       | Error _ -> []
-  | Ok intent ->
-      [
-        Model_effect.execute
-          ~selector_id:(Zenbu_syntax.Syntax.Selector.id selector)
-          intent;
-      ])
+      | Ok intent ->
+          [
+            Model_effect.execute
+              ~selector_id:(Zenbu_syntax.Syntax.Selector.id selector)
+              intent;
+          ])
 
 let focused_state state context nodes ~shrink_stack ~shrink_version =
   match nodes with
@@ -276,8 +275,8 @@ let handle_input state event context =
   | Navigate -> navigate_input state event context
   | Insert -> insert_input event context
 
-let input_rule ?next_status ?selector_id ?transformation_id ?(requires_syntax = false)
-    id pattern kind summary =
+let input_rule ?next_status ?selector_id ?transformation_id
+    ?(requires_syntax = false) id pattern kind summary =
   static
     (Input_rule.create ~id ~pattern ~kind ~summary ?next_status ?selector_id
        ?transformation_id ~requires_syntax ())
@@ -286,9 +285,11 @@ let input_rules = function
   | { mode = Insert; _ } ->
       [
         input_rule "structural.insert.text" Input_rule.Text_input
-          Input_rule.Catch_all "insert committed text" ~transformation_id:"replace-text";
+          Input_rule.Catch_all "insert committed text"
+          ~transformation_id:"replace-text";
         input_rule "structural.insert.escape" (Input_rule.Named "Escape")
-          Input_rule.Binding "return to structural navigation" ~next_status:"struct";
+          Input_rule.Binding "return to structural navigation"
+          ~next_status:"struct";
       ]
   | { mode = Navigate; _ } ->
       [
@@ -296,11 +297,13 @@ let input_rules = function
           "focus the smallest named syntax node" ~selector_id:"syntax.focus"
           ~transformation_id:"select" ~requires_syntax:true;
         input_rule "structural.parent" (Input_rule.Named "ArrowUp")
-          Input_rule.Binding "select the parent syntax node" ~selector_id:"syntax.parent"
-          ~transformation_id:"select" ~requires_syntax:true;
+          Input_rule.Binding "select the parent syntax node"
+          ~selector_id:"syntax.parent" ~transformation_id:"select"
+          ~requires_syntax:true;
         input_rule "structural.child" (Input_rule.Named "ArrowDown")
-          Input_rule.Binding "select the first child syntax node" ~selector_id:"syntax.child"
-          ~transformation_id:"select" ~requires_syntax:true;
+          Input_rule.Binding "select the first child syntax node"
+          ~selector_id:"syntax.child" ~transformation_id:"select"
+          ~requires_syntax:true;
         input_rule "structural.next-sibling" (Input_rule.Named "ArrowRight")
           Input_rule.Binding "select the next named sibling"
           ~selector_id:"syntax.next-sibling" ~transformation_id:"select"
@@ -312,20 +315,22 @@ let input_rules = function
         input_rule "structural.expand-shrink" (Input_rule.Text_range "e or r")
           Input_rule.Binding "expand or shrink structural selection"
           ~requires_syntax:true;
-        input_rule "structural.siblings" (Input_rule.Exact "m") Input_rule.Binding
-          "select same-kind syntax siblings" ~selector_id:"syntax.select-same-kind"
-          ~transformation_id:"select" ~requires_syntax:true;
+        input_rule "structural.siblings" (Input_rule.Exact "m")
+          Input_rule.Binding "select same-kind syntax siblings"
+          ~selector_id:"syntax.select-same-kind" ~transformation_id:"select"
+          ~requires_syntax:true;
         input_rule "structural.delete" (Input_rule.Exact "x") Input_rule.Binding
-          "delete visible structural selections" ~selector_id:"current-selections"
-          ~transformation_id:"delete";
+          "delete visible structural selections"
+          ~selector_id:"current-selections" ~transformation_id:"delete";
         input_rule "structural.change" (Input_rule.Exact "c") Input_rule.Binding
           "delete visible structural selections then enter text input"
           ~next_status:"struct-insert" ~selector_id:"current-selections"
           ~transformation_id:"delete";
         input_rule "structural.clipboard" (Input_rule.Text_range "y or p")
           Input_rule.Binding "copy or paste through the shared clipboard";
-        input_rule "structural.history" (Input_rule.Text_range "u, Ctrl-r, or .")
-          Input_rule.Binding "move through or repeat shared semantic history";
+        input_rule "structural.history"
+          (Input_rule.Text_range "u, Ctrl-r, or .") Input_rule.Binding
+          "move through or repeat shared semantic history";
         input_rule "structural.insert" (Input_rule.Exact "i") Input_rule.Binding
           "enter committed text input" ~next_status:"struct-insert";
       ]

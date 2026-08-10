@@ -75,7 +75,8 @@ let rec to_string = function
   | Unknown_command id -> Printf.sprintf "unknown command: %s" id
   | Invalid_command_arguments message ->
       Printf.sprintf "invalid command arguments: %s" message
-  | Invalid_provenance message -> Printf.sprintf "invalid provenance: %s" message
+  | Invalid_provenance message ->
+      Printf.sprintf "invalid provenance: %s" message
   | Model_execution_failed message ->
       Printf.sprintf "model execution failed: %s" message
   | No_repeatable_edit -> "no repeatable semantic edit is available"

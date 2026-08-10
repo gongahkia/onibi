@@ -1,6 +1,6 @@
 # Architecture
 
-Zenbu M0-M5 is a functional semantic editing kernel plus public editing-model
+Zenbu M0-M6 is a functional semantic editing kernel plus public editing-model
 and syntax protocols and a narrow terminal host. The central kernel transition is
 conceptually:
 

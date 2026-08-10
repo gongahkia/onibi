@@ -1,4 +1,4 @@
-(** Typed, model-neutral views for local inspection.  Text formatting functions
+(** Typed, model-neutral views for local inspection. Text formatting functions
     consume these views; they are not the source of observability data. *)
 
 type description
@@ -22,23 +22,23 @@ val description_title : description -> string
 val description_summary : description -> string option
 val description_provider : description -> Zenbu_kernel.Provider.t
 val description_fields : description -> (string * string) list
-
 val commands : Command_registry.t -> description list
 val find_command : Command_registry.t -> string -> description option
 val semantic_registry : unit -> Semantic_registry.t
 val find_semantic : Semantic_registry.t -> string -> description option
-
 val selections : Editor_context.t -> selection list
 val selection_primary : selection -> bool
 val selection_anchor_offset : selection -> int
 val selection_head_offset : selection -> int
 val selection_start_offset : selection -> int
 val selection_stop_offset : selection -> int
-
 val change : Zenbu_kernel.History.change -> change
 val change_id : change -> int
 val change_source_version : change -> int
 val change_result_version : change -> int
+val change_source : change -> string
+val change_intent : change -> string option
+val change_description : change -> string option
 val change_edit_count : change -> int
 val change_provenance : change -> Zenbu_kernel.Provenance.t option
 val change_edits : change -> edit_preview list
@@ -46,7 +46,6 @@ val edit_start_offset : edit_preview -> int
 val edit_stop_offset : edit_preview -> int
 val edit_replacement : edit_preview -> string
 val edit_removed : edit_preview -> string
-
 val history : ?saved_version:int -> Zenbu_kernel.History.t -> history
 val history_nodes : history -> history_node list
 val history_current_id : history -> int
@@ -57,7 +56,6 @@ val history_node_change : history_node -> change option
 val history_node_current : history_node -> bool
 val history_node_saved : history_node -> bool
 val find_change : history -> int -> change option
-
 val syntax : Editor_context.t -> syntax option
 val syntax_language_id : syntax -> string
 val syntax_document_version : syntax -> int
@@ -74,26 +72,25 @@ val syntax_service : Zenbu_syntax.Syntax.Service.t -> syntax_service
 val syntax_service_language_id : syntax_service -> string
 val syntax_service_cached_version : syntax_service -> int option
 val syntax_service_last_strategy : syntax_service -> string option
-
 val why : Trace.t -> execution_id:int -> why option
 val why_execution_id : why -> int
 val why_events : why -> Trace_event.t list
 val latest_why : Trace.t -> why option
 
 val api :
-  models:Editing_model.descriptor list ->
-  commands:Command_registry.t ->
-  api
+  models:Editing_model.descriptor list -> commands:Command_registry.t -> api
 
 val api_models : api -> description list
 val api_commands : api -> description list
 val api_selectors : api -> description list
 val api_transformations : api -> description list
 val api_languages : api -> Zenbu_syntax.Syntax.Language.t list
-
 val format_description : description -> string list
 val format_commands : description list -> string list
-val format_bindings : Editing_model.descriptor -> Model_status.t -> Input_rule.t list -> string list
+
+val format_bindings :
+  Editing_model.descriptor -> Model_status.t -> Input_rule.t list -> string list
+
 val format_selection : selection list -> string list
 val format_change : change -> string list
 val format_history : history -> string list

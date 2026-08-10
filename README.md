@@ -117,8 +117,8 @@ Coordinates are UTF-8 byte offsets at Unicode code-point boundaries. They are
 not grapheme-cluster, line/column, or terminal display-cell coordinates.
 Anchors are snapshot-local: they intentionally do not survive arbitrary edits
 unless carried forward by the transaction's documented selection transform.
-Branching history is retained as an immutable tree, but no history UI or merge
-policy exists yet.
+Branching history is retained as an immutable tree and is available through the
+read-only inspector; no graphical branch manager or merge policy exists yet.
 
 The M3 Vim-style model implements a documented, intentionally incomplete
 subset; it is not Vim compatible. The selection-first model is inspired by

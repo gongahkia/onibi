@@ -9,9 +9,15 @@ type t = {
   requires_syntax : bool;
 }
 
-let create ~id ~title ~description ~provider ~kind ?(requires_syntax = false) () =
-  if String.length id = 0 || String.length title = 0 || String.length description = 0
-  then Error (Error.Invalid_provenance "semantic descriptor fields must not be empty")
+let create ~id ~title ~description ~provider ~kind ?(requires_syntax = false) ()
+    =
+  if
+    String.length id = 0
+    || String.length title = 0
+    || String.length description = 0
+  then
+    Error
+      (Error.Invalid_provenance "semantic descriptor fields must not be empty")
   else Ok { id; title; description; provider; kind; requires_syntax }
 
 let id value = value.id

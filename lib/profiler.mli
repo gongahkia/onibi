@@ -1,4 +1,10 @@
-type stage = Model_handle | Selector_resolve | Transformation_apply | Transaction_commit | Syntax_update
+type stage =
+  | Model_handle
+  | Selector_resolve
+  | Transformation_apply
+  | Transaction_commit
+  | Syntax_update
+
 type aggregate
 type t
 

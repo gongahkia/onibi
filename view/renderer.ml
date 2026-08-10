@@ -165,10 +165,13 @@ let render_with_inspector ~inspector ~context ~status ~filename ~dirty ~message
           Display.source_line_at source_lines primary.head_offset
         in
         let primary_line = Display.layout contents primary_source_line in
-        let primary_column = Display.column_at primary_line primary.head_offset in
+        let primary_column =
+          Display.column_at primary_line primary.head_offset
+        in
         let viewport =
           Viewport.reconcile viewport ~line:primary_line.number
-            ~column:primary_column ~width:dimensions.columns ~height:dimensions.rows
+            ~column:primary_column ~width:dimensions.columns
+            ~height:dimensions.rows
         in
         let content_rows = dimensions.rows - 1 in
         let first = viewport.top_line in
@@ -176,12 +179,12 @@ let render_with_inspector ~inspector ~context ~status ~filename ~dirty ~message
         let visible_rows =
           source_lines
           |> List.filter (fun source_line ->
-                 source_line.Display.number >= first && source_line.number <= last)
+              source_line.Display.number >= first && source_line.number <= last)
           |> List.map (fun source_line ->
-                 let line = Display.layout contents source_line in
-                 row_for_line ~columns:dimensions.columns
-                   ~left_column:viewport.left_column ~selections
-                   ~primary_index:selections.primary_index line)
+              let line = Display.layout contents source_line in
+              row_for_line ~columns:dimensions.columns
+                ~left_column:viewport.left_column ~selections
+                ~primary_index:selections.primary_index line)
         in
         let missing_rows = content_rows - List.length visible_rows in
         let blank_row =

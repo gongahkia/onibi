@@ -14,8 +14,7 @@ let name = function
 
 let descriptors () =
   let provider =
-    Provider.create ~id:"zenbu.kernel" ~kind:Provider.Builtin
-    |> Result.get_ok
+    Provider.create ~id:"zenbu.kernel" ~kind:Provider.Builtin |> Result.get_ok
   in
   let declare value title description =
     Semantic_descriptor.create ~id:(name value) ~title ~description ~provider

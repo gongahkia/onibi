@@ -150,17 +150,20 @@ type node_view = {
   view_parent : int option;
   view_children : int list;
   view_change : change option;
+  view_document_version : int;
 }
 
 let nodes history =
   history.nodes |> Int_map.bindings
   |> List.map (fun (_, node) ->
-         {
-           view_id = node.id;
-           view_parent = node.parent;
-           view_children = node.children;
-           view_change = node.change;
-         })
+      {
+        view_id = node.id;
+        view_parent = node.parent;
+        view_children = node.children;
+        view_change = node.change;
+        view_document_version =
+          Document.version node.document |> Document_version.to_int;
+      })
 
 let root_id history = history.root_id
 let current_id history = history.current_id
@@ -168,4 +171,5 @@ let node_id value = value.view_id
 let parent_id value = value.view_parent
 let child_ids value = value.view_children
 let node_change value = value.view_change
+let node_document_version value = value.view_document_version
 let is_current history value = value.view_id = history.current_id

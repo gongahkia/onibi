@@ -11,10 +11,7 @@ type entry =
 type t = { execution_id : int; entries : entry list }
 
 let create ~execution_id ~model_id ~provider ~input =
-  {
-    execution_id;
-    entries = [ Model { id = model_id; provider }; Input input ];
-  }
+  { execution_id; entries = [ Model { id = model_id; provider }; Input input ] }
 
 let execution_id value = value.execution_id
 let entries value = value.entries
