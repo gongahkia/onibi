@@ -165,8 +165,9 @@ M3 because its target placement is context-sensitive.
 Every runtime-committed intent can attach `Transaction.metadata.provenance`.
 The optional chain records stable semantic ids and a runtime-local execution id:
 model/provider, logical input, pending-input interaction, effect, command/
-provider, selector, transformation, and repeat source where present. Old kernel
-and replay callers need not supply it.
+provider, binding, event, selector, transformation, and repeat source where
+present. Script callback identity remains trace observation rather than replay
+input. Old kernel and replay callers need not supply it.
 
 An execution trace explains how logical input was processed; semantic replay
 remains M1's deterministic intent/transaction format. Profiling aggregates

@@ -1,7 +1,7 @@
-# M4-M6 terminal host
+# M4-M7 terminal host
 
-`zenbu [--model vim|selection|structural] [--language ID] [FILE]` is the
-interactive M4-M6 executable.
+`zenbu [--model vim|selection|structural] [--language ID] [--config PATH|--no-config] [FILE]` is the
+interactive M4-M7 executable.
 It loads an existing UTF-8 file, or creates an unnamed empty buffer when no
 file is supplied. File open and UTF-8 validation happen before terminal mode
 is entered; errors are reported on stderr. The deterministic
@@ -19,6 +19,15 @@ dune exec bin/zenbu.exe -- --model structural FILE
 a warning and requires a second `Ctrl-Q`. Unnamed save-as is intentionally not
 implemented. EOF with unsaved changes returns an error after terminal cleanup
 and does not write the file.
+
+M7 configuration defaults to `$XDG_CONFIG_HOME/zenbu/init.lua` (or
+`$HOME/.config/zenbu/init.lua`). `--config PATH` chooses an explicit file and
+`--no-config` disables it. `Ctrl-Alt-R` is a host-reserved staged reload key;
+`Alt-R`/`Meta-R` is its terminal-portable fallback when a terminal cannot encode
+the combined printable-key modifier.
+`Ctrl-S` and `Ctrl-Q` remain host-reserved too. Script bindings are decoded to
+ordinary logical input only after those controls have been handled, so scripts
+cannot replace save/quit/reload policy. See [scripting](SCRIPTING.md).
 
 ## Backend and lifecycle
 
@@ -112,3 +121,15 @@ loop, and never mutates the document.
 This is a host-level Zenbu inspector, not Vim's Ex language or a model-specific
 command mode. Headless inspection provides command, binding, history, syntax,
 and profile access without a command palette.
+
+## M7 configuration integration
+
+`Session` selects script bindings before delivering normal model input, using
+model+status, model, then global scope. A script command still enters the
+ordinary runtime as `Invoke_command`; selectors and transformations are
+resolved through the normal semantic behavior registry. A document-changed hook
+runs only after a committed content change, and an after-save hook only after a
+successful host save. The session suppresses delivery of the same hook event
+while it is already active. Terminal and renderer modules still know no Lua,
+script callback, or Tree-sitter type; they only render the session message and
+generic inspector lines.

@@ -123,3 +123,15 @@ or `tree-copy`). Runtime traces emit language, document version, strategy, and
 error state after refresh. `Inspector.syntax` enriches the primary selection
 with node kind/range, named parent kind, and child count. None of these APIs
 expose Tree-sitter trees, nodes, pointers, or ownership details.
+
+## M7 data-only scripting view
+
+M7 scripts can call `zenbu.syntax()` for the primary selection or
+`zenbu.syntax(start, stop)` for an explicit current-document byte range. The
+result is `nil` without a matching syntax snapshot, otherwise copied language,
+version, and error state plus a compact smallest-named-node summary and compact
+named relatives. It intentionally does not expose `Syntax.Snapshot.Node` or a
+Tree-sitter value; a callback can use returned offsets to make another
+data-only query. Script descriptor `requires_syntax` participates in generic
+discovery but does not cause a parser to be created for an unsupported buffer.
+See [scripting](SCRIPTING.md).

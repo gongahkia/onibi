@@ -1,7 +1,7 @@
-# M6 observability, provenance, and self-documentation
+# M6/M7 observability, provenance, and self-documentation
 
 Zenbu's editing grammars are intentionally extensible. M6 establishes the
-corresponding explanation surface before scripting or plugins exist. It is
+corresponding explanation surface, which M7 scripting now uses. It is
 local, structured, model-neutral, bounded where recording can grow, and
 separate from deterministic editing semantics.
 
@@ -24,7 +24,8 @@ trace builds no event values; an enabled trace evicts oldest events in insertion
 order. The runtime emits actual semantic-boundary events: input receipt,
 model-before/transition, model effect, command invocation, selector/
 transformation, transaction creation/commit/rejection, history navigation,
-syntax refresh, and expected errors.
+syntax refresh, expected errors, script lifecycle/reload, binding resolution,
+and script command/selector/transformation/event callback outcomes.
 
 Each logical input has a monotonic runtime-local execution id. If a model status
 declares pending input, the runtime groups subsequent executions into an
@@ -74,8 +75,9 @@ strategy. Tree-sitter types and pointers remain private.
 ## Profiling
 
 `Profiler.enabled ~capacity` records bounded CPU-time samples using `Sys.time`.
-It measures existing model-handle, transaction-commit, and syntax-update
-boundaries; no wall-clock timestamp is retained. Aggregates expose count,
+It measures existing model-handle, transaction-commit, syntax-update, and M7
+script-load/reload/command/selector/transformation/event boundaries; no
+wall-clock timestamp is retained. Aggregates expose count,
 total, mean, and max. Disabled profiling takes no clock reading. This is
 lightweight local diagnosis, not telemetry or a metrics platform.
 
@@ -115,6 +117,11 @@ view, not a mutable log. M5 syntax abstraction was sufficient once it exposed
 cache strategy; no backend value was needed. Terminal presentation stayed
 model-neutral through generic inspector lines.
 
-M7 can use these same descriptor, provider, provenance, and input-rule APIs,
-but must still design script lifecycle, hot reload, isolation, and registration
-failure behavior. M6 deliberately does not implement scripting or plugins.
+M7 uses these descriptor, provider, provenance, and input-rule APIs without
+changing their authority. The trace records staged load/reload outcome and the
+provider/generation where available; `Scripts` reports the active generation
+and last reload error. A script-originated committed transaction includes normal
+command/selector/transformation provenance plus binding or event entries. This
+does not make Lua callbacks replay input: replay remains concrete
+intent/transaction behavior, and a dynamic callback is intentionally not a
+cross-generation repeat intent. See [scripting](SCRIPTING.md).

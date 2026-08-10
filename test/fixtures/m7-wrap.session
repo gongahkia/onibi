@@ -1,0 +1,4 @@
+# Deterministic headless input for examples/m7-init.lua.
+model=vim
+text=alpha
+input=Ctrl-K

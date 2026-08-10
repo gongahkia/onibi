@@ -73,6 +73,11 @@ The M0/M1 constructors and commit path enforce these invariants.
 20. Model input rules describe the actual current state without executing an
     input. Prefixes and catch-alls are first-class; a model need not pretend its
     grammar is a flat keymap.
+21. M7 callbacks cross the Lua boundary only as copied data and declarative
+    semantic results. They never receive a mutable document/history, terminal
+    object, parser/node handle, transaction constructor, or raw Lua value in a
+    public Zenbu API. A staged generation replaces an active overlay only after
+    complete evaluation and validation; a failed stage retains the prior one.
 
 The following rule is architectural rather than merely local:
 

@@ -1,7 +1,8 @@
 # Architecture
 
-Zenbu M0-M6 is a functional semantic editing kernel plus public editing-model
-and syntax protocols and a narrow terminal host. The central kernel transition is
+Zenbu M0-M7 is a functional semantic editing kernel plus public editing-model,
+syntax, and experimental trusted-local scripting protocols and a narrow terminal
+host. The central kernel transition is
 conceptually:
 
 ```text
@@ -178,3 +179,40 @@ history views, syntax snapshots, traces, and profiles. It does not import
 Vim, selection-first, structural, Tree-sitter, or Notty internals. The app
 selects a registered runtime only to obtain generic values; the renderer sees
 ordinary inspector text lines and frame values.
+
+## M7 scripting boundary
+
+M7 inserts a generation-scoped data adapter above the public APIs, never a new
+kernel mutation route:
+
+```text
+PUC Lua 5.4 / standard libraries
+      ↑ private Ctypes adapter
+zenbu.scripting registration + data conversion
+      ↑ commands / semantic behavior registry / bindings / hooks
+zenbu.app.Session staged generation overlay
+      ↑ ordinary zenbu.model_api runtime
+intent → transaction → history → syntax refresh
+```
+
+The Lua adapter owns states, callback references, source diagnostics, and all
+Lua conversions. `zenbu.scripting` exposes only immutable registrations and
+data-returning callbacks. A script command returns `Model_effect` values;
+selectors return selection data; transformations return edit proposals. The
+runtime remains responsible for converting data to `Model_intent`, validating a
+transaction, committing history, and collecting provenance. Script behavior
+therefore has the same undo, syntax-refresh, inspection, and error boundaries
+as builtin behavior.
+
+`Session` owns an optional active generation alongside immutable base command
+and semantic registries. Reload stages a fresh full generation before calling
+`Model_runtime.with_extensions`; only a successful stage replaces the overlay,
+then disposes the prior Lua state. Binding precedence is model+status, model,
+then global; hooks are session policy over committed document changes and saves.
+The terminal keeps save/quit/reload controls outside this binding resolver.
+
+Lua receives data-only contexts and optional data-only syntax node summaries.
+No Lua state, terminal value, mutable history/document handle, or Tree-sitter
+value enters `zenbu.kernel` or `zenbu.model_api`. Standard Lua libraries make
+this trusted local execution rather than a security boundary. See
+[scripting](SCRIPTING.md) and ADRs 0019-0021.

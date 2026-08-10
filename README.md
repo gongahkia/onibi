@@ -1,9 +1,9 @@
 # zenbu
 
 Zenbu is a terminal-first programmable modal editor under development. This
-repository contains M0-M6: a semantic kernel, public editing-model and syntax
-protocols, three first-party editing models, local observability, and an
-interactive terminal host.
+repository contains M0-M7: a semantic kernel, public editing-model and syntax
+protocols, three first-party editing models, local observability, a trusted-local
+Lua configuration runtime, and an interactive terminal host.
 It deliberately contains no complete Vim/Helix/Kakoune implementation, syntax
 highlighting, LSP, or plugin runtime.
 
@@ -24,9 +24,10 @@ does not expose arbitrary `mutable Editor` access to extensions.
 
 ## Quick start
 
-The checked environment uses OCaml 5.3.0 and Dune 3.20.2. The M4 host uses
+The checked environment uses OCaml 5.3.0 and Dune 3.24.2. The host uses
 `notty-community`, `uuseg`, `uucp`, and the OCaml Tree-sitter binding; install
-project dependencies before building a fresh checkout.
+project dependencies and the system PUC Lua 5.4 shared library before building
+a fresh checkout. On Fedora, the latter is supplied by `lua-libs`.
 
 ```sh
 make check
@@ -36,6 +37,8 @@ dune exec bin/zenbu_headless.exe -- session test/fixtures/sessions/vim-edit.sess
 dune exec bin/zenbu_headless.exe -- syntax test/fixtures/syntax_sample.ml
 dune exec bin/zenbu_headless.exe -- why test/fixtures/sessions/observability-vim.session
 dune exec bin/zenbu_headless.exe -- bindings structural
+dune exec bin/zenbu_headless.exe -- config-check examples/m7-init.lua
+dune exec bin/zenbu_headless.exe -- script-session examples/m7-init.lua test/fixtures/m7-wrap.session
 dune exec bin/zenbu.exe -- --trace --profile --model structural test/fixtures/syntax_sample.ml
 ```
 
@@ -76,6 +79,9 @@ make check
   `bin/zenbu_headless.ml` remains the deterministic session/replay runner.
 - `docs/` records protocol semantics, invariants, architecture, roadmap, and
   durable architectural decisions.
+- `scripting/` is the experimental `zenbu.scripting` library. It adapts PUC
+  Lua 5.4 through a private Ctypes boundary and translates registrations and
+  callbacks to public semantic APIs only.
 
 See [architecture](docs/ARCHITECTURE.md), the [editing protocol](docs/EDITING_PROTOCOL.md),
 the [observability model](docs/OBSERVABILITY.md), and [invariants](docs/INVARIANTS.md)
@@ -99,11 +105,20 @@ shared transformation, clipboard, and history services. See
 
 ## Terminal host
 
-`zenbu [--model vim|selection|structural] [FILE]` opens an existing UTF-8 file or an
+`zenbu [--model vim|selection|structural] [--config PATH|--no-config] [FILE]` opens an existing UTF-8 file or an
 unnamed empty buffer. `Ctrl-S` atomically saves an existing file. `Ctrl-Q`
 exits a clean session; a dirty session requires a second `Ctrl-Q`. The
 selection-first model is a different editing grammar over the same kernel, not
 a compatibility mode.
+
+Without either configuration flag, Zenbu attempts `$XDG_CONFIG_HOME/zenbu/init.lua`
+(or `$HOME/.config/zenbu/init.lua`); a missing default is a no-op. `Ctrl-Alt-R`
+stages and atomically activates a new generation; `Alt-R`/`Meta-R` is accepted
+as a terminal-portable fallback where Ctrl-Alt printable keys cannot be reported.
+A bad reload leaves the prior
+generation active. Configuration is deliberately trusted local code: it runs
+with Lua's standard libraries and must not be loaded from untrusted projects.
+See [scripting](docs/SCRIPTING.md).
 
 The host restores terminal input, cursor visibility, and the normal screen on
 normal exit and exceptions. It renders only the source lines in the viewport,
@@ -131,9 +146,11 @@ an OCaml refactoring engine. See [the Vim-style subset](docs/models/VIM.md),
 Terminal decoding and rendering are intentionally narrow: no mouse, bracketed
 paste, terminal capability probing beyond the chosen backend, save-as prompt,
 or model switching in a live session exists yet. Keymap configuration UI,
-Syntax highlighting, LSP, scripting, and plugin isolation remain deferred.
+syntax highlighting, LSP, stable plugin isolation, and a plugin marketplace
+remain deferred. M7 configuration is not a sandbox, package manager, or stable
+third-party plugin contract.
 
-## M6 observability
+## M6/M7 observability and scripting
 
 M6 adds local structured inspection instead of ad-hoc logging. Transactions
 retain optional deterministic provenance; bounded traces and CPU-time profiles
@@ -147,5 +164,11 @@ Interactive `--trace` and `--profile` opt in to bounded recording; with trace
 enabled, `Ctrl-O` toggles a read-only generic explanation overlay and `Escape`
 dismisses it. This is Zenbu's host-level inspector, not Vim Ex.
 
-The recommended next goal is M7: add a hot-reloadable scripting layer that
-dogfoods Zenbu's public extension API without privileged mutation.
+M7 now does this with data-only Lua callbacks. Scripts may register commands,
+selectors, transformations, scoped bindings, and `document-changed`/`after-save`
+hooks. They return declarative effects, selections, or edit proposals; the
+normal model runtime validates transactions, records history/provenance, and
+keeps Tree-sitter and terminal values private. `why`, history, bindings,
+`Scripts`, `config-check`, `config-describe`, and `script-session` expose the
+active generation and its effects. The recommended next milestone is M8: make a
+stable capability-constrained plugin contract from this pressure-tested surface.

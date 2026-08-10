@@ -238,7 +238,11 @@ view, not a structural exposure of its map. M5 syntax already exposed enough
 Zenbu-owned node/status data once service strategy and current-node inspection
 were added; neither Tree-sitter nor terminal types enter the inspector.
 
-M7 can therefore register commands/selectors/transformations and contribute
-the same descriptors, providers, rules, and provenance. It still needs a
-careful scripting lifecycle and failure-isolation design; M6 does not add
-plugins or a dynamic reflection system.
+M7 now registers commands/selectors/transformations through the same
+descriptors, providers, effects, semantic behavior registry, and provenance.
+Its Lua adapter supplies data-only callback results and has no public mutable
+editor object. A session installs a validated generation as a runtime overlay,
+so the editing-model API does not gain an M7-only mutation route. Dynamic
+semantic operations resolve to concrete transactions but are deliberately not
+retained as repeatable model intents across reloads. This remains experimental
+configuration, not a stable plugin SDK; see [scripting](SCRIPTING.md).
