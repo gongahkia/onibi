@@ -87,6 +87,11 @@ dune exec bin/zenbu_headless.exe -- plugin-check examples/plugins/surround
 dune exec bin/zenbu.exe -- --plugin-dir examples/plugins README.md
 ```
 
+An explicitly named bad `--config` or `--plugin-dir` fails before Zenbu enters
+terminal mode and prints the structured configuration/package error. A failed
+default user config remains visible in the session inspector so an ordinary
+unnamed launch is still recoverable.
+
 For isolated Components, use the WIT and Rust guest examples in
 [Component authoring](WASM_COMPONENTS.md). The generated
 [Extension API](generated/EXTENSION_API.md), [Lua SDK](../sdk/lua/zenbu.lua),

@@ -17,14 +17,14 @@ Wasmtime 47.0.3 C API:
 
 | scenario | wall time |
 | --- | ---: |
-| empty-session initialization | 0.045 ms |
-| open and parse generated 1 MiB OCaml | 126.562 ms |
-| first 100x30 highlighted frame | 135.694 ms |
-| cached 100x30 highlighted frame | 0.746 ms |
-| literal search over 1 MiB | 18.313 ms |
-| Vim committed text edit | 0.038 ms |
-| Lua callback plus transaction | 0.155 ms |
-| Wasm Component callback plus transaction | 0.263 ms |
+| empty-session initialization | 0.020 ms |
+| open and parse generated 1 MiB OCaml | 142.104 ms |
+| first 100x30 highlighted frame | 142.755 ms |
+| cached 100x30 highlighted frame | 0.629 ms |
+| literal search over 1 MiB | 16.731 ms |
+| Vim committed text edit | 0.032 ms |
+| Lua callback plus transaction | 0.141 ms |
+| Wasm Component callback plus transaction | 0.241 ms |
 
 The headless executable's `version` process-start measurement was below the
 host `time` command's 0.01 s resolution on this machine. Interactive startup

@@ -1,8 +1,11 @@
 # Terminal host
 
 `zenbu` is the interactive host; it validates a UTF-8 file before terminal
-mode, or opens an unnamed buffer. `zenbu_headless` remains the non-TTY,
-deterministic tooling surface.
+mode, or opens an unnamed buffer. An explicitly requested configuration or
+plugin package is also staged before terminal initialization: a bad request
+exits with its concise structured error rather than hiding it behind a
+non-terminal error. `zenbu_headless` remains the non-TTY, deterministic
+tooling surface.
 
 ## Host interactions
 

@@ -1,8 +1,8 @@
 # M10 pressure report
 
-This report defines the release-hardening pressure boundaries and the tests
-that guard them. The final release record should append command output and the
-commit SHA; this document does not claim a platform run by itself.
+This report records the release-hardening pressure boundaries, the tests that
+guard them, and the M10 local acceptance findings. It is deliberately candid:
+passing the checks below does not turn Zenbu into a complete IDE.
 
 | Pressure | Guard |
 | --- | --- |
@@ -21,10 +21,42 @@ capability-negotiating UI framework.
 
 ## M10 local evidence
 
-The M10 worktree validation must run `make check`, `dune runtest --force`,
-`make demo`, `make benchmark`, `make extension-docs`, and the deterministic
-Unicode `search-session` fixture. A real PTY session must also exercise the
-search prompt, palette/help overlays through resize, model picker, save-as,
-Lua/Component commands, reload, and multiline Unicode bracketed paste before
-clean terminal restoration. Re-run the release gate after every later change;
-this document is not a substitute for the fresh-clone gate.
+The M10 worktree acceptance ran `dune build @fmt`, `dune build @all`,
+`dune runtest --force`, `make check`, `make demo`, `make benchmark`, and
+`make release-check`. The benchmark used a generated 1 MiB OCaml source; the
+recorded numbers are in [Performance](PERFORMANCE.md).
+
+A real Notty PTY pass opened OCaml, valid JSON, and malformed JSON; exercised
+Vim insertion/deletion/undo/redo, selection-first and structural editing,
+Unicode incremental search plus cancellation, palette/help, `why`, resize,
+unnamed save-as, later ordinary save, bracketed multiline Unicode paste and
+its one-step undo, clean exit, and dirty two-press exit. Separate sessions
+loaded the example Lua config, Lua plugin, normal Component plugin, and an M9
+Component fixture. The latter exhausted fuel, returned structured
+`extension-runtime-unavailable` thereafter, permitted ordinary Vim editing,
+and recovered its callback after reload.
+
+## M10 usability / adoption pressure test
+
+The host work landed without a second editing API: search changes selections
+through the existing semantic runtime, palette entries come from descriptors,
+and switching models preserves shared state while clearing private grammar.
+That is the most compelling interactive proof of the project's thesis. The
+palette's provider labels made a Lua command, a local plugin command, and a
+Component command immediately distinguishable; metadata-derived help made the
+small supported model subsets discoverable without duplicate binding tables.
+
+The first confusing setup issue is a bare global `dune` invocation: it can see
+neither the project-local Tree-sitter sublibraries nor `ocamlformat`. The
+README now makes `make bootstrap` and the explicit local-switch activation
+line the only direct-Dune path. Explicit broken config/plugin arguments now
+also fail before terminal entry. Component authoring is viable for an example
+package but still requires the WIT/Rust guide rather than a scaffold.
+
+Zenbu remains short of a daily coding environment because it has no language
+diagnostics, completion, navigation, or rename; it also lacks project search,
+panes, external-change protection, a system clipboard bridge, and a
+cross-platform Component runtime. Synchronous first-frame highlighting of a
+large source is the measurable presentation cost. These observations support
+M11 language intelligence as the next focused milestone; portable Component
+distribution remains a subsequent packaging milestone.

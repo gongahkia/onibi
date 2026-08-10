@@ -42,13 +42,19 @@ The following remain deliberately out of scope:
 
 ## Next proposed milestone
 
-The repository's strongest next step is **M11: portable Component distribution
-and authoring**. It should first replace the Linux-only pinned-runtime
-assumption with a verified platform matrix and package the guest build/tooling
-story. It must keep WIT requests capability-projected, preserve fatal-runtime
-health/reload semantics, and continue to route every contribution through the
-existing extension host and semantic transaction pipeline. No resolver or
-marketplace should be added in the same milestone.
+The M10 daily-editor pass makes **M11: model-neutral language intelligence**
+the strongest next step. It should introduce an asynchronous LSP service for
+diagnostics, navigation, hover, completion, and rename as ordinary commands
+over Zenbu selections, not model-specific protocol bindings. The service must
+remain outside the kernel, must not expose protocol objects through
+`zenbu.model_api`, and must leave single-buffer terminal hosting intact. It
+should not bundle project search, panes, a marketplace, or a Component
+distribution redesign.
+
+Portable Component distribution and a first-party guest authoring tool remain
+the next packaging concern after M11: they need a verified platform matrix and
+must preserve WIT capability projection plus fatal-runtime health/reload
+semantics without adding a resolver or marketplace.
 
 See [the architecture](ARCHITECTURE.md), [Component authoring](WASM_COMPONENTS.md),
 [isolation policy](ISOLATION.md), [M10 pressure report](PRESSURE_REPORT.md),
