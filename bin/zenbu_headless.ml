@@ -274,6 +274,83 @@ let run_session path =
   | Ok { model = Structural; language; contents; inputs } ->
       run_structural_session ?language contents inputs
 
+let print_lines lines = List.iter print_endline lines
+
+let app_model = function
+  | Vim -> Zenbu_app.Session.Vim
+  | Selection_first -> Zenbu_app.Session.Selection
+  | Structural -> Zenbu_app.Session.Structural
+
+let observed_session inspection path =
+  match session_of_string (read_file path) with
+  | Error error -> fail error
+  | Ok session ->
+      let trace = Zenbu_model_api.Trace.enabled ~capacity:1024 |> Result.get_ok in
+      let profiler =
+        Zenbu_model_api.Profiler.enabled ~capacity:1024 |> Result.get_ok
+      in
+      let dimensions = Zenbu_view.Renderer.{ columns = 120; rows = 40 } in
+      match
+        Zenbu_app.Session.create ~model:(app_model session.model)
+          ?language:session.language ~contents:session.contents ~trace ~profiler
+          ~dimensions ()
+      with
+      | Error error -> fail error
+      | Ok initial ->
+          let current =
+            List.fold_left Zenbu_app.Session.handle_input initial session.inputs
+          in
+          Zenbu_app.Session.inspect current inspection |> print_lines
+
+let initial_bindings model =
+  let session =
+    {
+      model;
+      language = (match model with Structural -> Some "ocaml" | _ -> None);
+      contents = "let alpha = 1\n";
+      inputs = [];
+    }
+  in
+  let trace = Zenbu_model_api.Trace.disabled () in
+  let profiler = Zenbu_model_api.Profiler.disabled () in
+  let dimensions = Zenbu_view.Renderer.{ columns = 120; rows = 40 } in
+  match
+    Zenbu_app.Session.create ~model:(app_model session.model)
+      ?language:session.language ~contents:session.contents ~trace ~profiler
+      ~dimensions ()
+  with
+  | Error error -> fail error
+  | Ok session -> Zenbu_app.Session.inspect session Zenbu_app.Session.Bindings |> print_lines
+
+let all_models = [ Vim_model.descriptor; Selection_model.descriptor; Structural_model.descriptor ]
+
+let inspect_api () =
+  Inspector.api ~models:all_models ~commands:(semantic_registry ())
+  |> Inspector.format_api |> print_lines
+
+let inspect_commands () =
+  Inspector.commands (semantic_registry ()) |> Inspector.format_commands |> print_lines
+
+let inspect_description kind id =
+  let print = function
+    | None -> fail (Error.Invalid_command_arguments ("unknown " ^ kind ^ ": " ^ id))
+    | Some description -> Inspector.format_description description |> print_lines
+  in
+  match kind with
+  | "command" -> print (Inspector.find_command (semantic_registry ()) id)
+  | "model" ->
+      all_models
+      |> List.find_opt (fun descriptor -> Editing_model.id descriptor = id)
+      |> Option.map Inspector.describe_model |> print
+  | "selector" | "transformation" ->
+      Inspector.semantic_registry () |> fun registry ->
+      (match Inspector.find_semantic registry id with
+      | Some description when Inspector.description_kind description = kind ->
+          Some description
+      | Some _ | None -> None)
+      |> print
+  | _ -> fail (Error.Invalid_command_arguments "describe expects command, model, selector, or transformation")
+
 let demo () =
   Printf.printf "Zenbu M5: three grammars, shared semantics\n\n";
   Printf.printf "Initial: \"alpha beta gamma\"\n\nVIM-STYLE: d w\n";
@@ -326,7 +403,12 @@ let inspect_syntax path =
 let usage () =
   prerr_endline
     "usage: zenbu-headless demo | replay <fixture.replay> | session \
-     <fixture.session> | syntax <file>";
+     <fixture.session> | syntax <file> | commands | api | describe \
+     <command|model|selector|transformation> <id> | bindings \
+     <vim|selection|structural> | why <fixture.session> | \
+     bindings-session <fixture.session> | history <fixture.session> | \
+     selection <fixture.session> | syntax-session <fixture.session> | \
+     profile <fixture.session>";
   exit 2
 
 let () =
@@ -334,6 +416,21 @@ let () =
   | [ _; "demo" ] -> demo ()
   | [ _; "session"; path ] -> run_session path
   | [ _; "syntax"; path ] -> inspect_syntax path
+  | [ _; "commands" ] -> inspect_commands ()
+  | [ _; "api" ] -> inspect_api ()
+  | [ _; "describe"; kind; id ] -> inspect_description kind id
+  | [ _; "bindings"; "vim" ] -> initial_bindings Vim
+  | [ _; "bindings"; "selection" ] -> initial_bindings Selection_first
+  | [ _; "bindings"; "structural" ] -> initial_bindings Structural
+  | [ _; "why"; path ] -> observed_session Zenbu_app.Session.Why path
+  | [ _; "bindings-session"; path ] ->
+      observed_session Zenbu_app.Session.Bindings path
+  | [ _; "history"; path ] -> observed_session Zenbu_app.Session.History path
+  | [ _; "selection"; path ] ->
+      observed_session Zenbu_app.Session.Selection_view path
+  | [ _; "syntax-session"; path ] ->
+      observed_session Zenbu_app.Session.Syntax path
+  | [ _; "profile"; path ] -> observed_session Zenbu_app.Session.Profile path
   | [ _; "replay"; path ] -> (
       match Replay.of_string (read_file path) with
       | Ok replay -> (

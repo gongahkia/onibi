@@ -9,6 +9,7 @@ module Structural_runtime = Model_runtime.Make (Structural_model)
 
 type model = Vim | Selection | Structural
 type host_command = Save | Quit | Force_quit
+type inspection = Why | Bindings | Commands | History | Selection_view | Syntax | Profile | Api
 
 type outcome = Continue of t | Exit of t
 
@@ -26,6 +27,7 @@ and t = {
   dimensions : Zenbu_view.Renderer.dimensions;
   message : string option;
   quit_armed : bool;
+  inspector : string list option;
 }
 
 let static = function
@@ -64,7 +66,8 @@ let syntax_service ?language file_path =
       | Some language -> Ok (Some (Syntax.Service.create language))
       | None -> Ok None)
 
-let create ~model ?language ?file_path ?(contents = "") ~dimensions () =
+let create ~model ?language ?file_path ?(contents = "") ?trace ?profiler
+    ~dimensions () =
   match document ~contents with
   | Error _ as error -> error
   | Ok document -> (
@@ -77,15 +80,16 @@ let create ~model ?language ?file_path ?(contents = "") ~dimensions () =
               let runtime =
                 match model with
                 | Vim ->
-                    Vim_runtime.create ~commands ?syntax_service ~document ()
+                    Vim_runtime.create ~commands ?syntax_service ?trace ?profiler
+                      ~document ()
                     |> Result.map (fun runtime -> Vim_runtime runtime)
                 | Selection ->
-                    Selection_runtime.create ~commands ?syntax_service ~document
-                      ()
+                    Selection_runtime.create ~commands ?syntax_service ?trace
+                      ?profiler ~document ()
                     |> Result.map (fun runtime -> Selection_runtime runtime)
                 | Structural ->
-                    Structural_runtime.create ~commands ?syntax_service
-                      ~document ()
+                    Structural_runtime.create ~commands ?syntax_service ?trace
+                      ?profiler ~document ()
                     |> Result.map (fun runtime -> Structural_runtime runtime)
               in
               runtime
@@ -99,6 +103,7 @@ let create ~model ?language ?file_path ?(contents = "") ~dimensions () =
                     dimensions;
                     message = None;
                     quit_armed = false;
+                    inspector = None;
                   })))
 
 let context = function
@@ -140,6 +145,7 @@ let handle_input session input =
               session with
               message = Some (Error.to_string error);
               quit_armed = false;
+              inspector = None;
             }
         | Ok (runtime, step) ->
             {
@@ -147,6 +153,7 @@ let handle_input session input =
               active = Vim_runtime runtime;
               message = last_message (Vim_runtime.messages step);
               quit_armed = false;
+              inspector = None;
             })
     | Selection_runtime runtime -> (
         match Selection_runtime.handle_input runtime input with
@@ -155,6 +162,7 @@ let handle_input session input =
               session with
               message = Some (Error.to_string error);
               quit_armed = false;
+              inspector = None;
             }
         | Ok (runtime, step) ->
             {
@@ -162,6 +170,7 @@ let handle_input session input =
               active = Selection_runtime runtime;
               message = last_message (Selection_runtime.messages step);
               quit_armed = false;
+              inspector = None;
             })
     | Structural_runtime runtime -> (
         match Structural_runtime.handle_input runtime input with
@@ -170,6 +179,7 @@ let handle_input session input =
               session with
               message = Some (Error.to_string error);
               quit_armed = false;
+              inspector = None;
             }
         | Ok (runtime, step) ->
             {
@@ -177,6 +187,7 @@ let handle_input session input =
               active = Structural_runtime runtime;
               message = last_message (Structural_runtime.messages step);
               quit_armed = false;
+              inspector = None;
             })
   in
   next
@@ -231,10 +242,10 @@ let resize session ~columns ~rows =
 
 let render session =
   let rendered =
-    Zenbu_view.Renderer.render ~context:(context session)
+    Zenbu_view.Renderer.render_with_inspector ~context:(context session)
       ~status:(status session) ~filename:(filename session)
       ~dirty:(dirty session) ~message:session.message ~viewport:session.viewport
-      ~dimensions:session.dimensions
+      ~dimensions:session.dimensions ~inspector:session.inspector
   in
   ({ session with viewport = rendered.viewport }, rendered.frame)
 
@@ -243,4 +254,77 @@ let file_path session = session.file_path
 let dimensions session = session.dimensions
 
 let notice session message =
-  { session with message = Some message; quit_armed = false }
+  { session with message = Some message; quit_armed = false; inspector = None }
+
+let all_models = [ Vim_model.descriptor; Selection_model.descriptor; Structural_model.descriptor ]
+
+let inspect session inspection =
+  let format ~last_execution ~trace ~model_descriptor ~model_status ~rules
+      ~command_registry ~runtime_history ~runtime_context ~profiler =
+    match inspection with
+    | Why -> (
+        match last_execution with
+        | None -> [ "Why"; "no completed input execution" ]
+        | Some execution_id -> (
+            match Inspector.why trace ~execution_id with
+            | None -> [ "Why"; "trace is disabled; restart with --trace" ]
+            | Some why -> "Why" :: Inspector.format_why why))
+    | Bindings ->
+        "Bindings"
+        :: Inspector.format_bindings model_descriptor model_status rules
+    | Commands -> "Commands" :: Inspector.format_commands (Inspector.commands command_registry)
+    | History ->
+        "History"
+        :: Inspector.format_history
+             (Inspector.history ~saved_version:session.saved_version
+                runtime_history)
+    | Selection_view ->
+        "Selection" :: Inspector.format_selection (Inspector.selections runtime_context)
+    | Syntax -> (
+        match Inspector.syntax runtime_context with
+        | None -> [ "Syntax"; "syntax is unavailable" ]
+        | Some syntax -> "Syntax" :: Inspector.format_syntax syntax)
+    | Profile -> "Profile" :: Inspector.format_profile profiler
+    | Api ->
+        "API"
+        :: Inspector.format_api
+             (Inspector.api ~models:all_models ~commands:command_registry)
+  in
+  match session.active with
+  | Vim_runtime runtime ->
+      format ~last_execution:(Vim_runtime.last_execution runtime)
+        ~trace:(Vim_runtime.trace runtime)
+        ~model_descriptor:(Vim_runtime.model_descriptor runtime)
+        ~model_status:(Vim_runtime.status runtime)
+        ~rules:(Vim_runtime.input_rules runtime)
+        ~command_registry:(Vim_runtime.commands runtime)
+        ~runtime_history:(Vim_runtime.history runtime)
+        ~runtime_context:(Vim_runtime.context runtime)
+        ~profiler:(Vim_runtime.profiler runtime)
+  | Selection_runtime runtime ->
+      format ~last_execution:(Selection_runtime.last_execution runtime)
+        ~trace:(Selection_runtime.trace runtime)
+        ~model_descriptor:(Selection_runtime.model_descriptor runtime)
+        ~model_status:(Selection_runtime.status runtime)
+        ~rules:(Selection_runtime.input_rules runtime)
+        ~command_registry:(Selection_runtime.commands runtime)
+        ~runtime_history:(Selection_runtime.history runtime)
+        ~runtime_context:(Selection_runtime.context runtime)
+        ~profiler:(Selection_runtime.profiler runtime)
+  | Structural_runtime runtime ->
+      format ~last_execution:(Structural_runtime.last_execution runtime)
+        ~trace:(Structural_runtime.trace runtime)
+        ~model_descriptor:(Structural_runtime.model_descriptor runtime)
+        ~model_status:(Structural_runtime.status runtime)
+        ~rules:(Structural_runtime.input_rules runtime)
+        ~command_registry:(Structural_runtime.commands runtime)
+        ~runtime_history:(Structural_runtime.history runtime)
+        ~runtime_context:(Structural_runtime.context runtime)
+        ~profiler:(Structural_runtime.profiler runtime)
+
+let toggle_inspector session =
+  match session.inspector with
+  | Some _ -> { session with inspector = None }
+  | None -> { session with inspector = Some (inspect session Why) }
+
+let inspector_open session = Option.is_some session.inspector

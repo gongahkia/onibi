@@ -2,6 +2,8 @@ type execution_id = int
 
 type t =
   | Input_received of { execution_id : execution_id; input : string }
+  | Interaction_started of { execution_id : execution_id; interaction_id : int }
+  | Interaction_completed of { execution_id : execution_id; interaction_id : int; started_execution : execution_id; inputs : string list }
   | Model_before of { execution_id : execution_id; model_id : string; status_id : string; status_label : string }
   | Model_transition of { execution_id : execution_id; model_id : string; previous_status : string; next_status : string }
   | Model_effect of { execution_id : execution_id; effect_id : string }
@@ -17,6 +19,8 @@ type t =
 
 let execution_id = function
   | Input_received { execution_id; _ }
+  | Interaction_started { execution_id; _ }
+  | Interaction_completed { execution_id; _ }
   | Model_before { execution_id; _ }
   | Model_transition { execution_id; _ }
   | Model_effect { execution_id; _ }
@@ -32,6 +36,8 @@ let execution_id = function
 
 let name = function
   | Input_received _ -> "input-received"
+  | Interaction_started _ -> "interaction-started"
+  | Interaction_completed _ -> "interaction-completed"
   | Model_before _ -> "model-before"
   | Model_transition _ -> "model-transition"
   | Model_effect _ -> "model-effect"

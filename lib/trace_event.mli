@@ -2,6 +2,13 @@ type execution_id = int
 
 type t =
   | Input_received of { execution_id : execution_id; input : string }
+  | Interaction_started of { execution_id : execution_id; interaction_id : int }
+  | Interaction_completed of {
+      execution_id : execution_id;
+      interaction_id : int;
+      started_execution : execution_id;
+      inputs : string list;
+    }
   | Model_before of {
       execution_id : execution_id;
       model_id : string;

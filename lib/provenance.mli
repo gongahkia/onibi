@@ -4,6 +4,7 @@
 type entry =
   | Model of { id : string; provider : Provider.t }
   | Input of string
+  | Interaction of int
   | Effect of string
   | Command of { id : string; provider : Provider.t }
   | Selector of string

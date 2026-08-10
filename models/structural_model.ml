@@ -15,6 +15,11 @@ let static = function
   | Ok value -> value
   | Error _ -> failwith "invalid static structural model declaration"
 
+let provider =
+  static
+    (Zenbu_kernel.Provider.create ~id:"zenbu.models.structural"
+       ~kind:Zenbu_kernel.Provider.Editing_model)
+
 let descriptor =
   static
     (Editing_model.descriptor ~id:"zenbu.structural"
@@ -22,6 +27,7 @@ let descriptor =
        ~description:
          "An AST-navigation grammar that derives ordinary Zenbu selections \
           from the optional public syntax snapshot."
+       ~provider
        ())
 
 let available context = Option.is_some (Editor_context.syntax context)
@@ -104,7 +110,7 @@ let resolve context selector =
         ~anchor_offset:selection.Editor_context.anchor_offset
         ~head_offset:selection.Editor_context.head_offset selector
 
-let selection_effect nodes =
+let selection_effect selector nodes =
   let selections =
     List.map
       (fun node ->
@@ -117,7 +123,12 @@ let selection_effect nodes =
   | _ -> (
       match Model_intent.set_selections ~selections ~primary:0 with
       | Error _ -> []
-      | Ok intent -> [ Model_effect.Execute_intent intent ])
+  | Ok intent ->
+      [
+        Model_effect.execute
+          ~selector_id:(Zenbu_syntax.Syntax.Selector.id selector)
+          intent;
+      ])
 
 let focused_state state context nodes ~shrink_stack ~shrink_version =
   match nodes with
@@ -143,7 +154,7 @@ let navigation state context selector =
   let next =
     focused_state state context nodes ~shrink_stack:[] ~shrink_version:None
   in
-  (next, selection_effect nodes)
+  (next, selection_effect selector nodes)
 
 let expand state context =
   let current = primary_selection context in
@@ -156,7 +167,7 @@ let expand state context =
         :: state.shrink_stack)
       ~shrink_version:(Some (Editor_context.document_version context + 1))
   in
-  (next, selection_effect nodes)
+  (next, selection_effect Zenbu_syntax.Syntax.Selector.Expand nodes)
 
 let shrink state context =
   match (state.shrink_version, state.shrink_stack) with
@@ -264,3 +275,38 @@ let handle_input state event context =
   match state.mode with
   | Navigate -> navigate_input state event context
   | Insert -> insert_input event context
+
+let input_rule ?next_status ?selector_id ?transformation_id ?(requires_syntax = false)
+    id pattern kind summary =
+  static
+    (Input_rule.create ~id ~pattern ~kind ~summary ?next_status ?selector_id
+       ?transformation_id ~requires_syntax ())
+
+let input_rules = function
+  | { mode = Insert; _ } ->
+      [
+        input_rule "structural.insert.text" Input_rule.Text_input
+          Input_rule.Catch_all "insert committed text" ~transformation_id:"replace-text";
+        input_rule "structural.insert.escape" (Input_rule.Named "Escape")
+          Input_rule.Binding "return to structural navigation" ~next_status:"struct";
+      ]
+  | { mode = Navigate; _ } ->
+      [
+        input_rule "structural.focus" (Input_rule.Exact "f") Input_rule.Binding
+          "focus the smallest named syntax node" ~selector_id:"syntax.focus"
+          ~transformation_id:"select" ~requires_syntax:true;
+        input_rule "structural.parent" (Input_rule.Named "ArrowUp")
+          Input_rule.Binding "select the parent syntax node" ~selector_id:"syntax.parent"
+          ~transformation_id:"select" ~requires_syntax:true;
+        input_rule "structural.child" (Input_rule.Named "ArrowDown")
+          Input_rule.Binding "select the first child syntax node" ~selector_id:"syntax.child"
+          ~transformation_id:"select" ~requires_syntax:true;
+        input_rule "structural.siblings" (Input_rule.Exact "m") Input_rule.Binding
+          "select same-kind syntax siblings" ~selector_id:"syntax.select-same-kind"
+          ~transformation_id:"select" ~requires_syntax:true;
+        input_rule "structural.delete" (Input_rule.Exact "x") Input_rule.Binding
+          "delete visible structural selections" ~selector_id:"current-selections"
+          ~transformation_id:"delete";
+        input_rule "structural.insert" (Input_rule.Exact "i") Input_rule.Binding
+          "enter committed text input" ~next_status:"struct-insert";
+      ]

@@ -1,6 +1,7 @@
 type entry =
   | Model of { id : string; provider : Provider.t }
   | Input of string
+  | Interaction of int
   | Effect of string
   | Command of { id : string; provider : Provider.t }
   | Selector of string
@@ -22,6 +23,7 @@ let add value entry = { value with entries = value.entries @ [ entry ] }
 let entry_name = function
   | Model { id; _ } -> "model " ^ id
   | Input input -> "input " ^ input
+  | Interaction id -> "interaction " ^ string_of_int id
   | Effect id -> "effect " ^ id
   | Command { id; _ } -> "command " ^ id
   | Selector id -> "selector " ^ id

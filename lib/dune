@@ -46,5 +46,7 @@
   editing_model
   command
   command_registry
-  model_runtime)
+  semantic_registry
+  model_runtime
+  inspector)
  (libraries zenbu_kernel zenbu_syntax))

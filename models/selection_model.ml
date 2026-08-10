@@ -12,6 +12,11 @@ let static = function
   | Ok value -> value
   | Error _ -> failwith "invalid static selection-first model declaration"
 
+let provider =
+  static
+    (Zenbu_kernel.Provider.create ~id:"zenbu.models.selection-first"
+       ~kind:Zenbu_kernel.Provider.Editing_model)
+
 let descriptor =
   static
     (Editing_model.descriptor ~id:"zenbu.selection-first"
@@ -19,6 +24,7 @@ let descriptor =
        ~description:
          "A Kakoune/Helix-inspired select-then-transform model using shared \
           Zenbu semantics."
+       ~provider
        ())
 
 let default_select = { count = None; slot = Clipboard.unnamed }
@@ -237,3 +243,50 @@ let handle_input state event context =
   | Go_pending _ when is_named event Input_event.Escape ->
       (Select default_select, [])
   | Go_pending pending -> (Go_pending pending, [])
+
+let input_rule ?next_status ?selector_id ?transformation_id id pattern kind
+    summary =
+  static
+    (Input_rule.create ~id ~pattern ~kind ~summary ?next_status ?selector_id
+       ?transformation_id ())
+
+let input_rules = function
+  | Select _ ->
+      [
+        input_rule "selection.word" (Input_rule.Exact "w") Input_rule.Binding
+          "select through the next word" ~selector_id:"next-word"
+          ~transformation_id:"select";
+        input_rule "selection.current-word" (Input_rule.Exact "W")
+          Input_rule.Binding "select the current word" ~selector_id:"current-word"
+          ~transformation_id:"select";
+        input_rule "selection.delete" (Input_rule.Exact "d") Input_rule.Binding
+          "delete visible selections" ~selector_id:"current-selections"
+          ~transformation_id:"delete";
+        input_rule "selection.insert" (Input_rule.Exact "i") Input_rule.Binding
+          "enter committed text input" ~next_status:"insert";
+        input_rule "selection.slot" (Input_rule.Exact "\"") Input_rule.Prefix
+          "choose a clipboard slot" ~next_status:"clipboard-slot-prefix";
+      ]
+  | Insert ->
+      [
+        input_rule "selection.insert.text" Input_rule.Text_input
+          Input_rule.Catch_all "replace selections with committed text"
+          ~transformation_id:"replace-text";
+        input_rule "selection.insert.escape" (Input_rule.Named "Escape")
+          Input_rule.Binding "return to selection state" ~next_status:"select";
+      ]
+  | Register_prefix _ ->
+      [
+        input_rule "selection.slot.letter" (Input_rule.Text_range "a-z")
+          Input_rule.Binding "select a clipboard slot" ~next_status:"select";
+        input_rule "selection.slot.cancel" (Input_rule.Named "Escape")
+          Input_rule.Binding "cancel slot selection" ~next_status:"select";
+      ]
+  | Go_pending _ ->
+      [
+        input_rule "selection.go.complete" (Input_rule.Exact "g")
+          Input_rule.Binding "select document start" ~next_status:"select"
+          ~selector_id:"document-start" ~transformation_id:"select";
+        input_rule "selection.go.cancel" (Input_rule.Named "Escape")
+          Input_rule.Binding "cancel document-start input" ~next_status:"select";
+      ]

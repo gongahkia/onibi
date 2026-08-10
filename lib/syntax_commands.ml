@@ -40,6 +40,9 @@ let static = function
   | Ok value -> value
   | Error error -> failwith (Error.to_string error)
 
+let provider =
+  static (Provider.create ~id:"zenbu.syntax" ~kind:Provider.Syntax)
+
 let command_id operation = static (Command_id.of_string (id operation))
 
 let primary_selection context =
@@ -87,7 +90,7 @@ let command operation =
       (Command_descriptor.create ~id:(command_id operation)
          ~title:(title operation)
          ~description:"Resolve an abstract, version-matched syntax selection."
-         ~category:"syntax" ())
+         ~category:"syntax" ~provider ())
   in
   Command.create ~descriptor ~handler:(fun context _ ->
       resolve context operation)

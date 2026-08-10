@@ -5,17 +5,21 @@ type options = {
   model : Zenbu_app.Session.model;
   language : string option;
   file_path : string option;
+  trace : bool;
+  profile : bool;
 }
 
 type run_result = Exited | Unsaved_end
 
 let usage =
-  "usage: zenbu [--model vim|selection|structural] [--language ID] [FILE]"
+  "usage: zenbu [--model vim|selection|structural] [--language ID] [--trace] [--profile] [FILE]"
 
 let parse_arguments () =
   let model = ref Zenbu_app.Session.Vim in
   let language = ref None in
   let file_path = ref None in
+  let trace = ref false in
+  let profile = ref false in
   let set_model = function
     | "vim" -> model := Zenbu_app.Session.Vim
     | "selection" -> model := Zenbu_app.Session.Selection
@@ -35,17 +39,26 @@ let parse_arguments () =
       ( "--language",
         Arg.String (fun value -> language := Some value),
         "syntax language ID" );
+      ("--trace", Arg.Set trace, "record a bounded local execution trace");
+      ("--profile", Arg.Set profile, "record bounded local CPU-time spans");
       ( "--version",
         Arg.Unit
           (fun () ->
-            print_endline "zenbu M4";
+            print_endline "zenbu M6";
             exit 0),
         "print version" );
     ]
   in
   try
     Arg.parse specifications set_file usage;
-    Ok { model = !model; language = !language; file_path = !file_path }
+    Ok
+      {
+        model = !model;
+        language = !language;
+        file_path = !file_path;
+        trace = !trace;
+        profile = !profile;
+      }
   with
   | Arg.Bad message -> Error message
   | Arg.Help message ->
@@ -60,10 +73,21 @@ let load_contents = function
 
 let create_session options contents backend =
   let columns, rows = Zenbu_terminal.Backend.size backend in
-  Zenbu_app.Session.create ~model:options.model ?language:options.language
-    ?file_path:options.file_path ~contents
-    ~dimensions:{ Zenbu_view.Renderer.columns; rows }
-    ()
+  let trace =
+    if options.trace then Zenbu_model_api.Trace.enabled ~capacity:1024
+    else Ok (Zenbu_model_api.Trace.disabled ())
+  in
+  let profiler =
+    if options.profile then Zenbu_model_api.Profiler.enabled ~capacity:1024
+    else Ok (Zenbu_model_api.Profiler.disabled ())
+  in
+  Result.bind trace (fun trace ->
+      Result.bind profiler (fun profiler ->
+          Zenbu_app.Session.create ~model:options.model
+            ?language:options.language ?file_path:options.file_path ~contents
+            ~trace ~profiler
+            ~dimensions:{ Zenbu_view.Renderer.columns; rows }
+            ()))
 
 let is_control modifiers = modifiers = [ Zenbu_terminal.Event.Control ]
 
@@ -77,6 +101,14 @@ let rec run backend session =
       if Zenbu_app.Session.dirty session then Unsaved_end else Exited
   | Zenbu_terminal.Event.Unsupported description ->
       run backend (Zenbu_app.Session.notice session description)
+  | Zenbu_terminal.Event.Key
+      { key = Zenbu_terminal.Event.Text "o"; modifiers }
+    when is_control modifiers ->
+      run backend (Zenbu_app.Session.toggle_inspector session)
+  | Zenbu_terminal.Event.Key
+      { key = Zenbu_terminal.Event.Escape; modifiers = [] }
+    when Zenbu_app.Session.inspector_open session ->
+      run backend (Zenbu_app.Session.toggle_inspector session)
   | Zenbu_terminal.Event.Key { key = Zenbu_terminal.Event.Text "s"; modifiers }
     when is_control modifiers -> (
       match Zenbu_app.Session.handle_host session Zenbu_app.Session.Save with

@@ -5,7 +5,9 @@
   zenbu_model_api
   zenbu_syntax
   zenbu_proof_models
-  zenbu_structural_model))
+  zenbu_structural_model
+  zenbu_app
+  zenbu_view))
 
 (executable
  (name zenbu)

@@ -4,6 +4,11 @@ let static = function
   | Ok value -> value
   | Error _ -> failwith "invalid static semantic command declaration"
 
+let provider =
+  static
+    (Zenbu_kernel.Provider.create ~id:"zenbu.models"
+       ~kind:Zenbu_kernel.Provider.Editing_model)
+
 let apply_id = static (Command_id.of_string "editor.apply")
 
 let descriptor =
@@ -27,6 +32,7 @@ let descriptor =
            };
          ]
        ~examples:[ "editor.apply(selector: next-word, transformation: delete)" ]
+       ~provider
        ())
 
 let handler _context invocation =

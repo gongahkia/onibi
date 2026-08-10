@@ -24,6 +24,7 @@ type t =
   | Invalid_clipboard_slot of string
   | Clipboard_slot_empty of string
   | Duplicate_command of string
+  | Duplicate_descriptor of string
   | Unknown_command of string
   | Invalid_command_arguments of string
   | Invalid_provenance of string

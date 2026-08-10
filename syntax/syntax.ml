@@ -187,6 +187,32 @@ module Selector = struct
     | Expand -> "syntax.expand"
     | Same_kind_siblings -> "syntax.select-same-kind"
 
+  let descriptors () =
+    let provider =
+      Provider.create ~id:"zenbu.syntax" ~kind:Provider.Syntax |> Result.get_ok
+    in
+    let declare selector title description =
+      Semantic_descriptor.create ~id:(id selector) ~title ~description ~provider
+        ~kind:Semantic_descriptor.Selector ~requires_syntax:true ()
+      |> Result.get_ok
+    in
+    [
+      declare Focus_primary "Focus syntax node"
+        "Resolves the smallest named syntax node at the primary selection.";
+      declare Containing "Containing syntax node"
+        "Resolves the named syntax node containing the primary selection.";
+      declare Parent "Syntax parent" "Resolves the named parent syntax node.";
+      declare First_child "Syntax first child"
+        "Resolves the first named child syntax node.";
+      declare Next_sibling "Syntax next sibling"
+        "Resolves the next named sibling syntax node.";
+      declare Previous_sibling "Syntax previous sibling"
+        "Resolves the previous named sibling syntax node.";
+      declare Expand "Syntax expand" "Resolves the named parent syntax node.";
+      declare Same_kind_siblings "Syntax same-kind siblings"
+        "Resolves named siblings having the current node kind.";
+    ]
+
   let current snapshot ~anchor_offset ~head_offset =
     let start_offset = min anchor_offset head_offset in
     let stop_offset = max anchor_offset head_offset in
@@ -240,10 +266,19 @@ module Selector = struct
 end
 
 module Service = struct
+  type strategy = Cached | Full_parse | Incremental_parse | Tree_copy
+
+  type status = {
+    status_language : Language.t;
+    status_cached_version : int option;
+    status_last_strategy : strategy option;
+  }
+
   type t = {
     language : Language.t;
     parser : Tree_sitter_backend.parser;
     mutable cached : Snapshot.t option;
+    mutable last_strategy : strategy option;
   }
 
   let create language =
@@ -251,10 +286,29 @@ module Service = struct
       language;
       parser = Tree_sitter_backend.create_parser language.Language.grammar;
       cached = None;
+      last_strategy = None;
     }
 
   let language value = value.language
   let cached value = value.cached
+
+  let status value =
+    {
+      status_language = value.language;
+      status_cached_version =
+        Option.map Snapshot.document_version value.cached;
+      status_last_strategy = value.last_strategy;
+    }
+
+  let status_language value = value.status_language
+  let status_cached_version value = value.status_cached_version
+  let status_last_strategy value = value.status_last_strategy
+
+  let strategy_to_string = function
+    | Cached -> "cached"
+    | Full_parse -> "full"
+    | Incremental_parse -> "incremental"
+    | Tree_copy -> "tree-copy"
 
   let make_snapshot service document tree =
     { Snapshot.document; language = service.language; tree }
@@ -273,11 +327,13 @@ module Service = struct
         in
         let snapshot = make_snapshot service document tree in
         service.cached <- Some snapshot;
+        service.last_strategy <- Some Full_parse;
         snapshot)
 
   let refresh service document =
     match service.cached with
     | Some snapshot when Snapshot.matches_document snapshot document ->
+        service.last_strategy <- Some Cached;
         Ok snapshot
     | _ -> parse_full service document
 
@@ -393,6 +449,8 @@ module Service = struct
                     in
                     let snapshot = make_snapshot service after tree in
                     service.cached <- Some snapshot;
+                    service.last_strategy <-
+                      Some (if edits = [] then Tree_copy else Incremental_parse);
                     snapshot))
         | _ -> parse_full service after)
 end

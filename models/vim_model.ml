@@ -25,6 +25,11 @@ let static = function
   | Ok value -> value
   | Error _ -> failwith "invalid static Vim-style model declaration"
 
+let provider =
+  static
+    (Zenbu_kernel.Provider.create ~id:"zenbu.models.vim"
+       ~kind:Zenbu_kernel.Provider.Editing_model)
+
 let descriptor =
   static
     (Editing_model.descriptor ~id:"zenbu.vim-style"
@@ -32,6 +37,7 @@ let descriptor =
        ~description:
          "A documented Vim-inspired modal subset implemented only through \
           zenbu.model_api."
+       ~provider
        ())
 
 let default_normal = { count = None; slot = Clipboard.unnamed }
@@ -365,3 +371,73 @@ let handle_input state event context =
   | Go_pending _ when is_named event Input_event.Escape ->
       (Normal default_normal, [])
   | Go_pending pending -> (Go_pending pending, [])
+
+let input_rule ?next_status ?selector_id ?transformation_id id pattern kind
+    summary =
+  static
+    (Input_rule.create ~id ~pattern ~kind ~summary ?next_status ?selector_id
+       ?transformation_id ())
+
+let input_rules = function
+  | Normal _ ->
+      [
+        input_rule "vim.normal.word" (Input_rule.Exact "w") Input_rule.Binding
+          "move through the next word" ~selector_id:"next-word"
+          ~transformation_id:"collapse-to-start";
+        input_rule "vim.normal.delete" (Input_rule.Exact "d") Input_rule.Prefix
+          "begin a delete operator" ~next_status:"operator-pending";
+        input_rule "vim.normal.change" (Input_rule.Exact "c") Input_rule.Prefix
+          "begin a change operator" ~next_status:"operator-pending";
+        input_rule "vim.normal.insert" (Input_rule.Exact "i") Input_rule.Binding
+          "enter committed text input" ~next_status:"insert";
+        input_rule "vim.normal.count" (Input_rule.Text_range "1-9")
+          Input_rule.Prefix "begin or extend a count";
+        input_rule "vim.normal.slot" (Input_rule.Exact "\"") Input_rule.Prefix
+          "choose a clipboard slot" ~next_status:"clipboard-slot-prefix";
+      ]
+  | Insert ->
+      [
+        input_rule "vim.insert.text" Input_rule.Text_input Input_rule.Catch_all
+          "insert committed text" ~transformation_id:"replace-text";
+        input_rule "vim.insert.escape" (Input_rule.Named "Escape")
+          Input_rule.Binding "return to normal state" ~next_status:"normal";
+        input_rule "vim.insert.backspace" (Input_rule.Named "Backspace")
+          Input_rule.Binding "delete previous text unit"
+          ~selector_id:"previous-text-unit" ~transformation_id:"delete";
+      ]
+  | Operator_pending _ ->
+      [
+        input_rule "vim.operator.word" (Input_rule.Exact "w")
+          Input_rule.Binding "apply the pending operator through the next word"
+          ~selector_id:"next-word";
+        input_rule "vim.operator.motion" (Input_rule.Text_range "motion")
+          Input_rule.Binding "apply the pending operator through a motion";
+        input_rule "vim.operator.inner" (Input_rule.Exact "i") Input_rule.Prefix
+          "begin an inner text object" ~next_status:"text-object-pending";
+        input_rule "vim.operator.around" (Input_rule.Exact "a") Input_rule.Prefix
+          "begin an around text object" ~next_status:"text-object-pending";
+        input_rule "vim.operator.cancel" (Input_rule.Named "Escape")
+          Input_rule.Binding "cancel the pending operator" ~next_status:"normal";
+      ]
+  | Text_object_pending _ ->
+      [
+        input_rule "vim.text-object.word" (Input_rule.Exact "w")
+          Input_rule.Binding "apply pending operator to a word";
+        input_rule "vim.text-object.cancel" (Input_rule.Named "Escape")
+          Input_rule.Binding "cancel the pending operator" ~next_status:"normal";
+      ]
+  | Register_prefix _ ->
+      [
+        input_rule "vim.slot.letter" (Input_rule.Text_range "a-z")
+          Input_rule.Binding "select a clipboard slot" ~next_status:"normal";
+        input_rule "vim.slot.cancel" (Input_rule.Named "Escape")
+          Input_rule.Binding "cancel slot selection" ~next_status:"normal";
+      ]
+  | Go_pending _ ->
+      [
+        input_rule "vim.go.complete" (Input_rule.Exact "g") Input_rule.Binding
+          "move to document start" ~next_status:"normal"
+          ~selector_id:"document-start" ~transformation_id:"collapse-to-start";
+        input_rule "vim.go.cancel" (Input_rule.Named "Escape") Input_rule.Binding
+          "cancel document-start input" ~next_status:"normal";
+      ]

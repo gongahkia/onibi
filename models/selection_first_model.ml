@@ -38,3 +38,17 @@ let handle_input () event _context =
   else if is_text event "d" then
     ((), [ apply Model_intent.Current_selections Model_intent.Delete ])
   else ((), [])
+
+let input_rules () =
+  [
+    static
+      (Input_rule.create ~id:"proof-selection.word"
+         ~pattern:(Input_rule.Exact "w") ~kind:Input_rule.Binding
+         ~summary:"select next text unit" ~selector_id:"next-text-unit"
+         ~transformation_id:"select" ());
+    static
+      (Input_rule.create ~id:"proof-selection.delete"
+         ~pattern:(Input_rule.Exact "d") ~kind:Input_rule.Binding
+         ~summary:"delete current selections" ~selector_id:"current-selections"
+         ~transformation_id:"delete" ());
+  ]

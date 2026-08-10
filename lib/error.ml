@@ -24,6 +24,7 @@ type t =
   | Invalid_clipboard_slot of string
   | Clipboard_slot_empty of string
   | Duplicate_command of string
+  | Duplicate_descriptor of string
   | Unknown_command of string
   | Invalid_command_arguments of string
   | Invalid_provenance of string
@@ -70,6 +71,7 @@ let rec to_string = function
   | Clipboard_slot_empty slot ->
       Printf.sprintf "clipboard slot is empty: %s" slot
   | Duplicate_command id -> Printf.sprintf "duplicate command: %s" id
+  | Duplicate_descriptor id -> Printf.sprintf "duplicate descriptor: %s" id
   | Unknown_command id -> Printf.sprintf "unknown command: %s" id
   | Invalid_command_arguments message ->
       Printf.sprintf "invalid command arguments: %s" message

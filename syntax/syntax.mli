@@ -89,10 +89,13 @@ module Selector : sig
     Snapshot.Node.t list
 
   val id : t -> string
+  val descriptors : unit -> Zenbu_kernel.Semantic_descriptor.t list
 end
 
 module Service : sig
   type t
+  type strategy = Cached | Full_parse | Incremental_parse | Tree_copy
+  type status
 
   val create : Language.t -> t
   val language : t -> Language.t
@@ -108,4 +111,9 @@ module Service : sig
     (Snapshot.t, Error.t) result
 
   val cached : t -> Snapshot.t option
+  val status : t -> status
+  val status_language : status -> Language.t
+  val status_cached_version : status -> int option
+  val status_last_strategy : status -> strategy option
+  val strategy_to_string : strategy -> string
 end

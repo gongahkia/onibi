@@ -1,5 +1,6 @@
 type model = Vim | Selection | Structural
 type host_command = Save | Quit | Force_quit
+type inspection = Why | Bindings | Commands | History | Selection_view | Syntax | Profile | Api
 type t
 type outcome = Continue of t | Exit of t
 
@@ -8,6 +9,8 @@ val create :
   ?language:string ->
   ?file_path:string ->
   ?contents:string ->
+  ?trace:Zenbu_model_api.Trace.t ->
+  ?profiler:Zenbu_model_api.Profiler.t ->
   dimensions:Zenbu_view.Renderer.dimensions ->
   unit ->
   (t, Zenbu_kernel.Error.t) result
@@ -24,3 +27,6 @@ val contents : t -> string
 val file_path : t -> string option
 val dimensions : t -> Zenbu_view.Renderer.dimensions
 val notice : t -> string -> t
+val inspect : t -> inspection -> string list
+val toggle_inspector : t -> t
+val inspector_open : t -> bool

@@ -66,3 +66,32 @@ let handle_input state event _context =
             [ Model_effect.Execute_intent (Model_intent.insert_text text) ] )
       | None -> (Inserting, []))
   | Command -> (Command, [])
+
+let input_rules = function
+  | Command ->
+      [
+        static
+          (Input_rule.create ~id:"proof-operator.delete"
+             ~pattern:(Input_rule.Exact "d") ~kind:Input_rule.Prefix
+             ~summary:"begin delete" ~next_status:"pending-delete" ());
+        static
+          (Input_rule.create ~id:"proof-operator.insert"
+             ~pattern:(Input_rule.Exact "i") ~kind:Input_rule.Binding
+             ~summary:"enter committed text" ~next_status:"inserting" ());
+      ]
+  | Pending_delete ->
+      [
+        static
+          (Input_rule.create ~id:"proof-operator.motion"
+             ~pattern:(Input_rule.Exact "w") ~kind:Input_rule.Binding
+             ~summary:"delete next text unit" ~selector_id:"next-text-unit"
+             ~transformation_id:"delete" ~next_status:"command" ());
+      ]
+  | Inserting ->
+      [
+        static
+          (Input_rule.create ~id:"proof-operator.text"
+             ~pattern:Input_rule.Text_input ~kind:Input_rule.Catch_all
+             ~summary:"insert committed text" ~transformation_id:"replace-text"
+             ());
+      ]

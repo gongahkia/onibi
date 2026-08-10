@@ -259,6 +259,8 @@ let test_runtime_rejected_effect_is_atomic () =
     let status value =
       Model_status.create ~id:"counter" ~label:(string_of_int value) () |> must
 
+    let input_rules _ = []
+
     let handle_input state _ _ =
       (state + 1, [ Model_effect.Invoke_command bad_invocation ])
   end in
