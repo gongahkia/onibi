@@ -147,3 +147,19 @@ required capability, and granted capability list. Because extension callbacks
 still return ordinary semantic results, their failure leaves model state and
 the current document unchanged; normal `Error_reported`/callback-failed trace
 events retain the matching structured error text. See [extensions](EXTENSIONS.md).
+
+## M9 Component runtime observations
+
+`wasm-component` keeps generic extension callback/provenance events and adds
+optional `Extension_runtime` observations for Component compile, instantiate,
+register, and call stages. Each event retains provider, runtime identifier,
+stage, outcome, bounded reason, CPU duration, operation where applicable, and
+fuel consumed where Wasmtime reports it. The inspector formats these through the
+same `why` surface; it does not expose a store, linker, pointer, or guest value.
+
+The profiler keeps generic `extension.command`, `.selector`,
+`.transformation`, and `.event` samples, plus bounded
+`extension.wasm.compile`, `.instantiate`, `.register`, and `.call` samples.
+These observations do not affect semantic equality or replay. Component
+resource/ABI/trap errors remain structured extension errors and are visible in
+plugin inspection and normal error tracing. See [the isolation policy](ISOLATION.md).

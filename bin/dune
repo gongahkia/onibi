@@ -9,7 +9,8 @@
   zenbu_app
   zenbu_scripting
   zenbu_extension
-  zenbu_view))
+  zenbu_view
+  unix))
 
 (executable
  (name zenbu)

@@ -144,7 +144,8 @@ isolated `wasm-component` packages; Components receive no WASI services and
 run with per-generation fuel/memory limits. Packages stage atomically and a
 failed reload retains the last known-good snapshot. See
 [extensions](docs/EXTENSIONS.md), [Component authoring](docs/WASM_COMPONENTS.md), and the
-[generated API reference](docs/generated/EXTENSION_API.md).
+[isolation policy](docs/ISOLATION.md), [M9 pressure test](docs/M9_PRESSURE_TEST.md),
+and [generated API reference](docs/generated/EXTENSION_API.md).
 
 The host restores terminal input, cursor visibility, and the normal screen on
 normal exit and exceptions. It renders only the source lines in the viewport,

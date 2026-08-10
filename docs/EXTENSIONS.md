@@ -22,7 +22,8 @@ authority, not filesystem/process/network/memory/CPU/native-library authority.
 `wasm-component` is M9's isolated Component Model runtime. It has no WASI,
 filesystem, network, process, environment, clock, random, stdin, stdout, or
 stderr service; it receives only data supplied through the normal extension
-request. See [Component authoring](WASM_COMPONENTS.md).
+request. See [Component authoring](WASM_COMPONENTS.md) and the exact
+[isolation/threat model](ISOLATION.md).
 
 ## Package format and discovery
 
@@ -139,6 +140,12 @@ instruction loops; memory growth is constrained by the store limiter. Calls
 remain synchronous on the host thread: there is no hard wall-clock cancellation
 or background scheduling yet.
 
+The Component conversion path also bounds host response amplification: 4,096
+WIT nodes, 64 path segments, 1 MiB decoded string data, 128 registrations, 256
+actions, 1,024 selections, and 4,096 edits. An excess is the stable
+`extension-response-limit` error and is rejected before semantic action
+interpretation. See ADR 0028.
+
 M9 maps Component ABI/linker mismatch, fuel exhaustion, memory exhaustion, and
 traps to distinct stable extension errors. A guest `result<_, string>` error or
 a malformed declarative response remains an ordinary `extension-runtime-error`.
@@ -186,6 +193,8 @@ interactive `Plugins` inspector presents the same status and latest retained
 reload failure. [`examples/plugins/surround`](../examples/plugins/surround)
 is an executable v1 package. `sdk/lua/zenbu.lua` is a generated Lua-language
 stub; it is intentionally a small editor-assistance SDK, not a second runtime.
+`plugin-check PATH` stages `PATH` itself, not sibling packages, so it validates
+one package without introducing unrelated directory collisions.
 
 `make extension-docs` deterministically regenerates the committed reference
 and SDK from `zenbu.extension.Contract`. The M8 test suite checks that the
@@ -216,4 +225,5 @@ M9 still defers dependency resolution, signatures, permissions UI, per-plugin
 enablement persistence, cross-platform Wasmtime distribution, asynchronous
 services, hard wall-clock cancellation, language-grammar packages, marketplace
 distribution, and richer Component host imports. `lua-trusted` remains
-intentionally unsandboxed. See [roadmap](ROADMAP.md) and ADRs 0022-0027.
+intentionally unsandboxed. See [roadmap](ROADMAP.md),
+[the M9 pressure test](M9_PRESSURE_TEST.md), and ADRs 0022-0028.

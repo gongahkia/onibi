@@ -49,14 +49,16 @@ M9 adds the first isolated `wasm-component` runtime behind the M8 contract. It
 uses a pinned Wasmtime Component Model C API, no WASI linker or host imports,
 per-generation store memory limits, per-callback fuel reset, typed WIT
 request/response values, atomic lifecycle staging, structured runtime errors,
-and ordinary provenance/trace/profile integration. Components receive only
+bounded response quotas, and ordinary provenance/trace/profile integration. Components receive only
 capability-projected copies in the existing `Extension_host` request; their
 declarative results still pass through normal semantic validation and
-transactions. See [Component authoring](WASM_COMPONENTS.md) and ADRs 0026-0027.
+transactions. See [Component authoring](WASM_COMPONENTS.md),
+[the isolation policy](ISOLATION.md), and ADRs 0026-0028.
 
 The next milestone is deliberately not committed. The repository still defers
 cross-platform Wasmtime distribution, a first-party guest SDK/package build
 tool, signatures/resolution/marketplace, asynchronous/background execution,
 hard wall-clock cancellation, richer Component host imports, and any new
 mutation path. Those must be designed against the existing semantic contract,
-not around it.
+not around it. See the [M9 pressure test](M9_PRESSURE_TEST.md) and
+[isolation policy](ISOLATION.md) for the exact remaining boundary.

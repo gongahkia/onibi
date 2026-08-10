@@ -67,6 +67,41 @@ let write_file path contents =
     ~finally:(fun () -> close_out_noerr channel)
     (fun () -> output_string channel contents)
 
+let base64_digit = function
+  | 'A' .. 'Z' as value -> Char.code value - Char.code 'A'
+  | 'a' .. 'z' as value -> Char.code value - Char.code 'a' + 26
+  | '0' .. '9' as value -> Char.code value - Char.code '0' + 52
+  | '+' -> 62
+  | '/' -> 63
+  | value -> fail (Error.Invalid_command_arguments ("invalid base64 character " ^ String.make 1 value))
+
+let decode_base64 text =
+  let input =
+    text |> String.to_seq |> List.of_seq
+    |> List.filter (fun value -> value <> '\n' && value <> '\r' && value <> ' ')
+  in
+  let output = Buffer.create (String.length text * 3 / 4) in
+  let rec groups = function
+    | [] -> Buffer.contents output
+    | first :: second :: third :: fourth :: rest ->
+        let first = base64_digit first in
+        let second = base64_digit second in
+        let has_third = third <> '=' in
+        let has_fourth = fourth <> '=' in
+        let third = if has_third then base64_digit third else 0 in
+        let fourth = if has_fourth then base64_digit fourth else 0 in
+        Buffer.add_char output (Char.chr ((first lsl 2) lor (second lsr 4)));
+        if has_third then
+          Buffer.add_char output
+            (Char.chr (((second land 0x0f) lsl 4) lor (third lsr 2)));
+        if has_fourth then
+          Buffer.add_char output
+            (Char.chr (((third land 0x03) lsl 6) lor fourth));
+        groups rest
+    | _ -> fail (Error.Invalid_command_arguments "incomplete base64 fixture")
+  in
+  groups input
+
 let print_history history =
   List.iter
     (fun change ->
@@ -650,6 +685,79 @@ let print_demo_why model ?language contents inputs =
       |> fun session ->
       Zenbu_app.Session.inspect session Zenbu_app.Session.Why |> print_lines
 
+let component_demo_manifest =
+  {|
+manifest_version = 1
+
+[plugin]
+id = "com.example.conformance"
+name = "Component conformance demo"
+version = "1.0.0"
+api = 1
+runtime = "wasm-component"
+entrypoint = "plugin.wasm"
+contributions = ["commands", "selectors", "transformations", "bindings", "events"]
+capabilities = ["document.read", "document.edit", "selection.read", "selection.write", "ui.message", "event.subscribe"]
+
+[wasm]
+fuel = 5000000
+memory_bytes = 16777216
+|}
+
+let with_component_demo run =
+  let root = Filename.temp_file "zenbu-m9-demo" "" in
+  Sys.remove root;
+  Unix.mkdir root 0o700;
+  let package = Filename.concat root "component" in
+  Unix.mkdir package 0o700;
+  let entrypoint = Filename.concat package "plugin.wasm" in
+  let manifest = Filename.concat package "zenbu-plugin.toml" in
+  Fun.protect
+    ~finally:(fun () ->
+      List.iter
+        (fun path -> if Sys.file_exists path then Sys.remove path)
+        [ entrypoint; manifest ];
+      Unix.rmdir package;
+      Unix.rmdir root)
+    (fun () ->
+      write_file entrypoint
+        (read_file "test/fixtures/m9_conformance_component.wasm.b64"
+        |> decode_base64);
+      write_file manifest component_demo_manifest;
+      run root)
+
+let run_component_demo () =
+  with_component_demo (fun root ->
+      let trace = Trace.enabled ~capacity:128 |> Result.get_ok in
+      let profiler = Profiler.enabled ~capacity:128 |> Result.get_ok in
+      let dimensions = Zenbu_view.Renderer.{ columns = 120; rows = 40 } in
+      let session =
+        Zenbu_app.Session.create ~model:Zenbu_app.Session.Vim ~contents:"alpha"
+          ~trace ~profiler ~config:Scripting.Disabled
+          ~plugins:(Plugins.Directories [ root ]) ~dimensions ()
+        |> Result.get_ok
+      in
+      Printf.printf "\nWASM COMPONENT PLUGIN\n";
+      Zenbu_app.Session.inspect session Zenbu_app.Session.Plugins |> print_lines;
+      let session = Zenbu_app.Session.handle_input session (control_key "K") in
+      Printf.printf "input: Ctrl-K\nsemantic result: %S\n"
+        (Zenbu_app.Session.contents session);
+      Zenbu_app.Session.inspect session Zenbu_app.Session.Why |> print_lines;
+      let after_loop =
+        Zenbu_app.Session.handle_input session (control_key "L")
+      in
+      Printf.printf "malicious plugin: infinite loop\nresult: %s\n"
+        (if Zenbu_app.Session.contents after_loop
+            = Zenbu_app.Session.contents session
+         then "fuel exhausted; document unchanged"
+         else "unexpected document change");
+      let recovered =
+        Zenbu_app.Session.handle_input after_loop (control_key "K")
+      in
+      Printf.printf "editor remains operational: %S\n"
+        (Zenbu_app.Session.contents recovered);
+      Zenbu_app.Session.inspect recovered Zenbu_app.Session.Why |> print_lines)
+
 let demo () =
   Printf.printf "Zenbu M9: isolated Components, one semantic kernel\n\n";
   Printf.printf "Initial: \"alpha beta gamma\"\n\nVIM-STYLE: d w\n";
@@ -683,7 +791,8 @@ let demo () =
       named_key Input_event.Arrow_right;
       logical_key "x";
     ];
-  run_script_demo ()
+  run_script_demo ();
+  run_component_demo ()
 
 let rec print_node indent node =
   Printf.printf "%s%s %d:%d named=%b error=%b missing=%b\n" indent

@@ -281,5 +281,6 @@ memory cap and a fuel budget reset before `register`/`invoke`. Plugin staging,
 collision checks, reload retention, disposal, and provider ordering remain
 shared `Plugin_host` behavior. M9's synchronous fuel-limited calls do not yet
 provide async/background scheduling or hard wall-clock cancellation. See
-[extensions](EXTENSIONS.md), [Component authoring](WASM_COMPONENTS.md), and
-ADRs 0022-0027.
+[extensions](EXTENSIONS.md), [Component authoring](WASM_COMPONENTS.md), the
+[isolation policy](ISOLATION.md), [M9 pressure test](M9_PRESSURE_TEST.md), and
+ADRs 0022-0028.

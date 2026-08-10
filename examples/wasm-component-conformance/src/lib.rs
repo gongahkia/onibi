@@ -202,6 +202,7 @@ fn registrations() -> Vec<Registration> {
         registration("transformations", "com.example.conformance.done", "done", "", ""),
         registration("bindings", "com.example.conformance.insert", "insert-binding", "Ctrl-K", ""),
         registration("bindings", "com.example.conformance.apply", "apply-binding", "Ctrl-A", ""),
+        registration("bindings", "com.example.conformance.loop", "loop-binding", "Ctrl-L", ""),
         registration("events", "com.example.conformance.changed", "changed", "", "document-changed"),
     ]
 }
