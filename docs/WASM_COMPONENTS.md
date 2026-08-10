@@ -18,7 +18,8 @@ make wasm-runtime
 The script downloads the exact official archive into ignored `.zenbu/`, verifies
 SHA-256 `aaa3621f2a3d8393696702897f8f78a1cc504437d500701496d560125aefd732`,
 and refuses to replace an incomplete existing destination. `make build`,
-`make test`, `make check`, and `make demo` depend on it. The current pin is
+`make test`, `make check`, and `make demo` only verify that this prerequisite is
+present; they never download an archive implicitly. The current pin is
 Linux x86_64 only; a Wasmtime upgrade or a new platform port must repeat the
 ADR 0026 vertical spike and M9 conformance suite.
 
@@ -57,6 +58,13 @@ Fuel resets before every callback. The host classifies a fuel trap as
 Guest `result<_, string>` failures and invalid returned data use
 `extension-runtime-error`.
 
+The adapter also bounds response amplification independently of linear memory:
+4,096 WIT nodes, 64 path segments, 1 MiB decoded string data, 128
+registrations, 256 actions, 1,024 selections, and 4,096 edits. An over-limit
+response is `extension-response-limit` before semantic action interpretation.
+See [the isolation policy](ISOLATION.md) and ADR 0028 for the full store and
+conversion limits.
+
 Fuel bounds guest instructions but callbacks are synchronous. M9 does not yet
 offer a separate worker, an epoch/wall-clock deadline, cancellation of native
 compilation, or a promise that a malicious native process cannot starve the
@@ -65,7 +73,10 @@ not a universal liveness guarantee.
 
 ## WIT ABI
 
-The authoritative ABI is [`wit/zenbu-plugin.wit`](wit/zenbu-plugin.wit):
+The authoritative Extension API metadata is `zenbu.extension.Contract`.
+`Contract.wit ()` renders the checked WIT representation committed at
+[`wit/zenbu-plugin.wit`](wit/zenbu-plugin.wit); `make extension-docs` refreshes
+it and the contract test rejects drift. The world is:
 
 ```wit
 package zenbu:plugin@1.0.0;
@@ -111,8 +122,13 @@ make check
 
 `make component` produces `plugin.wasm` beside the manifest. The repository
 does not require Rust or Cargo Component for ordinary builds/tests: the M9 test
-suite commits actual Component fixture artifacts, including a WASI-importing
-fixture that must be rejected.
+suite commits actual Component fixture artifacts. The
+[`wasm-component-conformance`](../examples/wasm-component-conformance) and
+[`wasm-component-unauthorized-import`](../examples/wasm-component-unauthorized-import)
+sources regenerate the principal positive and import-denial fixtures with
+`make fixture`; each target verifies the committed base64 SHA-256 file. Rust,
+the `wasm32-unknown-unknown` target, and `cargo-component` are required only
+for that regeneration path.
 
 ## Semantic behavior and diagnostics
 
@@ -132,9 +148,9 @@ include the runtime error text. Bounded profiling records matching
 appear in bindings, descriptors, history provenance, and generic extension
 callback events.
 
-The conformance suite exercises a real Component command, selector, and
-transformation; malformed returned trees/actions; guest traps; a fuel loop; a
-memory-limit request; absent edit capability; denied WASI imports; malformed
-binary rejection; atomic failed reload retention; limits inspection; and normal
-provenance/trace/profile behavior. It does not assert an OS-process sandbox,
-as there is no guest process.
+The conformance suite runs the same semantic assertions against paired Lua and
+Component packages, then adds Component-only trap, loop, memory, malformed
+binary/WASI/import, output-limit, reload, mixed-runtime, replay-after-unload,
+and 200-generation stress coverage. See the
+[M9 pressure test](M9_PRESSURE_TEST.md). It does not assert an OS-process
+sandbox, as there is no guest process.
