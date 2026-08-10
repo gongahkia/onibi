@@ -58,6 +58,10 @@ and extension_error_code =
   | Invalid_plugin_package
   | Plugin_not_active
   | Extension_runtime_error
+  | Extension_abi_mismatch
+  | Extension_fuel_exhausted
+  | Extension_memory_exhausted
+  | Extension_trap
 
 val to_string : t -> string
 val extension_error_code_name : extension_error_code -> string

@@ -38,6 +38,7 @@
   model_intent
   extension_value
   extension_host
+  extension_registration
   semantic_operation
   semantic_behavior
   semantic_behavior_registry

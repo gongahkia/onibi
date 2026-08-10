@@ -66,5 +66,18 @@
   zenbu_extension
   zenbu_view
   zenbu_app
-  unix)
+ unix)
  (deps ../docs/generated/EXTENSION_API.md ../sdk/lua/zenbu.lua))
+
+(test
+ (name test_m9_wasm_components)
+ (libraries
+  zenbu_kernel
+  zenbu_model_api
+  zenbu_proof_models
+  zenbu_scripting
+  zenbu_extension
+  zenbu_view
+  zenbu_app
+  unix)
+ (deps fixtures/m9_component.wasm.b64 fixtures/m9_wasi_component.wasm.b64))

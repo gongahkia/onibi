@@ -1,3 +1,4 @@
+type wasm_limits = { fuel : int; memory_bytes : int }
 type t
 
 val filename : string
@@ -11,6 +12,7 @@ val api : t -> int
 val runtime : t -> string
 val entrypoint : t -> string
 val entrypoint_path : t -> string
+val wasm_limits : t -> wasm_limits option
 val package_dir : t -> string
 val path : t -> string
 val contributions : t -> Contribution.t list

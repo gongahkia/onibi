@@ -12,7 +12,7 @@ val load :
   config:config ->
   base_commands:Zenbu_model_api.Command_registry.t ->
   base_semantics:Zenbu_kernel.Semantic_descriptor.t list ->
-  ?base_bindings:Zenbu_scripting.Scripting.binding list ->
+  ?base_bindings:Zenbu_model_api.Extension_registration.binding list ->
   unit ->
   t
 
@@ -20,7 +20,7 @@ val reload :
   t ->
   base_commands:Zenbu_model_api.Command_registry.t ->
   base_semantics:Zenbu_kernel.Semantic_descriptor.t list ->
-  ?base_bindings:Zenbu_scripting.Scripting.binding list ->
+  ?base_bindings:Zenbu_model_api.Extension_registration.binding list ->
   unit ->
   t
 
@@ -28,8 +28,8 @@ val deactivate : t -> Plugin_id.t -> t
 val dispose : t -> unit
 val commands : t -> Zenbu_model_api.Command.t list
 val semantic_behaviors : t -> Zenbu_model_api.Semantic_behavior_registry.t
-val bindings : t -> Zenbu_scripting.Scripting.binding list
-val hooks : t -> Zenbu_scripting.Scripting.hook list
+val bindings : t -> Zenbu_model_api.Extension_registration.binding list
+val hooks : t -> Zenbu_model_api.Extension_registration.hook list
 val providers : t -> Zenbu_kernel.Provider.t list
 val views : t -> view list
 val find : t -> Plugin_id.t -> view option
@@ -45,4 +45,5 @@ val view_granted_capabilities : view -> Capability.t list
 val view_contributions : view -> Contribution.t list
 val view_registered_ids : view -> string list
 val view_error : view -> Zenbu_kernel.Error.t option
+val view_runtime_limits : view -> (int * int) option
 val state_name : state -> string

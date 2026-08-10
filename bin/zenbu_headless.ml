@@ -459,6 +459,7 @@ let plugin_check path =
                })
       | Some view -> (
           print_plugin_view view;
+          Printf.printf "  bindings: %d\n" (List.length (Plugins.bindings host));
           match Plugins.view_error view with
           | None -> ()
           | Some error -> fail error))
@@ -561,6 +562,10 @@ let plugin_session plugin_directory session_path =
           Printf.printf "text: %S\n" (Zenbu_app.Session.contents session);
           List.iter print_endline
             (Zenbu_app.Session.inspect session Zenbu_app.Session.Plugins);
+          List.iter print_endline
+            (Zenbu_app.Session.inspect session Zenbu_app.Session.Bindings);
+          List.iter print_endline
+            (Zenbu_app.Session.inspect session Zenbu_app.Session.Scripts);
           List.iter print_endline
             (Zenbu_app.Session.inspect session Zenbu_app.Session.Why);
           List.iter print_endline

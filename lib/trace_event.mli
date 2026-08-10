@@ -90,6 +90,16 @@ type t =
       outcome : string;
       reason : string option;
     }
+  | Extension_runtime of {
+      execution_id : execution_id;
+      provider : Zenbu_kernel.Provider.t;
+      runtime : string;
+      stage : string;
+      outcome : string;
+      duration_seconds : float;
+      fuel_consumed : int option;
+      reason : string option;
+    }
   | Capability_denied of {
       execution_id : execution_id;
       provider : Zenbu_kernel.Provider.t;

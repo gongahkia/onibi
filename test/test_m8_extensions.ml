@@ -192,7 +192,7 @@ let test_contract_and_manifest_validation () =
   expect (Extension.Contract.api_version = 1) "unexpected Extension API version";
   expect (Extension.Contract.manifest_version = 1) "unexpected manifest version";
   expect
-    (Extension.Contract.runtime_ids = [ "lua-trusted" ])
+    (Extension.Contract.runtime_ids = [ "lua-trusted"; "wasm-component" ])
     "runtime identifiers are not deterministic";
   expect
     (List.map Extension.Capability.id Extension.Capability.all
@@ -225,6 +225,10 @@ let test_contract_and_manifest_validation () =
         "invalid-plugin-package";
         "plugin-not-active";
         "extension-runtime-error";
+        "extension-abi-mismatch";
+        "extension-fuel-exhausted";
+        "extension-memory-exhausted";
+        "extension-trap";
         "duplicate-id";
         "unknown-semantic-id";
         "invalid-range";

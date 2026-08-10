@@ -1,5 +1,7 @@
 open Zenbu_kernel
 
+type wasm_limits = { fuel : int; memory_bytes : int }
+
 type t = {
   manifest_version : int;
   id : Plugin_id.t;
@@ -14,6 +16,7 @@ type t = {
   path : string;
   contributions : Contribution.t list;
   requested_capabilities : Capability.t list;
+  wasm_limits : wasm_limits option;
 }
 
 let filename = "zenbu-plugin.toml"
@@ -54,6 +57,11 @@ let required_int fields name =
   match field fields name with
   | Some (Otoml.TomlInteger value) -> Ok value
   | _ -> invalid ~operation:name "manifest field must be an integer"
+
+let required_positive_int fields name =
+  let* value = required_int fields name in
+  if value > 0 then Ok value
+  else invalid ~operation:name "manifest field must be a positive integer"
 
 let required_strings fields name =
   match field fields name with
@@ -128,6 +136,17 @@ let rec capabilities_of values =
       let* rest = capabilities_of rest in
       Ok (value :: rest)
 
+let optional_wasm_limits root =
+  match field root "wasm" with
+  | None -> Ok None
+  | Some value -> (
+      match table value with
+      | None -> invalid ~operation:"wasm" "[wasm] must be a TOML table"
+      | Some fields ->
+          let* fuel = required_positive_int fields "fuel" in
+          let* memory_bytes = required_positive_int fields "memory_bytes" in
+          Ok (Some { fuel; memory_bytes }))
+
 let parse path =
   let* document =
     match Otoml.Parser.from_file_result path with
@@ -171,6 +190,7 @@ let parse path =
                   no_duplicates "capabilities" capability_ids
                 in
                 let* requested_capabilities = capabilities_of capability_ids in
+                let* wasm_limits = optional_wasm_limits root in
                 let* entrypoint_path = safe_entrypoint package_dir entrypoint in
                 Ok
                   {
@@ -187,6 +207,7 @@ let parse path =
                     path;
                     contributions;
                     requested_capabilities;
+                    wasm_limits;
                   }))
 
 let manifest_version value = value.manifest_version
@@ -198,6 +219,7 @@ let api value = value.api
 let runtime value = value.runtime
 let entrypoint value = value.entrypoint
 let entrypoint_path value = value.entrypoint_path
+let wasm_limits value = value.wasm_limits
 let package_dir value = value.package_dir
 let path value = value.path
 let contributions value = value.contributions

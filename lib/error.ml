@@ -58,6 +58,10 @@ and extension_error_code =
   | Invalid_plugin_package
   | Plugin_not_active
   | Extension_runtime_error
+  | Extension_abi_mismatch
+  | Extension_fuel_exhausted
+  | Extension_memory_exhausted
+  | Extension_trap
 
 let extension_error_code_name = function
   | Invalid_manifest -> "invalid-manifest"
@@ -71,6 +75,10 @@ let extension_error_code_name = function
   | Invalid_plugin_package -> "invalid-plugin-package"
   | Plugin_not_active -> "plugin-not-active"
   | Extension_runtime_error -> "extension-runtime-error"
+  | Extension_abi_mismatch -> "extension-abi-mismatch"
+  | Extension_fuel_exhausted -> "extension-fuel-exhausted"
+  | Extension_memory_exhausted -> "extension-memory-exhausted"
+  | Extension_trap -> "extension-trap"
 
 let rec to_string = function
   | Invalid_document_id value -> Printf.sprintf "invalid document id: %S" value

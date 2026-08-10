@@ -1,13 +1,17 @@
 open Zenbu_kernel
 open Zenbu_model_api
 module Scripting = Zenbu_scripting.Scripting
+module Registration = Zenbu_model_api.Extension_registration
+module Wasm = Wasm_plugin
 
 type config = Default | Directories of string list | Disabled
 type state = Active | Failed
 
+type generation = Lua of Scripting.t | Wasm of Wasm.t
+
 type active = {
   manifest : Manifest.t;
-  generation : Scripting.t;
+  generation : generation;
   last_error : Error.t option;
 }
 
@@ -18,6 +22,7 @@ type view = {
   manifest : Manifest.t option;
   registered_ids : string list;
   error : Error.t option;
+  runtime_limits : (int * int) option;
 }
 
 type t = { config : config; active : active list; failures : failure list }
@@ -109,38 +114,98 @@ let validate_manifest manifest =
          "plugin requests an unsupported runtime adapter")
   else Ok ()
 
+let generation_provider = function
+  | Lua generation -> Scripting.provider generation
+  | Wasm generation -> Wasm.provider generation
+
+let generation_commands = function
+  | Lua generation -> Scripting.commands generation
+  | Wasm generation -> Wasm.commands generation
+
+let generation_semantic_behaviors = function
+  | Lua generation -> Scripting.semantic_behaviors generation
+  | Wasm generation -> Wasm.semantic_behaviors generation
+
+let generation_descriptors = function
+  | Lua generation -> Scripting.descriptors generation
+  | Wasm generation -> Wasm.descriptors generation
+
+let generation_bindings = function
+  | Lua generation -> Scripting.bindings generation
+  | Wasm generation -> Wasm.bindings generation
+
+let generation_hooks = function
+  | Lua generation -> Scripting.hooks generation
+  | Wasm generation -> Wasm.hooks generation
+
+let generation_runtime_limits = function
+  | Lua _ -> None
+  | Wasm generation ->
+      let limits = Wasm.limits generation in
+      Some (limits.fuel, limits.memory_bytes)
+
+let dispose_generation = function
+  | Lua generation -> Scripting.dispose generation
+  | Wasm generation -> Wasm.dispose generation
+
 let stage ~base_commands ~base_semantics manifest =
   Result.bind (validate_manifest manifest) (fun () ->
       Result.bind (provider manifest) (fun provider ->
-          Scripting.load_plugin ~provider
-            ~capabilities:
-              (List.map Capability.id
-                 (Manifest.requested_capabilities manifest))
-            ~contributions:
-              (List.map Contribution.id (Manifest.contributions manifest))
-            ~base_commands ~base_semantics
-            ~entrypoint:(Manifest.entrypoint_path manifest)
+          let capabilities =
+            List.map Capability.id (Manifest.requested_capabilities manifest)
+          in
+          let contributions =
+            List.map Contribution.id (Manifest.contributions manifest)
+          in
+          let entrypoint = Manifest.entrypoint_path manifest in
+          (match Manifest.runtime manifest with
+          | "lua-trusted" ->
+              Scripting.load_plugin ~provider ~capabilities ~contributions
+                ~base_commands ~base_semantics ~entrypoint
+              |> Result.map (fun generation -> Lua generation)
+          | "wasm-component" ->
+              let limits =
+                match Manifest.wasm_limits manifest with
+                | None -> Wasm.default_limits
+                | Some manifest_limits ->
+                    Wasm.
+                      {
+                        fuel = manifest_limits.fuel;
+                        memory_bytes = manifest_limits.memory_bytes;
+                      }
+              in
+              Wasm.load ~provider ~capabilities ~contributions ~base_commands
+                ~base_semantics ~entrypoint ~limits
+              |> Result.map (fun generation -> Wasm generation)
+          | _ ->
+              Error
+                (plugin_error Error.Unknown_runtime
+                   ~plugin_id:(Manifest.id manifest |> Plugin_id.to_string)
+                   ~operation:(Manifest.runtime manifest)
+                   "plugin requests an unsupported runtime adapter"))
           |> Result.map (fun generation ->
-              { manifest; generation; last_error = None })))
+                 { manifest; generation; last_error = None })))
 
 let binding_key binding =
-  Input_event.to_string (Scripting.binding_input binding)
+  Input_event.to_string (Registration.binding_input binding)
   ^ "\000"
   ^
-  match Scripting.binding_scope binding with
-  | Scripting.Global -> "global"
-  | Scripting.Model model -> "model:" ^ model
-  | Scripting.Model_status { model; status } -> "model:" ^ model ^ ":" ^ status
+  match Registration.binding_scope binding with
+  | Registration.Global -> "global"
+  | Registration.Model model -> "model:" ^ model
+  | Registration.Model_status { model; status } ->
+      "model:" ^ model ^ ":" ^ status
 
 let registered_ids active =
   let commands =
-    Scripting.commands active.generation
+    generation_commands active.generation
     |> List.map (fun command ->
         Command.descriptor command |> Command_descriptor.id
         |> Command_id.to_string)
   in
   let semantics =
-    Scripting.descriptors active.generation |> List.map Semantic_descriptor.id
+    generation_descriptors active.generation
+    |> List.map Semantic_descriptor.id
   in
   commands @ semantics
 
@@ -170,7 +235,7 @@ let collisions ~base_bindings (staged : active list) =
     base_bindings;
   List.iter
     (fun (active : active) ->
-      Scripting.bindings active.generation
+      generation_bindings active.generation
       |> List.iter (fun binding ->
           let key = binding_key binding in
           match Hashtbl.find_opt binding_owners key with
@@ -262,7 +327,9 @@ let build ?(previous = []) ~config ~base_commands ~base_semantics ~base_bindings
              (Manifest.id active.manifest |> Plugin_id.to_string)
              collision_ids))
   in
-  List.iter (fun active -> Scripting.dispose active.generation) collision_active;
+  List.iter
+    (fun active -> dispose_generation active.generation)
+    collision_active;
   let retained, replacement_failures =
     List.fold_left
       (fun (retained, failures) failure ->
@@ -286,9 +353,9 @@ let build ?(previous = []) ~config ~base_commands ~base_semantics ~base_bindings
   List.iter
     (fun (active : active) ->
       if List.mem (Manifest.path active.manifest) replaced_paths then
-        Scripting.dispose active.generation
+        dispose_generation active.generation
       else if not (List.mem (Manifest.path active.manifest) current_paths) then
-        Scripting.dispose active.generation)
+        dispose_generation active.generation)
     previous;
   {
     config;
@@ -319,15 +386,15 @@ let deactivate value id =
         not (Plugin_id.equal (Manifest.id active.manifest) id))
       value.active
   in
-  List.iter (fun active -> Scripting.dispose active.generation) removed;
+  List.iter (fun active -> dispose_generation active.generation) removed;
   { value with active }
 
 let dispose value =
-  List.iter (fun active -> Scripting.dispose active.generation) value.active
+  List.iter (fun active -> dispose_generation active.generation) value.active
 
 let commands value =
   List.concat_map
-    (fun active -> Scripting.commands active.generation)
+    (fun active -> generation_commands active.generation)
     value.active
 
 let semantic_behaviors value =
@@ -335,20 +402,20 @@ let semantic_behaviors value =
     (fun result active ->
       Result.bind result (fun registry ->
           Semantic_behavior_registry.merge registry
-            (Scripting.semantic_behaviors active.generation)))
+            (generation_semantic_behaviors active.generation)))
     (Ok Semantic_behavior_registry.empty) value.active
   |> Result.get_ok
 
 let bindings value =
   List.concat_map
-    (fun active -> Scripting.bindings active.generation)
+    (fun active -> generation_bindings active.generation)
     value.active
 
 let hooks value =
-  List.concat_map (fun active -> Scripting.hooks active.generation) value.active
+  List.concat_map (fun active -> generation_hooks active.generation) value.active
 
 let providers value =
-  List.map (fun active -> Scripting.provider active.generation) value.active
+  List.map (fun active -> generation_provider active.generation) value.active
 
 let view_of_active (active : active) =
   {
@@ -356,6 +423,7 @@ let view_of_active (active : active) =
     manifest = Some active.manifest;
     registered_ids = registered_ids active;
     error = active.last_error;
+    runtime_limits = generation_runtime_limits active.generation;
   }
 
 let view_of_failure (failure : failure) =
@@ -364,6 +432,7 @@ let view_of_failure (failure : failure) =
     manifest = failure.manifest;
     registered_ids = [];
     error = Some failure.error;
+    runtime_limits = None;
   }
 
 let views value =
@@ -397,3 +466,4 @@ let view_contributions value =
 
 let view_registered_ids value = value.registered_ids
 let view_error value = value.error
+let view_runtime_limits value = value.runtime_limits

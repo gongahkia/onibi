@@ -16,6 +16,10 @@ type stage =
   | Extension_selector
   | Extension_transformation
   | Extension_event
+  | Extension_wasm_compile
+  | Extension_wasm_instantiate
+  | Extension_wasm_register
+  | Extension_wasm_call
 
 type aggregate
 type t
@@ -25,6 +29,7 @@ val enabled : capacity:int -> (t, Zenbu_kernel.Error.t) result
 val is_enabled : t -> bool
 val capacity : t -> int option
 val measure : t -> ?model_id:string -> stage -> (unit -> 'a) -> 'a
+val record : t -> ?model_id:string -> stage -> seconds:float -> unit
 val reset : t -> unit
 val aggregates : t -> aggregate list
 val stage_name : stage -> string

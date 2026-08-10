@@ -2,6 +2,7 @@ _build/
 .opam/
 .opam-switch/
 _opam/
+.zenbu/
 *.install
 *.cm[ioxat]
 *.annot

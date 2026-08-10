@@ -16,6 +16,10 @@ type stage =
   | Extension_selector
   | Extension_transformation
   | Extension_event
+  | Extension_wasm_compile
+  | Extension_wasm_instantiate
+  | Extension_wasm_register
+  | Extension_wasm_call
 
 type key = { stage : stage; model_id : string option }
 type sample = { key : key; duration : float }
@@ -62,6 +66,10 @@ let stage_name = function
   | Extension_selector -> "extension.selector"
   | Extension_transformation -> "extension.transformation"
   | Extension_event -> "extension.event"
+  | Extension_wasm_compile -> "extension.wasm.compile"
+  | Extension_wasm_instantiate -> "extension.wasm.instantiate"
+  | Extension_wasm_register -> "extension.wasm.register"
+  | Extension_wasm_call -> "extension.wasm.call"
 
 let measure profiler ?model_id stage f =
   match profiler with
@@ -75,6 +83,16 @@ let measure profiler ?model_id stage f =
             ignore (Queue.take value.samples);
           Queue.add { key = { stage; model_id }; duration } value.samples)
         f
+
+let record profiler ?model_id stage ~seconds =
+  match profiler with
+  | Disabled -> ()
+  | Enabled value ->
+      if Queue.length value.samples = value.capacity then
+        ignore (Queue.take value.samples);
+      Queue.add
+        { key = { stage; model_id }; duration = max 0. seconds }
+        value.samples
 
 let reset = function
   | Disabled -> ()

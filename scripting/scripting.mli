@@ -1,15 +1,17 @@
 (** Experimental M7 trusted-local scripting API. This module deliberately
     exposes semantic registrations, never Lua values or mutable editor state. *)
 
-type event = Document_changed | After_save
+type event = Zenbu_model_api.Extension_registration.event =
+  | Document_changed
+  | After_save
 
-type scope =
+type scope = Zenbu_model_api.Extension_registration.scope =
   | Global
   | Model of string
   | Model_status of { model : string; status : string }
 
-type binding
-type hook
+type binding = Zenbu_model_api.Extension_registration.binding
+type hook = Zenbu_model_api.Extension_registration.hook
 type t
 type config = Default | Explicit of string | Disabled
 

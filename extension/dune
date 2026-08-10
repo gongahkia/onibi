@@ -8,5 +8,20 @@
   contribution
   contract
   manifest
-  plugin_host)
+  wasm_value
+  wasm_plugin
+  plugin_host
+  wasmtime_backend)
+ (private_modules wasm_value wasm_plugin wasmtime_backend)
+ (foreign_stubs
+ (language c)
+  (names wasmtime_backend_stubs)
+  (flags
+   (:standard
+    -I
+    %{env:ZENBU_WASMTIME_C_API_DIR=.zenbu/wasmtime-v47.0.3-x86_64-linux-c-api}/include)))
+ (c_library_flags
+  -L%{env:ZENBU_WASMTIME_C_API_DIR=.zenbu/wasmtime-v47.0.3-x86_64-linux-c-api}/lib
+  -Wl,-rpath,%{env:ZENBU_WASMTIME_C_API_DIR=.zenbu/wasmtime-v47.0.3-x86_64-linux-c-api}/lib
+  -lwasmtime)
  (libraries zenbu_kernel zenbu_model_api zenbu_scripting otoml unix))

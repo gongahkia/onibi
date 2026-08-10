@@ -903,6 +903,11 @@ let plugin_lines session =
             ("  contributions: "
             ^ if String.length contributions = 0 then "none" else contributions
             );
+            (match Plugins.view_runtime_limits view with
+            | None -> "  limits: none"
+            | Some (fuel, memory_bytes) ->
+                Printf.sprintf "  limits: fuel=%d memory-bytes=%d" fuel
+                  memory_bytes);
             (match Plugins.view_error view with
             | None -> "  last-error: none"
             | Some error -> "  last-error: " ^ Error.to_string error);

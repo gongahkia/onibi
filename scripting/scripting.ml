@@ -2,27 +2,17 @@ open Zenbu_kernel
 open Zenbu_model_api
 module Backend = Lua_backend
 module Host = Extension_host
+module Registration = Extension_registration
 
-type event = Document_changed | After_save
+type event = Registration.event = Document_changed | After_save
 
-type scope =
+type scope = Registration.scope =
   | Global
   | Model of string
   | Model_status of { model : string; status : string }
 
-type binding = {
-  input : Input_event.t;
-  command : string;
-  scope : scope;
-  provider : Provider.t;
-}
-
-type hook = {
-  event : event;
-  host : Host.t;
-  invocation : Host.invocation;
-  source : string;
-}
+type binding = Registration.binding
+type hook = Registration.hook
 
 type t = {
   generation_id : int;
@@ -623,9 +613,10 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
                               let duplicate =
                                 List.exists
                                   (fun binding ->
-                                    Input_event.to_string binding.input
+                                    Input_event.to_string
+                                      (Registration.binding_input binding)
                                     = Input_event.to_string input
-                                    && binding.scope = scope)
+                                    && Registration.binding_scope binding = scope)
                                   !bindings
                               in
                               if duplicate then
@@ -637,12 +628,9 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
                                 bindings :=
                                   !bindings
                                   @ [
-                                      {
-                                        input;
-                                        command = definition.command;
-                                        scope;
-                                        provider;
-                                      };
+                                      Registration.binding ~input
+                                        ~command:definition.command ~scope
+                                        ~provider;
                                     ]
                           | false, Error error -> fail error))
                   | Error error, _, _ | _, Error error, _ | _, _, Error error ->
@@ -677,16 +665,32 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
                              message = "event subscription was denied";
                            })
                   | Ok event ->
+                      let callback =
+                        invocation "event" definition.callback
+                      in
                       hooks :=
                         !hooks
                         @ [
-                            {
-                              event;
-                              host;
-                              invocation =
-                                invocation "event" definition.callback;
-                              source;
-                            };
+                            Registration.hook ~event ~provider
+                              ~run:(fun context ->
+                                let event =
+                                  match event with
+                                  | Document_changed -> "document-changed"
+                                  | After_save -> "after-save"
+                                in
+                                let request =
+                                  Host.request callback ~kind:Host.Event
+                                    ~operation:"event.deliver" ~context
+                                    ~arguments:
+                                      (Extension_value.Record
+                                         [
+                                           ( "event",
+                                             Extension_value.Text event );
+                                         ])
+                                in
+                                Result.bind
+                                  (Host.invoke host callback request)
+                                  (actions source request));
                           ])
               | Backend.Binding _ | Backend.Hook _ | Backend.Command _
               | Backend.Selector _ | Backend.Transformation _ ->
@@ -734,28 +738,13 @@ let counts value =
     List.length value.hooks )
 
 let dispose value = Backend.dispose value.backend
-let binding_input (value : binding) = value.input
-let binding_command (value : binding) = value.command
-let binding_scope (value : binding) = value.scope
-let binding_provider (value : binding) = value.provider
-let hook_event (value : hook) = value.event
-let hook_provider (value : hook) = Host.invocation_provider value.invocation
-
-let run_hook (value : hook) context =
-  let event =
-    match value.event with
-    | Document_changed -> "document-changed"
-    | After_save -> "after-save"
-  in
-  let request =
-    Host.request value.invocation ~kind:Host.Event ~operation:"event.deliver"
-      ~context
-      ~arguments:
-        (Extension_value.Record [ ("event", Extension_value.Text event) ])
-  in
-  Result.bind
-    (Host.invoke value.host value.invocation request)
-    (actions value.source request)
+let binding_input = Registration.binding_input
+let binding_command = Registration.binding_command
+let binding_scope = Registration.binding_scope
+let binding_provider = Registration.binding_provider
+let hook_event = Registration.hook_event
+let hook_provider = Registration.hook_provider
+let run_hook = Registration.run_hook
 
 let load ~generation_id ~base_commands ~base_semantics = function
   | Disabled -> Ok None

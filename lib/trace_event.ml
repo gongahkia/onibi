@@ -90,6 +90,16 @@ type t =
       outcome : string;
       reason : string option;
     }
+  | Extension_runtime of {
+      execution_id : execution_id;
+      provider : Zenbu_kernel.Provider.t;
+      runtime : string;
+      stage : string;
+      outcome : string;
+      duration_seconds : float;
+      fuel_consumed : int option;
+      reason : string option;
+    }
   | Capability_denied of {
       execution_id : execution_id;
       provider : Zenbu_kernel.Provider.t;
@@ -125,6 +135,7 @@ let execution_id = function
   | Script_callback { execution_id; _ }
   | Extension_lifecycle { execution_id; _ }
   | Extension_callback { execution_id; _ }
+  | Extension_runtime { execution_id; _ }
   | Capability_denied { execution_id; _ }
   | Binding_resolved { execution_id; _ }
   | Error_reported { execution_id; _ } ->
@@ -149,6 +160,7 @@ let name = function
   | Script_callback _ -> "script-callback"
   | Extension_lifecycle _ -> "extension-lifecycle"
   | Extension_callback _ -> "extension-callback"
+  | Extension_runtime _ -> "extension-runtime"
   | Capability_denied _ -> "capability-denied"
   | Binding_resolved _ -> "binding-resolved"
   | Error_reported _ -> "error-reported"

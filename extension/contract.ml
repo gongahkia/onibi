@@ -1,6 +1,6 @@
 let api_version = 1
 let manifest_version = 1
-let runtime_ids = [ "lua-trusted" ]
+let runtime_ids = [ "lua-trusted"; "wasm-component" ]
 
 type service = {
   id : string;
@@ -95,6 +95,10 @@ let stable_error_codes =
     "invalid-plugin-package";
     "plugin-not-active";
     "extension-runtime-error";
+    "extension-abi-mismatch";
+    "extension-fuel-exhausted";
+    "extension-memory-exhausted";
+    "extension-trap";
     "duplicate-id";
     "unknown-semantic-id";
     "invalid-range";
