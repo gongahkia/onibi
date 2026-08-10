@@ -36,6 +36,10 @@
   clipboard
   editor_context
   model_intent
+  extension_value
+  semantic_operation
+  semantic_behavior
+  semantic_behavior_registry
   syntax_commands
   command_argument
   command_invocation

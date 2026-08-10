@@ -28,6 +28,12 @@ type t =
   | Unknown_command of string
   | Invalid_command_arguments of string
   | Invalid_provenance of string
+  | Script_error of {
+      phase : string;
+      source : string option;
+      line : int option;
+      message : string;
+    }
   | Model_execution_failed of string
   | No_repeatable_edit
 

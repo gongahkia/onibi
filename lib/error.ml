@@ -28,6 +28,12 @@ type t =
   | Unknown_command of string
   | Invalid_command_arguments of string
   | Invalid_provenance of string
+  | Script_error of {
+      phase : string;
+      source : string option;
+      line : int option;
+      message : string;
+    }
   | Model_execution_failed of string
   | No_repeatable_edit
 
@@ -77,6 +83,15 @@ let rec to_string = function
       Printf.sprintf "invalid command arguments: %s" message
   | Invalid_provenance message ->
       Printf.sprintf "invalid provenance: %s" message
+  | Script_error { phase; source; line; message } ->
+      let location =
+        match (source, line) with
+        | None, None -> ""
+        | Some source, None -> " in " ^ source
+        | None, Some line -> Printf.sprintf " at line %d" line
+        | Some source, Some line -> Printf.sprintf " in %s:%d" source line
+      in
+      Printf.sprintf "script %s error%s: %s" phase location message
   | Model_execution_failed message ->
       Printf.sprintf "model execution failed: %s" message
   | No_repeatable_edit -> "no repeatable semantic edit is available"
