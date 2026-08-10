@@ -18,6 +18,7 @@ type t =
   | Key of { key : key; modifiers : modifier list }
   | Resize of { columns : int; rows : int }
   | Paste of string
+  | Wakeup
   | End
   | Unsupported of string
 

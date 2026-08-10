@@ -44,4 +44,4 @@ let decode ~input_mode = function
   | Event.Paste text when input_mode = Model_status.Text_entry ->
       Input_event.text_input text |> Result.map Option.some
   | Event.Paste _ -> Ok None
-  | Event.Resize _ | Event.End | Event.Unsupported _ -> Ok None
+  | Event.Resize _ | Event.Wakeup | Event.End | Event.Unsupported _ -> Ok None

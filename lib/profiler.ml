@@ -20,6 +20,12 @@ type stage =
   | Extension_wasm_instantiate
   | Extension_wasm_register
   | Extension_wasm_call
+  | Language_sync
+  | Language_hover
+  | Language_definition
+  | Language_completion
+  | Language_rename
+  | Lsp_decode
 
 type key = { stage : stage; model_id : string option }
 type sample = { key : key; duration : float }
@@ -70,6 +76,12 @@ let stage_name = function
   | Extension_wasm_instantiate -> "extension.wasm.instantiate"
   | Extension_wasm_register -> "extension.wasm.register"
   | Extension_wasm_call -> "extension.wasm.call"
+  | Language_sync -> "language.sync"
+  | Language_hover -> "language.hover"
+  | Language_definition -> "language.definition"
+  | Language_completion -> "language.completion"
+  | Language_rename -> "language.rename"
+  | Lsp_decode -> "lsp.decode"
 
 let measure profiler ?model_id stage f =
   match profiler with

@@ -1,6 +1,6 @@
 (** Model-neutral language-service vocabulary.
 
-    This module deliberately owns editor-facing language values.  LSP and
+    This module deliberately owns editor-facing language values. LSP and
     JSON-RPC types stop in [zenbu.lsp] and never appear here. *)
 
 module Data : sig
@@ -46,7 +46,10 @@ module Registry : sig
   val empty : t
   val register : t -> Server_config.t -> (t, string) result
   val all : t -> Server_config.t list
-  val find_for_path : t -> language_id:string option -> string -> Server_config.t option
+
+  val find_for_path :
+    t -> language_id:string option -> string -> Server_config.t option
+
   val default : unit -> t
 end
 
@@ -59,7 +62,10 @@ module Position : sig
   val of_name : string -> encoding option
 
   val offset_to_position :
-    contents:string -> encoding:encoding -> byte_offset:int -> (t, string) result
+    contents:string ->
+    encoding:encoding ->
+    byte_offset:int ->
+    (t, string) result
 
   val position_to_offset :
     contents:string -> encoding:encoding -> t -> (int, string) result
@@ -97,15 +103,34 @@ type diagnostic = {
   document_version : int;
 }
 
-type hover = { text : string; start_offset : int option; stop_offset : int option }
-
-type definition_target = {
-  uri : string;
-  start_offset : int;
-  stop_offset : int;
+type hover = {
+  text : string;
+  start_offset : int option;
+  stop_offset : int option;
 }
 
+type definition_target = { uri : string; start_offset : int; stop_offset : int }
 type text_edit = { start_offset : int; stop_offset : int; replacement : string }
+
+module Sync : sig
+  type content_change = { range : Position.range; text : string }
+
+  val incremental_changes :
+    contents:string ->
+    encoding:Position.encoding ->
+    edits:text_edit list ->
+    expected:string ->
+    (content_change list, string) result
+  (** Convert simultaneous source-snapshot edits into the sequential changes
+      required by LSP. The returned changes reconstruct [expected] when applied
+      in order. *)
+
+  val apply_changes :
+    contents:string ->
+    encoding:Position.encoding ->
+    content_change list ->
+    (string, string) result
+end
 
 type completion = {
   label : string;
@@ -120,7 +145,13 @@ type completion = {
   deprecated : bool;
 }
 
-type server_state = Stopped | Starting | Initializing | Ready | Failed | Shutting_down
+type server_state =
+  | Stopped
+  | Starting
+  | Initializing
+  | Ready
+  | Failed
+  | Shutting_down
 
 type status = {
   language_id : string option;

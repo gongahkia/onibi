@@ -20,6 +20,12 @@ type stage =
   | Extension_wasm_instantiate
   | Extension_wasm_register
   | Extension_wasm_call
+  | Language_sync
+  | Language_hover
+  | Language_definition
+  | Language_completion
+  | Language_rename
+  | Lsp_decode
 
 type aggregate
 type t

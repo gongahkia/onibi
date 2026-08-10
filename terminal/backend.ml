@@ -113,15 +113,22 @@ let pasted_text = function
   | Event.Key { key = Event.Text text; modifiers = [] } -> Some text
   | Event.Key { key = Event.Enter; modifiers = [] } -> Some "\n"
   | Event.Key { key = Event.Tab; modifiers = [] } -> Some "\t"
-  | Event.Key _ | Event.Resize _ | Event.Paste _ | Event.End
+  | Event.Key _ | Event.Resize _ | Event.Paste _ | Event.Wakeup | Event.End
   | Event.Unsupported _ ->
       None
 
-let rec read terminal =
+let rec read ?wakeup terminal =
+  match wakeup with
+  | Some wakeup ->
+      let readable, _, _ = Unix.select [ Unix.stdin; wakeup ] [] [] (-1.) in
+      if List.mem wakeup readable then Event.Wakeup else read_ready terminal
+  | None -> read_ready terminal
+
+and read_ready terminal =
   match Notty_unix.Term.event terminal.terminal with
   | `Paste `Start ->
       terminal.paste <- Some (Buffer.create 128);
-      read terminal
+      read_ready terminal
   | `Paste `End -> (
       match terminal.paste with
       | None -> Event.Unsupported "unexpected bracketed-paste terminator"
@@ -134,7 +141,7 @@ let rec read terminal =
       | None -> event
       | Some buffer ->
           Option.iter (Buffer.add_string buffer) (pasted_text event);
-          read terminal)
+          read_ready terminal)
   | `Resize (columns, rows) -> Event.Resize { columns; rows }
   | `End -> Event.End
   | `Mouse _ -> Event.Unsupported "mouse input is not enabled"
@@ -147,6 +154,10 @@ let attribute = function
   | Frame.Message -> Notty.A.(bg yellow ++ fg black)
   | Frame.Dim -> Notty.A.(fg lightblack)
   | Frame.Search_match -> Notty.A.(bg yellow ++ fg black)
+  | Frame.Diagnostic_error -> Notty.A.(fg red ++ st underline)
+  | Frame.Diagnostic_warning -> Notty.A.(fg yellow ++ st underline)
+  | Frame.Diagnostic_information -> Notty.A.(fg cyan ++ st underline)
+  | Frame.Diagnostic_hint -> Notty.A.(fg lightblack ++ st underline)
   | Frame.Syntax_keyword -> Notty.A.(fg cyan ++ st bold)
   | Frame.Syntax_string -> Notty.A.(fg green)
   | Frame.Syntax_number -> Notty.A.(fg magenta)

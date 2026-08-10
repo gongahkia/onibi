@@ -6,6 +6,7 @@
   zenbu_syntax
   zenbu_proof_models
   zenbu_structural_model
+  zenbu_language
   zenbu_app
   zenbu_scripting
   zenbu_extension

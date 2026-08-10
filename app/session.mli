@@ -12,6 +12,15 @@ type host_command =
   | Open_palette
   | Switch_model
   | Help
+  | Language_status
+  | Language_restart
+  | Language_hover
+  | Language_definition
+  | Language_complete
+  | Language_rename
+  | Language_diagnostic_next
+  | Language_diagnostic_previous
+  | Language_diagnostic_describe_current
 
 type inspection =
   | Why
@@ -25,6 +34,7 @@ type inspection =
   | Scripts
   | Plugins
   | Search
+  | Language
 
 type t
 type outcome = Continue of t | Exit of t
@@ -38,6 +48,7 @@ val create :
   ?profiler:Zenbu_model_api.Profiler.t ->
   ?config:Zenbu_scripting.Scripting.config ->
   ?plugins:Zenbu_extension.Plugin_host.config ->
+  ?language_registry:Zenbu_language.Language.Registry.t ->
   dimensions:Zenbu_view.Renderer.dimensions ->
   unit ->
   (t, Zenbu_kernel.Error.t) result
@@ -64,3 +75,6 @@ val notice : t -> string -> t
 val inspect : t -> inspection -> string list
 val toggle_inspector : t -> t
 val inspector_open : t -> bool
+val poll_language : t -> t
+val language_wakeup_fd : t -> Unix.file_descr option
+val close : t -> unit

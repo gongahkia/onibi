@@ -52,6 +52,7 @@ demo: wasm-runtime-ready
 
 benchmark: wasm-runtime-ready
 	$(OPAM_ENV) dune exec bin/zenbu_headless.exe -- benchmark
+	$(OPAM_ENV) dune exec test/m11_language_benchmark.exe
 
 extension-docs: wasm-runtime-ready
 	$(OPAM_ENV) dune exec bin/zenbu_headless.exe -- extension-api > docs/generated/EXTENSION_API.md

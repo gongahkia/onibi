@@ -59,6 +59,15 @@ type t =
       strategy : string;
       has_error : bool;
     }
+  | Language_service of {
+      execution_id : execution_id;
+      stage : string;
+      server_id : string;
+      request_id : int option;
+      document_version : int option;
+      outcome : string;
+      detail : string option;
+    }
   | Script_lifecycle of {
       execution_id : execution_id;
       phase : string;
@@ -132,6 +141,7 @@ let execution_id = function
   | Transaction_rejected { execution_id; _ }
   | History_changed { execution_id; _ }
   | Syntax_refreshed { execution_id; _ }
+  | Language_service { execution_id; _ }
   | Script_lifecycle { execution_id; _ }
   | Script_callback { execution_id; _ }
   | Extension_lifecycle { execution_id; _ }
@@ -157,6 +167,7 @@ let name = function
   | Transaction_rejected _ -> "transaction-rejected"
   | History_changed _ -> "history-changed"
   | Syntax_refreshed _ -> "syntax-refreshed"
+  | Language_service _ -> "language-service"
   | Script_lifecycle _ -> "script-lifecycle"
   | Script_callback _ -> "script-callback"
   | Extension_lifecycle _ -> "extension-lifecycle"

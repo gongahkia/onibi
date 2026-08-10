@@ -26,16 +26,17 @@ module Server_config = struct
     else Ok value
 
   let unique field values =
-    if List.length values = List.length (List.sort_uniq String.compare values) then
-      Ok values
+    if List.length values = List.length (List.sort_uniq String.compare values)
+    then Ok values
     else Error (field ^ " contains duplicates")
 
   let create ~id ~language_ids ~extensions ~executable ?(argv = [])
-      ?(environment = []) ?(root_markers = []) ?initialization_options
-      ?settings () =
+      ?(environment = []) ?(root_markers = []) ?initialization_options ?settings
+      () =
     Result.bind (nonempty "server id" id) (fun id ->
         Result.bind (nonempty "server executable" executable) (fun executable ->
-            Result.bind (unique "language ids" language_ids) (fun language_ids ->
+            Result.bind (unique "language ids" language_ids)
+              (fun language_ids ->
                 Result.bind (unique "extensions" extensions) (fun extensions ->
                     if language_ids = [] then
                       Error "a server needs at least one language id"
@@ -70,9 +71,18 @@ module Registry = struct
   let empty = []
 
   let register registry server =
-    if List.exists (fun known -> String.equal (Server_config.id known) (Server_config.id server)) registry then
-      Error ("duplicate language server " ^ Server_config.id server)
-    else Ok (List.sort (fun left right -> String.compare (Server_config.id left) (Server_config.id right)) (server :: registry))
+    if
+      List.exists
+        (fun known ->
+          String.equal (Server_config.id known) (Server_config.id server))
+        registry
+    then Error ("duplicate language server " ^ Server_config.id server)
+    else
+      Ok
+        (List.sort
+           (fun left right ->
+             String.compare (Server_config.id left) (Server_config.id right))
+           (server :: registry))
 
   let all registry = registry
 
@@ -85,14 +95,16 @@ module Registry = struct
 
   let find_for_path registry ~language_id path =
     match language_id with
-    | Some language -> List.find_opt (fun server -> has_language server language) registry
+    | Some language ->
+        List.find_opt (fun server -> has_language server language) registry
     | None -> List.find_opt (fun server -> has_extension server path) registry
 
   let default () =
     let ocaml =
       Server_config.create ~id:"ocaml.ocamllsp" ~language_ids:[ "ocaml" ]
         ~extensions:[ ".ml"; ".mli" ] ~executable:"ocamllsp"
-        ~root_markers:[ "dune-project"; "dune-workspace"; ".git" ] ()
+        ~root_markers:[ "dune-project"; "dune-workspace"; ".git" ]
+        ()
       |> Result.get_ok
     in
     register empty ocaml |> Result.get_ok
@@ -103,7 +115,10 @@ module Position = struct
   type t = { line : int; character : int }
   type range = { start_ : t; end_ : t }
 
-  let encoding_name = function Utf8 -> "utf-8" | Utf16 -> "utf-16" | Utf32 -> "utf-32"
+  let encoding_name = function
+    | Utf8 -> "utf-8"
+    | Utf16 -> "utf-16"
+    | Utf32 -> "utf-32"
 
   let of_name = function
     | "utf-8" | "utf8" -> Some Utf8
@@ -112,7 +127,6 @@ module Position = struct
     | _ -> None
 
   let byte text offset = Char.code (String.get text offset)
-
   let continuation value = value land 0xc0 = 0x80
 
   let decode text offset =
@@ -121,40 +135,51 @@ module Position = struct
     else
       let first = byte text offset in
       let require count =
-        if offset + count > length then Error "truncated UTF-8 sequence" else Ok ()
+        if offset + count > length then Error "truncated UTF-8 sequence"
+        else Ok ()
       in
       if first < 0x80 then Ok (first, 1)
       else if first land 0xe0 = 0xc0 then
         Result.bind (require 2) (fun () ->
             let second = byte text (offset + 1) in
-            if first < 0xc2 || not (continuation second) then Error "invalid UTF-8 sequence"
-            else Ok ((((first land 0x1f) lsl 6) lor (second land 0x3f)), 2))
+            if first < 0xc2 || not (continuation second) then
+              Error "invalid UTF-8 sequence"
+            else Ok (((first land 0x1f) lsl 6) lor (second land 0x3f), 2))
       else if first land 0xf0 = 0xe0 then
         Result.bind (require 3) (fun () ->
             let second = byte text (offset + 1) in
             let third = byte text (offset + 2) in
-            if not (continuation second && continuation third)
-               || (first = 0xe0 && second < 0xa0)
-               || (first = 0xed && second >= 0xa0)
+            if
+              (not (continuation second && continuation third))
+              || (first = 0xe0 && second < 0xa0)
+              || (first = 0xed && second >= 0xa0)
             then Error "invalid UTF-8 sequence"
             else
               Ok
-                ((((first land 0x0f) lsl 12) lor ((second land 0x3f) lsl 6)
-                 lor (third land 0x3f), 3)))
+                ( ((first land 0x0f) lsl 12)
+                  lor ((second land 0x3f) lsl 6)
+                  lor (third land 0x3f),
+                  3 ))
       else if first land 0xf8 = 0xf0 then
         Result.bind (require 4) (fun () ->
             let second = byte text (offset + 1) in
             let third = byte text (offset + 2) in
             let fourth = byte text (offset + 3) in
-            if first > 0xf4
-               || not (continuation second && continuation third && continuation fourth)
-               || (first = 0xf0 && second < 0x90)
-               || (first = 0xf4 && second >= 0x90)
+            if
+              first > 0xf4
+              || (not
+                    (continuation second && continuation third
+                   && continuation fourth))
+              || (first = 0xf0 && second < 0x90)
+              || (first = 0xf4 && second >= 0x90)
             then Error "invalid UTF-8 sequence"
             else
               Ok
-                ((((first land 0x07) lsl 18) lor ((second land 0x3f) lsl 12)
-                 lor ((third land 0x3f) lsl 6) lor (fourth land 0x3f), 4)))
+                ( ((first land 0x07) lsl 18)
+                  lor ((second land 0x3f) lsl 12)
+                  lor ((third land 0x3f) lsl 6)
+                  lor (fourth land 0x3f),
+                  4 ))
       else Error "invalid UTF-8 leading byte"
 
   let units encoding code_point width =
@@ -169,22 +194,29 @@ module Position = struct
     else
       let rec loop offset line character =
         if offset = byte_offset then Ok { line; character }
-        else if offset >= String.length contents then Error "byte offset is not a UTF-8 boundary"
+        else if offset >= String.length contents then
+          Error "byte offset is not a UTF-8 boundary"
         else
           Result.bind (decode contents offset) (fun (code_point, width) ->
-              if code_point = Char.code '\r' && offset + width < String.length contents
-                 && String.get contents (offset + width) = '\n'
+              if
+                code_point = Char.code '\r'
+                && offset + width < String.length contents
+                && String.get contents (offset + width) = '\n'
               then
                 if byte_offset = offset + width then
                   Error "byte offset splits a CRLF line ending"
                 else loop (offset + width + 1) (line + 1) 0
-              else if code_point = Char.code '\n' then loop (offset + width) (line + 1) 0
-              else loop (offset + width) line (character + units encoding code_point width))
+              else if code_point = Char.code '\n' then
+                loop (offset + width) (line + 1) 0
+              else
+                loop (offset + width) line
+                  (character + units encoding code_point width))
       in
       loop 0 0 0
 
   let position_to_offset ~contents ~encoding { line; character } =
-    if line < 0 || character < 0 then Error "line and character must be non-negative"
+    if line < 0 || character < 0 then
+      Error "line and character must be non-negative"
     else
       let rec loop offset current_line current_character =
         if current_line = line && current_character = character then Ok offset
@@ -193,32 +225,44 @@ module Position = struct
           else Error "position is outside the document"
         else
           Result.bind (decode contents offset) (fun (code_point, width) ->
-              if code_point = Char.code '\r' && offset + width < String.length contents
-                 && String.get contents (offset + width) = '\n'
+              if
+                code_point = Char.code '\r'
+                && offset + width < String.length contents
+                && String.get contents (offset + width) = '\n'
               then
                 if current_line = line then Error "position is outside the line"
                 else loop (offset + width + 1) (current_line + 1) 0
               else if code_point = Char.code '\n' then
                 if current_line = line then Error "position is outside the line"
                 else loop (offset + width) (current_line + 1) 0
-              else if current_line = line && current_character + units encoding code_point width > character then
-                Error "position splits an encoded character"
-              else loop (offset + width) current_line (current_character + units encoding code_point width))
+              else if
+                current_line = line
+                && current_character + units encoding code_point width
+                   > character
+              then Error "position splits an encoded character"
+              else
+                loop (offset + width) current_line
+                  (current_character + units encoding code_point width))
       in
       loop 0 0 0
 
   let offsets_to_range ~contents ~encoding ~start_offset ~stop_offset =
     if start_offset > stop_offset then Error "range start is after range end"
     else
-      Result.bind (offset_to_position ~contents ~encoding ~byte_offset:start_offset) (fun start_ ->
+      Result.bind
+        (offset_to_position ~contents ~encoding ~byte_offset:start_offset)
+        (fun start_ ->
           Result.map
             (fun end_ -> { start_; end_ })
             (offset_to_position ~contents ~encoding ~byte_offset:stop_offset))
 
   let range_to_offsets ~contents ~encoding { start_; end_ } =
-    Result.bind (position_to_offset ~contents ~encoding start_) (fun start_offset ->
-        Result.bind (position_to_offset ~contents ~encoding end_) (fun stop_offset ->
-            if start_offset > stop_offset then Error "range start is after range end"
+    Result.bind (position_to_offset ~contents ~encoding start_)
+      (fun start_offset ->
+        Result.bind (position_to_offset ~contents ~encoding end_)
+          (fun stop_offset ->
+            if start_offset > stop_offset then
+              Error "range start is after range end"
             else Ok (start_offset, stop_offset)))
 end
 
@@ -243,7 +287,8 @@ module Uri = struct
     Buffer.contents buffer
 
   let absolute path =
-    if Filename.is_relative path then Filename.concat (Sys.getcwd ()) path else path
+    if Filename.is_relative path then Filename.concat (Sys.getcwd ()) path
+    else path
 
   let file_of_path path = "file://" ^ percent_encode (absolute path)
 
@@ -260,7 +305,8 @@ module Uri = struct
       else if value.[index] <> '%' then (
         Buffer.add_char buffer value.[index];
         loop (index + 1))
-      else if index + 2 >= String.length value then Error "truncated percent escape"
+      else if index + 2 >= String.length value then
+        Error "truncated percent escape"
       else
         let high = digit value.[index + 1] in
         let low = digit value.[index + 2] in
@@ -275,31 +321,70 @@ module Uri = struct
     let prefix = "file://" in
     if not (String.starts_with ~prefix uri) then Error "URI is not a file URI"
     else
-      let encoded = String.sub uri (String.length prefix) (String.length uri - String.length prefix) in
+      let encoded =
+        String.sub uri (String.length prefix)
+          (String.length uri - String.length prefix)
+      in
       let encoded =
         if String.starts_with ~prefix:"localhost/" encoded then
           String.sub encoded 9 (String.length encoded - 9)
         else encoded
       in
       Result.bind (percent_decode encoded) (fun path ->
-          if String.length path = 0 || path.[0] <> '/' then Error "file URI path is not absolute"
+          if String.length path = 0 || path.[0] <> '/' then
+            Error "file URI path is not absolute"
           else
-            match Position.offset_to_position ~contents:path ~encoding:Position.Utf8 ~byte_offset:(String.length path) with
+            match
+              Position.offset_to_position ~contents:path ~encoding:Position.Utf8
+                ~byte_offset:(String.length path)
+            with
             | Ok _ -> Ok path
             | Error error -> Error ("file URI path is not valid UTF-8: " ^ error))
 end
 
 module Workspace = struct
-  let has_marker directory marker = Sys.file_exists (Filename.concat directory marker)
+  let has_marker directory marker =
+    Sys.file_exists (Filename.concat directory marker)
+
+  let cache_limit = 128
+  let cache = Hashtbl.create cache_limit
+  let cache_order = Queue.create ()
+  let cache_lock = Mutex.create ()
+
+  let cache_key ~markers ~directory =
+    directory ^ "\000" ^ String.concat "\000" markers
+
+  let cached key =
+    Mutex.lock cache_lock;
+    let value = Hashtbl.find_opt cache key in
+    Mutex.unlock cache_lock;
+    value
+
+  let remember key root =
+    Mutex.lock cache_lock;
+    if not (Hashtbl.mem cache key) then (
+      (if Hashtbl.length cache >= cache_limit then
+         let oldest = Queue.take cache_order in
+         Hashtbl.remove cache oldest);
+      Queue.add key cache_order);
+    Hashtbl.replace cache key root;
+    Mutex.unlock cache_lock
 
   let discover_root ~markers ~file_path =
+    let directory = Filename.dirname (Uri.absolute file_path) in
+    let key = cache_key ~markers ~directory in
     let rec search directory =
       if List.exists (has_marker directory) markers then directory
       else
         let parent = Filename.dirname directory in
         if String.equal parent directory then directory else search parent
     in
-    search (Filename.dirname (Uri.absolute file_path))
+    match cached key with
+    | Some root -> root
+    | None ->
+        let root = search directory in
+        remember key root;
+        root
 end
 
 type diagnostic_severity = Error | Warning | Information | Hint
@@ -315,11 +400,60 @@ type diagnostic = {
   document_version : int;
 }
 
-type hover = { text : string; start_offset : int option; stop_offset : int option }
+type hover = {
+  text : string;
+  start_offset : int option;
+  stop_offset : int option;
+}
 
 type definition_target = { uri : string; start_offset : int; stop_offset : int }
-
 type text_edit = { start_offset : int; stop_offset : int; replacement : string }
+
+module Sync = struct
+  type content_change = { range : Position.range; text : string }
+
+  let apply_one contents ~encoding change =
+    Result.bind (Position.range_to_offsets ~contents ~encoding change.range)
+      (fun (start_offset, stop_offset) ->
+        if
+          start_offset > String.length contents
+          || stop_offset > String.length contents
+        then Error "synchronization range is outside the document"
+        else
+          Ok
+            (String.sub contents 0 start_offset
+            ^ change.text
+            ^ String.sub contents stop_offset
+                (String.length contents - stop_offset)))
+
+  let apply_changes ~contents ~encoding changes =
+    List.fold_left
+      (fun result change ->
+        Result.bind result (fun contents -> apply_one contents ~encoding change))
+      (Ok contents) changes
+
+  let incremental_changes ~contents ~encoding ~edits ~expected =
+    (* Transactions use coordinates from one source snapshot. Applying their
+       edits in descending source order leaves each remaining coordinate valid
+       for the intermediate snapshot required by LSP. *)
+    let source_order = List.rev edits in
+    let rec build current changes = function
+      | [] ->
+          if String.equal current expected then Ok (List.rev changes)
+          else
+            Error
+              "incremental changes do not reconstruct the committed document"
+      | edit :: rest ->
+          Result.bind
+            (Position.offsets_to_range ~contents:current ~encoding
+               ~start_offset:edit.start_offset ~stop_offset:edit.stop_offset)
+            (fun range ->
+              let change = { range; text = edit.replacement } in
+              Result.bind (apply_one current ~encoding change) (fun next ->
+                  build next (change :: changes) rest))
+    in
+    build contents [] source_order
+end
 
 type completion = {
   label : string;
@@ -334,7 +468,13 @@ type completion = {
   deprecated : bool;
 }
 
-type server_state = Stopped | Starting | Initializing | Ready | Failed | Shutting_down
+type server_state =
+  | Stopped
+  | Starting
+  | Initializing
+  | Ready
+  | Failed
+  | Shutting_down
 
 type status = {
   language_id : string option;

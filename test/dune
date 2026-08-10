@@ -1,3 +1,48 @@
+(executable
+ (name fake_lsp_server)
+ (libraries jsonrpc yojson unix))
+
+(test
+ (name m11_language_benchmark)
+ (libraries
+  zenbu_kernel
+  zenbu_model_api
+  zenbu_language
+  zenbu_lsp
+  unix
+  threads)
+ (deps fake_lsp_server.exe))
+
+(test
+ (name test_m11_language)
+ (libraries
+  zenbu_kernel
+  zenbu_model_api
+  zenbu_language
+  zenbu_lsp
+  zenbu_proof_models
+  zenbu_structural_model
+  zenbu_syntax
+  zenbu_scripting
+  zenbu_extension
+  zenbu_view
+  zenbu_app
+  unix
+  threads)
+ (deps fake_lsp_server.exe))
+
+(test
+ (name test_m11_ocamllsp)
+ (libraries
+  zenbu_kernel
+  zenbu_model_api
+  zenbu_language
+  zenbu_lsp
+  unix
+  threads)
+ (deps
+  (source_tree fixtures/lsp_ocaml)))
+
 (test
  (name test_kernel)
  (libraries zenbu_kernel)

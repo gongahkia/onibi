@@ -1,6 +1,6 @@
 opam-version: "2.0"
 synopsis: "A model-neutral semantic text editor kernel and editing-model API"
-description: "The M10 release-hardening terminal host with model-neutral semantic editing, syntax presentation, trusted-local Lua, and isolated Wasmtime Components."
+description: "The M11 model-neutral terminal editor with asynchronous language services, semantic editing, syntax presentation, trusted-local Lua, and isolated Wasmtime Components."
 maintainer: "Zenbu contributors"
 authors: "Zenbu contributors"
 license: "MIT"

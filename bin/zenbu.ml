@@ -181,14 +181,26 @@ let is_reload modifiers =
   | [ Zenbu_terminal.Event.Alt ] | [ Zenbu_terminal.Event.Meta ] -> true
   | _ -> false
 
+let finish session outcome =
+  Zenbu_app.Session.close session;
+  outcome
+
 let rec run backend session =
+  let session = Zenbu_app.Session.poll_language session in
   let session, frame = Zenbu_app.Session.render session in
   Zenbu_terminal.Backend.draw backend frame;
-  match Zenbu_terminal.Backend.read backend with
+  match
+    Zenbu_terminal.Backend.read
+      ?wakeup:(Zenbu_app.Session.language_wakeup_fd session)
+      backend
+  with
+  | Zenbu_terminal.Event.Wakeup ->
+      run backend (Zenbu_app.Session.poll_language session)
   | Zenbu_terminal.Event.Resize { columns; rows } ->
       run backend (Zenbu_app.Session.resize session ~columns ~rows)
   | Zenbu_terminal.Event.End ->
-      if Zenbu_app.Session.dirty session then Unsaved_end else Exited
+      if Zenbu_app.Session.dirty session then finish session Unsaved_end
+      else finish session Exited
   | Zenbu_terminal.Event.Unsupported description ->
       run backend (Zenbu_app.Session.notice session description)
   | Zenbu_terminal.Event.Key { key = Zenbu_terminal.Event.Text "o"; modifiers }
@@ -202,64 +214,73 @@ let rec run backend session =
     when is_control_shift modifiers -> (
       match Zenbu_app.Session.handle_host session Zenbu_app.Session.Save_as with
       | Zenbu_app.Session.Continue session -> run backend session
-      | Zenbu_app.Session.Exit _ -> Exited)
+      | Zenbu_app.Session.Exit session -> finish session Exited)
   | Zenbu_terminal.Event.Key { key = Zenbu_terminal.Event.Text "s"; modifiers }
     when is_control modifiers -> (
       match Zenbu_app.Session.handle_host session Zenbu_app.Session.Save with
       | Zenbu_app.Session.Continue session -> run backend session
-      | Zenbu_app.Session.Exit _ -> Exited)
+      | Zenbu_app.Session.Exit session -> finish session Exited)
   | Zenbu_terminal.Event.Key { key = Zenbu_terminal.Event.Text "q"; modifiers }
     when is_control modifiers -> (
       match Zenbu_app.Session.handle_host session Zenbu_app.Session.Quit with
       | Zenbu_app.Session.Continue session -> run backend session
-      | Zenbu_app.Session.Exit _ -> Exited)
+      | Zenbu_app.Session.Exit session -> finish session Exited)
   | Zenbu_terminal.Event.Key { key = Zenbu_terminal.Event.Text "r"; modifiers }
     when is_reload modifiers -> (
       match
         Zenbu_app.Session.handle_host session Zenbu_app.Session.Reload_config
       with
       | Zenbu_app.Session.Continue session -> run backend session
-      | Zenbu_app.Session.Exit _ -> Exited)
+      | Zenbu_app.Session.Exit session -> finish session Exited)
   | Zenbu_terminal.Event.Key { key = Zenbu_terminal.Event.Text "f"; modifiers }
     when is_control modifiers -> (
       match
         Zenbu_app.Session.handle_host session Zenbu_app.Session.Start_search
       with
       | Zenbu_app.Session.Continue session -> run backend session
-      | Zenbu_app.Session.Exit _ -> Exited)
+      | Zenbu_app.Session.Exit session -> finish session Exited)
   | Zenbu_terminal.Event.Key { key = Zenbu_terminal.Event.Text "g"; modifiers }
     when is_control modifiers -> (
       match
         Zenbu_app.Session.handle_host session Zenbu_app.Session.Search_next
       with
       | Zenbu_app.Session.Continue session -> run backend session
-      | Zenbu_app.Session.Exit _ -> Exited)
+      | Zenbu_app.Session.Exit session -> finish session Exited)
   | Zenbu_terminal.Event.Key { key = Zenbu_terminal.Event.Text "g"; modifiers }
     when is_control_shift modifiers -> (
       match
         Zenbu_app.Session.handle_host session Zenbu_app.Session.Search_previous
       with
       | Zenbu_app.Session.Continue session -> run backend session
-      | Zenbu_app.Session.Exit _ -> Exited)
+      | Zenbu_app.Session.Exit session -> finish session Exited)
   | Zenbu_terminal.Event.Key { key = Zenbu_terminal.Event.Text "p"; modifiers }
     when is_control modifiers -> (
       match
         Zenbu_app.Session.handle_host session Zenbu_app.Session.Open_palette
       with
       | Zenbu_app.Session.Continue session -> run backend session
-      | Zenbu_app.Session.Exit _ -> Exited)
+      | Zenbu_app.Session.Exit session -> finish session Exited)
+  | Zenbu_terminal.Event.Key
+      { key = Zenbu_terminal.Event.Text (" " | "\000"); modifiers }
+    when is_control modifiers -> (
+      match
+        Zenbu_app.Session.handle_host session
+          Zenbu_app.Session.Language_complete
+      with
+      | Zenbu_app.Session.Continue session -> run backend session
+      | Zenbu_app.Session.Exit session -> finish session Exited)
   | Zenbu_terminal.Event.Key { key = Zenbu_terminal.Event.Text "m"; modifiers }
     when is_alt_or_meta modifiers -> (
       match
         Zenbu_app.Session.handle_host session Zenbu_app.Session.Switch_model
       with
       | Zenbu_app.Session.Continue session -> run backend session
-      | Zenbu_app.Session.Exit _ -> Exited)
+      | Zenbu_app.Session.Exit session -> finish session Exited)
   | Zenbu_terminal.Event.Key { key = Zenbu_terminal.Event.Text "h"; modifiers }
     when is_alt_or_meta modifiers -> (
       match Zenbu_app.Session.handle_host session Zenbu_app.Session.Help with
       | Zenbu_app.Session.Continue session -> run backend session
-      | Zenbu_app.Session.Exit _ -> Exited)
+      | Zenbu_app.Session.Exit session -> finish session Exited)
   | event -> (
       match
         Zenbu_terminal.Input_decoder.decode

@@ -11,6 +11,13 @@ type syntax_span = {
 }
 
 type search_range = { start_offset : int; stop_offset : int }
+type diagnostic_kind = Error | Warning | Information | Hint
+
+type diagnostic_range = {
+  start_offset : int;
+  stop_offset : int;
+  kind : diagnostic_kind;
+}
 
 let spaces width = if width <= 0 then "" else String.make width ' '
 
@@ -65,19 +72,37 @@ let search_style ranges grapheme =
   then Some Frame.Search_match
   else None
 
-let grapheme_style ~syntax_spans ~search_ranges ~selections ~primary_index
-    grapheme =
+let diagnostic_style ranges grapheme =
+  ranges
+  |> List.find_map (fun (range : diagnostic_range) ->
+      if
+        overlaps ~start_offset:range.start_offset ~stop_offset:range.stop_offset
+          grapheme
+      then
+        Some
+          (match range.kind with
+          | Error -> Frame.Diagnostic_error
+          | Warning -> Frame.Diagnostic_warning
+          | Information -> Frame.Diagnostic_information
+          | Hint -> Frame.Diagnostic_hint)
+      else None)
+
+let grapheme_style ~syntax_spans ~search_ranges ~diagnostic_ranges ~selections
+    ~primary_index grapheme =
   match selection_style selections primary_index grapheme with
   | Some style -> style
   | None -> (
       match search_style search_ranges grapheme with
       | Some style -> style
-      | None ->
-          Option.value ~default:Frame.Plain (syntax_style syntax_spans grapheme)
-      )
+      | None -> (
+          match diagnostic_style diagnostic_ranges grapheme with
+          | Some style -> style
+          | None ->
+              Option.value ~default:Frame.Plain
+                (syntax_style syntax_spans grapheme)))
 
-let row_for_line ~columns ~left_column ~syntax_spans ~search_ranges ~selections
-    ~primary_index line =
+let row_for_line ~columns ~left_column ~syntax_spans ~search_ranges
+    ~diagnostic_ranges ~selections ~primary_index line =
   let right_column = left_column + columns in
   let rec loop used cells = function
     | [] ->
@@ -106,8 +131,8 @@ let row_for_line ~columns ~left_column ~syntax_spans ~search_ranges ~selections
           let cell =
             Frame.cell
               ~style:
-                (grapheme_style ~syntax_spans ~search_ranges ~selections
-                   ~primary_index grapheme)
+                (grapheme_style ~syntax_spans ~search_ranges ~diagnostic_ranges
+                   ~selections ~primary_index grapheme)
               ~width text
           in
           loop (used + width) (cell :: cells) rest
@@ -128,13 +153,14 @@ let clipped_text text columns =
     in
     let cells =
       row_for_line ~columns ~left_column:0 ~syntax_spans:[] ~search_ranges:[]
+        ~diagnostic_ranges:[]
         ~selections:{ Editor_context.selections = []; primary_index = 0 }
         ~primary_index:0 line
     in
     String.concat "" (List.map (fun cell -> cell.Frame.text) cells)
 
 let status_row ~columns ~status ~filename ~dirty ~line ~column ~selection_count
-    ~message =
+    ~diagnostic_summary ~message =
   let dirty_marker = if dirty then " [+]" else "" in
   let pending =
     match Model_status.pending_input status with
@@ -142,11 +168,13 @@ let status_row ~columns ~status ~filename ~dirty ~line ~column ~selection_count
     | Some value -> " pending:" ^ value
   in
   let base =
-    Printf.sprintf "%s  %s%s  %d:%d  %d selection%s%s"
+    Printf.sprintf "%s  %s%s  %d:%d  %d selection%s%s%s"
       (Model_status.label status)
       filename dirty_marker (line + 1) (column + 1) selection_count
       (if selection_count = 1 then "" else "s")
       pending
+      (Option.map (fun summary -> "  " ^ summary) diagnostic_summary
+      |> Option.value ~default:"")
   in
   let message = Option.value ~default:"" message in
   let text =
@@ -205,8 +233,8 @@ let text_frame ?(style = Frame.Message) dimensions lines =
   }
 
 let render_with_inspector ~inspector ?overlay ?source_lines ?(syntax_spans = [])
-    ?(search_ranges = []) ~context ~status ~filename ~dirty ~message ~viewport
-    ~dimensions () =
+    ?(search_ranges = []) ?(diagnostic_ranges = []) ?diagnostic_summary ~context
+    ~status ~filename ~dirty ~message ~viewport ~dimensions () =
   if dimensions.rows < 2 || dimensions.columns < 1 then tiny_frame dimensions
   else
     match inspector with
@@ -270,6 +298,12 @@ let render_with_inspector ~inspector ?overlay ?source_lines ?(syntax_spans = [])
                   intersects range.start_offset range.stop_offset)
                 search_ranges
             in
+            let visible_diagnostic_ranges =
+              List.filter
+                (fun (range : diagnostic_range) ->
+                  intersects range.start_offset range.stop_offset)
+                diagnostic_ranges
+            in
             let visible_rows =
               visible_source_lines
               |> List.map (fun source_line ->
@@ -277,7 +311,8 @@ let render_with_inspector ~inspector ?overlay ?source_lines ?(syntax_spans = [])
                   row_for_line ~columns:dimensions.columns
                     ~left_column:viewport.left_column
                     ~syntax_spans:visible_syntax_spans
-                    ~search_ranges:visible_search_ranges ~selections
+                    ~search_ranges:visible_search_ranges
+                    ~diagnostic_ranges:visible_diagnostic_ranges ~selections
                     ~primary_index:selections.primary_index line)
             in
             let missing_rows = content_rows - List.length visible_rows in
@@ -293,7 +328,7 @@ let render_with_inspector ~inspector ?overlay ?source_lines ?(syntax_spans = [])
                   status_row ~columns:dimensions.columns ~status ~filename
                     ~dirty ~line:primary_line.number ~column:primary_column
                     ~selection_count:(List.length selections.selections)
-                    ~message;
+                    ~diagnostic_summary ~message;
                 ]
             in
             let cursor =
@@ -314,4 +349,5 @@ let render_with_inspector ~inspector ?overlay ?source_lines ?(syntax_spans = [])
 
 let render ~context ~status ~filename ~dirty ~message ~viewport ~dimensions =
   render_with_inspector ~inspector:None ~syntax_spans:[] ~search_ranges:[]
-    ~context ~status ~filename ~dirty ~message ~viewport ~dimensions ()
+    ~diagnostic_ranges:[] ~context ~status ~filename ~dirty ~message ~viewport
+    ~dimensions ()

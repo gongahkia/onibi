@@ -5,6 +5,9 @@ open Zenbu_proof_models
 open Zenbu_structural_model
 module Scripting = Zenbu_scripting.Scripting
 module Plugins = Zenbu_extension.Plugin_host
+module Language = Zenbu_language.Language
+module Language_commands = Zenbu_language.Commands
+module Lsp = Zenbu_lsp.Client
 module Vim_runtime = Model_runtime.Make (Vim_model)
 module Selection_runtime = Model_runtime.Make (Selection_model)
 module Structural_runtime = Model_runtime.Make (Structural_model)
@@ -23,6 +26,15 @@ type host_command =
   | Open_palette
   | Switch_model
   | Help
+  | Language_status
+  | Language_restart
+  | Language_hover
+  | Language_definition
+  | Language_complete
+  | Language_rename
+  | Language_diagnostic_next
+  | Language_diagnostic_previous
+  | Language_diagnostic_describe_current
 
 type inspection =
   | Why
@@ -36,6 +48,7 @@ type inspection =
   | Scripts
   | Plugins
   | Search
+  | Language
 
 type search = {
   query : string;
@@ -68,6 +81,9 @@ type interaction =
   | Save_as_prompt of string
   | Model_picker of int
   | Help_view
+  | Hover_view of Language.hover
+  | Completion_view of { items : Language.completion list; selected : int }
+  | Rename_prompt of string
 
 type outcome = Continue of t | Exit of t
 
@@ -87,6 +103,7 @@ and t = {
   last_reload_error : Error.t option;
   delivering_events : Scripting.event list;
   file_path : string option;
+  language_override : string option;
   saved_version : int;
   saved_contents : string;
   viewport : Zenbu_view.Viewport.t;
@@ -97,6 +114,9 @@ and t = {
   presentation_cache : presentation_cache option;
   search : search option;
   interaction : interaction;
+  language_client : Lsp.t option;
+  diagnostics : Language.diagnostic list;
+  language_registry : Language.Registry.t;
 }
 
 let static = function
@@ -116,6 +136,13 @@ let host_descriptor id title description =
   Command_descriptor.create
     ~id:(Command_id.of_string id |> static)
     ~title ~description ~category:"host" ~provider:host_provider ()
+  |> static
+
+let language_descriptor id title description =
+  Command_descriptor.create
+    ~id:(Command_id.of_string id |> static)
+    ~title ~description ~category:"language"
+    ~provider:Language_commands.provider ()
   |> static
 
 let host_command_entries =
@@ -204,6 +231,74 @@ let host_command_entries =
              metadata.";
         palette = true;
       };
+      {
+        command = Language_status;
+        descriptor =
+          language_descriptor "language.status" "Show language-service status"
+            "Inspect the active language server without exposing protocol \
+             objects.";
+        palette = true;
+      };
+      {
+        command = Language_restart;
+        descriptor =
+          language_descriptor "language.restart" "Restart language server"
+            "Restart the active optional language server and resynchronize the \
+             document.";
+        palette = true;
+      };
+      {
+        command = Language_hover;
+        descriptor =
+          language_descriptor "language.hover" "Show language hover"
+            "Request bounded hover information at the primary caret.";
+        palette = true;
+      };
+      {
+        command = Language_definition;
+        descriptor =
+          language_descriptor "language.definition" "Go to definition"
+            "Navigate to a same-document language definition when available.";
+        palette = true;
+      };
+      {
+        command = Language_complete;
+        descriptor =
+          language_descriptor "language.complete" "Request completion"
+            "Request explicit language completion at the primary caret.";
+        palette = true;
+      };
+      {
+        command = Language_rename;
+        descriptor =
+          language_descriptor "language.rename" "Rename symbol"
+            "Prompt for a new name and apply supported current-document edits \
+             atomically.";
+        palette = true;
+      };
+      {
+        command = Language_diagnostic_next;
+        descriptor =
+          language_descriptor "language.diagnostic.next" "Next diagnostic"
+            "Move the primary selection to the next current diagnostic.";
+        palette = true;
+      };
+      {
+        command = Language_diagnostic_previous;
+        descriptor =
+          language_descriptor "language.diagnostic.previous"
+            "Previous diagnostic"
+            "Move the primary selection to the previous current diagnostic.";
+        palette = true;
+      };
+      {
+        command = Language_diagnostic_describe_current;
+        descriptor =
+          language_descriptor "language.diagnostic.describe-current"
+            "Describe current diagnostic"
+            "Show the diagnostic under the primary caret.";
+        palette = true;
+      };
     ]
 
 let host_command_descriptors () =
@@ -222,6 +317,7 @@ let host_binding_lines () =
     "host reserved: Alt-M -> editor.model.switch (zenbu.app)";
     "host reserved: Alt-H -> editor.help (zenbu.app)";
     "host reserved: Ctrl-O -> why inspector (zenbu.app)";
+    "host reserved: Ctrl-Space -> language.complete (zenbu.language)";
   ]
 
 let commands () =
@@ -240,7 +336,8 @@ let commands () =
         (Syntax_commands.commands ())
 
 let base_semantics () =
-  Inspector.semantic_registry () |> Semantic_registry.descriptors
+  (Inspector.semantic_registry () |> Semantic_registry.descriptors)
+  @ Language_commands.descriptors ()
 
 let commands_with_generation base generation =
   match generation with
@@ -265,9 +362,11 @@ let semantic_behaviors = function
   | Some generation -> Scripting.semantic_behaviors generation
 
 let semantic_behaviors_with_plugins generation plugins =
-  Semantic_behavior_registry.merge
+  Semantic_behavior_registry.merge Language_commands.behaviors
     (semantic_behaviors generation)
-    (Plugins.semantic_behaviors plugins)
+  |> Result.get_ok
+  |> fun values ->
+  Semantic_behavior_registry.merge values (Plugins.semantic_behaviors plugins)
   |> Result.get_ok
 
 let document ~contents =
@@ -296,6 +395,18 @@ let profiler_of_active = function
   | Vim_runtime runtime -> Vim_runtime.profiler runtime
   | Selection_runtime runtime -> Selection_runtime.profiler runtime
   | Structural_runtime runtime -> Structural_runtime.profiler runtime
+
+let active_with_syntax_service active syntax_service =
+  match active with
+  | Vim_runtime runtime ->
+      Vim_runtime.with_syntax_service runtime ~syntax_service
+      |> Result.map (fun runtime -> Vim_runtime runtime)
+  | Selection_runtime runtime ->
+      Selection_runtime.with_syntax_service runtime ~syntax_service
+      |> Result.map (fun runtime -> Selection_runtime runtime)
+  | Structural_runtime runtime ->
+      Structural_runtime.with_syntax_service runtime ~syntax_service
+      |> Result.map (fun runtime -> Structural_runtime runtime)
 
 let last_execution_of_active = function
   | Vim_runtime runtime -> Vim_runtime.last_execution runtime
@@ -409,7 +520,8 @@ let trace_runtime_events trace profiler ~execution_id plugins =
         ~seconds:event.duration_seconds)
 
 let create ~model ?language ?file_path ?(contents = "") ?trace ?profiler
-    ?(config = Scripting.Default) ?(plugins = Plugins.Disabled) ~dimensions () =
+    ?(config = Scripting.Default) ?(plugins = Plugins.Disabled)
+    ?(language_registry = Language.Registry.default ()) ~dimensions () =
   match document ~contents with
   | Error _ as error -> error
   | Ok document -> (
@@ -508,6 +620,15 @@ let create ~model ?language ?file_path ?(contents = "") ?trace ?profiler
               in
               runtime
               |> Result.map (fun active ->
+                  let language_client =
+                    Option.bind file_path (fun path ->
+                        Language.Registry.find_for_path language_registry
+                          ~language_id:language path
+                        |> Option.map (fun server ->
+                            Lsp.start ~config:server
+                              ~document_id:"terminal-buffer" ~document_version:0
+                              ~file_path:path ~contents ~trace ~profiler))
+                  in
                   {
                     active;
                     base_commands;
@@ -519,6 +640,7 @@ let create ~model ?language ?file_path ?(contents = "") ?trace ?profiler
                     last_reload_error = config_error;
                     delivering_events = [];
                     file_path;
+                    language_override = language;
                     saved_version = 0;
                     saved_contents = contents;
                     viewport = Zenbu_view.Viewport.origin;
@@ -529,6 +651,9 @@ let create ~model ?language ?file_path ?(contents = "") ?trace ?profiler
                     presentation_cache = None;
                     search = None;
                     interaction = Idle;
+                    language_client;
+                    diagnostics = [];
+                    language_registry;
                   })))
 
 let context = function
@@ -573,6 +698,16 @@ let status session =
   | Help_view ->
       host_status ~id:"host-help" ~label:"HELP"
         ~description:"host and active-model discovery" ()
+  | Hover_view _ ->
+      host_status ~id:"language-hover" ~label:"HOVER"
+        ~description:"read-only language hover; Escape closes" ()
+  | Completion_view _ ->
+      host_status ~id:"language-completion" ~label:"COMPLETE"
+        ~description:"choose a language completion item" ()
+  | Rename_prompt _ ->
+      host_status ~id:"language-rename" ~label:"RENAME"
+        ~description:"enter a new symbol name; Enter requests rename"
+        ~text_entry:true ()
 
 let model = function
   | { active = Vim_runtime _; _ } -> Vim
@@ -598,6 +733,139 @@ let dirty session =
   let context = context session in
   Editor_context.document_version context <> session.saved_version
   && not (String.equal (Editor_context.contents context) session.saved_contents)
+
+let primary_offset session =
+  let selections = Editor_context.selections (context session) in
+  let primary = List.nth selections.selections selections.primary_index in
+  primary.Editor_context.head_offset
+
+let language_status_lines session =
+  match session.language_client with
+  | None ->
+      [
+        "Language service";
+        "state: unavailable";
+        "No configured language server matches this buffer path.";
+      ]
+  | Some client ->
+      let status = Lsp.status client in
+      [
+        "Language service";
+        "language: " ^ Option.value ~default:"none" status.language_id;
+        "server: " ^ Option.value ~default:"none" status.server_id;
+        "executable: " ^ Option.value ~default:"none" status.executable;
+        "workspace: " ^ Option.value ~default:"none" status.workspace_root;
+        "state: " ^ Language.server_state_name status.state;
+        "position encoding: "
+        ^ (Option.map Language.Position.encoding_name status.position_encoding
+          |> Option.value ~default:"not negotiated");
+        "synchronization: "
+        ^ (Option.map
+             (function
+               | `None -> "none"
+               | `Full -> "full"
+               | `Incremental -> "incremental")
+             status.sync_kind
+          |> Option.value ~default:"not negotiated");
+        "pending requests: " ^ string_of_int status.pending_requests;
+        "diagnostics: " ^ string_of_int (List.length session.diagnostics);
+        "last error: " ^ Option.value ~default:"none" status.last_error;
+      ]
+
+let language_unavailable session =
+  {
+    session with
+    message = Some "language server is unavailable; inspect language.status";
+    quit_armed = false;
+  }
+
+let request_language session request =
+  match session.language_client with
+  | None -> language_unavailable session
+  | Some client -> (
+      Lsp.set_execution_id client
+        ~execution_id:
+          (Option.value ~default:0 (last_execution_of_active session.active));
+      match request client with
+      | Ok request_id ->
+          {
+            session with
+            message =
+              Some ("language request " ^ string_of_int request_id ^ " pending");
+            quit_armed = false;
+          }
+      | Error reason ->
+          {
+            session with
+            message = Some ("language request failed: " ^ reason);
+            quit_armed = false;
+          })
+
+let begin_hover session =
+  request_language session (fun client ->
+      Lsp.request_hover client ~byte_offset:(primary_offset session))
+
+let begin_definition session =
+  request_language session (fun client ->
+      Lsp.request_definition client ~byte_offset:(primary_offset session))
+
+let begin_completion session =
+  request_language session (fun client ->
+      Lsp.request_completion client ~byte_offset:(primary_offset session))
+
+let begin_rename session =
+  match session.language_client with
+  | None -> language_unavailable session
+  | Some _ ->
+      {
+        session with
+        interaction = Rename_prompt "";
+        message = Some "rename: enter a new symbol name";
+        quit_armed = false;
+        inspector = None;
+      }
+
+let replace_language_client session path =
+  Option.iter Lsp.close session.language_client;
+  match syntax_service ?language:session.language_override (Some path) with
+  | Error error ->
+      {
+        session with
+        language_client = None;
+        diagnostics = [];
+        message = Some ("syntax activation failed: " ^ Error.to_string error);
+      }
+  | Ok syntax_service -> (
+      match active_with_syntax_service session.active syntax_service with
+      | Error error ->
+          {
+            session with
+            language_client = None;
+            diagnostics = [];
+            message = Some ("syntax activation failed: " ^ Error.to_string error);
+          }
+      | Ok active ->
+          let language_client =
+            Language.Registry.find_for_path session.language_registry
+              ~language_id:session.language_override path
+            |> Option.map (fun server ->
+                Lsp.start ~config:server ~document_id:"terminal-buffer"
+                  ~document_version:
+                    (Editor_context.document_version (context session))
+                  ~file_path:path
+                  ~contents:(Editor_context.contents (context session))
+                  ~trace:(trace_of_active active)
+                  ~profiler:(profiler_of_active active))
+          in
+          { session with active; language_client; diagnostics = [] })
+
+let observe_language_document_version session =
+  Option.iter
+    (fun client ->
+      Lsp.observe_document_version client
+        ~document_version:(Editor_context.document_version (context session)))
+    session.language_client;
+  session
 
 let last_message messages =
   match List.rev messages with
@@ -832,70 +1100,403 @@ let matching_binding session input =
   | [] -> None
   | (_, binding) :: _ -> Some binding
 
+let history_of_active = function
+  | Vim_runtime runtime -> Vim_runtime.history runtime
+  | Selection_runtime runtime -> Selection_runtime.history runtime
+  | Structural_runtime runtime -> Structural_runtime.history runtime
+
+let transaction_edits transaction =
+  Transaction.edits transaction
+  |> List.map (fun edit ->
+      let range = Edit.range edit in
+      {
+        Language.start_offset = Anchor.byte_offset (Range.start range);
+        stop_offset = Anchor.byte_offset (Range.stop range);
+        replacement = Edit.text edit;
+      })
+
+let synchronize_language_after_change session ~fallback_contents =
+  match session.language_client with
+  | None -> session
+  | Some client ->
+      Lsp.set_execution_id client
+        ~execution_id:
+          (Option.value ~default:0 (last_execution_of_active session.active));
+      let history = history_of_active session.active in
+      let source_contents, edits =
+        match History.current_change history with
+        | Some change ->
+            let transaction = History.transaction change in
+            ( Document.snapshot (History.before change)
+              |> Document_snapshot.contents,
+              transaction_edits transaction )
+        | None ->
+            ( fallback_contents,
+              [
+                {
+                  Language.start_offset = 0;
+                  stop_offset = String.length fallback_contents;
+                  replacement = Editor_context.contents (context session);
+                };
+              ] )
+      in
+      Lsp.notify_change client ~source_contents
+        ~contents:(Editor_context.contents (context session))
+        ~document_version:(Editor_context.document_version (context session))
+        ~edits;
+      { session with diagnostics = [] }
+
 let execute_active_effects ?augment_provenance session input effects =
-  match session.active with
-  | Vim_runtime runtime -> (
+  let result =
+    match session.active with
+    | Vim_runtime runtime -> (
+        match
+          Vim_runtime.execute_effects runtime ?augment_provenance ~input effects
+        with
+        | Error error ->
+            ( {
+                session with
+                message = Some (Error.to_string error);
+                quit_armed = false;
+              },
+              false )
+        | Ok (runtime, step) ->
+            ( {
+                session with
+                active = Vim_runtime runtime;
+                message = last_message (Vim_runtime.messages step);
+                quit_armed = false;
+                inspector = None;
+              },
+              Vim_runtime.change_ids step <> [] ))
+    | Selection_runtime runtime -> (
+        match
+          Selection_runtime.execute_effects runtime ?augment_provenance ~input
+            effects
+        with
+        | Error error ->
+            ( {
+                session with
+                message = Some (Error.to_string error);
+                quit_armed = false;
+              },
+              false )
+        | Ok (runtime, step) ->
+            ( {
+                session with
+                active = Selection_runtime runtime;
+                message = last_message (Selection_runtime.messages step);
+                quit_armed = false;
+                inspector = None;
+              },
+              Selection_runtime.change_ids step <> [] ))
+    | Structural_runtime runtime -> (
+        match
+          Structural_runtime.execute_effects runtime ?augment_provenance ~input
+            effects
+        with
+        | Error error ->
+            ( {
+                session with
+                message = Some (Error.to_string error);
+                quit_armed = false;
+              },
+              false )
+        | Ok (runtime, step) ->
+            ( {
+                session with
+                active = Structural_runtime runtime;
+                message = last_message (Structural_runtime.messages step);
+                quit_armed = false;
+                inspector = None;
+              },
+              Structural_runtime.change_ids step <> [] ))
+  in
+  let next, changed = result in
+  (observe_language_document_version next, changed)
+
+let diagnostics_sorted session =
+  List.sort
+    (fun (left : Language.diagnostic) (right : Language.diagnostic) ->
+      match Int.compare left.Language.start_offset right.start_offset with
+      | 0 -> Int.compare left.stop_offset right.stop_offset
+      | value -> value)
+    session.diagnostics
+
+let move_to_diagnostic session input direction =
+  let diagnostics = diagnostics_sorted session in
+  match diagnostics with
+  | [] -> { session with message = Some "language: no current diagnostics" }
+  | _ -> (
+      let caret = primary_offset session in
+      let candidate =
+        match direction with
+        | 1 ->
+            diagnostics
+            |> List.find_opt (fun (diagnostic : Language.diagnostic) ->
+                diagnostic.start_offset > caret)
+            |> Option.value ~default:(List.hd diagnostics)
+        | _ ->
+            diagnostics |> List.rev
+            |> List.find_opt (fun (diagnostic : Language.diagnostic) ->
+                diagnostic.start_offset < caret)
+            |> Option.value ~default:(List.hd (List.rev diagnostics))
+      in
       match
-        Vim_runtime.execute_effects runtime ?augment_provenance ~input effects
+        Model_intent.set_selections
+          ~selections:[ (candidate.start_offset, candidate.stop_offset) ]
+          ~primary:0
       with
-      | Error error ->
-          ( {
-              session with
-              message = Some (Error.to_string error);
-              quit_armed = false;
-            },
-            false )
-      | Ok (runtime, step) ->
-          ( {
-              session with
-              active = Vim_runtime runtime;
-              message = last_message (Vim_runtime.messages step);
-              quit_armed = false;
-              inspector = None;
-            },
-            Vim_runtime.change_ids step <> [] ))
-  | Selection_runtime runtime -> (
+      | Error error -> { session with message = Some (Error.to_string error) }
+      | Ok intent ->
+          let next, _ =
+            execute_active_effects
+              ~augment_provenance:(fun provenance ->
+                Provenance.add provenance
+                  (Provenance.Effect "language.diagnostic.navigate"))
+              session input
+              [ Model_effect.Execute_intent intent ]
+          in
+          { next with message = Some ("diagnostic: " ^ candidate.message) })
+
+let describe_diagnostic session =
+  let caret = primary_offset session in
+  match
+    diagnostics_sorted session
+    |> List.find_opt (fun (diagnostic : Language.diagnostic) ->
+        diagnostic.start_offset <= caret && caret <= diagnostic.stop_offset)
+  with
+  | None -> { session with message = Some "language: no diagnostic at caret" }
+  | Some diagnostic ->
+      {
+        session with
+        message =
+          Some
+            (Language.diagnostic_severity_name diagnostic.severity
+            ^ ": " ^ diagnostic.message);
+      }
+
+let completion_edits session (item : Language.completion) =
+  if item.snippet then Error "completion uses unsupported snippet text"
+  else
+    let primary = primary_offset session in
+    let main =
+      match item.text_edit with
+      | Some edit -> Some edit
+      | None ->
+          Option.map
+            (fun replacement ->
+              {
+                Language.start_offset = primary;
+                stop_offset = primary;
+                replacement;
+              })
+            item.insert_text
+    in
+    match main with
+    | None -> Error "completion has no supported text edit"
+    | Some main -> Ok (main :: item.additional_text_edits)
+
+let apply_language_edits session input ~effect_id ~edits =
+  let before = Editor_context.contents (context session) in
+  let next, changed =
+    execute_active_effects
+      ~augment_provenance:(fun provenance ->
+        Provenance.add provenance (Provenance.Effect effect_id))
+      session input
+      [ Language_commands.apply_edits edits ]
+  in
+  if changed then
+    synchronize_language_after_change next ~fallback_contents:before
+  else next
+
+let accept_completion session input item =
+  match completion_edits session item with
+  | Error reason -> { session with interaction = Idle; message = Some reason }
+  | Ok edits ->
+      let next =
+        apply_language_edits session input ~effect_id:"language.complete" ~edits
+      in
+      {
+        next with
+        interaction = Idle;
+        message = Some ("completed " ^ item.label);
+      }
+
+let apply_definition session input target =
+  match session.file_path with
+  | Some path
+    when String.equal (Language.Uri.file_of_path path) target.Language.uri -> (
       match
-        Selection_runtime.execute_effects runtime ?augment_provenance ~input
-          effects
+        Model_intent.set_selections
+          ~selections:[ (target.start_offset, target.stop_offset) ]
+          ~primary:0
       with
-      | Error error ->
-          ( {
+      | Error error -> { session with message = Some (Error.to_string error) }
+      | Ok intent ->
+          let next, _ =
+            execute_active_effects
+              ~augment_provenance:(fun provenance ->
+                Provenance.add provenance
+                  (Provenance.Effect "language.definition"))
+              session input
+              [ Model_effect.Execute_intent intent ]
+          in
+          {
+            next with
+            interaction = Idle;
+            message = Some "definition: same document";
+          })
+  | _ ->
+      {
+        session with
+        message =
+          Some
+            ("definition is outside the active buffer: " ^ target.Language.uri
+           ^ " (cross-file navigation is not supported yet)");
+      }
+
+let all_current_document_edits session edits =
+  match session.file_path with
+  | None -> Error "rename requires a saved file"
+  | Some path ->
+      let current_uri = Language.Uri.file_of_path path in
+      if
+        List.for_all
+          (fun (edit : Lsp.workspace_edit) -> String.equal edit.uri current_uri)
+          edits
+      then
+        Ok
+          (List.concat_map
+             (fun (edit : Lsp.workspace_edit) -> edit.edits)
+             edits)
+      else
+        let paths =
+          edits
+          |> List.filter_map (fun (edit : Lsp.workspace_edit) ->
+              if String.equal edit.uri current_uri then None else Some edit.uri)
+          |> List.sort_uniq String.compare
+          |> fun values ->
+          if List.length values > 4 then
+            List.filteri (fun index _ -> index < 4) values @ [ "…" ]
+          else values
+        in
+        Error
+          ("workspace edit spans unsupported files: " ^ String.concat ", " paths)
+
+let poll_language session =
+  let current_version = Editor_context.document_version (context session) in
+  let handle session = function
+    | Lsp.Initialized -> { session with message = Some "language server ready" }
+    | Lsp.Diagnostics { document_version = Some version; diagnostics }
+      when version = current_version ->
+        { session with diagnostics }
+    | Lsp.Diagnostics { document_version = None; diagnostics }
+      when current_version = 0 ->
+        (* Unversioned diagnostics are safe only for the original didOpen
+           snapshot. After an edit, prefer dropping them to displaying stale
+           information as current. *)
+        { session with diagnostics }
+    | Lsp.Diagnostics _ -> session
+    | Lsp.Hover_result { document_version; byte_offset; hover; _ }
+      when document_version = current_version
+           && byte_offset = primary_offset session -> (
+        match hover with
+        | None ->
+            { session with message = Some "language: no hover information" }
+        | Some hover ->
+            { session with interaction = Hover_view hover; message = None })
+    | Lsp.Hover_result _ ->
+        {
+          session with
+          message = Some "language: stale hover response discarded";
+        }
+    | Lsp.Definition_result { document_version; byte_offset; targets; _ }
+      when document_version = current_version
+           && byte_offset = primary_offset session -> (
+        match targets with
+        | [] -> { session with message = Some "language: no definition found" }
+        | target :: _ ->
+            apply_definition session
+              (Input_event.key_press (Input_event.named_key Input_event.Enter))
+              target)
+    | Lsp.Definition_result _ -> session
+    | Lsp.Completion_result { document_version; byte_offset; items; _ }
+      when document_version = current_version
+           && byte_offset = primary_offset session ->
+        if items = [] then
+          { session with message = Some "language: no completions" }
+        else
+          {
+            session with
+            interaction = Completion_view { items; selected = 0 };
+            message = None;
+          }
+    | Lsp.Completion_result _ -> session
+    | Lsp.Rename_result { document_version; edits; _ }
+      when document_version = current_version -> (
+        match all_current_document_edits session edits with
+        | Error reason ->
+            { session with message = Some ("rename rejected: " ^ reason) }
+        | Ok edits ->
+            let input =
+              Input_event.key_press (Input_event.named_key Input_event.Enter)
+            in
+            let next =
+              apply_language_edits session input ~effect_id:"language.rename"
+                ~edits
+            in
+            { next with interaction = Idle; message = Some "rename applied" })
+    | Lsp.Rename_result _ -> session
+    | Lsp.Apply_edit { request_id; edits } -> (
+        match all_current_document_edits session edits with
+        | Error reason ->
+            Option.iter
+              (fun client ->
+                Lsp.respond_apply_edit client ~request_id ~applied:false
+                  ~reason:(Some reason))
+              session.language_client;
+            {
               session with
-              message = Some (Error.to_string error);
-              quit_armed = false;
-            },
-            false )
-      | Ok (runtime, step) ->
-          ( {
-              session with
-              active = Selection_runtime runtime;
-              message = last_message (Selection_runtime.messages step);
-              quit_armed = false;
-              inspector = None;
-            },
-            Selection_runtime.change_ids step <> [] ))
-  | Structural_runtime runtime -> (
-      match
-        Structural_runtime.execute_effects runtime ?augment_provenance ~input
-          effects
-      with
-      | Error error ->
-          ( {
-              session with
-              message = Some (Error.to_string error);
-              quit_armed = false;
-            },
-            false )
-      | Ok (runtime, step) ->
-          ( {
-              session with
-              active = Structural_runtime runtime;
-              message = last_message (Structural_runtime.messages step);
-              quit_armed = false;
-              inspector = None;
-            },
-            Structural_runtime.change_ids step <> [] ))
+              message = Some ("workspace/applyEdit rejected: " ^ reason);
+            }
+        | Ok edits ->
+            let input =
+              Input_event.key_press (Input_event.named_key Input_event.Enter)
+            in
+            let next =
+              apply_language_edits session input
+                ~effect_id:"language.apply-edit" ~edits
+            in
+            Option.iter
+              (fun client ->
+                Lsp.respond_apply_edit client ~request_id ~applied:true
+                  ~reason:None)
+              next.language_client;
+            { next with message = Some "workspace/applyEdit applied" })
+    | Lsp.Server_message message ->
+        { session with message = Some ("language: " ^ message) }
+    | Lsp.Request_failed { kind; reason; _ } ->
+        let kind =
+          match kind with
+          | Lsp.Hover -> "hover"
+          | Lsp.Definition -> "definition"
+          | Lsp.Completion -> "completion"
+          | Lsp.Rename -> "rename"
+        in
+        {
+          session with
+          message = Some ("language " ^ kind ^ " failed: " ^ reason);
+        }
+    | Lsp.Server_failed reason | Lsp.Server_exited reason ->
+        {
+          session with
+          message = Some ("language server unavailable: " ^ reason);
+        }
+  in
+  match session.language_client with
+  | None -> session
+  | Some client -> List.fold_left handle session (Lsp.drain client)
 
 let invoke_bound_command session input binding =
   let command = Scripting.binding_command binding in
@@ -1183,6 +1784,15 @@ let contains_casefold ~needle text =
   in
   loop 0
 
+let language_host_command = function
+  | Language_status | Language_restart | Language_hover | Language_definition
+  | Language_complete | Language_rename | Language_diagnostic_next
+  | Language_diagnostic_previous | Language_diagnostic_describe_current ->
+      true
+  | Save | Save_as | Quit | Force_quit | Reload_config | Start_search
+  | Search_next | Search_previous | Open_palette | Switch_model | Help ->
+      false
+
 let palette_items session =
   let from_descriptor action descriptor =
     {
@@ -1195,7 +1805,10 @@ let palette_items session =
   in
   let host =
     Lazy.force host_command_entries
-    |> List.filter (fun entry -> entry.palette)
+    |> List.filter (fun entry ->
+        entry.palette
+        && ((not (language_host_command entry.command))
+           || Option.is_some session.language_client))
     |> List.map (fun entry ->
         from_descriptor (Invoke_host_command entry.command) entry.descriptor)
   in
@@ -1278,6 +1891,22 @@ let save_to session path =
             quit_armed = false;
           }
         in
+        let saved =
+          match session.file_path with
+          | Some previous when String.equal previous path -> saved
+          | None | Some _ -> replace_language_client saved path
+        in
+        Option.iter
+          (fun client ->
+            Lsp.set_execution_id client
+              ~execution_id:
+                (Option.value ~default:0
+                   (last_execution_of_active saved.active));
+            Lsp.notify_save client
+              ~contents:(Editor_context.contents (context saved))
+              ~document_version:
+                (Editor_context.document_version (context saved)))
+          saved.language_client;
         let input =
           Input_event.logical_text "s"
           |> Result.get_ok
@@ -1371,6 +2000,34 @@ let invoke_host_palette_command session input = function
         quit_armed = false;
         inspector = None;
       }
+  | Language_status ->
+      {
+        session with
+        inspector = Some (language_status_lines session);
+        interaction = Idle;
+        message = None;
+      }
+  | Language_restart -> (
+      match session.language_client with
+      | None -> language_unavailable session
+      | Some client ->
+          Lsp.set_execution_id client
+            ~execution_id:
+              (Option.value ~default:0
+                 (last_execution_of_active session.active));
+          Lsp.restart client;
+          {
+            session with
+            diagnostics = [];
+            message = Some "language server restart requested";
+          })
+  | Language_hover -> begin_hover session
+  | Language_definition -> begin_definition session
+  | Language_complete -> begin_completion session
+  | Language_rename -> begin_rename session
+  | Language_diagnostic_next -> move_to_diagnostic session input 1
+  | Language_diagnostic_previous -> move_to_diagnostic session input (-1)
+  | Language_diagnostic_describe_current -> describe_diagnostic session
   | Quit | Force_quit ->
       {
         session with
@@ -1409,6 +2066,10 @@ let input_for_interaction session input =
       then move_search session input (-1)
       else if is_shortcut input ~text:"g" ~modifiers:[ Input_event.Control ]
       then move_search session input 1
+      else if
+        is_shortcut input ~text:" " ~modifiers:[ Input_event.Control ]
+        || is_shortcut input ~text:"\000" ~modifiers:[ Input_event.Control ]
+      then begin_completion session
       else if is_shortcut input ~text:"p" ~modifiers:[ Input_event.Control ]
       then
         {
@@ -1549,9 +2210,66 @@ let input_for_interaction session input =
         || event_is_named input Input_event.Enter
       then { session with interaction = Idle }
       else session
+  | Hover_view _ ->
+      if
+        event_is_named input Input_event.Escape
+        || event_is_named input Input_event.Enter
+      then { session with interaction = Idle; message = None }
+      else session
+  | Completion_view { items; selected } ->
+      if event_is_named input Input_event.Escape then
+        {
+          session with
+          interaction = Idle;
+          message = Some "completion cancelled";
+        }
+      else if event_is_named input Input_event.Arrow_up then
+        {
+          session with
+          interaction =
+            Completion_view { items; selected = max 0 (selected - 1) };
+        }
+      else if event_is_named input Input_event.Arrow_down then
+        {
+          session with
+          interaction =
+            Completion_view
+              { items; selected = min (List.length items - 1) (selected + 1) };
+        }
+      else if event_is_named input Input_event.Enter then
+        match List.nth_opt items selected with
+        | None ->
+            {
+              session with
+              interaction = Idle;
+              message = Some "completion cancelled";
+            }
+        | Some item -> accept_completion session input item
+      else session
+  | Rename_prompt name -> (
+      if event_is_named input Input_event.Escape then
+        { session with interaction = Idle; message = Some "rename cancelled" }
+      else if event_is_named input Input_event.Enter then
+        if String.length name = 0 then
+          { session with message = Some "rename: new name is empty" }
+        else
+          let next =
+            request_language session (fun client ->
+                Lsp.request_rename client ~byte_offset:(primary_offset session)
+                  ~new_name:name)
+          in
+          { next with interaction = Idle }
+      else if event_is_named input Input_event.Backspace then
+        { session with interaction = Rename_prompt (drop_last_utf8 name) }
+      else
+        match event_text input with
+        | None -> session
+        | Some text ->
+            { session with interaction = Rename_prompt (name ^ text) })
 
 let handle_input session input =
   let contents_before = Editor_context.contents (context session) in
+  let caret_before = primary_offset session in
   let next = input_for_interaction session input in
   let completed =
     if String.equal contents_before (Editor_context.contents (context next))
@@ -1564,6 +2282,29 @@ let handle_input session input =
     then completed
     else refresh_search_after_document_change completed
   in
+  let completed =
+    if
+      String.equal contents_before (Editor_context.contents (context completed))
+    then completed
+    else
+      synchronize_language_after_change completed
+        ~fallback_contents:contents_before
+  in
+  let completed =
+    if primary_offset completed = caret_before then completed
+    else (
+      Option.iter
+        (fun client ->
+          Lsp.set_execution_id client
+            ~execution_id:
+              (Option.value ~default:0
+                 (last_execution_of_active completed.active));
+          List.iter (Lsp.cancel client)
+            [ Lsp.Hover; Lsp.Completion; Lsp.Definition ])
+        completed.language_client;
+      completed)
+  in
+  let completed = observe_language_document_version completed in
   let execution_id =
     Option.value ~default:0 (last_execution_of_active completed.active)
   in
@@ -1628,6 +2369,45 @@ let handle_host session = function
           quit_armed = false;
           inspector = None;
         }
+  | Language_status ->
+      Continue
+        {
+          session with
+          inspector = Some (language_status_lines session);
+          interaction = Idle;
+          message = None;
+        }
+  | Language_restart -> (
+      match session.language_client with
+      | None -> Continue (language_unavailable session)
+      | Some client ->
+          Lsp.set_execution_id client
+            ~execution_id:
+              (Option.value ~default:0
+                 (last_execution_of_active session.active));
+          Lsp.restart client;
+          Continue
+            {
+              session with
+              diagnostics = [];
+              message = Some "language server restart requested";
+            })
+  | Language_hover -> Continue (begin_hover session)
+  | Language_definition -> Continue (begin_definition session)
+  | Language_complete -> Continue (begin_completion session)
+  | Language_rename -> Continue (begin_rename session)
+  | Language_diagnostic_next ->
+      Continue
+        (move_to_diagnostic session
+           (Input_event.key_press (Input_event.named_key Input_event.Enter))
+           1)
+  | Language_diagnostic_previous ->
+      Continue
+        (move_to_diagnostic session
+           (Input_event.key_press (Input_event.named_key Input_event.Enter))
+           (-1))
+  | Language_diagnostic_describe_current ->
+      Continue (describe_diagnostic session)
   | Force_quit -> Exit session
   | Quit when not (dirty session) -> Exit session
   | Quit when session.quit_armed -> Exit session
@@ -1681,6 +2461,40 @@ let search_ranges session =
   Option.map (fun search -> search.matches) session.search
   |> Option.value ~default:[]
 
+let diagnostic_ranges session =
+  session.diagnostics
+  |> List.map (fun (diagnostic : Language.diagnostic) ->
+      {
+        Zenbu_view.Renderer.start_offset = diagnostic.start_offset;
+        stop_offset = diagnostic.stop_offset;
+        kind =
+          (match diagnostic.severity with
+          | Language.Error -> Zenbu_view.Renderer.Error
+          | Warning -> Zenbu_view.Renderer.Warning
+          | Information -> Zenbu_view.Renderer.Information
+          | Hint -> Zenbu_view.Renderer.Hint);
+      })
+
+let diagnostic_summary session =
+  let count severity =
+    List.length
+      (List.filter
+         (fun (diagnostic : Language.diagnostic) ->
+           diagnostic.severity = severity)
+         session.diagnostics)
+  in
+  let errors = count Language.Error in
+  let warnings = count Language.Warning in
+  let values =
+    [] |> fun values ->
+    if errors = 0 then values
+    else
+      ("E" ^ string_of_int errors) :: values |> fun values ->
+      if warnings = 0 then values
+      else ("W" ^ string_of_int warnings) :: values |> List.rev
+  in
+  if values = [] then None else Some (String.concat " " values)
+
 let active_input_rules = function
   | Vim_runtime runtime -> Vim_runtime.input_rules runtime
   | Selection_runtime runtime -> Selection_runtime.input_rules runtime
@@ -1722,7 +2536,7 @@ let model_choice_name = function
 
 let interaction_overlay session =
   match session.interaction with
-  | Idle | Search_prompt _ | Save_as_prompt _ -> None
+  | Idle | Search_prompt _ | Save_as_prompt _ | Rename_prompt _ -> None
   | Help_view -> Some (help_lines session)
   | Model_picker selected ->
       Some
@@ -1758,6 +2572,32 @@ let interaction_overlay session =
         @ (if visible = [] then [ "  no matching commands" ] else visible)
         @ [ ""; "All active builtin, script, and plugin commands are listed." ]
         )
+  | Hover_view hover ->
+      Some
+        ([ "Language hover"; "" ]
+        @ String.split_on_char '\n' hover.Language.text
+        @ [ ""; "Escape or Enter closes hover." ])
+  | Completion_view { items; selected } ->
+      let visible =
+        items
+        |> List.mapi (fun index item ->
+            Printf.sprintf "%s%s%s"
+              (if index = selected then "> " else "  ")
+              item.Language.label
+              (Option.map (fun detail -> " — " ^ detail) item.detail
+              |> Option.value ~default:""))
+        |> fun values ->
+        let rec take remaining = function
+          | _ when remaining <= 0 -> []
+          | [] -> []
+          | value :: rest -> value :: take (remaining - 1) rest
+        in
+        take 16 values
+      in
+      Some
+        ([ "Language completion"; "" ]
+        @ visible
+        @ [ ""; "Arrow keys select; Enter accepts; Escape cancels." ])
 
 let interaction_message session =
   match session.interaction with
@@ -1767,7 +2607,10 @@ let interaction_message session =
         (Printf.sprintf "/%s  %d match%s" query count
            (if count = 1 then "" else "es"))
   | Save_as_prompt path -> Some ("destination: " ^ path)
-  | Idle | Palette _ | Model_picker _ | Help_view -> session.message
+  | Rename_prompt name -> Some ("rename: " ^ name)
+  | Idle | Palette _ | Model_picker _ | Help_view | Hover_view _
+  | Completion_view _ ->
+      session.message
 
 let render session =
   let presentation = presentation_cache session in
@@ -1781,7 +2624,10 @@ let render session =
       ?overlay:(interaction_overlay session)
       ~source_lines:presentation.source_lines
       ~syntax_spans:presentation.syntax_spans
-      ~search_ranges:(search_ranges session) ()
+      ~search_ranges:(search_ranges session)
+      ~diagnostic_ranges:(diagnostic_ranges session)
+      ?diagnostic_summary:(diagnostic_summary session)
+      ()
   in
   ( {
       session with
@@ -1927,7 +2773,7 @@ let inspect session inspection =
               (match session.interaction with
               | Search_prompt _ -> "prompt: open"
               | Idle | Palette _ | Save_as_prompt _ | Model_picker _ | Help_view
-                ->
+              | Hover_view _ | Completion_view _ | Rename_prompt _ ->
                   "prompt: closed");
             ])
     | Api ->
@@ -1936,6 +2782,7 @@ let inspect session inspection =
              (Inspector.api ~models:all_models ~commands:command_registry
                 ~semantic_behaviors ())
     | Plugins -> "Plugins" :: plugin_lines session
+    | Language -> language_status_lines session
     | Scripts -> (
         match session.generation with
         | None ->
@@ -2015,3 +2862,8 @@ let toggle_inspector session =
   | None -> { session with inspector = Some (inspect session Why) }
 
 let inspector_open session = Option.is_some session.inspector
+
+let language_wakeup_fd session =
+  Option.map Lsp.wakeup_fd session.language_client
+
+let close session = Option.iter Lsp.close session.language_client

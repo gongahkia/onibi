@@ -6,6 +6,10 @@ type style =
   | Message
   | Dim
   | Search_match
+  | Diagnostic_error
+  | Diagnostic_warning
+  | Diagnostic_information
+  | Diagnostic_hint
   | Syntax_keyword
   | Syntax_string
   | Syntax_number

@@ -50,6 +50,13 @@ module Make (Model : Editing_model.S) : sig
     semantic_behaviors:Semantic_behavior_registry.t ->
     t
 
+  val with_syntax_service :
+    t ->
+    syntax_service:Zenbu_syntax.Syntax.Service.t option ->
+    (t, Zenbu_kernel.Error.t) result
+  (** Rebinds the runtime to a host-selected syntax service while preserving
+      shared semantic state and resetting only model-private grammar state. *)
+
   val context : t -> Editor_context.t
   val status : t -> Model_status.t
   val model_descriptor : t -> Editing_model.descriptor

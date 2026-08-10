@@ -59,6 +59,15 @@ type t =
       strategy : string;
       has_error : bool;
     }
+  | Language_service of {
+      execution_id : execution_id;
+      stage : string;
+      server_id : string;
+      request_id : int option;
+      document_version : int option;
+      outcome : string;
+      detail : string option;
+    }
   | Script_lifecycle of {
       execution_id : execution_id;
       phase : string;

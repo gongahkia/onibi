@@ -1,0 +1,5 @@
+(library
+ (name zenbu_lsp)
+ (public_name zenbu.lsp)
+ (modules client)
+ (libraries zenbu_language zenbu_model_api unix threads lsp jsonrpc yojson))

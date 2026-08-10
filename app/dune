@@ -10,5 +10,7 @@
   zenbu_structural_model
   zenbu_scripting
   zenbu_extension
+  zenbu_language
+  zenbu_lsp
   zenbu_view
   unix))

@@ -553,6 +553,18 @@ let format_event = function
     ->
       Printf.sprintf "syntax: %s v%d %s error=%b" language_id document_version
         strategy has_error
+  | Language_service
+      { stage; server_id; request_id; document_version; outcome; detail; _ } ->
+      Printf.sprintf "language: %s server=%s%s%s outcome=%s%s" stage server_id
+        (Option.map (fun id -> " request=" ^ string_of_int id) request_id
+        |> Option.value ~default:"")
+        (Option.map
+           (fun version -> " version=" ^ string_of_int version)
+           document_version
+        |> Option.value ~default:"")
+        outcome
+        (Option.map (fun value -> " " ^ value) detail
+        |> Option.value ~default:"")
   | Script_lifecycle { phase; generation_id; provider; outcome; reason; _ } ->
       Printf.sprintf "script %s %s%s%s" phase outcome
         (Option.map (fun id -> " generation=" ^ string_of_int id) generation_id

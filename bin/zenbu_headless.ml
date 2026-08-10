@@ -5,6 +5,7 @@ open Zenbu_proof_models
 open Zenbu_structural_model
 module Scripting = Zenbu_scripting.Scripting
 module Plugins = Zenbu_extension.Plugin_host
+module Language = Zenbu_language.Language
 
 let fail error =
   prerr_endline (Error.to_string error);
@@ -821,7 +822,8 @@ let run_component_demo () =
                 (Vim_runtime.context recovered |> Editor_context.contents)))
 
 let demo () =
-  Printf.printf "Zenbu M10: one semantic kernel, practical host tools\n\n";
+  Printf.printf
+    "Zenbu M11: one semantic kernel, practical host and language tools\n\n";
   Printf.printf "Initial: \"alpha beta gamma\"\n\nVIM-STYLE: d w\n";
   run_vim_session "alpha beta gamma" [ logical_key "d"; logical_key "w" ];
   print_demo_why Zenbu_app.Session.Vim "alpha beta gamma"
@@ -885,6 +887,95 @@ let inspect_syntax path =
             (Syntax.Snapshot.document_version snapshot)
             (Syntax.Snapshot.has_error snapshot);
           print_node "" (Syntax.Snapshot.root snapshot))
+
+let language_status path =
+  let session =
+    Zenbu_app.Session.create ~model:Zenbu_app.Session.Vim ~file_path:path
+      ~contents:(read_file path)
+      ~dimensions:Zenbu_view.Renderer.{ columns = 80; rows = 24 }
+      ()
+    |> function
+    | Ok session -> session
+    | Error error -> fail error
+  in
+  Fun.protect
+    ~finally:(fun () -> Zenbu_app.Session.close session)
+    (fun () ->
+      let session =
+        match Zenbu_app.Session.language_wakeup_fd session with
+        | None -> session
+        | Some fd ->
+            ignore (Unix.select [ fd ] [] [] 0.2);
+            Zenbu_app.Session.poll_language session
+      in
+      Zenbu_app.Session.inspect session Zenbu_app.Session.Language
+      |> List.iter print_endline)
+
+let language_fake_session executable path =
+  let extension =
+    match Filename.extension path with "" -> ".txt" | extension -> extension
+  in
+  let server =
+    Language.Server_config.create ~id:"headless.fake" ~language_ids:[ "fake" ]
+      ~extensions:[ extension ] ~executable ~root_markers:[] ()
+    |> function
+    | Ok server -> server
+    | Error reason -> fail (Error.Invalid_command_arguments reason)
+  in
+  let language_registry =
+    Language.Registry.register Language.Registry.empty server |> function
+    | Ok registry -> registry
+    | Error reason -> fail (Error.Invalid_command_arguments reason)
+  in
+  let session =
+    Zenbu_app.Session.create ~model:Zenbu_app.Session.Vim ~file_path:path
+      ~contents:(read_file path) ~language_registry
+      ~dimensions:Zenbu_view.Renderer.{ columns = 80; rows = 24 }
+      ()
+    |> function
+    | Ok session -> session
+    | Error error -> fail error
+  in
+  Fun.protect
+    ~finally:(fun () -> Zenbu_app.Session.close session)
+    (fun () ->
+      let deadline = Unix.gettimeofday () +. 1.0 in
+      let rec poll session =
+        if Unix.gettimeofday () >= deadline then session
+        else
+          match Zenbu_app.Session.language_wakeup_fd session with
+          | None -> session
+          | Some fd ->
+              ignore (Unix.select [ fd ] [] [] 0.05);
+              let session = Zenbu_app.Session.poll_language session in
+              let ready =
+                Zenbu_app.Session.inspect session Zenbu_app.Session.Language
+                |> List.exists (String.equal "state: ready")
+              in
+              if ready then session else poll session
+      in
+      let session = poll session in
+      Zenbu_app.Session.inspect session Zenbu_app.Session.Language
+      |> List.iter print_endline)
+
+let lsp_position encoding offset path =
+  let encoding =
+    match Language.Position.of_name encoding with
+    | Some encoding -> encoding
+    | None ->
+        fail
+          (Error.Invalid_command_arguments
+             "position encoding must be utf-8, utf-16, or utf-32")
+  in
+  let contents = read_file path in
+  match
+    Language.Position.offset_to_position ~contents ~encoding ~byte_offset:offset
+  with
+  | Error reason -> fail (Error.Invalid_command_arguments reason)
+  | Ok position ->
+      Printf.printf "encoding: %s\nbyte-offset: %d\nline: %d\ncharacter: %d\n"
+        (Language.Position.encoding_name encoding)
+        offset position.line position.character
 
 let measure_seconds run =
   let started = Unix.gettimeofday () in
@@ -956,9 +1047,39 @@ let benchmark_component_callback () =
 let benchmark () =
   let small = "alpha beta gamma\n" in
   let large = generated_ocaml_source ~bytes:(1024 * 1024) in
-  print_endline "Zenbu M10 benchmark (single process; lower is better)";
+  print_endline "Zenbu M11 benchmark (single process; lower is better)";
   let _, startup = measure_seconds (fun () -> benchmark_session small) in
   report_benchmark "empty-session initialization" startup;
+  let _, lsp_position =
+    measure_seconds (fun () ->
+        match
+          Language.Position.offset_to_position ~contents:large
+            ~encoding:Language.Position.Utf16
+            ~byte_offset:(String.length large / 2)
+        with
+        | Ok _ -> ()
+        | Error reason -> fail (Error.Invalid_command_arguments reason))
+  in
+  report_benchmark "LSP UTF-16 position conversion" lsp_position;
+  let _, lsp_sync =
+    measure_seconds (fun () ->
+        match
+          Language.Sync.incremental_changes ~contents:"alpha 😀 beta\n"
+            ~encoding:Language.Position.Utf16
+            ~edits:
+              [
+                {
+                  Language.start_offset = 0;
+                  stop_offset = 5;
+                  replacement = "ALPHA";
+                };
+              ]
+            ~expected:"ALPHA 😀 beta\n"
+        with
+        | Ok _ -> ()
+        | Error reason -> fail (Error.Invalid_command_arguments reason))
+  in
+  report_benchmark "LSP incremental sync construction" lsp_sync;
   let syntax_session, open_syntax =
     measure_seconds (fun () -> benchmark_session ~language:"ocaml" large)
   in
@@ -1009,7 +1130,9 @@ let benchmark () =
 let usage () =
   prerr_endline
     "usage: zenbu-headless version | demo | replay <fixture.replay> | session \
-     <fixture.session> | syntax <file> | commands | api | describe \
+     <fixture.session> | syntax <file> | language-status <file> | \
+     language-fake-session <fake-lsp-server> <file> | lsp-position \
+     <utf-8|utf-16|utf-32> <byte-offset> <file> | commands | api | describe \
      <command|model|selector|transformation> <id> | bindings \
      <vim|selection|structural> | why <fixture.session> | bindings-session \
      <fixture.session> | history <fixture.session> | selection \
@@ -1027,6 +1150,15 @@ let () =
   | [ _; "demo" ] -> demo ()
   | [ _; "session"; path ] -> run_session path
   | [ _; "syntax"; path ] -> inspect_syntax path
+  | [ _; "language-status"; path ] -> language_status path
+  | [ _; "language-fake-session"; executable; path ] ->
+      language_fake_session executable path
+  | [ _; "lsp-position"; encoding; offset; path ] -> (
+      match int_of_string_opt offset with
+      | Some offset -> lsp_position encoding offset path
+      | None ->
+          fail
+            (Error.Invalid_command_arguments "byte-offset must be an integer"))
   | [ _; "commands" ] -> inspect_commands ()
   | [ _; "api" ] -> inspect_api ()
   | [ _; "config-check"; path ] -> check_config path

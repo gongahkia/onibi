@@ -231,6 +231,10 @@ module Make (Model : Editing_model.S) = struct
             pending_interaction = None;
           }
 
+  let with_syntax_service runtime ~syntax_service =
+    let shared = shared_state runtime in
+    create_from_shared { shared with syntax_service }
+
   let sync_syntax_after_commit runtime ~execution_id history =
     match (runtime.syntax_service, History.current_change history) with
     | Some service, Some change -> (
