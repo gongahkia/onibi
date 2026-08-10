@@ -45,3 +45,10 @@ There is no syntax-aware selection, search UI, multiple-cursor add-next UI,
 selection split command, block selection, grapheme/display-cell navigation, or
 Kakoune/Helix compatibility promise. Clipboard slots and history/repeat use the
 same runtime services as the Vim-style model.
+
+## Runtime bindings inspection
+
+`zenbu-headless bindings selection` and `bindings-session` render the current
+selection-first `Input_rule` values. Its visible-selection grammar remains
+different from Vim's pending-operator grammar even though both reports use the
+same generic format.

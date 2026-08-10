@@ -56,3 +56,11 @@ Insert input is intentionally one transaction per committed `Text_input` event.
 Consequently `.` repeats the last inserted committed text event, not a whole
 insert session. It fully repeats operations such as `dw`; paste is deliberately
 not repeatable in M3 because placement is context-sensitive.
+
+## Runtime bindings inspection
+
+`zenbu-headless bindings vim` and `bindings-session` report the current
+model-owned `Input_rule` values. NORMAL reports operator prefixes; pending
+DELETE/CHANGE/YANK state reports motions, text-object prefixes, and
+cancellation. The runtime report is authoritative for registered inputs; this
+document explains their model semantics.

@@ -64,3 +64,10 @@ named-sibling traversal, not full pre-order traversal, named fields, arbitrary
 descendant queries, language-specific commands, highlighting, or refactoring.
 Unknown-language buffers should use Vim-style or selection-first editing; a
 structural session reports `NO SYNTAX` without mutating text.
+
+## Runtime bindings inspection
+
+`zenbu-headless bindings structural` and `bindings-session` render current
+structural rules. Syntax-dependent rules explicitly say that syntax is needed,
+but the generic inspector sees only stable syntax selector ids and never a
+parser node or backend type.
