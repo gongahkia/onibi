@@ -205,6 +205,17 @@ func (service *Service) Refresh(ctx context.Context, sourceIDs []string) ([]Refr
 			results = append(results, RefreshResult{SourceID: sourceID, State: "skipped", Detail: string(info.Policy.Status)})
 			continue
 		}
+		record, err := service.store.GetSource(ctx, sourceID)
+		if err != nil {
+			return results, err
+		}
+		if record.Health.LastSuccess != nil && info.Policy.PollFloor > 0 {
+			nextAllowed := record.Health.LastSuccess.Add(info.Policy.PollFloor)
+			if time.Now().Before(nextAllowed) {
+				results = append(results, RefreshResult{SourceID: sourceID, State: "skipped", Detail: "poll floor until " + nextAllowed.UTC().Format(time.RFC3339)})
+				continue
+			}
+		}
 		adapter, err := service.sources.Adapter(sourceID)
 		if err != nil {
 			if errors.Is(err, source.ErrUnsupported) {

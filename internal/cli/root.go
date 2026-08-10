@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
@@ -45,6 +47,8 @@ func New(version string) *cobra.Command {
 	root.AddCommand(newAvailabilityCommand(runtime))
 	root.AddCommand(newSearchCommand(runtime))
 	root.AddCommand(newWatchCommand(runtime))
+	root.AddCommand(newDaemonCommand(runtime))
+	root.AddCommand(newAPICommand(runtime))
 	root.AddCommand(newDoctorCommand(runtime))
 	return root
 }
@@ -377,5 +381,7 @@ func Execute(ctx context.Context, version string, args []string, stdout, stderr 
 }
 
 func DefaultExecute(version string) int {
-	return Execute(context.Background(), version, os.Args[1:], os.Stdout, os.Stderr)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return Execute(ctx, version, os.Args[1:], os.Stdout, os.Stderr)
 }
