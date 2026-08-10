@@ -58,8 +58,7 @@ type API struct {
 }
 
 type MCP struct {
-	AllowWrites bool   `toml:"allow_writes"`
-	HTTPAddress string `toml:"http_address"`
+	AllowWrites bool `toml:"allow_writes"`
 }
 
 type Daemon struct {
@@ -77,11 +76,11 @@ func Default() (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("resolve user data directory: %w", err)
 	}
-	dataDir = filepath.Join(dataDir, "courtsg")
+	dataDir = filepath.Join(dataDir, "kaypoh")
 	return Config{
 		Version:      CurrentVersion,
 		DataDir:      dataDir,
-		DatabasePath: filepath.Join(dataDir, "courtsg.db"),
+		DatabasePath: filepath.Join(dataDir, "kaypoh.db"),
 		Sources: map[string]Source{
 			"sportsg-facilities": {Enabled: true},
 			"onemap":             {Enabled: true},
@@ -89,7 +88,7 @@ func Default() (Config, error) {
 		Routing:  Routing{Provider: "onemap"},
 		Webhooks: map[string]Webhook{},
 		API:      API{Address: "127.0.0.1:8373"},
-		MCP:      MCP{HTTPAddress: "127.0.0.1:8374"},
+		MCP:      MCP{},
 		Daemon:   Daemon{RefreshMinutes: 10},
 		Profiles: map[string]Profile{},
 	}, nil
@@ -111,7 +110,7 @@ func DefaultPath() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve user config directory: %w", err)
 	}
-	return filepath.Join(configDir, "courtsg", "config.toml"), nil
+	return filepath.Join(configDir, "kaypoh", "config.toml"), nil
 }
 
 func Load(path string) (Config, error) {
@@ -147,9 +146,6 @@ func (config Config) Validate() error {
 	}
 	if config.API.Address == "" {
 		return errors.New("api.address cannot be empty")
-	}
-	if config.MCP.HTTPAddress == "" {
-		return errors.New("mcp.http_address cannot be empty")
 	}
 	if config.API.AllowRemote && strings.TrimSpace(config.API.AuthToken) == "" {
 		return errors.New("api.auth_token is required when api.allow_remote is true")
@@ -201,7 +197,7 @@ provider = "onemap"
 
 [telegram]
 enabled = false
-# bot_token = "env:COURTSG_TELEGRAM_BOT_TOKEN"
+# bot_token = "env:KAYPOH_TELEGRAM_BOT_TOKEN"
 # allowed_chat_ids = [123456789]
 
 [api]
@@ -210,7 +206,6 @@ allow_remote = false
 
 [mcp]
 allow_writes = false
-http_address = "127.0.0.1:8374"
 
 [daemon]
 refresh_minutes = 10

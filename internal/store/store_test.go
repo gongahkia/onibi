@@ -8,7 +8,7 @@ import (
 
 func TestOpenAppliesMigrations(t *testing.T) {
 	ctx := context.Background()
-	store, err := Open(ctx, filepath.Join(t.TempDir(), "courtsg.db"))
+	store, err := Open(ctx, filepath.Join(t.TempDir(), "kaypoh.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

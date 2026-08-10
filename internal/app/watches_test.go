@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gongahkia/courtsg/internal/config"
-	"github.com/gongahkia/courtsg/internal/domain"
+	"github.com/gongahkia/kaypoh/internal/config"
+	"github.com/gongahkia/kaypoh/internal/domain"
 )
 
 type fakeNotifier struct{ calls int }
@@ -22,7 +22,7 @@ func TestEvaluateWatchesCreatesOneIdempotentEvent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.DatabasePath = filepath.Join(t.TempDir(), "courtsg.db")
+	cfg.DatabasePath = filepath.Join(t.TempDir(), "kaypoh.db")
 	service, err := Open(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)

@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/gongahkia/courtsg/internal/domain"
+	"github.com/gongahkia/kaypoh/internal/domain"
 )
 
 func (store *Store) CreateWatch(ctx context.Context, watch domain.Watch) (domain.Watch, error) {

@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gongahkia/courtsg/internal/domain"
+	"github.com/gongahkia/kaypoh/internal/domain"
 )
 
 const defaultMaxResponseBytes int64 = 8 << 20
@@ -97,7 +97,7 @@ func NewHTTPClient(infos []domain.SourceInfo) *HTTPClient {
 		client: &http.Client{Timeout: 25 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error {
 			return http.ErrUseLastResponse
 		}},
-		userAgent:        "courtsg/0.1 (+https://github.com/gongahkia/courtsg)",
+		userAgent:        "kaypoh/0.1 (+https://github.com/gongahkia/kaypoh)",
 		maxResponseBytes: defaultMaxResponseBytes,
 		policies:         policies,
 		cache:            make(map[string]cacheEntry),

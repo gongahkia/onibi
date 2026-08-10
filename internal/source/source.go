@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gongahkia/courtsg/internal/domain"
+	"github.com/gongahkia/kaypoh/internal/domain"
 )
 
 var (

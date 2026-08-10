@@ -4,8 +4,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/gongahkia/courtsg/internal/domain"
-	"github.com/gongahkia/courtsg/internal/source"
+	"github.com/gongahkia/kaypoh/internal/domain"
+	"github.com/gongahkia/kaypoh/internal/source"
 )
 
 func TestParseSearchResponse(t *testing.T) {

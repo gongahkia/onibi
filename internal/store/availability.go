@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/gongahkia/courtsg/internal/domain"
+	"github.com/gongahkia/kaypoh/internal/domain"
 )
 
 type SlotWithVenue struct {

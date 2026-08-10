@@ -5,12 +5,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gongahkia/courtsg/internal/domain"
+	"github.com/gongahkia/kaypoh/internal/domain"
 )
 
 func TestUpsertAndReadSource(t *testing.T) {
 	ctx := context.Background()
-	store, err := Open(ctx, t.TempDir()+"/courtsg.db")
+	store, err := Open(ctx, t.TempDir()+"/kaypoh.db")
 	if err != nil {
 		t.Fatal(err)
 	}

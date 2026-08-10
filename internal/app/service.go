@@ -9,15 +9,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gongahkia/courtsg/internal/config"
-	"github.com/gongahkia/courtsg/internal/domain"
-	"github.com/gongahkia/courtsg/internal/geo"
-	"github.com/gongahkia/courtsg/internal/notifier"
-	"github.com/gongahkia/courtsg/internal/query"
-	"github.com/gongahkia/courtsg/internal/ranking"
-	"github.com/gongahkia/courtsg/internal/source"
-	"github.com/gongahkia/courtsg/internal/sources/sportsg"
-	"github.com/gongahkia/courtsg/internal/store"
+	"github.com/gongahkia/kaypoh/internal/config"
+	"github.com/gongahkia/kaypoh/internal/domain"
+	"github.com/gongahkia/kaypoh/internal/geo"
+	"github.com/gongahkia/kaypoh/internal/notifier"
+	"github.com/gongahkia/kaypoh/internal/query"
+	"github.com/gongahkia/kaypoh/internal/ranking"
+	"github.com/gongahkia/kaypoh/internal/source"
+	"github.com/gongahkia/kaypoh/internal/sources/sportsg"
+	"github.com/gongahkia/kaypoh/internal/store"
 )
 
 // Service is the only application layer used by the CLI, TUI, HTTP API and MCP.

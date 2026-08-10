@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/gongahkia/courtsg/internal/daemon"
+	"github.com/gongahkia/kaypoh/internal/daemon"
 )
 
 func newDaemonCommand(runtime *runtime) *cobra.Command {

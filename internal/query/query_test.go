@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gongahkia/courtsg/internal/domain"
-	"github.com/gongahkia/courtsg/internal/store"
+	"github.com/gongahkia/kaypoh/internal/domain"
+	"github.com/gongahkia/kaypoh/internal/store"
 )
 
 func TestFilterComposesContiguousSlotsAndAppliesTotalPrice(t *testing.T) {

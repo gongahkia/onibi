@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gongahkia/courtsg/internal/domain"
+	"github.com/gongahkia/kaypoh/internal/domain"
 )
 
 func TestWatchAndEventPersistenceIsIdempotent(t *testing.T) {
 	ctx := context.Background()
-	store, err := Open(ctx, filepath.Join(t.TempDir(), "courtsg.db"))
+	store, err := Open(ctx, filepath.Join(t.TempDir(), "kaypoh.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

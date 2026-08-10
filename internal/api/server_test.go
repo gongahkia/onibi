@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gongahkia/courtsg/internal/app"
-	"github.com/gongahkia/courtsg/internal/config"
-	"github.com/gongahkia/courtsg/internal/domain"
+	"github.com/gongahkia/kaypoh/internal/app"
+	"github.com/gongahkia/kaypoh/internal/config"
+	"github.com/gongahkia/kaypoh/internal/domain"
 )
 
 func TestSearchEndpointUsesApplicationService(t *testing.T) {
@@ -20,7 +20,7 @@ func TestSearchEndpointUsesApplicationService(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.DatabasePath = filepath.Join(t.TempDir(), "courtsg.db")
+	cfg.DatabasePath = filepath.Join(t.TempDir(), "kaypoh.db")
 	service, err := app.Open(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -54,7 +54,7 @@ func TestRemoteAPIRequiresBearerToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.DatabasePath = filepath.Join(t.TempDir(), "courtsg.db")
+	cfg.DatabasePath = filepath.Join(t.TempDir(), "kaypoh.db")
 	cfg.API = config.API{Address: "0.0.0.0:8373", AllowRemote: true, AuthToken: "test-token"}
 	service, err := app.Open(context.Background(), cfg)
 	if err != nil {

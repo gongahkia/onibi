@@ -6,7 +6,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/gongahkia/courtsg/internal/domain"
+	"github.com/gongahkia/kaypoh/internal/domain"
 )
 
 var ErrCredentialsRequired = errors.New("routing credentials are not configured")

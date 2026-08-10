@@ -8,7 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/gongahkia/courtsg/internal/domain"
+	"github.com/gongahkia/kaypoh/internal/domain"
 )
 
 func newWatchCommand(runtime *runtime) *cobra.Command {
@@ -162,6 +162,58 @@ func newWatchCommand(runtime *runtime) *cobra.Command {
 	events.Flags().StringVar(&eventWatchID, "watch", "", "filter by watch ID")
 	events.Flags().IntVar(&eventLimit, "limit", 100, "maximum events (1-1000)")
 	command.AddCommand(events)
+	var deliveryEventID string
+	var deliveryLimit int
+	deliveries := &cobra.Command{
+		Use:   "deliveries",
+		Short: "List webhook and Telegram delivery outcomes",
+		RunE: func(command *cobra.Command, args []string) error {
+			service, err := runtime.openService(command.Context())
+			if err != nil {
+				return err
+			}
+			defer service.Close()
+			results, err := service.Deliveries(command.Context(), deliveryEventID, deliveryLimit)
+			if err != nil {
+				return err
+			}
+			if runtime.json {
+				return writeJSON(command.OutOrStdout(), results)
+			}
+			table := tabwriter.NewWriter(command.OutOrStdout(), 0, 4, 2, ' ', 0)
+			fmt.Fprintln(table, "EVENT\tTARGET\tSTATUS\tATTEMPTS\tERROR")
+			for _, result := range results {
+				fmt.Fprintf(table, "%s\t%s\t%s\t%d\t%s\n", result.EventID, result.TargetID, result.Status, result.Attempts, result.Error)
+			}
+			return table.Flush()
+		},
+	}
+	deliveries.Flags().StringVar(&deliveryEventID, "event", "", "filter by event ID")
+	deliveries.Flags().IntVar(&deliveryLimit, "limit", 100, "maximum deliveries (1-1000)")
+	command.AddCommand(deliveries)
+	var retryLimit int
+	retry := &cobra.Command{
+		Use:   "retry-deliveries",
+		Short: "Retry pending or failed deliveries up to five total attempts",
+		RunE: func(command *cobra.Command, args []string) error {
+			service, err := runtime.openService(command.Context())
+			if err != nil {
+				return err
+			}
+			defer service.Close()
+			results, err := service.RetryDeliveries(command.Context(), 5, retryLimit)
+			if err != nil {
+				return err
+			}
+			if runtime.json {
+				return writeJSON(command.OutOrStdout(), results)
+			}
+			_, err = fmt.Fprintf(command.OutOrStdout(), "retried %d delivery record(s)\n", len(results))
+			return err
+		},
+	}
+	retry.Flags().IntVar(&retryLimit, "limit", 100, "maximum deliveries to retry (1-1000)")
+	command.AddCommand(retry)
 	return command
 }
 

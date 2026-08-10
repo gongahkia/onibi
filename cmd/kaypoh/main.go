@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/gongahkia/courtsg/internal/cli"
+	"github.com/gongahkia/kaypoh/internal/cli"
 )
 
 var version = "dev"

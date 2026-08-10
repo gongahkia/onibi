@@ -17,8 +17,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gongahkia/courtsg/internal/config"
-	"github.com/gongahkia/courtsg/internal/domain"
+	"github.com/gongahkia/kaypoh/internal/config"
+	"github.com/gongahkia/kaypoh/internal/domain"
 )
 
 type Sender interface {
@@ -65,7 +65,7 @@ func (dispatcher *Dispatcher) sendTelegram(ctx context.Context, event domain.Eve
 		return 0, errors.New("create Telegram request")
 	}
 	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("User-Agent", "courtsg/0.1")
+	request.Header.Set("User-Agent", "kaypoh/0.1")
 	return dispatcher.do(request)
 }
 
@@ -94,13 +94,13 @@ func (dispatcher *Dispatcher) sendWebhook(ctx context.Context, event domain.Even
 		return 0, fmt.Errorf("create webhook %q request: %w", target.WebhookName, err)
 	}
 	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("User-Agent", "courtsg/0.1")
-	request.Header.Set("X-CourtSG-Event-ID", event.ID)
-	request.Header.Set("X-CourtSG-Event-Type", event.Type)
+	request.Header.Set("User-Agent", "kaypoh/0.1")
+	request.Header.Set("X-Kaypoh-Event-ID", event.ID)
+	request.Header.Set("X-Kaypoh-Event-Type", event.Type)
 	if secret != "" {
 		mac := hmac.New(sha256.New, []byte(secret))
 		_, _ = mac.Write(body)
-		request.Header.Set("X-CourtSG-Signature", "sha256="+hex.EncodeToString(mac.Sum(nil)))
+		request.Header.Set("X-Kaypoh-Signature", "sha256="+hex.EncodeToString(mac.Sum(nil)))
 	}
 	return dispatcher.do(request)
 }
@@ -119,7 +119,7 @@ func (dispatcher *Dispatcher) do(request *http.Request) (int, error) {
 }
 
 func telegramText(event domain.Event) string {
-	return fmt.Sprintf("courtSG %s\nevent: %s\nwatch: %s", event.Type, event.ID, event.WatchID)
+	return fmt.Sprintf("kaypoh %s\nevent: %s\nwatch: %s", event.Type, event.ID, event.WatchID)
 }
 
 func containsChatID(values []int64, needle int64) bool {

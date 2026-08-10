@@ -10,14 +10,14 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/gongahkia/courtsg/internal/config"
-	"github.com/gongahkia/courtsg/internal/domain"
+	"github.com/gongahkia/kaypoh/internal/config"
+	"github.com/gongahkia/kaypoh/internal/domain"
 )
 
 func TestWebhookSignsVersionedEvent(t *testing.T) {
 	const secret = "test-secret"
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.Header.Get("X-CourtSG-Event-ID") != "event" || request.Header.Get("X-CourtSG-Event-Type") != "availability_match" {
+		if request.Header.Get("X-Kaypoh-Event-ID") != "event" || request.Header.Get("X-Kaypoh-Event-Type") != "availability_match" {
 			t.Fatalf("missing event headers")
 		}
 		body, err := io.ReadAll(request.Body)
@@ -26,7 +26,7 @@ func TestWebhookSignsVersionedEvent(t *testing.T) {
 		}
 		mac := hmac.New(sha256.New, []byte(secret))
 		_, _ = mac.Write(body)
-		if request.Header.Get("X-CourtSG-Signature") != "sha256="+hex.EncodeToString(mac.Sum(nil)) {
+		if request.Header.Get("X-Kaypoh-Signature") != "sha256="+hex.EncodeToString(mac.Sum(nil)) {
 			t.Fatal("invalid webhook signature")
 		}
 		writer.WriteHeader(http.StatusAccepted)

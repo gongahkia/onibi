@@ -8,9 +8,9 @@ import (
 	"sort"
 	"time"
 
-	"github.com/gongahkia/courtsg/internal/domain"
-	"github.com/gongahkia/courtsg/internal/geo"
-	"github.com/gongahkia/courtsg/internal/query"
+	"github.com/gongahkia/kaypoh/internal/domain"
+	"github.com/gongahkia/kaypoh/internal/geo"
+	"github.com/gongahkia/kaypoh/internal/query"
 )
 
 type scored struct {

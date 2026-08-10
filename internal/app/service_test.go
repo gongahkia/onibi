@@ -4,13 +4,14 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
-	"github.com/gongahkia/courtsg/internal/config"
-	"github.com/gongahkia/courtsg/internal/domain"
-	"github.com/gongahkia/courtsg/internal/geo"
-	"github.com/gongahkia/courtsg/internal/source"
+	"github.com/gongahkia/kaypoh/internal/config"
+	"github.com/gongahkia/kaypoh/internal/domain"
+	"github.com/gongahkia/kaypoh/internal/geo"
+	"github.com/gongahkia/kaypoh/internal/source"
 )
 
 func TestOpenSeedsSourcePolicy(t *testing.T) {
@@ -18,7 +19,7 @@ func TestOpenSeedsSourcePolicy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	config.DatabasePath = filepath.Join(t.TempDir(), "courtsg.db")
+	config.DatabasePath = filepath.Join(t.TempDir(), "kaypoh.db")
 	service, err := Open(context.Background(), config)
 	if err != nil {
 		t.Fatal(err)
@@ -41,7 +42,7 @@ func TestRouteFallsBackWithoutOptionalOneMapCredentials(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.DatabasePath = filepath.Join(t.TempDir(), "courtsg.db")
+	cfg.DatabasePath = filepath.Join(t.TempDir(), "kaypoh.db")
 	service, err := Open(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -61,7 +62,7 @@ func TestImportManualAvailabilityAndSearch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.DatabasePath = filepath.Join(t.TempDir(), "courtsg.db")
+	cfg.DatabasePath = filepath.Join(t.TempDir(), "kaypoh.db")
 	service, err := Open(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -86,5 +87,29 @@ func TestImportManualAvailabilityAndSearch(t *testing.T) {
 	}
 	if len(results) != 1 || results[0].Slot.SourceID != "local-manual" || results[0].Breakdown.CourtPriceCents == nil {
 		t.Fatalf("Search() = %#v", results)
+	}
+}
+
+func TestRefreshHonoursSourcePollFloor(t *testing.T) {
+	cfg, err := config.Default()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.DatabasePath = filepath.Join(t.TempDir(), "kaypoh.db")
+	service, err := Open(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = service.Close() })
+	now := time.Now().UTC()
+	if err := service.store.SaveSourceHealth(context.Background(), domain.SourceHealth{SourceID: "sportsg-facilities", State: domain.HealthHealthy, LastSuccess: &now}); err != nil {
+		t.Fatal(err)
+	}
+	results, err := service.Refresh(context.Background(), []string{"sportsg-facilities"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].State != "skipped" || !strings.Contains(results[0].Detail, "poll floor") {
+		t.Fatalf("Refresh() = %#v", results)
 	}
 }

@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/gongahkia/courtsg/internal/api"
+	"github.com/gongahkia/kaypoh/internal/api"
 )
 
 func newAPICommand(runtime *runtime) *cobra.Command {

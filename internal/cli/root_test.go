@@ -8,7 +8,7 @@ import (
 )
 
 func TestSourcesListJSONIsClean(t *testing.T) {
-	database := t.TempDir() + "/courtsg.db"
+	database := t.TempDir() + "/kaypoh.db"
 	var stdout, stderr bytes.Buffer
 	exit := Execute(context.Background(), "test", []string{"--db", database, "--json", "sources", "list"}, &stdout, &stderr)
 	if exit != 0 {

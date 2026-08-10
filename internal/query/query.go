@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gongahkia/courtsg/internal/domain"
-	"github.com/gongahkia/courtsg/internal/geo"
-	"github.com/gongahkia/courtsg/internal/store"
+	"github.com/gongahkia/kaypoh/internal/domain"
+	"github.com/gongahkia/kaypoh/internal/geo"
+	"github.com/gongahkia/kaypoh/internal/store"
 )
 
 // Candidate is a bookable normalized interval. ComponentSlotIDs makes a

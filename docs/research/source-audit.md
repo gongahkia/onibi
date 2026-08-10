@@ -4,7 +4,7 @@ Last reviewed: 2026-08-10 (Asia/Singapore)
 
 ## Decision
 
-`courtsg` automates only documented, officially supported data/API surfaces.
+`kaypoh` automates only documented, officially supported data/API surfaces.
 SportSG's open data.gov.sg facility GeoJSON is enabled for live venue discovery.
 OneMap's documented APIs are enabled when the user supplies registered
 credentials. Geographic ranking falls back to a local Haversine calculation.
@@ -96,11 +96,11 @@ player-organised games. Neither is a documented compliant availability API.
 ## MCP and routing audit
 
 OneMap Search now requires a token; its documented routing supports `walk`,
-`cycle`, `drive` and `pt`, returns `401`/`429`, and is cached by `courtsg`.
+`cycle`, `drive` and `pt`, returns `401`/`429`, and is cached by `kaypoh`.
 
 The [official Go MCP SDK][mcp-go-sdk] is Tier 1, supports stdio and Streamable
 HTTP, and its v1.7.0 release supports MCP 2026-07-28 while preserving older
-protocols. `courtsg` uses this SDK rather than hand-rolled JSON-RPC. Stdio is the
+protocols. `kaypoh` uses this SDK rather than hand-rolled JSON-RPC. Stdio is the
 primary transport. Streamable HTTP is loopback-only with origin validation and
 write tools disabled by default.
 

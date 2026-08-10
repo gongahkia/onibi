@@ -17,13 +17,13 @@ func TestLoadMissingUsesDefaults(t *testing.T) {
 }
 
 func TestResolveSecret(t *testing.T) {
-	t.Setenv("COURTSG_TEST_SECRET", "present")
+	t.Setenv("KAYPOH_TEST_SECRET", "present")
 	config := Config{}
-	value, err := config.ResolveSecret("env:COURTSG_TEST_SECRET")
+	value, err := config.ResolveSecret("env:KAYPOH_TEST_SECRET")
 	if err != nil || value != "present" {
 		t.Fatalf("ResolveSecret() = %q, %v", value, err)
 	}
-	if _, err := config.ResolveSecret("env:COURTSG_MISSING_SECRET"); err == nil {
+	if _, err := config.ResolveSecret("env:KAYPOH_MISSING_SECRET"); err == nil {
 		t.Fatal("expected missing variable error")
 	}
 }

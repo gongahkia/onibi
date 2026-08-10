@@ -6,12 +6,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gongahkia/courtsg/internal/domain"
+	"github.com/gongahkia/kaypoh/internal/domain"
 )
 
 func TestUpsertAndListAvailabilityRetainsVenueAttributes(t *testing.T) {
 	ctx := context.Background()
-	store, err := Open(ctx, filepath.Join(t.TempDir(), "courtsg.db"))
+	store, err := Open(ctx, filepath.Join(t.TempDir(), "kaypoh.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -19,7 +19,7 @@ func TestUpsertAndListAvailabilityRetainsVenueAttributes(t *testing.T) {
 	if err := store.UpsertSports(ctx, domain.Sports()); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.UpsertSources(ctx, []domain.SourceInfo{{ID: "local-manual", Name: "Local manual input", Operator: "courtSG user", Policy: domain.SourcePolicy{Status: domain.SourceManualOnly}}}, func(string) bool { return false }); err != nil {
+	if err := store.UpsertSources(ctx, []domain.SourceInfo{{ID: "local-manual", Name: "Local manual input", Operator: "kaypoh user", Policy: domain.SourcePolicy{Status: domain.SourceManualOnly}}}, func(string) bool { return false }); err != nil {
 		t.Fatal(err)
 	}
 	indoor := true

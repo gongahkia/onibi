@@ -13,10 +13,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gongahkia/courtsg/internal/app"
-	"github.com/gongahkia/courtsg/internal/config"
-	"github.com/gongahkia/courtsg/internal/domain"
-	"github.com/gongahkia/courtsg/internal/store"
+	"github.com/gongahkia/kaypoh/internal/app"
+	"github.com/gongahkia/kaypoh/internal/config"
+	"github.com/gongahkia/kaypoh/internal/domain"
+	"github.com/gongahkia/kaypoh/internal/store"
 )
 
 const maxRequestBody = 1 << 20
@@ -121,7 +121,7 @@ func (server *Server) venues(writer http.ResponseWriter, request *http.Request) 
 
 func (server *Server) search(writer http.ResponseWriter, request *http.Request) {
 	var query domain.Query
-	if err := decodeJSON(request, &query); err != nil {
+	if err := decodeJSON(writer, request, &query); err != nil {
 		writeError(writer, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -145,7 +145,7 @@ func (server *Server) watches(writer http.ResponseWriter, request *http.Request)
 
 func (server *Server) createWatch(writer http.ResponseWriter, request *http.Request) {
 	var watch domain.Watch
-	if err := decodeJSON(request, &watch); err != nil {
+	if err := decodeJSON(writer, request, &watch); err != nil {
 		writeError(writer, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -194,8 +194,8 @@ func (server *Server) deliveries(writer http.ResponseWriter, request *http.Reque
 	writeJSON(writer, http.StatusOK, result)
 }
 
-func decodeJSON(request *http.Request, value any) error {
-	request.Body = http.MaxBytesReader(nil, request.Body, maxRequestBody)
+func decodeJSON(writer http.ResponseWriter, request *http.Request, value any) error {
+	request.Body = http.MaxBytesReader(writer, request.Body, maxRequestBody)
 	decoder := json.NewDecoder(request.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(value); err != nil {

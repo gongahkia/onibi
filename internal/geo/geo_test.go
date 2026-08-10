@@ -3,7 +3,7 @@ package geo
 import (
 	"testing"
 
-	"github.com/gongahkia/courtsg/internal/domain"
+	"github.com/gongahkia/kaypoh/internal/domain"
 )
 
 func TestHaversineAndFallbackAreDeterministic(t *testing.T) {

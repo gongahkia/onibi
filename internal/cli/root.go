@@ -14,9 +14,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/gongahkia/courtsg/internal/app"
-	"github.com/gongahkia/courtsg/internal/config"
-	"github.com/gongahkia/courtsg/internal/store"
+	"github.com/gongahkia/kaypoh/internal/app"
+	"github.com/gongahkia/kaypoh/internal/config"
+	"github.com/gongahkia/kaypoh/internal/store"
+	"github.com/gongahkia/kaypoh/internal/tui"
 )
 
 type runtime struct {
@@ -28,12 +29,20 @@ type runtime struct {
 func New(version string) *cobra.Command {
 	runtime := &runtime{}
 	root := &cobra.Command{
-		Use:           "courtsg",
+		Use:           "kaypoh",
 		Short:         "Singapore sports-facility discovery and availability monitoring",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(command *cobra.Command, args []string) error {
-			return errors.New("the interactive TUI is not available until the next milestone; use `courtsg --help`")
+			if runtime.json {
+				return errors.New("the interactive TUI does not support --json; use a subcommand")
+			}
+			service, err := runtime.openService(command.Context())
+			if err != nil {
+				return err
+			}
+			defer service.Close()
+			return tui.Run(command.Context(), service, command.InOrStdin(), command.OutOrStdout())
 		},
 	}
 	root.PersistentFlags().StringVar(&runtime.configPath, "config", "", "config file path")

@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gongahkia/courtsg/internal/app"
-	"github.com/gongahkia/courtsg/internal/config"
+	"github.com/gongahkia/kaypoh/internal/app"
+	"github.com/gongahkia/kaypoh/internal/config"
 )
 
 func TestLockPreventsSecondDaemon(t *testing.T) {
@@ -16,7 +16,7 @@ func TestLockPreventsSecondDaemon(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg.DataDir = t.TempDir()
-	cfg.DatabasePath = filepath.Join(cfg.DataDir, "courtsg.db")
+	cfg.DatabasePath = filepath.Join(cfg.DataDir, "kaypoh.db")
 	service, err := app.Open(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)

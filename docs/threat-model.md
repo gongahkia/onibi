@@ -13,12 +13,12 @@ not a booking agent.
   concurrency and review time. Unknown policy disables network fetching.
 - HTTP validates scheme/host, bounds bodies/redirects/retries, honors context and
   redacts credentials from logs/errors.
-- SQLite uses parameterized queries, foreign keys, transactions and bounded
-  retention. Secrets never appear in HTTP/MCP/doctor responses.
-- Terminal control characters are removed; Telegram MarkdownV2 is escaped;
-  webhook event data is JSON encoded and HMAC signed.
-- API and Streamable MCP HTTP bind to loopback. Non-loopback requires explicit
-  authentication. MCP writes are disabled by default.
+- SQLite uses parameterized queries, foreign keys, and transactions. Secrets
+  never appear in HTTP/MCP/doctor responses.
+- Telegram is sent as plain text; webhook event data is JSON encoded and HMAC
+  signed when a webhook secret is configured.
+- The API binds to loopback by default. Non-loopback requires explicit bearer
+  authentication. MCP stdio writes are disabled by default.
 - Telegram mutation is limited to configured chat IDs. Webhooks are HTTPS-only
   except an explicit development override.
 - No telemetry. The app never stores Singpass/booking credentials or automates

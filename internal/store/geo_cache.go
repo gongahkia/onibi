@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/gongahkia/courtsg/internal/geo"
+	"github.com/gongahkia/kaypoh/internal/geo"
 )
 
 func (store *Store) GetGeocodeCache(ctx context.Context, key string, now time.Time) (geo.Place, bool, error) {

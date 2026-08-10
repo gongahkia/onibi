@@ -11,8 +11,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/gongahkia/courtsg/internal/app"
-	"github.com/gongahkia/courtsg/internal/domain"
+	"github.com/gongahkia/kaypoh/internal/app"
+	"github.com/gongahkia/kaypoh/internal/domain"
 )
 
 func newSearchCommand(runtime *runtime) *cobra.Command {

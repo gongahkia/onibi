@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gongahkia/courtsg/internal/domain"
+	"github.com/gongahkia/kaypoh/internal/domain"
 )
 
 type VenueFilter struct {

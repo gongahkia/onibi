@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gongahkia/courtsg/internal/domain"
+	"github.com/gongahkia/kaypoh/internal/domain"
 )
 
 func TestHTTPClientRejectsNonAllowlistedHost(t *testing.T) {

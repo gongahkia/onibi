@@ -10,8 +10,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gongahkia/courtsg/internal/app"
-	"github.com/gongahkia/courtsg/internal/domain"
+	"github.com/gongahkia/kaypoh/internal/app"
+	"github.com/gongahkia/kaypoh/internal/domain"
 )
 
 type Runner struct {
@@ -36,7 +36,7 @@ func New(service *app.Service, dataDir string, interval time.Duration) (*Runner,
 	if dataDir == "" {
 		return nil, errors.New("daemon data directory is required")
 	}
-	return &Runner{service: service, interval: interval, lockPath: filepath.Join(dataDir, "courtsg.lock")}, nil
+	return &Runner{service: service, interval: interval, lockPath: filepath.Join(dataDir, "kaypoh.lock")}, nil
 }
 
 // Run holds a local advisory lock for the process lifetime and exits cleanly
@@ -105,7 +105,7 @@ func acquireLock(path string) (*lockFile, error) {
 	}
 	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		file.Close()
-		return nil, fmt.Errorf("another courtSG daemon is already running: %w", err)
+		return nil, fmt.Errorf("another kaypoh daemon is already running: %w", err)
 	}
 	return &lockFile{file: file}, nil
 }

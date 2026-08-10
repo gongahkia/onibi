@@ -8,8 +8,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/gongahkia/courtsg/internal/app"
-	"github.com/gongahkia/courtsg/internal/config"
+	"github.com/gongahkia/kaypoh/internal/app"
+	"github.com/gongahkia/kaypoh/internal/config"
 )
 
 func TestReadOnlyMCPServerServesSearch(t *testing.T) {
@@ -17,7 +17,7 @@ func TestReadOnlyMCPServerServesSearch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.DatabasePath = filepath.Join(t.TempDir(), "courtsg.db")
+	cfg.DatabasePath = filepath.Join(t.TempDir(), "kaypoh.db")
 	service, err := app.Open(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -38,7 +38,7 @@ func TestReadOnlyMCPServerServesSearch(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer session.Close()
-	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "courtsg_search_availability", Arguments: map[string]any{"sports": []string{"badminton"}, "minimum_duration_minutes": 60}})
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "kaypoh_search_availability", Arguments: map[string]any{"sports": []string{"badminton"}, "minimum_duration_minutes": 60}})
 	if err != nil {
 		t.Fatal(err)
 	}
