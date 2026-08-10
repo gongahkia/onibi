@@ -82,7 +82,11 @@ type interaction =
   | Model_picker of int
   | Help_view
   | Hover_view of Language.hover
-  | Completion_view of { items : Language.completion list; selected : int }
+  | Completion_view of {
+      items : Language.completion list;
+      selected : int;
+      query : string;
+    }
   | Rename_prompt of string
 
 type outcome = Continue of t | Exit of t
@@ -703,7 +707,8 @@ let status session =
         ~description:"read-only language hover; Escape closes" ()
   | Completion_view _ ->
       host_status ~id:"language-completion" ~label:"COMPLETE"
-        ~description:"choose a language completion item" ()
+        ~description:"filter and choose a language completion item"
+        ~text_entry:true ()
   | Rename_prompt _ ->
       host_status ~id:"language-rename" ~label:"RENAME"
         ~description:"enter a new symbol name; Enter requests rename"
@@ -1429,7 +1434,7 @@ let poll_language session =
         else
           {
             session with
-            interaction = Completion_view { items; selected = 0 };
+            interaction = Completion_view { items; selected = 0; query = "" };
             message = None;
           }
     | Lsp.Completion_result _ -> session
@@ -1783,6 +1788,15 @@ let contains_casefold ~needle text =
     else loop (index + 1)
   in
   loop 0
+
+let matching_completion_items items query =
+  items
+  |> List.filter (fun (item : Language.completion) ->
+      contains_casefold ~needle:query item.label
+      || Option.value ~default:false
+           (Option.map (contains_casefold ~needle:query) item.filter_text)
+      || Option.value ~default:false
+           (Option.map (contains_casefold ~needle:query) item.detail))
 
 let language_host_command = function
   | Language_status | Language_restart | Language_hover | Language_definition
@@ -2216,7 +2230,8 @@ let input_for_interaction session input =
         || event_is_named input Input_event.Enter
       then { session with interaction = Idle; message = None }
       else session
-  | Completion_view { items; selected } ->
+  | Completion_view { items; selected; query } -> (
+      let visible = matching_completion_items items query in
       if event_is_named input Input_event.Escape then
         {
           session with
@@ -2227,25 +2242,46 @@ let input_for_interaction session input =
         {
           session with
           interaction =
-            Completion_view { items; selected = max 0 (selected - 1) };
+            Completion_view { items; selected = max 0 (selected - 1); query };
         }
       else if event_is_named input Input_event.Arrow_down then
         {
           session with
           interaction =
             Completion_view
-              { items; selected = min (List.length items - 1) (selected + 1) };
+              {
+                items;
+                selected =
+                  (if visible = [] then 0
+                   else min (List.length visible - 1) (selected + 1));
+                query;
+              };
         }
       else if event_is_named input Input_event.Enter then
-        match List.nth_opt items selected with
+        match List.nth_opt visible selected with
         | None ->
             {
               session with
               interaction = Idle;
-              message = Some "completion cancelled";
+              message = Some "completion filter has no matching item";
             }
         | Some item -> accept_completion session input item
-      else session
+      else if event_is_named input Input_event.Backspace then
+        {
+          session with
+          interaction =
+            Completion_view
+              { items; selected = 0; query = drop_last_utf8 query };
+        }
+      else
+        match event_text input with
+        | None -> session
+        | Some text ->
+            {
+              session with
+              interaction =
+                Completion_view { items; selected = 0; query = query ^ text };
+            })
   | Rename_prompt name -> (
       if event_is_named input Input_event.Escape then
         { session with interaction = Idle; message = Some "rename cancelled" }
@@ -2577,9 +2613,9 @@ let interaction_overlay session =
         ([ "Language hover"; "" ]
         @ String.split_on_char '\n' hover.Language.text
         @ [ ""; "Escape or Enter closes hover." ])
-  | Completion_view { items; selected } ->
+  | Completion_view { items; selected; query } ->
       let visible =
-        items
+        matching_completion_items items query
         |> List.mapi (fun index item ->
             Printf.sprintf "%s%s%s"
               (if index = selected then "> " else "  ")
@@ -2595,9 +2631,12 @@ let interaction_overlay session =
         take 16 values
       in
       Some
-        ([ "Language completion"; "" ]
-        @ visible
-        @ [ ""; "Arrow keys select; Enter accepts; Escape cancels." ])
+        ([ "Language completion"; "filter: " ^ query; "" ]
+        @ (if visible = [] then [ "  no matching completions" ] else visible)
+        @ [
+            "";
+            "Type to filter; Arrow keys select; Enter accepts; Escape cancels.";
+          ])
 
 let interaction_message session =
   match session.interaction with
@@ -2608,8 +2647,8 @@ let interaction_message session =
            (if count = 1 then "" else "es"))
   | Save_as_prompt path -> Some ("destination: " ^ path)
   | Rename_prompt name -> Some ("rename: " ^ name)
-  | Idle | Palette _ | Model_picker _ | Help_view | Hover_view _
-  | Completion_view _ ->
+  | Completion_view { query; _ } -> Some ("completion: " ^ query)
+  | Idle | Palette _ | Model_picker _ | Help_view | Hover_view _ ->
       session.message
 
 let render session =

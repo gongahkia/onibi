@@ -402,6 +402,16 @@ let session_integration_test () =
             let _, frame = Zenbu_app.Session.render session in
             frame_contains frame "Language completion")
       in
+      let session =
+        Zenbu_app.Session.handle_input session
+          ( Zenbu_model_api.Input_event.text_input "fake" |> function
+            | Ok input -> input
+            | Error error -> fail (Zenbu_kernel.Error.to_string error) )
+      in
+      let _, completion_frame = Zenbu_app.Session.render session in
+      expect
+        (frame_contains completion_frame "filter: fake")
+        "completion filter was not rendered";
       let session = Zenbu_app.Session.handle_input session enter in
       expect
         (String.contains (Zenbu_app.Session.contents session) 'f')

@@ -95,7 +95,9 @@ and host dispatch as other providers:
 - `language.diagnostic.next`, `.previous`, and `.describe-current` navigate or
   describe current diagnostics with normal selection semantics.
 
-`Ctrl-Space` requests completion. Hover and completion are terminal overlays.
+`Ctrl-Space` requests completion. Hover and completion are terminal overlays;
+type in completion to filter label/filter-text/detail, then use arrows,
+Backspace, Enter, or Escape.
 Completion accepts only plain text edits: snippets are rejected explicitly, and
 main plus additional edits use the one semantic transformation
 `language.apply-edits`. Rename and server `workspace/applyEdit` similarly
