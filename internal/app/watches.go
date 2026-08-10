@@ -143,12 +143,16 @@ func (service *Service) EvaluateWatches(ctx context.Context) ([]WatchEvaluation,
 				return results, fmt.Errorf("encode watch %q event: %w", watch.ID, err)
 			}
 			fingerprint := eventFingerprint(watch.ID, match)
-			created, err := service.store.InsertEvent(ctx, domain.Event{ID: "event:" + fingerprint[:24], Fingerprint: fingerprint, WatchID: watch.ID, Type: domain.WatchTriggerAvailabilityMatch, Payload: payload, ObservedAt: now, CreatedAt: now})
+			event := domain.Event{ID: "event:" + fingerprint[:24], Fingerprint: fingerprint, WatchID: watch.ID, Type: domain.WatchTriggerAvailabilityMatch, Payload: payload, ObservedAt: now, CreatedAt: now}
+			created, err := service.store.InsertEvent(ctx, event)
 			if err != nil {
 				return results, err
 			}
 			if created {
 				result.EventsCreated++
+				if err := service.queueEventDeliveries(ctx, event, watch.Targets); err != nil {
+					return results, err
+				}
 			}
 		}
 		if len(matches) > 0 {
@@ -171,6 +175,86 @@ func (service *Service) EvaluateWatches(ctx context.Context) ([]WatchEvaluation,
 		results = append(results, result)
 	}
 	return results, nil
+}
+
+func (service *Service) Deliveries(ctx context.Context, eventID string, limit int) ([]domain.NotificationDelivery, error) {
+	return service.store.ListDeliveries(ctx, eventID, limit)
+}
+
+// RetryDeliveries retries durable failed/pending deliveries without generating
+// another event, preserving the original event ID and idempotency key.
+func (service *Service) RetryDeliveries(ctx context.Context, maxAttempts, limit int) ([]domain.NotificationDelivery, error) {
+	work, err := service.store.ListRetryableDeliveries(ctx, maxAttempts, limit)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]domain.NotificationDelivery, 0, len(work))
+	for _, item := range work {
+		watch, err := service.store.GetWatch(ctx, item.Event.WatchID)
+		if err != nil {
+			return result, err
+		}
+		target, ok := findTarget(watch.Targets, item.Delivery.TargetID)
+		if !ok {
+			if err := service.store.SaveDeliveryAttempt(ctx, item.Event.ID, item.Delivery.TargetID, domain.DeliveryFailed, nil, "target no longer exists on watch", time.Now().UTC()); err != nil {
+				return result, err
+			}
+		} else if err := service.attemptDelivery(ctx, item.Event, target); err != nil {
+			return result, err
+		}
+		delivery, err := service.store.GetDelivery(ctx, item.Event.ID, item.Delivery.TargetID)
+		if err != nil {
+			return result, err
+		}
+		result = append(result, delivery)
+	}
+	return result, nil
+}
+
+func (service *Service) queueEventDeliveries(ctx context.Context, event domain.Event, targets []domain.NotificationTarget) error {
+	for _, target := range targets {
+		delivery, created, err := service.store.CreateDelivery(ctx, domain.NotificationDelivery{ID: deliveryID(event.ID, target.ID), EventID: event.ID, TargetID: target.ID})
+		if err != nil {
+			return err
+		}
+		if created && delivery.Status == domain.DeliveryPending {
+			if err := service.attemptDelivery(ctx, event, target); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (service *Service) attemptDelivery(ctx context.Context, event domain.Event, target domain.NotificationTarget) error {
+	now := time.Now().UTC()
+	if service.notifier == nil {
+		return service.store.SaveDeliveryAttempt(ctx, event.ID, target.ID, domain.DeliveryFailed, nil, "notification delivery is not configured", now)
+	}
+	statusCode, err := service.notifier.Send(ctx, event, target)
+	if err != nil {
+		var code *int
+		if statusCode != 0 {
+			code = &statusCode
+		}
+		return service.store.SaveDeliveryAttempt(ctx, event.ID, target.ID, domain.DeliveryFailed, code, err.Error(), now)
+	}
+	code := statusCode
+	return service.store.SaveDeliveryAttempt(ctx, event.ID, target.ID, domain.DeliveryDelivered, &code, "", now)
+}
+
+func findTarget(targets []domain.NotificationTarget, targetID string) (domain.NotificationTarget, bool) {
+	for _, target := range targets {
+		if target.ID == targetID {
+			return target, true
+		}
+	}
+	return domain.NotificationTarget{}, false
+}
+
+func deliveryID(eventID, targetID string) string {
+	digest := sha256.Sum256([]byte(eventID + "\x00" + targetID))
+	return "delivery:" + hex.EncodeToString(digest[:12])
 }
 
 func nextWatchEvaluation(service *Service, now time.Time) *time.Time {

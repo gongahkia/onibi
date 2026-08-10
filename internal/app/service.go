@@ -12,6 +12,7 @@ import (
 	"github.com/gongahkia/courtsg/internal/config"
 	"github.com/gongahkia/courtsg/internal/domain"
 	"github.com/gongahkia/courtsg/internal/geo"
+	"github.com/gongahkia/courtsg/internal/notifier"
 	"github.com/gongahkia/courtsg/internal/query"
 	"github.com/gongahkia/courtsg/internal/ranking"
 	"github.com/gongahkia/courtsg/internal/source"
@@ -26,6 +27,7 @@ type Service struct {
 	sources       *source.Registry
 	geocoder      geo.Geocoder
 	router        geo.Router
+	notifier      notifier.Sender
 	routingDetail string
 }
 
@@ -61,7 +63,7 @@ func Open(ctx context.Context, cfg config.Config) (*Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	service := &Service{config: cfg, store: database, sources: registry}
+	service := &Service{config: cfg, store: database, sources: registry, notifier: notifier.New(cfg)}
 	service.configureOneMap(transport)
 	if err := database.UpsertSports(ctx, domain.Sports()); err != nil {
 		database.Close()

@@ -10,6 +10,13 @@ import (
 	"github.com/gongahkia/courtsg/internal/domain"
 )
 
+type fakeNotifier struct{ calls int }
+
+func (notifier *fakeNotifier) Send(_ context.Context, _ domain.Event, _ domain.NotificationTarget) (int, error) {
+	notifier.calls++
+	return 202, nil
+}
+
 func TestEvaluateWatchesCreatesOneIdempotentEvent(t *testing.T) {
 	cfg, err := config.Default()
 	if err != nil {
@@ -21,6 +28,8 @@ func TestEvaluateWatchesCreatesOneIdempotentEvent(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = service.Close() })
+	notifier := &fakeNotifier{}
+	service.notifier = notifier
 	now := time.Now().UTC().Truncate(time.Second)
 	if err := service.store.UpsertVenues(context.Background(), []domain.Venue{{ID: "venue", Name: "Venue", Coordinates: domain.Coordinates{Latitude: 1.3, Longitude: 103.8}, Provenance: domain.Provenance{SourceID: "local-manual", FetchedAt: now}}}); err != nil {
 		t.Fatal(err)
@@ -28,7 +37,7 @@ func TestEvaluateWatchesCreatesOneIdempotentEvent(t *testing.T) {
 	if _, err := service.ImportManualAvailability(context.Background(), []domain.AvailabilitySlot{{SportID: "tennis", VenueID: "venue", Start: now.Add(time.Hour), End: now.Add(2 * time.Hour)}}); err != nil {
 		t.Fatal(err)
 	}
-	watch, err := service.CreateWatch(context.Background(), domain.Watch{ID: "watch", Name: "Tennis", Query: domain.Query{Sports: []string{"tennis"}, MinimumDuration: time.Hour}, Enabled: true})
+	watch, err := service.CreateWatch(context.Background(), domain.Watch{ID: "watch", Name: "Tennis", Query: domain.Query{Sports: []string{"tennis"}, MinimumDuration: time.Hour}, Targets: []domain.NotificationTarget{{Kind: domain.NotificationWebhook, WebhookName: "test"}}, Enabled: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,5 +52,9 @@ func TestEvaluateWatchesCreatesOneIdempotentEvent(t *testing.T) {
 	events, err := service.Events(context.Background(), watch.ID, 10)
 	if err != nil || len(events) != 1 || events[0].Type != domain.WatchTriggerAvailabilityMatch {
 		t.Fatalf("Events() = %#v, %v", events, err)
+	}
+	deliveries, err := service.Deliveries(context.Background(), events[0].ID, 10)
+	if err != nil || len(deliveries) != 1 || deliveries[0].Status != domain.DeliveryDelivered || deliveries[0].Attempts != 1 || notifier.calls != 1 {
+		t.Fatalf("Deliveries() = %#v, %v; notifier calls = %d", deliveries, err, notifier.calls)
 	}
 }
