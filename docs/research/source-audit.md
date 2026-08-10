@@ -55,8 +55,8 @@ that they are authorized to supply themselves.
 | `safra` / SAFRA / SAFRA | member/public-adjacent badminton, tennis, squash, futsal and other clubs | public venue pages / variable / — / official link | consumer/member booking site | [terms][safra-terms] expressly exclude data mining, robots and similar extraction; robots disallows terms path | n/a / 0 | `disabled_by_terms` (link only) / high / [terms][safra-terms] |
 | `playtomic` / Playtomic / venue partners | padel, tennis, pickleball and venue-defined sports; Singapore coverage varies by partner | partner API data / partner-defined / only with authorization / official link | [Third Party API][playtomic-api] credentials issued in venue manager; [Connect][playtomic-connect] is official program | [robots][playtomic-robots] disallows `/api`, `/search`, sport/date query paths; partner terms govern use | partner policy / configured cap | `requires_permission` / high / [Connect][playtomic-connect] |
 | `the-kallang` / The Kallang / The Kallang Group | pickleball, tennis, badminton, basketball, netball, volleyball, table tennis, beach volleyball, lawn bowls, water sports | public descriptions/rates / some published / no API / official link | public booking flow and payment | [booking T&Cs][kallang-terms] found; no developer read API/extraction authorization found | n/a / 0 | `manual_only` / medium / [pickleball page][kallang-pickleball] |
-| `sba-stadium` / Singapore Badminton Stadium / Singapore Badminton Association | badminton | public location / booking FAQ / no approved automated slots / official link | own booking portal; no documented developer API | general robots permit crawl but no terms/API authorizing extraction located | n/a / 0 | `manual_only` / medium / [booking page][sba-booking] |
-| `singapore-badminton-hall` / Singapore Badminton Hall / SBH | badminton | public address / no verified structured price / no slots / telephone/manual link | telephone/manual booking | no official automation/API policy found in review | n/a / 0 | `manual_only` / low / [SBA directory][sba-booking] |
+| `sba-stadium` / Singapore Badminton Stadium @ KFF Badminton Arena / Singapore Badminton Association | badminton; 12 public/corporate courts at 100 Guillemard Road | public location and booking link / consumer price shown in booking flow / no approved automated slots / official link | consumer booking portal with optional VIP login; no documented developer API | official SBA pages confirm booking and KFF venue identity; no terms/API authorizing extraction was found | n/a / 0 | `manual_only` / high / [SBA venue][sba-playing], [booking portal][sba-booking] |
+| `singapore-badminton-hall` / Singapore Badminton Hall / SBH | badminton at Sims and Expo locations | public address/rates/consumer booking flow / published rate pages / no approved automated slots / official link | consumer booking/payment flow | official booking terms require website booking and payment; no developer API or extraction authorization found | n/a / 0 | `manual_only` / medium / [SBH booking][sbh-booking], [terms][sbh-terms] |
 | `smash-arena` / Smash Arena / Smash Arena | badminton | public location/release window / variable public pricing / no approved slots / official link | consumer booking platform; 7-day rolling availability | [terms][smash-terms] state booking conditions; robots has no restriction but no developer API/permission found | n/a / 0 | `disabled_unknown_policy` (link only) / medium / [terms][smash-terms] |
 | `wyse-active` / Wyse Active Hub / Rezerv | badminton; 32-court venue | public metadata / platform price where shown / no approved slots / official link | Rezerv booking service; account/OTP may apply | [Rezerv terms][rezerv-terms] and permissive robots reviewed; no consumer developer API/permission found | n/a / 0 | `disabled_unknown_policy` (link only) / medium / [venue][wyse] |
 | `trusmash` / TruSmash / Viva Capital and AFA | badminton | public location and price table / static published price / no approved slots / official link | AFA web/app booking service | [TruSmash][trusmash] documents AFA; no read API/policy authorizing extraction found | n/a / 0 | `disabled_unknown_policy` (link only) / medium / [operator][trusmash] |
@@ -66,6 +66,7 @@ that they are authorized to supply themselves.
 | `matchpoint-inc` / Matchpoint Inc / Matchpoint Inc | indoor pickleball and virtual tennis | public location/rates / static peak/off-peak / no approved slots / official link | consumer booking link | [services page][matchpoint-inc] describes rates; no API/policy permitting extraction found | n/a / 0 | `manual_only` / medium / [services][matchpoint-inc] |
 | `kings-pickleball` / Kings Pickleball Arena / Kings | pickleball | public venue metadata / variable / no approved slots / official link | customer booking flow | [operator page][kings] found; no published API/automation policy located | n/a / 0 | `manual_only` / low / [page][kings] |
 | `mbp-sports` / MBP Sports / MBP Sports | pickleball, padel, tennis at selected sites | public locations / app/membership price / app-only slots / official link | MBP Sports app; membership may apply | [directory][mbp] says app booking; no developer integration or permission found | n/a / 0 | `manual_only` / medium / [directory][mbp] |
+| `src-franklin-pickleball` / SRC Franklin Pickleball Academy / Franklin Pickleball Singapore and Singapore Recreation Club | pickleball and padel at SRC @ Ayer Rajah | public venue/membership description / membership and court-booking benefits / no approved automated slots / official link | membership-linked consumer booking system | official SRC Franklin page identifies the Ayer Rajah venue and account/membership booking; no developer API or extraction permission found | n/a / 0 | `manual_only` / medium / [SRC Franklin][src-franklin] |
 | `picklechoo` and `pickle-lize` / current operators unverified | reported pickleball listings | no verified official data / — / — / — | unknown | no verified official operator policy/API found | n/a / 0 | `manual_only` (not seeded until verified) / low / no authoritative source |
 
 ## Existing project audit
@@ -124,7 +125,10 @@ a live probe during this audit; setup and probes are documented in `docs/mcp.md`
 [playtomic-api]: https://third-party.playtomic.io/
 [kallang-terms]: https://change.sportshub.com.sg/facility-booking-terms-and-conditions
 [kallang-pickleball]: https://www.thekallang.com.sg/en/things-to-do/sports/pickleball.html
-[sba-booking]: https://staging.singaporebadminton.org.sg/book-a-badminton-court/
+[sba-booking]: https://booking.singaporebadminton.org.sg/
+[sba-playing]: https://singaporebadminton.org.sg/playing/
+[sbh-booking]: https://singaporebadmintonhall.com/book-now/
+[sbh-terms]: https://singaporebadmintonhall.com/terms-conditions/
 [smash-terms]: https://smasharena.sg/terms-%26-conditions
 [rezerv-terms]: https://www.rezerv.co/terms-and-conditions
 [wyse]: https://www.wyseactivehub.com/
@@ -135,6 +139,7 @@ a live probe during this audit; setup and probes are documented in `docs/mcp.md`
 [matchpoint-inc]: https://matchpointinc.com.sg/services/
 [kings]: https://kingspickleballarena.com/
 [mbp]: https://www.pickleball.sg/
+[src-franklin]: https://src.franklinpickleball.com.sg/f/FranklinPickleballSingapore/memberships
 [prior-onepa]: https://github.com/Jarrettgohxz/onepa-badminton-courts-finder
 [mcp-go-sdk]: https://github.com/modelcontextprotocol/go-sdk
 [hermes-mcp]: https://github.com/NousResearch/hermes-agent/blob/main/website/docs/user-guide/features/mcp.md

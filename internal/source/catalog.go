@@ -21,8 +21,8 @@ func Catalog() []domain.SourceInfo {
 		{ID: "safra", Name: "SAFRA", Operator: "SAFRA", Website: "https://www.safra.sg/", Policy: policy(domain.SourceDisabledTerms, link, "Terms prohibit data mining, robots, and similar extraction.")},
 		{ID: "playtomic", Name: "Playtomic", Operator: "Playtomic", Website: "https://playtomic.com/", Policy: policy(domain.SourceRequiresPermission, availability, "Use only after venue/partner credentials are configured.")},
 		{ID: "the-kallang", Name: "The Kallang", Operator: "The Kallang Group", Website: "https://www.thekallang.com.sg/en/things-to-do/sports/pickleball.html", Policy: policy(domain.SourceManualOnly, link, "No documented read API.")},
-		{ID: "sba-stadium", Name: "Singapore Badminton Stadium", Operator: "Singapore Badminton Association", Website: "https://staging.singaporebadminton.org.sg/book-a-badminton-court/", Policy: policy(domain.SourceManualOnly, link, "No documented read API.")},
-		{ID: "singapore-badminton-hall", Name: "Singapore Badminton Hall", Operator: "Singapore Badminton Hall", Website: "https://staging.singaporebadminton.org.sg/book-a-badminton-court/", Policy: policy(domain.SourceManualOnly, link, "Manual booking contact only.")},
+		{ID: "sba-stadium", Name: "Singapore Badminton Stadium @ KFF Badminton Arena", Operator: "Singapore Badminton Association", Website: "https://booking.singaporebadminton.org.sg/", Policy: policy(domain.SourceManualOnly, link, "Consumer booking flow; no documented read API.")},
+		{ID: "singapore-badminton-hall", Name: "Singapore Badminton Hall", Operator: "Singapore Badminton Hall", Website: "https://singaporebadmintonhall.com/book-now/", Policy: policy(domain.SourceManualOnly, link, "Consumer booking flow; no documented read API.")},
 		{ID: "smash-arena", Name: "Smash Arena", Operator: "Smash Arena", Website: "https://smasharena.sg/", Policy: policy(domain.SourceDisabledUnknown, link, "No approved availability integration.")},
 		{ID: "wyse-active", Name: "Wyse Active Hub", Operator: "Wyse Active Hub / Rezerv", Website: "https://www.wyseactivehub.com/", Policy: policy(domain.SourceDisabledUnknown, link, "No approved consumer API.")},
 		{ID: "trusmash", Name: "TruSmash", Operator: "Viva Capital / AFA", Website: "https://trusmash.com.sg/", Policy: policy(domain.SourceDisabledUnknown, link, "No approved AFA availability integration.")},
@@ -32,6 +32,7 @@ func Catalog() []domain.SourceInfo {
 		{ID: "matchpoint-inc", Name: "Matchpoint Inc", Operator: "Matchpoint Inc", Website: "https://matchpointinc.com.sg/services/", Policy: policy(domain.SourceManualOnly, link, "No documented read API.")},
 		{ID: "kings-pickleball", Name: "Kings Pickleball Arena", Operator: "Kings Pickleball Arena", Website: "https://kingspickleballarena.com/", Policy: policy(domain.SourceManualOnly, link, "No documented read API.")},
 		{ID: "mbp-sports", Name: "MBP Sports", Operator: "MBP Sports", Website: "https://www.pickleball.sg/", Policy: policy(domain.SourceManualOnly, link, "Availability is app managed.")},
+		{ID: "src-franklin-pickleball", Name: "SRC Franklin Pickleball Academy", Operator: "Franklin Pickleball Singapore / Singapore Recreation Club", Website: "https://src.franklinpickleball.com.sg/", Policy: policy(domain.SourceManualOnly, link, "Membership-linked consumer booking flow; no documented read API.")},
 	}
 }
 
