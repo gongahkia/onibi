@@ -40,8 +40,94 @@ func New(version string) *cobra.Command {
 	root.AddCommand(newVersionCommand(version))
 	root.AddCommand(newConfigCommand(runtime))
 	root.AddCommand(newSourcesCommand(runtime))
+	root.AddCommand(newRefreshCommand(runtime))
+	root.AddCommand(newVenueCommand(runtime))
 	root.AddCommand(newDoctorCommand(runtime))
 	return root
+}
+
+func newRefreshCommand(runtime *runtime) *cobra.Command {
+	return &cobra.Command{
+		Use:   "refresh [source-id...]",
+		Short: "Refresh each selected permitted source once",
+		RunE: func(command *cobra.Command, args []string) error {
+			service, err := runtime.openService(command.Context())
+			if err != nil {
+				return err
+			}
+			defer service.Close()
+			results, err := service.Refresh(command.Context(), args)
+			if err != nil {
+				return err
+			}
+			if runtime.json {
+				return writeJSON(command.OutOrStdout(), results)
+			}
+			table := tabwriter.NewWriter(command.OutOrStdout(), 0, 4, 2, ' ', 0)
+			fmt.Fprintln(table, "SOURCE\tSTATE\tVENUES\tDETAIL")
+			for _, result := range results {
+				fmt.Fprintf(table, "%s\t%s\t%d\t%s\n", result.SourceID, result.State, result.VenuesUpdated, result.Detail)
+			}
+			return table.Flush()
+		},
+	}
+}
+
+func newVenueCommand(runtime *runtime) *cobra.Command {
+	command := &cobra.Command{Use: "venue", Aliases: []string{"venues"}, Short: "Search normalized venues"}
+	var search string
+	var sports []string
+	var limit int
+	list := &cobra.Command{
+		Use:   "list",
+		Short: "List venues already discovered from permitted sources",
+		RunE: func(command *cobra.Command, args []string) error {
+			service, err := runtime.openService(command.Context())
+			if err != nil {
+				return err
+			}
+			defer service.Close()
+			venues, err := service.Venues(command.Context(), store.VenueFilter{Search: search, Sports: sports, Limit: limit})
+			if err != nil {
+				return err
+			}
+			if runtime.json {
+				return writeJSON(command.OutOrStdout(), venues)
+			}
+			table := tabwriter.NewWriter(command.OutOrStdout(), 0, 4, 2, ' ', 0)
+			fmt.Fprintln(table, "ID\tNAME\tADDRESS\tPOSTAL CODE")
+			for _, venue := range venues {
+				fmt.Fprintf(table, "%s\t%s\t%s\t%s\n", venue.ID, venue.Name, venue.Address, venue.PostalCode)
+			}
+			return table.Flush()
+		},
+	}
+	list.Flags().StringVar(&search, "search", "", "case-insensitive venue name or address match")
+	list.Flags().StringSliceVar(&sports, "sport", nil, "require each canonical sport ID")
+	list.Flags().IntVar(&limit, "limit", 100, "maximum records (1-500)")
+	command.AddCommand(list)
+	command.AddCommand(&cobra.Command{
+		Use:   "show <venue-id>",
+		Short: "Show venue provenance and booking links",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, args []string) error {
+			service, err := runtime.openService(command.Context())
+			if err != nil {
+				return err
+			}
+			defer service.Close()
+			venue, err := service.Venue(command.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			if runtime.json {
+				return writeJSON(command.OutOrStdout(), venue)
+			}
+			_, err = fmt.Fprintf(command.OutOrStdout(), "id: %s\nname: %s\naddress: %s\nbooking links: %v\nsource: %s\nfetched: %s\n", venue.ID, venue.Name, venue.Address, venue.BookingURLs, venue.Provenance.SourceID, venue.Provenance.FetchedAt.Format("2006-01-02 15:04:05 MST"))
+			return err
+		},
+	})
+	return command
 }
 
 func (runtime *runtime) openService(ctx context.Context) (*app.Service, error) {

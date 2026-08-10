@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/gongahkia/courtsg/internal/config"
+	"github.com/gongahkia/courtsg/internal/domain"
+	"github.com/gongahkia/courtsg/internal/geo"
 	"github.com/gongahkia/courtsg/internal/source"
 )
 
@@ -30,5 +32,25 @@ func TestOpenSeedsSourcePolicy(t *testing.T) {
 	}
 	if _, err := service.SetSourceEnabled(context.Background(), "safra", true); !errors.Is(err, source.ErrPolicyDisabled) {
 		t.Fatalf("SetSourceEnabled(safra) = %v, want policy error", err)
+	}
+}
+
+func TestRouteFallsBackWithoutOptionalOneMapCredentials(t *testing.T) {
+	cfg, err := config.Default()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.DatabasePath = filepath.Join(t.TempDir(), "courtsg.db")
+	service, err := Open(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = service.Close() })
+	route, err := service.Route(context.Background(), domain.Coordinates{Latitude: 1.3, Longitude: 103.8}, domain.Coordinates{Latitude: 1.31, Longitude: 103.81}, geo.ModeWalk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !route.Fallback || service.RoutingStatus() == "configured" {
+		t.Fatalf("expected Haversine fallback, got route %#v and state %q", route, service.RoutingStatus())
 	}
 }
