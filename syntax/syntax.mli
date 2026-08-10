@@ -92,6 +92,20 @@ module Selector : sig
   val descriptors : unit -> Zenbu_kernel.Semantic_descriptor.t list
 end
 
+(** A stable, presentation-oriented classification derived from the current
+    syntax snapshot. It exposes byte ranges only; renderers choose their own
+    colours and do not receive Tree-sitter values. *)
+module Highlight : sig
+  type class_ = Keyword | String | Number | Comment | Type | Constructor
+  type span
+
+  val class_ : span -> class_
+  val start_offset : span -> int
+  val stop_offset : span -> int
+  val spans : Snapshot.t -> span list
+  val class_name : class_ -> string
+end
+
 module Service : sig
   type t
   type strategy = Cached | Full_parse | Incremental_parse | Tree_copy

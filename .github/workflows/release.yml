@@ -1,0 +1,31 @@
+name: Release candidate
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  linux-x86_64:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: ocaml-base-compiler.5.3.0
+      - name: bootstrap the documented local environment
+        run: make bootstrap OCAML_COMPILER=ocaml-base-compiler.5.3.0
+      - name: build release-profile binaries
+        run: make release
+      - name: bundle the dynamic Wasmtime runtime
+        run: |
+          version="$(cat VERSION)"
+          bundle="zenbu-${version}-linux-x86_64"
+          mkdir -p "$bundle/bin" "$bundle/lib/zenbu"
+          cp _build/release/bin/zenbu.exe "$bundle/bin/zenbu"
+          cp _build/release/bin/zenbu_headless.exe "$bundle/bin/zenbu-headless"
+          cp .zenbu/wasmtime-v47.0.3-x86_64-linux-c-api/lib/libwasmtime.so "$bundle/lib/zenbu/"
+          tar -czf "${bundle}.tar.gz" "$bundle"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zenbu-linux-x86_64
+          path: zenbu-*-linux-x86_64.tar.gz

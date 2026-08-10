@@ -152,6 +152,13 @@ a malformed declarative response remains an ordinary `extension-runtime-error`.
 All failures occur before a transaction commit and leave the current immutable
 document/history value unchanged.
 
+M10 additionally exposes runtime health in every plugin view. Fuel exhaustion,
+memory exhaustion, and traps transition a Component to `unavailable`; a second
+callback reports `extension-runtime-unavailable` without calling Wasmtime.
+Reload builds a replacement generation and returns it to `healthy` only when
+staging succeeds. Lua-trusted plugins remain `healthy` in this generic view
+because they do not have a fatal Component store state.
+
 ## Lifecycle and atomicity
 
 Discovery parses and validates manifests first, then stages each package in a

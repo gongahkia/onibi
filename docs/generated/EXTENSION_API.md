@@ -113,6 +113,7 @@ register a document-changed or after-save handler
 - `extension-memory-exhausted`
 - `extension-trap`
 - `extension-response-limit`
+- `extension-runtime-unavailable`
 - `duplicate-id`
 - `unknown-semantic-id`
 - `invalid-range`

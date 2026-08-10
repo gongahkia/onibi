@@ -41,4 +41,7 @@ let decode ~input_mode = function
                (Input_event.key_press
                   ~modifiers:(input_modifiers modifiers)
                   (Input_event.named_key key))))
+  | Event.Paste text when input_mode = Model_status.Text_entry ->
+      Input_event.text_input text |> Result.map Option.some
+  | Event.Paste _ -> Ok None
   | Event.Resize _ | Event.End | Event.Unsupported _ -> Ok None

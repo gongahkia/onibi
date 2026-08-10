@@ -154,10 +154,12 @@ pointers.
 
 M4's terminal adapter maps Unicode printable keys, Escape, Enter, Backspace,
 Tab, arrows, Home/End, Delete, Ctrl/Alt/Meta/Shift modifiers, and resize into
-host events. Only key events pass through `Input_decoder` into `Input_event`;
-resize, save, quit, terminal lifecycle, and physical cursor presentation stay
-above the model API. The adapter consults `Model_status.input_mode`, never a
-model status id or private model state. Mouse and bracketed paste are disabled
+host events. Decoded key and bracketed-paste events pass through `Input_decoder`
+into `Input_event`; resize, save, quit, terminal lifecycle, and physical cursor
+presentation stay above the model API. The adapter consults
+`Model_status.input_mode`, never a model status id or private model state. Mouse remains disabled. M10 enables
+bracketed paste as one generic committed-text event only when `Text_entry` is
+declared; it does not add a model-specific paste grammar.
 for this milestone.
 
 ## M3 API Pressure Test

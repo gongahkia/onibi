@@ -1,3 +1,5 @@
+type shared_state
+
 module Make (Model : Editing_model.S) : sig
   type model_state = Model.state
   type t
@@ -12,6 +14,13 @@ module Make (Model : Editing_model.S) : sig
     document:Zenbu_kernel.Document.t ->
     unit ->
     (t, Zenbu_kernel.Error.t) result
+
+  val shared_state : t -> shared_state
+  (** Preserves document history, clipboard contents, extension registries,
+      trace/profiling handles, replayable intents, and execution identity while
+      deliberately resetting model-private input grammar state. *)
+
+  val create_from_shared : shared_state -> (t, Zenbu_kernel.Error.t) result
 
   val handle_input :
     t -> Input_event.t -> (t * step, Zenbu_kernel.Error.t) result

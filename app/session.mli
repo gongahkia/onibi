@@ -1,5 +1,17 @@
 type model = Vim | Selection | Structural
-type host_command = Save | Quit | Force_quit | Reload_config
+
+type host_command =
+  | Save
+  | Save_as
+  | Quit
+  | Force_quit
+  | Reload_config
+  | Start_search
+  | Search_next
+  | Search_previous
+  | Open_palette
+  | Switch_model
+  | Help
 
 type inspection =
   | Why
@@ -12,6 +24,7 @@ type inspection =
   | Api
   | Scripts
   | Plugins
+  | Search
 
 type t
 type outcome = Continue of t | Exit of t
@@ -31,10 +44,14 @@ val create :
 
 val context : t -> Zenbu_model_api.Editor_context.t
 val status : t -> Zenbu_model_api.Model_status.t
+val model : t -> model
 val filename : t -> string
 val dirty : t -> bool
+val viewport : t -> Zenbu_view.Viewport.t
 val handle_input : t -> Zenbu_model_api.Input_event.t -> t
 val handle_host : t -> host_command -> outcome
+val host_command_descriptors : unit -> Zenbu_model_api.Command_descriptor.t list
+val host_binding_lines : unit -> string list
 val reload_config : t -> t
 val resize : t -> columns:int -> rows:int -> t
 val render : t -> t * Zenbu_view.Frame.t

@@ -2,6 +2,7 @@ open Zenbu_kernel
 open Zenbu_model_api
 module Scripting = Zenbu_scripting.Scripting
 module Plugins = Zenbu_extension.Plugin_host
+module Syntax = Zenbu_syntax.Syntax
 
 type options = {
   model : Zenbu_app.Session.model;
@@ -60,6 +61,11 @@ let parse_arguments () =
     | "structural" -> model := Zenbu_app.Session.Structural
     | value -> raise (Arg.Bad ("unknown model: " ^ value))
   in
+  let set_language value =
+    match Syntax.Language.find value with
+    | Some _ -> language := Some value
+    | None -> raise (Arg.Bad ("unknown language: " ^ value))
+  in
   let set_file value =
     match !file_path with
     | None -> file_path := Some value
@@ -71,8 +77,8 @@ let parse_arguments () =
         Arg.String set_model,
         "vim, selection, or structural (default: vim)" );
       ( "--language",
-        Arg.String (fun value -> language := Some value),
-        "syntax language ID" );
+        Arg.String set_language,
+        "syntax language ID (ocaml or json)" );
       ("--trace", Arg.Set trace, "record a bounded local execution trace");
       ("--profile", Arg.Set profile, "record bounded local CPU-time spans");
       ("--config", Arg.String set_config, "load this Lua configuration file");
@@ -88,7 +94,7 @@ let parse_arguments () =
       ( "--version",
         Arg.Unit
           (fun () ->
-            print_endline "zenbu M9";
+            print_endline ("zenbu " ^ Version.current);
             exit 0),
         "print version" );
     ]
@@ -120,8 +126,7 @@ let load_contents = function
       Zenbu_app.File_io.read path
       |> Result.map_error Zenbu_app.File_io.to_string
 
-let create_session options contents backend =
-  let columns, rows = Zenbu_terminal.Backend.size backend in
+let create_session options contents =
   let trace =
     if options.trace then Zenbu_model_api.Trace.enabled ~capacity:1024
     else Ok (Zenbu_model_api.Trace.disabled ())
@@ -135,10 +140,17 @@ let create_session options contents backend =
           Zenbu_app.Session.create ~model:options.model
             ?language:options.language ?file_path:options.file_path ~contents
             ~trace ~profiler ~config:options.config ~plugins:options.plugins
-            ~dimensions:{ Zenbu_view.Renderer.columns; rows }
+            ~dimensions:Zenbu_view.Renderer.{ columns = 80; rows = 24 }
             ()))
 
 let is_control modifiers = modifiers = [ Zenbu_terminal.Event.Control ]
+
+let is_control_shift modifiers =
+  modifiers = [ Zenbu_terminal.Event.Shift; Zenbu_terminal.Event.Control ]
+
+let is_alt_or_meta = function
+  | [ Zenbu_terminal.Event.Alt ] | [ Zenbu_terminal.Event.Meta ] -> true
+  | _ -> false
 
 let is_reload modifiers =
   match List.sort_uniq compare modifiers with
@@ -164,6 +176,11 @@ let rec run backend session =
     when Zenbu_app.Session.inspector_open session ->
       run backend (Zenbu_app.Session.toggle_inspector session)
   | Zenbu_terminal.Event.Key { key = Zenbu_terminal.Event.Text "s"; modifiers }
+    when is_control_shift modifiers -> (
+      match Zenbu_app.Session.handle_host session Zenbu_app.Session.Save_as with
+      | Zenbu_app.Session.Continue session -> run backend session
+      | Zenbu_app.Session.Exit _ -> Exited)
+  | Zenbu_terminal.Event.Key { key = Zenbu_terminal.Event.Text "s"; modifiers }
     when is_control modifiers -> (
       match Zenbu_app.Session.handle_host session Zenbu_app.Session.Save with
       | Zenbu_app.Session.Continue session -> run backend session
@@ -178,6 +195,46 @@ let rec run backend session =
       match
         Zenbu_app.Session.handle_host session Zenbu_app.Session.Reload_config
       with
+      | Zenbu_app.Session.Continue session -> run backend session
+      | Zenbu_app.Session.Exit _ -> Exited)
+  | Zenbu_terminal.Event.Key { key = Zenbu_terminal.Event.Text "f"; modifiers }
+    when is_control modifiers -> (
+      match
+        Zenbu_app.Session.handle_host session Zenbu_app.Session.Start_search
+      with
+      | Zenbu_app.Session.Continue session -> run backend session
+      | Zenbu_app.Session.Exit _ -> Exited)
+  | Zenbu_terminal.Event.Key { key = Zenbu_terminal.Event.Text "g"; modifiers }
+    when is_control modifiers -> (
+      match
+        Zenbu_app.Session.handle_host session Zenbu_app.Session.Search_next
+      with
+      | Zenbu_app.Session.Continue session -> run backend session
+      | Zenbu_app.Session.Exit _ -> Exited)
+  | Zenbu_terminal.Event.Key { key = Zenbu_terminal.Event.Text "g"; modifiers }
+    when is_control_shift modifiers -> (
+      match
+        Zenbu_app.Session.handle_host session Zenbu_app.Session.Search_previous
+      with
+      | Zenbu_app.Session.Continue session -> run backend session
+      | Zenbu_app.Session.Exit _ -> Exited)
+  | Zenbu_terminal.Event.Key { key = Zenbu_terminal.Event.Text "p"; modifiers }
+    when is_control modifiers -> (
+      match
+        Zenbu_app.Session.handle_host session Zenbu_app.Session.Open_palette
+      with
+      | Zenbu_app.Session.Continue session -> run backend session
+      | Zenbu_app.Session.Exit _ -> Exited)
+  | Zenbu_terminal.Event.Key { key = Zenbu_terminal.Event.Text "m"; modifiers }
+    when is_alt_or_meta modifiers -> (
+      match
+        Zenbu_app.Session.handle_host session Zenbu_app.Session.Switch_model
+      with
+      | Zenbu_app.Session.Continue session -> run backend session
+      | Zenbu_app.Session.Exit _ -> Exited)
+  | Zenbu_terminal.Event.Key { key = Zenbu_terminal.Event.Text "h"; modifiers }
+    when is_alt_or_meta modifiers -> (
+      match Zenbu_app.Session.handle_host session Zenbu_app.Session.Help with
       | Zenbu_app.Session.Continue session -> run backend session
       | Zenbu_app.Session.Exit _ -> Exited)
   | event -> (
@@ -204,15 +261,17 @@ let () =
       match load_contents options.file_path with
       | Error message -> fail message
       | Ok contents -> (
+          match create_session options contents with
+          | Error error -> fail (Error.to_string error)
+          | Ok initial ->
           match
             Zenbu_terminal.Backend.with_terminal (fun backend ->
-                create_session options contents backend
-                |> Result.map (run backend))
+                let columns, rows = Zenbu_terminal.Backend.size backend in
+                run backend (Zenbu_app.Session.resize initial ~columns ~rows))
           with
           | Error message -> fail message
-          | Ok (Error error) -> fail (Error.to_string error)
-          | Ok (Ok Exited) -> ()
-          | Ok (Ok Unsaved_end) ->
+          | Ok Exited -> ()
+          | Ok Unsaved_end ->
               prerr_endline
                 "zenbu: input ended with unsaved changes; the file was not \
                  saved";

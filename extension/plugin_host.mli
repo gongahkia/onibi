@@ -3,6 +3,7 @@
 
 type config = Default | Directories of string list | Disabled
 type state = Active | Failed
+type health = Healthy | Unavailable
 
 type runtime_event = {
   provider : Zenbu_kernel.Provider.t;
@@ -53,6 +54,7 @@ val view_api : view -> int option
 val view_runtime : view -> string option
 val view_manifest_path : view -> string
 val view_state : view -> state
+val view_health : view -> health
 val view_requested_capabilities : view -> Capability.t list
 val view_granted_capabilities : view -> Capability.t list
 val view_contributions : view -> Contribution.t list
@@ -60,3 +62,4 @@ val view_registered_ids : view -> string list
 val view_error : view -> Zenbu_kernel.Error.t option
 val view_runtime_limits : view -> (int * int) option
 val state_name : state -> string
+val health_name : health -> string

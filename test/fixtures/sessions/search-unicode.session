@@ -1,0 +1,6 @@
+# Host-level literal Unicode search runs independently of the Vim grammar.
+model=vim
+text=α beta α beta
+input=Ctrl-F
+text-input=α
+input=Ctrl-G

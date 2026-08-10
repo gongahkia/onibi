@@ -10,6 +10,7 @@ Document_snapshot
 Syntax.Service
        ↓
 Syntax.Snapshot ──→ opaque nodes / structural selectors
+       └──────────→ public highlight spans / terminal view classes
        ↓
 optional Editor_context.syntax
        ↓
@@ -72,6 +73,21 @@ result deterministic and non-overlapping for the normal selection set.
 They return ordinary `set-selections` intents. They do not encode structural
 model keybindings or language-specific commands.
 
+## M10 presentation spans
+
+`Syntax.Highlight.spans` derives a small stable presentation projection from a
+current snapshot: `keyword`, `string`, `number`, `comment`, `type`, and
+`constructor` byte ranges. It is deliberately a range/class API, not a
+Tree-sitter query or terminal-colour API. The session maps these values into
+`zenbu.view` classes; the terminal chooses colours. The renderer applies
+selection > search > syntax > plain precedence, so presentation cannot alter
+selections or parser state.
+
+OCaml and JSON are covered by the supplied classifiers. Unsupported languages
+have no syntax service and therefore no spans. A grammar-specific renderer may
+add classifications only by extending this public Zenbu projection, never by
+making a Tree-sitter node/query public.
+
 ## Parsing lifecycle, incrementality, and cache
 
 Each `Syntax.Service` owns one backend parser and at most one cached current
@@ -105,11 +121,11 @@ Incomplete code remains a normal syntax state. Tree-sitter returns a tree with
 error/missing information when possible; the service and structural model keep
 working with available named structure and never substitute byte heuristics.
 
-M5 intentionally omits highlighting, query strings as public semantics, async
-workers, embedded languages, arbitrary grammar downloads, LSP, diagnostics,
-and language-specific refactoring. Parsing is synchronous and adequate only for
-the tested small/moderate fixtures; M6 observability should measure real editor
-latency before introducing a background worker.
+M10 adds bounded synchronous presentation spans, but still omits query strings
+as public semantics, async workers, embedded languages, arbitrary grammar
+downloads, LSP, diagnostics, and language-specific refactoring. Parsing is
+synchronous and adequate only for the tested small/moderate fixtures; profile
+real editor latency before introducing a background worker.
 
 `zenbu-headless syntax FILE` is the supported inspection surface. It prints
 language/document identity, root error state, and stable named-node metadata,

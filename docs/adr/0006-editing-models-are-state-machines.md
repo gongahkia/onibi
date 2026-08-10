@@ -24,3 +24,9 @@ that retains but does not inspect the state.
 Models can represent arbitrary pending grammar without kernel knowledge. The
 functor is a small, concrete use of OCaml abstraction needed to preserve opaque
 state; actual hot model switching can be added later with an existential host.
+
+## M10 update
+
+M10 implements that host switch through `Model_runtime.shared_state`. It
+retains semantic state and reinitializes each target model's opaque grammar
+state; no model state is cast across the existential boundary.

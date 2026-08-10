@@ -6,6 +6,7 @@ module Wasm = Wasm_plugin
 
 type config = Default | Directories of string list | Disabled
 type state = Active | Failed
+type health = Healthy | Unavailable
 type generation = Lua of Scripting.t | Wasm of Wasm.t
 
 type active = {
@@ -29,6 +30,7 @@ type runtime_event = {
 
 type view = {
   state : state;
+  health : health;
   manifest : Manifest.t option;
   registered_ids : string list;
   error : Error.t option;
@@ -38,6 +40,7 @@ type view = {
 type t = { config : config; active : active list; failures : failure list }
 
 let state_name = function Active -> "active" | Failed -> "failed"
+let health_name = function Healthy -> "healthy" | Unavailable -> "unavailable"
 
 let default_dirs () =
   let root =
@@ -157,6 +160,17 @@ let generation_runtime_limits = function
   | Wasm generation ->
       let limits = Wasm.limits generation in
       Some (limits.fuel, limits.memory_bytes)
+
+let generation_health = function
+  | Lua _ -> Healthy
+  | Wasm generation -> (
+      match Wasm.health generation with
+      | Wasm.Healthy -> Healthy
+      | Wasm.Unavailable _ -> Unavailable)
+
+let generation_health_error = function
+  | Lua _ -> None
+  | Wasm generation -> Wasm.health_error generation
 
 let dispose_generation = function
   | Lua generation -> Scripting.dispose generation
@@ -454,17 +468,24 @@ let providers value =
   List.map (fun active -> generation_provider active.generation) value.active
 
 let view_of_active (active : active) =
+  let error =
+    match active.last_error with
+    | Some error -> Some error
+    | None -> generation_health_error active.generation
+  in
   {
     state = Active;
+    health = generation_health active.generation;
     manifest = Some active.manifest;
     registered_ids = registered_ids active;
-    error = active.last_error;
+    error;
     runtime_limits = generation_runtime_limits active.generation;
   }
 
 let view_of_failure (failure : failure) =
   {
     state = Failed;
+    health = Unavailable;
     manifest = failure.manifest;
     registered_ids = [];
     error = Some failure.error;
@@ -490,6 +511,7 @@ let view_manifest_path value =
   Option.value ~default:"<unknown>" (Option.map Manifest.path value.manifest)
 
 let view_state value = value.state
+let view_health value = value.health
 
 let view_requested_capabilities value =
   Option.value ~default:[]

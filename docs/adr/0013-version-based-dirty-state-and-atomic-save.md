@@ -15,7 +15,8 @@ selection-only history transitions, which have no filesystem representation.
 `Ctrl-S` is a host command available independently of the selected model. For
 an existing file, `File_io.save_atomic` writes an adjacent exclusive temporary
 file, fsyncs it, preserves the target's mode when present, then renames it over
-the target. An unnamed buffer reports that save-as is not yet implemented.
+the target. At the time of this ADR, an unnamed buffer reported that save-as
+was not implemented.
 
 ## Alternatives considered
 
@@ -30,4 +31,11 @@ the target. An unnamed buffer reports that save-as is not yet implemented.
 Undo or redo to saved source contents is clean, including through selection-only
 history changes. A dirty `Ctrl-Q` needs a second `Ctrl-Q`; clean quit exits
 immediately. The current save implementation does not fsync the containing
-directory, provide save-as, watch files, or resolve external modifications.
+directory, watch files, or resolve external modifications.
+
+## M10 update
+
+M10 supersedes only the save-as deferral: the host prompts for a destination
+path and uses the same adjacent-temp-file atomic writer, then records the
+active path and saved contents/version. Parent-directory fsync and external
+modification detection remain deferred.

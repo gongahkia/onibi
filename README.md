@@ -1,217 +1,157 @@
-# zenbu
+# Zenbu
 
-Zenbu is a terminal-first programmable modal editor under development. This
-repository contains M0-M9: a semantic kernel, public editing-model and syntax
-protocols, three first-party editing models, local observability, trusted-local
-Lua configuration, a stable local plugin contract, a first isolated
-WebAssembly Component runtime, and an interactive terminal host. It deliberately
-contains no complete Vim/Helix/Kakoune implementation, syntax highlighting,
-LSP, or resolver/marketplace.
+Zenbu is a terminal-first programmable text editor built around one constraint:
+no editing model is fundamental. Vim-style, selection-first, structural, and
+future models act through the same public semantic editing API; they do not
+mutate text, selections, history, or syntax state directly.
 
-The project thesis is that no editing model is fundamental. A future Vim-like
-model, selection-first model, structural model, and third-party model must all
-be ordinary clients of the same public editing API.
+This checkout is **0.10.0-dev (M10)**. It is a development release, not a
+complete editor distribution.
 
-> First-party editing models and first-party plugins must eventually use only
-> the same public editing APIs available to third parties. No editing model
-> receives privileged access to editor mutation.
+## What is working
 
-> Input does not directly mutate text. Editing models eventually produce
-> semantic intents. Semantic intents resolve into transactions. The kernel
-> validates and atomically commits transactions.
+- The kernel owns immutable documents, UTF-8 validation, selections,
+  transactions, branching undo/redo history, deterministic replay, clipboard
+  slots, provenance, trace events, and profiler aggregates.
+- `zenbu.model_api` is the public boundary for editing models. The supplied
+  Vim-style, selection-first, and structural models all use it.
+- `zenbu.syntax` provides version-bound OCaml and JSON snapshots through a
+  private Tree-sitter backend. Its public `Syntax.Highlight` projection feeds
+  terminal presentation without exposing parser pointers or queries.
+- The terminal host has literal Unicode search, a provider-neutral command
+  palette, save-as, a live model picker, metadata-derived help, and bracketed
+  paste aggregation. These are host interactions, not additions to a model
+  grammar.
+- Lua configuration and local plugins contribute commands, selectors,
+  transformations, bindings, and events through host validation. Wasmtime
+  Components have bounded fuel/memory and become explicitly unavailable after
+  a fatal callback until reload; the document and ordinary editing remain
+  available.
+- `zenbu-headless` provides replay, model/session execution, syntax,
+  inspection, configuration, plugin, Component-contract, and generated-API
+  tooling for deterministic CI use.
 
-The core mutation API exposes immutable documents and explicit transitions; it
-does not expose arbitrary `mutable Editor` access to extensions.
+## Bootstrap on Linux x86_64
 
-## Quick start
+M9's pinned Wasmtime C API currently supports Linux x86_64 only. Fedora users
+need `opam`, a C toolchain, `curl`, `tar`, and `sha256sum`; install those with
+DNF before bootstrapping.
 
-The checked environment uses OCaml 5.3.0 and Dune 3.24.2. The host uses
-`notty-community`, `uuseg`, `uucp`, and the OCaml Tree-sitter binding; install
-project dependencies and the system PUC Lua 5.4 shared library before building
-a fresh checkout. On Fedora, the latter is supplied by `lua-libs`. M9 needs a
-pinned private Wasmtime C API archive; bootstrap it explicitly with
-`make wasm-runtime`. That checksum-verified download requires `curl`, `tar`,
-and `sha256sum`; normal build, test, and demo commands never download it.
+```sh
+make bootstrap
+```
+
+The target creates an ignored local opam switch with the system OCaml when needed
+(Zenbu requires OCaml 5.3.0 or newer),
+installs the package's test dependencies (including `ocamlformat` and the
+Tree-sitter OCaml/JSON sublibraries), checksum-fetches the pinned Wasmtime C
+API, and runs the full check. This resolves the common failure where a global
+Dune finds `tree-sitter` but not `tree-sitter.json`, or where `ocamlformat` is
+not on `PATH`. Its transient opam extraction directory is under ignored
+`.zenbu/tmp`, avoiding a small system `/tmp` quota.
+
+To use an already prepared switch:
 
 ```sh
 make wasm-runtime
 make check
 make demo
+```
+
+`make check` runs format checking, build, and all tests. `make release-check`
+verifies that the checked-in extension contract artifacts match the generator;
+run `make extension-docs` to update them deliberately.
+
+For a local development install after validation:
+
+```sh
+make install
+```
+
+## Run the editor
+
+The Make targets activate the local switch themselves. Before using `dune`
+directly, activate it in the current shell:
+
+```sh
+eval "$(opam env --switch="$PWD" --set-switch)"
+```
+
+```sh
+dune exec bin/zenbu.exe -- test/fixtures/syntax_sample.ml
+dune exec bin/zenbu.exe -- --model selection test/fixtures/syntax_sample.ml
+dune exec bin/zenbu.exe -- --model structural test/fixtures/syntax_sample.ml
+dune exec bin/zenbu.exe -- --trace --profile --plugin-dir examples/plugins FILE
+```
+
+The initial model is Vim-style. Syntax is detected from `.ml`, `.mli`, and
+`.json`, or selected with `--language ocaml|json`; unknown paths deliberately
+receive no syntax service and render as plain text.
+
+Host keys have priority over model/configuration bindings:
+
+| Key | Host action |
+| --- | --- |
+| `Ctrl-S` / `Ctrl-Shift-S` | save / prompt for save-as |
+| `Ctrl-Q` | quit; press again after a dirty warning |
+| `Alt-R` or `Ctrl-Alt-R` | reload Lua configuration and plugins transactionally |
+| `Ctrl-F` | start literal Unicode search; `Ctrl-G` / `Ctrl-Shift-G` move next / previous |
+| `Ctrl-P` | filter and invoke active builtin, script, and plugin commands |
+| `Alt-M` | switch Vim-style, selection-first, or structural model while preserving shared semantic state |
+| `Alt-H` | metadata-derived getting-started help |
+| `Ctrl-O` | toggle the local `why` inspector |
+
+Search, palette, and save-as prompts accept ordinary text-entry input.
+Bracketed terminal paste is collected as one committed text input only while a
+model or host prompt declares text entry; it is intentionally ignored in a
+command grammar. Selection styling wins over search styling, which wins over
+syntax styling.
+
+## Headless tooling
+
+```sh
+dune exec bin/zenbu_headless.exe -- demo
 dune exec bin/zenbu_headless.exe -- replay test/fixtures/unicode.replay
 dune exec bin/zenbu_headless.exe -- session test/fixtures/sessions/vim-edit.session
 dune exec bin/zenbu_headless.exe -- syntax test/fixtures/syntax_sample.ml
 dune exec bin/zenbu_headless.exe -- why test/fixtures/sessions/observability-vim.session
-dune exec bin/zenbu_headless.exe -- bindings structural
-dune exec bin/zenbu_headless.exe -- config-check examples/m7-init.lua
-dune exec bin/zenbu_headless.exe -- script-session examples/m7-init.lua test/fixtures/m7-wrap.session
-dune exec bin/zenbu_headless.exe -- plugin-check examples/plugins/surround
-dune exec bin/zenbu_headless.exe -- plugin-session examples/plugins test/fixtures/m8-surround.session
-make extension-docs
-dune exec bin/zenbu.exe -- --trace --profile --plugin-dir examples/plugins --model structural test/fixtures/syntax_sample.ml
+dune exec bin/zenbu_headless.exe -- search-session path/to/session
+dune exec bin/zenbu_headless.exe -- extension-api
 ```
 
-`make wasm-runtime` installs the pinned Linux x86_64 Wasmtime C API under the
-ignored `.zenbu/` directory; it does not install a system package. `make check`
-runs Dune's formatting check, build, and unit/property/replay/component
-conformance tests. Install `ocamlformat` (0.28.1-compatible)
-to run the formatter locally; if it is unavailable, Dune reports that rather
-than silently skipping format validation. When a project-local `_opam` switch
-exists, Make activates that switch for its recipes, so `make check` and
-`make demo` do not require a separate shell activation. The final `make demo`
-section stages the committed Component conformance fixture, prints its ordinary
-`why` telemetry, exhausts its loop fuel, and shows a subsequent Vim edit.
+Session fixtures can use `Ctrl-Shift-X` and `Alt-X` input values in addition to
+the original logical keys and `text-input` lines, so host interactions are
+testable without a TTY.
 
-On a machine without `ocamlformat`, bootstrap an ignored local opam switch once
-before running `make check`:
+## Package boundaries
 
-```sh
-opam switch create . ocaml-system --no-install
-opam install . --deps-only
-opam install ocamlformat.0.28.1
-eval "$(opam env)"
-make check
+```text
+zenbu.kernel                 documents, transactions, history, replay
+        ↑
+zenbu.model_api              public model/command/inspection vocabulary
+   ↗         ↖
+zenbu.proof_models     zenbu.structural_model ── zenbu.syntax (private Tree-sitter)
+        ↑                         ↑
+zenbu.app ── zenbu.view ── zenbu.terminal
+        ↑
+zenbu.scripting / zenbu.extension
 ```
 
-## Scope and layout
+The kernel does not depend on models, terminal I/O, Lua, Wasmtime, Tree-sitter,
+or rendering. The view accepts display ranges/classes and terminal applies
+colours; neither can mutate the document.
 
-- `lib/` contains the public kernel modules. Text storage is hidden behind
-  `Text_buffer`; all mutations are `Document.apply` transitions driven by
-  validated `Transaction` values. It also contains the separate
-  `zenbu.model_api` public library, which exposes logical input, constrained
-  contexts, model effects, commands, and the runtime.
-- `syntax/` is the public `zenbu.syntax` library. Its snapshots and nodes are
-  Zenbu-owned, version-bound abstractions; its Tree-sitter backend is private.
-- `models/` contains the retained M2 proof models plus a Vim-style and a
-  selection-first M3 model and the M5 structural model. The structural model
-  links only to `zenbu.model_api` and `zenbu.syntax`, never to Tree-sitter.
-- `test/` contains deterministic unit/property tests and inspectable replay
-  fixtures, including model-runtime and cross-model tests.
-- `view/` projects immutable editor contexts into pure, terminal-independent
-  frames. `terminal/` is the only layer that imports the terminal backend.
-- `app/` owns a session's file path, saved version, dirty state, viewport, and
-  host commands. `bin/zenbu.ml` is the interactive executable;
-  `bin/zenbu_headless.ml` remains the deterministic session/replay runner.
-- `docs/` records protocol semantics, invariants, architecture, roadmap, and
-  durable architectural decisions.
-- `scripting/` is the experimental `zenbu.scripting` library. It adapts PUC
-  Lua 5.4 through a private Ctypes boundary and translates registrations and
-  callbacks to public semantic APIs only.
-- `extension/` is the public `zenbu.extension` library: Extension API v1
-  contract metadata, TOML package manifests, capabilities/contributions, and
-  immutable plugin lifecycle snapshots. Its private Wasmtime Component adapter
-  uses the same runtime-neutral `zenbu.model_api.Extension_host` invocation
-  path.
+Read [the architecture](docs/ARCHITECTURE.md),
+[editing protocol](docs/EDITING_PROTOCOL.md), [terminal guide](docs/TERMINAL.md),
+[syntax guide](docs/SYNTAX.md), [observability guide](docs/OBSERVABILITY.md),
+[extension guide](docs/EXTENSIONS.md), and [roadmap](docs/ROADMAP.md) before
+extending the project. [Contributing](CONTRIBUTING.md) describes the expected
+local workflow and [release notes](docs/RELEASE.md) describe the release gate.
 
-See [architecture](docs/ARCHITECTURE.md), the [editing protocol](docs/EDITING_PROTOCOL.md),
-the [observability model](docs/OBSERVABILITY.md), and [invariants](docs/INVARIANTS.md)
-before extending the kernel.
+## Deliberate limits
 
-## M5 syntax and structural editing
-
-Tree-sitter is a private M5 backend. `zenbu.syntax` currently registers OCaml
-(`.ml`, `.mli`) and JSON (`.json`) and exposes only language metadata,
-version-bound syntax snapshots, opaque nodes, editing-useful traversal, and
-generic structural selectors. Unknown extensions simply produce no syntax
-snapshot; ordinary text editing continues.
-
-`zenbu [--model vim|selection|structural] [--language ID] [FILE]` detects a
-language from the file extension unless the optional override is supplied. The
-structural model uses `f` to focus the smallest named node; arrows select its
-parent, first child, next sibling, or previous sibling; `e`/`r` expand/shrink;
-`m` selects same-kind siblings; `x`, `c`, `y`, `p`, `u`, and `Ctrl-R` reuse the
-shared transformation, clipboard, and history services. See
-[syntax](docs/SYNTAX.md) and [the structural model](docs/models/STRUCTURAL.md).
-
-## Terminal host and plugins
-
-`zenbu [--model vim|selection|structural] [--config PATH|--no-config] [--plugin-dir PATH|--no-plugins] [FILE]` opens an existing UTF-8 file or an
-unnamed empty buffer. `Ctrl-S` atomically saves an existing file. `Ctrl-Q`
-exits a clean session; a dirty session requires a second `Ctrl-Q`. The
-selection-first model is a different editing grammar over the same kernel, not
-a compatibility mode.
-
-Without either configuration flag, Zenbu attempts `$XDG_CONFIG_HOME/zenbu/init.lua`
-(or `$HOME/.config/zenbu/init.lua`); a missing default is a no-op. `Ctrl-Alt-R`
-stages and atomically activates a new generation; `Alt-R`/`Meta-R` is accepted
-as a terminal-portable fallback where Ctrl-Alt printable keys cannot be reported.
-A bad configuration reload leaves the prior generation active. Configuration
-is deliberately trusted local code: it runs with Lua's standard libraries and
-must not be loaded from untrusted projects.
-See [scripting](docs/SCRIPTING.md).
-
-Plugin discovery is separate: the default root is
-`$XDG_CONFIG_HOME/zenbu/plugins` (or `$HOME/.config/zenbu/plugins`),
-`--plugin-dir PATH` selects explicit roots, and `--no-plugins` disables it.
-Packages provide `zenbu-plugin.toml`, declare Extension API v1,
-contributions, and least-required capabilities. They may be trusted Lua or
-isolated `wasm-component` packages; Components receive no WASI services and
-run with per-generation fuel/memory limits. Packages stage atomically and a
-failed reload retains the last known-good snapshot. See
-[extensions](docs/EXTENSIONS.md), [Component authoring](docs/WASM_COMPONENTS.md), and the
-[isolation policy](docs/ISOLATION.md), [M9 pressure test](docs/M9_PRESSURE_TEST.md),
-and [generated API reference](docs/generated/EXTENSION_API.md).
-
-The host restores terminal input, cursor visibility, and the normal screen on
-normal exit and exceptions. It renders only the source lines in the viewport,
-maps document byte offsets through grapheme clusters to display columns, and
-keeps the primary selection visible. See [terminal host notes](docs/TERMINAL.md)
-for lifecycle, persistence, coordinate, and terminal-width limits.
-
-## Remaining limitations
-
-Coordinates are UTF-8 byte offsets at Unicode code-point boundaries. They are
-not grapheme-cluster, line/column, or terminal display-cell coordinates.
-Anchors are snapshot-local: they intentionally do not survive arbitrary edits
-unless carried forward by the transaction's documented selection transform.
-Branching history is retained as an immutable tree and is available through the
-read-only inspector; no graphical branch manager or merge policy exists yet.
-
-The M3 Vim-style model implements a documented, intentionally incomplete
-subset; it is not Vim compatible. The selection-first model is inspired by
-Kakoune/Helix's select-then-transform principle, not a compatibility layer.
-The structural model is intentionally a small generic AST grammar rather than
-an OCaml refactoring engine. See [the Vim-style subset](docs/models/VIM.md),
-[selection-first subset](docs/models/SELECTION_FIRST.md), and
-[structural model](docs/models/STRUCTURAL.md).
-
-Terminal decoding and rendering are intentionally narrow: no mouse, bracketed
-paste, terminal capability probing beyond the chosen backend, save-as prompt,
-or model switching in a live session exists yet. Keymap configuration UI,
-syntax highlighting, LSP, asynchronous/background extension execution, a
-resolver, and a plugin marketplace remain deferred. `lua-trusted` packages and
-M7 configuration remain trusted local code; their capabilities limit Zenbu host
-services but do not sandbox Lua standard-library access. M9's isolated Component
-runtime is currently Linux x86_64 only and has no filesystem, network, process,
-clock, random, stdin, stdout, stderr, or other WASI service.
-
-## M6-M9 observability, scripting, and extensions
-
-M6 adds local structured inspection instead of ad-hoc logging. Transactions
-retain optional deterministic provenance; bounded traces and CPU-time profiles
-are explicit runtime services. The generic inspector describes models,
-commands, selectors, transformations, current bindings, selections, history,
-syntax, and profile aggregates without importing model or backend internals.
-
-`zenbu-headless commands`, `api`, `describe`, `bindings`, `why`, `history`,
-`selection`, `syntax-session`, and `profile` expose those same typed views.
-Interactive `--trace` and `--profile` opt in to bounded recording; with trace
-enabled, `Ctrl-O` toggles a read-only generic explanation overlay and `Escape`
-dismisses it. This is Zenbu's host-level inspector, not Vim Ex.
-
-M7 configuration now does this with data-only Lua callbacks. Scripts may register commands,
-selectors, transformations, scoped bindings, and `document-changed`/`after-save`
-hooks. They return declarative effects, selections, or edit proposals; the
-normal model runtime validates transactions, records history/provenance, and
-keeps Tree-sitter and terminal values private. `why`, history, bindings,
-`Scripts`, `config-check`, `config-describe`, and `script-session` expose the
-active generation and its effects. M8 turns that pressure-tested surface into a
-stable local package contract. `zenbu.extension` validates TOML manifests and
-Extension API v1 before Lua evaluation; plugins use a runtime-neutral,
-data-only host adapter and never store Lua callbacks in generic
-command/semantic registries. Provider metadata includes plugin ID/version/
-runtime throughout `why`, bindings, descriptors, history provenance, lifecycle
-traces, capability denials, and extension profiling. M9 adds typed Component
-compile/instantiate/register/call trace events with bounded profiler samples
-and reported fuel use. The next work is intentionally unnumbered: improve the
-Component guest toolchain and evaluate asynchronous execution without changing
-the semantic editing boundary.
+Zenbu has no LSP client, project search, external-file watcher, pane/layout
+system, command-line/Ex language, plugin marketplace, asynchronous extension
+execution, public Tree-sitter query API, grammar downloads, or refactoring
+engine. Component runtime support is Linux x86_64-specific because of the
+pinned native C API. See the deferred work in [the roadmap](docs/ROADMAP.md).

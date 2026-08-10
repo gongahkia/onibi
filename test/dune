@@ -88,3 +88,18 @@
   fixtures/m9_conformance_component.wasm.b64
   fixtures/m9_unauthorized_import_component.wasm.b64
   fixtures/m9_wasi_component.wasm.b64))
+
+(test
+ (name test_m10_host)
+ (libraries
+  zenbu_kernel
+  zenbu_model_api
+  zenbu_syntax
+  zenbu_proof_models
+  zenbu_structural_model
+  zenbu_scripting
+  zenbu_extension
+  zenbu_view
+  zenbu_terminal
+  zenbu_app
+  unix))

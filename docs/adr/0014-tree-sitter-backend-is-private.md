@@ -31,5 +31,7 @@ model-facing foundational API.
 
 Tree-sitter can theoretically be replaced for a language without rewriting the
 structural model. The package is a new build/runtime dependency and M5 tracks
-its exact currently available 0.1.0 release. Syntax highlighting, LSP, and
+its exact currently available 0.1.0 release. M10 adds syntax highlighting only
+through public snapshot-derived range/classes; Tree-sitter queries remain
+private. LSP and
 arbitrary grammar distribution remain out of scope.

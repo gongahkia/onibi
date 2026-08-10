@@ -265,6 +265,125 @@ module Selector = struct
                     Kind.equal kind (Snapshot.Node.kind sibling))))
 end
 
+module Highlight = struct
+  type class_ = Keyword | String | Number | Comment | Type | Constructor
+  type span = { class_ : class_; start_offset : int; stop_offset : int }
+
+  let class_ value = value.class_
+  let start_offset value = value.start_offset
+  let stop_offset value = value.stop_offset
+
+  let class_name = function
+    | Keyword -> "keyword"
+    | String -> "string"
+    | Number -> "number"
+    | Comment -> "comment"
+    | Type -> "type"
+    | Constructor -> "constructor"
+
+  let member value values = List.mem value values
+
+  let classify language kind =
+    let language = Language.id language in
+    if member kind [ "string"; "quoted_string"; "character" ] then Some String
+    else if
+      member kind
+        [ "integer"; "float"; "number"; "integer_literal"; "float_literal" ]
+    then Some Number
+    else if member kind [ "comment"; "line_comment"; "block_comment" ] then
+      Some Comment
+    else if
+      member kind
+        [ "type_constructor"; "type_variable"; "type_name"; "module_type_name" ]
+    then Some Type
+    else if
+      member kind
+        [
+          "constructor_name";
+          "constructor";
+          "variant_constructor";
+          "module_name";
+        ]
+    then Some Constructor
+    else
+      let keywords =
+        match language with
+        | "json" -> [ "true"; "false"; "null" ]
+        | "ocaml" ->
+            [
+              "and";
+              "as";
+              "assert";
+              "begin";
+              "class";
+              "do";
+              "done";
+              "downto";
+              "else";
+              "end";
+              "exception";
+              "external";
+              "for";
+              "fun";
+              "function";
+              "functor";
+              "if";
+              "in";
+              "include";
+              "inherit";
+              "initializer";
+              "lazy";
+              "let";
+              "match";
+              "method";
+              "module";
+              "mutable";
+              "new";
+              "object";
+              "of";
+              "open";
+              "or";
+              "private";
+              "rec";
+              "sig";
+              "struct";
+              "then";
+              "to";
+              "try";
+              "type";
+              "val";
+              "virtual";
+              "when";
+              "while";
+              "with";
+            ]
+        | _ -> []
+      in
+      if member kind keywords then Some Keyword else None
+
+  let spans snapshot =
+    let values = ref [] in
+    let rec visit node =
+      let kind = Tree_sitter_backend.kind node in
+      let start_offset = Tree_sitter_backend.start_byte node in
+      let stop_offset = Tree_sitter_backend.end_byte node in
+      (match classify (Snapshot.language snapshot) kind with
+      | Some class_ when start_offset < stop_offset ->
+          values := { class_; start_offset; stop_offset } :: !values
+      | Some _ | None -> ());
+      for index = 0 to Tree_sitter_backend.child_count node - 1 do
+        match Tree_sitter_backend.child node index with
+        | None -> ()
+        | Some child -> visit child
+      done
+    in
+    visit (Tree_sitter_backend.root snapshot.Snapshot.tree);
+    !values
+    |> List.sort (fun left right ->
+        let length value = value.stop_offset - value.start_offset in
+        Int.compare (length left) (length right))
+end
+
 module Service = struct
   type strategy = Cached | Full_parse | Incremental_parse | Tree_copy
 

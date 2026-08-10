@@ -100,6 +100,7 @@ let stable_error_codes =
     "extension-memory-exhausted";
     "extension-trap";
     "extension-response-limit";
+    "extension-runtime-unavailable";
     "duplicate-id";
     "unknown-semantic-id";
     "invalid-range";

@@ -6,4 +6,4 @@
  (name zenbu)
  (synopsis "A model-neutral semantic text editor kernel and editing-model API")
  (description
-  "The M0-M8 observable syntax-aware terminal host with trusted Lua configuration and a stable local extension contract for a model-neutral programmable modal text editor."))
+  "The M10 release-hardening terminal host with model-neutral semantic editing, syntax presentation, trusted Lua configuration, and a stable local extension contract."))

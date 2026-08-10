@@ -63,6 +63,7 @@ and extension_error_code =
   | Extension_memory_exhausted
   | Extension_trap
   | Extension_response_limit
+  | Extension_runtime_unavailable
 
 val to_string : t -> string
 val extension_error_code_name : extension_error_code -> string

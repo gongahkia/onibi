@@ -17,6 +17,7 @@ type definition = {
 }
 
 type limits = { fuel : int; memory_bytes : int }
+type health = Healthy | Unavailable of Error.t
 
 let max_registrations = 128
 let max_actions = 256
@@ -45,6 +46,7 @@ type t = {
   hooks : Registration.hook list;
   descriptors : Semantic_descriptor.t list;
   limits : limits;
+  health : health ref;
   runtime_events : runtime_event Queue.t;
 }
 
@@ -89,17 +91,65 @@ let runtime_error_code message =
   then Error.Extension_abi_mismatch
   else Error.Extension_runtime_error
 
+let bounded_message message =
+  let limit = 240 in
+  let message = String.trim message in
+  if String.length message <= limit then message
+  else String.sub message 0 limit ^ "…"
+
+let runtime_message code message =
+  match code with
+  | Error.Extension_fuel_exhausted ->
+      "component exhausted its fuel budget (all fuel consumed); reload the \
+       plugin"
+  | Error.Extension_memory_exhausted ->
+      "component exceeded its memory limit (memory allocation denied); reload \
+       the plugin"
+  | Error.Extension_trap -> "component trapped (wasm trap); reload the plugin"
+  | _ -> bounded_message message
+
 let extension_error provider capabilities ?operation message =
+  let code = runtime_error_code message in
   Error.Extension_error
     {
-      code = runtime_error_code message;
+      code;
       plugin_id = Provider.plugin_id provider;
       provider = Some (Provider.id provider);
       operation;
       required = None;
       granted = capabilities;
-      message;
+      message = runtime_message code message;
     }
+
+let runtime_unavailable provider capabilities ?operation error =
+  Error.Extension_error
+    {
+      code = Error.Extension_runtime_unavailable;
+      plugin_id = Provider.plugin_id provider;
+      provider = Some (Provider.id provider);
+      operation;
+      required = None;
+      granted = capabilities;
+      message =
+        "component runtime is unavailable after a fatal callback; reload the \
+         plugin" ^ " (previous error: "
+        ^ Error.extension_error_code_name
+            (match error with
+            | Error.Extension_error { code; _ } -> code
+            | _ -> Error.Extension_runtime_error)
+        ^ ")";
+    }
+
+let failure_needs_reload = function
+  | Error.Extension_error
+      {
+        code =
+          ( Error.Extension_fuel_exhausted | Error.Extension_memory_exhausted
+          | Error.Extension_trap );
+        _;
+      } ->
+      true
+  | _ -> false
 
 let response_limit provider capabilities phase detail =
   Error.Extension_error
@@ -571,6 +621,7 @@ let load ~(limits : limits) ~provider ~capabilities ~contributions
       Error (extension_error provider capabilities ~operation:"load" message)
   | Ok backend -> (
       let runtime_events = Queue.create () in
+      let health = ref Healthy in
       let metrics = Backend.metrics backend in
       Queue.add
         {
@@ -640,31 +691,45 @@ let load ~(limits : limits) ~provider ~capabilities ~contributions
                            ~operation:request.operation
                            "component callback is no longer available")
                     else
-                      let result =
-                        Backend.invoke backend ~token
-                          ~request:(request_value request)
-                      in
-                      let metrics = Backend.metrics backend in
-                      Queue.add
-                        {
-                          stage = "call";
-                          operation = Some request.operation;
-                          outcome =
-                            (match result with
-                            | Ok _ -> "succeeded"
-                            | Error _ -> "failed");
-                          duration_seconds = metrics.call_seconds;
-                          fuel_consumed = Some metrics.fuel_consumed;
-                          reason =
-                            (match result with
-                            | Ok _ -> None
-                            | Error message -> Some message);
-                        }
-                        runtime_events;
-                      result
-                      |> Result.map_error (fun message ->
-                          extension_error provider capabilities
-                            ~operation:request.operation message))
+                      match !health with
+                      | Unavailable error ->
+                          Error
+                            (runtime_unavailable provider capabilities
+                               ~operation:request.operation error)
+                      | Healthy ->
+                          let result =
+                            Backend.invoke backend ~token
+                              ~request:(request_value request)
+                          in
+                          let metrics = Backend.metrics backend in
+                          let result =
+                            result
+                            |> Result.map_error (fun message ->
+                                extension_error provider capabilities
+                                  ~operation:request.operation message)
+                          in
+                          Result.iter_error
+                            (fun error ->
+                              if failure_needs_reload error then
+                                health := Unavailable error)
+                            result;
+                          Queue.add
+                            {
+                              stage = "call";
+                              operation = Some request.operation;
+                              outcome =
+                                (match result with
+                                | Ok _ -> "succeeded"
+                                | Error _ -> "failed");
+                              duration_seconds = metrics.call_seconds;
+                              fuel_consumed = Some metrics.fuel_consumed;
+                              reason =
+                                (match result with
+                                | Ok _ -> None
+                                | Error error -> Some (Error.to_string error));
+                            }
+                            runtime_events;
+                          result)
               in
               let contribution_allowed name = List.mem name contributions in
               let namespaced id =
@@ -914,6 +979,7 @@ let load ~(limits : limits) ~provider ~capabilities ~contributions
                       hooks = !hooks;
                       descriptors = !descriptors;
                       limits;
+                      health;
                       runtime_events;
                     }))
 
@@ -924,6 +990,10 @@ let descriptors value = value.descriptors
 let bindings value = value.bindings
 let hooks value = value.hooks
 let limits value = value.limits
+let health value = !(value.health)
+
+let health_error value =
+  match health value with Healthy -> None | Unavailable error -> Some error
 
 let drain_runtime_events value =
   let events = Queue.to_seq value.runtime_events |> List.of_seq in

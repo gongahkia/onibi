@@ -1,5 +1,19 @@
 open Zenbu_kernel
 
+type shared_state = {
+  history : History.t;
+  commands : Command_registry.t;
+  semantic_behaviors : Semantic_behavior_registry.t;
+  syntax_service : Zenbu_syntax.Syntax.Service.t option;
+  clipboard : Clipboard.t;
+  input_trace : Input_event.t list;
+  repeatable_intents : Model_intent.t list option;
+  trace : Trace.t;
+  profiler : Profiler.t;
+  next_execution_id : int ref;
+  last_execution : int option;
+}
+
 module Make (Model : Editing_model.S) = struct
   type model_state = Model.state
 
@@ -173,6 +187,47 @@ module Make (Model : Editing_model.S) = struct
             profiler;
             next_execution_id = ref 1;
             last_execution = None;
+            pending_interaction = None;
+          }
+
+  let shared_state runtime =
+    {
+      history = runtime.history;
+      commands = runtime.commands;
+      semantic_behaviors = runtime.semantic_behaviors;
+      syntax_service = runtime.syntax_service;
+      clipboard = runtime.clipboard;
+      input_trace = runtime.input_trace;
+      repeatable_intents = runtime.repeatable_intents;
+      trace = runtime.trace;
+      profiler = runtime.profiler;
+      next_execution_id = runtime.next_execution_id;
+      last_execution = runtime.last_execution;
+    }
+
+  let create_from_shared (shared : shared_state) =
+    let context =
+      make_context ~trace:shared.trace ~profiler:shared.profiler
+        ?syntax_service:shared.syntax_service shared.history shared.commands
+        shared.clipboard
+    in
+    match model_call (fun () -> Model.initialize context) with
+    | Error _ as error -> error
+    | Ok state ->
+        Ok
+          {
+            history = shared.history;
+            commands = shared.commands;
+            semantic_behaviors = shared.semantic_behaviors;
+            syntax_service = shared.syntax_service;
+            clipboard = shared.clipboard;
+            state;
+            input_trace = shared.input_trace;
+            repeatable_intents = shared.repeatable_intents;
+            trace = shared.trace;
+            profiler = shared.profiler;
+            next_execution_id = shared.next_execution_id;
+            last_execution = shared.last_execution;
             pending_interaction = None;
           }
 

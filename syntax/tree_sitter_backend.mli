@@ -24,6 +24,8 @@ val is_missing : node -> bool
 val has_error : node -> bool
 val start_byte : node -> int
 val end_byte : node -> int
+val child_count : node -> int
+val child : node -> int -> node option
 val named_child_count : node -> int
 val named_child : node -> int -> node option
 val parent : node -> node option

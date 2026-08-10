@@ -30,6 +30,11 @@ let control_key text =
   | Ok key -> Input_event.key_press ~modifiers:[ Input_event.Control ] key
   | Error error -> fail error
 
+let shortcut_key modifiers text =
+  match Input_event.logical_text (String.lowercase_ascii text) with
+  | Ok key -> Input_event.key_press ~modifiers key
+  | Error error -> fail error
+
 module Vim_runtime = Model_runtime.Make (Vim_model)
 module Selection_runtime = Model_runtime.Make (Selection_model)
 module Structural_runtime = Model_runtime.Make (Structural_model)
@@ -269,11 +274,21 @@ let input_of_session_value = function
   | "ArrowDown" -> Ok (named_key Input_event.Arrow_down)
   | "ArrowLeft" -> Ok (named_key Input_event.Arrow_left)
   | "ArrowRight" -> Ok (named_key Input_event.Arrow_right)
+  | value when String.starts_with ~prefix:"Ctrl-Shift-" value ->
+      let text =
+        String.sub value 11 (String.length value - String.length "Ctrl-Shift-")
+      in
+      Ok (shortcut_key [ Input_event.Shift; Input_event.Control ] text)
   | value when String.starts_with ~prefix:"Ctrl-" value ->
       let text =
         String.sub value 5 (String.length value - String.length "Ctrl-")
       in
       Ok (control_key text)
+  | value when String.starts_with ~prefix:"Alt-" value ->
+      let text =
+        String.sub value 4 (String.length value - String.length "Alt-")
+      in
+      Ok (shortcut_key [ Input_event.Alt ] text)
   | value -> Ok (logical_key value)
 
 let session_of_string text =
@@ -388,7 +403,9 @@ let inspect_api () =
   |> Inspector.format_api |> print_lines
 
 let inspect_commands () =
-  Inspector.commands (semantic_registry ())
+  (Inspector.commands (semantic_registry ())
+  @ (Zenbu_app.Session.host_command_descriptors ()
+    |> List.map Inspector.describe_command))
   |> Inspector.format_commands |> print_lines
 
 let inspect_description kind id =
@@ -399,7 +416,17 @@ let inspect_description kind id =
         Inspector.format_description description |> print_lines
   in
   match kind with
-  | "command" -> print (Inspector.find_command (semantic_registry ()) id)
+  | "command" ->
+      let host =
+        Zenbu_app.Session.host_command_descriptors ()
+        |> List.find_opt (fun descriptor ->
+            Command_id.to_string (Command_descriptor.id descriptor) = id)
+        |> Option.map Inspector.describe_command
+      in
+      print
+        (match Inspector.find_command (semantic_registry ()) id with
+        | Some description -> Some description
+        | None -> host)
   | "model" ->
       all_models
       |> List.find_opt (fun descriptor -> Editing_model.id descriptor = id)
@@ -435,6 +462,8 @@ let print_plugin_view view =
   Printf.printf "%s %s %s %s\n" id version
     (Plugins.state_name (Plugins.view_state view))
     runtime;
+  Printf.printf "  health: %s\n"
+    (Plugins.health_name (Plugins.view_health view));
   Printf.printf "  manifest: %s\n" (Plugins.view_manifest_path view);
   Printf.printf "  capabilities: %s\n"
     (Plugins.view_granted_capabilities view
@@ -792,7 +821,7 @@ let run_component_demo () =
                 (Vim_runtime.context recovered |> Editor_context.contents)))
 
 let demo () =
-  Printf.printf "Zenbu M9: isolated Components, one semantic kernel\n\n";
+  Printf.printf "Zenbu M10: one semantic kernel, practical host tools\n\n";
   Printf.printf "Initial: \"alpha beta gamma\"\n\nVIM-STYLE: d w\n";
   run_vim_session "alpha beta gamma" [ logical_key "d"; logical_key "w" ];
   print_demo_why Zenbu_app.Session.Vim "alpha beta gamma"
@@ -857,23 +886,139 @@ let inspect_syntax path =
             (Syntax.Snapshot.has_error snapshot);
           print_node "" (Syntax.Snapshot.root snapshot))
 
+let measure_seconds run =
+  let started = Unix.gettimeofday () in
+  let value = run () in
+  (value, Unix.gettimeofday () -. started)
+
+let report_benchmark name seconds =
+  Printf.printf "%-30s %.3f ms\n" name (seconds *. 1000.)
+
+let source_root () =
+  Option.value ~default:(Sys.getcwd ()) (Sys.getenv_opt "DUNE_SOURCEROOT")
+
+let source_path path = Filename.concat (source_root ()) path
+
+let generated_ocaml_source ~bytes =
+  let line = "let benchmark_value = 12345 (* syntax benchmark *)\n" in
+  let contents = Buffer.create bytes in
+  while Buffer.length contents < bytes do
+    Buffer.add_string contents line
+  done;
+  Buffer.contents contents
+
+let benchmark_session ?language ?(config = Scripting.Disabled)
+    ?(plugins = Plugins.Disabled) contents =
+  Zenbu_app.Session.create ~model:Zenbu_app.Session.Vim ?language ~contents
+    ~config ~plugins ~dimensions:Zenbu_view.Renderer.{ columns = 100; rows = 30 }
+    ()
+  |> function
+  | Ok value -> value
+  | Error error -> fail error
+
+let temporary_directory prefix =
+  let directory = Filename.temp_file prefix "" in
+  Sys.remove directory;
+  Unix.mkdir directory 0o700;
+  directory
+
+let copy_file source destination = write_file destination (read_file source)
+
+let benchmark_component_callback () =
+  let root = temporary_directory "zenbu-benchmark-component" in
+  let package = Filename.concat root "component" in
+  Unix.mkdir package 0o700;
+  let source = source_path "examples/wasm-component-conformance" in
+  Fun.protect
+    ~finally:(fun () ->
+      List.iter
+        (fun path -> if Sys.file_exists path then Sys.remove path)
+        [
+          Filename.concat package "zenbu-plugin.toml";
+          Filename.concat package "plugin.wasm";
+        ];
+      Unix.rmdir package;
+      Unix.rmdir root)
+    (fun () ->
+      copy_file (Filename.concat source "zenbu-plugin.toml")
+        (Filename.concat package "zenbu-plugin.toml");
+      copy_file (Filename.concat source "plugin.wasm")
+        (Filename.concat package "plugin.wasm");
+      let session =
+        benchmark_session ~plugins:(Plugins.Directories [ root ]) "alpha"
+      in
+      measure_seconds (fun () ->
+          Zenbu_app.Session.handle_input session (control_key "K")))
+
+let benchmark () =
+  let small = "alpha beta gamma\n" in
+  let large = generated_ocaml_source ~bytes:(1024 * 1024) in
+  print_endline "Zenbu M10 benchmark (single process; lower is better)";
+  let _, startup = measure_seconds (fun () -> benchmark_session small) in
+  report_benchmark "empty-session initialization" startup;
+  let syntax_session, open_syntax =
+    measure_seconds (fun () -> benchmark_session ~language:"ocaml" large)
+  in
+  report_benchmark "open + parse 1 MiB OCaml" open_syntax;
+  let (syntax_session, _), first_render =
+    measure_seconds (fun () -> Zenbu_app.Session.render syntax_session)
+  in
+  report_benchmark "first 100x30 highlighted frame" first_render;
+  let _, steady_render =
+    measure_seconds (fun () -> Zenbu_app.Session.render syntax_session)
+  in
+  report_benchmark "cached 100x30 highlighted frame" steady_render;
+  let _, search =
+    measure_seconds (fun () ->
+        let session =
+          Zenbu_app.Session.handle_host syntax_session
+            Zenbu_app.Session.Start_search
+          |> function
+          | Zenbu_app.Session.Continue value -> value
+          | Zenbu_app.Session.Exit _ -> assert false
+        in
+        Zenbu_app.Session.handle_input session
+          (Input_event.text_input "benchmark_value" |> Result.get_ok))
+  in
+  report_benchmark "literal search over 1 MiB" search;
+  let _, edit =
+    measure_seconds (fun () ->
+        let session = benchmark_session small in
+        let session = Zenbu_app.Session.handle_input session (logical_key "i") in
+        Zenbu_app.Session.handle_input session
+          (Input_event.text_input "!" |> Result.get_ok))
+  in
+  report_benchmark "Vim committed text edit" edit;
+  let lua_config = source_path "examples/m7-init.lua" in
+  let lua_session =
+    benchmark_session ~config:(Scripting.Explicit lua_config) "alpha"
+  in
+  let _, lua =
+    measure_seconds (fun () ->
+        Zenbu_app.Session.handle_input lua_session (control_key "K"))
+  in
+  report_benchmark "Lua callback + transaction" lua;
+  let _, component = benchmark_component_callback () in
+  report_benchmark "Component callback + transaction" component
+
 let usage () =
   prerr_endline
-    "usage: zenbu-headless demo | replay <fixture.replay> | session \
+    "usage: zenbu-headless version | demo | replay <fixture.replay> | session \
      <fixture.session> | syntax <file> | commands | api | describe \
      <command|model|selector|transformation> <id> | bindings \
      <vim|selection|structural> | why <fixture.session> | bindings-session \
      <fixture.session> | history <fixture.session> | selection \
-     <fixture.session> | syntax-session <fixture.session> | profile \
-     <fixture.session> | config-check <init.lua> | config-describe <init.lua> \
-     | script-session <init.lua> <fixture.session> | plugin-session \
-     <PLUGIN-ROOT> <fixture.session> | plugins [DIR] | plugin-check \
-     <PLUGIN-DIR> | plugin-describe <PLUGIN-DIR> | extension-api | \
-     extension-sdk | extension-wit";
+     <fixture.session> | syntax-session <fixture.session> | search-session \
+     <fixture.session> | profile <fixture.session> | config-check <init.lua> | \
+     config-describe <init.lua> | script-session <init.lua> <fixture.session> \
+     | plugin-session <PLUGIN-ROOT> <fixture.session> | plugins [DIR] | \
+     plugin-check <PLUGIN-DIR> | plugin-describe <PLUGIN-DIR> | extension-api \
+     | extension-sdk | extension-wit | benchmark";
   exit 2
 
 let () =
   match Array.to_list Sys.argv with
+  | [ _; "version" ] -> print_endline ("zenbu " ^ Version.current)
   | [ _; "demo" ] -> demo ()
   | [ _; "session"; path ] -> run_session path
   | [ _; "syntax"; path ] -> inspect_syntax path
@@ -890,6 +1035,7 @@ let () =
   | [ _; "extension-api" ] -> extension_api ()
   | [ _; "extension-sdk" ] -> extension_sdk ()
   | [ _; "extension-wit" ] -> extension_wit ()
+  | [ _; "benchmark" ] -> benchmark ()
   | [ _; "describe"; kind; id ] -> inspect_description kind id
   | [ _; "bindings"; "vim" ] -> initial_bindings Vim
   | [ _; "bindings"; "selection" ] -> initial_bindings Selection_first
@@ -902,6 +1048,8 @@ let () =
       observed_session Zenbu_app.Session.Selection_view path
   | [ _; "syntax-session"; path ] ->
       observed_session Zenbu_app.Session.Syntax path
+  | [ _; "search-session"; path ] ->
+      observed_session Zenbu_app.Session.Search path
   | [ _; "profile"; path ] -> observed_session Zenbu_app.Session.Profile path
   | [ _; "replay"; path ] -> (
       match Replay.of_string (read_file path) with

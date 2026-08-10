@@ -574,11 +574,11 @@ let test_mixed_runtime_snapshot_and_cross_runtime_collision () =
            ());
       ignore
         (create_lua_command_package root ~directory:"lua" ~id:"com.example.lua"
-           ~input:"Ctrl-P" ~text:"L");
+           ~input:"Ctrl-J" ~text:"L");
       let trace = Trace.enabled ~capacity:256 |> must in
       let value = session root ~trace () in
       let value = Zenbu_app.Session.handle_input value (ctrl "K") in
-      let value = Zenbu_app.Session.handle_input value (ctrl "P") in
+      let value = Zenbu_app.Session.handle_input value (ctrl "J") in
       expect
         (Zenbu_app.Session.contents value = "!Lalpha")
         "Lua and Component commands did not coexist in one snapshot: %S"
@@ -765,6 +765,24 @@ let test_callback_failures_are_nonmutating_and_classified () =
         session root () |> fun value ->
         Zenbu_app.Session.handle_input value (ctrl "L")
       in
+      let health =
+        Zenbu_app.Session.inspect after_loop Zenbu_app.Session.Plugins
+        |> String.concat "\n"
+      in
+      expect
+        (contains health "health: unavailable")
+        "fuel exhaustion did not mark the Component runtime unavailable: %s"
+        health;
+      expect
+        (contains health "extension-fuel-exhausted")
+        "unavailable Component health did not retain the fatal cause: %s" health;
+      let unavailable = Zenbu_app.Session.handle_input after_loop (ctrl "K") in
+      expect
+        (Zenbu_app.Session.contents unavailable = "alpha")
+        "unavailable Component invocation changed the document";
+      expect
+        (contains (scripts unavailable) "extension-runtime-unavailable")
+        "unavailable Component invocation did not report a structured error";
       let recovered =
         Zenbu_app.Session.handle_input after_loop (key "d") |> fun value ->
         Zenbu_app.Session.handle_input value (key "w")
@@ -779,7 +797,19 @@ let test_callback_failures_are_nonmutating_and_classified () =
       in
       expect
         (contains plugins "com.example.m9 1.0.0 active wasm-component")
-        "fuel exhaustion unexpectedly unloaded the Component generation")
+        "fuel exhaustion unexpectedly unloaded the Component generation";
+      let reloaded = Zenbu_app.Session.reload_config after_loop in
+      let reloaded_plugins =
+        Zenbu_app.Session.inspect reloaded Zenbu_app.Session.Plugins
+        |> String.concat "\n"
+      in
+      expect
+        (contains reloaded_plugins "health: healthy")
+        "Component reload did not restore runtime health: %s" reloaded_plugins;
+      let restored = Zenbu_app.Session.handle_input reloaded (ctrl "K") in
+      expect
+        (Zenbu_app.Session.contents restored = "!alpha")
+        "Component reload did not restore callback availability")
 
 let test_capability_denial_remains_at_the_host_boundary () =
   with_root (fun root ->

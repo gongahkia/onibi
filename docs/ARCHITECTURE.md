@@ -1,6 +1,6 @@
 # Architecture
 
-Zenbu M0-M9 is a functional semantic editing kernel plus public editing-model,
+Zenbu M0-M10 is a functional semantic editing kernel plus public editing-model,
 syntax, trusted-local configuration, stable local extension protocols, an
 isolated Component runtime, and a narrow terminal host. The central kernel
 transition is
@@ -9,6 +9,12 @@ conceptually:
 ```text
 old document + transaction -> new document
 ```
+
+M10 adds a host interaction/presentation layer, not a second editing kernel.
+Search, command discovery, save-as, help, model switching, and syntax styling
+live in `zenbu.app`/`zenbu.view`; their selection and command operations still
+enter the public model runtime as semantic effects. The terminal only turns
+physical events into public input and paints frame styles.
 
 `Document.t` is immutable and owns a document id, version, text buffer, and
 selection set. `Document.snapshot` creates an immutable

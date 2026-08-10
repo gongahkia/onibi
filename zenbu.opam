@@ -1,6 +1,6 @@
 opam-version: "2.0"
 synopsis: "A model-neutral semantic text editor kernel and editing-model API"
-description: "The M0-M9 observable, syntax-aware terminal host with trusted-local Lua and an isolated Wasmtime Component runtime for a model-neutral programmable modal text editor."
+description: "The M10 release-hardening terminal host with model-neutral semantic editing, syntax presentation, trusted-local Lua, and isolated Wasmtime Components."
 maintainer: "Zenbu contributors"
 authors: "Zenbu contributors"
 license: "MIT"
@@ -16,6 +16,7 @@ depends: [
   "ctypes" {>= "0.24.0"}
   "ctypes-foreign" {>= "0.24.0"}
   "otoml" {>= "1.0.5"}
+  "ocamlformat" {= "0.28.1" & with-test}
 ]
 build: [
   ["dune" "build" "-p" name "-j" jobs]

@@ -66,6 +66,11 @@ dune exec bin/zenbu_headless.exe -- bindings vim
 dune exec bin/zenbu_headless.exe -- bindings-session SESSION
 ```
 
+M10 consumes this same descriptor registry for the terminal command palette.
+It filters command id, title, optional summary, and provider id without a
+plugin-specific discovery path. Palette invocation remains a normal command
+effect, so its transaction continues through provenance and `why`.
+
 ## History, selections, and syntax
 
 `History.nodes` is a public read-only tree view. `Inspector.history` reports
@@ -97,6 +102,11 @@ Run `zenbu --trace FILE`, edit, then press `Ctrl-O` to open the generic Why
 overlay. It is an application-level, read-only frame presentation shared by all
 models; `Escape` dismisses it and resize follows ordinary rendering. It is not
 a command palette, Ex implementation, or model-specific mode.
+
+M10 also has `Ctrl-P` command discovery and `Alt-H` metadata-derived help;
+neither replaces the inspector's typed headless views. `Session.Search` records
+the literal active query, match count/current result, and prompt state;
+`zenbu-headless search-session SESSION` prints that model-neutral view.
 
 ## Determinism and limits
 
@@ -163,3 +173,10 @@ The profiler keeps generic `extension.command`, `.selector`,
 These observations do not affect semantic equality or replay. Component
 resource/ABI/trap errors remain structured extension errors and are visible in
 plugin inspection and normal error tracing. See [the isolation policy](ISOLATION.md).
+
+After a fatal Component callback (fuel exhaustion, memory limit, or trap), M10
+marks runtime health `unavailable`. Plugins inspection exposes that state; a
+repeated callback returns structured `extension-runtime-unavailable` before
+guest entry. Reload follows normal extension lifecycle staging and restores
+`healthy` only when the new generation succeeds. This transition never changes
+the document or disables unrelated models/plugins.

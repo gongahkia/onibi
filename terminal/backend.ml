@@ -2,6 +2,7 @@ type t = {
   terminal : Notty_unix.Term.t;
   original_input : Unix.terminal_io option;
   mutable released : bool;
+  mutable paste : Buffer.t option;
 }
 
 open Zenbu_view
@@ -34,9 +35,10 @@ let create () =
       Ok
         {
           terminal =
-            Notty_unix.Term.create ~dispose:true ~mouse:false ~bpaste:false ();
+            Notty_unix.Term.create ~dispose:true ~mouse:false ~bpaste:true ();
           original_input;
           released = false;
+          paste = None;
         }
     with exception_ ->
       restore_partial_terminal original_input;
@@ -107,13 +109,35 @@ let key_of_notty (key, modifiers) =
       | Some key -> Event.Key { key; modifiers }
       | None -> Event.Unsupported "unsupported terminal special key")
 
-let read terminal =
+let pasted_text = function
+  | Event.Key { key = Event.Text text; modifiers = [] } -> Some text
+  | Event.Key { key = Event.Enter; modifiers = [] } -> Some "\n"
+  | Event.Key { key = Event.Tab; modifiers = [] } -> Some "\t"
+  | Event.Key _ | Event.Resize _ | Event.Paste _ | Event.End
+  | Event.Unsupported _ ->
+      None
+
+let rec read terminal =
   match Notty_unix.Term.event terminal.terminal with
+  | `Paste `Start ->
+      terminal.paste <- Some (Buffer.create 128);
+      read terminal
+  | `Paste `End -> (
+      match terminal.paste with
+      | None -> Event.Unsupported "unexpected bracketed-paste terminator"
+      | Some buffer ->
+          terminal.paste <- None;
+          Event.Paste (Buffer.contents buffer))
+  | `Key key -> (
+      let event = key_of_notty key in
+      match terminal.paste with
+      | None -> event
+      | Some buffer ->
+          Option.iter (Buffer.add_string buffer) (pasted_text event);
+          read terminal)
   | `Resize (columns, rows) -> Event.Resize { columns; rows }
   | `End -> Event.End
-  | `Key key -> key_of_notty key
   | `Mouse _ -> Event.Unsupported "mouse input is not enabled"
-  | `Paste _ -> Event.Unsupported "bracketed paste is not enabled"
 
 let attribute = function
   | Frame.Plain -> Notty.A.empty
@@ -122,6 +146,14 @@ let attribute = function
   | Frame.Status -> Notty.A.(bg lightblack ++ fg white)
   | Frame.Message -> Notty.A.(bg yellow ++ fg black)
   | Frame.Dim -> Notty.A.(fg lightblack)
+  | Frame.Search_match -> Notty.A.(bg yellow ++ fg black)
+  | Frame.Syntax_keyword -> Notty.A.(fg cyan ++ st bold)
+  | Frame.Syntax_string -> Notty.A.(fg green)
+  | Frame.Syntax_number -> Notty.A.(fg magenta)
+  | Frame.Syntax_comment -> Notty.A.(fg lightblack ++ st italic)
+  | Frame.Syntax_type -> Notty.A.(fg blue ++ st bold)
+  | Frame.Syntax_constructor -> Notty.A.(fg yellow)
+  | Frame.Overlay -> Notty.A.(bg lightblack ++ fg white)
 
 let image_of_cell cell =
   let image = Notty.I.string (attribute cell.Frame.style) cell.text in

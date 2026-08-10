@@ -230,6 +230,7 @@ let test_contract_and_manifest_validation () =
         "extension-memory-exhausted";
         "extension-trap";
         "extension-response-limit";
+        "extension-runtime-unavailable";
         "duplicate-id";
         "unknown-semantic-id";
         "invalid-range";

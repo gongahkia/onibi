@@ -5,6 +5,14 @@ type style =
   | Status
   | Message
   | Dim
+  | Search_match
+  | Syntax_keyword
+  | Syntax_string
+  | Syntax_number
+  | Syntax_comment
+  | Syntax_type
+  | Syntax_constructor
+  | Overlay
 
 type cell = { text : string; width : int; style : style }
 type row = cell list
