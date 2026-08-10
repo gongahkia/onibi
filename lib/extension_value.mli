@@ -1,5 +1,5 @@
-(** A serialisable, implementation-neutral value exchanged with extensions.
-    It deliberately excludes editor and runtime objects. *)
+(** A serialisable, implementation-neutral value exchanged with extensions. It
+    deliberately excludes editor and runtime objects. *)
 
 type t =
   | Nil

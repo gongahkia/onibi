@@ -8,6 +8,8 @@ type entry =
   | Interaction of int
   | Effect of string
   | Command of { id : string; provider : Provider.t }
+  | Binding of { input : string; command : string; provider : Provider.t }
+  | Event of { name : string; provider : Provider.t }
   | Selector of string
   | Transformation of string
   | Repeat of string

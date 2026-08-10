@@ -31,7 +31,6 @@ val execute :
   ?selector_id:string -> ?transformation_id:string -> Model_intent.t -> t
 
 val execute_semantic_operation : Semantic_operation.t -> t
-
 val selector_id : t -> string option
 val transformation_id : t -> string option
 val identity : t -> string

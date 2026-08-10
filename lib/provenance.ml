@@ -4,6 +4,8 @@ type entry =
   | Interaction of int
   | Effect of string
   | Command of { id : string; provider : Provider.t }
+  | Binding of { input : string; command : string; provider : Provider.t }
+  | Event of { name : string; provider : Provider.t }
   | Selector of string
   | Transformation of string
   | Repeat of string
@@ -23,6 +25,8 @@ let entry_name = function
   | Interaction id -> "interaction " ^ string_of_int id
   | Effect id -> "effect " ^ id
   | Command { id; _ } -> "command " ^ id
+  | Binding { input; command; _ } -> "binding " ^ input ^ " -> " ^ command
+  | Event { name; _ } -> "event " ^ name
   | Selector id -> "selector " ^ id
   | Transformation id -> "transformation " ^ id
   | Repeat description -> "repeat " ^ description

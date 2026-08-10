@@ -5,6 +5,7 @@ module Make (Model : Editing_model.S) : sig
 
   val create :
     ?commands:Command_registry.t ->
+    ?semantic_behaviors:Semantic_behavior_registry.t ->
     ?syntax_service:Zenbu_syntax.Syntax.Service.t ->
     ?trace:Trace.t ->
     ?profiler:Profiler.t ->
@@ -15,9 +16,31 @@ module Make (Model : Editing_model.S) : sig
   val handle_input :
     t -> Input_event.t -> (t * step, Zenbu_kernel.Error.t) result
 
+  val execute_effects :
+    t ->
+    ?augment_provenance:(Zenbu_kernel.Provenance.t -> Zenbu_kernel.Provenance.t) ->
+    input:Input_event.t ->
+    Model_effect.t list ->
+    (t * step, Zenbu_kernel.Error.t) result
+
+  val invoke_command :
+    t ->
+    ?augment_provenance:(Zenbu_kernel.Provenance.t -> Zenbu_kernel.Provenance.t) ->
+    input:Input_event.t ->
+    Command_invocation.t ->
+    (t * step, Zenbu_kernel.Error.t) result
+
   val reset : t -> (t, Zenbu_kernel.Error.t) result
   val history : t -> Zenbu_kernel.History.t
   val commands : t -> Command_registry.t
+  val semantic_behaviors : t -> Semantic_behavior_registry.t
+
+  val with_extensions :
+    t ->
+    commands:Command_registry.t ->
+    semantic_behaviors:Semantic_behavior_registry.t ->
+    t
+
   val context : t -> Editor_context.t
   val status : t -> Model_status.t
   val model_descriptor : t -> Editing_model.descriptor

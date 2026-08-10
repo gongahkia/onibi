@@ -35,6 +35,8 @@ val set_selections :
   selections:(int * int) list -> primary:int -> (t, Zenbu_kernel.Error.t) result
 
 val apply : selector:selector -> transformation:transformation -> t
+val selector_to_kernel : selector -> Zenbu_kernel.Selector.t
+val transformation_to_kernel : transformation -> Zenbu_kernel.Transformation.t
 val identity : t -> string
 val is_textual : t -> bool
 val semantic_components : t -> string option * string option

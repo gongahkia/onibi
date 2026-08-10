@@ -1,5 +1,4 @@
 open Zenbu_kernel
-
 module Id_map = Map.Make (String)
 
 type t = {
@@ -16,24 +15,19 @@ let register_selector registry entry =
   let descriptor = Semantic_behavior.selector_descriptor entry in
   let id = Semantic_descriptor.id descriptor in
   if Semantic_descriptor.kind descriptor <> Semantic_descriptor.Selector then
-    Error (Error.Invalid_provenance "selector behavior has wrong descriptor kind")
+    Error
+      (Error.Invalid_provenance "selector behavior has wrong descriptor kind")
   else if occupied registry id then Error (Error.Duplicate_descriptor id)
-  else
-    Ok
-      {
-        registry with
-        selectors = Id_map.add id entry registry.selectors;
-      }
+  else Ok { registry with selectors = Id_map.add id entry registry.selectors }
 
 let register_transformation registry entry =
   let descriptor = Semantic_behavior.transformation_descriptor entry in
   let id = Semantic_descriptor.id descriptor in
-  if
-    Semantic_descriptor.kind descriptor
-    <> Semantic_descriptor.Transformation
+  if Semantic_descriptor.kind descriptor <> Semantic_descriptor.Transformation
   then
     Error
-      (Error.Invalid_provenance "transformation behavior has wrong descriptor kind")
+      (Error.Invalid_provenance
+         "transformation behavior has wrong descriptor kind")
   else if occupied registry id then Error (Error.Duplicate_descriptor id)
   else
     Ok
@@ -55,6 +49,6 @@ let descriptors registry =
   let transformations =
     Id_map.bindings registry.transformations
     |> List.map (fun (_, entry) ->
-           Semantic_behavior.transformation_descriptor entry)
+        Semantic_behavior.transformation_descriptor entry)
   in
   selectors @ transformations

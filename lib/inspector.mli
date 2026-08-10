@@ -24,7 +24,12 @@ val description_provider : description -> Zenbu_kernel.Provider.t
 val description_fields : description -> (string * string) list
 val commands : Command_registry.t -> description list
 val find_command : Command_registry.t -> string -> description option
-val semantic_registry : unit -> Semantic_registry.t
+
+val semantic_registry :
+  ?semantic_behaviors:Semantic_behavior_registry.t ->
+  unit ->
+  Semantic_registry.t
+
 val find_semantic : Semantic_registry.t -> string -> description option
 val selections : Editor_context.t -> selection list
 val selection_primary : selection -> bool
@@ -78,7 +83,11 @@ val why_events : why -> Trace_event.t list
 val latest_why : Trace.t -> why option
 
 val api :
-  models:Editing_model.descriptor list -> commands:Command_registry.t -> api
+  models:Editing_model.descriptor list ->
+  commands:Command_registry.t ->
+  ?semantic_behaviors:Semantic_behavior_registry.t ->
+  unit ->
+  api
 
 val api_models : api -> description list
 val api_commands : api -> description list

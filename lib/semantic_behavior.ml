@@ -34,7 +34,8 @@ let selector_entry ~descriptor ~(run : selector) : selector_entry =
 let transformation_entry ~descriptor ~(run : transformation) :
     transformation_entry =
   { descriptor; run }
-let selector_descriptor value = value.descriptor
-let transformation_descriptor value = value.descriptor
-let run_selector value = value.run
-let run_transformation value = value.run
+
+let selector_descriptor (value : selector_entry) = value.descriptor
+let transformation_descriptor (value : transformation_entry) = value.descriptor
+let run_selector (value : selector_entry) = value.run
+let run_transformation (value : transformation_entry) = value.run

@@ -4,6 +4,12 @@ type stage =
   | Transformation_apply
   | Transaction_commit
   | Syntax_update
+  | Script_load
+  | Script_reload
+  | Script_command
+  | Script_selector
+  | Script_transformation
+  | Script_event
 
 type key = { stage : stage; model_id : string option }
 type sample = { key : key; duration : float }
@@ -38,6 +44,12 @@ let stage_name = function
   | Transformation_apply -> "transformation.apply"
   | Transaction_commit -> "transaction.commit"
   | Syntax_update -> "syntax.update"
+  | Script_load -> "script.load"
+  | Script_reload -> "script.reload"
+  | Script_command -> "script.command"
+  | Script_selector -> "script.selector"
+  | Script_transformation -> "script.transformation"
+  | Script_event -> "script.event"
 
 let measure profiler ?model_id stage f =
   match profiler with

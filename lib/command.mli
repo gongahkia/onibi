@@ -14,6 +14,7 @@ val create : descriptor:Command_descriptor.t -> handler:handler -> t
 
 val create_effectful :
   descriptor:Command_descriptor.t -> effect_handler:effect_handler -> t
+
 val descriptor : t -> Command_descriptor.t
 
 val execute :

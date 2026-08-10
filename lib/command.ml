@@ -6,10 +6,11 @@ type handler =
   (Model_intent.t list, Error.t) result
 
 type effect_handler =
-  Editor_context.t -> Command_invocation.t -> (Model_effect.t list, Error.t) result
+  Editor_context.t ->
+  Command_invocation.t ->
+  (Model_effect.t list, Error.t) result
 
 type handler_kind = Intents of handler | Effects of effect_handler
-
 type t = { descriptor : Command_descriptor.t; handler : handler_kind }
 
 let create ~descriptor ~handler = { descriptor; handler = Intents handler }
@@ -51,5 +52,6 @@ let execute_effects value context invocation =
     match value.handler with
     | Intents handler ->
         handler context invocation
-        |> Result.map (List.map (fun intent -> Model_effect.Execute_intent intent))
+        |> Result.map
+             (List.map (fun intent -> Model_effect.Execute_intent intent))
     | Effects handler -> handler context invocation

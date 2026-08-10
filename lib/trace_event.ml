@@ -59,6 +59,29 @@ type t =
       strategy : string;
       has_error : bool;
     }
+  | Script_lifecycle of {
+      execution_id : execution_id;
+      phase : string;
+      generation_id : int option;
+      provider : Zenbu_kernel.Provider.t option;
+      outcome : string;
+      reason : string option;
+    }
+  | Script_callback of {
+      execution_id : execution_id;
+      kind : string;
+      provider : Zenbu_kernel.Provider.t;
+      semantic_id : string option;
+      outcome : string;
+      reason : string option;
+    }
+  | Binding_resolved of {
+      execution_id : execution_id;
+      input : string;
+      command_id : string;
+      provider : Zenbu_kernel.Provider.t;
+      scope : string;
+    }
   | Error_reported of { execution_id : execution_id; reason : string }
 
 let execution_id = function
@@ -76,6 +99,9 @@ let execution_id = function
   | Transaction_rejected { execution_id; _ }
   | History_changed { execution_id; _ }
   | Syntax_refreshed { execution_id; _ }
+  | Script_lifecycle { execution_id; _ }
+  | Script_callback { execution_id; _ }
+  | Binding_resolved { execution_id; _ }
   | Error_reported { execution_id; _ } ->
       execution_id
 
@@ -94,4 +120,7 @@ let name = function
   | Transaction_rejected _ -> "transaction-rejected"
   | History_changed _ -> "history-changed"
   | Syntax_refreshed _ -> "syntax-refreshed"
+  | Script_lifecycle _ -> "script-lifecycle"
+  | Script_callback _ -> "script-callback"
+  | Binding_resolved _ -> "binding-resolved"
   | Error_reported _ -> "error-reported"

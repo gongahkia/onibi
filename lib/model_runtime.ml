@@ -39,6 +39,14 @@ module Make (Model : Editing_model.S) = struct
   }
 
   let trace trace event = Trace.emit_lazy trace event
+  let script_provider provider = Provider.kind provider = Provider.Script
+
+  let trace_script_callback runtime ~execution_id ~kind ~provider ?semantic_id
+      ?reason outcome =
+    if script_provider provider then
+      trace runtime.trace (fun () ->
+          Trace_event.Script_callback
+            { execution_id; kind; provider; semantic_id; outcome; reason })
 
   let emit_syntax trace execution_id syntax strategy =
     Trace.emit_lazy trace (fun () ->
@@ -241,7 +249,8 @@ module Make (Model : Editing_model.S) = struct
             (Document.snapshot (History.current history))
             (Model_intent.to_kernel intent)
         in
-        Result.bind transaction (apply_transaction runtime ~execution_id history action)
+        Result.bind transaction
+          (apply_transaction runtime ~execution_id history action)
 
   let apply_actions runtime ~execution_id history actions =
     let rec loop history ids = function
@@ -292,10 +301,9 @@ module Make (Model : Editing_model.S) = struct
     {
       intent = None;
       provenance =
-        base
-        |> fun value -> Provenance.add value (Provenance.Selector selector_id)
-        |> fun value ->
-        Provenance.add value (Provenance.Transformation transformation_id);
+        ( base |> fun value ->
+          Provenance.add value (Provenance.Selector selector_id) |> fun value ->
+          Provenance.add value (Provenance.Transformation transformation_id) );
       selector_id = Some selector_id;
       transformation_id = Some transformation_id;
     }
@@ -316,7 +324,8 @@ module Make (Model : Editing_model.S) = struct
               (Error.Model_execution_failed
                  "selecting a semantic target did not produce selections"))
 
-  let behavior_selection_set snapshot value =
+  let behavior_selection_set snapshot (value : Semantic_behavior.selection_set)
+      =
     let rec selections values = function
       | [] -> Ok (List.rev values)
       | selection :: rest -> (
@@ -345,11 +354,11 @@ module Make (Model : Editing_model.S) = struct
       Semantic_behavior.selections =
         Selection_set.to_list selections
         |> List.map (fun selection ->
-               {
-                 Semantic_behavior.anchor_offset =
-                   Selection.anchor selection |> Anchor.byte_offset;
-                 head_offset = Selection.head selection |> Anchor.byte_offset;
-               });
+            {
+              Semantic_behavior.anchor_offset =
+                Selection.anchor selection |> Anchor.byte_offset;
+              head_offset = Selection.head selection |> Anchor.byte_offset;
+            });
       primary = Selection_set.primary_index selections;
     }
 
@@ -365,24 +374,52 @@ module Make (Model : Editing_model.S) = struct
              message = Printexc.to_string exception_;
            })
 
-  let resolve_operation_selector runtime history context selector =
+  let resolve_operation_selector runtime ~execution_id history context selector
+      =
     match selector with
     | Semantic_operation.Builtin_selector selector ->
         selection_set_for_selector history selector
     | Semantic_operation.Registered_selector { id; arguments } -> (
-        match Semantic_behavior_registry.find_selector runtime.semantic_behaviors id with
-        | None -> Error (Error.Invalid_selector ("unknown registered selector " ^ id))
+        match
+          Semantic_behavior_registry.find_selector runtime.semantic_behaviors id
+        with
+        | None ->
+            Error (Error.Invalid_selector ("unknown registered selector " ^ id))
         | Some entry ->
+            let provider =
+              Semantic_behavior.selector_descriptor entry
+              |> Semantic_descriptor.provider
+            in
+            trace_script_callback runtime ~execution_id ~kind:"selector"
+              ~provider ~semantic_id:id "started";
             let result =
-              Profiler.measure runtime.profiler Profiler.Selector_resolve (fun () ->
+              Profiler.measure runtime.profiler
+                ~model_id:(if script_provider provider then id else "builtin")
+                (if script_provider provider then Profiler.Script_selector
+                 else Profiler.Selector_resolve)
+                (fun () ->
                   protected_behavior_call "selector" (fun () ->
                       Semantic_behavior.run_selector entry context ~arguments))
             in
-            Result.bind result (behavior_selection_set (Document.snapshot (History.current history))))
+            let resolved =
+              Result.bind result
+                (behavior_selection_set
+                   (Document.snapshot (History.current history)))
+            in
+            (match resolved with
+            | Ok _ ->
+                trace_script_callback runtime ~execution_id ~kind:"selector"
+                  ~provider ~semantic_id:id "succeeded"
+            | Error error ->
+                trace_script_callback runtime ~execution_id ~kind:"selector"
+                  ~provider ~semantic_id:id ~reason:(Error.to_string error)
+                  "failed");
+            resolved)
 
   let edit_for_behavior snapshot edit =
     match
-      Document_snapshot.anchor snapshot ~byte_offset:edit.Semantic_behavior.start_offset
+      Document_snapshot.anchor snapshot
+        ~byte_offset:edit.Semantic_behavior.start_offset
     with
     | Error _ as error -> error
     | Ok start -> (
@@ -396,7 +433,8 @@ module Make (Model : Editing_model.S) = struct
             | Error _ as error -> error
             | Ok range -> Edit.replace range ~text:edit.replacement))
 
-  let behavior_transaction snapshot ~provenance ~operation selections result =
+  let behavior_transaction snapshot ~provenance ~operation selections
+      (result : Semantic_behavior.transformation_result) =
     let rec edits values = function
       | [] -> Ok (List.rev values)
       | edit :: rest -> (
@@ -410,46 +448,78 @@ module Make (Model : Editing_model.S) = struct
       | Some value -> behavior_selection_set snapshot value
     in
     match (edits [] result.Semantic_behavior.edits, selection_change) with
-    | Error _ as error, _ | _, Error _ as error -> error
+    | (Error _ as error), _ -> error
+    | _, (Error _ as error) -> error
     | Ok edits, Ok selection_change ->
         let metadata =
           Transaction.metadata ~source:Transaction.User
-            ~intent:(Semantic_operation.identity operation) ~provenance ()
+            ~intent:(Semantic_operation.identity operation)
+            ~provenance ()
         in
         Transaction.create
           ~document_id:(Document_snapshot.document_id snapshot)
-          ~source_version:(Document_snapshot.version snapshot) ~edits
-          ~selection_change ~metadata ()
+          ~source_version:(Document_snapshot.version snapshot)
+          ~edits ~selection_change ~metadata ()
 
-  let resolve_operation_transaction runtime history context operation provenance =
+  let resolve_operation_transaction runtime ~execution_id history context
+      (operation : Semantic_operation.t) provenance =
     let snapshot = Document.snapshot (History.current history) in
-    match resolve_operation_selector runtime history context operation.selector with
+    match
+      resolve_operation_selector runtime ~execution_id history context
+        operation.selector
+    with
     | Error _ as error -> error
     | Ok selections -> (
         match operation.transformation with
         | Semantic_operation.Builtin_transformation transformation ->
             Intent.resolve_on_selections ~source:Transaction.User ~provenance
-              ~intent:(Semantic_operation.identity operation) snapshot selections
+              ~intent:(Semantic_operation.identity operation)
+              snapshot selections
               (Model_intent.transformation_to_kernel transformation)
         | Semantic_operation.Registered_transformation { id; arguments } -> (
             match
-              Semantic_behavior_registry.find_transformation runtime.semantic_behaviors id
+              Semantic_behavior_registry.find_transformation
+                runtime.semantic_behaviors id
             with
             | None ->
                 Error
                   (Error.Invalid_transformation
                      ("unknown registered transformation " ^ id))
             | Some entry ->
+                let provider =
+                  Semantic_behavior.transformation_descriptor entry
+                  |> Semantic_descriptor.provider
+                in
+                trace_script_callback runtime ~execution_id
+                  ~kind:"transformation" ~provider ~semantic_id:id "started";
                 let result =
-                  Profiler.measure runtime.profiler Profiler.Transformation_apply
+                  Profiler.measure runtime.profiler
+                    ~model_id:
+                      (if script_provider provider then id else "builtin")
+                    (if script_provider provider then
+                       Profiler.Script_transformation
+                     else Profiler.Transformation_apply)
                     (fun () ->
                       protected_behavior_call "transformation" (fun () ->
                           Semantic_behavior.run_transformation entry context
                             ~selections:(behavior_selections selections)
                             ~arguments))
                 in
-                Result.bind result
-                  (behavior_transaction snapshot ~provenance ~operation selections)))
+                let resolved =
+                  Result.bind result
+                    (behavior_transaction snapshot ~provenance ~operation
+                       selections)
+                in
+                (match resolved with
+                | Ok _ ->
+                    trace_script_callback runtime ~execution_id
+                      ~kind:"transformation" ~provider ~semantic_id:id
+                      "succeeded"
+                | Error error ->
+                    trace_script_callback runtime ~execution_id
+                      ~kind:"transformation" ~provider ~semantic_id:id
+                      ~reason:(Error.to_string error) "failed");
+                resolved))
 
   let copied_contents history selector =
     match selection_set_for_selector history selector with
@@ -576,12 +646,14 @@ module Make (Model : Editing_model.S) = struct
         in
         let action = dynamic_action ~base ~selector_id ~transformation_id in
         match
-          resolve_operation_transaction runtime history context operation
-            action.provenance
+          resolve_operation_transaction runtime ~execution_id history context
+            operation action.provenance
         with
         | Error _ as error -> error
         | Ok transaction -> (
-            match apply_transaction runtime ~execution_id history action transaction with
+            match
+              apply_transaction runtime ~execution_id history action transaction
+            with
             | Error _ as error -> error
             | Ok (history, change_id) ->
                 Ok
@@ -592,22 +664,53 @@ module Make (Model : Editing_model.S) = struct
                     [],
                     repeatable_intents )))
     | Model_effect.Invoke_command invocation -> (
+        let command_id =
+          Command_invocation.id invocation |> Command_id.to_string
+        in
+        let script_provider =
+          match
+            Command_registry.find runtime.commands
+              (Command_invocation.id invocation)
+          with
+          | Error _ -> None
+          | Ok command ->
+              let provider =
+                Command.descriptor command |> Command_descriptor.provider
+              in
+              if script_provider provider then Some provider else None
+        in
         trace runtime.trace (fun () ->
-            Trace_event.Command_invoked
-              {
-                execution_id;
-                command_id =
-                  Command_invocation.id invocation |> Command_id.to_string;
-              });
+            Trace_event.Command_invoked { execution_id; command_id });
+        Option.iter
+          (fun provider ->
+            trace_script_callback runtime ~execution_id ~kind:"command"
+              ~provider ~semantic_id:command_id "started")
+          script_provider;
         let context =
           make_context ~execution_id ~trace:runtime.trace
             ~profiler:runtime.profiler ?syntax_service:runtime.syntax_service
             history runtime.commands clipboard
         in
-        match
-          Command_registry.invoke_effects runtime.commands ~context invocation
-        with
-        | Error _ as error -> error
+        let invoked =
+          match script_provider with
+          | None ->
+              Command_registry.invoke_effects runtime.commands ~context
+                invocation
+          | Some _ ->
+              Profiler.measure runtime.profiler ~model_id:command_id
+                Profiler.Script_command (fun () ->
+                  Command_registry.invoke_effects runtime.commands ~context
+                    invocation)
+        in
+        match invoked with
+        | Error error ->
+            Option.iter
+              (fun provider ->
+                trace_script_callback runtime ~execution_id ~kind:"command"
+                  ~provider ~semantic_id:command_id
+                  ~reason:(Error.to_string error) "failed")
+              script_provider;
+            Error error
         | Ok effects -> (
             let base =
               command_provenance runtime.commands
@@ -616,9 +719,18 @@ module Make (Model : Editing_model.S) = struct
             in
             match
               interpret_effects runtime ~execution_id history clipboard
-                repeatable_intents (fun () -> base) effects
+                repeatable_intents
+                (fun () -> base)
+                effects
             with
-            | Error _ as error -> error
+            | Error error ->
+                Option.iter
+                  (fun provider ->
+                    trace_script_callback runtime ~execution_id ~kind:"command"
+                      ~provider ~semantic_id:command_id
+                      ~reason:(Error.to_string error) "failed")
+                  script_provider;
+                Error error
             | Ok
                 ( history,
                   clipboard,
@@ -626,6 +738,11 @@ module Make (Model : Editing_model.S) = struct
                   changes,
                   messages,
                   repeatable_intents ) ->
+                Option.iter
+                  (fun provider ->
+                    trace_script_callback runtime ~execution_id ~kind:"command"
+                      ~provider ~semantic_id:command_id "succeeded")
+                  script_provider;
                 Ok
                   ( history,
                     clipboard,
@@ -883,7 +1000,8 @@ module Make (Model : Editing_model.S) = struct
                       execution_id;
                       input;
                       effects;
-                      intents = List.filter_map (fun action -> action.intent) actions;
+                      intents =
+                        List.filter_map (fun action -> action.intent) actions;
                       messages;
                       change_ids;
                       document_version =
@@ -892,6 +1010,61 @@ module Make (Model : Editing_model.S) = struct
                       status_before;
                       status_after;
                     } )))
+
+  let execute_effects runtime ?(augment_provenance = Fun.id) ~input effects =
+    let execution_id = !(runtime.next_execution_id) in
+    runtime.next_execution_id := execution_id + 1;
+    let status_before = Model.status runtime.state in
+    trace runtime.trace (fun () ->
+        Trace_event.Input_received
+          { execution_id; input = Input_event.to_string input });
+    let base () =
+      Provenance.create ~execution_id
+        ~model_id:(Editing_model.id Model.descriptor)
+        ~provider:(Editing_model.provider Model.descriptor)
+        ~input:(Input_event.to_string input)
+      |> augment_provenance
+    in
+    match
+      interpret_effects runtime ~execution_id runtime.history runtime.clipboard
+        runtime.repeatable_intents base effects
+    with
+    | Error error ->
+        trace runtime.trace (fun () ->
+            Trace_event.Error_reported
+              { execution_id; reason = Error.to_string error });
+        Error error
+    | Ok (history, clipboard, actions, change_ids, messages, repeatable_intents)
+      ->
+        let next =
+          {
+            runtime with
+            history;
+            clipboard;
+            input_trace = bounded_inputs runtime.input_trace input;
+            repeatable_intents;
+            last_execution = Some execution_id;
+          }
+        in
+        Ok
+          ( next,
+            {
+              execution_id;
+              input;
+              effects;
+              intents = List.filter_map (fun action -> action.intent) actions;
+              messages;
+              change_ids;
+              document_version =
+                Document_version.to_int
+                  (Document.version (History.current history));
+              status_before;
+              status_after = status_before;
+            } )
+
+  let invoke_command runtime ?augment_provenance ~input invocation =
+    execute_effects runtime ?augment_provenance ~input
+      [ Model_effect.Invoke_command invocation ]
 
   let reset runtime =
     let context =
@@ -905,6 +1078,10 @@ module Make (Model : Editing_model.S) = struct
 
   let history runtime = runtime.history
   let commands runtime = runtime.commands
+  let semantic_behaviors runtime = runtime.semantic_behaviors
+
+  let with_extensions runtime ~commands ~semantic_behaviors =
+    { runtime with commands; semantic_behaviors }
 
   let context runtime =
     make_context ~trace:runtime.trace ~profiler:runtime.profiler

@@ -4,6 +4,12 @@ type stage =
   | Transformation_apply
   | Transaction_commit
   | Syntax_update
+  | Script_load
+  | Script_reload
+  | Script_command
+  | Script_selector
+  | Script_transformation
+  | Script_event
 
 type aggregate
 type t

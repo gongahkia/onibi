@@ -8,7 +8,6 @@ let make ~id ~kind ~source =
 
 let create ~id ~kind = make ~id ~kind ~source:None
 let create_with_source ~id ~kind ~source = make ~id ~kind ~source:(Some source)
-
 let id value = value.id
 let kind value = value.kind
 let source value = value.source

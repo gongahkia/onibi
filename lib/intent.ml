@@ -100,14 +100,16 @@ let resolve_on_selections ~source ?description ?provenance ~intent snapshot
       match collapse_selections snapshot selection_change `Start with
       | Error _ as error -> error
       | Ok selection_change ->
-          transaction snapshot ~edits:[] ~selection_change:(Some selection_change)
-            ~source ~intent ~description ~provenance)
+          transaction snapshot ~edits:[]
+            ~selection_change:(Some selection_change) ~source ~intent
+            ~description ~provenance)
   | Transformation.Collapse_to_end -> (
       match collapse_selections snapshot selection_change `End with
       | Error _ as error -> error
       | Ok selection_change ->
-          transaction snapshot ~edits:[] ~selection_change:(Some selection_change)
-            ~source ~intent ~description ~provenance)
+          transaction snapshot ~edits:[]
+            ~selection_change:(Some selection_change) ~source ~intent
+            ~description ~provenance)
   | Transformation.Delete -> (
       match edits_for_selection_set selection_change ~text:"" with
       | Error _ as error -> error
@@ -154,5 +156,5 @@ let resolve ~source ?description ?provenance snapshot = function
       | Error _ as error -> error
       | Ok selection_change ->
           resolve_on_selections ~source ?description ?provenance
-            ~intent:(identity (Apply { selector; transformation })) snapshot
-            selection_change transformation)
+            ~intent:(identity (Apply { selector; transformation }))
+            snapshot selection_change transformation)

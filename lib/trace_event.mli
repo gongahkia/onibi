@@ -59,6 +59,29 @@ type t =
       strategy : string;
       has_error : bool;
     }
+  | Script_lifecycle of {
+      execution_id : execution_id;
+      phase : string;
+      generation_id : int option;
+      provider : Zenbu_kernel.Provider.t option;
+      outcome : string;
+      reason : string option;
+    }
+  | Script_callback of {
+      execution_id : execution_id;
+      kind : string;
+      provider : Zenbu_kernel.Provider.t;
+      semantic_id : string option;
+      outcome : string;
+      reason : string option;
+    }
+  | Binding_resolved of {
+      execution_id : execution_id;
+      input : string;
+      command_id : string;
+      provider : Zenbu_kernel.Provider.t;
+      scope : string;
+    }
   | Error_reported of { execution_id : execution_id; reason : string }
 
 val execution_id : t -> execution_id

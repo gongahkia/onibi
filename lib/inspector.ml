@@ -84,6 +84,8 @@ let provider_fields provider =
     ("provider", Provider.id provider);
     ("provider-kind", Provider.kind provider |> Provider.kind_name);
   ]
+  @ Option.to_list
+      (Option.map (fun source -> ("source", source)) (Provider.source provider))
 
 let describe_command descriptor =
   {
@@ -146,11 +148,13 @@ let find_command registry id =
       | Error _ -> None
       | Ok command -> Some (Command.descriptor command |> describe_command))
 
-let semantic_registry () =
+let semantic_registry ?(semantic_behaviors = Semantic_behavior_registry.empty)
+    () =
   let values =
     Selector.descriptors ()
     @ Transformation.descriptors ()
     @ Zenbu_syntax.Syntax.Selector.descriptors ()
+    @ Semantic_behavior_registry.descriptors semantic_behaviors
   in
   List.fold_left
     (fun registry descriptor ->
@@ -370,8 +374,11 @@ let latest_why trace =
   | [] -> None
   | event :: _ -> why trace ~execution_id:(Trace_event.execution_id event)
 
-let api ~models ~commands:registry =
-  let semantic = semantic_registry () |> Semantic_registry.descriptors in
+let api ~models ~commands:registry
+    ?(semantic_behaviors = Semantic_behavior_registry.empty) () =
+  let semantic =
+    semantic_registry ~semantic_behaviors () |> Semantic_registry.descriptors
+  in
   {
     models =
       List.map describe_model models
@@ -546,6 +553,25 @@ let format_event = function
     ->
       Printf.sprintf "syntax: %s v%d %s error=%b" language_id document_version
         strategy has_error
+  | Script_lifecycle { phase; generation_id; provider; outcome; reason; _ } ->
+      Printf.sprintf "script %s %s%s%s" phase outcome
+        (Option.map (fun id -> " generation=" ^ string_of_int id) generation_id
+        |> Option.value ~default:"")
+        (Option.map
+           (fun provider -> " provider=" ^ Provider.id provider)
+           provider
+        |> Option.value ~default:"")
+      ^ (Option.map (fun reason -> ": " ^ reason) reason
+        |> Option.value ~default:"")
+  | Script_callback { kind; provider; semantic_id; outcome; reason; _ } ->
+      "script " ^ kind ^ " " ^ outcome ^ " provider=" ^ Provider.id provider
+      ^ (Option.map (fun id -> " id=" ^ id) semantic_id
+        |> Option.value ~default:"")
+      ^ (Option.map (fun reason -> ": " ^ reason) reason
+        |> Option.value ~default:"")
+  | Binding_resolved { input; command_id; provider; scope; _ } ->
+      Printf.sprintf "binding: %s -> %s (provider=%s scope=%s)" input command_id
+        (Provider.id provider) scope
   | Error_reported { reason; _ } -> "error: " ^ reason
 
 let format_why (value : why) =
