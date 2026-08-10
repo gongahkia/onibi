@@ -14,3 +14,13 @@ val resolve :
   Document_snapshot.t ->
   t ->
   (Transaction.t, Error.t) result
+
+val resolve_on_selections :
+  source:Transaction.source ->
+  ?description:string ->
+  ?provenance:Provenance.t ->
+  intent:string ->
+  Document_snapshot.t ->
+  Selection_set.t ->
+  Transformation.t ->
+  (Transaction.t, Error.t) result

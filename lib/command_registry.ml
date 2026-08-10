@@ -29,3 +29,8 @@ let invoke registry ~context invocation =
   match find registry (Command_invocation.id invocation) with
   | Error _ as error -> error
   | Ok command -> Command.execute command context invocation
+
+let invoke_effects registry ~context invocation =
+  match find registry (Command_invocation.id invocation) with
+  | Error _ as error -> error
+  | Ok command -> Command.execute_effects command context invocation

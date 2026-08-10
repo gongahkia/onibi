@@ -10,6 +10,7 @@ type t =
       selector_id : string option;
       transformation_id : string option;
     }
+  | Execute_semantic_operation of Semantic_operation.t
   | Invoke_command of Command_invocation.t
   | Emit_message of message
   | Copy_to_clipboard of {
@@ -33,12 +34,16 @@ let message ~level ~text =
 let execute ?selector_id ?transformation_id intent =
   Execute_intent_with { intent; selector_id; transformation_id }
 
+let execute_semantic_operation operation = Execute_semantic_operation operation
+
 let selector_id = function
   | Execute_intent intent -> fst (Model_intent.semantic_components intent)
   | Execute_intent_with { intent; selector_id; _ } -> (
       match selector_id with
       | Some _ -> selector_id
       | None -> fst (Model_intent.semantic_components intent))
+  | Execute_semantic_operation operation ->
+      Some (Semantic_operation.selector_id operation.selector)
   | Invoke_command _ | Emit_message _ | Copy_to_clipboard _
   | Paste_from_clipboard _ | Undo | Redo | Repeat_last_edit ->
       None
@@ -49,6 +54,8 @@ let transformation_id = function
       match transformation_id with
       | Some _ -> transformation_id
       | None -> snd (Model_intent.semantic_components intent))
+  | Execute_semantic_operation operation ->
+      Some (Semantic_operation.transformation_id operation.transformation)
   | Invoke_command _ | Emit_message _ | Copy_to_clipboard _
   | Paste_from_clipboard _ | Undo | Redo | Repeat_last_edit ->
       None
@@ -56,6 +63,8 @@ let transformation_id = function
 let identity = function
   | Execute_intent intent | Execute_intent_with { intent; _ } ->
       "execute " ^ Model_intent.identity intent
+  | Execute_semantic_operation operation ->
+      "execute " ^ Semantic_operation.identity operation
   | Invoke_command invocation ->
       "invoke " ^ Command_id.to_string (Command_invocation.id invocation)
   | Emit_message _ -> "emit-message"
@@ -68,6 +77,8 @@ let identity = function
 let describe = function
   | Execute_intent intent | Execute_intent_with { intent; _ } ->
       "execute " ^ Model_intent.identity intent
+  | Execute_semantic_operation operation ->
+      "execute " ^ Semantic_operation.identity operation
   | Invoke_command invocation ->
       "invoke " ^ Command_id.to_string (Command_invocation.id invocation)
   | Emit_message { level; text } ->

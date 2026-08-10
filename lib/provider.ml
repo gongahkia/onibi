@@ -1,10 +1,13 @@
 type kind = Builtin | Editing_model | Syntax | Application | Script | Plugin
 type t = { id : string; kind : kind; source : string option }
 
-let create ~id ~kind ?source =
+let make ~id ~kind ~source =
   if String.length id = 0 then
     Error (Error.Invalid_provenance "provider id is empty")
   else Ok { id; kind; source }
+
+let create ~id ~kind = make ~id ~kind ~source:None
+let create_with_source ~id ~kind ~source = make ~id ~kind ~source:(Some source)
 
 let id value = value.id
 let kind value = value.kind

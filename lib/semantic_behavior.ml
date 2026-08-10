@@ -28,8 +28,12 @@ type transformation_entry = {
   run : transformation;
 }
 
-let selector_entry ~descriptor ~run = { descriptor; run }
-let transformation_entry ~descriptor ~run = { descriptor; run }
+let selector_entry ~descriptor ~(run : selector) : selector_entry =
+  { descriptor; run }
+
+let transformation_entry ~descriptor ~(run : transformation) :
+    transformation_entry =
+  { descriptor; run }
 let selector_descriptor value = value.descriptor
 let transformation_descriptor value = value.descriptor
 let run_selector value = value.run

@@ -8,6 +8,7 @@ type t =
       selector_id : string option;
       transformation_id : string option;
     }
+  | Execute_semantic_operation of Semantic_operation.t
   | Invoke_command of Command_invocation.t
   | Emit_message of message
   | Copy_to_clipboard of {
@@ -28,6 +29,8 @@ val message :
 
 val execute :
   ?selector_id:string -> ?transformation_id:string -> Model_intent.t -> t
+
+val execute_semantic_operation : Semantic_operation.t -> t
 
 val selector_id : t -> string option
 val transformation_id : t -> string option

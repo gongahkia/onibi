@@ -10,3 +10,9 @@ val invoke :
   context:Editor_context.t ->
   Command_invocation.t ->
   (Model_intent.t list, Zenbu_kernel.Error.t) result
+
+val invoke_effects :
+  t ->
+  context:Editor_context.t ->
+  Command_invocation.t ->
+  (Model_effect.t list, Zenbu_kernel.Error.t) result
