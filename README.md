@@ -55,7 +55,11 @@ ignored `.zenbu/` directory; it does not install a system package. `make check`
 runs Dune's formatting check, build, and unit/property/replay/component
 conformance tests. Install `ocamlformat` (0.28.1-compatible)
 to run the formatter locally; if it is unavailable, Dune reports that rather
-than silently skipping format validation.
+than silently skipping format validation. When a project-local `_opam` switch
+exists, Make activates that switch for its recipes, so `make check` and
+`make demo` do not require a separate shell activation. The final `make demo`
+section stages the committed Component conformance fixture, prints its ordinary
+`why` telemetry, exhausts its loop fuel, and shows a subsequent Vim edit.
 
 On a machine without `ocamlformat`, bootstrap an ignored local opam switch once
 before running `make check`:

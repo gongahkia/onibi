@@ -1,5 +1,10 @@
 .PHONY: build test fmt check demo extension-docs wasm-runtime wasm-runtime-ready
 
+LOCAL_OPAM_BIN := $(CURDIR)/_opam/bin
+ifneq ($(wildcard $(LOCAL_OPAM_BIN)/dune),)
+OPAM_ENV := eval "$$(opam env --switch=$(CURDIR) --set-switch)";
+endif
+
 WASMTIME_C_API_DIR ?= $(CURDIR)/.zenbu/wasmtime-v47.0.3-x86_64-linux-c-api
 export ZENBU_WASMTIME_C_API_DIR := $(WASMTIME_C_API_DIR)
 export ZENBU_WASMTIME_C_API_INCLUDE_DIR := $(WASMTIME_C_API_DIR)/include
@@ -18,23 +23,23 @@ wasm-runtime-ready:
 		}
 
 build: wasm-runtime-ready
-	dune build
+	$(OPAM_ENV) dune build
 
 test: wasm-runtime-ready
-	dune runtest
+	$(OPAM_ENV) dune runtest
 
 fmt:
-	dune fmt
+	$(OPAM_ENV) dune fmt
 
 check: wasm-runtime-ready
-	dune build @fmt
-	dune build
-	dune runtest
+	$(OPAM_ENV) dune build @fmt
+	$(OPAM_ENV) dune build
+	$(OPAM_ENV) dune runtest
 
 demo: wasm-runtime-ready
-	dune exec bin/zenbu_headless.exe -- demo
+	$(OPAM_ENV) dune exec bin/zenbu_headless.exe -- demo
 
 extension-docs: wasm-runtime-ready
-	dune exec bin/zenbu_headless.exe -- extension-api > docs/generated/EXTENSION_API.md
-	dune exec bin/zenbu_headless.exe -- extension-sdk > sdk/lua/zenbu.lua
-	dune exec bin/zenbu_headless.exe -- extension-wit > docs/wit/zenbu-plugin.wit
+	$(OPAM_ENV) dune exec bin/zenbu_headless.exe -- extension-api > docs/generated/EXTENSION_API.md
+	$(OPAM_ENV) dune exec bin/zenbu_headless.exe -- extension-sdk > sdk/lua/zenbu.lua
+	$(OPAM_ENV) dune exec bin/zenbu_headless.exe -- extension-wit > docs/wit/zenbu-plugin.wit

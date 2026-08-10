@@ -69,7 +69,10 @@ Fuel bounds guest instructions but callbacks are synchronous. M9 does not yet
 offer a separate worker, an epoch/wall-clock deadline, cancellation of native
 compilation, or a promise that a malicious native process cannot starve the
 host outside this runtime. The resource policy is a Component guest boundary,
-not a universal liveness guarantee.
+not a universal liveness guarantee. After a fuel-aborted call Wasmtime may
+make that instance non-enterable; M9 does not rebuild it automatically.
+Ordinary editor input remains usable and an explicit plugin reload stages a
+fresh Component generation.
 
 ## WIT ABI
 

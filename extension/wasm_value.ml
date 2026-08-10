@@ -252,8 +252,7 @@ let decode value =
           let path_bytes =
             List.fold_left
               (fun bytes -> function
-                | Field name -> bytes + String.length name
-                | Item _ -> bytes)
+                | Field name -> bytes + String.length name | Item _ -> bytes)
               0 node.path
           in
           ( total + String.length node.text + path_bytes,
@@ -314,7 +313,8 @@ let decode value =
                                     | Item candidate, _ -> candidate > index
                                     | Field _, _ -> true)
                                   children
-                              then Error "WIT list paths must be contiguous items"
+                              then
+                                Error "WIT list paths must be contiguous items"
                               else Ok (Value.List (List.rev values))
                         in
                         ordered 0 []

@@ -79,7 +79,9 @@ base64 fixtures have Rust/Cargo Component source, regeneration targets, and
 checksum checks. Calls are synchronous and fuel-bounded but lack hard
 wall-clock interruption. V1 intentionally omits filesystem, network, process,
 async execution, persistent guest state, marketplace/resolution, signing, and
-rich guest-pull host interfaces.
+rich guest-pull host interfaces. A fuel-aborted Wasmtime instance may be
+non-enterable until explicit reload; M9 proves normal editor input remains
+operational, not that the failed Component stays callable.
 
 The next small architectural goal should be cross-platform Wasmtime bootstrap
 and a supported guest-fixture/toolchain workflow, followed by a separately

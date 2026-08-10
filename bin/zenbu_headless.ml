@@ -73,7 +73,10 @@ let base64_digit = function
   | '0' .. '9' as value -> Char.code value - Char.code '0' + 52
   | '+' -> 62
   | '/' -> 63
-  | value -> fail (Error.Invalid_command_arguments ("invalid base64 character " ^ String.make 1 value))
+  | value ->
+      fail
+        (Error.Invalid_command_arguments
+           ("invalid base64 character " ^ String.make 1 value))
 
 let decode_base64 text =
   let input =
@@ -470,9 +473,7 @@ let plugin_check path =
     then Filename.dirname path
     else path
   in
-  let host =
-    plugin_host (Plugins.Directories [ package_dir ])
-  in
+  let host = plugin_host (Plugins.Directories [ package_dir ]) in
   Fun.protect
     ~finally:(fun () -> Plugins.dispose host)
     (fun () ->
@@ -505,7 +506,6 @@ let plugin_check path =
 
 let extension_api () = print_string (Zenbu_extension.Contract.markdown ())
 let extension_sdk () = print_string (Zenbu_extension.Contract.lua_stub ())
-
 let extension_wit () = print_string (Zenbu_extension.Contract.wit ())
 
 let check_config path =
@@ -743,20 +743,53 @@ let run_component_demo () =
       Printf.printf "input: Ctrl-K\nsemantic result: %S\n"
         (Zenbu_app.Session.contents session);
       Zenbu_app.Session.inspect session Zenbu_app.Session.Why |> print_lines;
-      let after_loop =
-        Zenbu_app.Session.handle_input session (control_key "L")
+      let plugins =
+        Plugins.load ~config:(Plugins.Directories [ root ])
+          ~base_commands:(semantic_registry ()) ~base_semantics:[] ()
       in
-      Printf.printf "malicious plugin: infinite loop\nresult: %s\n"
-        (if Zenbu_app.Session.contents after_loop
-            = Zenbu_app.Session.contents session
-         then "fuel exhausted; document unchanged"
-         else "unexpected document change");
-      let recovered =
-        Zenbu_app.Session.handle_input after_loop (control_key "K")
-      in
-      Printf.printf "editor remains operational: %S\n"
-        (Zenbu_app.Session.contents recovered);
-      Zenbu_app.Session.inspect recovered Zenbu_app.Session.Why |> print_lines)
+      Fun.protect
+        ~finally:(fun () -> Plugins.dispose plugins)
+        (fun () ->
+          let commands =
+            List.fold_left
+              (fun registry command ->
+                Command_registry.register registry command |> Result.get_ok)
+              (semantic_registry ()) (Plugins.commands plugins)
+          in
+          let runtime =
+            Vim_runtime.create ~commands
+              ~semantic_behaviors:(Plugins.semantic_behaviors plugins)
+              ~document:(document_for "component-demo" "alpha beta")
+              ()
+            |> Result.get_ok
+          in
+          let invoke runtime id =
+            let invocation =
+              Command_invocation.create
+                ~id:(Command_id.of_string id |> Result.get_ok)
+                ~arguments:[]
+              |> Result.get_ok
+            in
+            Vim_runtime.invoke_command runtime ~input:(control_key "K")
+              invocation
+          in
+          Printf.printf "malicious plugin: infinite loop\n";
+          (match invoke runtime "com.example.conformance.loop" with
+          | Error
+              (Error.Extension_error
+                 { code = Error.Extension_fuel_exhausted; _ }) ->
+              Printf.printf "result: extension-fuel-exhausted\n"
+          | Error error -> Printf.printf "result: %s\n" (Error.to_string error)
+          | Ok _ -> Printf.printf "result: unexpected success\n");
+          let recovered =
+            Vim_runtime.handle_input runtime (logical_key "d")
+            |> Result.get_ok |> fst
+          in
+          match Vim_runtime.handle_input recovered (logical_key "w") with
+          | Error error -> fail error
+          | Ok (recovered, _) ->
+              Printf.printf "editor remains operational: %S\n"
+                (Vim_runtime.context recovered |> Editor_context.contents)))
 
 let demo () =
   Printf.printf "Zenbu M9: isolated Components, one semantic kernel\n\n";

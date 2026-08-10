@@ -94,7 +94,10 @@ synchronous and M9 does not provide an epoch-based hard wall-clock deadline,
 asynchronous worker, or cancellation API. Component compilation is also
 synchronous. A resource failure rejects that invocation; it does not commit a
 partial transaction and does not automatically unload an otherwise valid
-generation.
+generation. Wasmtime can leave a fuel-aborted instance non-enterable; M9 does
+not reconstruct that generation automatically. Ordinary editor input remains
+usable and explicit reload creates a fresh generation, but a Component author
+must not treat post-fuel continued callback availability as an M9 guarantee.
 
 ## Threat model
 

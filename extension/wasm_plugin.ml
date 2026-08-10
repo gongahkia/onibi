@@ -321,8 +321,8 @@ let selection_action provider capabilities request value =
                       Ok (anchor, head)
                   | _ ->
                       action_error provider capabilities "action"
-                        "selection entries require integer anchor and head fields"
-                  )
+                        "selection entries require integer anchor and head \
+                         fields")
               | _ ->
                   action_error provider capabilities "action"
                     "selection entry must be a record"
@@ -401,8 +401,7 @@ let behavior_selection provider capabilities = function
       match
         (List.assoc_opt "selections" fields, List.assoc_opt "primary" fields)
       with
-      | ( Some (Extension_value.List values),
-          Some (Extension_value.Integer _) )
+      | Some (Extension_value.List values), Some (Extension_value.Integer _)
         when List.length values > max_selections ->
           Error
             (response_limit provider capabilities "selector"
@@ -446,7 +445,8 @@ let behavior_selection provider capabilities = function
 let behavior_transformation provider capabilities = function
   | Extension_value.Record fields -> (
       match List.assoc_opt "edits" fields with
-      | Some (Extension_value.List values) when List.length values > max_edits ->
+      | Some (Extension_value.List values) when List.length values > max_edits
+        ->
           Error
             (response_limit provider capabilities "transformation"
                (Printf.sprintf "at most %d edits are accepted" max_edits))

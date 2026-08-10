@@ -114,13 +114,13 @@ let wasi_fixture =
 
 let conformance_fixture =
   lazy
-    ( fixture "test/fixtures/m9_conformance_component.wasm.b64" |> read
-    |> decode_base64 )
+    (fixture "test/fixtures/m9_conformance_component.wasm.b64"
+    |> read |> decode_base64)
 
 let unauthorized_import_fixture =
   lazy
-    ( fixture "test/fixtures/m9_unauthorized_import_component.wasm.b64" |> read
-    |> decode_base64 )
+    (fixture "test/fixtures/m9_unauthorized_import_component.wasm.b64"
+    |> read |> decode_base64)
 
 let toml_array values =
   values |> List.map (Printf.sprintf "%S") |> String.concat ", "
@@ -159,7 +159,6 @@ let ctrl text =
   |> Input_event.key_press ~modifiers:[ Input_event.Control ]
 
 let key text = Input_event.logical_text text |> must |> Input_event.key_press
-
 let dimensions = Zenbu_view.Renderer.{ columns = 120; rows = 40 }
 
 let session root ?(trace = Trace.disabled ()) ?(profiler = Profiler.disabled ())
@@ -281,8 +280,7 @@ let create_lua_command_package root ~directory ~id ~input ~text =
   Unix.mkdir package 0o700;
   write
     (Filename.concat package "zenbu-plugin.toml")
-    (lua_manifest ~id ~version:"1.0.0"
-       ~contributions:[ "commands"; "bindings" ]
+    (lua_manifest ~id ~version:"1.0.0" ~contributions:[ "commands"; "bindings" ]
        ~capabilities:[ "document.edit" ]);
   write
     (Filename.concat package "init.lua")
@@ -325,13 +323,15 @@ let assert_runtime_neutral_conformance ~runtime root =
     (Zenbu_app.Session.contents value = "done")
     "%s selector/transformation composition diverged" runtime;
   let history =
-    Zenbu_app.Session.inspect value Zenbu_app.Session.History |> String.concat "\n"
+    Zenbu_app.Session.inspect value Zenbu_app.Session.History
+    |> String.concat "\n"
   in
   expect
     (contains history (conformance_id ^ "@1.0.0 (" ^ runtime ^ ")"))
     "%s provenance/history attribution is missing: %s" runtime history;
   let plugins =
-    Zenbu_app.Session.inspect value Zenbu_app.Session.Plugins |> String.concat "\n"
+    Zenbu_app.Session.inspect value Zenbu_app.Session.Plugins
+    |> String.concat "\n"
   in
   expect
     (contains plugins (conformance_id ^ " 1.0.0 active " ^ runtime))
@@ -373,16 +373,18 @@ let test_same_runtime_neutral_conformance_suite_runs_for_lua_and_component () =
   with_root (fun component_root ->
       ignore
         (create_package component_root ~binary:conformance_fixture
-           ~id:conformance_id ~version:"1.0.0"
-           ~contributions:all_contributions ~capabilities:all_capabilities ());
-      assert_runtime_neutral_conformance ~runtime:"wasm-component" component_root)
+           ~id:conformance_id ~version:"1.0.0" ~contributions:all_contributions
+           ~capabilities:all_capabilities ());
+      assert_runtime_neutral_conformance ~runtime:"wasm-component"
+        component_root)
 
 module Vim_runtime = Model_runtime.Make (Zenbu_proof_models.Vim_model)
 
 let runtime_for_plugins plugins =
   let commands =
     List.fold_left
-      (fun registry command -> Command_registry.register registry command |> must)
+      (fun registry command ->
+        Command_registry.register registry command |> must)
       (base_commands ()) (Plugins.commands plugins)
   in
   let document =
@@ -392,12 +394,15 @@ let runtime_for_plugins plugins =
     |> must
   in
   Vim_runtime.create ~commands
-    ~semantic_behaviors:(Plugins.semantic_behaviors plugins) ~document ()
+    ~semantic_behaviors:(Plugins.semantic_behaviors plugins)
+    ~document ()
   |> must
 
 let invoke_component_command runtime id =
   let invocation =
-    Command_invocation.create ~id:(Command_id.of_string id |> must) ~arguments:[]
+    Command_invocation.create
+      ~id:(Command_id.of_string id |> must)
+      ~arguments:[]
     |> must
   in
   Vim_runtime.invoke_command runtime ~input:(ctrl "K") invocation
@@ -411,10 +416,10 @@ let selection_state_of_set selections =
       selections =
         Selection_set.to_list selections
         |> List.map (fun selection ->
-               Selection_spec.make
-                 ~anchor_offset:(Selection.anchor selection |> Anchor.byte_offset)
-                 ~head_offset:(Selection.head selection |> Anchor.byte_offset)
-               |> must);
+            Selection_spec.make
+              ~anchor_offset:(Selection.anchor selection |> Anchor.byte_offset)
+              ~head_offset:(Selection.head selection |> Anchor.byte_offset)
+            |> must);
       primary = Selection_set.primary_index selections;
     }
 
@@ -429,16 +434,17 @@ let replay_from_single_change change =
   let edits =
     Transaction.edits transaction
     |> List.map (fun edit ->
-           let range = Edit.range edit in
-           Replay.
-             {
-               start_offset = Range.start range |> Anchor.byte_offset;
-               stop_offset = Range.stop range |> Anchor.byte_offset;
-               text = Edit.text edit;
-             })
+        let range = Edit.range edit in
+        Replay.
+          {
+            start_offset = Range.start range |> Anchor.byte_offset;
+            stop_offset = Range.stop range |> Anchor.byte_offset;
+            text = Edit.text edit;
+          })
   in
   let selection_change =
-    Transaction.selection_change transaction |> Option.map selection_state_of_set
+    Transaction.selection_change transaction
+    |> Option.map selection_state_of_set
   in
   Replay.create
     ~document_id:(Document.id before |> Document_id.to_string)
@@ -460,9 +466,9 @@ let replay_from_single_change change =
 let test_component_output_limits_atomicity_and_replay_without_runtime () =
   with_root (fun root ->
       let package =
-        (create_package root ~binary:conformance_fixture ~id:conformance_id
-           ~version:"1.0.0" ~contributions:all_contributions
-           ~capabilities:all_capabilities ())
+        create_package root ~binary:conformance_fixture ~id:conformance_id
+          ~version:"1.0.0" ~contributions:all_contributions
+          ~capabilities:all_capabilities ()
       in
       write
         (Filename.concat package "zenbu-plugin.toml")
@@ -489,7 +495,8 @@ let test_component_output_limits_atomicity_and_replay_without_runtime () =
         (invoke_component_command initial "com.example.conformance.invalid")
         "a response containing valid then invalid actions";
       assert_unchanged
-        (invoke_component_command initial "com.example.conformance.bad-selection")
+        (invoke_component_command initial
+           "com.example.conformance.bad-selection")
         "an invalid Component selection";
       let overlarge =
         invoke_component_command initial "com.example.conformance.large"
@@ -504,7 +511,8 @@ let test_component_output_limits_atomicity_and_replay_without_runtime () =
         (runtime_contents initial = "alpha")
         "oversized Component response changed the document";
       let committed, _ =
-        invoke_component_command initial "com.example.conformance.insert" |> must
+        invoke_component_command initial "com.example.conformance.insert"
+        |> must
       in
       expect
         (runtime_contents committed = "!alpha")
@@ -519,7 +527,7 @@ let test_component_output_limits_atomicity_and_replay_without_runtime () =
       let replayed = Replay.run replay |> must in
       expect
         (History.current replayed |> Document.snapshot
-        |> Document_snapshot.contents = "!alpha")
+       |> Document_snapshot.contents = "!alpha")
         "semantic replay required the unloaded Component runtime")
 
 let test_component_generation_stress () =
@@ -602,8 +610,8 @@ let test_mixed_runtime_snapshot_and_cross_runtime_collision () =
   with_root (fun root ->
       ignore
         (create_package root ~directory:"component" ~binary:conformance_fixture
-           ~id:conformance_id ~version:"1.0.0"
-           ~contributions:all_contributions ~capabilities:all_capabilities ());
+           ~id:conformance_id ~version:"1.0.0" ~contributions:all_contributions
+           ~capabilities:all_capabilities ());
       let package = Filename.concat root "lua" in
       Unix.mkdir package 0o700;
       write
@@ -752,7 +760,26 @@ let test_callback_failures_are_nonmutating_and_classified () =
       assert_failure "I" "extension-runtime-error" "unknown action kind";
       assert_failure "T" "extension-trap" "wasm trap";
       assert_failure "L" "extension-fuel-exhausted" "all fuel consumed";
-      assert_failure "M" "extension-memory-exhausted" "memory allocation denied")
+      assert_failure "M" "extension-memory-exhausted" "memory allocation denied";
+      let after_loop =
+        session root () |> fun value ->
+        Zenbu_app.Session.handle_input value (ctrl "L")
+      in
+      let recovered =
+        Zenbu_app.Session.handle_input after_loop (key "d") |> fun value ->
+        Zenbu_app.Session.handle_input value (key "w")
+      in
+      expect
+        (Zenbu_app.Session.contents recovered = "")
+        "normal model input did not remain usable after a fuel-exhausted \
+         Component";
+      let plugins =
+        Zenbu_app.Session.inspect recovered Zenbu_app.Session.Plugins
+        |> String.concat "\n"
+      in
+      expect
+        (contains plugins "com.example.m9 1.0.0 active wasm-component")
+        "fuel exhaustion unexpectedly unloaded the Component generation")
 
 let test_capability_denial_remains_at_the_host_boundary () =
   with_root (fun root ->
@@ -821,8 +848,8 @@ let test_unauthorized_component_import_is_rejected_during_staging () =
   with_root (fun root ->
       ignore
         (create_package root ~binary:unauthorized_import_fixture
-           ~id:"com.example.unauthorized" ~version:"1.0.0"
-           ~contributions:[] ~capabilities:[ "ui.message" ] ());
+           ~id:"com.example.unauthorized" ~version:"1.0.0" ~contributions:[]
+           ~capabilities:[ "ui.message" ] ());
       let plugins =
         Plugins.load ~config:(Plugins.Directories [ root ])
           ~base_commands:(base_commands ()) ~base_semantics:[] ()
