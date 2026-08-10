@@ -1,8 +1,8 @@
 # Architecture
 
-Zenbu M0-M7 is a functional semantic editing kernel plus public editing-model,
-syntax, and experimental trusted-local scripting protocols and a narrow terminal
-host. The central kernel transition is
+Zenbu M0-M8 is a functional semantic editing kernel plus public editing-model,
+syntax, trusted-local configuration, stable local extension protocols, and a
+narrow terminal host. The central kernel transition is
 conceptually:
 
 ```text
@@ -66,7 +66,7 @@ Their source cannot call `Document.apply`, `History.commit`, or a storage
 implementation; command handlers receive only `Editor_context` and return
 semantic intents. Dune's separate library dependencies enforce this direct
 dependency boundary. OCaml does not make public libraries a security sandbox,
-so actual untrusted-plugin isolation remains an M8/M9 concern.
+so actual untrusted-plugin isolation remains an M9 concern.
 
 ## Extension boundary
 
@@ -216,3 +216,41 @@ No Lua state, terminal value, mutable history/document handle, or Tree-sitter
 value enters `zenbu.kernel` or `zenbu.model_api`. Standard Lua libraries make
 this trusted local execution rather than a security boundary. See
 [scripting](SCRIPTING.md) and ADRs 0019-0021.
+
+## M8 extension boundary
+
+M8 makes the callback path stable without exposing a Lua implementation value
+to generic registries:
+
+```text
+zenbu-plugin.toml → zenbu.extension.Manifest → Plugin_host discovery/staging
+                                                ↓
+PUC Lua adapter (private callback token map) ← Extension_host request/response
+                                                ↓
+Command / Semantic_behavior / bindings / hooks
+                                                ↓
+Session snapshot composition → zenbu.model_api runtime → transactions/history
+```
+
+`zenbu.extension` is the public contract library for plugin identifiers,
+versions, capabilities, contributions, manifest parsing, lifecycle host, and
+generated-contract metadata. The kernel and editing models do not depend on it.
+`Extension_host` belongs to `zenbu.model_api` because generic commands and
+semantic behaviors must invoke every runtime through the same interface. Their
+entries contain a host, opaque token, provider metadata, granted capabilities,
+and data-only encoder/decoder only; the Lua adapter alone maps a token to a
+private callback. No Lua value, document/history object, terminal value, or
+Tree-sitter pointer is present in a generic registry.
+
+`Session` composes builtin registries, the optional M7 configuration generation,
+then active plugins sorted by plugin ID. Plugin staging validates a complete
+candidate before replacement; failures retain that package's last known-good
+snapshot. Configuration bindings/hooks precede plugin bindings/hooks, while
+the ordinary model runtime still owns semantic resolution, transactions,
+history, syntax refresh, and provenance.
+
+M8's sole runtime is trusted local Lua. Capabilities constrain Zenbu host
+services, not Lua standard-library authority. Discovery only enumerates local
+XDG directories; it has no resolver, download, or project-search behavior.
+M9 owns any process/WASM isolation decision. See [extensions](EXTENSIONS.md)
+and ADRs 0022-0025.

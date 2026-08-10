@@ -2,10 +2,7 @@ type t = string
 
 let valid_segment segment =
   let length = String.length segment in
-  let alphanumeric = function
-    | 'a' .. 'z' | '0' .. '9' -> true
-    | _ -> false
-  in
+  let alphanumeric = function 'a' .. 'z' | '0' .. '9' -> true | _ -> false in
   length > 0
   && alphanumeric segment.[0]
   && alphanumeric segment.[length - 1]
@@ -26,11 +23,15 @@ let of_string value =
            required = None;
            granted = [];
            message =
-             "plugin IDs require at least two lowercase dot-separated segments; each segment may contain lowercase letters, digits, and hyphens";
+             "plugin IDs require at least two lowercase dot-separated \
+              segments; each segment may contain lowercase letters, digits, \
+              and hyphens";
          })
   else Ok value
 
 let to_string value = value
 let equal = String.equal
 let compare = String.compare
-let owns value semantic_id = String.starts_with ~prefix:(value ^ ".") semantic_id
+
+let owns value semantic_id =
+  String.starts_with ~prefix:(value ^ ".") semantic_id

@@ -60,7 +60,9 @@ let merge left right =
   let add_transformation result (_, entry) =
     Result.bind result (fun registry -> register_transformation registry entry)
   in
-  let selectors = Id_map.bindings right.selectors |> List.fold_left add_selector (Ok left) in
+  let selectors =
+    Id_map.bindings right.selectors |> List.fold_left add_selector (Ok left)
+  in
   Result.bind selectors (fun registry ->
       Id_map.bindings right.transformations
       |> List.fold_left add_transformation (Ok registry))

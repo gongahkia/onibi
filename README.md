@@ -1,11 +1,11 @@
 # zenbu
 
 Zenbu is a terminal-first programmable modal editor under development. This
-repository contains M0-M7: a semantic kernel, public editing-model and syntax
-protocols, three first-party editing models, local observability, a trusted-local
-Lua configuration runtime, and an interactive terminal host.
-It deliberately contains no complete Vim/Helix/Kakoune implementation, syntax
-highlighting, LSP, or plugin runtime.
+repository contains M0-M8: a semantic kernel, public editing-model and syntax
+protocols, three first-party editing models, local observability, trusted-local
+Lua configuration, a stable local plugin contract, and an interactive terminal
+host. It deliberately contains no complete Vim/Helix/Kakoune implementation,
+syntax highlighting, LSP, resolver/marketplace, or isolated plugin runtime.
 
 The project thesis is that no editing model is fundamental. A future Vim-like
 model, selection-first model, structural model, and third-party model must all
@@ -39,7 +39,10 @@ dune exec bin/zenbu_headless.exe -- why test/fixtures/sessions/observability-vim
 dune exec bin/zenbu_headless.exe -- bindings structural
 dune exec bin/zenbu_headless.exe -- config-check examples/m7-init.lua
 dune exec bin/zenbu_headless.exe -- script-session examples/m7-init.lua test/fixtures/m7-wrap.session
-dune exec bin/zenbu.exe -- --trace --profile --model structural test/fixtures/syntax_sample.ml
+dune exec bin/zenbu_headless.exe -- plugin-check examples/plugins/surround
+dune exec bin/zenbu_headless.exe -- plugin-session examples/plugins test/fixtures/m8-surround.session
+make extension-docs
+dune exec bin/zenbu.exe -- --trace --profile --plugin-dir examples/plugins --model structural test/fixtures/syntax_sample.ml
 ```
 
 `make check` runs Dune's formatting check, build, and the dependency-free unit,
@@ -82,6 +85,10 @@ make check
 - `scripting/` is the experimental `zenbu.scripting` library. It adapts PUC
   Lua 5.4 through a private Ctypes boundary and translates registrations and
   callbacks to public semantic APIs only.
+- `extension/` is the public `zenbu.extension` library: Extension API v1
+  contract metadata, TOML package manifests, capabilities/contributions, and
+  immutable plugin lifecycle snapshots. Its runtime-neutral invocation path is
+  supplied by `zenbu.model_api.Extension_host`.
 
 See [architecture](docs/ARCHITECTURE.md), the [editing protocol](docs/EDITING_PROTOCOL.md),
 the [observability model](docs/OBSERVABILITY.md), and [invariants](docs/INVARIANTS.md)
@@ -103,9 +110,9 @@ parent, first child, next sibling, or previous sibling; `e`/`r` expand/shrink;
 shared transformation, clipboard, and history services. See
 [syntax](docs/SYNTAX.md) and [the structural model](docs/models/STRUCTURAL.md).
 
-## Terminal host
+## Terminal host and plugins
 
-`zenbu [--model vim|selection|structural] [--config PATH|--no-config] [FILE]` opens an existing UTF-8 file or an
+`zenbu [--model vim|selection|structural] [--config PATH|--no-config] [--plugin-dir PATH|--no-plugins] [FILE]` opens an existing UTF-8 file or an
 unnamed empty buffer. `Ctrl-S` atomically saves an existing file. `Ctrl-Q`
 exits a clean session; a dirty session requires a second `Ctrl-Q`. The
 selection-first model is a different editing grammar over the same kernel, not
@@ -115,10 +122,19 @@ Without either configuration flag, Zenbu attempts `$XDG_CONFIG_HOME/zenbu/init.l
 (or `$HOME/.config/zenbu/init.lua`); a missing default is a no-op. `Ctrl-Alt-R`
 stages and atomically activates a new generation; `Alt-R`/`Meta-R` is accepted
 as a terminal-portable fallback where Ctrl-Alt printable keys cannot be reported.
-A bad reload leaves the prior
-generation active. Configuration is deliberately trusted local code: it runs
-with Lua's standard libraries and must not be loaded from untrusted projects.
+A bad configuration reload leaves the prior generation active. Configuration
+is deliberately trusted local code: it runs with Lua's standard libraries and
+must not be loaded from untrusted projects.
 See [scripting](docs/SCRIPTING.md).
+
+Plugin discovery is separate: the default root is
+`$XDG_CONFIG_HOME/zenbu/plugins` (or `$HOME/.config/zenbu/plugins`),
+`--plugin-dir PATH` selects explicit roots, and `--no-plugins` disables it.
+Packages provide `zenbu-plugin.toml`, declare Extension API v1,
+contributions, and least-required capabilities. They stage atomically and a
+failed reload retains the plugin's last known-good snapshot. See
+[extensions](docs/EXTENSIONS.md) and the
+[generated API reference](docs/generated/EXTENSION_API.md).
 
 The host restores terminal input, cursor visibility, and the normal screen on
 normal exit and exceptions. It renders only the source lines in the viewport,
@@ -146,11 +162,12 @@ an OCaml refactoring engine. See [the Vim-style subset](docs/models/VIM.md),
 Terminal decoding and rendering are intentionally narrow: no mouse, bracketed
 paste, terminal capability probing beyond the chosen backend, save-as prompt,
 or model switching in a live session exists yet. Keymap configuration UI,
-syntax highlighting, LSP, stable plugin isolation, and a plugin marketplace
-remain deferred. M7 configuration is not a sandbox, package manager, or stable
-third-party plugin contract.
+syntax highlighting, LSP, stable plugin isolation, a resolver, and a plugin
+marketplace remain deferred. M8 local plugins are trusted Lua packages; their
+capabilities limit Zenbu host services but do not sandbox Lua standard-library
+access. M7 configuration remains a separate experimental trusted overlay.
 
-## M6/M7 observability and scripting
+## M6-M8 observability, scripting, and extensions
 
 M6 adds local structured inspection instead of ad-hoc logging. Transactions
 retain optional deterministic provenance; bounded traces and CPU-time profiles
@@ -164,11 +181,18 @@ Interactive `--trace` and `--profile` opt in to bounded recording; with trace
 enabled, `Ctrl-O` toggles a read-only generic explanation overlay and `Escape`
 dismisses it. This is Zenbu's host-level inspector, not Vim Ex.
 
-M7 now does this with data-only Lua callbacks. Scripts may register commands,
+M7 configuration now does this with data-only Lua callbacks. Scripts may register commands,
 selectors, transformations, scoped bindings, and `document-changed`/`after-save`
 hooks. They return declarative effects, selections, or edit proposals; the
 normal model runtime validates transactions, records history/provenance, and
 keeps Tree-sitter and terminal values private. `why`, history, bindings,
 `Scripts`, `config-check`, `config-describe`, and `script-session` expose the
-active generation and its effects. The recommended next milestone is M8: make a
-stable capability-constrained plugin contract from this pressure-tested surface.
+active generation and its effects. M8 turns that pressure-tested surface into a
+stable local package contract. `zenbu.extension` validates TOML manifests and
+Extension API v1 before Lua evaluation; plugins use a runtime-neutral,
+data-only host adapter and never store Lua callbacks in generic
+command/semantic registries. Provider metadata includes plugin ID/version/
+runtime throughout `why`, bindings, descriptors, history provenance, lifecycle
+traces, capability denials, and extension profiling. The current next milestone
+is M9: evaluate isolated language-neutral execution against the established v1
+contract and threat model.

@@ -102,6 +102,7 @@ type t = {
   mutable registrations : registration list;
   mutable callbacks : Callback.t list;
   mutable active_request : Host.request option;
+  mutable raised_error : Error.t option;
   mutable disposed : bool;
 }
 
@@ -340,11 +341,17 @@ let descriptor state table =
   | _, _, _, Error error ->
       Error error
 
-let registration_error _backend state error =
+let registration_error backend state error =
+  backend.raised_error <- Some error;
   ignore
     (push_string state (Error.to_string error)
        (Unsigned.Size_t.of_int (String.length (Error.to_string error))));
   raise_error state
+
+let callback_error backend state error =
+  backend.raised_error <- Some error;
+  push_nil state;
+  1
 
 let add_registration backend registration =
   backend.registrations <- backend.registrations @ [ registration ]
@@ -399,9 +406,7 @@ let register_hook backend state =
   | Error error -> registration_error backend state error
 
 let field value name = Value.find value name
-
 let context_field request name = field request.Host.context name
-
 let require request capability = Host.require request ~capability
 
 let document_contents request =
@@ -409,19 +414,23 @@ let document_contents request =
   | Some (Value.Record fields) -> (
       match List.assoc_opt "contents" fields with
       | Some (Value.Text contents) -> Ok contents
-      | _ -> Error (error "execution" "<extension>" "document data is unavailable"))
+      | _ ->
+          Error (error "execution" "<extension>" "document data is unavailable")
+      )
   | _ -> Error (error "execution" "<extension>" "document data is unavailable")
 
 let text_callback backend state =
   let result =
     match backend.active_request with
-    | None -> Error (error "execution" backend.source "zenbu.text is unavailable")
+    | None ->
+        Error (error "execution" backend.source "zenbu.text is unavailable")
     | Some request ->
         Result.bind (require request "document.read") (fun () ->
             Result.bind (document_contents request) (fun contents ->
                 match (value_at state 1, value_at state 2) with
                 | Ok (Value.Integer start), Ok (Value.Integer stop)
-                  when start >= 0 && stop >= start && stop <= String.length contents ->
+                  when start >= 0 && stop >= start
+                       && stop <= String.length contents ->
                     Ok (String.sub contents start (stop - start))
                 | _ ->
                     Error
@@ -429,7 +438,7 @@ let text_callback backend state =
                          "zenbu.text expects an in-bounds start and stop offset")))
   in
   match result with
-  | Error error -> registration_error backend state error
+  | Error error -> callback_error backend state error
   | Ok value ->
       ignore
         (push_string state value (Unsigned.Size_t.of_int (String.length value)));
@@ -437,9 +446,7 @@ let text_callback backend state =
 
 let node_contains ~start_offset ~stop_offset = function
   | Value.Record fields -> (
-      match
-        (List.assoc_opt "start" fields, List.assoc_opt "stop" fields)
-      with
+      match (List.assoc_opt "start" fields, List.assoc_opt "stop" fields) with
       | Some (Value.Integer start), Some (Value.Integer stop) ->
           start <= start_offset && stop_offset <= stop
       | _ -> false)
@@ -460,7 +467,8 @@ let rec smallest_node ~start_offset ~stop_offset node =
 let syntax_callback backend state =
   let result =
     match backend.active_request with
-    | None -> Error (error "execution" backend.source "zenbu.syntax is unavailable")
+    | None ->
+        Error (error "execution" backend.source "zenbu.syntax is unavailable")
     | Some request ->
         Result.bind (require request "syntax.read") (fun () ->
             match context_field request "syntax" with
@@ -468,7 +476,11 @@ let syntax_callback backend state =
             | Some (Value.Record fields as syntax) ->
                 let default_node = List.assoc_opt "node" fields in
                 let requested_node () =
-                  match (value_at state 1, value_at state 2, List.assoc_opt "tree" fields) with
+                  match
+                    ( value_at state 1,
+                      value_at state 2,
+                      List.assoc_opt "tree" fields )
+                  with
                   | ( Ok (Value.Integer start_offset),
                       Ok (Value.Integer stop_offset),
                       Some tree )
@@ -479,7 +491,8 @@ let syntax_callback backend state =
                   | _ ->
                       Error
                         (error "execution" backend.source
-                           "zenbu.syntax expects zero arguments or an in-bounds start and stop offset")
+                           "zenbu.syntax expects zero arguments or an \
+                            in-bounds start and stop offset")
                 in
                 let node =
                   if get_top state = 0 then
@@ -495,10 +508,12 @@ let syntax_callback backend state =
                           @ [ ("node", node) ])
                     | _ -> assert false)
                   node
-            | Some _ -> Error (error "execution" backend.source "invalid syntax context"))
+            | Some _ ->
+                Error
+                  (error "execution" backend.source "invalid syntax context"))
   in
   match result with
-  | Error error -> registration_error backend state error
+  | Error error -> callback_error backend state error
   | Ok value ->
       push_value state value;
       1
@@ -544,6 +559,7 @@ let create ~source =
           registrations = [];
           callbacks = [];
           active_request = None;
+          raised_error = None;
           disposed = false;
         }
       in
@@ -578,6 +594,7 @@ let evaluate backend source =
   else
     let state = backend.state in
     set_top state 0;
+    backend.raised_error <- None;
     let loaded =
       load_buffer state source
         (Unsigned.Size_t.of_int (String.length source))
@@ -595,7 +612,10 @@ let evaluate backend source =
       else
         let message = lua_error_message backend in
         set_top state 0;
-        Error (lua_error backend "evaluation" message)
+        Error
+          (Option.value
+             ~default:(lua_error backend "evaluation" message)
+             backend.raised_error)
 
 let call backend callback ~request =
   if backend.disposed then
@@ -604,6 +624,7 @@ let call backend callback ~request =
     let state = backend.state in
     set_top state 0;
     backend.active_request <- Some request;
+    backend.raised_error <- None;
     Fun.protect
       ~finally:(fun () ->
         backend.active_request <- None;
@@ -616,11 +637,20 @@ let call backend callback ~request =
         else (
           push_value state
             (Value.Record
-               [ ("context", request.context); ("arguments", request.arguments) ]);
+               [
+                 ("context", request.context); ("arguments", request.arguments);
+               ]);
           let called = protected_call state 1 1 0 0L (from_voidp void null) in
           if called <> lua_ok then
-            Error (lua_error backend "execution" (lua_error_message backend))
-          else value_at state (-1)))
+            Error
+              (Option.value
+                 ~default:
+                   (lua_error backend "execution" (lua_error_message backend))
+                 backend.raised_error)
+          else
+            match backend.raised_error with
+            | Some error -> Error error
+            | None -> value_at state (-1)))
 
 let registrations backend = backend.registrations
 
@@ -634,4 +664,5 @@ let dispose backend =
     backend.callbacks <- [];
     backend.registrations <- [];
     backend.active_request <- None;
+    backend.raised_error <- None;
     close backend.state)

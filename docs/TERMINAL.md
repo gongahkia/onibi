@@ -1,7 +1,7 @@
-# M4-M7 terminal host
+# M4-M8 terminal host
 
-`zenbu [--model vim|selection|structural] [--language ID] [--config PATH|--no-config] [FILE]` is the
-interactive M4-M7 executable.
+`zenbu [--model vim|selection|structural] [--language ID] [--config PATH|--no-config] [--plugin-dir PATH|--no-plugins] [FILE]` is the
+interactive M4-M8 executable.
 It loads an existing UTF-8 file, or creates an unnamed empty buffer when no
 file is supplied. File open and UTF-8 validation happen before terminal mode
 is entered; errors are reported on stderr. The deterministic
@@ -28,6 +28,14 @@ the combined printable-key modifier.
 `Ctrl-S` and `Ctrl-Q` remain host-reserved too. Script bindings are decoded to
 ordinary logical input only after those controls have been handled, so scripts
 cannot replace save/quit/reload policy. See [scripting](SCRIPTING.md).
+
+M8 plugin discovery is separate from configuration. Without a plugin option,
+the host enumerates package directories under `$XDG_CONFIG_HOME/zenbu/plugins`
+(or `$HOME/.config/zenbu/plugins`). `--plugin-dir PATH` supplies explicit
+roots and `--no-plugins` disables discovery. Reload stages both the
+configuration generation and plugin candidates before composing a new session
+snapshot. A plugin reload failure retains that package's previous active
+version and appears in the generic Plugins inspector. See [extensions](EXTENSIONS.md).
 
 ## Backend and lifecycle
 
@@ -122,7 +130,7 @@ This is a host-level Zenbu inspector, not Vim's Ex language or a model-specific
 command mode. Headless inspection provides command, binding, history, syntax,
 and profile access without a command palette.
 
-## M7 configuration integration
+## M7/M8 configuration and extension integration
 
 `Session` selects script bindings before delivering normal model input, using
 model+status, model, then global scope. A script command still enters the
@@ -131,5 +139,7 @@ resolved through the normal semantic behavior registry. A document-changed hook
 runs only after a committed content change, and an after-save hook only after a
 successful host save. The session suppresses delivery of the same hook event
 while it is already active. Terminal and renderer modules still know no Lua,
-script callback, or Tree-sitter type; they only render the session message and
-generic inspector lines.
+script callback, extension callback, or Tree-sitter type; they only render the
+session message and generic inspector lines. Plugin bindings and hooks follow
+configuration and then plugin-ID order; their command/selector/transformation
+callbacks still enter the ordinary model runtime.

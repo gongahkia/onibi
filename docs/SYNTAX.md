@@ -135,3 +135,14 @@ Tree-sitter value; a callback can use returned offsets to make another
 data-only query. Script descriptor `requires_syntax` participates in generic
 discovery but does not cause a parser to be created for an unsupported buffer.
 See [scripting](SCRIPTING.md).
+
+## M8 capability-scoped extension view
+
+M8 plugin callbacks use the same data-only syntax representation through
+`Extension_host`. A package must declare `syntax.read` before `syntax` data or
+`zenbu.syntax` is available; otherwise the host returns a structured
+capability-denied error. The copied tree/summary remains Zenbu-owned data,
+never a `Syntax.Snapshot.Node` or Tree-sitter object. Plugins can combine its
+byte ranges with declarative selectors, transformations, and actions, but all
+transaction and version validation remains in the normal runtime. See
+[extensions](EXTENSIONS.md).

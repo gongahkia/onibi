@@ -1,4 +1,4 @@
-.PHONY: build test fmt check demo
+.PHONY: build test fmt check demo extension-docs
 
 build:
 	dune build
@@ -17,3 +17,6 @@ check:
 demo:
 	dune exec bin/zenbu_headless.exe -- demo
 
+extension-docs:
+	dune exec bin/zenbu_headless.exe -- extension-api > docs/generated/EXTENSION_API.md
+	dune exec bin/zenbu_headless.exe -- extension-sdk > sdk/lua/zenbu.lua

@@ -1,6 +1,6 @@
 # Roadmap
 
-This repository implements M0-M7.
+This repository implements M0-M8.
 
 | milestone | goal | status |
 | --- | --- | --- |
@@ -12,10 +12,10 @@ This repository implements M0-M7.
 | M5 | Tree-sitter-backed syntax service and structural editing model | implemented here |
 | M6 | generic observability: `describe`, `why`, bindings, discovery, history, trace, syntax inspection, profiling | implemented here |
 | M7 | trusted-local hot-reloadable Lua scripting/configuration | implemented here (experimental API) |
-| M8 | stable plugin contract, capabilities, SDK, generated docs | future |
+| M8 | stable local plugin contract, capabilities, SDK, generated docs, lifecycle, diagnostics | implemented here |
 | M9 | isolated language-neutral plugin runtime, possibly WASM/components if appropriate for OCaml | future |
 
-M8-M9 are goals and constraints, not current API commitments. Any future
+M9 is a goal and constraint, not a current API commitment. Any future
 first-party model or plugin must use the same public editing APIs as a third
 party; the core must not acquire a privileged builtin mutation path.
 
@@ -37,9 +37,15 @@ before replacing the prior generation, and failed reloads preserve the working
 generation. The M7 API is experimental: it is neither a sandbox nor a stable
 plugin ABI. See [scripting](SCRIPTING.md).
 
-M8 should turn the proven semantic descriptor and lifecycle surfaces into a
-documented stable plugin contract with explicit capabilities, an SDK, generated
-reference material, compatibility policy, and migration support. It must not
-expand extension authority beyond the M7 data-only boundary merely for
-convenience. M9 can then evaluate isolation (for example WASM/components) only
-against that stable contract and its demonstrated threat model.
+M8 turns the proven descriptor and lifecycle surfaces into Extension API v1:
+schema-validated local TOML packages, capability/contribution declarations,
+runtime-neutral data-only host requests, staged immutable plugin snapshots,
+provider version provenance, Lua SDK/reference generation, and headless
+diagnostics. It preserves M7 configuration as a separate trusted overlay and
+does not add resolver, marketplace, download, project discovery, or sandbox
+claims. See [extensions](EXTENSIONS.md).
+
+M9 can now evaluate isolation (for example WASM/components) only against this
+stable contract and its demonstrated threat model. It should first establish
+what isolation, resource accounting, async execution, and distribution need
+that M8 deliberately does not supply.

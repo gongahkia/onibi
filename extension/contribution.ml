@@ -17,7 +17,9 @@ let description = function
   | Events -> "document-changed and after-save event handlers"
 
 let of_id value =
-  match List.find_opt (fun contribution -> String.equal value (id contribution)) all with
+  match
+    List.find_opt (fun contribution -> String.equal value (id contribution)) all
+  with
   | Some contribution -> Ok contribution
   | None ->
       Error

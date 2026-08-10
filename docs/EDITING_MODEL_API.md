@@ -246,3 +246,25 @@ so the editing-model API does not gain an M7-only mutation route. Dynamic
 semantic operations resolve to concrete transactions but are deliberately not
 retained as repeatable model intents across reloads. This remains experimental
 configuration, not a stable plugin SDK; see [scripting](SCRIPTING.md).
+
+## M8 runtime-neutral extension host
+
+M8 adds `Extension_value` and `Extension_host` to `zenbu.model_api`, not a
+second editor API. `Extension_value` is recursively data-only (`nil`, booleans,
+integers/floats, text, lists, and string-keyed records). An `Extension_host`
+request names an opaque invocation token, provider, contribution kind,
+operation, capability grants, copied context, and data-only arguments; its
+response is another `Extension_value`.
+
+`Command` and `Semantic_behavior` can contain a local OCaml handler or an
+extension-host invocation. The latter stores no runtime callback/value. The
+runtime adapter owns the mapping from token to private callback and decodes the
+same declarative effects/selection/edit results that the normal runtime already
+validates. Capability checks shape copied context and action authority before
+kernel mutation is considered. A failed invocation leaves the ordinary runtime
+state unchanged and emits generic extension trace/profile information.
+
+This keeps M8 plugins and any future runtime adapter as clients of the same
+semantic command/selector/transformation path as first-party models. The
+package/compatibility policy is intentionally outside this library; see
+[extensions](EXTENSIONS.md).

@@ -94,8 +94,7 @@ let run_transformation = function
                (fun selection ->
                  Extension_value.Record
                    [
-                     ( "anchor",
-                       Extension_value.Integer selection.anchor_offset );
+                     ("anchor", Extension_value.Integer selection.anchor_offset);
                      ("head", Extension_value.Integer selection.head_offset);
                    ])
                selections.selections)
@@ -114,6 +113,7 @@ let run_transformation = function
             (fun () ->
               Extension_host.require request ~capability:"document.edit")
           |> fun result ->
-          Result.bind result (fun () -> Extension_host.invoke host invocation request)
+          Result.bind result (fun () ->
+              Extension_host.invoke host invocation request)
         in
         Result.bind invoked (decode request)

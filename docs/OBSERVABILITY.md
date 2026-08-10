@@ -1,7 +1,8 @@
 # M6/M7 observability, provenance, and self-documentation
 
 Zenbu's editing grammars are intentionally extensible. M6 establishes the
-corresponding explanation surface, which M7 scripting now uses. It is
+corresponding explanation surface, which M7 configuration and M8 extensions
+now use. It is
 local, structured, model-neutral, bounded where recording can grow, and
 separate from deterministic editing semantics.
 
@@ -25,7 +26,11 @@ order. The runtime emits actual semantic-boundary events: input receipt,
 model-before/transition, model effect, command invocation, selector/
 transformation, transaction creation/commit/rejection, history navigation,
 syntax refresh, expected errors, script lifecycle/reload, binding resolution,
-and script command/selector/transformation/event callback outcomes.
+script command/selector/transformation/event callback outcomes, extension
+load/reload lifecycle, extension callback outcomes, and structured capability
+denials. Extension lifecycle records carry provider identity when staging
+succeeds; failed manifest/runtime stages still retain an actionable error in
+the Plugins inspection view.
 
 Each logical input has a monotonic runtime-local execution id. If a model status
 declares pending input, the runtime groups subsequent executions into an
@@ -75,8 +80,9 @@ strategy. Tree-sitter types and pointers remain private.
 ## Profiling
 
 `Profiler.enabled ~capacity` records bounded CPU-time samples using `Sys.time`.
-It measures existing model-handle, transaction-commit, syntax-update, and M7
-script-load/reload/command/selector/transformation/event boundaries; no
+It measures existing model-handle, transaction-commit, syntax-update, M7
+script-load/reload/command/selector/transformation/event boundaries, and M8
+extension-load/reload/command/selector/transformation/event boundaries; no
 wall-clock timestamp is retained. Aggregates expose count,
 total, mean, and max. Disabled profiling takes no clock reading. This is
 lightweight local diagnosis, not telemetry or a metrics platform.
@@ -125,3 +131,19 @@ command/selector/transformation provenance plus binding or event entries. This
 does not make Lua callbacks replay input: replay remains concrete
 intent/transaction behavior, and a dynamic callback is intentionally not a
 cross-generation repeat intent. See [scripting](SCRIPTING.md).
+
+## M8 extension attribution
+
+M8 providers retain plugin ID, semantic version, runtime identifier, and
+manifest source. `Provider.describe` formats an active plugin as, for example,
+`com.example.surround@1.0.0 (lua-trusted)`. The generic command/selector/
+transformation descriptor views, bindings, `why`, and history provenance all
+reuse this same provider object rather than adding a plugin-specific explain
+path. The terminal's `Plugins` inspector shows active/failed state, manifest,
+capabilities, contributions, and the most recent retained reload error.
+
+`Capability_denied` trace events include the provider, attempted operation,
+required capability, and granted capability list. Because extension callbacks
+still return ordinary semantic results, their failure leaves model state and
+the current document unchanged; normal `Error_reported`/callback-failed trace
+events retain the matching structured error text. See [extensions](EXTENSIONS.md).

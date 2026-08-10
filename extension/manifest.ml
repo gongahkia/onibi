@@ -62,7 +62,9 @@ let required_strings fields name =
         | [] -> Ok (List.rev results)
         | Otoml.TomlString value :: rest when String.length value > 0 ->
             collect (value :: results) rest
-        | _ -> invalid ~operation:name "manifest field must be an array of nonempty strings"
+        | _ ->
+            invalid ~operation:name
+              "manifest field must be an array of nonempty strings"
       in
       collect [] values
   | _ -> invalid ~operation:name "manifest field must be an array of strings"
@@ -86,8 +88,10 @@ let no_duplicates field_name values =
 let safe_entrypoint package_dir entrypoint =
   let components = String.split_on_char '/' entrypoint in
   if
-    not (Filename.is_relative entrypoint)
-    || List.exists (fun component -> component = ".." || component = "") components
+    (not (Filename.is_relative entrypoint))
+    || List.exists
+         (fun component -> component = ".." || component = "")
+         components
   then
     invalid ~operation:"plugin.entrypoint"
       "entrypoint must be a nonempty relative path contained in its package"
@@ -100,8 +104,10 @@ let safe_entrypoint package_dir entrypoint =
       if not (String.starts_with ~prefix candidate) then
         invalid ~operation:"plugin.entrypoint"
           "entrypoint resolves outside its plugin package"
-      else if not (Sys.file_exists candidate) || Sys.is_directory candidate then
-        invalid ~operation:"plugin.entrypoint" "entrypoint is not a regular file"
+      else if (not (Sys.file_exists candidate)) || Sys.is_directory candidate
+      then
+        invalid ~operation:"plugin.entrypoint"
+          "entrypoint is not a regular file"
       else Ok candidate
     with Unix.Unix_error (_, _, _) | Sys_error _ ->
       invalid ~operation:"plugin.entrypoint" "entrypoint cannot be resolved"
@@ -140,7 +146,8 @@ let parse path =
               let* manifest_version = required_int root "manifest_version" in
               if manifest_version <> Contract.manifest_version then
                 invalid ~operation:"manifest_version"
-                  ("unsupported manifest version " ^ string_of_int manifest_version)
+                  ("unsupported manifest version "
+                  ^ string_of_int manifest_version)
               else
                 let package_dir = Filename.dirname path in
                 let* id_text = required_string plugin "id" in
@@ -152,11 +159,17 @@ let parse path =
                 let* api = required_int plugin "api" in
                 let* runtime = required_string plugin "runtime" in
                 let* entrypoint = required_string plugin "entrypoint" in
-                let* contribution_ids = required_strings plugin "contributions" in
-                let* contribution_ids = no_duplicates "contributions" contribution_ids in
+                let* contribution_ids =
+                  required_strings plugin "contributions"
+                in
+                let* contribution_ids =
+                  no_duplicates "contributions" contribution_ids
+                in
                 let* contributions = contributions_of contribution_ids in
                 let* capability_ids = required_strings plugin "capabilities" in
-                let* capability_ids = no_duplicates "capabilities" capability_ids in
+                let* capability_ids =
+                  no_duplicates "capabilities" capability_ids
+                in
                 let* requested_capabilities = capabilities_of capability_ids in
                 let* entrypoint_path = safe_entrypoint package_dir entrypoint in
                 Ok

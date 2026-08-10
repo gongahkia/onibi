@@ -10,6 +10,12 @@ type stage =
   | Script_selector
   | Script_transformation
   | Script_event
+  | Extension_load
+  | Extension_reload
+  | Extension_command
+  | Extension_selector
+  | Extension_transformation
+  | Extension_event
 
 type key = { stage : stage; model_id : string option }
 type sample = { key : key; duration : float }
@@ -50,6 +56,12 @@ let stage_name = function
   | Script_selector -> "script.selector"
   | Script_transformation -> "script.transformation"
   | Script_event -> "script.event"
+  | Extension_load -> "extension.load"
+  | Extension_reload -> "extension.reload"
+  | Extension_command -> "extension.command"
+  | Extension_selector -> "extension.selector"
+  | Extension_transformation -> "extension.transformation"
+  | Extension_event -> "extension.event"
 
 let measure profiler ?model_id stage f =
   match profiler with

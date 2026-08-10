@@ -144,40 +144,41 @@ let require request capability = Host.require request ~capability
 
 let selection_action source request value =
   Result.bind (require request "selection.write") (fun () ->
-  match (field value "selections", field value "primary") with
-  | ( Some (Extension_value.List selections),
-      Some (Extension_value.Integer primary) ) ->
-      let selection = function
-        | Extension_value.Record fields -> (
-            match
-              (List.assoc_opt "anchor" fields, List.assoc_opt "head" fields)
-            with
-            | ( Some (Extension_value.Integer anchor),
-                Some (Extension_value.Integer head) ) ->
-                Ok (anchor, head)
+      match (field value "selections", field value "primary") with
+      | ( Some (Extension_value.List selections),
+          Some (Extension_value.Integer primary) ) ->
+          let selection = function
+            | Extension_value.Record fields -> (
+                match
+                  (List.assoc_opt "anchor" fields, List.assoc_opt "head" fields)
+                with
+                | ( Some (Extension_value.Integer anchor),
+                    Some (Extension_value.Integer head) ) ->
+                    Ok (anchor, head)
+                | _ ->
+                    Error
+                      (script_error "action" source
+                         "selection entries require integer anchor and head \
+                          fields"))
             | _ ->
                 Error
                   (script_error "action" source
-                     "selection entries require integer anchor and head fields")
-            )
-        | _ ->
-            Error
-              (script_error "action" source "selection entry must be a table")
-      in
-      let rec collect values = function
-        | [] -> Ok (List.rev values)
-        | value :: rest -> (
-            match selection value with
-            | Error _ as error -> error
-            | Ok value -> collect (value :: values) rest)
-      in
-      Result.bind (collect [] selections) (fun selections ->
-          Model_intent.set_selections ~selections ~primary:(primary - 1))
-      |> Result.map (fun intent -> Model_effect.Execute_intent intent)
-  | _ ->
-      Error
-        (script_error "action" source
-           "set-selections requires selections and primary fields"))
+                     "selection entry must be a table")
+          in
+          let rec collect values = function
+            | [] -> Ok (List.rev values)
+            | value :: rest -> (
+                match selection value with
+                | Error _ as error -> error
+                | Ok value -> collect (value :: values) rest)
+          in
+          Result.bind (collect [] selections) (fun selections ->
+              Model_intent.set_selections ~selections ~primary:(primary - 1))
+          |> Result.map (fun intent -> Model_effect.Execute_intent intent)
+      | _ ->
+          Error
+            (script_error "action" source
+               "set-selections requires selections and primary fields"))
 
 let action source request value =
   match required_text source "kind" value with
@@ -209,7 +210,8 @@ let action source request value =
           Result.bind (required_text source "id" value) (fun id ->
               Result.bind (Command_id.of_string id) (fun id ->
                   Command_invocation.create ~id ~arguments:[]))
-          |> Result.map (fun invocation -> Model_effect.Invoke_command invocation))
+          |> Result.map (fun invocation ->
+              Model_effect.Invoke_command invocation))
   | Ok kind ->
       Error (script_error "action" source ("unknown action kind " ^ kind))
 
@@ -224,7 +226,8 @@ let actions source request = function
             | Ok action -> collect (action :: results) rest)
       in
       collect [] values
-  | value -> action source request value |> Result.map (fun action -> [ action ])
+  | value ->
+      action source request value |> Result.map (fun action -> [ action ])
 
 let behavior_selection source = function
   | Extension_value.Record fields -> (
@@ -474,7 +477,8 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
                          required = None;
                          granted = capabilities;
                          message =
-                           "plugin registrations must use the plugin ID namespace";
+                           "plugin registrations must use the plugin ID \
+                            namespace";
                        })
           in
           let fail error =
@@ -502,26 +506,29 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
                   | Ok id -> (
                       match verify_registration "commands" definition.id with
                       | Error error -> fail error
-                      | Ok () ->
-                      match
-                        Command_descriptor.create ~id ~title:definition.title
-                          ~description:definition.description ~provider ()
-                      with
-                      | Error error -> fail error
-                      | Ok descriptor -> (
-                          let command =
-                            Command.create_extension_effectful ~descriptor ~host
-                              ~invocation:(invocation "command" callback)
-                              ~decode:(actions source)
-                          in
+                      | Ok () -> (
                           match
-                            Command_registry.register !command_registry command
+                            Command_descriptor.create ~id
+                              ~title:definition.title
+                              ~description:definition.description ~provider ()
                           with
                           | Error error -> fail error
-                          | Ok registry ->
-                              command_registry := registry;
-                              script_commands := !script_commands @ [ command ])
-                      ))
+                          | Ok descriptor -> (
+                              let command =
+                                Command.create_extension_effectful ~descriptor
+                                  ~host
+                                  ~invocation:(invocation "command" callback)
+                                  ~decode:(actions source)
+                              in
+                              match
+                                Command_registry.register !command_registry
+                                  command
+                              with
+                              | Error error -> fail error
+                              | Ok registry ->
+                                  command_registry := registry;
+                                  script_commands :=
+                                    !script_commands @ [ command ]))))
               | Backend.Selector (definition, callback)
                 when Option.is_none !failed -> (
                   match validate_id source definition.id with
@@ -529,27 +536,28 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
                   | Ok _ -> (
                       match verify_registration "selectors" definition.id with
                       | Error error -> fail error
-                      | Ok () ->
-                      match
-                        semantic_descriptor provider
-                          Semantic_descriptor.Selector definition
-                      with
-                      | Error error -> fail error
-                      | Ok descriptor -> (
-                          register_descriptor descriptor;
-                          if Option.is_none !failed then
-                            let entry =
-                              Semantic_behavior.extension_selector_entry
-                                ~descriptor ~host
-                                ~invocation:(invocation "selector" callback)
-                                ~decode:(fun _ -> behavior_selection source)
-                            in
-                            match
-                              Semantic_behavior_registry.register_selector
-                                !behavior_registry entry
-                            with
-                            | Error error -> fail error
-                            | Ok registry -> behavior_registry := registry)))
+                      | Ok () -> (
+                          match
+                            semantic_descriptor provider
+                              Semantic_descriptor.Selector definition
+                          with
+                          | Error error -> fail error
+                          | Ok descriptor -> (
+                              register_descriptor descriptor;
+                              if Option.is_none !failed then
+                                let entry =
+                                  Semantic_behavior.extension_selector_entry
+                                    ~descriptor ~host
+                                    ~invocation:(invocation "selector" callback)
+                                    ~decode:(fun _ -> behavior_selection source)
+                                in
+                                match
+                                  Semantic_behavior_registry.register_selector
+                                    !behavior_registry entry
+                                with
+                                | Error error -> fail error
+                                | Ok registry -> behavior_registry := registry))
+                      ))
               | Backend.Transformation (definition, callback)
                 when Option.is_none !failed -> (
                   match validate_id source definition.id with
@@ -559,28 +567,32 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
                         verify_registration "transformations" definition.id
                       with
                       | Error error -> fail error
-                      | Ok () ->
-                      match
-                        semantic_descriptor provider
-                          Semantic_descriptor.Transformation definition
-                      with
-                      | Error error -> fail error
-                      | Ok descriptor -> (
-                          register_descriptor descriptor;
-                          if Option.is_none !failed then
-                            let entry =
-                              Semantic_behavior.extension_transformation_entry
-                                ~descriptor ~host
-                                ~invocation:
-                                  (invocation "transformation" callback)
-                                ~decode:(fun _ -> behavior_transformation source)
-                            in
-                            match
-                              Semantic_behavior_registry.register_transformation
-                                !behavior_registry entry
-                            with
-                            | Error error -> fail error
-                            | Ok registry -> behavior_registry := registry)))
+                      | Ok () -> (
+                          match
+                            semantic_descriptor provider
+                              Semantic_descriptor.Transformation definition
+                          with
+                          | Error error -> fail error
+                          | Ok descriptor -> (
+                              register_descriptor descriptor;
+                              if Option.is_none !failed then
+                                let entry =
+                                  Semantic_behavior
+                                  .extension_transformation_entry ~descriptor
+                                    ~host
+                                    ~invocation:
+                                      (invocation "transformation" callback)
+                                    ~decode:(fun _ ->
+                                      behavior_transformation source)
+                                in
+                                match
+                                  Semantic_behavior_registry
+                                  .register_transformation !behavior_registry
+                                    entry
+                                with
+                                | Error error -> fail error
+                                | Ok registry -> behavior_registry := registry))
+                      ))
               | Backend.Binding _ | Backend.Hook _ | Backend.Command _
               | Backend.Selector _ | Backend.Transformation _ ->
                   ())
@@ -594,43 +606,45 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
                       Command_id.of_string definition.command )
                   with
                   | Ok input, Ok scope, Ok command -> (
-                      match verify_registration "bindings" definition.command with
+                      match
+                        verify_registration "bindings" definition.command
+                      with
                       | Error error -> fail error
                       | Ok () when reserved_host_input input ->
-                        fail
-                          (script_error "registration" source
-                             "Ctrl-S and Ctrl-Q are reserved host controls")
-                      | Ok () ->
-                        match
-                          ( String.equal definition.command "config.reload",
-                            Command_registry.find !command_registry command )
-                        with
-                        | true, _ | false, Ok _ ->
-                            let duplicate =
-                              List.exists
-                                (fun binding ->
-                                  Input_event.to_string binding.input
-                                  = Input_event.to_string input
-                                  && binding.scope = scope)
-                                !bindings
-                            in
-                            if duplicate then
-                              fail
-                                (script_error "registration" source
-                                   ("duplicate binding for "
-                                   ^ Input_event.to_string input))
-                            else
-                              bindings :=
-                                !bindings
-                                @ [
-                                    {
-                                      input;
-                                      command = definition.command;
-                                      scope;
-                                      provider;
-                                    };
-                                  ]
-                        | false, Error error -> fail error)
+                          fail
+                            (script_error "registration" source
+                               "Ctrl-S and Ctrl-Q are reserved host controls")
+                      | Ok () -> (
+                          match
+                            ( String.equal definition.command "config.reload",
+                              Command_registry.find !command_registry command )
+                          with
+                          | true, _ | false, Ok _ ->
+                              let duplicate =
+                                List.exists
+                                  (fun binding ->
+                                    Input_event.to_string binding.input
+                                    = Input_event.to_string input
+                                    && binding.scope = scope)
+                                  !bindings
+                              in
+                              if duplicate then
+                                fail
+                                  (script_error "registration" source
+                                     ("duplicate binding for "
+                                     ^ Input_event.to_string input))
+                              else
+                                bindings :=
+                                  !bindings
+                                  @ [
+                                      {
+                                        input;
+                                        command = definition.command;
+                                        scope;
+                                        provider;
+                                      };
+                                    ]
+                          | false, Error error -> fail error))
                   | Error error, _, _ | _, Error error, _ | _, _, Error error ->
                       fail error)
               | Backend.Hook definition when Option.is_none !failed -> (
@@ -647,7 +661,8 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
                              required = None;
                              granted = capabilities;
                              message =
-                               "event registration is not declared by the plugin manifest";
+                               "event registration is not declared by the \
+                                plugin manifest";
                            })
                   | Ok _ when not (List.mem "event.subscribe" capabilities) ->
                       fail
@@ -668,7 +683,8 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
                             {
                               event;
                               host;
-                              invocation = invocation "event" definition.callback;
+                              invocation =
+                                invocation "event" definition.callback;
                               source;
                             };
                           ])
@@ -734,9 +750,11 @@ let run_hook (value : hook) context =
   let request =
     Host.request value.invocation ~kind:Host.Event ~operation:"event.deliver"
       ~context
-      ~arguments:(Extension_value.Record [ ("event", Extension_value.Text event) ])
+      ~arguments:
+        (Extension_value.Record [ ("event", Extension_value.Text event) ])
   in
-  Result.bind (Host.invoke value.host value.invocation request)
+  Result.bind
+    (Host.invoke value.host value.invocation request)
     (actions value.source request)
 
 let load ~generation_id ~base_commands ~base_semantics = function
@@ -759,7 +777,8 @@ let load_plugin ~provider ~capabilities ~contributions ~base_commands
     ~base_semantics ~entrypoint =
   Result.bind (read_file entrypoint) (fun text ->
       load_from_source ~provider ~capabilities ~contributions
-        ~runtime:(Option.value ~default:"lua-trusted" (Provider.runtime provider))
+        ~runtime:
+          (Option.value ~default:"lua-trusted" (Provider.runtime provider))
         ~generation_id:0 ~base_commands ~base_semantics ~source:entrypoint text)
 
 let check_file ~base_commands ~base_semantics path =

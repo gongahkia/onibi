@@ -87,7 +87,8 @@ let commands_with_generation base generation =
 let commands_with_plugins base plugins =
   List.fold_left
     (fun registry command ->
-      Result.bind registry (fun registry -> Command_registry.register registry command))
+      Result.bind registry (fun registry ->
+          Command_registry.register registry command))
     (Ok base) (Plugins.commands plugins)
 
 let semantic_behaviors = function
@@ -95,7 +96,8 @@ let semantic_behaviors = function
   | Some generation -> Scripting.semantic_behaviors generation
 
 let semantic_behaviors_with_plugins generation plugins =
-  Semantic_behavior_registry.merge (semantic_behaviors generation)
+  Semantic_behavior_registry.merge
+    (semantic_behaviors generation)
     (Plugins.semantic_behaviors plugins)
   |> Result.get_ok
 
@@ -148,6 +150,67 @@ let lifecycle trace ~execution_id ~phase ?generation ?provider ~outcome ?reason
           outcome;
           reason;
         })
+
+let extension_lifecycle trace ~execution_id ~phase ?provider ~outcome ?reason ()
+    =
+  Trace.emit_lazy trace (fun () ->
+      Trace_event.Extension_lifecycle
+        { execution_id; phase; provider; outcome; reason })
+
+let extension_callback trace ~execution_id ~kind ~provider ?semantic_id ?reason
+    outcome =
+  Trace.emit_lazy trace (fun () ->
+      match Provider.kind provider with
+      | Provider.Plugin ->
+          Trace_event.Extension_callback
+            { execution_id; kind; provider; semantic_id; outcome; reason }
+      | Provider.Script ->
+          Trace_event.Script_callback
+            { execution_id; kind; provider; semantic_id; outcome; reason }
+      | Provider.Builtin | Provider.Editing_model | Provider.Syntax
+      | Provider.Application ->
+          assert false)
+
+let capability_denied trace ~execution_id ~provider = function
+  | Error.Extension_error
+      {
+        code = Error.Capability_denied;
+        operation = Some operation;
+        required = Some required;
+        granted;
+        _;
+      } ->
+      Trace.emit_lazy trace (fun () ->
+          Trace_event.Capability_denied
+            { execution_id; provider; operation; required; granted })
+  | _ -> ()
+
+let trace_plugins trace ~execution_id ~phase plugins =
+  let provider_for_view view =
+    match Plugins.view_id view with
+    | None -> None
+    | Some id ->
+        Plugins.providers plugins
+        |> List.find_opt (fun provider ->
+            Provider.plugin_id provider
+            |> Option.map
+                 (String.equal (Zenbu_extension.Plugin_id.to_string id))
+            |> Option.value ~default:false)
+  in
+  Plugins.views plugins
+  |> List.iter (fun view ->
+      match (Plugins.view_state view, Plugins.view_error view) with
+      | Plugins.Active, None ->
+          extension_lifecycle trace ~execution_id ~phase
+            ?provider:(provider_for_view view) ~outcome:"succeeded" ()
+      | Plugins.Active, Some error ->
+          extension_lifecycle trace ~execution_id ~phase
+            ?provider:(provider_for_view view) ~outcome:"failed"
+            ~reason:(Error.to_string error) ()
+      | Plugins.Failed, Some error ->
+          extension_lifecycle trace ~execution_id ~phase ~outcome:"failed"
+            ~reason:(Error.to_string error) ()
+      | Plugins.Failed, None -> ())
 
 let create ~model ?language ?file_path ?(contents = "") ?trace ?profiler
     ?(config = Scripting.Default) ?(plugins = Plugins.Disabled) ~dimensions () =
@@ -206,14 +269,17 @@ let create ~model ?language ?file_path ?(contents = "") ?trace ?profiler
                 | Some generation -> Scripting.descriptors generation
               in
               let plugin_host =
-                Plugins.load ~config:plugins ~base_commands:commands
-                  ~base_semantics:configured_semantics
-                  ?base_bindings:
-                    (match generation with
-                    | None -> None
-                    | Some generation -> Some (Scripting.bindings generation))
-                  ()
+                Profiler.measure profiler Profiler.Extension_load (fun () ->
+                    Plugins.load ~config:plugins ~base_commands:commands
+                      ~base_semantics:configured_semantics
+                      ?base_bindings:
+                        (match generation with
+                        | None -> None
+                        | Some generation ->
+                            Some (Scripting.bindings generation))
+                      ())
               in
+              trace_plugins trace ~execution_id:0 ~phase:"load" plugin_host;
               let commands =
                 match commands_with_plugins commands plugin_host with
                 | Ok commands -> commands
@@ -403,20 +469,24 @@ let reload_config session =
             | Some generation -> Scripting.descriptors generation
           in
           let plugin_host =
-            Plugins.reload session.plugins ~base_commands:configured_commands
-              ~base_semantics:configured_semantics
-              ?base_bindings:
-                (match generation with
-                | None -> None
-                | Some generation -> Some (Scripting.bindings generation))
-              ()
+            Profiler.measure profiler Profiler.Extension_reload (fun () ->
+                Plugins.reload session.plugins
+                  ~base_commands:configured_commands
+                  ~base_semantics:configured_semantics
+                  ?base_bindings:
+                    (match generation with
+                    | None -> None
+                    | Some generation -> Some (Scripting.bindings generation))
+                  ())
           in
+          trace_plugins trace ~execution_id ~phase:"reload" plugin_host;
           let commands =
             match commands_with_plugins configured_commands plugin_host with
             | Ok commands -> commands
             | Error error ->
                 failwith
-                  ("plugin snapshot invariant violated: " ^ Error.to_string error)
+                  ("plugin snapshot invariant violated: "
+                 ^ Error.to_string error)
           in
           let active =
             active_with_extensions session.active ~commands
@@ -427,8 +497,13 @@ let reload_config session =
           lifecycle trace ~execution_id ~phase:"reload" ?generation
             ~outcome:"succeeded" ();
           let message =
+            let plugin_count = List.length (Plugins.providers plugin_host) in
             match generation with
-            | None -> "configuration reloaded: no active script generation"
+            | None ->
+                Printf.sprintf
+                  "configuration reloaded: no active script generation; %d \
+                   active plugins"
+                  plugin_count
             | Some generation ->
                 let commands, selectors, transformations, bindings, hooks =
                   Scripting.counts generation
@@ -437,6 +512,7 @@ let reload_config session =
                   "configuration reloaded: %d commands, %d selectors, %d \
                    transformations, %d bindings, %d hooks"
                   commands selectors transformations bindings hooks
+                ^ Printf.sprintf "; %d active plugins" plugin_count
           in
           {
             session with
@@ -468,21 +544,19 @@ let binding_rank session binding =
 let matching_binding session input =
   let bindings =
     (match session.generation with
-    | None -> []
-    | Some generation -> Scripting.bindings generation)
+      | None -> []
+      | Some generation -> Scripting.bindings generation)
     @ Plugins.bindings session.plugins
   in
   bindings
   |> List.filter_map (fun binding ->
-          if
-            String.equal
-              (Input_event.to_string (Scripting.binding_input binding))
-              (Input_event.to_string input)
-          then
-            Option.map
-              (fun rank -> (rank, binding))
-              (binding_rank session binding)
-          else None)
+      if
+        String.equal
+          (Input_event.to_string (Scripting.binding_input binding))
+          (Input_event.to_string input)
+      then
+        Option.map (fun rank -> (rank, binding)) (binding_rank session binding)
+      else None)
   |> List.sort (fun (left, _) (right, _) -> Int.compare right left)
   |> function
   | [] -> None
@@ -609,92 +683,74 @@ let rec run_event_hooks session event input =
   else
     let hooks =
       (match session.generation with
-      | None -> []
-      | Some generation -> Scripting.hooks generation)
+        | None -> []
+        | Some generation -> Scripting.hooks generation)
       @ Plugins.hooks session.plugins
       |> List.filter (fun hook -> Scripting.hook_event hook = event)
     in
     if hooks = [] then session
     else
-        let started =
-          {
-            session with
-            delivering_events = event :: session.delivering_events;
-          }
-        in
-        let completed =
-          List.fold_left
-            (fun session hook ->
-              let trace = trace_of_active session.active in
-              let profiler = profiler_of_active session.active in
-              let execution_id =
-                Option.value ~default:0
-                  (last_execution_of_active session.active)
-              in
-              let event_name =
-                match event with
-                | Scripting.Document_changed -> "document-changed"
-                | Scripting.After_save -> "after-save"
-              in
-              let provider = Scripting.hook_provider hook in
-              Trace.emit_lazy trace (fun () ->
-                  Trace_event.Script_callback
-                    {
-                      execution_id;
-                      kind = "event";
-                      provider;
-                      semantic_id = Some event_name;
-                      outcome = "started";
-                      reason = None;
-                    });
-              match
-                Profiler.measure profiler Profiler.Script_event (fun () ->
-                    Scripting.run_hook hook (context session))
-              with
-              | Error error ->
-                  Trace.emit_lazy trace (fun () ->
-                      Trace_event.Script_callback
-                        {
-                          execution_id;
-                          kind = "event";
-                          provider;
-                          semantic_id = Some event_name;
-                          outcome = "failed";
-                          reason = Some (Error.to_string error);
-                        });
-                  {
-                    session with
-                    message = Some (Error.to_string error);
-                    quit_armed = false;
-                  }
-              | Ok effects ->
-                  Trace.emit_lazy trace (fun () ->
-                      Trace_event.Script_callback
-                        {
-                          execution_id;
-                          kind = "event";
-                          provider;
-                          semantic_id = Some event_name;
-                          outcome = "succeeded";
-                          reason = None;
-                        });
-                  let next, changed =
-                    execute_active_effects
-                      ~augment_provenance:(fun provenance ->
-                        Provenance.add provenance
-                          (Provenance.Event { name = event_name; provider }))
-                      session input effects
-                  in
-                  if changed then
-                    run_event_hooks next Scripting.Document_changed input
-                  else next)
-            started hooks
-        in
-    {
-      completed with
-      delivering_events =
-        List.filter (fun active -> active <> event) completed.delivering_events;
-    }
+      let started =
+        { session with delivering_events = event :: session.delivering_events }
+      in
+      let completed =
+        List.fold_left
+          (fun session hook ->
+            let trace = trace_of_active session.active in
+            let profiler = profiler_of_active session.active in
+            let execution_id =
+              Option.value ~default:0 (last_execution_of_active session.active)
+            in
+            let event_name =
+              match event with
+              | Scripting.Document_changed -> "document-changed"
+              | Scripting.After_save -> "after-save"
+            in
+            let provider = Scripting.hook_provider hook in
+            extension_callback trace ~execution_id ~kind:"event" ~provider
+              ~semantic_id:event_name "started";
+            match
+              Profiler.measure profiler
+                (match Provider.kind provider with
+                | Provider.Plugin -> Profiler.Extension_event
+                | Provider.Script -> Profiler.Script_event
+                | Provider.Builtin | Provider.Editing_model | Provider.Syntax
+                | Provider.Application ->
+                    Profiler.Model_handle)
+                (fun () -> Scripting.run_hook hook (context session))
+            with
+            | Error error ->
+                capability_denied trace ~execution_id ~provider error;
+                extension_callback trace ~execution_id ~kind:"event" ~provider
+                  ~semantic_id:event_name ~reason:(Error.to_string error)
+                  "failed";
+                {
+                  session with
+                  message = Some (Error.to_string error);
+                  quit_armed = false;
+                }
+            | Ok effects ->
+                extension_callback trace ~execution_id ~kind:"event" ~provider
+                  ~semantic_id:event_name "succeeded";
+                let next, changed =
+                  execute_active_effects
+                    ~augment_provenance:(fun provenance ->
+                      Provenance.add provenance
+                        (Provenance.Event { name = event_name; provider }))
+                    session input effects
+                in
+                if changed then
+                  run_event_hooks next Scripting.Document_changed input
+                else next)
+          started hooks
+      in
+      {
+        completed with
+        delivering_events =
+          List.filter
+            (fun active -> active <> event)
+            completed.delivering_events;
+      }
 
 let handle_input session input =
   let contents_before = Editor_context.contents (context session) in
@@ -795,14 +851,15 @@ let scope_to_string = function
 let script_binding_lines session =
   let bindings =
     (match session.generation with
-    | None -> []
-    | Some generation -> Scripting.bindings generation)
+      | None -> []
+      | Some generation -> Scripting.bindings generation)
     @ Plugins.bindings session.plugins
   in
   match bindings with
   | [] -> [ "extension overlays: none" ]
   | bindings ->
-      bindings |> List.map (fun binding ->
+      bindings
+      |> List.map (fun binding ->
           Printf.sprintf "script overlay: %s -> %s (%s; provider %s)"
             (Input_event.to_string (Scripting.binding_input binding))
             (Scripting.binding_command binding)
@@ -828,20 +885,24 @@ let plugin_lines session =
           let runtime = Option.value ~default:"-" (Plugins.view_runtime view) in
           let capabilities =
             Plugins.view_granted_capabilities view
-            |> List.map Zenbu_extension.Capability.id |> String.concat ", "
+            |> List.map Zenbu_extension.Capability.id
+            |> String.concat ", "
           in
           let contributions =
             Plugins.view_contributions view
-            |> List.map Zenbu_extension.Contribution.id |> String.concat ", "
+            |> List.map Zenbu_extension.Contribution.id
+            |> String.concat ", "
           in
           [
             Printf.sprintf "%s %s %s %s" id version
-              (Plugins.state_name (Plugins.view_state view)) runtime;
+              (Plugins.state_name (Plugins.view_state view))
+              runtime;
             "  manifest: " ^ Plugins.view_manifest_path view;
-            "  capabilities: "
-            ^ (if String.length capabilities = 0 then "none" else capabilities);
-            "  contributions: "
-            ^ (if String.length contributions = 0 then "none" else contributions);
+            ("  capabilities: "
+            ^ if String.length capabilities = 0 then "none" else capabilities);
+            ("  contributions: "
+            ^ if String.length contributions = 0 then "none" else contributions
+            );
             (match Plugins.view_error view with
             | None -> "  last-error: none"
             | Some error -> "  last-error: " ^ Error.to_string error);

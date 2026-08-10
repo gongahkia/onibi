@@ -17,7 +17,8 @@ type run_result = Exited | Unsaved_end
 
 let usage =
   "usage: zenbu [--model vim|selection|structural] [--language ID] [--trace] \
-   [--profile] [--config PATH | --no-config] [--plugin-dir PATH | --no-plugins] [FILE]"
+   [--profile] [--config PATH | --no-config] [--plugin-dir PATH | \
+   --no-plugins] [FILE]"
 
 let parse_arguments () =
   let model = ref Zenbu_app.Session.Vim in
@@ -78,8 +79,12 @@ let parse_arguments () =
       ( "--no-config",
         Arg.Unit disable_config,
         "disable Lua configuration loading" );
-      ("--plugin-dir", Arg.String add_plugin_dir, "discover local plugins under PATH");
-      ("--no-plugins", Arg.Unit disable_plugins, "disable local plugin discovery");
+      ( "--plugin-dir",
+        Arg.String add_plugin_dir,
+        "discover local plugins under PATH" );
+      ( "--no-plugins",
+        Arg.Unit disable_plugins,
+        "disable local plugin discovery" );
       ( "--version",
         Arg.Unit
           (fun () ->
@@ -99,9 +104,9 @@ let parse_arguments () =
         profile = !profile;
         config = !config;
         plugins =
-          if !plugins_disabled then Plugins.Disabled
-          else if !plugin_dirs = [] then Plugins.Default
-          else Plugins.Directories !plugin_dirs;
+          (if !plugins_disabled then Plugins.Disabled
+           else if !plugin_dirs = [] then Plugins.Default
+           else Plugins.Directories !plugin_dirs);
       }
   with
   | Arg.Bad message -> Error message
@@ -129,8 +134,7 @@ let create_session options contents backend =
       Result.bind profiler (fun profiler ->
           Zenbu_app.Session.create ~model:options.model
             ?language:options.language ?file_path:options.file_path ~contents
-            ~trace ~profiler ~config:options.config
-            ~plugins:options.plugins
+            ~trace ~profiler ~config:options.config ~plugins:options.plugins
             ~dimensions:{ Zenbu_view.Renderer.columns; rows }
             ()))
 

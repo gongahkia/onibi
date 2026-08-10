@@ -30,9 +30,9 @@ val commands : t -> Zenbu_model_api.Command.t list
 val semantic_behaviors : t -> Zenbu_model_api.Semantic_behavior_registry.t
 val bindings : t -> Zenbu_scripting.Scripting.binding list
 val hooks : t -> Zenbu_scripting.Scripting.hook list
+val providers : t -> Zenbu_kernel.Provider.t list
 val views : t -> view list
 val find : t -> Plugin_id.t -> view option
-
 val view_id : view -> Plugin_id.t option
 val view_name : view -> string option
 val view_version : view -> Plugin_version.t option

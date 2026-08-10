@@ -141,8 +141,11 @@ let rec to_string = function
         ]
         |> List.filter_map Fun.id
       in
-      Printf.sprintf "extension %s%s: %s" (extension_error_code_name code)
-        (match details with [] -> "" | _ -> " (" ^ String.concat "; " details ^ ")")
+      Printf.sprintf "extension %s%s: %s"
+        (extension_error_code_name code)
+        (match details with
+        | [] -> ""
+        | _ -> " (" ^ String.concat "; " details ^ ")")
         message
   | Model_execution_failed message ->
       Printf.sprintf "model execution failed: %s" message

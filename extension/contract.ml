@@ -25,7 +25,8 @@ let services =
     };
     {
       id = "syntax.current";
-      purpose = "read a data-only syntax summary for the current or requested range";
+      purpose =
+        "read a data-only syntax summary for the current or requested range";
       capability = Some Capability.Syntax_read;
       arguments = "zero arguments or start: integer, stop: integer";
       result = "syntax summary or nil";
@@ -34,7 +35,9 @@ let services =
     };
     {
       id = "action.document-edit";
-      purpose = "return insert, delete, or replace actions for normal transaction validation";
+      purpose =
+        "return insert, delete, or replace actions for normal transaction \
+         validation";
       capability = Some Capability.Document_edit;
       arguments = "declarative action record";
       result = "normal semantic effect";
@@ -106,25 +109,34 @@ let markdown () =
   let buffer = Buffer.create 4096 in
   Buffer.add_string buffer "# Zenbu Extension API v1\n\n";
   Buffer.add_string buffer
-    "This file is generated from `zenbu.extension.Contract`; do not edit it manually.\n\n";
+    "This file is generated from `zenbu.extension.Contract`; do not edit it \
+     manually.\n\n";
   Buffer.add_string buffer "## Compatibility\n\n";
   Buffer.add_string buffer
-    "A manifest declaring `api = 1` is compatible with this contract. Zenbu may add optional fields and services within v1, but it will not remove or change required v1 behavior. Breaking changes require a new API version.\n\n";
+    "A manifest declaring `api = 1` is compatible with this contract. Zenbu \
+     may add optional fields and services within v1, but it will not remove or \
+     change required v1 behavior. Breaking changes require a new API version.\n\n";
   Buffer.add_string buffer "## Runtimes\n\n";
-  List.iter (fun runtime -> Buffer.add_string buffer ("- `" ^ runtime ^ "`\n")) runtime_ids;
+  List.iter
+    (fun runtime -> Buffer.add_string buffer ("- `" ^ runtime ^ "`\n"))
+    runtime_ids;
   Buffer.add_string buffer "\n## Contributions\n\n";
   List.iter
     (fun contribution ->
       Buffer.add_string buffer
-        ("- `" ^ Contribution.id contribution ^ "`: "
-       ^ Contribution.description contribution ^ "\n"))
+        ("- `"
+        ^ Contribution.id contribution
+        ^ "`: "
+        ^ Contribution.description contribution
+        ^ "\n"))
     Contribution.all;
   Buffer.add_string buffer "\n## Capabilities\n\n";
   List.iter
     (fun capability ->
       Buffer.add_string buffer
         ("- `" ^ Capability.id capability ^ "`: "
-       ^ Capability.description capability ^ "\n"))
+        ^ Capability.description capability
+        ^ "\n"))
     Capability.all;
   Buffer.add_string buffer "\n## Services\n\n";
   List.iter
@@ -135,12 +147,16 @@ let markdown () =
       Buffer.add_string buffer ("- Result: " ^ service.result ^ "\n");
       Buffer.add_string buffer
         ("- Capability: "
-       ^ Option.value ~default:"none" (Option.map Capability.id service.capability)
-       ^ "\n");
-      Buffer.add_string buffer ("- Errors: " ^ String.concat ", " service.errors ^ "\n\n"))
+        ^ Option.value ~default:"none"
+            (Option.map Capability.id service.capability)
+        ^ "\n");
+      Buffer.add_string buffer
+        ("- Errors: " ^ String.concat ", " service.errors ^ "\n\n"))
     services;
   Buffer.add_string buffer "## Stable extension errors\n\n";
-  List.iter (fun code -> Buffer.add_string buffer ("- `" ^ code ^ "`\n")) stable_error_codes;
+  List.iter
+    (fun code -> Buffer.add_string buffer ("- `" ^ code ^ "`\n"))
+    stable_error_codes;
   Buffer.contents buffer
 
 let lua_stub () =

@@ -78,7 +78,7 @@ type t =
   | Extension_lifecycle of {
       execution_id : execution_id;
       phase : string;
-      provider : Zenbu_kernel.Provider.t;
+      provider : Zenbu_kernel.Provider.t option;
       outcome : string;
       reason : string option;
     }

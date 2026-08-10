@@ -395,14 +395,17 @@ let print_plugin_view view =
   in
   let runtime = Option.value ~default:"-" (Plugins.view_runtime view) in
   Printf.printf "%s %s %s %s\n" id version
-    (Plugins.state_name (Plugins.view_state view)) runtime;
+    (Plugins.state_name (Plugins.view_state view))
+    runtime;
   Printf.printf "  manifest: %s\n" (Plugins.view_manifest_path view);
   Printf.printf "  capabilities: %s\n"
     (Plugins.view_granted_capabilities view
-    |> List.map Zenbu_extension.Capability.id |> String.concat ", ");
+    |> List.map Zenbu_extension.Capability.id
+    |> String.concat ", ");
   Printf.printf "  contributions: %s\n"
     (Plugins.view_contributions view
-    |> List.map Zenbu_extension.Contribution.id |> String.concat ", ");
+    |> List.map Zenbu_extension.Contribution.id
+    |> String.concat ", ");
   Printf.printf "  registrations: %s\n"
     (Plugins.view_registered_ids view |> String.concat ", ");
   Option.iter
@@ -415,7 +418,9 @@ let plugin_host config =
 
 let plugins config =
   let host = plugin_host config in
-  Fun.protect ~finally:(fun () -> Plugins.dispose host) (fun () ->
+  Fun.protect
+    ~finally:(fun () -> Plugins.dispose host)
+    (fun () ->
       match Plugins.views host with
       | [] -> print_endline "plugins: none"
       | views -> List.iter print_plugin_view views)
@@ -426,13 +431,19 @@ let plugin_check path =
     then Filename.dirname path
     else path
   in
-  let host = plugin_host (Plugins.Directories [ Filename.dirname package_dir ]) in
-  Fun.protect ~finally:(fun () -> Plugins.dispose host) (fun () ->
-      let manifest = Filename.concat package_dir Zenbu_extension.Manifest.filename in
+  let host =
+    plugin_host (Plugins.Directories [ Filename.dirname package_dir ])
+  in
+  Fun.protect
+    ~finally:(fun () -> Plugins.dispose host)
+    (fun () ->
+      let manifest =
+        Filename.concat package_dir Zenbu_extension.Manifest.filename
+      in
       match
         Plugins.views host
         |> List.find_opt (fun view ->
-               String.equal (Plugins.view_manifest_path view) manifest)
+            String.equal (Plugins.view_manifest_path view) manifest)
       with
       | None ->
           fail
@@ -446,11 +457,14 @@ let plugin_check path =
                  granted = [];
                  message = "plugin package was not discovered";
                })
-      | Some view ->
+      | Some view -> (
           print_plugin_view view;
-          match Plugins.view_error view with None -> () | Some error -> fail error)
+          match Plugins.view_error view with
+          | None -> ()
+          | Some error -> fail error))
 
 let extension_api () = print_string (Zenbu_extension.Contract.markdown ())
+let extension_sdk () = print_string (Zenbu_extension.Contract.lua_stub ())
 
 let check_config path =
   match
@@ -527,12 +541,13 @@ let script_session config_path session_path =
 let plugin_session plugin_directory session_path =
   match session_of_string (read_file session_path) with
   | Error error -> fail error
-  | Ok definition ->
+  | Ok definition -> (
       let trace = Trace.enabled ~capacity:1024 |> Result.get_ok in
       let profiler = Profiler.enabled ~capacity:1024 |> Result.get_ok in
       let dimensions = Zenbu_view.Renderer.{ columns = 120; rows = 40 } in
       match
-        Zenbu_app.Session.create ~model:(app_model definition.model)
+        Zenbu_app.Session.create
+          ~model:(app_model definition.model)
           ?language:definition.language ~contents:definition.contents ~trace
           ~profiler ~config:Scripting.Disabled
           ~plugins:(Plugins.Directories [ plugin_directory ]) ~dimensions ()
@@ -540,7 +555,8 @@ let plugin_session plugin_directory session_path =
       | Error error -> fail error
       | Ok session ->
           let session =
-            List.fold_left Zenbu_app.Session.handle_input session definition.inputs
+            List.fold_left Zenbu_app.Session.handle_input session
+              definition.inputs
           in
           Printf.printf "text: %S\n" (Zenbu_app.Session.contents session);
           List.iter print_endline
@@ -548,7 +564,7 @@ let plugin_session plugin_directory session_path =
           List.iter print_endline
             (Zenbu_app.Session.inspect session Zenbu_app.Session.Why);
           List.iter print_endline
-            (Zenbu_app.Session.inspect session Zenbu_app.Session.History)
+            (Zenbu_app.Session.inspect session Zenbu_app.Session.History))
 
 let script_demo_config prefix suffix =
   Printf.sprintf
@@ -697,9 +713,10 @@ let usage () =
      <fixture.session> | history <fixture.session> | selection \
      <fixture.session> | syntax-session <fixture.session> | profile \
      <fixture.session> | config-check <init.lua> | config-describe <init.lua> \
-     | script-session <init.lua> <fixture.session> | plugin-session <PLUGIN-ROOT> \
-     <fixture.session> | plugins [DIR] | plugin-check <PLUGIN-DIR> | \
-     plugin-describe <PLUGIN-DIR> | extension-api";
+     | script-session <init.lua> <fixture.session> | plugin-session \
+     <PLUGIN-ROOT> <fixture.session> | plugins [DIR] | plugin-check \
+     <PLUGIN-DIR> | plugin-describe <PLUGIN-DIR> | extension-api | \
+     extension-sdk";
   exit 2
 
 let () =
@@ -718,6 +735,7 @@ let () =
       plugin_check path
   | [ _; "plugin-session"; plugins; session ] -> plugin_session plugins session
   | [ _; "extension-api" ] -> extension_api ()
+  | [ _; "extension-sdk" ] -> extension_sdk ()
   | [ _; "describe"; kind; id ] -> inspect_description kind id
   | [ _; "bindings"; "vim" ] -> initial_bindings Vim
   | [ _; "bindings"; "selection" ] -> initial_bindings Selection_first

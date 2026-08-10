@@ -10,6 +10,12 @@ type stage =
   | Script_selector
   | Script_transformation
   | Script_event
+  | Extension_load
+  | Extension_reload
+  | Extension_command
+  | Extension_selector
+  | Extension_transformation
+  | Extension_event
 
 type aggregate
 type t

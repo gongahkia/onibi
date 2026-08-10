@@ -1,9 +1,10 @@
-# M7 trusted-local Lua scripting
+# M7 trusted-local Lua configuration
 
-M7 is an experimental configuration layer for a local Zenbu installation. It
-exists to pressure-test the public semantic editing APIs before those APIs are
-stabilized as a plugin contract. It is not a sandbox, a package manager, or a
-promise of source/API compatibility for arbitrary third-party extensions.
+M7 is an experimental configuration overlay for a local Zenbu installation.
+It pressure-tested the public semantic APIs that M8 now stabilizes for plugin
+packages. M7 configuration remains supported, but is not a plugin package,
+package manager, sandbox, or stable third-party compatibility promise. For the
+stable package contract, use [extensions](EXTENSIONS.md).
 
 ## Loading and reload
 
@@ -149,7 +150,7 @@ asynchronous event system.
 Every callback receives `call.context` and `call.arguments`. Context is copied
 data:
 
-- `document`: `{ id, version, length }`, where offsets are UTF-8 bytes.
+- `document`: `{ id, version, length, contents }`, where offsets are UTF-8 bytes.
 - `selections`: `{ anchor, head, start, stop, text }` values, and a one-based
   `primary` index.
 - `syntax`: `nil` or `{ language, version, has_error }`.
@@ -202,7 +203,10 @@ model's repeatable semantic intent: after a reload its callback may no longer
 exist or mean the same thing. Scripts should use a command/binding again rather
 than expecting `.` to repeat a dynamic transform across generations.
 
-Known M7 limits: no sandbox/capability enforcement, package resolver, async
-callbacks, timers, external event streams, per-plugin enablement, unload hooks,
-config UI, generated Lua documentation, or stable plugin compatibility promise.
-Lua error location is best-effort source/line extraction from PUC Lua messages.
+M7 intentionally has no separate capability policy because user configuration
+runs with the complete trusted-local Zenbu authority set. M8 plugins declare
+their capabilities separately and are checked at the data-only host boundary;
+M7 remains a configuration convenience rather than a stable third-party API.
+Both paths retain trusted-Lua limits: no sandbox, resolver, async callbacks,
+timers, external event streams, resource limits, or isolation. Lua error
+location is best-effort source/line extraction from PUC Lua messages.

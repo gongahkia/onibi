@@ -41,7 +41,9 @@ let description = function
   | Event_subscribe -> "register document-changed or after-save handlers"
 
 let of_id value =
-  match List.find_opt (fun capability -> String.equal value (id capability)) all with
+  match
+    List.find_opt (fun capability -> String.equal value (id capability)) all
+  with
   | Some capability -> Ok capability
   | None ->
       Error
@@ -53,5 +55,6 @@ let of_id value =
              operation = Some value;
              required = None;
              granted = [];
-             message = "the manifest requests an unsupported extension capability";
+             message =
+               "the manifest requests an unsupported extension capability";
            })

@@ -1,4 +1,5 @@
 type kind = Builtin | Editing_model | Syntax | Application | Script | Plugin
+
 type t = {
   id : string;
   kind : kind;

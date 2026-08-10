@@ -21,6 +21,7 @@ type handler_kind =
         Extension_value.t ->
         (Model_effect.t list, Error.t) result;
     }
+
 type t = { descriptor : Command_descriptor.t; handler : handler_kind }
 
 let create ~descriptor ~handler = { descriptor; handler = Intents handler }
@@ -70,9 +71,10 @@ let execute_effects value context invocation =
     | Effects handler -> handler context invocation
     | Extension_effects { host; invocation = extension_invocation; decode } ->
         let request =
-          Extension_host.request extension_invocation ~kind:Extension_host.Command
-            ~operation:"command.invoke" ~context
+          Extension_host.request extension_invocation
+            ~kind:Extension_host.Command ~operation:"command.invoke" ~context
             ~arguments:Extension_value.Nil
         in
-        Result.bind (Extension_host.invoke host extension_invocation request)
+        Result.bind
+          (Extension_host.invoke host extension_invocation request)
           (decode request)

@@ -39,14 +39,50 @@ module Make (Model : Editing_model.S) = struct
   }
 
   let trace trace event = Trace.emit_lazy trace event
-  let script_provider provider = Provider.kind provider = Provider.Script
 
-  let trace_script_callback runtime ~execution_id ~kind ~provider ?semantic_id
-      ?reason outcome =
-    if script_provider provider then
+  let extension_provider provider =
+    match Provider.kind provider with
+    | Provider.Script | Provider.Plugin -> true
+    | Provider.Builtin | Provider.Editing_model | Provider.Syntax
+    | Provider.Application ->
+        false
+
+  let trace_extension_callback runtime ~execution_id ~kind ~provider
+      ?semantic_id ?reason outcome =
+    if extension_provider provider then
       trace runtime.trace (fun () ->
-          Trace_event.Script_callback
-            { execution_id; kind; provider; semantic_id; outcome; reason })
+          match Provider.kind provider with
+          | Provider.Script ->
+              Trace_event.Script_callback
+                { execution_id; kind; provider; semantic_id; outcome; reason }
+          | Provider.Plugin ->
+              Trace_event.Extension_callback
+                { execution_id; kind; provider; semantic_id; outcome; reason }
+          | Provider.Builtin | Provider.Editing_model | Provider.Syntax
+          | Provider.Application ->
+              assert false)
+
+  let trace_capability_denied runtime ~execution_id ~provider = function
+    | Error.Extension_error
+        {
+          code = Error.Capability_denied;
+          operation = Some operation;
+          required = Some required;
+          granted;
+          _;
+        } ->
+        trace runtime.trace (fun () ->
+            Trace_event.Capability_denied
+              { execution_id; provider; operation; required; granted })
+    | _ -> ()
+
+  let extension_stage provider ~builtin ~script ~plugin =
+    match Provider.kind provider with
+    | Provider.Script -> script
+    | Provider.Plugin -> plugin
+    | Provider.Builtin | Provider.Editing_model | Provider.Syntax
+    | Provider.Application ->
+        builtin
 
   let emit_syntax trace execution_id syntax strategy =
     Trace.emit_lazy trace (fun () ->
@@ -390,13 +426,15 @@ module Make (Model : Editing_model.S) = struct
               Semantic_behavior.selector_descriptor entry
               |> Semantic_descriptor.provider
             in
-            trace_script_callback runtime ~execution_id ~kind:"selector"
+            trace_extension_callback runtime ~execution_id ~kind:"selector"
               ~provider ~semantic_id:id "started";
             let result =
               Profiler.measure runtime.profiler
-                ~model_id:(if script_provider provider then id else "builtin")
-                (if script_provider provider then Profiler.Script_selector
-                 else Profiler.Selector_resolve)
+                ~model_id:
+                  (if extension_provider provider then id else "builtin")
+                (extension_stage provider ~builtin:Profiler.Selector_resolve
+                   ~script:Profiler.Script_selector
+                   ~plugin:Profiler.Extension_selector)
                 (fun () ->
                   protected_behavior_call "selector" (fun () ->
                       Semantic_behavior.run_selector entry context ~arguments))
@@ -408,10 +446,11 @@ module Make (Model : Editing_model.S) = struct
             in
             (match resolved with
             | Ok _ ->
-                trace_script_callback runtime ~execution_id ~kind:"selector"
+                trace_extension_callback runtime ~execution_id ~kind:"selector"
                   ~provider ~semantic_id:id "succeeded"
             | Error error ->
-                trace_script_callback runtime ~execution_id ~kind:"selector"
+                trace_capability_denied runtime ~execution_id ~provider error;
+                trace_extension_callback runtime ~execution_id ~kind:"selector"
                   ~provider ~semantic_id:id ~reason:(Error.to_string error)
                   "failed");
             resolved)
@@ -490,15 +529,16 @@ module Make (Model : Editing_model.S) = struct
                   Semantic_behavior.transformation_descriptor entry
                   |> Semantic_descriptor.provider
                 in
-                trace_script_callback runtime ~execution_id
+                trace_extension_callback runtime ~execution_id
                   ~kind:"transformation" ~provider ~semantic_id:id "started";
                 let result =
                   Profiler.measure runtime.profiler
                     ~model_id:
-                      (if script_provider provider then id else "builtin")
-                    (if script_provider provider then
-                       Profiler.Script_transformation
-                     else Profiler.Transformation_apply)
+                      (if extension_provider provider then id else "builtin")
+                    (extension_stage provider
+                       ~builtin:Profiler.Transformation_apply
+                       ~script:Profiler.Script_transformation
+                       ~plugin:Profiler.Extension_transformation)
                     (fun () ->
                       protected_behavior_call "transformation" (fun () ->
                           Semantic_behavior.run_transformation entry context
@@ -512,11 +552,13 @@ module Make (Model : Editing_model.S) = struct
                 in
                 (match resolved with
                 | Ok _ ->
-                    trace_script_callback runtime ~execution_id
+                    trace_extension_callback runtime ~execution_id
                       ~kind:"transformation" ~provider ~semantic_id:id
                       "succeeded"
                 | Error error ->
-                    trace_script_callback runtime ~execution_id
+                    trace_capability_denied runtime ~execution_id ~provider
+                      error;
+                    trace_extension_callback runtime ~execution_id
                       ~kind:"transformation" ~provider ~semantic_id:id
                       ~reason:(Error.to_string error) "failed");
                 resolved))
@@ -667,7 +709,7 @@ module Make (Model : Editing_model.S) = struct
         let command_id =
           Command_invocation.id invocation |> Command_id.to_string
         in
-        let script_provider =
+        let extension_source =
           match
             Command_registry.find runtime.commands
               (Command_invocation.id invocation)
@@ -677,28 +719,30 @@ module Make (Model : Editing_model.S) = struct
               let provider =
                 Command.descriptor command |> Command_descriptor.provider
               in
-              if script_provider provider then Some provider else None
+              if extension_provider provider then Some provider else None
         in
         trace runtime.trace (fun () ->
             Trace_event.Command_invoked { execution_id; command_id });
         Option.iter
           (fun provider ->
-            trace_script_callback runtime ~execution_id ~kind:"command"
+            trace_extension_callback runtime ~execution_id ~kind:"command"
               ~provider ~semantic_id:command_id "started")
-          script_provider;
+          extension_source;
         let context =
           make_context ~execution_id ~trace:runtime.trace
             ~profiler:runtime.profiler ?syntax_service:runtime.syntax_service
             history runtime.commands clipboard
         in
         let invoked =
-          match script_provider with
+          match extension_source with
           | None ->
               Command_registry.invoke_effects runtime.commands ~context
                 invocation
-          | Some _ ->
+          | Some provider ->
               Profiler.measure runtime.profiler ~model_id:command_id
-                Profiler.Script_command (fun () ->
+                (extension_stage provider ~builtin:Profiler.Model_handle
+                   ~script:Profiler.Script_command
+                   ~plugin:Profiler.Extension_command) (fun () ->
                   Command_registry.invoke_effects runtime.commands ~context
                     invocation)
         in
@@ -706,10 +750,11 @@ module Make (Model : Editing_model.S) = struct
         | Error error ->
             Option.iter
               (fun provider ->
-                trace_script_callback runtime ~execution_id ~kind:"command"
+                trace_capability_denied runtime ~execution_id ~provider error;
+                trace_extension_callback runtime ~execution_id ~kind:"command"
                   ~provider ~semantic_id:command_id
                   ~reason:(Error.to_string error) "failed")
-              script_provider;
+              extension_source;
             Error error
         | Ok effects -> (
             let base =
@@ -726,10 +771,12 @@ module Make (Model : Editing_model.S) = struct
             | Error error ->
                 Option.iter
                   (fun provider ->
-                    trace_script_callback runtime ~execution_id ~kind:"command"
-                      ~provider ~semantic_id:command_id
+                    trace_capability_denied runtime ~execution_id ~provider
+                      error;
+                    trace_extension_callback runtime ~execution_id
+                      ~kind:"command" ~provider ~semantic_id:command_id
                       ~reason:(Error.to_string error) "failed")
-                  script_provider;
+                  extension_source;
                 Error error
             | Ok
                 ( history,
@@ -740,9 +787,10 @@ module Make (Model : Editing_model.S) = struct
                   repeatable_intents ) ->
                 Option.iter
                   (fun provider ->
-                    trace_script_callback runtime ~execution_id ~kind:"command"
-                      ~provider ~semantic_id:command_id "succeeded")
-                  script_provider;
+                    trace_extension_callback runtime ~execution_id
+                      ~kind:"command" ~provider ~semantic_id:command_id
+                      "succeeded")
+                  extension_source;
                 Ok
                   ( history,
                     clipboard,

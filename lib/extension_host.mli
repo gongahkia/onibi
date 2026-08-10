@@ -5,7 +5,6 @@
     implementation value to the semantic runtime. *)
 
 type kind = Command | Selector | Transformation | Event
-
 type invocation
 type t
 
@@ -45,7 +44,9 @@ val request :
   arguments:Extension_value.t ->
   request
 
-val invoke : t -> invocation -> request -> (response, Zenbu_kernel.Error.t) result
+val invoke :
+  t -> invocation -> request -> (response, Zenbu_kernel.Error.t) result
+
 val has_capability : request -> string -> bool
 
 val require :

@@ -26,7 +26,6 @@ type t = {
 
 let create ~runtime ~invoke = { runtime; invoke }
 let runtime value = value.runtime
-
 let invocation ~token ~provider ~granted = { token; provider; granted }
 let invocation_provider (value : invocation) = value.provider
 let invocation_granted (value : invocation) = value.granted
@@ -44,7 +43,9 @@ let compact_node node =
   let open Zenbu_syntax.Syntax.Snapshot.Node in
   Extension_value.Record
     [
-      ("kind", Extension_value.Text (kind node |> Zenbu_syntax.Syntax.Kind.to_string));
+      ( "kind",
+        Extension_value.Text (kind node |> Zenbu_syntax.Syntax.Kind.to_string)
+      );
       ("start", Extension_value.Integer (start_offset node));
       ("stop", Extension_value.Integer (stop_offset node));
       ("named", Extension_value.Bool (is_named node));
@@ -56,7 +57,9 @@ let node_value node =
   let open Zenbu_syntax.Syntax.Snapshot.Node in
   Extension_value.Record
     [
-      ("kind", Extension_value.Text (kind node |> Zenbu_syntax.Syntax.Kind.to_string));
+      ( "kind",
+        Extension_value.Text (kind node |> Zenbu_syntax.Syntax.Kind.to_string)
+      );
       ("start", Extension_value.Integer (start_offset node));
       ("stop", Extension_value.Integer (stop_offset node));
       ("named", Extension_value.Bool (is_named node));
@@ -68,7 +71,8 @@ let node_value node =
       ( "first_child",
         Option.value ~default:Extension_value.Nil
           (Option.map compact_node (first_named_child node)) );
-      ("children", Extension_value.List (List.map compact_node (named_children node)));
+      ( "children",
+        Extension_value.List (List.map compact_node (named_children node)) );
       ( "next_sibling",
         Option.value ~default:Extension_value.Nil
           (Option.map compact_node (next_named_sibling node)) );
@@ -81,13 +85,16 @@ let rec tree_value node =
   let open Zenbu_syntax.Syntax.Snapshot.Node in
   Extension_value.Record
     [
-      ("kind", Extension_value.Text (kind node |> Zenbu_syntax.Syntax.Kind.to_string));
+      ( "kind",
+        Extension_value.Text (kind node |> Zenbu_syntax.Syntax.Kind.to_string)
+      );
       ("start", Extension_value.Integer (start_offset node));
       ("stop", Extension_value.Integer (stop_offset node));
       ("named", Extension_value.Bool (is_named node));
       ("error", Extension_value.Bool (has_error node));
       ("missing", Extension_value.Bool (is_missing node));
-      ("children", Extension_value.List (List.map tree_value (named_children node)));
+      ( "children",
+        Extension_value.List (List.map tree_value (named_children node)) );
     ]
 
 let syntax_value context =
@@ -114,7 +121,8 @@ let syntax_value context =
             Extension_value.Integer
               (Zenbu_syntax.Syntax.Snapshot.document_version snapshot) );
           ( "has_error",
-            Extension_value.Bool (Zenbu_syntax.Syntax.Snapshot.has_error snapshot) );
+            Extension_value.Bool
+              (Zenbu_syntax.Syntax.Snapshot.has_error snapshot) );
           ("node", node);
           ("tree", tree_value (Zenbu_syntax.Syntax.Snapshot.root snapshot));
         ]
@@ -125,8 +133,10 @@ let context_value ~granted context =
       Extension_value.Record
         [
           ("id", Extension_value.Text (Editor_context.document_id context));
-          ("version", Extension_value.Integer (Editor_context.document_version context));
-          ("length", Extension_value.Integer (Editor_context.byte_length context));
+          ( "version",
+            Extension_value.Integer (Editor_context.document_version context) );
+          ( "length",
+            Extension_value.Integer (Editor_context.byte_length context) );
           ("contents", Extension_value.Text (Editor_context.contents context));
         ]
     else Extension_value.Nil
@@ -143,11 +153,14 @@ let context_value ~granted context =
              let stop =
                max selection.Editor_context.anchor_offset selection.head_offset
              in
-             let text = String.sub (Editor_context.contents context) start (stop - start) in
+             let text =
+               String.sub (Editor_context.contents context) start (stop - start)
+             in
              Extension_value.Record
                [
                  ( "anchor",
-                   Extension_value.Integer selection.Editor_context.anchor_offset );
+                   Extension_value.Integer
+                     selection.Editor_context.anchor_offset );
                  ("head", Extension_value.Integer selection.head_offset);
                  ("start", Extension_value.Integer start);
                  ("stop", Extension_value.Integer stop);
@@ -161,9 +174,17 @@ let context_value ~granted context =
       Extension_value.Integer (Editor_context.selections context).primary_index
     else Extension_value.Nil
   in
-  let syntax = if has granted "syntax.read" then syntax_value context else Extension_value.Nil in
+  let syntax =
+    if has granted "syntax.read" then syntax_value context
+    else Extension_value.Nil
+  in
   Extension_value.Record
-    [ ("document", document); ("selections", selections); ("primary", primary); ("syntax", syntax) ]
+    [
+      ("document", document);
+      ("selections", selections);
+      ("primary", primary);
+      ("syntax", syntax);
+    ]
 
 let request (invocation : invocation) ~kind ~operation ~context ~arguments =
   {
