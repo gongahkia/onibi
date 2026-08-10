@@ -212,6 +212,33 @@ let trace_plugins trace ~execution_id ~phase plugins =
             ~reason:(Error.to_string error) ()
       | Plugins.Failed, None -> ())
 
+let wasm_profile_stage = function
+  | "compile" -> Profiler.Extension_wasm_compile
+  | "instantiate" -> Profiler.Extension_wasm_instantiate
+  | "register" -> Profiler.Extension_wasm_register
+  | "call" -> Profiler.Extension_wasm_call
+  | stage -> invalid_arg ("unknown Wasm telemetry stage " ^ stage)
+
+let trace_runtime_events trace profiler ~execution_id plugins =
+  Plugins.drain_runtime_events plugins
+  |> List.iter (fun (event : Plugins.runtime_event) ->
+      Trace.emit_lazy trace (fun () ->
+          Trace_event.Extension_runtime
+            {
+              execution_id;
+              provider = event.provider;
+              runtime = event.runtime;
+              stage = event.stage;
+              operation = event.operation;
+              outcome = event.outcome;
+              duration_seconds = event.duration_seconds;
+              fuel_consumed = event.fuel_consumed;
+              reason = event.reason;
+            });
+      Profiler.record profiler
+        (wasm_profile_stage event.stage)
+        ~seconds:event.duration_seconds)
+
 let create ~model ?language ?file_path ?(contents = "") ?trace ?profiler
     ?(config = Scripting.Default) ?(plugins = Plugins.Disabled) ~dimensions () =
   match document ~contents with
@@ -280,6 +307,7 @@ let create ~model ?language ?file_path ?(contents = "") ?trace ?profiler
                       ())
               in
               trace_plugins trace ~execution_id:0 ~phase:"load" plugin_host;
+              trace_runtime_events trace profiler ~execution_id:0 plugin_host;
               let commands =
                 match commands_with_plugins commands plugin_host with
                 | Ok commands -> commands
@@ -480,6 +508,7 @@ let reload_config session =
                   ())
           in
           trace_plugins trace ~execution_id ~phase:"reload" plugin_host;
+          trace_runtime_events trace profiler ~execution_id plugin_host;
           let commands =
             match commands_with_plugins configured_commands plugin_host with
             | Ok commands -> commands
@@ -759,45 +788,66 @@ let handle_input session input =
     | Some binding -> fst (invoke_bound_command session input binding)
     | None -> handle_model_input session input
   in
-  if String.equal contents_before (Editor_context.contents (context next)) then
-    next
-  else run_event_hooks next Scripting.Document_changed input
+  let completed =
+    if String.equal contents_before (Editor_context.contents (context next))
+    then next
+    else run_event_hooks next Scripting.Document_changed input
+  in
+  let execution_id =
+    Option.value ~default:0 (last_execution_of_active completed.active)
+  in
+  trace_runtime_events
+    (trace_of_active completed.active)
+    (profiler_of_active completed.active)
+    ~execution_id completed.plugins;
+  completed
 
 let save session =
-  match session.file_path with
-  | None ->
-      {
-        session with
-        message = Some "save-as is not implemented for unnamed buffers";
-        quit_armed = false;
-      }
-  | Some path -> (
-      match
-        File_io.save_atomic ~path
-          ~contents:(Editor_context.contents (context session))
-      with
-      | Ok () ->
-          let saved =
+  let completed =
+    match session.file_path with
+    | None ->
+        {
+          session with
+          message = Some "save-as is not implemented for unnamed buffers";
+          quit_armed = false;
+        }
+    | Some path -> (
+        match
+          File_io.save_atomic ~path
+            ~contents:(Editor_context.contents (context session))
+        with
+        | Ok () ->
+            let saved =
+              {
+                session with
+                saved_version =
+                  Editor_context.document_version (context session);
+                saved_contents = Editor_context.contents (context session);
+                message = Some ("saved " ^ path);
+                quit_armed = false;
+              }
+            in
+            let input =
+              Input_event.logical_text "s"
+              |> Result.get_ok
+              |> Input_event.key_press ~modifiers:[ Input_event.Control ]
+            in
+            run_event_hooks saved Scripting.After_save input
+        | Error error ->
             {
               session with
-              saved_version = Editor_context.document_version (context session);
-              saved_contents = Editor_context.contents (context session);
-              message = Some ("saved " ^ path);
+              message = Some (File_io.to_string error);
               quit_armed = false;
-            }
-          in
-          let input =
-            Input_event.logical_text "s"
-            |> Result.get_ok
-            |> Input_event.key_press ~modifiers:[ Input_event.Control ]
-          in
-          run_event_hooks saved Scripting.After_save input
-      | Error error ->
-          {
-            session with
-            message = Some (File_io.to_string error);
-            quit_armed = false;
-          })
+            })
+  in
+  let execution_id =
+    Option.value ~default:0 (last_execution_of_active completed.active)
+  in
+  trace_runtime_events
+    (trace_of_active completed.active)
+    (profiler_of_active completed.active)
+    ~execution_id completed.plugins;
+  completed
 
 let handle_host session = function
   | Save -> Continue (save session)

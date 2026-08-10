@@ -66,8 +66,11 @@
   zenbu_extension
   zenbu_view
   zenbu_app
- unix)
- (deps ../docs/generated/EXTENSION_API.md ../sdk/lua/zenbu.lua))
+  unix)
+ (deps
+  ../docs/generated/EXTENSION_API.md
+  ../docs/wit/zenbu-plugin.wit
+  ../sdk/lua/zenbu.lua))
 
 (test
  (name test_m9_wasm_components)
@@ -80,4 +83,7 @@
   zenbu_view
   zenbu_app
   unix)
- (deps fixtures/m9_component.wasm.b64 fixtures/m9_wasi_component.wasm.b64))
+ (deps
+  fixtures/m9_component.wasm.b64
+  fixtures/m9_conformance_component.wasm.b64
+  fixtures/m9_wasi_component.wasm.b64))

@@ -88,7 +88,7 @@ let parse_arguments () =
       ( "--version",
         Arg.Unit
           (fun () ->
-            print_endline "zenbu M8";
+            print_endline "zenbu M9";
             exit 0),
         "print version" );
     ]

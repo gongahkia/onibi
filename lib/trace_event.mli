@@ -95,6 +95,7 @@ type t =
       provider : Zenbu_kernel.Provider.t;
       runtime : string;
       stage : string;
+      operation : string option;
       outcome : string;
       duration_seconds : float;
       fuel_consumed : int option;

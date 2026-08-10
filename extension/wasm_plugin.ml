@@ -1,6 +1,5 @@
 open Zenbu_kernel
 open Zenbu_model_api
-
 module Backend = Wasmtime_backend
 module Host = Extension_host
 module Registration = Extension_registration
@@ -19,9 +18,23 @@ type definition = {
 
 type limits = { fuel : int; memory_bytes : int }
 
+let max_registrations = 128
+let max_actions = 256
+let max_selections = 1_024
+let max_edits = 4_096
+
 let default_limits =
   let value = Backend.default_limits in
   { fuel = value.fuel; memory_bytes = value.memory_bytes }
+
+type runtime_event = {
+  stage : string;
+  operation : string option;
+  outcome : string;
+  duration_seconds : float;
+  fuel_consumed : int option;
+  reason : string option;
+}
 
 type t = {
   provider : Provider.t;
@@ -32,6 +45,7 @@ type t = {
   hooks : Registration.hook list;
   descriptors : Semantic_descriptor.t list;
   limits : limits;
+  runtime_events : runtime_event Queue.t;
 }
 
 let contains ~substring text =
@@ -54,19 +68,24 @@ let contains ~substring text =
 let runtime_error_code message =
   if contains ~substring:"all fuel consumed" message then
     Error.Extension_fuel_exhausted
-  else if contains ~substring:"memory allocation denied" message
-          || contains ~substring:"cannot grow memory" message
-          || contains ~substring:"memory minimum size" message
+  else if contains ~substring:"component response exceeds Zenbu limit" message
+  then Error.Extension_response_limit
+  else if
+    contains ~substring:"memory allocation denied" message
+    || contains ~substring:"cannot grow memory" message
+    || contains ~substring:"memory minimum size" message
   then Error.Extension_memory_exhausted
-  else if contains ~substring:"wasm trap" message
-          || contains ~substring:"wasm backtrace" message
+  else if
+    contains ~substring:"wasm trap" message
+    || contains ~substring:"wasm backtrace" message
   then Error.Extension_trap
-  else if contains ~substring:"does not export zenbu:plugin/control@1.0.0" message
-          || contains ~substring:"component control export" message
-          || contains ~substring:"type mismatch" message
-          || contains ~substring:"unknown import" message
-          || contains ~substring:"matching implementation was not found" message
-          || contains ~substring:"function implementation is missing" message
+  else if
+    contains ~substring:"does not export zenbu:plugin/control@1.0.0" message
+    || contains ~substring:"component control export" message
+    || contains ~substring:"type mismatch" message
+    || contains ~substring:"unknown import" message
+    || contains ~substring:"matching implementation was not found" message
+    || contains ~substring:"function implementation is missing" message
   then Error.Extension_abi_mismatch
   else Error.Extension_runtime_error
 
@@ -80,6 +99,18 @@ let extension_error provider capabilities ?operation message =
       required = None;
       granted = capabilities;
       message;
+    }
+
+let response_limit provider capabilities phase detail =
+  Error.Extension_error
+    {
+      code = Error.Extension_response_limit;
+      plugin_id = Provider.plugin_id provider;
+      provider = Some (Provider.id provider);
+      operation = Some phase;
+      required = None;
+      granted = capabilities;
+      message = "component response exceeds Zenbu limit: " ^ detail;
     }
 
 let contribution_error provider capabilities contribution =
@@ -158,16 +189,13 @@ let definition_of_value ~provider ~capabilities = function
           "requires-syntax"
       in
       let* input =
-        required_string ~provider ~capabilities ~phase:"register" fields
-          "input"
+        required_string ~provider ~capabilities ~phase:"register" fields "input"
       in
       let* scope =
-        required_string ~provider ~capabilities ~phase:"register" fields
-          "scope"
+        required_string ~provider ~capabilities ~phase:"register" fields "scope"
       in
       let* event =
-        required_string ~provider ~capabilities ~phase:"register" fields
-          "event"
+        required_string ~provider ~capabilities ~phase:"register" fields "event"
       in
       Ok
         {
@@ -187,30 +215,32 @@ let definition_of_value ~provider ~capabilities = function
            "component registration must be a record")
 
 let definitions ~provider ~capabilities = function
-  | Extension_value.List values ->
+  | Extension_value.List values when List.length values <= max_registrations ->
       let rec collect result = function
         | [] -> Ok (List.rev result)
         | value :: rest ->
-            Result.bind
-              (definition_of_value ~provider ~capabilities value)
+            Result.bind (definition_of_value ~provider ~capabilities value)
               (fun value -> collect (value :: result) rest)
       in
       collect [] values
+  | Extension_value.List _ ->
+      Error
+        (response_limit provider capabilities "register"
+           (Printf.sprintf "at most %d registrations are accepted"
+              max_registrations))
   | _ ->
       Error
         (extension_error provider capabilities ~operation:"register"
            "component register export must return a list")
 
 let action_error provider capabilities phase message =
-  Error
-    (extension_error provider capabilities ~operation:phase message)
+  Error (extension_error provider capabilities ~operation:phase message)
 
 let required_action_text provider capabilities phase value name =
   match field value name with
   | Some (Extension_value.Text value) when String.length value > 0 -> Ok value
   | _ ->
-      action_error provider capabilities phase
-        ("missing string field " ^ name)
+      action_error provider capabilities phase ("missing string field " ^ name)
 
 let optional_value value name =
   Option.value ~default:Extension_value.Nil (field value name)
@@ -246,7 +276,8 @@ let transformation_of_id = function
 let semantic_operation provider capabilities value =
   match
     ( required_action_text provider capabilities "action" value "selector",
-      required_action_text provider capabilities "action" value "transformation" )
+      required_action_text provider capabilities "action" value "transformation"
+    )
   with
   | Ok selector_id, Ok transformation_id ->
       let arguments = optional_value value "args" in
@@ -271,31 +302,40 @@ let semantic_operation provider capabilities value =
 let selection_action provider capabilities request value =
   Result.bind (Host.require request ~capability:"selection.write") (fun () ->
       match (field value "selections", field value "primary") with
-      | Some (Extension_value.List selections), Some (Extension_value.Integer primary) ->
-          let selection = function
-            | Extension_value.Record fields -> (
-                match
-                  ( List.assoc_opt "anchor" fields,
-                    List.assoc_opt "head" fields )
-                with
-                | Some (Extension_value.Integer anchor), Some (Extension_value.Integer head) ->
-                    Ok (anchor, head)
-                | _ ->
-                    action_error provider capabilities "action"
-                      "selection entries require integer anchor and head fields")
-            | _ ->
-                action_error provider capabilities "action"
-                  "selection entry must be a record"
-          in
-          let rec collect result = function
-            | [] -> Ok (List.rev result)
-            | candidate :: rest ->
-                Result.bind (selection candidate) (fun selection ->
-                    collect (selection :: result) rest)
-          in
-          Result.bind (collect [] selections) (fun selections ->
-              Model_intent.set_selections ~selections ~primary:(primary - 1))
-          |> Result.map (fun intent -> Model_effect.Execute_intent intent)
+      | ( Some (Extension_value.List selections),
+          Some (Extension_value.Integer primary) ) ->
+          if List.length selections > max_selections then
+            Error
+              (response_limit provider capabilities "action"
+                 (Printf.sprintf "at most %d selections are accepted"
+                    max_selections))
+          else
+            let selection = function
+              | Extension_value.Record fields -> (
+                  match
+                    ( List.assoc_opt "anchor" fields,
+                      List.assoc_opt "head" fields )
+                  with
+                  | ( Some (Extension_value.Integer anchor),
+                      Some (Extension_value.Integer head) ) ->
+                      Ok (anchor, head)
+                  | _ ->
+                      action_error provider capabilities "action"
+                        "selection entries require integer anchor and head fields"
+                  )
+              | _ ->
+                  action_error provider capabilities "action"
+                    "selection entry must be a record"
+            in
+            let rec collect result = function
+              | [] -> Ok (List.rev result)
+              | candidate :: rest ->
+                  Result.bind (selection candidate) (fun selection ->
+                      collect (selection :: result) rest)
+            in
+            Result.bind (collect [] selections) (fun selections ->
+                Model_intent.set_selections ~selections ~primary:(primary - 1))
+            |> Result.map (fun intent -> Model_effect.Execute_intent intent)
       | _ ->
           action_error provider capabilities "action"
             "set-selections requires selections and primary")
@@ -312,18 +352,16 @@ let action provider capabilities request value =
       Result.bind (Host.require request ~capability:"document.edit") (fun () ->
           required_action_text provider capabilities "action" value "text"
           |> Result.map (fun text ->
-                 Model_effect.Execute_intent (Model_intent.insert_text text)))
+              Model_effect.Execute_intent (Model_intent.insert_text text)))
   | Ok "delete" ->
       Result.bind (Host.require request ~capability:"document.edit") (fun () ->
-          Ok
-            (Model_effect.Execute_intent
-               Model_intent.delete_selected_ranges))
+          Ok (Model_effect.Execute_intent Model_intent.delete_selected_ranges))
   | Ok "replace" ->
       Result.bind (Host.require request ~capability:"document.edit") (fun () ->
           required_action_text provider capabilities "action" value "text"
           |> Result.map (fun text ->
-                 Model_effect.Execute_intent
-                   (Model_intent.replace_selected_ranges text)))
+              Model_effect.Execute_intent
+                (Model_intent.replace_selected_ranges text)))
   | Ok "set-selections" -> selection_action provider capabilities request value
   | Ok "apply" ->
       semantic_operation provider capabilities value
@@ -336,38 +374,52 @@ let action provider capabilities request value =
               Result.bind (Command_id.of_string id) (fun id ->
                   Command_invocation.create ~id ~arguments:[]))
           |> Result.map (fun invocation ->
-                 Model_effect.Invoke_command invocation))
+              Model_effect.Invoke_command invocation))
   | Ok kind ->
-      action_error provider capabilities "action"
-        ("unknown action kind " ^ kind)
+      action_error provider capabilities "action" ("unknown action kind " ^ kind)
 
 let actions provider capabilities request = function
   | Extension_value.Nil -> Ok []
-  | Extension_value.List values ->
+  | Extension_value.List values when List.length values <= max_actions ->
       let rec collect result = function
         | [] -> Ok (List.rev result)
         | value :: rest ->
-            Result.bind (action provider capabilities request value) (fun value ->
-                collect (value :: result) rest)
+            Result.bind (action provider capabilities request value)
+              (fun value -> collect (value :: result) rest)
       in
       collect [] values
-  | value -> action provider capabilities request value |> Result.map (fun value -> [ value ])
+  | Extension_value.List _ ->
+      Error
+        (response_limit provider capabilities request.operation
+           (Printf.sprintf "at most %d actions are accepted" max_actions))
+  | value ->
+      action provider capabilities request value
+      |> Result.map (fun value -> [ value ])
 
 let behavior_selection provider capabilities = function
   | Extension_value.Record fields -> (
       match
-        ( List.assoc_opt "selections" fields,
-          List.assoc_opt "primary" fields )
+        (List.assoc_opt "selections" fields, List.assoc_opt "primary" fields)
       with
-      | Some (Extension_value.List values), Some (Extension_value.Integer primary) ->
+      | ( Some (Extension_value.List values),
+          Some (Extension_value.Integer _) )
+        when List.length values > max_selections ->
+          Error
+            (response_limit provider capabilities "selector"
+               (Printf.sprintf "at most %d selections are accepted"
+                  max_selections))
+      | ( Some (Extension_value.List values),
+          Some (Extension_value.Integer primary) ) ->
           let entry = function
             | Extension_value.Record fields -> (
                 match
-                  ( List.assoc_opt "anchor" fields,
-                    List.assoc_opt "head" fields )
+                  (List.assoc_opt "anchor" fields, List.assoc_opt "head" fields)
                 with
-                | Some (Extension_value.Integer anchor), Some (Extension_value.Integer head) ->
-                    Ok Semantic_behavior.{ anchor_offset = anchor; head_offset = head }
+                | ( Some (Extension_value.Integer anchor),
+                    Some (Extension_value.Integer head) ) ->
+                    Ok
+                      Semantic_behavior.
+                        { anchor_offset = anchor; head_offset = head }
                 | _ ->
                     action_error provider capabilities "selector"
                       "selection requires integer anchor and head fields")
@@ -383,7 +435,7 @@ let behavior_selection provider capabilities = function
           in
           collect [] values
           |> Result.map (fun selections ->
-                 Semantic_behavior.{ selections; primary = primary - 1 })
+              Semantic_behavior.{ selections; primary = primary - 1 })
       | _ ->
           action_error provider capabilities "selector"
             "selector result requires selections and primary")
@@ -394,6 +446,10 @@ let behavior_selection provider capabilities = function
 let behavior_transformation provider capabilities = function
   | Extension_value.Record fields -> (
       match List.assoc_opt "edits" fields with
+      | Some (Extension_value.List values) when List.length values > max_edits ->
+          Error
+            (response_limit provider capabilities "transformation"
+               (Printf.sprintf "at most %d edits are accepted" max_edits))
       | Some (Extension_value.List values) ->
           let entry = function
             | Extension_value.Record fields -> (
@@ -423,7 +479,7 @@ let behavior_transformation provider capabilities = function
           in
           collect [] values
           |> Result.map (fun edits ->
-                 Semantic_behavior.{ edits; selections = None })
+              Semantic_behavior.{ edits; selections = None })
       | _ ->
           action_error provider capabilities "transformation"
             "transformation result requires an edits list")
@@ -451,7 +507,8 @@ let input_of_string provider capabilities value =
       let modifiers, text =
         if String.starts_with ~prefix:control_prefix value then
           ( [ Input_event.Control ],
-            String.sub value (String.length control_prefix)
+            String.sub value
+              (String.length control_prefix)
               (String.length value - String.length control_prefix)
             |> String.lowercase_ascii )
         else ([], value)
@@ -459,8 +516,8 @@ let input_of_string provider capabilities value =
       Input_event.logical_text text
       |> Result.map (Input_event.key_press ~modifiers)
       |> Result.map_error (fun error ->
-             extension_error provider capabilities ~operation:"registration"
-               (Error.to_string error))
+          extension_error provider capabilities ~operation:"registration"
+            (Error.to_string error))
 
 let scope_of_string provider capabilities = function
   | "" | "global" -> Ok Registration.Global
@@ -487,13 +544,13 @@ let event_of_string provider capabilities = function
 let reserved_host_input input =
   [ "s"; "q" ]
   |> List.exists (fun text ->
-         Input_event.logical_text text
-         |> Result.map (Input_event.key_press ~modifiers:[ Input_event.Control ])
-         |> Result.map (fun reserved ->
-                String.equal
-                  (String.lowercase_ascii (Input_event.to_string input))
-                  (String.lowercase_ascii (Input_event.to_string reserved)))
-         |> Result.value ~default:false)
+      Input_event.logical_text text
+      |> Result.map (Input_event.key_press ~modifiers:[ Input_event.Control ])
+      |> Result.map (fun reserved ->
+          String.equal
+            (String.lowercase_ascii (Input_event.to_string input))
+            (String.lowercase_ascii (Input_event.to_string reserved)))
+      |> Result.value ~default:false)
 
 let request_value request =
   Extension_value.Record
@@ -511,19 +568,61 @@ let load ~(limits : limits) ~provider ~capabilities ~contributions
   in
   match Backend.load ~entrypoint ~capabilities ~limits:backend_limits with
   | Error message ->
-      Error
-        (extension_error provider capabilities ~operation:"load" message)
-  | Ok backend ->
+      Error (extension_error provider capabilities ~operation:"load" message)
+  | Ok backend -> (
+      let runtime_events = Queue.create () in
+      let metrics = Backend.metrics backend in
+      Queue.add
+        {
+          stage = "compile";
+          operation = None;
+          outcome = "succeeded";
+          duration_seconds = metrics.compile_seconds;
+          fuel_consumed = None;
+          reason = None;
+        }
+        runtime_events;
+      Queue.add
+        {
+          stage = "instantiate";
+          operation = None;
+          outcome = "succeeded";
+          duration_seconds = metrics.instantiate_seconds;
+          fuel_consumed = None;
+          reason = None;
+        }
+        runtime_events;
       let dispose_on_error error =
         Backend.dispose backend;
         Error error
       in
-      (match Backend.register backend with
+      match Backend.register backend with
       | Error message ->
+          let metrics = Backend.metrics backend in
+          Queue.add
+            {
+              stage = "register";
+              operation = None;
+              outcome = "failed";
+              duration_seconds = metrics.call_seconds;
+              fuel_consumed = Some metrics.fuel_consumed;
+              reason = Some message;
+            }
+            runtime_events;
           dispose_on_error
-            (extension_error provider capabilities ~operation:"register"
-               message)
+            (extension_error provider capabilities ~operation:"register" message)
       | Ok registrations ->
+          let metrics = Backend.metrics backend in
+          Queue.add
+            {
+              stage = "register";
+              operation = None;
+              outcome = "succeeded";
+              duration_seconds = metrics.call_seconds;
+              fuel_consumed = Some metrics.fuel_consumed;
+              reason = None;
+            }
+            runtime_events;
           Result.bind (definitions ~provider ~capabilities registrations)
             (fun definitions ->
               let callbacks = Hashtbl.create (List.length definitions) in
@@ -541,17 +640,37 @@ let load ~(limits : limits) ~provider ~capabilities ~contributions
                            ~operation:request.operation
                            "component callback is no longer available")
                     else
-                      Backend.invoke backend ~token
-                        ~request:(request_value request)
+                      let result =
+                        Backend.invoke backend ~token
+                          ~request:(request_value request)
+                      in
+                      let metrics = Backend.metrics backend in
+                      Queue.add
+                        {
+                          stage = "call";
+                          operation = Some request.operation;
+                          outcome =
+                            (match result with
+                            | Ok _ -> "succeeded"
+                            | Error _ -> "failed");
+                          duration_seconds = metrics.call_seconds;
+                          fuel_consumed = Some metrics.fuel_consumed;
+                          reason =
+                            (match result with
+                            | Ok _ -> None
+                            | Error message -> Some message);
+                        }
+                        runtime_events;
+                      result
                       |> Result.map_error (fun message ->
-                             extension_error provider capabilities
-                               ~operation:request.operation message))
+                          extension_error provider capabilities
+                            ~operation:request.operation message))
               in
               let contribution_allowed name = List.mem name contributions in
               let namespaced id =
                 Provider.plugin_id provider
                 |> Option.map (fun plugin_id ->
-                       String.starts_with ~prefix:(plugin_id ^ ".") id)
+                    String.starts_with ~prefix:(plugin_id ^ ".") id)
                 |> Option.value ~default:false
               in
               let command_registry = ref base_commands in
@@ -593,8 +712,7 @@ let load ~(limits : limits) ~provider ~capabilities ~contributions
                     | "commands" ->
                         Result.bind
                           (Result.bind
-                             (Result.bind
-                                (require_contribution "commands")
+                             (Result.bind (require_contribution "commands")
                                 (fun () ->
                                   if not (namespaced definition.id) then
                                     Error
@@ -609,19 +727,17 @@ let load ~(limits : limits) ~provider ~capabilities ~contributions
                           (fun descriptor ->
                             let command =
                               Command.create_extension_effectful ~descriptor
-                                ~host
-                                ~invocation:(invocation definition)
+                                ~host ~invocation:(invocation definition)
                                 ~decode:(actions provider capabilities)
                             in
                             Command_registry.register !command_registry command
                             |> Result.map (fun registry ->
-                                   command_registry := registry;
-                                   commands := !commands @ [ command ]))
+                                command_registry := registry;
+                                commands := !commands @ [ command ]))
                         |> Result.iter_error fail
                     | "selectors" ->
                         Result.bind
-                          (Result.bind
-                             (require_contribution "selectors")
+                          (Result.bind (require_contribution "selectors")
                              (fun () ->
                                if not (namespaced definition.id) then
                                  Error
@@ -642,20 +758,18 @@ let load ~(limits : limits) ~provider ~capabilities ~contributions
                                 let entry =
                                   Semantic_behavior.extension_selector_entry
                                     ~descriptor ~host
-                                    ~invocation:
-                                      (invocation definition)
+                                    ~invocation:(invocation definition)
                                     ~decode:(fun _ ->
                                       behavior_selection provider capabilities)
                                 in
                                 Semantic_behavior_registry.register_selector
                                   !semantic_registry entry
                                 |> Result.map (fun registry ->
-                                       semantic_registry := registry))
+                                    semantic_registry := registry))
                         |> Result.iter_error fail
                     | "transformations" ->
                         Result.bind
-                          (Result.bind
-                             (require_contribution "transformations")
+                          (Result.bind (require_contribution "transformations")
                              (fun () ->
                                if not (namespaced definition.id) then
                                  Error
@@ -676,9 +790,7 @@ let load ~(limits : limits) ~provider ~capabilities ~contributions
                                 let entry =
                                   Semantic_behavior
                                   .extension_transformation_entry ~descriptor
-                                    ~host
-                                    ~invocation:
-                                      (invocation definition)
+                                    ~host ~invocation:(invocation definition)
                                     ~decode:(fun _ ->
                                       behavior_transformation provider
                                         capabilities)
@@ -687,7 +799,7 @@ let load ~(limits : limits) ~provider ~capabilities ~contributions
                                 .register_transformation !semantic_registry
                                   entry
                                 |> Result.map (fun registry ->
-                                       semantic_registry := registry))
+                                    semantic_registry := registry))
                         |> Result.iter_error fail
                     | "bindings" ->
                         Result.bind (require_contribution "bindings") (fun () ->
@@ -698,18 +810,16 @@ let load ~(limits : limits) ~provider ~capabilities ~contributions
                             else
                               Result.bind
                                 (input_of_string provider capabilities
-                                   definition.input)
-                                (fun input ->
+                                   definition.input) (fun input ->
                                   Result.bind
                                     (scope_of_string provider capabilities
-                                       definition.scope)
-                                    (fun scope ->
+                                       definition.scope) (fun scope ->
                                       if reserved_host_input input then
                                         Error
-                                          (extension_error provider
-                                             capabilities
+                                          (extension_error provider capabilities
                                              ~operation:"registration"
-                                             "Ctrl-S and Ctrl-Q are reserved +                                              host controls")
+                                             "Ctrl-S and Ctrl-Q are reserved \
+                                              host controls")
                                       else
                                         Result.bind
                                           (Command_id.of_string definition.id)
@@ -717,9 +827,9 @@ let load ~(limits : limits) ~provider ~capabilities ~contributions
                                             Command_registry.find
                                               !command_registry command)
                                         |> Result.map (fun _ ->
-                                               Registration.binding ~input
-                                                 ~command:definition.id ~scope
-                                                 ~provider))))
+                                            Registration.binding ~input
+                                              ~command:definition.id ~scope
+                                              ~provider))))
                         |> fun candidate ->
                         Result.bind candidate (fun binding ->
                             let duplicate =
@@ -756,35 +866,33 @@ let load ~(limits : limits) ~provider ~capabilities ~contributions
                                      operation = Some "event.subscribe";
                                      required = Some "event.subscribe";
                                      granted = capabilities;
-                                     message =
-                                       "event subscription was denied";
+                                     message = "event subscription was denied";
                                    })
                             else
                               event_of_string provider capabilities
                                 definition.event)
                         |> Result.map (fun event ->
-                               let callback = invocation definition in
-                               Registration.hook ~event ~provider
-                                 ~run:(fun context ->
-                                   let event =
-                                     match event with
-                                     | Registration.Document_changed ->
-                                         "document-changed"
-                                     | Registration.After_save -> "after-save"
-                                   in
-                                   let request =
-                                     Host.request callback ~kind:Host.Event
-                                       ~operation:"event.deliver" ~context
-                                       ~arguments:
-                                         (Extension_value.Record
-                                            [
-                                              ( "event",
-                                                Extension_value.Text event );
-                                            ])
-                                   in
-                                   Result.bind
-                                     (Host.invoke host callback request)
-                                     (actions provider capabilities request)))
+                            let callback = invocation definition in
+                            Registration.hook ~event ~provider
+                              ~run:(fun context ->
+                                let event =
+                                  match event with
+                                  | Registration.Document_changed ->
+                                      "document-changed"
+                                  | Registration.After_save -> "after-save"
+                                in
+                                let request =
+                                  Host.request callback ~kind:Host.Event
+                                    ~operation:"event.deliver" ~context
+                                    ~arguments:
+                                      (Extension_value.Record
+                                         [
+                                           ("event", Extension_value.Text event);
+                                         ])
+                                in
+                                Result.bind
+                                  (Host.invoke host callback request)
+                                  (actions provider capabilities request)))
                         |> Result.map (fun hook -> hooks := !hooks @ [ hook ])
                         |> Result.iter_error fail
                     | unknown ->
@@ -806,6 +914,7 @@ let load ~(limits : limits) ~provider ~capabilities ~contributions
                       hooks = !hooks;
                       descriptors = !descriptors;
                       limits;
+                      runtime_events;
                     }))
 
 let provider value = value.provider
@@ -815,4 +924,10 @@ let descriptors value = value.descriptors
 let bindings value = value.bindings
 let hooks value = value.hooks
 let limits value = value.limits
+
+let drain_runtime_events value =
+  let events = Queue.to_seq value.runtime_events |> List.of_seq in
+  Queue.clear value.runtime_events;
+  events
+
 let dispose value = Backend.dispose value.backend

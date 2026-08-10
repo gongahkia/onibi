@@ -1,7 +1,7 @@
-# M8 extensions
+# M8/M9 extensions
 
-M8 is Zenbu's first stable third-party extension contract. It builds on M7's
-data-only callback experiment without adding an editor-mutation escape hatch.
+M8 is Zenbu's first stable third-party extension contract. M9 adds its first
+isolated runtime without adding an editor-mutation escape hatch.
 The authoritative machine-readable contract is the public
 `zenbu.extension.Contract` module; its committed reference is
 [generated Extension API v1](generated/EXTENSION_API.md).
@@ -16,10 +16,13 @@ overlay, while plugins are separate package directories under
 discovery. No project-local discovery, downloading, resolver, lockfile,
 marketplace, dependency graph, or network activity exists.
 
-The sole v1 runtime is `lua-trusted`. It uses PUC Lua standard libraries, so a
-plugin must be treated as trusted local code. M8 constrains *Zenbu API*
-authority; it is not a sandbox for filesystem, process, network, memory, CPU,
-or native-library access. Runtime isolation is explicitly M9 work.
+V1 has two runtimes. `lua-trusted` uses PUC Lua standard libraries, so it must
+be treated as trusted local code: its capabilities constrain *Zenbu API*
+authority, not filesystem/process/network/memory/CPU/native-library authority.
+`wasm-component` is M9's isolated Component Model runtime. It has no WASI,
+filesystem, network, process, environment, clock, random, stdin, stdout, or
+stderr service; it receives only data supplied through the normal extension
+request. See [Component authoring](WASM_COMPONENTS.md).
 
 ## Package format and discovery
 
@@ -39,6 +42,11 @@ runtime = "lua-trusted"
 entrypoint = "init.lua"
 contributions = ["commands", "selectors", "transformations", "bindings", "events"]
 capabilities = ["document.read", "document.edit", "selection.read", "selection.write", "ui.message", "event.subscribe"]
+
+# Optional and used only by runtime = "wasm-component".
+[wasm]
+fuel = 5000000
+memory_bytes = 16777216
 ```
 
 `manifest_version` and `api` must both be supported v1 values. Plugin IDs have
@@ -46,9 +54,10 @@ at least two lowercase dot-separated segments; each segment can contain
 lowercase letters, digits, and interior hyphens. Versions use supported SemVer
 core `MAJOR.MINOR.PATCH` form. `entrypoint` must be a regular relative file
 that resolves within its package, so absolute paths and `..` traversal fail
-before runtime evaluation. Manifest contribution and capability arrays are
-nonempty-string arrays with no duplicates. Unknown capability/contribution
-names are structured validation errors.
+before runtime evaluation. Manifest contribution and capability arrays contain
+nonempty strings with no duplicates; either array may be empty (for example, a
+package may intentionally request no host authority). Unknown
+capability/contribution names are structured validation errors.
 
 Plugin-owned command, selector, transformation, and binding command IDs must
 begin `plugin.id + "."`; for example `com.example.surround.wrap`. This avoids
@@ -101,6 +110,41 @@ This is intentionally runtime-neutral: a future adapter implements the same
 request/response protocol and keeps its own private callback handles. It must
 not add a runtime object to the generic command or semantic behavior registry.
 
+## M9 `wasm-component` runtime
+
+The entrypoint is a compiled WebAssembly Component, not a core Wasm module or
+WAT source. Its required ABI is the committed
+[`zenbu:plugin@1.0.0` WIT world](wit/zenbu-plugin.wit): it exports
+`zenbu:plugin/control@1.0.0` with `register()` and `invoke(invocation)`.
+`register` returns typed contribution records; `invoke` receives a callback
+token and the capability-projected, copied request envelope and returns typed
+declarative values. It imports no Zenbu host interface. A Component that asks
+for WASI or any other import fails staging because the linker has no such
+implementation.
+
+The WIT `value` representation is a flat typed pre-order tree rather than JSON
+or a raw linear-memory convention: every node has a typed field/item path,
+kind, and typed primitive payload. The host rejects duplicate, unreachable, or
+ill-formed paths before an action/selector/transformation decoder sees them.
+This preserves the existing `Extension_value` protocol without making a Wasm
+object part of a command or semantic registry. See
+[Component authoring](WASM_COMPONENTS.md) for a complete guest contract.
+
+The default Component policy is 5,000,000 fuel units for each `register` or
+`invoke` call and a 16 MiB Wasmtime store memory limit. A package can replace
+both positive values with its optional `[wasm]` manifest table. The active
+Plugins inspector shows the effective limits. Fuel is reset per callback, so a
+successful callback cannot borrow budget from the next one. Fuel stops guest
+instruction loops; memory growth is constrained by the store limiter. Calls
+remain synchronous on the host thread: there is no hard wall-clock cancellation
+or background scheduling yet.
+
+M9 maps Component ABI/linker mismatch, fuel exhaustion, memory exhaustion, and
+traps to distinct stable extension errors. A guest `result<_, string>` error or
+a malformed declarative response remains an ordinary `extension-runtime-error`.
+All failures occur before a transaction commit and leave the current immutable
+document/history value unchanged.
+
 ## Lifecycle and atomicity
 
 Discovery parses and validates manifests first, then stages each package in a
@@ -136,7 +180,8 @@ make extension-docs
 
 `plugin-check` fully stages the package entrypoint without retaining it and
 prints state, manifest path, declared capabilities/contributions, registered
-IDs, and structured errors. `plugins` lists all discovered packages. The
+IDs, effective Component limits, and structured errors. `plugins` lists all
+discovered packages. The
 interactive `Plugins` inspector presents the same status and latest retained
 reload failure. [`examples/plugins/surround`](../examples/plugins/surround)
 is an executable v1 package. `sdk/lua/zenbu.lua` is a generated Lua-language
@@ -149,12 +194,16 @@ committed outputs still equal the contract.
 ## Observability and compatibility
 
 Providers retain plugin ID, semantic version, runtime, and manifest source.
-`why` reports extension lifecycle/callback events and capability denial;
+`why` reports extension lifecycle/callback events, Component
+compile/instantiate/register/call telemetry with fuel consumption, and
+capability denial;
 bindings, commands, descriptors, history provenance, and the Plugins view use
 the same provider data. A plugin command's committed history chain therefore
 shows e.g. `com.example.surround@1.0.0 (lua-trusted)`. Bounded profiling adds
 `extension.load`, `extension.reload`, `extension.command`,
-`extension.selector`, `extension.transformation`, and `extension.event`.
+`extension.selector`, `extension.transformation`, `extension.event`, and the
+Component-specific `extension.wasm.compile`, `.instantiate`, `.register`, and
+`.call` stages.
 
 V1 compatibility means Zenbu retains required v1 manifest behavior,
 contribution/capability names, service behavior, and stable error names. It may
@@ -163,7 +212,8 @@ requires an API-version increment. Existing M7 configuration remains supported
 as experimental trusted local configuration, but it is not a plugin package
 and makes no stable-plugin compatibility claim.
 
-M8 explicitly defers dependency resolution, signatures, permissions UI,
-per-plugin enablement persistence, resource limits, sandboxing, asynchronous
-services, language-grammar packages, marketplace distribution, and a second
-runtime. See [roadmap](ROADMAP.md) and ADRs 0022-0025.
+M9 still defers dependency resolution, signatures, permissions UI, per-plugin
+enablement persistence, cross-platform Wasmtime distribution, asynchronous
+services, hard wall-clock cancellation, language-grammar packages, marketplace
+distribution, and richer Component host imports. `lua-trusted` remains
+intentionally unsandboxed. See [roadmap](ROADMAP.md) and ADRs 0022-0027.

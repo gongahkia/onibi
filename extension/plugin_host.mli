@@ -3,6 +3,18 @@
 
 type config = Default | Directories of string list | Disabled
 type state = Active | Failed
+
+type runtime_event = {
+  provider : Zenbu_kernel.Provider.t;
+  runtime : string;
+  stage : string;
+  operation : string option;
+  outcome : string;
+  duration_seconds : float;
+  fuel_consumed : int option;
+  reason : string option;
+}
+
 type view
 type t
 
@@ -30,6 +42,7 @@ val commands : t -> Zenbu_model_api.Command.t list
 val semantic_behaviors : t -> Zenbu_model_api.Semantic_behavior_registry.t
 val bindings : t -> Zenbu_model_api.Extension_registration.binding list
 val hooks : t -> Zenbu_model_api.Extension_registration.hook list
+val drain_runtime_events : t -> runtime_event list
 val providers : t -> Zenbu_kernel.Provider.t list
 val views : t -> view list
 val find : t -> Plugin_id.t -> view option

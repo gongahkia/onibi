@@ -1,8 +1,17 @@
-(** Private adapter from the M9 Component ABI to the stable extension surface. *)
+(** Private adapter from the M9 Component ABI to the stable extension surface.
+*)
 
 type t
-
 type limits = { fuel : int; memory_bytes : int }
+
+type runtime_event = {
+  stage : string;
+  operation : string option;
+  outcome : string;
+  duration_seconds : float;
+  fuel_consumed : int option;
+  reason : string option;
+}
 
 val default_limits : limits
 
@@ -23,4 +32,5 @@ val descriptors : t -> Zenbu_kernel.Semantic_descriptor.t list
 val bindings : t -> Zenbu_model_api.Extension_registration.binding list
 val hooks : t -> Zenbu_model_api.Extension_registration.hook list
 val limits : t -> limits
+val drain_runtime_events : t -> runtime_event list
 val dispose : t -> unit

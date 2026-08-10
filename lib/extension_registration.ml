@@ -15,9 +15,7 @@ type binding = {
 type hook = {
   event : event;
   provider : Zenbu_kernel.Provider.t;
-  run :
-    Editor_context.t ->
-    (Model_effect.t list, Zenbu_kernel.Error.t) result;
+  run : Editor_context.t -> (Model_effect.t list, Zenbu_kernel.Error.t) result;
 }
 
 let binding ~input ~command ~scope ~provider =

@@ -247,7 +247,7 @@ semantic operations resolve to concrete transactions but are deliberately not
 retained as repeatable model intents across reloads. This remains experimental
 configuration, not a stable plugin SDK; see [scripting](SCRIPTING.md).
 
-## M8 runtime-neutral extension host
+## M8/M9 runtime-neutral extension host
 
 M8 adds `Extension_value` and `Extension_host` to `zenbu.model_api`, not a
 second editor API. `Extension_value` is recursively data-only (`nil`, booleans,
@@ -264,7 +264,7 @@ validates. Capability checks shape copied context and action authority before
 kernel mutation is considered. A failed invocation leaves the ordinary runtime
 state unchanged and emits generic extension trace/profile information.
 
-This keeps M8 plugins and any future runtime adapter as clients of the same
+This keeps M8 plugins and the M9 Component adapter as clients of the same
 semantic command/selector/transformation path as first-party models. The
 package/compatibility policy is intentionally outside this library; see
 [extensions](EXTENSIONS.md).

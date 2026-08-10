@@ -30,15 +30,11 @@ val binding_provider : binding -> Zenbu_kernel.Provider.t
 val hook :
   event:event ->
   provider:Zenbu_kernel.Provider.t ->
-  run:
-    (Editor_context.t ->
-    (Model_effect.t list, Zenbu_kernel.Error.t) result) ->
+  run:(Editor_context.t -> (Model_effect.t list, Zenbu_kernel.Error.t) result) ->
   hook
 
 val hook_event : hook -> event
 val hook_provider : hook -> Zenbu_kernel.Provider.t
 
 val run_hook :
-  hook ->
-  Editor_context.t ->
-  (Model_effect.t list, Zenbu_kernel.Error.t) result
+  hook -> Editor_context.t -> (Model_effect.t list, Zenbu_kernel.Error.t) result

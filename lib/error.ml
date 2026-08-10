@@ -62,6 +62,7 @@ and extension_error_code =
   | Extension_fuel_exhausted
   | Extension_memory_exhausted
   | Extension_trap
+  | Extension_response_limit
 
 let extension_error_code_name = function
   | Invalid_manifest -> "invalid-manifest"
@@ -79,6 +80,7 @@ let extension_error_code_name = function
   | Extension_fuel_exhausted -> "extension-fuel-exhausted"
   | Extension_memory_exhausted -> "extension-memory-exhausted"
   | Extension_trap -> "extension-trap"
+  | Extension_response_limit -> "extension-response-limit"
 
 let rec to_string = function
   | Invalid_document_id value -> Printf.sprintf "invalid document id: %S" value

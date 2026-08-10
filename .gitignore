@@ -3,6 +3,12 @@ _build/
 .opam-switch/
 _opam/
 .zenbu/
+examples/wasm-component-hello/target/
+examples/wasm-component-hello/plugin.wasm
+examples/wasm-component-hello/src/bindings.rs
+examples/wasm-component-conformance/target/
+examples/wasm-component-conformance/plugin.wasm
+examples/wasm-component-conformance/src/bindings.rs
 *.install
 *.cm[ioxat]
 *.annot

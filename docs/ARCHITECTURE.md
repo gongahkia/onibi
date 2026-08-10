@@ -1,8 +1,9 @@
 # Architecture
 
-Zenbu M0-M8 is a functional semantic editing kernel plus public editing-model,
-syntax, trusted-local configuration, stable local extension protocols, and a
-narrow terminal host. The central kernel transition is
+Zenbu M0-M9 is a functional semantic editing kernel plus public editing-model,
+syntax, trusted-local configuration, stable local extension protocols, an
+isolated Component runtime, and a narrow terminal host. The central kernel
+transition is
 conceptually:
 
 ```text
@@ -65,8 +66,9 @@ The M2 proof models and M3 first-party models link only to `zenbu.model_api`.
 Their source cannot call `Document.apply`, `History.commit`, or a storage
 implementation; command handlers receive only `Editor_context` and return
 semantic intents. Dune's separate library dependencies enforce this direct
-dependency boundary. OCaml does not make public libraries a security sandbox,
-so actual untrusted-plugin isolation remains an M9 concern.
+dependency boundary. OCaml does not make public libraries a security sandbox;
+M9 therefore places isolated third-party Components behind a private runtime
+rather than treating library visibility as a security boundary.
 
 ## Extension boundary
 
@@ -217,7 +219,7 @@ value enters `zenbu.kernel` or `zenbu.model_api`. Standard Lua libraries make
 this trusted local execution rather than a security boundary. See
 [scripting](SCRIPTING.md) and ADRs 0019-0021.
 
-## M8 extension boundary
+## M8/M9 extension boundary
 
 M8 makes the callback path stable without exposing a Lua implementation value
 to generic registries:
@@ -249,8 +251,35 @@ snapshot. Configuration bindings/hooks precede plugin bindings/hooks, while
 the ordinary model runtime still owns semantic resolution, transactions,
 history, syntax refresh, and provenance.
 
-M8's sole runtime is trusted local Lua. Capabilities constrain Zenbu host
-services, not Lua standard-library authority. Discovery only enumerates local
-XDG directories; it has no resolver, download, or project-search behavior.
-M9 owns any process/WASM isolation decision. See [extensions](EXTENSIONS.md)
-and ADRs 0022-0025.
+M8's trusted local Lua runtime remains available. Its capabilities constrain
+Zenbu host services, not Lua standard-library authority. Discovery only
+enumerates local XDG directories; it has no resolver, download, or
+project-search behavior.
+
+M9 adds a second, isolated `wasm-component` adapter without changing the
+generic registry shape:
+
+```text
+compiled WebAssembly Component / typed WIT values
+      ↑ private Wasmtime 47 C shim (engine/store/linker per generation)
+zenbu.extension.Wasm_plugin / opaque Extension_host token
+      ↑ commands / semantic behavior registry / bindings / hooks
+Session snapshot composition → zenbu.model_api runtime → transactions/history
+```
+
+The Component world has control exports only. Zenbu links no WASI or host
+imports, so filesystem/network/process/environment/terminal/parser objects are
+absent by construction. `Extension_host` continues to project capability-checked
+copies into every request, and the adapter converts only serialisable WIT values
+at its private edge. The result still enters normal effect decoding, semantic
+resolution, transaction validation, syntax refresh, history, provenance, and
+generic trace/profile services. A Wasm Component therefore has no privileged
+editing route.
+
+Each Component generation owns a private Wasmtime store with a manifest-visible
+memory cap and a fuel budget reset before `register`/`invoke`. Plugin staging,
+collision checks, reload retention, disposal, and provider ordering remain
+shared `Plugin_host` behavior. M9's synchronous fuel-limited calls do not yet
+provide async/background scheduling or hard wall-clock cancellation. See
+[extensions](EXTENSIONS.md), [Component authoring](WASM_COMPONENTS.md), and
+ADRs 0022-0027.

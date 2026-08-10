@@ -6,7 +6,6 @@ module Wasm = Wasm_plugin
 
 type config = Default | Directories of string list | Disabled
 type state = Active | Failed
-
 type generation = Lua of Scripting.t | Wasm of Wasm.t
 
 type active = {
@@ -16,6 +15,17 @@ type active = {
 }
 
 type failure = { path : string; manifest : Manifest.t option; error : Error.t }
+
+type runtime_event = {
+  provider : Provider.t;
+  runtime : string;
+  stage : string;
+  operation : string option;
+  outcome : string;
+  duration_seconds : float;
+  fuel_consumed : int option;
+  reason : string option;
+}
 
 type view = {
   state : state;
@@ -62,6 +72,10 @@ let manifest_paths config =
   let rec collect paths = function
     | [] -> paths
     | directory :: rest ->
+        let paths =
+          let manifest = Filename.concat directory Manifest.filename in
+          if Sys.file_exists manifest then manifest :: paths else paths
+        in
         let entries =
           try Sys.readdir directory |> Array.to_list |> List.sort String.compare
           with Sys_error _ -> []
@@ -148,6 +162,22 @@ let dispose_generation = function
   | Lua generation -> Scripting.dispose generation
   | Wasm generation -> Wasm.dispose generation
 
+let drain_generation_runtime_events = function
+  | Lua _ -> []
+  | Wasm generation ->
+      Wasm.drain_runtime_events generation
+      |> List.map (fun (event : Wasm.runtime_event) ->
+          {
+            provider = Wasm.provider generation;
+            runtime = "wasm-component";
+            stage = event.stage;
+            operation = event.operation;
+            outcome = event.outcome;
+            duration_seconds = event.duration_seconds;
+            fuel_consumed = event.fuel_consumed;
+            reason = event.reason;
+          })
+
 let stage ~base_commands ~base_semantics manifest =
   Result.bind (validate_manifest manifest) (fun () ->
       Result.bind (provider manifest) (fun provider ->
@@ -159,32 +189,32 @@ let stage ~base_commands ~base_semantics manifest =
           in
           let entrypoint = Manifest.entrypoint_path manifest in
           (match Manifest.runtime manifest with
-          | "lua-trusted" ->
-              Scripting.load_plugin ~provider ~capabilities ~contributions
-                ~base_commands ~base_semantics ~entrypoint
-              |> Result.map (fun generation -> Lua generation)
-          | "wasm-component" ->
-              let limits =
-                match Manifest.wasm_limits manifest with
-                | None -> Wasm.default_limits
-                | Some manifest_limits ->
-                    Wasm.
-                      {
-                        fuel = manifest_limits.fuel;
-                        memory_bytes = manifest_limits.memory_bytes;
-                      }
-              in
-              Wasm.load ~provider ~capabilities ~contributions ~base_commands
-                ~base_semantics ~entrypoint ~limits
-              |> Result.map (fun generation -> Wasm generation)
-          | _ ->
-              Error
-                (plugin_error Error.Unknown_runtime
-                   ~plugin_id:(Manifest.id manifest |> Plugin_id.to_string)
-                   ~operation:(Manifest.runtime manifest)
-                   "plugin requests an unsupported runtime adapter"))
+            | "lua-trusted" ->
+                Scripting.load_plugin ~provider ~capabilities ~contributions
+                  ~base_commands ~base_semantics ~entrypoint
+                |> Result.map (fun generation -> Lua generation)
+            | "wasm-component" ->
+                let limits =
+                  match Manifest.wasm_limits manifest with
+                  | None -> Wasm.default_limits
+                  | Some manifest_limits ->
+                      Wasm.
+                        {
+                          fuel = manifest_limits.fuel;
+                          memory_bytes = manifest_limits.memory_bytes;
+                        }
+                in
+                Wasm.load ~provider ~capabilities ~contributions ~base_commands
+                  ~base_semantics ~entrypoint ~limits
+                |> Result.map (fun generation -> Wasm generation)
+            | _ ->
+                Error
+                  (plugin_error Error.Unknown_runtime
+                     ~plugin_id:(Manifest.id manifest |> Plugin_id.to_string)
+                     ~operation:(Manifest.runtime manifest)
+                     "plugin requests an unsupported runtime adapter"))
           |> Result.map (fun generation ->
-                 { manifest; generation; last_error = None })))
+              { manifest; generation; last_error = None })))
 
 let binding_key binding =
   Input_event.to_string (Registration.binding_input binding)
@@ -204,8 +234,7 @@ let registered_ids active =
         |> Command_id.to_string)
   in
   let semantics =
-    generation_descriptors active.generation
-    |> List.map Semantic_descriptor.id
+    generation_descriptors active.generation |> List.map Semantic_descriptor.id
   in
   commands @ semantics
 
@@ -412,7 +441,14 @@ let bindings value =
     value.active
 
 let hooks value =
-  List.concat_map (fun active -> generation_hooks active.generation) value.active
+  List.concat_map
+    (fun active -> generation_hooks active.generation)
+    value.active
+
+let drain_runtime_events value =
+  List.concat_map
+    (fun active -> drain_generation_runtime_events active.generation)
+    value.active
 
 let providers value =
   List.map (fun active -> generation_provider active.generation) value.active

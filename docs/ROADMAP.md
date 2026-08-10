@@ -1,6 +1,6 @@
 # Roadmap
 
-This repository implements M0-M8.
+This repository implements M0-M9.
 
 | milestone | goal | status |
 | --- | --- | --- |
@@ -13,11 +13,11 @@ This repository implements M0-M8.
 | M6 | generic observability: `describe`, `why`, bindings, discovery, history, trace, syntax inspection, profiling | implemented here |
 | M7 | trusted-local hot-reloadable Lua scripting/configuration | implemented here (experimental API) |
 | M8 | stable local plugin contract, capabilities, SDK, generated docs, lifecycle, diagnostics | implemented here |
-| M9 | isolated language-neutral plugin runtime, possibly WASM/components if appropriate for OCaml | future |
+| M9 | isolated language-neutral WebAssembly Component plugin runtime | implemented here |
 
-M9 is a goal and constraint, not a current API commitment. Any future
-first-party model or plugin must use the same public editing APIs as a third
-party; the core must not acquire a privileged builtin mutation path.
+M9 preserves the constraint that any first-party model or plugin uses the same
+public editing APIs as a third party; the core does not acquire a privileged
+builtin mutation path.
 
 M2 includes two retained proof models. M3 adds substantial first-party models
 as ordinary clients of the same public API; they remain documented subsets, not
@@ -45,7 +45,18 @@ diagnostics. It preserves M7 configuration as a separate trusted overlay and
 does not add resolver, marketplace, download, project discovery, or sandbox
 claims. See [extensions](EXTENSIONS.md).
 
-M9 can now evaluate isolation (for example WASM/components) only against this
-stable contract and its demonstrated threat model. It should first establish
-what isolation, resource accounting, async execution, and distribution need
-that M8 deliberately does not supply.
+M9 adds the first isolated `wasm-component` runtime behind the M8 contract. It
+uses a pinned Wasmtime Component Model C API, no WASI linker or host imports,
+per-generation store memory limits, per-callback fuel reset, typed WIT
+request/response values, atomic lifecycle staging, structured runtime errors,
+and ordinary provenance/trace/profile integration. Components receive only
+capability-projected copies in the existing `Extension_host` request; their
+declarative results still pass through normal semantic validation and
+transactions. See [Component authoring](WASM_COMPONENTS.md) and ADRs 0026-0027.
+
+The next milestone is deliberately not committed. The repository still defers
+cross-platform Wasmtime distribution, a first-party guest SDK/package build
+tool, signatures/resolution/marketplace, asynchronous/background execution,
+hard wall-clock cancellation, richer Component host imports, and any new
+mutation path. Those must be designed against the existing semantic contract,
+not around it.

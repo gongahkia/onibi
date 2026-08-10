@@ -50,9 +50,11 @@ The shim owns the engine, one store/runtime per active plugin generation, a
 Component linker, typed Component values, resource cleanup, compilation,
 instantiation, export lookup, traps, fuel, and store resource limits. It does
 not register WASI, filesystem, network, process, clock, random, environment,
-stdin, stdout, or stderr imports. It defines only capability-projected Zenbu
-interfaces. Missing imports remain unresolved, so an undeclared capability
-fails linking/instantiation rather than becoming ambient authority.
+stdin, stdout, or stderr imports. It projects only capability-checked Zenbu
+request data through the existing `Extension_host` boundary; the Component
+world imports no Zenbu interface. Missing imports remain unresolved, so a WASI
+or other ambient import fails linking/instantiation rather than becoming
+authority.
 
 The integration pins the exact Wasmtime C API release and verifies its
 availability during setup. A future Wasmtime upgrade requires rerunning the

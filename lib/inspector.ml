@@ -586,15 +586,28 @@ let format_event = function
       ^ (Option.map (fun reason -> ": " ^ reason) reason
         |> Option.value ~default:"")
   | Extension_runtime
-      { provider; runtime; stage; outcome; duration_seconds; fuel_consumed; reason; _ } ->
-      Printf.sprintf "extension runtime %s %s %s provider=%s duration=%.6fs%s%s"
-        runtime stage outcome (Provider.describe provider) duration_seconds
+      {
+        provider;
+        runtime;
+        stage;
+        operation;
+        outcome;
+        duration_seconds;
+        fuel_consumed;
+        reason;
+        _;
+      } ->
+      Printf.sprintf
+        "extension runtime %s %s %s provider=%s%s duration=%.6fs%s%s" runtime
+        stage outcome
+        (Provider.describe provider)
+        (Option.map (fun value -> " operation=" ^ value) operation
+        |> Option.value ~default:"")
+        duration_seconds
         (match fuel_consumed with
         | None -> ""
         | Some fuel -> Printf.sprintf " fuel=%d" fuel)
-        (match reason with
-        | None -> ""
-        | Some value -> ": " ^ value)
+        (match reason with None -> "" | Some value -> ": " ^ value)
   | Capability_denied { provider; operation; required; granted; _ } ->
       "capability denied provider=" ^ Provider.describe provider ^ " operation="
       ^ operation ^ " required=" ^ required ^ " granted="

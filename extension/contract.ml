@@ -99,6 +99,7 @@ let stable_error_codes =
     "extension-fuel-exhausted";
     "extension-memory-exhausted";
     "extension-trap";
+    "extension-response-limit";
     "duplicate-id";
     "unknown-semantic-id";
     "invalid-range";
@@ -106,6 +107,88 @@ let stable_error_codes =
     "invalid-action";
     "transaction-rejected";
   ]
+
+let wit () =
+  String.trim
+    {|
+package zenbu:plugin@1.0.0;
+
+/// A recursive, language-neutral representation of the data exchanged at the
+/// existing Extension_host boundary. It intentionally has no document,
+/// terminal, history, parser, callback, file, process, or host-object case.
+interface types {
+  enum path-segment-kind {
+    field,
+    item,
+  }
+
+  record path-segment {
+    kind: path-segment-kind,
+    name: string,
+    index: u32,
+  }
+
+  enum value-kind {
+    nil,
+    boolean,
+    integer,
+    floating,
+    text,
+    items,
+    fields,
+  }
+
+  /// WIT does not permit recursive type declarations. A [value] is therefore
+  /// a pre-order list of typed nodes. Every node has a typed path from the
+  /// root, so this is still structured Component data rather than JSON or a
+  /// raw linear-memory protocol.
+  record value-node {
+    path: list<path-segment>,
+    kind: value-kind,
+    boolean: bool,
+    integer: s64,
+    floating: f64,
+    text: string,
+  }
+
+  type value = list<value-node>;
+
+  /// Empty input, scope, and event strings mean that the corresponding
+  /// registration property is absent for this contribution class.
+  record registration {
+    contribution: string,
+    id: string,
+    callback: string,
+    title: string,
+    description: string,
+    requires-syntax: bool,
+    input: string,
+    scope: string,
+    event: string,
+  }
+
+  record invocation {
+    callback: string,
+    request: value,
+  }
+}
+
+interface control {
+  use types.{value, registration, invocation};
+
+  /// Runs once while the host stages an isolated plugin generation.
+  register: func() -> result<list<registration>, string>;
+
+  /// Runs a previously registered callback. The host supplies only the
+  /// capability-projected, copied request data.
+  invoke: func(invocation: invocation) -> result<value, string>;
+}
+
+world extension {
+  export control;
+}
+|}
+  ^ "\n"
 
 let supports_runtime runtime = List.mem runtime runtime_ids
 

@@ -229,6 +229,7 @@ let test_contract_and_manifest_validation () =
         "extension-fuel-exhausted";
         "extension-memory-exhausted";
         "extension-trap";
+        "extension-response-limit";
         "duplicate-id";
         "unknown-semantic-id";
         "invalid-range";
@@ -244,6 +245,9 @@ let test_contract_and_manifest_validation () =
   expect
     (read (artifact "sdk/lua/zenbu.lua") = Extension.Contract.lua_stub ())
     "generated Lua SDK stub is stale";
+  expect
+    (read (artifact "docs/wit/zenbu-plugin.wit") = Extension.Contract.wit ())
+    "generated Component WIT contract is stale";
   with_root (fun root ->
       let package =
         create_plugin root "bad-capability" ~id:"zenbu.m8badcap"

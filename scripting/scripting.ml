@@ -616,7 +616,8 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
                                     Input_event.to_string
                                       (Registration.binding_input binding)
                                     = Input_event.to_string input
-                                    && Registration.binding_scope binding = scope)
+                                    && Registration.binding_scope binding
+                                       = scope)
                                   !bindings
                               in
                               if duplicate then
@@ -665,9 +666,7 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
                              message = "event subscription was denied";
                            })
                   | Ok event ->
-                      let callback =
-                        invocation "event" definition.callback
-                      in
+                      let callback = invocation "event" definition.callback in
                       hooks :=
                         !hooks
                         @ [
@@ -684,8 +683,7 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
                                     ~arguments:
                                       (Extension_value.Record
                                          [
-                                           ( "event",
-                                             Extension_value.Text event );
+                                           ("event", Extension_value.Text event);
                                          ])
                                 in
                                 Result.bind

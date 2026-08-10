@@ -11,8 +11,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include <wasmtime.h>
+
+#define ZENBU_MAX_COMPONENT_LIST_ITEMS 4096
+#define ZENBU_MAX_COMPONENT_RECORD_FIELDS 64
+#define ZENBU_MAX_COMPONENT_STRING_BYTES 1048576
+#define ZENBU_MAX_COMPONENT_VALUE_DEPTH 64
 
 /*
  * This file is the complete native boundary for M9.  Do not expose any of the
@@ -31,7 +37,33 @@ typedef struct {
   int has_invoke;
   int disposed;
   uint64_t fuel;
+  uint64_t compile_microseconds;
+  uint64_t instantiate_microseconds;
+  uint64_t last_call_microseconds;
+  uint64_t last_fuel_consumed;
 } zenbu_wasmtime_runtime;
+
+static uint64_t elapsed_microseconds(clock_t started) {
+  clock_t finished = clock();
+  if (finished <= started) return 0;
+  return ((uint64_t)(finished - started) * UINT64_C(1000000)) /
+      (uint64_t)CLOCKS_PER_SEC;
+}
+
+static void record_call_metrics(zenbu_wasmtime_runtime *runtime,
+                                clock_t started) {
+  runtime->last_call_microseconds = elapsed_microseconds(started);
+  uint64_t remaining = 0;
+  wasmtime_error_t *error = wasmtime_context_get_fuel(
+      wasmtime_store_context(runtime->store), &remaining);
+  if (error != NULL) {
+    wasmtime_error_delete(error);
+    runtime->last_fuel_consumed = 0;
+  } else {
+    runtime->last_fuel_consumed =
+        remaining <= runtime->fuel ? runtime->fuel - remaining : 0;
+  }
+}
 
 static void runtime_dispose(zenbu_wasmtime_runtime *runtime) {
   if (runtime == NULL || runtime->disposed) return;
@@ -298,15 +330,25 @@ static int component_from_extension(value source, wasmtime_component_val_t *out,
 }
 
 static value extension_from_raw_component(const wasmtime_component_val_t *source,
-                                          char **error);
+                                          unsigned depth, char **error);
 
 static value extension_list_from_component(const wasmtime_component_vallist_t *list,
-                                           char **error) {
+                                           unsigned depth, char **error) {
   CAMLparam0();
   CAMLlocal3(result, item, cell);
+  if (depth > ZENBU_MAX_COMPONENT_VALUE_DEPTH) {
+    *error = copy_text("component response exceeds Zenbu limit: value nesting is too deep",
+                       strlen("component response exceeds Zenbu limit: value nesting is too deep"));
+    CAMLreturn(Val_int(0));
+  }
+  if (list->size > ZENBU_MAX_COMPONENT_LIST_ITEMS) {
+    *error = copy_text("component response exceeds Zenbu limit: list has too many items",
+                       strlen("component response exceeds Zenbu limit: list has too many items"));
+    CAMLreturn(Val_int(0));
+  }
   result = Val_int(0);
   for (size_t i = list->size; i > 0; i--) {
-    item = extension_from_raw_component(&list->data[i - 1], error);
+    item = extension_from_raw_component(&list->data[i - 1], depth + 1, error);
     if (*error != NULL) CAMLreturn(Val_int(0));
     cell = caml_alloc(2, 0);
     Store_field(cell, 0, item);
@@ -317,14 +359,29 @@ static value extension_list_from_component(const wasmtime_component_vallist_t *l
 }
 
 static value extension_record_from_component(
-    const wasmtime_component_valrecord_t *record, char **error) {
+    const wasmtime_component_valrecord_t *record, unsigned depth, char **error) {
   CAMLparam0();
   CAMLlocal5(result, key, item, pair, cell);
+  if (depth > ZENBU_MAX_COMPONENT_VALUE_DEPTH) {
+    *error = copy_text("component response exceeds Zenbu limit: value nesting is too deep",
+                       strlen("component response exceeds Zenbu limit: value nesting is too deep"));
+    CAMLreturn(Val_int(0));
+  }
+  if (record->size > ZENBU_MAX_COMPONENT_RECORD_FIELDS) {
+    *error = copy_text("component response exceeds Zenbu limit: record has too many fields",
+                       strlen("component response exceeds Zenbu limit: record has too many fields"));
+    CAMLreturn(Val_int(0));
+  }
   result = Val_int(0);
   for (size_t i = record->size; i > 0; i--) {
     const wasmtime_component_valrecord_entry_t *entry = &record->data[i - 1];
+    if (entry->name.size > ZENBU_MAX_COMPONENT_STRING_BYTES) {
+      *error = copy_text("component response exceeds Zenbu limit: record field is too large",
+                         strlen("component response exceeds Zenbu limit: record field is too large"));
+      CAMLreturn(Val_int(0));
+    }
     key = string_value(entry->name.data, entry->name.size);
-    item = extension_from_raw_component(&entry->val, error);
+    item = extension_from_raw_component(&entry->val, depth + 1, error);
     if (*error != NULL) CAMLreturn(Val_int(0));
     pair = caml_alloc(2, 0);
     Store_field(pair, 0, key);
@@ -340,9 +397,14 @@ static value extension_record_from_component(
 }
 
 static value extension_from_raw_component(const wasmtime_component_val_t *source,
-                                          char **error) {
+                                          unsigned depth, char **error) {
   CAMLparam0();
   CAMLlocal2(output, payload);
+  if (depth > ZENBU_MAX_COMPONENT_VALUE_DEPTH) {
+    *error = copy_text("component response exceeds Zenbu limit: value nesting is too deep",
+                       strlen("component response exceeds Zenbu limit: value nesting is too deep"));
+    CAMLreturn(Val_int(0));
+  }
   switch (source->kind) {
     case WASMTIME_COMPONENT_BOOL:
       output = caml_alloc(1, 0);
@@ -365,19 +427,29 @@ static value extension_from_raw_component(const wasmtime_component_val_t *source
       Store_field(output, 0, caml_copy_double(source->of.f64));
       CAMLreturn(output);
     case WASMTIME_COMPONENT_STRING:
+      if (source->of.string.size > ZENBU_MAX_COMPONENT_STRING_BYTES) {
+        *error = copy_text("component response exceeds Zenbu limit: string is too large",
+                           strlen("component response exceeds Zenbu limit: string is too large"));
+        CAMLreturn(Val_int(0));
+      }
       output = caml_alloc(1, 3);
       Store_field(output, 0,
           string_value(source->of.string.data, source->of.string.size));
       CAMLreturn(output);
     case WASMTIME_COMPONENT_LIST:
-      payload = extension_list_from_component(&source->of.list, error);
+      payload = extension_list_from_component(&source->of.list, depth + 1, error);
       if (*error != NULL) CAMLreturn(Val_int(0));
       output = caml_alloc(1, 4);
       Store_field(output, 0, payload);
       CAMLreturn(output);
     case WASMTIME_COMPONENT_RECORD:
-      CAMLreturn(extension_record_from_component(&source->of.record, error));
+      CAMLreturn(extension_record_from_component(&source->of.record, depth + 1, error));
     case WASMTIME_COMPONENT_ENUM:
+      if (source->of.enumeration.size > ZENBU_MAX_COMPONENT_STRING_BYTES) {
+        *error = copy_text("component response exceeds Zenbu limit: enum is too large",
+                           strlen("component response exceeds Zenbu limit: enum is too large"));
+        CAMLreturn(Val_int(0));
+      }
       output = caml_alloc(1, 3);
       Store_field(output, 0, string_value(source->of.enumeration.data,
           source->of.enumeration.size));
@@ -403,7 +475,7 @@ static value extension_from_value_result(const wasmtime_component_val_t *source,
     return Val_int(0);
   }
   if (source->of.result.val == NULL) return Val_int(0);
-  return extension_from_raw_component(source->of.result.val, error);
+  return extension_from_raw_component(source->of.result.val, 0, error);
 }
 
 static char *find_control_export(zenbu_wasmtime_runtime *runtime,
@@ -470,8 +542,10 @@ CAMLprim value caml_zenbu_wasmtime_load(value entrypoint, value capabilities,
     message = copy_text("cannot create Wasmtime engine", 29);
     goto error;
   }
+  clock_t compile_started = clock();
   wasmtime_error_t *wasmtime_error = wasmtime_component_new(runtime->engine,
       bytes, length, &runtime->component);
+  runtime->compile_microseconds = elapsed_microseconds(compile_started);
   free(bytes);
   bytes = NULL;
   if (wasmtime_error != NULL) {
@@ -498,8 +572,10 @@ CAMLprim value caml_zenbu_wasmtime_load(value entrypoint, value capabilities,
     goto error;
   }
   wasmtime_component_instance_t instance;
+  clock_t instantiate_started = clock();
   wasmtime_error = wasmtime_component_linker_instantiate(runtime->linker,
       wasmtime_store_context(runtime->store), runtime->component, &instance);
+  runtime->instantiate_microseconds = elapsed_microseconds(instantiate_started);
   if (wasmtime_error != NULL) {
     message = wasmtime_message(wasmtime_error);
     goto error;
@@ -551,8 +627,10 @@ CAMLprim value caml_zenbu_wasmtime_register(value handle) {
       .kind = WASMTIME_COMPONENT_BOOL,
       .of.boolean = false,
   };
+  clock_t call_started = clock();
   wasmtime_error_t *error = wasmtime_component_func_call(&runtime->register_func,
       wasmtime_store_context(runtime->store), NULL, 0, &output, 1);
+  record_call_metrics(runtime, call_started);
   if (error != NULL) {
     message = wasmtime_message(error);
     result = result_error_text(message);
@@ -586,7 +664,7 @@ CAMLprim value caml_zenbu_wasmtime_register(value handle) {
     CAMLreturn(result_error_text(detail));
   }
   char *conversion_error = NULL;
-  payload = extension_list_from_component(&output.of.result.val->of.list,
+  payload = extension_list_from_component(&output.of.result.val->of.list, 0,
       &conversion_error);
   wasmtime_component_val_delete(&output);
   if (conversion_error != NULL) {
@@ -639,8 +717,10 @@ CAMLprim value caml_zenbu_wasmtime_invoke(value handle, value token,
       .kind = WASMTIME_COMPONENT_BOOL,
       .of.boolean = false,
   };
+  clock_t call_started = clock();
   wasmtime_error_t *error = wasmtime_component_func_call(&runtime->invoke_func,
       wasmtime_store_context(runtime->store), fields, 1, &output, 1);
+  record_call_metrics(runtime, call_started);
   wasmtime_component_val_delete(&fields[0]);
   if (error != NULL) {
     message = wasmtime_message(error);
@@ -665,4 +745,17 @@ CAMLprim value caml_zenbu_wasmtime_dispose(value handle) {
   zenbu_wasmtime_runtime *runtime = runtime_of(handle);
   runtime_dispose(runtime);
   CAMLreturn(Val_unit);
+}
+
+CAMLprim value caml_zenbu_wasmtime_metrics(value handle) {
+  CAMLparam1(handle);
+  CAMLlocal1(result);
+  zenbu_wasmtime_runtime *runtime = runtime_of(handle);
+  if (runtime == NULL || runtime->disposed) caml_failwith("Wasm plugin generation is disposed");
+  result = caml_alloc_tuple(4);
+  Store_field(result, 0, Val_long((intnat)runtime->compile_microseconds));
+  Store_field(result, 1, Val_long((intnat)runtime->instantiate_microseconds));
+  Store_field(result, 2, Val_long((intnat)runtime->last_call_microseconds));
+  Store_field(result, 3, Val_long((intnat)runtime->last_fuel_consumed));
+  CAMLreturn(result);
 }

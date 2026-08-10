@@ -17,5 +17,6 @@ val runtime_ids : string list
 val services : service list
 val stable_error_codes : string list
 val supports_runtime : string -> bool
+val wit : unit -> string
 val markdown : unit -> string
 val lua_stub : unit -> string

@@ -1,0 +1,17 @@
+[package]
+name = "zenbu_component_conformance"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wit-bindgen = "=0.41.0"
+
+[package.metadata.component]
+package = "comexample:conformance"
+
+[package.metadata.component.target]
+path = "../../docs/wit"
+world = "extension"

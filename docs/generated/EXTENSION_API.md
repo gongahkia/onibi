@@ -9,6 +9,7 @@ A manifest declaring `api = 1` is compatible with this contract. Zenbu may add o
 ## Runtimes
 
 - `lua-trusted`
+- `wasm-component`
 
 ## Contributions
 
@@ -107,6 +108,11 @@ register a document-changed or after-save handler
 - `invalid-plugin-package`
 - `plugin-not-active`
 - `extension-runtime-error`
+- `extension-abi-mismatch`
+- `extension-fuel-exhausted`
+- `extension-memory-exhausted`
+- `extension-trap`
+- `extension-response-limit`
 - `duplicate-id`
 - `unknown-semantic-id`
 - `invalid-range`

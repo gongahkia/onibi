@@ -406,6 +406,10 @@ let print_plugin_view view =
     (Plugins.view_contributions view
     |> List.map Zenbu_extension.Contribution.id
     |> String.concat ", ");
+  (match Plugins.view_runtime_limits view with
+  | None -> Printf.printf "  limits: none\n"
+  | Some (fuel, memory_bytes) ->
+      Printf.printf "  limits: fuel=%d memory-bytes=%d\n" fuel memory_bytes);
   Printf.printf "  registrations: %s\n"
     (Plugins.view_registered_ids view |> String.concat ", ");
   Option.iter
@@ -432,7 +436,7 @@ let plugin_check path =
     else path
   in
   let host =
-    plugin_host (Plugins.Directories [ Filename.dirname package_dir ])
+    plugin_host (Plugins.Directories [ package_dir ])
   in
   Fun.protect
     ~finally:(fun () -> Plugins.dispose host)
@@ -466,6 +470,8 @@ let plugin_check path =
 
 let extension_api () = print_string (Zenbu_extension.Contract.markdown ())
 let extension_sdk () = print_string (Zenbu_extension.Contract.lua_stub ())
+
+let extension_wit () = print_string (Zenbu_extension.Contract.wit ())
 
 let check_config path =
   match
@@ -645,7 +651,7 @@ let print_demo_why model ?language contents inputs =
       Zenbu_app.Session.inspect session Zenbu_app.Session.Why |> print_lines
 
 let demo () =
-  Printf.printf "Zenbu M8: stable extension contract, one semantic kernel\n\n";
+  Printf.printf "Zenbu M9: isolated Components, one semantic kernel\n\n";
   Printf.printf "Initial: \"alpha beta gamma\"\n\nVIM-STYLE: d w\n";
   run_vim_session "alpha beta gamma" [ logical_key "d"; logical_key "w" ];
   print_demo_why Zenbu_app.Session.Vim "alpha beta gamma"
@@ -721,7 +727,7 @@ let usage () =
      | script-session <init.lua> <fixture.session> | plugin-session \
      <PLUGIN-ROOT> <fixture.session> | plugins [DIR] | plugin-check \
      <PLUGIN-DIR> | plugin-describe <PLUGIN-DIR> | extension-api | \
-     extension-sdk";
+     extension-sdk | extension-wit";
   exit 2
 
 let () =
@@ -741,6 +747,7 @@ let () =
   | [ _; "plugin-session"; plugins; session ] -> plugin_session plugins session
   | [ _; "extension-api" ] -> extension_api ()
   | [ _; "extension-sdk" ] -> extension_sdk ()
+  | [ _; "extension-wit" ] -> extension_wit ()
   | [ _; "describe"; kind; id ] -> inspect_description kind id
   | [ _; "bindings"; "vim" ] -> initial_bindings Vim
   | [ _; "bindings"; "selection" ] -> initial_bindings Selection_first

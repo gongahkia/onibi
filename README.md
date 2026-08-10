@@ -1,11 +1,12 @@
 # zenbu
 
 Zenbu is a terminal-first programmable modal editor under development. This
-repository contains M0-M8: a semantic kernel, public editing-model and syntax
+repository contains M0-M9: a semantic kernel, public editing-model and syntax
 protocols, three first-party editing models, local observability, trusted-local
-Lua configuration, a stable local plugin contract, and an interactive terminal
-host. It deliberately contains no complete Vim/Helix/Kakoune implementation,
-syntax highlighting, LSP, resolver/marketplace, or isolated plugin runtime.
+Lua configuration, a stable local plugin contract, a first isolated
+WebAssembly Component runtime, and an interactive terminal host. It deliberately
+contains no complete Vim/Helix/Kakoune implementation, syntax highlighting,
+LSP, or resolver/marketplace.
 
 The project thesis is that no editing model is fundamental. A future Vim-like
 model, selection-first model, structural model, and third-party model must all
@@ -27,9 +28,13 @@ does not expose arbitrary `mutable Editor` access to extensions.
 The checked environment uses OCaml 5.3.0 and Dune 3.24.2. The host uses
 `notty-community`, `uuseg`, `uucp`, and the OCaml Tree-sitter binding; install
 project dependencies and the system PUC Lua 5.4 shared library before building
-a fresh checkout. On Fedora, the latter is supplied by `lua-libs`.
+a fresh checkout. On Fedora, the latter is supplied by `lua-libs`. M9 needs a
+pinned private Wasmtime C API archive; bootstrap it explicitly with
+`make wasm-runtime`. That checksum-verified download requires `curl`, `tar`,
+and `sha256sum`; normal build, test, and demo commands never download it.
 
 ```sh
+make wasm-runtime
 make check
 make demo
 dune exec bin/zenbu_headless.exe -- replay test/fixtures/unicode.replay
@@ -45,8 +50,10 @@ make extension-docs
 dune exec bin/zenbu.exe -- --trace --profile --plugin-dir examples/plugins --model structural test/fixtures/syntax_sample.ml
 ```
 
-`make check` runs Dune's formatting check, build, and the dependency-free unit,
-property, and replay test executable. Install `ocamlformat` (0.28.1-compatible)
+`make wasm-runtime` installs the pinned Linux x86_64 Wasmtime C API under the
+ignored `.zenbu/` directory; it does not install a system package. `make check`
+runs Dune's formatting check, build, and unit/property/replay/component
+conformance tests. Install `ocamlformat` (0.28.1-compatible)
 to run the formatter locally; if it is unavailable, Dune reports that rather
 than silently skipping format validation.
 
@@ -87,8 +94,9 @@ make check
   callbacks to public semantic APIs only.
 - `extension/` is the public `zenbu.extension` library: Extension API v1
   contract metadata, TOML package manifests, capabilities/contributions, and
-  immutable plugin lifecycle snapshots. Its runtime-neutral invocation path is
-  supplied by `zenbu.model_api.Extension_host`.
+  immutable plugin lifecycle snapshots. Its private Wasmtime Component adapter
+  uses the same runtime-neutral `zenbu.model_api.Extension_host` invocation
+  path.
 
 See [architecture](docs/ARCHITECTURE.md), the [editing protocol](docs/EDITING_PROTOCOL.md),
 the [observability model](docs/OBSERVABILITY.md), and [invariants](docs/INVARIANTS.md)
@@ -131,9 +139,11 @@ Plugin discovery is separate: the default root is
 `$XDG_CONFIG_HOME/zenbu/plugins` (or `$HOME/.config/zenbu/plugins`),
 `--plugin-dir PATH` selects explicit roots, and `--no-plugins` disables it.
 Packages provide `zenbu-plugin.toml`, declare Extension API v1,
-contributions, and least-required capabilities. They stage atomically and a
-failed reload retains the plugin's last known-good snapshot. See
-[extensions](docs/EXTENSIONS.md) and the
+contributions, and least-required capabilities. They may be trusted Lua or
+isolated `wasm-component` packages; Components receive no WASI services and
+run with per-generation fuel/memory limits. Packages stage atomically and a
+failed reload retains the last known-good snapshot. See
+[extensions](docs/EXTENSIONS.md), [Component authoring](docs/WASM_COMPONENTS.md), and the
 [generated API reference](docs/generated/EXTENSION_API.md).
 
 The host restores terminal input, cursor visibility, and the normal screen on
@@ -162,12 +172,14 @@ an OCaml refactoring engine. See [the Vim-style subset](docs/models/VIM.md),
 Terminal decoding and rendering are intentionally narrow: no mouse, bracketed
 paste, terminal capability probing beyond the chosen backend, save-as prompt,
 or model switching in a live session exists yet. Keymap configuration UI,
-syntax highlighting, LSP, stable plugin isolation, a resolver, and a plugin
-marketplace remain deferred. M8 local plugins are trusted Lua packages; their
-capabilities limit Zenbu host services but do not sandbox Lua standard-library
-access. M7 configuration remains a separate experimental trusted overlay.
+syntax highlighting, LSP, asynchronous/background extension execution, a
+resolver, and a plugin marketplace remain deferred. `lua-trusted` packages and
+M7 configuration remain trusted local code; their capabilities limit Zenbu host
+services but do not sandbox Lua standard-library access. M9's isolated Component
+runtime is currently Linux x86_64 only and has no filesystem, network, process,
+clock, random, stdin, stdout, stderr, or other WASI service.
 
-## M6-M8 observability, scripting, and extensions
+## M6-M9 observability, scripting, and extensions
 
 M6 adds local structured inspection instead of ad-hoc logging. Transactions
 retain optional deterministic provenance; bounded traces and CPU-time profiles
@@ -193,6 +205,8 @@ Extension API v1 before Lua evaluation; plugins use a runtime-neutral,
 data-only host adapter and never store Lua callbacks in generic
 command/semantic registries. Provider metadata includes plugin ID/version/
 runtime throughout `why`, bindings, descriptors, history provenance, lifecycle
-traces, capability denials, and extension profiling. The current next milestone
-is M9: evaluate isolated language-neutral execution against the established v1
-contract and threat model.
+traces, capability denials, and extension profiling. M9 adds typed Component
+compile/instantiate/register/call trace events with bounded profiler samples
+and reported fuel use. The next work is intentionally unnumbered: improve the
+Component guest toolchain and evaluate asynchronous execution without changing
+the semantic editing boundary.
