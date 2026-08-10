@@ -543,7 +543,7 @@ module Make (Model : Editing_model.S) = struct
     let transformation_id = Model_effect.transformation_id model_effect in
     List.map (action ~base ?selector_id ?transformation_id) intents
 
-  let interpret_effect runtime ~execution_id history clipboard
+  let rec interpret_effect runtime ~execution_id history clipboard
       repeatable_intents base model_effect =
     trace runtime.trace (fun () ->
         Trace_event.Model_effect
@@ -716,7 +716,7 @@ module Make (Model : Editing_model.S) = struct
                 Ok (history, clipboard, actions, changes, [], repeatable_intents)
             ))
 
-  let interpret_effects runtime ~execution_id history clipboard
+  and interpret_effects runtime ~execution_id history clipboard
       repeatable_intents base effects =
     let rec loop history clipboard actions changes messages repeatable_intents =
       function
