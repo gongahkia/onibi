@@ -9,5 +9,6 @@
   zenbu_proof_models
   zenbu_structural_model
   zenbu_scripting
+  zenbu_extension
   zenbu_view
   unix))

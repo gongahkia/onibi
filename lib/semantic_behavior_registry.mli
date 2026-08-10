@@ -19,3 +19,4 @@ val find_transformation :
   t -> string -> Semantic_behavior.transformation_entry option
 
 val descriptors : t -> Zenbu_kernel.Semantic_descriptor.t list
+val merge : t -> t -> (t, Zenbu_kernel.Error.t) result

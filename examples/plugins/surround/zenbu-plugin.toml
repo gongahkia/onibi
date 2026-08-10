@@ -1,0 +1,12 @@
+manifest_version = 1
+
+[plugin]
+id = "zenbu.example-surround"
+name = "Example surround"
+version = "0.1.0"
+api = 1
+description = "A small Extension API v1 surround plugin."
+runtime = "lua-trusted"
+entrypoint = "init.lua"
+contributions = ["commands", "selectors", "transformations", "bindings", "events"]
+capabilities = ["document.read", "document.edit", "selection.read", "selection.write", "ui.message", "event.subscribe"]

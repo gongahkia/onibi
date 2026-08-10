@@ -1,0 +1,5 @@
+(library
+ (name zenbu_extension)
+ (public_name zenbu.extension)
+ (modules plugin_id plugin_version capability contribution contract manifest plugin_host)
+ (libraries zenbu_kernel zenbu_model_api zenbu_scripting otoml unix))

@@ -11,6 +11,7 @@ type inspection =
   | Profile
   | Api
   | Scripts
+  | Plugins
 
 type t
 type outcome = Continue of t | Exit of t
@@ -23,6 +24,7 @@ val create :
   ?trace:Zenbu_model_api.Trace.t ->
   ?profiler:Zenbu_model_api.Profiler.t ->
   ?config:Zenbu_scripting.Scripting.config ->
+  ?plugins:Zenbu_extension.Plugin_host.config ->
   dimensions:Zenbu_view.Renderer.dimensions ->
   unit ->
   (t, Zenbu_kernel.Error.t) result

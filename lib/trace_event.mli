@@ -75,6 +75,28 @@ type t =
       outcome : string;
       reason : string option;
     }
+  | Extension_lifecycle of {
+      execution_id : execution_id;
+      phase : string;
+      provider : Zenbu_kernel.Provider.t;
+      outcome : string;
+      reason : string option;
+    }
+  | Extension_callback of {
+      execution_id : execution_id;
+      kind : string;
+      provider : Zenbu_kernel.Provider.t;
+      semantic_id : string option;
+      outcome : string;
+      reason : string option;
+    }
+  | Capability_denied of {
+      execution_id : execution_id;
+      provider : Zenbu_kernel.Provider.t;
+      operation : string;
+      required : string;
+      granted : string list;
+    }
   | Binding_resolved of {
       execution_id : execution_id;
       input : string;

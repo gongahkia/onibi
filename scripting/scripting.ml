@@ -1,6 +1,7 @@
 open Zenbu_kernel
 open Zenbu_model_api
 module Backend = Lua_backend
+module Host = Extension_host
 
 type event = Document_changed | After_save
 
@@ -18,7 +19,9 @@ type binding = {
 
 type hook = {
   event : event;
-  run : Editor_context.t -> (Model_effect.t list, Error.t) result;
+  host : Host.t;
+  invocation : Host.invocation;
+  source : string;
 }
 
 type t = {
@@ -36,6 +39,18 @@ type t = {
 type config = Default | Explicit of string | Disabled
 
 let api_version = 1
+
+let trusted_capabilities =
+  [
+    "document.read";
+    "document.edit";
+    "selection.read";
+    "selection.write";
+    "syntax.read";
+    "command.invoke";
+    "ui.message";
+    "event.subscribe";
+  ]
 
 let script_error phase source message =
   Error.Script_error { phase; source = Some source; line = None; message }
@@ -125,7 +140,10 @@ let semantic_operation source value =
       Ok Semantic_operation.{ selector; transformation }
   | Error error, _ | _, Error error -> Error error
 
-let selection_action source value =
+let require request capability = Host.require request ~capability
+
+let selection_action source request value =
+  Result.bind (require request "selection.write") (fun () ->
   match (field value "selections", field value "primary") with
   | ( Some (Extension_value.List selections),
       Some (Extension_value.Integer primary) ) ->
@@ -159,49 +177,54 @@ let selection_action source value =
   | _ ->
       Error
         (script_error "action" source
-           "set-selections requires selections and primary fields")
+           "set-selections requires selections and primary fields"))
 
-let action source value =
+let action source request value =
   match required_text source "kind" value with
   | Error _ as error -> error
   | Ok "message" ->
-      Result.bind (required_text source "text" value) (fun text ->
-          Model_effect.message ~level:Model_effect.Info ~text)
+      Result.bind (require request "ui.message") (fun () ->
+          Result.bind (required_text source "text" value) (fun text ->
+              Model_effect.message ~level:Model_effect.Info ~text))
   | Ok "insert" ->
-      required_text source "text" value
-      |> Result.map (fun text ->
-          Model_effect.Execute_intent (Model_intent.insert_text text))
+      Result.bind (require request "document.edit") (fun () ->
+          required_text source "text" value
+          |> Result.map (fun text ->
+              Model_effect.Execute_intent (Model_intent.insert_text text)))
   | Ok "delete" ->
-      Ok (Model_effect.Execute_intent Model_intent.delete_selected_ranges)
+      Result.bind (require request "document.edit") (fun () ->
+          Ok (Model_effect.Execute_intent Model_intent.delete_selected_ranges))
   | Ok "replace" ->
-      required_text source "text" value
-      |> Result.map (fun text ->
-          Model_effect.Execute_intent
-            (Model_intent.replace_selected_ranges text))
-  | Ok "set-selections" -> selection_action source value
+      Result.bind (require request "document.edit") (fun () ->
+          required_text source "text" value
+          |> Result.map (fun text ->
+              Model_effect.Execute_intent
+                (Model_intent.replace_selected_ranges text)))
+  | Ok "set-selections" -> selection_action source request value
   | Ok "apply" ->
       semantic_operation source value
       |> Result.map Model_effect.execute_semantic_operation
   | Ok "command" ->
-      Result.bind (required_text source "id" value) (fun id ->
-          Result.bind (Command_id.of_string id) (fun id ->
-              Command_invocation.create ~id ~arguments:[]))
-      |> Result.map (fun invocation -> Model_effect.Invoke_command invocation)
+      Result.bind (require request "command.invoke") (fun () ->
+          Result.bind (required_text source "id" value) (fun id ->
+              Result.bind (Command_id.of_string id) (fun id ->
+                  Command_invocation.create ~id ~arguments:[]))
+          |> Result.map (fun invocation -> Model_effect.Invoke_command invocation))
   | Ok kind ->
       Error (script_error "action" source ("unknown action kind " ^ kind))
 
-let actions source = function
+let actions source request = function
   | Extension_value.Nil -> Ok []
   | Extension_value.List values ->
       let rec collect results = function
         | [] -> Ok (List.rev results)
         | value :: rest -> (
-            match action source value with
+            match action source request value with
             | Error _ as error -> error
             | Ok action -> collect (action :: results) rest)
       in
       collect [] values
-  | value -> action source value |> Result.map (fun action -> [ action ])
+  | value -> action source request value |> Result.map (fun action -> [ action ])
 
 let behavior_selection source = function
   | Extension_value.Record fields -> (
@@ -361,13 +384,16 @@ let validate_id source id =
   |> Result.map_error (fun error ->
       script_error "registration" source (Error.to_string error))
 
-let load_from_source ~generation_id ~base_commands ~base_semantics ~source text
-    =
+let load_from_source ?provider ?(capabilities = trusted_capabilities)
+    ?contributions ?(runtime = "lua-trusted") ~generation_id ~base_commands
+    ~base_semantics ~source text =
   let provider =
-    Provider.create_with_source
-      ~id:("script." ^ string_of_int generation_id)
-      ~kind:Provider.Script ~source
-    |> Result.get_ok
+    Option.value provider
+      ~default:
+        (Provider.create_with_source
+           ~id:("script." ^ string_of_int generation_id)
+           ~kind:Provider.Script ~source
+        |> Result.get_ok)
   in
   match Backend.create ~source with
   | Error _ as error -> error
@@ -385,6 +411,72 @@ let load_from_source ~generation_id ~base_commands ~base_semantics ~source text
           let bindings = ref [] in
           let hooks = ref [] in
           let failed = ref None in
+          let callbacks = ref [] in
+          let next_callback = ref 0 in
+          let host =
+            Host.create ~runtime ~invoke:(fun invocation request ->
+                match
+                  List.assoc_opt (Host.invocation_token invocation) !callbacks
+                with
+                | Some callback -> Backend.call backend callback ~request
+                | None ->
+                    Error
+                      (Error.Extension_error
+                         {
+                           code = Error.Extension_runtime_error;
+                           plugin_id = Provider.plugin_id provider;
+                           provider = Some (Provider.id provider);
+                           operation = Some request.operation;
+                           required = None;
+                           granted = capabilities;
+                           message = "extension callback is no longer available";
+                         }))
+          in
+          let invocation kind callback =
+            next_callback := !next_callback + 1;
+            let token = kind ^ ":" ^ string_of_int !next_callback in
+            callbacks := (token, callback) :: !callbacks;
+            Host.invocation ~token ~provider ~granted:capabilities
+          in
+          let contribution_allowed contribution =
+            match contributions with
+            | None -> true
+            | Some declared -> List.mem contribution declared
+          in
+          let verify_registration contribution id =
+            if not (contribution_allowed contribution) then
+              Error
+                (Error.Extension_error
+                   {
+                     code = Error.Contribution_not_declared;
+                     plugin_id = Provider.plugin_id provider;
+                     provider = Some (Provider.id provider);
+                     operation = Some contribution;
+                     required = None;
+                     granted = capabilities;
+                     message =
+                       "registration is not declared by the plugin manifest";
+                   })
+            else
+              match Provider.plugin_id provider with
+              | None -> Ok ()
+              | Some plugin_id
+                when String.starts_with ~prefix:(plugin_id ^ ".") id ->
+                  Ok ()
+              | Some plugin_id ->
+                  Error
+                    (Error.Extension_error
+                       {
+                         code = Error.Namespace_violation;
+                         plugin_id = Some plugin_id;
+                         provider = Some (Provider.id provider);
+                         operation = Some id;
+                         required = None;
+                         granted = capabilities;
+                         message =
+                           "plugin registrations must use the plugin ID namespace";
+                       })
+          in
           let fail error =
             if Option.is_none !failed then failed := Some error
           in
@@ -408,6 +500,9 @@ let load_from_source ~generation_id ~base_commands ~base_semantics ~source text
                   match validate_id source definition.id with
                   | Error error -> fail error
                   | Ok id -> (
+                      match verify_registration "commands" definition.id with
+                      | Error error -> fail error
+                      | Ok () ->
                       match
                         Command_descriptor.create ~id ~title:definition.title
                           ~description:definition.description ~provider ()
@@ -415,12 +510,9 @@ let load_from_source ~generation_id ~base_commands ~base_semantics ~source text
                       | Error error -> fail error
                       | Ok descriptor -> (
                           let command =
-                            Command.create_effectful ~descriptor
-                              ~effect_handler:(fun context _ ->
-                                Result.bind
-                                  (Backend.call backend callback ~context
-                                     ~arguments:Extension_value.Nil)
-                                  (actions source))
+                            Command.create_extension_effectful ~descriptor ~host
+                              ~invocation:(invocation "command" callback)
+                              ~decode:(actions source)
                           in
                           match
                             Command_registry.register !command_registry command
@@ -435,6 +527,9 @@ let load_from_source ~generation_id ~base_commands ~base_semantics ~source text
                   match validate_id source definition.id with
                   | Error error -> fail error
                   | Ok _ -> (
+                      match verify_registration "selectors" definition.id with
+                      | Error error -> fail error
+                      | Ok () ->
                       match
                         semantic_descriptor provider
                           Semantic_descriptor.Selector definition
@@ -444,12 +539,10 @@ let load_from_source ~generation_id ~base_commands ~base_semantics ~source text
                           register_descriptor descriptor;
                           if Option.is_none !failed then
                             let entry =
-                              Semantic_behavior.selector_entry ~descriptor
-                                ~run:(fun context ~arguments ->
-                                  Result.bind
-                                    (Backend.call backend callback ~context
-                                       ~arguments)
-                                    (behavior_selection source))
+                              Semantic_behavior.extension_selector_entry
+                                ~descriptor ~host
+                                ~invocation:(invocation "selector" callback)
+                                ~decode:(fun _ -> behavior_selection source)
                             in
                             match
                               Semantic_behavior_registry.register_selector
@@ -463,6 +556,11 @@ let load_from_source ~generation_id ~base_commands ~base_semantics ~source text
                   | Error error -> fail error
                   | Ok _ -> (
                       match
+                        verify_registration "transformations" definition.id
+                      with
+                      | Error error -> fail error
+                      | Ok () ->
+                      match
                         semantic_descriptor provider
                           Semantic_descriptor.Transformation definition
                       with
@@ -471,34 +569,11 @@ let load_from_source ~generation_id ~base_commands ~base_semantics ~source text
                           register_descriptor descriptor;
                           if Option.is_none !failed then
                             let entry =
-                              Semantic_behavior.transformation_entry ~descriptor
-                                ~run:(fun context ~selections ~arguments ->
-                                  let selection_set =
-                                    Extension_value.List
-                                      (List.map
-                                         (fun selection ->
-                                           Extension_value.Record
-                                             [
-                                               ( "anchor",
-                                                 Extension_value.Integer
-                                                   selection
-                                                     .Semantic_behavior
-                                                      .anchor_offset );
-                                               ( "head",
-                                                 Extension_value.Integer
-                                                   selection.head_offset );
-                                             ])
-                                         selections.Semantic_behavior.selections)
-                                  in
-                                  Result.bind
-                                    (Backend.call backend callback ~context
-                                       ~arguments:
-                                         (Extension_value.Record
-                                            [
-                                              ("selection_set", selection_set);
-                                              ("arguments", arguments);
-                                            ]))
-                                    (behavior_transformation source))
+                              Semantic_behavior.extension_transformation_entry
+                                ~descriptor ~host
+                                ~invocation:
+                                  (invocation "transformation" callback)
+                                ~decode:(fun _ -> behavior_transformation source)
                             in
                             match
                               Semantic_behavior_registry.register_transformation
@@ -519,11 +594,13 @@ let load_from_source ~generation_id ~base_commands ~base_semantics ~source text
                       Command_id.of_string definition.command )
                   with
                   | Ok input, Ok scope, Ok command -> (
-                      if reserved_host_input input then
+                      match verify_registration "bindings" definition.command with
+                      | Error error -> fail error
+                      | Ok () when reserved_host_input input ->
                         fail
                           (script_error "registration" source
                              "Ctrl-S and Ctrl-Q are reserved host controls")
-                      else
+                      | Ok () ->
                         match
                           ( String.equal definition.command "config.reload",
                             Command_registry.find !command_registry command )
@@ -559,25 +636,40 @@ let load_from_source ~generation_id ~base_commands ~base_semantics ~source text
               | Backend.Hook definition when Option.is_none !failed -> (
                   match event_of_string source definition.event with
                   | Error error -> fail error
+                  | Ok _ when not (contribution_allowed "events") ->
+                      fail
+                        (Error.Extension_error
+                           {
+                             code = Error.Contribution_not_declared;
+                             plugin_id = Provider.plugin_id provider;
+                             provider = Some (Provider.id provider);
+                             operation = Some "events";
+                             required = None;
+                             granted = capabilities;
+                             message =
+                               "event registration is not declared by the plugin manifest";
+                           })
+                  | Ok _ when not (List.mem "event.subscribe" capabilities) ->
+                      fail
+                        (Error.Extension_error
+                           {
+                             code = Error.Capability_denied;
+                             plugin_id = Provider.plugin_id provider;
+                             provider = Some (Provider.id provider);
+                             operation = Some "event.subscribe";
+                             required = Some "event.subscribe";
+                             granted = capabilities;
+                             message = "event subscription was denied";
+                           })
                   | Ok event ->
                       hooks :=
                         !hooks
                         @ [
                             {
                               event;
-                              run =
-                                (fun context ->
-                                  Result.bind
-                                    (Backend.call backend definition.callback
-                                       ~context
-                                       ~arguments:
-                                         (Extension_value.Record
-                                            [
-                                              ( "event",
-                                                Extension_value.Text
-                                                  definition.event );
-                                            ]))
-                                    (actions source));
+                              host;
+                              invocation = invocation "event" definition.callback;
+                              source;
                             };
                           ])
               | Backend.Binding _ | Backend.Hook _ | Backend.Command _
@@ -631,7 +723,21 @@ let binding_command (value : binding) = value.command
 let binding_scope (value : binding) = value.scope
 let binding_provider (value : binding) = value.provider
 let hook_event (value : hook) = value.event
-let run_hook (value : hook) = value.run
+let hook_provider (value : hook) = Host.invocation_provider value.invocation
+
+let run_hook (value : hook) context =
+  let event =
+    match value.event with
+    | Document_changed -> "document-changed"
+    | After_save -> "after-save"
+  in
+  let request =
+    Host.request value.invocation ~kind:Host.Event ~operation:"event.deliver"
+      ~context
+      ~arguments:(Extension_value.Record [ ("event", Extension_value.Text event) ])
+  in
+  Result.bind (Host.invoke value.host value.invocation request)
+    (actions value.source request)
 
 let load ~generation_id ~base_commands ~base_semantics = function
   | Disabled -> Ok None
@@ -648,6 +754,13 @@ let load ~generation_id ~base_commands ~base_semantics = function
         (load_from_source ~generation_id ~base_commands ~base_semantics
            ~source:path)
       |> Result.map (fun value -> Some value)
+
+let load_plugin ~provider ~capabilities ~contributions ~base_commands
+    ~base_semantics ~entrypoint =
+  Result.bind (read_file entrypoint) (fun text ->
+      load_from_source ~provider ~capabilities ~contributions
+        ~runtime:(Option.value ~default:"lua-trusted" (Provider.runtime provider))
+        ~generation_id:0 ~base_commands ~base_semantics ~source:entrypoint text)
 
 let check_file ~base_commands ~base_semantics path =
   Result.bind (read_file path)

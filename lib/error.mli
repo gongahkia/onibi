@@ -34,7 +34,30 @@ type t =
       line : int option;
       message : string;
     }
+  | Extension_error of {
+      code : extension_error_code;
+      plugin_id : string option;
+      provider : string option;
+      operation : string option;
+      required : string option;
+      granted : string list;
+      message : string;
+    }
   | Model_execution_failed of string
   | No_repeatable_edit
 
+and extension_error_code =
+  | Invalid_manifest
+  | Incompatible_api
+  | Unknown_runtime
+  | Unknown_capability
+  | Unknown_contribution
+  | Capability_denied
+  | Contribution_not_declared
+  | Namespace_violation
+  | Invalid_plugin_package
+  | Plugin_not_active
+  | Extension_runtime_error
+
 val to_string : t -> string
+val extension_error_code_name : extension_error_code -> string

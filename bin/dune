@@ -8,6 +8,7 @@
   zenbu_structural_model
   zenbu_app
   zenbu_scripting
+  zenbu_extension
   zenbu_view))
 
 (executable

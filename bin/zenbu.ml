@@ -1,6 +1,7 @@
 open Zenbu_kernel
 open Zenbu_model_api
 module Scripting = Zenbu_scripting.Scripting
+module Plugins = Zenbu_extension.Plugin_host
 
 type options = {
   model : Zenbu_app.Session.model;
@@ -9,13 +10,14 @@ type options = {
   trace : bool;
   profile : bool;
   config : Scripting.config;
+  plugins : Plugins.config;
 }
 
 type run_result = Exited | Unsaved_end
 
 let usage =
   "usage: zenbu [--model vim|selection|structural] [--language ID] [--trace] \
-   [--profile] [--config PATH | --no-config] [FILE]"
+   [--profile] [--config PATH | --no-config] [--plugin-dir PATH | --no-plugins] [FILE]"
 
 let parse_arguments () =
   let model = ref Zenbu_app.Session.Vim in
@@ -24,6 +26,8 @@ let parse_arguments () =
   let trace = ref false in
   let profile = ref false in
   let config = ref Scripting.Default in
+  let plugin_dirs = ref [] in
+  let plugins_disabled = ref false in
   let config_selected = ref false in
   let set_config value =
     if !config_selected then
@@ -38,6 +42,16 @@ let parse_arguments () =
     else (
       config_selected := true;
       config := Scripting.Disabled)
+  in
+  let add_plugin_dir path =
+    if !plugins_disabled then
+      raise (Arg.Bad "choose only one of --plugin-dir and --no-plugins")
+    else plugin_dirs := !plugin_dirs @ [ path ]
+  in
+  let disable_plugins () =
+    if !plugin_dirs <> [] then
+      raise (Arg.Bad "choose only one of --plugin-dir and --no-plugins")
+    else plugins_disabled := true
   in
   let set_model = function
     | "vim" -> model := Zenbu_app.Session.Vim
@@ -64,10 +78,12 @@ let parse_arguments () =
       ( "--no-config",
         Arg.Unit disable_config,
         "disable Lua configuration loading" );
+      ("--plugin-dir", Arg.String add_plugin_dir, "discover local plugins under PATH");
+      ("--no-plugins", Arg.Unit disable_plugins, "disable local plugin discovery");
       ( "--version",
         Arg.Unit
           (fun () ->
-            print_endline "zenbu M7";
+            print_endline "zenbu M8";
             exit 0),
         "print version" );
     ]
@@ -82,6 +98,10 @@ let parse_arguments () =
         trace = !trace;
         profile = !profile;
         config = !config;
+        plugins =
+          if !plugins_disabled then Plugins.Disabled
+          else if !plugin_dirs = [] then Plugins.Default
+          else Plugins.Directories !plugin_dirs;
       }
   with
   | Arg.Bad message -> Error message
@@ -110,6 +130,7 @@ let create_session options contents backend =
           Zenbu_app.Session.create ~model:options.model
             ?language:options.language ?file_path:options.file_path ~contents
             ~trace ~profiler ~config:options.config
+            ~plugins:options.plugins
             ~dimensions:{ Zenbu_view.Renderer.columns; rows }
             ()))
 

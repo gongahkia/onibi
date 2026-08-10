@@ -29,8 +29,7 @@ val registrations : t -> registration list
 val call :
   t ->
   callback ->
-  context:Zenbu_model_api.Editor_context.t ->
-  arguments:Zenbu_model_api.Extension_value.t ->
+  request:Zenbu_model_api.Extension_host.request ->
   (Zenbu_model_api.Extension_value.t, Zenbu_kernel.Error.t) result
 
 val dispose : t -> unit

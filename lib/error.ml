@@ -34,8 +34,43 @@ type t =
       line : int option;
       message : string;
     }
+  | Extension_error of {
+      code : extension_error_code;
+      plugin_id : string option;
+      provider : string option;
+      operation : string option;
+      required : string option;
+      granted : string list;
+      message : string;
+    }
   | Model_execution_failed of string
   | No_repeatable_edit
+
+and extension_error_code =
+  | Invalid_manifest
+  | Incompatible_api
+  | Unknown_runtime
+  | Unknown_capability
+  | Unknown_contribution
+  | Capability_denied
+  | Contribution_not_declared
+  | Namespace_violation
+  | Invalid_plugin_package
+  | Plugin_not_active
+  | Extension_runtime_error
+
+let extension_error_code_name = function
+  | Invalid_manifest -> "invalid-manifest"
+  | Incompatible_api -> "incompatible-api"
+  | Unknown_runtime -> "unknown-runtime"
+  | Unknown_capability -> "unknown-capability"
+  | Unknown_contribution -> "unknown-contribution"
+  | Capability_denied -> "capability-denied"
+  | Contribution_not_declared -> "contribution-not-declared"
+  | Namespace_violation -> "namespace-violation"
+  | Invalid_plugin_package -> "invalid-plugin-package"
+  | Plugin_not_active -> "plugin-not-active"
+  | Extension_runtime_error -> "extension-runtime-error"
 
 let rec to_string = function
   | Invalid_document_id value -> Printf.sprintf "invalid document id: %S" value
@@ -92,6 +127,23 @@ let rec to_string = function
         | Some source, Some line -> Printf.sprintf " in %s:%d" source line
       in
       Printf.sprintf "script %s error%s: %s" phase location message
+  | Extension_error
+      { code; plugin_id; provider; operation; required; granted; message } ->
+      let details =
+        [
+          Option.map (fun value -> "plugin=" ^ value) plugin_id;
+          Option.map (fun value -> "provider=" ^ value) provider;
+          Option.map (fun value -> "operation=" ^ value) operation;
+          Option.map (fun value -> "required=" ^ value) required;
+          (match granted with
+          | [] -> None
+          | values -> Some ("granted=" ^ String.concat "," values));
+        ]
+        |> List.filter_map Fun.id
+      in
+      Printf.sprintf "extension %s%s: %s" (extension_error_code_name code)
+        (match details with [] -> "" | _ -> " (" ^ String.concat "; " details ^ ")")
+        message
   | Model_execution_failed message ->
       Printf.sprintf "model execution failed: %s" message
   | No_repeatable_edit -> "no repeatable semantic edit is available"

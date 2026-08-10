@@ -4,6 +4,7 @@ open Zenbu_syntax
 open Zenbu_proof_models
 open Zenbu_structural_model
 module Scripting = Zenbu_scripting.Scripting
+module Plugins = Zenbu_extension.Plugin_host
 module Vim_runtime = Model_runtime.Make (Vim_model)
 module Selection_runtime = Model_runtime.Make (Selection_model)
 module Structural_runtime = Model_runtime.Make (Structural_model)
@@ -21,6 +22,7 @@ type inspection =
   | Profile
   | Api
   | Scripts
+  | Plugins
 
 type outcome = Continue of t | Exit of t
 
@@ -35,6 +37,7 @@ and t = {
   base_semantics : Semantic_descriptor.t list;
   config : Scripting.config;
   generation : Scripting.t option;
+  plugins : Plugins.t;
   next_generation_id : int;
   last_reload_error : string option;
   delivering_events : Scripting.event list;
@@ -81,9 +84,20 @@ let commands_with_generation base generation =
         (Ok base)
         (Scripting.commands generation)
 
+let commands_with_plugins base plugins =
+  List.fold_left
+    (fun registry command ->
+      Result.bind registry (fun registry -> Command_registry.register registry command))
+    (Ok base) (Plugins.commands plugins)
+
 let semantic_behaviors = function
   | None -> Semantic_behavior_registry.empty
   | Some generation -> Scripting.semantic_behaviors generation
+
+let semantic_behaviors_with_plugins generation plugins =
+  Semantic_behavior_registry.merge (semantic_behaviors generation)
+    (Plugins.semantic_behaviors plugins)
+  |> Result.get_ok
 
 let document ~contents =
   Document.create
@@ -136,7 +150,7 @@ let lifecycle trace ~execution_id ~phase ?generation ?provider ~outcome ?reason
         })
 
 let create ~model ?language ?file_path ?(contents = "") ?trace ?profiler
-    ?(config = Scripting.Default) ~dimensions () =
+    ?(config = Scripting.Default) ?(plugins = Plugins.Disabled) ~dimensions () =
   match document ~contents with
   | Error _ as error -> error
   | Ok document -> (
@@ -184,7 +198,33 @@ let create ~model ?language ?file_path ?(contents = "") ?trace ?profiler
                       ("script generation invariant violated: "
                      ^ Error.to_string error)
               in
-              let semantic_behaviors = semantic_behaviors generation in
+              let configured_semantics =
+                base_semantics
+                @
+                match generation with
+                | None -> []
+                | Some generation -> Scripting.descriptors generation
+              in
+              let plugin_host =
+                Plugins.load ~config:plugins ~base_commands:commands
+                  ~base_semantics:configured_semantics
+                  ?base_bindings:
+                    (match generation with
+                    | None -> None
+                    | Some generation -> Some (Scripting.bindings generation))
+                  ()
+              in
+              let commands =
+                match commands_with_plugins commands plugin_host with
+                | Ok commands -> commands
+                | Error error ->
+                    failwith
+                      ("plugin snapshot invariant violated: "
+                     ^ Error.to_string error)
+              in
+              let semantic_behaviors =
+                semantic_behaviors_with_plugins generation plugin_host
+              in
               let runtime =
                 match model with
                 | Vim ->
@@ -208,6 +248,7 @@ let create ~model ?language ?file_path ?(contents = "") ?trace ?profiler
                     base_semantics;
                     config;
                     generation;
+                    plugins = plugin_host;
                     next_generation_id = 2;
                     last_reload_error = config_message;
                     delivering_events = [];
@@ -353,10 +394,34 @@ let reload_config session =
             last_reload_error = Some (Error.to_string error);
             quit_armed = false;
           }
-      | Ok commands ->
+      | Ok configured_commands ->
+          let configured_semantics =
+            session.base_semantics
+            @
+            match generation with
+            | None -> []
+            | Some generation -> Scripting.descriptors generation
+          in
+          let plugin_host =
+            Plugins.reload session.plugins ~base_commands:configured_commands
+              ~base_semantics:configured_semantics
+              ?base_bindings:
+                (match generation with
+                | None -> None
+                | Some generation -> Some (Scripting.bindings generation))
+              ()
+          in
+          let commands =
+            match commands_with_plugins configured_commands plugin_host with
+            | Ok commands -> commands
+            | Error error ->
+                failwith
+                  ("plugin snapshot invariant violated: " ^ Error.to_string error)
+          in
           let active =
             active_with_extensions session.active ~commands
-              ~semantic_behaviors:(semantic_behaviors generation)
+              ~semantic_behaviors:
+                (semantic_behaviors_with_plugins generation plugin_host)
           in
           Option.iter Scripting.dispose session.generation;
           lifecycle trace ~execution_id ~phase:"reload" ?generation
@@ -377,6 +442,7 @@ let reload_config session =
             session with
             active;
             generation;
+            plugins = plugin_host;
             next_generation_id = session.next_generation_id + 1;
             last_reload_error = None;
             message = Some message;
@@ -400,11 +466,14 @@ let binding_rank session binding =
   | Scripting.Model _ | Scripting.Model_status _ -> None
 
 let matching_binding session input =
-  match session.generation with
-  | None -> None
-  | Some generation -> (
-      Scripting.bindings generation
-      |> List.filter_map (fun binding ->
+  let bindings =
+    (match session.generation with
+    | None -> []
+    | Some generation -> Scripting.bindings generation)
+    @ Plugins.bindings session.plugins
+  in
+  bindings
+  |> List.filter_map (fun binding ->
           if
             String.equal
               (Input_event.to_string (Scripting.binding_input binding))
@@ -414,10 +483,10 @@ let matching_binding session input =
               (fun rank -> (rank, binding))
               (binding_rank session binding)
           else None)
-      |> List.sort (fun (left, _) (right, _) -> Int.compare right left)
-      |> function
-      | [] -> None
-      | (_, binding) :: _ -> Some binding)
+  |> List.sort (fun (left, _) (right, _) -> Int.compare right left)
+  |> function
+  | [] -> None
+  | (_, binding) :: _ -> Some binding
 
 let execute_active_effects ?augment_provenance session input effects =
   match session.active with
@@ -538,13 +607,15 @@ let invoke_bound_command session input binding =
 let rec run_event_hooks session event input =
   if List.mem event session.delivering_events then session
   else
-    match session.generation with
-    | None -> session
-    | Some generation ->
-        let hooks =
-          Scripting.hooks generation
-          |> List.filter (fun hook -> Scripting.hook_event hook = event)
-        in
+    let hooks =
+      (match session.generation with
+      | None -> []
+      | Some generation -> Scripting.hooks generation)
+      @ Plugins.hooks session.plugins
+      |> List.filter (fun hook -> Scripting.hook_event hook = event)
+    in
+    if hooks = [] then session
+    else
         let started =
           {
             session with
@@ -565,7 +636,7 @@ let rec run_event_hooks session event input =
                 | Scripting.Document_changed -> "document-changed"
                 | Scripting.After_save -> "after-save"
               in
-              let provider = Scripting.provider generation in
+              let provider = Scripting.hook_provider hook in
               Trace.emit_lazy trace (fun () ->
                   Trace_event.Script_callback
                     {
@@ -619,13 +690,11 @@ let rec run_event_hooks session event input =
                   else next)
             started hooks
         in
-        {
-          completed with
-          delivering_events =
-            List.filter
-              (fun active -> active <> event)
-              completed.delivering_events;
-        }
+    {
+      completed with
+      delivering_events =
+        List.filter (fun active -> active <> event) completed.delivering_events;
+    }
 
 let handle_input session input =
   let contents_before = Editor_context.contents (context session) in
@@ -724,16 +793,60 @@ let scope_to_string = function
   | Scripting.Model_status { model; status } -> "model:" ^ model ^ ":" ^ status
 
 let script_binding_lines session =
-  match session.generation with
-  | None -> [ "script overlays: none" ]
-  | Some generation ->
-      Scripting.bindings generation
-      |> List.map (fun binding ->
+  let bindings =
+    (match session.generation with
+    | None -> []
+    | Some generation -> Scripting.bindings generation)
+    @ Plugins.bindings session.plugins
+  in
+  match bindings with
+  | [] -> [ "extension overlays: none" ]
+  | bindings ->
+      bindings |> List.map (fun binding ->
           Printf.sprintf "script overlay: %s -> %s (%s; provider %s)"
             (Input_event.to_string (Scripting.binding_input binding))
             (Scripting.binding_command binding)
             (scope_to_string (Scripting.binding_scope binding))
             (Provider.id (Scripting.binding_provider binding)))
+
+let plugin_lines session =
+  match Plugins.views session.plugins with
+  | [] -> [ "plugins: none" ]
+  | views ->
+      List.concat_map
+        (fun view ->
+          let id =
+            Plugins.view_id view
+            |> Option.map Zenbu_extension.Plugin_id.to_string
+            |> Option.value ~default:"<invalid-manifest>"
+          in
+          let version =
+            Plugins.view_version view
+            |> Option.map Zenbu_extension.Plugin_version.to_string
+            |> Option.value ~default:"-"
+          in
+          let runtime = Option.value ~default:"-" (Plugins.view_runtime view) in
+          let capabilities =
+            Plugins.view_granted_capabilities view
+            |> List.map Zenbu_extension.Capability.id |> String.concat ", "
+          in
+          let contributions =
+            Plugins.view_contributions view
+            |> List.map Zenbu_extension.Contribution.id |> String.concat ", "
+          in
+          [
+            Printf.sprintf "%s %s %s %s" id version
+              (Plugins.state_name (Plugins.view_state view)) runtime;
+            "  manifest: " ^ Plugins.view_manifest_path view;
+            "  capabilities: "
+            ^ (if String.length capabilities = 0 then "none" else capabilities);
+            "  contributions: "
+            ^ (if String.length contributions = 0 then "none" else contributions);
+            (match Plugins.view_error view with
+            | None -> "  last-error: none"
+            | Some error -> "  last-error: " ^ Error.to_string error);
+          ])
+        views
 
 let inspect session inspection =
   let format ~last_execution ~trace ~model_descriptor ~model_status ~rules
@@ -772,6 +885,7 @@ let inspect session inspection =
         :: Inspector.format_api
              (Inspector.api ~models:all_models ~commands:command_registry
                 ~semantic_behaviors ())
+    | Plugins -> "Plugins" :: plugin_lines session
     | Scripts -> (
         match session.generation with
         | None ->

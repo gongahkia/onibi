@@ -569,9 +569,25 @@ let format_event = function
         |> Option.value ~default:"")
       ^ (Option.map (fun reason -> ": " ^ reason) reason
         |> Option.value ~default:"")
+  | Extension_lifecycle { phase; provider; outcome; reason; _ } ->
+      "extension " ^ phase ^ " " ^ outcome ^ " provider="
+      ^ Provider.describe provider
+      ^ (Option.map (fun reason -> ": " ^ reason) reason
+        |> Option.value ~default:"")
+  | Extension_callback { kind; provider; semantic_id; outcome; reason; _ } ->
+      "extension " ^ kind ^ " " ^ outcome ^ " provider="
+      ^ Provider.describe provider
+      ^ (Option.map (fun id -> " id=" ^ id) semantic_id
+        |> Option.value ~default:"")
+      ^ (Option.map (fun reason -> ": " ^ reason) reason
+        |> Option.value ~default:"")
+  | Capability_denied { provider; operation; required; granted; _ } ->
+      "capability denied provider=" ^ Provider.describe provider
+      ^ " operation=" ^ operation ^ " required=" ^ required ^ " granted="
+      ^ String.concat "," granted
   | Binding_resolved { input; command_id; provider; scope; _ } ->
       Printf.sprintf "binding: %s -> %s (provider=%s scope=%s)" input command_id
-        (Provider.id provider) scope
+        (Provider.describe provider) scope
   | Error_reported { reason; _ } -> "error: " ^ reason
 
 let format_why (value : why) =

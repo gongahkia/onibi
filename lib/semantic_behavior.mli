@@ -26,9 +26,29 @@ val selector_entry :
   run:selector ->
   selector_entry
 
+val extension_selector_entry :
+  descriptor:Zenbu_kernel.Semantic_descriptor.t ->
+  host:Extension_host.t ->
+  invocation:Extension_host.invocation ->
+  decode:
+    (Extension_host.request ->
+    Extension_value.t ->
+    (selection_set, Zenbu_kernel.Error.t) result) ->
+  selector_entry
+
 val transformation_entry :
   descriptor:Zenbu_kernel.Semantic_descriptor.t ->
   run:transformation ->
+  transformation_entry
+
+val extension_transformation_entry :
+  descriptor:Zenbu_kernel.Semantic_descriptor.t ->
+  host:Extension_host.t ->
+  invocation:Extension_host.invocation ->
+  decode:
+    (Extension_host.request ->
+    Extension_value.t ->
+    (transformation_result, Zenbu_kernel.Error.t) result) ->
   transformation_entry
 
 val selector_descriptor : selector_entry -> Zenbu_kernel.Semantic_descriptor.t

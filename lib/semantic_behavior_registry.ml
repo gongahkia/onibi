@@ -52,3 +52,15 @@ let descriptors registry =
         Semantic_behavior.transformation_descriptor entry)
   in
   selectors @ transformations
+
+let merge left right =
+  let add_selector result (_, entry) =
+    Result.bind result (fun registry -> register_selector registry entry)
+  in
+  let add_transformation result (_, entry) =
+    Result.bind result (fun registry -> register_transformation registry entry)
+  in
+  let selectors = Id_map.bindings right.selectors |> List.fold_left add_selector (Ok left) in
+  Result.bind selectors (fun registry ->
+      Id_map.bindings right.transformations
+      |> List.fold_left add_transformation (Ok registry))

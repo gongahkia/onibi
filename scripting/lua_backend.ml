@@ -2,7 +2,7 @@ open Ctypes
 open Foreign
 module Error = Zenbu_kernel.Error
 module Value = Zenbu_model_api.Extension_value
-module Context = Zenbu_model_api.Editor_context
+module Host = Zenbu_model_api.Extension_host
 
 type callback = int
 
@@ -101,7 +101,7 @@ type t = {
   source : string;
   mutable registrations : registration list;
   mutable callbacks : Callback.t list;
-  mutable active_context : Context.t option;
+  mutable active_request : Host.request option;
   mutable disposed : bool;
 }
 
@@ -398,77 +398,35 @@ let register_hook backend state =
   | Ok () -> 0
   | Error error -> registration_error backend state error
 
-let context_value context =
-  let selection_text selection =
-    let contents = Context.contents context in
-    let start = min selection.Context.anchor_offset selection.head_offset in
-    let stop = max selection.anchor_offset selection.head_offset in
-    String.sub contents start (stop - start)
-  in
-  let selections = Context.selections context in
-  let syntax =
-    match Context.syntax context with
-    | None -> Value.Nil
-    | Some syntax ->
-        Value.Record
-          [
-            ( "language",
-              Value.Text
-                (Zenbu_syntax.Syntax.Snapshot.language syntax
-                |> Zenbu_syntax.Syntax.Language.id) );
-            ( "version",
-              Value.Integer
-                (Zenbu_syntax.Syntax.Snapshot.document_version syntax) );
-            ( "has_error",
-              Value.Bool (Zenbu_syntax.Syntax.Snapshot.has_error syntax) );
-          ]
-  in
-  Value.Record
-    [
-      ( "document",
-        Value.Record
-          [
-            ("id", Value.Text (Context.document_id context));
-            ("version", Value.Integer (Context.document_version context));
-            ("length", Value.Integer (Context.byte_length context));
-          ] );
-      ( "selections",
-        Value.List
-          (List.map
-             (fun selection ->
-               Value.Record
-                 [
-                   ("anchor", Value.Integer selection.Context.anchor_offset);
-                   ("head", Value.Integer selection.head_offset);
-                   ( "start",
-                     Value.Integer
-                       (min selection.anchor_offset selection.head_offset) );
-                   ( "stop",
-                     Value.Integer
-                       (max selection.anchor_offset selection.head_offset) );
-                   ("text", Value.Text (selection_text selection));
-                 ])
-             selections.Context.selections) );
-      ("primary", Value.Integer selections.primary_index);
-      ("syntax", syntax);
-    ]
+let field value name = Value.find value name
+
+let context_field request name = field request.Host.context name
+
+let require request capability = Host.require request ~capability
+
+let document_contents request =
+  match context_field request "document" with
+  | Some (Value.Record fields) -> (
+      match List.assoc_opt "contents" fields with
+      | Some (Value.Text contents) -> Ok contents
+      | _ -> Error (error "execution" "<extension>" "document data is unavailable"))
+  | _ -> Error (error "execution" "<extension>" "document data is unavailable")
 
 let text_callback backend state =
   let result =
-    match backend.active_context with
-    | None ->
-        Error (error "execution" backend.source "zenbu.text is unavailable")
-    | Some context -> (
-        match (value_at state 1, value_at state 2) with
-        | Ok (Value.Integer start), Ok (Value.Integer stop)
-          when start >= 0 && stop >= start
-               && stop <= Context.byte_length context ->
-            let contents = Context.contents context in
-            Ok (String.sub contents start (stop - start))
-        | _ ->
-            Error
-              (error "execution" backend.source
-                 "zenbu.text expects an in-bounds start and stop offset"))
+    match backend.active_request with
+    | None -> Error (error "execution" backend.source "zenbu.text is unavailable")
+    | Some request ->
+        Result.bind (require request "document.read") (fun () ->
+            Result.bind (document_contents request) (fun contents ->
+                match (value_at state 1, value_at state 2) with
+                | Ok (Value.Integer start), Ok (Value.Integer stop)
+                  when start >= 0 && stop >= start && stop <= String.length contents ->
+                    Ok (String.sub contents start (stop - start))
+                | _ ->
+                    Error
+                      (error "execution" backend.source
+                         "zenbu.text expects an in-bounds start and stop offset")))
   in
   match result with
   | Error error -> registration_error backend state error
@@ -477,94 +435,67 @@ let text_callback backend state =
         (push_string state value (Unsigned.Size_t.of_int (String.length value)));
       1
 
-let node_value node =
-  let open Zenbu_syntax.Syntax.Snapshot.Node in
-  let compact node =
-    Value.Record
-      [
-        ("kind", Value.Text (kind node |> Zenbu_syntax.Syntax.Kind.to_string));
-        ("start", Value.Integer (start_offset node));
-        ("stop", Value.Integer (stop_offset node));
-        ("named", Value.Bool (is_named node));
-        ("error", Value.Bool (has_error node));
-        ("missing", Value.Bool (is_missing node));
-      ]
-  in
-  Value.Record
-    [
-      ("kind", Value.Text (kind node |> Zenbu_syntax.Syntax.Kind.to_string));
-      ("start", Value.Integer (start_offset node));
-      ("stop", Value.Integer (stop_offset node));
-      ("named", Value.Bool (is_named node));
-      ("error", Value.Bool (has_error node));
-      ("missing", Value.Bool (is_missing node));
-      ( "parent",
-        Option.value ~default:Value.Nil (Option.map compact (parent_named node))
-      );
-      ( "first_child",
-        Option.value ~default:Value.Nil
-          (Option.map compact (first_named_child node)) );
-      ("children", Value.List (List.map compact (named_children node)));
-      ( "next_sibling",
-        Option.value ~default:Value.Nil
-          (Option.map compact (next_named_sibling node)) );
-      ( "previous_sibling",
-        Option.value ~default:Value.Nil
-          (Option.map compact (previous_named_sibling node)) );
-    ]
+let node_contains ~start_offset ~stop_offset = function
+  | Value.Record fields -> (
+      match
+        (List.assoc_opt "start" fields, List.assoc_opt "stop" fields)
+      with
+      | Some (Value.Integer start), Some (Value.Integer stop) ->
+          start <= start_offset && stop_offset <= stop
+      | _ -> false)
+  | _ -> false
 
-let syntax_value context ~start_offset ~stop_offset =
-  match Context.syntax context with
-  | None -> Value.Nil
-  | Some snapshot ->
-      let node =
-        Zenbu_syntax.Syntax.Snapshot.smallest_named_containing snapshot
-          ~start_offset ~stop_offset
-        |> Option.map node_value
-        |> Option.value ~default:Value.Nil
-      in
-      Value.Record
-        [
-          ( "language",
-            Value.Text
-              (Zenbu_syntax.Syntax.Snapshot.language snapshot
-              |> Zenbu_syntax.Syntax.Language.id) );
-          ( "version",
-            Value.Integer
-              (Zenbu_syntax.Syntax.Snapshot.document_version snapshot) );
-          ( "has_error",
-            Value.Bool (Zenbu_syntax.Syntax.Snapshot.has_error snapshot) );
-          ("node", node);
-        ]
+let rec smallest_node ~start_offset ~stop_offset node =
+  if not (node_contains ~start_offset ~stop_offset node) then None
+  else
+    match node with
+    | Value.Record fields -> (
+        match List.assoc_opt "children" fields with
+        | Some (Value.List children) ->
+            List.find_map (smallest_node ~start_offset ~stop_offset) children
+            |> Option.value ~default:node |> Option.some
+        | _ -> Some node)
+    | _ -> None
 
 let syntax_callback backend state =
   let result =
-    match backend.active_context with
-    | None ->
-        Error (error "execution" backend.source "zenbu.syntax is unavailable")
-    | Some context ->
-        let selections = Context.selections context in
-        let primary = List.nth selections.selections selections.primary_index in
-        let default () =
-          Ok
-            (syntax_value context
-               ~start_offset:(min primary.anchor_offset primary.head_offset)
-               ~stop_offset:(max primary.anchor_offset primary.head_offset))
-        in
-        let requested () =
-          match (value_at state 1, value_at state 2) with
-          | Ok (Value.Integer start_offset), Ok (Value.Integer stop_offset)
-            when start_offset >= 0
-                 && stop_offset >= start_offset
-                 && stop_offset <= Context.byte_length context ->
-              Ok (syntax_value context ~start_offset ~stop_offset)
-          | _ ->
-              Error
-                (error "execution" backend.source
-                   "zenbu.syntax expects zero arguments or an in-bounds start \
-                    and stop offset")
-        in
-        if get_top state = 0 then default () else requested ()
+    match backend.active_request with
+    | None -> Error (error "execution" backend.source "zenbu.syntax is unavailable")
+    | Some request ->
+        Result.bind (require request "syntax.read") (fun () ->
+            match context_field request "syntax" with
+            | Some Value.Nil | None -> Ok Value.Nil
+            | Some (Value.Record fields as syntax) ->
+                let default_node = List.assoc_opt "node" fields in
+                let requested_node () =
+                  match (value_at state 1, value_at state 2, List.assoc_opt "tree" fields) with
+                  | ( Ok (Value.Integer start_offset),
+                      Ok (Value.Integer stop_offset),
+                      Some tree )
+                    when start_offset >= 0 && stop_offset >= start_offset ->
+                      Ok
+                        (Option.value ~default:Value.Nil
+                           (smallest_node ~start_offset ~stop_offset tree))
+                  | _ ->
+                      Error
+                        (error "execution" backend.source
+                           "zenbu.syntax expects zero arguments or an in-bounds start and stop offset")
+                in
+                let node =
+                  if get_top state = 0 then
+                    Ok (Option.value ~default:Value.Nil default_node)
+                  else requested_node ()
+                in
+                Result.map
+                  (fun node ->
+                    match syntax with
+                    | Value.Record fields ->
+                        Value.Record
+                          (List.filter (fun (name, _) -> name <> "tree") fields
+                          @ [ ("node", node) ])
+                    | _ -> assert false)
+                  node
+            | Some _ -> Error (error "execution" backend.source "invalid syntax context"))
   in
   match result with
   | Error error -> registration_error backend state error
@@ -612,7 +543,7 @@ let create ~source =
           source;
           registrations = [];
           callbacks = [];
-          active_context = None;
+          active_request = None;
           disposed = false;
         }
       in
@@ -666,16 +597,16 @@ let evaluate backend source =
         set_top state 0;
         Error (lua_error backend "evaluation" message)
 
-let call backend callback ~context ~arguments =
+let call backend callback ~request =
   if backend.disposed then
     Error (error "execution" backend.source "Lua state is disposed")
   else
     let state = backend.state in
     set_top state 0;
-    backend.active_context <- Some context;
+    backend.active_request <- Some request;
     Fun.protect
       ~finally:(fun () ->
-        backend.active_context <- None;
+        backend.active_request <- None;
         set_top state 0)
       (fun () ->
         ignore (raw_get_i state registry_index (Int64.of_int callback));
@@ -685,7 +616,7 @@ let call backend callback ~context ~arguments =
         else (
           push_value state
             (Value.Record
-               [ ("context", context_value context); ("arguments", arguments) ]);
+               [ ("context", request.context); ("arguments", request.arguments) ]);
           let called = protected_call state 1 1 0 0L (from_voidp void null) in
           if called <> lua_ok then
             Error (lua_error backend "execution" (lua_error_message backend))
@@ -702,5 +633,5 @@ let dispose backend =
       backend.callbacks;
     backend.callbacks <- [];
     backend.registrations <- [];
-    backend.active_context <- None;
+    backend.active_request <- None;
     close backend.state)

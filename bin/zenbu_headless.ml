@@ -4,6 +4,7 @@ open Zenbu_syntax
 open Zenbu_proof_models
 open Zenbu_structural_model
 module Scripting = Zenbu_scripting.Scripting
+module Plugins = Zenbu_extension.Plugin_host
 
 let fail error =
   prerr_endline (Error.to_string error);
@@ -381,6 +382,76 @@ let inspect_description kind id =
 let script_base_semantics () =
   Inspector.semantic_registry () |> Semantic_registry.descriptors
 
+let print_plugin_view view =
+  let id =
+    Plugins.view_id view
+    |> Option.map Zenbu_extension.Plugin_id.to_string
+    |> Option.value ~default:"<invalid-manifest>"
+  in
+  let version =
+    Plugins.view_version view
+    |> Option.map Zenbu_extension.Plugin_version.to_string
+    |> Option.value ~default:"-"
+  in
+  let runtime = Option.value ~default:"-" (Plugins.view_runtime view) in
+  Printf.printf "%s %s %s %s\n" id version
+    (Plugins.state_name (Plugins.view_state view)) runtime;
+  Printf.printf "  manifest: %s\n" (Plugins.view_manifest_path view);
+  Printf.printf "  capabilities: %s\n"
+    (Plugins.view_granted_capabilities view
+    |> List.map Zenbu_extension.Capability.id |> String.concat ", ");
+  Printf.printf "  contributions: %s\n"
+    (Plugins.view_contributions view
+    |> List.map Zenbu_extension.Contribution.id |> String.concat ", ");
+  Printf.printf "  registrations: %s\n"
+    (Plugins.view_registered_ids view |> String.concat ", ");
+  Option.iter
+    (fun error -> Printf.printf "  error: %s\n" (Error.to_string error))
+    (Plugins.view_error view)
+
+let plugin_host config =
+  Plugins.load ~config ~base_commands:(semantic_registry ())
+    ~base_semantics:(script_base_semantics ()) ()
+
+let plugins config =
+  let host = plugin_host config in
+  Fun.protect ~finally:(fun () -> Plugins.dispose host) (fun () ->
+      match Plugins.views host with
+      | [] -> print_endline "plugins: none"
+      | views -> List.iter print_plugin_view views)
+
+let plugin_check path =
+  let package_dir =
+    if String.equal (Filename.basename path) Zenbu_extension.Manifest.filename
+    then Filename.dirname path
+    else path
+  in
+  let host = plugin_host (Plugins.Directories [ Filename.dirname package_dir ]) in
+  Fun.protect ~finally:(fun () -> Plugins.dispose host) (fun () ->
+      let manifest = Filename.concat package_dir Zenbu_extension.Manifest.filename in
+      match
+        Plugins.views host
+        |> List.find_opt (fun view ->
+               String.equal (Plugins.view_manifest_path view) manifest)
+      with
+      | None ->
+          fail
+            (Error.Extension_error
+               {
+                 code = Error.Invalid_plugin_package;
+                 plugin_id = None;
+                 provider = None;
+                 operation = Some "plugin-check";
+                 required = None;
+                 granted = [];
+                 message = "plugin package was not discovered";
+               })
+      | Some view ->
+          print_plugin_view view;
+          match Plugins.view_error view with None -> () | Some error -> fail error)
+
+let extension_api () = print_string (Zenbu_extension.Contract.markdown ())
+
 let check_config path =
   match
     Scripting.check_file ~base_commands:(semantic_registry ())
@@ -452,6 +523,32 @@ let script_session config_path session_path =
             (Zenbu_app.Session.inspect session Zenbu_app.Session.Scripts);
           List.iter print_endline
             (Zenbu_app.Session.inspect session Zenbu_app.Session.History))
+
+let plugin_session plugin_directory session_path =
+  match session_of_string (read_file session_path) with
+  | Error error -> fail error
+  | Ok definition ->
+      let trace = Trace.enabled ~capacity:1024 |> Result.get_ok in
+      let profiler = Profiler.enabled ~capacity:1024 |> Result.get_ok in
+      let dimensions = Zenbu_view.Renderer.{ columns = 120; rows = 40 } in
+      match
+        Zenbu_app.Session.create ~model:(app_model definition.model)
+          ?language:definition.language ~contents:definition.contents ~trace
+          ~profiler ~config:Scripting.Disabled
+          ~plugins:(Plugins.Directories [ plugin_directory ]) ~dimensions ()
+      with
+      | Error error -> fail error
+      | Ok session ->
+          let session =
+            List.fold_left Zenbu_app.Session.handle_input session definition.inputs
+          in
+          Printf.printf "text: %S\n" (Zenbu_app.Session.contents session);
+          List.iter print_endline
+            (Zenbu_app.Session.inspect session Zenbu_app.Session.Plugins);
+          List.iter print_endline
+            (Zenbu_app.Session.inspect session Zenbu_app.Session.Why);
+          List.iter print_endline
+            (Zenbu_app.Session.inspect session Zenbu_app.Session.History)
 
 let script_demo_config prefix suffix =
   Printf.sprintf
@@ -527,7 +624,7 @@ let print_demo_why model ?language contents inputs =
       Zenbu_app.Session.inspect session Zenbu_app.Session.Why |> print_lines
 
 let demo () =
-  Printf.printf "Zenbu M7: four extension surfaces, one semantic kernel\n\n";
+  Printf.printf "Zenbu M8: stable extension contract, one semantic kernel\n\n";
   Printf.printf "Initial: \"alpha beta gamma\"\n\nVIM-STYLE: d w\n";
   run_vim_session "alpha beta gamma" [ logical_key "d"; logical_key "w" ];
   print_demo_why Zenbu_app.Session.Vim "alpha beta gamma"
@@ -600,7 +697,9 @@ let usage () =
      <fixture.session> | history <fixture.session> | selection \
      <fixture.session> | syntax-session <fixture.session> | profile \
      <fixture.session> | config-check <init.lua> | config-describe <init.lua> \
-     | script-session <init.lua> <fixture.session>";
+     | script-session <init.lua> <fixture.session> | plugin-session <PLUGIN-ROOT> \
+     <fixture.session> | plugins [DIR] | plugin-check <PLUGIN-DIR> | \
+     plugin-describe <PLUGIN-DIR> | extension-api";
   exit 2
 
 let () =
@@ -613,6 +712,12 @@ let () =
   | [ _; "config-check"; path ] -> check_config path
   | [ _; "config-describe"; path ] -> describe_config path
   | [ _; "script-session"; config; session ] -> script_session config session
+  | [ _; "plugins" ] -> plugins Plugins.Default
+  | [ _; "plugins"; directory ] -> plugins (Plugins.Directories [ directory ])
+  | [ _; "plugin-check"; path ] | [ _; "plugin-describe"; path ] ->
+      plugin_check path
+  | [ _; "plugin-session"; plugins; session ] -> plugin_session plugins session
+  | [ _; "extension-api" ] -> extension_api ()
   | [ _; "describe"; kind; id ] -> inspect_description kind id
   | [ _; "bindings"; "vim" ] -> initial_bindings Vim
   | [ _; "bindings"; "selection" ] -> initial_bindings Selection_first

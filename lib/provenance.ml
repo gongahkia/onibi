@@ -20,13 +20,14 @@ let entries value = value.entries
 let add value entry = { value with entries = value.entries @ [ entry ] }
 
 let entry_name = function
-  | Model { id; _ } -> "model " ^ id
+  | Model { id; provider } -> "model " ^ id ^ " (" ^ Provider.describe provider ^ ")"
   | Input input -> "input " ^ input
   | Interaction id -> "interaction " ^ string_of_int id
   | Effect id -> "effect " ^ id
-  | Command { id; _ } -> "command " ^ id
-  | Binding { input; command; _ } -> "binding " ^ input ^ " -> " ^ command
-  | Event { name; _ } -> "event " ^ name
+  | Command { id; provider } -> "command " ^ id ^ " (" ^ Provider.describe provider ^ ")"
+  | Binding { input; command; provider } ->
+      "binding " ^ input ^ " -> " ^ command ^ " (" ^ Provider.describe provider ^ ")"
+  | Event { name; provider } -> "event " ^ name ^ " (" ^ Provider.describe provider ^ ")"
   | Selector id -> "selector " ^ id
   | Transformation id -> "transformation " ^ id
   | Repeat description -> "repeat " ^ description

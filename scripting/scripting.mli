@@ -23,6 +23,15 @@ val load :
   config ->
   (t option, Zenbu_kernel.Error.t) result
 
+val load_plugin :
+  provider:Zenbu_kernel.Provider.t ->
+  capabilities:string list ->
+  contributions:string list ->
+  base_commands:Zenbu_model_api.Command_registry.t ->
+  base_semantics:Zenbu_kernel.Semantic_descriptor.t list ->
+  entrypoint:string ->
+  (t, Zenbu_kernel.Error.t) result
+
 val check_file :
   base_commands:Zenbu_model_api.Command_registry.t ->
   base_semantics:Zenbu_kernel.Semantic_descriptor.t list ->
@@ -44,6 +53,7 @@ val binding_command : binding -> string
 val binding_scope : binding -> scope
 val binding_provider : binding -> Zenbu_kernel.Provider.t
 val hook_event : hook -> event
+val hook_provider : hook -> Zenbu_kernel.Provider.t
 
 val run_hook :
   hook ->

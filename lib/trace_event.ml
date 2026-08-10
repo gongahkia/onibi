@@ -75,6 +75,28 @@ type t =
       outcome : string;
       reason : string option;
     }
+  | Extension_lifecycle of {
+      execution_id : execution_id;
+      phase : string;
+      provider : Zenbu_kernel.Provider.t;
+      outcome : string;
+      reason : string option;
+    }
+  | Extension_callback of {
+      execution_id : execution_id;
+      kind : string;
+      provider : Zenbu_kernel.Provider.t;
+      semantic_id : string option;
+      outcome : string;
+      reason : string option;
+    }
+  | Capability_denied of {
+      execution_id : execution_id;
+      provider : Zenbu_kernel.Provider.t;
+      operation : string;
+      required : string;
+      granted : string list;
+    }
   | Binding_resolved of {
       execution_id : execution_id;
       input : string;
@@ -101,6 +123,9 @@ let execution_id = function
   | Syntax_refreshed { execution_id; _ }
   | Script_lifecycle { execution_id; _ }
   | Script_callback { execution_id; _ }
+  | Extension_lifecycle { execution_id; _ }
+  | Extension_callback { execution_id; _ }
+  | Capability_denied { execution_id; _ }
   | Binding_resolved { execution_id; _ }
   | Error_reported { execution_id; _ } ->
       execution_id
@@ -122,5 +147,8 @@ let name = function
   | Syntax_refreshed _ -> "syntax-refreshed"
   | Script_lifecycle _ -> "script-lifecycle"
   | Script_callback _ -> "script-callback"
+  | Extension_lifecycle _ -> "extension-lifecycle"
+  | Extension_callback _ -> "extension-callback"
+  | Capability_denied _ -> "capability-denied"
   | Binding_resolved _ -> "binding-resolved"
   | Error_reported _ -> "error-reported"
