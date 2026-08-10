@@ -91,7 +91,7 @@ make install
 This installs `zenbu` into the active Opam prefix and adds the dynamically
 required Wasmtime library under `PREFIX/lib/zenbu/`; no `sudo` is involved.
 `make release` builds checked release-profile binaries in
-`_build/release/bin/` after the release gate. They are dynamically linked and
+`.zenbu/release-build/default/bin/` after the release gate. They are dynamically linked and
 become portable only with `lib/zenbu/libwasmtime.so`, as packaged by the
 tag-triggered Linux release-candidate workflow.
 

@@ -67,8 +67,8 @@ install: wasm-runtime-ready
 	echo "installed Zenbu to $$prefix/bin with Wasmtime at $$install_dir/libwasmtime.so"
 
 release: wasm-runtime-ready release-check
-	$(OPAM_ENV) dune build --profile release bin/zenbu.exe bin/zenbu_headless.exe
-	@echo "release-profile artifacts: _build/release/bin/zenbu.exe and _build/release/bin/zenbu_headless.exe"
+	$(OPAM_ENV) dune build --build-dir "$(CURDIR)/.zenbu/release-build" --profile release bin/zenbu.exe bin/zenbu_headless.exe
+	@echo "release-profile artifacts: .zenbu/release-build/default/bin/zenbu.exe and .zenbu/release-build/default/bin/zenbu_headless.exe"
 	@echo "they require libwasmtime.so beside the installed prefix at ../lib/zenbu; make install supplies it"
 
 release-check: check
