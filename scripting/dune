@@ -1,0 +1,6 @@
+(library
+ (name zenbu_scripting)
+ (public_name zenbu.scripting)
+ (modules scripting lua_backend)
+ (private_modules lua_backend)
+ (libraries zenbu_kernel zenbu_model_api zenbu_syntax ctypes.foreign unix))

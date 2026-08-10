@@ -3,6 +3,7 @@ open Zenbu_model_api
 open Zenbu_syntax
 open Zenbu_proof_models
 open Zenbu_structural_model
+module Scripting = Zenbu_scripting.Scripting
 
 let fail error =
   prerr_endline (Error.to_string error);
@@ -24,7 +25,7 @@ let logical_key text =
 let named_key value = Input_event.key_press (Input_event.named_key value)
 
 let control_key text =
-  match Input_event.logical_text text with
+  match Input_event.logical_text (String.lowercase_ascii text) with
   | Ok key -> Input_event.key_press ~modifiers:[ Input_event.Control ] key
   | Error error -> fail error
 
@@ -58,6 +59,12 @@ let read_file path =
   Fun.protect
     ~finally:(fun () -> close_in_noerr channel)
     (fun () -> really_input_string channel (in_channel_length channel))
+
+let write_file path contents =
+  let channel = open_out_bin path in
+  Fun.protect
+    ~finally:(fun () -> close_out_noerr channel)
+    (fun () -> output_string channel contents)
 
 let print_history history =
   List.iter
@@ -223,7 +230,11 @@ let input_of_session_value = function
   | "ArrowDown" -> Ok (named_key Input_event.Arrow_down)
   | "ArrowLeft" -> Ok (named_key Input_event.Arrow_left)
   | "ArrowRight" -> Ok (named_key Input_event.Arrow_right)
-  | "Ctrl-r" -> Ok (control_key "r")
+  | value when String.starts_with ~prefix:"Ctrl-" value ->
+      let text =
+        String.sub value 5 (String.length value - String.length "Ctrl-")
+      in
+      Ok (control_key text)
   | value -> Ok (logical_key value)
 
 let session_of_string text =
@@ -281,7 +292,7 @@ let app_model = function
   | Selection_first -> Zenbu_app.Session.Selection
   | Structural -> Zenbu_app.Session.Structural
 
-let observed_session inspection path =
+let observed_session ?(config = Scripting.Disabled) inspection path =
   match session_of_string (read_file path) with
   | Error error -> fail error
   | Ok session -> (
@@ -295,7 +306,7 @@ let observed_session inspection path =
       match
         Zenbu_app.Session.create ~model:(app_model session.model)
           ?language:session.language ~contents:session.contents ~trace ~profiler
-          ~dimensions ()
+          ~config ~dimensions ()
       with
       | Error error -> fail error
       | Ok initial ->
@@ -319,7 +330,7 @@ let initial_bindings model =
   match
     Zenbu_app.Session.create ~model:(app_model session.model)
       ?language:session.language ~contents:session.contents ~trace ~profiler
-      ~dimensions ()
+      ~config:Scripting.Disabled ~dimensions ()
   with
   | Error error -> fail error
   | Ok session ->
@@ -334,7 +345,7 @@ let all_models =
   ]
 
 let inspect_api () =
-  Inspector.api ~models:all_models ~commands:(semantic_registry ())
+  Inspector.api ~models:all_models ~commands:(semantic_registry ()) ()
   |> Inspector.format_api |> print_lines
 
 let inspect_commands () =
@@ -367,13 +378,147 @@ let inspect_description kind id =
         (Error.Invalid_command_arguments
            "describe expects command, model, selector, or transformation")
 
+let script_base_semantics () =
+  Inspector.semantic_registry () |> Semantic_registry.descriptors
+
+let check_config path =
+  match
+    Scripting.check_file ~base_commands:(semantic_registry ())
+      ~base_semantics:(script_base_semantics ()) path
+  with
+  | Error error -> fail error
+  | Ok (commands, selectors, transformations, bindings, hooks) ->
+      Printf.printf
+        "config ok: %d commands, %d selectors, %d transformations, %d \
+         bindings, %d hooks\n"
+        commands selectors transformations bindings hooks
+
+let describe_config path =
+  match
+    Scripting.load ~generation_id:1 ~base_commands:(semantic_registry ())
+      ~base_semantics:(script_base_semantics ()) (Scripting.Explicit path)
+  with
+  | Error error -> fail error
+  | Ok None -> print_endline "no script generation"
+  | Ok (Some generation) ->
+      Printf.printf "generation: %d\nsource: %s\nprovider: %s\n"
+        (Scripting.generation_id generation)
+        (Scripting.source generation)
+        (Zenbu_kernel.Provider.id (Scripting.provider generation));
+      List.iter
+        (fun command ->
+          let descriptor = Command.descriptor command in
+          Printf.printf "command: %s\n"
+            (Command_descriptor.id descriptor |> Command_id.to_string))
+        (Scripting.commands generation);
+      List.iter
+        (fun descriptor ->
+          Printf.printf "%s: %s\n"
+            (match Semantic_descriptor.kind descriptor with
+            | Semantic_descriptor.Selector -> "selector"
+            | Semantic_descriptor.Transformation -> "transformation")
+            (Semantic_descriptor.id descriptor))
+        (Scripting.descriptors generation);
+      List.iter
+        (fun binding ->
+          Printf.printf "binding: %s -> %s\n"
+            (Input_event.to_string (Scripting.binding_input binding))
+            (Scripting.binding_command binding))
+        (Scripting.bindings generation);
+      Scripting.dispose generation
+
+let script_session config_path session_path =
+  let config = Scripting.Explicit config_path in
+  match session_of_string (read_file session_path) with
+  | Error error -> fail error
+  | Ok definition -> (
+      let trace = Trace.enabled ~capacity:1024 |> Result.get_ok in
+      let profiler = Profiler.enabled ~capacity:1024 |> Result.get_ok in
+      let dimensions = Zenbu_view.Renderer.{ columns = 120; rows = 40 } in
+      match
+        Zenbu_app.Session.create
+          ~model:(app_model definition.model)
+          ?language:definition.language ~contents:definition.contents ~trace
+          ~profiler ~config ~dimensions ()
+      with
+      | Error error -> fail error
+      | Ok session ->
+          let session =
+            List.fold_left Zenbu_app.Session.handle_input session
+              definition.inputs
+          in
+          Printf.printf "text: %S\n" (Zenbu_app.Session.contents session);
+          List.iter print_endline
+            (Zenbu_app.Session.inspect session Zenbu_app.Session.Scripts);
+          List.iter print_endline
+            (Zenbu_app.Session.inspect session Zenbu_app.Session.History))
+
+let script_demo_config prefix suffix =
+  Printf.sprintf
+    {|
+zenbu.selector {
+  id = "demo.document",
+  title = "Demo document",
+  description = "Select the complete document.",
+  run = function(call)
+    return { selections = {{ anchor = 0, head = call.context.document.length }}, primary = 1 }
+  end,
+}
+zenbu.transform {
+  id = "demo.surround",
+  title = "Demo surround",
+  description = "Surround selected text.",
+  run = function(call)
+    local selection = call.arguments.selection_set[1]
+    local start = math.min(selection.anchor, selection.head)
+    local stop = math.max(selection.anchor, selection.head)
+    return { edits = {
+      { start = start, stop = start, text = %S },
+      { start = stop, stop = stop, text = %S },
+    }}
+  end,
+}
+zenbu.command {
+  id = "demo.wrap",
+  title = "Demo wrap",
+  description = "Run the registered selector and transform.",
+  run = function(_) return {{ kind = "apply", selector = "demo.document", transformation = "demo.surround" }} end,
+}
+zenbu.bind { input = "Ctrl-K", command = "demo.wrap" }
+|}
+    prefix suffix
+
+let run_script_demo () =
+  let path = Filename.temp_file "zenbu-m7-demo" ".lua" in
+  Fun.protect
+    ~finally:(fun () -> Sys.remove path)
+    (fun () ->
+      write_file path (script_demo_config "[" "]");
+      let trace = Trace.enabled ~capacity:128 |> Result.get_ok in
+      let profiler = Profiler.enabled ~capacity:128 |> Result.get_ok in
+      let dimensions = Zenbu_view.Renderer.{ columns = 120; rows = 40 } in
+      let session =
+        Zenbu_app.Session.create ~model:Zenbu_app.Session.Vim ~contents:"alpha"
+          ~trace ~profiler ~config:(Scripting.Explicit path) ~dimensions ()
+        |> Result.get_ok
+      in
+      let session = Zenbu_app.Session.handle_input session (control_key "K") in
+      Printf.printf "\nSCRIPTING: Ctrl-K with generation 1 -> %S\n"
+        (Zenbu_app.Session.contents session);
+      write_file path (script_demo_config "(" ")");
+      let session = Zenbu_app.Session.reload_config session in
+      let session = Zenbu_app.Session.handle_input session (control_key "K") in
+      Printf.printf "SCRIPTING: reload + Ctrl-K -> %S\n"
+        (Zenbu_app.Session.contents session);
+      Zenbu_app.Session.inspect session Zenbu_app.Session.Why |> print_lines)
+
 let print_demo_why model ?language contents inputs =
   let trace = Zenbu_model_api.Trace.enabled ~capacity:128 |> Result.get_ok in
   let profiler = Zenbu_model_api.Profiler.disabled () in
   let dimensions = Zenbu_view.Renderer.{ columns = 120; rows = 40 } in
   match
     Zenbu_app.Session.create ~model ?language ~contents ~trace ~profiler
-      ~dimensions ()
+      ~config:Scripting.Disabled ~dimensions ()
   with
   | Error error -> fail error
   | Ok session ->
@@ -382,7 +527,7 @@ let print_demo_why model ?language contents inputs =
       Zenbu_app.Session.inspect session Zenbu_app.Session.Why |> print_lines
 
 let demo () =
-  Printf.printf "Zenbu M6: three grammars, one explanation\n\n";
+  Printf.printf "Zenbu M7: four extension surfaces, one semantic kernel\n\n";
   Printf.printf "Initial: \"alpha beta gamma\"\n\nVIM-STYLE: d w\n";
   run_vim_session "alpha beta gamma" [ logical_key "d"; logical_key "w" ];
   print_demo_why Zenbu_app.Session.Vim "alpha beta gamma"
@@ -413,7 +558,8 @@ let demo () =
       named_key Input_event.Arrow_down;
       named_key Input_event.Arrow_right;
       logical_key "x";
-    ]
+    ];
+  run_script_demo ()
 
 let rec print_node indent node =
   Printf.printf "%s%s %d:%d named=%b error=%b missing=%b\n" indent
@@ -453,7 +599,8 @@ let usage () =
      <vim|selection|structural> | why <fixture.session> | bindings-session \
      <fixture.session> | history <fixture.session> | selection \
      <fixture.session> | syntax-session <fixture.session> | profile \
-     <fixture.session>";
+     <fixture.session> | config-check <init.lua> | config-describe <init.lua> \
+     | script-session <init.lua> <fixture.session>";
   exit 2
 
 let () =
@@ -463,6 +610,9 @@ let () =
   | [ _; "syntax"; path ] -> inspect_syntax path
   | [ _; "commands" ] -> inspect_commands ()
   | [ _; "api" ] -> inspect_api ()
+  | [ _; "config-check"; path ] -> check_config path
+  | [ _; "config-describe"; path ] -> describe_config path
+  | [ _; "script-session"; config; session ] -> script_session config session
   | [ _; "describe"; kind; id ] -> inspect_description kind id
   | [ _; "bindings"; "vim" ] -> initial_bindings Vim
   | [ _; "bindings"; "selection" ] -> initial_bindings Selection_first

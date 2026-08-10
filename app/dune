@@ -8,5 +8,6 @@
   zenbu_syntax
   zenbu_proof_models
   zenbu_structural_model
+  zenbu_scripting
   zenbu_view
   unix))

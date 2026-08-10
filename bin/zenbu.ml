@@ -1,5 +1,6 @@
 open Zenbu_kernel
 open Zenbu_model_api
+module Scripting = Zenbu_scripting.Scripting
 
 type options = {
   model : Zenbu_app.Session.model;
@@ -7,13 +8,14 @@ type options = {
   file_path : string option;
   trace : bool;
   profile : bool;
+  config : Scripting.config;
 }
 
 type run_result = Exited | Unsaved_end
 
 let usage =
   "usage: zenbu [--model vim|selection|structural] [--language ID] [--trace] \
-   [--profile] [FILE]"
+   [--profile] [--config PATH | --no-config] [FILE]"
 
 let parse_arguments () =
   let model = ref Zenbu_app.Session.Vim in
@@ -21,6 +23,22 @@ let parse_arguments () =
   let file_path = ref None in
   let trace = ref false in
   let profile = ref false in
+  let config = ref Scripting.Default in
+  let config_selected = ref false in
+  let set_config value =
+    if !config_selected then
+      raise (Arg.Bad "choose only one of --config and --no-config")
+    else (
+      config_selected := true;
+      config := Scripting.Explicit value)
+  in
+  let disable_config () =
+    if !config_selected then
+      raise (Arg.Bad "choose only one of --config and --no-config")
+    else (
+      config_selected := true;
+      config := Scripting.Disabled)
+  in
   let set_model = function
     | "vim" -> model := Zenbu_app.Session.Vim
     | "selection" -> model := Zenbu_app.Session.Selection
@@ -42,10 +60,14 @@ let parse_arguments () =
         "syntax language ID" );
       ("--trace", Arg.Set trace, "record a bounded local execution trace");
       ("--profile", Arg.Set profile, "record bounded local CPU-time spans");
+      ("--config", Arg.String set_config, "load this Lua configuration file");
+      ( "--no-config",
+        Arg.Unit disable_config,
+        "disable Lua configuration loading" );
       ( "--version",
         Arg.Unit
           (fun () ->
-            print_endline "zenbu M6";
+            print_endline "zenbu M7";
             exit 0),
         "print version" );
     ]
@@ -59,6 +81,7 @@ let parse_arguments () =
         file_path = !file_path;
         trace = !trace;
         profile = !profile;
+        config = !config;
       }
   with
   | Arg.Bad message -> Error message
@@ -86,11 +109,17 @@ let create_session options contents backend =
       Result.bind profiler (fun profiler ->
           Zenbu_app.Session.create ~model:options.model
             ?language:options.language ?file_path:options.file_path ~contents
-            ~trace ~profiler
+            ~trace ~profiler ~config:options.config
             ~dimensions:{ Zenbu_view.Renderer.columns; rows }
             ()))
 
 let is_control modifiers = modifiers = [ Zenbu_terminal.Event.Control ]
+
+let is_reload modifiers =
+  match List.sort_uniq compare modifiers with
+  | [ Zenbu_terminal.Event.Control; Zenbu_terminal.Event.Alt ] -> true
+  | [ Zenbu_terminal.Event.Alt ] | [ Zenbu_terminal.Event.Meta ] -> true
+  | _ -> false
 
 let rec run backend session =
   let session, frame = Zenbu_app.Session.render session in
@@ -117,6 +146,13 @@ let rec run backend session =
   | Zenbu_terminal.Event.Key { key = Zenbu_terminal.Event.Text "q"; modifiers }
     when is_control modifiers -> (
       match Zenbu_app.Session.handle_host session Zenbu_app.Session.Quit with
+      | Zenbu_app.Session.Continue session -> run backend session
+      | Zenbu_app.Session.Exit _ -> Exited)
+  | Zenbu_terminal.Event.Key { key = Zenbu_terminal.Event.Text "r"; modifiers }
+    when is_reload modifiers -> (
+      match
+        Zenbu_app.Session.handle_host session Zenbu_app.Session.Reload_config
+      with
       | Zenbu_app.Session.Continue session -> run backend session
       | Zenbu_app.Session.Exit _ -> Exited)
   | event -> (

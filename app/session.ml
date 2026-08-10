@@ -3,12 +3,13 @@ open Zenbu_model_api
 open Zenbu_syntax
 open Zenbu_proof_models
 open Zenbu_structural_model
+module Scripting = Zenbu_scripting.Scripting
 module Vim_runtime = Model_runtime.Make (Vim_model)
 module Selection_runtime = Model_runtime.Make (Selection_model)
 module Structural_runtime = Model_runtime.Make (Structural_model)
 
 type model = Vim | Selection | Structural
-type host_command = Save | Quit | Force_quit
+type host_command = Save | Quit | Force_quit | Reload_config
 
 type inspection =
   | Why
@@ -19,6 +20,7 @@ type inspection =
   | Syntax
   | Profile
   | Api
+  | Scripts
 
 type outcome = Continue of t | Exit of t
 
@@ -29,6 +31,13 @@ and active =
 
 and t = {
   active : active;
+  base_commands : Command_registry.t;
+  base_semantics : Semantic_descriptor.t list;
+  config : Scripting.config;
+  generation : Scripting.t option;
+  next_generation_id : int;
+  last_reload_error : string option;
+  delivering_events : Scripting.event list;
   file_path : string option;
   saved_version : int;
   saved_contents : string;
@@ -58,6 +67,24 @@ let commands () =
         (Ok registry)
         (Syntax_commands.commands ())
 
+let base_semantics () =
+  Inspector.semantic_registry () |> Semantic_registry.descriptors
+
+let commands_with_generation base generation =
+  match generation with
+  | None -> Ok base
+  | Some generation ->
+      List.fold_left
+        (fun registry command ->
+          Result.bind registry (fun registry ->
+              Command_registry.register registry command))
+        (Ok base)
+        (Scripting.commands generation)
+
+let semantic_behaviors = function
+  | None -> Semantic_behavior_registry.empty
+  | Some generation -> Scripting.semantic_behaviors generation
+
 let document ~contents =
   Document.create
     ~id:(static (Document_id.of_string "terminal-buffer"))
@@ -75,8 +102,41 @@ let syntax_service ?language file_path =
       | Some language -> Ok (Some (Syntax.Service.create language))
       | None -> Ok None)
 
+let trace_of_active = function
+  | Vim_runtime runtime -> Vim_runtime.trace runtime
+  | Selection_runtime runtime -> Selection_runtime.trace runtime
+  | Structural_runtime runtime -> Structural_runtime.trace runtime
+
+let profiler_of_active = function
+  | Vim_runtime runtime -> Vim_runtime.profiler runtime
+  | Selection_runtime runtime -> Selection_runtime.profiler runtime
+  | Structural_runtime runtime -> Structural_runtime.profiler runtime
+
+let last_execution_of_active = function
+  | Vim_runtime runtime -> Vim_runtime.last_execution runtime
+  | Selection_runtime runtime -> Selection_runtime.last_execution runtime
+  | Structural_runtime runtime -> Structural_runtime.last_execution runtime
+
+let lifecycle trace ~execution_id ~phase ?generation ?provider ~outcome ?reason
+    () =
+  let provider =
+    match generation with
+    | Some generation -> Some (Scripting.provider generation)
+    | None -> provider
+  in
+  Trace.emit_lazy trace (fun () ->
+      Trace_event.Script_lifecycle
+        {
+          execution_id;
+          phase;
+          generation_id = Option.map Scripting.generation_id generation;
+          provider;
+          outcome;
+          reason;
+        })
+
 let create ~model ?language ?file_path ?(contents = "") ?trace ?profiler
-    ~dimensions () =
+    ?(config = Scripting.Default) ~dimensions () =
   match document ~contents with
   | Error _ as error -> error
   | Ok document -> (
@@ -85,32 +145,78 @@ let create ~model ?language ?file_path ?(contents = "") ?trace ?profiler
       | Ok syntax_service -> (
           match commands () with
           | Error _ as error -> error
-          | Ok commands ->
+          | Ok base_commands ->
+              let base_semantics = base_semantics () in
+              let trace = Option.value trace ~default:(Trace.disabled ()) in
+              let profiler =
+                Option.value profiler ~default:(Profiler.disabled ())
+              in
+              lifecycle trace ~execution_id:0 ~phase:"load" ~outcome:"started"
+                ();
+              let generation, config_message =
+                match
+                  Profiler.measure profiler Profiler.Script_load (fun () ->
+                      Scripting.load ~generation_id:1 ~base_commands
+                        ~base_semantics config)
+                with
+                | Ok generation -> (generation, None)
+                | Error error ->
+                    ( None,
+                      Some ("configuration not loaded: " ^ Error.to_string error)
+                    )
+              in
+              (match (generation, config_message) with
+              | Some generation, None ->
+                  lifecycle trace ~execution_id:0 ~phase:"load" ~generation
+                    ~outcome:"succeeded" ()
+              | None, Some reason ->
+                  lifecycle trace ~execution_id:0 ~phase:"load"
+                    ~outcome:"failed" ~reason ()
+              | None, None ->
+                  lifecycle trace ~execution_id:0 ~phase:"load"
+                    ~outcome:"succeeded" ()
+              | Some _, Some _ -> assert false);
+              let commands =
+                match commands_with_generation base_commands generation with
+                | Ok commands -> commands
+                | Error error ->
+                    failwith
+                      ("script generation invariant violated: "
+                     ^ Error.to_string error)
+              in
+              let semantic_behaviors = semantic_behaviors generation in
               let runtime =
                 match model with
                 | Vim ->
-                    Vim_runtime.create ~commands ?syntax_service ?trace
-                      ?profiler ~document ()
+                    Vim_runtime.create ~commands ~semantic_behaviors
+                      ?syntax_service ~trace ~profiler ~document ()
                     |> Result.map (fun runtime -> Vim_runtime runtime)
                 | Selection ->
-                    Selection_runtime.create ~commands ?syntax_service ?trace
-                      ?profiler ~document ()
+                    Selection_runtime.create ~commands ~semantic_behaviors
+                      ?syntax_service ~trace ~profiler ~document ()
                     |> Result.map (fun runtime -> Selection_runtime runtime)
                 | Structural ->
-                    Structural_runtime.create ~commands ?syntax_service ?trace
-                      ?profiler ~document ()
+                    Structural_runtime.create ~commands ~semantic_behaviors
+                      ?syntax_service ~trace ~profiler ~document ()
                     |> Result.map (fun runtime -> Structural_runtime runtime)
               in
               runtime
               |> Result.map (fun active ->
                   {
                     active;
+                    base_commands;
+                    base_semantics;
+                    config;
+                    generation;
+                    next_generation_id = 2;
+                    last_reload_error = config_message;
+                    delivering_events = [];
                     file_path;
                     saved_version = 0;
                     saved_contents = contents;
                     viewport = Zenbu_view.Viewport.origin;
                     dimensions;
-                    message = None;
+                    message = config_message;
                     quit_armed = false;
                     inspector = None;
                   })))
@@ -144,7 +250,7 @@ let last_message messages =
   | [] -> None
   | message :: _ -> Some message.Model_effect.text
 
-let handle_input session input =
+let handle_model_input session input =
   let next =
     match session.active with
     | Vim_runtime runtime -> (
@@ -201,6 +307,337 @@ let handle_input session input =
   in
   next
 
+let active_with_extensions active ~commands ~semantic_behaviors =
+  match active with
+  | Vim_runtime runtime ->
+      Vim_runtime.with_extensions runtime ~commands ~semantic_behaviors
+      |> fun runtime -> Vim_runtime runtime
+  | Selection_runtime runtime ->
+      Selection_runtime.with_extensions runtime ~commands ~semantic_behaviors
+      |> fun runtime -> Selection_runtime runtime
+  | Structural_runtime runtime ->
+      Structural_runtime.with_extensions runtime ~commands ~semantic_behaviors
+      |> fun runtime -> Structural_runtime runtime
+
+let reload_config session =
+  let trace = trace_of_active session.active in
+  let profiler = profiler_of_active session.active in
+  let execution_id =
+    Option.value ~default:0 (last_execution_of_active session.active)
+  in
+  lifecycle trace ~execution_id ~phase:"reload" ~outcome:"started" ();
+  match
+    Profiler.measure profiler Profiler.Script_reload (fun () ->
+        Scripting.load ~generation_id:session.next_generation_id
+          ~base_commands:session.base_commands
+          ~base_semantics:session.base_semantics session.config)
+  with
+  | Error error ->
+      lifecycle trace ~execution_id ~phase:"reload" ~outcome:"failed"
+        ~reason:(Error.to_string error) ();
+      {
+        session with
+        message = Some ("configuration reload failed: " ^ Error.to_string error);
+        last_reload_error = Some (Error.to_string error);
+        quit_armed = false;
+      }
+  | Ok generation -> (
+      match commands_with_generation session.base_commands generation with
+      | Error error ->
+          lifecycle trace ~execution_id ~phase:"reload" ?generation
+            ~outcome:"failed" ~reason:(Error.to_string error) ();
+          {
+            session with
+            message =
+              Some ("configuration reload failed: " ^ Error.to_string error);
+            last_reload_error = Some (Error.to_string error);
+            quit_armed = false;
+          }
+      | Ok commands ->
+          let active =
+            active_with_extensions session.active ~commands
+              ~semantic_behaviors:(semantic_behaviors generation)
+          in
+          Option.iter Scripting.dispose session.generation;
+          lifecycle trace ~execution_id ~phase:"reload" ?generation
+            ~outcome:"succeeded" ();
+          let message =
+            match generation with
+            | None -> "configuration reloaded: no active script generation"
+            | Some generation ->
+                let commands, selectors, transformations, bindings, hooks =
+                  Scripting.counts generation
+                in
+                Printf.sprintf
+                  "configuration reloaded: %d commands, %d selectors, %d \
+                   transformations, %d bindings, %d hooks"
+                  commands selectors transformations bindings hooks
+          in
+          {
+            session with
+            active;
+            generation;
+            next_generation_id = session.next_generation_id + 1;
+            last_reload_error = None;
+            message = Some message;
+            quit_armed = false;
+          })
+
+let model_descriptor = function
+  | Vim_runtime runtime -> Vim_runtime.model_descriptor runtime
+  | Selection_runtime runtime -> Selection_runtime.model_descriptor runtime
+  | Structural_runtime runtime -> Structural_runtime.model_descriptor runtime
+
+let binding_rank session binding =
+  let model = model_descriptor session.active |> Editing_model.id in
+  let status = status session |> Model_status.id in
+  match Scripting.binding_scope binding with
+  | Scripting.Global -> Some 0
+  | Scripting.Model candidate when String.equal candidate model -> Some 1
+  | Scripting.Model_status { model = candidate; status = candidate_status }
+    when String.equal candidate model && String.equal candidate_status status ->
+      Some 2
+  | Scripting.Model _ | Scripting.Model_status _ -> None
+
+let matching_binding session input =
+  match session.generation with
+  | None -> None
+  | Some generation -> (
+      Scripting.bindings generation
+      |> List.filter_map (fun binding ->
+          if
+            String.equal
+              (Input_event.to_string (Scripting.binding_input binding))
+              (Input_event.to_string input)
+          then
+            Option.map
+              (fun rank -> (rank, binding))
+              (binding_rank session binding)
+          else None)
+      |> List.sort (fun (left, _) (right, _) -> Int.compare right left)
+      |> function
+      | [] -> None
+      | (_, binding) :: _ -> Some binding)
+
+let execute_active_effects ?augment_provenance session input effects =
+  match session.active with
+  | Vim_runtime runtime -> (
+      match
+        Vim_runtime.execute_effects runtime ?augment_provenance ~input effects
+      with
+      | Error error ->
+          ( {
+              session with
+              message = Some (Error.to_string error);
+              quit_armed = false;
+            },
+            false )
+      | Ok (runtime, step) ->
+          ( {
+              session with
+              active = Vim_runtime runtime;
+              message = last_message (Vim_runtime.messages step);
+              quit_armed = false;
+              inspector = None;
+            },
+            Vim_runtime.change_ids step <> [] ))
+  | Selection_runtime runtime -> (
+      match
+        Selection_runtime.execute_effects runtime ?augment_provenance ~input
+          effects
+      with
+      | Error error ->
+          ( {
+              session with
+              message = Some (Error.to_string error);
+              quit_armed = false;
+            },
+            false )
+      | Ok (runtime, step) ->
+          ( {
+              session with
+              active = Selection_runtime runtime;
+              message = last_message (Selection_runtime.messages step);
+              quit_armed = false;
+              inspector = None;
+            },
+            Selection_runtime.change_ids step <> [] ))
+  | Structural_runtime runtime -> (
+      match
+        Structural_runtime.execute_effects runtime ?augment_provenance ~input
+          effects
+      with
+      | Error error ->
+          ( {
+              session with
+              message = Some (Error.to_string error);
+              quit_armed = false;
+            },
+            false )
+      | Ok (runtime, step) ->
+          ( {
+              session with
+              active = Structural_runtime runtime;
+              message = last_message (Structural_runtime.messages step);
+              quit_armed = false;
+              inspector = None;
+            },
+            Structural_runtime.change_ids step <> [] ))
+
+let invoke_bound_command session input binding =
+  let command = Scripting.binding_command binding in
+  let trace_binding next =
+    let execution_id =
+      Option.value ~default:0 (last_execution_of_active next.active)
+    in
+    let scope =
+      match Scripting.binding_scope binding with
+      | Scripting.Global -> "global"
+      | Scripting.Model model -> "model:" ^ model
+      | Scripting.Model_status { model; status } ->
+          "model:" ^ model ^ ":" ^ status
+    in
+    Trace.emit_lazy (trace_of_active next.active) (fun () ->
+        Trace_event.Binding_resolved
+          {
+            execution_id;
+            input = Input_event.to_string (Scripting.binding_input binding);
+            command_id = command;
+            provider = Scripting.binding_provider binding;
+            scope;
+          });
+    next
+  in
+  if String.equal command "config.reload" then
+    let next = reload_config session in
+    (trace_binding next, false)
+  else
+    match Command_id.of_string command with
+    | Error error ->
+        ({ session with message = Some (Error.to_string error) }, false)
+    | Ok id ->
+        let invocation =
+          Command_invocation.create ~id ~arguments:[] |> Result.get_ok
+        in
+        let next, changed =
+          execute_active_effects
+            ~augment_provenance:(fun provenance ->
+              Provenance.add provenance
+                (Provenance.Binding
+                   {
+                     input =
+                       Input_event.to_string (Scripting.binding_input binding);
+                     command;
+                     provider = Scripting.binding_provider binding;
+                   }))
+            session input
+            [ Model_effect.Invoke_command invocation ]
+        in
+        (trace_binding next, changed)
+
+let rec run_event_hooks session event input =
+  if List.mem event session.delivering_events then session
+  else
+    match session.generation with
+    | None -> session
+    | Some generation ->
+        let hooks =
+          Scripting.hooks generation
+          |> List.filter (fun hook -> Scripting.hook_event hook = event)
+        in
+        let started =
+          {
+            session with
+            delivering_events = event :: session.delivering_events;
+          }
+        in
+        let completed =
+          List.fold_left
+            (fun session hook ->
+              let trace = trace_of_active session.active in
+              let profiler = profiler_of_active session.active in
+              let execution_id =
+                Option.value ~default:0
+                  (last_execution_of_active session.active)
+              in
+              let event_name =
+                match event with
+                | Scripting.Document_changed -> "document-changed"
+                | Scripting.After_save -> "after-save"
+              in
+              let provider = Scripting.provider generation in
+              Trace.emit_lazy trace (fun () ->
+                  Trace_event.Script_callback
+                    {
+                      execution_id;
+                      kind = "event";
+                      provider;
+                      semantic_id = Some event_name;
+                      outcome = "started";
+                      reason = None;
+                    });
+              match
+                Profiler.measure profiler Profiler.Script_event (fun () ->
+                    Scripting.run_hook hook (context session))
+              with
+              | Error error ->
+                  Trace.emit_lazy trace (fun () ->
+                      Trace_event.Script_callback
+                        {
+                          execution_id;
+                          kind = "event";
+                          provider;
+                          semantic_id = Some event_name;
+                          outcome = "failed";
+                          reason = Some (Error.to_string error);
+                        });
+                  {
+                    session with
+                    message = Some (Error.to_string error);
+                    quit_armed = false;
+                  }
+              | Ok effects ->
+                  Trace.emit_lazy trace (fun () ->
+                      Trace_event.Script_callback
+                        {
+                          execution_id;
+                          kind = "event";
+                          provider;
+                          semantic_id = Some event_name;
+                          outcome = "succeeded";
+                          reason = None;
+                        });
+                  let next, changed =
+                    execute_active_effects
+                      ~augment_provenance:(fun provenance ->
+                        Provenance.add provenance
+                          (Provenance.Event { name = event_name; provider }))
+                      session input effects
+                  in
+                  if changed then
+                    run_event_hooks next Scripting.Document_changed input
+                  else next)
+            started hooks
+        in
+        {
+          completed with
+          delivering_events =
+            List.filter
+              (fun active -> active <> event)
+              completed.delivering_events;
+        }
+
+let handle_input session input =
+  let contents_before = Editor_context.contents (context session) in
+  let next =
+    match matching_binding session input with
+    | Some binding -> fst (invoke_bound_command session input binding)
+    | None -> handle_model_input session input
+  in
+  if String.equal contents_before (Editor_context.contents (context next)) then
+    next
+  else run_event_hooks next Scripting.Document_changed input
+
 let save session =
   match session.file_path with
   | None ->
@@ -215,13 +652,21 @@ let save session =
           ~contents:(Editor_context.contents (context session))
       with
       | Ok () ->
-          {
-            session with
-            saved_version = Editor_context.document_version (context session);
-            saved_contents = Editor_context.contents (context session);
-            message = Some ("saved " ^ path);
-            quit_armed = false;
-          }
+          let saved =
+            {
+              session with
+              saved_version = Editor_context.document_version (context session);
+              saved_contents = Editor_context.contents (context session);
+              message = Some ("saved " ^ path);
+              quit_armed = false;
+            }
+          in
+          let input =
+            Input_event.logical_text "s"
+            |> Result.get_ok
+            |> Input_event.key_press ~modifiers:[ Input_event.Control ]
+          in
+          run_event_hooks saved Scripting.After_save input
       | Error error ->
           {
             session with
@@ -231,6 +676,7 @@ let save session =
 
 let handle_host session = function
   | Save -> Continue (save session)
+  | Reload_config -> Continue (reload_config session)
   | Force_quit -> Exit session
   | Quit when not (dirty session) -> Exit session
   | Quit when session.quit_armed -> Exit session
@@ -272,9 +718,27 @@ let all_models =
     Structural_model.descriptor;
   ]
 
+let scope_to_string = function
+  | Scripting.Global -> "global"
+  | Scripting.Model model -> "model:" ^ model
+  | Scripting.Model_status { model; status } -> "model:" ^ model ^ ":" ^ status
+
+let script_binding_lines session =
+  match session.generation with
+  | None -> [ "script overlays: none" ]
+  | Some generation ->
+      Scripting.bindings generation
+      |> List.map (fun binding ->
+          Printf.sprintf "script overlay: %s -> %s (%s; provider %s)"
+            (Input_event.to_string (Scripting.binding_input binding))
+            (Scripting.binding_command binding)
+            (scope_to_string (Scripting.binding_scope binding))
+            (Provider.id (Scripting.binding_provider binding)))
+
 let inspect session inspection =
   let format ~last_execution ~trace ~model_descriptor ~model_status ~rules
-      ~command_registry ~runtime_history ~runtime_context ~profiler =
+      ~command_registry ~semantic_behaviors ~runtime_history ~runtime_context
+      ~profiler =
     match inspection with
     | Why -> (
         match last_execution with
@@ -285,7 +749,8 @@ let inspect session inspection =
             | Some why -> "Why" :: Inspector.format_why why))
     | Bindings ->
         "Bindings"
-        :: Inspector.format_bindings model_descriptor model_status rules
+        :: (Inspector.format_bindings model_descriptor model_status rules
+           @ script_binding_lines session)
     | Commands ->
         "Commands"
         :: Inspector.format_commands (Inspector.commands command_registry)
@@ -305,7 +770,42 @@ let inspect session inspection =
     | Api ->
         "API"
         :: Inspector.format_api
-             (Inspector.api ~models:all_models ~commands:command_registry)
+             (Inspector.api ~models:all_models ~commands:command_registry
+                ~semantic_behaviors ())
+    | Scripts -> (
+        match session.generation with
+        | None ->
+            [
+              "Scripts";
+              "active-generation: none";
+              (match session.message with
+              | None -> "message: none"
+              | Some message -> "message: " ^ message);
+              (match session.last_reload_error with
+              | None -> "last-reload: none"
+              | Some error -> "last-reload-error: " ^ error);
+            ]
+        | Some generation ->
+            let commands, selectors, transformations, bindings, hooks =
+              Scripting.counts generation
+            in
+            [
+              "Scripts";
+              "generation: "
+              ^ string_of_int (Scripting.generation_id generation);
+              "source: " ^ Scripting.source generation;
+              "provider: " ^ Provider.id (Scripting.provider generation);
+              Printf.sprintf
+                "registrations: %d commands, %d selectors, %d transformations, \
+                 %d bindings, %d hooks"
+                commands selectors transformations bindings hooks;
+              (match session.message with
+              | None -> "message: none"
+              | Some message -> "message: " ^ message);
+              (match session.last_reload_error with
+              | None -> "last-reload: success"
+              | Some error -> "last-reload-error: " ^ error);
+            ])
   in
   match session.active with
   | Vim_runtime runtime ->
@@ -316,6 +816,7 @@ let inspect session inspection =
         ~model_status:(Vim_runtime.status runtime)
         ~rules:(Vim_runtime.input_rules runtime)
         ~command_registry:(Vim_runtime.commands runtime)
+        ~semantic_behaviors:(Vim_runtime.semantic_behaviors runtime)
         ~runtime_history:(Vim_runtime.history runtime)
         ~runtime_context:(Vim_runtime.context runtime)
         ~profiler:(Vim_runtime.profiler runtime)
@@ -327,6 +828,7 @@ let inspect session inspection =
         ~model_status:(Selection_runtime.status runtime)
         ~rules:(Selection_runtime.input_rules runtime)
         ~command_registry:(Selection_runtime.commands runtime)
+        ~semantic_behaviors:(Selection_runtime.semantic_behaviors runtime)
         ~runtime_history:(Selection_runtime.history runtime)
         ~runtime_context:(Selection_runtime.context runtime)
         ~profiler:(Selection_runtime.profiler runtime)
@@ -338,6 +840,7 @@ let inspect session inspection =
         ~model_status:(Structural_runtime.status runtime)
         ~rules:(Structural_runtime.input_rules runtime)
         ~command_registry:(Structural_runtime.commands runtime)
+        ~semantic_behaviors:(Structural_runtime.semantic_behaviors runtime)
         ~runtime_history:(Structural_runtime.history runtime)
         ~runtime_context:(Structural_runtime.context runtime)
         ~profiler:(Structural_runtime.profiler runtime)

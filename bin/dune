@@ -7,9 +7,16 @@
   zenbu_proof_models
   zenbu_structural_model
   zenbu_app
+  zenbu_scripting
   zenbu_view))
 
 (executable
  (name zenbu)
  (public_name zenbu)
- (libraries zenbu_kernel zenbu_model_api zenbu_view zenbu_terminal zenbu_app))
+ (libraries
+  zenbu_kernel
+  zenbu_model_api
+  zenbu_view
+  zenbu_terminal
+  zenbu_app
+  zenbu_scripting))
