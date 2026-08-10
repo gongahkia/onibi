@@ -59,6 +59,44 @@ let of_string = function
   | "all-occurrences" -> Ok All_occurrences
   | value -> Error (Error.Malformed_replay ("unknown selector " ^ value))
 
+let descriptors () =
+  let provider =
+    Provider.create ~id:"zenbu.kernel" ~kind:Provider.Builtin
+    |> Result.get_ok
+  in
+  let declare value title description =
+    Semantic_descriptor.create ~id:(to_string value) ~title ~description
+      ~provider ~kind:Semantic_descriptor.Selector ()
+    |> Result.get_ok
+  in
+  [
+    declare Current_selections "Current selections"
+      "Resolves the active selection set.";
+    declare Document "Document" "Resolves the complete document.";
+    declare Next_text_unit "Next text unit"
+      "Resolves the next UTF-8 scalar from each selection head.";
+    declare Previous_text_unit "Previous text unit"
+      "Resolves the previous UTF-8 scalar from each selection head.";
+    declare Next_word "Next word" "Resolves through the next word target.";
+    declare Previous_word "Previous word"
+      "Resolves through the previous word target.";
+    declare Word_end "Word end" "Resolves to the end of the current word.";
+    declare Current_word "Current word" "Resolves the current word.";
+    declare Around_word "Around word" "Resolves the current word and boundary.";
+    declare Current_line "Current line" "Resolves the current source line.";
+    declare Line_start "Line start" "Resolves the start of the current line.";
+    declare Line_end "Line end" "Resolves the end of the current line.";
+    declare First_nonblank "First nonblank"
+      "Resolves the first nonblank position on the current line.";
+    declare Document_start "Document start" "Resolves the document start.";
+    declare Document_end "Document end" "Resolves the document end.";
+    declare Next_line "Next line" "Resolves the next source line target.";
+    declare Previous_line "Previous line"
+      "Resolves the previous source line target.";
+    declare All_occurrences "All occurrences"
+      "Resolves non-overlapping literal occurrences of the primary selection.";
+  ]
+
 let is_continuation text index = Char.code text.[index] land 0xC0 = 0x80
 
 let next_boundary text offset =

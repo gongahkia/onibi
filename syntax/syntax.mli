@@ -87,6 +87,8 @@ module Selector : sig
     head_offset:int ->
     t ->
     Snapshot.Node.t list
+
+  val id : t -> string
 end
 
 module Service : sig

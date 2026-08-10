@@ -3,11 +3,17 @@ type metadata
 type t
 
 val metadata :
-  source:source -> ?intent:string -> ?description:string -> unit -> metadata
+  source:source ->
+  ?intent:string ->
+  ?description:string ->
+  ?provenance:Provenance.t ->
+  unit ->
+  metadata
 
 val source : metadata -> source
 val intent : metadata -> string option
 val description : metadata -> string option
+val provenance : metadata -> Provenance.t option
 val source_to_string : source -> string
 val source_of_string : string -> (source, Error.t) result
 

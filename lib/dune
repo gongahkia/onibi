@@ -3,6 +3,9 @@
  (public_name zenbu.kernel)
  (modules
   error
+  provider
+  provenance
+  semantic_descriptor
   document_id
   document_version
   selection_spec
@@ -27,6 +30,7 @@
  (modules
   command_id
   command_descriptor
+  input_rule
   input_event
   model_status
   clipboard
@@ -36,6 +40,9 @@
   command_argument
   command_invocation
   model_effect
+  trace_event
+  trace
+  profiler
   editing_model
   command
   command_registry

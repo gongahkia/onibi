@@ -4,12 +4,14 @@ val descriptor :
   id:string ->
   title:string ->
   ?description:string ->
+  ?provider:Zenbu_kernel.Provider.t ->
   unit ->
   (descriptor, Zenbu_kernel.Error.t) result
 
 val id : descriptor -> string
 val title : descriptor -> string
 val description : descriptor -> string option
+val provider : descriptor -> Zenbu_kernel.Provider.t
 
 module type S = sig
   type state
@@ -22,4 +24,5 @@ module type S = sig
 
   val reset : state -> Editor_context.t -> state
   val status : state -> Model_status.t
+  val input_rules : state -> Input_rule.t list
 end

@@ -84,9 +84,9 @@ let commit history transaction =
                   next_version = history.next_version + 1;
                 }))
 
-let apply_intent ~source ?description history intent =
+let apply_intent ~source ?description ?provenance history intent =
   match
-    Intent.resolve ~source ?description
+    Intent.resolve ~source ?description ?provenance
       (Document.snapshot (current history))
       intent
   with
@@ -144,3 +144,28 @@ let change_id (value : change) = value.id
 let transaction value = value.transaction
 let before value = value.before
 let after value = value.after
+
+type node_view = {
+  view_id : int;
+  view_parent : int option;
+  view_children : int list;
+  view_change : change option;
+}
+
+let nodes history =
+  history.nodes |> Int_map.bindings
+  |> List.map (fun (_, node) ->
+         {
+           view_id = node.id;
+           view_parent = node.parent;
+           view_children = node.children;
+           view_change = node.change;
+         })
+
+let root_id history = history.root_id
+let current_id history = history.current_id
+let node_id value = value.view_id
+let parent_id value = value.view_parent
+let child_ids value = value.view_children
+let node_change value = value.view_change
+let is_current history value = value.view_id = history.current_id

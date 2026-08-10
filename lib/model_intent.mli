@@ -37,4 +37,5 @@ val set_selections :
 val apply : selector:selector -> transformation:transformation -> t
 val identity : t -> string
 val is_textual : t -> bool
+val semantic_components : t -> string option * string option
 val to_kernel : t -> Zenbu_kernel.Intent.t

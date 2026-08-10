@@ -80,41 +80,44 @@ let collapse_selections snapshot selections endpoint =
         ~primary:(Selection_set.primary_index selections)
         collapsed
 
-let transaction snapshot ~edits ~selection_change ~source ~intent ~description =
-  let metadata = Transaction.metadata ~source ~intent ?description () in
+let transaction snapshot ~edits ~selection_change ~source ~intent ~description
+    ~provenance =
+  let metadata =
+    Transaction.metadata ~source ~intent ?description ?provenance ()
+  in
   Transaction.create
     ~document_id:(Document_snapshot.document_id snapshot)
     ~source_version:(Document_snapshot.version snapshot)
     ~edits ?selection_change ~metadata ()
 
-let resolve ~source ?description snapshot = function
+let resolve ~source ?description ?provenance snapshot = function
   | Insert_text text -> (
       match edits_for_selections snapshot ~text with
       | Error _ as error -> error
       | Ok edits ->
           transaction snapshot ~edits ~selection_change:None ~source
-            ~intent:"insert-text" ~description)
+            ~intent:"insert-text" ~description ~provenance)
   | Delete_selected_ranges ->
       let edits =
         List.map
           (fun selection -> Edit.delete (Selection.range selection))
           (Selection_set.to_list (Document_snapshot.selections snapshot))
       in
-      transaction snapshot ~edits ~selection_change:None ~source
-        ~intent:"delete-selected-ranges" ~description
+  transaction snapshot ~edits ~selection_change:None ~source
+        ~intent:"delete-selected-ranges" ~description ~provenance
   | Replace_selected_ranges text -> (
       match edits_for_selections snapshot ~text with
       | Error _ as error -> error
       | Ok edits ->
           transaction snapshot ~edits ~selection_change:None ~source
-            ~intent:"replace-selected-ranges" ~description)
+            ~intent:"replace-selected-ranges" ~description ~provenance)
   | Set_selections { selections; primary } -> (
       match selection_set_of_specs snapshot ~selections ~primary with
       | Error _ as error -> error
       | Ok selection_change ->
           transaction snapshot ~edits:[]
             ~selection_change:(Some selection_change) ~source
-            ~intent:"set-selections" ~description)
+            ~intent:"set-selections" ~description ~provenance)
   | Apply { selector; transformation } -> (
       match Selector.resolve snapshot selector with
       | Error _ as error -> error
@@ -124,32 +127,32 @@ let resolve ~source ?description snapshot = function
           | Transformation.Select ->
               transaction snapshot ~edits:[]
                 ~selection_change:(Some selection_change) ~source ~intent
-                ~description
+                ~description ~provenance
           | Transformation.Collapse_to_start -> (
               match collapse_selections snapshot selection_change `Start with
               | Error _ as error -> error
               | Ok selection_change ->
                   transaction snapshot ~edits:[]
                     ~selection_change:(Some selection_change) ~source ~intent
-                    ~description)
+                    ~description ~provenance)
           | Transformation.Collapse_to_end -> (
               match collapse_selections snapshot selection_change `End with
               | Error _ as error -> error
               | Ok selection_change ->
                   transaction snapshot ~edits:[]
                     ~selection_change:(Some selection_change) ~source ~intent
-                    ~description)
+                    ~description ~provenance)
           | Transformation.Delete -> (
               match edits_for_selection_set selection_change ~text:"" with
               | Error _ as error -> error
               | Ok edits ->
                   transaction snapshot ~edits
                     ~selection_change:(Some selection_change) ~source ~intent
-                    ~description)
+                    ~description ~provenance)
           | Transformation.Replace_text text -> (
               match edits_for_selection_set selection_change ~text with
               | Error _ as error -> error
               | Ok edits ->
                   transaction snapshot ~edits
                     ~selection_change:(Some selection_change) ~source ~intent
-                    ~description)))
+                    ~description ~provenance)))

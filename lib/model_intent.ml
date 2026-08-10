@@ -98,4 +98,11 @@ let is_textual = function
       } ->
       false
 
+let semantic_components value =
+  match value with
+  | Intent.Apply { selector; transformation } ->
+      (Some (Selector.to_string selector), Some (Transformation.name transformation))
+  | Intent.Insert_text _ | Intent.Delete_selected_ranges
+  | Intent.Replace_selected_ranges _ | Intent.Set_selections _ -> (None, None)
+
 let to_kernel value = value

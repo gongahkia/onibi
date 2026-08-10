@@ -26,6 +26,7 @@ type t =
   | Duplicate_command of string
   | Unknown_command of string
   | Invalid_command_arguments of string
+  | Invalid_provenance of string
   | Model_execution_failed of string
   | No_repeatable_edit
 

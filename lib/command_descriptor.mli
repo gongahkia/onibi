@@ -8,6 +8,7 @@ val create :
   ?category:string ->
   ?parameters:parameter list ->
   ?examples:string list ->
+  ?provider:Zenbu_kernel.Provider.t ->
   unit ->
   (t, Zenbu_kernel.Error.t) result
 
@@ -17,3 +18,4 @@ val description : t -> string option
 val category : t -> string option
 val parameters : t -> parameter list
 val examples : t -> string list
+val provider : t -> Zenbu_kernel.Provider.t

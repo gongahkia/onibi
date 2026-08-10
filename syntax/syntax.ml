@@ -177,6 +177,16 @@ module Selector = struct
     | Expand
     | Same_kind_siblings
 
+  let id = function
+    | Focus_primary -> "syntax.focus"
+    | Containing -> "syntax.containing"
+    | Parent -> "syntax.parent"
+    | First_child -> "syntax.child"
+    | Next_sibling -> "syntax.next-sibling"
+    | Previous_sibling -> "syntax.previous-sibling"
+    | Expand -> "syntax.expand"
+    | Same_kind_siblings -> "syntax.select-same-kind"
+
   let current snapshot ~anchor_offset ~head_offset =
     let start_offset = min anchor_offset head_offset in
     let stop_offset = max anchor_offset head_offset in

@@ -10,6 +10,7 @@ val identity : t -> string
 val resolve :
   source:Transaction.source ->
   ?description:string ->
+  ?provenance:Provenance.t ->
   Document_snapshot.t ->
   t ->
   (Transaction.t, Error.t) result

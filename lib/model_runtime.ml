@@ -197,7 +197,8 @@ module Make (Model : Editing_model.S) = struct
   let interpret_effect ?syntax_service commands history clipboard
       repeatable_intents model_effect =
     match model_effect with
-    | Model_effect.Execute_intent intent -> (
+    | Model_effect.Execute_intent intent
+    | Model_effect.Execute_intent_with { intent; _ } -> (
         match apply_intents ?syntax_service history [ intent ] with
         | Error _ as error -> error
         | Ok (history, changes) ->

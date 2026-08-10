@@ -4,6 +4,7 @@ type metadata = {
   source : source;
   intent : string option;
   description : string option;
+  provenance : Provenance.t option;
 }
 
 type indexed_edit = { edit : Edit.t; ordinal : int }
@@ -16,10 +17,12 @@ type t = {
   metadata : metadata;
 }
 
-let metadata ~source ?intent ?description () = { source; intent; description }
+let metadata ~source ?intent ?description ?provenance () =
+  { source; intent; description; provenance }
 let source value = value.source
 let intent value = value.intent
 let description value = value.description
+let provenance value = value.provenance
 
 let source_to_string = function
   | User -> "user"

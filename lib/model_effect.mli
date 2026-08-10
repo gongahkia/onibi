@@ -3,6 +3,11 @@ type message = { level : message_level; text : string }
 
 type t =
   | Execute_intent of Model_intent.t
+  | Execute_intent_with of {
+      intent : Model_intent.t;
+      selector_id : string option;
+      transformation_id : string option;
+    }
   | Invoke_command of Command_invocation.t
   | Emit_message of message
   | Copy_to_clipboard of {
@@ -20,5 +25,11 @@ type t =
 
 val message :
   level:message_level -> text:string -> (t, Zenbu_kernel.Error.t) result
+
+val execute :
+  ?selector_id:string -> ?transformation_id:string -> Model_intent.t -> t
+val selector_id : t -> string option
+val transformation_id : t -> string option
+val identity : t -> string
 
 val describe : t -> string

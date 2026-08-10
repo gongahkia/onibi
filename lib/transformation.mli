@@ -6,3 +6,4 @@ type t =
   | Collapse_to_end
 
 val name : t -> string
+val descriptors : unit -> Semantic_descriptor.t list

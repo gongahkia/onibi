@@ -21,3 +21,4 @@ type t =
 val resolve : Document_snapshot.t -> t -> (Selection_set.t, Error.t) result
 val to_string : t -> string
 val of_string : string -> (t, Error.t) result
+val descriptors : unit -> Semantic_descriptor.t list
