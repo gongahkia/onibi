@@ -49,6 +49,7 @@ func New(version string) *cobra.Command {
 	root.AddCommand(newWatchCommand(runtime))
 	root.AddCommand(newDaemonCommand(runtime))
 	root.AddCommand(newAPICommand(runtime))
+	root.AddCommand(newMCPCommand(runtime, version))
 	root.AddCommand(newDoctorCommand(runtime))
 	return root
 }
