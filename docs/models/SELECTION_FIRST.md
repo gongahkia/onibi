@@ -41,10 +41,11 @@ selections, and `d` resolves one shared delete transaction for all three.
 
 ## Deliberate limits
 
-There is no syntax-aware selection, search UI, multiple-cursor add-next UI,
+There is no model-private syntax-aware selection, multiple-cursor add-next UI,
 selection split command, block selection, grapheme/display-cell navigation, or
-Kakoune/Helix compatibility promise. Clipboard slots and history/repeat use the
-same runtime services as the Vim-style model.
+Kakoune/Helix compatibility promise. The model-neutral terminal search UI is
+available through `Ctrl-F` without changing this model's grammar. Clipboard
+slots and history/repeat use the same runtime services as the Vim-style model.
 
 ## Runtime bindings inspection
 

@@ -46,11 +46,13 @@ replace/insert, or copy effects. `dw` resolves as `next-word + delete`.
 
 ## Deliberate limits
 
-There is no visual mode, ex command language, macros, marks, search, mappings,
-register types beyond characterwise/linewise text, blockwise editing, full
-desired-column behavior, or Vim compatibility promise. `a` assumes all active
-heads can advance when not already at document end. Cursor positions are
-UTF-8-scalar-safe, not grapheme or terminal-cell-aware.
+There is no visual mode, ex command language, macros, marks, model-private
+search grammar, mappings, register types beyond characterwise/linewise text,
+blockwise editing, full desired-column behavior, or Vim compatibility promise.
+The terminal's model-neutral `Ctrl-F` search service is available while this
+model is active. `a` assumes all active heads can advance when not already at
+document end. Cursor positions are UTF-8-scalar-safe, not grapheme or
+terminal-cell-aware.
 
 Insert input is intentionally one transaction per committed `Text_input` event.
 Consequently `.` repeats the last inserted committed text event, not a whole

@@ -63,10 +63,7 @@ type presentation_cache = {
 
 type interaction =
   | Idle
-  | Search_prompt of {
-      query : string;
-      origin : Editor_context.selection_set;
-    }
+  | Search_prompt of { query : string; origin : Editor_context.selection_set }
   | Palette of { query : string; selected : int }
   | Save_as_prompt of string
   | Model_picker of int
@@ -87,7 +84,7 @@ and t = {
   generation : Scripting.t option;
   plugins : Plugins.t;
   next_generation_id : int;
-  last_reload_error : string option;
+  last_reload_error : Error.t option;
   delivering_events : Scripting.event list;
   file_path : string option;
   saved_version : int;
@@ -128,7 +125,8 @@ let host_command_entries =
         command = Save;
         descriptor =
           host_descriptor "editor.save" "Save buffer"
-            "Save to the active path, or open the save-as prompt for an unnamed buffer.";
+            "Save to the active path, or open the save-as prompt for an \
+             unnamed buffer.";
         palette = true;
       };
       {
@@ -156,7 +154,8 @@ let host_command_entries =
         command = Reload_config;
         descriptor =
           host_descriptor "config.reload" "Reload configuration and plugins"
-            "Stage Lua configuration and local plugins, retaining the previous generation on failure.";
+            "Stage Lua configuration and local plugins, retaining the previous \
+             generation on failure.";
         palette = true;
       };
       {
@@ -177,28 +176,32 @@ let host_command_entries =
         command = Search_previous;
         descriptor =
           host_descriptor "search.previous" "Previous search match"
-            "Select the previous literal-search match, wrapping at the beginning.";
+            "Select the previous literal-search match, wrapping at the \
+             beginning.";
         palette = true;
       };
       {
         command = Open_palette;
         descriptor =
           host_descriptor "editor.command-palette" "Open command palette"
-            "Discover commands contributed by Zenbu, models, scripts, and plugins.";
+            "Discover commands contributed by Zenbu, models, scripts, and \
+             plugins.";
         palette = false;
       };
       {
         command = Switch_model;
         descriptor =
           host_descriptor "editor.model.switch" "Switch editing model"
-            "Choose Vim-style, selection-first, or structural editing without replacing semantic state.";
+            "Choose Vim-style, selection-first, or structural editing without \
+             replacing semantic state.";
         palette = true;
       };
       {
         command = Help;
         descriptor =
           host_descriptor "editor.help" "Show help"
-            "Show host controls and current model input rules from runtime metadata.";
+            "Show host controls and current model input rules from runtime \
+             metadata.";
         palette = true;
       };
     ]
@@ -423,17 +426,20 @@ let create ~model ?language ?file_path ?(contents = "") ?trace ?profiler
               in
               lifecycle trace ~execution_id:0 ~phase:"load" ~outcome:"started"
                 ();
-              let generation, config_message =
+              let generation, config_error =
                 match
                   Profiler.measure profiler Profiler.Script_load (fun () ->
                       Scripting.load ~generation_id:1 ~base_commands
                         ~base_semantics config)
                 with
                 | Ok generation -> (generation, None)
-                | Error error ->
-                    ( None,
-                      Some ("configuration not loaded: " ^ Error.to_string error)
-                    )
+                | Error error -> (None, Some error)
+              in
+              let config_message =
+                Option.map
+                  (fun error ->
+                    "configuration not loaded: " ^ Error.to_string error)
+                  config_error
               in
               (match (generation, config_message) with
               | Some generation, None ->
@@ -510,7 +516,7 @@ let create ~model ?language ?file_path ?(contents = "") ?trace ?profiler
                     generation;
                     plugins = plugin_host;
                     next_generation_id = 2;
-                    last_reload_error = config_message;
+                    last_reload_error = config_error;
                     delivering_events = [];
                     file_path;
                     saved_version = 0;
@@ -577,6 +583,16 @@ let filename session =
   match session.file_path with
   | None -> "[No Name]"
   | Some path -> Filename.basename path
+
+let configuration_error session = session.last_reload_error
+
+let plugin_load_errors session =
+  Plugins.views session.plugins
+  |> List.filter_map (fun view ->
+      match (Plugins.view_state view, Plugins.view_error view) with
+      | Plugins.Failed, Some error -> Some error
+      | Plugins.Active, None | Plugins.Active, Some _ | Plugins.Failed, None ->
+          None)
 
 let dirty session =
   let context = context session in
@@ -698,7 +714,7 @@ let reload_config session =
       {
         session with
         message = Some ("configuration reload failed: " ^ Error.to_string error);
-        last_reload_error = Some (Error.to_string error);
+        last_reload_error = Some error;
         quit_armed = false;
       }
   | Ok generation -> (
@@ -710,7 +726,7 @@ let reload_config session =
             session with
             message =
               Some ("configuration reload failed: " ^ Error.to_string error);
-            last_reload_error = Some (Error.to_string error);
+            last_reload_error = Some error;
             quit_armed = false;
           }
       | Ok configured_commands ->
@@ -1145,7 +1161,8 @@ let restore_search_origin session input origin =
         execute_active_effects
           ~augment_provenance:(fun provenance ->
             Provenance.add provenance (Provenance.Effect "host.search.cancel"))
-          session input [ Model_effect.Execute_intent intent ]
+          session input
+          [ Model_effect.Execute_intent intent ]
       in
       {
         next with
@@ -1186,10 +1203,12 @@ let palette_items session =
     active_commands session.active
     |> Command_registry.descriptors
     |> List.map (fun descriptor ->
-        from_descriptor (Invoke_command (Command_descriptor.id descriptor))
+        from_descriptor
+          (Invoke_command (Command_descriptor.id descriptor))
           descriptor)
   in
-  List.sort (fun left right -> String.compare left.id right.id)
+  List.sort
+    (fun left right -> String.compare left.id right.id)
     (host @ model_and_extensions)
 
 let matching_palette_items session query =
@@ -1281,7 +1300,8 @@ let begin_search session =
   {
     session with
     interaction =
-      Search_prompt { query = ""; origin = Editor_context.selections (context session) };
+      Search_prompt
+        { query = ""; origin = Editor_context.selections (context session) };
     search = None;
     message = Some "search: enter a literal Unicode query";
     inspector = None;
@@ -1311,7 +1331,11 @@ let invoke_host_palette_command session input = function
   | Reload_config -> { (reload_config session) with interaction = Idle }
   | Start_search -> begin_search session
   | Search_next ->
-      { (move_search session input 1) with interaction = Idle; inspector = None }
+      {
+        (move_search session input 1) with
+        interaction = Idle;
+        inspector = None;
+      }
   | Search_previous ->
       {
         (move_search session input (-1)) with
@@ -1353,7 +1377,8 @@ let invoke_host_palette_command session input = function
         interaction = Idle;
         message =
           Some
-            "quit commands are intentionally available through Ctrl-Q so the terminal loop can exit safely";
+            "quit commands are intentionally available through Ctrl-Q so the \
+             terminal loop can exit safely";
       }
 
 let invoke_palette_item session input item =
@@ -1370,7 +1395,8 @@ let invoke_palette_item session input item =
           [ Model_effect.Invoke_command invocation ]
       in
       { next with interaction = Idle; inspector = None }
-  | Invoke_host_command command -> invoke_host_palette_command session input command
+  | Invoke_host_command command ->
+      invoke_host_palette_command session input command
 
 let input_for_interaction session input =
   match session.interaction with
@@ -1433,14 +1459,20 @@ let input_for_interaction session input =
       else if event_is_named input Input_event.Backspace then
         let next_query = drop_last_utf8 query in
         let updated = update_search session input next_query in
-        { updated with interaction = Search_prompt { query = next_query; origin } }
+        {
+          updated with
+          interaction = Search_prompt { query = next_query; origin };
+        }
       else
         match event_text input with
         | None -> session
         | Some text ->
             let next_query = query ^ text in
             let updated = update_search session input next_query in
-            { updated with interaction = Search_prompt { query = next_query; origin } })
+            {
+              updated with
+              interaction = Search_prompt { query = next_query; origin };
+            })
   | Palette { query; selected } -> (
       let items = matching_palette_items session query in
       if event_is_named input Input_event.Escape then
@@ -1553,8 +1585,7 @@ let handle_host session = function
           inspector = None;
         }
   | Reload_config -> Continue (reload_config session)
-  | Start_search ->
-      Continue { (begin_search session) with quit_armed = false }
+  | Start_search -> Continue { (begin_search session) with quit_armed = false }
   | Search_next ->
       Continue
         (move_search session
@@ -1752,7 +1783,8 @@ let render session =
       ~syntax_spans:presentation.syntax_spans
       ~search_ranges:(search_ranges session) ()
   in
-  ( { session with
+  ( {
+      session with
       viewport = rendered.viewport;
       presentation_cache = Some presentation;
     },
@@ -1860,12 +1892,14 @@ let inspect session inspection =
     | Bindings ->
         "Bindings"
         :: (Inspector.format_bindings model_descriptor model_status rules
-           @ host_binding_lines () @ script_binding_lines session)
+           @ host_binding_lines ()
+           @ script_binding_lines session)
     | Commands ->
         "Commands"
         :: Inspector.format_commands
              (Inspector.commands command_registry
-             @ (host_command_descriptors () |> List.map Inspector.describe_command))
+             @ (host_command_descriptors ()
+               |> List.map Inspector.describe_command))
     | History ->
         "History"
         :: Inspector.format_history
@@ -1913,7 +1947,7 @@ let inspect session inspection =
               | Some message -> "message: " ^ message);
               (match session.last_reload_error with
               | None -> "last-reload: none"
-              | Some error -> "last-reload-error: " ^ error);
+              | Some error -> "last-reload-error: " ^ Error.to_string error);
             ]
         | Some generation ->
             let commands, selectors, transformations, bindings, hooks =
@@ -1934,7 +1968,7 @@ let inspect session inspection =
               | Some message -> "message: " ^ message);
               (match session.last_reload_error with
               | None -> "last-reload: success"
-              | Some error -> "last-reload-error: " ^ error);
+              | Some error -> "last-reload-error: " ^ Error.to_string error);
             ])
   in
   match session.active with

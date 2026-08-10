@@ -129,9 +129,12 @@ keys (`Escape`, `Enter`, `Backspace`, `Tab`, `ArrowUp`, `ArrowDown`,
 `model:<model-id>`, or `model:<model-id>:<status-id>`. More specific matching
 scopes win over global; duplicate input/scope pairs in one generation are a
 validation error. Bindings are considered before model input. The host retains
-`Ctrl-S`, `Ctrl-Q`, and `Ctrl-Alt-R` as non-overridable save, quit, and reload
+`Ctrl-S`, `Ctrl-Shift-S`, `Ctrl-Q`, `Ctrl-Alt-R`, `Ctrl-F`, `Ctrl-G`,
+`Ctrl-Shift-G`, `Ctrl-P`, `Alt-M`, `Alt-H`, and `Ctrl-O` as non-overridable
+save/save-as, quit, reload, search, palette, model-switch, help, and inspector
 controls. `config.reload` is a permitted binding target for a script-defined
-reload key.
+reload key. `zenbu-headless bindings vim` includes the same reserved-host list
+beside model and extension bindings.
 
 Use `zenbu-headless api` and `zenbu-headless bindings <vim|selection|structural>`
 to discover exact model and current status ids before writing a scoped binding;

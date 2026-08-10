@@ -14,10 +14,12 @@ and filename concerns that do not belong to semantic editing.
 
 ## Decision
 
-`zenbu.app.Session` owns these interactions. Literal search stores host data
-and moves through normal `set-selections` effects. The palette enumerates the
-ordinary command registry and invokes the normal command effect. Save-as uses
-the established atomic file writer. Help projects `Model_status` and
+`zenbu.app.Session` owns these interactions. Literal search stores host data,
+including the prompt's pre-search selection, and moves through normal
+`set-selections` effects; prompt cancellation restores that selection. The
+palette joins static `zenbu.app` command descriptors with the ordinary active
+command registry and invokes the normal command effect where applicable.
+Save-as uses the established atomic file writer. Help projects `Model_status` and
 `Input_rule` metadata. Terminal paste is decoded into the existing public
 committed-text event only when generic text-entry status permits it.
 

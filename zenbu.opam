@@ -4,8 +4,8 @@ description: "The M10 release-hardening terminal host with model-neutral semanti
 maintainer: "Zenbu contributors"
 authors: "Zenbu contributors"
 license: "MIT"
-homepage: "https://example.invalid/zenbu"
-bug-reports: "https://example.invalid/zenbu/issues"
+homepage: "https://github.com/gongahkia/zenbu"
+bug-reports: "https://github.com/gongahkia/zenbu/issues"
 depends: [
   "ocaml" {>= "5.3.0"}
   "dune" {>= "3.20"}
@@ -21,4 +21,4 @@ depends: [
 build: [
   ["dune" "build" "-p" name "-j" jobs]
 ]
-dev-repo: "git+https://example.invalid/zenbu.git"
+dev-repo: "git+https://github.com/gongahkia/zenbu.git"

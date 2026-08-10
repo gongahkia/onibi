@@ -27,6 +27,7 @@ disabling or replacing that native runtime boundary.
 make fmt
 make check
 make demo
+make benchmark
 make release-check
 ```
 
@@ -50,3 +51,19 @@ validated at registration and invocation.
 
 Do not introduce LSP, project search, background execution, a marketplace, or
 grammar downloads as incidental work. Those are explicit roadmap decisions.
+
+## Architecture and ADRs
+
+The two non-negotiable rules are: no editing model is fundamental, and every
+text/selection mutation passes through a semantic intent and atomic transaction.
+Put model grammar in a model; terminal prompts and paths in `zenbu.app`;
+snapshot-derived presentation in `zenbu.view`; parser details in `zenbu.syntax`;
+and runtime-specific values behind scripting/extension adapters. Add or update
+an ADR under `docs/adr/` when changing one of those boundaries or a durable
+policy, not for a local implementation detail.
+
+Run `make benchmark` after a rendering, syntax, search, Lua, or Component
+change and compare it with [the recorded baseline](docs/PERFORMANCE.md). For a
+release-candidate build use `make release`; it produces dynamic Linux x86_64
+artifacts, while `make install` places the matching Wasmtime library in the
+active Opam prefix.

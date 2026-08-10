@@ -12,20 +12,23 @@ take priority over model/configuration bindings.
 | Key | action |
 | --- | --- |
 | `Ctrl-S` / `Ctrl-Shift-S` | save / prompt for atomic save-as |
-| `Ctrl-Q` | quit; a dirty buffer requires a second press |
+| `Ctrl-Q` | quit; a dirty buffer requires a second press to force quit |
 | `Alt-R` / `Ctrl-Alt-R` | staged Lua/plugin reload |
 | `Ctrl-F` | literal Unicode search; `Ctrl-G` / `Ctrl-Shift-G` move matches |
 | `Ctrl-P` | command palette over active builtin, Lua, and plugin commands |
 | `Alt-M` | live editing-model picker |
 | `Alt-H` / `Ctrl-O` | metadata-derived help / latest-`why` inspector |
 
-Search retains a literal UTF-8 query, highlight ranges, and current result.
-It moves through an ordinary semantic `set-selections` intent, refreshes after
-document changes, and is inspectable through `Session.Search` or
-`zenbu-headless search-session`. It is not regex/project search or a
-model-specific grammar. The palette filters descriptor id/title/summary/provider
-and invokes through `Invoke_command`; commands needing arguments remain
-discoverable but M10 has no argument-form prompt.
+Search retains a literal UTF-8 query, pre-search selection, highlight ranges,
+and current result. It moves through an ordinary semantic `set-selections`
+intent, refreshes after document changes, restores the pre-search selection on
+prompt cancellation, and is inspectable through `Session.Search` or
+`zenbu-headless search-session`. Its descriptors are `search.start`,
+`search.next`, and `search.previous` with provider `zenbu.app`, so they appear
+in `commands`, `describe command`, bindings, and the same palette as model,
+Lua, and plugin commands. It is not regex/project search or a model-specific
+grammar. The palette filters descriptor id/title/summary/provider; commands
+needing arguments remain discoverable but M10 has no argument-form prompt.
 
 The model picker preserves history, document/selections, clipboard, command and
 semantic registries, syntax service, trace/profiler handles, execution identity,
@@ -53,12 +56,18 @@ languages have no spans and render plain. The viewport follows the primary
 selection; soft wrapping, mouse selection, capability probing, and exact emoji
 width remain out of scope.
 
+System clipboard commands are deliberately deferred: platform-specific
+`wl-copy`, `xclip`, and `pbcopy` discovery does not belong in the semantic
+runtime. Zenbu's existing internal clipboard slots remain available to models.
+
 ## Persistence and extensions
 
 Save/save-as write and fsync an exclusive adjacent temporary file, preserve an
-existing target mode, close it, then rename it over the target. Success updates
-active path and saved version/contents. Zenbu does not fsync the parent
-directory or detect external modifications.
+existing target mode, close it, then rename it over the target. Save-as
+intentionally replaces an existing destination after the same atomic write;
+there is no interactive overwrite confirmation in M10. Success updates active
+path and saved version/contents. Zenbu does not fsync the parent directory or
+detect external modifications.
 
 Plugin inspection shows manifest, runtime, capabilities, contributions, limits,
 last error, and health. A Component fuel/memory/trap failure makes its runtime

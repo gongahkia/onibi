@@ -1,5 +1,7 @@
 # Zenbu
 
+[![CI](https://github.com/gongahkia/zenbu/actions/workflows/ci.yml/badge.svg)](https://github.com/gongahkia/zenbu/actions/workflows/ci.yml)
+
 Zenbu is a terminal-first programmable text editor built around one constraint:
 no editing model is fundamental. Vim-style, selection-first, structural, and
 future models act through the same public semantic editing API; they do not
@@ -7,6 +9,24 @@ mutate text, selections, history, or syntax state directly.
 
 This checkout is **0.10.0-dev (M10)**. It is a development release, not a
 complete editor distribution.
+
+## Quick start
+
+On Linux x86_64, install `opam`, a C toolchain, `curl`, `tar`, and `sha256sum`,
+then follow this complete clone-to-editor path:
+
+```sh
+git clone https://github.com/gongahkia/zenbu.git
+cd zenbu
+make bootstrap
+make build
+eval "$(opam env --switch="$PWD" --set-switch)"
+dune exec bin/zenbu.exe -- README.md
+```
+
+`make bootstrap` is idempotent and affects only ignored local `_opam` and
+`.zenbu/` directories. The concise guided workflow, controls, configuration,
+and plugin examples live in [Getting Started](docs/GETTING_STARTED.md).
 
 ## What is working
 
@@ -68,6 +88,13 @@ For a local development install after validation:
 make install
 ```
 
+This installs `zenbu` into the active Opam prefix and adds the dynamically
+required Wasmtime library under `PREFIX/lib/zenbu/`; no `sudo` is involved.
+`make release` builds checked release-profile binaries in
+`_build/release/bin/` after the release gate. They are dynamically linked and
+become portable only with `lib/zenbu/libwasmtime.so`, as packaged by the
+tag-triggered Linux release-candidate workflow.
+
 ## Run the editor
 
 The Make targets activate the local switch themselves. Before using `dune`
@@ -93,7 +120,7 @@ Host keys have priority over model/configuration bindings:
 | Key | Host action |
 | --- | --- |
 | `Ctrl-S` / `Ctrl-Shift-S` | save / prompt for save-as |
-| `Ctrl-Q` | quit; press again after a dirty warning |
+| `Ctrl-Q` | quit; press again after a dirty warning to force quit |
 | `Alt-R` or `Ctrl-Alt-R` | reload Lua configuration and plugins transactionally |
 | `Ctrl-F` | start literal Unicode search; `Ctrl-G` / `Ctrl-Shift-G` move next / previous |
 | `Ctrl-P` | filter and invoke active builtin, script, and plugin commands |
@@ -117,6 +144,7 @@ dune exec bin/zenbu_headless.exe -- syntax test/fixtures/syntax_sample.ml
 dune exec bin/zenbu_headless.exe -- why test/fixtures/sessions/observability-vim.session
 dune exec bin/zenbu_headless.exe -- search-session path/to/session
 dune exec bin/zenbu_headless.exe -- extension-api
+dune exec bin/zenbu_headless.exe -- benchmark
 ```
 
 Session fixtures can use `Ctrl-Shift-X` and `Alt-X` input values in addition to
@@ -141,17 +169,22 @@ The kernel does not depend on models, terminal I/O, Lua, Wasmtime, Tree-sitter,
 or rendering. The view accepts display ranges/classes and terminal applies
 colours; neither can mutate the document.
 
-Read [the architecture](docs/ARCHITECTURE.md),
-[editing protocol](docs/EDITING_PROTOCOL.md), [terminal guide](docs/TERMINAL.md),
-[syntax guide](docs/SYNTAX.md), [observability guide](docs/OBSERVABILITY.md),
-[extension guide](docs/EXTENSIONS.md), and [roadmap](docs/ROADMAP.md) before
-extending the project. [Contributing](CONTRIBUTING.md) describes the expected
-local workflow and [release notes](docs/RELEASE.md) describe the release gate.
+Start with [Getting Started](docs/GETTING_STARTED.md), then read
+[the architecture](docs/ARCHITECTURE.md), [editing protocol](docs/EDITING_PROTOCOL.md),
+[terminal guide](docs/TERMINAL.md), [syntax guide](docs/SYNTAX.md),
+[observability guide](docs/OBSERVABILITY.md), [scripting](docs/SCRIPTING.md),
+[extension guide](docs/EXTENSIONS.md), [isolation policy](docs/ISOLATION.md),
+the [generated Extension API](docs/generated/EXTENSION_API.md),
+[Lua SDK](sdk/lua/zenbu.lua), [WIT contract](docs/wit/zenbu-plugin.wit), and
+[roadmap](docs/ROADMAP.md). [Contributing](CONTRIBUTING.md) describes the
+expected local workflow, [performance baseline](docs/PERFORMANCE.md) records
+the M10 sanity numbers, and [release notes](docs/RELEASE.md) describe the gate.
 
 ## Deliberate limits
 
 Zenbu has no LSP client, project search, external-file watcher, pane/layout
 system, command-line/Ex language, plugin marketplace, asynchronous extension
-execution, public Tree-sitter query API, grammar downloads, or refactoring
-engine. Component runtime support is Linux x86_64-specific because of the
-pinned native C API. See the deferred work in [the roadmap](docs/ROADMAP.md).
+execution, public Tree-sitter query API, grammar downloads, refactoring engine,
+or system clipboard bridge. Component runtime support is Linux x86_64-specific
+because of the pinned native C API. See the deferred work in
+[the roadmap](docs/ROADMAP.md).

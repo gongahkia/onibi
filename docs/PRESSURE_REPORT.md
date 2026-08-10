@@ -7,8 +7,9 @@ commit SHA; this document does not claim a platform run by itself.
 | Pressure | Guard |
 | --- | --- |
 | Fatal Component callback | M9 Component test asserts fuel/trap classification, an unavailable health view, non-mutating repeated invocation, normal host edits, and successful reload recovery. |
-| Host interaction isolation | M10 host test drives Unicode search, palette dispatch, save-as, model switch, and paste decoding through `Session`, without model-private APIs. |
-| Snapshot presentation | M10 host test checks OCaml and JSON span classification plus selection > search > syntax rendering precedence. |
+| Host interaction isolation | M10 host test drives Unicode/incremental/missing search, cancellation restoration, viewport follow, host/builtin/script palette dispatch, save-as, model switch, and paste decoding through `Session`, without model-private APIs. |
+| Snapshot presentation | M10 host test checks OCaml/JSON/malformed/unknown/current snapshot behavior plus selection > search > syntax rendering precedence. |
+| Large-buffer frame work | `make benchmark` uses generated 1 MiB OCaml. Session caching retains source-line and highlight projection by contents; the renderer filters spans to the viewport before grapheme styling. |
 | Syntax lifecycle | M5 tests compare incremental and full parses and reject stale snapshot use. |
 | Script/plugin lifecycle | M7/M8/M9 tests cover registration, reload replacement/failure retention, capabilities, provenance, and runtime limits. |
 | Regression breadth | `make check` runs formatter validation, all builds, and every test executable; `make demo` exercises the public headless path. |
@@ -20,9 +21,10 @@ capability-negotiating UI framework.
 
 ## M10 local evidence
 
-The M10 worktree validation ran `make check`, `dune runtest --force`,
-`make demo`, `make extension-docs`, and the deterministic Unicode
-`search-session` fixture successfully. A real PTY session also exercised the
-search prompt, the model picker, and multiline Unicode bracketed paste before
+The M10 worktree validation must run `make check`, `dune runtest --force`,
+`make demo`, `make benchmark`, `make extension-docs`, and the deterministic
+Unicode `search-session` fixture. A real PTY session must also exercise the
+search prompt, palette/help overlays through resize, model picker, save-as,
+Lua/Component commands, reload, and multiline Unicode bracketed paste before
 clean terminal restoration. Re-run the release gate after every later change;
-this evidence is not a substitute for the fresh-clone gate.
+this document is not a substitute for the fresh-clone gate.

@@ -104,23 +104,32 @@ let test_unicode_search_is_host_level_and_observable () =
   in
   let incremental = App.Session.handle_input incremental (text_input "a") in
   expect
-    (lines_contain (App.Session.inspect incremental App.Session.Search) "matches: 5")
+    (lines_contain
+       (App.Session.inspect incremental App.Session.Search)
+       "matches: 5")
     "incremental single-character search did not update matches";
   let incremental = App.Session.handle_input incremental (text_input "lpha") in
   expect
-    (lines_contain (App.Session.inspect incremental App.Session.Search) "matches: 2")
+    (lines_contain
+       (App.Session.inspect incremental App.Session.Search)
+       "matches: 2")
     "incremental multi-character search did not narrow matches";
   let incremental = App.Session.handle_input incremental (text_input "z") in
   expect
-    (lines_contain (App.Session.inspect incremental App.Session.Search) "matches: 0")
+    (lines_contain
+       (App.Session.inspect incremental App.Session.Search)
+       "matches: 0")
     "a missing literal search did not report zero matches";
   let incremental =
     List.fold_left
-      (fun current _ -> App.Session.handle_input current (named Input_event.Backspace))
+      (fun current _ ->
+        App.Session.handle_input current (named Input_event.Backspace))
       incremental [ (); () ]
   in
   expect
-    (lines_contain (App.Session.inspect incremental App.Session.Search) "matches: 2")
+    (lines_contain
+       (App.Session.inspect incremental App.Session.Search)
+       "matches: 2")
     "search backspace did not recompute the active literal query";
   let changed = make_session "alpha beta alpha" in
   let changed =
@@ -133,7 +142,9 @@ let test_unicode_search_is_host_level_and_observable () =
   let changed = App.Session.handle_input changed (text_input " alpha") in
   let changed = App.Session.handle_input changed (named Input_event.Escape) in
   expect
-    (lines_contain (App.Session.inspect changed App.Session.Search) "matches: 3")
+    (lines_contain
+       (App.Session.inspect changed App.Session.Search)
+       "matches: 3")
     "document changes did not refresh active search ranges";
   let long_document =
     List.init 40 (fun _ -> "filler") @ [ "needle" ] |> String.concat "\n"
@@ -202,8 +213,7 @@ let test_syntax_spans_and_render_precedence () =
     |> must
   in
   let malformed =
-    Syntax.Service.create language
-    |> fun service ->
+    Syntax.Service.create language |> fun service ->
     Syntax.Service.refresh service (Document.snapshot malformed_document)
     |> Result.get_ok
   in
@@ -296,6 +306,40 @@ let write path contents =
     ~finally:(fun () -> close_out_noerr channel)
     (fun () -> output_string channel contents)
 
+let test_explicit_startup_failures_remain_inspectable () =
+  let missing_config = Filename.temp_file "zenbu-m10-missing-config" ".lua" in
+  Sys.remove missing_config;
+  let session =
+    make_session ~config:(Zenbu_scripting.Scripting.Explicit missing_config)
+      "alpha"
+  in
+  expect
+    (Option.is_some (App.Session.configuration_error session))
+    "an explicitly missing configuration was not retained as a load error";
+  let root = Filename.temp_file "zenbu-m10-invalid-plugin" "" in
+  Sys.remove root;
+  Unix.mkdir root 0o700;
+  let package = Filename.concat root "invalid" in
+  Unix.mkdir package 0o700;
+  let manifest = Filename.concat package "zenbu-plugin.toml" in
+  Fun.protect
+    ~finally:(fun () ->
+      if Sys.file_exists manifest then Sys.remove manifest;
+      Unix.rmdir package;
+      Unix.rmdir root)
+    (fun () ->
+      write manifest "manifest_version = not-an-integer\n";
+      let session =
+        App.Session.create ~model:App.Session.Vim ~contents:"alpha"
+          ~config:Zenbu_scripting.Scripting.Disabled
+          ~plugins:(Zenbu_extension.Plugin_host.Directories [ root ])
+          ~dimensions ()
+        |> must
+      in
+      expect
+        (App.Session.plugin_load_errors session <> [])
+        "an invalid explicit plugin package was not retained as a load error")
+
 let test_palette_discovers_all_active_command_providers () =
   let path = Filename.temp_file "zenbu-m10-palette" ".lua" in
   Fun.protect
@@ -318,13 +362,15 @@ zenbu.command {
       in
       let _, initial_frame = App.Session.render session in
       let initial_rows =
-        Frame.rows initial_frame |> List.map Frame.row_text |> String.concat "\n"
+        Frame.rows initial_frame |> List.map Frame.row_text
+        |> String.concat "\n"
       in
       expect
         (contains initial_rows "editor.apply")
         "palette did not include builtin/model-neutral commands";
       expect
-        (contains initial_rows "search.start" && contains initial_rows "[zenbu.app]")
+        (contains initial_rows "search.start"
+        && contains initial_rows "[zenbu.app]")
         "palette did not include application host commands with their provider";
       let host = App.Session.handle_input session (text_input "search.next") in
       let _, host_frame = App.Session.render host in
@@ -360,7 +406,9 @@ zenbu.command {
       let session =
         App.Session.handle_host session App.Session.Open_palette |> continue
       in
-      let session = App.Session.handle_input session (named Input_event.Escape) in
+      let session =
+        App.Session.handle_input session (named Input_event.Escape)
+      in
       expect
         (Model_status.id (App.Session.status session) = "normal")
         "palette dismissal did not restore active model input")
@@ -397,8 +445,8 @@ let test_save_as_and_model_switch_preserve_semantics () =
         (App.File_io.read path |> Result.get_ok = "!alpha")
         "save-as did not atomically persist the current contents";
       expect
-        (App.Session.inspect session App.Session.History |> List.length
-        = history_before_save)
+        (App.Session.inspect session App.Session.History
+        |> List.length = history_before_save)
         "save-as changed semantic history";
       let session = App.Session.handle_input session (key "i") in
       let session = App.Session.handle_input session (text_input "?") in
@@ -410,8 +458,8 @@ let test_save_as_and_model_switch_preserve_semantics () =
         App.Session.handle_host session App.Session.Save |> continue
       in
       expect
-        (not (App.Session.dirty session)
-        && (App.File_io.read path |> Result.get_ok = expected_after_normal_save))
+        ((not (App.Session.dirty session))
+        && App.File_io.read path |> Result.get_ok = expected_after_normal_save)
         "normal save did not reuse the save-as path or reset dirty state";
       let contents_before_model_switch = App.Session.contents session in
       let session = App.Session.handle_input session (key "d") in
@@ -436,7 +484,8 @@ let test_save_as_overwrite_and_write_failure () =
   Fun.protect
     ~finally:(fun () ->
       List.iter
-        (fun candidate -> if Sys.file_exists candidate then Sys.remove candidate)
+        (fun candidate ->
+          if Sys.file_exists candidate then Sys.remove candidate)
         [ path; blocker ])
     (fun () ->
       write path "old contents";
@@ -445,7 +494,9 @@ let test_save_as_overwrite_and_write_failure () =
         App.Session.handle_host session App.Session.Save_as |> continue
       in
       let session = App.Session.handle_input session (text_input path) in
-      let _session = App.Session.handle_input session (named Input_event.Enter) in
+      let _session =
+        App.Session.handle_input session (named Input_event.Enter)
+      in
       expect
         (App.File_io.read path |> Result.get_ok = "replacement")
         "save-as did not explicitly replace an existing destination";
@@ -500,7 +551,8 @@ let test_model_switches_preserve_shared_state_and_reset_grammar () =
   expect
     (App.Session.model session = App.Session.Structural
     && Editor_context.syntax (App.Session.context session) <> None)
-    "selection-to-structural switch discarded syntax service or selected wrong model";
+    "selection-to-structural switch discarded syntax service or selected wrong \
+     model";
   let session = switch session "1" in
   expect
     (App.Session.model session = App.Session.Vim
@@ -515,7 +567,8 @@ let test_model_switches_preserve_shared_state_and_reset_grammar () =
   expect
     (App.Session.model plain = App.Session.Structural
     && Editor_context.syntax (App.Session.context plain) = None)
-    "switching to structural mode without syntax was rejected instead of preserving NO SYNTAX behavior"
+    "switching to structural mode without syntax was rejected instead of \
+     preserving NO SYNTAX behavior"
 
 let test_bracketed_paste_decodes_as_one_text_input () =
   let pasted =
@@ -543,7 +596,8 @@ let test_bracketed_paste_decodes_as_one_text_input () =
   let session = App.Session.handle_input session (named Input_event.Escape) in
   expect
     (App.Session.contents session = "dw\n界alpha")
-    "bracketed paste was interpreted as command grammar instead of committed text";
+    "bracketed paste was interpreted as command grammar instead of committed \
+     text";
   let session = App.Session.handle_input session (key "u") in
   expect
     (App.Session.contents session = "alpha")
@@ -555,6 +609,8 @@ let tests =
       test_unicode_search_is_host_level_and_observable );
     ( "syntax spans and render precedence",
       test_syntax_spans_and_render_precedence );
+    ( "explicit startup failures remain inspectable",
+      test_explicit_startup_failures_remain_inspectable );
     ( "generic palette discovers all active command providers",
       test_palette_discovers_all_active_command_providers );
     ( "save-as and model switch",

@@ -66,10 +66,16 @@ dune exec bin/zenbu_headless.exe -- bindings vim
 dune exec bin/zenbu_headless.exe -- bindings-session SESSION
 ```
 
-M10 consumes this same descriptor registry for the terminal command palette.
-It filters command id, title, optional summary, and provider id without a
-plugin-specific discovery path. Palette invocation remains a normal command
-effect, so its transaction continues through provenance and `why`.
+M10 adds a small `zenbu.app` descriptor set beside the active command registry:
+`search.start`, `search.next`, `search.previous`, save/save-as, reload, model
+switch, and help. `commands`, `describe command`, and session `Bindings`
+therefore expose host controls with provider `zenbu.app` rather than hiding
+them in terminal code. The terminal palette joins those descriptors with the
+ordinary model/script/plugin registry and filters id, title, optional summary,
+and provider without a runtime-specific discovery path. Registry command
+invocation remains a normal command effect, so its transaction continues
+through provenance and `why`; host selection changes use the same semantic
+runtime path and appear as `host.search` provenance.
 
 ## History, selections, and syntax
 

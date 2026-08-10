@@ -204,9 +204,9 @@ let text_frame ?(style = Frame.Message) dimensions lines =
     viewport = Viewport.origin;
   }
 
-let render_with_inspector ~inspector ?overlay ?source_lines
-    ?(syntax_spans = []) ?(search_ranges = []) ~context ~status ~filename
-    ~dirty ~message ~viewport ~dimensions () =
+let render_with_inspector ~inspector ?overlay ?source_lines ?(syntax_spans = [])
+    ?(search_ranges = []) ~context ~status ~filename ~dirty ~message ~viewport
+    ~dimensions () =
   if dimensions.rows < 2 || dimensions.columns < 1 then tiny_frame dimensions
   else
     match inspector with
@@ -250,7 +250,9 @@ let render_with_inspector ~inspector ?overlay ?source_lines
               match visible_source_lines with
               | [] -> (0, 0)
               | first_line :: rest ->
-                  let last_line = List.fold_left (fun _ line -> line) first_line rest in
+                  let last_line =
+                    List.fold_left (fun _ line -> line) first_line rest
+                  in
                   (first_line.start_offset, last_line.end_offset)
             in
             let intersects start_offset stop_offset =

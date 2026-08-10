@@ -143,6 +143,29 @@ let create_session options contents =
             ~dimensions:Zenbu_view.Renderer.{ columns = 80; rows = 24 }
             ()))
 
+let explicit_startup_error options session =
+  let config_error =
+    match options.config with
+    | Scripting.Explicit _ ->
+        Option.map
+          (fun error ->
+            "configuration could not be loaded: " ^ Error.to_string error)
+          (Zenbu_app.Session.configuration_error session)
+    | Scripting.Default | Scripting.Disabled -> None
+  in
+  match config_error with
+  | Some _ as error -> error
+  | None -> (
+      match options.plugins with
+      | Plugins.Directories _ -> (
+          match Zenbu_app.Session.plugin_load_errors session with
+          | [] -> None
+          | error :: _ ->
+              Some
+                ("plugin package could not be loaded: " ^ Error.to_string error)
+          )
+      | Plugins.Default | Plugins.Disabled -> None)
+
 let is_control modifiers = modifiers = [ Zenbu_terminal.Event.Control ]
 
 let is_control_shift modifiers =
@@ -263,16 +286,22 @@ let () =
       | Ok contents -> (
           match create_session options contents with
           | Error error -> fail (Error.to_string error)
-          | Ok initial ->
-          match
-            Zenbu_terminal.Backend.with_terminal (fun backend ->
-                let columns, rows = Zenbu_terminal.Backend.size backend in
-                run backend (Zenbu_app.Session.resize initial ~columns ~rows))
-          with
-          | Error message -> fail message
-          | Ok Exited -> ()
-          | Ok Unsaved_end ->
-              prerr_endline
-                "zenbu: input ended with unsaved changes; the file was not \
-                 saved";
-              exit 1))
+          | Ok initial -> (
+              match explicit_startup_error options initial with
+              | Some message -> fail message
+              | None -> (
+                  match
+                    Zenbu_terminal.Backend.with_terminal (fun backend ->
+                        let columns, rows =
+                          Zenbu_terminal.Backend.size backend
+                        in
+                        run backend
+                          (Zenbu_app.Session.resize initial ~columns ~rows))
+                  with
+                  | Error message -> fail message
+                  | Ok Exited -> ()
+                  | Ok Unsaved_end ->
+                      prerr_endline
+                        "zenbu: input ended with unsaved changes; the file was \
+                         not saved";
+                      exit 1))))

@@ -58,6 +58,8 @@ val render : t -> t * Zenbu_view.Frame.t
 val contents : t -> string
 val file_path : t -> string option
 val dimensions : t -> Zenbu_view.Renderer.dimensions
+val configuration_error : t -> Zenbu_kernel.Error.t option
+val plugin_load_errors : t -> Zenbu_kernel.Error.t list
 val notice : t -> string -> t
 val inspect : t -> inspection -> string list
 val toggle_inspector : t -> t

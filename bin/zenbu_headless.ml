@@ -403,9 +403,9 @@ let inspect_api () =
   |> Inspector.format_api |> print_lines
 
 let inspect_commands () =
-  (Inspector.commands (semantic_registry ())
+  Inspector.commands (semantic_registry ())
   @ (Zenbu_app.Session.host_command_descriptors ()
-    |> List.map Inspector.describe_command))
+    |> List.map Inspector.describe_command)
   |> Inspector.format_commands |> print_lines
 
 let inspect_description kind id =
@@ -910,7 +910,8 @@ let generated_ocaml_source ~bytes =
 let benchmark_session ?language ?(config = Scripting.Disabled)
     ?(plugins = Plugins.Disabled) contents =
   Zenbu_app.Session.create ~model:Zenbu_app.Session.Vim ?language ~contents
-    ~config ~plugins ~dimensions:Zenbu_view.Renderer.{ columns = 100; rows = 30 }
+    ~config ~plugins
+    ~dimensions:Zenbu_view.Renderer.{ columns = 100; rows = 30 }
     ()
   |> function
   | Ok value -> value
@@ -940,9 +941,11 @@ let benchmark_component_callback () =
       Unix.rmdir package;
       Unix.rmdir root)
     (fun () ->
-      copy_file (Filename.concat source "zenbu-plugin.toml")
+      copy_file
+        (Filename.concat source "zenbu-plugin.toml")
         (Filename.concat package "zenbu-plugin.toml");
-      copy_file (Filename.concat source "plugin.wasm")
+      copy_file
+        (Filename.concat source "plugin.wasm")
         (Filename.concat package "plugin.wasm");
       let session =
         benchmark_session ~plugins:(Plugins.Directories [ root ]) "alpha"
@@ -984,7 +987,9 @@ let benchmark () =
   let _, edit =
     measure_seconds (fun () ->
         let session = benchmark_session small in
-        let session = Zenbu_app.Session.handle_input session (logical_key "i") in
+        let session =
+          Zenbu_app.Session.handle_input session (logical_key "i")
+        in
         Zenbu_app.Session.handle_input session
           (Input_event.text_input "!" |> Result.get_ok))
   in
