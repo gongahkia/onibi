@@ -42,6 +42,8 @@ func New(version string) *cobra.Command {
 	root.AddCommand(newSourcesCommand(runtime))
 	root.AddCommand(newRefreshCommand(runtime))
 	root.AddCommand(newVenueCommand(runtime))
+	root.AddCommand(newAvailabilityCommand(runtime))
+	root.AddCommand(newSearchCommand(runtime))
 	root.AddCommand(newDoctorCommand(runtime))
 	return root
 }

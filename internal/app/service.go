@@ -12,6 +12,8 @@ import (
 	"github.com/gongahkia/courtsg/internal/config"
 	"github.com/gongahkia/courtsg/internal/domain"
 	"github.com/gongahkia/courtsg/internal/geo"
+	"github.com/gongahkia/courtsg/internal/query"
+	"github.com/gongahkia/courtsg/internal/ranking"
 	"github.com/gongahkia/courtsg/internal/source"
 	"github.com/gongahkia/courtsg/internal/sources/sportsg"
 	"github.com/gongahkia/courtsg/internal/store"
@@ -244,6 +246,105 @@ func (service *Service) Venues(ctx context.Context, filter store.VenueFilter) ([
 
 func (service *Service) Venue(ctx context.Context, venueID string) (domain.Venue, error) {
 	return service.store.GetVenue(ctx, venueID)
+}
+
+// ImportManualAvailability persists user-supplied availability without making
+// any network request. The local-manual source is deliberately separate from
+// venue provenance, so official discovery data remains distinguishable.
+func (service *Service) ImportManualAvailability(ctx context.Context, slots []domain.AvailabilitySlot) ([]domain.AvailabilitySlot, error) {
+	now := time.Now().UTC()
+	for index := range slots {
+		slot := &slots[index]
+		sport, err := domain.CanonicalSport(slot.SportID)
+		if err != nil {
+			return nil, err
+		}
+		slot.SportID = sport.ID
+		if slot.SourceID == "" {
+			slot.SourceID = "local-manual"
+		}
+		if slot.SourceID != "local-manual" {
+			return nil, fmt.Errorf("manual availability slot %q must use source local-manual", slot.ID)
+		}
+		if slot.ID == "" {
+			slot.ID = manualSlotID(*slot)
+		}
+		if slot.Status == "" {
+			slot.Status = domain.AvailabilityAvailable
+		}
+		if slot.Currency == "" {
+			slot.Currency = "SGD"
+		}
+		if slot.ObservedAt.IsZero() {
+			slot.ObservedAt = now
+		}
+		if slot.FetchedAt.IsZero() {
+			slot.FetchedAt = now
+		}
+		if slot.StaleAfter.IsZero() {
+			slot.StaleAfter = now.Add(24 * time.Hour)
+		}
+		if slot.Provenance.SourceID == "" {
+			slot.Provenance.SourceID = "local-manual"
+		}
+		if slot.Provenance.ObservedAt.IsZero() {
+			slot.Provenance.ObservedAt = slot.ObservedAt
+		}
+		if slot.Provenance.FetchedAt.IsZero() {
+			slot.Provenance.FetchedAt = slot.FetchedAt
+		}
+	}
+	if err := service.store.UpsertAvailability(ctx, slots); err != nil {
+		return nil, err
+	}
+	return slots, nil
+}
+
+// Search runs entirely against normalized local state. It never triggers a
+// network refresh, which lets watches, CLI, MCP, and the TUI share one safe path.
+func (service *Service) Search(ctx context.Context, input domain.Query) ([]domain.SearchResult, error) {
+	criteria, err := query.Normalize(input)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC()
+	from, until := availabilityBounds(criteria, now)
+	rows, err := service.store.ListAvailability(ctx, from, until, 2_000)
+	if err != nil {
+		return nil, err
+	}
+	candidates, err := query.Filter(rows, criteria, now)
+	if err != nil {
+		return nil, err
+	}
+	return ranking.Rank(ctx, candidates, criteria, service, now)
+}
+
+func availabilityBounds(criteria domain.Query, now time.Time) (time.Time, time.Time) {
+	location, err := time.LoadLocation(domain.SingaporeTimeZone)
+	if err != nil {
+		location = time.FixedZone("SGT", 8*60*60)
+	}
+	from := now
+	if criteria.StartDate != nil {
+		date := criteria.StartDate.In(location)
+		from = time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, location).UTC()
+		if from.Before(now) {
+			from = now
+		}
+	}
+	until := from.AddDate(0, 0, 30)
+	if criteria.EndDate != nil {
+		date := criteria.EndDate.In(location)
+		until = time.Date(date.Year(), date.Month(), date.Day()+1, 0, 0, 0, 0, location).UTC()
+	}
+	return from, until
+}
+
+func manualSlotID(slot domain.AvailabilitySlot) string {
+	value := strings.Join([]string{slot.SportID, slot.VenueID, slot.FacilityID, slot.Start.UTC().Format(time.RFC3339Nano), slot.End.UTC().Format(time.RFC3339Nano)}, "\x00")
+	digest := sha256.Sum256([]byte(value))
+	return "manual:" + hex.EncodeToString(digest[:12])
 }
 
 // Geocode searches OneMap when configured and caches the first authoritative

@@ -82,21 +82,22 @@ const (
 
 // AvailabilitySlot uses a half-open interval [Start, End) in Asia/Singapore.
 type AvailabilitySlot struct {
-	ID         string             `json:"id"`
-	SportID    string             `json:"sport_id"`
-	VenueID    string             `json:"venue_id"`
-	FacilityID string             `json:"facility_id,omitempty"`
-	SourceID   string             `json:"source_id"`
-	Start      time.Time          `json:"start"`
-	End        time.Time          `json:"end"`
-	Status     AvailabilityStatus `json:"status"`
-	PriceCents *int64             `json:"price_cents,omitempty"`
-	Currency   string             `json:"currency,omitempty"`
-	BookingURL string             `json:"booking_url,omitempty"`
-	ObservedAt time.Time          `json:"observed_at"`
-	FetchedAt  time.Time          `json:"fetched_at"`
-	StaleAfter time.Time          `json:"stale_after"`
-	Provenance Provenance         `json:"provenance"`
+	ID                 string             `json:"id"`
+	SportID            string             `json:"sport_id"`
+	VenueID            string             `json:"venue_id"`
+	FacilityID         string             `json:"facility_id,omitempty"`
+	SourceID           string             `json:"source_id"`
+	Start              time.Time          `json:"start"`
+	End                time.Time          `json:"end"`
+	Status             AvailabilityStatus `json:"status"`
+	PriceCents         *int64             `json:"price_cents,omitempty"`
+	Currency           string             `json:"currency,omitempty"`
+	MembershipRequired *bool              `json:"membership_required,omitempty"`
+	BookingURL         string             `json:"booking_url,omitempty"`
+	ObservedAt         time.Time          `json:"observed_at"`
+	FetchedAt          time.Time          `json:"fetched_at"`
+	StaleAfter         time.Time          `json:"stale_after"`
+	Provenance         Provenance         `json:"provenance"`
 }
 
 func (slot AvailabilitySlot) Valid() bool {

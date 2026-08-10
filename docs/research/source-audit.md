@@ -41,6 +41,11 @@ conditional requests, bounded bodies and circuit degradation.
 normalizable published rate; `availability` means normalized current slots.
 `—` means not claimed. Every row was reviewed on 2026-08-10.
 
+`local-manual` is an application-owned input source, not an upstream operator:
+it accepts user-entered slots into the local database and makes no network
+requests. It exists so a user can safely search, rank, and watch availability
+that they are authorized to supply themselves.
+
 | ID / name / operator | Sports and coverage | metadata / price / availability / booking link | transport and auth | robots / terms / API or integration | poll floor / concurrency | status / confidence / evidence |
 | --- | --- | --- | --- | --- | --- |
 | `sportsg-facilities` / SportSG facilities / Sport Singapore | SportSG-managed facilities nationwide; venue-level data, court inventory not guaranteed | yes / — / — / official facilities link | data.gov.sg public dataset API; optional production key; documented API returns a time-limited direct `s3.ap-southeast-1.amazonaws.com` download URL | robots permits; [dataset][sportsg-data] is Open Data Licence; [dataset API][data-api] documented | 24 h / 1 host request | `enabled_public_data` / high / [dataset][sportsg-data] |

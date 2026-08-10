@@ -220,6 +220,9 @@ CREATE TABLE IF NOT EXISTS source_health (
     updated_at TEXT NOT NULL
 );
 `},
+	{version: 2, sql: `
+ALTER TABLE availability_slots ADD COLUMN membership_required INTEGER;
+`},
 }
 
 func (store *Store) Migrate(ctx context.Context) error {
