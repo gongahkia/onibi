@@ -49,8 +49,10 @@ syntax presentation consumes version-bound snapshots and must not expose
 Tree-sitter objects. New script/plugin capabilities remain host authority,
 validated at registration and invocation.
 
-Do not introduce LSP, project search, background execution, a marketplace, or
-grammar downloads as incidental work. Those are explicit roadmap decisions.
+Do not add cross-file language edits, project search, background extension
+execution, a marketplace, or grammar downloads as incidental work. Language
+servers remain private host processes: preserve their version-gated inbox and
+do not expose LSP/JSON-RPC values through the model API.
 
 ## Architecture and ADRs
 

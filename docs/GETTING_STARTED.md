@@ -7,7 +7,7 @@ directly.
 
 ## Install from a clone
 
-Linux x86_64 is the supported interactive platform in M10 because the pinned
+Linux x86_64 is the supported interactive platform in M11 because the pinned
 Wasmtime C API archive is Linux x86_64-only. Install `opam`, a C toolchain,
 `curl`, `tar`, and `sha256sum`, then run:
 
@@ -55,6 +55,7 @@ The initial model is Vim-style; choose an alternative at startup with
 | `Alt-M` | switch Vim-style, selection-first, and structural models |
 | `Alt-H` | help from current model metadata |
 | `Ctrl-O` | inspect the latest `why` explanation |
+| `Ctrl-Space` | ask a ready language service for completion |
 | `Alt-R` / `Ctrl-Alt-R` | reload the selected Lua config and local plugins |
 
 Search is literal and incremental. `Escape` while its prompt is open restores
@@ -70,6 +71,13 @@ dune exec bin/zenbu_headless.exe -- describe command search.next
 dune exec bin/zenbu_headless.exe -- bindings vim
 dune exec bin/zenbu_headless.exe -- demo
 ```
+
+For a saved `.ml` or `.mli`, M11 starts `ocamllsp` when it is available. Use
+the palette for `language.status`, hover, definition, completion, rename, and
+diagnostic navigation; `Ctrl-Space` asks for completion. The service is
+asynchronous but every accepted edit still becomes a normal transaction. See
+[Language services](LANGUAGE_SERVICES.md) for server selection, status, and
+the intentional single-buffer/cross-file limits.
 
 ## Configure and extend
 
@@ -99,7 +107,7 @@ and [WIT contract](wit/zenbu-plugin.wit) are the stable v1 references.
 
 ## Boundaries and limits
 
-M10 deliberately does not include LSP, panes, project/file search, a file
-picker, grammar downloads, a marketplace, external-file conflict detection,
-or a system clipboard bridge. See [the roadmap](ROADMAP.md) before designing
-around a missing feature.
+M11 deliberately does not include cross-file buffers/edits, panes,
+project/file search, a file picker, grammar downloads, a marketplace,
+external-file conflict detection, or a system clipboard bridge. See
+[the roadmap](ROADMAP.md) before designing around a missing feature.

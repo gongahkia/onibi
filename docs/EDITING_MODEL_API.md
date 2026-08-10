@@ -92,7 +92,10 @@ directly when they need model-owned status or navigation history.
 Selectors answer *which regions?*; transformations answer *what happens?*.
 The M3 models share `next-word`, line, and delete selectors/transformations,
 though one obtains them after an operator and the other makes them visible
-first. Regex, LSP, grapheme, and display-width selectors remain excluded.
+first. Regex, direct LSP/protocol, grapheme, and display-width selectors remain
+excluded. M11 language features are host commands over the primary selection;
+their owned results enter normal semantic selection/edit effects and do not add
+LSP values to this API. See [Language services](LANGUAGE_SERVICES.md).
 
 ## Commands
 

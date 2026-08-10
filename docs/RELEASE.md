@@ -1,6 +1,6 @@
 # Release gate
 
-The checked-in development identifier is `0.10.0-dev` (`VERSION` and
+The checked-in development identifier is `0.11.0-dev` (`VERSION` and
 `Zenbu_kernel.Version.current`). A release changes both values deliberately,
 updates the package metadata, and records the validation evidence below.
 
@@ -13,9 +13,10 @@ updates the package metadata, and records the validation evidence below.
 3. Run `make release-check`; it verifies that WIT/Lua/API output matches the
    checked-in contract artifacts. Run `make extension-docs` and commit the
    resulting files deliberately when the contract changes.
-4. Exercise the TUI in a real terminal: open OCaml and JSON files, search
-   Unicode text, invoke a script/plugin command from the palette, save-as,
-   switch models, and paste multiline text in a text-entry state.
+4. Exercise the TUI in a real terminal: open OCaml and JSON files, wait for
+   `language.status` on OCaml, request hover/completion, search Unicode text,
+   invoke a script/plugin command from the palette, save-as, switch models,
+   and paste multiline text in a text-entry state.
 5. For a Component plugin, verify normal execution, a fatal callback that
    leaves the Component unavailable, normal host editing afterwards, and
    recovery after reload.

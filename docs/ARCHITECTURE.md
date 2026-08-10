@@ -1,6 +1,6 @@
 # Architecture
 
-Zenbu M0-M10 is a functional semantic editing kernel plus public editing-model,
+Zenbu M0-M11 is a functional semantic editing kernel plus public editing-model,
 syntax, trusted-local configuration, stable local extension protocols, an
 isolated Component runtime, and a narrow terminal host. The central kernel
 transition is
@@ -37,6 +37,14 @@ Transactions, not callbacks or mutable editor state, are the only mutation
 mechanism. The kernel validates the source document/version, edit ranges,
 conflicts, UTF-8 text, and selections before constructing a new document. A
 failed application returns an explicit error and leaves the old value intact.
+
+M11 adds optional language intelligence above that boundary. `zenbu.language`
+owns editor-facing configuration, coordinates, diagnostics, hover, locations,
+completion, and text-edit values. `zenbu.lsp` is a private adapter using LSP
+and JSON-RPC packages plus a local child process. Neither the kernel nor
+`zenbu.model_api` imports it or exposes protocol values. Reader threads enqueue
+owned events; only `zenbu.app.Session` drains them and turns accepted results
+into selections or semantic transactions.
 
 `History.t` stores immutable nodes containing a transaction, semantic metadata,
 and before/after documents. Nodes retain children, so committing after undo
@@ -290,3 +298,27 @@ provide async/background scheduling or hard wall-clock cancellation. See
 [extensions](EXTENSIONS.md), [Component authoring](WASM_COMPONENTS.md), the
 [isolation policy](ISOLATION.md), [M9 pressure test](M9_PRESSURE_TEST.md), and
 ADRs 0022-0028.
+
+## M11 language-service boundary
+
+```text
+Language.Registry → zenbu.lsp private stdio client → local language server
+                            ↓ bounded event inbox / wakeup fd
+                     zenbu.app.Session (main thread)
+                         ↓                   ↓
+           diagnostic ranges/status     semantic selection/edit effects
+                         ↓                   ↓
+                    zenbu.view         model runtime → transactions/history
+```
+
+The process adapter owns initialize/shutdown, capability negotiation,
+position/sync conversion, request ids, cancellation, framing limits, stderr,
+and child cleanup. It exposes only `zenbu.language` values and a wakeup
+descriptor to the host. Session accepts a versioned diagnostic only for the
+current snapshot and drops stale feature results; it rejects any returned
+workspace edit that includes a non-active URI. The terminal waits on stdin and
+the wakeup descriptor, then renders diagnostics and overlays as view data.
+Models neither parse LSP messages nor own an async loop. The public semantic
+`language.apply-edits` transformation is the sole document-mutation route for
+completion, rename, and accepted server edits. See
+[Language services](LANGUAGE_SERVICES.md) and ADRs 0030-0032.

@@ -121,9 +121,11 @@ Incomplete code remains a normal syntax state. Tree-sitter returns a tree with
 error/missing information when possible; the service and structural model keep
 working with available named structure and never substitute byte heuristics.
 
-M10 adds bounded synchronous presentation spans, but still omits query strings
-as public semantics, async workers, embedded languages, arbitrary grammar
-downloads, LSP, diagnostics, and language-specific refactoring. Parsing is
+M10 adds bounded synchronous presentation spans. M11 adds a separate optional
+language-service layer; diagnostics and LSP edits are Zenbu-owned host data and
+never Tree-sitter values. Syntax still omits query strings as public semantics,
+async workers, embedded languages, arbitrary grammar downloads, and
+language-specific refactoring. Parsing is
 synchronous and adequate only for the tested small/moderate fixtures; profile
 real editor latency before introducing a background worker.
 

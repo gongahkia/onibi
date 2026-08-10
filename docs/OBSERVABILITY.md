@@ -32,6 +32,13 @@ denials. Extension lifecycle records carry provider identity when staging
 succeeds; failed manifest/runtime stages still retain an actionable error in
 the Plugins inspection view.
 
+M11 additionally emits bounded `Language_service` events for server start,
+negotiation, synchronization, feature request/response, cancellation, decode,
+exit, and failure. They retain a server id, request id/document version when
+applicable, outcome, and bounded detail; they do not retain JSON-RPC packets,
+source text, or protocol values. Generic `why` formatting includes them without
+adding a language-server-specific explanation path.
+
 Each logical input has a monotonic runtime-local execution id. If a model status
 declares pending input, the runtime groups subsequent executions into an
 interaction without inspecting a model id. A completed `d w` interaction can
@@ -92,8 +99,10 @@ strategy. Tree-sitter types and pointers remain private.
 
 `Profiler.enabled ~capacity` records bounded CPU-time samples using `Sys.time`.
 It measures existing model-handle, transaction-commit, syntax-update, M7
-script-load/reload/command/selector/transformation/event boundaries, and M8
-extension-load/reload/command/selector/transformation/event boundaries; no
+script-load/reload/command/selector/transformation/event boundaries, M8
+extension-load/reload/command/selector/transformation/event boundaries, and M11
+language synchronization, hover, definition, completion, rename, and protocol
+decode boundaries; no
 wall-clock timestamp is retained. Aggregates expose count,
 total, mean, and max. Disabled profiling takes no clock reading. This is
 lightweight local diagnosis, not telemetry or a metrics platform.
@@ -101,6 +110,12 @@ lightweight local diagnosis, not telemetry or a metrics platform.
 `zenbu-headless profile SESSION` enables a temporary bounded profiler for that
 session. The terminal uses `--profile`; its profile API is available through
 the same inspector values. No observation data leaves the process or machine.
+
+`Session.Language` and `zenbu-headless language-status FILE` project only the
+active server/language id, executable, workspace root, lifecycle state,
+negotiated encoding/sync policy, pending count, diagnostics count, and bounded
+last error. This is status inspection, not a protocol console. See
+[Language services](LANGUAGE_SERVICES.md).
 
 ## Interactive inspector
 

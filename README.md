@@ -7,7 +7,7 @@ no editing model is fundamental. Vim-style, selection-first, structural, and
 future models act through the same public semantic editing API; they do not
 mutate text, selections, history, or syntax state directly.
 
-This checkout is **0.10.0-dev (M10)**. It is a development release, not a
+This checkout is **0.11.0-dev (M11)**. It is a development release, not a
 complete editor distribution.
 
 ## Quick start
@@ -42,6 +42,10 @@ and plugin examples live in [Getting Started](docs/GETTING_STARTED.md).
   palette, save-as, a live model picker, metadata-derived help, and bracketed
   paste aggregation. These are host interactions, not additions to a model
   grammar.
+- `zenbu.language` exposes model-neutral diagnostics, hover, definition,
+  completion, rename, position conversion, and sync data. A private async LSP
+  adapter starts `ocamllsp` by default for saved OCaml files; results become
+  ordinary selections or validated transactions, never protocol-driven edits.
 - Lua configuration and local plugins contribute commands, selectors,
   transformations, bindings, and events through host validation. Wasmtime
   Components have bounded fuel/memory and become explicitly unavailable after
@@ -63,8 +67,8 @@ make bootstrap
 
 The target creates an ignored local opam switch with the system OCaml when needed
 (Zenbu requires OCaml 5.3.0 or newer),
-installs the package's test dependencies (including `ocamlformat` and the
-Tree-sitter OCaml/JSON sublibraries), checksum-fetches the pinned Wasmtime C
+installs the package's test dependencies (including `ocamlformat`,
+`ocaml-lsp-server`, and the Tree-sitter OCaml/JSON sublibraries), checksum-fetches the pinned Wasmtime C
 API, and runs the full check. This resolves the common failure where a global
 Dune finds `tree-sitter` but not `tree-sitter.json`, or where `ocamlformat` is
 not on `PATH`. Its transient opam extraction directory is under ignored
@@ -127,8 +131,9 @@ Host keys have priority over model/configuration bindings:
 | `Alt-M` | switch Vim-style, selection-first, or structural model while preserving shared semantic state |
 | `Alt-H` | metadata-derived getting-started help |
 | `Ctrl-O` | toggle the local `why` inspector |
+| `Ctrl-Space` | explicit language completion for a ready language service |
 
-Search, palette, and save-as prompts accept ordinary text-entry input.
+Search, palette, save-as, and rename prompts accept ordinary text-entry input.
 Bracketed terminal paste is collected as one committed text input only while a
 model or host prompt declares text entry; it is intentionally ignored in a
 command grammar. Selection styling wins over search styling, which wins over
@@ -141,6 +146,8 @@ dune exec bin/zenbu_headless.exe -- demo
 dune exec bin/zenbu_headless.exe -- replay test/fixtures/unicode.replay
 dune exec bin/zenbu_headless.exe -- session test/fixtures/sessions/vim-edit.session
 dune exec bin/zenbu_headless.exe -- syntax test/fixtures/syntax_sample.ml
+dune exec bin/zenbu_headless.exe -- language-status test/fixtures/syntax_sample.ml
+dune exec bin/zenbu_headless.exe -- lsp-position utf-16 0 test/fixtures/syntax_sample.ml
 dune exec bin/zenbu_headless.exe -- why test/fixtures/sessions/observability-vim.session
 dune exec bin/zenbu_headless.exe -- search-session path/to/session
 dune exec bin/zenbu_headless.exe -- extension-api
@@ -160,6 +167,8 @@ zenbu.model_api              public model/command/inspection vocabulary
    ↗         ↖
 zenbu.proof_models     zenbu.structural_model ── zenbu.syntax (private Tree-sitter)
         ↑                         ↑
+zenbu.language ── zenbu.lsp (private LSP/JSON-RPC process adapter)
+        ↑
 zenbu.app ── zenbu.view ── zenbu.terminal
         ↑
 zenbu.scripting / zenbu.extension
@@ -172,19 +181,21 @@ colours; neither can mutate the document.
 Start with [Getting Started](docs/GETTING_STARTED.md), then read
 [the architecture](docs/ARCHITECTURE.md), [editing protocol](docs/EDITING_PROTOCOL.md),
 [terminal guide](docs/TERMINAL.md), [syntax guide](docs/SYNTAX.md),
+[language-service guide](docs/LANGUAGE_SERVICES.md),
 [observability guide](docs/OBSERVABILITY.md), [scripting](docs/SCRIPTING.md),
 [extension guide](docs/EXTENSIONS.md), [isolation policy](docs/ISOLATION.md),
 the [generated Extension API](docs/generated/EXTENSION_API.md),
 [Lua SDK](sdk/lua/zenbu.lua), [WIT contract](docs/wit/zenbu-plugin.wit), and
 [roadmap](docs/ROADMAP.md). [Contributing](CONTRIBUTING.md) describes the
 expected local workflow, [performance baseline](docs/PERFORMANCE.md) records
-the M10 sanity numbers, and [release notes](docs/RELEASE.md) describe the gate.
+the M11 sanity numbers, and [release notes](docs/RELEASE.md) describe the gate.
 
 ## Deliberate limits
 
-Zenbu has no LSP client, project search, external-file watcher, pane/layout
-system, command-line/Ex language, plugin marketplace, asynchronous extension
-execution, public Tree-sitter query API, grammar downloads, refactoring engine,
-or system clipboard bridge. Component runtime support is Linux x86_64-specific
-because of the pinned native C API. See the deferred work in
+Zenbu has no multi-buffer/cross-file LSP workflow, project search,
+external-file watcher, pane/layout system, command-line/Ex language, plugin
+marketplace, asynchronous extension execution, public Tree-sitter query API,
+grammar downloads, refactoring engine, or system clipboard bridge. Component
+runtime support is Linux x86_64-specific because of the pinned native C API.
+See the deferred work in
 [the roadmap](docs/ROADMAP.md).

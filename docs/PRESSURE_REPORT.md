@@ -4,6 +4,9 @@ This report records the release-hardening pressure boundaries, the tests that
 guard them, and the M10 local acceptance findings. It is deliberately candid:
 passing the checks below does not turn Zenbu into a complete IDE.
 
+It is the historical M10 report. M11 language-service evidence and its current
+limits live in [M11 pressure test](M11_PRESSURE_TEST.md).
+
 | Pressure | Guard |
 | --- | --- |
 | Fatal Component callback | M9 Component test asserts fuel/trap classification, an unavailable health view, non-mutating repeated invocation, normal host edits, and successful reload recovery. |

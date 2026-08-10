@@ -1,6 +1,6 @@
 # Roadmap
 
-This repository implements M0-M10.
+This repository implements M0-M11.
 
 | milestone | goal | status |
 | --- | --- | --- |
@@ -15,13 +15,21 @@ This repository implements M0-M10.
 | M8 | local plugin contract, capabilities, SDK, diagnostics | implemented |
 | M9 | isolated WebAssembly Component plugin runtime | implemented on Linux x86_64 |
 | M10 | usability, adoption, and release hardening | implemented in this checkout |
+| M11 | model-neutral asynchronous language intelligence | implemented in this checkout |
 
-M10 adds only host/presentation policy above the existing semantic boundary:
+M10 added host/presentation policy above the existing semantic boundary:
 literal Unicode search, all-provider command discovery/palette, save-as,
 metadata-derived help, live model switching, syntax colouring from public
 snapshot spans, bracketed-paste aggregation, Component health/reload behavior,
-bootstrap/install/release targets, CI, and adoption documentation. It does not
+bootstrap/install/release targets, CI, and adoption documentation. It did not
 grant a host or renderer a private document mutation path.
+
+M11 adds optional `zenbu.language` data and a private `zenbu.lsp` adapter. The
+default `.ml`/`.mli` path starts `ocamllsp`; diagnostics, hover, same-document
+definition, explicit completion, rename, and bounded `workspace/applyEdit`
+results arrive asynchronously, then use normal selection effects or
+transactions. LSP/JSON-RPC values remain outside the kernel and editing-model
+API. See [Language services](LANGUAGE_SERVICES.md).
 
 ## Deferred work
 
@@ -33,8 +41,10 @@ The following remain deliberately out of scope:
   plugin marketplace;
 - hard wall-clock cancellation, asynchronous/background extension execution,
   richer Component imports, or a sandbox claim for trusted Lua;
-- LSP, diagnostics transport, project search, file watching, panes/layouts,
+- project search, file watching, panes/layouts, multi-buffer/cross-file edits,
   command-line/Ex compatibility, macros, or broad Vim/Helix/Kakoune emulation;
+- LSP code actions, formatting, symbols, semantic tokens, user-authored server
+  configuration, workspace folders, and a language-server trust/sandbox model;
 - public Tree-sitter query APIs, grammar downloads, embedded-language parsing,
   refactoring, or asynchronous syntax workers;
 - external-modification conflict detection and parent-directory fsync after
@@ -42,14 +52,14 @@ The following remain deliberately out of scope:
 
 ## Next proposed milestone
 
-The M10 daily-editor pass makes **M11: model-neutral language intelligence**
-the strongest next step. It should introduce an asynchronous LSP service for
-diagnostics, navigation, hover, completion, and rename as ordinary commands
-over Zenbu selections, not model-specific protocol bindings. The service must
-remain outside the kernel, must not expose protocol objects through
-`zenbu.model_api`, and must leave single-buffer terminal hosting intact. It
-should not bundle project search, panes, a marketplace, or a Component
-distribution redesign.
+M11 makes **M12: workspace buffers and cross-file language results** the
+strongest next step. It should extend the version-gated language inbox to a
+document table, open same-workspace definition targets, and either apply a
+fully validated workspace edit or reject it atomically. It should define
+external-file-change and save coordination before adding file watching. It must
+not make buffers, providers, or language protocols visible to the kernel or
+model API, and should not bundle project search, panes, a marketplace, or a
+Component distribution redesign.
 
 Portable Component distribution and a first-party guest authoring tool remain
 the next packaging concern after M11: they need a verified platform matrix and
@@ -57,5 +67,5 @@ must preserve WIT capability projection plus fatal-runtime health/reload
 semantics without adding a resolver or marketplace.
 
 See [the architecture](ARCHITECTURE.md), [Component authoring](WASM_COMPONENTS.md),
-[isolation policy](ISOLATION.md), [M10 pressure report](PRESSURE_REPORT.md),
+[isolation policy](ISOLATION.md), [M11 pressure report](M11_PRESSURE_TEST.md),
 and [release gate](RELEASE.md).
