@@ -1,1 +1,13 @@
 AGENTS.md
+/bin/
+/coverage.out
+/courtsg
+/.courtsg/
+*.db
+*.db-shm
+*.db-wal
+*.test
+*.tmp
+/.env
+/.env.*
+!/env.example
