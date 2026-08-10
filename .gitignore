@@ -9,6 +9,9 @@ examples/wasm-component-hello/src/bindings.rs
 examples/wasm-component-conformance/target/
 examples/wasm-component-conformance/plugin.wasm
 examples/wasm-component-conformance/src/bindings.rs
+examples/wasm-component-unauthorized-import/target/
+examples/wasm-component-unauthorized-import/plugin.wasm
+examples/wasm-component-unauthorized-import/src/bindings.rs
 *.install
 *.cm[ioxat]
 *.annot

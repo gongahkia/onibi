@@ -86,4 +86,5 @@
  (deps
   fixtures/m9_component.wasm.b64
   fixtures/m9_conformance_component.wasm.b64
+  fixtures/m9_unauthorized_import_component.wasm.b64
   fixtures/m9_wasi_component.wasm.b64))

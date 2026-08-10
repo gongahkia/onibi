@@ -18,6 +18,9 @@
   (names wasmtime_backend_stubs)
   (flags
    (:standard
+    -Wall
+    -Wextra
+    -Werror
     -I
     %{env:ZENBU_WASMTIME_C_API_INCLUDE_DIR=../../../.zenbu/wasmtime-v47.0.3-x86_64-linux-c-api/include})))
  (c_library_flags

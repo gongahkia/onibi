@@ -117,6 +117,11 @@ let conformance_fixture =
     ( fixture "test/fixtures/m9_conformance_component.wasm.b64" |> read
     |> decode_base64 )
 
+let unauthorized_import_fixture =
+  lazy
+    ( fixture "test/fixtures/m9_unauthorized_import_component.wasm.b64" |> read
+    |> decode_base64 )
+
 let toml_array values =
   values |> List.map (Printf.sprintf "%S") |> String.concat ", "
 
@@ -269,6 +274,29 @@ let create_lua_package root ~id ~version ~contributions ~capabilities =
     (Filename.concat package "zenbu-plugin.toml")
     (lua_manifest ~id ~version ~contributions ~capabilities);
   write (Filename.concat package "init.lua") conformance_lua_source;
+  package
+
+let create_lua_command_package root ~directory ~id ~input ~text =
+  let package = Filename.concat root directory in
+  Unix.mkdir package 0o700;
+  write
+    (Filename.concat package "zenbu-plugin.toml")
+    (lua_manifest ~id ~version:"1.0.0"
+       ~contributions:[ "commands"; "bindings" ]
+       ~capabilities:[ "document.edit" ]);
+  write
+    (Filename.concat package "init.lua")
+    (Printf.sprintf
+       {|
+zenbu.command {
+  id = %S,
+  title = "Insert",
+  description = "Insert a test marker.",
+  run = function(_) return {{ kind = "insert", text = %S }} end,
+}
+zenbu.bind { input = %S, command = %S, scope = "global" }
+|}
+       (id ^ ".insert") text input (id ^ ".insert"));
   package
 
 let all_contributions =
@@ -526,6 +554,86 @@ let test_component_generation_stress () =
       done;
       Plugins.dispose !active)
 
+let test_mixed_runtime_snapshot_and_cross_runtime_collision () =
+  with_root (fun root ->
+      ignore
+        (create_package root ~directory:"component" ~id:"com.example.m9"
+           ~version:"1.0.0"
+           ~contributions:
+             [ "commands"; "selectors"; "transformations"; "bindings" ]
+           ~capabilities:
+             [ "document.edit"; "selection.read"; "selection.write" ]
+           ());
+      ignore
+        (create_lua_command_package root ~directory:"lua" ~id:"com.example.lua"
+           ~input:"Ctrl-P" ~text:"L");
+      let trace = Trace.enabled ~capacity:256 |> must in
+      let value = session root ~trace () in
+      let value = Zenbu_app.Session.handle_input value (ctrl "K") in
+      let value = Zenbu_app.Session.handle_input value (ctrl "P") in
+      expect
+        (Zenbu_app.Session.contents value = "!Lalpha")
+        "Lua and Component commands did not coexist in one snapshot: %S"
+        (Zenbu_app.Session.contents value);
+      let plugins =
+        Zenbu_app.Session.inspect value Zenbu_app.Session.Plugins
+        |> String.concat "\n"
+      in
+      expect
+        (contains plugins "com.example.m9 1.0.0 active wasm-component"
+        && contains plugins "com.example.lua 1.0.0 active lua-trusted")
+        "mixed-runtime plugin inspection lost an active provider: %s" plugins;
+      let history =
+        Zenbu_app.Session.inspect value Zenbu_app.Session.History
+        |> String.concat "\n"
+      in
+      expect
+        (contains history "com.example.m9@1.0.0 (wasm-component)"
+        && contains history "com.example.lua@1.0.0 (lua-trusted)")
+        "mixed-runtime history attribution is incomplete: %s" history;
+      expect
+        (List.exists
+           (function
+             | Trace_event.Extension_callback { provider; _ } ->
+                 Provider.runtime provider = Some "wasm-component"
+             | _ -> false)
+           (Trace.events trace))
+        "mixed runtime session omitted Component callback tracing");
+  with_root (fun root ->
+      ignore
+        (create_package root ~directory:"component" ~binary:conformance_fixture
+           ~id:conformance_id ~version:"1.0.0"
+           ~contributions:all_contributions ~capabilities:all_capabilities ());
+      let package = Filename.concat root "lua" in
+      Unix.mkdir package 0o700;
+      write
+        (Filename.concat package "zenbu-plugin.toml")
+        (lua_manifest ~id:"com.example" ~version:"1.0.0"
+           ~contributions:[ "commands" ] ~capabilities:[]);
+      write
+        (Filename.concat package "init.lua")
+        {|
+zenbu.command {
+  id = "com.example.conformance.insert",
+  title = "Colliding command",
+  description = "Intentional cross-runtime collision.",
+  run = function(_) return nil end,
+}
+|};
+      let plugins =
+        Plugins.load ~config:(Plugins.Directories [ root ])
+          ~base_commands:(base_commands ()) ~base_semantics:[] ()
+      in
+      expect
+        (Plugins.providers plugins = [])
+        "cross-runtime command collision partially activated a provider";
+      expect
+        (List.for_all
+           (fun view -> Plugins.view_state view = Plugins.Failed)
+           (Plugins.views plugins))
+        "cross-runtime command collision did not use the M8 failure policy";
+      Plugins.dispose plugins)
+
 let test_component_semantic_conformance_and_provenance () =
   with_root (fun root ->
       ignore
@@ -560,6 +668,13 @@ let test_component_semantic_conformance_and_provenance () =
       expect
         (contains history "com.example.m9@1.0.0 (wasm-component)")
         "Component provenance omitted plugin version/runtime: %s" history;
+      let why =
+        Zenbu_app.Session.inspect inserted Zenbu_app.Session.Why
+        |> String.concat "\n"
+      in
+      expect
+        (contains why "com.example.m9@1.0.0 (wasm-component)")
+        "Component why inspection omitted plugin/version/runtime: %s" why;
       expect
         (List.exists
            (function
@@ -702,6 +817,37 @@ let test_invalid_wasi_component_and_malformed_binary_are_rejected () =
     ~binary:(lazy "not a WebAssembly component")
     ~entrypoint:"bad.wasm" Error.Extension_runtime_error
 
+let test_unauthorized_component_import_is_rejected_during_staging () =
+  with_root (fun root ->
+      ignore
+        (create_package root ~binary:unauthorized_import_fixture
+           ~id:"com.example.unauthorized" ~version:"1.0.0"
+           ~contributions:[] ~capabilities:[ "ui.message" ] ());
+      let plugins =
+        Plugins.load ~config:(Plugins.Directories [ root ])
+          ~base_commands:(base_commands ()) ~base_semantics:[] ()
+      in
+      let view =
+        match Plugins.views plugins with
+        | [ view ] -> view
+        | _ -> failf "expected exactly one unauthorized-import package view"
+      in
+      expect
+        (Plugins.view_state view = Plugins.Failed)
+        "Component importing document-read activated with only ui.message";
+      expect
+        (Plugins.providers plugins = [])
+        "unauthorized Component import left a provider active";
+      let error = Plugins.view_error view |> Option.get in
+      expect
+        (error_code error = Some Error.Extension_abi_mismatch)
+        "unauthorized Component import returned %s" (Error.to_string error);
+      expect
+        (contains (Error.to_string error) "document-read")
+        "unauthorized Component import error did not name document-read: %s"
+        (Error.to_string error);
+      Plugins.dispose plugins)
+
 let test_failed_wasm_reload_retains_the_generation () =
   with_root (fun root ->
       let package =
@@ -715,6 +861,28 @@ let test_failed_wasm_reload_retains_the_generation () =
         Plugins.load ~config:(Plugins.Directories [ root ])
           ~base_commands:(base_commands ()) ~base_semantics:[] ()
       in
+      write
+        (Filename.concat package "zenbu-plugin.toml")
+        (manifest ~id:"com.example.m9" ~version:"1.1.0"
+           ~contributions:
+             [ "commands"; "selectors"; "transformations"; "bindings" ]
+           ~capabilities:
+             [ "document.edit"; "selection.read"; "selection.write" ]
+           ());
+      let updated =
+        Plugins.reload initial ~base_commands:(base_commands ())
+          ~base_semantics:[] ()
+      in
+      let updated_view =
+        match Plugins.views updated with
+        | [ view ] -> view
+        | _ -> failf "successful Component reload lost the active generation"
+      in
+      expect
+        (Plugins.view_version updated_view
+        |> Option.map Extension.Plugin_version.to_string
+        = Some "1.1.0")
+        "successful Component reload did not atomically replace its generation";
       write (Filename.concat package "bad.wasm") "invalid component";
       write
         (Filename.concat package "zenbu-plugin.toml")
@@ -725,7 +893,7 @@ let test_failed_wasm_reload_retains_the_generation () =
              [ "document.edit"; "selection.read"; "selection.write" ]
            ());
       let retained =
-        Plugins.reload initial ~base_commands:(base_commands ())
+        Plugins.reload updated ~base_commands:(base_commands ())
           ~base_semantics:[] ()
       in
       let view =
@@ -739,7 +907,7 @@ let test_failed_wasm_reload_retains_the_generation () =
       expect
         (Plugins.view_version view
         |> Option.map Extension.Plugin_version.to_string
-        = Some "1.0.0")
+        = Some "1.1.0")
         "failed Wasm reload replaced the active manifest";
       expect
         (Option.is_some (Plugins.view_error view))
@@ -785,6 +953,8 @@ let tests =
     ( "Component output limits, atomic rejection, and replay survive unload",
       test_component_output_limits_atomicity_and_replay_without_runtime );
     ("Component generation stress", test_component_generation_stress);
+    ( "mixed Lua/Component snapshots and cross-runtime collisions",
+      test_mixed_runtime_snapshot_and_cross_runtime_collision );
     ( "Component semantic conformance and provenance",
       test_component_semantic_conformance_and_provenance );
     ( "Component failure isolation and resource classification",
@@ -793,6 +963,8 @@ let tests =
       test_capability_denial_remains_at_the_host_boundary );
     ( "WASI and malformed Components are rejected",
       test_invalid_wasi_component_and_malformed_binary_are_rejected );
+    ( "unauthorized Component imports fail during staging",
+      test_unauthorized_component_import_is_rejected_during_staging );
     ( "failed Component reload retains generation",
       test_failed_wasm_reload_retains_the_generation );
     ( "Component manifest limits are inspectable",

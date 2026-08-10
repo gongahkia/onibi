@@ -1,0 +1,70 @@
+package zenbu:plugin@1.0.0;
+
+interface types {
+  enum path-segment-kind {
+    field,
+    item,
+  }
+
+  record path-segment {
+    kind: path-segment-kind,
+    name: string,
+    index: u32,
+  }
+
+  enum value-kind {
+    nil,
+    boolean,
+    integer,
+    floating,
+    text,
+    items,
+    fields,
+  }
+
+  record value-node {
+    path: list<path-segment>,
+    kind: value-kind,
+    boolean: bool,
+    integer: s64,
+    floating: f64,
+    text: string,
+  }
+
+  type value = list<value-node>;
+
+  record registration {
+    contribution: string,
+    id: string,
+    callback: string,
+    title: string,
+    description: string,
+    requires-syntax: bool,
+    input: string,
+    scope: string,
+    event: string,
+  }
+
+  record invocation {
+    callback: string,
+    request: value,
+  }
+}
+
+interface control {
+  use types.{value, registration, invocation};
+
+  register: func() -> result<list<registration>, string>;
+  invoke: func(invocation: invocation) -> result<value, string>;
+}
+
+/// This is deliberately not implemented by Zenbu. Its import proves that a
+/// Component cannot obtain a capability-shaped host service by declaring it.
+interface document-read {
+  slice: func(start: u64, stop: u64) -> string;
+}
+
+world extension {
+  import document-read;
+  export control;
+}

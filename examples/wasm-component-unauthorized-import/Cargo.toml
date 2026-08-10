@@ -1,0 +1,17 @@
+[package]
+name = "zenbu_component_unauthorized_import"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wit-bindgen = "=0.41.0"
+
+[package.metadata.component]
+package = "comexample:unauthorized-import"
+
+[package.metadata.component.target]
+path = "wit"
+world = "extension"
