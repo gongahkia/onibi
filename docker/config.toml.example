@@ -1,0 +1,55 @@
+version = 1
+data_dir = "/var/lib/kaypoh"
+database_path = "/var/lib/kaypoh/kaypoh.db"
+
+[sources.sportsg-facilities]
+enabled = true
+
+[sources.onemap]
+enabled = true
+
+# Enable a partner only after adding its approved API contract, browser
+# selectors, or public-reader details. Keep all secret values in .env.
+[sources.onepa]
+enabled = false
+refresh_minutes = 30
+
+[sources.onepa.api]
+enabled = false
+# base_url = "https://partner.example"
+# availability_path = "/v1/badminton/availability"
+# bearer_token = "env:KAYPOH_ONEPA_API_TOKEN"
+
+[sources.onepa.browser]
+enabled = false
+# availability_url = "https://partner.example/availability?from={start_date}&to={end_date}"
+# login_url = "https://partner.example/login"
+# username = "env:KAYPOH_ONEPA_USERNAME"
+# password = "env:KAYPOH_ONEPA_PASSWORD"
+# username_selector = "input[name=email]"
+# password_selector = "input[name=password]"
+# submit_selector = "button[type=submit]"
+# ready_selector = "[data-availability-ready]"
+# slot_json_selector = "script#kaypoh-slots"
+# session_state_base64 = "env:KAYPOH_ONEPA_SESSION_STATE_B64"
+
+[sources.onepa.public]
+enabled = false
+# availability_url = "https://partner.example/availability?from={start_date}&to={end_date}"
+# slot_json_selector = "script#kaypoh-slots"
+
+[routing]
+provider = "onemap"
+
+[api]
+# Containers must listen beyond their own loopback interface. Compose publishes
+# this only to the Docker host's loopback interface by default.
+address = "0.0.0.0:8373"
+allow_remote = true
+auth_token = "env:KAYPOH_API_TOKEN"
+
+[mcp]
+allow_writes = false
+
+[daemon]
+refresh_minutes = 30

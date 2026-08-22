@@ -48,6 +48,48 @@ kaypoh watch evaluate
 Times without an offset are interpreted in `Asia/Singapore`; slots use the
 half-open interval `[start, end)`.
 
+## Docker
+
+The Docker image includes the matching Playwright driver, headless Chromium,
+and its Linux dependencies. Runtime data lives in the named `kaypoh-data`
+volume; the local configuration and all secrets remain outside the image.
+
+```sh
+cp docker/config.toml.example docker/config.toml
+cp .env.example .env
+# Edit docker/config.toml with approved source details and .env with secrets.
+
+docker compose build
+docker compose run --rm daemon config validate
+docker compose up -d daemon
+```
+
+The default Compose service runs the refresh daemon. Run ad-hoc commands
+against the same persisted SQLite database with:
+
+```sh
+docker compose run --rm daemon sources list
+docker compose run --rm daemon refresh onepa
+docker compose run --rm daemon sources doctor
+docker compose run --rm daemon search --date 2026-08-23 --duration 1h
+```
+
+To start the optional HTTP API, set a strong `KAYPOH_API_TOKEN` in `.env` and
+then start its Compose profile. The published port is restricted to the Docker
+host's loopback interface (`127.0.0.1:8373`).
+
+```sh
+docker compose --profile api up -d api
+curl -sS http://127.0.0.1:8373/v1/health \
+  -H "Authorization: Bearer $KAYPOH_API_TOKEN"
+```
+
+The image runs as an unprivileged `kaypoh` user. Do not mount the generated
+`.env` or `docker/config.toml` into another image, and keep the latter out of
+version control. To stop services without deleting saved availability data,
+use `docker compose down`. Removing `kaypoh-data` deletes the local SQLite
+database and watch history.
+
 ## Partner source configuration
 
 The config file is written with mode `0600`. Use `env:NAME` references for

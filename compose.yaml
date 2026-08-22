@@ -1,0 +1,36 @@
+services:
+  daemon:
+    build:
+      context: .
+    image: kaypoh:local
+    command: ["daemon"]
+    env_file:
+      - path: .env
+        required: false
+    init: true
+    restart: unless-stopped
+    volumes:
+      - kaypoh-data:/var/lib/kaypoh
+      - ./docker/config.toml:/etc/kaypoh/config.toml:ro
+
+  api:
+    build:
+      context: .
+    image: kaypoh:local
+    command: ["api", "serve"]
+    depends_on:
+      - daemon
+    env_file:
+      - path: .env
+        required: false
+    init: true
+    ports:
+      - "127.0.0.1:8373:8373"
+    profiles: ["api"]
+    restart: unless-stopped
+    volumes:
+      - kaypoh-data:/var/lib/kaypoh
+      - ./docker/config.toml:/etc/kaypoh/config.toml:ro
+
+volumes:
+  kaypoh-data:

@@ -1,0 +1,14 @@
+.git
+.gitignore
+.DS_Store
+.env
+.env.*
+bin/
+.courtsg/
+coverage.out
+*.db
+*.db-shm
+*.db-wal
+*.test
+*.tmp
+docker/config.toml
