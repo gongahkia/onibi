@@ -34,7 +34,6 @@ type Venue struct {
 	PostalCode     string      `json:"postal_code,omitempty"`
 	Coordinates    Coordinates `json:"coordinates"`
 	Classification string      `json:"classification,omitempty"`
-	Sports         []string    `json:"sports,omitempty"`
 	Amenities      []string    `json:"amenities,omitempty"`
 	Indoor         *bool       `json:"indoor,omitempty"`
 	Sheltered      *bool       `json:"sheltered,omitempty"`
@@ -49,7 +48,6 @@ type Facility struct {
 	SourceFacilityID string     `json:"source_facility_id,omitempty"`
 	Name             string     `json:"name"`
 	CourtType        string     `json:"court_type,omitempty"`
-	Sports           []string   `json:"sports,omitempty"`
 	Attributes       []string   `json:"attributes,omitempty"`
 	Provenance       Provenance `json:"provenance"`
 }
@@ -83,7 +81,6 @@ const (
 // AvailabilitySlot uses a half-open interval [Start, End) in Asia/Singapore.
 type AvailabilitySlot struct {
 	ID                 string             `json:"id"`
-	SportID            string             `json:"sport_id"`
 	VenueID            string             `json:"venue_id"`
 	FacilityID         string             `json:"facility_id,omitempty"`
 	SourceID           string             `json:"source_id"`
@@ -101,7 +98,7 @@ type AvailabilitySlot struct {
 }
 
 func (slot AvailabilitySlot) Valid() bool {
-	return slot.ID != "" && slot.SportID != "" && slot.VenueID != "" && slot.SourceID != "" &&
+	return slot.ID != "" && slot.VenueID != "" && slot.SourceID != "" &&
 		slot.End.After(slot.Start) && slot.Status != ""
 }
 

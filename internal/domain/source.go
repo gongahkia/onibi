@@ -19,7 +19,6 @@ const (
 
 type Capabilities struct {
 	VenueDiscovery bool `json:"venue_discovery"`
-	SportDiscovery bool `json:"sport_discovery"`
 	Metadata       bool `json:"metadata"`
 	Facilities     bool `json:"facilities"`
 	Pricing        bool `json:"pricing"`
@@ -32,7 +31,6 @@ type Capabilities struct {
 type SourcePolicy struct {
 	Status         SourceStatus  `json:"status"`
 	PermittedHosts []string      `json:"permitted_hosts"`
-	Sports         []string      `json:"sports,omitempty"`
 	Capabilities   Capabilities  `json:"capabilities"`
 	AuthRequired   bool          `json:"auth_required"`
 	PollFloor      time.Duration `json:"poll_floor"`

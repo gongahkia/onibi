@@ -32,7 +32,6 @@ type CommuteProfile struct {
 }
 
 type Query struct {
-	Sports                     []string        `json:"sports,omitempty"`
 	Sources                    []string        `json:"sources,omitempty"`
 	VenueIDs                   []string        `json:"venue_ids,omitempty"`
 	StartDate                  *time.Time      `json:"start_date,omitempty"`

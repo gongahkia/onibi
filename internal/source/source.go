@@ -17,7 +17,6 @@ var (
 )
 
 type AvailabilityRequest struct {
-	Sports    []string
 	VenueIDs  []string
 	StartDate time.Time
 	EndDate   time.Time
