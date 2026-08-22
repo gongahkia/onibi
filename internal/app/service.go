@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gongahkia/kaypoh/internal/browser"
 	"github.com/gongahkia/kaypoh/internal/config"
 	"github.com/gongahkia/kaypoh/internal/domain"
 	"github.com/gongahkia/kaypoh/internal/geo"
@@ -16,6 +17,7 @@ import (
 	"github.com/gongahkia/kaypoh/internal/query"
 	"github.com/gongahkia/kaypoh/internal/ranking"
 	"github.com/gongahkia/kaypoh/internal/source"
+	"github.com/gongahkia/kaypoh/internal/sources/partner"
 	"github.com/gongahkia/kaypoh/internal/sources/sportsg"
 	"github.com/gongahkia/kaypoh/internal/store"
 )
@@ -25,6 +27,7 @@ type Service struct {
 	config        config.Config
 	store         *store.Store
 	sources       *source.Registry
+	browser       browser.Fetcher
 	geocoder      geo.Geocoder
 	router        geo.Router
 	notifier      notifier.Sender
@@ -37,16 +40,38 @@ func Open(ctx context.Context, cfg config.Config) (*Service, error) {
 	}
 	catalog := source.Catalog()
 	transport := source.NewHTTPClient(catalog)
+	browserClient := browser.New(2)
 	sportSGInfo, ok := findSourceInfo(catalog, sportsg.SourceID)
 	if !ok {
 		return nil, fmt.Errorf("required source %q is missing from catalog", sportsg.SourceID)
 	}
 	sportSG, err := sportsg.New(transport, sportSGInfo)
 	if err != nil {
+		_ = browserClient.Close()
 		return nil, err
 	}
-	registry, err := source.NewRegistry(catalog, sportSG)
+	adapters := []source.Adapter{sportSG}
+	for _, spec := range partnerSpecs() {
+		info, ok := findSourceInfo(catalog, spec.ID)
+		if !ok {
+			_ = browserClient.Close()
+			return nil, fmt.Errorf("required source %q is missing from catalog", spec.ID)
+		}
+		settings, err := resolveSourceSettings(cfg, spec.ID)
+		if err != nil {
+			_ = browserClient.Close()
+			return nil, err
+		}
+		adapter, err := partner.New(info, spec, settings, transport, browserClient)
+		if err != nil {
+			_ = browserClient.Close()
+			return nil, err
+		}
+		adapters = append(adapters, adapter)
+	}
+	registry, err := source.NewRegistry(catalog, adapters...)
 	if err != nil {
+		_ = browserClient.Close()
 		return nil, fmt.Errorf("initialize source registry: %w", err)
 	}
 	for id, settings := range cfg.Sources {
@@ -61,19 +86,58 @@ func Open(ctx context.Context, cfg config.Config) (*Service, error) {
 	}
 	database, err := store.Open(ctx, cfg.DatabasePath)
 	if err != nil {
+		_ = browserClient.Close()
 		return nil, err
 	}
-	service := &Service{config: cfg, store: database, sources: registry, notifier: notifier.New(cfg)}
+	service := &Service{config: cfg, store: database, sources: registry, browser: browserClient, notifier: notifier.New(cfg)}
 	service.configureOneMap(transport)
-	if err := database.UpsertSports(ctx, domain.Sports()); err != nil {
-		database.Close()
-		return nil, err
-	}
 	if err := database.UpsertSources(ctx, registry.List(), registry.Enabled); err != nil {
 		database.Close()
+		_ = browserClient.Close()
 		return nil, err
 	}
 	return service, nil
+}
+
+func partnerSpecs() []partner.Spec {
+	return []partner.Spec{
+		{ID: "myactivesg", DefaultAvailabilityMaxDays: 15},
+		{ID: "onepa", DefaultAvailabilityMaxDays: 15},
+		{ID: "the-kallang", DefaultAvailabilityMaxDays: 30},
+		{ID: "sba-stadium", DefaultAvailabilityMaxDays: 14},
+		{ID: "singapore-badminton-hall", DefaultAvailabilityMaxDays: 30},
+		{ID: "smash-arena", DefaultAvailabilityMaxDays: 14},
+		{ID: "wyse-active", DefaultAvailabilityMaxDays: 30},
+		{ID: "trusmash", DefaultAvailabilityMaxDays: 14},
+	}
+}
+
+func resolveSourceSettings(cfg config.Config, sourceID string) (config.Source, error) {
+	settings := cfg.Sources[sourceID]
+	resolve := func(label, value string) (string, error) {
+		if strings.TrimSpace(value) == "" {
+			return "", nil
+		}
+		resolved, err := cfg.ResolveSecret(value)
+		if err != nil {
+			return "", fmt.Errorf("resolve sources.%s.%s: %w", sourceID, label, err)
+		}
+		return resolved, nil
+	}
+	var err error
+	if settings.API.BearerToken, err = resolve("api.bearer_token", settings.API.BearerToken); err != nil {
+		return config.Source{}, err
+	}
+	if settings.Browser.Username, err = resolve("browser.username", settings.Browser.Username); err != nil {
+		return config.Source{}, err
+	}
+	if settings.Browser.Password, err = resolve("browser.password", settings.Browser.Password); err != nil {
+		return config.Source{}, err
+	}
+	if settings.Browser.SessionStateBase64, err = resolve("browser.session_state_base64", settings.Browser.SessionStateBase64); err != nil {
+		return config.Source{}, err
+	}
+	return settings, nil
 }
 
 func (service *Service) configureOneMap(transport *source.HTTPClient) {
@@ -133,7 +197,14 @@ func findSourceInfo(infos []domain.SourceInfo, sourceID string) (domain.SourceIn
 }
 
 func (service *Service) Close() error {
-	return service.store.Close()
+	var result error
+	if service.browser != nil {
+		result = service.browser.Close()
+	}
+	if err := service.store.Close(); err != nil && result == nil {
+		result = err
+	}
+	return result
 }
 
 func (service *Service) Sources(ctx context.Context) ([]store.SourceRecord, error) {
@@ -182,6 +253,7 @@ type RefreshResult struct {
 	SourceID      string `json:"source_id"`
 	State         string `json:"state"`
 	VenuesUpdated int    `json:"venues_updated"`
+	SlotsUpdated  int    `json:"slots_updated"`
 	Detail        string `json:"detail,omitempty"`
 }
 
@@ -209,8 +281,8 @@ func (service *Service) Refresh(ctx context.Context, sourceIDs []string) ([]Refr
 		if err != nil {
 			return results, err
 		}
-		if record.Health.LastSuccess != nil && info.Policy.PollFloor > 0 {
-			nextAllowed := record.Health.LastSuccess.Add(info.Policy.PollFloor)
+		if record.Health.LastSuccess != nil && service.refreshInterval(sourceID, info) > 0 {
+			nextAllowed := record.Health.LastSuccess.Add(service.refreshInterval(sourceID, info))
 			if time.Now().Before(nextAllowed) {
 				results = append(results, RefreshResult{SourceID: sourceID, State: "skipped", Detail: "poll floor until " + nextAllowed.UTC().Format(time.RFC3339)})
 				continue
@@ -242,6 +314,36 @@ func (service *Service) Refresh(ctx context.Context, sourceIDs []string) ([]Refr
 			}
 			result.VenuesUpdated = len(venues)
 		}
+		if info.Policy.Capabilities.Availability {
+			if snapshotAdapter, ok := adapter.(source.SnapshotAdapter); ok {
+				request := service.availabilityRequest(sourceID, info)
+				snapshot, err := snapshotAdapter.FetchSnapshot(ctx, request)
+				if err != nil {
+					health, healthErr := adapter.Health(ctx)
+					if healthErr == nil {
+						_ = service.store.SaveSourceHealth(ctx, health)
+					}
+					result.State = "degraded"
+					result.Detail = err.Error()
+					results = append(results, result)
+					continue
+				}
+				if err := service.store.UpsertVenues(ctx, snapshot.Venues); err != nil {
+					return results, err
+				}
+				if err := service.store.UpsertAvailability(ctx, snapshot.Slots); err != nil {
+					return results, err
+				}
+				if err := service.store.ReconcileAvailability(ctx, sourceID, request.StartDate, request.EndDate, snapshot.Slots, time.Now().UTC()); err != nil {
+					return results, err
+				}
+				if err := service.store.RecordAvailabilityObservation(ctx, sourceID, request.StartDate, request.EndDate, snapshot.Slots, time.Now().UTC()); err != nil {
+					return results, err
+				}
+				result.VenuesUpdated += len(snapshot.Venues)
+				result.SlotsUpdated = len(snapshot.Slots)
+			}
+		}
 		health, err := adapter.Health(ctx)
 		if err == nil {
 			if err := service.store.SaveSourceHealth(ctx, health); err != nil {
@@ -251,6 +353,34 @@ func (service *Service) Refresh(ctx context.Context, sourceIDs []string) ([]Refr
 		results = append(results, result)
 	}
 	return results, nil
+}
+
+func (service *Service) refreshInterval(sourceID string, info domain.SourceInfo) time.Duration {
+	minutes := service.config.Daemon.RefreshMinutes
+	if settings, ok := service.config.Sources[sourceID]; ok && settings.RefreshMinutes > 0 {
+		minutes = settings.RefreshMinutes
+	}
+	if minutes < 1 {
+		return info.Policy.PollFloor
+	}
+	return time.Duration(minutes) * time.Minute
+}
+
+func (service *Service) availabilityRequest(sourceID string, info domain.SourceInfo) source.AvailabilityRequest {
+	location, err := time.LoadLocation(domain.SingaporeTimeZone)
+	if err != nil {
+		location = time.FixedZone("SGT", 8*60*60)
+	}
+	now := time.Now().In(location)
+	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, location).UTC()
+	days := info.Policy.AvailabilityMaxDays
+	if settings, ok := service.config.Sources[sourceID]; ok && settings.AvailabilityMaxDays > 0 {
+		days = settings.AvailabilityMaxDays
+	}
+	if days < 1 {
+		days = 14
+	}
+	return source.AvailabilityRequest{StartDate: start, EndDate: start.AddDate(0, 0, days)}
 }
 
 func (service *Service) Venues(ctx context.Context, filter store.VenueFilter) ([]domain.Venue, error) {
@@ -268,11 +398,6 @@ func (service *Service) ImportManualAvailability(ctx context.Context, slots []do
 	now := time.Now().UTC()
 	for index := range slots {
 		slot := &slots[index]
-		sport, err := domain.CanonicalSport(slot.SportID)
-		if err != nil {
-			return nil, err
-		}
-		slot.SportID = sport.ID
 		if slot.SourceID == "" {
 			slot.SourceID = "local-manual"
 		}
@@ -355,7 +480,7 @@ func availabilityBounds(criteria domain.Query, now time.Time) (time.Time, time.T
 }
 
 func manualSlotID(slot domain.AvailabilitySlot) string {
-	value := strings.Join([]string{slot.SportID, slot.VenueID, slot.FacilityID, slot.Start.UTC().Format(time.RFC3339Nano), slot.End.UTC().Format(time.RFC3339Nano)}, "\x00")
+	value := strings.Join([]string{slot.VenueID, slot.FacilityID, slot.CourtName, slot.Start.UTC().Format(time.RFC3339Nano), slot.End.UTC().Format(time.RFC3339Nano)}, "\x00")
 	digest := sha256.Sum256([]byte(value))
 	return "manual:" + hex.EncodeToString(digest[:12])
 }

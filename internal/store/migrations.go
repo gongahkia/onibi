@@ -223,6 +223,41 @@ CREATE TABLE IF NOT EXISTS source_health (
 	{version: 2, sql: `
 ALTER TABLE availability_slots ADD COLUMN membership_required INTEGER;
 `},
+	{version: 3, sql: `
+CREATE TABLE availability_slots_v3 (
+    id TEXT PRIMARY KEY,
+    venue_id TEXT NOT NULL REFERENCES venues(id) ON DELETE CASCADE,
+    facility_id TEXT REFERENCES facilities(id) ON DELETE SET NULL,
+    court_name TEXT NOT NULL DEFAULT '',
+    source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE RESTRICT,
+    start_at TEXT NOT NULL,
+    end_at TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('available', 'unavailable', 'unknown')),
+    price_cents INTEGER,
+    currency TEXT NOT NULL DEFAULT 'SGD',
+    membership_required INTEGER,
+    booking_url TEXT NOT NULL DEFAULT '',
+    observed_at TEXT NOT NULL,
+    fetched_at TEXT NOT NULL,
+    stale_after TEXT NOT NULL,
+    provenance_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    CHECK (end_at > start_at)
+);
+
+-- Availability is a cache. Do not carry non-badminton rows into the
+-- badminton-only model; the next successful refresh repopulates it.
+DROP TABLE availability_slots;
+ALTER TABLE availability_slots_v3 RENAME TO availability_slots;
+DROP TABLE sports;
+CREATE INDEX availability_lookup_idx
+    ON availability_slots (start_at, end_at, status, stale_after);
+CREATE INDEX availability_venue_idx
+    ON availability_slots (venue_id, start_at);
+CREATE INDEX availability_source_idx
+    ON availability_slots (source_id, fetched_at);
+`},
 }
 
 func (store *Store) Migrate(ctx context.Context) error {

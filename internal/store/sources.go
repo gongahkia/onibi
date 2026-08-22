@@ -16,29 +16,6 @@ type SourceRecord struct {
 	Health  domain.SourceHealth `json:"health"`
 }
 
-func (store *Store) UpsertSports(ctx context.Context, sports []domain.Sport) error {
-	tx, err := store.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin sports transaction: %w", err)
-	}
-	defer tx.Rollback()
-	for _, sport := range sports {
-		aliases, err := json.Marshal(sport.Aliases)
-		if err != nil {
-			return fmt.Errorf("encode sport aliases: %w", err)
-		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO sports(id, name, aliases_json, updated_at)
-VALUES (?, ?, ?, ?)
-ON CONFLICT(id) DO UPDATE SET name = excluded.name, aliases_json = excluded.aliases_json, updated_at = excluded.updated_at`, sport.ID, sport.Name, string(aliases), timestamp(time.Now())); err != nil {
-			return fmt.Errorf("upsert sport %q: %w", sport.ID, err)
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit sports transaction: %w", err)
-	}
-	return nil
-}
-
 func (store *Store) UpsertSources(ctx context.Context, infos []domain.SourceInfo, enabled func(string) bool) error {
 	tx, err := store.db.BeginTx(ctx, nil)
 	if err != nil {

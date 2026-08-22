@@ -29,14 +29,14 @@ func (store *Store) UpsertAvailability(ctx context.Context, slots []domain.Avail
 		if err != nil {
 			return fmt.Errorf("encode availability slot %q provenance: %w", slot.ID, err)
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO availability_slots(id, sport_id, venue_id, facility_id, source_id, start_at, end_at, status, price_cents, currency, membership_required, booking_url, observed_at, fetched_at, stale_after, provenance_json, created_at, updated_at)
-VALUES (?, ?, ?, NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		if _, err := tx.ExecContext(ctx, `INSERT INTO availability_slots(id, venue_id, facility_id, court_name, source_id, start_at, end_at, status, price_cents, currency, membership_required, booking_url, observed_at, fetched_at, stale_after, provenance_json, created_at, updated_at)
+VALUES (?, ?, NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET start_at = excluded.start_at, end_at = excluded.end_at, status = excluded.status,
-price_cents = excluded.price_cents, currency = excluded.currency, booking_url = excluded.booking_url,
+price_cents = excluded.price_cents, currency = excluded.currency, court_name = excluded.court_name, booking_url = excluded.booking_url,
 membership_required = excluded.membership_required,
 observed_at = excluded.observed_at, fetched_at = excluded.fetched_at, stale_after = excluded.stale_after,
 provenance_json = excluded.provenance_json, updated_at = excluded.updated_at`,
-			slot.ID, slot.SportID, slot.VenueID, slot.FacilityID, slot.SourceID, timestamp(slot.Start), timestamp(slot.End), slot.Status,
+			slot.ID, slot.VenueID, slot.FacilityID, slot.CourtName, slot.SourceID, timestamp(slot.Start), timestamp(slot.End), slot.Status,
 			nullableInt64(slot.PriceCents), slot.Currency, nullableBool(slot.MembershipRequired), slot.BookingURL, timestamp(slot.ObservedAt), timestamp(slot.FetchedAt), timestamp(slot.StaleAfter), string(provenance), timestamp(time.Now()), timestamp(time.Now())); err != nil {
 			return fmt.Errorf("upsert availability slot %q: %w", slot.ID, err)
 		}
@@ -51,7 +51,7 @@ func (store *Store) ListAvailability(ctx context.Context, from, until time.Time,
 	if limit <= 0 || limit > 2_000 {
 		limit = 500
 	}
-	rows, err := store.db.QueryContext(ctx, `SELECT a.id, a.sport_id, a.venue_id, COALESCE(a.facility_id, ''), a.source_id,
+	rows, err := store.db.QueryContext(ctx, `SELECT a.id, a.venue_id, COALESCE(a.facility_id, ''), a.court_name, a.source_id,
 a.start_at, a.end_at, a.status, a.price_cents, a.currency, a.membership_required, a.booking_url, a.observed_at, a.fetched_at, a.stale_after, a.provenance_json,
 v.id, v.name, v.address, v.postal_code, v.latitude, v.longitude, v.classification, v.sports_json, v.amenities_json,
 v.indoor, v.sheltered, v.booking_urls_json, v.provenance_json
@@ -86,7 +86,7 @@ func scanSlotWithVenue(row slotRowScanner) (SlotWithVenue, error) {
 	var slotProvenance, sports, amenities, bookingURLs, venueProvenance string
 	var latitude, longitude sql.NullFloat64
 	var indoor, sheltered sql.NullInt64
-	if err := row.Scan(&result.Slot.ID, &result.Slot.SportID, &result.Slot.VenueID, &result.Slot.FacilityID, &result.Slot.SourceID,
+	if err := row.Scan(&result.Slot.ID, &result.Slot.VenueID, &result.Slot.FacilityID, &result.Slot.CourtName, &result.Slot.SourceID,
 		&start, &end, &result.Slot.Status, &price, &result.Slot.Currency, &membershipRequired, &result.Slot.BookingURL, &observedAt, &fetchedAt, &staleAfter, &slotProvenance,
 		&result.Venue.ID, &result.Venue.Name, &result.Venue.Address, &result.Venue.PostalCode, &latitude, &longitude, &result.Venue.Classification, &sports, &amenities, &indoor, &sheltered, &bookingURLs, &venueProvenance); err != nil {
 		return SlotWithVenue{}, fmt.Errorf("scan availability: %w", err)
@@ -132,6 +132,47 @@ func scanSlotWithVenue(row slotRowScanner) (SlotWithVenue, error) {
 	result.Venue.Indoor = boolPointer(indoor)
 	result.Venue.Sheltered = boolPointer(sheltered)
 	return result, nil
+}
+
+// ReconcileAvailability marks an available slot unavailable only when a
+// successful source snapshot covering its date range no longer contains it.
+func (store *Store) ReconcileAvailability(ctx context.Context, sourceID string, from, until time.Time, observed []domain.AvailabilitySlot, now time.Time) error {
+	seen := make(map[string]struct{}, len(observed))
+	for _, slot := range observed {
+		seen[slot.ID] = struct{}{}
+	}
+	tx, err := store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin availability reconciliation: %w", err)
+	}
+	defer tx.Rollback()
+	rows, err := tx.QueryContext(ctx, `SELECT id FROM availability_slots WHERE source_id = ? AND end_at > ? AND start_at < ? AND status = ?`, sourceID, timestamp(from), timestamp(until), domain.AvailabilityAvailable)
+	if err != nil {
+		return fmt.Errorf("list availability reconciliation candidates: %w", err)
+	}
+	defer rows.Close()
+	missing := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return fmt.Errorf("scan availability reconciliation candidate: %w", err)
+		}
+		if _, ok := seen[id]; !ok {
+			missing = append(missing, id)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate availability reconciliation candidates: %w", err)
+	}
+	for _, id := range missing {
+		if _, err := tx.ExecContext(ctx, `UPDATE availability_slots SET status = ?, observed_at = ?, fetched_at = ?, stale_after = ?, updated_at = ? WHERE id = ?`, domain.AvailabilityUnavailable, timestamp(now), timestamp(now), timestamp(now), timestamp(now), id); err != nil {
+			return fmt.Errorf("mark absent availability slot %q unavailable: %w", id, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit availability reconciliation: %w", err)
+	}
+	return nil
 }
 
 func nullableInt64(value *int64) any {
