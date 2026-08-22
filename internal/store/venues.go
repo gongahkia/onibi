@@ -13,7 +13,6 @@ import (
 
 type VenueFilter struct {
 	Search string
-	Sports []string
 	Limit  int
 }
 
@@ -26,10 +25,6 @@ func (store *Store) UpsertVenues(ctx context.Context, venues []domain.Venue) err
 	for _, venue := range venues {
 		if venue.ID == "" || venue.Name == "" || venue.Provenance.SourceID == "" {
 			return fmt.Errorf("venue id, name, and provenance source are required")
-		}
-		sports, err := json.Marshal(venue.Sports)
-		if err != nil {
-			return fmt.Errorf("encode venue %q sports: %w", venue.ID, err)
 		}
 		amenities, err := json.Marshal(venue.Amenities)
 		if err != nil {
@@ -56,7 +51,7 @@ latitude = excluded.latitude, longitude = excluded.longitude, classification = e
 sports_json = excluded.sports_json, amenities_json = excluded.amenities_json, indoor = excluded.indoor,
 sheltered = excluded.sheltered, booking_urls_json = excluded.booking_urls_json, provenance_json = excluded.provenance_json,
 updated_at = excluded.updated_at`, venue.ID, venue.Name, venue.Address, venue.PostalCode, latitude, longitude,
-			venue.Classification, string(sports), string(amenities), nullableBool(venue.Indoor), nullableBool(venue.Sheltered), string(bookingURLs), string(provenance), now, now); err != nil {
+			venue.Classification, `["badminton"]`, string(amenities), nullableBool(venue.Indoor), nullableBool(venue.Sheltered), string(bookingURLs), string(provenance), now, now); err != nil {
 			return fmt.Errorf("upsert venue %q: %w", venue.ID, err)
 		}
 		for _, sourceVenueID := range venue.SourceIDs {
@@ -102,9 +97,6 @@ indoor, sheltered, booking_urls_json, provenance_json FROM venues`
 		if err != nil {
 			return nil, err
 		}
-		if !supportsAllSports(venue.Sports, filter.Sports) {
-			continue
-		}
 		venues = append(venues, venue)
 	}
 	if err := rows.Err(); err != nil {
@@ -133,17 +125,14 @@ type venueRowScanner interface {
 func scanVenue(row venueRowScanner) (domain.Venue, error) {
 	var venue domain.Venue
 	var latitude, longitude sql.NullFloat64
-	var sports, amenities, bookingURLs, provenance string
+	var ignoredSports, amenities, bookingURLs, provenance string
 	var indoor, sheltered sql.NullInt64
 	if err := row.Scan(&venue.ID, &venue.Name, &venue.Address, &venue.PostalCode, &latitude, &longitude, &venue.Classification,
-		&sports, &amenities, &indoor, &sheltered, &bookingURLs, &provenance); err != nil {
+		&ignoredSports, &amenities, &indoor, &sheltered, &bookingURLs, &provenance); err != nil {
 		return domain.Venue{}, err
 	}
 	if latitude.Valid && longitude.Valid {
 		venue.Coordinates = domain.Coordinates{Latitude: latitude.Float64, Longitude: longitude.Float64}
-	}
-	if err := json.Unmarshal([]byte(sports), &venue.Sports); err != nil {
-		return domain.Venue{}, fmt.Errorf("decode venue %q sports: %w", venue.ID, err)
 	}
 	if err := json.Unmarshal([]byte(amenities), &venue.Amenities); err != nil {
 		return domain.Venue{}, fmt.Errorf("decode venue %q amenities: %w", venue.ID, err)
@@ -157,22 +146,6 @@ func scanVenue(row venueRowScanner) (domain.Venue, error) {
 	venue.Indoor = boolPointer(indoor)
 	venue.Sheltered = boolPointer(sheltered)
 	return venue, nil
-}
-
-func supportsAllSports(venueSports, requested []string) bool {
-	if len(requested) == 0 {
-		return true
-	}
-	available := make(map[string]struct{}, len(venueSports))
-	for _, sport := range venueSports {
-		available[sport] = struct{}{}
-	}
-	for _, sport := range requested {
-		if _, ok := available[sport]; !ok {
-			return false
-		}
-	}
-	return true
 }
 
 func nullableBool(value *bool) any {

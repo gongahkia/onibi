@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -18,6 +19,7 @@ func (store *Store) RecordAvailabilityObservation(ctx context.Context, sourceID 
 	for _, slot := range slots {
 		identities = append(identities, slot.ID)
 	}
+	sort.Strings(identities)
 	digest := sha256.Sum256([]byte(strings.Join(identities, "\x00")))
 	reference := "availability:" + from.Format("2006-01-02") + ":" + until.Format("2006-01-02")
 	id := sourceID + ":" + reference + ":" + fetchedAt.UTC().Format("20060102T150405.000000000")

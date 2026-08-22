@@ -21,15 +21,16 @@ func newSearchCommand(runtime *runtime) *cobra.Command {
 	var radius, participants int
 	var indoor, sheltered, explain bool
 	command := &cobra.Command{
-		Use:   "search <sport...>",
-		Short: "Search fresh normalized availability without triggering a refresh",
+		Use:   "search",
+		Short: "Search fresh normalized badminton availability without triggering a refresh",
+		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, args []string) error {
 			service, err := runtime.openService(command.Context())
 			if err != nil {
 				return err
 			}
 			defer service.Close()
-			criteria, err := buildSearchQuery(command, args, searchFlags{date: date, fromDate: fromDate, toDate: toDate, after: after, before: before, duration: duration, maxPrice: maxPrice, maxPerPerson: maxPerPerson, near: near, membership: membership, rank: rank, origin: origin, destination: destination, travelMode: travelMode, sources: sources, venueIDs: venueIDs, participantSpecs: participantSpecs, radius: radius, participants: participants, indoor: indoor, sheltered: sheltered}, service)
+			criteria, err := buildSearchQuery(command, searchFlags{date: date, fromDate: fromDate, toDate: toDate, after: after, before: before, duration: duration, maxPrice: maxPrice, maxPerPerson: maxPerPerson, near: near, membership: membership, rank: rank, origin: origin, destination: destination, travelMode: travelMode, sources: sources, venueIDs: venueIDs, participantSpecs: participantSpecs, radius: radius, participants: participants, indoor: indoor, sheltered: sheltered}, service)
 			if err != nil {
 				return err
 			}
@@ -75,8 +76,8 @@ type searchFlags struct {
 	indoor, sheltered                                                                                                                bool
 }
 
-func buildSearchQuery(command *cobra.Command, sports []string, flags searchFlags, service *app.Service) (domain.Query, error) {
-	criteria := domain.Query{Sports: sports, Sources: flags.sources, VenueIDs: flags.venueIDs, Participants: flags.participants, Ranking: domain.RankingPreset(flags.rank)}
+func buildSearchQuery(command *cobra.Command, flags searchFlags, service *app.Service) (domain.Query, error) {
+	criteria := domain.Query{Sources: flags.sources, VenueIDs: flags.venueIDs, Participants: flags.participants, Ranking: domain.RankingPreset(flags.rank)}
 	if flags.date != "" && (flags.fromDate != "" || flags.toDate != "") {
 		return domain.Query{}, fmt.Errorf("--date cannot be combined with --from or --to")
 	}
@@ -301,9 +302,9 @@ func parseCents(value string) (int64, error) {
 
 func writeSearchResults(writer io.Writer, results []domain.SearchResult, explain bool) error {
 	table := tabwriter.NewWriter(writer, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(table, "SCORE\tSTART\tEND\tSPORT\tVENUE\tPRICE\tTRAVEL\tSOURCE")
+	fmt.Fprintln(table, "SCORE\tSTART\tEND\tCOURT\tVENUE\tPRICE\tTRAVEL\tSOURCE")
 	for _, result := range results {
-		fmt.Fprintf(table, "%.1f\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", result.Breakdown.FinalScore, result.Slot.Start.In(singaporeLocation()).Format("2006-01-02 15:04"), result.Slot.End.In(singaporeLocation()).Format("15:04"), result.Slot.SportID, result.Venue.Name, formatCents(result.Breakdown.CourtPriceCents), formatDuration(result.Breakdown.TotalTravelSeconds), result.Slot.SourceID)
+		fmt.Fprintf(table, "%.1f\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", result.Breakdown.FinalScore, result.Slot.Start.In(singaporeLocation()).Format("2006-01-02 15:04"), result.Slot.End.In(singaporeLocation()).Format("15:04"), result.Slot.CourtName, result.Venue.Name, formatCents(result.Breakdown.CourtPriceCents), formatDuration(result.Breakdown.TotalTravelSeconds), result.Slot.SourceID)
 	}
 	if err := table.Flush(); err != nil {
 		return err

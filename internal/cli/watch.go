@@ -223,16 +223,16 @@ func newWatchAddCommand(runtime *runtime) *cobra.Command {
 	var telegramChats []int64
 	var oneShot bool
 	command := &cobra.Command{
-		Use:   "add <name> <sport...>",
+		Use:   "add <name>",
 		Short: "Create a persistent watch for local availability matches",
-		Args:  cobra.MinimumNArgs(2),
+		Args:  cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
 			service, err := runtime.openService(command.Context())
 			if err != nil {
 				return err
 			}
 			defer service.Close()
-			criteria, err := buildSearchQuery(command, args[1:], searchFlags{date: date, duration: duration, maxPrice: maxPrice, sources: sources, venueIDs: venues, rank: "balanced"}, service)
+			criteria, err := buildSearchQuery(command, searchFlags{date: date, duration: duration, maxPrice: maxPrice, sources: sources, venueIDs: venues, rank: "balanced"}, service)
 			if err != nil {
 				return err
 			}
@@ -276,13 +276,13 @@ func newWatchAddCommand(runtime *runtime) *cobra.Command {
 
 func writeWatches(command *cobra.Command, watches []domain.Watch) error {
 	table := tabwriter.NewWriter(command.OutOrStdout(), 0, 4, 2, ' ', 0)
-	fmt.Fprintln(table, "ID\tENABLED\tONE SHOT\tNAME\tSPORTS\tEXPIRES")
+	fmt.Fprintln(table, "ID\tENABLED\tONE SHOT\tNAME\tEXPIRES")
 	for _, watch := range watches {
 		expires := ""
 		if watch.ExpiresAt != nil {
 			expires = watch.ExpiresAt.In(singaporeLocation()).Format("2006-01-02 15:04")
 		}
-		fmt.Fprintf(table, "%s\t%t\t%t\t%s\t%s\t%s\n", watch.ID, watch.Enabled, watch.OneShot, watch.Name, strings.Join(watch.Query.Sports, ","), expires)
+		fmt.Fprintf(table, "%s\t%t\t%t\t%s\t%s\n", watch.ID, watch.Enabled, watch.OneShot, watch.Name, expires)
 	}
 	return table.Flush()
 }

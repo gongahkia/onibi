@@ -1,109 +1,129 @@
 # kaypoh
 
-`kaypoh` is a local-first terminal application for discovering Singapore sports
-facilities, searching normalized availability that you are authorized to use,
-ranking options, and monitoring persistent watches.
+`kaypoh` is a local-first, badminton-only Singapore court-availability tool.
+It reads approved provider data into SQLite, searches fresh slots, ranks courts,
+and runs local watches and notifications. It never books, pays, cancels, enters
+ballots, or bypasses CAPTCHA/OTP challenges.
 
-It does not automate booking, account login, payment, ballots, CAPTCHA solving,
-or any attempt to bypass source restrictions.
+## Live-reader status
 
-## What is live today
+The following read-only provider adapters are registered: ActiveSG, onePA, The
+Kallang / OCBC Arena, KFF Badminton Arena @ Guillemard, Singapore Badminton
+Hall, Smash Arena, Wyse Active Hub, and TruSmash. Each uses this configured
+order:
 
-- SportSG's official data.gov.sg GeoJSON dataset discovers 45 facilities in the
-  current live smoke test. It is venue discovery, not a claim of court-slot
-  availability.
-- OneMap routing/geocoding is used when registered credentials are supplied;
-  otherwise rank results label their deterministic Haversine fallback.
-- Local manual availability is available for information the user is authorized
-  to enter. It powers the complete search, ranking, watch, event, notification,
-  API, MCP, and TUI flow without a prohibited scraper.
-- All other reviewed operators are visible in `kaypoh sources list` with an
-  explicit policy/health state. They are not silently queried.
+1. Partner API.
+2. Partner-issued username/password through headless Playwright Chromium, or a
+   partner-provided imported session.
+3. A partner-approved public availability page.
 
-See [the source audit](docs/research/source-audit.md) for the evidence and
-policy decision behind each source.
+All partner readers are disabled by default until their approved access details
+are configured. This repository contains no credentials, browser session, or
+partner API contract. A configured source reports healthy only after a successful
+read; an unconfigured source is labelled rather than treated as live.
+
+SportSG's official facility dataset remains enabled for venue discovery. OneMap
+is used for optional geocoding/routing when its credentials are configured.
 
 ## Build and start
 
 ```sh
 go build -o bin/kaypoh ./cmd/kaypoh
+go run github.com/mxschmitt/playwright-go/cmd/playwright@v0.6201.1 install chromium
 ./bin/kaypoh config init
 ./bin/kaypoh
 ```
 
-Running `kaypoh` opens the terminal UI. It has Discover, Watches, Sources,
-Events, and Settings tabs. Use `?` for its key guide; `r` refreshes permitted
-sources, `/` edits the sport query, and `w` creates a local watch from Discover.
-
-The CLI is equally useful in scripts. `--json` writes only JSON to stdout;
-diagnostics go to stderr.
+The default daemon refresh is 30 minutes. Each partner source can override it.
+`availability_max_days = 0` means that source's configured booking horizon.
 
 ```sh
-kaypoh refresh sportsg-facilities
-kaypoh venue list --search "ang mo kio"
-
-# Add availability that you are permitted to supply, then search it.
-kaypoh availability add sportsg-facilities:venue:322 badminton \
-  --start 2026-08-12T19:00 --end 2026-08-12T20:00 --price 12.50
-kaypoh search shuttle --date 2026-08-12 --duration 1h --rank cheap --explain
-
-kaypoh watch add "Wednesday badminton" badminton --date 2026-08-12 --one-shot
+kaypoh refresh onepa
+kaypoh venue list --search "guillemard"
+kaypoh search --date 2026-08-23 --duration 1h --rank cheap --explain
+kaypoh watch add "Wednesday badminton" --date 2026-08-23 --one-shot
 kaypoh watch evaluate
-kaypoh watch events --json
 ```
 
-Times without an offset are interpreted in `Asia/Singapore`. Slots use the
+Times without an offset are interpreted in `Asia/Singapore`; slots use the
 half-open interval `[start, end)`.
 
-## Configuration and secrets
+## Partner source configuration
 
-The example config is written with mode `0600`. Use `env:NAME` references for
-secrets instead of literal tokens.
+The config file is written with mode `0600`. Use `env:NAME` references for
+every secret. Browser state is base64-encoded Playwright storage-state JSON;
+it is decoded only in memory and is never written by kaypoh.
 
 ```toml
-[routing]
-access_token = "env:ONEMAP_ACCESS_TOKEN"
-
-[telegram]
+[sources.onepa]
 enabled = true
-bot_token = "env:KAYPOH_TELEGRAM_BOT_TOKEN"
-allowed_chat_ids = [123456789]
+refresh_minutes = 30
+availability_max_days = 0
 
-[webhooks.ops]
+# Use this first when the partner supplies an API contract.
+[sources.onepa.api]
 enabled = true
-url = "https://hooks.example.test/kaypoh"
-secret = "env:KAYPOH_WEBHOOK_SECRET"
+base_url = "https://partner-api.example"
+availability_path = "/v1/badminton/availability"
+bearer_token = "env:KAYPOH_ONEPA_API_TOKEN"
+
+# Use this if no API is available. Login selectors are required only when no
+# imported session is supplied. The reader submits only the login form and then
+# opens the availability URL; it contains no booking interaction.
+[sources.onepa.browser]
+enabled = false
+availability_url = "https://partner.example/availability?from={start_date}&to={end_date}"
+login_url = "https://partner.example/login"
+username = "env:KAYPOH_ONEPA_USERNAME"
+password = "env:KAYPOH_ONEPA_PASSWORD"
+username_selector = "input[name=email]"
+password_selector = "input[name=password]"
+submit_selector = "button[type=submit]"
+ready_selector = "[data-availability-ready]"
+slot_json_selector = "script#kaypoh-slots"
+# session_state_base64 = "env:KAYPOH_ONEPA_SESSION_STATE_B64"
+
+# Use this final path only for an approved public reader.
+[sources.onepa.public]
+enabled = false
+availability_url = "https://partner.example/availability?from={start_date}&to={end_date}"
+slot_json_selector = "script#kaypoh-slots"
 ```
 
-Use `--telegram-chat` or `--webhook` when creating a watch target. Telegram
-chat IDs must be allowlisted. Webhooks send a versioned JSON envelope with
-`X-Kaypoh-Event-ID`, `X-Kaypoh-Event-Type`, and an HMAC SHA-256 signature when
-a secret is configured. HTTPS is required except for loopback development URLs.
+The configured API response, or the JSON text selected from a browser/public
+page, must contain `slots` (or `availability`) and may contain `venues`:
 
-## Daemon and API
-
-One daemon cycle refreshes each permitted source at most once, evaluates every
-watch from local state, and retries pending/failed deliveries. Source poll floors
-are enforced, including SportSG's 24-hour floor.
-
-```sh
-kaypoh daemon --once --json
-kaypoh daemon
-kaypoh api serve
-curl http://127.0.0.1:8373/v1/health
+```json
+{
+  "slots": [{
+    "id": "provider-slot-id",
+    "venue_id": "provider-venue-id",
+    "venue_name": "KFF Badminton Arena",
+    "court_id": "court-3",
+    "court_name": "Court 3",
+    "start_at": "2026-08-23T19:00:00+08:00",
+    "end_at": "2026-08-23T20:00:00+08:00",
+    "status": "available",
+    "price_cents": 1400,
+    "currency": "SGD",
+    "booking_url": "https://partner.example/book"
+  }]
+}
 ```
 
-The HTTP API is loopback-only by default and has bounded JSON input. Remote
-binding requires `api.allow_remote = true` and an `api.auth_token`; see
-[API documentation](docs/api.md).
+`venue_id`, start, and end are required. `status` defaults to `available`.
+Partner API contracts that differ from this shape need a small provider payload
+mapper before they can be enabled.
 
-## MCP
+If a source requires CAPTCHA, OTP, or another interactive challenge, provide a
+partner-generated session state or leave the source disabled. Kaypoh does not
+attempt to solve or bypass interactive challenges.
 
-`kaypoh mcp serve` exposes a stdio MCP server using the official Go SDK. It has
-read-only availability, venue, source, watch, and event tools by default. Set
-`mcp.allow_writes = true` only when the agent should be able to add manual slots,
-create watches, or evaluate watches. See [MCP setup](docs/mcp.md) for Hermes and
-OpenClaw instructions.
+## HTTP API and MCP
+
+The local HTTP API and MCP server query already-normalized badminton slots; they
+never refresh an upstream source or expose credentials. See [API documentation](docs/api.md)
+and [MCP setup](docs/mcp.md).
 
 ## Verification
 
@@ -113,6 +133,7 @@ go vet ./...
 go build ./cmd/kaypoh
 ```
 
-The source adapter has fixture tests, the query/ranking/event/delivery layers
-have unit tests, API and MCP have transport tests, and the live SportSG smoke is
-performed separately because it depends on the public dataset being available.
+Fixture tests cover source-payload normalization, storage-state validation,
+freshness/reconciliation, query/ranking, API, MCP, and local watches. A live
+provider fetch requires the partner API contract, credentials/session, and
+approved selectors; it cannot be verified from this repository alone.

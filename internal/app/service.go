@@ -101,14 +101,14 @@ func Open(ctx context.Context, cfg config.Config) (*Service, error) {
 
 func partnerSpecs() []partner.Spec {
 	return []partner.Spec{
-		{ID: "myactivesg", DefaultAvailabilityMaxDays: 15},
-		{ID: "onepa", DefaultAvailabilityMaxDays: 15},
-		{ID: "the-kallang", DefaultAvailabilityMaxDays: 30},
-		{ID: "sba-stadium", DefaultAvailabilityMaxDays: 14},
-		{ID: "singapore-badminton-hall", DefaultAvailabilityMaxDays: 30},
-		{ID: "smash-arena", DefaultAvailabilityMaxDays: 14},
-		{ID: "wyse-active", DefaultAvailabilityMaxDays: 30},
-		{ID: "trusmash", DefaultAvailabilityMaxDays: 14},
+		{ID: "myactivesg"},
+		{ID: "onepa"},
+		{ID: "the-kallang"},
+		{ID: "sba-stadium"},
+		{ID: "singapore-badminton-hall"},
+		{ID: "smash-arena"},
+		{ID: "wyse-active"},
+		{ID: "trusmash"},
 	}
 }
 

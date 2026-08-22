@@ -38,7 +38,7 @@ func TestReadOnlyMCPServerServesSearch(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer session.Close()
-	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "kaypoh_search_availability", Arguments: map[string]any{"sports": []string{"badminton"}, "minimum_duration_minutes": 60}})
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "kaypoh_search_availability", Arguments: map[string]any{"minimum_duration_minutes": 60}})
 	if err != nil {
 		t.Fatal(err)
 	}

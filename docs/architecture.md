@@ -34,13 +34,22 @@ cache validators, per-host limits, bounded response bodies/redirects/retries,
 backoff and circuit degradation.
 
 The source audit is authoritative: an adapter without approved policy cannot
-fetch. Initial enabled sources are SportSG data.gov.sg discovery and credentialed
-OneMap routing/geocoding. Other providers are intentionally link-only or
-disabled, and their state is visible in source health.
+fetch. SportSG data.gov.sg discovery and credentialed OneMap routing/geocoding
+remain available. Eight partner-authorized badminton readers are registered but
+disabled until their API credentials, approved browser credentials/session, or
+approved public reader configuration is supplied. Their state is visible in
+source health.
+
+Partner readers prefer an API, then an authenticated Playwright Chromium page,
+then an approved public page. Imported browser state is base64 storage-state JSON
+decoded only in memory. Browser code can submit a configured login form but has
+no booking, payment, cancellation, or CAPTCHA/OTP path. A successful refresh
+persists a bounded snapshot and marks previously available slots absent from that
+source/date scope unavailable.
 
 ## Query, ranking and watches
 
-Queries operate only on normalized slots. Filtering handles sports, source/venue,
+Queries operate only on normalized badminton slots. Filtering handles source/venue,
 date/time, duration, attributes, price and radius. Dedupe requires a high
 confidence shared identity. Ranking exposes fit, cost, participant cost,
 origin/destination commute, maximum commute, fairness and freshness rather than

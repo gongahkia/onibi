@@ -15,7 +15,9 @@ Read-only tools are always present:
 
 Set `mcp.allow_writes = true` to expose `kaypoh_create_watch`,
 `kaypoh_add_manual_availability`, and `kaypoh_evaluate_watches`. These tools
-remain local-only; they cannot book, authenticate to a facility, or read secrets.
+remain local-only; they cannot book or read secrets. Source authentication, when
+configured, occurs only during daemon/CLI refreshes and is not exposed through
+MCP.
 
 ## Hermes
 

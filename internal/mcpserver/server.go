@@ -18,7 +18,6 @@ import (
 type Server struct{ server *mcp.Server }
 
 type SearchInput struct {
-	Sports                 []string `json:"sports,omitempty" jsonschema:"canonical sport IDs or aliases"`
 	Sources                []string `json:"sources,omitempty" jsonschema:"optional source IDs"`
 	VenueIDs               []string `json:"venue_ids,omitempty" jsonschema:"optional venue IDs"`
 	Date                   string   `json:"date,omitempty" jsonschema:"optional local date YYYY-MM-DD"`
@@ -33,9 +32,8 @@ type SearchOutput struct {
 }
 
 type VenueInput struct {
-	Search string   `json:"search,omitempty"`
-	Sports []string `json:"sports,omitempty"`
-	Limit  int      `json:"limit,omitempty"`
+	Search string `json:"search,omitempty"`
+	Limit  int    `json:"limit,omitempty"`
 }
 
 type EventInput struct {
@@ -53,7 +51,6 @@ type CreateWatchInput struct {
 
 type ManualAvailabilityInput struct {
 	ID                 string `json:"id,omitempty"`
-	Sport              string `json:"sport"`
 	VenueID            string `json:"venue_id"`
 	Start              string `json:"start" jsonschema:"RFC 3339 start time"`
 	End                string `json:"end" jsonschema:"RFC 3339 end time"`
@@ -93,7 +90,7 @@ func addReadTools(server *mcp.Server, service *app.Service) {
 		return nil, SearchOutput{Results: results}, err
 	})
 	mcp.AddTool(server, &mcp.Tool{Name: "kaypoh_list_venues", Description: "List venues already discovered from permitted sources, including provenance."}, func(ctx context.Context, _ *mcp.CallToolRequest, input VenueInput) (*mcp.CallToolResult, []domain.Venue, error) {
-		venues, err := service.Venues(ctx, store.VenueFilter{Search: input.Search, Sports: input.Sports, Limit: input.Limit})
+		venues, err := service.Venues(ctx, store.VenueFilter{Search: input.Search, Limit: input.Limit})
 		return nil, venues, err
 	})
 	mcp.AddTool(server, &mcp.Tool{Name: "kaypoh_list_sources", Description: "Show kaypoh source capabilities, policy state, and health. Disabled sources must not be treated as live availability."}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, []store.SourceRecord, error) {
@@ -136,7 +133,7 @@ func addWriteTools(server *mcp.Server, service *app.Service) {
 		if err != nil {
 			return nil, domain.AvailabilitySlot{}, fmt.Errorf("parse end: %w", err)
 		}
-		slots, err := service.ImportManualAvailability(ctx, []domain.AvailabilitySlot{{ID: input.ID, SportID: input.Sport, VenueID: input.VenueID, Start: start, End: end, PriceCents: input.PriceCents, BookingURL: input.BookingURL, MembershipRequired: input.MembershipRequired}})
+		slots, err := service.ImportManualAvailability(ctx, []domain.AvailabilitySlot{{ID: input.ID, VenueID: input.VenueID, Start: start, End: end, PriceCents: input.PriceCents, BookingURL: input.BookingURL, MembershipRequired: input.MembershipRequired}})
 		if err != nil {
 			return nil, domain.AvailabilitySlot{}, err
 		}
@@ -156,7 +153,7 @@ func (input SearchInput) query() (domain.Query, error) {
 	if minutes < 1 || minutes > 24*60 {
 		return domain.Query{}, fmt.Errorf("minimum_duration_minutes must be between 1 and 1440")
 	}
-	query := domain.Query{Sports: input.Sports, Sources: input.Sources, VenueIDs: input.VenueIDs, MinimumDuration: time.Duration(minutes) * time.Minute, MaximumPriceCents: input.MaximumPriceCents, Participants: input.Participants, Ranking: domain.RankingPreset(input.Ranking)}
+	query := domain.Query{Sources: input.Sources, VenueIDs: input.VenueIDs, MinimumDuration: time.Duration(minutes) * time.Minute, MaximumPriceCents: input.MaximumPriceCents, Participants: input.Participants, Ranking: domain.RankingPreset(input.Ranking)}
 	if input.Date != "" {
 		location, err := time.LoadLocation(domain.SingaporeTimeZone)
 		if err != nil {

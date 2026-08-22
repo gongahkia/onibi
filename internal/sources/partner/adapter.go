@@ -23,16 +23,15 @@ import (
 )
 
 type Spec struct {
-	ID                         string
-	DefaultAvailabilityMaxDays int
+	ID string
 }
 
 type Adapter struct {
-	info    domain.SourceInfo
-	spec    Spec
+	info     domain.SourceInfo
+	spec     Spec
 	settings config.Source
-	http    *source.HTTPClient
-	browser browser.Fetcher
+	http     *source.HTTPClient
+	browser  browser.Fetcher
 
 	mu     sync.RWMutex
 	health domain.SourceHealth
@@ -135,8 +134,9 @@ func (adapter *Adapter) fetchBrowser(ctx context.Context, request source.Availab
 	if settings.AvailabilityURL == "" || settings.SlotJSONSelector == "" {
 		return source.AvailabilitySnapshot{}, errors.New("availability_url and slot_json_selector are required")
 	}
+	availabilityURL := expandAvailabilityURL(settings.AvailabilityURL, request)
 	body, err := adapter.browser.Fetch(ctx, browser.Request{
-		URL: settings.AvailabilityURL, LoginURL: settings.LoginURL, Username: settings.Username, Password: settings.Password,
+		URL: availabilityURL, LoginURL: settings.LoginURL, Username: settings.Username, Password: settings.Password,
 		UsernameSelector: settings.UsernameSelector, PasswordSelector: settings.PasswordSelector, SubmitSelector: settings.SubmitSelector,
 		ReadySelector: settings.ReadySelector, JSONSelector: settings.SlotJSONSelector, SessionStateBase64: settings.SessionStateBase64,
 		PermittedHosts: adapter.info.Policy.PermittedHosts, Timeout: adapter.info.Policy.Timeout,
@@ -152,12 +152,22 @@ func (adapter *Adapter) fetchPublic(ctx context.Context, request source.Availabi
 	if settings.AvailabilityURL == "" || settings.SlotJSONSelector == "" {
 		return source.AvailabilitySnapshot{}, errors.New("availability_url and slot_json_selector are required")
 	}
-	body, err := adapter.browser.Fetch(ctx, browser.Request{URL: settings.AvailabilityURL, JSONSelector: settings.SlotJSONSelector, PermittedHosts: adapter.info.Policy.PermittedHosts, Timeout: adapter.info.Policy.Timeout})
+	body, err := adapter.browser.Fetch(ctx, browser.Request{URL: expandAvailabilityURL(settings.AvailabilityURL, request), JSONSelector: settings.SlotJSONSelector, PermittedHosts: adapter.info.Policy.PermittedHosts, Timeout: adapter.info.Policy.Timeout})
 	if err != nil {
 		return source.AvailabilitySnapshot{}, err
 	}
 	now := time.Now().UTC()
 	return decodeSnapshot(body, adapter.info.ID, request, now, adapter.staleAfter(now))
+}
+
+// expandAvailabilityURL permits partner configs to include {start_date} and
+// {end_date}; no other interpolation is performed.
+func expandAvailabilityURL(raw string, request source.AvailabilityRequest) string {
+	replacements := strings.NewReplacer(
+		"{start_date}", request.StartDate.Format("2006-01-02"),
+		"{end_date}", request.EndDate.Format("2006-01-02"),
+	)
+	return replacements.Replace(raw)
 }
 
 func (adapter *Adapter) staleAfter(now time.Time) time.Time {
@@ -209,36 +219,36 @@ type payload struct {
 }
 
 type wireVenue struct {
-	ID          string              `json:"id"`
-	Name        string              `json:"name"`
-	Address     string              `json:"address"`
-	PostalCode  string              `json:"postal_code"`
-	Latitude    *float64            `json:"latitude"`
-	Longitude   *float64            `json:"longitude"`
-	Indoor      *bool               `json:"indoor"`
-	Sheltered   *bool               `json:"sheltered"`
-	BookingURL  string              `json:"booking_url"`
-	BookingURLs []string            `json:"booking_urls"`
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Address     string   `json:"address"`
+	PostalCode  string   `json:"postal_code"`
+	Latitude    *float64 `json:"latitude"`
+	Longitude   *float64 `json:"longitude"`
+	Indoor      *bool    `json:"indoor"`
+	Sheltered   *bool    `json:"sheltered"`
+	BookingURL  string   `json:"booking_url"`
+	BookingURLs []string `json:"booking_urls"`
 }
 
 type wireSlot struct {
-	ID                 string  `json:"id"`
-	VenueID            string  `json:"venue_id"`
-	VenueName          string  `json:"venue_name"`
-	VenueAddress       string  `json:"venue_address"`
-	CourtID            string  `json:"court_id"`
-	CourtName          string  `json:"court_name"`
-	FacilityID         string  `json:"facility_id"`
-	FacilityName       string  `json:"facility_name"`
-	Start              string  `json:"start"`
-	StartAt            string  `json:"start_at"`
-	End                string  `json:"end"`
-	EndAt              string  `json:"end_at"`
-	Status             string  `json:"status"`
-	PriceCents         *int64  `json:"price_cents"`
-	Currency           string  `json:"currency"`
-	BookingURL         string  `json:"booking_url"`
-	MembershipRequired *bool   `json:"membership_required"`
+	ID                 string `json:"id"`
+	VenueID            string `json:"venue_id"`
+	VenueName          string `json:"venue_name"`
+	VenueAddress       string `json:"venue_address"`
+	CourtID            string `json:"court_id"`
+	CourtName          string `json:"court_name"`
+	FacilityID         string `json:"facility_id"`
+	FacilityName       string `json:"facility_name"`
+	Start              string `json:"start"`
+	StartAt            string `json:"start_at"`
+	End                string `json:"end"`
+	EndAt              string `json:"end_at"`
+	Status             string `json:"status"`
+	PriceCents         *int64 `json:"price_cents"`
+	Currency           string `json:"currency"`
+	BookingURL         string `json:"booking_url"`
+	MembershipRequired *bool  `json:"membership_required"`
 }
 
 func decodeSnapshot(body []byte, sourceID string, request source.AvailabilityRequest, fetchedAt, staleAfter time.Time) (source.AvailabilitySnapshot, error) {

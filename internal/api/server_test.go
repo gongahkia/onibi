@@ -27,14 +27,14 @@ func TestSearchEndpointUsesApplicationService(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = service.Close() })
 	now := time.Now().UTC()
-	if _, err := service.ImportManualAvailability(context.Background(), []domain.AvailabilitySlot{{SportID: "tennis", VenueID: "missing", Start: now.Add(time.Hour), End: now.Add(2 * time.Hour)}}); err == nil {
+	if _, err := service.ImportManualAvailability(context.Background(), []domain.AvailabilitySlot{{VenueID: "missing", Start: now.Add(time.Hour), End: now.Add(2 * time.Hour)}}); err == nil {
 		t.Fatal("manual import unexpectedly accepted a missing venue")
 	}
 	server, err := New(service, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := httptest.NewRequest(http.MethodPost, "/v1/search", bytes.NewBufferString(`{"sports":["badminton"],"minimum_duration":3600000000000}`))
+	request := httptest.NewRequest(http.MethodPost, "/v1/search", bytes.NewBufferString(`{"minimum_duration":3600000000000}`))
 	response := httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, request)
 	if response.Code != http.StatusOK {

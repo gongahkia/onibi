@@ -21,8 +21,11 @@ not a booking agent.
   authentication. MCP stdio writes are disabled by default.
 - Telegram mutation is limited to configured chat IDs. Webhooks are HTTPS-only
   except an explicit development override.
-- No telemetry. The app never stores Singpass/booking credentials or automates
-  login, booking, payment, ballots or CAPTCHAs.
+- No telemetry. Partner API tokens, service-account credentials, and imported
+  browser state are environment-backed configuration only; they are never stored
+  in SQLite, logs, HTTP, or MCP data. The app can submit an explicitly configured
+  partner login form to read availability, but never books, pays, cancels, enters
+  ballots, or solves/bypasses CAPTCHA or OTP challenges.
 
 ## Residual risks
 

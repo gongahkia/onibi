@@ -111,7 +111,7 @@ func (server *Server) venues(writer http.ResponseWriter, request *http.Request) 
 		writeError(writer, http.StatusBadRequest, err.Error())
 		return
 	}
-	result, err := server.service.Venues(request.Context(), store.VenueFilter{Search: request.URL.Query().Get("search"), Sports: request.URL.Query()["sport"], Limit: limit})
+	result, err := server.service.Venues(request.Context(), store.VenueFilter{Search: request.URL.Query().Get("search"), Limit: limit})
 	if err != nil {
 		writeError(writer, http.StatusInternalServerError, err.Error())
 		return

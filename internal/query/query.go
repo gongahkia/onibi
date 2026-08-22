@@ -21,7 +21,7 @@ type Candidate struct {
 	ComponentSlotIDs []string                `json:"component_slot_ids,omitempty"`
 }
 
-// Normalize validates a query and normalizes sport aliases to canonical IDs.
+// Normalize validates a badminton-only query.
 func Normalize(input domain.Query) (domain.Query, error) {
 	query := input
 	if query.MinimumDuration < 0 {
@@ -78,20 +78,6 @@ func Normalize(input domain.Query) (domain.Query, error) {
 	default:
 		return domain.Query{}, fmt.Errorf("unknown ranking preset %q", query.Ranking)
 	}
-	canonicalSports := make([]string, 0, len(query.Sports))
-	seenSports := map[string]struct{}{}
-	for _, value := range query.Sports {
-		sport, err := domain.CanonicalSport(value)
-		if err != nil {
-			return domain.Query{}, err
-		}
-		if _, exists := seenSports[sport.ID]; !exists {
-			seenSports[sport.ID] = struct{}{}
-			canonicalSports = append(canonicalSports, sport.ID)
-		}
-	}
-	sort.Strings(canonicalSports)
-	query.Sports = canonicalSports
 	query.Sources = normalizedStrings(query.Sources)
 	query.VenueIDs = normalizedStrings(query.VenueIDs)
 	return query, nil
@@ -135,9 +121,6 @@ func Filter(rows []store.SlotWithVenue, input domain.Query, now time.Time) ([]Ca
 func matchesStatic(candidate Candidate, query domain.Query, now time.Time) bool {
 	slot := candidate.Slot
 	if slot.Status != domain.AvailabilityAvailable || !slot.Fresh(now) {
-		return false
-	}
-	if len(query.Sports) > 0 && !contains(query.Sports, slot.SportID) {
 		return false
 	}
 	if len(query.Sources) > 0 && !contains(query.Sources, slot.SourceID) {
@@ -200,7 +183,7 @@ func matchesFinal(candidate Candidate, query domain.Query) bool {
 func composeContiguous(input []Candidate, minimum time.Duration) []Candidate {
 	groups := make(map[string][]Candidate)
 	for _, candidate := range input {
-		key := strings.Join([]string{candidate.Slot.SourceID, candidate.Slot.VenueID, candidate.Slot.FacilityID, candidate.Slot.SportID}, "\x00")
+		key := strings.Join([]string{candidate.Slot.SourceID, candidate.Slot.VenueID, candidate.Slot.FacilityID, candidate.Slot.CourtName}, "\x00")
 		groups[key] = append(groups[key], candidate)
 	}
 	result := []Candidate{}

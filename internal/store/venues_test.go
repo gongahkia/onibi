@@ -16,13 +16,10 @@ func TestUpsertAndSearchVenues(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
-	if err := store.UpsertSports(ctx, domain.Sports()); err != nil {
-		t.Fatal(err)
-	}
 	if err := store.UpsertSources(ctx, []domain.SourceInfo{{ID: "source", Name: "Source", Operator: "Operator", Policy: domain.SourcePolicy{Status: domain.SourceEnabledPublicData}}}, func(string) bool { return true }); err != nil {
 		t.Fatal(err)
 	}
-	venue := domain.Venue{ID: "venue", SourceIDs: []string{"upstream"}, Name: "Delta Sport Centre", Address: "900 Tiong Bahru Road", Sports: []string{"badminton"}, Coordinates: domain.Coordinates{Latitude: 1.289, Longitude: 103.82}, Provenance: domain.Provenance{SourceID: "source", FetchedAt: time.Now()}}
+	venue := domain.Venue{ID: "venue", SourceIDs: []string{"upstream"}, Name: "Delta Sport Centre", Address: "900 Tiong Bahru Road", Coordinates: domain.Coordinates{Latitude: 1.289, Longitude: 103.82}, Provenance: domain.Provenance{SourceID: "source", FetchedAt: time.Now()}}
 	if err := store.UpsertVenues(ctx, []domain.Venue{venue}); err != nil {
 		t.Fatal(err)
 	}

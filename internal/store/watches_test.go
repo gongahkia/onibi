@@ -17,7 +17,7 @@ func TestWatchAndEventPersistenceIsIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
-	watch, err := store.CreateWatch(ctx, domain.Watch{ID: "watch", Name: "Wednesday badminton", Query: domain.Query{Sports: []string{"badminton"}}, Trigger: domain.WatchTrigger{Type: domain.WatchTriggerAvailabilityMatch}, Targets: []domain.NotificationTarget{{ID: "webhook:test", Kind: domain.NotificationWebhook, WebhookName: "test"}}, Enabled: true})
+	watch, err := store.CreateWatch(ctx, domain.Watch{ID: "watch", Name: "Wednesday badminton", Query: domain.Query{}, Trigger: domain.WatchTrigger{Type: domain.WatchTriggerAvailabilityMatch}, Targets: []domain.NotificationTarget{{ID: "webhook:test", Kind: domain.NotificationWebhook, WebhookName: "test"}}, Enabled: true})
 	if err != nil {
 		t.Fatal(err)
 	}

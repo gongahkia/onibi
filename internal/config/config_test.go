@@ -14,6 +14,12 @@ func TestLoadMissingUsesDefaults(t *testing.T) {
 	if !config.Sources["sportsg-facilities"].Enabled {
 		t.Fatal("expected SportSG source enabled by default")
 	}
+	if config.Sources["onepa"].Enabled {
+		t.Fatal("partner availability sources must require explicit enablement")
+	}
+	if config.Daemon.RefreshMinutes != 30 {
+		t.Fatalf("default refresh = %d, want 30 minutes", config.Daemon.RefreshMinutes)
+	}
 }
 
 func TestResolveSecret(t *testing.T) {

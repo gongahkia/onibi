@@ -12,7 +12,7 @@ search bodies, and returns JSON errors as `{"error":"..."}`.
 | --- | --- |
 | `GET /v1/health` | database, config, and source-health report |
 | `GET /v1/sources` | source policies and health |
-| `GET /v1/venues?search=&sport=&limit=` | discovered venues |
+| `GET /v1/venues?search=&limit=` | discovered badminton venues |
 | `POST /v1/search` | search a `Query` object against local availability |
 | `GET /v1/watches?enabled=true` | persistent watches |
 | `POST /v1/watches` | create a local watch |
@@ -29,5 +29,5 @@ Example search:
 ```sh
 curl -sS http://127.0.0.1:8373/v1/search \
   -H 'content-type: application/json' \
-  --data '{"sports":["badminton"],"minimum_duration":3600000000000,"ranking":"balanced"}'
+  --data '{"minimum_duration":3600000000000,"ranking":"balanced"}'
 ```

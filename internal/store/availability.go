@@ -83,12 +83,12 @@ func scanSlotWithVenue(row slotRowScanner) (SlotWithVenue, error) {
 	var result SlotWithVenue
 	var start, end, observedAt, fetchedAt, staleAfter string
 	var price, membershipRequired sql.NullInt64
-	var slotProvenance, sports, amenities, bookingURLs, venueProvenance string
+	var slotProvenance, ignoredSports, amenities, bookingURLs, venueProvenance string
 	var latitude, longitude sql.NullFloat64
 	var indoor, sheltered sql.NullInt64
 	if err := row.Scan(&result.Slot.ID, &result.Slot.VenueID, &result.Slot.FacilityID, &result.Slot.CourtName, &result.Slot.SourceID,
 		&start, &end, &result.Slot.Status, &price, &result.Slot.Currency, &membershipRequired, &result.Slot.BookingURL, &observedAt, &fetchedAt, &staleAfter, &slotProvenance,
-		&result.Venue.ID, &result.Venue.Name, &result.Venue.Address, &result.Venue.PostalCode, &latitude, &longitude, &result.Venue.Classification, &sports, &amenities, &indoor, &sheltered, &bookingURLs, &venueProvenance); err != nil {
+		&result.Venue.ID, &result.Venue.Name, &result.Venue.Address, &result.Venue.PostalCode, &latitude, &longitude, &result.Venue.Classification, &ignoredSports, &amenities, &indoor, &sheltered, &bookingURLs, &venueProvenance); err != nil {
 		return SlotWithVenue{}, fmt.Errorf("scan availability: %w", err)
 	}
 	var err error
@@ -116,9 +116,6 @@ func scanSlotWithVenue(row slotRowScanner) (SlotWithVenue, error) {
 	}
 	if latitude.Valid && longitude.Valid {
 		result.Venue.Coordinates = domain.Coordinates{Latitude: latitude.Float64, Longitude: longitude.Float64}
-	}
-	if err := json.Unmarshal([]byte(sports), &result.Venue.Sports); err != nil {
-		return SlotWithVenue{}, fmt.Errorf("decode venue %q sports: %w", result.Venue.ID, err)
 	}
 	if err := json.Unmarshal([]byte(amenities), &result.Venue.Amenities); err != nil {
 		return SlotWithVenue{}, fmt.Errorf("decode venue %q amenities: %w", result.Venue.ID, err)

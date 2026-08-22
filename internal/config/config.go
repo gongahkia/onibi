@@ -50,18 +50,18 @@ type SourceAPI struct {
 // SessionState is base64-encoded Playwright storage-state JSON. It is never
 // persisted by kaypoh. Login selectors are optional when a session is supplied.
 type SourceBrowser struct {
-	Enabled             bool   `toml:"enabled"`
-	AvailabilityURL     string `toml:"availability_url"`
-	LoginURL            string `toml:"login_url"`
-	Username            string `toml:"username"`
-	Password            string `toml:"password"`
-	UsernameSelector    string `toml:"username_selector"`
-	PasswordSelector    string `toml:"password_selector"`
-	SubmitSelector      string `toml:"submit_selector"`
-	ReadySelector       string `toml:"ready_selector"`
-	SlotJSONSelector    string `toml:"slot_json_selector"`
-	VenueJSONSelector   string `toml:"venue_json_selector"`
-	SessionStateBase64  string `toml:"session_state_base64"`
+	Enabled            bool   `toml:"enabled"`
+	AvailabilityURL    string `toml:"availability_url"`
+	LoginURL           string `toml:"login_url"`
+	Username           string `toml:"username"`
+	Password           string `toml:"password"`
+	UsernameSelector   string `toml:"username_selector"`
+	PasswordSelector   string `toml:"password_selector"`
+	SubmitSelector     string `toml:"submit_selector"`
+	ReadySelector      string `toml:"ready_selector"`
+	SlotJSONSelector   string `toml:"slot_json_selector"`
+	VenueJSONSelector  string `toml:"venue_json_selector"`
+	SessionStateBase64 string `toml:"session_state_base64"`
 }
 
 // SourcePublic is the final read-only path for a partner-approved public
@@ -125,12 +125,12 @@ func Default() (Config, error) {
 		DataDir:      dataDir,
 		DatabasePath: filepath.Join(dataDir, "kaypoh.db"),
 		Sources: map[string]Source{
-			"sportsg-facilities": {Enabled: true},
-			"onemap":             {Enabled: true},
-			"myactivesg":          {Enabled: false, RefreshMinutes: 30},
-			"onepa":               {Enabled: false, RefreshMinutes: 30},
-			"the-kallang":         {Enabled: false, RefreshMinutes: 30},
-			"sba-stadium":         {Enabled: false, RefreshMinutes: 30},
+			"sportsg-facilities":       {Enabled: true},
+			"onemap":                   {Enabled: true},
+			"myactivesg":               {Enabled: false, RefreshMinutes: 30},
+			"onepa":                    {Enabled: false, RefreshMinutes: 30},
+			"the-kallang":              {Enabled: false, RefreshMinutes: 30},
+			"sba-stadium":              {Enabled: false, RefreshMinutes: 30},
 			"singapore-badminton-hall": {Enabled: false, RefreshMinutes: 30},
 			"smash-arena":              {Enabled: false, RefreshMinutes: 30},
 			"wyse-active":              {Enabled: false, RefreshMinutes: 30},

@@ -15,9 +15,9 @@ func newAvailabilityCommand(runtime *runtime) *cobra.Command {
 	var start, end, price, bookingURL, id string
 	var membershipRequired bool
 	add := &cobra.Command{
-		Use:   "add <venue-id> <sport>",
+		Use:   "add <venue-id>",
 		Short: "Add a local availability interval without contacting an upstream source",
-		Args:  cobra.ExactArgs(2),
+		Args:  cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
 			startAt, err := parseTimestamp(start)
 			if err != nil {
@@ -35,7 +35,7 @@ func newAvailabilityCommand(runtime *runtime) *cobra.Command {
 				}
 				priceCents = &value
 			}
-			slot := domain.AvailabilitySlot{ID: id, SportID: args[1], VenueID: args[0], Start: startAt, End: endAt, PriceCents: priceCents, BookingURL: bookingURL}
+			slot := domain.AvailabilitySlot{ID: id, VenueID: args[0], Start: startAt, End: endAt, PriceCents: priceCents, BookingURL: bookingURL}
 			if command.Flags().Changed("membership-required") {
 				slot.MembershipRequired = &membershipRequired
 			}

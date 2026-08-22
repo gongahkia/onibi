@@ -29,19 +29,19 @@ type Capabilities struct {
 }
 
 type SourcePolicy struct {
-	Status         SourceStatus  `json:"status"`
-	PermittedHosts []string      `json:"permitted_hosts"`
-	Capabilities   Capabilities  `json:"capabilities"`
-	AuthRequired   bool          `json:"auth_required"`
-	PollFloor      time.Duration `json:"poll_floor"`
-	AvailabilityMaxDays int      `json:"availability_max_days,omitempty"`
-	Concurrency    int           `json:"concurrency"`
-	Timeout        time.Duration `json:"timeout"`
-	TermsURL       string        `json:"terms_url,omitempty"`
-	RobotsURL      string        `json:"robots_url,omitempty"`
-	EvidenceURLs   []string      `json:"evidence_urls,omitempty"`
-	ReviewedAt     time.Time     `json:"reviewed_at"`
-	Notes          string        `json:"notes,omitempty"`
+	Status              SourceStatus  `json:"status"`
+	PermittedHosts      []string      `json:"permitted_hosts"`
+	Capabilities        Capabilities  `json:"capabilities"`
+	AuthRequired        bool          `json:"auth_required"`
+	PollFloor           time.Duration `json:"poll_floor"`
+	AvailabilityMaxDays int           `json:"availability_max_days,omitempty"`
+	Concurrency         int           `json:"concurrency"`
+	Timeout             time.Duration `json:"timeout"`
+	TermsURL            string        `json:"terms_url,omitempty"`
+	RobotsURL           string        `json:"robots_url,omitempty"`
+	EvidenceURLs        []string      `json:"evidence_urls,omitempty"`
+	ReviewedAt          time.Time     `json:"reviewed_at"`
+	Notes               string        `json:"notes,omitempty"`
 }
 
 func (policy SourcePolicy) AllowsNetwork() bool {

@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -45,7 +44,6 @@ type model struct {
 	width   int
 	height  int
 	tab     int
-	sport   textinput.Model
 	status  string
 	busy    bool
 	help    bool
@@ -84,12 +82,7 @@ func Run(ctx context.Context, service *app.Service, input io.Reader, output io.W
 }
 
 func newModel(ctx context.Context, service *app.Service) model {
-	sport := textinput.New()
-	sport.Prompt = "Sport: "
-	sport.SetValue("badminton")
-	sport.CharLimit = 32
-	sport.Width = 24
-	return model{service: service, ctx: ctx, sport: sport, status: "Loading local state…"}
+	return model{service: service, ctx: ctx, status: "Loading local badminton availability…"}
 }
 
 func (model model) Init() tea.Cmd {
@@ -111,7 +104,7 @@ func (model model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if len(model.results) == 0 {
 			model.status = "No fresh availability matches. Press r to refresh permitted sources or add a local slot."
 		} else {
-			model.status = fmt.Sprintf("%d fresh match(es) for %s", len(model.results), model.sport.Value())
+			model.status = fmt.Sprintf("%d fresh badminton match(es)", len(model.results))
 		}
 		return model, nil
 	case actionMessage:
@@ -124,34 +117,14 @@ func (model model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return model, model.load()
 	case tea.KeyMsg:
 		key := message.String()
-		if model.tab == tabDiscover && model.sport.Focused() {
-			switch key {
-			case "ctrl+c":
-				return model, tea.Quit
-			case "esc":
-				model.sport.Blur()
-				return model, nil
-			case "enter":
-				model.sport.Blur()
-				model.busy = true
-				model.status = "Searching local availability…"
-				return model, model.load()
-			default:
-				var command tea.Cmd
-				model.sport, command = model.sport.Update(message)
-				return model, command
-			}
-		}
 		switch key {
 		case "ctrl+c", "q":
 			return model, tea.Quit
 		case "tab", "right", "l":
 			model.tab = (model.tab + 1) % len(tabNames)
-			model.sport.Blur()
 			return model, nil
 		case "shift+tab", "left", "h":
 			model.tab = (model.tab + len(tabNames) - 1) % len(tabNames)
-			model.sport.Blur()
 			return model, nil
 		case "?":
 			model.help = !model.help
@@ -170,10 +143,6 @@ func (model model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			if model.tab == tabDiscover {
 				model.busy = true
 				return model, model.createWatch()
-			}
-		case "/":
-			if model.tab == tabDiscover {
-				model.sport.Focus()
 			}
 		case "enter":
 			if model.tab == tabDiscover {
@@ -208,7 +177,7 @@ func (model model) View() string {
 	if model.busy {
 		status = statusStyle.Render("Working… " + model.status)
 	}
-	footer := mutedStyle.Render("tab switch  / edit sport  enter search  r refresh  w watch  e evaluate  ? help  q quit")
+	footer := mutedStyle.Render("tab switch  enter search  r refresh  w watch  e evaluate  ? help  q quit")
 	if model.help {
 		footer = headerStyle.Render("Discover searches only local normalized slots. Refresh fetches only permitted sources. Watch events are idempotent; booking is never automated.")
 	}
@@ -231,9 +200,9 @@ func (model model) body(width int) string {
 }
 
 func (model model) discoverView(width int) string {
-	lines := []string{model.sport.View(), mutedStyle.Render("Enter searches local availability. Press r to refresh only policy-permitted sources.")}
+	lines := []string{headerStyle.Render("Badminton availability"), mutedStyle.Render("Enter searches local availability. Press r to refresh approved sources.")}
 	if len(model.results) == 0 {
-		return strings.Join(append(lines, "", warningStyle.Render("No current availability data for this search."), mutedStyle.Render("SportSG currently supplies venue discovery, not live court slots. Use `availability add` for data you are authorized to supply.")), "\n")
+		return strings.Join(append(lines, "", warningStyle.Render("No current badminton availability data."), mutedStyle.Render("Configure an approved source reader or use `availability add` for authorized local data.")), "\n")
 	}
 	lines = append(lines, "", headerStyle.Render("SCORE   START             VENUE                              PRICE     TRAVEL"))
 	for _, result := range model.results[:min(len(model.results), max(3, model.height-11))] {
@@ -253,11 +222,11 @@ func (model model) discoverView(width int) string {
 
 func (model model) watchesView(width int) string {
 	if len(model.watches) == 0 {
-		return warningStyle.Render("No watches yet. Search a sport in Discover, then press w to create a local watch.")
+		return warningStyle.Render("No watches yet. Search badminton availability in Discover, then press w to create a local watch.")
 	}
-	lines := []string{headerStyle.Render("ENABLED  ONE SHOT  NAME                              SPORTS")}
+	lines := []string{headerStyle.Render("ENABLED  ONE SHOT  NAME")}
 	for _, watch := range model.watches[:min(len(model.watches), max(3, model.height-8))] {
-		lines = append(lines, fmt.Sprintf("%-7t  %-8t  %-*s  %s", watch.Enabled, watch.OneShot, max(18, width-45), truncate(watch.Name, max(18, width-45)), strings.Join(watch.Query.Sports, ", ")))
+		lines = append(lines, fmt.Sprintf("%-7t  %-8t  %s", watch.Enabled, watch.OneShot, truncate(watch.Name, max(18, width-28))))
 	}
 	return strings.Join(append(lines, "", mutedStyle.Render("Press e to evaluate enabled watches against local availability.")), "\n")
 }
@@ -290,8 +259,7 @@ func (model model) load() tea.Cmd {
 		if model.service == nil {
 			return dataMessage{err: fmt.Errorf("TUI service is unavailable")}
 		}
-		sport := strings.TrimSpace(model.sport.Value())
-		results, resultErr := model.service.Search(model.ctx, domain.Query{Sports: []string{sport}, MinimumDuration: time.Hour, Ranking: domain.RankBalanced})
+		results, resultErr := model.service.Search(model.ctx, domain.Query{MinimumDuration: time.Hour, Ranking: domain.RankBalanced})
 		watches, watchesErr := model.service.Watches(model.ctx, false)
 		sources, sourcesErr := model.service.Sources(model.ctx)
 		events, eventsErr := model.service.Events(model.ctx, "", 100)
@@ -341,8 +309,7 @@ func (model model) evaluate() tea.Cmd {
 
 func (model model) createWatch() tea.Cmd {
 	return func() tea.Msg {
-		sport := strings.TrimSpace(model.sport.Value())
-		watch, err := model.service.CreateWatch(model.ctx, domain.Watch{Name: "TUI " + sport, Query: domain.Query{Sports: []string{sport}, MinimumDuration: time.Hour, Ranking: domain.RankBalanced}, Enabled: true})
+		watch, err := model.service.CreateWatch(model.ctx, domain.Watch{Name: "TUI badminton", Query: domain.Query{MinimumDuration: time.Hour, Ranking: domain.RankBalanced}, Enabled: true})
 		if err != nil {
 			return actionMessage{err: err}
 		}

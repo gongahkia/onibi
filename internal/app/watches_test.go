@@ -34,10 +34,10 @@ func TestEvaluateWatchesCreatesOneIdempotentEvent(t *testing.T) {
 	if err := service.store.UpsertVenues(context.Background(), []domain.Venue{{ID: "venue", Name: "Venue", Coordinates: domain.Coordinates{Latitude: 1.3, Longitude: 103.8}, Provenance: domain.Provenance{SourceID: "local-manual", FetchedAt: now}}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.ImportManualAvailability(context.Background(), []domain.AvailabilitySlot{{SportID: "tennis", VenueID: "venue", Start: now.Add(time.Hour), End: now.Add(2 * time.Hour)}}); err != nil {
+	if _, err := service.ImportManualAvailability(context.Background(), []domain.AvailabilitySlot{{VenueID: "venue", Start: now.Add(time.Hour), End: now.Add(2 * time.Hour)}}); err != nil {
 		t.Fatal(err)
 	}
-	watch, err := service.CreateWatch(context.Background(), domain.Watch{ID: "watch", Name: "Tennis", Query: domain.Query{Sports: []string{"tennis"}, MinimumDuration: time.Hour}, Targets: []domain.NotificationTarget{{Kind: domain.NotificationWebhook, WebhookName: "test"}}, Enabled: true})
+	watch, err := service.CreateWatch(context.Background(), domain.Watch{ID: "watch", Name: "Badminton", Query: domain.Query{MinimumDuration: time.Hour}, Targets: []domain.NotificationTarget{{Kind: domain.NotificationWebhook, WebhookName: "test"}}, Enabled: true})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -30,7 +30,7 @@ func New(version string) *cobra.Command {
 	runtime := &runtime{}
 	root := &cobra.Command{
 		Use:           "kaypoh",
-		Short:         "Singapore sports-facility discovery and availability monitoring",
+		Short:         "Singapore badminton-court availability monitoring",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(command *cobra.Command, args []string) error {
@@ -81,9 +81,9 @@ func newRefreshCommand(runtime *runtime) *cobra.Command {
 				return writeJSON(command.OutOrStdout(), results)
 			}
 			table := tabwriter.NewWriter(command.OutOrStdout(), 0, 4, 2, ' ', 0)
-			fmt.Fprintln(table, "SOURCE\tSTATE\tVENUES\tDETAIL")
+			fmt.Fprintln(table, "SOURCE\tSTATE\tVENUES\tSLOTS\tDETAIL")
 			for _, result := range results {
-				fmt.Fprintf(table, "%s\t%s\t%d\t%s\n", result.SourceID, result.State, result.VenuesUpdated, result.Detail)
+				fmt.Fprintf(table, "%s\t%s\t%d\t%d\t%s\n", result.SourceID, result.State, result.VenuesUpdated, result.SlotsUpdated, result.Detail)
 			}
 			return table.Flush()
 		},
@@ -93,7 +93,6 @@ func newRefreshCommand(runtime *runtime) *cobra.Command {
 func newVenueCommand(runtime *runtime) *cobra.Command {
 	command := &cobra.Command{Use: "venue", Aliases: []string{"venues"}, Short: "Search normalized venues"}
 	var search string
-	var sports []string
 	var limit int
 	list := &cobra.Command{
 		Use:   "list",
@@ -104,7 +103,7 @@ func newVenueCommand(runtime *runtime) *cobra.Command {
 				return err
 			}
 			defer service.Close()
-			venues, err := service.Venues(command.Context(), store.VenueFilter{Search: search, Sports: sports, Limit: limit})
+			venues, err := service.Venues(command.Context(), store.VenueFilter{Search: search, Limit: limit})
 			if err != nil {
 				return err
 			}
@@ -120,7 +119,6 @@ func newVenueCommand(runtime *runtime) *cobra.Command {
 		},
 	}
 	list.Flags().StringVar(&search, "search", "", "case-insensitive venue name or address match")
-	list.Flags().StringSliceVar(&sports, "sport", nil, "require each canonical sport ID")
 	list.Flags().IntVar(&limit, "limit", 100, "maximum records (1-500)")
 	command.AddCommand(list)
 	command.AddCommand(&cobra.Command{

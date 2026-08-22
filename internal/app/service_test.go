@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -11,7 +10,6 @@ import (
 	"github.com/gongahkia/kaypoh/internal/config"
 	"github.com/gongahkia/kaypoh/internal/domain"
 	"github.com/gongahkia/kaypoh/internal/geo"
-	"github.com/gongahkia/kaypoh/internal/source"
 )
 
 func TestOpenSeedsSourcePolicy(t *testing.T) {
@@ -25,15 +23,15 @@ func TestOpenSeedsSourcePolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = service.Close() })
-	record, err := service.Source(context.Background(), "safra")
+	record, err := service.Source(context.Background(), "onepa")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if record.Enabled {
-		t.Fatal("SAFRA must not be enabled")
+		t.Fatal("onePA must not be enabled without explicit configuration")
 	}
-	if _, err := service.SetSourceEnabled(context.Background(), "safra", true); !errors.Is(err, source.ErrPolicyDisabled) {
-		t.Fatalf("SetSourceEnabled(safra) = %v, want policy error", err)
+	if _, err := service.SetSourceEnabled(context.Background(), "onepa", true); err != nil {
+		t.Fatalf("SetSourceEnabled(onepa) = %v", err)
 	}
 }
 
@@ -70,18 +68,18 @@ func TestImportManualAvailabilityAndSearch(t *testing.T) {
 	t.Cleanup(func() { _ = service.Close() })
 	now := time.Now().UTC().Truncate(time.Second)
 	if err := service.store.UpsertVenues(context.Background(), []domain.Venue{{
-		ID: "venue", Name: "Venue", Sports: []string{"badminton"}, Coordinates: domain.Coordinates{Latitude: 1.3, Longitude: 103.8},
+		ID: "venue", Name: "Venue", Coordinates: domain.Coordinates{Latitude: 1.3, Longitude: 103.8},
 		Provenance: domain.Provenance{SourceID: "local-manual", FetchedAt: now},
 	}}); err != nil {
 		t.Fatal(err)
 	}
 	price := int64(1600)
 	if _, err := service.ImportManualAvailability(context.Background(), []domain.AvailabilitySlot{{
-		SportID: "badminton", VenueID: "venue", Start: now.Add(time.Hour), End: now.Add(2 * time.Hour), PriceCents: &price,
+		VenueID: "venue", Start: now.Add(time.Hour), End: now.Add(2 * time.Hour), PriceCents: &price,
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	results, err := service.Search(context.Background(), domain.Query{Sports: []string{"shuttle"}, MinimumDuration: time.Hour, Ranking: domain.RankCheap})
+	results, err := service.Search(context.Background(), domain.Query{MinimumDuration: time.Hour, Ranking: domain.RankCheap})
 	if err != nil {
 		t.Fatal(err)
 	}
