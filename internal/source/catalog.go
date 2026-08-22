@@ -18,16 +18,20 @@ func Catalog() []domain.SourceInfo {
 		partnerSource("myactivesg", "ActiveSG", "Sport Singapore", "https://www.activesgcircle.gov.sg/facilities/badminton", []string{"www.activesgcircle.gov.sg", "activesg.gov.sg"}, 15, availability),
 		partnerSource("onepa", "onePA", "People's Association", "https://www.onepa.gov.sg/facilities/availability", []string{"www.onepa.gov.sg"}, 15, availability),
 		partnerSource("the-kallang", "The Kallang / OCBC Arena", "The Kallang Group", "https://thekallang.perfectgym.com/clientportal2/", []string{"thekallang.perfectgym.com", "change.sportshub.com.sg", "www.thekallang.com.sg"}, 30, availability),
-		partnerSource("sba-stadium", "KFF Badminton Arena @ Guillemard", "Singapore Badminton Association", "https://booking.singaporebadminton.org.sg/", []string{"booking.singaporebadminton.org.sg", "singaporebadminton.org.sg"}, 14, availability),
-		partnerSource("singapore-badminton-hall", "Singapore Badminton Hall", "Singapore Badminton Hall", "https://singaporebadmintonhall.com/book-now/", []string{"singaporebadmintonhall.com", "singaporebadmintonhall.getomnify.com"}, 30, availability),
-		partnerSource("smash-arena", "Smash Arena", "Smash Arena", "https://booking.smasharena.sg/", []string{"smasharena.sg", "booking.smasharena.sg"}, 14, availability),
-		partnerSource("wyse-active", "Wyse Active Hub", "Wyse Active Hub / Rezerv", "https://wyseactivehub.rezerv.co/", []string{"www.wyseactivehub.com", "wyseactivehub.rezerv.co"}, 30, availability),
+		publicAvailabilitySource("sba-stadium", "KFF Badminton Arena @ Guillemard", "Singapore Badminton Association", "https://booking.singaporebadminton.org.sg/", []string{"booking.singaporebadminton.org.sg", "singaporebadminton.org.sg"}, 7, availability),
+		publicAvailabilitySource("singapore-badminton-hall", "Singapore Badminton Hall", "Singapore Badminton Hall", "https://singaporebadmintonhall.com/book-now/", []string{"singaporebadmintonhall.com", "playtomic.com"}, 7, availability),
+		publicAvailabilitySource("smash-arena", "Smash Arena", "Smash Arena", "https://booking.smasharena.sg/", []string{"smasharena.sg", "booking.smasharena.sg"}, 1, availability),
+		publicAvailabilitySource("wyse-active", "Wyse Active Hub", "Wyse Active Hub / Rezerv", "https://wyseactivehub.rezerv.co/", []string{"www.wyseactivehub.com", "wyseactivehub.rezerv.co", "customer-api.rezerv.co"}, 7, availability),
 		partnerSource("trusmash", "TruSmash", "Viva Capital / AFA", "https://book.afa-sports.com/scheduler", []string{"trusmash.com.sg", "book.afa-sports.com"}, 14, availability),
 	}
 }
 
 func partnerSource(id, name, operator, website string, hosts []string, maximumDays int, capabilities domain.Capabilities) domain.SourceInfo {
 	return domain.SourceInfo{ID: id, Name: name, Operator: operator, Website: website, Policy: domain.SourcePolicy{Status: domain.SourceExperimental, PermittedHosts: hosts, Capabilities: capabilities, PollFloor: 30 * time.Minute, AvailabilityMaxDays: maximumDays, Concurrency: 1, Timeout: 25 * time.Second, ReviewedAt: auditReviewedAt, Notes: "Partner-authorized, read-only availability integration. API is preferred; browser access is limited to approved credentials or an imported session."}}
+}
+
+func publicAvailabilitySource(id, name, operator, website string, hosts []string, maximumDays int, capabilities domain.Capabilities) domain.SourceInfo {
+	return domain.SourceInfo{ID: id, Name: name, Operator: operator, Website: website, Policy: domain.SourcePolicy{Status: domain.SourceEnabledPublicData, PermittedHosts: hosts, Capabilities: capabilities, PollFloor: time.Hour, AvailabilityMaxDays: maximumDays, Concurrency: 1, Timeout: 25 * time.Second, ReviewedAt: auditReviewedAt, Notes: "Built-in anonymous, read-only badminton availability reader. It performs no login, booking, payment, confirmation, CAPTCHA, or OTP action. The one-hour poll floor and bounded default window limit public booking reads."}}
 }
 
 func policy(status domain.SourceStatus, capabilities domain.Capabilities, notes string) domain.SourcePolicy {

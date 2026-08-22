@@ -17,8 +17,33 @@ func TestLoadMissingUsesDefaults(t *testing.T) {
 	if config.Sources["onepa"].Enabled {
 		t.Fatal("partner availability sources must require explicit enablement")
 	}
+	for _, sourceID := range []string{"sba-stadium", "singapore-badminton-hall", "smash-arena", "wyse-active"} {
+		if !config.Sources[sourceID].Enabled {
+			t.Fatalf("%s must be enabled by default", sourceID)
+		}
+	}
+	if config.Sources["smash-arena"].AvailabilityMaxDays != 1 {
+		t.Fatalf("Smash Arena default horizon = %d, want 1", config.Sources["smash-arena"].AvailabilityMaxDays)
+	}
 	if config.Daemon.RefreshMinutes != 30 {
 		t.Fatalf("default refresh = %d, want 30 minutes", config.Daemon.RefreshMinutes)
+	}
+}
+
+func TestLoadExampleStyleConfigKeepsBuiltInReaders(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	contents := []byte("version = 1\n[sources.onepa]\nenabled = false\n")
+	if err := os.WriteFile(path, contents, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	config, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, sourceID := range []string{"sba-stadium", "singapore-badminton-hall", "smash-arena", "wyse-active"} {
+		if !config.Sources[sourceID].Enabled {
+			t.Fatalf("%s was lost while loading partial config", sourceID)
+		}
 	}
 }
 

@@ -7,20 +7,28 @@ ballots, or bypasses CAPTCHA/OTP challenges.
 
 ## Live-reader status
 
-The following read-only provider adapters are registered: ActiveSG, onePA, The
-Kallang / OCBC Arena, KFF Badminton Arena @ Guillemard, Singapore Badminton
-Hall, Smash Arena, Wyse Active Hub, and TruSmash. Each uses this configured
-order:
+Four anonymous, read-only availability readers are enabled by default and need
+no API key, account, or browser configuration:
 
-1. Partner API.
-2. Partner-issued username/password through headless Playwright Chromium, or a
-   partner-provided imported session.
-3. A partner-approved public availability page.
+| Source | Coverage | Default window |
+| --- | --- | --- |
+| KFF Badminton Arena @ Guillemard (SBA) | Premium Courts 1–9 | 7 days |
+| Singapore Badminton Hall | SBH @ Sims, SBH East Coast @ EXPO, TSA @ EXPO | 7 days |
+| Smash Arena | public court calendar | 1 day |
+| Wyse Active Hub | Ace and Premier Courts | 7 days |
 
-All partner readers are disabled by default until their approved access details
-are configured. This repository contains no credentials, browser session, or
-partner API contract. A configured source reports healthy only after a successful
-read; an unconfigured source is labelled rather than treated as live.
+They use the provider's public booking availability requests, but never submit
+a booking, payment, confirmation, login, CAPTCHA, or OTP action. The readers
+have a one-hour poll floor. Smash Arena is intentionally one day by default:
+its public surface requires a separate read for every available hour; increase
+`availability_max_days` only if that extra upstream load is appropriate.
+
+ActiveSG, onePA, The Kallang / OCBC Arena, and TruSmash remain disabled: this
+repository has no confirmed anonymous availability endpoint for them. They can
+still be configured with a partner API, approved browser session, or public
+JSON mapper, in that order. A configured API/browser/public reader takes
+precedence over the built-in reader, so a provider can migrate to an official
+API without code changes.
 
 SportSG's official facility dataset remains enabled for venue discovery. OneMap
 is used for optional geocoding/routing when its credentials are configured.
@@ -34,11 +42,12 @@ go run github.com/mxschmitt/playwright-go/cmd/playwright@v0.6201.1 install chrom
 ./bin/kaypoh
 ```
 
-The default daemon refresh is 30 minutes. Each partner source can override it.
+The default daemon refresh is 30 minutes; the public readers enforce their
+one-hour source poll floor. Each source can request a longer interval.
 `availability_max_days = 0` means that source's configured booking horizon.
 
 ```sh
-kaypoh refresh onepa
+kaypoh refresh sba-stadium singapore-badminton-hall smash-arena wyse-active
 kaypoh venue list --search "guillemard"
 kaypoh search --date 2026-08-23 --duration 1h --rank cheap --explain
 kaypoh watch add "Wednesday badminton" --date 2026-08-23 --one-shot
@@ -57,7 +66,8 @@ volume; the local configuration and all secrets remain outside the image.
 ```sh
 cp docker/config.toml.example docker/config.toml
 cp .env.example .env
-# Edit docker/config.toml with approved source details and .env with secrets.
+# No source secret is needed for the built-in public readers. Edit the files
+# only to configure optional sources, OneMap, notifications, or the API.
 
 docker compose build
 docker compose run --rm daemon config validate
@@ -69,7 +79,7 @@ against the same persisted SQLite database with:
 
 ```sh
 docker compose run --rm daemon sources list
-docker compose run --rm daemon refresh onepa
+docker compose run --rm daemon refresh sba-stadium singapore-badminton-hall smash-arena wyse-active
 docker compose run --rm daemon sources doctor
 docker compose run --rm daemon search --date 2026-08-23 --duration 1h
 ```
@@ -91,7 +101,7 @@ control. To stop services without deleting saved availability data, use
 `docker compose down`. Removing `kaypoh-data` deletes the local SQLite database
 and watch history.
 
-## Partner source configuration
+## Optional partner source configuration
 
 The config file is written with mode `0600`. Use `env:NAME` references for
 every secret. Browser state is base64-encoded Playwright storage-state JSON;
@@ -176,7 +186,7 @@ go vet ./...
 go build ./cmd/kaypoh
 ```
 
-Fixture tests cover source-payload normalization, storage-state validation,
-freshness/reconciliation, query/ranking, API, MCP, and local watches. A live
-provider fetch requires the partner API contract, credentials/session, and
-approved selectors; it cannot be verified from this repository alone.
+Fixture tests cover source-payload normalization, public-response parsing,
+cookie-session isolation, freshness/reconciliation, query/ranking, API, MCP,
+and local watches. The public readers depend on external booking surfaces, so
+run `kaypoh refresh …` or `sources doctor` to verify their current health.

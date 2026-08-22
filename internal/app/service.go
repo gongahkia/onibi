@@ -18,6 +18,7 @@ import (
 	"github.com/gongahkia/kaypoh/internal/ranking"
 	"github.com/gongahkia/kaypoh/internal/source"
 	"github.com/gongahkia/kaypoh/internal/sources/partner"
+	"github.com/gongahkia/kaypoh/internal/sources/publicavailability"
 	"github.com/gongahkia/kaypoh/internal/sources/sportsg"
 	"github.com/gongahkia/kaypoh/internal/store"
 )
@@ -62,7 +63,12 @@ func Open(ctx context.Context, cfg config.Config) (*Service, error) {
 			_ = browserClient.Close()
 			return nil, err
 		}
-		adapter, err := partner.New(info, spec, settings, transport, browserClient)
+		var adapter source.Adapter
+		if publicavailability.Supports(spec.ID) && !configuredPartnerAccess(settings) {
+			adapter, err = publicavailability.New(info, settings, transport)
+		} else {
+			adapter, err = partner.New(info, spec, settings, transport, browserClient)
+		}
 		if err != nil {
 			_ = browserClient.Close()
 			return nil, err
@@ -97,6 +103,13 @@ func Open(ctx context.Context, cfg config.Config) (*Service, error) {
 		return nil, err
 	}
 	return service, nil
+}
+
+// configuredPartnerAccess gives an operator-supplied API, browser reader, or
+// generic public mapper precedence over a built-in anonymous reader. This lets
+// a provider migrate to an official API without removing the safe fallback.
+func configuredPartnerAccess(settings config.Source) bool {
+	return settings.API.Enabled || settings.Browser.Enabled || settings.Public.Enabled
 }
 
 func partnerSpecs() []partner.Spec {
@@ -363,10 +376,11 @@ func (service *Service) refreshInterval(sourceID string, info domain.SourceInfo)
 	if settings, ok := service.config.Sources[sourceID]; ok && settings.RefreshMinutes > 0 {
 		minutes = settings.RefreshMinutes
 	}
-	if minutes < 1 {
+	configured := time.Duration(minutes) * time.Minute
+	if configured < info.Policy.PollFloor {
 		return info.Policy.PollFloor
 	}
-	return time.Duration(minutes) * time.Minute
+	return configured
 }
 
 func (service *Service) availabilityRequest(sourceID string, info domain.SourceInfo) source.AvailabilityRequest {

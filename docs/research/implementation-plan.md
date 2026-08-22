@@ -15,8 +15,9 @@ partner API -> approved browser credentials/imported session -> approved public 
 
 Eight partner source profiles are registered: ActiveSG, onePA, The Kallang,
 KFF Badminton Arena, Singapore Badminton Hall, Smash Arena, Wyse Active Hub,
-and TruSmash. They are disabled by default and require source-specific API
-contract configuration or approved browser/public JSON selectors. See the
+and TruSmash. SBA, Singapore Badminton Hall, Smash Arena, and Wyse Active Hub
+have verified anonymous public readers; the other four require source-specific
+API contract configuration or approved browser/public JSON selectors. See the
 [source audit](source-audit.md) and the root [README](../../README.md).
 
 Each successful refresh records a minimal slot-identity digest, upserts the

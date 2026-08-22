@@ -127,10 +127,10 @@ func Default() (Config, error) {
 			"myactivesg":               {Enabled: false, RefreshMinutes: 30},
 			"onepa":                    {Enabled: false, RefreshMinutes: 30},
 			"the-kallang":              {Enabled: false, RefreshMinutes: 30},
-			"sba-stadium":              {Enabled: false, RefreshMinutes: 30},
-			"singapore-badminton-hall": {Enabled: false, RefreshMinutes: 30},
-			"smash-arena":              {Enabled: false, RefreshMinutes: 30},
-			"wyse-active":              {Enabled: false, RefreshMinutes: 30},
+			"sba-stadium":              {Enabled: true, RefreshMinutes: 60, AvailabilityMaxDays: 7},
+			"singapore-badminton-hall": {Enabled: true, RefreshMinutes: 60, AvailabilityMaxDays: 7},
+			"smash-arena":              {Enabled: true, RefreshMinutes: 60, AvailabilityMaxDays: 1},
+			"wyse-active":              {Enabled: true, RefreshMinutes: 60, AvailabilityMaxDays: 7},
 			"trusmash":                 {Enabled: false, RefreshMinutes: 30},
 		},
 		Routing:  Routing{Provider: "onemap"},
@@ -216,7 +216,7 @@ func (config Config) Validate() error {
 		if source.Public.Enabled && (strings.TrimSpace(source.Public.AvailabilityURL) == "" || strings.TrimSpace(source.Public.SlotJSONSelector) == "") {
 			return fmt.Errorf("sources.%s.public needs availability_url and slot_json_selector when enabled", id)
 		}
-		if id != "sportsg-facilities" && id != "onemap" && !source.API.Enabled && !source.Browser.Enabled && !source.Public.Enabled {
+		if !builtInPublicReader(id) && id != "sportsg-facilities" && id != "onemap" && !source.API.Enabled && !source.Browser.Enabled && !source.Public.Enabled {
 			return fmt.Errorf("sources.%s is enabled without an availability access mode", id)
 		}
 	}
@@ -227,6 +227,15 @@ func (config Config) Validate() error {
 		return errors.New("api.auth_token is required when api.allow_remote is true")
 	}
 	return nil
+}
+
+func builtInPublicReader(sourceID string) bool {
+	switch sourceID {
+	case "sba-stadium", "singapore-badminton-hall", "smash-arena", "wyse-active":
+		return true
+	default:
+		return false
+	}
 }
 
 func (config Config) ResolveSecret(value string) (string, error) {

@@ -21,7 +21,6 @@ ENV PLAYWRIGHT_DRIVER_PATH=/opt/playwright/driver \
     XDG_CONFIG_HOME=/etc \
     XDG_DATA_HOME=/var/lib
 
-COPY --from=build /out/kaypoh /usr/local/bin/kaypoh
 COPY --from=build /go/bin/playwright /usr/local/bin/playwright
 
 # The Playwright CLI downloads the driver, Chromium, and the Linux libraries
@@ -33,6 +32,9 @@ RUN apt-get update \
     && useradd --create-home --uid 10001 --gid kaypoh --shell /usr/sbin/nologin kaypoh \
     && install --directory --owner=kaypoh --group=kaypoh --mode=0750 /etc/kaypoh /var/lib/kaypoh \
     && rm -rf /var/lib/apt/lists/*
+
+# Keep the large Chromium layer independent from application source changes.
+COPY --from=build /out/kaypoh /usr/local/bin/kaypoh
 
 COPY docker/entrypoint.sh /usr/local/bin/kaypoh-entrypoint
 RUN chmod 0755 /usr/local/bin/kaypoh-entrypoint

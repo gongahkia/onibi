@@ -13,8 +13,9 @@ account changes, CAPTCHA/OTP bypass, or collection beyond the configured
 availability window.
 
 The runtime selection order is partner API, approved authenticated Playwright
-browser session, then a partner-approved public page. Every source is disabled
-until its operator configuration is present. A failed source is reported through
+browser session, then a partner-approved public page. Four verified public
+readers are enabled without credentials; configured API/browser/public access
+takes precedence over their built-in reader. A failed source is reported through
 source health; an empty successful snapshot is distinct from a failed request.
 
 | Source ID | Operator / badminton surface | Read access | Horizon default |
@@ -22,16 +23,17 @@ source health; an empty successful snapshot is distinct from a failed request.
 | `myactivesg` | ActiveSG | partner API or approved ActiveSG browser/public reader | 15 days |
 | `onepa` | People's Association / onePA | partner API or approved browser/public reader | 15 days |
 | `the-kallang` | The Kallang / OCBC Arena | PerfectGym/partner API or approved browser/public reader | 30 days |
-| `sba-stadium` | Singapore Badminton Association / KFF Badminton Arena @ Guillemard | SBA/Quape partner API or approved browser/public reader | 14 days |
-| `singapore-badminton-hall` | Singapore Badminton Hall | partner API or approved browser/public reader | 30 days |
-| `smash-arena` | Smash Arena | partner API or approved browser/public reader | 14 days |
-| `wyse-active` | Wyse Active Hub / Rezerv | partner API or approved browser/public reader | 30 days |
+| `sba-stadium` | Singapore Badminton Association / KFF Badminton Arena @ Guillemard | built-in public anonymous reader; API/browser/public mapper override supported | 7 days |
+| `singapore-badminton-hall` | Singapore Badminton Hall | built-in Playtomic public reader for confirmed SBH/TSA locations; API/browser/public mapper override supported | 7 days |
+| `smash-arena` | Smash Arena | built-in public anonymous reader; API/browser/public mapper override supported | 1 day |
+| `wyse-active` | Wyse Active Hub / Rezerv | built-in public anonymous reader; API/browser/public mapper override supported | 7 days |
 | `trusmash` | TruSmash / AFA | partner API or approved browser/public reader | 14 days |
 
 The horizon is an operator-configurable maximum; set
-`availability_max_days` to a positive value to impose a smaller global limit.
-The listed defaults are implementation defaults and should be updated if a
-partner contract specifies a different booking window.
+`availability_max_days` to a positive value to choose a different bound.
+The public readers use a one-hour poll floor. Smash's public interface requires
+a request per available hour, so its default is one day; a longer configured
+window deliberately increases read volume.
 
 ## Supporting official surfaces
 

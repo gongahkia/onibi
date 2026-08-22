@@ -8,7 +8,29 @@ enabled = true
 [sources.onemap]
 enabled = true
 
-# Enable a partner only after adding its approved API contract, browser
+# These verified anonymous readers have no API key or login requirement. Their
+# windows are deliberately bounded to keep public booking reads modest.
+[sources.sba-stadium]
+enabled = true
+refresh_minutes = 60
+availability_max_days = 7
+
+[sources.singapore-badminton-hall]
+enabled = true
+refresh_minutes = 60
+availability_max_days = 7
+
+[sources.smash-arena]
+enabled = true
+refresh_minutes = 60
+availability_max_days = 1
+
+[sources.wyse-active]
+enabled = true
+refresh_minutes = 60
+availability_max_days = 7
+
+# Enable other partners only after adding their approved API contract, browser
 # selectors, or public-reader details. Keep all secret values in .env.
 [sources.onepa]
 enabled = false
