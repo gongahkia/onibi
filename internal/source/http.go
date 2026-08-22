@@ -8,6 +8,7 @@ import (
 	"io"
 	"math/rand/v2"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
 	"strconv"
 	"strings"
@@ -75,6 +76,15 @@ type HTTPClient struct {
 	hostSemaphores map[string]chan struct{}
 	failures       map[string]int
 	openUntil      map[string]time.Time
+}
+
+// HTTPSession keeps cookies scoped to one source refresh. It deliberately
+// bypasses the shared response cache: an anonymous session response must never
+// be reused by another refresh with different cookies.
+type HTTPSession struct {
+	parent *HTTPClient
+	client *http.Client
+	jar    http.CookieJar
 }
 
 func NewHTTPClient(infos []domain.SourceInfo) *HTTPClient {
@@ -148,7 +158,7 @@ func (client *HTTPClient) Fetch(ctx context.Context, request HTTPRequest) (HTTPR
 	cached, hasCached := client.cache[key]
 	client.mu.Unlock()
 
-	call.resp, call.err = client.fetchWithRetry(ctx, request, parsed, policy, cached, hasCached)
+	call.resp, call.err = client.fetchWithRetry(ctx, request, parsed, policy, cached, hasCached, client.client)
 	client.mu.Lock()
 	if call.err == nil {
 		client.failures[request.SourceID] = 0
@@ -166,6 +176,76 @@ func (client *HTTPClient) Fetch(ctx context.Context, request HTTPRequest) (HTTPR
 	close(call.done)
 	client.mu.Unlock()
 	return call.resp, call.err
+}
+
+// NewSession creates an isolated, cookie-aware HTTP session. Requests still
+// use the parent client's source policy, retries, host concurrency and circuit
+// breaker. Callers should create one session per independent upstream flow.
+func (client *HTTPClient) NewSession() (*HTTPSession, error) {
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		return nil, fmt.Errorf("create cookie jar: %w", err)
+	}
+	sessionClient := *client.client
+	sessionClient.Jar = jar
+	return &HTTPSession{parent: client, client: &sessionClient, jar: jar}, nil
+}
+
+// Fetch performs an allowlisted HTTP request without using the shared response
+// cache. Cookies set by an earlier request in this session are sent normally.
+func (session *HTTPSession) Fetch(ctx context.Context, request HTTPRequest) (HTTPResponse, error) {
+	if session == nil || session.parent == nil || session.client == nil {
+		return HTTPResponse{}, errors.New("HTTP session is not initialized")
+	}
+	if request.CacheTTL < 0 {
+		return HTTPResponse{}, errors.New("cache TTL cannot be negative")
+	}
+	if request.Method == "" {
+		request.Method = http.MethodGet
+	}
+	request.CacheTTL = 0
+	parsed, policy, err := session.parent.validate(request)
+	if err != nil {
+		return HTTPResponse{}, err
+	}
+	now := time.Now()
+	session.parent.mu.Lock()
+	if until := session.parent.openUntil[request.SourceID]; now.Before(until) {
+		session.parent.mu.Unlock()
+		return HTTPResponse{}, &HTTPError{Category: "circuit_open", RetryAfter: time.Until(until), Err: errors.New("source is temporarily degraded")}
+	}
+	session.parent.mu.Unlock()
+
+	response, err := session.parent.fetchWithRetry(ctx, request, parsed, policy, cacheEntry{}, false, session.client)
+	session.parent.mu.Lock()
+	if err == nil {
+		session.parent.failures[request.SourceID] = 0
+		delete(session.parent.openUntil, request.SourceID)
+	} else {
+		session.parent.failures[request.SourceID]++
+		if session.parent.failures[request.SourceID] >= 3 {
+			session.parent.openUntil[request.SourceID] = time.Now().Add(5 * time.Minute)
+		}
+	}
+	session.parent.mu.Unlock()
+	return response, err
+}
+
+// CookieValue returns a cookie stored for rawURL in this session.
+func (session *HTTPSession) CookieValue(rawURL, name string) (string, bool, error) {
+	if session == nil || session.jar == nil {
+		return "", false, errors.New("HTTP session is not initialized")
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.Scheme == "" || parsed.Hostname() == "" {
+		return "", false, fmt.Errorf("invalid cookie URL %q", rawURL)
+	}
+	for _, cookie := range session.jar.Cookies(parsed) {
+		if cookie.Name == name {
+			return cookie.Value, true, nil
+		}
+	}
+	return "", false, nil
 }
 
 func (client *HTTPClient) validate(request HTTPRequest) (*url.URL, domain.SourcePolicy, error) {
@@ -195,7 +275,7 @@ func allowedHost(host string, allowed []string) bool {
 	return false
 }
 
-func (client *HTTPClient) fetchWithRetry(ctx context.Context, request HTTPRequest, parsed *url.URL, policy domain.SourcePolicy, cached cacheEntry, hasCached bool) (HTTPResponse, error) {
+func (client *HTTPClient) fetchWithRetry(ctx context.Context, request HTTPRequest, parsed *url.URL, policy domain.SourcePolicy, cached cacheEntry, hasCached bool, httpClient *http.Client) (HTTPResponse, error) {
 	maxAttempts := 3
 	var lastErr error
 	for attempt := 0; attempt < maxAttempts; attempt++ {
@@ -207,7 +287,7 @@ func (client *HTTPClient) fetchWithRetry(ctx context.Context, request HTTPReques
 				return HTTPResponse{}, ctx.Err()
 			}
 		}
-		response, err := client.fetchOnce(ctx, request, parsed, policy, cached, hasCached)
+		response, err := client.fetchOnce(ctx, request, parsed, policy, cached, hasCached, httpClient)
 		if err == nil {
 			return response, nil
 		}
@@ -219,7 +299,7 @@ func (client *HTTPClient) fetchWithRetry(ctx context.Context, request HTTPReques
 	return HTTPResponse{}, lastErr
 }
 
-func (client *HTTPClient) fetchOnce(ctx context.Context, request HTTPRequest, parsed *url.URL, policy domain.SourcePolicy, cached cacheEntry, hasCached bool) (HTTPResponse, error) {
+func (client *HTTPClient) fetchOnce(ctx context.Context, request HTTPRequest, parsed *url.URL, policy domain.SourcePolicy, cached cacheEntry, hasCached bool, httpClient *http.Client) (HTTPResponse, error) {
 	semaphore := client.hostSemaphores[parsed.Hostname()]
 	select {
 	case semaphore <- struct{}{}:
@@ -253,7 +333,7 @@ func (client *HTTPClient) fetchOnce(ctx context.Context, request HTTPRequest, pa
 		}
 	}
 	started := time.Now()
-	response, err := client.client.Do(httpRequest)
+	response, err := httpClient.Do(httpRequest)
 	if err != nil {
 		return HTTPResponse{}, &HTTPError{Category: "transport", Err: err}
 	}
