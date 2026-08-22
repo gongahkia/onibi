@@ -13,3 +13,4 @@ AGENTS.md
 /.env.*
 !/.env.example
 !/env.example
+.playwright-cli
