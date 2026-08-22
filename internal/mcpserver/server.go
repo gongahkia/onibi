@@ -81,7 +81,7 @@ func (server *Server) RunStdio(ctx context.Context) error {
 func (server *Server) Raw() *mcp.Server { return server.server }
 
 func addReadTools(server *mcp.Server, service *app.Service) {
-	mcp.AddTool(server, &mcp.Tool{Name: "kaypoh_search_availability", Description: "Search fresh normalized Singapore sports-facility availability from the local kaypoh database. This never books or refreshes upstream sources."}, func(ctx context.Context, _ *mcp.CallToolRequest, input SearchInput) (*mcp.CallToolResult, SearchOutput, error) {
+	mcp.AddTool(server, &mcp.Tool{Name: "kaypoh_search_availability", Description: "Search fresh normalized Singapore badminton-court availability from the local kaypoh database. This never books or refreshes upstream sources."}, func(ctx context.Context, _ *mcp.CallToolRequest, input SearchInput) (*mcp.CallToolResult, SearchOutput, error) {
 		query, err := input.query()
 		if err != nil {
 			return nil, SearchOutput{}, err

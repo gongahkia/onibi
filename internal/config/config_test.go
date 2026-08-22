@@ -46,3 +46,14 @@ func TestWriteExampleRefusesOverwrite(t *testing.T) {
 		t.Fatal("expected overwrite refusal")
 	}
 }
+
+func TestValidateRejectsEnabledPartnerWithoutReadAccess(t *testing.T) {
+	config, err := Default()
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.Sources["onepa"] = Source{Enabled: true}
+	if err := config.Validate(); err == nil {
+		t.Fatal("enabled partner without reader configuration was accepted")
+	}
+}

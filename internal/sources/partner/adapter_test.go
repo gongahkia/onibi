@@ -57,3 +57,14 @@ func TestEndpointURLAndBrowserWindowExpansion(t *testing.T) {
 		t.Fatalf("expanded browser URL = %q", got)
 	}
 }
+
+func TestDecodeVenuesAcceptsSeparatePartnerCatalogue(t *testing.T) {
+	now := time.Date(2026, time.August, 22, 10, 0, 0, 0, time.UTC)
+	venues, err := decodeVenues([]byte(`{"venues":[{"id":"sims","name":"SBH Sims","address":"Sims Avenue","latitude":1.31,"longitude":103.88}]}`), "singapore-badminton-hall", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(venues) != 1 || venues[0].ID != "singapore-badminton-hall:venue:sims" || venues[0].Name != "SBH Sims" {
+		t.Fatalf("venues = %#v", venues)
+	}
+}

@@ -60,18 +60,15 @@ type SourceBrowser struct {
 	SubmitSelector     string `toml:"submit_selector"`
 	ReadySelector      string `toml:"ready_selector"`
 	SlotJSONSelector   string `toml:"slot_json_selector"`
-	VenueJSONSelector  string `toml:"venue_json_selector"`
 	SessionStateBase64 string `toml:"session_state_base64"`
 }
 
 // SourcePublic is the final read-only path for a partner-approved public
 // availability page. Its JSON selectors use the text of a script or element.
 type SourcePublic struct {
-	Enabled           bool   `toml:"enabled"`
-	AvailabilityURL   string `toml:"availability_url"`
-	VenueURL          string `toml:"venue_url"`
-	SlotJSONSelector  string `toml:"slot_json_selector"`
-	VenueJSONSelector string `toml:"venue_json_selector"`
+	Enabled          bool   `toml:"enabled"`
+	AvailabilityURL  string `toml:"availability_url"`
+	SlotJSONSelector string `toml:"slot_json_selector"`
 }
 
 type Routing struct {
@@ -201,6 +198,26 @@ func (config Config) Validate() error {
 		}
 		if source.AvailabilityMaxDays < 0 {
 			return fmt.Errorf("sources.%s.availability_max_days cannot be negative", id)
+		}
+		if !source.Enabled {
+			continue
+		}
+		if source.API.Enabled && (strings.TrimSpace(source.API.BaseURL) == "" || strings.TrimSpace(source.API.AvailabilityPath) == "") {
+			return fmt.Errorf("sources.%s.api needs base_url and availability_path when enabled", id)
+		}
+		if source.Browser.Enabled {
+			if strings.TrimSpace(source.Browser.AvailabilityURL) == "" || strings.TrimSpace(source.Browser.SlotJSONSelector) == "" {
+				return fmt.Errorf("sources.%s.browser needs availability_url and slot_json_selector when enabled", id)
+			}
+			if strings.TrimSpace(source.Browser.SessionStateBase64) == "" && (strings.TrimSpace(source.Browser.LoginURL) == "" || strings.TrimSpace(source.Browser.Username) == "" || strings.TrimSpace(source.Browser.Password) == "" || strings.TrimSpace(source.Browser.UsernameSelector) == "" || strings.TrimSpace(source.Browser.PasswordSelector) == "" || strings.TrimSpace(source.Browser.SubmitSelector) == "") {
+				return fmt.Errorf("sources.%s.browser needs an imported session or login credentials and selectors", id)
+			}
+		}
+		if source.Public.Enabled && (strings.TrimSpace(source.Public.AvailabilityURL) == "" || strings.TrimSpace(source.Public.SlotJSONSelector) == "") {
+			return fmt.Errorf("sources.%s.public needs availability_url and slot_json_selector when enabled", id)
+		}
+		if id != "sportsg-facilities" && id != "onemap" && !source.API.Enabled && !source.Browser.Enabled && !source.Public.Enabled {
+			return fmt.Errorf("sources.%s is enabled without an availability access mode", id)
 		}
 	}
 	if config.API.Address == "" {

@@ -127,7 +127,24 @@ func (adapter *Adapter) fetchAPI(ctx context.Context, request source.Availabilit
 	if err != nil {
 		return source.AvailabilitySnapshot{}, err
 	}
-	return decodeSnapshot(response.Body, adapter.info.ID, request, response.FetchedAt, adapter.staleAfter(response.FetchedAt))
+	snapshot, err := decodeSnapshot(response.Body, adapter.info.ID, request, response.FetchedAt, adapter.staleAfter(response.FetchedAt))
+	if err != nil || strings.TrimSpace(api.VenuesPath) == "" {
+		return snapshot, err
+	}
+	venueEndpoint, err := endpointBaseURL(api.BaseURL, api.VenuesPath)
+	if err != nil {
+		return source.AvailabilitySnapshot{}, fmt.Errorf("build venues endpoint: %w", err)
+	}
+	venueResponse, err := adapter.http.Fetch(ctx, source.HTTPRequest{SourceID: adapter.info.ID, URL: venueEndpoint.String(), Headers: headers, CacheTTL: 5 * time.Minute})
+	if err != nil {
+		return source.AvailabilitySnapshot{}, fmt.Errorf("fetch venues: %w", err)
+	}
+	venues, err := decodeVenues(venueResponse.Body, adapter.info.ID, venueResponse.FetchedAt)
+	if err != nil {
+		return source.AvailabilitySnapshot{}, err
+	}
+	snapshot.Venues = mergeVenues(snapshot.Venues, venues)
+	return snapshot, nil
 }
 
 func (adapter *Adapter) fetchBrowser(ctx context.Context, request source.AvailabilityRequest, settings config.SourceBrowser) (source.AvailabilitySnapshot, error) {
@@ -193,23 +210,33 @@ func (adapter *Adapter) setFailure(started time.Time, err error, state domain.He
 }
 
 func endpointURL(baseURL, path string, request source.AvailabilityRequest) (string, error) {
+	base, err := endpointBaseURL(baseURL, path)
+	if err != nil {
+		return "", err
+	}
+	query := base.Query()
+	query.Set("start_date", request.StartDate.Format("2006-01-02"))
+	query.Set("end_date", request.EndDate.Format("2006-01-02"))
+	base.RawQuery = query.Encode()
+	return base.String(), nil
+}
+
+func endpointBaseURL(baseURL, path string) (*url.URL, error) {
 	base, err := url.Parse(baseURL)
 	if err != nil || base.Scheme != "https" || base.Hostname() == "" {
-		return "", errors.New("base_url must be an HTTPS URL")
+		return nil, errors.New("base_url must be an HTTPS URL")
 	}
 	parsed, err := url.Parse(path)
 	if err != nil || parsed.IsAbs() {
-		return "", errors.New("availability_path must be a relative URL path")
+		return nil, errors.New("path must be a relative URL path")
 	}
 	base.Path = strings.TrimSuffix(base.Path, "/") + "/" + strings.TrimPrefix(parsed.Path, "/")
 	query := base.Query()
 	for key, values := range parsed.Query() {
 		query[key] = values
 	}
-	query.Set("start_date", request.StartDate.Format("2006-01-02"))
-	query.Set("end_date", request.EndDate.Format("2006-01-02"))
 	base.RawQuery = query.Encode()
-	return base.String(), nil
+	return base, nil
 }
 
 type payload struct {
@@ -292,6 +319,42 @@ func decodeSnapshot(body []byte, sourceID string, request source.AvailabilityReq
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
 	return source.AvailabilitySnapshot{Venues: result, Slots: slots}, nil
+}
+
+func decodeVenues(body []byte, sourceID string, fetchedAt time.Time) ([]domain.Venue, error) {
+	var document payload
+	if err := json.Unmarshal(body, &document); err != nil {
+		return nil, errors.New("venues payload must be JSON with a venues array")
+	}
+	venues := make([]domain.Venue, 0, len(document.Venues))
+	for index, value := range document.Venues {
+		venue, err := normalizeVenue(value, sourceID, fetchedAt)
+		if err != nil {
+			return nil, fmt.Errorf("normalize venue %d: %w", index+1, err)
+		}
+		venues = append(venues, venue)
+	}
+	return venues, nil
+}
+
+func mergeVenues(first, second []domain.Venue) []domain.Venue {
+	values := make(map[string]domain.Venue, len(first)+len(second))
+	for _, venue := range first {
+		values[venue.ID] = venue
+	}
+	for _, venue := range second {
+		if existing, ok := values[venue.ID]; ok {
+			values[venue.ID] = mergeVenue(venue, existing)
+			continue
+		}
+		values[venue.ID] = venue
+	}
+	result := make([]domain.Venue, 0, len(values))
+	for _, venue := range values {
+		result = append(result, venue)
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
+	return result
 }
 
 func normalizeVenue(value wireVenue, sourceID string, fetchedAt time.Time) (domain.Venue, error) {

@@ -6,7 +6,7 @@ import (
 	"github.com/gongahkia/kaypoh/internal/domain"
 )
 
-var auditReviewedAt = time.Date(2026, time.August, 10, 0, 0, 0, 0, time.UTC)
+var auditReviewedAt = time.Date(2026, time.August, 22, 0, 0, 0, 0, time.UTC)
 
 // Catalog is the runtime policy representation of docs/research/source-audit.md.
 func Catalog() []domain.SourceInfo {
