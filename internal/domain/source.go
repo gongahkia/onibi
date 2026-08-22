@@ -34,6 +34,7 @@ type SourcePolicy struct {
 	Capabilities   Capabilities  `json:"capabilities"`
 	AuthRequired   bool          `json:"auth_required"`
 	PollFloor      time.Duration `json:"poll_floor"`
+	AvailabilityMaxDays int      `json:"availability_max_days,omitempty"`
 	Concurrency    int           `json:"concurrency"`
 	Timeout        time.Duration `json:"timeout"`
 	TermsURL       string        `json:"terms_url,omitempty"`

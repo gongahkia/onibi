@@ -83,6 +83,7 @@ type AvailabilitySlot struct {
 	ID                 string             `json:"id"`
 	VenueID            string             `json:"venue_id"`
 	FacilityID         string             `json:"facility_id,omitempty"`
+	CourtName          string             `json:"court_name,omitempty"`
 	SourceID           string             `json:"source_id"`
 	Start              time.Time          `json:"start"`
 	End                time.Time          `json:"end"`

@@ -16,7 +16,6 @@ type Config struct {
 	Version      int                `toml:"version"`
 	DataDir      string             `toml:"data_dir"`
 	DatabasePath string             `toml:"database_path"`
-	Sports       []string           `toml:"sports"`
 	Sources      map[string]Source  `toml:"sources"`
 	Routing      Routing            `toml:"routing"`
 	Telegram     Telegram           `toml:"telegram"`
@@ -28,7 +27,51 @@ type Config struct {
 }
 
 type Source struct {
-	Enabled bool `toml:"enabled"`
+	Enabled             bool          `toml:"enabled"`
+	RefreshMinutes      int           `toml:"refresh_minutes"`
+	AvailabilityMaxDays int           `toml:"availability_max_days"`
+	API                 SourceAPI     `toml:"api"`
+	Browser             SourceBrowser `toml:"browser"`
+	Public              SourcePublic  `toml:"public"`
+}
+
+// SourceAPI describes a partner-provided, read-only availability endpoint.
+// Its responses must be either a JSON array of slots or an object containing
+// a slots array. Venue discovery follows the same shape with a venues array.
+type SourceAPI struct {
+	Enabled          bool   `toml:"enabled"`
+	BaseURL          string `toml:"base_url"`
+	VenuesPath       string `toml:"venues_path"`
+	AvailabilityPath string `toml:"availability_path"`
+	BearerToken      string `toml:"bearer_token"`
+}
+
+// SourceBrowser provides the approved, non-interactive browser access path.
+// SessionState is base64-encoded Playwright storage-state JSON. It is never
+// persisted by kaypoh. Login selectors are optional when a session is supplied.
+type SourceBrowser struct {
+	Enabled             bool   `toml:"enabled"`
+	AvailabilityURL     string `toml:"availability_url"`
+	LoginURL            string `toml:"login_url"`
+	Username            string `toml:"username"`
+	Password            string `toml:"password"`
+	UsernameSelector    string `toml:"username_selector"`
+	PasswordSelector    string `toml:"password_selector"`
+	SubmitSelector      string `toml:"submit_selector"`
+	ReadySelector       string `toml:"ready_selector"`
+	SlotJSONSelector    string `toml:"slot_json_selector"`
+	VenueJSONSelector   string `toml:"venue_json_selector"`
+	SessionStateBase64  string `toml:"session_state_base64"`
+}
+
+// SourcePublic is the final read-only path for a partner-approved public
+// availability page. Its JSON selectors use the text of a script or element.
+type SourcePublic struct {
+	Enabled           bool   `toml:"enabled"`
+	AvailabilityURL   string `toml:"availability_url"`
+	VenueURL          string `toml:"venue_url"`
+	SlotJSONSelector  string `toml:"slot_json_selector"`
+	VenueJSONSelector string `toml:"venue_json_selector"`
 }
 
 type Routing struct {
@@ -89,7 +132,7 @@ func Default() (Config, error) {
 		Webhooks: map[string]Webhook{},
 		API:      API{Address: "127.0.0.1:8373"},
 		MCP:      MCP{},
-		Daemon:   Daemon{RefreshMinutes: 10},
+		Daemon:   Daemon{RefreshMinutes: 30},
 		Profiles: map[string]Profile{},
 	}, nil
 }
@@ -144,6 +187,14 @@ func (config Config) Validate() error {
 	if config.Daemon.RefreshMinutes < 1 {
 		return errors.New("daemon.refresh_minutes must be at least 1")
 	}
+	for id, source := range config.Sources {
+		if source.RefreshMinutes < 0 {
+			return fmt.Errorf("sources.%s.refresh_minutes cannot be negative", id)
+		}
+		if source.AvailabilityMaxDays < 0 {
+			return fmt.Errorf("sources.%s.availability_max_days cannot be negative", id)
+		}
+	}
 	if config.API.Address == "" {
 		return errors.New("api.address cannot be empty")
 	}
@@ -181,13 +232,39 @@ func WriteExample(path string) error {
 	const example = `version = 1
 # data_dir = ""
 # database_path = ""
-sports = ["badminton", "pickleball"]
 
 [sources.sportsg-facilities]
 enabled = true
 
 [sources.onemap]
 enabled = true
+
+# Partner readers are read-only. Configure API first; otherwise configure an
+# approved service account or imported Playwright storage state. Values holding
+# credentials must use env: references.
+[sources.myactivesg]
+enabled = false
+refresh_minutes = 30
+# availability_max_days = 0 # 0 uses the source's supported maximum
+
+[sources.myactivesg.api]
+enabled = false
+# base_url = "https://partner.example"
+# availability_path = "/availability"
+# bearer_token = "env:KAYPOH_ACTIVESG_API_TOKEN"
+
+[sources.myactivesg.browser]
+enabled = false
+# availability_url = "https://partner.example/availability"
+# username = "env:KAYPOH_ACTIVESG_USERNAME"
+# password = "env:KAYPOH_ACTIVESG_PASSWORD"
+# session_state_base64 = "env:KAYPOH_ACTIVESG_SESSION_STATE_B64"
+# slot_json_selector = "script#kaypoh-slots"
+
+[sources.myactivesg.public]
+enabled = false
+# availability_url = "https://partner.example/availability"
+# slot_json_selector = "script#kaypoh-slots"
 
 [routing]
 provider = "onemap"
@@ -208,7 +285,7 @@ allow_remote = false
 allow_writes = false
 
 [daemon]
-refresh_minutes = 10
+refresh_minutes = 30
 `
 	if err := os.WriteFile(path, []byte(example), 0o600); err != nil {
 		return fmt.Errorf("write config: %w", err)

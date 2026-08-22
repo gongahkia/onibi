@@ -22,6 +22,20 @@ type AvailabilityRequest struct {
 	EndDate   time.Time
 }
 
+// AvailabilitySnapshot is one complete, successfully observed availability
+// scope. The service writes venues before slots and reconciles unseen slots only
+// within the snapshot's requested date range.
+type AvailabilitySnapshot struct {
+	Venues []domain.Venue
+	Slots  []domain.AvailabilitySlot
+}
+
+// SnapshotAdapter is implemented by live availability sources whose slot data
+// also carries the venue/court identity needed to persist it safely.
+type SnapshotAdapter interface {
+	FetchSnapshot(context.Context, AvailabilityRequest) (AvailabilitySnapshot, error)
+}
+
 type Adapter interface {
 	Info() domain.SourceInfo
 	DiscoverVenues(context.Context) ([]domain.Venue, error)
