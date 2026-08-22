@@ -7,8 +7,7 @@ RUN go mod download
 
 FROM golang:1.25-bookworm AS build
 WORKDIR /src
-COPY --from=modules /go/pkg/mod /go/pkg/mod
-COPY --from=modules /go/pkg/sumdb /go/pkg/sumdb
+COPY --from=modules /go/pkg /go/pkg
 COPY . ./
 RUN playwright_version="$(go list -m -f '{{.Version}}' github.com/mxschmitt/playwright-go)" \
     && go install github.com/mxschmitt/playwright-go/cmd/playwright@"${playwright_version}" \
@@ -35,8 +34,10 @@ RUN apt-get update \
     && install --directory --owner=kaypoh --group=kaypoh --mode=0750 /etc/kaypoh /var/lib/kaypoh \
     && rm -rf /var/lib/apt/lists/*
 
-USER kaypoh
+COPY docker/entrypoint.sh /usr/local/bin/kaypoh-entrypoint
+RUN chmod 0755 /usr/local/bin/kaypoh-entrypoint
+
 WORKDIR /var/lib/kaypoh
 VOLUME ["/var/lib/kaypoh"]
-ENTRYPOINT ["kaypoh"]
+ENTRYPOINT ["/usr/local/bin/kaypoh-entrypoint"]
 CMD ["daemon"]

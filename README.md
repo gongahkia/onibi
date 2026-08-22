@@ -84,11 +84,12 @@ curl -sS http://127.0.0.1:8373/v1/health \
   -H "Authorization: Bearer $KAYPOH_API_TOKEN"
 ```
 
-The image runs as an unprivileged `kaypoh` user. Do not mount the generated
-`.env` or `docker/config.toml` into another image, and keep the latter out of
-version control. To stop services without deleting saved availability data,
-use `docker compose down`. Removing `kaypoh-data` deletes the local SQLite
-database and watch history.
+Kaypoh runs as an unprivileged `kaypoh` user; its entrypoint first gives that
+user access to the dedicated data volume. Do not mount the generated `.env` or
+`docker/config.toml` into another image, and keep the latter out of version
+control. To stop services without deleting saved availability data, use
+`docker compose down`. Removing `kaypoh-data` deletes the local SQLite database
+and watch history.
 
 ## Partner source configuration
 
