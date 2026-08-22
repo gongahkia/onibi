@@ -35,6 +35,20 @@ func TestOpenSeedsSourcePolicy(t *testing.T) {
 	}
 }
 
+func TestDisabledPartnerDoesNotResolveItsSecrets(t *testing.T) {
+	cfg, err := config.Default()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.DatabasePath = filepath.Join(t.TempDir(), "kaypoh.db")
+	cfg.Sources["onepa"] = config.Source{Browser: config.SourceBrowser{Enabled: true, SessionStateBase64: "env:KAYPOH_MISSING_SESSION"}}
+	service, err := Open(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = service.Close() })
+}
+
 func TestRouteFallsBackWithoutOptionalOneMapCredentials(t *testing.T) {
 	cfg, err := config.Default()
 	if err != nil {

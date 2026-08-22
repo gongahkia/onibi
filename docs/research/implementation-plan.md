@@ -1,21 +1,30 @@
-# Initial implementation plan
+# Badminton prototype implementation record
 
-Reviewed: 2026-08-10
+Updated: 2026-08-22
 
-1. Establish the Go module, config, typed domain model, SQLite migrations,
-   structured logging, CLI skeleton and baseline tests.
-2. Add the real SportSG data.gov.sg discovery adapter and OneMap geocode/routing
-   with cache plus Haversine fallback.
-3. Implement policy-aware source framework, health, source doctor and curated
-   link-only registry from the source audit.
-4. Build one normalized filter/ranking service: multi-sport/date/time/price,
-   contiguous slots, price/person, multi-party commute and explanations.
-5. Expose it through CLI JSON, loopback OpenAPI HTTP, MCP and Bubble Tea views.
-6. Add persistent watches, scheduler, event fingerprints, daemon lock and
-   Watches/Events TUI.
-7. Add Telegram and signed webhooks with delivery history and fake transports.
-8. Finish onboarding, replay tooling, completions, CI, packaging, docs and a
-   clean-state verification pass.
+The prototype is badminton-only. Generic sport selection and sport registry
+types were removed from the public domain, CLI, TUI, HTTP API, MCP input, query
+pipeline, and cached availability migration.
 
-Each live provider is a follow-on only after an approved source policy, fixtures
-and contract tests exist.
+The current live-reader path is:
+
+```text
+partner API -> approved browser credentials/imported session -> approved public page
+             -> normalized venue/court/slot snapshot -> SQLite -> search/watches
+```
+
+Eight partner source profiles are registered: ActiveSG, onePA, The Kallang,
+KFF Badminton Arena, Singapore Badminton Hall, Smash Arena, Wyse Active Hub,
+and TruSmash. They are disabled by default and require source-specific API
+contract configuration or approved browser/public JSON selectors. See the
+[source audit](source-audit.md) and the root [README](../../README.md).
+
+Each successful refresh records a minimal slot-identity digest, upserts the
+current snapshot, and marks absent previously available slots unavailable within
+the same source/date range. Refresh defaults to 30 minutes and supports
+per-source interval and booking-horizon overrides.
+
+The remaining operator hand-off is deliberately external to the repository:
+provide each partner's API mapping/fixture or browser selector contract, plus
+environment-backed credentials or base64 imported session state. No approval
+emails, cookies, credentials, or personal data belong in source control.

@@ -114,6 +114,9 @@ func partnerSpecs() []partner.Spec {
 
 func resolveSourceSettings(cfg config.Config, sourceID string) (config.Source, error) {
 	settings := cfg.Sources[sourceID]
+	if !settings.Enabled {
+		return settings, nil
+	}
 	resolve := func(label, value string) (string, error) {
 		if strings.TrimSpace(value) == "" {
 			return "", nil
