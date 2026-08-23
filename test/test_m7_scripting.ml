@@ -782,6 +782,29 @@ zenbu.bind { input = "t", command = "user.type", scope = "mode:user.default" }
         = "host-custom-mode:user.default")
         "a new buffer did not receive the declared initial custom mode")
 
+let test_initial_mode_validation () =
+  let path = Filename.temp_file "zenbu-m7-initial-validation" ".lua" in
+  Fun.protect
+    ~finally:(fun () -> Sys.remove path)
+    (fun () ->
+      write path
+        {|
+zenbu.mode { id = "user.one", initial = true }
+zenbu.mode { id = "user.two", initial = true }
+|};
+      match
+        Zenbu_scripting.Scripting.check_file ~base_commands:(base_commands ())
+          ~base_semantics:(base_semantics ()) path
+      with
+      | Error (Error.Script_error { phase = "registration"; message; _ }) ->
+          expect
+            (contains message "only one custom mode")
+            "multiple initial custom modes were accepted"
+      | Error error ->
+          failf "wrong initial-mode validation error: %s"
+            (Error.to_string error)
+      | Ok _ -> failf "multiple initial custom modes were accepted")
+
 let test_declared_modes_and_modal_bindings () =
   let path = Filename.temp_file "zenbu-m7-modes" ".lua" in
   Fun.protect
@@ -921,6 +944,7 @@ let tests =
     ("text binding validation", test_text_binding_validation);
     ("custom text-entry binding", test_custom_text_entry_binding);
     ("initial custom mode", test_initial_custom_mode);
+    ("initial mode validation", test_initial_mode_validation);
     ("declared modes and modal bindings", test_declared_modes_and_modal_bindings);
   ]
 

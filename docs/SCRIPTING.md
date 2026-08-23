@@ -169,6 +169,11 @@ zenbu.bind { input = "Ctrl-X", command = "user.enter-leader", mode = "user.leade
 zenbu.bind { input = "f", command = "user.format", scope = "mode:user.leader", mode = "" }
 ```
 
+Set `initial = true` on at most one declared mode to make it the default map
+for the first buffer and every subsequently opened buffer. This is applied on
+session/buffer creation only; a configuration reload preserves the current
+buffer's valid stack rather than re-entering an initial mode unexpectedly.
+
 `mode = "id"` replaces the custom-mode stack before its command runs and
 `mode = ""` clears it, preserving the original single-transient-map syntax.
 For nested maps, use an explicit transition table:
@@ -197,9 +202,10 @@ custom mode when it has no matching binding, while a mode-local `Escape`
 binding takes precedence. A reload retains the full stack only when every
 active id remains declared by the replacement generation; otherwise it clears
 the stack. Stacks belong to their buffer: opening a buffer starts with no
-custom modes, while switching views restores the target buffer's stack. This
-supports nested leader/transient/minor-map patterns, but not yet arbitrary
-Emacs-style keymap composition.
+custom modes unless the configuration declares an initial mode, while switching
+views restores the target buffer's stack. This supports nested
+leader/transient/minor-map patterns, but not yet arbitrary Emacs-style keymap
+composition.
 
 Modes default to `input_mode = "keys"`. A mode may instead set
 `input_mode = "text"`, causing the terminal to emit committed Unicode text and
