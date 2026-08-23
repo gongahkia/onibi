@@ -104,7 +104,13 @@ LSP values to this API. See [Language services](LANGUAGE_SERVICES.md).
 ## Commands
 
 `Command_descriptor` contains a stable `Command_id`, title, optional
-description/category, a small named parameter list, and examples. The explicit
+description/category, a small named parameter list, and examples. A parameter
+declares its name, description, requiredness, and kind: `text`, a built-in
+`selector`, or a built-in `transformation`. The terminal host can collect these
+values through the palette or a binding and constructs the same typed
+`Command_invocation` that a model would create directly. Selector values are
+canonical selector IDs; transformation values are `select`, `delete`,
+`collapse-to-start`, `collapse-to-end`, or `replace:<text>`. The explicit
 immutable `Command_registry` rejects duplicate ids, lists descriptors in id
 order, and invokes commands semantically. Command handlers receive only an
 `Editor_context` and return `Model_intent` values.

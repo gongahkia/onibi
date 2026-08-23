@@ -75,6 +75,13 @@ V1 contribution classes are `commands`, `selectors`, `transformations`,
 `bindings`, and `events`. Registrations outside the manifest declaration fail
 the complete plugin stage. `events` additionally require `event.subscribe`.
 
+The stable Component ABI v1 has no command-parameter registration field, so a
+`wasm-component` command remains parameterless from the terminal palette in
+this release. This is intentional compatibility preservation: adding typed
+parameter metadata requires a new Component ABI rather than silently changing
+the v1 registration record. Trusted Lua configuration can declare the current
+typed parameter kinds; see [Scripting](SCRIPTING.md).
+
 A binding's existing `input` string accepts one to sixteen logical input tokens
 separated by one ASCII space, such as `Ctrl-X Ctrl-K`. Tokens support named
 keys plus `Ctrl-`, `Shift-`, `Alt-`, and `Meta-` modifiers; `Space`, `Minus`,

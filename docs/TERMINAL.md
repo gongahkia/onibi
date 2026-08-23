@@ -18,7 +18,7 @@ take priority over model/configuration bindings.
 | `Ctrl-Q` | quit; a dirty buffer requires a second press to force quit |
 | `Alt-R` / `Ctrl-Alt-R` | staged Lua/plugin reload |
 | `Ctrl-F` | literal Unicode search; `Ctrl-G` / `Ctrl-Shift-G` move matches |
-| `Ctrl-P` | command palette over active builtin, Lua, and plugin commands |
+| `Ctrl-P` | command palette; prompts for declared command arguments |
 | `Alt-M` | live editing-model picker |
 | `Alt-H` / `Ctrl-O` | metadata-derived help / latest-`why` inspector |
 | `Ctrl-Space` | explicit language completion |
@@ -31,8 +31,14 @@ prompt cancellation, and is inspectable through `Session.Search` or
 `search.next`, and `search.previous` with provider `zenbu.app`, so they appear
 in `commands`, `describe command`, bindings, and the same palette as model,
 Lua, and plugin commands. It is not regex/project search or a model-specific
-grammar. The palette filters descriptor id/title/summary/provider; commands
-needing arguments remain discoverable but M11 has no argument-form prompt.
+grammar. The palette filters descriptor id/title/summary/provider. A selected
+descriptor with parameters enters a host-owned prompt for each parameter;
+`Escape` abandons the invocation. Text parameters accept committed UTF-8.
+Built-in selector parameters use canonical selector IDs such as `document` and
+transformations use `select`, `delete`, `collapse-to-start`, `collapse-to-end`,
+or `replace:<text>`. The completed values become a normal
+`Command_invocation`; they are not parsed as an Ex command or applied through a
+special mutation path.
 
 The Vim compatibility model may request this same host interaction with `/`
 and `?`, then request next/previous results with `n` and `N`. The model selects

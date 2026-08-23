@@ -450,13 +450,6 @@ let descriptor state table =
   | _, _, _, _, Error error ->
       Error error
 
-let registration_error backend state error =
-  backend.raised_error <- Some error;
-  ignore
-    (push_string state (Error.to_string error)
-       (Unsigned.Size_t.of_int (String.length (Error.to_string error))));
-  raise_error state
-
 let callback_error backend state error =
   backend.raised_error <- Some error;
   push_nil state;
@@ -478,7 +471,7 @@ let register_descriptor backend constructor state =
   in
   match result with
   | Ok () -> 0
-  | Error error -> registration_error backend state error
+  | Error error -> callback_error backend state error
 
 let register_binding backend state =
   let result =
@@ -497,7 +490,7 @@ let register_binding backend state =
   in
   match result with
   | Ok () -> 0
-  | Error error -> registration_error backend state error
+  | Error error -> callback_error backend state error
 
 let register_hook backend state =
   let result =
@@ -512,7 +505,7 @@ let register_hook backend state =
   in
   match result with
   | Ok () -> 0
-  | Error error -> registration_error backend state error
+  | Error error -> callback_error backend state error
 
 let field value name = Value.find value name
 let context_field request name = field request.Host.context name

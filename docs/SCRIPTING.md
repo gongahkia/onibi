@@ -68,9 +68,17 @@ zenbu.command {
   id = "user.uppercase-message",
   title = "Explain selection",
   description = "Show a normal semantic message.",
+  parameters = {
+    {
+      name = "prefix",
+      description = "Text to put before the selected text.",
+      required = true,
+      kind = "text",
+    },
+  },
   run = function(call)
     local selected = call.context.selections[call.context.primary]
-    return {{ kind = "message", text = selected.text }}
+    return {{ kind = "message", text = call.arguments.prefix .. selected.text }}
   end,
 }
 
@@ -122,6 +130,18 @@ a `run` function; title and description default to the id. Semantic descriptors
 also accept `requires_syntax = true`. Ids collide with builtins and other
 registrations as errors. Registrations cannot be removed individually: edit the
 file and reload to replace the entire generation.
+
+`zenbu.command` additionally accepts an optional `parameters` array. Each entry
+has nonempty `name` and `description`, `required` (default `true`), and `kind`
+(default `"text"`). The supported kinds are `"text"`, `"selector"`, and
+`"transformation"`. Selecting the command in `Ctrl-P`, or resolving a binding
+to it, opens one host prompt per parameter. Empty optional values are omitted;
+an empty required value is rejected in place and `Escape` cancels the complete
+invocation. The callback receives accepted values as `call.arguments[name]`.
+Text is a Lua string, selector is its canonical ID string, and transformation
+is `{ kind = "..." }` with `text` additionally present for `replace:<text>`.
+This is still an ordinary typed command invocation: the script returns the same
+declarative effects and retains no prompt or terminal authority.
 
 `zenbu.bind` takes `input`, `command`, and optional `scope`. `input` is one to
 sixteen logical input tokens separated by one ASCII space, for example

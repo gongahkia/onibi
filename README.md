@@ -48,8 +48,8 @@ and plugin examples live in [Getting Started](docs/GETTING_STARTED.md).
   private Tree-sitter backend. Its public `Syntax.Highlight` projection feeds
   terminal presentation without exposing parser pointers or queries.
 - The terminal host has literal Unicode search, a provider-neutral command
-  palette, save-as, a live model picker, metadata-derived help, and bracketed
-  paste aggregation. These remain host interactions; editing models can make
+  palette with typed argument prompts, save-as, a live model picker,
+  metadata-derived help, and bracketed paste aggregation. These remain host interactions; editing models can make
   declarative requests for reusable interactions such as literal search without
   receiving terminal-state access. Its semantic styles can be mapped to
   built-in or validated TOML terminal themes without affecting editing state.
@@ -161,7 +161,7 @@ Host keys have priority over model/configuration bindings:
 | `Ctrl-Q` | quit; press again after a dirty warning to force quit |
 | `Alt-R` or `Ctrl-Alt-R` | reload Lua configuration and plugins transactionally |
 | `Ctrl-F` | start literal Unicode search; `Ctrl-G` / `Ctrl-Shift-G` move next / previous |
-| `Ctrl-P` | filter and invoke active builtin, script, and plugin commands |
+| `Ctrl-P` | filter commands; collect declared typed arguments before invocation |
 | `Alt-M` | switch Vim-style, selection-first, or structural model while preserving shared semantic state |
 | `Alt-H` | metadata-derived getting-started help |
 | `Ctrl-O` | toggle the local `why` inspector |
@@ -172,7 +172,11 @@ one to sixteen events—for example, `Ctrl-X Ctrl-K`—at global, model, or
 model-status scope. Prefix state is host-owned and inspectable through the
 generic bindings/trace views; it is not an editor-model implementation detail.
 
-Search, palette, save-as, and rename prompts accept ordinary text-entry input.
+Search, save-as, rename, and command-argument prompts accept ordinary text-entry
+input. Selecting a command with declared parameters from `Ctrl-P`, or reaching
+one through a custom binding, collects each parameter in descriptor order;
+`Escape` cancels without invoking it. This invokes the normal typed command
+effect rather than introducing an Ex parser or a second mutation path.
 Bracketed terminal paste is collected as one committed text input only while a
 model or host prompt declares text entry; it is intentionally ignored in a
 command grammar. Selection styling wins over search styling, which wins over

@@ -34,6 +34,17 @@ passes view classes, never a parser object, into presentation.
 
 All first-party models receive the same host capabilities without a new
 mutation path. Search/palette actions retain normal provenance and history
-semantics. Host shortcuts intentionally outrank model/config bindings. M10 does
+semantics. Host shortcuts intentionally outrank model/config bindings. M10 did
 not add a regex language, command argument UI, project search, external-file
 conflict policy, or a terminal backend API to `zenbu.model_api`.
+
+## Amendment: typed command arguments
+
+The host now reads `Command_descriptor` parameter metadata for palette-selected
+commands and bindings. It collects each declared text, built-in selector, or
+built-in transformation value in a host-owned prompt, then produces the
+existing typed `Command_invocation`. Required values are validated before the
+handler runs and `Escape` cancels the whole invocation. This adds no command
+language, raw terminal access, or mutation path to an editing model or
+extension. Component ABI v1 remains parameterless because its registration
+record is stable; a future ABI version must add that metadata explicitly.

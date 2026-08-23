@@ -244,17 +244,38 @@ zenbu.bind { input = "Ctrl-K", command = "user.one" }
 zenbu.command { id = "user.save", run = function(_) return nil end }
 zenbu.bind { input = "Ctrl-S", command = "user.save" }
 |};
-      match
-        Zenbu_scripting.Scripting.check_file ~base_commands:(base_commands ())
-          ~base_semantics:(base_semantics ()) path
-      with
+      (match
+         Zenbu_scripting.Scripting.check_file ~base_commands:(base_commands ())
+           ~base_semantics:(base_semantics ()) path
+       with
       | Error (Error.Script_error { phase = "registration"; message; _ }) ->
           expect
             (contains message "reserved host")
             "reserved host binding error is not actionable"
       | Error error ->
           failf "wrong reserved host binding error: %s" (Error.to_string error)
-      | Ok _ -> failf "reserved host binding was accepted")
+      | Ok _ -> failf "reserved host binding was accepted");
+      write path
+        {|
+zenbu.command {
+  id = "user.invalid-parameter",
+  parameters = {
+    { name = "value", description = "Invalid parameter kind.", kind = "unknown" },
+  },
+  run = function(_) return nil end,
+}
+|};
+      match
+        Zenbu_scripting.Scripting.check_file ~base_commands:(base_commands ())
+          ~base_semantics:(base_semantics ()) path
+      with
+      | Error (Error.Script_error { phase = "registration"; message; _ }) ->
+          expect
+            (contains message "unknown command parameter kind")
+            "invalid parameter kind error is not actionable"
+      | Error error ->
+          failf "wrong parameter kind error: %s" (Error.to_string error)
+      | Ok _ -> failf "invalid parameter kind was accepted")
 
 let sequence_config =
   {|

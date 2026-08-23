@@ -53,11 +53,11 @@ The feature sources are the projects' own documentation: [Vim help](https://vimh
 
 | workload | supported now | partial foundation | absent before a parity claim |
 | --- | --- | --- | --- |
-| Vim-style terminal editor | normal/insert/replace/visual grammar, operators, counts, motions, find, basic search requests, registers, undo/redo, local buffers/views, provenance, and scoped sequence bindings | command palette and generic host controls | Ex command language, macros, broad motion/text-object coverage, marks/jumps, compatibility mappings, and terminal/GUI appearance parity |
+| Vim-style terminal editor | normal/insert/replace/visual grammar, operators, counts, motions, find, basic search requests, registers, undo/redo, local buffers/views, provenance, scoped sequence bindings, and typed command prompts | command palette and generic host controls | Ex command language, macros, broad motion/text-object coverage, marks/jumps, compatibility mappings, and terminal/GUI appearance parity |
 | Helix-style selection editor | selection-first model, multi-edit transactions, occurrence selection, syntax-structural selections, local buffers/views, scoped sequence bindings, and optional LSP completion/hover/definition/rename across already-open saved buffers | buffers can be assigned to split views | picker/config discovery, registers/macros, regex selection algebra, shell pipes, general workspace edits, full window model, and theme parity |
 | Kakoune-style multiple-selection editor | explicit ordered selections, selection-first edits, syntax context, scoped bindings/hooks, and local buffers/views | split views render independently and focus routes input to the assigned buffer | Kakoune's inclusive anchor/cursor model, selection split/rotate/merge/filter algebra, client/server sessions, shell filters, full command language, and face/highlighter ecosystem |
 | Micro-style terminal editor | ordinary text editing, syntax spans, local buffers/views, trusted Lua configuration, local plugins, save/search/palette, terminal themes, basic click/drag selection plus wheel scrolling, and scoped sequence bindings | Components and Lua can supply editing commands | mouse clipboard/menu/multi-click parity, interactive shell split, buffer tabs, plugin-manager/install flow, runtime theme/configuration surface, and complete keybinding/configuration surface |
-| Emacs terminal product | key-addressable commands, scoped sequence bindings, local buffers in split views, configuration/plugin concepts, and asynchronous language host | generic scope precedence, not Emacs keymap composition | buffer/window/frame system, minibuffer and completion ecosystem, major/minor mode composition, Elisp/package/process APIs, display engine, and terminal appearance parity |
+| Emacs terminal product | key-addressable commands, scoped sequence bindings, local buffers in split views, a typed argument minibuffer, configuration/plugin concepts, and asynchronous language host | generic scope precedence, not Emacs keymap composition | buffer/window/frame system, completion ecosystem, major/minor mode composition, Elisp/package/process APIs, display engine, and terminal appearance parity |
 
 “Supported now” means this repository has a testable behavior, not that its
 keystrokes or visual rendering exactly match the named editor. “Partial
@@ -108,6 +108,16 @@ atomic staging, reserved-host rejection, and cross-plugin collisions. This
 does not claim Helix nested-mode, Kakoune keymap, or Emacs keymap parity: Zenbu
 has only its three fixed scopes and no user-defined mode stack or map
 composition.
+
+The next evaluation gap was argument-taking commands. The command palette and
+custom bindings now collect descriptor-declared text, built-in selector, and
+built-in transformation parameters before invoking the normal typed command
+effect. M10 regression coverage executes `editor.apply`, rejects an invalid
+selector without mutating the document, and proves a trusted Lua command
+receives a prompted text value through `call.arguments`. This is a reusable
+minibuffer foundation, not Vim Ex, Kakoune command language, or Emacs minibuffer
+and completion parity. Component ABI v1 commands cannot yet declare parameter
+metadata, so their palette entries remain parameterless.
 
 The shared presentation result now has two small contracts. The renderer
 continues to produce semantic styles, while the terminal maps those styles

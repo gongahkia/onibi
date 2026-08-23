@@ -65,7 +65,7 @@ The initial model is Vim-style; choose an alternative at startup with
 | `Ctrl-Q` | quit; press again to force-quit a dirty buffer |
 | `Ctrl-F` | start literal Unicode search |
 | `Ctrl-G` / `Ctrl-Shift-G` | next / previous match, with wraparound |
-| `Ctrl-P` | command palette over Zenbu, model, Lua, and plugin commands |
+| `Ctrl-P` | command palette; declared command arguments are collected in order |
 | `Alt-M` | switch Vim-style, selection-first, and structural models |
 | `Alt-H` | help from current model metadata |
 | `Ctrl-O` | inspect the latest `why` explanation |
@@ -75,6 +75,12 @@ The initial model is Vim-style; choose an alternative at startup with
 Search is literal and incremental. `Escape` while its prompt is open restores
 the pre-search selection; `Enter` keeps the selected match. Search highlighting
 is view-only and selection styling always wins over it.
+
+The command palette invokes parameterless commands immediately. For a command
+with declared parameters it opens one prompt per parameter; `Escape` cancels
+the whole invocation. The built-in `editor.apply` demonstrates the typed form:
+enter a selector such as `document`, then a transformation such as
+`delete`, `select`, or `replace:text`.
 
 `Alt-H` shows the active model's `Input_rule` table. For deterministic,
 scriptable inspection, use:

@@ -23,6 +23,9 @@ let must = function
 let key text = Input_event.logical_text text |> must |> Input_event.key_press
 let text_input text = Input_event.text_input text |> must
 let named value = Input_event.key_press (Input_event.named_key value)
+let ctrl text =
+  Input_event.logical_text text |> must
+  |> Input_event.key_press ~modifiers:[ Input_event.Control ]
 let dimensions = Renderer.{ columns = 100; rows = 20 }
 
 let contains text fragment =
@@ -440,6 +443,103 @@ zenbu.command {
         (Model_status.id (App.Session.status session) = "normal")
         "palette dismissal did not restore active model input")
 
+let test_command_argument_prompt_executes_typed_and_scripted_commands () =
+  let session = make_session "alpha" in
+  let session = App.Session.handle_host session App.Session.Open_palette |> continue in
+  let session = App.Session.handle_input session (text_input "editor.apply") in
+  let session = App.Session.handle_input session (named Input_event.Enter) in
+  expect
+    (Model_status.id (App.Session.status session) = "host-command-argument")
+    "palette did not open a typed command-argument prompt";
+  let session = App.Session.handle_input session (text_input "document") in
+  let session = App.Session.handle_input session (named Input_event.Enter) in
+  let session =
+    App.Session.handle_input session (text_input "replace:replacement")
+  in
+  let session = App.Session.handle_input session (named Input_event.Enter) in
+  expect
+    (App.Session.contents session = "replacement")
+    "typed selector/transformation arguments did not invoke editor.apply";
+  let session = App.Session.handle_host session App.Session.Open_palette |> continue in
+  let session = App.Session.handle_input session (text_input "editor.apply") in
+  let session = App.Session.handle_input session (named Input_event.Enter) in
+  let session = App.Session.handle_input session (text_input "not-a-selector") in
+  let session = App.Session.handle_input session (named Input_event.Enter) in
+  expect
+    (Model_status.id (App.Session.status session) = "host-command-argument"
+    && App.Session.contents session = "replacement")
+    "invalid typed arguments escaped the prompt or mutated the document";
+  let session = App.Session.handle_input session (named Input_event.Escape) in
+  expect
+    (Model_status.id (App.Session.status session) = "normal")
+    "Escape did not cancel the command-argument prompt";
+  let path = Filename.temp_file "zenbu-m10-command-arguments" ".lua" in
+  Fun.protect
+    ~finally:(fun () -> Sys.remove path)
+    (fun () ->
+      write path
+        {|
+zenbu.command {
+  id = "user.insert-argument",
+  title = "Insert argument",
+  description = "Insert a prompt-provided text argument.",
+  parameters = {
+    { name = "text", description = "Text to insert.", required = true, kind = "text" },
+  },
+  run = function(call)
+    return {{ kind = "insert", text = call.arguments.text }}
+  end,
+}
+zenbu.bind { input = "Ctrl-X Ctrl-T", command = "user.insert-argument" }
+|};
+      let session =
+        make_session ~config:(Zenbu_scripting.Scripting.Explicit path) "alpha"
+      in
+      let session =
+        App.Session.handle_host session App.Session.Open_palette |> continue
+      in
+      let session =
+        App.Session.handle_input session (text_input "insert-argument")
+      in
+      let session = App.Session.handle_input session (named Input_event.Enter) in
+      let session = App.Session.handle_input session (text_input "!") in
+      let session = App.Session.handle_input session (named Input_event.Enter) in
+      expect
+        (App.Session.contents session = "!alpha")
+        "Lua command did not receive its prompt-provided text argument";
+      let session =
+        make_session ~config:(Zenbu_scripting.Scripting.Explicit path) "beta"
+      in
+      let session = App.Session.handle_input session (ctrl "x") in
+      let session = App.Session.handle_input session (ctrl "t") in
+      expect
+        (Model_status.id (App.Session.status session) = "host-command-argument")
+        "a binding to a parameterized command did not open the argument prompt";
+      let session = App.Session.handle_input session (text_input "?") in
+      let session = App.Session.handle_input session (named Input_event.Enter) in
+      expect
+        (App.Session.contents session = "?beta")
+        "a binding to a parameterized Lua command lost prompt arguments");
+  let path = Filename.temp_file "zenbu-m10-palette-open" ".txt" in
+  Fun.protect
+    ~finally:(fun () -> Sys.remove path)
+    (fun () ->
+      write path "opened from command argument";
+      let session = make_session "alpha" in
+      let session =
+        App.Session.handle_host session App.Session.Open_palette |> continue
+      in
+      let session =
+        App.Session.handle_input session (text_input "workspace.buffer.open")
+      in
+      let session = App.Session.handle_input session (named Input_event.Enter) in
+      let session = App.Session.handle_input session (text_input path) in
+      let session = App.Session.handle_input session (named Input_event.Enter) in
+      expect
+        (App.Session.contents session = "opened from command argument"
+        && App.Session.file_path session = Some path)
+        "palette open-buffer did not consume its typed path argument")
+
 let test_save_as_and_model_switch_preserve_semantics () =
   let path = Filename.temp_file "zenbu-m10-save-as" ".txt" in
   Sys.remove path;
@@ -641,6 +741,8 @@ let tests =
       test_explicit_startup_failures_remain_inspectable );
     ( "generic palette discovers all active command providers",
       test_palette_discovers_all_active_command_providers );
+    ( "command argument prompts execute typed and scripted commands",
+      test_command_argument_prompt_executes_typed_and_scripted_commands );
     ( "save-as and model switch",
       test_save_as_and_model_switch_preserve_semantics );
     ("save-as overwrite and failure", test_save_as_overwrite_and_write_failure);
