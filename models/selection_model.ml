@@ -218,9 +218,17 @@ let select_input selecting event context =
   | None when is_alt event "_" ->
       (Select default_select, [ Semantic_commands.merge_consecutive ])
   | None when is_alt event ")" ->
-      (Select default_select, [ Semantic_commands.rotate_contents_forward ])
+      ( Select default_select,
+        [
+          Semantic_commands.rotate_contents_forward ?group_size:selecting.count
+            ();
+        ] )
   | None when is_alt event "(" ->
-      (Select default_select, [ Semantic_commands.rotate_contents_backward ])
+      ( Select default_select,
+        [
+          Semantic_commands.rotate_contents_backward ?group_size:selecting.count
+            ();
+        ] )
   | None when is_alt event ";" ->
       (Select default_select, [ Semantic_commands.flip_selections ])
   | None when is_alt event ":" ->
@@ -310,7 +318,8 @@ let input_rules = function
         input_rule "selection.escape" (Input_rule.Named "Escape")
           Input_rule.Binding "collapse selections to their ends";
         input_rule "selection.count" (Input_rule.Text_range "1-9")
-          Input_rule.Prefix "begin or extend a selector count";
+          Input_rule.Prefix
+          "begin or extend a selector or grouped-rotation count";
         input_rule "selection.go" (Input_rule.Exact "g") Input_rule.Prefix
           "begin document-start input" ~next_status:"go-pending";
         input_rule "selection.slot" (Input_rule.Exact "\"") Input_rule.Prefix

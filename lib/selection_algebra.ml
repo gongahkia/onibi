@@ -254,7 +254,7 @@ let rotate_primary context direction =
     in
     set_selections context ~selections ~primary
 
-let rotate_contents context direction ?group_size =
+let rotate_contents context direction ?group_size () =
   let _, values = selections context in
   let count = List.length values in
   let group_size = Option.value ~default:count group_size in

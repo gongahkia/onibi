@@ -604,6 +604,29 @@ zenbu.bind {
   command = "editor.selection.split-regex",
   scope = "model:zenbu.selection-first:select",
 }
+zenbu.command {
+  id = "user.select-rotation-ranges",
+  run = function(_)
+    return {{
+      kind = "set-selections",
+      selections = {
+        {anchor = 0, head = 1}, {anchor = 2, head = 3},
+        {anchor = 4, head = 5}, {anchor = 6, head = 7},
+      },
+      primary = 1,
+    }}
+  end,
+}
+zenbu.bind {
+  input = "M",
+  command = "user.select-rotation-ranges",
+  scope = "model:zenbu.selection-first:select",
+}
+zenbu.bind {
+  input = "T",
+  command = "editor.selection.rotate-contents-forward",
+  scope = "model:zenbu.selection-first:select",
+}
 |};
       let session =
         make_session ~model:App.Session.Selection ~trace
@@ -625,7 +648,27 @@ zenbu.bind {
         (lines_contain
            (App.Session.inspect session App.Session.Why)
            "editor.selection.split-regex")
-        "selection command invocation was absent from provenance")
+        "selection command invocation was absent from provenance";
+      let grouped =
+        make_session ~model:App.Session.Selection ~trace
+          ~config:(Zenbu_scripting.Scripting.Explicit path) "a b c d"
+      in
+      let grouped = App.Session.handle_input grouped (key "M") in
+      expect
+        (selection_offsets grouped = [ (0, 1); (2, 3); (4, 5); (6, 7) ])
+        "the script fixture did not establish grouped rotation selections";
+      let grouped = App.Session.handle_input grouped (key "T") in
+      expect
+        (Model_status.id (App.Session.status grouped) = "host-command-argument")
+        "a bound optional grouped-rotation command did not open its prompt";
+      let grouped = App.Session.handle_input grouped (text_input "2") in
+      let grouped =
+        App.Session.handle_input grouped (named Input_event.Enter)
+      in
+      expect
+        (App.Session.contents grouped = "b a d c")
+        "the prompt-provided grouped rotation count did not rotate \
+         independently")
 
 let test_keyboard_macros_replay_through_the_session_dispatcher () =
   let path = Filename.temp_file "zenbu-m10-macros" ".lua" in

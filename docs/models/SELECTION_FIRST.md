@@ -22,7 +22,7 @@ then operate on that set. It uses only `zenbu.model_api`.
 | `,` | retain only the primary selection |
 | `)` / `(` | make the next / previous selection in document order primary |
 | `Alt-_` | merge selections that touch at a document boundary |
-| `Alt-)` / `Alt-(` | rotate non-empty selection contents forward / backward in document order |
+| `<count> Alt-)` / `<count> Alt-(` | rotate non-empty selection contents forward / backward; a count partitions adjacent groups |
 | `Alt-;` / `Alt-:` | flip every selection's anchor/head / normalize every selection forward |
 | `"a` | choose clipboard slot `a` for the next copy or paste |
 | `u` / `Ctrl-r` / `.` | undo / redo / semantic repeat |
@@ -70,14 +70,16 @@ change.
 ## Deliberate limits
 
 There is no model-private syntax-aware selection, multiple-cursor add-next UI,
-block selection, grapheme/display-cell navigation, grouped content rotation,
-or Kakoune/Helix compatibility promise. Rotation requires at least two
-non-empty selections and uses Zenbu's document order; it has no Kakoune count
-grouping behavior. `Str` is not the regex dialect of either editor, and
-Zenbu's half-open ranges are not Kakoune's inclusive anchor/cursor selections.
-The model-neutral terminal search UI is available through `Ctrl-F` without
-changing this model's grammar. Clipboard slots and history/repeat use the same
-runtime services as the Vim-style model.
+block selection, grapheme/display-cell navigation, or Kakoune/Helix
+compatibility promise. Rotation requires at least two non-empty selections and
+uses Zenbu's document order. A count partitions the set into independent,
+equal-size groups and is rejected unless it divides the selection count; its
+exact post-edit selection state still differs from native editors. `Str` is not
+the regex dialect of either editor, and Zenbu's half-open ranges are not
+Kakoune's inclusive anchor/cursor selections. The model-neutral terminal search
+UI is available through `Ctrl-F` without changing this model's grammar.
+Clipboard slots and history/repeat use the same runtime services as the
+Vim-style model.
 
 ## Runtime bindings inspection
 

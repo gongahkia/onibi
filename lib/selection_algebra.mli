@@ -45,6 +45,7 @@ val rotate_contents :
   Editor_context.t ->
   direction ->
   ?group_size:int ->
+  unit ->
   (Model_intent.t, Zenbu_kernel.Error.t) result
 (** Replace each non-empty selection with a neighbouring selection's text in
     document order. [Forward] moves each value to the next selection. An

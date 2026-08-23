@@ -297,10 +297,12 @@ The available ids are `editor.selection.select-regex`,
 `editor.selection.rotate-contents-forward`,
 `editor.selection.rotate-contents-backward`, `editor.selection.flip`, and
 `editor.selection.ensure-forward`. Content rotation needs at least two
-non-empty selections and rotates their texts in document order. Regexes use
-OCaml `Str`, reject zero-width matches, and return an error when a byte-oriented
-match would split a UTF-8 code point; they are not a compatibility claim for
-Helix or Kakoune regexes.
+non-empty selections and rotates their texts in document order. Its optional
+`group-size` text parameter must be a positive integer that divides the number
+of selections; it rotates each adjacent group independently. Regexes use OCaml
+`Str`, reject zero-width matches, and return an error when a byte-oriented match
+would split a UTF-8 code point; they are not a compatibility claim for Helix or
+Kakoune regexes.
 
 `zenbu-headless bindings vim` includes the same
 reserved-host list beside model and extension bindings.

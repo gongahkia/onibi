@@ -141,9 +141,10 @@ any edit can commit, and it is represented explicitly in `zenbu-replay-v1`.
 The selection algebra uses it for content rotation. Forward rotation moves each
 non-empty selection's text to the next selection and wraps the last text to the
 first; backward does the inverse. Rotation rejects fewer than two selections
-and empty selections. It deliberately does not implement Kakoune's optional
-count grouping, and replacement follows Zenbu's ordinary post-edit selection
-rebasing rather than claiming native selection-state parity.
+and empty selections. Its optional positive group size rotates adjacent groups
+independently and must divide the selection count. Replacement follows Zenbu's
+ordinary post-edit selection rebasing rather than claiming native
+selection-state parity.
 
 ## M5 syntax snapshots and structural selection
 

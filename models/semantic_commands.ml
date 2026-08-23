@@ -67,12 +67,53 @@ let required_text invocation name =
       Error
         (Zenbu_kernel.Error.Invalid_command_arguments "expected a text argument")
 
+let optional_text invocation name =
+  Command_invocation.arguments invocation
+  |> List.find_opt (fun argument ->
+      String.equal (Command_argument.name argument) name)
+  |> function
+  | None -> Ok None
+  | Some argument -> (
+      match Command_argument.value argument with
+      | Command_argument.Text text -> Ok (Some text)
+      | Command_argument.Selector _ | Command_argument.Transformation _ ->
+          Error
+            (Zenbu_kernel.Error.Invalid_command_arguments
+               "expected a text argument"))
+
+let content_rotation_group_size invocation =
+  match optional_text invocation "group-size" with
+  | Error _ as error -> error
+  | Ok None -> Ok None
+  | Ok (Some text) -> (
+      try
+        let value = int_of_string text in
+        if value > 0 then Ok (Some value)
+        else
+          Error
+            (Zenbu_kernel.Error.Invalid_command_arguments
+               "selection content rotation group-size must be positive")
+      with Failure _ ->
+        Error
+          (Zenbu_kernel.Error.Invalid_command_arguments
+             "selection content rotation group-size must be an integer"))
+
 let regex_parameter =
   Command_descriptor.
     {
       name = "pattern";
       description = "OCaml Str regular expression; empty matches are rejected.";
       required = true;
+      kind = Text;
+    }
+
+let content_rotation_group_parameter =
+  Command_descriptor.
+    {
+      name = "group-size";
+      description =
+        "Optional positive group size; it must divide the selection count.";
+      required = false;
       kind = Text;
     }
 
@@ -116,13 +157,21 @@ let selection_commands =
     selection_command "editor.selection.rotate-contents-forward"
       "Rotate selection contents forward"
       "Move each non-empty selection's text to the next selection in document \
-       order." (fun context _ ->
-        Selection_algebra.rotate_contents context Selection_algebra.Forward);
+       order. An optional group size rotates adjacent groups independently."
+      ~parameters:[ content_rotation_group_parameter ]
+      (fun context invocation ->
+        Result.bind (content_rotation_group_size invocation) (fun group_size ->
+            Selection_algebra.rotate_contents context Selection_algebra.Forward
+              ?group_size ()));
     selection_command "editor.selection.rotate-contents-backward"
       "Rotate selection contents backward"
       "Move each non-empty selection's text to the previous selection in \
-       document order." (fun context _ ->
-        Selection_algebra.rotate_contents context Selection_algebra.Backward);
+       document order. An optional group size rotates adjacent groups \
+       independently." ~parameters:[ content_rotation_group_parameter ]
+      (fun context invocation ->
+        Result.bind (content_rotation_group_size invocation) (fun group_size ->
+            Selection_algebra.rotate_contents context Selection_algebra.Backward
+              ?group_size ()));
     selection_command "editor.selection.flip" "Flip selection orientation"
       "Swap anchor and head for every current selection." (fun context _ ->
         Selection_algebra.flip context);
@@ -146,11 +195,29 @@ let rotate_primary_forward =
 let rotate_primary_backward =
   selection_effect "editor.selection.rotate-primary-backward"
 
-let rotate_contents_forward =
-  selection_effect "editor.selection.rotate-contents-forward"
+let content_rotation_effect id ?group_size () =
+  let arguments =
+    match group_size with
+    | None -> []
+    | Some group_size ->
+        [
+          Command_argument.make ~name:"group-size"
+            ~value:(Command_argument.Text (string_of_int group_size))
+          |> static;
+        ]
+  in
+  Result.bind (Command_id.of_string id) (fun id ->
+      Command_invocation.create ~id ~arguments)
+  |> Result.map (fun invocation -> Model_effect.Invoke_command invocation)
+  |> static
 
-let rotate_contents_backward =
-  selection_effect "editor.selection.rotate-contents-backward"
+let rotate_contents_forward ?group_size () =
+  content_rotation_effect "editor.selection.rotate-contents-forward" ?group_size
+    ()
+
+let rotate_contents_backward ?group_size () =
+  content_rotation_effect "editor.selection.rotate-contents-backward"
+    ?group_size ()
 
 let flip_selections = selection_effect "editor.selection.flip"
 

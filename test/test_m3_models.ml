@@ -623,14 +623,14 @@ let test_selection_algebra_and_regex_commands () =
   in
   let forward =
     Selection_algebra.rotate_contents (context contents)
-      Selection_algebra.Forward
+      Selection_algebra.Forward ()
     |> must
   in
   let forward = apply_selection_intent contents forward in
   expect_string ~expected:"three one two" ~actual:(text forward);
   let backward =
     Selection_algebra.rotate_contents (context contents)
-      Selection_algebra.Backward
+      Selection_algebra.Backward ()
     |> must
   in
   let backward = apply_selection_intent contents backward in
@@ -642,15 +642,71 @@ let test_selection_algebra_and_regex_commands () =
   in
   let unequal =
     Selection_algebra.rotate_contents (context unequal)
-      Selection_algebra.Forward
+      Selection_algebra.Forward ()
     |> must
     |> apply_selection_intent unequal
   in
   expect_string ~expected:"ccc a bb" ~actual:(text unequal);
+  let grouped =
+    history_with_selections "selection-contents-grouped" "a b c d"
+      [ (0, 1); (2, 3); (4, 5); (6, 7) ]
+      ~primary:0
+  in
+  let grouped_command =
+    Command_registry.find (registry ())
+      (Command_id.of_string "editor.selection.rotate-contents-forward" |> must)
+    |> must
+  in
+  let grouped_invocation =
+    Command_invocation.create
+      ~id:
+        (Command_id.of_string "editor.selection.rotate-contents-forward" |> must)
+      ~arguments:
+        [
+          Command_argument.make ~name:"group-size"
+            ~value:(Command_argument.Text "2")
+          |> must;
+        ]
+    |> must
+  in
+  let grouped_intent =
+    match
+      Command.execute grouped_command (context grouped) grouped_invocation
+    with
+    | Ok [ intent ] -> intent
+    | Ok _ ->
+        failf "grouped content rotation returned an unexpected intent count"
+    | Error error -> failf "%s" (Error.to_string error)
+  in
+  let grouped = apply_selection_intent grouped grouped_intent in
+  expect_string ~expected:"b a d c" ~actual:(text grouped);
+  expect
+    (Result.is_error
+       (Selection_algebra.rotate_contents (context grouped)
+          Selection_algebra.Forward ~group_size:3 ()))
+    "content rotation accepted a group size that does not divide the selection \
+     count";
+  let invalid_group_invocation =
+    Command_invocation.create
+      ~id:
+        (Command_id.of_string "editor.selection.rotate-contents-forward" |> must)
+      ~arguments:
+        [
+          Command_argument.make ~name:"group-size"
+            ~value:(Command_argument.Text "many")
+          |> must;
+        ]
+    |> must
+  in
+  expect
+    (Result.is_error
+       (Command.execute grouped_command (context grouped)
+          invalid_group_invocation))
+    "content rotation accepted a non-integer group size";
   expect
     (Result.is_error
        (Selection_algebra.rotate_contents (context kept)
-          Selection_algebra.Forward))
+          Selection_algebra.Forward ()))
     "content rotation accepted one selection";
   let with_empty =
     history_with_selections "selection-contents-empty" "one two"
@@ -660,7 +716,7 @@ let test_selection_algebra_and_regex_commands () =
   expect
     (Result.is_error
        (Selection_algebra.rotate_contents (context with_empty)
-          Selection_algebra.Forward))
+          Selection_algebra.Forward ()))
     "content rotation accepted an empty selection";
   expect
     (Result.is_error
@@ -685,7 +741,7 @@ let test_selection_algebra_and_regex_commands () =
         [
           Replay.Intent
             (Selection_algebra.rotate_contents (context contents)
-               Selection_algebra.Forward
+               Selection_algebra.Forward ()
             |> must |> Model_intent.to_kernel);
         ]
     |> must
@@ -715,6 +771,28 @@ let test_selection_algebra_and_regex_commands () =
   let content_runtime = fold_selection content_runtime [ alt ")" ] in
   expect_string ~expected:"three one two"
     ~actual:(text (Selection_runtime.history content_runtime));
+  let grouped_runtime_document =
+    Document.create
+      ~id:(Document_id.of_string "selection-content-group-runtime" |> must)
+      ~contents:"a b c d"
+      ~initial_selections:
+        [
+          Selection_spec.make ~anchor_offset:0 ~head_offset:1 |> must;
+          Selection_spec.make ~anchor_offset:2 ~head_offset:3 |> must;
+          Selection_spec.make ~anchor_offset:4 ~head_offset:5 |> must;
+          Selection_spec.make ~anchor_offset:6 ~head_offset:7 |> must;
+        ]
+      ~primary:0 ()
+    |> must
+  in
+  let grouped_runtime =
+    Selection_runtime.create ~commands:(registry ())
+      ~document:grouped_runtime_document ()
+    |> must
+  in
+  let grouped_runtime = fold_selection grouped_runtime [ key "2"; alt ")" ] in
+  expect_string ~expected:"b a d c"
+    ~actual:(text (Selection_runtime.history grouped_runtime));
   let merged =
     history_with_selections "selection-merge" "abcdef"
       [ (0, 1); (1, 3); (4, 6) ]
