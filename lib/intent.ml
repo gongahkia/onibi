@@ -2,6 +2,7 @@ type t =
   | Insert_text of string
   | Delete_selected_ranges
   | Replace_selected_ranges of string
+  | Replace_selection_contents of string list
   | Set_selections of { selections : Selection_spec.t list; primary : int }
   | Apply of { selector : Selector.t; transformation : Transformation.t }
 
@@ -9,6 +10,7 @@ let identity = function
   | Insert_text _ -> "insert-text"
   | Delete_selected_ranges -> "delete-selected-ranges"
   | Replace_selected_ranges _ -> "replace-selected-ranges"
+  | Replace_selection_contents _ -> "replace-selection-contents"
   | Set_selections _ -> "set-selections"
   | Apply { selector; transformation } ->
       "apply:"
@@ -34,6 +36,21 @@ and edits_for_selection_set selections ~text =
       (Selection_set.to_list selections)
   in
   collect edits
+
+let edits_for_selection_contents selections contents =
+  let rec loop edits selections contents =
+    match (selections, contents) with
+    | [], [] -> Ok (List.rev edits)
+    | selection :: selections, text :: contents -> (
+        match Edit.replace (Selection.range selection) ~text with
+        | Error _ as error -> error
+        | Ok edit -> loop (edit :: edits) selections contents)
+    | [], _ | _, [] ->
+        Error
+          (Error.Malformed_intent
+             "per-selection replacement count does not match the selection set")
+  in
+  loop [] (Selection_set.to_list selections) contents
 
 let selection_set_of_specs snapshot ~selections ~primary =
   let rec make_selections values = function
@@ -144,6 +161,16 @@ let resolve ~source ?description ?provenance snapshot = function
       | Ok edits ->
           transaction snapshot ~edits ~selection_change:None ~source
             ~intent:"replace-selected-ranges" ~description ~provenance)
+  | Replace_selection_contents contents -> (
+      match
+        edits_for_selection_contents
+          (Document_snapshot.selections snapshot)
+          contents
+      with
+      | Error _ as error -> error
+      | Ok edits ->
+          transaction snapshot ~edits ~selection_change:None ~source
+            ~intent:"replace-selection-contents" ~description ~provenance)
   | Set_selections { selections; primary } -> (
       match selection_set_of_specs snapshot ~selections ~primary with
       | Error _ as error -> error

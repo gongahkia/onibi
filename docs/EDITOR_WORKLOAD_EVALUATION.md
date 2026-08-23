@@ -54,8 +54,8 @@ The feature sources are the projects' own documentation: [Vim help](https://vimh
 | workload | supported now | partial foundation | absent before a parity claim |
 | --- | --- | --- | --- |
 | Vim-style terminal editor | normal/insert/replace/visual grammar, operators, counts, motions, find, basic search requests, registers, undo/redo, local buffers/views, provenance, scoped sequence bindings, typed command prompts, and generic keyboard macro recording/replay | command palette and generic host controls | Ex command language, Vim macro/register compatibility, broad motion/text-object coverage, marks/jumps, compatibility mappings, and terminal/GUI appearance parity |
-| Helix-style selection editor | selection-first model, multi-edit transactions, occurrence selection, syntax-structural selections, local buffers/views, scoped sequence bindings, nested declarative modes including one initial adapter map, generic keyboard macro recording/replay, and optional LSP completion/hover/definition/rename across already-open saved buffers | buffers can be assigned to split views | picker/config discovery, named registers/macros, regex selection algebra, shell pipes, general workspace edits, full window model, and theme parity |
-| Kakoune-style multiple-selection editor | explicit ordered selections, selection-first edits, syntax context, scoped bindings/hooks, nested declarative modes including one initial adapter map, generic keyboard macro recording/replay, and local buffers/views | split views render independently and focus routes input to the assigned buffer | Kakoune's inclusive anchor/cursor model, selection split/rotate/merge/filter algebra, named/register-backed macros, client/server sessions, shell filters, full command language, and face/highlighter ecosystem |
+| Helix-style selection editor | selection-first model, multi-edit transactions, occurrence selection, syntax-structural selections, regex selection/splitting/filtering through `Str`, touching-range merge, primary and ungrouped content rotation, orientation operations, local buffers/views, scoped sequence bindings, nested declarative modes including one initial adapter map, generic keyboard macro recording/replay, and optional LSP completion/hover/definition/rename across already-open saved buffers | buffers can be assigned to split views | picker/config discovery, named registers/macros, Helix regex and exact post-rotation selection semantics, shell pipes, general workspace edits, full window model, and theme parity |
+| Kakoune-style multiple-selection editor | explicit ordered selections, selection-first edits, syntax context, regex selection/splitting/filtering through `Str`, touching-range merge, primary and ungrouped content rotation, orientation operations, scoped bindings/hooks, nested declarative modes including one initial adapter map, generic keyboard macro recording/replay, and local buffers/views | split views render independently and focus routes input to the assigned buffer | Kakoune's inclusive anchor/cursor model, exact regex, count-grouped rotation, and post-rotation selection semantics, named/register-backed macros, client/server sessions, shell filters, full command language, and face/highlighter ecosystem |
 | Micro-style terminal editor | ordinary text editing, syntax spans, local buffers/views, trusted Lua configuration, local plugins, save/search/palette, terminal themes, basic click/drag selection plus wheel scrolling, and scoped sequence bindings | Components and Lua can supply editing commands | mouse clipboard/menu/multi-click parity, interactive shell split, buffer tabs, plugin-manager/install flow, runtime theme/configuration surface, and complete keybinding/configuration surface |
 | Emacs terminal product | key-addressable commands, buffer-local stackable declared transient modes, local buffers in split views, a typed argument minibuffer, generic keyboard macro recording/replay, configuration/plugin concepts, and asynchronous language host | transient stack composition, not general Emacs keymap composition | buffer/window/frame system, completion ecosystem, major/minor mode composition, macro ring/naming/editing, Elisp/package/process APIs, display engine, and terminal appearance parity |
 
@@ -155,6 +155,33 @@ receives a prompted text value through `call.arguments`. This is a reusable
 minibuffer foundation, not Vim Ex, Kakoune command language, or Emacs minibuffer
 and completion parity. Component ABI v1 commands cannot yet declare parameter
 metadata, so their palette entries remain parameterless.
+
+The next shared Helix/Kakoune failure was selection-set algebra. Helix exposes
+regex select/split/filter, merging, orientation, and primary-selection
+operations in its [keymap](https://docs.helix-editor.com/master/keymap.html).
+Kakoune documents corresponding selection manipulation and anchor/cursor
+behavior in its [keys reference](https://github.com/mawww/kakoune/blob/master/doc/pages/keys.asciidoc).
+Zenbu now exposes eleven model-neutral `editor.selection.*` descriptors: regex
+select, split, keep, remove; merge touching ranges; rotate primary selection in
+either direction; rotate non-empty selection contents in either direction;
+flip orientation; and normalize forward orientation. Selection operations
+derive ordinary `set-selections` intents from copied context. Content rotation
+uses the explicit `replace-selection-contents` intent, which requires exactly
+one replacement per current selection and resolves into one atomic multi-edit
+transaction. The M3 suite proves ordered output, filtering, primary rotation,
+touching-only merge, orientation, unequal-length content rotation, malformed/
+zero-width patterns, UTF-8 boundary rejection, count rejection, and replay;
+M10 proves a scoped Lua binding opens the typed regex prompt, performs the
+command, and records command provenance. This does **not** establish Helix or
+Kakoune parity: `Str` is byte-oriented and a boundary-violating match is
+rejected, Zenbu ranges are half-open rather than Kakoune-inclusive, post-edit
+selections use Zenbu rebasing, and Kakoune's count-grouped rotation is absent.
+
+Adding this command family also exceeded the original palette's fixed first
+16 displayed results. The palette now keeps the keyboard-selected result in a
+moving 16-item render window while all providers remain searchable. M10 covers
+both movement beyond the initial result window and filtering a builtin
+selection descriptor or host descriptor by id/provider.
 
 The shared presentation result now has two small contracts. The renderer
 continues to produce semantic styles, while the terminal maps those styles

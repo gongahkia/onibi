@@ -593,6 +593,7 @@ zenbu.bind { input = "Ctrl-X Ctrl-T", command = "user.insert-argument" }
 
 let test_selection_commands_are_promptable_and_bindable () =
   let path = Filename.temp_file "zenbu-m10-selection-commands" ".lua" in
+  let trace = Trace.enabled ~capacity:64 |> must in
   Fun.protect
     ~finally:(fun () -> Sys.remove path)
     (fun () ->
@@ -605,7 +606,7 @@ zenbu.bind {
 }
 |};
       let session =
-        make_session ~model:App.Session.Selection
+        make_session ~model:App.Session.Selection ~trace
           ~config:(Zenbu_scripting.Scripting.Explicit path) "red, green, blue"
       in
       let session = App.Session.handle_input session (key "L") in

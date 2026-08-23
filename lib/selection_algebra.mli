@@ -41,6 +41,15 @@ val rotate_primary :
   Editor_context.t -> direction -> (Model_intent.t, Zenbu_kernel.Error.t) result
 (** Move the primary selection through the sorted selection set. *)
 
+val rotate_contents :
+  Editor_context.t ->
+  direction ->
+  ?group_size:int ->
+  (Model_intent.t, Zenbu_kernel.Error.t) result
+(** Replace each non-empty selection with a neighbouring selection's text in
+    document order. [Forward] moves each value to the next selection. An
+    optional [group_size] rotates adjacent, independent groups. *)
+
 val flip : Editor_context.t -> (Model_intent.t, Zenbu_kernel.Error.t) result
 (** Swap anchor and head for every current selection. *)
 

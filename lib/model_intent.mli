@@ -30,6 +30,7 @@ type t
 val insert_text : string -> t
 val delete_selected_ranges : t
 val replace_selected_ranges : string -> t
+val replace_selection_contents : string list -> t
 
 val set_selections :
   selections:(int * int) list -> primary:int -> (t, Zenbu_kernel.Error.t) result

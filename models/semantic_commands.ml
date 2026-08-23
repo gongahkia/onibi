@@ -113,6 +113,16 @@ let selection_commands =
       "Rotate primary selection backward"
       "Make the previous selection in document order primary." (fun context _ ->
         Selection_algebra.rotate_primary context Selection_algebra.Backward);
+    selection_command "editor.selection.rotate-contents-forward"
+      "Rotate selection contents forward"
+      "Move each non-empty selection's text to the next selection in document \
+       order." (fun context _ ->
+        Selection_algebra.rotate_contents context Selection_algebra.Forward);
+    selection_command "editor.selection.rotate-contents-backward"
+      "Rotate selection contents backward"
+      "Move each non-empty selection's text to the previous selection in \
+       document order." (fun context _ ->
+        Selection_algebra.rotate_contents context Selection_algebra.Backward);
     selection_command "editor.selection.flip" "Flip selection orientation"
       "Swap anchor and head for every current selection." (fun context _ ->
         Selection_algebra.flip context);
@@ -135,6 +145,12 @@ let rotate_primary_forward =
 
 let rotate_primary_backward =
   selection_effect "editor.selection.rotate-primary-backward"
+
+let rotate_contents_forward =
+  selection_effect "editor.selection.rotate-contents-forward"
+
+let rotate_contents_backward =
+  selection_effect "editor.selection.rotate-contents-backward"
 
 let flip_selections = selection_effect "editor.selection.flip"
 

@@ -20,6 +20,10 @@ then operate on that set. It uses only `zenbu.model_api`.
 | `p` / `P` | replace current selections / paste before their starts |
 | `i` | enter insert; committed text replaces current selections |
 | `,` | retain only the primary selection |
+| `)` / `(` | make the next / previous selection in document order primary |
+| `Alt-_` | merge selections that touch at a document boundary |
+| `Alt-)` / `Alt-(` | rotate non-empty selection contents forward / backward in document order |
+| `Alt-;` / `Alt-:` | flip every selection's anchor/head / normalize every selection forward |
 | `"a` | choose clipboard slot `a` for the next copy or paste |
 | `u` / `Ctrl-r` / `.` | undo / redo / semantic repeat |
 | `Escape` | collapse current selections to their ends |
@@ -39,13 +43,41 @@ semantic target: next-word + delete
 first `foo` in `foo bar foo baz foo`, `W` selects it, `*` creates three literal
 selections, and `d` resolves one shared delete transaction for all three.
 
+The command palette additionally exposes reusable selection commands:
+`editor.selection.select-regex`, `editor.selection.split-regex`,
+`editor.selection.keep-regex`, `editor.selection.remove-regex`,
+`editor.selection.merge-consecutive`, `editor.selection.rotate-primary-forward`,
+`editor.selection.rotate-primary-backward`,
+`editor.selection.rotate-contents-forward`,
+`editor.selection.rotate-contents-backward`, `editor.selection.flip`, and
+`editor.selection.ensure-forward`. The four regex commands prompt for a
+pattern; a Lua adapter can bind one in the selection scope, for example:
+
+```lua
+zenbu.bind {
+  input = "S",
+  command = "editor.selection.split-regex",
+  scope = "model:zenbu.selection-first:select",
+}
+```
+
+Regexes use OCaml's `Str` dialect, operate on each current selection, reject
+zero-width matches, and reject a result that ends inside a UTF-8 code point.
+They produce ordinary `set-selections` intents, so they are undoable,
+inspectable, and replay-safe through the same path as every other selection
+change.
+
 ## Deliberate limits
 
 There is no model-private syntax-aware selection, multiple-cursor add-next UI,
-selection split command, block selection, grapheme/display-cell navigation, or
-Kakoune/Helix compatibility promise. The model-neutral terminal search UI is
-available through `Ctrl-F` without changing this model's grammar. Clipboard
-slots and history/repeat use the same runtime services as the Vim-style model.
+block selection, grapheme/display-cell navigation, grouped content rotation,
+or Kakoune/Helix compatibility promise. Rotation requires at least two
+non-empty selections and uses Zenbu's document order; it has no Kakoune count
+grouping behavior. `Str` is not the regex dialect of either editor, and
+Zenbu's half-open ranges are not Kakoune's inclusive anchor/cursor selections.
+The model-neutral terminal search UI is available through `Ctrl-F` without
+changing this model's grammar. Clipboard slots and history/repeat use the same
+runtime services as the Vim-style model.
 
 ## Runtime bindings inspection
 

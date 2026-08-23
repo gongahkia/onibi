@@ -340,20 +340,31 @@ let parse_actions lines =
                       (Intent (Intent.Replace_selected_ranges text) :: values)
                       rest
                 | None -> (
-                    match after_prefix "action=intent-set\t" line with
-                    | Some state ->
-                        let* { selections; primary } =
-                          parse_selection_state state
+                    match after_prefix "action=intent-replace-each\t" line with
+                    | Some texts ->
+                        let* texts =
+                          String.split_on_char '\t' texts
+                          |> List.map unescape |> collect
                         in
                         loop
-                          (Intent
-                             (Intent.Set_selections { selections; primary })
-                          :: values)
+                          (Intent (Intent.Replace_selection_contents texts)
+                         :: values)
                           rest
-                    | None ->
-                        Error
-                          (Error.Malformed_replay ("unknown action " ^ line)))))
-        )
+                    | None -> (
+                        match after_prefix "action=intent-set\t" line with
+                        | Some state ->
+                            let* { selections; primary } =
+                              parse_selection_state state
+                            in
+                            loop
+                              (Intent
+                                 (Intent.Set_selections { selections; primary })
+                              :: values)
+                              rest
+                        | None ->
+                            Error
+                              (Error.Malformed_replay ("unknown action " ^ line))
+                        )))))
   in
   loop [] lines
 
@@ -391,6 +402,10 @@ let add_action buffer = function
       add_line buffer "action=intent-delete"
   | Intent (Intent.Replace_selected_ranges text) ->
       add_line buffer ("action=intent-replace\t" ^ escape text)
+  | Intent (Intent.Replace_selection_contents texts) ->
+      add_line buffer
+        ("action=intent-replace-each\t"
+        ^ String.concat "\t" (List.map escape texts))
   | Intent (Intent.Set_selections { selections; primary }) ->
       add_line buffer
         ("action=intent-set\t"

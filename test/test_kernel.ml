@@ -187,6 +187,48 @@ let test_intents_resolve_to_transactions () =
     (Transaction.intent metadata = Some "replace-selected-ranges")
     "intent identity was not retained in transaction metadata"
 
+let test_per_selection_replacement_is_atomic_and_replayable () =
+  let document =
+    document
+      ~selections:[ selection 0 1; selection 2 4 ]
+      "per-selection-replacement" "a bb"
+  in
+  let history = History.create document in
+  let history =
+    apply_intent history (Intent.Replace_selection_contents [ "bb"; "a" ])
+  in
+  expect_string ~expected:"bb a" ~actual:(text (History.current history));
+  let change =
+    match History.current_change history with
+    | Some change -> change
+    | None -> failf "per-selection replacement did not create a history change"
+  in
+  expect
+    (List.length (Transaction.edits (History.transaction change)) = 2)
+    "per-selection replacement did not create one edit per selection";
+  expect
+    (Transaction.intent (Transaction.metadata_of (History.transaction change))
+    = Some "replace-selection-contents")
+    "per-selection replacement did not retain its intent identity";
+  let unchanged = History.create document in
+  expect_error
+    (History.apply_intent ~source:Transaction.Test unchanged
+       (Intent.Replace_selection_contents [ "only-one" ]));
+  expect_string ~expected:"a bb" ~actual:(text (History.current unchanged));
+  let replay =
+    Replay.create ~document_id:"per-selection-replacement-replay"
+      ~contents:"a bb"
+      ~initial_selections:
+        { Replay.selections = [ selection 0 1; selection 2 4 ]; primary = 0 }
+      ~actions:
+        [ Replay.Intent (Intent.Replace_selection_contents [ "bb"; "a" ]) ]
+    |> must
+  in
+  let replayed =
+    Replay.to_string replay |> Replay.of_string |> must |> Replay.run |> must
+  in
+  expect_string ~expected:"bb a" ~actual:(text (History.current replayed))
+
 let test_history_undo_redo_and_branches () =
   let history = History.create (document "history" "abc") in
   let history = apply_intent history (Intent.Insert_text "x") in
@@ -317,6 +359,8 @@ let tests =
     ( "rejection atomicity and version checks",
       test_rejection_is_atomic_and_versions_are_checked );
     ("semantic intent resolution", test_intents_resolve_to_transactions);
+    ( "per-selection replacement is atomic and replayable",
+      test_per_selection_replacement_is_atomic_and_replayable );
     ("history undo, redo, and branches", test_history_undo_redo_and_branches);
     ("replay fixtures and serialization", test_replay_fixtures_and_serialization);
     ("deterministic generated properties", test_properties);

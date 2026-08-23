@@ -254,6 +254,60 @@ let rotate_primary context direction =
     in
     set_selections context ~selections ~primary
 
+let rotate_contents context direction ?group_size =
+  let _, values = selections context in
+  let count = List.length values in
+  let group_size = Option.value ~default:count group_size in
+  if group_size <= 0 then
+    Error (invalid "selection content rotation group size must be positive")
+  else if count < 2 then
+    Error (invalid "rotating selection contents requires multiple selections")
+  else if count mod group_size <> 0 then
+    Error
+      (invalid
+         "selection content rotation group size must divide the selection count")
+  else if
+    List.exists
+      (fun (value : offsets) -> value.start_offset = value.stop_offset)
+      values
+  then
+    Error (invalid "rotating selection contents requires non-empty selections")
+  else
+    let text = Editor_context.contents context in
+    let contents =
+      List.map
+        (fun (value : offsets) ->
+          String.sub text value.start_offset
+            (value.stop_offset - value.start_offset))
+        values
+    in
+    let rotate_group contents =
+      match direction with
+      | Forward -> (
+          match List.rev contents with
+          | [] -> assert false
+          | last :: reversed -> last :: List.rev reversed)
+      | Backward -> (
+          match contents with
+          | [] -> assert false
+          | first :: rest -> rest @ [ first ])
+    in
+    let rec take remaining values =
+      match (remaining, values) with
+      | 0, _ -> []
+      | _, [] -> assert false
+      | remaining, value :: values -> value :: take (remaining - 1) values
+    in
+    let rec rotate_groups values rotated =
+      match values with
+      | [] -> List.rev rotated
+      | _ ->
+          let group = take group_size values in
+          let rest = List.drop group_size values in
+          rotate_groups rest (List.rev_append (rotate_group group) rotated)
+    in
+    Ok (Model_intent.replace_selection_contents (rotate_groups contents []))
+
 let flip context =
   let primary, values = selections context in
   set_selections context

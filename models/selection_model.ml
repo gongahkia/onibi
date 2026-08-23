@@ -217,6 +217,10 @@ let select_input selecting event context =
       (Select default_select, [ Model_effect.Redo ])
   | None when is_alt event "_" ->
       (Select default_select, [ Semantic_commands.merge_consecutive ])
+  | None when is_alt event ")" ->
+      (Select default_select, [ Semantic_commands.rotate_contents_forward ])
+  | None when is_alt event "(" ->
+      (Select default_select, [ Semantic_commands.rotate_contents_backward ])
   | None when is_alt event ";" ->
       (Select default_select, [ Semantic_commands.flip_selections ])
   | None when is_alt event ":" ->
@@ -300,7 +304,7 @@ let input_rules = function
         input_rule "selection.retain-primary" (Input_rule.Exact ",")
           Input_rule.Binding "retain only the primary selection";
         input_rule "selection.selection-algebra"
-          (Input_rule.Text_range "(, ), Alt-_, Alt-;, or Alt-:")
+          (Input_rule.Text_range "(, ), Alt-_, Alt-(, Alt-), Alt-;, or Alt-:")
           Input_rule.Binding
           "rotate primary, merge consecutive selections, or change orientation";
         input_rule "selection.escape" (Input_rule.Named "Escape")

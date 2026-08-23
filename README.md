@@ -42,13 +42,16 @@ and plugin examples live in [Getting Started](docs/GETTING_STARTED.md).
 - The kernel owns immutable documents, UTF-8 validation, selections,
   transactions, branching undo/redo history, deterministic replay, clipboard
   slots, provenance, trace events, and profiler aggregates.
-- `zenbu.model_api` is the public boundary for editing models. The supplied
+- `zenbu.model_api` is the public boundary for editing models. It includes
+  model-neutral selection-set algebra—regex selection/splitting/filtering,
+  merge, primary/content rotation, and orientation operations—and the supplied
   Vim-style, selection-first, and structural models all use it.
 - `zenbu.syntax` provides version-bound OCaml and JSON snapshots through a
   private Tree-sitter backend. Its public `Syntax.Highlight` projection feeds
   terminal presentation without exposing parser pointers or queries.
-- The terminal host has literal Unicode search, a provider-neutral command
-  palette with typed argument prompts, save-as, a live model picker,
+- The terminal host has literal Unicode search, a provider-neutral searchable
+  command palette with typed argument prompts and a moving result window,
+  save-as, a live model picker,
   metadata-derived help, and bracketed paste aggregation. These remain host interactions; editing models can make
   declarative requests for reusable interactions such as literal search without
   receiving terminal-state access. Its semantic styles can be mapped to

@@ -2,6 +2,7 @@ type t =
   | Insert_text of string
   | Delete_selected_ranges
   | Replace_selected_ranges of string
+  | Replace_selection_contents of string list
   | Set_selections of { selections : Selection_spec.t list; primary : int }
   | Apply of { selector : Selector.t; transformation : Transformation.t }
 

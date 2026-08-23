@@ -12,5 +12,7 @@ val apply :
 val merge_consecutive : Zenbu_model_api.Model_effect.t
 val rotate_primary_forward : Zenbu_model_api.Model_effect.t
 val rotate_primary_backward : Zenbu_model_api.Model_effect.t
+val rotate_contents_forward : Zenbu_model_api.Model_effect.t
+val rotate_contents_backward : Zenbu_model_api.Model_effect.t
 val flip_selections : Zenbu_model_api.Model_effect.t
 val ensure_selections_forward : Zenbu_model_api.Model_effect.t

@@ -107,6 +107,44 @@ model that requested them.
 Semantic replay serializes `Apply` as a selector/transformation operation. It
 does not record logical input events or model states.
 
+## Selection-set algebra
+
+`zenbu.model_api.Selection_algebra` is a model-neutral layer above the primitive
+selectors. It derives an ordinary `set-selections` intent from copied
+`Editor_context` data; it neither mutates a document nor retains a live
+selection set. Builtin descriptors expose `select-regex`, `split-regex`,
+`keep-regex`, `remove-regex`, `merge-consecutive`, primary rotation in both
+directions, `flip`, and `ensure-forward` under the `editor.selection.*`
+namespace.
+
+Regex operations apply OCaml `Str` patterns independently within every current
+selection. Selecting replaces each selection with its non-empty matches;
+splitting drops non-empty matching separators; filtering keeps or removes whole
+selections according to whether they contain a match. Empty matches are
+rejected rather than risking non-terminating or ambiguous selection output.
+`Str` reports byte offsets, so the algebra validates every derived endpoint as
+a UTF-8 code-point boundary before it builds an intent. A byte-oriented pattern
+that would split a code point is an explicit command-argument error.
+
+Zenbu selection sets already reject overlapping non-empty ranges. Consequently
+`merge-consecutive` merges only exactly touching ranges and leaves separated
+ranges alone. A merged range is forward. Primary rotation preserves every
+range and changes only its primary index; `flip` swaps each anchor/head pair;
+`ensure-forward` replaces reversed pairs with increasing pairs. These are
+selection-only history changes and therefore retain normal validation,
+inspection, undo/redo, and deterministic replay.
+
+`replace-selection-contents` is the corresponding textual intent: it accepts
+one validated replacement string per current selection in document order and
+builds one atomic multi-edit transaction. It rejects a count mismatch before
+any edit can commit, and it is represented explicitly in `zenbu-replay-v1`.
+The selection algebra uses it for content rotation. Forward rotation moves each
+non-empty selection's text to the next selection and wraps the last text to the
+first; backward does the inverse. Rotation rejects fewer than two selections
+and empty selections. It deliberately does not implement Kakoune's optional
+count grouping, and replacement follows Zenbu's ordinary post-edit selection
+rebasing rather than claiming native selection-state parity.
+
 ## M5 syntax snapshots and structural selection
 
 `zenbu.syntax` is not a kernel selector vocabulary. It is an optional,

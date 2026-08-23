@@ -96,6 +96,7 @@ let transformation_of_string value =
 let insert_text text = Intent.Insert_text text
 let delete_selected_ranges = Intent.Delete_selected_ranges
 let replace_selected_ranges text = Intent.Replace_selected_ranges text
+let replace_selection_contents texts = Intent.Replace_selection_contents texts
 
 let set_selections ~selections ~primary =
   let rec specs values = function
@@ -120,7 +121,7 @@ let identity = Intent.identity
 
 let is_textual = function
   | Intent.Insert_text _ | Intent.Delete_selected_ranges
-  | Intent.Replace_selected_ranges _ ->
+  | Intent.Replace_selected_ranges _ | Intent.Replace_selection_contents _ ->
       true
   | Intent.Set_selections _ -> false
   | Intent.Apply { transformation = Transformation.Delete; _ }
@@ -141,7 +142,8 @@ let semantic_components value =
       ( Some (Selector.to_string selector),
         Some (Transformation.name transformation) )
   | Intent.Insert_text _ | Intent.Delete_selected_ranges
-  | Intent.Replace_selected_ranges _ | Intent.Set_selections _ ->
+  | Intent.Replace_selected_ranges _ | Intent.Replace_selection_contents _
+  | Intent.Set_selections _ ->
       (None, None)
 
 let to_kernel value = value

@@ -277,6 +277,31 @@ are session-wide and transient: there is one latest macro, no named/register
 storage, persistence, editing, repeat count, or terminal-host-shortcut capture.
 The `Macros` inspection reports recording state, the bound, and a preview.
 
+Builtin selection-algebra commands are ordinary binding targets too. The regex
+forms declare one required text parameter, so binding one opens the same typed
+prompt as selecting it in `Ctrl-P`:
+
+```lua
+zenbu.bind {
+  input = "S",
+  command = "editor.selection.split-regex",
+  scope = "model:zenbu.selection-first:select",
+}
+```
+
+The available ids are `editor.selection.select-regex`,
+`editor.selection.split-regex`, `editor.selection.keep-regex`,
+`editor.selection.remove-regex`, `editor.selection.merge-consecutive`,
+`editor.selection.rotate-primary-forward`,
+`editor.selection.rotate-primary-backward`,
+`editor.selection.rotate-contents-forward`,
+`editor.selection.rotate-contents-backward`, `editor.selection.flip`, and
+`editor.selection.ensure-forward`. Content rotation needs at least two
+non-empty selections and rotates their texts in document order. Regexes use
+OCaml `Str`, reject zero-width matches, and return an error when a byte-oriented
+match would split a UTF-8 code point; they are not a compatibility claim for
+Helix or Kakoune regexes.
+
 `zenbu-headless bindings vim` includes the same
 reserved-host list beside model and extension bindings.
 

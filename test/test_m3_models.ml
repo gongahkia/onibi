@@ -39,6 +39,10 @@ let control text =
   Input_event.key_press ~modifiers:[ Input_event.Control ]
     (Input_event.logical_text text |> must)
 
+let alt text =
+  Input_event.key_press ~modifiers:[ Input_event.Alt ]
+    (Input_event.logical_text text |> must)
+
 let committed text = Input_event.text_input text |> must
 
 let registry () =
@@ -612,6 +616,105 @@ let test_selection_algebra_and_regex_commands () =
   expect
     (rotated_selections.primary_index = 1)
     "primary rotation did not move to the next selection";
+  let contents =
+    history_with_selections "selection-contents" "one two three"
+      [ (0, 3); (4, 7); (8, 13) ]
+      ~primary:1
+  in
+  let forward =
+    Selection_algebra.rotate_contents (context contents)
+      Selection_algebra.Forward
+    |> must
+  in
+  let forward = apply_selection_intent contents forward in
+  expect_string ~expected:"three one two" ~actual:(text forward);
+  let backward =
+    Selection_algebra.rotate_contents (context contents)
+      Selection_algebra.Backward
+    |> must
+  in
+  let backward = apply_selection_intent contents backward in
+  expect_string ~expected:"two three one" ~actual:(text backward);
+  let unequal =
+    history_with_selections "selection-contents-unequal" "a bb ccc"
+      [ (0, 1); (2, 4); (5, 8) ]
+      ~primary:0
+  in
+  let unequal =
+    Selection_algebra.rotate_contents (context unequal)
+      Selection_algebra.Forward
+    |> must
+    |> apply_selection_intent unequal
+  in
+  expect_string ~expected:"ccc a bb" ~actual:(text unequal);
+  expect
+    (Result.is_error
+       (Selection_algebra.rotate_contents (context kept)
+          Selection_algebra.Forward))
+    "content rotation accepted one selection";
+  let with_empty =
+    history_with_selections "selection-contents-empty" "one two"
+      [ (0, 3); (4, 4) ]
+      ~primary:0
+  in
+  expect
+    (Result.is_error
+       (Selection_algebra.rotate_contents (context with_empty)
+          Selection_algebra.Forward))
+    "content rotation accepted an empty selection";
+  expect
+    (Result.is_error
+       (History.apply_intent ~source:Transaction.Test contents
+          (Model_intent.replace_selection_contents [ "one" ]
+          |> Model_intent.to_kernel)))
+    "mismatched per-selection replacement count was accepted";
+  let replay =
+    Replay.create ~document_id:"selection-content-replay"
+      ~contents:"one two three"
+      ~initial_selections:
+        {
+          Replay.selections =
+            [
+              Selection_spec.make ~anchor_offset:0 ~head_offset:3 |> must;
+              Selection_spec.make ~anchor_offset:4 ~head_offset:7 |> must;
+              Selection_spec.make ~anchor_offset:8 ~head_offset:13 |> must;
+            ];
+          primary = 1;
+        }
+      ~actions:
+        [
+          Replay.Intent
+            (Selection_algebra.rotate_contents (context contents)
+               Selection_algebra.Forward
+            |> must |> Model_intent.to_kernel);
+        ]
+    |> must
+  in
+  let replayed =
+    Replay.to_string replay |> Replay.of_string |> must |> Replay.run |> must
+  in
+  expect_string ~expected:"three one two" ~actual:(text replayed);
+  let content_runtime_document =
+    Document.create
+      ~id:(Document_id.of_string "selection-content-runtime" |> must)
+      ~contents:"one two three"
+      ~initial_selections:
+        [
+          Selection_spec.make ~anchor_offset:0 ~head_offset:3 |> must;
+          Selection_spec.make ~anchor_offset:4 ~head_offset:7 |> must;
+          Selection_spec.make ~anchor_offset:8 ~head_offset:13 |> must;
+        ]
+      ~primary:0 ()
+    |> must
+  in
+  let content_runtime =
+    Selection_runtime.create ~commands:(registry ())
+      ~document:content_runtime_document ()
+    |> must
+  in
+  let content_runtime = fold_selection content_runtime [ alt ")" ] in
+  expect_string ~expected:"three one two"
+    ~actual:(text (Selection_runtime.history content_runtime));
   let merged =
     history_with_selections "selection-merge" "abcdef"
       [ (0, 1); (1, 3); (4, 6) ]
