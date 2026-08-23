@@ -633,7 +633,7 @@ zenbu.bind {
   scope = "mode:user.insert",
 }
 |};
-      match check () with
+      (match check () with
       | Error (Error.Script_error { phase = "registration"; message; _ }) ->
           expect
             (contains message "declared text command parameter")
