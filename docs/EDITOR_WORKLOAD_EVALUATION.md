@@ -57,7 +57,7 @@ The feature sources are the projects' own documentation: [Vim help](https://vimh
 | Helix-style selection editor | selection-first model, multi-edit transactions, occurrence selection, syntax-structural selections, local buffers/views, scoped sequence bindings, nested declarative transient modes, and optional LSP completion/hover/definition/rename across already-open saved buffers | buffers can be assigned to split views | picker/config discovery, registers/macros, regex selection algebra, shell pipes, general workspace edits, full window model, and theme parity |
 | Kakoune-style multiple-selection editor | explicit ordered selections, selection-first edits, syntax context, scoped bindings/hooks, nested declarative transient modes, and local buffers/views | split views render independently and focus routes input to the assigned buffer | Kakoune's inclusive anchor/cursor model, selection split/rotate/merge/filter algebra, client/server sessions, shell filters, full command language, and face/highlighter ecosystem |
 | Micro-style terminal editor | ordinary text editing, syntax spans, local buffers/views, trusted Lua configuration, local plugins, save/search/palette, terminal themes, basic click/drag selection plus wheel scrolling, and scoped sequence bindings | Components and Lua can supply editing commands | mouse clipboard/menu/multi-click parity, interactive shell split, buffer tabs, plugin-manager/install flow, runtime theme/configuration surface, and complete keybinding/configuration surface |
-| Emacs terminal product | key-addressable commands, scoped sequence bindings, stackable declared transient modes, local buffers in split views, a typed argument minibuffer, configuration/plugin concepts, and asynchronous language host | transient stack composition, not general Emacs keymap composition | buffer/window/frame system, completion ecosystem, major/minor mode composition, Elisp/package/process APIs, display engine, and terminal appearance parity |
+| Emacs terminal product | key-addressable commands, buffer-local stackable declared transient modes, local buffers in split views, a typed argument minibuffer, configuration/plugin concepts, and asynchronous language host | transient stack composition, not general Emacs keymap composition | buffer/window/frame system, completion ecosystem, major/minor mode composition, Elisp/package/process APIs, display engine, and terminal appearance parity |
 
 “Supported now” means this repository has a testable behavior, not that its
 keystrokes or visual rendering exactly match the named editor. “Partial
@@ -115,8 +115,8 @@ id. M7 covers nested push/pop, lower-map fallback, unmatched-input containment,
 Escape fallback, and invalidation on reload. This is enough to prototype
 Helix-style nested prefixes and transient leader maps. It is not general Emacs
 keymap composition: there are no dynamically enabled independent minor maps,
-per-buffer local maps, or script-owned arbitrary state machines; Component ABI
-v1 cannot currently declare modes or transitions.
+per-buffer independently composed local maps, or script-owned arbitrary state
+machines; Component ABI v1 cannot currently declare modes or transitions.
 
 The insert-mode evaluation exposed a related boundary. A custom keymap could
 previously bind only fixed logical keys, so it could not express an adapter's

@@ -141,6 +141,7 @@ type buffer = {
   diagnostics : Language.diagnostic list;
   presentation_cache : presentation_cache option;
   search : search option;
+  active_modes : string list;
 }
 
 type t = {
@@ -952,6 +953,7 @@ let current_buffer session =
     diagnostics = session.diagnostics;
     presentation_cache = session.presentation_cache;
     search = session.search;
+    active_modes = session.active_modes;
   }
 
 let buffer_ids session =
@@ -1013,6 +1015,7 @@ let load_buffer ?(reset_interaction = true) session (buffer : buffer) =
       diagnostics = buffer.diagnostics;
       presentation_cache = buffer.presentation_cache;
       search = buffer.search;
+      active_modes = buffer.active_modes;
       current_buffer_id = buffer.id;
       inactive_buffers =
         current_buffer session
@@ -1483,6 +1486,7 @@ let create_buffer session ~id ?file_path ?language ~contents () =
                 diagnostics = [];
                 presentation_cache = None;
                 search = None;
+                active_modes = [];
               })))
 
 let show_new_buffer session (buffer : buffer) =
@@ -1497,6 +1501,7 @@ let show_new_buffer session (buffer : buffer) =
     diagnostics = buffer.diagnostics;
     presentation_cache = buffer.presentation_cache;
     search = buffer.search;
+    active_modes = buffer.active_modes;
     current_buffer_id = buffer.id;
     inactive_buffers = current_buffer session :: session.inactive_buffers;
     next_buffer_id = buffer.id + 1;
@@ -1670,7 +1675,7 @@ let reload_config session =
           Option.iter Scripting.dispose session.generation;
           lifecycle trace ~execution_id ~phase:"reload" ?generation
             ~outcome:"succeeded" ();
-          let active_modes =
+          let valid_active_modes modes =
             match generation with
             | Some generation
               when List.for_all
@@ -1678,9 +1683,19 @@ let reload_config session =
                        List.exists
                          (fun mode -> String.equal (Scripting.mode_id mode) id)
                          (Scripting.modes generation))
-                     session.active_modes ->
-                session.active_modes
+                     modes ->
+                modes
             | None | Some _ -> []
+          in
+          let active_modes = valid_active_modes session.active_modes in
+          let inactive_buffers =
+            List.map
+              (fun (buffer : buffer) ->
+                {
+                  buffer with
+                  active_modes = valid_active_modes buffer.active_modes;
+                })
+              inactive_buffers
           in
           let message =
             let plugin_count = List.length (Plugins.providers plugin_host) in
@@ -2178,6 +2193,7 @@ let update_current_from_buffer session (buffer : buffer) =
     diagnostics = buffer.diagnostics;
     presentation_cache = buffer.presentation_cache;
     search = buffer.search;
+    active_modes = buffer.active_modes;
   }
 
 let workspace_edit_targets session edits =
@@ -4098,6 +4114,7 @@ let session_for_buffer session (buffer : buffer) =
       diagnostics = buffer.diagnostics;
       presentation_cache = buffer.presentation_cache;
       search = buffer.search;
+      active_modes = buffer.active_modes;
       inactive_buffers = [];
       interaction = Idle;
       inspector = None;

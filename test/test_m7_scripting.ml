@@ -663,6 +663,11 @@ zenbu.bind { input = "<text>", command = "user.insert", text_argument = "text" }
 
 let test_custom_text_entry_binding () =
   let path = Filename.temp_file "zenbu-m7-text-mode" ".lua" in
+  let host session command =
+    match Zenbu_app.Session.handle_host session command with
+    | Zenbu_app.Session.Continue session -> session
+    | Zenbu_app.Session.Exit _ -> failf "workspace command unexpectedly exited"
+  in
   Fun.protect
     ~finally:(fun () -> Sys.remove path)
     (fun () ->
@@ -705,6 +710,15 @@ zenbu.bind {
         (Model_status.input_mode (Zenbu_app.Session.status session)
         = Model_status.Text_entry)
         "a text-entry custom mode did not publish text-entry input disposition";
+      let session = host session Zenbu_app.Session.New_buffer in
+      expect
+        (Model_status.id (Zenbu_app.Session.status session) = "normal")
+        "a new buffer inherited the previous buffer's custom mode stack";
+      let session = host session Zenbu_app.Session.Previous_buffer in
+      expect
+        (Model_status.id (Zenbu_app.Session.status session)
+        = "host-custom-mode:user.insert")
+        "switching buffers did not restore the originating buffer's custom mode";
       let session =
         Zenbu_app.Session.handle_input session
           (Input_event.text_input "界🙂" |> must)

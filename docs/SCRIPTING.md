@@ -196,8 +196,10 @@ consumed rather than reaching the base model. Bare `Escape` pops the innermost
 custom mode when it has no matching binding, while a mode-local `Escape`
 binding takes precedence. A reload retains the full stack only when every
 active id remains declared by the replacement generation; otherwise it clears
-the stack. This supports nested leader/transient/minor-map patterns, but not
-yet arbitrary Emacs-style keymap composition.
+the stack. Stacks belong to their buffer: opening a buffer starts with no
+custom modes, while switching views restores the target buffer's stack. This
+supports nested leader/transient/minor-map patterns, but not yet arbitrary
+Emacs-style keymap composition.
 
 Modes default to `input_mode = "keys"`. A mode may instead set
 `input_mode = "text"`, causing the terminal to emit committed Unicode text and
