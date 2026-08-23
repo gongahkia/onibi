@@ -12,8 +12,16 @@ complete editor distribution.
 
 ## Quick start
 
-On Linux x86_64, install `opam`, a C toolchain, `curl`, `tar`, and `sha256sum`,
-then follow this complete clone-to-editor path:
+On Linux x86_64, install `opam`, a C toolchain, `curl`, `tar`, and a SHA-256
+tool (`sha256sum` or `shasum`). On Apple Silicon macOS, install Xcode Command
+Line Tools, Homebrew, `opam`, and `lua@5.4`:
+
+```sh
+xcode-select --install
+brew install opam lua@5.4
+```
+
+Then follow this complete clone-to-editor path on either supported platform:
 
 ```sh
 git clone https://github.com/gongahkia/zenbu.git
@@ -21,6 +29,7 @@ cd zenbu
 make bootstrap
 make build
 eval "$(opam env --switch="$PWD" --set-switch)"
+eval "$(./scripts/zenbu-env.sh)"
 dune exec bin/zenbu.exe -- README.md
 ```
 
@@ -55,18 +64,18 @@ and plugin examples live in [Getting Started](docs/GETTING_STARTED.md).
   inspection, configuration, plugin, Component-contract, and generated-API
   tooling for deterministic CI use.
 
-## Bootstrap on Linux x86_64
+## Bootstrap on Linux x86_64 and Apple Silicon macOS
 
-M9's pinned Wasmtime C API currently supports Linux x86_64 only. Fedora users
-need `opam`, a C toolchain, `curl`, `tar`, and `sha256sum`; install those with
-DNF before bootstrapping.
+M9 pins official Wasmtime 47.0.3 C API archives for Linux x86_64 and Apple
+Silicon macOS. Fedora users need `opam`, a C toolchain, `curl`, `tar`, and
+`sha256sum`; macOS users need Xcode Command Line Tools and `brew install opam
+lua@5.4`.
 
 ```sh
 make bootstrap
 ```
 
-The target creates an ignored local opam switch with the system OCaml when needed
-(Zenbu requires OCaml 5.3.0 or newer),
+The target creates an ignored local OCaml 5.3.0 switch when needed,
 installs the package's test dependencies (including `ocamlformat`,
 `ocaml-lsp-server`, and the Tree-sitter OCaml/JSON sublibraries), checksum-fetches the pinned Wasmtime C
 API, and runs the full check. This resolves the common failure where a global
@@ -92,8 +101,8 @@ For a local development install after validation:
 make install
 ```
 
-This installs `zenbu` into the active Opam prefix and adds the dynamically
-required Wasmtime library under `PREFIX/lib/zenbu/`; no `sudo` is involved.
+This installs `zenbu` into the active Opam prefix and adds the platform
+Wasmtime library under `PREFIX/lib/zenbu/`; no `sudo` is involved.
 `make release` builds checked release-profile binaries in
 `.zenbu/release-build/default/bin/` after the release gate. They are dynamically linked and
 become portable only with `lib/zenbu/libwasmtime.so`, as packaged by the
@@ -106,6 +115,7 @@ directly, activate it in the current shell:
 
 ```sh
 eval "$(opam env --switch="$PWD" --set-switch)"
+eval "$(./scripts/zenbu-env.sh)"
 ```
 
 ```sh
@@ -196,6 +206,7 @@ Zenbu has no multi-buffer/cross-file LSP workflow, project search,
 external-file watcher, pane/layout system, command-line/Ex language, plugin
 marketplace, asynchronous extension execution, public Tree-sitter query API,
 grammar downloads, refactoring engine, or system clipboard bridge. Component
-runtime support is Linux x86_64-specific because of the pinned native C API.
+runtime support is limited to Linux x86_64 and Apple Silicon macOS because of
+the pinned native C API.
 See the deferred work in
 [the roadmap](docs/ROADMAP.md).

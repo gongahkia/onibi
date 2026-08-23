@@ -17,7 +17,8 @@ limits live in [M11 pressure test](M11_PRESSURE_TEST.md).
 | Script/plugin lifecycle | M7/M8/M9 tests cover registration, reload replacement/failure retention, capabilities, provenance, and runtime limits. |
 | Regression breadth | `make check` runs formatter validation, all builds, and every test executable; `make demo` exercises the public headless path. |
 
-Known bounded risks remain: the Component runtime is native Linux x86_64 code;
+Known bounded risks remain: the Component runtime is native Linux x86_64 and
+Apple Silicon macOS code;
 bracketed paste is mediated by terminal markers that Notty documents as
 best-effort; and the renderer is synchronous/full-frame rather than a terminal
 capability-negotiating UI framework.

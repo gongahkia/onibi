@@ -8,20 +8,20 @@ provenance.
 
 ## Runtime and installation
 
-The host embeds the official Wasmtime 47.0.3 Linux x86_64 C API behind a private
-C shim. Run this once in a fresh checkout:
+The host embeds the official Wasmtime 47.0.3 C API behind a private C shim.
+Linux x86_64 uses the matching Linux archive; Apple Silicon macOS uses the
+matching aarch64 macOS archive. Run this once in a fresh checkout:
 
 ```sh
 make wasm-runtime
 ```
 
 The script downloads the exact official archive into ignored `.zenbu/`, verifies
-SHA-256 `aaa3621f2a3d8393696702897f8f78a1cc504437d500701496d560125aefd732`,
-and refuses to replace an incomplete existing destination. `make build`,
+its platform-specific SHA-256, and refuses to replace an incomplete existing
+destination. `make build`,
 `make test`, `make check`, and `make demo` only verify that this prerequisite is
-present; they never download an archive implicitly. The current pin is
-Linux x86_64 only; a Wasmtime upgrade or a new platform port must repeat the
-ADR 0026 vertical spike and M9 conformance suite.
+present; they never download an archive implicitly. Any Wasmtime upgrade or new
+platform port must repeat the ADR 0026 vertical spike and M9 conformance suite.
 
 The embedded linker registers no WASI implementation and this v1 Component
 world has no host imports. Consequently a component importing `wasi:*`, an

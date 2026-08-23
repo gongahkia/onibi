@@ -23,6 +23,5 @@ updates the package metadata, and records the validation evidence below.
 6. Re-check the worktree. The release artifact must not contain `_opam/`,
    `.zenbu/`, build output, or unreviewed generated changes.
 
-GitHub Actions covers this gate on Ubuntu 24.04. macOS is intentionally not a
-release platform because the pinned Wasmtime C API archive supports Linux
-x86_64 only.
+GitHub Actions covers the source-build gate on Ubuntu 24.04 and Apple Silicon
+macOS. The tag-triggered packaged release remains Linux x86_64-only.

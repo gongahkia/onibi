@@ -210,9 +210,10 @@ let test_errors_and_registration_conflicts () =
          Zenbu_scripting.Scripting.check_file ~base_commands:(base_commands ())
            ~base_semantics:(base_semantics ()) path
        with
-      | Error (Error.Script_error { source = Some source; line = Some _; _ }) ->
-          expect (contains source path) "Lua parse error reported source %s"
-            source
+      | Error (Error.Script_error { source = Some source; line = Some line; _ })
+        ->
+          expect (source = path) "Lua parse error reported source %s" source;
+          expect (line = 1) "Lua parse error reported line %d" line
       | Error error ->
           failf "missing structured Lua location: %s" (Error.to_string error)
       | Ok _ -> failf "invalid Lua configuration was accepted");

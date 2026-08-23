@@ -28,7 +28,37 @@ type state = unit ptr
 module Callback =
   (val dynamic_funptr ~runtime_lock:true (ptr void @-> returning int))
 
-let library = lazy (Dl.dlopen ~filename:"liblua-5.4.so" ~flags:[ Dl.RTLD_NOW ])
+let lua_library_candidates () =
+  let defaults =
+    [
+      "liblua-5.4.so";
+      "liblua5.4.so.0";
+      "liblua5.4.so";
+      "liblua.5.4.dylib";
+      "liblua5.4.dylib";
+      "/opt/homebrew/opt/lua@5.4/lib/liblua.5.4.dylib";
+      "/usr/local/opt/lua@5.4/lib/liblua.5.4.dylib";
+    ]
+  in
+  match Sys.getenv_opt "ZENBU_LUA_LIBRARY" with
+  | Some path when String.length path > 0 -> path :: defaults
+  | None | Some _ -> defaults
+
+let library =
+  lazy
+    (let rec open_library errors = function
+       | [] ->
+           raise
+             (Dl.DL_error
+                ("cannot load Lua 5.4; tried "
+                ^ String.concat "; " (List.rev errors)))
+       | filename :: rest -> (
+           try Dl.dlopen ~filename ~flags:[ Dl.RTLD_NOW ]
+           with Dl.DL_error message ->
+             open_library ((filename ^ ": " ^ message) :: errors) rest)
+     in
+     open_library [] (lua_library_candidates ()))
+
 let bind name signature = foreign ~from:(Lazy.force library) name signature
 let new_state = bind "luaL_newstate" (void @-> returning (ptr void))
 let close = bind "lua_close" (ptr void @-> returning void)
@@ -118,6 +148,22 @@ let lua_function = 6
 let error ?line phase source message =
   Error.Script_error { phase; source = Some source; line; message }
 
+let normalize_source ~default_source source =
+  let prefix = "[string \"" in
+  let suffix = "\"]" in
+  let source_length = String.length source in
+  let prefix_length = String.length prefix in
+  let suffix_length = String.length suffix in
+  if
+    source_length >= prefix_length + suffix_length
+    && String.sub source 0 prefix_length = prefix
+    && String.sub source (source_length - suffix_length) suffix_length = suffix
+  then
+    String.sub source prefix_length
+      (source_length - prefix_length - suffix_length)
+  else if String.length source = 0 then default_source
+  else source
+
 let location_from_message ~default_source message =
   let length = String.length message in
   let rec scan index =
@@ -144,7 +190,7 @@ let location_from_message ~default_source message =
                  (String.sub message (index + 1) (stop - index - 1)))
           with Failure _ -> None
         in
-        ((if String.length source = 0 then default_source else source), line)
+        (normalize_source ~default_source source, line)
   in
   scan 0
 
@@ -152,6 +198,7 @@ let lua_error backend phase message =
   let source, line =
     location_from_message ~default_source:backend.source message
   in
+  let source = if phase = "parse" then backend.source else source in
   error ?line phase source message
 
 let string_at state index =

@@ -13,7 +13,7 @@ This repository implements M0-M11.
 | M6 | provenance, `why`, discovery, history, trace, syntax, profiling | implemented |
 | M7 | trusted-local hot-reloadable Lua configuration | implemented; experimental API |
 | M8 | local plugin contract, capabilities, SDK, diagnostics | implemented |
-| M9 | isolated WebAssembly Component plugin runtime | implemented on Linux x86_64 |
+| M9 | isolated WebAssembly Component plugin runtime | implemented on Linux x86_64 and Apple Silicon macOS |
 | M10 | usability, adoption, and release hardening | implemented in this checkout |
 | M11 | model-neutral asynchronous language intelligence | implemented in this checkout |
 
@@ -35,8 +35,7 @@ API. See [Language services](LANGUAGE_SERVICES.md).
 
 The following remain deliberately out of scope:
 
-- cross-platform Wasmtime C API distribution and a first-party Component guest
-  SDK/package build tool;
+- a first-party Component guest SDK/package build tool;
 - signatures, dependency resolution, remote download, project discovery, or a
   plugin marketplace;
 - hard wall-clock cancellation, asynchronous/background extension execution,

@@ -73,8 +73,8 @@ is available in Wasmtime 47 if a future approved capability service needs it.
 
 ## Limits and next design work
 
-M9 is Linux x86_64-only because it pins the official Wasmtime 47.0.3 C API
-archive. Guest compilation is separate from ordinary Zenbu builds; committed
+M9 supports Linux x86_64 and Apple Silicon macOS through pinned official
+Wasmtime 47.0.3 C API archives. Guest compilation is separate from ordinary Zenbu builds; committed
 base64 fixtures have Rust/Cargo Component source, regeneration targets, and
 checksum checks. Calls are synchronous and fuel-bounded but lack hard
 wall-clock interruption. V1 intentionally omits filesystem, network, process,
@@ -83,7 +83,7 @@ rich guest-pull host interfaces. A fuel-aborted Wasmtime instance may be
 non-enterable until explicit reload; M9 proves normal editor input remains
 operational, not that the failed Component stays callable.
 
-The next small architectural goal should be cross-platform Wasmtime bootstrap
-and a supported guest-fixture/toolchain workflow, followed by a separately
-designed asynchronous execution boundary. Neither should add a direct editor
+The next small architectural goal should be a supported guest-fixture/toolchain
+workflow, followed by a separately designed asynchronous execution boundary.
+Neither should add a direct editor
 mutation path or expand Extension API v1 casually.

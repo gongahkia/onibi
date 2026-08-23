@@ -7,9 +7,16 @@ directly.
 
 ## Install from a clone
 
-Linux x86_64 is the supported interactive platform in M11 because the pinned
-Wasmtime C API archive is Linux x86_64-only. Install `opam`, a C toolchain,
-`curl`, `tar`, and `sha256sum`, then run:
+Linux x86_64 and Apple Silicon macOS are supported interactive platforms in
+M11. Linux needs `opam`, a C toolchain, `curl`, `tar`, and `sha256sum`.
+macOS needs Xcode Command Line Tools, Homebrew, and Lua 5.4:
+
+```sh
+xcode-select --install
+brew install opam lua@5.4
+```
+
+Then run:
 
 ```sh
 git clone https://github.com/gongahkia/zenbu.git
@@ -17,6 +24,7 @@ cd zenbu
 make bootstrap
 make build
 eval "$(opam env --switch="$PWD" --set-switch)"
+eval "$(./scripts/zenbu-env.sh)"
 dune exec bin/zenbu.exe -- README.md
 ```
 
@@ -34,8 +42,8 @@ zenbu README.md
 ```
 
 The target installs `zenbu` under the active prefix's `bin/` directory and
-copies its required `libwasmtime.so` to `PREFIX/lib/zenbu/`. It is a Linux
-x86_64 dynamic install, not a static binary.
+copies its platform Wasmtime dynamic library to `PREFIX/lib/zenbu/`. Linux
+release artifacts remain Linux x86_64-only; macOS support is for source builds.
 
 ## First ten minutes
 

@@ -22,9 +22,10 @@
     -Wextra
     -Werror
     -I
-    %{env:ZENBU_WASMTIME_C_API_INCLUDE_DIR=../../../.zenbu/wasmtime-v47.0.3-x86_64-linux-c-api/include})))
+    %{env:ZENBU_WASMTIME_C_API_INCLUDE_DIR=../../../.zenbu/wasmtime-c-api/include})))
  (c_library_flags
-  -L%{env:ZENBU_WASMTIME_C_API_LIB_DIR=../../.zenbu/wasmtime-v47.0.3-x86_64-linux-c-api/lib}
-  -Wl,-rpath,%{env:ZENBU_WASMTIME_C_API_RPATH=$ORIGIN/../../../.zenbu/wasmtime-v47.0.3-x86_64-linux-c-api/lib}
+  -L%{env:ZENBU_WASMTIME_C_API_LIB_DIR=../../.zenbu/wasmtime-c-api/lib}
+  -Wl,-rpath,%{env:ZENBU_WASMTIME_C_API_BUILD_RPATH=$ORIGIN/../../../.zenbu/wasmtime-c-api/lib}
+  -Wl,-rpath,%{env:ZENBU_WASMTIME_C_API_INSTALL_RPATH=$ORIGIN/../lib/zenbu}
   -lwasmtime)
  (libraries zenbu_kernel zenbu_model_api zenbu_scripting otoml unix))
