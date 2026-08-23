@@ -27,12 +27,13 @@ type Config struct {
 }
 
 type Source struct {
-	Enabled             bool          `toml:"enabled"`
-	RefreshMinutes      int           `toml:"refresh_minutes"`
-	AvailabilityMaxDays int           `toml:"availability_max_days"`
-	API                 SourceAPI     `toml:"api"`
-	Browser             SourceBrowser `toml:"browser"`
-	Public              SourcePublic  `toml:"public"`
+	Enabled             bool           `toml:"enabled"`
+	RefreshMinutes      int            `toml:"refresh_minutes"`
+	AvailabilityMaxDays int            `toml:"availability_max_days"`
+	API                 SourceAPI      `toml:"api"`
+	Browser             SourceBrowser  `toml:"browser"`
+	Public              SourcePublic   `toml:"public"`
+	ActiveSG            SourceActiveSG `toml:"activesg"`
 }
 
 // SourceAPI describes a partner-provided, read-only availability endpoint.
@@ -69,6 +70,17 @@ type SourcePublic struct {
 	Enabled          bool   `toml:"enabled"`
 	AvailabilityURL  string `toml:"availability_url"`
 	SlotJSONSelector string `toml:"slot_json_selector"`
+}
+
+// SourceActiveSG configures the dedicated, read-only ActiveSG badminton
+// reader. It uses only an imported browser session and does not automate
+// login, booking, ballot review, payment, confirmation, CAPTCHA, or OTP.
+type SourceActiveSG struct {
+	Enabled            bool     `toml:"enabled"`
+	VenueListURL       string   `toml:"venue_list_url"`
+	VenueNames         []string `toml:"venue_names"`
+	ScanAll            bool     `toml:"scan_all"`
+	SessionStateBase64 string   `toml:"session_state_base64"`
 }
 
 type Routing struct {
@@ -124,7 +136,7 @@ func Default() (Config, error) {
 		Sources: map[string]Source{
 			"sportsg-facilities":       {Enabled: true},
 			"onemap":                   {Enabled: true},
-			"myactivesg":               {Enabled: false, RefreshMinutes: 30},
+			"myactivesg":               {Enabled: false, RefreshMinutes: 60},
 			"onepa":                    {Enabled: false, RefreshMinutes: 30},
 			"the-kallang":              {Enabled: false, RefreshMinutes: 30},
 			"sba-stadium":              {Enabled: true, RefreshMinutes: 60, AvailabilityMaxDays: 7},
@@ -216,7 +228,21 @@ func (config Config) Validate() error {
 		if source.Public.Enabled && (strings.TrimSpace(source.Public.AvailabilityURL) == "" || strings.TrimSpace(source.Public.SlotJSONSelector) == "") {
 			return fmt.Errorf("sources.%s.public needs availability_url and slot_json_selector when enabled", id)
 		}
-		if !builtInPublicReader(id) && id != "sportsg-facilities" && id != "onemap" && !source.API.Enabled && !source.Browser.Enabled && !source.Public.Enabled {
+		if source.ActiveSG.Enabled {
+			if id != "myactivesg" {
+				return fmt.Errorf("sources.%s.activesg is only supported for myactivesg", id)
+			}
+			if strings.TrimSpace(source.ActiveSG.VenueListURL) == "" || strings.TrimSpace(source.ActiveSG.SessionStateBase64) == "" {
+				return fmt.Errorf("sources.%s.activesg needs venue_list_url and session_state_base64 when enabled", id)
+			}
+			if !source.ActiveSG.ScanAll && len(normalizedStrings(source.ActiveSG.VenueNames)) == 0 {
+				return fmt.Errorf("sources.%s.activesg needs venue_names or scan_all = true", id)
+			}
+			if source.API.Enabled || source.Browser.Enabled || source.Public.Enabled {
+				return fmt.Errorf("sources.%s.activesg cannot be combined with api, browser, or public access", id)
+			}
+		}
+		if !builtInPublicReader(id) && id != "sportsg-facilities" && id != "onemap" && !source.API.Enabled && !source.Browser.Enabled && !source.Public.Enabled && !source.ActiveSG.Enabled {
 			return fmt.Errorf("sources.%s is enabled without an availability access mode", id)
 		}
 	}
@@ -236,6 +262,16 @@ func builtInPublicReader(sourceID string) bool {
 	default:
 		return false
 	}
+}
+
+func normalizedStrings(values []string) []string {
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			result = append(result, value)
+		}
+	}
+	return result
 }
 
 func (config Config) ResolveSecret(value string) (string, error) {
@@ -278,8 +314,18 @@ enabled = true
 # credentials must use env: references.
 [sources.myactivesg]
 enabled = false
-refresh_minutes = 30
+refresh_minutes = 60
 # availability_max_days = 0 # 0 uses the source's supported maximum
+
+# The dedicated ActiveSG badminton reader is session-import only. It reads the
+# venue list, clicks date cards, and records visible instant hourly slots. It
+# never selects a slot or opens ballot, checkout, or payment flows.
+[sources.myactivesg.activesg]
+enabled = false
+venue_list_url = "https://activesg.gov.sg/facility-bookings/activities/YLONatwvqJfikKOmB5N9U/venues"
+# venue_names = ["Jurong East Sport Hall"]
+scan_all = false
+# session_state_base64 = "env:KAYPOH_ACTIVESG_SESSION_STATE_B64"
 
 [sources.myactivesg.api]
 enabled = false

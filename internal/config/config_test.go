@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -64,8 +65,12 @@ func TestWriteExampleRefusesOverwrite(t *testing.T) {
 	if err := WriteExample(path); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(path); err != nil {
+	contents, err := os.ReadFile(path)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if !strings.Contains(string(contents), "[sources.myactivesg.activesg]") {
+		t.Fatal("config example is missing the dedicated ActiveSG reader")
 	}
 	if err := WriteExample(path); err == nil {
 		t.Fatal("expected overwrite refusal")
@@ -80,5 +85,23 @@ func TestValidateRejectsEnabledPartnerWithoutReadAccess(t *testing.T) {
 	config.Sources["onepa"] = Source{Enabled: true}
 	if err := config.Validate(); err == nil {
 		t.Fatal("enabled partner without reader configuration was accepted")
+	}
+}
+
+func TestValidateActiveSGReaderNeedsImportedSessionAndScope(t *testing.T) {
+	config, err := Default()
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.Sources["myactivesg"] = Source{Enabled: true, ActiveSG: SourceActiveSG{Enabled: true, VenueListURL: "https://activesg.gov.sg/facility-bookings/activities/YLONatwvqJfikKOmB5N9U/venues"}}
+	if err := config.Validate(); err == nil {
+		t.Fatal("ActiveSG reader without imported session was accepted")
+	}
+	activeSG := config.Sources["myactivesg"]
+	activeSG.ActiveSG.SessionStateBase64 = "env:KAYPOH_ACTIVESG_SESSION_STATE_B64"
+	activeSG.ActiveSG.ScanAll = true
+	config.Sources["myactivesg"] = activeSG
+	if err := config.Validate(); err != nil {
+		t.Fatalf("valid ActiveSG reader configuration = %v", err)
 	}
 }

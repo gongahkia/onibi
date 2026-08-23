@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/base64"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -10,6 +11,7 @@ import (
 	"github.com/gongahkia/kaypoh/internal/config"
 	"github.com/gongahkia/kaypoh/internal/domain"
 	"github.com/gongahkia/kaypoh/internal/geo"
+	"github.com/gongahkia/kaypoh/internal/sources/activesg"
 )
 
 func TestOpenSeedsSourcePolicy(t *testing.T) {
@@ -47,6 +49,33 @@ func TestDisabledPartnerDoesNotResolveItsSecrets(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = service.Close() })
+}
+
+func TestOpenSelectsDedicatedActiveSGReader(t *testing.T) {
+	cfg, err := config.Default()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.DatabasePath = filepath.Join(t.TempDir(), "kaypoh.db")
+	activeSG := cfg.Sources[activesg.SourceID]
+	activeSG.Enabled = true
+	activeSG.ActiveSG = config.SourceActiveSG{
+		Enabled: true, VenueListURL: activesg.BadmintonVenueListURL, VenueNames: []string{"Jurong East"},
+		SessionStateBase64: base64.StdEncoding.EncodeToString([]byte(`{"cookies":[],"origins":[]}`)),
+	}
+	cfg.Sources[activesg.SourceID] = activeSG
+	service, err := Open(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = service.Close() })
+	adapter, err := service.sources.Adapter(activesg.SourceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := adapter.(*activesg.Adapter); !ok {
+		t.Fatalf("myactivesg adapter = %T, want dedicated ActiveSG reader", adapter)
+	}
 }
 
 func TestRouteFallsBackWithoutOptionalOneMapCredentials(t *testing.T) {

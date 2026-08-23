@@ -8,6 +8,19 @@ enabled = true
 [sources.onemap]
 enabled = true
 
+# ActiveSG is an imported-session reader. It remains disabled until the local
+# environment contains a deliberately exported Playwright storage state.
+[sources.myactivesg]
+enabled = false
+refresh_minutes = 60
+
+[sources.myactivesg.activesg]
+enabled = false
+venue_list_url = "https://activesg.gov.sg/facility-bookings/activities/YLONatwvqJfikKOmB5N9U/venues"
+scan_all = false
+# venue_names = ["Jurong East Sport Hall"]
+# session_state_base64 = "env:KAYPOH_ACTIVESG_SESSION_STATE_B64"
+
 # These verified anonymous readers have no API key or login requirement. Their
 # windows are deliberately bounded to keep public booking reads modest.
 [sources.sba-stadium]

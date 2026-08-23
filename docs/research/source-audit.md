@@ -20,7 +20,7 @@ source health; an empty successful snapshot is distinct from a failed request.
 
 | Source ID | Operator / badminton surface | Read access | Horizon default |
 | --- | --- | --- | --- |
-| `myactivesg` | ActiveSG | partner API or approved ActiveSG browser/public reader | 15 days |
+| `myactivesg` | ActiveSG | dedicated imported-session badminton browser reader, or partner API/browser/public reader | 15 days |
 | `onepa` | People's Association / onePA | partner API or approved browser/public reader | 15 days |
 | `the-kallang` | The Kallang / OCBC Arena | PerfectGym/partner API or approved browser/public reader | 30 days |
 | `sba-stadium` | Singapore Badminton Association / KFF Badminton Arena @ Guillemard | built-in public anonymous reader; API/browser/public mapper override supported | 7 days |
@@ -35,9 +35,36 @@ The public readers use a one-hour poll floor. Smash's public interface requires
 a request per available hour, so its default is one day; a longer configured
 window deliberately increases read volume.
 
+## Runtime audit: 2026-08-23 (Asia/Singapore)
+
+The documented Docker audit was run against the enabled anonymous readers:
+
+```sh
+docker compose build
+docker compose run --rm daemon config validate
+docker compose run --rm daemon refresh --json
+docker compose run --rm daemon sources doctor
+docker compose run --rm daemon search --date 2026-08-23 --duration 1h
+docker compose up -d daemon
+```
+
+All five enabled public contracts completed without a failure: SBA returned 257
+availability records, Singapore Badminton Hall 2,553, Smash Arena 7, Wyse
+Active 1,304, and SportSG discovered 45 venues. Those counts are point-in-time
+observations rather than a coverage guarantee. OneMap correctly reported
+`credentials_required`; it was not treated as a reader failure. `myactivesg`,
+onePA, The Kallang, and TruSmash were disabled and were therefore intentionally
+outside this live audit.
+
+Use `refresh --json` as the live contract check. `sources doctor` reports the
+last persisted health and does not send a new upstream request. See the
+[device migration and provider onboarding runbook](../operations/device-migration-and-provider-onboarding.md)
+for the repeatable audit procedure and next-provider handoff.
+
 ## Supporting official surfaces
 
 - [ActiveSG badminton facilities](https://www.activesgcircle.gov.sg/facilities/badminton)
+- [ActiveSG badminton facility-booking venue list](https://activesg.gov.sg/facility-bookings/activities/YLONatwvqJfikKOmB5N9U/venues)
 - [onePA availability](https://www.onepa.gov.sg/facilities/availability)
 - [The Kallang badminton](https://change.sportshub.com.sg/sport-fitness/badminton)
 - [SBA playing and KFF booking](https://singaporebadminton.org.sg/playing/)
@@ -49,6 +76,30 @@ window deliberately increases read volume.
 SportSG's [data.gov.sg facility dataset](https://data.gov.sg/datasets/d_9b87bab59d036a60fad2a91530e10773/view)
 is separately used for venue discovery. OneMap is separately used for optional
 geocoding and routing when configured.
+
+## ActiveSG browser-reader contract
+
+The dedicated `myactivesg` reader is restricted to the verified **badminton**
+venue-list URL above. It requires a user- or partner-imported Playwright
+storage-state value and is disabled by default. The reader has no login,
+credential, booking, ballot-review, checkout, payment, CAPTCHA, or OTP code.
+
+The August 2026 browser audit established this read-only interaction contract:
+
+1. Read venue cards from their `.../venues/<venue-id>/timeslots` links.
+2. Visit selected cards, or every current card only when `scan_all = true`.
+3. Click each `View timeslots for <weekday>, <day> <month>` date card.
+4. Read visible hour labels and normalize instant starts to `HH:mm`.
+
+The observed pages state that each instant slot is one hour long, so the mapper
+creates the half-open interval `[start, start + 1 hour)`. [Inference] The
+surface is venue-level: it does not expose a stable per-court identity in the
+date-card read path. Therefore only visible instant hourly slots reach
+Kaypoh's bookable-slot table. Ballot availability, an existing ballot, and a
+date with no visible hours are parsed as non-bookable results and do not become
+bookable records. A venue page that cannot be read fails the entire snapshot;
+Kaypoh does not persist a partial scan and accidentally reconcile unseen slots
+as unavailable.
 
 ## Operator hand-off checklist
 

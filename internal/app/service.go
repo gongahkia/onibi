@@ -17,6 +17,7 @@ import (
 	"github.com/gongahkia/kaypoh/internal/query"
 	"github.com/gongahkia/kaypoh/internal/ranking"
 	"github.com/gongahkia/kaypoh/internal/source"
+	"github.com/gongahkia/kaypoh/internal/sources/activesg"
 	"github.com/gongahkia/kaypoh/internal/sources/partner"
 	"github.com/gongahkia/kaypoh/internal/sources/publicavailability"
 	"github.com/gongahkia/kaypoh/internal/sources/sportsg"
@@ -64,7 +65,9 @@ func Open(ctx context.Context, cfg config.Config) (*Service, error) {
 			return nil, err
 		}
 		var adapter source.Adapter
-		if publicavailability.Supports(spec.ID) && !configuredPartnerAccess(settings) {
+		if spec.ID == activesg.SourceID && settings.ActiveSG.Enabled {
+			adapter, err = activesg.New(info, settings, browserClient)
+		} else if publicavailability.Supports(spec.ID) && !configuredPartnerAccess(settings) {
 			adapter, err = publicavailability.New(info, settings, transport)
 		} else {
 			adapter, err = partner.New(info, spec, settings, transport, browserClient)
@@ -151,6 +154,9 @@ func resolveSourceSettings(cfg config.Config, sourceID string) (config.Source, e
 		return config.Source{}, err
 	}
 	if settings.Browser.SessionStateBase64, err = resolve("browser.session_state_base64", settings.Browser.SessionStateBase64); err != nil {
+		return config.Source{}, err
+	}
+	if settings.ActiveSG.SessionStateBase64, err = resolve("activesg.session_state_base64", settings.ActiveSG.SessionStateBase64); err != nil {
 		return config.Source{}, err
 	}
 	return settings, nil

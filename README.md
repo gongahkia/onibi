@@ -23,12 +23,15 @@ have a one-hour poll floor. Smash Arena is intentionally one day by default:
 its public surface requires a separate read for every available hour; increase
 `availability_max_days` only if that extra upstream load is appropriate.
 
-ActiveSG, onePA, The Kallang / OCBC Arena, and TruSmash remain disabled: this
-repository has no confirmed anonymous availability endpoint for them. They can
-still be configured with a partner API, approved browser session, or public
-JSON mapper, in that order. A configured API/browser/public reader takes
-precedence over the built-in reader, so a provider can migrate to an official
-API without code changes.
+ActiveSG, onePA, The Kallang / OCBC Arena, and TruSmash remain disabled by
+default: this repository has no confirmed anonymous availability endpoint for
+them. ActiveSG has a dedicated badminton reader for an operator-imported
+Playwright session; it reads venue links, date cards, and visible instant hour
+labels only. It does not automate login or select a slot, open a ballot,
+checkout, or payment flow. The remaining partners can be configured with a
+partner API, approved browser session, or public JSON mapper, in that order.
+A configured API/browser/public reader takes precedence over a built-in reader,
+so a provider can migrate to an official API without code changes.
 
 SportSG's official facility dataset remains enabled for venue discovery. OneMap
 is used for optional geocoding/routing when its credentials are configured.
@@ -101,6 +104,9 @@ control. To stop services without deleting saved availability data, use
 `docker compose down`. Removing `kaypoh-data` deletes the local SQLite database
 and watch history.
 
+For a device change, repeatable provider audit, or the next provider onboarding
+pass, follow the [device migration and provider onboarding runbook](docs/operations/device-migration-and-provider-onboarding.md).
+
 ## Optional partner source configuration
 
 The config file is written with mode `0600`. Use `env:NAME` references for
@@ -172,6 +178,36 @@ If a source requires CAPTCHA, OTP, or another interactive challenge, provide a
 partner-generated session state or leave the source disabled. Kaypoh does not
 attempt to solve or bypass interactive challenges.
 
+### ActiveSG badminton reader
+
+The ActiveSG reader is a separate, dedicated path because the booking page
+renders hourly availability after a date-card click rather than exposing the
+generic JSON contract above. It accepts only the verified badminton venue-list
+URL and an imported session. It does not accept credentials or login selectors.
+
+```toml
+[sources.myactivesg]
+enabled = true
+refresh_minutes = 60
+availability_max_days = 15
+
+[sources.myactivesg.activesg]
+enabled = true
+venue_list_url = "https://activesg.gov.sg/facility-bookings/activities/YLONatwvqJfikKOmB5N9U/venues"
+venue_names = ["Jurong East Sport Hall", "Bukit Gombak Sport Hall"]
+scan_all = false
+session_state_base64 = "env:KAYPOH_ACTIVESG_SESSION_STATE_B64"
+```
+
+Set `scan_all = true` and omit `venue_names` only when a sequential scan of
+every venue on the current list is intended. Name matching is case-insensitive
+substring matching. The reader maps visible **instant** hourly starts to
+bookable one-hour slots. Ballot-only, already-balloted, and empty dates are
+read as non-bookable results, but are not published as bookable slots:
+Kaypoh has no ballot-entry feature and its search results mean a concrete,
+bookable time. ActiveSG does not expose per-court identity on this surface, so
+these records are venue-level availability rather than court-specific claims.
+
 ## HTTP API and MCP
 
 The local HTTP API and MCP server query already-normalized badminton slots; they
@@ -189,4 +225,6 @@ go build ./cmd/kaypoh
 Fixture tests cover source-payload normalization, public-response parsing,
 cookie-session isolation, freshness/reconciliation, query/ranking, API, MCP,
 and local watches. The public readers depend on external booking surfaces, so
-run `kaypoh refresh …` or `sources doctor` to verify their current health.
+run `kaypoh refresh …` to exercise their current contracts. `sources doctor`
+reports the most recently persisted source health; it does not make another
+upstream request.
