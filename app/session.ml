@@ -200,8 +200,9 @@ let host_descriptor ?(parameters = []) id title description =
     ~title ~description ~category:"host" ~parameters ~provider:host_provider ()
   |> static
 
-let text_parameter ~name ~description ~required =
-  Command_descriptor.{ name; description; required; kind = Text }
+let text_parameter ~name ~description:parameter_description ~required =
+  Command_descriptor.
+    { name; description = parameter_description; required; kind = Text }
 
 let language_descriptor id title description =
   Command_descriptor.create
@@ -461,6 +462,46 @@ let host_binding_lines () =
     "host reserved: Ctrl-O -> why inspector (zenbu.app)";
     "host reserved: Ctrl-Space -> language.complete (zenbu.language)";
   ]
+
+let command_prompt_message descriptor parameter =
+  Printf.sprintf "command %s: enter %s (%s)"
+    (Command_descriptor.id descriptor |> Command_id.to_string)
+    parameter.Command_descriptor.name parameter.description
+
+let begin_command_prompt session ~action ~descriptor =
+  match Command_descriptor.parameters descriptor with
+  | [] -> session
+  | parameter :: remaining ->
+      {
+        session with
+        interaction =
+          Command_prompt
+            {
+              action;
+              descriptor;
+              remaining = parameter :: remaining;
+              arguments_rev = [];
+              text = "";
+            };
+        message = Some (command_prompt_message descriptor parameter);
+        quit_armed = false;
+        inspector = None;
+      }
+
+let command_argument_of_text parameter text =
+  let value =
+    match parameter.Command_descriptor.kind with
+    | Command_descriptor.Text -> Ok (Command_argument.Text text)
+    | Command_descriptor.Selector ->
+        Model_intent.selector_of_string text
+        |> Result.map (fun selector -> Command_argument.Selector selector)
+    | Command_descriptor.Transformation ->
+        Model_intent.transformation_of_string text
+        |> Result.map (fun transformation ->
+               Command_argument.Transformation transformation)
+  in
+  Result.bind value (fun value ->
+      Command_argument.make ~name:parameter.name ~value)
 
 let commands () =
   match
@@ -837,6 +878,10 @@ let status session =
   | Palette _ ->
       host_status ~id:"host-palette" ~label:"COMMAND"
         ~description:"filter registered commands from all active providers"
+        ~text_entry:true ()
+  | Command_prompt _ ->
+      host_status ~id:"host-command-argument" ~label:"ARGUMENT"
+        ~description:"enter the current typed command argument; Escape cancels"
         ~text_entry:true ()
   | Save_as_prompt _ ->
       host_status ~id:"host-save-as" ~label:"SAVE AS"
@@ -2295,7 +2340,7 @@ let poll_language session =
   if session.current_buffer_id = foreground then session
   else activate_buffer ~reset_interaction:false session foreground
 
-let invoke_bound_command session input binding =
+let invoke_bound_command ?(arguments = []) session input binding =
   let command = Scripting.binding_command binding in
   let trace_binding next =
     let execution_id =
@@ -2329,25 +2374,52 @@ let invoke_bound_command session input binding =
     | Error error ->
         ({ session with message = Some (Error.to_string error) }, false)
     | Ok id ->
-        let invocation =
-          Command_invocation.create ~id ~arguments:[] |> Result.get_ok
-        in
-        let next, changed =
-          execute_active_effects
-            ~augment_provenance:(fun provenance ->
-              Provenance.add provenance
-                (Provenance.Binding
-                   {
-                     input =
-                       Input_event.binding_sequence_to_string
-                         (Scripting.binding_inputs binding);
-                     command;
-                     provider = Scripting.binding_provider binding;
-                   }))
-            session input
-            [ Model_effect.Invoke_command invocation ]
-        in
-        (trace_binding next, changed)
+        if List.length arguments = 0 then
+          match Command_registry.find (active_commands session.active) id with
+          | Ok command when Command_descriptor.parameters (Command.descriptor command) <> [] ->
+              ( begin_command_prompt session ~action:(Bound_command binding)
+                  ~descriptor:(Command.descriptor command),
+                false )
+          | Ok _ | Error _ ->
+              let invocation =
+                Command_invocation.create ~id ~arguments |> Result.get_ok
+              in
+              let next, changed =
+                execute_active_effects
+                  ~augment_provenance:(fun provenance ->
+                    Provenance.add provenance
+                      (Provenance.Binding
+                         {
+                           input =
+                             Input_event.binding_sequence_to_string
+                               (Scripting.binding_inputs binding);
+                           command;
+                           provider = Scripting.binding_provider binding;
+                         }))
+                  session input
+                  [ Model_effect.Invoke_command invocation ]
+              in
+              (trace_binding next, changed)
+        else
+          let invocation =
+            Command_invocation.create ~id ~arguments |> Result.get_ok
+          in
+          let next, changed =
+            execute_active_effects
+              ~augment_provenance:(fun provenance ->
+                Provenance.add provenance
+                  (Provenance.Binding
+                     {
+                       input =
+                         Input_event.binding_sequence_to_string
+                           (Scripting.binding_inputs binding);
+                       command;
+                       provider = Scripting.binding_provider binding;
+                     }))
+              session input
+              [ Model_effect.Invoke_command invocation ]
+          in
+          (trace_binding next, changed)
 
 let rec run_event_hooks session event input =
   if List.mem event session.delivering_events then session
@@ -2598,6 +2670,7 @@ let palette_items session =
       description = Command_descriptor.description descriptor;
       provider = Command_descriptor.provider descriptor;
       action;
+      descriptor;
     }
   in
   let host =
@@ -2798,16 +2871,32 @@ let save session =
       }
   | Some path -> save_to session path
 
-let invoke_host_palette_command session input = function
+let required_text_argument arguments name =
+  match List.find_opt (fun argument -> Command_argument.name argument = name) arguments with
+  | Some argument -> (
+      match Command_argument.value argument with
+      | Command_argument.Text value -> Ok value
+      | Command_argument.Selector _ | Command_argument.Transformation _ ->
+          Error
+            (Error.Invalid_command_arguments
+               ("expected text argument " ^ name)))
+  | None -> Error (Error.Invalid_command_arguments ("missing argument " ^ name))
+
+let invoke_host_palette_command ?(arguments = []) session input = function
   | Save -> save session
   | Save_as ->
-      {
-        session with
-        interaction = Save_as_prompt "";
-        message = Some "save-as: enter a destination path";
-        quit_armed = false;
-        inspector = None;
-      }
+      if arguments = [] then
+        {
+          session with
+          interaction = Save_as_prompt "";
+          message = Some "save-as: enter a destination path";
+          quit_armed = false;
+          inspector = None;
+        }
+      else (
+        match required_text_argument arguments "path" with
+        | Ok path -> save_to session path
+        | Error error -> { session with message = Some (Error.to_string error) })
   | Reload_config -> { (reload_config session) with interaction = Idle }
   | Start_search -> begin_search session
   | Search_next ->
@@ -2839,12 +2928,17 @@ let invoke_host_palette_command session input = function
   | Only_pane -> { (only_pane session) with interaction = Idle }
   | New_buffer -> { (new_buffer session) with interaction = Idle }
   | Open_buffer ->
-      {
-        session with
-        interaction = Open_buffer_prompt "";
-        message = Some "workspace: enter a file path";
-        inspector = None;
-      }
+      if arguments = [] then
+        {
+          session with
+          interaction = Open_buffer_prompt "";
+          message = Some "workspace: enter a file path";
+          inspector = None;
+        }
+      else (
+        match required_text_argument arguments "path" with
+        | Ok path -> open_buffer session path
+        | Error error -> { session with message = Some (Error.to_string error) })
   | Next_buffer -> { (cycle_buffer session 1) with interaction = Idle }
   | Previous_buffer -> { (cycle_buffer session (-1)) with interaction = Idle }
   | Switch_model ->
@@ -2906,11 +3000,12 @@ let invoke_host_palette_command session input = function
              terminal loop can exit safely";
       }
 
-let invoke_palette_item session input item =
+let invoke_palette_item_with_arguments session input (item : palette_item)
+    arguments =
   match item.action with
   | Invoke_command id ->
-      let invocation =
-        Command_invocation.create ~id ~arguments:[] |> Result.get_ok
+    let invocation =
+        Command_invocation.create ~id ~arguments |> Result.get_ok
       in
       let next, _ =
         execute_active_effects
@@ -2921,7 +3016,14 @@ let invoke_palette_item session input item =
       in
       { next with interaction = Idle; inspector = None }
   | Invoke_host_command command ->
-      invoke_host_palette_command session input command
+      invoke_host_palette_command ~arguments session input command
+
+let invoke_palette_item session input (item : palette_item) =
+  match Command_descriptor.parameters item.descriptor with
+  | [] -> invoke_palette_item_with_arguments session input item []
+  | _ ->
+      begin_command_prompt session ~action:(Palette_item item)
+        ~descriptor:item.descriptor
 
 let input_for_interaction session input =
   match session.interaction with
@@ -3080,6 +3182,89 @@ let input_for_interaction session input =
               session with
               interaction = Palette { query = query ^ text; selected = 0 };
             })
+  | Command_prompt
+      { action; descriptor; remaining; arguments_rev; text } -> (
+      match remaining with
+      | [] -> { session with interaction = Idle }
+      | parameter :: rest ->
+          if event_is_named input Input_event.Escape then
+            {
+              session with
+              interaction = Idle;
+              message = Some "command argument prompt cancelled";
+            }
+          else if event_is_named input Input_event.Enter then
+            if String.length text = 0 && parameter.required then
+              {
+                session with
+                message =
+                  Some
+                    ("command argument " ^ parameter.name ^ " is required");
+              }
+            else
+              let argument =
+                if String.length text = 0 then Ok None
+                else
+                  command_argument_of_text parameter text
+                  |> Result.map Option.some
+              in
+              match argument with
+              | Error error -> { session with message = Some (Error.to_string error) }
+              | Ok argument ->
+                  let arguments_rev =
+                    match argument with
+                    | None -> arguments_rev
+                    | Some argument -> argument :: arguments_rev
+                  in
+                  (match rest with
+                  | next :: _ ->
+                      {
+                        session with
+                        interaction =
+                          Command_prompt
+                            {
+                              action;
+                              descriptor;
+                              remaining = rest;
+                              arguments_rev;
+                              text = "";
+                            };
+                        message = Some (command_prompt_message descriptor next);
+                      }
+                  | [] ->
+                      let arguments = List.rev arguments_rev in
+                      match action with
+                      | Palette_item item ->
+                          invoke_palette_item_with_arguments session input item
+                            arguments
+                      | Bound_command binding ->
+                          fst
+                            (invoke_bound_command ~arguments
+                               { session with interaction = Idle }
+                               input binding))
+          else if event_is_named input Input_event.Backspace then
+            {
+              session with
+              interaction =
+                Command_prompt
+                  { action; descriptor; remaining; arguments_rev; text = drop_last_utf8 text };
+            }
+          else
+            match event_text input with
+            | None -> session
+            | Some value ->
+                {
+                  session with
+                  interaction =
+                    Command_prompt
+                      {
+                        action;
+                        descriptor;
+                        remaining;
+                        arguments_rev;
+                        text = text ^ value;
+                      };
+                })
   | Save_as_prompt path -> (
       if event_is_named input Input_event.Escape then
         { session with interaction = Idle; message = Some "save-as cancelled" }
@@ -3340,7 +3525,7 @@ let handle_pointer session input =
   with
   | Some _, _, _
   | ( None,
-      ( Search_prompt _ | Palette _ | Save_as_prompt _ | Open_buffer_prompt _
+      ( Search_prompt _ | Palette _ | Command_prompt _ | Save_as_prompt _ | Open_buffer_prompt _
       | Model_picker _ | Help_view | Hover_view _ | Completion_view _
       | Rename_prompt _ ),
       _ ) ->
@@ -3699,7 +3884,7 @@ let model_choice_name = function
 
 let interaction_overlay session =
   match session.interaction with
-  | Idle | Search_prompt _ | Save_as_prompt _ | Open_buffer_prompt _
+  | Idle | Search_prompt _ | Command_prompt _ | Save_as_prompt _ | Open_buffer_prompt _
   | Rename_prompt _ ->
       None
   | Help_view -> Some (help_lines session)
@@ -3774,6 +3959,12 @@ let interaction_message session =
       Some
         (Printf.sprintf "/%s  %d match%s" query count
            (if count = 1 then "" else "es"))
+  | Command_prompt { descriptor; remaining = parameter :: _; text; _ } ->
+      Some
+        (Printf.sprintf "%s %s: %s"
+           (Command_descriptor.id descriptor |> Command_id.to_string)
+           parameter.name text)
+  | Command_prompt { remaining = []; _ } -> session.message
   | Save_as_prompt path -> Some ("destination: " ^ path)
   | Open_buffer_prompt path -> Some ("open: " ^ path)
   | Rename_prompt name -> Some ("rename: " ^ name)
@@ -4003,7 +4194,7 @@ let inspect session inspection =
               | Some index -> "current-match: " ^ string_of_int (index + 1));
               (match session.interaction with
               | Search_prompt _ -> "prompt: open"
-              | Idle | Palette _ | Save_as_prompt _ | Open_buffer_prompt _
+              | Idle | Palette _ | Command_prompt _ | Save_as_prompt _ | Open_buffer_prompt _
               | Model_picker _ | Help_view | Hover_view _ | Completion_view _
               | Rename_prompt _ ->
                   "prompt: closed");

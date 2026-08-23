@@ -52,10 +52,10 @@ let extension_argument_value argument =
             [] )
 
 let extension_arguments invocation =
-  Command_invocation.arguments invocation
-  |> List.map (fun argument ->
-         (Command_argument.name argument, extension_argument_value argument))
-  |> Extension_value.Record
+  Extension_value.Record
+    (Command_invocation.arguments invocation
+    |> List.map (fun argument ->
+           (Command_argument.name argument, extension_argument_value argument)))
 
 let execute value context invocation =
   if

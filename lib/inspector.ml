@@ -99,7 +99,15 @@ let describe_command descriptor =
       @ Option.to_list
           (Option.map
              (fun category -> ("category", category))
-             (Command_descriptor.category descriptor));
+             (Command_descriptor.category descriptor))
+      @ List.map
+          (fun parameter ->
+            ( "parameter",
+              parameter.Command_descriptor.name ^ " ("
+              ^ Command_descriptor.parameter_kind_to_string parameter.kind
+              ^ (if parameter.required then ", required" else ", optional")
+              ^ "): " ^ parameter.description ))
+          (Command_descriptor.parameters descriptor);
   }
 
 let describe_model descriptor =

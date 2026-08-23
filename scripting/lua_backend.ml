@@ -388,10 +388,12 @@ let parameter_of_value = function
   | Value.Record fields ->
       let ( let* ) = Result.bind in
       let* name = parameter_text fields "name" in
-      let* description = parameter_text fields "description" in
+      let* parameter_description = parameter_text fields "description" in
       let* required = parameter_required fields in
       let* kind = parameter_kind fields in
-      Ok Descriptor.{ name; description; required; kind }
+      Ok
+        Descriptor.
+          { name; description = parameter_description; required; kind }
   | _ -> Error (parameter_error "each parameter must be a table")
 
 let parameters_of_value = function
