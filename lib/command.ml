@@ -34,6 +34,29 @@ let create_extension_effectful ~descriptor ~host ~invocation ~decode =
 
 let descriptor value = value.descriptor
 
+let extension_argument_value argument =
+  match Command_argument.value argument with
+  | Command_argument.Text text -> Extension_value.Text text
+  | Command_argument.Selector selector ->
+      Extension_value.Text
+        (Selector.to_string (Model_intent.selector_to_kernel selector))
+  | Command_argument.Transformation transformation ->
+      let transformation = Model_intent.transformation_to_kernel transformation in
+      Extension_value.Record
+        ( [ ("kind", Extension_value.Text (Transformation.name transformation)) ]
+        @
+        match transformation with
+        | Transformation.Replace_text text -> [ ("text", Extension_value.Text text) ]
+        | Transformation.Select | Transformation.Delete
+        | Transformation.Collapse_to_start | Transformation.Collapse_to_end ->
+            [] )
+
+let extension_arguments invocation =
+  Command_invocation.arguments invocation
+  |> List.map (fun argument ->
+         (Command_argument.name argument, extension_argument_value argument))
+  |> Extension_value.Record
+
 let execute value context invocation =
   if
     not
@@ -73,7 +96,7 @@ let execute_effects value context invocation =
         let request =
           Extension_host.request extension_invocation
             ~kind:Extension_host.Command ~operation:"command.invoke" ~context
-            ~arguments:Extension_value.Nil
+            ~arguments:(extension_arguments invocation)
         in
         Result.bind
           (Extension_host.invoke host extension_invocation request)

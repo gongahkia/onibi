@@ -8,6 +8,7 @@ type descriptor = {
   title : string;
   description : string;
   requires_syntax : bool;
+  parameters : Zenbu_model_api.Command_descriptor.parameter list;
 }
 
 type binding = { input : string; command : string; scope : string option }

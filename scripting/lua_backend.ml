@@ -3,6 +3,7 @@ open Foreign
 module Error = Zenbu_kernel.Error
 module Value = Zenbu_model_api.Extension_value
 module Host = Zenbu_model_api.Extension_host
+module Descriptor = Zenbu_model_api.Command_descriptor
 
 type callback = int
 
@@ -11,6 +12,7 @@ type descriptor = {
   title : string;
   description : string;
   requires_syntax : bool;
+  parameters : Descriptor.parameter list;
 }
 
 type binding = { input : string; command : string; scope : string option }
@@ -360,6 +362,61 @@ let optional_boolean state table name =
   pop state 1;
   value
 
+let parameter_error message = error "registration" "<lua>" message
+
+let parameter_text fields name =
+  match Value.find (Value.Record fields) name with
+  | Some (Value.Text value) when String.length value > 0 -> Ok value
+  | _ -> Error (parameter_error ("parameter needs string field " ^ name))
+
+let parameter_required fields =
+  match Value.find (Value.Record fields) "required" with
+  | None -> Ok true
+  | Some (Value.Bool value) -> Ok value
+  | Some _ -> Error (parameter_error "parameter field required must be a boolean")
+
+let parameter_kind fields =
+  match Value.find (Value.Record fields) "kind" with
+  | None -> Ok Descriptor.Text
+  | Some (Value.Text value) ->
+      Descriptor.parameter_kind_of_string value
+      |> Result.map_error (fun error ->
+             parameter_error (Zenbu_kernel.Error.to_string error))
+  | Some _ -> Error (parameter_error "parameter field kind must be a string")
+
+let parameter_of_value = function
+  | Value.Record fields ->
+      let ( let* ) = Result.bind in
+      let* name = parameter_text fields "name" in
+      let* description = parameter_text fields "description" in
+      let* required = parameter_required fields in
+      let* kind = parameter_kind fields in
+      Ok Descriptor.{ name; description; required; kind }
+  | _ -> Error (parameter_error "each parameter must be a table")
+
+let parameters_of_value = function
+  | Value.List values ->
+      let rec collect result = function
+        | [] -> Ok (List.rev result)
+        | value :: rest ->
+            Result.bind (parameter_of_value value) (fun parameter ->
+                collect (parameter :: result) rest)
+      in
+      collect [] values
+  | _ -> Error (parameter_error "field parameters must be a list of tables")
+
+let optional_parameters state table =
+  ignore (get_field state table "parameters");
+  let result =
+    match value_type state (-1) with
+    | value_type when value_type = lua_nil -> Ok []
+    | value_type when value_type = lua_table ->
+        Result.bind (value_at state (-1)) parameters_of_value
+    | _ -> Error (parameter_error "field parameters must be a list of tables")
+  in
+  pop state 1;
+  result
+
 let callback_field state table name =
   ignore (get_field state table name);
   if value_type state (-1) <> lua_function then (
@@ -372,20 +429,23 @@ let descriptor state table =
     ( required_text state table "id",
       optional_text state table "title",
       optional_text state table "description",
-      optional_boolean state table "requires_syntax" )
+      optional_boolean state table "requires_syntax",
+      optional_parameters state table )
   with
-  | Ok id, Ok title, Ok description, Ok requires_syntax ->
+  | Ok id, Ok title, Ok description, Ok requires_syntax, Ok parameters ->
       Ok
         {
           id;
           title = Option.value title ~default:id;
           description = Option.value description ~default:id;
           requires_syntax;
+          parameters;
         }
-  | Error error, _, _, _
-  | _, Error error, _, _
-  | _, _, Error error, _
-  | _, _, _, Error error ->
+  | Error error, _, _, _, _
+  | _, Error error, _, _, _
+  | _, _, Error error, _, _
+  | _, _, _, Error error, _
+  | _, _, _, _, Error error ->
       Error error
 
 let registration_error backend state error =

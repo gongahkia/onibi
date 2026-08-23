@@ -24,11 +24,13 @@ let descriptor =
              Command_descriptor.name = "selector";
              description = "The model-neutral target selector.";
              required = true;
+             kind = Command_descriptor.Selector;
            };
            {
              Command_descriptor.name = "transformation";
              description = "The model-neutral transformation.";
              required = true;
+             kind = Command_descriptor.Transformation;
            };
          ]
        ~examples:[ "editor.apply(selector: next-word, transformation: delete)" ]

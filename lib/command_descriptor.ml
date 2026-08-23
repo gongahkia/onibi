@@ -1,6 +1,13 @@
 open Zenbu_kernel
 
-type parameter = { name : string; description : string; required : bool }
+type parameter_kind = Text | Selector | Transformation
+
+type parameter = {
+  name : string;
+  description : string;
+  required : bool;
+  kind : parameter_kind;
+}
 
 type t = {
   id : Command_id.t;
@@ -43,5 +50,20 @@ let title value = value.title
 let description value = value.description
 let category value = value.category
 let parameters value = value.parameters
+
+let parameter_kind_to_string = function
+  | Text -> "text"
+  | Selector -> "selector"
+  | Transformation -> "transformation"
+
+let parameter_kind_of_string = function
+  | "text" -> Ok Text
+  | "selector" -> Ok Selector
+  | "transformation" -> Ok Transformation
+  | value ->
+      Error
+        (Error.Invalid_command_arguments
+           ("unknown command parameter kind " ^ value))
+
 let examples value = value.examples
 let provider value = value.provider

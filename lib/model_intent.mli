@@ -37,6 +37,8 @@ val set_selections :
 val apply : selector:selector -> transformation:transformation -> t
 val selector_to_kernel : selector -> Zenbu_kernel.Selector.t
 val transformation_to_kernel : transformation -> Zenbu_kernel.Transformation.t
+val selector_of_string : string -> (selector, Zenbu_kernel.Error.t) result
+val transformation_of_string : string -> (transformation, Zenbu_kernel.Error.t) result
 val identity : t -> string
 val is_textual : t -> bool
 val semantic_components : t -> string option * string option

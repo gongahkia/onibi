@@ -17,11 +17,13 @@ let apply_descriptor =
              Command_descriptor.name = "selector";
              description = "The target selector.";
              required = true;
+             kind = Command_descriptor.Selector;
            };
            {
              Command_descriptor.name = "transformation";
              description = "The action applied to selected regions.";
              required = true;
+             kind = Command_descriptor.Transformation;
            };
          ]
        ~examples:

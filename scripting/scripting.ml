@@ -489,7 +489,8 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
                           match
                             Command_descriptor.create ~id
                               ~title:definition.title
-                              ~description:definition.description ~provider ()
+                              ~description:definition.description
+                              ~parameters:definition.parameters ~provider ()
                           with
                           | Error error -> fail error
                           | Ok descriptor -> (
