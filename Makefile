@@ -1,4 +1,4 @@
-.PHONY: bootstrap build test fmt check demo benchmark extension-docs wasm-runtime wasm-runtime-ready lua-runtime-ready install release release-check
+.PHONY: bootstrap build test fmt check demo benchmark extension-docs wasm-runtime wasm-runtime-ready lua-runtime-ready install release release-archive release-check
 
 LOCAL_OPAM_BIN := $(CURDIR)/_opam/bin
 ifneq ($(wildcard $(LOCAL_OPAM_BIN)/dune),)
@@ -8,6 +8,7 @@ endif
 PLATFORM_ENV := eval "$$(./scripts/zenbu-env.sh)";
 OCAML_COMPILER ?= ocaml-base-compiler.5.3.0
 BOOTSTRAP_TMP ?= $(CURDIR)/.zenbu/tmp
+RELEASE_ARTIFACT_DIR ?= $(CURDIR)/dist
 
 wasm-runtime:
 	./scripts/fetch_wasmtime_c_api.sh
@@ -73,6 +74,9 @@ release: wasm-runtime-ready release-check
 	$(PLATFORM_ENV) $(OPAM_ENV) dune build --build-dir "$(CURDIR)/.zenbu/release-build" --profile release bin/zenbu.exe bin/zenbu_headless.exe
 	@echo "release-profile artifacts: .zenbu/release-build/default/bin/zenbu.exe and .zenbu/release-build/default/bin/zenbu_headless.exe"
 	@echo "they require the platform Wasmtime library beside the installed prefix at ../lib/zenbu; make install supplies it"
+
+release-archive: release lua-runtime-ready
+	./scripts/package_release_archive.sh "$(CURDIR)/.zenbu/release-build" "$(RELEASE_ARTIFACT_DIR)"
 
 release-check: check
 	@tmp=$$(mktemp -d); trap 'rm -rf "$$tmp"' EXIT; \

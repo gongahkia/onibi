@@ -24,4 +24,8 @@ updates the package metadata, and records the validation evidence below.
    `.zenbu/`, build output, or unreviewed generated changes.
 
 GitHub Actions covers the source-build gate on Ubuntu 24.04 and Apple Silicon
-macOS. The tag-triggered packaged release remains Linux x86_64-only.
+macOS. The tag-triggered release workflow also packages Linux x86_64 and Apple
+Silicon macOS archives. The macOS bundle includes Wasmtime, Lua 5.4, and
+libffi, and its launchers set `ZENBU_LUA_LIBRARY` to the bundled copy. These
+are unsigned command-line archives; code signing and notarization require
+separate Apple distribution credentials and are not part of this workflow.

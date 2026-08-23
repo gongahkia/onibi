@@ -42,8 +42,14 @@ zenbu README.md
 ```
 
 The target installs `zenbu` under the active prefix's `bin/` directory and
-copies its platform Wasmtime dynamic library to `PREFIX/lib/zenbu/`. Linux
-release artifacts remain Linux x86_64-only; macOS support is for source builds.
+copies its platform Wasmtime dynamic library to `PREFIX/lib/zenbu/`.
+
+## Packaged releases
+
+Tagged builds produce source-validated `tar.gz` archives for Linux x86_64 and
+Apple Silicon macOS. The macOS archive bundles Wasmtime, Lua 5.4, and libffi;
+run its `bin/zenbu` or `bin/zenbu-headless` launchers after extraction. These
+macOS command-line archives are unsigned and not notarized.
 
 ## First ten minutes
 

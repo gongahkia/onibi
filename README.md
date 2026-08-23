@@ -105,8 +105,20 @@ This installs `zenbu` into the active Opam prefix and adds the platform
 Wasmtime library under `PREFIX/lib/zenbu/`; no `sudo` is involved.
 `make release` builds checked release-profile binaries in
 `.zenbu/release-build/default/bin/` after the release gate. They are dynamically linked and
-become portable only with `lib/zenbu/libwasmtime.so`, as packaged by the
-tag-triggered Linux release-candidate workflow.
+become portable only with their bundled runtime libraries. The tag-triggered
+release-candidate workflow produces archives for Linux x86_64 and Apple
+Silicon macOS. On macOS, the archive includes Wasmtime, Lua 5.4, and libffi;
+its `bin/` launchers select the bundled Lua library.
+
+To produce the archive for the current supported host locally:
+
+```sh
+make release-archive
+```
+
+The resulting `dist/zenbu-<version>-<platform>.tar.gz` is unsigned. Apple
+code signing and notarization are deliberately outside this source-build
+release workflow.
 
 ## Run the editor
 

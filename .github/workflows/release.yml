@@ -16,16 +16,26 @@ jobs:
         run: make bootstrap OCAML_COMPILER=ocaml-base-compiler.5.3.0
       - name: build release-profile binaries
         run: make release
-      - name: bundle the dynamic Wasmtime runtime
-        run: |
-          version="$(cat VERSION)"
-          bundle="zenbu-${version}-linux-x86_64"
-          mkdir -p "$bundle/bin" "$bundle/lib/zenbu"
-          cp .zenbu/release-build/default/bin/zenbu.exe "$bundle/bin/zenbu"
-          cp .zenbu/release-build/default/bin/zenbu_headless.exe "$bundle/bin/zenbu-headless"
-          cp .zenbu/wasmtime-v47.0.3-x86_64-linux-c-api/lib/libwasmtime.so "$bundle/lib/zenbu/"
-          tar -czf "${bundle}.tar.gz" "$bundle"
+      - name: package release archive
+        run: make release-archive RELEASE_ARTIFACT_DIR=.
       - uses: actions/upload-artifact@v4
         with:
           name: zenbu-linux-x86_64
           path: zenbu-*-linux-x86_64.tar.gz
+  macos-arm64:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: install runtime dependencies
+        run: brew install lua@5.4 libffi
+      - uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: ocaml-base-compiler.5.3.0
+      - name: bootstrap the documented local environment
+        run: make bootstrap OCAML_COMPILER=ocaml-base-compiler.5.3.0
+      - name: package release archive
+        run: make release-archive RELEASE_ARTIFACT_DIR=.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zenbu-darwin-arm64
+          path: zenbu-*-darwin-arm64.tar.gz
