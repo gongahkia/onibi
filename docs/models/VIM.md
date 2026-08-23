@@ -56,13 +56,15 @@ models can use the same effect without depending on terminal code.
 ## Deliberate limits
 
 This is not a full Vim clone. It currently excludes Ex/command-line commands,
-Vim-compatible macro/register behavior, marks, mappings, registers beyond
+full Vim-compatible macro/register behavior, marks, mappings, registers beyond
 Zenbu's internal characterwise and linewise slots, blockwise visual mode, text
 objects beyond words, regex search, full desired-column behavior, multi-buffer
 workflows, and Vimscript/plugin compatibility. Zenbu's generic session keyboard
-macro commands can be bound to `Q`/`q` through Lua and have a bounded transient
-named store (`@` by default), but do not implement Vim's `q{register}` grammar,
-persistence, counts, or macro editing. The shared `.` repeat facility records ordinary semantic intents;
+macro store is transient and bounded (`@` by default). The supplied model maps
+`q{register}` to start recording, bare `q` to stop, and `@{register}` to replay
+one Unicode-scalar register name. It does not implement uppercase/global
+register behavior, macro counts, persistence, or macro editing. The shared `.`
+repeat facility records ordinary semantic intents;
 model-calculated find operators such as `df{char}` do not yet establish a
 repeat source. The explicit limits make additions useful API tests instead of an
 accidental second editor kernel.

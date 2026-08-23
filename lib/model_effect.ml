@@ -4,6 +4,11 @@ type message_level = Info | Warning | Error
 type message = { level : message_level; text : string }
 type search_direction = Forward | Backward
 
+type macro_request =
+  | Reserve_macro_input
+  | Toggle_macro_recording of string
+  | Replay_macro of string
+
 type selection_action =
   | Transform of Model_intent.transformation
   | Copy of { slot : Clipboard.slot; kind : Clipboard.kind }
@@ -35,6 +40,7 @@ type t =
     }
   | Request_search of search_direction
   | Repeat_search of search_direction
+  | Request_macro of macro_request
   | Undo
   | Redo
   | Repeat_last_edit
@@ -59,8 +65,8 @@ let selector_id = function
       Some (Semantic_operation.selector_id operation.selector)
   | Apply_to_selections { selector_id; _ } -> Some selector_id
   | Invoke_command _ | Emit_message _ | Copy_to_clipboard _
-  | Paste_from_clipboard _ | Request_search _ | Repeat_search _ | Undo | Redo
-  | Repeat_last_edit ->
+  | Paste_from_clipboard _ | Request_search _ | Repeat_search _
+  | Request_macro _ | Undo | Redo | Repeat_last_edit ->
       None
 
 let transformation_id = function
@@ -77,8 +83,8 @@ let transformation_id = function
            (Model_intent.transformation_to_kernel transformation))
   | Apply_to_selections { action = Copy _; _ } -> None
   | Invoke_command _ | Emit_message _ | Copy_to_clipboard _
-  | Paste_from_clipboard _ | Request_search _ | Repeat_search _ | Undo | Redo
-  | Repeat_last_edit ->
+  | Paste_from_clipboard _ | Request_search _ | Repeat_search _
+  | Request_macro _ | Undo | Redo | Repeat_last_edit ->
       None
 
 let identity = function
@@ -104,6 +110,10 @@ let identity = function
   | Request_search Backward -> "request-search:backward"
   | Repeat_search Forward -> "repeat-search:forward"
   | Repeat_search Backward -> "repeat-search:backward"
+  | Request_macro Reserve_macro_input -> "request-macro:reserve-input"
+  | Request_macro (Toggle_macro_recording register) ->
+      "request-macro:toggle-recording:" ^ register
+  | Request_macro (Replay_macro register) -> "request-macro:replay:" ^ register
   | Undo -> "undo"
   | Redo -> "redo"
   | Repeat_last_edit -> "repeat-last-edit"
@@ -143,6 +153,11 @@ let describe = function
   | Request_search Backward -> "request a backward literal search"
   | Repeat_search Forward -> "request the next literal search match"
   | Repeat_search Backward -> "request the previous literal search match"
+  | Request_macro Reserve_macro_input ->
+      "reserve the current input for macro control"
+  | Request_macro (Toggle_macro_recording register) ->
+      "start or stop recording macro register " ^ register
+  | Request_macro (Replay_macro register) -> "replay macro register " ^ register
   | Undo -> "undo"
   | Redo -> "redo"
   | Repeat_last_edit -> "repeat-last-edit"

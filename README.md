@@ -153,12 +153,12 @@ receive no syntax service and render as plain text.
 
 The Vim model is a compatibility stress test for Zenbu's model API. It supports
 normal/insert/replace states, operator motions, find, characterwise/linewise
-visual selection, and `/ ? n N` search requests; it is not a full Vim clone.
-Keyboard macros are generic host commands rather than built-in Vim `q`/`Q`
-compatibility bindings; an adapter can declare those bindings in Lua.
-The default register is `@`; named registers are available through the command
-palette's optional `register` prompt. They are a reusable framework primitive,
-not a claim of native Vim register grammar.
+visual selection, `/ ? n N` search requests, and a bounded `q{register}` /
+bare-`q` / `@{register}` macro subset; it is not a full Vim clone. The same
+generic macro service remains available to Lua adapters through host commands.
+The default register is `@`; the command palette accepts a named register
+prompt. This is a reusable framework primitive, not a claim of full Vim
+register grammar.
 See [the compatibility baseline](docs/models/VIM.md) and [modal model
 evaluation](docs/MODAL_MODEL_EVALUATION.md).
 

@@ -11,11 +11,12 @@ type t = {
   selections : selection_set;
   commands : Command_descriptor.t list;
   clipboard : Clipboard.t;
+  macro_recording_register : string option;
   syntax : Zenbu_syntax.Syntax.Snapshot.t option;
 }
 
-let from_snapshot ~snapshot ~commands ?(clipboard = Clipboard.empty) ?syntax ()
-    =
+let from_snapshot ~snapshot ~commands ?(clipboard = Clipboard.empty)
+    ?macro_recording_register ?syntax () =
   let selections =
     List.map
       (fun selection ->
@@ -39,6 +40,7 @@ let from_snapshot ~snapshot ~commands ?(clipboard = Clipboard.empty) ?syntax ()
       };
     commands;
     clipboard;
+    macro_recording_register;
     syntax =
       (match syntax with
       | Some syntax
@@ -54,4 +56,5 @@ let byte_length value = value.byte_length
 let selections value = value.selections
 let command_descriptors value = value.commands
 let clipboard_entry value ~slot = Clipboard.find value.clipboard ~slot
+let macro_recording_register value = value.macro_recording_register
 let syntax value = value.syntax

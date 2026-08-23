@@ -6,6 +6,7 @@ type shared_state = {
   semantic_behaviors : Semantic_behavior_registry.t;
   syntax_service : Zenbu_syntax.Syntax.Service.t option;
   clipboard : Clipboard.t;
+  macro_recording_register : string option;
   input_trace : Input_event.t list;
   repeatable_intents : Model_intent.t list option;
   trace : Trace.t;
@@ -30,6 +31,7 @@ module Make (Model : Editing_model.S) = struct
     semantic_behaviors : Semantic_behavior_registry.t;
     syntax_service : Zenbu_syntax.Syntax.Service.t option;
     clipboard : Clipboard.t;
+    macro_recording_register : string option;
     state : Model.state;
     input_trace : Input_event.t list;
     repeatable_intents : Model_intent.t list option;
@@ -142,8 +144,8 @@ module Make (Model : Editing_model.S) = struct
           execution_id;
         None
 
-  let make_context ?execution_id ~trace ~profiler ?syntax_service history
-      commands clipboard =
+  let make_context ?execution_id ~trace ~profiler ?syntax_service
+      ?macro_recording_register history commands clipboard =
     let snapshot = Document.snapshot (History.current history) in
     let syntax =
       match syntax_service with
@@ -151,7 +153,7 @@ module Make (Model : Editing_model.S) = struct
       | Some service ->
           refresh_syntax ?execution_id ~trace ~profiler service snapshot
     in
-    Editor_context.from_snapshot ~snapshot ~clipboard
+    Editor_context.from_snapshot ~snapshot ~clipboard ?macro_recording_register
       ~commands:(Command_registry.descriptors commands)
       ?syntax ()
 
@@ -180,6 +182,7 @@ module Make (Model : Editing_model.S) = struct
             semantic_behaviors;
             syntax_service;
             clipboard;
+            macro_recording_register = None;
             state;
             input_trace = [];
             repeatable_intents = None;
@@ -197,6 +200,7 @@ module Make (Model : Editing_model.S) = struct
       semantic_behaviors = runtime.semantic_behaviors;
       syntax_service = runtime.syntax_service;
       clipboard = runtime.clipboard;
+      macro_recording_register = runtime.macro_recording_register;
       input_trace = runtime.input_trace;
       repeatable_intents = runtime.repeatable_intents;
       trace = runtime.trace;
@@ -208,8 +212,9 @@ module Make (Model : Editing_model.S) = struct
   let create_from_shared (shared : shared_state) =
     let context =
       make_context ~trace:shared.trace ~profiler:shared.profiler
-        ?syntax_service:shared.syntax_service shared.history shared.commands
-        shared.clipboard
+        ?syntax_service:shared.syntax_service
+        ?macro_recording_register:shared.macro_recording_register shared.history
+        shared.commands shared.clipboard
     in
     match model_call (fun () -> Model.initialize context) with
     | Error _ as error -> error
@@ -221,6 +226,7 @@ module Make (Model : Editing_model.S) = struct
             semantic_behaviors = shared.semantic_behaviors;
             syntax_service = shared.syntax_service;
             clipboard = shared.clipboard;
+            macro_recording_register = shared.macro_recording_register;
             state;
             input_trace = shared.input_trace;
             repeatable_intents = shared.repeatable_intents;
@@ -234,6 +240,9 @@ module Make (Model : Editing_model.S) = struct
   let with_syntax_service runtime ~syntax_service =
     let shared = shared_state runtime in
     create_from_shared { shared with syntax_service }
+
+  let with_macro_recording_register runtime macro_recording_register =
+    { runtime with macro_recording_register }
 
   let sync_syntax_after_commit runtime ~execution_id history =
     match (runtime.syntax_service, History.current_change history) with
@@ -760,7 +769,8 @@ module Make (Model : Editing_model.S) = struct
         let context =
           make_context ~execution_id ~trace:runtime.trace
             ~profiler:runtime.profiler ?syntax_service:runtime.syntax_service
-            history runtime.commands clipboard
+            ?macro_recording_register:runtime.macro_recording_register history
+            runtime.commands clipboard
         in
         let action = dynamic_action ~base ~selector_id ~transformation_id in
         match
@@ -858,7 +868,8 @@ module Make (Model : Editing_model.S) = struct
         let context =
           make_context ~execution_id ~trace:runtime.trace
             ~profiler:runtime.profiler ?syntax_service:runtime.syntax_service
-            history runtime.commands clipboard
+            ?macro_recording_register:runtime.macro_recording_register history
+            runtime.commands clipboard
         in
         let invoked =
           match extension_source with
@@ -960,7 +971,8 @@ module Make (Model : Editing_model.S) = struct
                         changes,
                         [],
                         retain_repeatable repeatable_intents intents ))))
-    | Model_effect.Request_search _ | Model_effect.Repeat_search _ ->
+    | Model_effect.Request_search _ | Model_effect.Repeat_search _
+    | Model_effect.Request_macro _ ->
         Ok (history, clipboard, [], [], [], repeatable_intents)
     | Model_effect.Undo -> (
         match History.undo history with
@@ -1070,8 +1082,9 @@ module Make (Model : Editing_model.S) = struct
           });
     let context =
       make_context ~execution_id ~trace:runtime.trace ~profiler:runtime.profiler
-        ?syntax_service:runtime.syntax_service runtime.history runtime.commands
-        runtime.clipboard
+        ?syntax_service:runtime.syntax_service
+        ?macro_recording_register:runtime.macro_recording_register
+        runtime.history runtime.commands runtime.clipboard
     in
     let model_result =
       Profiler.measure runtime.profiler
@@ -1161,6 +1174,7 @@ module Make (Model : Editing_model.S) = struct
                     semantic_behaviors = runtime.semantic_behaviors;
                     syntax_service = runtime.syntax_service;
                     clipboard;
+                    macro_recording_register = runtime.macro_recording_register;
                     state;
                     input_trace = bounded_inputs runtime.input_trace input;
                     repeatable_intents;
@@ -1246,8 +1260,9 @@ module Make (Model : Editing_model.S) = struct
   let reset runtime =
     let context =
       make_context ~trace:runtime.trace ~profiler:runtime.profiler
-        ?syntax_service:runtime.syntax_service runtime.history runtime.commands
-        runtime.clipboard
+        ?syntax_service:runtime.syntax_service
+        ?macro_recording_register:runtime.macro_recording_register
+        runtime.history runtime.commands runtime.clipboard
     in
     match model_call (fun () -> Model.reset runtime.state context) with
     | Error _ as error -> error
@@ -1262,8 +1277,9 @@ module Make (Model : Editing_model.S) = struct
 
   let context runtime =
     make_context ~trace:runtime.trace ~profiler:runtime.profiler
-      ?syntax_service:runtime.syntax_service runtime.history runtime.commands
-      runtime.clipboard
+      ?syntax_service:runtime.syntax_service
+      ?macro_recording_register:runtime.macro_recording_register runtime.history
+      runtime.commands runtime.clipboard
 
   let status runtime = Model.status runtime.state
   let model_descriptor _ = Model.descriptor

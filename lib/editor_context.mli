@@ -6,6 +6,7 @@ val from_snapshot :
   snapshot:Zenbu_kernel.Document_snapshot.t ->
   commands:Command_descriptor.t list ->
   ?clipboard:Clipboard.t ->
+  ?macro_recording_register:string ->
   ?syntax:Zenbu_syntax.Syntax.Snapshot.t ->
   unit ->
   t
@@ -17,4 +18,5 @@ val byte_length : t -> int
 val selections : t -> selection_set
 val command_descriptors : t -> Command_descriptor.t list
 val clipboard_entry : t -> slot:Clipboard.slot -> Clipboard.entry option
+val macro_recording_register : t -> string option
 val syntax : t -> Zenbu_syntax.Syntax.Snapshot.t option

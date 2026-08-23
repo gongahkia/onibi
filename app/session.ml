@@ -203,6 +203,26 @@ let maximum_macro_registers = 64
 let maximum_macro_register_bytes = 64
 let default_macro_register = "@"
 
+let synchronize_macro_context session =
+  let register =
+    Option.map
+      (fun (recording : macro_recording) -> recording.register)
+      session.macro_recording
+  in
+  let active =
+    match session.active with
+    | Vim_runtime runtime ->
+        Vim_runtime.with_macro_recording_register runtime register
+        |> fun runtime -> Vim_runtime runtime
+    | Selection_runtime runtime ->
+        Selection_runtime.with_macro_recording_register runtime register
+        |> fun runtime -> Selection_runtime runtime
+    | Structural_runtime runtime ->
+        Structural_runtime.with_macro_recording_register runtime register
+        |> fun runtime -> Structural_runtime runtime
+  in
+  { session with active }
+
 let validate_macro_register register =
   if String.length register = 0 then
     Error (Error.Invalid_command_arguments "macro register must not be empty")
@@ -237,13 +257,14 @@ let toggle_macro_recording ?(register = default_macro_register) session =
         quit_armed = false;
       }
   | Ok register, None ->
-      {
-        session with
-        macro_recording = Some { register; inputs_rev = [] };
-        macro_control = true;
-        message = Some ("macro recording started: " ^ register);
-        quit_armed = false;
-      }
+      synchronize_macro_context
+        {
+          session with
+          macro_recording = Some { register; inputs_rev = [] };
+          macro_control = true;
+          message = Some ("macro recording started: " ^ register);
+          quit_armed = false;
+        }
   | Ok register, Some recording
     when not (String.equal register recording.register) ->
       {
@@ -256,13 +277,14 @@ let toggle_macro_recording ?(register = default_macro_register) session =
         quit_armed = false;
       }
   | Ok _, Some { inputs_rev = []; _ } ->
-      {
-        session with
-        macro_recording = None;
-        macro_control = true;
-        message = Some "macro recording discarded: no keyboard input";
-        quit_armed = false;
-      }
+      synchronize_macro_context
+        {
+          session with
+          macro_recording = None;
+          macro_control = true;
+          message = Some "macro recording discarded: no keyboard input";
+          quit_armed = false;
+        }
   | Ok register, Some { inputs_rev; _ } -> (
       match store_macro session register (List.rev inputs_rev) with
       | Error error ->
@@ -273,18 +295,19 @@ let toggle_macro_recording ?(register = default_macro_register) session =
             quit_armed = false;
           }
       | Ok macros ->
-          {
-            session with
-            macro_recording = None;
-            macros;
-            last_macro_register = Some register;
-            macro_control = true;
-            message =
-              Some
-                (Printf.sprintf "macro recorded to %s: %d keyboard inputs"
-                   register (List.length inputs_rev));
-            quit_armed = false;
-          })
+          synchronize_macro_context
+            {
+              session with
+              macro_recording = None;
+              macros;
+              last_macro_register = Some register;
+              macro_control = true;
+              message =
+                Some
+                  (Printf.sprintf "macro recorded to %s: %d keyboard inputs"
+                     register (List.length inputs_rev));
+              quit_armed = false;
+            })
 
 let request_macro_replay ?(register = default_macro_register) session =
   match
@@ -338,16 +361,17 @@ let record_macro_input session input =
       | Input_event.Mouse _ -> session
       | Input_event.Key_press _ | Input_event.Text_input _ ->
           if List.length recording.inputs_rev >= maximum_macro_events then
-            {
-              session with
-              macro_recording = None;
-              message =
-                Some
-                  (Printf.sprintf
-                     "macro recording stopped: register %s reached maximum of \
-                      %d keyboard inputs"
-                     recording.register maximum_macro_events);
-            }
+            synchronize_macro_context
+              {
+                session with
+                macro_recording = None;
+                message =
+                  Some
+                    (Printf.sprintf
+                       "macro recording stopped: register %s reached maximum \
+                        of %d keyboard inputs"
+                       recording.register maximum_macro_events);
+              }
           else
             {
               session with
@@ -1230,6 +1254,7 @@ let load_buffer ?(reset_interaction = true) session (buffer : buffer) =
              session.inactive_buffers;
     }
   in
+  let next = synchronize_macro_context next in
   if reset_interaction then
     { next with interaction = Idle; inspector = None; quit_armed = false }
   else next
@@ -3189,12 +3214,18 @@ let update_search session input ~origin ~direction query =
         move_to_search_match session input search
           (search_index ~origin ~direction matches)
 
-let handle_model_search_request session input = function
+let handle_model_host_request session input = function
   | Model_effect.Request_search direction -> begin_search ~direction session
   | Model_effect.Repeat_search Model_effect.Forward ->
       move_search session input 1
   | Model_effect.Repeat_search Model_effect.Backward ->
       move_search session input (-1)
+  | Model_effect.Request_macro Model_effect.Reserve_macro_input ->
+      { session with macro_control = true; quit_armed = false }
+  | Model_effect.Request_macro (Model_effect.Toggle_macro_recording register) ->
+      toggle_macro_recording ~register session
+  | Model_effect.Request_macro (Model_effect.Replay_macro register) ->
+      request_macro_replay ~register session
   | _ -> session
 
 let save session =
@@ -3487,7 +3518,7 @@ let input_for_interaction session input =
             let session, effects = handle_model_input session input in
             List.fold_left
               (fun session request ->
-                handle_model_search_request session input request)
+                handle_model_host_request session input request)
               session effects)
   | Search_prompt { query; origin; direction } -> (
       if

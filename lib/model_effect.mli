@@ -2,6 +2,11 @@ type message_level = Info | Warning | Error
 type message = { level : message_level; text : string }
 type search_direction = Forward | Backward
 
+type macro_request =
+  | Reserve_macro_input
+  | Toggle_macro_recording of string
+  | Replay_macro of string
+
 type selection_action =
   | Transform of Model_intent.transformation
   | Copy of { slot : Clipboard.slot; kind : Clipboard.kind }
@@ -33,6 +38,7 @@ type t =
     }
   | Request_search of search_direction
   | Repeat_search of search_direction
+  | Request_macro of macro_request
   | Undo
   | Redo
   | Repeat_last_edit

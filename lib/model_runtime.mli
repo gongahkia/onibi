@@ -50,6 +50,10 @@ module Make (Model : Editing_model.S) : sig
     semantic_behaviors:Semantic_behavior_registry.t ->
     t
 
+  val with_macro_recording_register : t -> string option -> t
+  (** Exposes only the active session macro register to the model input grammar.
+      It does not expose stored macro contents or session state. *)
+
   val with_syntax_service :
     t ->
     syntax_service:Zenbu_syntax.Syntax.Service.t option ->

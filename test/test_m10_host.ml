@@ -754,6 +754,33 @@ zenbu.bind { input = "q", command = "editor.macro.replay" }
         && lines_contain macros "replaying: false"
         && lines_contain macros "text(i)")
         "named macro replay corrupted the stored named register";
+      let vim = make_session "beta" in
+      let vim = App.Session.handle_input vim (key "q") in
+      expect
+        (Model_status.id (App.Session.status vim) = "macro-recording-prefix")
+        "Vim q did not wait for a macro register";
+      let vim = App.Session.handle_input vim (key "a") in
+      let vim = App.Session.handle_input vim (key "i") in
+      let vim = App.Session.handle_input vim (text_input "!") in
+      let vim = App.Session.handle_input vim (named Input_event.Escape) in
+      let vim = App.Session.handle_input vim (key "q") in
+      expect
+        (App.Session.contents vim = "!beta"
+        && Model_status.id (App.Session.status vim) = "normal")
+        "Vim q did not stop the active named macro recording";
+      let macros = App.Session.inspect vim App.Session.Macros in
+      expect
+        (lines_contain macros "last-recorded-register: a"
+        && lines_contain macros "recorded-inputs: 3")
+        "Vim q recorded macro-control input or stored the wrong register";
+      let vim = App.Session.handle_input vim (key "@") in
+      expect
+        (Model_status.id (App.Session.status vim) = "macro-replay-prefix")
+        "Vim @ did not wait for a macro register";
+      let vim = App.Session.handle_input vim (key "a") in
+      expect
+        (App.Session.contents vim = "!!beta")
+        "Vim @a did not replay the named host macro";
       let no_macro = make_session "untouched" in
       let no_macro =
         App.Session.handle_host no_macro App.Session.Replay_macro |> continue

@@ -28,6 +28,8 @@ type state =
       around : bool;
     }
   | Register_prefix of normal
+  | Macro_recording_prefix of normal
+  | Macro_replay_prefix of normal
   | Go_pending of normal
   | Find_pending of { normal : normal; direction : find_direction; till : bool }
   | Operator_find_pending of {
@@ -124,6 +126,18 @@ let status = function
       static
         (Model_status.create ~id:"clipboard-slot-prefix" ~label:"SLOT…"
            ~description:"awaiting a clipboard slot name" ~pending_input:"\""
+           ~metadata:(count_metadata normal.count)
+           ())
+  | Macro_recording_prefix normal ->
+      static
+        (Model_status.create ~id:"macro-recording-prefix" ~label:"RECORD…"
+           ~description:"awaiting a named macro register" ~pending_input:"q"
+           ~metadata:(count_metadata normal.count)
+           ())
+  | Macro_replay_prefix normal ->
+      static
+        (Model_status.create ~id:"macro-replay-prefix" ~label:"REPLAY…"
+           ~description:"awaiting a named macro register" ~pending_input:"@"
            ~metadata:(count_metadata normal.count)
            ())
   | Go_pending normal ->
@@ -722,6 +736,20 @@ let normal_input normal event context =
           Model_effect.Paste_from_clipboard
             { slot = normal.slot; placement = Clipboard.Before };
         ] )
+  | Some "q" -> (
+      match Editor_context.macro_recording_register context with
+      | Some register ->
+          ( Normal (reset_normal normal),
+            [
+              Model_effect.Request_macro
+                (Model_effect.Toggle_macro_recording register);
+            ] )
+      | None ->
+          ( Macro_recording_prefix normal,
+            [ Model_effect.Request_macro Model_effect.Reserve_macro_input ] ))
+  | Some "@" ->
+      ( Macro_replay_prefix normal,
+        [ Model_effect.Request_macro Model_effect.Reserve_macro_input ] )
   | Some "u" -> (Normal (reset_normal normal), [ Model_effect.Undo ])
   | Some "." -> (Normal (reset_normal normal), [ Model_effect.Repeat_last_edit ])
   | Some "/" ->
@@ -950,6 +978,26 @@ let handle_input state event context =
       | _ when is_named event Input_event.Escape ->
           (Normal (reset_normal normal), [])
       | _ -> (Register_prefix normal, []))
+  | Macro_recording_prefix normal -> (
+      match text_key event with
+      | Some register when is_single_scalar register ->
+          ( Normal (reset_normal normal),
+            [
+              Model_effect.Request_macro
+                (Model_effect.Toggle_macro_recording register);
+            ] )
+      | _ when is_named event Input_event.Escape ->
+          (Normal (reset_normal normal), [])
+      | _ -> (Macro_recording_prefix normal, []))
+  | Macro_replay_prefix normal -> (
+      match text_key event with
+      | Some register when is_single_scalar register ->
+          ( Normal (reset_normal normal),
+            [ Model_effect.Request_macro (Model_effect.Replay_macro register) ]
+          )
+      | _ when is_named event Input_event.Escape ->
+          (Normal (reset_normal normal), [])
+      | _ -> (Macro_replay_prefix normal, []))
   | Go_pending normal when is_text event "g" ->
       ( Normal (reset_normal normal),
         motion_effect Model_intent.Document_start Model_intent.Collapse_to_start
@@ -1024,6 +1072,12 @@ let input_rules = function
           Input_rule.Prefix "begin or extend a count";
         input_rule "vim.normal.slot" (Input_rule.Exact "\"") Input_rule.Prefix
           "choose a clipboard slot" ~next_status:"clipboard-slot-prefix";
+        input_rule "vim.normal.macro-record" (Input_rule.Exact "q")
+          Input_rule.Prefix "start or stop recording a named macro"
+          ~next_status:"macro-recording-prefix";
+        input_rule "vim.normal.macro-replay" (Input_rule.Exact "@")
+          Input_rule.Prefix "replay a named macro"
+          ~next_status:"macro-replay-prefix";
       ]
   | Insert _ ->
       [
@@ -1076,6 +1130,15 @@ let input_rules = function
           Input_rule.Binding "select a clipboard slot";
         input_rule "vim.slot.cancel" (Input_rule.Named "Escape")
           Input_rule.Binding "cancel clipboard slot selection";
+      ]
+  | Macro_recording_prefix _ | Macro_replay_prefix _ ->
+      [
+        input_rule "vim.macro.register"
+          (Input_rule.Text_range "one UTF-8 scalar") Input_rule.Binding
+          "select a named macro register";
+        input_rule "vim.macro.cancel" (Input_rule.Named "Escape")
+          Input_rule.Binding "cancel macro register selection"
+          ~next_status:"normal";
       ]
   | Go_pending _ ->
       [

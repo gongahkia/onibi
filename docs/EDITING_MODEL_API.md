@@ -50,8 +50,10 @@ model's states mean.
 
 `Editor_context` is an immutable snapshot facade. It exposes active document
 id/version, contents, byte length, selections as anchor/head byte offsets,
-registered command descriptors, read-only clipboard-slot entries, and an
-optional matching `zenbu.syntax` snapshot. The syntax value contains only
+registered command descriptors, read-only clipboard-slot entries, the active
+macro-recording register if one exists, and an optional matching `zenbu.syntax`
+snapshot. A model can observe only that recording name; it cannot read macro
+contents or other Session state. The syntax value contains only
 Zenbu's opaque snapshot/node abstraction, never a parser, tree, query, or
 backend handle. It is absent for unsupported languages and is filtered out if
 its document id/version does not match the context snapshot. The context
@@ -77,6 +79,10 @@ Model effects are values, never closures:
 - `Invoke_command` names a registered command id and typed arguments.
 - `Request_search` and `Repeat_search` request the shared literal-search host
   interaction without exposing its prompt or terminal state to a model.
+- `Request_macro` reserves a key for macro control or requests recording/replay
+  of one named register. The host validates and owns the bounded session store;
+  the model can neither inspect stored macro input nor access unrelated host
+  state.
 - `Emit_message` reports an inspectable message.
 
 `Model_intent` is the model-facing facade for M1 intents plus selector/
