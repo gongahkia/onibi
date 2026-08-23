@@ -86,6 +86,13 @@ let is_control event text =
       && String.equal value text
   | Some (Input_event.Named_key _) | None -> false
 
+let is_alt event text =
+  match Input_event.key event with
+  | Some (Input_event.Logical_text value) ->
+      Input_event.modifiers event = [ Input_event.Alt ]
+      && String.equal value text
+  | Some (Input_event.Named_key _) | None -> false
+
 let count_value = function None -> 1 | Some value -> value
 
 let add_digit count digit =
@@ -180,6 +187,8 @@ let select_input selecting event context =
   | Some "u" -> (Select default_select, [ Model_effect.Undo ])
   | Some "." -> (Select default_select, [ Model_effect.Repeat_last_edit ])
   | Some "," -> (Select default_select, retain_primary context)
+  | Some ")" -> (Select default_select, [ Semantic_commands.rotate_primary_forward ])
+  | Some "(" -> (Select default_select, [ Semantic_commands.rotate_primary_backward ])
   | Some "G" ->
       ( Select default_select,
         [ apply Model_intent.Document_end Model_intent.Select ] )
@@ -204,6 +213,12 @@ let select_input selecting event context =
       | None -> (Select default_select, []))
   | None when is_control event "r" ->
       (Select default_select, [ Model_effect.Redo ])
+  | None when is_alt event "_" ->
+      (Select default_select, [ Semantic_commands.merge_consecutive ])
+  | None when is_alt event ";" ->
+      (Select default_select, [ Semantic_commands.flip_selections ])
+  | None when is_alt event ":" ->
+      (Select default_select, [ Semantic_commands.ensure_selections_forward ])
   | None when is_named event Input_event.Escape ->
       ( Select default_select,
         [ apply Model_intent.Current_selections Model_intent.Collapse_to_end ]
@@ -282,6 +297,10 @@ let input_rules = function
           Input_rule.Binding "move through or repeat shared semantic history";
         input_rule "selection.retain-primary" (Input_rule.Exact ",")
           Input_rule.Binding "retain only the primary selection";
+        input_rule "selection.selection-algebra"
+          (Input_rule.Text_range "(, ), Alt-_, Alt-;, or Alt-:")
+          Input_rule.Binding
+          "rotate primary, merge consecutive selections, or change orientation";
         input_rule "selection.escape" (Input_rule.Named "Escape")
           Input_rule.Binding "collapse selections to their ends";
         input_rule "selection.count" (Input_rule.Text_range "1-9")

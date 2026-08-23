@@ -48,6 +48,96 @@ let handler _context invocation =
 
 let apply_command = Command.create ~descriptor ~handler
 
+let selection_command id title description ?(parameters = []) run =
+  let id = Command_id.of_string id |> static in
+  let descriptor =
+    Command_descriptor.create ~id ~title ~description ~category:"selection"
+      ~parameters ~provider ()
+    |> static
+  in
+  Command.create ~descriptor ~handler:(fun context invocation ->
+      run context invocation |> Result.map (fun intent -> [ intent ]))
+
+let required_text invocation name =
+  let ( let* ) result f = Result.bind result f in
+  let* argument = Command_invocation.find invocation ~name in
+  match argument with
+  | Command_argument.Text text -> Ok text
+  | Command_argument.Selector _ | Command_argument.Transformation _ ->
+      Error (Zenbu_kernel.Error.Invalid_command_arguments "expected a text argument")
+
+let regex_parameter =
+  Command_descriptor.
+    {
+      name = "pattern";
+      description = "OCaml Str regular expression; empty matches are rejected.";
+      required = true;
+      kind = Text;
+    }
+
+let selection_commands =
+  [
+    selection_command "editor.selection.select-regex" "Select regex matches"
+      "Replace current selections with non-empty regex matches." ~parameters:[ regex_parameter ]
+      (fun context invocation ->
+        required_text invocation "pattern"
+        |> Result.bind (fun pattern -> Selection_algebra.select_regex context ~pattern));
+    selection_command "editor.selection.split-regex" "Split selections on regex"
+      "Split current selections at non-empty regex matches, dropping separators."
+      ~parameters:[ regex_parameter ] (fun context invocation ->
+        required_text invocation "pattern"
+        |> Result.bind (fun pattern -> Selection_algebra.split_regex context ~pattern));
+    selection_command "editor.selection.keep-regex" "Keep regex-matching selections"
+      "Keep current selections containing a non-empty regex match."
+      ~parameters:[ regex_parameter ] (fun context invocation ->
+        required_text invocation "pattern"
+        |> Result.bind (fun pattern -> Selection_algebra.keep_matching context ~pattern));
+    selection_command "editor.selection.remove-regex"
+      "Remove regex-matching selections"
+      "Remove current selections containing a non-empty regex match."
+      ~parameters:[ regex_parameter ] (fun context invocation ->
+        required_text invocation "pattern"
+        |> Result.bind (fun pattern -> Selection_algebra.remove_matching context ~pattern));
+    selection_command "editor.selection.merge-consecutive"
+      "Merge consecutive selections"
+      "Merge selections that touch at a document boundary." (fun context _ ->
+        Selection_algebra.merge_consecutive context);
+    selection_command "editor.selection.rotate-primary-forward"
+      "Rotate primary selection forward"
+      "Make the next selection in document order primary." (fun context _ ->
+        Selection_algebra.rotate_primary context Selection_algebra.Forward);
+    selection_command "editor.selection.rotate-primary-backward"
+      "Rotate primary selection backward"
+      "Make the previous selection in document order primary." (fun context _ ->
+        Selection_algebra.rotate_primary context Selection_algebra.Backward);
+    selection_command "editor.selection.flip" "Flip selection orientation"
+      "Swap anchor and head for every current selection." (fun context _ ->
+        Selection_algebra.flip context);
+    selection_command "editor.selection.ensure-forward"
+      "Ensure selections are forward"
+      "Normalize every selection to increasing anchor/head order." (fun context _ ->
+        Selection_algebra.ensure_forward context);
+  ]
+
+let selection_effect id =
+  Command_id.of_string id
+  |> Result.bind (fun id -> Command_invocation.create ~id ~arguments:[])
+  |> Result.map (fun invocation -> Model_effect.Invoke_command invocation)
+  |> static
+
+let merge_consecutive = selection_effect "editor.selection.merge-consecutive"
+
+let rotate_primary_forward =
+  selection_effect "editor.selection.rotate-primary-forward"
+
+let rotate_primary_backward =
+  selection_effect "editor.selection.rotate-primary-backward"
+
+let flip_selections = selection_effect "editor.selection.flip"
+
+let ensure_selections_forward =
+  selection_effect "editor.selection.ensure-forward"
+
 let apply ~selector ~transformation =
   let selector =
     static

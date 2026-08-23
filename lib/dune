@@ -36,6 +36,7 @@
   model_status
   clipboard
   editor_context
+  selection_algebra
   model_intent
   extension_value
   extension_host
@@ -56,4 +57,4 @@
   semantic_registry
   model_runtime
   inspector)
- (libraries zenbu_kernel zenbu_syntax))
+ (libraries zenbu_kernel zenbu_syntax str))

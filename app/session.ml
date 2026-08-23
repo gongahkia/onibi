@@ -615,19 +615,14 @@ let command_argument_of_text parameter text =
       Command_argument.make ~name:parameter.name ~value)
 
 let commands () =
-  match
-    Command_registry.register Command_registry.empty
-      Semantic_commands.apply_command
-  with
-  | Error _ as error -> error
-  | Ok registry ->
-      List.fold_left
-        (fun registry command ->
-          match registry with
-          | Error _ -> registry
-          | Ok registry -> Command_registry.register registry command)
-        (Ok registry)
-        (Syntax_commands.commands ())
+  List.fold_left
+    (fun registry command ->
+      match registry with
+      | Error _ -> registry
+      | Ok registry -> Command_registry.register registry command)
+    (Ok Command_registry.empty)
+    (Semantic_commands.apply_command :: Semantic_commands.selection_commands
+   @ Syntax_commands.commands ())
 
 let base_semantics () =
   (Inspector.semantic_registry () |> Semantic_registry.descriptors)
