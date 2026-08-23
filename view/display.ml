@@ -160,6 +160,18 @@ let column_at (line : line) offset =
   in
   loop line.graphemes
 
+let offset_at_column (line : line) column =
+  let column = max 0 column in
+  let rec loop = function
+    | [] -> line.stop_offset
+    | (grapheme : grapheme) :: rest ->
+        if column <= grapheme.column then grapheme.start_offset
+        else if column < grapheme.column + grapheme.width then
+          grapheme.start_offset
+        else loop rest
+  in
+  loop line.graphemes
+
 let locate lines offset =
   let rec loop = function
     | [] -> invalid_arg "Display.locate requires at least one line"

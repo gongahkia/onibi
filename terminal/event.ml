@@ -14,8 +14,17 @@ type key =
   | Home
   | End
 
+type mouse_button = Primary | Middle | Secondary | Wheel_up | Wheel_down
+type mouse_action = Press of mouse_button | Drag | Release
+
 type t =
   | Key of { key : key; modifiers : modifier list }
+  | Mouse of {
+      action : mouse_action;
+      column : int;
+      row : int;
+      modifiers : modifier list;
+    }
   | Resize of { columns : int; rows : int }
   | Paste of string
   | Wakeup

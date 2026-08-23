@@ -16,7 +16,7 @@ A manifest declaring `api = 1` is compatible with this contract. Zenbu may add o
 - `commands`: semantic command registrations
 - `selectors`: dynamic selector registrations
 - `transformations`: dynamic transformation registrations
-- `bindings`: scoped logical input bindings
+- `bindings`: scoped logical input sequences
 - `events`: document-changed and after-save event handlers
 
 ## Capabilities

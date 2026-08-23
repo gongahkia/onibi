@@ -13,11 +13,11 @@ An editor can vary independently along these layers:
 | layer | Zenbu extension point today | current boundary |
 | --- | --- | --- |
 | editing grammar | OCaml implementation of the public model state machine; logical input, statuses, bindings, and semantic effects | models operate on one current document and only through declarative effects |
-| commands and semantic operations | built-in commands, trusted-local Lua, or capability-limited Wasm Components can contribute commands, selectors, transformations, bindings, and events | contributions cannot mutate documents outside a checked transaction |
+| commands and semantic operations | built-in commands, trusted-local Lua, or capability-limited Wasm Components can contribute commands, selectors, transformations, scoped one-to-sixteen-event bindings, and events | contributions cannot mutate documents outside a checked transaction; host-reserved controls remain unavailable |
 | language-aware editing | Tree-sitter-backed syntax context and the optional language-service host | only built-in OCaml/JSON syntax registration; cross-file edits require every target to be open and saved |
 | configuration | reloadable Lua configuration and local Wasm plugin discovery | Lua is trusted local code; Components use the declared capability boundary |
 | workspace/view host | `zenbu.view.Layout` plus host commands to create/open/cycle buffers and split, focus, close, or retain views | local buffers have independent model/history, save, syntax, diagnostics, search, and viewport state; no project/workspace discovery, target auto-open, or global history |
-| terminal presentation | renderer frame, semantic style classes, viewport, terminal backend, and built-in/custom TOML themes | no runtime theme switching, mouse, GUI, or widget/layout API |
+| terminal presentation | renderer frame, semantic style classes, viewport, terminal backend, built-in/custom TOML themes, and basic typed pointer gestures | no runtime theme switching, GUI, or widget/layout API; pointer support is canvas-only |
 
 This is already enough to build and compare distinct **editing grammars**:
 the repository has Vim-style, selection-first, and syntax-structural models.
@@ -53,11 +53,11 @@ The feature sources are the projects' own documentation: [Vim help](https://vimh
 
 | workload | supported now | partial foundation | absent before a parity claim |
 | --- | --- | --- | --- |
-| Vim-style terminal editor | normal/insert/replace/visual grammar, operators, counts, motions, find, basic search requests, registers, undo/redo, local buffers/views, and provenance | command palette and generic host controls | Ex command language, macros, broad motion/text-object coverage, marks/jumps, compatibility mappings, and terminal/GUI appearance parity |
-| Helix-style selection editor | selection-first model, multi-edit transactions, occurrence selection, syntax-structural selections, local buffers/views, and optional LSP completion/hover/definition/rename across already-open saved buffers | buffers can be assigned to split views | picker/config discovery, registers/macros, regex selection algebra, shell pipes, general workspace edits, full window model, and theme parity |
-| Kakoune-style multiple-selection editor | explicit ordered selections, selection-first edits, syntax context, bindings/hooks, and local buffers/views | split views render independently and focus routes input to the assigned buffer | Kakoune's inclusive anchor/cursor model, selection split/rotate/merge/filter algebra, client/server sessions, shell filters, full command language, and face/highlighter ecosystem |
-| Micro-style terminal editor | ordinary text editing, syntax spans, local buffers/views, trusted Lua configuration, local plugins, save/search/palette, and terminal themes | Components and Lua can supply editing commands | mouse, interactive shell split, buffer tabs, plugin-manager/install flow, runtime theme/configuration surface, and complete keybinding/configuration surface |
-| Emacs terminal product | key-addressable commands, local buffers in split views, configuration/plugin concepts, and asynchronous language host | no equivalent beyond the generic command and host layers | buffer/window/frame system, minibuffer and completion ecosystem, major/minor mode composition, Elisp/package/process APIs, display engine, and terminal appearance parity |
+| Vim-style terminal editor | normal/insert/replace/visual grammar, operators, counts, motions, find, basic search requests, registers, undo/redo, local buffers/views, provenance, and scoped sequence bindings | command palette and generic host controls | Ex command language, macros, broad motion/text-object coverage, marks/jumps, compatibility mappings, and terminal/GUI appearance parity |
+| Helix-style selection editor | selection-first model, multi-edit transactions, occurrence selection, syntax-structural selections, local buffers/views, scoped sequence bindings, and optional LSP completion/hover/definition/rename across already-open saved buffers | buffers can be assigned to split views | picker/config discovery, registers/macros, regex selection algebra, shell pipes, general workspace edits, full window model, and theme parity |
+| Kakoune-style multiple-selection editor | explicit ordered selections, selection-first edits, syntax context, scoped bindings/hooks, and local buffers/views | split views render independently and focus routes input to the assigned buffer | Kakoune's inclusive anchor/cursor model, selection split/rotate/merge/filter algebra, client/server sessions, shell filters, full command language, and face/highlighter ecosystem |
+| Micro-style terminal editor | ordinary text editing, syntax spans, local buffers/views, trusted Lua configuration, local plugins, save/search/palette, terminal themes, basic click/drag selection plus wheel scrolling, and scoped sequence bindings | Components and Lua can supply editing commands | mouse clipboard/menu/multi-click parity, interactive shell split, buffer tabs, plugin-manager/install flow, runtime theme/configuration surface, and complete keybinding/configuration surface |
+| Emacs terminal product | key-addressable commands, scoped sequence bindings, local buffers in split views, configuration/plugin concepts, and asynchronous language host | generic scope precedence, not Emacs keymap composition | buffer/window/frame system, minibuffer and completion ecosystem, major/minor mode composition, Elisp/package/process APIs, display engine, and terminal appearance parity |
 
 “Supported now” means this repository has a testable behavior, not that its
 keystrokes or visual rendering exactly match the named editor. “Partial
@@ -85,15 +85,41 @@ every target validates. Regression tests cover successful rename/apply-edit,
 unopened targets, stale target snapshots, and conflicts without partial source
 or target edits. This is not a general project workspace: targets are not
 auto-opened, resource operations are rejected, and undo/history remains per
-buffer. Project search, shell panes, mouse input, configurable presentation,
-and editor-specific command languages are separate evaluations.
+buffer. Project search, shell panes, full mouse interaction, configurable
+presentation, and editor-specific command languages are separate evaluations.
 
-The next shared presentation result is a terminal theme contract. The renderer
+The keymap evaluation exposed a shared missing contract. Helix documents
+normal, select, picker, prompt, and nested minor modes; its `g`, `z`,
+`Ctrl-w`, and `Space` modes make ordered input a product requirement rather
+than a collection of flat keys. [Helix keymap](https://docs.helix-editor.com/keymap.html)
+also distinguishes view movement from selection movement. Kakoune documents
+scoped mappings and user modes, while Emacs documents event sequences and
+global, major-mode, and minor-mode keymap precedence. See [Kakoune
+commands](https://github.com/mawww/kakoune/blob/master/doc/pages/commands.asciidoc)
+and [Emacs keymaps](https://www.gnu.org/software/emacs/manual/html_node/emacs/Keymaps.html).
+
+Zenbu now evaluates this common subset through a typed, bounded input-sequence
+contract. Lua and Component plugins accept one to sixteen events with ordinary
+scope selection; Session holds prefixes outside editing models, rejects
+same-scope prefix ambiguity at staging, records the full sequence in trace and
+provenance, and consumes an unbound suffix. M4/M7/M8 regressions cover parsing,
+modifier/named-key aliases, prefix persistence/cancellation, scope fallback,
+atomic staging, reserved-host rejection, and cross-plugin collisions. This
+does not claim Helix nested-mode, Kakoune keymap, or Emacs keymap parity: Zenbu
+has only its three fixed scopes and no user-defined mode stack or map
+composition.
+
+The shared presentation result now has two small contracts. The renderer
 continues to produce semantic styles, while the terminal maps those styles
-through `default`, `dark`, `light`, or a validated `--theme` TOML file. The
-regression suite checks stable built-in names, default-palette compatibility,
-true-colour parsing, decoration overrides, and rejection of unknown roles. It
-does not claim window/widget, mouse, font, or GUI parity.
+through `default`, `dark`, `light`, or a validated `--theme` TOML file. It also
+converts primary press/drag/release and wheel events into canvas-only host
+gestures; selections retain grapheme and transaction boundaries, and an
+explicitly scrolled viewport persists until keyboard input resumes following.
+The regression suite checks stable built-in names, default-palette
+compatibility, true-colour parsing, decoration overrides, rejection of unknown
+roles, pointer decoding, grapheme-safe selection, status-row exclusion,
+scrolling persistence, and pane focus. It does not claim window/widget,
+mouse-clipboard, font, or GUI parity.
 
 ## How to run the evidence
 

@@ -41,7 +41,9 @@ interface types {
   type value = list<value-node>;
 
   /// Empty input, scope, and event strings mean that the corresponding
-  /// registration property is absent for this contribution class.
+  /// registration property is absent for this contribution class. Binding
+  /// input is one to sixteen tokens separated by one ASCII space; [Space]
+  /// names a literal space key.
   record registration {
     contribution: string,
     id: string,

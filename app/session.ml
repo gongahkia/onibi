@@ -104,6 +104,15 @@ type interaction =
     }
   | Rename_prompt of string
 
+type mouse_drag = { pane : int; anchor_offset : int }
+
+type binding_resolution =
+  | No_binding
+  | Binding_prefix of Input_event.t list
+  | Binding_resolved of Scripting.binding
+  | Binding_cancelled
+  | Binding_rejected of Input_event.t list
+
 type active =
   | Vim_runtime of Vim_runtime.t
   | Selection_runtime of Selection_runtime.t
@@ -154,6 +163,8 @@ type t = {
   inactive_buffers : buffer list;
   next_buffer_id : int;
   pane_buffers : (int * int) list;
+  mouse_drag : mouse_drag option;
+  pending_binding : Input_event.t list;
 }
 
 type outcome = Continue of t | Exit of t
@@ -763,6 +774,8 @@ let create ~model ?language ?file_path ?(contents = "") ?trace ?profiler
                     inactive_buffers = [];
                     next_buffer_id = 1;
                     pane_buffers = [ (0, 0) ];
+                    mouse_drag = None;
+                    pending_binding = [];
                   })))
 
 let context_of_active = function
@@ -951,6 +964,12 @@ let pane_rectangle session pane =
   Layout.bounds session.layout ~width:session.dimensions.columns
     ~height:session.dimensions.rows
   |> List.assoc_opt pane
+
+let focus_pane session pane =
+  if not (List.mem pane (pane_ids session)) then session
+  else
+    let session = { session with focused_pane = pane } in
+    activate_buffer session (focused_buffer session)
 
 let split_pane session orientation =
   let available =
@@ -1585,6 +1604,7 @@ let reload_config session =
             inactive_buffers;
             message = Some message;
             quit_armed = false;
+            pending_binding = [];
           })
 
 let model_descriptor = function
@@ -1603,26 +1623,79 @@ let binding_rank session binding =
       Some 2
   | Scripting.Model _ | Scripting.Model_status _ -> None
 
+let binding_inputs_equal left right =
+  String.equal (Input_event.to_string left) (Input_event.to_string right)
+
+let rec binding_sequence_has_prefix prefix sequence =
+  match (prefix, sequence) with
+  | [], _ -> true
+  | _, [] -> false
+  | left :: left_rest, right :: right_rest ->
+      binding_inputs_equal left right
+      && binding_sequence_has_prefix left_rest right_rest
+
+let binding_event_is_escape = function
+  | Input_event.Key_press { key = Input_event.Named_key Input_event.Escape; _ }
+    ->
+      true
+  | Input_event.Key_press _ | Input_event.Text_input _ | Input_event.Mouse _ ->
+      false
+
+let active_bindings session =
+  (match session.generation with
+    | None -> []
+    | Some generation -> Scripting.bindings generation)
+  @ Plugins.bindings session.plugins
+
 let matching_binding session input =
+  let sequence = session.pending_binding @ [ input ] in
   let bindings =
-    (match session.generation with
-      | None -> []
-      | Some generation -> Scripting.bindings generation)
-    @ Plugins.bindings session.plugins
+    active_bindings session
+    |> List.filter_map (fun binding ->
+        Option.bind (binding_rank session binding) (fun rank ->
+            if
+              binding_sequence_has_prefix sequence
+                (Scripting.binding_inputs binding)
+            then Some (rank, binding)
+            else None))
   in
-  bindings
-  |> List.filter_map (fun binding ->
-      if
-        String.equal
-          (Input_event.to_string (Scripting.binding_input binding))
-          (Input_event.to_string input)
-      then
-        Option.map (fun rank -> (rank, binding)) (binding_rank session binding)
-      else None)
-  |> List.sort (fun (left, _) (right, _) -> Int.compare right left)
-  |> function
-  | [] -> None
-  | (_, binding) :: _ -> Some binding
+  match bindings with
+  | [] ->
+      if session.pending_binding = [] then No_binding
+      else if binding_event_is_escape input then Binding_cancelled
+      else Binding_rejected sequence
+  | _ -> (
+      let highest_rank candidates =
+        List.fold_left
+          (fun maximum (rank, _) -> max maximum rank)
+          min_int candidates
+      in
+      let completed =
+        List.filter
+          (fun (_, binding) ->
+            List.length (Scripting.binding_inputs binding)
+            = List.length sequence)
+          bindings
+      in
+      match completed with
+      | [] -> Binding_prefix sequence
+      | _ -> (
+          let completed_rank = highest_rank completed in
+          let has_more_specific_prefix =
+            List.exists
+              (fun (rank, binding) ->
+                rank > completed_rank
+                && List.length (Scripting.binding_inputs binding)
+                   > List.length sequence)
+              bindings
+          in
+          if has_more_specific_prefix then Binding_prefix sequence
+          else
+            match
+              List.filter (fun (rank, _) -> rank = completed_rank) completed
+            with
+            | [ (_, binding) ] -> Binding_resolved binding
+            | _ -> Binding_rejected sequence))
 
 let history_of_active = function
   | Vim_runtime runtime -> Vim_runtime.history runtime
@@ -2210,7 +2283,9 @@ let invoke_bound_command session input binding =
         Trace_event.Binding_resolved
           {
             execution_id;
-            input = Input_event.to_string (Scripting.binding_input binding);
+            input =
+              Input_event.binding_sequence_to_string
+                (Scripting.binding_inputs binding);
             command_id = command;
             provider = Scripting.binding_provider binding;
             scope;
@@ -2235,7 +2310,8 @@ let invoke_bound_command session input binding =
                 (Provenance.Binding
                    {
                      input =
-                       Input_event.to_string (Scripting.binding_input binding);
+                       Input_event.binding_sequence_to_string
+                         (Scripting.binding_inputs binding);
                      command;
                      provider = Scripting.binding_provider binding;
                    }))
@@ -2821,54 +2897,89 @@ let invoke_palette_item session input item =
 let input_for_interaction session input =
   match session.interaction with
   | Idle -> (
-      if is_shortcut input ~text:"f" ~modifiers:[ Input_event.Control ] then
-        begin_search session
-      else if
-        is_shortcut input ~text:"g"
-          ~modifiers:[ Input_event.Shift; Input_event.Control ]
-      then move_search session input (-1)
-      else if is_shortcut input ~text:"g" ~modifiers:[ Input_event.Control ]
-      then move_search session input 1
-      else if
-        is_shortcut input ~text:" " ~modifiers:[ Input_event.Control ]
-        || is_shortcut input ~text:"\000" ~modifiers:[ Input_event.Control ]
-      then begin_completion session
-      else if is_shortcut input ~text:"p" ~modifiers:[ Input_event.Control ]
-      then
-        {
-          session with
-          interaction = Palette { query = ""; selected = 0 };
-          message = Some "command palette: filter active commands";
-          inspector = None;
-        }
-      else if
-        is_shortcut input ~text:"s"
-          ~modifiers:[ Input_event.Shift; Input_event.Control ]
-      then
-        {
-          session with
-          interaction = Save_as_prompt "";
-          message = Some "save-as: enter a destination path";
-          inspector = None;
-        }
-      else if
-        is_shortcut input ~text:"m" ~modifiers:[ Input_event.Alt ]
-        || is_shortcut input ~text:"m" ~modifiers:[ Input_event.Meta ]
-      then
-        let selected =
-          model_choices
-          |> List.find_index (fun candidate -> candidate = model session)
-          |> Option.value ~default:0
-        in
-        { session with interaction = Model_picker selected; inspector = None }
-      else if
-        is_shortcut input ~text:"h" ~modifiers:[ Input_event.Alt ]
-        || is_shortcut input ~text:"h" ~modifiers:[ Input_event.Meta ]
-      then { session with interaction = Help_view; inspector = None }
-      else
-        match matching_binding session input with
-        | Some binding -> fst (invoke_bound_command session input binding)
-        | None ->
+      match matching_binding session input with
+      | Binding_prefix sequence ->
+          {
+            session with
+            pending_binding = sequence;
+            message =
+              Some
+                ("binding prefix: "
+                ^ Input_event.binding_sequence_to_string sequence);
+            quit_armed = false;
+          }
+      | Binding_cancelled ->
+          {
+            session with
+            pending_binding = [];
+            message = Some "binding prefix cancelled";
+            quit_armed = false;
+          }
+      | Binding_rejected sequence ->
+          {
+            session with
+            pending_binding = [];
+            message =
+              Some
+                ("unbound binding sequence: "
+                ^ Input_event.binding_sequence_to_string sequence);
+            quit_armed = false;
+          }
+      | Binding_resolved binding ->
+          fst
+            (invoke_bound_command
+               { session with pending_binding = [] }
+               input binding)
+      | No_binding ->
+          if is_shortcut input ~text:"f" ~modifiers:[ Input_event.Control ] then
+            begin_search session
+          else if
+            is_shortcut input ~text:"g"
+              ~modifiers:[ Input_event.Shift; Input_event.Control ]
+          then move_search session input (-1)
+          else if is_shortcut input ~text:"g" ~modifiers:[ Input_event.Control ]
+          then move_search session input 1
+          else if
+            is_shortcut input ~text:" " ~modifiers:[ Input_event.Control ]
+            || is_shortcut input ~text:"\000" ~modifiers:[ Input_event.Control ]
+          then begin_completion session
+          else if is_shortcut input ~text:"p" ~modifiers:[ Input_event.Control ]
+          then
+            {
+              session with
+              interaction = Palette { query = ""; selected = 0 };
+              message = Some "command palette: filter active commands";
+              inspector = None;
+            }
+          else if
+            is_shortcut input ~text:"s"
+              ~modifiers:[ Input_event.Shift; Input_event.Control ]
+          then
+            {
+              session with
+              interaction = Save_as_prompt "";
+              message = Some "save-as: enter a destination path";
+              inspector = None;
+            }
+          else if
+            is_shortcut input ~text:"m" ~modifiers:[ Input_event.Alt ]
+            || is_shortcut input ~text:"m" ~modifiers:[ Input_event.Meta ]
+          then
+            let selected =
+              model_choices
+              |> List.find_index (fun candidate -> candidate = model session)
+              |> Option.value ~default:0
+            in
+            {
+              session with
+              interaction = Model_picker selected;
+              inspector = None;
+            }
+          else if
+            is_shortcut input ~text:"h" ~modifiers:[ Input_event.Alt ]
+            || is_shortcut input ~text:"h" ~modifiers:[ Input_event.Meta ]
+          then { session with interaction = Help_view; inspector = None }
+          else
             let session, effects = handle_model_input session input in
             List.fold_left
               (fun session request ->
@@ -3078,6 +3189,194 @@ let input_for_interaction session input =
         | Some text ->
             { session with interaction = Rename_prompt (name ^ text) })
 
+let pane_at session ~column ~row =
+  Layout.bounds session.layout ~width:session.dimensions.columns
+    ~height:session.dimensions.rows
+  |> List.find_map (fun (pane, rectangle) ->
+      if
+        column >= rectangle.Layout.x
+        && column < rectangle.x + rectangle.width
+        && row >= rectangle.y
+        && row < rectangle.y + rectangle.height
+      then Some (pane, rectangle)
+      else None)
+
+let pointer_target session ~column ~row =
+  match pane_at session ~column ~row with
+  | None -> None
+  | Some (pane, rectangle) -> (
+      let local_row = row - rectangle.Layout.y in
+      if local_row >= rectangle.height - 1 then None
+      else
+        match buffer_for_id session (buffer_id_for_pane session pane) with
+        | None -> None
+        | Some buffer ->
+            let contents =
+              Editor_context.contents (context_of_active buffer.active)
+            in
+            let source_lines = Zenbu_view.Display.source_lines contents in
+            let source_line =
+              List.nth_opt source_lines
+                ((pane_viewport session pane).top_line + local_row)
+              |> Option.value ~default:(List.hd (List.rev source_lines))
+            in
+            let line = Zenbu_view.Display.layout contents source_line in
+            let column =
+              (pane_viewport session pane).left_column + column - rectangle.x
+            in
+            Some (pane, Zenbu_view.Display.offset_at_column line column))
+
+let trace_pointer session =
+  let execution_id =
+    Option.value ~default:0 (last_execution_of_active session.active)
+  in
+  trace_runtime_events
+    (trace_of_active session.active)
+    (profiler_of_active session.active)
+    ~execution_id session.plugins;
+  session
+
+let cancel_language_for_pointer session =
+  Option.iter
+    (fun client ->
+      Lsp.set_execution_id client
+        ~execution_id:
+          (Option.value ~default:0 (last_execution_of_active session.active));
+      List.iter (Lsp.cancel client)
+        [ Lsp.Hover; Lsp.Completion; Lsp.Definition ])
+    session.language_client;
+  session
+
+let apply_pointer_selection session input ~pane ~anchor_offset ~head_offset
+    ~mouse_drag =
+  let session = focus_pane session pane in
+  match
+    Model_intent.set_selections
+      ~selections:[ (anchor_offset, head_offset) ]
+      ~primary:0
+  with
+  | Error error ->
+      {
+        session with
+        mouse_drag = None;
+        message = Some ("mouse selection rejected: " ^ Error.to_string error);
+      }
+  | Ok intent ->
+      let next, _ =
+        execute_active_effects
+          ~augment_provenance:(fun provenance ->
+            Provenance.add provenance (Provenance.Effect "host.mouse.select"))
+          session input
+          [ Model_effect.Execute_intent intent ]
+      in
+      {
+        next with
+        mouse_drag;
+        interaction = Idle;
+        inspector = None;
+        message = None;
+        quit_armed = false;
+      }
+      |> fun session ->
+      set_pane_viewport session pane
+        (Zenbu_view.Viewport.follow (pane_viewport session pane))
+      |> cancel_language_for_pointer |> trace_pointer
+
+let scroll_pointer_pane session pane delta =
+  let session = focus_pane session pane in
+  match pane_rectangle session pane with
+  | None -> session
+  | Some rectangle ->
+      let contents = Editor_context.contents (context session) in
+      let line_count = List.length (Zenbu_view.Display.source_lines contents) in
+      let visible_rows = max 1 (rectangle.height - 1) in
+      let maximum_top_line = max 0 (line_count - visible_rows) in
+      let viewport = pane_viewport session pane in
+      let viewport =
+        Zenbu_view.Viewport.scroll viewport ~lines:delta ~maximum_top_line
+      in
+      {
+        (set_pane_viewport session pane viewport) with
+        mouse_drag = None;
+        interaction = Idle;
+        inspector = None;
+        message = None;
+        quit_armed = false;
+      }
+
+let handle_pointer session input =
+  let session = { session with pending_binding = [] } in
+  match
+    (session.inspector, session.interaction, Input_event.mouse_action input)
+  with
+  | Some _, _, _
+  | ( None,
+      ( Search_prompt _ | Palette _ | Save_as_prompt _ | Open_buffer_prompt _
+      | Model_picker _ | Help_view | Hover_view _ | Completion_view _
+      | Rename_prompt _ ),
+      _ ) ->
+      { session with mouse_drag = None }
+  | None, Idle, None -> session
+  | None, Idle, Some (Input_event.Press Input_event.Wheel_up) -> (
+      match Input_event.mouse_position input with
+      | Some (column, row) -> (
+          match pane_at session ~column ~row with
+          | Some (pane, _) -> scroll_pointer_pane session pane (-3)
+          | None -> session)
+      | None -> session)
+  | None, Idle, Some (Input_event.Press Input_event.Wheel_down) -> (
+      match Input_event.mouse_position input with
+      | Some (column, row) -> (
+          match pane_at session ~column ~row with
+          | Some (pane, _) -> scroll_pointer_pane session pane 3
+          | None -> session)
+      | None -> session)
+  | None, Idle, Some (Input_event.Press Input_event.Primary) -> (
+      match Input_event.mouse_position input with
+      | None -> session
+      | Some (column, row) -> (
+          match pointer_target session ~column ~row with
+          | None -> { session with mouse_drag = None }
+          | Some (pane, offset) ->
+              let focused = focus_pane session pane in
+              let selections = Editor_context.selections (context focused) in
+              let primary =
+                List.nth selections.selections selections.primary_index
+              in
+              let anchor_offset =
+                if List.mem Input_event.Shift (Input_event.modifiers input) then
+                  primary.anchor_offset
+                else offset
+              in
+              apply_pointer_selection focused input ~pane ~anchor_offset
+                ~head_offset:offset
+                ~mouse_drag:(Some { pane; anchor_offset })))
+  | None, Idle, Some Input_event.Drag -> (
+      match (session.mouse_drag, Input_event.mouse_position input) with
+      | Some { pane; anchor_offset }, Some (column, row) -> (
+          match pointer_target session ~column ~row with
+          | Some (target_pane, offset) when target_pane = pane ->
+              apply_pointer_selection session input ~pane ~anchor_offset
+                ~head_offset:offset
+                ~mouse_drag:(Some { pane; anchor_offset })
+          | Some _ | None -> session)
+      | None, Some _ | _, None -> session)
+  | None, Idle, Some Input_event.Release -> (
+      match (session.mouse_drag, Input_event.mouse_position input) with
+      | Some { pane; anchor_offset }, Some (column, row) -> (
+          match pointer_target session ~column ~row with
+          | Some (target_pane, offset) when target_pane = pane ->
+              apply_pointer_selection session input ~pane ~anchor_offset
+                ~head_offset:offset ~mouse_drag:None
+          | Some _ | None -> { session with mouse_drag = None })
+      | None, Some _ | _, None -> { session with mouse_drag = None })
+  | ( None,
+      Idle,
+      Some
+        ( Input_event.Press Input_event.Middle
+        | Input_event.Press Input_event.Secondary ) ) ->
+      { session with mouse_drag = None }
+
 let handle_input session input =
   let contents_before = Editor_context.contents (context session) in
   let caret_before = primary_offset session in
@@ -3118,6 +3417,11 @@ let handle_input session input =
   let completed =
     completed |> observe_language_document_version
     |> synchronize_workspace_documents
+  in
+  let completed =
+    set_pane_viewport completed completed.focused_pane
+      (Zenbu_view.Viewport.follow
+         (pane_viewport completed completed.focused_pane))
   in
   let execution_id =
     Option.value ~default:0 (last_execution_of_active completed.active)
@@ -3566,7 +3870,8 @@ let script_binding_lines session =
       bindings
       |> List.map (fun binding ->
           Printf.sprintf "script overlay: %s -> %s (%s; provider %s)"
-            (Input_event.to_string (Scripting.binding_input binding))
+            (Input_event.binding_sequence_to_string
+               (Scripting.binding_inputs binding))
             (Scripting.binding_command binding)
             (scope_to_string (Scripting.binding_scope binding))
             (Provider.id (Scripting.binding_provider binding)))

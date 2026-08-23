@@ -9,6 +9,18 @@ let input_modifiers modifiers =
       | Event.Meta -> Input_event.Meta)
     modifiers
 
+let mouse_button = function
+  | Event.Primary -> Input_event.Primary
+  | Event.Middle -> Input_event.Middle
+  | Event.Secondary -> Input_event.Secondary
+  | Event.Wheel_up -> Input_event.Wheel_up
+  | Event.Wheel_down -> Input_event.Wheel_down
+
+let mouse_action = function
+  | Event.Press button -> Input_event.Press (mouse_button button)
+  | Event.Drag -> Input_event.Drag
+  | Event.Release -> Input_event.Release
+
 let named_key = function
   | Event.Escape -> Some Input_event.Escape
   | Event.Enter -> Some Input_event.Enter
@@ -41,6 +53,11 @@ let decode ~input_mode = function
                (Input_event.key_press
                   ~modifiers:(input_modifiers modifiers)
                   (Input_event.named_key key))))
+  | Event.Mouse { action; column; row; modifiers } ->
+      Input_event.mouse
+        ~modifiers:(input_modifiers modifiers)
+        (mouse_action action) ~column ~row
+      |> Result.map Option.some
   | Event.Paste text when input_mode = Model_status.Text_entry ->
       Input_event.text_input text |> Result.map Option.some
   | Event.Paste _ -> Ok None

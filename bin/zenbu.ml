@@ -217,6 +217,18 @@ let rec run backend session =
       else finish session Exited
   | Zenbu_terminal.Event.Unsupported description ->
       run backend (Zenbu_app.Session.notice session description)
+  | Zenbu_terminal.Event.Mouse _ as event -> (
+      match
+        Zenbu_terminal.Input_decoder.decode
+          ~input_mode:
+            (Model_status.input_mode (Zenbu_app.Session.status session))
+          event
+      with
+      | Error error ->
+          run backend (Zenbu_app.Session.notice session (Error.to_string error))
+      | Ok None -> run backend session
+      | Ok (Some input) ->
+          run backend (Zenbu_app.Session.handle_pointer session input))
   | Zenbu_terminal.Event.Key { key = Zenbu_terminal.Event.Text "o"; modifiers }
     when is_control modifiers ->
       run backend (Zenbu_app.Session.toggle_inspector session)

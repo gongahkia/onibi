@@ -53,6 +53,9 @@ and plugin examples live in [Getting Started](docs/GETTING_STARTED.md).
   declarative requests for reusable interactions such as literal search without
   receiving terminal-state access. Its semantic styles can be mapped to
   built-in or validated TOML terminal themes without affecting editing state.
+  Its editor canvas also supports pane focus/caret placement, `Shift`-click
+  extension, grapheme-safe primary dragging, and wheel scrolling through typed
+  host pointer events.
 - `zenbu.language` exposes model-neutral diagnostics, hover, definition,
   completion, rename, position conversion, and sync data. A private async LSP
   adapter starts `ocamllsp` by default for saved OCaml files; results become
@@ -163,6 +166,11 @@ Host keys have priority over model/configuration bindings:
 | `Alt-H` | metadata-derived getting-started help |
 | `Ctrl-O` | toggle the local `why` inspector |
 | `Ctrl-Space` | explicit language completion for a ready language service |
+
+Lua configuration and plugins can bind any non-host logical input sequence of
+one to sixteen events—for example, `Ctrl-X Ctrl-K`—at global, model, or
+model-status scope. Prefix state is host-owned and inspectable through the
+generic bindings/trace views; it is not an editor-model implementation detail.
 
 Search, palette, save-as, and rename prompts accept ordinary text-entry input.
 Bracketed terminal paste is collected as one committed text input only while a

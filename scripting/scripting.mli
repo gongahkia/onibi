@@ -51,6 +51,7 @@ val hooks : t -> hook list
 val counts : t -> int * int * int * int * int
 val dispose : t -> unit
 val binding_input : binding -> Zenbu_model_api.Input_event.t
+val binding_inputs : binding -> Zenbu_model_api.Input_event.t list
 val binding_command : binding -> string
 val binding_scope : binding -> scope
 val binding_provider : binding -> Zenbu_kernel.Provider.t

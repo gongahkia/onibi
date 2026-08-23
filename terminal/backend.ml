@@ -36,7 +36,7 @@ let create () =
       Ok
         {
           terminal =
-            Notty_unix.Term.create ~dispose:true ~mouse:false ~bpaste:true ();
+            Notty_unix.Term.create ~dispose:true ~mouse:true ~bpaste:true ();
           original_input;
           released = false;
           paste = None;
@@ -72,6 +72,18 @@ let modifier = function
   | `Shift -> Event.Shift
   | `Ctrl -> Event.Control
   | `Meta -> Event.Meta
+
+let mouse_button = function
+  | `Left -> Event.Primary
+  | `Middle -> Event.Middle
+  | `Right -> Event.Secondary
+  | `Scroll `Up -> Event.Wheel_up
+  | `Scroll `Down -> Event.Wheel_down
+
+let mouse_action = function
+  | `Press button -> Event.Press (mouse_button button)
+  | `Drag -> Event.Drag
+  | `Release -> Event.Release
 
 let map_special = function
   | `Escape -> Some Event.Escape
@@ -117,8 +129,8 @@ let pasted_text = function
   | Event.Key { key = Event.Text text; modifiers = [] } -> Some text
   | Event.Key { key = Event.Enter; modifiers = [] } -> Some "\n"
   | Event.Key { key = Event.Tab; modifiers = [] } -> Some "\t"
-  | Event.Key _ | Event.Resize _ | Event.Paste _ | Event.Wakeup | Event.End
-  | Event.Unsupported _ ->
+  | Event.Key _ | Event.Mouse _ | Event.Resize _ | Event.Paste _ | Event.Wakeup
+  | Event.End | Event.Unsupported _ ->
       None
 
 let rec read ?wakeup ?(wakeups = []) terminal =
@@ -149,9 +161,16 @@ and read_ready terminal =
       | Some buffer ->
           Option.iter (Buffer.add_string buffer) (pasted_text event);
           read_ready terminal)
+  | `Mouse (action, (column, row), modifiers) ->
+      Event.Mouse
+        {
+          action = mouse_action action;
+          column;
+          row;
+          modifiers = Event.normalize_modifiers (List.map modifier modifiers);
+        }
   | `Resize (columns, rows) -> Event.Resize { columns; rows }
   | `End -> Event.End
-  | `Mouse _ -> Event.Unsupported "mouse input is not enabled"
 
 let notty_color = function
   | Theme.Default -> None

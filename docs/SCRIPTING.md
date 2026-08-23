@@ -123,18 +123,32 @@ also accept `requires_syntax = true`. Ids collide with builtins and other
 registrations as errors. Registrations cannot be removed individually: edit the
 file and reload to replace the entire generation.
 
-`zenbu.bind` takes `input`, `command`, and optional `scope`. Inputs are named
-keys (`Escape`, `Enter`, `Backspace`, `Tab`, `ArrowUp`, `ArrowDown`,
-`ArrowLeft`, `ArrowRight`), logical text, or `Ctrl-X`. A scope is `global`,
-`model:<model-id>`, or `model:<model-id>:<status-id>`. More specific matching
-scopes win over global; duplicate input/scope pairs in one generation are a
-validation error. Bindings are considered before model input. The host retains
-`Ctrl-S`, `Ctrl-Shift-S`, `Ctrl-Q`, `Ctrl-Alt-R`, `Ctrl-F`, `Ctrl-G`,
-`Ctrl-Shift-G`, `Ctrl-P`, `Alt-M`, `Alt-H`, and `Ctrl-O` as non-overridable
-save/save-as, quit, reload, search, palette, model-switch, help, and inspector
-controls. `config.reload` is a permitted binding target for a script-defined
-reload key. `zenbu-headless bindings vim` includes the same reserved-host list
-beside model and extension bindings.
+`zenbu.bind` takes `input`, `command`, and optional `scope`. `input` is one to
+sixteen logical input tokens separated by one ASCII space, for example
+`"Ctrl-X Ctrl-K"`. A token is named-key input (`Escape`, `Enter`, `Backspace`,
+`Tab`, `Delete`, arrows, `Home`, or `End`) or logical text with optional
+`Ctrl-`, `Shift-`, `Alt-`, and `Meta-` modifiers. Write the text keys `Space`,
+`Minus`, `Plus`, `Comma`, `Period`, or `Slash` by name when required inside a
+sequence. `Ctrl-X` remains a one-event binding and is fully backward
+compatible.
+
+A scope is `global`, `model:<model-id>`, or
+`model:<model-id>:<status-id>`. A completed model-status binding wins over a
+model binding, which wins over global. If a more-specific scope has an
+incomplete sequence prefix, Zenbu holds that prefix; a less-specific sequence
+can still resolve if the later event does not match the narrower candidate.
+The first prefix event is never sent to the model. `Escape` cancels a pending
+prefix; an unmatched suffix is consumed with an explanatory message rather
+than leaking into the model. Identical or prefix-overlapping sequences in one
+scope are a staging error, so a command and a prefix cannot be ambiguous.
+
+Bindings are considered before model input. The host retains `Ctrl-S`,
+`Ctrl-Shift-S`, `Ctrl-Q`, `Alt-R`, `Ctrl-Alt-R`, `Ctrl-F`, `Ctrl-G`,
+`Ctrl-Shift-G`, `Ctrl-P`, `Ctrl-Space`, `Alt-M`, `Meta-M`, `Alt-H`, `Meta-H`,
+and `Ctrl-O` as non-overridable controls; none may appear anywhere in a custom
+sequence. `config.reload` is a permitted binding target for a script-defined
+non-host reload key. `zenbu-headless bindings vim` includes the same
+reserved-host list beside model and extension bindings.
 
 Use `zenbu-headless api` and `zenbu-headless bindings <vim|selection|structural>`
 to discover exact model and current status ids before writing a scoped binding;
@@ -189,9 +203,9 @@ an invalid result creates no partial document mutation.
 ## Observability, history, and limits
 
 Script descriptors use provider ids such as `script.3` and retain their source
-path. `why`/trace reports script load/reload lifecycle, binding resolution,
-command/selector/transformation/event callback start/success/failure, and the
-ordinary provenance chain including binding, command, selector,
+path. `why`/trace reports script load/reload lifecycle, complete binding
+resolution with the full input sequence, command/selector/transformation/event
+callback start/success/failure, and the ordinary provenance chain including binding, command, selector,
 transformation, and event entries. The interactive `Scripts` inspector lists
 the active generation, source, provider, counts, and last reload failure.
 `Bindings`, `Commands`, `API`, `History`, and `Why` use the same generic views

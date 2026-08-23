@@ -13,7 +13,7 @@ let description = function
   | Commands -> "semantic command registrations"
   | Selectors -> "dynamic selector registrations"
   | Transformations -> "dynamic transformation registrations"
-  | Bindings -> "scoped logical input bindings"
+  | Bindings -> "scoped logical input sequences"
   | Events -> "document-changed and after-save event handlers"
 
 let of_id value =

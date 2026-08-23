@@ -37,7 +37,11 @@ function zenbu.command(registration) end
 function zenbu.selector(registration) end
 ---@param registration table
 function zenbu.transform(registration) end
----@param registration table
+---@class ZenbuBindingRegistration
+---@field input string One to sixteen input tokens separated by one ASCII space.
+---@field command string
+---@field scope? string global, model:<id>, or model:<id>:<status>
+---@param registration ZenbuBindingRegistration
 function zenbu.bind(registration) end
 ---@param registration table
 function zenbu.on(registration) end

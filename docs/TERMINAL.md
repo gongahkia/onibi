@@ -47,8 +47,19 @@ state, so a pending operator/shrink stack never leaks across models.
 ## Backend and rendering
 
 `terminal/Backend` is the only Notty user. It owns raw alternate-screen mode,
-cursor restoration, and a partial-creation cleanup fallback; no Notty value
-reaches session, models, view, or kernel. Mouse is disabled.
+cursor restoration, mouse reporting, and a partial-creation cleanup fallback;
+no Notty value reaches session, models, view, or kernel.
+
+Mouse reporting is enabled for the editor canvas. A primary press focuses the
+pane and places its caret; `Shift`-primary extends the active selection, and a
+primary drag creates a single grapheme-safe selection. The wheel scrolls the
+pane three source lines at a time without moving its selection. A subsequent
+keyboard edit or movement resumes cursor-following. Middle and secondary
+buttons, mouse clipboard integration, clicks on the status row, and all mouse
+interaction while a prompt, palette, or inspector is visible are intentionally
+ignored. Terminal mouse events become typed `Input_event` values, but Session
+owns their host semantics and applies selections through ordinary checked
+semantic effects rather than exposing terminal state to editing models.
 
 Bracketed paste is enabled. Notty provides start/end markers; the adapter
 collects intervening printable UTF-8, Enter, and Tab events into one
@@ -63,8 +74,9 @@ render as caret notation. `Syntax.Highlight` reaches the view as ranges/classes
 only. M11 diagnostics likewise reach it as owned ranges/classes. Style
 precedence is **selection > search > diagnostic > syntax > plain**. Unknown
 languages have no spans and render plain. The viewport follows the primary
-selection; soft wrapping, mouse selection, capability probing, and exact emoji
-width remain out of scope.
+selection unless deliberately scrolled with the wheel; soft wrapping,
+multi-click/word selection, terminal capability probing, and exact emoji width
+remain out of scope.
 
 System clipboard commands are deliberately deferred: platform-specific
 `wl-copy`, `xclip`, and `pbcopy` discovery does not belong in the semantic
@@ -81,12 +93,13 @@ detect external modifications.
 
 M11 starts an optional language service for a saved path selected by the
 language registry (the default is `ocamllsp` for OCaml). The backend waits on
-stdin and the client wakeup descriptor, so an idle terminal redraws when
-diagnostics or feature replies arrive. Hover and completion are host overlays;
-diagnostic navigation and accepted language edits use normal selection
-effects/transactions. Same-document definitions work; cross-file navigation
-and workspace edits are deliberately rejected. `language.status` is available
-through the palette and inspector. See [Language services](LANGUAGE_SERVICES.md).
+stdin and every open buffer's client wakeup descriptor, so an idle terminal
+redraws when diagnostics or feature replies arrive. Hover and completion are
+host overlays; diagnostic navigation and accepted language edits use normal
+selection effects/transactions. Definitions can open a local target buffer,
+and rename or `workspace/applyEdit` can update every already-open saved target
+all-or-none. `language.status` is available through the palette and inspector.
+See [Language services](LANGUAGE_SERVICES.md).
 
 Plugin inspection shows manifest, runtime, capabilities, contributions, limits,
 last error, and health. A Component fuel/memory/trap failure makes its runtime

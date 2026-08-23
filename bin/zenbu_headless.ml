@@ -579,7 +579,8 @@ let describe_config path =
       List.iter
         (fun binding ->
           Printf.printf "binding: %s -> %s\n"
-            (Input_event.to_string (Scripting.binding_input binding))
+            (Input_event.binding_sequence_to_string
+               (Scripting.binding_inputs binding))
             (Scripting.binding_command binding))
         (Scripting.bindings generation);
       Scripting.dispose generation

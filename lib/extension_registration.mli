@@ -22,10 +22,29 @@ val binding :
   provider:Zenbu_kernel.Provider.t ->
   binding
 
+val binding_sequence :
+  head:Input_event.t ->
+  tail:Input_event.t list ->
+  command:string ->
+  scope:scope ->
+  provider:Zenbu_kernel.Provider.t ->
+  binding
+(** Register a nonempty ordered logical-input sequence. [head] is separate so
+    adapter code cannot construct an empty binding. *)
+
 val binding_input : binding -> Input_event.t
+(** Legacy one-event projection. New consumers should inspect [binding_inputs].
+*)
+
+val binding_inputs : binding -> Input_event.t list
 val binding_command : binding -> string
 val binding_scope : binding -> scope
 val binding_provider : binding -> Zenbu_kernel.Provider.t
+
+val bindings_conflict : binding -> binding -> bool
+(** Two bindings conflict when their scopes are equal and either input sequence
+    is a prefix of the other. This excludes an ambiguous command/prefix entry in
+    one effective keymap. *)
 
 val hook :
   event:event ->

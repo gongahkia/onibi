@@ -399,12 +399,12 @@ zenbu.command { id = "user.not-namespaced", run = function(_) return nil end }
         (create_plugin root "left" ~id:left_id ~version:"1.0.0"
            ~contributions:[ "commands"; "bindings" ]
            ~capabilities:[ "document.edit" ]
-           (command_binding_source left_id "L" "Ctrl-K"));
+           (command_binding_source left_id "L" "Ctrl-X Ctrl-K"));
       ignore
         (create_plugin root "right" ~id:right_id ~version:"1.0.0"
            ~contributions:[ "commands"; "bindings" ]
            ~capabilities:[ "document.edit" ]
-           (command_binding_source right_id "R" "Ctrl-K"));
+           (command_binding_source right_id "R" "Ctrl-X Ctrl-K Ctrl-M"));
       let collision =
         Plugins.load ~config:(Plugins.Directories [ root ])
           ~base_commands:(base_commands ()) ~base_semantics:(base_semantics ())

@@ -21,15 +21,16 @@ M10 added host/presentation policy above the existing semantic boundary:
 literal Unicode search, all-provider command discovery/palette, save-as,
 metadata-derived help, live model switching, syntax colouring from public
 snapshot spans, bracketed-paste aggregation, Component health/reload behavior,
+basic terminal pointer selection/scrolling, scoped logical input sequences,
 bootstrap/install/release targets, CI, and adoption documentation. It did not
 grant a host or renderer a private document mutation path.
 
 M11 adds optional `zenbu.language` data and a private `zenbu.lsp` adapter. The
-default `.ml`/`.mli` path starts `ocamllsp`; diagnostics, hover, same-document
-definition, explicit completion, rename, and bounded `workspace/applyEdit`
-results arrive asynchronously, then use normal selection effects or
-transactions. LSP/JSON-RPC values remain outside the kernel and editing-model
-API. See [Language services](LANGUAGE_SERVICES.md).
+default `.ml`/`.mli` path starts `ocamllsp`; diagnostics, hover, same- and
+cross-file definition, explicit completion, rename, and bounded
+`workspace/applyEdit` results arrive asynchronously, then use normal selection
+effects or transactions. LSP/JSON-RPC values remain outside the kernel and
+editing-model API. See [Language services](LANGUAGE_SERVICES.md).
 
 ## Deferred work
 

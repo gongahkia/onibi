@@ -20,6 +20,11 @@ let ctrl text =
   |> must
   |> Input_event.key_press ~modifiers:[ Input_event.Control ]
 
+let ctrl_shift text =
+  Input_event.logical_text text
+  |> must
+  |> Input_event.key_press ~modifiers:[ Input_event.Shift; Input_event.Control ]
+
 let dimensions = Zenbu_view.Renderer.{ columns = 120; rows = 40 }
 
 let write path text =
@@ -251,6 +256,127 @@ zenbu.bind { input = "Ctrl-S", command = "user.save" }
           failf "wrong reserved host binding error: %s" (Error.to_string error)
       | Ok _ -> failf "reserved host binding was accepted")
 
+let sequence_config =
+  {|
+zenbu.command {
+  id = "user.global-sequence", run = function(_) return {{ kind = "insert", text = "G" }} end,
+}
+zenbu.command {
+  id = "user.model-sequence", run = function(_) return {{ kind = "insert", text = "M" }} end,
+}
+zenbu.command {
+  id = "user.shift-sequence", run = function(_) return {{ kind = "insert", text = "S" }} end,
+}
+zenbu.bind { input = "Ctrl-X Ctrl-K", command = "user.global-sequence", scope = "global" }
+zenbu.bind { input = "Ctrl-X Ctrl-M", command = "user.model-sequence", scope = "model:zenbu.vim-style" }
+zenbu.bind { input = "Ctrl-Shift-K", command = "user.shift-sequence", scope = "global" }
+|}
+
+let test_binding_sequences () =
+  let path = Filename.temp_file "zenbu-m7-sequences" ".lua" in
+  Fun.protect
+    ~finally:(fun () -> Sys.remove path)
+    (fun () ->
+      write path sequence_config;
+      let create () =
+        let trace = Trace.enabled ~capacity:64 |> must in
+        Zenbu_app.Session.create ~model:Zenbu_app.Session.Vim ~contents:"alpha"
+          ~trace ~config:(Zenbu_scripting.Scripting.Explicit path) ~dimensions
+          ()
+        |> must
+      in
+      let prefix = Zenbu_app.Session.handle_input (create ()) (ctrl "X") in
+      expect
+        (Zenbu_app.Session.contents prefix = "alpha")
+        "the first event of a binding sequence edited the document";
+      let prefix_view =
+        Zenbu_app.Session.inspect prefix Zenbu_app.Session.Bindings
+        |> String.concat "\n"
+      in
+      expect
+        (contains prefix_view "Ctrl+text(x) Ctrl+text(k)")
+        "binding inspection did not display the complete sequence";
+      let global = Zenbu_app.Session.handle_input prefix (ctrl "K") in
+      expect
+        (Zenbu_app.Session.contents global = "Galpha")
+        "a global binding sequence did not resolve after a more-specific prefix";
+      let why =
+        Zenbu_app.Session.inspect global Zenbu_app.Session.Why
+        |> String.concat "\n"
+      in
+      expect
+        (contains why
+           "binding Ctrl+text(x) Ctrl+text(k) -> user.global-sequence")
+        "binding provenance did not retain the complete input sequence: %s" why;
+      let model =
+        create () |> fun session ->
+        Zenbu_app.Session.handle_input session (ctrl "X") |> fun session ->
+        Zenbu_app.Session.handle_input session (ctrl "M")
+      in
+      expect
+        (Zenbu_app.Session.contents model = "Malpha")
+        "a model-scoped binding sequence did not resolve over the global scope";
+      let rejected =
+        create () |> fun session ->
+        Zenbu_app.Session.handle_input session (ctrl "X") |> fun session ->
+        Zenbu_app.Session.handle_input session (ctrl "L")
+      in
+      expect
+        (Zenbu_app.Session.contents rejected = "alpha")
+        "an unbound suffix leaked into the model after a binding prefix";
+      let cancelled =
+        create () |> fun session ->
+        Zenbu_app.Session.handle_input session (ctrl "X") |> fun session ->
+        Zenbu_app.Session.handle_input session
+          (Input_event.key_press (Input_event.named_key Input_event.Escape))
+        |> fun session ->
+        Zenbu_app.Session.handle_input session (ctrl "X") |> fun session ->
+        Zenbu_app.Session.handle_input session (ctrl "K")
+      in
+      expect
+        (Zenbu_app.Session.contents cancelled = "Galpha")
+        "Escape did not cancel a pending sequence before the next binding";
+      let shifted =
+        create () |> fun session ->
+        Zenbu_app.Session.handle_input session (ctrl_shift "K")
+      in
+      expect
+        (Zenbu_app.Session.contents shifted = "Salpha")
+        "a multi-modifier binding did not match the parsed input";
+      write path
+        {|
+zenbu.command { id = "user.one", run = function(_) return nil end }
+zenbu.bind { input = "Ctrl-X Ctrl-K", command = "user.one" }
+zenbu.bind { input = "Ctrl-X Ctrl-K Ctrl-M", command = "user.one" }
+|};
+      (match
+         Zenbu_scripting.Scripting.check_file ~base_commands:(base_commands ())
+           ~base_semantics:(base_semantics ()) path
+       with
+      | Error (Error.Script_error { phase = "registration"; message; _ }) ->
+          expect
+            (contains message "prefix-ambiguous")
+            "prefix-conflicting binding sequences did not fail staging"
+      | Error error ->
+          failf "wrong prefix-conflict error: %s" (Error.to_string error)
+      | Ok _ -> failf "prefix-conflicting binding sequences were accepted");
+      write path
+        {|
+zenbu.command { id = "user.one", run = function(_) return nil end }
+zenbu.bind { input = "Ctrl-X Ctrl-S", command = "user.one" }
+|};
+      match
+        Zenbu_scripting.Scripting.check_file ~base_commands:(base_commands ())
+          ~base_semantics:(base_semantics ()) path
+      with
+      | Error (Error.Script_error { phase = "registration"; message; _ }) ->
+          expect
+            (contains message "reserved host")
+            "a host-reserved suffix was accepted inside a binding sequence"
+      | Error error ->
+          failf "wrong reserved-suffix error: %s" (Error.to_string error)
+      | Ok _ -> failf "host-reserved sequence suffix was accepted")
+
 let scoped_config =
   {|
 zenbu.command {
@@ -435,6 +561,7 @@ let tests =
     ("script config validation", test_config_validation);
     ( "script errors and registration conflicts",
       test_errors_and_registration_conflicts );
+    ("script binding sequences and scoped dispatch", test_binding_sequences);
     ("script scopes, atomicity, and undo", test_scopes_atomicity_and_undo);
     ("script syntax API and reload stress", test_syntax_api_and_reload_stress);
     ( "script event delivery and recursion guard",

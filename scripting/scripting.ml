@@ -306,36 +306,10 @@ let behavior_transformation source = function
         (script_error "transformation" source
            "transformation result must be a table")
 
-let input_of_string source value =
-  let control_prefix = "Ctrl-" in
-  let named =
-    [
-      ("Escape", Input_event.Escape);
-      ("Enter", Input_event.Enter);
-      ("Backspace", Input_event.Backspace);
-      ("Tab", Input_event.Tab);
-      ("ArrowUp", Input_event.Arrow_up);
-      ("ArrowDown", Input_event.Arrow_down);
-      ("ArrowLeft", Input_event.Arrow_left);
-      ("ArrowRight", Input_event.Arrow_right);
-    ]
-  in
-  match List.assoc_opt value named with
-  | Some named -> Ok (Input_event.key_press (Input_event.named_key named))
-  | None ->
-      let modifiers, text =
-        if String.starts_with ~prefix:control_prefix value then
-          ( [ Input_event.Control ],
-            String.sub value
-              (String.length control_prefix)
-              (String.length value - String.length control_prefix)
-            |> String.lowercase_ascii )
-        else ([], value)
-      in
-      Input_event.logical_text text
-      |> Result.map (Input_event.key_press ~modifiers)
-      |> Result.map_error (fun error ->
-          script_error "registration" source (Error.to_string error))
+let inputs_of_string source value =
+  Input_event.binding_sequence_of_string value
+  |> Result.map_error (fun error ->
+      script_error "registration" source (Error.to_string error))
 
 let scope_of_string source = function
   | None | Some "global" -> Ok Global
@@ -351,14 +325,29 @@ let scope_of_string source = function
                "scope must be global, model:<id>, or model:<id>:<status>"))
 
 let reserved_host_input input =
-  [ "s"; "q" ]
-  |> List.exists (fun text ->
-      Input_event.logical_text text
-      |> Result.map (Input_event.key_press ~modifiers:[ Input_event.Control ])
+  [
+    "Ctrl-S";
+    "Ctrl-Shift-S";
+    "Ctrl-Q";
+    "Alt-R";
+    "Ctrl-Alt-R";
+    "Ctrl-F";
+    "Ctrl-G";
+    "Ctrl-Shift-G";
+    "Ctrl-P";
+    "Ctrl-Space";
+    "Alt-M";
+    "Meta-M";
+    "Alt-H";
+    "Meta-H";
+    "Ctrl-O";
+  ]
+  |> List.exists (fun source ->
+      Input_event.binding_event_of_string source
       |> Result.map (fun reserved ->
           String.equal
-            (String.lowercase_ascii (Input_event.to_string input))
-            (String.lowercase_ascii (Input_event.to_string reserved)))
+            (Input_event.to_string input)
+            (Input_event.to_string reserved))
       |> Result.value ~default:false)
 
 let event_of_string source = function
@@ -591,49 +580,48 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
             (function
               | Backend.Binding definition when Option.is_none !failed -> (
                   match
-                    ( input_of_string source definition.input,
+                    ( inputs_of_string source definition.input,
                       scope_of_string source definition.scope,
                       Command_id.of_string definition.command )
                   with
-                  | Ok input, Ok scope, Ok command -> (
+                  | Ok (head :: tail), Ok scope, Ok command -> (
                       match
                         verify_registration "bindings" definition.command
                       with
                       | Error error -> fail error
-                      | Ok () when reserved_host_input input ->
+                      | Ok () when List.exists reserved_host_input (head :: tail)
+                        ->
                           fail
                             (script_error "registration" source
-                               "Ctrl-S and Ctrl-Q are reserved host controls")
+                               "reserved host input cannot appear in a binding")
                       | Ok () -> (
                           match
                             ( String.equal definition.command "config.reload",
                               Command_registry.find !command_registry command )
                           with
                           | true, _ | false, Ok _ ->
+                              let candidate =
+                                Registration.binding_sequence ~head ~tail
+                                  ~command:definition.command ~scope ~provider
+                              in
                               let duplicate =
                                 List.exists
-                                  (fun binding ->
-                                    Input_event.to_string
-                                      (Registration.binding_input binding)
-                                    = Input_event.to_string input
-                                    && Registration.binding_scope binding
-                                       = scope)
+                                  (Registration.bindings_conflict candidate)
                                   !bindings
                               in
                               if duplicate then
                                 fail
                                   (script_error "registration" source
-                                     ("duplicate binding for "
-                                     ^ Input_event.to_string input))
-                              else
-                                bindings :=
-                                  !bindings
-                                  @ [
-                                      Registration.binding ~input
-                                        ~command:definition.command ~scope
-                                        ~provider;
-                                    ]
+                                     ("duplicate binding or prefix-ambiguous \
+                                       sequence for "
+                                     ^ Input_event.binding_sequence_to_string
+                                         (head :: tail)))
+                              else bindings := !bindings @ [ candidate ]
                           | false, Error error -> fail error))
+                  | Ok [], _, _ ->
+                      fail
+                        (script_error "registration" source
+                           "binding sequence must not be empty")
                   | Error error, _, _ | _, Error error, _ | _, _, Error error ->
                       fail error)
               | Backend.Hook definition when Option.is_none !failed -> (
@@ -737,6 +725,7 @@ let counts value =
 
 let dispose value = Backend.dispose value.backend
 let binding_input = Registration.binding_input
+let binding_inputs = Registration.binding_inputs
 let binding_command = Registration.binding_command
 let binding_scope = Registration.binding_scope
 let binding_provider = Registration.binding_provider

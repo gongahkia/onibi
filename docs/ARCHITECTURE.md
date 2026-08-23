@@ -174,9 +174,12 @@ viewports, terminal dimensions, message, and quit confirmation. The pure
 only immutable frames and has no document mutation path. Session assigns stable
 local buffer ids to panes and retains each buffer's independent model runtime,
 history, language state, search state, and viewport. It handles host-only save,
-quit, and view-layout policy; models still receive only logical input and
-return semantic effects. The pure view layer converts immutable context
-selections to styled cells, while the backend alone places the physical cursor.
+quit, view-layout, and pointer policy; models receive logical keyboard/text
+input and return semantic effects. Typed terminal pointer events are consumed
+by Session, which turns selection gestures into ordinary checked semantic
+effects without exposing terminal coordinates to models. The pure view layer
+converts immutable context selections to styled cells, while the backend alone
+places the physical cursor.
 `zenbu.view.Theme` maps those stable semantic cell styles to terminal colours
 and decorations; it cannot observe or mutate editor state. The backend converts
 the selected theme to Notty attributes at draw time. See [Themes](THEMES.md).
@@ -235,9 +238,13 @@ as builtin behavior.
 `Session` owns an optional active generation alongside immutable base command
 and semantic registries. Reload stages a fresh full generation before calling
 `Model_runtime.with_extensions`; only a successful stage replaces the overlay,
-then disposes the prior Lua state. Binding precedence is model+status, model,
-then global; hooks are session policy over committed document changes and saves.
-The terminal keeps save/quit/reload controls outside this binding resolver.
+then disposes the prior Lua state. A binding is one to sixteen validated
+logical events, not a terminal byte sequence. Session owns its pending-prefix
+state: it resolves model+status, model, then global candidates without showing
+that state to a model; an unbound suffix is consumed rather than becoming model
+input. Same-scope prefix overlap is rejected while staging. Hooks are session
+policy over committed document changes and saves. The terminal keeps
+save/quit/reload controls outside this binding resolver.
 
 Lua receives data-only contexts and optional data-only syntax node summaries.
 No Lua state, terminal value, mutable history/document handle, or Tree-sitter

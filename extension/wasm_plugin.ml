@@ -537,37 +537,11 @@ let behavior_transformation provider capabilities = function
       action_error provider capabilities "transformation"
         "transformation result must be a record"
 
-let input_of_string provider capabilities value =
-  let control_prefix = "Ctrl-" in
-  let named =
-    [
-      ("Escape", Input_event.Escape);
-      ("Enter", Input_event.Enter);
-      ("Backspace", Input_event.Backspace);
-      ("Tab", Input_event.Tab);
-      ("ArrowUp", Input_event.Arrow_up);
-      ("ArrowDown", Input_event.Arrow_down);
-      ("ArrowLeft", Input_event.Arrow_left);
-      ("ArrowRight", Input_event.Arrow_right);
-    ]
-  in
-  match List.assoc_opt value named with
-  | Some named -> Ok (Input_event.key_press (Input_event.named_key named))
-  | None ->
-      let modifiers, text =
-        if String.starts_with ~prefix:control_prefix value then
-          ( [ Input_event.Control ],
-            String.sub value
-              (String.length control_prefix)
-              (String.length value - String.length control_prefix)
-            |> String.lowercase_ascii )
-        else ([], value)
-      in
-      Input_event.logical_text text
-      |> Result.map (Input_event.key_press ~modifiers)
-      |> Result.map_error (fun error ->
-          extension_error provider capabilities ~operation:"registration"
-            (Error.to_string error))
+let inputs_of_string provider capabilities value =
+  Input_event.binding_sequence_of_string value
+  |> Result.map_error (fun error ->
+      extension_error provider capabilities ~operation:"registration"
+        (Error.to_string error))
 
 let scope_of_string provider capabilities = function
   | "" | "global" -> Ok Registration.Global
@@ -592,14 +566,29 @@ let event_of_string provider capabilities = function
            ("unknown event " ^ value))
 
 let reserved_host_input input =
-  [ "s"; "q" ]
-  |> List.exists (fun text ->
-      Input_event.logical_text text
-      |> Result.map (Input_event.key_press ~modifiers:[ Input_event.Control ])
+  [
+    "Ctrl-S";
+    "Ctrl-Shift-S";
+    "Ctrl-Q";
+    "Alt-R";
+    "Ctrl-Alt-R";
+    "Ctrl-F";
+    "Ctrl-G";
+    "Ctrl-Shift-G";
+    "Ctrl-P";
+    "Ctrl-Space";
+    "Alt-M";
+    "Meta-M";
+    "Alt-H";
+    "Meta-H";
+    "Ctrl-O";
+  ]
+  |> List.exists (fun source ->
+      Input_event.binding_event_of_string source
       |> Result.map (fun reserved ->
           String.equal
-            (String.lowercase_ascii (Input_event.to_string input))
-            (String.lowercase_ascii (Input_event.to_string reserved)))
+            (Input_event.to_string input)
+            (Input_event.to_string reserved))
       |> Result.value ~default:false)
 
 let request_value request =
@@ -874,39 +863,43 @@ let load ~(limits : limits) ~provider ~capabilities ~contributions
                                    definition.id)
                             else
                               Result.bind
-                                (input_of_string provider capabilities
-                                   definition.input) (fun input ->
-                                  Result.bind
-                                    (scope_of_string provider capabilities
-                                       definition.scope) (fun scope ->
-                                      if reserved_host_input input then
-                                        Error
-                                          (extension_error provider capabilities
-                                             ~operation:"registration"
-                                             "Ctrl-S and Ctrl-Q are reserved \
-                                              host controls")
-                                      else
-                                        Result.bind
-                                          (Command_id.of_string definition.id)
-                                          (fun command ->
-                                            Command_registry.find
-                                              !command_registry command)
-                                        |> Result.map (fun _ ->
-                                            Registration.binding ~input
-                                              ~command:definition.id ~scope
-                                              ~provider))))
+                                (inputs_of_string provider capabilities
+                                   definition.input) (function
+                                | [] ->
+                                    Error
+                                      (extension_error provider capabilities
+                                         ~operation:"registration"
+                                         "binding sequence must not be empty")
+                                | head :: tail ->
+                                    Result.bind
+                                      (scope_of_string provider capabilities
+                                         definition.scope) (fun scope ->
+                                        if
+                                          List.exists reserved_host_input
+                                            (head :: tail)
+                                        then
+                                          Error
+                                            (extension_error provider
+                                               capabilities
+                                               ~operation:"registration"
+                                               "reserved host input cannot \
+                                                appear in a binding")
+                                        else
+                                          Result.bind
+                                            (Command_id.of_string definition.id)
+                                            (fun command ->
+                                              Command_registry.find
+                                                !command_registry command)
+                                          |> Result.map (fun _ ->
+                                              Registration.binding_sequence
+                                                ~head ~tail
+                                                ~command:definition.id ~scope
+                                                ~provider))))
                         |> fun candidate ->
                         Result.bind candidate (fun binding ->
                             let duplicate =
                               List.exists
-                                (fun existing ->
-                                  String.equal
-                                    (Input_event.to_string
-                                       (Registration.binding_input existing))
-                                    (Input_event.to_string
-                                       (Registration.binding_input binding))
-                                  && Registration.binding_scope existing
-                                     = Registration.binding_scope binding)
+                                (Registration.bindings_conflict binding)
                                 !bindings
                             in
                             if duplicate then

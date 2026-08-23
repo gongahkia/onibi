@@ -31,6 +31,7 @@ val layout : string -> source_line -> line
 val lines : string -> line list
 val source_line_at : source_line list -> int -> source_line
 val column_at : line -> int -> int
+val offset_at_column : line -> int -> int
 val locate : line list -> int -> line * int
 val visible_graphemes : line -> left_column:int -> width:int -> grapheme list
 val text_width : string -> int

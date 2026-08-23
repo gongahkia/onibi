@@ -15,7 +15,6 @@ type named_key =
   | End
 
 type key = Logical_text of string | Named_key of named_key
-
 type mouse_button = Primary | Middle | Secondary | Wheel_up | Wheel_down
 type mouse_action = Press of mouse_button | Drag | Release
 
@@ -41,15 +40,31 @@ val key_press :
   ?modifiers:modifier list -> ?physical_key:physical_key -> key -> t
 
 val text_input : string -> (t, Zenbu_kernel.Error.t) result
-val mouse : ?modifiers:modifier list -> mouse_action -> column:int -> row:int ->
+
+val mouse :
+  ?modifiers:modifier list ->
+  mouse_action ->
+  column:int ->
+  row:int ->
   (t, Zenbu_kernel.Error.t) result
+
 val modifiers : t -> modifier list
 val key : t -> key option
 val physical : t -> physical_key option
 val text : t -> string option
 val mouse_action : t -> mouse_action option
 val mouse_position : t -> (int * int) option
+
+val binding_event_of_string : string -> (t, Zenbu_kernel.Error.t) result
+(** Parse a configuration binding token such as [Ctrl-X], [Alt-Enter], or
+    [Space]. Modifiers are joined to the logical or named key with [-]. *)
+
+val binding_sequence_of_string : string -> (t list, Zenbu_kernel.Error.t) result
+(** Parse one to sixteen binding tokens separated by one ASCII space. A literal
+    space key is written [Space]. *)
+
 val modifier_to_string : modifier -> string
 val named_key_to_string : named_key -> string
 val mouse_button_to_string : mouse_button -> string
+val binding_sequence_to_string : t list -> string
 val to_string : t -> string

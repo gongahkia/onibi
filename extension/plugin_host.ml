@@ -230,16 +230,6 @@ let stage ~base_commands ~base_semantics manifest =
           |> Result.map (fun generation ->
               { manifest; generation; last_error = None })))
 
-let binding_key binding =
-  Input_event.to_string (Registration.binding_input binding)
-  ^ "\000"
-  ^
-  match Registration.binding_scope binding with
-  | Registration.Global -> "global"
-  | Registration.Model model -> "model:" ^ model
-  | Registration.Model_status { model; status } ->
-      "model:" ^ model ^ ":" ^ status
-
 let registered_ids active =
   let commands =
     generation_commands active.generation
@@ -272,22 +262,24 @@ let collisions ~base_bindings (staged : active list) =
           | Some prior -> mark prior active)
         (registered_ids active))
     staged;
-  let binding_owners = Hashtbl.create 16 in
-  List.iter
-    (fun binding -> Hashtbl.replace binding_owners (binding_key binding) None)
-    base_bindings;
+  let binding_owners =
+    ref (List.map (fun binding -> (None, binding)) base_bindings)
+  in
   List.iter
     (fun (active : active) ->
       generation_bindings active.generation
       |> List.iter (fun binding ->
-          let key = binding_key binding in
-          match Hashtbl.find_opt binding_owners key with
-          | None -> Hashtbl.add binding_owners key (Some active)
-          | Some None ->
-              Hashtbl.replace conflicted
-                (Manifest.id active.manifest |> Plugin_id.to_string)
-                ()
-          | Some (Some prior) -> mark prior active))
+          List.iter
+            (fun (owner, existing) ->
+              if Registration.bindings_conflict existing binding then
+                match owner with
+                | None ->
+                    Hashtbl.replace conflicted
+                      (Manifest.id active.manifest |> Plugin_id.to_string)
+                      ()
+                | Some prior -> mark prior active)
+            !binding_owners;
+          binding_owners := (Some active, binding) :: !binding_owners))
     staged;
   staged
   |> List.filter_map (fun (active : active) ->

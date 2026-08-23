@@ -41,6 +41,7 @@ let layout_must = function
 
 let key text = Input_event.key_press (Input_event.logical_text text |> must)
 let text_input text = Input_event.text_input text |> must
+let pointer action ~column ~row = Input_event.mouse action ~column ~row |> must
 
 let status input_mode =
   Model_status.create ~id:"test" ~label:"TEST" ~input_mode () |> must
@@ -82,29 +83,81 @@ let test_input_decoder_is_model_neutral () =
   expect
     (Input_event.key (Option.get tab)
     = Some (Input_event.Named_key Input_event.Tab))
-    "named terminal keys must remain logical key presses"
+    "named terminal keys must remain logical key presses";
+  let mouse =
+    Terminal.Input_decoder.decode ~input_mode:Model_status.Key_commands
+      (Terminal.Event.Mouse
+         {
+           action = Terminal.Event.Press Terminal.Event.Primary;
+           column = 4;
+           row = 2;
+           modifiers = [ Terminal.Event.Shift ];
+         })
+    |> must
+  in
+  expect
+    (Input_event.mouse_action (Option.get mouse)
+    = Some (Input_event.Press Input_event.Primary))
+    "terminal mouse press did not remain a typed pointer event";
+  expect
+    (Input_event.mouse_position (Option.get mouse) = Some (4, 2)
+    && Input_event.modifiers (Option.get mouse) = [ Input_event.Shift ])
+    "terminal mouse coordinates or modifiers were changed during decoding"
+
+let test_binding_sequence_parser () =
+  let sequence =
+    Input_event.binding_sequence_of_string "Ctrl-X Ctrl-Shift-K Alt-Enter Space"
+    |> must
+  in
+  expect
+    (Input_event.binding_sequence_to_string sequence
+    = "Ctrl+text(x) Shift+Ctrl+text(K) Alt+Enter text( )")
+    "binding sequence parsing did not preserve modifiers, named keys, and Space";
+  expect
+    (match Input_event.binding_sequence_of_string "Ctrl-X  Ctrl-K" with
+    | Error _ -> true
+    | Ok _ -> false)
+    "binding sequence parsing accepted an ambiguous empty token";
+  expect
+    (match Input_event.binding_sequence_of_string "Ctrl-Ctrl-X" with
+    | Error _ -> true
+    | Ok _ -> false)
+    "binding sequence parsing accepted duplicate modifiers";
+  expect
+    (match Input_event.binding_sequence_of_string "Hyper-X" with
+    | Error _ -> true
+    | Ok _ -> false)
+    "binding sequence parsing accepted an unknown modifier"
 
 let test_display_coordinates () =
   let line = List.hd (Display.lines "é\t界\r") in
-  match line.graphemes with
-  | [ combining; tab; wide; carriage_return ] ->
-      expect
-        (combining.start_offset = 0 && combining.stop_offset = 3)
-        "combining grapheme was split at a byte boundary";
-      expect
-        (combining.width = 1 && combining.column = 0)
-        "combining grapheme has the wrong display width";
-      expect
-        (tab.column = 1 && tab.width = 3)
-        "tab did not expand relative to its display column";
-      expect
-        (wide.column = 4 && wide.width = 2)
-        "wide Unicode character did not occupy two display columns";
-      expect_string ~expected:"^M" ~actual:carriage_return.text;
-      expect
-        (carriage_return.column = 6 && carriage_return.width = 2)
-        "control rendering lost its display coordinates"
-  | _ -> failf "unexpected grapheme segmentation"
+  let tab, wide, carriage_return =
+    match line.graphemes with
+    | [ combining; tab; wide; carriage_return ] ->
+        expect
+          (combining.start_offset = 0 && combining.stop_offset = 3)
+          "combining grapheme was split at a byte boundary";
+        expect
+          (combining.width = 1 && combining.column = 0)
+          "combining grapheme has the wrong display width";
+        expect
+          (tab.column = 1 && tab.width = 3)
+          "tab did not expand relative to its display column";
+        expect
+          (wide.column = 4 && wide.width = 2)
+          "wide Unicode character did not occupy two display columns";
+        expect_string ~expected:"^M" ~actual:carriage_return.text;
+        expect
+          (carriage_return.column = 6 && carriage_return.width = 2)
+          "control rendering lost its display coordinates";
+        (tab, wide, carriage_return)
+    | _ -> failf "unexpected grapheme segmentation"
+  in
+  expect
+    (Display.offset_at_column line 2 = tab.start_offset
+    && Display.offset_at_column line 5 = wide.start_offset
+    && Display.offset_at_column line 8 = carriage_return.stop_offset)
+    "display-column to document-offset mapping split a grapheme"
 
 let document_context ?(selections = [ (0, 0) ]) ?(primary = 0) contents =
   let id = Document_id.of_string "m4-view" |> must in
@@ -262,6 +315,73 @@ let test_renderer_selection_viewport_and_tiny_terminal () =
   expect
     (List.length (Frame.rows tiny.frame) = 1)
     "tiny terminals need a safe fallback frame"
+
+let primary_selection session =
+  let selections = Editor_context.selections (App.Session.context session) in
+  List.nth selections.selections selections.primary_index
+
+let test_pointer_selection_and_scroll () =
+  let dimensions = Renderer.{ columns = 12; rows = 5 } in
+  let session =
+    App.Session.create ~model:App.Session.Vim
+      ~contents:"ab\n界x\none\ntwo\nthree\nfour" ~dimensions ()
+    |> must
+  in
+  let session =
+    App.Session.handle_pointer session
+      (pointer (Input_event.Press Input_event.Primary) ~column:1 ~row:0)
+  in
+  let primary = primary_selection session in
+  expect
+    (primary.anchor_offset = 1 && primary.head_offset = 1)
+    "a primary mouse press did not place the caret at the clicked grapheme";
+  let session =
+    App.Session.handle_pointer session
+      (pointer Input_event.Drag ~column:2 ~row:1)
+  in
+  let session =
+    App.Session.handle_pointer session
+      (pointer Input_event.Release ~column:2 ~row:1)
+  in
+  let primary = primary_selection session in
+  expect
+    (primary.anchor_offset = 1 && primary.head_offset = 6)
+    "a mouse drag did not create a grapheme-safe selection";
+  let session =
+    App.Session.handle_pointer session
+      (pointer (Input_event.Press Input_event.Primary) ~column:3 ~row:4)
+  in
+  let primary_after_status = primary_selection session in
+  expect
+    (primary_after_status = primary)
+    "a status-row click changed the document selection";
+  let session =
+    App.Session.handle_pointer session
+      (pointer (Input_event.Press Input_event.Wheel_down) ~column:0 ~row:0)
+  in
+  expect
+    ((App.Session.viewport session).top_line = 2
+    && not (App.Session.viewport session).follow_cursor)
+    "mouse-wheel scrolling did not retain an explicit viewport position";
+  let session, _ = App.Session.render session in
+  expect
+    ((App.Session.viewport session).top_line = 2)
+    "rendering immediately discarded an explicit mouse scroll";
+  let session = App.Session.handle_input session (key "l") in
+  expect (App.Session.viewport session).follow_cursor
+    "keyboard navigation did not restore cursor-following after mouse scroll";
+  let session =
+    match App.Session.handle_host session App.Session.Split_vertical with
+    | App.Session.Continue session -> session
+    | App.Session.Exit _ -> failf "mouse split unexpectedly exited"
+  in
+  let session =
+    App.Session.handle_pointer session
+      (pointer (Input_event.Press Input_event.Primary) ~column:8 ~row:0)
+  in
+  expect
+    (App.Session.focused_pane session = 1)
+    "a mouse press did not focus the pane under the pointer"
 
 let temporary_file () = Filename.temp_file "zenbu-m4-" ".txt"
 let remove path = try Unix.unlink path with Unix.Unix_error _ -> ()
@@ -535,8 +655,10 @@ let run name test =
 let () =
   [
     ("terminal input disposition", test_input_decoder_is_model_neutral);
+    ("binding sequence parser", test_binding_sequence_parser);
     ("theme contract", test_theme_contract);
     ("display coordinates", test_display_coordinates);
+    ("pointer selection and scroll", test_pointer_selection_and_scroll);
     ( "renderer selections viewport tiny",
       test_renderer_selection_viewport_and_tiny_terminal );
     ("pure pane layout composition", test_layout_composition);

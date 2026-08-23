@@ -75,6 +75,16 @@ V1 contribution classes are `commands`, `selectors`, `transformations`,
 `bindings`, and `events`. Registrations outside the manifest declaration fail
 the complete plugin stage. `events` additionally require `event.subscribe`.
 
+A binding's existing `input` string accepts one to sixteen logical input tokens
+separated by one ASCII space, such as `Ctrl-X Ctrl-K`. Tokens support named
+keys plus `Ctrl-`, `Shift-`, `Alt-`, and `Meta-` modifiers; `Space`, `Minus`,
+`Plus`, `Comma`, `Period`, and `Slash` name text keys that would otherwise be
+ambiguous in a sequence. The same grammar is used by trusted Lua and Wasm
+Components, so the Component ABI remains unchanged. Bindings may be global,
+model-scoped, or model-status-scoped. Identical or prefix-overlapping sequences
+in the same scope are rejected during staging; host-reserved controls cannot
+appear at any position in an extension sequence.
+
 V1 capabilities are:
 
 - `document.read` — copied document metadata and text; enables `zenbu.text`.
@@ -164,9 +174,10 @@ because they do not have a fatal Component store state.
 Discovery parses and validates manifests first, then stages each package in a
 fresh runtime. A plugin's commands, semantic descriptors, bindings, and hooks
 are activated as one immutable snapshot or none are. Duplicate IDs and binding
-collisions are checked across all staged plugins and the existing configuration
-overlay; two plugins that collide with each other both fail activation. Failure
-of one unrelated plugin does not disable independently valid plugins.
+collisions, including same-scope prefix overlaps, are checked across all staged
+plugins and the existing configuration overlay; two plugins that collide with
+each other both fail activation. Failure of one unrelated plugin does not
+disable independently valid plugins.
 
 Reload repeats discovery/staging before replacing a package's active snapshot.
 A successful candidate disposes the old private runtime only after its

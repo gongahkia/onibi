@@ -73,6 +73,9 @@ val focused_pane : t -> int
 val buffer_count : t -> int
 val focused_buffer : t -> int
 val handle_input : t -> Zenbu_model_api.Input_event.t -> t
+
+(* Apply a validated terminal pointer event through host semantic effects. *)
+val handle_pointer : t -> Zenbu_model_api.Input_event.t -> t
 val handle_host : t -> host_command -> outcome
 val host_command_descriptors : unit -> Zenbu_model_api.Command_descriptor.t list
 val host_binding_lines : unit -> string list

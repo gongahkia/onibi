@@ -155,7 +155,9 @@ interface types {
   type value = list<value-node>;
 
   /// Empty input, scope, and event strings mean that the corresponding
-  /// registration property is absent for this contribution class.
+  /// registration property is absent for this contribution class. Binding
+  /// input is one to sixteen tokens separated by one ASCII space; [Space]
+  /// names a literal space key.
   record registration {
     contribution: string,
     id: string,
@@ -287,7 +289,11 @@ function zenbu.command(registration) end
 function zenbu.selector(registration) end
 ---@param registration table
 function zenbu.transform(registration) end
----@param registration table
+---@class ZenbuBindingRegistration
+---@field input string One to sixteen input tokens separated by one ASCII space.
+---@field command string
+---@field scope? string global, model:<id>, or model:<id>:<status>
+---@param registration ZenbuBindingRegistration
 function zenbu.bind(registration) end
 ---@param registration table
 function zenbu.on(registration) end
