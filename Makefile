@@ -61,7 +61,7 @@ extension-docs: wasm-runtime-ready lua-runtime-ready
 	$(PLATFORM_ENV) $(OPAM_ENV) dune exec bin/zenbu_headless.exe -- extension-sdk > sdk/lua/zenbu.lua
 	$(PLATFORM_ENV) $(OPAM_ENV) dune exec bin/zenbu_headless.exe -- extension-wit > docs/wit/zenbu-plugin.wit
 
-install: wasm-runtime-ready
+install: wasm-runtime-ready lua-runtime-ready
 	$(PLATFORM_ENV) $(OPAM_ENV) dune install zenbu
 	@$(PLATFORM_ENV) $(OPAM_ENV) prefix="$$(opam var prefix)"; \
 	install_dir="$$prefix/lib/zenbu"; \
