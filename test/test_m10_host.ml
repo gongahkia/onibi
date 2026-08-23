@@ -161,6 +161,33 @@ let test_unicode_search_is_host_level_and_observable () =
     ((App.Session.viewport followed).Zenbu_view.Viewport.top_line > 0)
     "searching a distant match did not move the viewport to the selected result"
 
+let test_vim_modal_search_requests () =
+  let session = make_session "alpha beta alpha" in
+  let session = App.Session.handle_input session (key "/") in
+  expect
+    (Model_status.input_mode (App.Session.status session)
+    = Model_status.Text_entry)
+    "Vim slash did not request the shared search prompt";
+  let session = App.Session.handle_input session (text_input "alpha") in
+  expect
+    (primary_offsets session = (0, 5))
+    "Vim forward search did not select the first matching range";
+  let session = App.Session.handle_input session (named Input_event.Enter) in
+  let session = App.Session.handle_input session (key "n") in
+  expect
+    (primary_offsets session = (11, 16))
+    "Vim n did not request the next shared search match";
+  let session = App.Session.handle_input session (key "N") in
+  expect
+    (primary_offsets session = (0, 5))
+    "Vim N did not request the previous shared search match";
+  let session = App.Session.handle_input session (key "n") in
+  let session = App.Session.handle_input session (key "?") in
+  let session = App.Session.handle_input session (text_input "alpha") in
+  expect
+    (primary_offsets session = (0, 5))
+    "Vim backward search did not start from the current caret"
+
 let test_syntax_spans_and_render_precedence () =
   let document =
     Document.create
@@ -607,6 +634,7 @@ let tests =
   [
     ( "Unicode host search and inspection",
       test_unicode_search_is_host_level_and_observable );
+    ("Vim modal search requests", test_vim_modal_search_requests);
     ( "syntax spans and render precedence",
       test_syntax_spans_and_render_precedence );
     ( "explicit startup failures remain inspectable",

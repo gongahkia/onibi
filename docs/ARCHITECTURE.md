@@ -95,10 +95,13 @@ editing-model/state-machine API that resolves input into the M1 `Intent` and
 `Transaction` interfaces. M0/M1 does not decide whether commands are
 operator-motion, selection-action, structural, or something else.
 
-M3 pressure-tested that API without moving an editing grammar into the kernel:
-the Vim-style model owns Normal/Insert/OperatorPending/count state, while the
-selection-first model owns its select-then-transform grammar. See [the
-editing-model API](EDITING_MODEL_API.md) for the public protocol.
+M3 pressure-tested that API without moving an editing grammar into the kernel.
+The Vim compatibility model owns Normal/Insert/Replace/Visual, operator, count,
+find, and register state; the selection-first model owns its
+select-then-transform grammar. Both request only public semantic effects. See
+[the editing-model API](EDITING_MODEL_API.md) and [modal model
+evaluation](MODAL_MODEL_EVALUATION.md) for the public protocol and workload
+criteria.
 
 ## M5 syntax boundary
 

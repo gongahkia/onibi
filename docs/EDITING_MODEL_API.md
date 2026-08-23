@@ -72,7 +72,11 @@ or model id. A model with no modes fits equally well.
 Model effects are values, never closures:
 
 - `Execute_intent` requests a model-neutral semantic intent.
+- `Apply_to_selections` applies a shared transformation or clipboard copy to
+  validated model-calculated selections as one runtime operation.
 - `Invoke_command` names a registered command id and typed arguments.
+- `Request_search` and `Repeat_search` request the shared literal-search host
+  interaction without exposing its prompt or terminal state to a model.
 - `Emit_message` reports an inspectable message.
 
 `Model_intent` is the model-facing facade for M1 intents plus selector/
@@ -117,6 +121,12 @@ repeat the latest repeatable semantic edit. The runtime owns these immutable
 services; a model cannot mutate a document, history, or clipboard directly.
 Clipboard slots are generic UTF-8 entries with characterwise or linewise
 shape. A grammar may call a slot a register, but the API does not.
+
+The Vim compatibility workload adds two reusable pressure-tested boundaries.
+`Apply_to_selections` lets a model calculate UTF-8-safe ranges from immutable
+context and still use the runtime's shared transformation/copy path as one
+operation. Search effects let a model request forward/backward literal search;
+the host owns prompt UI, stored query, highlighting, and result navigation.
 
 ## Runtime behavior and traces
 

@@ -34,6 +34,11 @@ Lua, and plugin commands. It is not regex/project search or a model-specific
 grammar. The palette filters descriptor id/title/summary/provider; commands
 needing arguments remain discoverable but M11 has no argument-form prompt.
 
+The Vim compatibility model may request this same host interaction with `/`
+and `?`, then request next/previous results with `n` and `N`. The model selects
+only direction; the terminal retains prompt, query, rendering, and selection
+provenance ownership.
+
 The model picker preserves history, document/selections, clipboard, command and
 semantic registries, syntax service, trace/profiler handles, execution identity,
 and repeatable semantic intents. It initializes the new model's private grammar

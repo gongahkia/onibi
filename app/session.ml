@@ -1964,16 +1964,14 @@ let search_index ~origin ~direction matches =
   let rec last_before index best = function
     | [] -> best
     | (range : Zenbu_view.Renderer.search_range) :: rest ->
-        let best =
-          if range.start_offset < offset then Some index else best
-        in
+        let best = if range.stop_offset < offset then Some index else best in
         last_before (index + 1) best rest
   in
   match direction with
-  | Model_effect.Forward ->
-      Option.value ~default:0 (first_after 0 matches)
+  | Model_effect.Forward -> Option.value ~default:0 (first_after 0 matches)
   | Model_effect.Backward ->
-      Option.value ~default:(max 0 (List.length matches - 1))
+      Option.value
+        ~default:(max 0 (List.length matches - 1))
         (last_before 0 None matches)
 
 let update_search session input ~origin ~direction query =
@@ -1994,7 +1992,8 @@ let update_search session input ~origin ~direction query =
 
 let handle_model_search_request session input = function
   | Model_effect.Request_search direction -> begin_search ~direction session
-  | Model_effect.Repeat_search Model_effect.Forward -> move_search session input 1
+  | Model_effect.Repeat_search Model_effect.Forward ->
+      move_search session input 1
   | Model_effect.Repeat_search Model_effect.Backward ->
       move_search session input (-1)
   | _ -> session
@@ -2171,7 +2170,8 @@ let input_for_interaction session input =
         | None ->
             let session, effects = handle_model_input session input in
             List.fold_left
-              (fun session effect -> handle_model_search_request session input effect)
+              (fun session request ->
+                handle_model_search_request session input request)
               session effects)
   | Search_prompt { query; origin; direction } -> (
       if
@@ -2186,7 +2186,9 @@ let input_for_interaction session input =
         { session with interaction = Idle; message = Some "search complete" }
       else if event_is_named input Input_event.Backspace then
         let next_query = drop_last_utf8 query in
-        let updated = update_search session input ~origin ~direction next_query in
+        let updated =
+          update_search session input ~origin ~direction next_query
+        in
         {
           updated with
           interaction = Search_prompt { query = next_query; origin; direction };
@@ -2201,7 +2203,8 @@ let input_for_interaction session input =
             in
             {
               updated with
-              interaction = Search_prompt { query = next_query; origin; direction };
+              interaction =
+                Search_prompt { query = next_query; origin; direction };
             })
   | Palette { query; selected } -> (
       let items = matching_palette_items session query in

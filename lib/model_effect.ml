@@ -4,6 +4,10 @@ type message_level = Info | Warning | Error
 type message = { level : message_level; text : string }
 type search_direction = Forward | Backward
 
+type selection_action =
+  | Transform of Model_intent.transformation
+  | Copy of { slot : Clipboard.slot; kind : Clipboard.kind }
+
 type t =
   | Execute_intent of Model_intent.t
   | Execute_intent_with of {
@@ -12,6 +16,12 @@ type t =
       transformation_id : string option;
     }
   | Execute_semantic_operation of Semantic_operation.t
+  | Apply_to_selections of {
+      selections : (int * int) list;
+      primary : int;
+      selector_id : string;
+      action : selection_action;
+    }
   | Invoke_command of Command_invocation.t
   | Emit_message of message
   | Copy_to_clipboard of {
@@ -47,6 +57,7 @@ let selector_id = function
       | None -> fst (Model_intent.semantic_components intent))
   | Execute_semantic_operation operation ->
       Some (Semantic_operation.selector_id operation.selector)
+  | Apply_to_selections { selector_id; _ } -> Some selector_id
   | Invoke_command _ | Emit_message _ | Copy_to_clipboard _
   | Paste_from_clipboard _ | Request_search _ | Repeat_search _ | Undo | Redo
   | Repeat_last_edit ->
@@ -60,6 +71,11 @@ let transformation_id = function
       | None -> snd (Model_intent.semantic_components intent))
   | Execute_semantic_operation operation ->
       Some (Semantic_operation.transformation_id operation.transformation)
+  | Apply_to_selections { action = Transform transformation; _ } ->
+      Some
+        (Zenbu_kernel.Transformation.name
+           (Model_intent.transformation_to_kernel transformation))
+  | Apply_to_selections { action = Copy _; _ } -> None
   | Invoke_command _ | Emit_message _ | Copy_to_clipboard _
   | Paste_from_clipboard _ | Request_search _ | Repeat_search _ | Undo | Redo
   | Repeat_last_edit ->
@@ -70,6 +86,15 @@ let identity = function
       "execute " ^ Model_intent.identity intent
   | Execute_semantic_operation operation ->
       "execute " ^ Semantic_operation.identity operation
+  | Apply_to_selections { selector_id; action; _ } -> (
+      "apply-explicit-selections:" ^ selector_id
+      ^
+      match action with
+      | Transform transformation ->
+          ":"
+          ^ Zenbu_kernel.Transformation.name
+              (Model_intent.transformation_to_kernel transformation)
+      | Copy _ -> ":copy")
   | Invoke_command invocation ->
       "invoke " ^ Command_id.to_string (Command_invocation.id invocation)
   | Emit_message _ -> "emit-message"
@@ -88,6 +113,17 @@ let describe = function
       "execute " ^ Model_intent.identity intent
   | Execute_semantic_operation operation ->
       "execute " ^ Semantic_operation.identity operation
+  | Apply_to_selections { selector_id; action; _ } ->
+      let action =
+        match action with
+        | Transform transformation ->
+            Zenbu_kernel.Transformation.name
+              (Model_intent.transformation_to_kernel transformation)
+        | Copy { slot; kind } ->
+            "copy " ^ Clipboard.kind_name kind ^ " to "
+            ^ Clipboard.slot_name slot
+      in
+      "apply " ^ selector_id ^ " with " ^ action
   | Invoke_command invocation ->
       "invoke " ^ Command_id.to_string (Command_invocation.id invocation)
   | Emit_message { level; text } ->

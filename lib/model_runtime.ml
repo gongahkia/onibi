@@ -622,24 +622,41 @@ module Make (Model : Editing_model.S) = struct
                       ~reason:(Error.to_string error) "failed");
                 resolved))
 
+  let explicit_selection_set snapshot ~selections ~primary =
+    match Model_intent.set_selections ~selections ~primary with
+    | Error _ as error -> error
+    | Ok intent -> (
+        match
+          Intent.resolve ~source:Transaction.User snapshot
+            (Model_intent.to_kernel intent)
+        with
+        | Error _ as error -> error
+        | Ok transaction -> (
+            match Transaction.selection_change transaction with
+            | Some selections -> Ok selections
+            | None ->
+                Error
+                  (Error.Model_execution_failed
+                     "explicit selections did not produce a selection set")))
+
+  let copied_selection_contents snapshot selections =
+    let contents = Document_snapshot.contents snapshot in
+    Selection_set.to_list selections
+    |> List.map (fun selection ->
+        let range = Selection.range selection in
+        let start = Anchor.byte_offset (Range.start range) in
+        let stop = Anchor.byte_offset (Range.stop range) in
+        String.sub contents start (stop - start))
+    |> String.concat ""
+
   let copied_contents history selector =
     match selection_set_for_selector history selector with
     | Error _ as error -> error
     | Ok selections ->
-        let contents =
-          Document_snapshot.contents
-            (Document.snapshot (History.current history))
-        in
-        let text =
-          Selection_set.to_list selections
-          |> List.map (fun selection ->
-              let range = Selection.range selection in
-              let start = Anchor.byte_offset (Range.start range) in
-              let stop = Anchor.byte_offset (Range.stop range) in
-              String.sub contents start (stop - start))
-          |> String.concat ""
-        in
-        Ok text
+        Ok
+          (copied_selection_contents
+             (Document.snapshot (History.current history))
+             selections)
 
   let paste_intents history entry placement =
     let contents = Clipboard.contents entry in
@@ -764,6 +781,57 @@ module Make (Model : Editing_model.S) = struct
                     [ change_id ],
                     [],
                     repeatable_intents )))
+    | Model_effect.Apply_to_selections
+        { selections; primary; selector_id; action = selection_action } -> (
+        let snapshot = Document.snapshot (History.current history) in
+        match explicit_selection_set snapshot ~selections ~primary with
+        | Error _ as error -> error
+        | Ok selected -> (
+            match selection_action with
+            | Model_effect.Copy { slot; kind } -> (
+                let contents = copied_selection_contents snapshot selected in
+                match Clipboard.entry ~kind ~contents with
+                | Error _ as error -> error
+                | Ok entry ->
+                    Ok
+                      ( history,
+                        Clipboard.store clipboard ~slot ~entry,
+                        [],
+                        [],
+                        [],
+                        repeatable_intents ))
+            | Model_effect.Transform transformation -> (
+                let base = effect_provenance base model_effect in
+                let transformation_id =
+                  Zenbu_kernel.Transformation.name
+                    (Model_intent.transformation_to_kernel transformation)
+                in
+                let action =
+                  dynamic_action ~base ~selector_id ~transformation_id
+                in
+                let transaction =
+                  Intent.resolve_on_selections ~source:Transaction.User
+                    ~provenance:action.provenance
+                    ~intent:(Model_effect.identity model_effect)
+                    snapshot selected
+                    (Model_intent.transformation_to_kernel transformation)
+                in
+                match transaction with
+                | Error _ as error -> error
+                | Ok transaction -> (
+                    match
+                      apply_transaction runtime ~execution_id history action
+                        transaction
+                    with
+                    | Error _ as error -> error
+                    | Ok (history, change_id) ->
+                        Ok
+                          ( history,
+                            clipboard,
+                            [ action ],
+                            [ change_id ],
+                            [],
+                            repeatable_intents )))))
     | Model_effect.Invoke_command invocation -> (
         let command_id =
           Command_invocation.id invocation |> Command_id.to_string

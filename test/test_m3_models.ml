@@ -253,7 +253,7 @@ let test_vim_text_objects_and_line_counts () =
     fold_vim runtime
       [ key "c"; key "c"; committed "X"; named Input_event.Escape ]
   in
-  expect_string ~expected:"Xtwo" ~actual:(text (Vim_runtime.history runtime));
+  expect_string ~expected:"X\ntwo" ~actual:(text (Vim_runtime.history runtime));
   let runtime = vim "alpha beta" in
   let runtime = fold_vim runtime [ key "y"; key "w"; key "P" ] in
   expect_string ~expected:"alpha alpha beta"
@@ -272,6 +272,128 @@ let test_vim_text_objects_and_line_counts () =
   expect
     (offsets (Vim_runtime.history runtime) = [ (0, 0) ])
     "gg/G document navigation was not deterministic"
+
+let test_vim_compatibility_baseline () =
+  let runtime = vim "  alpha" in
+  let runtime =
+    fold_vim runtime [ key "I"; committed "X"; named Input_event.Escape ]
+  in
+  expect_string ~expected:"  Xalpha"
+    ~actual:(text (Vim_runtime.history runtime));
+  let runtime = vim "alpha" in
+  let runtime =
+    fold_vim runtime [ key "A"; committed "X"; named Input_event.Escape ]
+  in
+  expect_string ~expected:"alphaX" ~actual:(text (Vim_runtime.history runtime));
+  let runtime = vim "alpha" in
+  let runtime =
+    fold_vim runtime [ key "o"; committed "X"; named Input_event.Escape ]
+  in
+  expect_string ~expected:"alpha\nX"
+    ~actual:(text (Vim_runtime.history runtime));
+  let runtime = vim "alpha" in
+  let runtime =
+    fold_vim runtime [ key "O"; committed "X"; named Input_event.Escape ]
+  in
+  expect_string ~expected:"X\nalpha"
+    ~actual:(text (Vim_runtime.history runtime));
+  let runtime = vim "alpha beta" in
+  let runtime = fold_vim runtime [ key "w"; key "D" ] in
+  expect_string ~expected:"alpha " ~actual:(text (Vim_runtime.history runtime));
+  let runtime = vim "alpha beta" in
+  let runtime =
+    fold_vim runtime
+      [ key "w"; key "C"; committed "X"; named Input_event.Escape ]
+  in
+  expect_string ~expected:"alpha X" ~actual:(text (Vim_runtime.history runtime));
+  let runtime = vim "alpha\nbeta" in
+  let runtime =
+    fold_vim runtime [ key "S"; committed "X"; named Input_event.Escape ]
+  in
+  expect_string ~expected:"X\nbeta" ~actual:(text (Vim_runtime.history runtime));
+  let runtime = vim "alpha\nbeta" in
+  let runtime =
+    fold_vim runtime
+      [ key "c"; key "c"; committed "X"; named Input_event.Escape ]
+  in
+  expect_string ~expected:"X\nbeta" ~actual:(text (Vim_runtime.history runtime));
+  let runtime = vim "one\ntwo\nthree" in
+  let runtime =
+    fold_vim runtime
+      [ key "2"; key "c"; key "c"; committed "X"; named Input_event.Escape ]
+  in
+  expect_string ~expected:"X\nthree"
+    ~actual:(text (Vim_runtime.history runtime));
+  let runtime = vim "alpha" in
+  let runtime = fold_vim runtime [ key "r"; key "X" ] in
+  expect_string ~expected:"Xlpha" ~actual:(text (Vim_runtime.history runtime));
+  let runtime = vim "alpha" in
+  let runtime =
+    fold_vim runtime [ key "R"; committed "X"; named Input_event.Escape ]
+  in
+  expect_string ~expected:"Xlpha" ~actual:(text (Vim_runtime.history runtime))
+
+let test_vim_find_visual_and_insert_controls () =
+  let runtime = vim "abxxb" in
+  let runtime = fold_vim runtime [ key "f"; key "b"; key ";" ] in
+  expect
+    (offsets (Vim_runtime.history runtime) = [ (4, 4) ])
+    "f/; did not retain and repeat the last find motion";
+  let runtime = fold_vim runtime [ key "," ] in
+  expect
+    (offsets (Vim_runtime.history runtime) = [ (1, 1) ])
+    "comma did not repeat the last find in the opposite direction";
+  let runtime = vim "aZb" in
+  let runtime = fold_vim runtime [ key "t"; key "b" ] in
+  expect
+    (offsets (Vim_runtime.history runtime) = [ (1, 1) ])
+    "t did not stop before its find target";
+  let runtime = vim "abxxb" in
+  let runtime, step = send_vim runtime (key "d") in
+  let runtime, _ = send_vim runtime (key "f") in
+  let runtime, _ = send_vim runtime (key "b") in
+  expect_string ~expected:"xxb" ~actual:(text (Vim_runtime.history runtime));
+  expect
+    (List.length (Vim_runtime.change_ids step) = 0)
+    "an operator prefix unexpectedly committed an edit";
+  expect
+    (match History.current_change (Vim_runtime.history runtime) with
+    | Some change ->
+        List.length (Transaction.edits (History.transaction change)) = 1
+    | None -> false)
+    "df did not commit one atomic find-selected edit";
+  let runtime = vim "abxxb" in
+  let runtime =
+    fold_vim runtime
+      [ key "c"; key "f"; key "b"; committed "X"; named Input_event.Escape ]
+  in
+  expect_string ~expected:"Xxxb" ~actual:(text (Vim_runtime.history runtime));
+  let runtime = vim "abxxb" in
+  let runtime = fold_vim runtime [ key "y"; key "f"; key "b"; key "P" ] in
+  expect_string ~expected:"ababxxb" ~actual:(text (Vim_runtime.history runtime));
+  let runtime = vim "abcd" in
+  let runtime = fold_vim runtime [ key "v"; key "l"; key "d" ] in
+  expect_string ~expected:"bcd" ~actual:(text (Vim_runtime.history runtime));
+  let runtime = vim "one\ntwo" in
+  let runtime = fold_vim runtime [ key "V"; key "d" ] in
+  expect_string ~expected:"two" ~actual:(text (Vim_runtime.history runtime));
+  let runtime = vim "alpha beta" in
+  let runtime =
+    fold_vim runtime [ key "A"; control "w"; named Input_event.Escape ]
+  in
+  expect_string ~expected:"alpha " ~actual:(text (Vim_runtime.history runtime));
+  let runtime = vim "alpha beta" in
+  let runtime =
+    fold_vim runtime [ key "w"; key "i"; control "u"; named Input_event.Escape ]
+  in
+  expect_string ~expected:"beta" ~actual:(text (Vim_runtime.history runtime));
+  let runtime = vim "alpha beta" in
+  let runtime =
+    fold_vim runtime
+      [ key "\""; key "a"; key "y"; key "w"; key "i"; control "r"; key "a" ]
+  in
+  expect_string ~expected:"alpha alpha beta"
+    ~actual:(text (Vim_runtime.history runtime))
 
 let test_m3_boundaries_and_atomic_failures () =
   let runtime = vim "" in
@@ -456,6 +578,9 @@ let tests =
     ( "Vim linewise register, history, and repeat",
       test_vim_linewise_register_history_and_repeat );
     ("Vim text objects and line counts", test_vim_text_objects_and_line_counts);
+    ("Vim compatibility baseline", test_vim_compatibility_baseline);
+    ( "Vim find, visual, and insert controls",
+      test_vim_find_visual_and_insert_controls );
     ("M3 boundaries and atomic failures", test_m3_boundaries_and_atomic_failures);
     ("M3 selector property boundaries", test_selector_property_boundaries);
     ( "selection-first semantics and multiple selections",

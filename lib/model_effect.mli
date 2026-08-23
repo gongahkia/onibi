@@ -2,6 +2,10 @@ type message_level = Info | Warning | Error
 type message = { level : message_level; text : string }
 type search_direction = Forward | Backward
 
+type selection_action =
+  | Transform of Model_intent.transformation
+  | Copy of { slot : Clipboard.slot; kind : Clipboard.kind }
+
 type t =
   | Execute_intent of Model_intent.t
   | Execute_intent_with of {
@@ -10,6 +14,12 @@ type t =
       transformation_id : string option;
     }
   | Execute_semantic_operation of Semantic_operation.t
+  | Apply_to_selections of {
+      selections : (int * int) list;
+      primary : int;
+      selector_id : string;
+      action : selection_action;
+    }
   | Invoke_command of Command_invocation.t
   | Emit_message of message
   | Copy_to_clipboard of {

@@ -49,8 +49,9 @@ and plugin examples live in [Getting Started](docs/GETTING_STARTED.md).
   terminal presentation without exposing parser pointers or queries.
 - The terminal host has literal Unicode search, a provider-neutral command
   palette, save-as, a live model picker, metadata-derived help, and bracketed
-  paste aggregation. These are host interactions, not additions to a model
-  grammar.
+  paste aggregation. These remain host interactions; editing models can make
+  declarative requests for reusable interactions such as literal search without
+  receiving terminal-state access.
 - `zenbu.language` exposes model-neutral diagnostics, hover, definition,
   completion, rename, position conversion, and sync data. A private async LSP
   adapter starts `ocamllsp` by default for saved OCaml files; results become
@@ -140,6 +141,12 @@ dune exec bin/zenbu.exe -- --trace --profile --plugin-dir examples/plugins FILE
 The initial model is Vim-style. Syntax is detected from `.ml`, `.mli`, and
 `.json`, or selected with `--language ocaml|json`; unknown paths deliberately
 receive no syntax service and render as plain text.
+
+The Vim model is a compatibility stress test for Zenbu's model API. It supports
+normal/insert/replace states, operator motions, find, characterwise/linewise
+visual selection, and `/ ? n N` search requests; it is not a full Vim clone.
+See [the compatibility baseline](docs/models/VIM.md) and [modal model
+evaluation](docs/MODAL_MODEL_EVALUATION.md).
 
 Host keys have priority over model/configuration bindings:
 
