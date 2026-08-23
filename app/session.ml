@@ -8,6 +8,7 @@ module Plugins = Zenbu_extension.Plugin_host
 module Language = Zenbu_language.Language
 module Language_commands = Zenbu_language.Commands
 module Lsp = Zenbu_lsp.Client
+module Layout = Zenbu_view.Layout
 module Vim_runtime = Model_runtime.Make (Vim_model)
 module Selection_runtime = Model_runtime.Make (Selection_model)
 module Structural_runtime = Model_runtime.Make (Structural_model)
@@ -35,6 +36,11 @@ type host_command =
   | Language_diagnostic_next
   | Language_diagnostic_previous
   | Language_diagnostic_describe_current
+  | Split_vertical
+  | Split_horizontal
+  | Focus_next_pane
+  | Close_pane
+  | Only_pane
 
 type inspection =
   | Why
@@ -114,7 +120,10 @@ and t = {
   language_override : string option;
   saved_version : int;
   saved_contents : string;
-  viewport : Zenbu_view.Viewport.t;
+  layout : Layout.t;
+  focused_pane : int;
+  pane_viewports : (int * Zenbu_view.Viewport.t) list;
+  next_pane_id : int;
   dimensions : Zenbu_view.Renderer.dimensions;
   message : string option;
   quit_armed : bool;
@@ -222,6 +231,41 @@ let host_command_entries =
             "Discover commands contributed by Zenbu, models, scripts, and \
              plugins.";
         palette = false;
+      };
+      {
+        command = Split_vertical;
+        descriptor =
+          host_descriptor "workspace.split.vertical" "Split view vertically"
+            "Create a side-by-side viewport of the active buffer.";
+        palette = true;
+      };
+      {
+        command = Split_horizontal;
+        descriptor =
+          host_descriptor "workspace.split.horizontal" "Split view horizontally"
+            "Create a stacked viewport of the active buffer.";
+        palette = true;
+      };
+      {
+        command = Focus_next_pane;
+        descriptor =
+          host_descriptor "workspace.pane.next" "Focus next view"
+            "Move input focus to the next pane in layout order.";
+        palette = true;
+      };
+      {
+        command = Close_pane;
+        descriptor =
+          host_descriptor "workspace.pane.close" "Close current view"
+            "Close the focused pane while retaining its buffer.";
+        palette = true;
+      };
+      {
+        command = Only_pane;
+        descriptor =
+          host_descriptor "workspace.pane.only" "Keep only current view"
+            "Close every other pane while retaining the focused view.";
+        palette = true;
       };
       {
         command = Switch_model;
@@ -651,7 +695,10 @@ let create ~model ?language ?file_path ?(contents = "") ?trace ?profiler
                     language_override = language;
                     saved_version = 0;
                     saved_contents = contents;
-                    viewport = Zenbu_view.Viewport.origin;
+                    layout = Layout.single 0;
+                    focused_pane = 0;
+                    pane_viewports = [ (0, Zenbu_view.Viewport.origin) ];
+                    next_pane_id = 1;
                     dimensions;
                     message = config_message;
                     quit_armed = false;
@@ -722,6 +769,120 @@ let model = function
   | { active = Vim_runtime _; _ } -> Vim
   | { active = Selection_runtime _; _ } -> Selection
   | { active = Structural_runtime _; _ } -> Structural
+
+let pane_ids session = Layout.panes session.layout
+let pane_count session = List.length (pane_ids session)
+let focused_pane session = session.focused_pane
+
+let pane_viewport session pane =
+  match List.assoc_opt pane session.pane_viewports with
+  | Some viewport -> viewport
+  | None -> Zenbu_view.Viewport.origin
+
+let set_pane_viewport session pane viewport =
+  {
+    session with
+    pane_viewports =
+      List.map
+        (fun (candidate, current) ->
+          if candidate = pane then (candidate, viewport)
+          else (candidate, current))
+        session.pane_viewports;
+  }
+
+let pane_rectangle session pane =
+  Layout.bounds session.layout ~width:session.dimensions.columns
+    ~height:session.dimensions.rows
+  |> List.assoc_opt pane
+
+let split_pane session orientation =
+  let available =
+    match pane_rectangle session session.focused_pane with
+    | None -> false
+    | Some rectangle -> (
+        match orientation with
+        | Layout.Vertical -> rectangle.width >= 3
+        | Layout.Horizontal -> rectangle.height >= 3)
+  in
+  if not available then
+    {
+      session with
+      message = Some "workspace: terminal is too small to split this pane";
+      inspector = None;
+    }
+  else
+    match
+      Layout.split session.layout ~pane:session.focused_pane
+        ~new_pane:session.next_pane_id orientation
+    with
+    | Error error ->
+        {
+          session with
+          message = Some ("workspace: " ^ Layout.error_to_string error);
+          inspector = None;
+        }
+    | Ok layout ->
+        {
+          session with
+          layout;
+          focused_pane = session.next_pane_id;
+          pane_viewports =
+            (session.next_pane_id, pane_viewport session session.focused_pane)
+            :: session.pane_viewports;
+          next_pane_id = session.next_pane_id + 1;
+          message = Some "workspace: split current view";
+          inspector = None;
+        }
+
+let focus_next_pane session =
+  match pane_ids session with
+  | [] -> session
+  | panes ->
+      let next =
+        match
+          List.find_index (fun pane -> pane = session.focused_pane) panes
+        with
+        | None -> List.hd panes
+        | Some index -> List.nth panes ((index + 1) mod List.length panes)
+      in
+      {
+        session with
+        focused_pane = next;
+        message = Some "workspace: focused next view";
+        inspector = None;
+      }
+
+let close_pane session =
+  match Layout.close session.layout ~pane:session.focused_pane with
+  | Error error ->
+      {
+        session with
+        message = Some ("workspace: " ^ Layout.error_to_string error);
+        inspector = None;
+      }
+  | Ok layout ->
+      let panes = Layout.panes layout in
+      {
+        session with
+        layout;
+        focused_pane = List.hd panes;
+        pane_viewports =
+          List.filter
+            (fun (pane, _) -> List.mem pane panes)
+            session.pane_viewports;
+        message = Some "workspace: closed current view";
+        inspector = None;
+      }
+
+let only_pane session =
+  let pane = session.focused_pane in
+  {
+    session with
+    layout = Layout.single pane;
+    pane_viewports = [ (pane, pane_viewport session pane) ];
+    message = Some "workspace: kept current view";
+    inspector = None;
+  }
 
 let filename session =
   match session.file_path with
@@ -1800,7 +1961,9 @@ let language_host_command = function
   | Language_diagnostic_previous | Language_diagnostic_describe_current ->
       true
   | Save | Save_as | Quit | Force_quit | Reload_config | Start_search
-  | Search_next | Search_previous | Open_palette | Switch_model | Help ->
+  | Search_next | Search_previous | Open_palette | Switch_model | Help
+  | Split_vertical | Split_horizontal | Focus_next_pane | Close_pane | Only_pane
+    ->
       false
 
 let palette_items session =
@@ -2041,6 +2204,13 @@ let invoke_host_palette_command session input = function
         quit_armed = false;
         inspector = None;
       }
+  | Split_vertical ->
+      { (split_pane session Layout.Vertical) with interaction = Idle }
+  | Split_horizontal ->
+      { (split_pane session Layout.Horizontal) with interaction = Idle }
+  | Focus_next_pane -> { (focus_next_pane session) with interaction = Idle }
+  | Close_pane -> { (close_pane session) with interaction = Idle }
+  | Only_pane -> { (only_pane session) with interaction = Idle }
   | Switch_model ->
       let current =
         model_choices
@@ -2440,6 +2610,11 @@ let handle_host session = function
           quit_armed = false;
           inspector = None;
         }
+  | Split_vertical -> Continue (split_pane session Layout.Vertical)
+  | Split_horizontal -> Continue (split_pane session Layout.Horizontal)
+  | Focus_next_pane -> Continue (focus_next_pane session)
+  | Close_pane -> Continue (close_pane session)
+  | Only_pane -> Continue (only_pane session)
   | Switch_model ->
       let current =
         model_choices
@@ -2709,34 +2884,70 @@ let interaction_message session =
   | Idle | Palette _ | Model_picker _ | Help_view | Hover_view _ ->
       session.message
 
+let blank_frame ~width ~height =
+  Zenbu_view.Frame.create ~width ~height
+    ~rows:
+      (List.init height (fun _ ->
+           [ Zenbu_view.Frame.cell ~width (String.make width ' ') ]))
+    ~cursor:None
+
+let render_pane session presentation pane rectangle =
+  if rectangle.Layout.width = 0 || rectangle.height = 0 then
+    (session, blank_frame ~width:rectangle.width ~height:rectangle.height)
+  else
+    let focused = pane = session.focused_pane in
+    let dimensions =
+      Zenbu_view.Renderer.{ columns = rectangle.width; rows = rectangle.height }
+    in
+    let rendered =
+      Zenbu_view.Renderer.render_with_inspector ~context:(context session)
+        ~status:
+          (if focused then status session else active_status session.active)
+        ~filename:(filename session) ~dirty:(dirty session)
+        ~message:(if focused then interaction_message session else None)
+        ~viewport:(pane_viewport session pane)
+        ~dimensions
+        ~inspector:(if focused then session.inspector else None)
+        ?overlay:(if focused then interaction_overlay session else None)
+        ~source_lines:presentation.source_lines
+        ~syntax_spans:presentation.syntax_spans
+        ~search_ranges:(search_ranges session)
+        ~diagnostic_ranges:(diagnostic_ranges session)
+        ?diagnostic_summary:(diagnostic_summary session)
+        ()
+    in
+    (set_pane_viewport session pane rendered.viewport, rendered.frame)
+
 let render session =
   let presentation = presentation_cache session in
-  let rendered =
-    Zenbu_view.Renderer.render_with_inspector ~context:(context session)
-      ~status:(status session) ~filename:(filename session)
-      ~dirty:(dirty session)
-      ~message:(interaction_message session)
-      ~viewport:session.viewport ~dimensions:session.dimensions
-      ~inspector:session.inspector
-      ?overlay:(interaction_overlay session)
-      ~source_lines:presentation.source_lines
-      ~syntax_spans:presentation.syntax_spans
-      ~search_ranges:(search_ranges session)
-      ~diagnostic_ranges:(diagnostic_ranges session)
-      ?diagnostic_summary:(diagnostic_summary session)
-      ()
+  let session, frames =
+    Layout.bounds session.layout ~width:session.dimensions.columns
+      ~height:session.dimensions.rows
+    |> List.fold_left
+         (fun (session, frames) (pane, rectangle) ->
+           let session, frame =
+             render_pane session presentation pane rectangle
+           in
+           (session, (pane, frame) :: frames))
+         (session, [])
   in
-  ( {
-      session with
-      viewport = rendered.viewport;
-      presentation_cache = Some presentation;
-    },
-    rendered.frame )
+  let frame =
+    match
+      Layout.compose session.layout ~width:session.dimensions.columns
+        ~height:session.dimensions.rows ~focused_pane:session.focused_pane
+        ~frames
+    with
+    | Ok frame -> frame
+    | Error _ ->
+        blank_frame ~width:session.dimensions.columns
+          ~height:session.dimensions.rows
+  in
+  ({ session with presentation_cache = Some presentation }, frame)
 
 let contents session = Editor_context.contents (context session)
 let file_path session = session.file_path
 let dimensions session = session.dimensions
-let viewport session = session.viewport
+let viewport session = pane_viewport session session.focused_pane
 
 let notice session message =
   { session with message = Some message; quit_armed = false; inspector = None }

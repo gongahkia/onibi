@@ -168,6 +168,11 @@ model or host prompt declares text entry; it is intentionally ignored in a
 command grammar. Selection styling wins over search styling, which wins over
 syntax styling.
 
+The palette also exposes `workspace.split.vertical`,
+`workspace.split.horizontal`, `workspace.pane.next`,
+`workspace.pane.close`, and `workspace.pane.only`. These are independent
+viewports of the current buffer, not a multi-buffer workspace.
+
 ## Headless tooling
 
 ```sh
@@ -221,11 +226,11 @@ the M11 sanity numbers, and [release notes](docs/RELEASE.md) describe the gate.
 
 ## Deliberate limits
 
-Zenbu has no multi-buffer/cross-file LSP workflow, project search,
-external-file watcher, pane/layout system, command-line/Ex language, plugin
-marketplace, asynchronous extension execution, public Tree-sitter query API,
-grammar downloads, refactoring engine, or system clipboard bridge. Component
-runtime support is limited to Linux x86_64 and Apple Silicon macOS because of
-the pinned native C API.
+Zenbu has same-buffer split views but no multi-buffer/cross-file LSP workflow,
+project search, external-file watcher, general pane-to-buffer workspace,
+command-line/Ex language, plugin marketplace, asynchronous extension
+execution, public Tree-sitter query API, grammar downloads, refactoring
+engine, or system clipboard bridge. Component runtime support is limited to
+Linux x86_64 and Apple Silicon macOS because of the pinned native C API.
 See the deferred work in
-[the roadmap](docs/ROADMAP.md).
+[the roadmap](docs/ROADMAP.md) and the [editor workload evaluation](docs/EDITOR_WORKLOAD_EVALUATION.md).

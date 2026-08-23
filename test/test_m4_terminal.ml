@@ -3,6 +3,7 @@ open Zenbu_model_api
 module App = Zenbu_app
 module Display = Zenbu_view.Display
 module Frame = Zenbu_view.Frame
+module Layout = Zenbu_view.Layout
 module Renderer = Zenbu_view.Renderer
 module Terminal = Zenbu_terminal
 
@@ -19,9 +20,23 @@ let expect condition format =
 let expect_string ~expected ~actual =
   expect (String.equal expected actual) "expected %S, got %S" expected actual
 
+let contains ~substring text =
+  let substring_length = String.length substring in
+  let text_length = String.length text in
+  let rec loop index =
+    if index + substring_length > text_length then false
+    else if String.sub text index substring_length = substring then true
+    else loop (index + 1)
+  in
+  loop 0
+
 let must = function
   | Ok value -> value
   | Error error -> failf "%s" (Error.to_string error)
+
+let layout_must = function
+  | Ok value -> value
+  | Error error -> failf "%s" (Layout.error_to_string error)
 
 let key text = Input_event.key_press (Input_event.logical_text text |> must)
 let text_input text = Input_event.text_input text |> must
@@ -108,6 +123,48 @@ let document_context ?(selections = [ (0, 0) ]) ?(primary = 0) contents =
 
 let styles frame =
   Frame.rows frame |> List.concat |> List.map (fun cell -> cell.Frame.style)
+
+let frame ~width ~height ~text ?cursor () =
+  Frame.create ~width ~height
+    ~rows:(List.init height (fun _ -> [ Frame.cell ~width text ]))
+    ~cursor
+
+let test_layout_composition () =
+  let layout =
+    Layout.single 0 |> fun layout ->
+    Layout.split layout ~pane:0 ~new_pane:1 Layout.Vertical |> layout_must
+  in
+  expect
+    (Layout.bounds layout ~width:11 ~height:4
+    = [
+        (0, Layout.{ x = 0; y = 0; width = 5; height = 4 });
+        (1, Layout.{ x = 6; y = 0; width = 5; height = 4 });
+      ])
+    "vertical layout allocated incorrect pane bounds";
+  let composed =
+    Layout.compose layout ~width:11 ~height:4 ~focused_pane:1
+      ~frames:
+        [
+          (0, frame ~width:5 ~height:4 ~text:"aaaaa" ());
+          ( 1,
+            frame ~width:5 ~height:4 ~text:"bbbbb"
+              ~cursor:Frame.{ column = 0; row = 0 }
+              () );
+        ]
+    |> layout_must
+  in
+  expect_string ~expected:"aaaaa│bbbbb"
+    ~actual:(Frame.rows composed |> List.hd |> Frame.row_text);
+  expect
+    (Frame.cursor composed = Some Frame.{ column = 6; row = 0 })
+    "focused pane cursor was not translated through the divider";
+  let layout = Layout.close layout ~pane:0 |> layout_must in
+  expect (Layout.panes layout = [ 1 ]) "closing a pane retained a stale leaf";
+  expect
+    (match Layout.close layout ~pane:1 with
+    | Error Layout.Cannot_close_last_pane -> true
+    | Ok _ | Error _ -> false)
+    "the last pane was unexpectedly closable"
 
 let test_renderer_selection_viewport_and_tiny_terminal () =
   let context =
@@ -252,6 +309,70 @@ let test_session_file_dirty_and_models () =
         (List.mem Frame.Primary_selection (styles frame))
         "structural selection did not render through the existing view")
 
+let test_session_workspace_views () =
+  let dimensions = Renderer.{ columns = 24; rows = 6 } in
+  let session =
+    App.Session.create ~model:App.Session.Vim ~contents:"alpha\nbeta"
+      ~dimensions ()
+    |> must
+  in
+  let session =
+    match App.Session.handle_host session App.Session.Split_vertical with
+    | App.Session.Continue session -> session
+    | App.Session.Exit _ -> failf "split unexpectedly exited"
+  in
+  expect
+    (App.Session.pane_count session = 2)
+    "vertical split did not add a pane";
+  expect
+    (App.Session.focused_pane session = 1)
+    "newly split pane was not focused";
+  let session, composed = App.Session.render session in
+  expect
+    (Frame.width composed = 24 && Frame.height composed = 6)
+    "workspace composition changed the terminal dimensions";
+  expect
+    (List.exists
+       (fun row -> contains ~substring:"│" (Frame.row_text row))
+       (Frame.rows composed))
+    "vertical split did not render a divider";
+  let session =
+    match App.Session.handle_host session App.Session.Focus_next_pane with
+    | App.Session.Continue session -> session
+    | App.Session.Exit _ -> failf "focus-next unexpectedly exited"
+  in
+  expect
+    (App.Session.focused_pane session = 0)
+    "focus-next did not cycle through layout order";
+  let session =
+    match App.Session.handle_host session App.Session.Only_pane with
+    | App.Session.Continue session -> session
+    | App.Session.Exit _ -> failf "only-pane unexpectedly exited"
+  in
+  expect (App.Session.pane_count session = 1) "only-pane retained a split";
+  let session =
+    match App.Session.handle_host session App.Session.Split_horizontal with
+    | App.Session.Continue session -> session
+    | App.Session.Exit _ -> failf "horizontal split unexpectedly exited"
+  in
+  let session, composed = App.Session.render session in
+  expect
+    (List.exists
+       (fun row -> contains ~substring:"─" (Frame.row_text row))
+       (Frame.rows composed))
+    "horizontal split did not render a divider";
+  let session =
+    match App.Session.handle_host session App.Session.Close_pane with
+    | App.Session.Continue session -> session
+    | App.Session.Exit _ -> failf "close-pane unexpectedly exited"
+  in
+  expect
+    (App.Session.pane_count session = 1)
+    "close-pane did not remove the focused view";
+  expect
+    (App.Session.focused_pane session = 0)
+    "close-pane did not retain the remaining view"
+
 let run name test =
   try
     test ();
@@ -271,6 +392,8 @@ let () =
     ("display coordinates", test_display_coordinates);
     ( "renderer selections viewport tiny",
       test_renderer_selection_viewport_and_tiny_terminal );
+    ("pure pane layout composition", test_layout_composition);
     ("session file dirty and model host", test_session_file_dirty_and_models);
+    ("session workspace views", test_session_workspace_views);
   ]
   |> List.iter (fun (name, test) -> run name test)

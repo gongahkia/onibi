@@ -168,11 +168,15 @@ surface exposes only Zenbu terminal events and pure `Frame` values. The kernel
 and model libraries neither link to nor name a terminal backend.
 
 `zenbu.app.Session` is a coherent immutable session value: active model
-runtime, file path, saved document version, viewport, terminal dimensions,
-message, and quit confirmation. It handles host-only save and quit policy;
-models still receive only logical input and return semantic effects. The pure
-view layer converts immutable context selections to styled cells, while the
-backend alone places the physical cursor. See [terminal host notes](TERMINAL.md)
+runtime, file path, saved document version, a focused view and per-view
+viewports, terminal dimensions, message, and quit confirmation. The pure
+`zenbu.view.Layout` composes same-buffer view frames in a binary vertical or
+horizontal tree; it sees only immutable frames and has no document mutation
+path. It handles host-only save, quit, and view-layout policy; models still
+receive only logical input and return semantic effects. The pure view layer
+converts immutable context selections to styled cells, while the backend alone
+places the physical cursor. This is not yet a buffer-to-pane workspace. See
+[terminal host notes](TERMINAL.md), [editor workload evaluation](EDITOR_WORKLOAD_EVALUATION.md),
 and ADRs 0011-0013.
 
 ## M6 observability boundary

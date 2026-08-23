@@ -21,6 +21,11 @@ type host_command =
   | Language_diagnostic_next
   | Language_diagnostic_previous
   | Language_diagnostic_describe_current
+  | Split_vertical
+  | Split_horizontal
+  | Focus_next_pane
+  | Close_pane
+  | Only_pane
 
 type inspection =
   | Why
@@ -59,6 +64,8 @@ val model : t -> model
 val filename : t -> string
 val dirty : t -> bool
 val viewport : t -> Zenbu_view.Viewport.t
+val pane_count : t -> int
+val focused_pane : t -> int
 val handle_input : t -> Zenbu_model_api.Input_event.t -> t
 val handle_host : t -> host_command -> outcome
 val host_command_descriptors : unit -> Zenbu_model_api.Command_descriptor.t list
