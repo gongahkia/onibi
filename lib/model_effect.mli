@@ -5,7 +5,7 @@ type search_direction = Forward | Backward
 type macro_request =
   | Reserve_macro_input
   | Toggle_macro_recording of string
-  | Replay_macro of string
+  | Replay_macro of { register : string; count : int }
 
 type selection_action =
   | Transform of Model_intent.transformation

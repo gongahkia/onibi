@@ -80,9 +80,9 @@ Model effects are values, never closures:
 - `Request_search` and `Repeat_search` request the shared literal-search host
   interaction without exposing its prompt or terminal state to a model.
 - `Request_macro` reserves a key for macro control or requests recording/replay
-  of one named register. The host validates and owns the bounded session store;
-  the model can neither inspect stored macro input nor access unrelated host
-  state.
+  of one named register with a positive bounded count. The host validates and
+  owns the bounded session store; the model can neither inspect stored macro
+  input nor access unrelated host state.
 - `Emit_message` reports an inspectable message.
 
 `Model_intent` is the model-facing facade for M1 intents plus selector/

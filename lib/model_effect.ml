@@ -7,7 +7,7 @@ type search_direction = Forward | Backward
 type macro_request =
   | Reserve_macro_input
   | Toggle_macro_recording of string
-  | Replay_macro of string
+  | Replay_macro of { register : string; count : int }
 
 type selection_action =
   | Transform of Model_intent.transformation
@@ -113,7 +113,8 @@ let identity = function
   | Request_macro Reserve_macro_input -> "request-macro:reserve-input"
   | Request_macro (Toggle_macro_recording register) ->
       "request-macro:toggle-recording:" ^ register
-  | Request_macro (Replay_macro register) -> "request-macro:replay:" ^ register
+  | Request_macro (Replay_macro { register; count }) ->
+      "request-macro:replay:" ^ register ^ ":" ^ string_of_int count
   | Undo -> "undo"
   | Redo -> "redo"
   | Repeat_last_edit -> "repeat-last-edit"
@@ -157,7 +158,8 @@ let describe = function
       "reserve the current input for macro control"
   | Request_macro (Toggle_macro_recording register) ->
       "start or stop recording macro register " ^ register
-  | Request_macro (Replay_macro register) -> "replay macro register " ^ register
+  | Request_macro (Replay_macro { register; count }) ->
+      Printf.sprintf "replay macro register %s %d time(s)" register count
   | Undo -> "undo"
   | Redo -> "redo"
   | Repeat_last_edit -> "repeat-last-edit"

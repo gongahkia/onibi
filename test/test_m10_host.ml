@@ -712,7 +712,7 @@ zenbu.bind { input = "q", command = "editor.macro.replay" }
       expect
         (App.Session.contents session = "界界界alpha")
         "a recorded macro could not be replayed repeatedly";
-      let invoke_named_macro session command register =
+      let invoke_named_macro ?count session command register =
         let session =
           App.Session.handle_host session App.Session.Open_palette |> continue
         in
@@ -725,7 +725,14 @@ zenbu.bind { input = "q", command = "editor.macro.replay" }
           = "host-command-argument")
           "named macro command did not open its register prompt";
         let session = App.Session.handle_input session (text_input register) in
-        App.Session.handle_input session (named Input_event.Enter)
+        let session =
+          App.Session.handle_input session (named Input_event.Enter)
+        in
+        match count with
+        | None -> session
+        | Some count ->
+            let session = App.Session.handle_input session (text_input count) in
+            App.Session.handle_input session (named Input_event.Enter)
       in
       let session = invoke_named_macro session "editor.macro.record" "a" in
       let session = App.Session.handle_input session (key "i") in
@@ -744,10 +751,12 @@ zenbu.bind { input = "q", command = "editor.macro.replay" }
         && lines_contain macros "register-count: 2"
         && lines_contain macros "@ (3), a (3)")
         "named macro storage did not preserve the default and named registers";
-      let session = invoke_named_macro session "editor.macro.replay" "a" in
+      let session =
+        invoke_named_macro ~count:"2" session "editor.macro.replay" "a"
+      in
       expect
-        (App.Session.contents session = "界界界!!alpha")
-        "named macro replay did not use the requested register";
+        (App.Session.contents session = "界界界!!!alpha")
+        "named macro replay count did not use the requested register";
       let macros = App.Session.inspect session App.Session.Macros in
       expect
         (lines_contain macros "last-recorded-register: a"
@@ -781,6 +790,17 @@ zenbu.bind { input = "q", command = "editor.macro.replay" }
       expect
         (App.Session.contents vim = "!!beta")
         "Vim @a did not replay the named host macro";
+      let vim = App.Session.handle_input vim (key "2") in
+      let vim = App.Session.handle_input vim (key "@") in
+      let vim = App.Session.handle_input vim (key "a") in
+      expect
+        (App.Session.contents vim = "!!!!beta")
+        "a Vim count did not repeat @a through the bounded macro service";
+      let macros = App.Session.inspect vim App.Session.Macros in
+      expect
+        (lines_contain macros "maximum-replay-count: 1024"
+        && lines_contain macros "maximum-replay-events: 65536")
+        "macro replay limits were not inspectable";
       let no_macro = make_session "untouched" in
       let no_macro =
         App.Session.handle_host no_macro App.Session.Replay_macro |> continue

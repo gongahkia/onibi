@@ -993,8 +993,11 @@ let handle_input state event context =
       match text_key event with
       | Some register when is_single_scalar register ->
           ( Normal (reset_normal normal),
-            [ Model_effect.Request_macro (Model_effect.Replay_macro register) ]
-          )
+            [
+              Model_effect.Request_macro
+                (Model_effect.Replay_macro
+                   { register; count = count_value normal.count });
+            ] )
       | _ when is_named event Input_event.Escape ->
           (Normal (reset_normal normal), [])
       | _ -> (Macro_replay_prefix normal, []))

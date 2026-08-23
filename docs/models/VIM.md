@@ -62,9 +62,10 @@ objects beyond words, regex search, full desired-column behavior, multi-buffer
 workflows, and Vimscript/plugin compatibility. Zenbu's generic session keyboard
 macro store is transient and bounded (`@` by default). The supplied model maps
 `q{register}` to start recording, bare `q` to stop, and `@{register}` to replay
-one Unicode-scalar register name. It does not implement uppercase/global
-register behavior, macro counts, persistence, or macro editing. The shared `.`
-repeat facility records ordinary semantic intents;
+one Unicode-scalar register name; an ordinary positive Vim count repeats
+`@{register}` through the host's 1,024-iteration/65,536-event replay budget.
+It does not implement uppercase/global register behavior, persistence, or
+macro editing. The shared `.` repeat facility records ordinary semantic intents;
 model-calculated find operators such as `df{char}` do not yet establish a
 repeat source. The explicit limits make additions useful API tests instead of an
 accidental second editor kernel.

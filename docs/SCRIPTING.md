@@ -281,10 +281,18 @@ events.
 each stored input through the normal Session dispatcher; transactions, hooks,
 undo history, provenance, and syntax/language refresh therefore remain
 ordinary per-input behavior. Macro storage is session-wide and transient. It
-does not provide Vim's `q{register}` grammar, Helix's selected-register
-workflow, Emacs's macro ring/name/edit commands, persistence, repeat counts,
-or terminal-host-shortcut capture. The `Macros` inspection reports the active
-recording register, last stored register, bounded catalog, and preview.
+also accepts an optional positive `count` argument. A request is limited to
+1,024 iterations and 65,536 replayed inputs, so a malformed adapter cannot
+create an unbounded synchronous replay.
+
+The generic descriptor surface
+does not prescribe any editor's key grammar. The supplied Vim model uses the
+public macro request effect to provide its tested `q{register}`, bare-`q`, and
+`@{register}` subset. Helix's selected-register workflow, Kakoune's register
+grammar, Emacs's macro ring/name/edit commands and native key grammar,
+persistence, and terminal-host-shortcut capture remain absent. The `Macros` inspection
+reports the active recording register, last stored register, bounded catalog,
+and preview.
 
 Builtin selection-algebra commands are ordinary binding targets too. The regex
 forms declare one required text parameter, so binding one opens the same typed
