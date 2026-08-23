@@ -403,6 +403,7 @@ zenbu.command {
         "palette did not include builtin/model-neutral commands";
       expect
         (contains initial_rows "search.start"
+        && contains initial_rows "editor.macro.record"
         && contains initial_rows "[zenbu.app]")
         "palette did not include application host commands with their provider";
       let host = App.Session.handle_input session (text_input "search.next") in

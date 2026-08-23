@@ -229,7 +229,9 @@ let toggle_macro_recording session =
       }
 
 let request_macro_replay session =
-  match (session.macro_recording, session.macro_replaying, session.last_macro) with
+  match
+    (session.macro_recording, session.macro_replaying, session.last_macro)
+  with
   | Some _, _, _ ->
       {
         session with
@@ -2878,9 +2880,9 @@ let language_host_command = function
       true
   | Save | Save_as | Quit | Force_quit | Reload_config | Start_search
   | Search_next | Search_previous | Toggle_macro_recording | Replay_macro
-  | Open_palette | Switch_model | Help
-  | Split_vertical | Split_horizontal | Focus_next_pane | Close_pane | Only_pane
-  | New_buffer | Open_buffer | Next_buffer | Previous_buffer ->
+  | Open_palette | Switch_model | Help | Split_vertical | Split_horizontal
+  | Focus_next_pane | Close_pane | Only_pane | New_buffer | Open_buffer
+  | Next_buffer | Previous_buffer ->
       false
 
 let palette_items session =
@@ -3138,9 +3140,17 @@ let invoke_host_palette_command ?(arguments = []) session input = function
         inspector = None;
       }
   | Toggle_macro_recording ->
-      { (toggle_macro_recording session) with interaction = Idle; inspector = None }
+      {
+        (toggle_macro_recording session) with
+        interaction = Idle;
+        inspector = None;
+      }
   | Replay_macro ->
-      { (request_macro_replay session) with interaction = Idle; inspector = None }
+      {
+        (request_macro_replay session) with
+        interaction = Idle;
+        inspector = None;
+      }
   | Open_palette ->
       {
         session with
@@ -3889,7 +3899,8 @@ let rec handle_input session input =
   in
   let completed =
     if
-      was_recording && not session.macro_replaying
+      was_recording
+      && (not session.macro_replaying)
       && Option.is_some completed.macro_recording
       && not completed.macro_control
     then record_macro_input completed input
@@ -3916,7 +3927,7 @@ and replay_last_macro session =
         macro_replay_pending = false;
         message = Some "macro replay rejected: no recorded macro";
       }
-  | Some inputs when session.macro_replaying ->
+  | Some _ when session.macro_replaying ->
       {
         session with
         macro_replay_pending = false;
@@ -4453,7 +4464,8 @@ let macro_lines session =
     let rec take remaining = function
       | _ when remaining <= 0 -> []
       | [] -> []
-      | input :: rest -> Input_event.to_string input :: take (remaining - 1) rest
+      | input :: rest ->
+          Input_event.to_string input :: take (remaining - 1) rest
     in
     let values = take 12 inputs in
     if List.length inputs > List.length values then values @ [ "…" ] else values

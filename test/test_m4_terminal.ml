@@ -113,12 +113,9 @@ let test_binding_sequence_parser () =
     (Input_event.binding_sequence_to_string sequence
     = "Ctrl+text(x) Shift+Ctrl+text(K) Alt+Enter text( )")
     "binding sequence parsing did not preserve modifiers, named keys, and Space";
-  let case_sensitive =
-    Input_event.binding_sequence_of_string "Q q" |> must
-  in
+  let case_sensitive = Input_event.binding_sequence_of_string "Q q" |> must in
   expect
-    (Input_event.binding_sequence_to_string case_sensitive
-    = "text(Q) text(q)")
+    (Input_event.binding_sequence_to_string case_sensitive = "text(Q) text(q)")
     "plain binding tokens did not preserve letter case";
   expect
     (match Input_event.binding_sequence_of_string "Ctrl-X  Ctrl-K" with
