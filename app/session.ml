@@ -1694,8 +1694,9 @@ let reload_config session =
                 in
                 Printf.sprintf
                   "configuration reloaded: %d commands, %d selectors, %d \
-                   transformations, %d bindings, %d hooks"
+                   transformations, %d bindings, %d hooks, %d modes"
                   commands selectors transformations bindings hooks
+                  (List.length (Scripting.modes generation))
                 ^ Printf.sprintf "; %d active plugins" plugin_count
           in
           {
@@ -4319,8 +4320,9 @@ let inspect session inspection =
               "provider: " ^ Provider.id (Scripting.provider generation);
               Printf.sprintf
                 "registrations: %d commands, %d selectors, %d transformations, \
-                 %d bindings, %d hooks"
-                commands selectors transformations bindings hooks;
+                 %d bindings, %d hooks, %d modes"
+                commands selectors transformations bindings hooks
+                (List.length (Scripting.modes generation));
               (match session.message with
               | None -> "message: none"
               | Some message -> "message: " ^ message);
