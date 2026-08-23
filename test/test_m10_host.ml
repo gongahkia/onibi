@@ -408,9 +408,20 @@ zenbu.command {
         |> String.concat "\n"
       in
       expect
-        (contains initial_rows "editor.apply"
-        && contains initial_rows "editor.selection.split-regex")
-        "palette did not include builtin model-neutral commands";
+        (contains initial_rows "editor.apply")
+        "palette did not include the first builtin model-neutral command";
+      let selection =
+        App.Session.handle_input session (text_input "split-regex")
+      in
+      let _, selection_frame = App.Session.render selection in
+      let selection_rows =
+        Frame.rows selection_frame |> List.map Frame.row_text
+        |> String.concat "\n"
+      in
+      expect
+        (contains selection_rows "editor.selection.split-regex"
+        && contains selection_rows "[zenbu.models]")
+        "palette filtering did not retain a builtin selection command/provider";
       let navigated =
         List.init 17 Fun.id
         |> List.fold_left
