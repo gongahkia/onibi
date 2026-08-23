@@ -4230,7 +4230,8 @@ let interaction_overlay session =
               (Provider.id item.provider))
         |> fun values ->
         let first =
-          min (max 0 (List.length values - maximum_visible))
+          min
+            (max 0 (List.length values - maximum_visible))
             (max 0 (selected - maximum_visible + 1))
         in
         values |> drop first |> take maximum_visible
@@ -4238,8 +4239,10 @@ let interaction_overlay session =
       Some
         ([ "Command palette"; "filter: " ^ query; "" ]
         @ (if visible = [] then [ "  no matching commands" ] else visible)
-        @ [ ""; "All active builtin, script, and plugin commands are searchable." ]
-        )
+        @ [
+            "";
+            "All active builtin, script, and plugin commands are searchable.";
+          ])
   | Hover_view hover ->
       Some
         ([ "Language hover"; "" ]

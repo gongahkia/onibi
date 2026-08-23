@@ -396,7 +396,8 @@ zenbu.command {
 |};
       let session =
         make_session ~config:(Zenbu_scripting.Scripting.Explicit path)
-          ~dimensions:Renderer.{ columns = 100; rows = 60 } "alpha"
+          ~dimensions:Renderer.{ columns = 100; rows = 60 }
+          "alpha"
       in
       let session =
         App.Session.handle_host session App.Session.Open_palette |> continue
