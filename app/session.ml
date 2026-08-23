@@ -76,7 +76,12 @@ type palette_item = {
   description : string option;
   provider : Provider.t;
   action : palette_action;
+  descriptor : Command_descriptor.t;
 }
+
+type command_prompt_action =
+  | Palette_item of palette_item
+  | Bound_command of Scripting.binding
 
 type presentation_cache = {
   contents : string;
@@ -92,6 +97,13 @@ type interaction =
       direction : Model_effect.search_direction;
     }
   | Palette of { query : string; selected : int }
+  | Command_prompt of {
+      action : command_prompt_action;
+      descriptor : Command_descriptor.t;
+      remaining : Command_descriptor.parameter list;
+      arguments_rev : Command_argument.t list;
+      text : string;
+    }
   | Save_as_prompt of string
   | Open_buffer_prompt of string
   | Model_picker of int
@@ -182,11 +194,14 @@ type host_command_entry = {
 let host_provider =
   Provider.create ~id:"zenbu.app" ~kind:Provider.Application |> static
 
-let host_descriptor id title description =
+let host_descriptor ?(parameters = []) id title description =
   Command_descriptor.create
     ~id:(Command_id.of_string id |> static)
-    ~title ~description ~category:"host" ~provider:host_provider ()
+    ~title ~description ~category:"host" ~parameters ~provider:host_provider ()
   |> static
+
+let text_parameter ~name ~description ~required =
+  Command_descriptor.{ name; description; required; kind = Text }
 
 let language_descriptor id title description =
   Command_descriptor.create
@@ -209,8 +224,15 @@ let host_command_entries =
       {
         command = Save_as;
         descriptor =
-          host_descriptor "editor.save-as" "Save buffer as"
-            "Prompt for a path and atomically replace that destination.";
+          host_descriptor
+            ~parameters:
+              [
+                text_parameter ~name:"path"
+                  ~description:"Destination path to replace atomically."
+                  ~required:true;
+              ]
+            "editor.save-as" "Save buffer as"
+            "Write the active buffer to a destination path atomically.";
         palette = true;
       };
       {
@@ -310,8 +332,15 @@ let host_command_entries =
       {
         command = Open_buffer;
         descriptor =
-          host_descriptor "workspace.buffer.open" "Open file in buffer"
-            "Prompt for a path and load it into the focused view.";
+          host_descriptor
+            ~parameters:
+              [
+                text_parameter ~name:"path"
+                  ~description:"Path of the file to load into the focused view."
+                  ~required:true;
+              ]
+            "workspace.buffer.open" "Open file in buffer"
+            "Load a file path into the focused view.";
         palette = true;
       };
       {
