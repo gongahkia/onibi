@@ -559,6 +559,71 @@ zenbu.bind { input = "Ctrl-X Ctrl-T", command = "user.insert-argument" }
         && App.Session.file_path session = Some path)
         "palette open-buffer did not consume its typed path argument")
 
+let test_keyboard_macros_replay_through_the_session_dispatcher () =
+  let path = Filename.temp_file "zenbu-m10-macros" ".lua" in
+  Fun.protect
+    ~finally:(fun () -> Sys.remove path)
+    (fun () ->
+      write path
+        {|
+zenbu.bind { input = "Q", command = "editor.macro.record" }
+zenbu.bind { input = "q", command = "editor.macro.replay" }
+|};
+      let session =
+        make_session ~config:(Zenbu_scripting.Scripting.Explicit path) "alpha"
+      in
+      let session = App.Session.handle_input session (key "Q") in
+      let session = App.Session.handle_input session (key "i") in
+      let session = App.Session.handle_input session (text_input "界") in
+      let session =
+        App.Session.handle_input session (named Input_event.Escape)
+      in
+      let session = App.Session.handle_input session (key "Q") in
+      expect
+        (App.Session.contents session = "界alpha")
+        "recording a keyboard macro changed its first execution";
+      let macro = App.Session.inspect session App.Session.Macros in
+      expect
+        (lines_contain macro "recording: no"
+        && lines_contain macro "recorded-inputs: 3"
+        && lines_contain macro "text(i)")
+        "recorded keyboard macro was not inspectable";
+      let session = App.Session.handle_input session (key "q") in
+      expect
+        (App.Session.contents session = "界界alpha")
+        "keyboard macro replay did not reuse ordinary model input";
+      let macro = App.Session.inspect session App.Session.Macros in
+      expect
+        (lines_contain macro "recorded-inputs: 3"
+        && lines_contain macro "replaying: false")
+        "macro replay changed the recorded macro or left replay state active";
+      let session = App.Session.handle_input session (key "q") in
+      expect
+        (App.Session.contents session = "界界界alpha")
+        "a recorded macro could not be replayed repeatedly";
+      let no_macro = make_session "untouched" in
+      let no_macro =
+        App.Session.handle_host no_macro App.Session.Replay_macro |> continue
+      in
+      expect
+        (App.Session.contents no_macro = "untouched")
+        "replaying without a macro mutated the document";
+      let bounded =
+        make_session ~config:(Zenbu_scripting.Scripting.Explicit path) ""
+      in
+      let bounded = App.Session.handle_input bounded (key "Q") in
+      let bounded =
+        List.init 1025 Fun.id
+        |> List.fold_left
+             (fun session _ -> App.Session.handle_input session (key "h"))
+             bounded
+      in
+      let macro = App.Session.inspect bounded App.Session.Macros in
+      expect
+        (lines_contain macro "recording: no"
+        && lines_contain macro "recorded-inputs: none")
+        "macro recording did not stop without retaining an over-limit macro")
+
 let test_save_as_and_model_switch_preserve_semantics () =
   let path = Filename.temp_file "zenbu-m10-save-as" ".txt" in
   Sys.remove path;
@@ -762,6 +827,8 @@ let tests =
       test_palette_discovers_all_active_command_providers );
     ( "command argument prompts execute typed and scripted commands",
       test_command_argument_prompt_executes_typed_and_scripted_commands );
+    ( "keyboard macros replay through the session dispatcher",
+      test_keyboard_macros_replay_through_the_session_dispatcher );
     ( "save-as and model switch",
       test_save_as_and_model_switch_preserve_semantics );
     ("save-as overwrite and failure", test_save_as_overwrite_and_write_failure);

@@ -434,6 +434,10 @@ let reserved_host_pattern = function
   | Input_event.Exact_event input -> reserved_host_input input
   | Input_event.Any_text_input -> false
 
+let host_binding_target = function
+  | "config.reload" | "editor.macro.record" | "editor.macro.replay" -> true
+  | _ -> false
+
 let event_of_string source = function
   | "document-changed" -> Ok Document_changed
   | "after-save" -> Ok After_save
@@ -772,8 +776,7 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
                                 | Error error -> fail error
                                 | Ok () -> (
                                     match
-                                      ( String.equal definition.command
-                                          "config.reload",
+                                      ( host_binding_target definition.command,
                                         Command_registry.find !command_registry
                                           command )
                                     with

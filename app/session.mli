@@ -9,6 +9,8 @@ type host_command =
   | Start_search
   | Search_next
   | Search_previous
+  | Toggle_macro_recording
+  | Replay_macro
   | Open_palette
   | Switch_model
   | Help
@@ -43,6 +45,7 @@ type inspection =
   | Scripts
   | Plugins
   | Search
+  | Macros
   | Language
 
 type t

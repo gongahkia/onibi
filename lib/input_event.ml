@@ -166,7 +166,8 @@ let binding_event_of_string token =
                     | Some text -> logical_text text
                     | None ->
                         let text =
-                          if List.mem Shift modifiers then key_name
+                          if modifiers = [] || List.mem Shift modifiers then
+                            key_name
                           else String.lowercase_ascii key_name
                         in
                         logical_text text)

@@ -24,6 +24,8 @@ type host_command =
   | Start_search
   | Search_next
   | Search_previous
+  | Toggle_macro_recording
+  | Replay_macro
   | Open_palette
   | Switch_model
   | Help
@@ -58,6 +60,7 @@ type inspection =
   | Scripts
   | Plugins
   | Search
+  | Macros
   | Language
 
 type search = {
@@ -179,6 +182,11 @@ type t = {
   mouse_drag : mouse_drag option;
   pending_binding : Input_event.t list;
   active_modes : string list;
+  macro_recording : Input_event.t list option;
+  last_macro : Input_event.t list option;
+  macro_replay_pending : bool;
+  macro_replaying : bool;
+  macro_control : bool;
 }
 
 type outcome = Continue of t | Exit of t
@@ -186,6 +194,89 @@ type outcome = Continue of t | Exit of t
 let static = function
   | Ok value -> value
   | Error error -> failwith (Error.to_string error)
+
+let maximum_macro_events = 1024
+
+let toggle_macro_recording session =
+  match session.macro_recording with
+  | None ->
+      {
+        session with
+        macro_recording = Some [];
+        macro_control = true;
+        message = Some "macro recording started";
+        quit_armed = false;
+      }
+  | Some [] ->
+      {
+        session with
+        macro_recording = None;
+        macro_control = true;
+        message = Some "macro recording discarded: no keyboard input";
+        quit_armed = false;
+      }
+  | Some inputs ->
+      {
+        session with
+        macro_recording = None;
+        last_macro = Some (List.rev inputs);
+        macro_control = true;
+        message =
+          Some
+            (Printf.sprintf "macro recorded: %d keyboard inputs"
+               (List.length inputs));
+        quit_armed = false;
+      }
+
+let request_macro_replay session =
+  match (session.macro_recording, session.macro_replaying, session.last_macro) with
+  | Some _, _, _ ->
+      {
+        session with
+        macro_control = true;
+        message = Some "macro replay rejected: finish recording first";
+        quit_armed = false;
+      }
+  | None, true, _ ->
+      {
+        session with
+        macro_control = true;
+        message = Some "macro replay rejected: recursive replay is disabled";
+        quit_armed = false;
+      }
+  | None, false, None ->
+      {
+        session with
+        macro_control = true;
+        message = Some "macro replay rejected: no recorded macro";
+        quit_armed = false;
+      }
+  | None, false, Some _ ->
+      {
+        session with
+        macro_replay_pending = true;
+        macro_control = true;
+        quit_armed = false;
+      }
+
+let record_macro_input session input =
+  match session.macro_recording with
+  | None -> session
+  | Some inputs -> (
+      match input with
+      | Input_event.Mouse _ -> session
+      | Input_event.Key_press _ | Input_event.Text_input _ ->
+          if List.length inputs >= maximum_macro_events then
+            {
+              session with
+              macro_recording = None;
+              message =
+                Some
+                  (Printf.sprintf
+                     "macro recording stopped: maximum of %d keyboard inputs"
+                     maximum_macro_events);
+            }
+          else { session with macro_recording = Some (input :: inputs) })
 
 type host_command_entry = {
   command : host_command;
@@ -280,6 +371,22 @@ let host_command_entries =
           host_descriptor "search.previous" "Previous search match"
             "Select the previous literal-search match, wrapping at the \
              beginning.";
+        palette = true;
+      };
+      {
+        command = Toggle_macro_recording;
+        descriptor =
+          host_descriptor "editor.macro.record" "Start or stop keyboard macro"
+            "Record ordinary keyboard input while executing it; invoking the \
+             command again stores the macro.";
+        palette = true;
+      };
+      {
+        command = Replay_macro;
+        descriptor =
+          host_descriptor "editor.macro.replay" "Replay keyboard macro"
+            "Replay the latest recorded keyboard macro through the normal \
+             input and transaction pipeline.";
         palette = true;
       };
       {
@@ -852,6 +959,11 @@ let create ~model ?language ?file_path ?(contents = "") ?trace ?profiler
                       (match generation with
                       | None -> []
                       | Some generation -> Scripting.initial_modes generation);
+                    macro_recording = None;
+                    last_macro = None;
+                    macro_replay_pending = false;
+                    macro_replaying = false;
+                    macro_control = false;
                   })))
 
 let context_of_active = function
@@ -2471,6 +2583,10 @@ let invoke_bound_command ?(arguments = []) session input binding =
   if String.equal command "config.reload" then
     let next = reload_config session in
     (trace_binding next, false)
+  else if String.equal command "editor.macro.record" then
+    (trace_binding (toggle_macro_recording session), false)
+  else if String.equal command "editor.macro.replay" then
+    (trace_binding (request_macro_replay session), false)
   else
     match Command_id.of_string command with
     | Error error ->
@@ -2761,7 +2877,8 @@ let language_host_command = function
   | Language_diagnostic_previous | Language_diagnostic_describe_current ->
       true
   | Save | Save_as | Quit | Force_quit | Reload_config | Start_search
-  | Search_next | Search_previous | Open_palette | Switch_model | Help
+  | Search_next | Search_previous | Toggle_macro_recording | Replay_macro
+  | Open_palette | Switch_model | Help
   | Split_vertical | Split_horizontal | Focus_next_pane | Close_pane | Only_pane
   | New_buffer | Open_buffer | Next_buffer | Previous_buffer ->
       false
@@ -3020,6 +3137,10 @@ let invoke_host_palette_command ?(arguments = []) session input = function
         interaction = Idle;
         inspector = None;
       }
+  | Toggle_macro_recording ->
+      { (toggle_macro_recording session) with interaction = Idle; inspector = None }
+  | Replay_macro ->
+      { (request_macro_replay session) with interaction = Idle; inspector = None }
   | Open_palette ->
       {
         session with
@@ -3718,7 +3839,9 @@ let handle_pointer session input =
         | Input_event.Press Input_event.Secondary ) ) ->
       { session with mouse_drag = None }
 
-let handle_input session input =
+let rec handle_input session input =
+  let was_recording = Option.is_some session.macro_recording in
+  let session = { session with macro_control = false } in
   let contents_before = Editor_context.contents (context session) in
   let caret_before = primary_offset session in
   let next = input_for_interaction session input in
@@ -3764,6 +3887,18 @@ let handle_input session input =
       (Zenbu_view.Viewport.follow
          (pane_viewport completed completed.focused_pane))
   in
+  let completed =
+    if
+      was_recording && not session.macro_replaying
+      && Option.is_some completed.macro_recording
+      && not completed.macro_control
+    then record_macro_input completed input
+    else completed
+  in
+  let completed =
+    if completed.macro_replay_pending then replay_last_macro completed
+    else completed
+  in
   let execution_id =
     Option.value ~default:0 (last_execution_of_active completed.active)
   in
@@ -3772,6 +3907,42 @@ let handle_input session input =
     (profiler_of_active completed.active)
     ~execution_id completed.plugins;
   completed
+
+and replay_last_macro session =
+  match session.last_macro with
+  | None ->
+      {
+        session with
+        macro_replay_pending = false;
+        message = Some "macro replay rejected: no recorded macro";
+      }
+  | Some inputs when session.macro_replaying ->
+      {
+        session with
+        macro_replay_pending = false;
+        message = Some "macro replay rejected: recursive replay is disabled";
+      }
+  | Some inputs ->
+      let replaying =
+        {
+          session with
+          macro_replay_pending = false;
+          macro_replaying = true;
+          macro_control = false;
+          pending_binding = [];
+        }
+      in
+      let completed = List.fold_left handle_input replaying inputs in
+      {
+        completed with
+        macro_replay_pending = false;
+        macro_replaying = false;
+        macro_control = false;
+        message =
+          Some
+            (Printf.sprintf "macro replayed: %d keyboard inputs"
+               (List.length inputs));
+      }
 
 let handle_host session = function
   | Save -> Continue (save session)
@@ -3796,6 +3967,8 @@ let handle_host session = function
         (move_search session
            (Input_event.key_press (Input_event.named_key Input_event.Enter))
            (-1))
+  | Toggle_macro_recording -> Continue (toggle_macro_recording session)
+  | Replay_macro -> Continue (replay_last_macro session)
   | Open_palette ->
       Continue
         {
@@ -3992,6 +4165,7 @@ let help_lines session =
     "  Ctrl-P command palette    Ctrl-Shift-S save as";
     "  Alt-M switch model    Alt-H help    Ctrl-O inspector";
     "  Ctrl-S save    Ctrl-Q quit    Alt-R reload configuration";
+    "  command palette: editor.macro.record / editor.macro.replay";
     "";
     "Active model metadata";
     "  status: " ^ Model_status.label model_status;
@@ -4274,6 +4448,36 @@ let plugin_lines session =
           ])
         views
 
+let macro_lines session =
+  let preview inputs =
+    let rec take remaining = function
+      | _ when remaining <= 0 -> []
+      | [] -> []
+      | input :: rest -> Input_event.to_string input :: take (remaining - 1) rest
+    in
+    let values = take 12 inputs in
+    if List.length inputs > List.length values then values @ [ "…" ] else values
+  in
+  let recorded =
+    match session.last_macro with
+    | None -> [ "recorded-inputs: none"; "preview: none" ]
+    | Some inputs ->
+        [
+          "recorded-inputs: " ^ string_of_int (List.length inputs);
+          "preview: " ^ String.concat " " (preview inputs);
+        ]
+  in
+  [
+    "Keyboard macros";
+    (match session.macro_recording with
+    | None -> "recording: no"
+    | Some inputs ->
+        "recording: yes (" ^ string_of_int (List.length inputs) ^ " inputs)");
+    "replaying: " ^ string_of_bool session.macro_replaying;
+    "maximum-recorded-inputs: " ^ string_of_int maximum_macro_events;
+  ]
+  @ recorded
+
 let inspect session inspection =
   let format ~last_execution ~trace ~model_descriptor ~model_status ~rules
       ~command_registry ~semantic_behaviors ~runtime_history ~runtime_context
@@ -4328,6 +4532,7 @@ let inspect session inspection =
               | Completion_view _ | Rename_prompt _ ->
                   "prompt: closed");
             ])
+    | Macros -> macro_lines session
     | Api ->
         "API"
         :: Inspector.format_api

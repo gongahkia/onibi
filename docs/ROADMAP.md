@@ -42,8 +42,8 @@ The following remain deliberately out of scope:
 - hard wall-clock cancellation, asynchronous/background extension execution,
   richer Component imports, or a sandbox claim for trusted Lua;
 - project search, file watching, general cross-file workspace resource
-  operations, command-line/Ex
-  compatibility, macros, or broad Vim/Helix/Kakoune emulation; the M12 local
+  operations, command-line/Ex compatibility, or broad Vim/Helix/Kakoune
+  emulation; the M12 local
   buffer table and split-view host are a tested workspace foundation, not a
   project workspace;
 - LSP code actions, formatting, symbols, semantic tokens, user-authored server

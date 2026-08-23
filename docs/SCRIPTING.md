@@ -149,7 +149,9 @@ sixteen logical input tokens separated by one ASCII space, for example
 `Tab`, `Delete`, arrows, `Home`, or `End`) or logical text with optional
 `Ctrl-`, `Shift-`, `Alt-`, and `Meta-` modifiers. Write the text keys `Space`,
 `Minus`, `Plus`, `Comma`, `Period`, or `Slash` by name when required inside a
-sequence. `<text>` is a distinct wildcard for one committed `Text_input`
+sequence. Unmodified logical-text tokens preserve case, so `Q` and `q` are
+distinct bindings; modifier spelling remains canonical (`Ctrl-X` and
+`Ctrl-Shift-X`). `<text>` is a distinct wildcard for one committed `Text_input`
 event; it does not match a logical key press. `Ctrl-X` remains a one-event
 binding and is fully backward compatible.
 
@@ -255,8 +257,27 @@ Bindings are considered before model input. The host retains `Ctrl-S`,
 `Ctrl-Shift-S`, `Ctrl-Q`, `Alt-R`, `Ctrl-Alt-R`, `Ctrl-F`, `Ctrl-G`,
 `Ctrl-Shift-G`, `Ctrl-P`, `Ctrl-Space`, `Alt-M`, `Meta-M`, `Alt-H`, `Meta-H`,
 and `Ctrl-O` as non-overridable controls; none may appear anywhere in a custom
-sequence. `config.reload` is a permitted binding target for a script-defined
-non-host reload key. `zenbu-headless bindings vim` includes the same
+sequence. `config.reload`, `editor.macro.record`, and `editor.macro.replay`
+are permitted binding targets for script-defined non-host keys. The latter two
+are generic session commands, so an editor adapter can use its native-looking
+macro keys without making macro logic a model privilege:
+
+```lua
+zenbu.bind { input = "Q", command = "editor.macro.record" }
+zenbu.bind { input = "q", command = "editor.macro.replay" }
+```
+
+`editor.macro.record` starts recording when idle and stops/stores the latest
+macro when recording. The recorder keeps at most 1,024 `Key_press` or
+`Text_input` events, never records its own record/replay controls, and ignores
+pointer events. `editor.macro.replay` re-enters each stored input through the
+normal Session dispatcher; transactions, hooks, undo history, provenance, and
+syntax/language refresh therefore remain ordinary per-input behavior. Macros
+are session-wide and transient: there is one latest macro, no named/register
+storage, persistence, editing, repeat count, or terminal-host-shortcut capture.
+The `Macros` inspection reports recording state, the bound, and a preview.
+
+`zenbu-headless bindings vim` includes the same
 reserved-host list beside model and extension bindings.
 
 Use `zenbu-headless api` and `zenbu-headless bindings <vim|selection|structural>`
