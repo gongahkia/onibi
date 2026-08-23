@@ -498,7 +498,7 @@ let command_argument_of_text parameter text =
     | Command_descriptor.Transformation ->
         Model_intent.transformation_of_string text
         |> Result.map (fun transformation ->
-               Command_argument.Transformation transformation)
+            Command_argument.Transformation transformation)
   in
   Result.bind value (fun value ->
       Command_argument.make ~name:parameter.name ~value)
@@ -2376,7 +2376,9 @@ let invoke_bound_command ?(arguments = []) session input binding =
     | Ok id ->
         if List.length arguments = 0 then
           match Command_registry.find (active_commands session.active) id with
-          | Ok command when Command_descriptor.parameters (Command.descriptor command) <> [] ->
+          | Ok command
+            when Command_descriptor.parameters (Command.descriptor command)
+                 <> [] ->
               ( begin_command_prompt session ~action:(Bound_command binding)
                   ~descriptor:(Command.descriptor command),
                 false )
@@ -2872,19 +2874,23 @@ let save session =
   | Some path -> save_to session path
 
 let required_text_argument arguments name =
-  match List.find_opt (fun argument -> Command_argument.name argument = name) arguments with
+  match
+    List.find_opt
+      (fun argument -> Command_argument.name argument = name)
+      arguments
+  with
   | Some argument -> (
       match Command_argument.value argument with
       | Command_argument.Text value -> Ok value
       | Command_argument.Selector _ | Command_argument.Transformation _ ->
           Error
-            (Error.Invalid_command_arguments
-               ("expected text argument " ^ name)))
+            (Error.Invalid_command_arguments ("expected text argument " ^ name))
+      )
   | None -> Error (Error.Invalid_command_arguments ("missing argument " ^ name))
 
 let invoke_host_palette_command ?(arguments = []) session input = function
   | Save -> save session
-  | Save_as ->
+  | Save_as -> (
       if arguments = [] then
         {
           session with
@@ -2893,10 +2899,11 @@ let invoke_host_palette_command ?(arguments = []) session input = function
           quit_armed = false;
           inspector = None;
         }
-      else (
+      else
         match required_text_argument arguments "path" with
         | Ok path -> save_to session path
-        | Error error -> { session with message = Some (Error.to_string error) })
+        | Error error -> { session with message = Some (Error.to_string error) }
+      )
   | Reload_config -> { (reload_config session) with interaction = Idle }
   | Start_search -> begin_search session
   | Search_next ->
@@ -2927,7 +2934,7 @@ let invoke_host_palette_command ?(arguments = []) session input = function
   | Close_pane -> { (close_pane session) with interaction = Idle }
   | Only_pane -> { (only_pane session) with interaction = Idle }
   | New_buffer -> { (new_buffer session) with interaction = Idle }
-  | Open_buffer ->
+  | Open_buffer -> (
       if arguments = [] then
         {
           session with
@@ -2935,10 +2942,11 @@ let invoke_host_palette_command ?(arguments = []) session input = function
           message = Some "workspace: enter a file path";
           inspector = None;
         }
-      else (
+      else
         match required_text_argument arguments "path" with
         | Ok path -> open_buffer session path
-        | Error error -> { session with message = Some (Error.to_string error) })
+        | Error error -> { session with message = Some (Error.to_string error) }
+      )
   | Next_buffer -> { (cycle_buffer session 1) with interaction = Idle }
   | Previous_buffer -> { (cycle_buffer session (-1)) with interaction = Idle }
   | Switch_model ->
@@ -3004,7 +3012,7 @@ let invoke_palette_item_with_arguments session input (item : palette_item)
     arguments =
   match item.action with
   | Invoke_command id ->
-    let invocation =
+      let invocation =
         Command_invocation.create ~id ~arguments |> Result.get_ok
       in
       let next, _ =
@@ -3182,11 +3190,10 @@ let input_for_interaction session input =
               session with
               interaction = Palette { query = query ^ text; selected = 0 };
             })
-  | Command_prompt
-      { action; descriptor; remaining; arguments_rev; text } -> (
+  | Command_prompt { action; descriptor; remaining; arguments_rev; text } -> (
       match remaining with
       | [] -> { session with interaction = Idle }
-      | parameter :: rest ->
+      | parameter :: rest -> (
           if event_is_named input Input_event.Escape then
             {
               session with
@@ -3198,8 +3205,7 @@ let input_for_interaction session input =
               {
                 session with
                 message =
-                  Some
-                    ("command argument " ^ parameter.name ^ " is required");
+                  Some ("command argument " ^ parameter.name ^ " is required");
               }
             else
               let argument =
@@ -3209,14 +3215,15 @@ let input_for_interaction session input =
                   |> Result.map Option.some
               in
               match argument with
-              | Error error -> { session with message = Some (Error.to_string error) }
-              | Ok argument ->
+              | Error error ->
+                  { session with message = Some (Error.to_string error) }
+              | Ok argument -> (
                   let arguments_rev =
                     match argument with
                     | None -> arguments_rev
                     | Some argument -> argument :: arguments_rev
                   in
-                  (match rest with
+                  match rest with
                   | next :: _ ->
                       {
                         session with
@@ -3231,7 +3238,7 @@ let input_for_interaction session input =
                             };
                         message = Some (command_prompt_message descriptor next);
                       }
-                  | [] ->
+                  | [] -> (
                       let arguments = List.rev arguments_rev in
                       match action with
                       | Palette_item item ->
@@ -3241,13 +3248,19 @@ let input_for_interaction session input =
                           fst
                             (invoke_bound_command ~arguments
                                { session with interaction = Idle }
-                               input binding))
+                               input binding)))
           else if event_is_named input Input_event.Backspace then
             {
               session with
               interaction =
                 Command_prompt
-                  { action; descriptor; remaining; arguments_rev; text = drop_last_utf8 text };
+                  {
+                    action;
+                    descriptor;
+                    remaining;
+                    arguments_rev;
+                    text = drop_last_utf8 text;
+                  };
             }
           else
             match event_text input with
@@ -3264,7 +3277,7 @@ let input_for_interaction session input =
                         arguments_rev;
                         text = text ^ value;
                       };
-                })
+                }))
   | Save_as_prompt path -> (
       if event_is_named input Input_event.Escape then
         { session with interaction = Idle; message = Some "save-as cancelled" }
@@ -3525,9 +3538,9 @@ let handle_pointer session input =
   with
   | Some _, _, _
   | ( None,
-      ( Search_prompt _ | Palette _ | Command_prompt _ | Save_as_prompt _ | Open_buffer_prompt _
-      | Model_picker _ | Help_view | Hover_view _ | Completion_view _
-      | Rename_prompt _ ),
+      ( Search_prompt _ | Palette _ | Command_prompt _ | Save_as_prompt _
+      | Open_buffer_prompt _ | Model_picker _ | Help_view | Hover_view _
+      | Completion_view _ | Rename_prompt _ ),
       _ ) ->
       { session with mouse_drag = None }
   | None, Idle, None -> session
@@ -3884,8 +3897,8 @@ let model_choice_name = function
 
 let interaction_overlay session =
   match session.interaction with
-  | Idle | Search_prompt _ | Command_prompt _ | Save_as_prompt _ | Open_buffer_prompt _
-  | Rename_prompt _ ->
+  | Idle | Search_prompt _ | Command_prompt _ | Save_as_prompt _
+  | Open_buffer_prompt _ | Rename_prompt _ ->
       None
   | Help_view -> Some (help_lines session)
   | Model_picker selected ->
@@ -4194,9 +4207,9 @@ let inspect session inspection =
               | Some index -> "current-match: " ^ string_of_int (index + 1));
               (match session.interaction with
               | Search_prompt _ -> "prompt: open"
-              | Idle | Palette _ | Command_prompt _ | Save_as_prompt _ | Open_buffer_prompt _
-              | Model_picker _ | Help_view | Hover_view _ | Completion_view _
-              | Rename_prompt _ ->
+              | Idle | Palette _ | Command_prompt _ | Save_as_prompt _
+              | Open_buffer_prompt _ | Model_picker _ | Help_view | Hover_view _
+              | Completion_view _ | Rename_prompt _ ->
                   "prompt: closed");
             ])
     | Api ->

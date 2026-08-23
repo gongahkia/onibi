@@ -23,9 +23,12 @@ let must = function
 let key text = Input_event.logical_text text |> must |> Input_event.key_press
 let text_input text = Input_event.text_input text |> must
 let named value = Input_event.key_press (Input_event.named_key value)
+
 let ctrl text =
-  Input_event.logical_text text |> must
+  Input_event.logical_text text
+  |> must
   |> Input_event.key_press ~modifiers:[ Input_event.Control ]
+
 let dimensions = Renderer.{ columns = 100; rows = 20 }
 
 let contains text fragment =
@@ -445,7 +448,9 @@ zenbu.command {
 
 let test_command_argument_prompt_executes_typed_and_scripted_commands () =
   let session = make_session "alpha" in
-  let session = App.Session.handle_host session App.Session.Open_palette |> continue in
+  let session =
+    App.Session.handle_host session App.Session.Open_palette |> continue
+  in
   let session = App.Session.handle_input session (text_input "editor.apply") in
   let session = App.Session.handle_input session (named Input_event.Enter) in
   expect
@@ -460,10 +465,14 @@ let test_command_argument_prompt_executes_typed_and_scripted_commands () =
   expect
     (App.Session.contents session = "replacement")
     "typed selector/transformation arguments did not invoke editor.apply";
-  let session = App.Session.handle_host session App.Session.Open_palette |> continue in
+  let session =
+    App.Session.handle_host session App.Session.Open_palette |> continue
+  in
   let session = App.Session.handle_input session (text_input "editor.apply") in
   let session = App.Session.handle_input session (named Input_event.Enter) in
-  let session = App.Session.handle_input session (text_input "not-a-selector") in
+  let session =
+    App.Session.handle_input session (text_input "not-a-selector")
+  in
   let session = App.Session.handle_input session (named Input_event.Enter) in
   expect
     (Model_status.id (App.Session.status session) = "host-command-argument"
@@ -501,9 +510,13 @@ zenbu.bind { input = "Ctrl-X Ctrl-T", command = "user.insert-argument" }
       let session =
         App.Session.handle_input session (text_input "insert-argument")
       in
-      let session = App.Session.handle_input session (named Input_event.Enter) in
+      let session =
+        App.Session.handle_input session (named Input_event.Enter)
+      in
       let session = App.Session.handle_input session (text_input "!") in
-      let session = App.Session.handle_input session (named Input_event.Enter) in
+      let session =
+        App.Session.handle_input session (named Input_event.Enter)
+      in
       expect
         (App.Session.contents session = "!alpha")
         "Lua command did not receive its prompt-provided text argument";
@@ -516,7 +529,9 @@ zenbu.bind { input = "Ctrl-X Ctrl-T", command = "user.insert-argument" }
         (Model_status.id (App.Session.status session) = "host-command-argument")
         "a binding to a parameterized command did not open the argument prompt";
       let session = App.Session.handle_input session (text_input "?") in
-      let session = App.Session.handle_input session (named Input_event.Enter) in
+      let session =
+        App.Session.handle_input session (named Input_event.Enter)
+      in
       expect
         (App.Session.contents session = "?beta")
         "a binding to a parameterized Lua command lost prompt arguments");
@@ -532,9 +547,13 @@ zenbu.bind { input = "Ctrl-X Ctrl-T", command = "user.insert-argument" }
       let session =
         App.Session.handle_input session (text_input "workspace.buffer.open")
       in
-      let session = App.Session.handle_input session (named Input_event.Enter) in
+      let session =
+        App.Session.handle_input session (named Input_event.Enter)
+      in
       let session = App.Session.handle_input session (text_input path) in
-      let session = App.Session.handle_input session (named Input_event.Enter) in
+      let session =
+        App.Session.handle_input session (named Input_event.Enter)
+      in
       expect
         (App.Session.contents session = "opened from command argument"
         && App.Session.file_path session = Some path)

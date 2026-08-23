@@ -6,6 +6,7 @@ type parameter = {
   required : bool;
   kind : parameter_kind;
 }
+
 type t
 
 val create :
@@ -25,6 +26,9 @@ val description : t -> string option
 val category : t -> string option
 val parameters : t -> parameter list
 val parameter_kind_to_string : parameter_kind -> string
-val parameter_kind_of_string : string -> (parameter_kind, Zenbu_kernel.Error.t) result
+
+val parameter_kind_of_string :
+  string -> (parameter_kind, Zenbu_kernel.Error.t) result
+
 val examples : t -> string list
 val provider : t -> Zenbu_kernel.Provider.t

@@ -41,21 +41,24 @@ let extension_argument_value argument =
       Extension_value.Text
         (Selector.to_string (Model_intent.selector_to_kernel selector))
   | Command_argument.Transformation transformation ->
-      let transformation = Model_intent.transformation_to_kernel transformation in
+      let transformation =
+        Model_intent.transformation_to_kernel transformation
+      in
       Extension_value.Record
-        ( [ ("kind", Extension_value.Text (Transformation.name transformation)) ]
+        ([ ("kind", Extension_value.Text (Transformation.name transformation)) ]
         @
         match transformation with
-        | Transformation.Replace_text text -> [ ("text", Extension_value.Text text) ]
+        | Transformation.Replace_text text ->
+            [ ("text", Extension_value.Text text) ]
         | Transformation.Select | Transformation.Delete
         | Transformation.Collapse_to_start | Transformation.Collapse_to_end ->
-            [] )
+            [])
 
 let extension_arguments invocation =
   Extension_value.Record
     (Command_invocation.arguments invocation
     |> List.map (fun argument ->
-           (Command_argument.name argument, extension_argument_value argument)))
+        (Command_argument.name argument, extension_argument_value argument)))
 
 let execute value context invocation =
   if

@@ -126,8 +126,6 @@ let push_string =
   bind "lua_pushlstring"
     (ptr void @-> string @-> size_t @-> returning (ptr char))
 
-let raise_error = bind "lua_error" (ptr void @-> returning int)
-
 type t = {
   state : state;
   source : string;
@@ -373,7 +371,8 @@ let parameter_required fields =
   match Value.find (Value.Record fields) "required" with
   | None -> Ok true
   | Some (Value.Bool value) -> Ok value
-  | Some _ -> Error (parameter_error "parameter field required must be a boolean")
+  | Some _ ->
+      Error (parameter_error "parameter field required must be a boolean")
 
 let parameter_kind fields =
   match Value.find (Value.Record fields) "kind" with
@@ -381,7 +380,7 @@ let parameter_kind fields =
   | Some (Value.Text value) ->
       Descriptor.parameter_kind_of_string value
       |> Result.map_error (fun error ->
-             parameter_error (Zenbu_kernel.Error.to_string error))
+          parameter_error (Zenbu_kernel.Error.to_string error))
   | Some _ -> Error (parameter_error "parameter field kind must be a string")
 
 let parameter_of_value = function
@@ -392,8 +391,7 @@ let parameter_of_value = function
       let* required = parameter_required fields in
       let* kind = parameter_kind fields in
       Ok
-        Descriptor.
-          { name; description = parameter_description; required; kind }
+        Descriptor.{ name; description = parameter_description; required; kind }
   | _ -> Error (parameter_error "each parameter must be a table")
 
 let parameters_of_value = function
@@ -710,7 +708,9 @@ let evaluate backend source =
       let called = protected_call state 0 0 0 0L (from_voidp void null) in
       if called = lua_ok then (
         set_top state 0;
-        Ok ())
+        match backend.raised_error with
+        | Some error -> Error error
+        | None -> Ok ())
       else
         let message = lua_error_message backend in
         set_top state 0;
