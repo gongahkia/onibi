@@ -29,6 +29,7 @@ let descriptor =
           from the optional public syntax snapshot."
        ~provider ())
 
+let descriptor_of_state _ = descriptor
 let available context = Option.is_some (Editor_context.syntax context)
 
 let idle context =

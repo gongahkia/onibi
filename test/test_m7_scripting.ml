@@ -25,6 +25,8 @@ let ctrl_shift text =
   |> must
   |> Input_event.key_press ~modifiers:[ Input_event.Shift; Input_event.Control ]
 
+let key text = Input_event.logical_text text |> must |> Input_event.key_press
+let text_input text = Input_event.text_input text |> must
 let dimensions = Zenbu_view.Renderer.{ columns = 120; rows = 40 }
 
 let write path text =
@@ -42,6 +44,46 @@ let contains text fragment =
     else loop (offset + 1)
   in
   fragment_length = 0 || loop 0
+
+let wait_for_background_job session expected =
+  let deadline = Unix.gettimeofday () +. 2.0 in
+  let rec wait session =
+    let lines = Zenbu_app.Session.inspect session Zenbu_app.Session.Jobs in
+    if List.exists (fun line -> contains line expected) lines then session
+    else if Unix.gettimeofday () >= deadline then
+      failf "background job did not report %S: %s" expected
+        (String.concat " | " lines)
+    else
+      let wakeup =
+        match Zenbu_app.Session.background_job_wakeup_fd session with
+        | Some fd -> fd
+        | None -> failf "background job did not allocate a wakeup descriptor"
+      in
+      ignore (Unix.select [ wakeup ] [] [] 0.05);
+      wait (Zenbu_app.Session.poll_background session)
+  in
+  wait session
+
+let invoke_palette_text_argument session command value =
+  let session =
+    match
+      Zenbu_app.Session.handle_host session Zenbu_app.Session.Open_palette
+    with
+    | Zenbu_app.Session.Continue session -> session
+    | Zenbu_app.Session.Exit _ -> failf "opening the command palette exited"
+  in
+  let session = Zenbu_app.Session.handle_input session (text_input command) in
+  let session =
+    Zenbu_app.Session.handle_input session
+      (Input_event.key_press (Input_event.named_key Input_event.Enter))
+  in
+  expect
+    (Model_status.id (Zenbu_app.Session.status session)
+    = "host-command-argument")
+    "command %s did not open its required argument prompt" command;
+  let session = Zenbu_app.Session.handle_input session (text_input value) in
+  Zenbu_app.Session.handle_input session
+    (Input_event.key_press (Input_event.named_key Input_event.Enter))
 
 let base_commands () =
   Command_registry.register Command_registry.empty
@@ -204,6 +246,485 @@ let test_config_validation () =
       expect
         (Zenbu_app.Session.contents session = "🙂é!")
         "Unicode script edit did not preserve UTF-8 boundaries")
+
+let modal_model_config suffix =
+  Printf.sprintf
+    {|
+zenbu.model {
+  id = "workload.modal",
+  title = "Workload modal editor",
+  description = "A persistent Lua-owned modal grammar.",
+  initial_state = { mode = "normal", changes = 0 },
+  initial_status = { id = "normal", label = "NORMAL", input_mode = "keys" },
+  run = function(call)
+    local input = call.arguments.input
+    local state = call.arguments.state
+    local function result(next, status, effects)
+      return { state = next, status = status, effects = effects or {} }
+    end
+    if input.kind == "key" and input.key == "i" then
+      return result(
+        { mode = "insert", changes = state.changes },
+        { id = "insert", label = "INSERT", input_mode = "text" })
+    elseif input.kind == "key" and input.key == "Escape" then
+      return result(
+        { mode = "normal", changes = state.changes },
+        { id = "normal", label = "NORMAL", input_mode = "keys" })
+    elseif input.kind == "text" and state.mode == "insert" then
+      return result(
+        { mode = "insert", changes = state.changes + 1 },
+        { id = "insert", label = "INSERT", input_mode = "text" },
+        {{ kind = "insert", text = input.text .. %S }})
+    else
+      local input_mode = state.mode == "insert" and "text" or "keys"
+      return result(state, { id = state.mode, label = string.upper(state.mode), input_mode = input_mode })
+    end
+  end,
+}
+|}
+    suffix
+
+let test_script_owned_model_state_and_reload () =
+  let path = Filename.temp_file "zenbu-m7-model" ".lua" in
+  Fun.protect
+    ~finally:(fun () -> Sys.remove path)
+    (fun () ->
+      write path (modal_model_config "!");
+      let trace = Trace.enabled ~capacity:128 |> must in
+      let session =
+        Zenbu_app.Session.create ~model:Zenbu_app.Session.Script
+          ~contents:"alpha" ~trace
+          ~config:(Zenbu_scripting.Scripting.Explicit path) ~dimensions ()
+        |> must
+      in
+      expect
+        (Zenbu_app.Session.model session = Zenbu_app.Session.Script
+        && Model_status.id (Zenbu_app.Session.status session) = "normal")
+        "script model did not initialize its declared persistent state";
+      expect
+        (Zenbu_app.Session.inspect session Zenbu_app.Session.Scripts
+        |> List.exists (String.equal "model: workload.modal"))
+        "Scripts inspection did not identify the configured model";
+      let session = Zenbu_app.Session.handle_input session (key "i") in
+      expect
+        (Model_status.id (Zenbu_app.Session.status session) = "insert")
+        "script model did not transition into its declared text state: %s; %s"
+        (Model_status.id (Zenbu_app.Session.status session))
+        (Trace.events trace
+        |> List.filter_map (function
+          | Trace_event.Error_reported { reason; _ } -> Some reason
+          | _ -> None)
+        |> String.concat " | ");
+      let session = Zenbu_app.Session.handle_input session (text_input "β") in
+      expect
+        (Zenbu_app.Session.contents session = "β!alpha"
+        && Model_status.id (Zenbu_app.Session.status session) = "insert")
+        "script model state or declarative insert effect was not applied";
+      let session =
+        Zenbu_app.Session.handle_input session
+          (Input_event.key_press (Input_event.named_key Input_event.Escape))
+      in
+      expect
+        (Model_status.id (Zenbu_app.Session.status session) = "normal")
+        "script model did not retain state across callbacks";
+      let why =
+        Zenbu_app.Session.inspect session Zenbu_app.Session.Why
+        |> String.concat "\n"
+      in
+      expect
+        (contains why "workload.modal")
+        "script model identity is absent from the normal provenance path";
+      expect
+        (List.exists
+           (function
+             | Trace_event.Script_callback { kind = "model"; _ } -> true
+             | _ -> false)
+           (Trace.events trace))
+        "script model callback is absent from trace output";
+      write path (modal_model_config "?");
+      let session = Zenbu_app.Session.reload_config session in
+      expect
+        (Model_status.id (Zenbu_app.Session.status session) = "normal")
+        "reloading a script model did not reset its explicit model state";
+      let session = Zenbu_app.Session.handle_input session (key "i") in
+      let session = Zenbu_app.Session.handle_input session (text_input "γ") in
+      expect
+        (Zenbu_app.Session.contents session = "β!γ?alpha")
+        "script-model reload retained a disposed callback or stale definition";
+      write path
+        {|
+zenbu.model {
+  id = "workload.invalid",
+  initial_state = {},
+  initial_status = { id = "normal", label = "NORMAL" },
+  run = function(_) return { state = {} } end,
+}
+|};
+      let broken = Zenbu_app.Session.reload_config session in
+      let broken = Zenbu_app.Session.handle_input broken (key "x") in
+      expect
+        (Zenbu_app.Session.contents broken = "β!γ?alpha")
+        "an invalid script-model callback partially mutated the document";
+      let error_lines =
+        Trace.events trace
+        |> List.filter_map (function
+          | Trace_event.Error_reported { reason; _ } -> Some reason
+          | _ -> None)
+        |> String.concat "\n"
+      in
+      expect
+        (contains error_lines "model result requires status")
+        "script-model response validation did not report its boundary failure")
+
+let test_script_model_value_limits () =
+  let path = Filename.temp_file "zenbu-m7-model-limit" ".lua" in
+  Fun.protect
+    ~finally:(fun () -> Sys.remove path)
+    (fun () ->
+      write path
+        {|
+zenbu.model {
+  id = "workload.cyclic",
+  initial_state = {},
+  initial_status = { id = "normal", label = "NORMAL" },
+  run = function(_)
+    local state = {}
+    state.self = state
+    return {
+      state = state,
+      status = { id = "normal", label = "NORMAL" },
+    }
+  end,
+}
+|};
+      let trace = Trace.enabled ~capacity:32 |> must in
+      let session =
+        Zenbu_app.Session.create ~model:Zenbu_app.Session.Script
+          ~contents:"alpha" ~trace
+          ~config:(Zenbu_scripting.Scripting.Explicit path) ~dimensions ()
+        |> must
+      in
+      let session = Zenbu_app.Session.handle_input session (key "x") in
+      expect
+        (Zenbu_app.Session.contents session = "alpha"
+        && Model_status.id (Zenbu_app.Session.status session) = "normal")
+        "a cyclic script state changed editor state";
+      let errors =
+        Trace.events trace
+        |> List.filter_map (function
+          | Trace_event.Error_reported { reason; _ } -> Some reason
+          | _ -> None)
+        |> String.concat "\n"
+      in
+      expect
+        (contains errors "maximum nesting depth")
+        "cyclic script state did not hit the bounded value conversion path")
+
+let test_script_external_filter () =
+  let path = Filename.temp_file "zenbu-m7-filter" ".lua" in
+  Fun.protect
+    ~finally:(fun () -> Sys.remove path)
+    (fun () ->
+      write path
+        {|
+zenbu.model {
+  id = "workload.filter",
+  initial_state = {},
+  initial_status = { id = "normal", label = "NORMAL" },
+  run = function(call)
+    local key = call.arguments.input.key
+    local effects = {
+      {
+        kind = "set-selections",
+        selections = {{ anchor = 0, head = 5 }, { anchor = 6, head = 10 }},
+        primary = 1,
+      },
+    }
+    if key == "f" then
+      table.insert(effects, {
+        kind = "external-filter",
+        program = "/usr/bin/tr",
+        arguments = {"a-z", "A-Z"},
+      })
+    elseif key == "x" then
+      table.insert(effects, {
+        kind = "external-filter",
+        program = "tr",
+        arguments = {"a-z", "A-Z"},
+      })
+    elseif key == "e" then
+      table.insert(effects, {
+        kind = "external-filter",
+        program = "/usr/bin/false",
+      })
+    end
+    return {
+      state = {},
+      status = { id = "normal", label = "NORMAL" },
+      effects = effects,
+    }
+  end,
+}
+|};
+      let trace = Trace.enabled ~capacity:64 |> must in
+      let session =
+        Zenbu_app.Session.create ~model:Zenbu_app.Session.Script
+          ~contents:"alpha beta" ~trace
+          ~config:(Zenbu_scripting.Scripting.Explicit path) ~dimensions ()
+        |> must
+      in
+      let session = Zenbu_app.Session.handle_input session (key "f") in
+      expect
+        (Zenbu_app.Session.contents session = "ALPHA BETA")
+        "external filter did not replace all selected ranges atomically";
+      let why =
+        Zenbu_app.Session.inspect session Zenbu_app.Session.Why
+        |> String.concat "\n"
+      in
+      expect
+        (contains why "workload.filter" && contains why "host.external-filter")
+        "external filter transaction did not retain model and host provenance";
+      let failed = Zenbu_app.Session.handle_input session (key "x") in
+      expect
+        (Zenbu_app.Session.contents failed = "ALPHA BETA")
+        "a rejected external filter changed the document";
+      let scripts =
+        Zenbu_app.Session.inspect failed Zenbu_app.Session.Scripts
+        |> String.concat "\n"
+      in
+      expect
+        (contains scripts "program must be a non-empty absolute executable path")
+        "external filter rejected a relative executable without a useful error";
+      let failed = Zenbu_app.Session.handle_input failed (key "e") in
+      expect
+        (Zenbu_app.Session.contents failed = "ALPHA BETA")
+        "a failing external program changed the document";
+      let scripts =
+        Zenbu_app.Session.inspect failed Zenbu_app.Session.Scripts
+        |> String.concat "\n"
+      in
+      expect
+        (contains scripts "/usr/bin/false exited with status 1")
+        "external filter did not report the child process failure")
+
+let test_script_background_process () =
+  let path = Filename.temp_file "zenbu-m7-background" ".lua" in
+  let session = ref None in
+  Fun.protect
+    ~finally:(fun () ->
+      Option.iter Zenbu_app.Session.close !session;
+      Sys.remove path)
+    (fun () ->
+      write path
+        {|
+zenbu.model {
+  id = "workload.background",
+  initial_state = {},
+  initial_status = { id = "normal", label = "NORMAL" },
+  run = function(call)
+    local key = call.arguments.input.key
+    local effects = {}
+    if key == "b" then
+      table.insert(effects, {
+        kind = "background-process",
+        program = "/usr/bin/printf",
+        arguments = {"job-output"},
+      })
+    elseif key == "f" then
+      table.insert(effects, {
+        kind = "background-process",
+        program = "/usr/bin/false",
+      })
+    elseif key == "r" then
+      table.insert(effects, {
+        kind = "background-process",
+        program = "printf",
+      })
+    elseif key == "u" then
+      table.insert(effects, {
+        kind = "background-process",
+        program = "/usr/bin/printf",
+        arguments = {string.rep("界", 6000)},
+      })
+    elseif key == "c" then
+      table.insert(effects, {
+        kind = "background-process",
+        program = "/bin/cat",
+      })
+    elseif key == "s" then
+      table.insert(effects, {
+        kind = "background-process",
+        program = "/bin/sleep",
+        arguments = {"5"},
+      })
+    end
+    return {
+      state = {},
+      status = { id = "normal", label = "NORMAL" },
+      effects = effects,
+    }
+  end,
+}
+|};
+      let started =
+        Zenbu_app.Session.create ~model:Zenbu_app.Session.Script
+          ~contents:"alpha" ~config:(Zenbu_scripting.Scripting.Explicit path)
+          ~dimensions ()
+        |> must
+      in
+      session := Some started;
+      let started = Zenbu_app.Session.handle_input started (key "b") in
+      session := Some started;
+      expect
+        (Zenbu_app.Session.contents started = "alpha")
+        "a background process mutated the document before completion";
+      let wakeup =
+        match Zenbu_app.Session.background_job_wakeup_fd started with
+        | Some wakeup -> wakeup
+        | None ->
+            failf "background process did not allocate a wakeup descriptor"
+      in
+      expect
+        (List.mem wakeup (Zenbu_app.Session.wakeup_fds started))
+        "the terminal wakeup set did not include the background job descriptor";
+      let finished = wait_for_background_job started "stdout: job-output" in
+      session := Some finished;
+      expect
+        (Zenbu_app.Session.contents finished = "alpha")
+        "a completed background process mutated the document";
+      let output_buffer =
+        invoke_palette_text_argument finished "process.job.open-output" "1"
+      in
+      expect
+        (Zenbu_app.Session.buffer_count output_buffer = 2)
+        "opening a background job report did not create a workspace buffer";
+      expect
+        (Zenbu_app.Session.contents output_buffer = "job-output")
+        "the completed background-job output buffer did not retain stdout";
+      expect
+        (Zenbu_app.Session.filename output_buffer = "*job 1 output*")
+        "the completed background-job output buffer was not named";
+      expect
+        (not (Zenbu_app.Session.dirty output_buffer))
+        "opening a background-job output buffer marked the workspace dirty";
+      let finished =
+        match
+          Zenbu_app.Session.handle_host output_buffer
+            Zenbu_app.Session.Previous_buffer
+        with
+        | Zenbu_app.Session.Continue session -> session
+        | Zenbu_app.Session.Exit _ ->
+            failf "switching back from job output exited"
+      in
+      expect
+        (Zenbu_app.Session.contents finished = "alpha")
+        "opening job output replaced the original editing buffer";
+      let finished = Zenbu_app.Session.handle_input finished (key "f") in
+      session := Some finished;
+      let failed = wait_for_background_job finished "exited with status 1" in
+      session := Some failed;
+      expect
+        (Zenbu_app.Session.contents failed = "alpha")
+        "a failed background process mutated the document";
+      let failure_report =
+        Zenbu_app.Session.open_background_job_output failed ~job_id:2
+      in
+      expect
+        (contains
+           (Zenbu_app.Session.contents failure_report)
+           "background job 2 failed: exited with status 1")
+        "the failed background-job report omitted the failure diagnosis";
+      let success_report =
+        match
+          Zenbu_app.Session.handle_host failure_report
+            Zenbu_app.Session.Previous_buffer
+        with
+        | Zenbu_app.Session.Continue session -> session
+        | Zenbu_app.Session.Exit _ ->
+            failf "switching back from failure report exited"
+      in
+      let failed =
+        match
+          Zenbu_app.Session.handle_host success_report
+            Zenbu_app.Session.Previous_buffer
+        with
+        | Zenbu_app.Session.Continue session -> session
+        | Zenbu_app.Session.Exit _ ->
+            failf "switching back from success report exited"
+      in
+      expect
+        (Zenbu_app.Session.contents failed = "alpha")
+        "opening a failure report lost the original editing buffer";
+      let rejected = Zenbu_app.Session.handle_input failed (key "r") in
+      session := Some rejected;
+      let scripts =
+        Zenbu_app.Session.inspect rejected Zenbu_app.Session.Scripts
+        |> String.concat "\n"
+      in
+      expect
+        (contains scripts "program must be a non-empty absolute executable path")
+        "background process accepted a relative executable path";
+      let jobs =
+        Zenbu_app.Session.inspect rejected Zenbu_app.Session.Jobs
+        |> String.concat "\n"
+      in
+      expect
+        (contains jobs "1: /usr/bin/printf" && contains jobs "2: /usr/bin/false")
+        "background jobs were not retained for inspection";
+      let unicode = Zenbu_app.Session.handle_input rejected (key "u") in
+      session := Some unicode;
+      let unicode = wait_for_background_job unicode "界" in
+      session := Some unicode;
+      let rendered_jobs =
+        Zenbu_app.Session.inspect unicode Zenbu_app.Session.Jobs
+        |> String.concat "\n"
+      in
+      expect
+        (Result.is_ok (Text_buffer.of_utf8 rendered_jobs))
+        "a bounded Unicode background-output preview broke UTF-8";
+      let no_stdin = Zenbu_app.Session.handle_input unicode (key "c") in
+      session := Some no_stdin;
+      let no_stdin = wait_for_background_job no_stdin "/bin/cat succeeded" in
+      session := Some no_stdin;
+      expect
+        (Zenbu_app.Session.contents no_stdin = "alpha")
+        "a no-stdin background process mutated the document";
+      let slow = Zenbu_app.Session.handle_input no_stdin (key "s") in
+      session := Some slow;
+      let cancelled = Zenbu_app.Session.cancel_background_job slow ~job_id:5 in
+      session := Some cancelled;
+      let jobs =
+        Zenbu_app.Session.inspect cancelled Zenbu_app.Session.Jobs
+        |> String.concat "\n"
+      in
+      expect
+        (contains jobs "5: /bin/sleep 5 cancelled")
+        "host cancellation did not mark a running background job cancelled";
+      let cancellation_report =
+        Zenbu_app.Session.open_background_job_output cancelled ~job_id:5
+      in
+      expect
+        (Zenbu_app.Session.contents cancellation_report
+        = "background job 5 was cancelled")
+        "the cancelled background-job report was not available as a buffer";
+      expect
+        (List.exists
+           (fun descriptor ->
+             Command_descriptor.id descriptor
+             |> Command_id.to_string
+             |> String.equal "process.job.cancel")
+           (Zenbu_app.Session.host_command_descriptors ()))
+        "background-job cancellation is not discoverable through the host \
+         palette";
+      expect
+        (List.exists
+           (fun descriptor ->
+             Command_descriptor.id descriptor
+             |> Command_id.to_string
+             |> String.equal "process.job.open-output")
+           (Zenbu_app.Session.host_command_descriptors ()))
+        "opening background-job output is not discoverable through the host \
+         palette")
 
 let test_errors_and_registration_conflicts () =
   let path = Filename.temp_file "zenbu-m7-errors" ".lua" in
@@ -933,6 +1454,11 @@ let tests =
     ( "script load/reload and dynamic semantics",
       test_load_reload_and_dynamic_semantics );
     ("script config validation", test_config_validation);
+    ( "script-owned model state and reload",
+      test_script_owned_model_state_and_reload );
+    ("script-model value conversion limits", test_script_model_value_limits);
+    ("script external filter", test_script_external_filter);
+    ("script background process", test_script_background_process);
     ( "script errors and registration conflicts",
       test_errors_and_registration_conflicts );
     ("script binding sequences and scoped dispatch", test_binding_sequences);

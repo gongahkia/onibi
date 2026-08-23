@@ -44,9 +44,12 @@ Notty, Lambda-Term, and curses from editing grammar input.
 ## Context and lifecycle
 
 An `Editing_model.S` has an opaque `state` plus `initialize`, `handle_input`,
-`reset`, and `status` functions. The runtime is a functor over that module only
-so it can retain model state without inspecting it. It does not know what a
-model's states mean.
+`reset`, and `status` functions. It supplies a stable descriptor and a
+state-derived descriptor; built-in models return the stable value, while the
+trusted Lua adapter uses the initialized declaration's id/provider for binding
+scope and provenance. The runtime is a functor over that module only so it can
+retain model state without inspecting it. It does not know what a model's
+states mean.
 
 `Editor_context` is an immutable snapshot facade. It exposes active document
 id/version, contents, byte length, selections as anchor/head byte offsets,
@@ -83,6 +86,26 @@ Model effects are values, never closures:
   of one named register with a positive bounded count. The host validates and
   owns the bounded session store; the model can neither inspect stored macro
   input nor access unrelated host state.
+- `Request_location` asks the host to capture or restore one named session
+  location. The model supplies only a name; the host owns buffer activation,
+  history-lineage rebasing, stale-location rejection, and the resulting normal
+  selection transaction.
+- `Request_jump` adds the current selection to the shared jump history or
+  traverses its older/newer entries. The host owns its bounded storage and
+  rebasing; models cannot access its entries or buffer table.
+- `Request_workspace` asks the host for a bounded view or buffer operation:
+  split, focus, close/keep a view, create/open/close a buffer, or cycle buffers.
+  The model supplies no pane id, buffer id, path, layout object, or file handle.
+  The host separately owns per-`(view, buffer)` selection snapshots and their
+  transaction-lineage rebasing.
+- `Request_viewport` asks the host to scroll the focused view by checked line
+  or page units, or to center it on the primary selection. It carries no pane
+  id, renderer frame, geometry, or terminal handle; the host derives page size
+  from the focused pane and active presentation profile. It never changes a
+  document, selection, history, or semantic replay.
+- `Request_save` asks the host to save the active buffer through its existing
+  save/save-as policy. It carries no path or file handle, so a model cannot
+  bypass atomic writing, language notification, or the host's path prompt.
 - `Emit_message` reports an inspectable message.
 
 `Model_intent` is the model-facing facade for M1 intents plus selector/
@@ -129,16 +152,55 @@ to synthesize keystrokes. M2 has no global keymap language.
 
 M3 retains declarative effects and adds model-neutral effects to copy a selector
 to a clipboard slot, paste a slot at a documented placement, undo, redo, and
-repeat the latest repeatable semantic edit. The runtime owns these immutable
-services; a model cannot mutate a document, history, or clipboard directly.
-Clipboard slots are generic UTF-8 entries with characterwise or linewise
-shape. A grammar may call a slot a register, but the API does not.
+repeat the latest repeatable semantic edit. `Cut_to_clipboard` adds a checked
+delete transaction only for a non-empty selected range, stores its UTF-8 entry
+in the requested ordinary slot, and prepends it to the separate bounded,
+120-entry session kill history. `Paste_from_kill_ring` retrieves an explicit
+zero-based history entry; an absent or negative entry is rejected before it can
+change history. The runtime owns these immutable services; a model cannot
+mutate a document, history, clipboard, or kill history directly. Clipboard
+slots are generic UTF-8 entries with characterwise or linewise shape. A grammar
+may call a slot a register, but the API does not. The kill history is distinct
+from ordinary copy/register writes so using a Vim/Helix/Kakoune register does
+not silently create an Emacs-style kill.
 
 The Vim compatibility workload adds two reusable pressure-tested boundaries.
 `Apply_to_selections` lets a model calculate UTF-8-safe ranges from immutable
 context and still use the runtime's shared transformation/copy path as one
 operation. Search effects let a model request forward/backward literal search;
 the host owns prompt UI, stored query, highlighting, and result navigation.
+Location effects add the same separation for saved positions: models request a
+name but cannot inspect Session buffers, locations, or history branches.
+Jump-history effects use that same location representation but preserve an
+opaque backward/forward traversal stack rather than exposing cursor history to
+the model.
+Save effects apply the same boundary to persistence: a model can request the
+host operation but cannot inspect or write a file. This lets product adapters
+use their save grammar without gaining filesystem authority.
+Workspace effects likewise leave pane ids, layout geometry, buffer identity,
+file prompts, file I/O, and per-view selection positions with the host. They
+make a product's view grammar testable without letting an editing model retain
+or mutate host objects.
+
+System clipboard interoperation is deliberately a host service rather than a
+model effect. The host's fixed `editor.clipboard.copy` and
+`editor.clipboard.paste` commands copy non-empty selections or paste one
+validated UTF-8 value through an injected, bounded provider. Clipboard commands
+cannot carry a command, path, process handle, or arbitrary callback from an
+editing model or Lua configuration; the host owns platform-tool selection, the
+16 MiB bound, error reporting, and the paste transaction. The separate
+trusted-local `Request_external_filter` and `Request_background_process`
+effects carry only an absolute program path and argument vector. `zenbu.app`
+executes a filter once per selected range under its UTF-8, size, and timeout
+policy, then turns output into an ordinary transaction. A background request
+starts a separately bounded, no-stdin program and exposes its final output
+preview through the host's Jobs view. The separate typed
+`process.job.open-output` command can turn a completed final report into a
+named ordinary buffer, but models neither receive the job id nor retain a
+process object. Neither effect admits a callback, shell command string, or
+`PATH` lookup to the model API. Components cannot request either process
+effect. See [scripting](SCRIPTING.md) for that deliberately narrow process
+contract. `process.job.cancel` is likewise host-owned.
 
 ## Runtime behavior and traces
 
@@ -163,8 +225,8 @@ model-independent and is suitable for macros, bug reports, and automation.
 ## Headless sessions
 
 `zenbu-headless session <file>` runs a small inspectable session format for
-tests and debugging. A fixture has `model=vim`, `model=selection-first`, or
-`model=structural`; structural fixtures set `language=ocaml`. One
+tests and debugging. A fixture has `model=vim`, `model=selection-first`,
+`model=direct`, or `model=structural`; structural fixtures set `language=ocaml`. One
 escaped `text=` line, `input=` logical key lines, and `text-input=` committed
 UTF-8 text lines. Named `Escape`, `Backspace`, `Enter`, and `Ctrl-r` inputs are
 also supported. The runner prints model status transitions, declared effects,
@@ -178,10 +240,10 @@ pointers.
 ## M4 terminal input
 
 M4's terminal adapter maps Unicode printable keys, Escape, Enter, Backspace,
-Tab, arrows, Home/End, Delete, Ctrl/Alt/Meta/Shift modifiers, and resize into
-host events. Decoded key and bracketed-paste events pass through `Input_decoder`
-into `Input_event`; resize, save, quit, terminal lifecycle, and physical cursor
-presentation stay above the model API. The adapter consults
+Tab, arrows, Home/End, PageUp/PageDown, Delete, Ctrl/Alt/Meta/Shift modifiers,
+and resize into host events. Decoded key and bracketed-paste events pass through
+`Input_decoder` into `Input_event`; resize, save, quit, terminal lifecycle, and
+physical cursor presentation stay above the model API. The adapter consults
 `Model_status.input_mode`, never a model status id or private model state. Mouse remains disabled. M10 enables
 bracketed paste as one generic committed-text event only when `Text_entry` is
 declared; it does not add a model-specific paste grammar.
@@ -273,6 +335,17 @@ so the editing-model API does not gain an M7-only mutation route. Dynamic
 semantic operations resolve to concrete transactions but are deliberately not
 retained as repeatable model intents across reloads. This remains experimental
 configuration, not a stable plugin SDK; see [scripting](SCRIPTING.md).
+
+M7 also has one optional trusted script-owned model declaration. Its state is
+an `Extension_value`, not a Lua/editor object; each input callback receives a
+copied context plus `{ input, state }` and returns the next `{ state, status,
+effects? }`. The adapter supplies its declared descriptor through the ordinary
+state-derived descriptor hook, so `Model_runtime` retains the script provider
+in trace and transaction provenance. It uses the existing effect interpreter;
+there is no M7-only mutation path. A response conversion or validation failure
+is an ordinary model failure and leaves the prior runtime state/history/input
+trace intact. See [scripting](SCRIPTING.md) for its checked data contract and
+reload semantics.
 
 ## M8/M9 runtime-neutral extension host
 

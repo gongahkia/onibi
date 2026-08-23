@@ -11,6 +11,7 @@ type options = {
   trace : bool;
   profile : bool;
   theme : Zenbu_view.Theme.t;
+  presentation : Zenbu_view.Presentation.t;
   config : Scripting.config;
   plugins : Plugins.config;
 }
@@ -18,9 +19,10 @@ type options = {
 type run_result = Exited | Unsaved_end
 
 let usage =
-  "usage: zenbu [--model vim|selection|structural] [--language ID] [--trace] \
-   [--profile] [--theme default|dark|light|PATH] [--config PATH | --no-config] \
-   [--plugin-dir PATH | --no-plugins] [FILE]"
+  "usage: zenbu [--model vim|selection|direct|structural|script] [--language \
+   ID] [--trace] [--profile] [--theme default|dark|light|PATH] [--presentation \
+   default|numbered|relative|minimal|bare|buffered|PATH] [--config PATH | \
+   --no-config] [--plugin-dir PATH | --no-plugins] [FILE]"
 
 let parse_arguments () =
   let model = ref Zenbu_app.Session.Vim in
@@ -29,6 +31,7 @@ let parse_arguments () =
   let trace = ref false in
   let profile = ref false in
   let theme = ref Zenbu_view.Theme.default in
+  let presentation = ref Zenbu_view.Presentation.default in
   let config = ref Scripting.Default in
   let plugin_dirs = ref [] in
   let plugins_disabled = ref false in
@@ -60,7 +63,9 @@ let parse_arguments () =
   let set_model = function
     | "vim" -> model := Zenbu_app.Session.Vim
     | "selection" -> model := Zenbu_app.Session.Selection
+    | "direct" -> model := Zenbu_app.Session.Direct
     | "structural" -> model := Zenbu_app.Session.Structural
+    | "script" -> model := Zenbu_app.Session.Script
     | value -> raise (Arg.Bad ("unknown model: " ^ value))
   in
   let set_language value =
@@ -76,6 +81,14 @@ let parse_arguments () =
         | Ok selected -> theme := selected
         | Error reason -> raise (Arg.Bad reason))
   in
+  let set_presentation value =
+    match Zenbu_view.Presentation.find_builtin value with
+    | Some selected -> presentation := selected
+    | None -> (
+        match Zenbu_view.Presentation.load value with
+        | Ok selected -> presentation := selected
+        | Error reason -> raise (Arg.Bad reason))
+  in
   let set_file value =
     match !file_path with
     | None -> file_path := Some value
@@ -85,7 +98,8 @@ let parse_arguments () =
     [
       ( "--model",
         Arg.String set_model,
-        "vim, selection, or structural (default: vim)" );
+        "vim, selection, direct, structural, or script (default: vim; script \
+         requires zenbu.model)" );
       ( "--language",
         Arg.String set_language,
         "syntax language ID (ocaml or json)" );
@@ -94,6 +108,10 @@ let parse_arguments () =
       ( "--theme",
         Arg.String set_theme,
         "built-in default|dark|light or a validated TOML theme file" );
+      ( "--presentation",
+        Arg.String set_presentation,
+        "built-in default|numbered|relative|minimal|bare|buffered or a \
+         validated TOML presentation file" );
       ("--config", Arg.String set_config, "load this Lua configuration file");
       ( "--no-config",
         Arg.Unit disable_config,
@@ -122,6 +140,7 @@ let parse_arguments () =
         trace = !trace;
         profile = !profile;
         theme = !theme;
+        presentation = !presentation;
         config = !config;
         plugins =
           (if !plugins_disabled then Plugins.Disabled
@@ -153,7 +172,8 @@ let create_session options contents =
       Result.bind profiler (fun profiler ->
           Zenbu_app.Session.create ~model:options.model
             ?language:options.language ?file_path:options.file_path ~contents
-            ~trace ~profiler ~config:options.config ~plugins:options.plugins
+            ~trace ~profiler ~presentation:options.presentation
+            ~theme:options.theme ~config:options.config ~plugins:options.plugins
             ~dimensions:Zenbu_view.Renderer.{ columns = 80; rows = 24 }
             ()))
 
@@ -195,21 +215,25 @@ let is_reload modifiers =
   | [ Zenbu_terminal.Event.Alt ] | [ Zenbu_terminal.Event.Meta ] -> true
   | _ -> false
 
+let direct_model session =
+  Zenbu_app.Session.model session = Zenbu_app.Session.Direct
+
 let finish session outcome =
   Zenbu_app.Session.close session;
   outcome
 
 let rec run backend session =
-  let session = Zenbu_app.Session.poll_language session in
+  let session = Zenbu_app.Session.poll_background session in
+  Zenbu_terminal.Backend.set_theme backend (Zenbu_app.Session.theme session);
   let session, frame = Zenbu_app.Session.render session in
   Zenbu_terminal.Backend.draw backend frame;
   match
     Zenbu_terminal.Backend.read
-      ~wakeups:(Zenbu_app.Session.language_wakeup_fds session)
+      ~wakeups:(Zenbu_app.Session.wakeup_fds session)
       backend
   with
   | Zenbu_terminal.Event.Wakeup ->
-      run backend (Zenbu_app.Session.poll_language session)
+      run backend (Zenbu_app.Session.poll_background session)
   | Zenbu_terminal.Event.Resize { columns; rows } ->
       run backend (Zenbu_app.Session.resize session ~columns ~rows)
   | Zenbu_terminal.Event.End ->
@@ -242,7 +266,7 @@ let rec run backend session =
       | Zenbu_app.Session.Continue session -> run backend session
       | Zenbu_app.Session.Exit session -> finish session Exited)
   | Zenbu_terminal.Event.Key { key = Zenbu_terminal.Event.Text "s"; modifiers }
-    when is_control modifiers -> (
+    when is_control modifiers && not (direct_model session) -> (
       match Zenbu_app.Session.handle_host session Zenbu_app.Session.Save with
       | Zenbu_app.Session.Continue session -> run backend session
       | Zenbu_app.Session.Exit session -> finish session Exited)
@@ -259,28 +283,28 @@ let rec run backend session =
       | Zenbu_app.Session.Continue session -> run backend session
       | Zenbu_app.Session.Exit session -> finish session Exited)
   | Zenbu_terminal.Event.Key { key = Zenbu_terminal.Event.Text "f"; modifiers }
-    when is_control modifiers -> (
+    when is_control modifiers && not (direct_model session) -> (
       match
         Zenbu_app.Session.handle_host session Zenbu_app.Session.Start_search
       with
       | Zenbu_app.Session.Continue session -> run backend session
       | Zenbu_app.Session.Exit session -> finish session Exited)
   | Zenbu_terminal.Event.Key { key = Zenbu_terminal.Event.Text "g"; modifiers }
-    when is_control modifiers -> (
+    when is_control modifiers && not (direct_model session) -> (
       match
         Zenbu_app.Session.handle_host session Zenbu_app.Session.Search_next
       with
       | Zenbu_app.Session.Continue session -> run backend session
       | Zenbu_app.Session.Exit session -> finish session Exited)
   | Zenbu_terminal.Event.Key { key = Zenbu_terminal.Event.Text "g"; modifiers }
-    when is_control_shift modifiers -> (
+    when is_control_shift modifiers && not (direct_model session) -> (
       match
         Zenbu_app.Session.handle_host session Zenbu_app.Session.Search_previous
       with
       | Zenbu_app.Session.Continue session -> run backend session
       | Zenbu_app.Session.Exit session -> finish session Exited)
   | Zenbu_terminal.Event.Key { key = Zenbu_terminal.Event.Text "p"; modifiers }
-    when is_control modifiers -> (
+    when is_control modifiers && not (direct_model session) -> (
       match
         Zenbu_app.Session.handle_host session Zenbu_app.Session.Open_palette
       with
@@ -339,7 +363,6 @@ let () =
               | None -> (
                   match
                     Zenbu_terminal.Backend.with_terminal (fun backend ->
-                        Zenbu_terminal.Backend.set_theme backend options.theme;
                         let columns, rows =
                           Zenbu_terminal.Backend.size backend
                         in

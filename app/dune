@@ -1,7 +1,13 @@
 (library
  (name zenbu_app)
  (public_name zenbu.app)
- (modules file_io session)
+ (modules
+  background_job
+  external_filter
+  file_io
+  system_clipboard
+  script_model
+  session)
  (libraries
   zenbu_kernel
   zenbu_model_api
@@ -13,4 +19,5 @@
   zenbu_language
   zenbu_lsp
   zenbu_view
-  unix))
+  unix
+  threads))

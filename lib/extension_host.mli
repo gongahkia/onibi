@@ -4,7 +4,7 @@
     an [invocation] token and this host, so future adapters need not expose an
     implementation value to the semantic runtime. *)
 
-type kind = Command | Selector | Transformation | Event
+type kind = Command | Selector | Transformation | Model | Event
 type invocation
 type t
 

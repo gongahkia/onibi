@@ -26,7 +26,7 @@ order. The runtime emits actual semantic-boundary events: input receipt,
 model-before/transition, model effect, command invocation, selector/
 transformation, transaction creation/commit/rejection, history navigation,
 syntax refresh, expected errors, script lifecycle/reload, binding resolution,
-script command/selector/transformation/event callback outcomes, extension
+script model/command/selector/transformation/event callback outcomes, extension
 load/reload lifecycle, extension callback outcomes, and structured capability
 denials. Extension lifecycle records carry provider identity when staging
 succeeds; failed manifest/runtime stages still retain an actionable error in
@@ -74,8 +74,8 @@ dune exec bin/zenbu_headless.exe -- bindings-session SESSION
 ```
 
 M10 adds a small `zenbu.app` descriptor set beside the active command registry:
-`search.start`, `search.next`, `search.previous`, save/save-as, reload, model
-switch, and help. `commands`, `describe command`, and session `Bindings`
+`search.start`, `search.regexp`, `search.next`, `search.previous`, save/save-as,
+reload, model switch, and help. `commands`, `describe command`, and session `Bindings`
 therefore expose host controls with provider `zenbu.app` rather than hiding
 them in terminal code. The terminal palette joins those descriptors with the
 ordinary model/script/plugin registry and filters id, title, optional summary,
@@ -99,7 +99,7 @@ strategy. Tree-sitter types and pointers remain private.
 
 `Profiler.enabled ~capacity` records bounded CPU-time samples using `Sys.time`.
 It measures existing model-handle, transaction-commit, syntax-update, M7
-script-load/reload/command/selector/transformation/event boundaries, M8
+script-load/reload/model/command/selector/transformation/event boundaries, M8
 extension-load/reload/command/selector/transformation/event boundaries, and M11
 language synchronization, hover, definition, completion, rename, and protocol
 decode boundaries; no

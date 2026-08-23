@@ -19,6 +19,20 @@ type diagnostic_range = {
   kind : diagnostic_kind;
 }
 
+val gutter_width : Presentation.t -> Display.source_line list -> int -> int
+(** Number of renderer-owned line-number columns for a pane. *)
+
+val render_with_presentation :
+  presentation:Presentation.t ->
+  context:Zenbu_model_api.Editor_context.t ->
+  status:Zenbu_model_api.Model_status.t ->
+  filename:string ->
+  dirty:bool ->
+  message:string option ->
+  viewport:Viewport.t ->
+  dimensions:dimensions ->
+  rendered
+
 val render :
   context:Zenbu_model_api.Editor_context.t ->
   status:Zenbu_model_api.Model_status.t ->
@@ -31,6 +45,7 @@ val render :
 
 val render_with_inspector :
   inspector:string list option ->
+  ?presentation:Presentation.t ->
   ?overlay:string list ->
   ?source_lines:Display.source_line list ->
   ?syntax_spans:syntax_span list ->

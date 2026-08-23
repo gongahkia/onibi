@@ -98,7 +98,8 @@ let map_special = function
   | `Arrow `Left -> Some Event.Arrow_left
   | `Arrow `Right -> Some Event.Arrow_right
   | `Insert -> None
-  | `Page _ -> None
+  | `Page `Up -> Some Event.Page_up
+  | `Page `Down -> Some Event.Page_down
   | `Function _ -> None
 
 let key_of_notty (key, modifiers) =

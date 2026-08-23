@@ -41,10 +41,18 @@ and mode_transition =
 
 type hook = { event : string; callback : callback }
 
+type model = {
+  descriptor : descriptor;
+  initial_state : Value.t;
+  initial_status : Value.t;
+  callback : callback;
+}
+
 type registration =
   | Command of descriptor * callback
   | Selector of descriptor * callback
   | Transformation of descriptor * callback
+  | Model of model
   | Mode of mode
   | Binding of binding
   | Hook of hook
@@ -256,73 +264,86 @@ let pure_list_table state index length =
   in
   loop ()
 
-let rec value_at state index =
-  let index = abs_index state index in
-  match value_type state index with
-  | value_type when value_type = lua_nil -> Ok Value.Nil
-  | value_type when value_type = lua_boolean ->
-      Ok (Value.Bool (to_boolean state index <> 0))
-  | value_type when value_type = lua_number ->
-      if is_integer state index <> 0 then
-        let accepted = allocate int 0 in
-        let value = to_integer state index accepted in
-        if !@accepted = 0 then
-          Error (error "conversion" "<lua>" "invalid integer")
-        else
-          try Ok (Value.Integer (Int64.to_int value))
-          with Failure _ ->
-            Error
-              (error "conversion" "<lua>" "integer is outside OCaml int range")
-      else
-        let accepted = allocate int 0 in
-        let value = to_number state index accepted in
-        if !@accepted = 0 then
-          Error (error "conversion" "<lua>" "invalid number")
-        else Ok (Value.Float value)
-  | value_type when value_type = lua_string -> (
-      match string_at state index with
-      | Some value -> Ok (Value.Text value)
-      | None -> Error (error "conversion" "<lua>" "invalid string"))
-  | value_type when value_type = lua_table -> table_value state index
-  | _ -> Error (error "conversion" "<lua>" "unsupported Lua value")
+let maximum_value_depth = 32
+let maximum_value_nodes = 4096
 
-and table_value state index =
-  let index = abs_index state index in
-  let length = raw_length state index |> Unsigned.Size_t.to_int in
-  if length > 0 && pure_list_table state index length then
-    let rec items values position =
-      if position > length then Ok (Value.List (List.rev values))
-      else (
-        ignore (get_i state index (Int64.of_int position));
-        match value_at state (-1) with
-        | Error _ as error ->
-            pop state 1;
-            error
-        | Ok value ->
-            pop state 1;
-            items (value :: values) (position + 1))
-    in
-    items [] 1
-  else
-    let fields values =
-      push_nil state;
-      let rec loop values =
-        if next state index = 0 then Value.record (List.rev values)
-        else
-          match (string_at state (-2), value_at state (-1)) with
-          | Some key, Ok value ->
+let value_at state index =
+  let nodes = ref 0 in
+  let rec decode depth index =
+    if depth > maximum_value_depth then
+      Error (error "conversion" "<lua>" "value exceeds maximum nesting depth")
+    else if !nodes >= maximum_value_nodes then
+      Error (error "conversion" "<lua>" "value exceeds maximum node count")
+    else (
+      incr nodes;
+      let index = abs_index state index in
+      match value_type state index with
+      | value_type when value_type = lua_nil -> Ok Value.Nil
+      | value_type when value_type = lua_boolean ->
+          Ok (Value.Bool (to_boolean state index <> 0))
+      | value_type when value_type = lua_number ->
+          if is_integer state index <> 0 then
+            let accepted = allocate int 0 in
+            let value = to_integer state index accepted in
+            if !@accepted = 0 then
+              Error (error "conversion" "<lua>" "invalid integer")
+            else
+              try Ok (Value.Integer (Int64.to_int value))
+              with Failure _ ->
+                Error
+                  (error "conversion" "<lua>"
+                     "integer is outside OCaml int range")
+          else
+            let accepted = allocate int 0 in
+            let value = to_number state index accepted in
+            if !@accepted = 0 then
+              Error (error "conversion" "<lua>" "invalid number")
+            else Ok (Value.Float value)
+      | value_type when value_type = lua_string -> (
+          match string_at state index with
+          | Some value -> Ok (Value.Text value)
+          | None -> Error (error "conversion" "<lua>" "invalid string"))
+      | value_type when value_type = lua_table -> table_value (depth + 1) index
+      | _ -> Error (error "conversion" "<lua>" "unsupported Lua value"))
+  and table_value depth index =
+    let index = abs_index state index in
+    let length = raw_length state index |> Unsigned.Size_t.to_int in
+    if length > 0 && pure_list_table state index length then
+      let rec items values position =
+        if position > length then Ok (Value.List (List.rev values))
+        else (
+          ignore (get_i state index (Int64.of_int position));
+          match decode depth (-1) with
+          | Error _ as error ->
               pop state 1;
-              loop ((key, value) :: values)
-          | None, _ ->
-              pop state 2;
-              Error (error "conversion" "<lua>" "table keys must be strings")
-          | _, (Error _ as error) ->
-              pop state 2;
               error
+          | Ok value ->
+              pop state 1;
+              items (value :: values) (position + 1))
       in
-      loop values
-    in
-    fields []
+      items [] 1
+    else
+      let fields values =
+        push_nil state;
+        let rec loop values =
+          if next state index = 0 then Value.record (List.rev values)
+          else
+            match (string_at state (-2), decode depth (-1)) with
+            | Some key, Ok value ->
+                pop state 1;
+                loop ((key, value) :: values)
+            | None, _ ->
+                pop state 2;
+                Error (error "conversion" "<lua>" "table keys must be strings")
+            | _, (Error _ as error) ->
+                pop state 2;
+                error
+        in
+        loop values
+      in
+      fields []
+  in
+  decode 0 index
 
 let rec push_value state = function
   | Value.Nil -> push_nil state
@@ -366,6 +387,16 @@ let optional_text state table name =
     | _ ->
         Error
           (error "registration" "<lua>" ("field " ^ name ^ " must be a string"))
+  in
+  pop state 1;
+  value
+
+let required_value state table name =
+  ignore (get_field state table name);
+  let value =
+    if value_type state (-1) = lua_nil then
+      Error (error "registration" "<lua>" ("missing field " ^ name))
+    else value_at state (-1)
   in
   pop state 1;
   value
@@ -539,6 +570,21 @@ let mode_definition state table =
         (mode_input_mode input_mode)
   | Error error, _, _ | _, Error error, _ | _, _, Error error -> Error error
 
+let model_definition state table =
+  match
+    ( descriptor state table,
+      required_value state table "initial_state",
+      required_value state table "initial_status",
+      callback_field state table "run" )
+  with
+  | Ok descriptor, Ok initial_state, Ok initial_status, Ok callback ->
+      Ok { descriptor; initial_state; initial_status; callback }
+  | Error error, _, _, _
+  | _, Error error, _, _
+  | _, _, Error error, _
+  | _, _, _, Error error ->
+      Error error
+
 let callback_error backend state error =
   backend.raised_error <- Some error;
   push_nil state;
@@ -570,6 +616,19 @@ let register_mode backend state =
       Result.map
         (fun definition -> add_registration backend (Mode definition))
         (mode_definition state 1)
+  in
+  match result with
+  | Ok () -> 0
+  | Error error -> callback_error backend state error
+
+let register_model backend state =
+  let result =
+    if value_type state 1 <> lua_table then
+      Error (error "registration" backend.source "model expects a table")
+    else
+      Result.map
+        (fun definition -> add_registration backend (Model definition))
+        (model_definition state 1)
   in
   match result with
   | Ok () -> 0
@@ -777,7 +836,7 @@ let create ~source =
       in
       open_libs state;
       configure_module_path backend;
-      create_table state 0 10;
+      create_table state 0 11;
       push_integer state 1L;
       set_field state (-2) "api_version";
       add_callback backend state "command"
@@ -789,6 +848,7 @@ let create ~source =
       add_callback backend state "transform"
         (register_descriptor backend (fun (descriptor, callback) ->
              Transformation (descriptor, callback)));
+      add_callback backend state "model" (register_model backend);
       add_callback backend state "mode" (register_mode backend);
       add_callback backend state "bind" (register_binding backend);
       add_callback backend state "on" (register_hook backend);

@@ -29,6 +29,21 @@ type mode = {
   initial : bool;
 }
 
+type model = {
+  descriptor : Editing_model.descriptor;
+  initial_state : Extension_value.t;
+  initial_status : Model_status.t;
+  host : Host.t;
+  invocation : Host.invocation;
+  source : string;
+}
+
+type model_state = {
+  model : model;
+  value : Extension_value.t;
+  status : Model_status.t;
+}
+
 type t = {
   generation_id : int;
   source : string;
@@ -39,6 +54,7 @@ type t = {
   bindings : binding list;
   hooks : hook list;
   modes : mode list;
+  model : model option;
   descriptors : Semantic_descriptor.t list;
 }
 
@@ -54,6 +70,9 @@ let trusted_capabilities =
     "selection.write";
     "syntax.read";
     "command.invoke";
+    "view.control";
+    "process.filter";
+    "process.background";
     "ui.message";
     "event.subscribe";
   ]
@@ -186,6 +205,61 @@ let selection_action source request value =
             (script_error "action" source
                "set-selections requires selections and primary fields"))
 
+let viewport_action source request value =
+  Result.bind (require request "view.control") (fun () ->
+      match required_text source "action" value with
+      | Error _ as error -> error
+      | Ok "center" ->
+          Ok (Model_effect.Request_viewport Model_effect.Center_view)
+      | Ok (("scroll-lines" | "scroll-pages") as action) -> (
+          match field value "amount" with
+          | Some (Extension_value.Integer amount) ->
+              Ok
+                (Model_effect.Request_viewport
+                   (if String.equal action "scroll-lines" then
+                      Model_effect.Scroll_view_lines amount
+                    else Model_effect.Scroll_view_pages amount))
+          | _ ->
+              Error
+                (script_error "action" source
+                   "view scroll action requires integer amount"))
+      | Ok _ ->
+          Error
+            (script_error "action" source
+               "view action must be center, scroll-lines, or scroll-pages"))
+
+let string_list_field source field_name value =
+  match field value field_name with
+  | None | Some Extension_value.Nil -> Ok []
+  | Some (Extension_value.List values) ->
+      let rec collect results = function
+        | [] -> Ok (List.rev results)
+        | Extension_value.Text value :: rest -> collect (value :: results) rest
+        | _ :: _ ->
+            Error
+              (script_error "action" source
+                 ("field " ^ field_name ^ " must contain only strings"))
+      in
+      collect [] values
+  | Some _ ->
+      Error
+        (script_error "action" source
+           ("field " ^ field_name ^ " must be a list of strings"))
+
+let external_filter_action source request value =
+  Result.bind (require request "process.filter") (fun () ->
+      Result.bind (required_text source "program" value) (fun program ->
+          string_list_field source "arguments" value
+          |> Result.map (fun arguments ->
+              Model_effect.Request_external_filter { program; arguments })))
+
+let background_process_action source request value =
+  Result.bind (require request "process.background") (fun () ->
+      Result.bind (required_text source "program" value) (fun program ->
+          string_list_field source "arguments" value
+          |> Result.map (fun arguments ->
+              Model_effect.Request_background_process { program; arguments })))
+
 let action source request value =
   match required_text source "kind" value with
   | Error _ as error -> error
@@ -208,6 +282,9 @@ let action source request value =
               Model_effect.Execute_intent
                 (Model_intent.replace_selected_ranges text)))
   | Ok "set-selections" -> selection_action source request value
+  | Ok "view" -> viewport_action source request value
+  | Ok "external-filter" -> external_filter_action source request value
+  | Ok "background-process" -> background_process_action source request value
   | Ok "apply" ->
       semantic_operation source value
       |> Result.map Model_effect.execute_semantic_operation
@@ -223,6 +300,7 @@ let action source request value =
 
 let actions source request = function
   | Extension_value.Nil -> Ok []
+  | Extension_value.Record [] -> Ok []
   | Extension_value.List values ->
       let rec collect results = function
         | [] -> Ok (List.rev results)
@@ -234,6 +312,133 @@ let actions source request = function
       collect [] values
   | value ->
       action source request value |> Result.map (fun action -> [ action ])
+
+let model_error source message = script_error "model" source message
+
+let required_model_text source field_name value =
+  match field value field_name with
+  | Some (Extension_value.Text text) when String.length text > 0 -> Ok text
+  | _ -> Error (model_error source ("missing string field " ^ field_name))
+
+let optional_text_field source field_name value =
+  match field value field_name with
+  | None | Some Extension_value.Nil -> Ok None
+  | Some (Extension_value.Text text) -> Ok (Some text)
+  | Some _ ->
+      Error (model_error source ("field " ^ field_name ^ " must be a string"))
+
+let input_mode_of_text source = function
+  | None | Some "keys" -> Ok Model_status.Key_commands
+  | Some "text" -> Ok Model_status.Text_entry
+  | Some _ ->
+      Error (model_error source "status input_mode must be keys or text")
+
+let model_status_of_value source = function
+  | Extension_value.Record _ as value -> (
+      match
+        ( required_model_text source "id" value,
+          required_model_text source "label" value,
+          optional_text_field source "description" value,
+          optional_text_field source "pending_input" value,
+          optional_text_field source "input_mode" value )
+      with
+      | Ok id, Ok label, Ok description, Ok pending_input, Ok input_mode ->
+          Result.bind (input_mode_of_text source input_mode) (fun input_mode ->
+              Model_status.create ~id ~label ?description ?pending_input
+                ~input_mode ()
+              |> Result.map_error (fun error ->
+                  model_error source (Error.to_string error)))
+      | Error error, _, _, _, _
+      | _, Error error, _, _, _
+      | _, _, Error error, _, _
+      | _, _, _, Error error, _
+      | _, _, _, _, Error error ->
+          Error error)
+  | _ -> Error (model_error source "status must be a table")
+
+let key_value = function
+  | Input_event.Logical_text text -> Extension_value.Text text
+  | Input_event.Named_key key ->
+      Extension_value.Text (Input_event.named_key_to_string key)
+
+let mouse_action_value = function
+  | Input_event.Press Input_event.Primary -> "primary-press"
+  | Input_event.Press Input_event.Middle -> "middle-press"
+  | Input_event.Press Input_event.Secondary -> "secondary-press"
+  | Input_event.Press Input_event.Wheel_up -> "wheel-up"
+  | Input_event.Press Input_event.Wheel_down -> "wheel-down"
+  | Input_event.Drag -> "drag"
+  | Input_event.Release -> "release"
+
+let input_value = function
+  | Input_event.Key_press { key; modifiers; _ } ->
+      Extension_value.Record
+        [
+          ("kind", Extension_value.Text "key");
+          ("key", key_value key);
+          ( "modifiers",
+            Extension_value.List
+              (List.map
+                 (fun modifier ->
+                   Extension_value.Text
+                     (Input_event.modifier_to_string modifier))
+                 modifiers) );
+        ]
+  | Input_event.Text_input text ->
+      Extension_value.Record
+        [
+          ("kind", Extension_value.Text "text");
+          ("text", Extension_value.Text text);
+        ]
+  | Input_event.Mouse { action; column; row; modifiers } ->
+      Extension_value.Record
+        [
+          ("kind", Extension_value.Text "mouse");
+          ("action", Extension_value.Text (mouse_action_value action));
+          ("column", Extension_value.Integer column);
+          ("row", Extension_value.Integer row);
+          ( "modifiers",
+            Extension_value.List
+              (List.map
+                 (fun modifier ->
+                   Extension_value.Text
+                     (Input_event.modifier_to_string modifier))
+                 modifiers) );
+        ]
+
+let model_result source request previous = function
+  | Extension_value.Record _ as value -> (
+      match (field value "state", field value "status") with
+      | Some state, Some status ->
+          Result.bind (model_status_of_value source status) (fun status ->
+              Result.map
+                (fun effects ->
+                  ({ previous with value = state; status }, effects))
+                (actions source request (optional_value value "effects")))
+      | None, _ -> Error (model_error source "model result requires state")
+      | _, None -> Error (model_error source "model result requires status"))
+  | _ -> Error (model_error source "model result must be a table")
+
+let initial_model_state model =
+  { model; value = model.initial_state; status = model.initial_status }
+
+let reset_model_state (state : model_state) = initial_model_state state.model
+let model_state_status (state : model_state) = state.status
+let model_descriptor model = model.descriptor
+let model_state_descriptor (state : model_state) = model_descriptor state.model
+let model_state_model (state : model_state) = state.model
+
+let run_model (state : model_state) input context =
+  let request =
+    Host.request state.model.invocation ~kind:Host.Model
+      ~operation:"model.handle-input" ~context
+      ~arguments:
+        (Extension_value.Record
+           [ ("input", input_value input); ("state", state.value) ])
+  in
+  Result.bind
+    (Host.invoke state.model.host state.model.invocation request)
+    (model_result state.model.source request state)
 
 let behavior_selection source = function
   | Extension_value.Record fields -> (
@@ -435,7 +640,15 @@ let reserved_host_pattern = function
   | Input_event.Any_text_input -> false
 
 let host_binding_target = function
-  | "config.reload" | "editor.macro.record" | "editor.macro.replay" -> true
+  | "config.reload" | "editor.macro.record" | "editor.macro.replay"
+  | "editor.kill-ring.cut" | "editor.kill-ring.yank" | "editor.clipboard.copy"
+  | "editor.clipboard.paste" | "editor.command-palette" | "search.start"
+  | "search.regexp" | "workspace.split.vertical" | "workspace.split.horizontal"
+  | "workspace.pane.next" | "workspace.pane.close" | "workspace.pane.only"
+  | "workspace.buffer.new" | "workspace.buffer.open" | "workspace.buffer.next"
+  | "workspace.buffer.previous" | "workspace.buffer.close" | "view.scroll.up"
+  | "view.scroll.down" | "view.page.up" | "view.page.down" | "view.center" ->
+      true
   | _ -> false
 
 let event_of_string source = function
@@ -492,6 +705,7 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
           let bindings = ref [] in
           let hooks = ref [] in
           let modes = ref [] in
+          let declared_model = ref None in
           let failed = ref None in
           let callbacks = ref [] in
           let next_callback = ref 0 in
@@ -604,12 +818,57 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
                       };
                     ]
           in
+          let register_model (definition : Backend.model) =
+            match Provider.kind provider with
+            | Provider.Plugin ->
+                fail
+                  (script_error "registration" source
+                     "plugin scripts cannot register an editing model")
+            | Provider.Script -> (
+                match !declared_model with
+                | Some _ ->
+                    fail
+                      (script_error "registration" source
+                         "a script generation may register only one editing \
+                          model")
+                | None -> (
+                    match
+                      ( validate_id source definition.descriptor.id,
+                        model_status_of_value source definition.initial_status,
+                        Editing_model.descriptor ~id:definition.descriptor.id
+                          ~title:definition.descriptor.title
+                          ~description:definition.descriptor.description
+                          ~provider () )
+                    with
+                    | Ok _, Ok initial_status, Ok descriptor ->
+                        declared_model :=
+                          Some
+                            {
+                              descriptor;
+                              initial_state = definition.initial_state;
+                              initial_status;
+                              host;
+                              invocation =
+                                invocation "model" definition.callback;
+                              source;
+                            }
+                    | Error error, _, _ | _, Error error, _ | _, _, Error error
+                      ->
+                        fail error))
+            | Provider.Builtin | Provider.Editing_model | Provider.Syntax
+            | Provider.Application ->
+                fail
+                  (script_error "registration" source
+                     "editing models require a trusted script provider")
+          in
           List.iter
             (function
+              | Backend.Model definition when Option.is_none !failed ->
+                  register_model definition
               | Backend.Mode definition when Option.is_none !failed ->
                   register_mode definition
-              | Backend.Mode _ | Backend.Binding _ | Backend.Hook _
-              | Backend.Command _ | Backend.Selector _
+              | Backend.Model _ | Backend.Mode _ | Backend.Binding _
+              | Backend.Hook _ | Backend.Command _ | Backend.Selector _
               | Backend.Transformation _ ->
                   ())
             registrations;
@@ -710,8 +969,8 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
                                 | Error error -> fail error
                                 | Ok registry -> behavior_registry := registry))
                       ))
-              | Backend.Mode _ | Backend.Binding _ | Backend.Hook _
-              | Backend.Command _ | Backend.Selector _
+              | Backend.Model _ | Backend.Mode _ | Backend.Binding _
+              | Backend.Hook _ | Backend.Command _ | Backend.Selector _
               | Backend.Transformation _ ->
                   ())
             registrations;
@@ -869,8 +1128,8 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
                                   (Host.invoke host callback request)
                                   (actions source request));
                           ])
-              | Backend.Mode _ | Backend.Binding _ | Backend.Hook _
-              | Backend.Command _ | Backend.Selector _
+              | Backend.Model _ | Backend.Mode _ | Backend.Binding _
+              | Backend.Hook _ | Backend.Command _ | Backend.Selector _
               | Backend.Transformation _ ->
                   ())
             registrations;
@@ -890,6 +1149,7 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
                   bindings = !bindings;
                   hooks = !hooks;
                   modes = !modes;
+                  model = !declared_model;
                   descriptors = !descriptors;
                 }))
 
@@ -902,6 +1162,7 @@ let descriptors value = value.descriptors
 let bindings value = value.bindings
 let hooks value = value.hooks
 let modes value = value.modes
+let model value = value.model
 
 let initial_modes value =
   value.modes

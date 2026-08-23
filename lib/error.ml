@@ -23,6 +23,9 @@ type t =
   | Invalid_model_status of string
   | Invalid_clipboard_slot of string
   | Clipboard_slot_empty of string
+  | System_clipboard_error of string
+  | External_filter_error of string
+  | Background_job_error of string
   | Duplicate_command of string
   | Duplicate_descriptor of string
   | Unknown_command of string
@@ -123,6 +126,12 @@ let rec to_string = function
       Printf.sprintf "invalid clipboard slot: %s" slot
   | Clipboard_slot_empty slot ->
       Printf.sprintf "clipboard slot is empty: %s" slot
+  | System_clipboard_error message ->
+      Printf.sprintf "system clipboard error: %s" message
+  | External_filter_error message ->
+      Printf.sprintf "external filter error: %s" message
+  | Background_job_error message ->
+      Printf.sprintf "background job error: %s" message
   | Duplicate_command id -> Printf.sprintf "duplicate command: %s" id
   | Duplicate_descriptor id -> Printf.sprintf "duplicate descriptor: %s" id
   | Unknown_command id -> Printf.sprintf "unknown command: %s" id

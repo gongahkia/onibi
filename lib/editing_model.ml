@@ -28,6 +28,7 @@ module type S = sig
   type state
 
   val descriptor : descriptor
+  val descriptor_of_state : state -> descriptor
   val initialize : Editor_context.t -> state
 
   val handle_input :

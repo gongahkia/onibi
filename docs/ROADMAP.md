@@ -18,10 +18,11 @@ This repository implements M0-M11.
 | M11 | model-neutral asynchronous language intelligence | implemented in this checkout |
 
 M10 added host/presentation policy above the existing semantic boundary:
-literal Unicode search, all-provider command discovery/palette, save-as,
+literal Unicode plus UTF-8-safe `Str` regexp search, all-provider command discovery/palette, save-as,
 metadata-derived help, live model switching, syntax colouring from public
 snapshot spans, bracketed-paste aggregation, Component health/reload behavior,
 basic terminal pointer selection/scrolling, scoped logical input sequences,
+checked line/page/center viewport requests and PageUp/PageDown decoding,
 bootstrap/install/release targets, CI, and adoption documentation. It did not
 grant a host or renderer a private document mutation path.
 
@@ -56,16 +57,17 @@ The following remain deliberately out of scope:
 ## Next proposed milestone
 
 M12 has same-buffer split-view composition, a local buffer table, and bounded
-cross-file language results. Views have stable buffer ids, buffers retain their
-own model runtime/history, focused input is routed to the selected view, and
-all open saved buffers participate in language wakeup polling. A definition
-target opens/reuses a local buffer. Rename and `workspace/applyEdit` stage and
-publish edits across already-open saved targets all-or-none, while retaining
-per-buffer history. The next increment should define external-file-change and
-save coordination before adding file watching or target auto-open. It must not
-make buffers, providers, or language protocols visible to the kernel or model
-API, and should not bundle project search, a marketplace, or a Component
-distribution redesign.
+cross-file language results. Views have stable buffer ids and versioned ordered
+selection snapshots per `(view, buffer)` pairing; focused input restores that
+view's selection and inactive positions rebase through forward local history.
+Buffers retain their own model runtime/history, and all open saved buffers
+participate in language wakeup polling. A definition target opens/reuses a
+local buffer. Rename and `workspace/applyEdit` stage and publish edits across
+already-open saved targets all-or-none, while retaining per-buffer history. The
+next increment should define external-file-change and save coordination before
+adding file watching or target auto-open. It must not make buffers, providers,
+or language protocols visible to the kernel or model API, and should not bundle
+project search, a marketplace, or a Component distribution redesign.
 
 Portable Component distribution and a first-party guest authoring tool remain
 the next packaging concern after M11: they need a verified platform matrix and

@@ -3,9 +3,10 @@
 [![CI](https://github.com/gongahkia/zenbu/actions/workflows/ci.yml/badge.svg)](https://github.com/gongahkia/zenbu/actions/workflows/ci.yml)
 
 Zenbu is a terminal-first programmable text editor built around one constraint:
-no editing model is fundamental. Vim-style, selection-first, structural, and
-future models act through the same public semantic editing API; they do not
-mutate text, selections, history, or syntax state directly.
+no editing model is fundamental. Vim-style, selection-first, direct,
+structural, and a runtime-selected trusted Lua model act through the same
+public semantic editing API; they do not mutate text, selections, history, or
+syntax state directly.
 
 This checkout is **0.11.0-dev (M11)**. It is a development release, not a
 complete editor distribution.
@@ -41,21 +42,25 @@ and plugin examples live in [Getting Started](docs/GETTING_STARTED.md).
 
 - The kernel owns immutable documents, UTF-8 validation, selections,
   transactions, branching undo/redo history, deterministic replay, clipboard
-  slots, provenance, trace events, and profiler aggregates.
+  slots, a bounded session kill history, and a bounded host bridge to the
+  system clipboard, plus provenance, trace events, and profiler aggregates.
 - `zenbu.model_api` is the public boundary for editing models. It includes
   model-neutral selection-set algebra—regex selection/splitting/filtering,
   merge, primary/content rotation, and orientation operations—and the supplied
-  Vim-style, selection-first, and structural models all use it.
+  Vim-style, selection-first, direct, structural, and a checked script-owned
+  model all use it.
 - `zenbu.syntax` provides version-bound OCaml and JSON snapshots through a
   private Tree-sitter backend. Its public `Syntax.Highlight` projection feeds
   terminal presentation without exposing parser pointers or queries.
-- The terminal host has literal Unicode search, a provider-neutral searchable
-  command palette with typed argument prompts and a moving result window,
+- The terminal host has literal Unicode search plus an opt-in UTF-8-safe `Str`
+  regexp search, a provider-neutral searchable command palette with typed
+  argument prompts and a moving result window,
   save-as, a live model picker,
   metadata-derived help, and bracketed paste aggregation. These remain host interactions; editing models can make
   declarative requests for reusable interactions such as literal search without
   receiving terminal-state access. Its semantic styles can be mapped to
-  built-in or validated TOML terminal themes without affecting editing state.
+  built-in or validated TOML terminal themes and pure line-number/status-row/
+  buffer-line presentation profiles without affecting editing state.
   Its editor canvas also supports pane focus/caret placement, `Shift`-click
   extension, grapheme-safe primary dragging, and wheel scrolling through typed
   host pointer events. It also has a bounded, session-wide named keyboard-macro
@@ -65,7 +70,11 @@ and plugin examples live in [Getting Started](docs/GETTING_STARTED.md).
   adapter starts `ocamllsp` by default for saved OCaml files; results become
   ordinary selections or validated transactions, never protocol-driven edits.
 - Lua configuration and local plugins contribute commands, selectors,
-  transformations, bindings, and events through host validation. Wasmtime
+  transformations, bindings, and events through host validation. One trusted
+  Lua generation may also provide a persistent, serialisable editing model,
+  request bounded external selection filters, and start bounded inspectable
+  background programs through absolute executable paths and argument vectors;
+  it never receives a shell or process handle. Wasmtime
   Components have bounded fuel/memory and become explicitly unavailable after
   a fatal callback until reload; the document and ordinary editing remain
   available.
@@ -142,8 +151,11 @@ eval "$(./scripts/zenbu-env.sh)"
 ```sh
 dune exec bin/zenbu.exe -- test/fixtures/syntax_sample.ml
 dune exec bin/zenbu.exe -- --model selection test/fixtures/syntax_sample.ml
+dune exec bin/zenbu.exe -- --model direct test/fixtures/syntax_sample.ml
 dune exec bin/zenbu.exe -- --model structural test/fixtures/syntax_sample.ml
+dune exec bin/zenbu.exe -- --model script --config examples/script-modal-editor.lua README.md
 dune exec bin/zenbu.exe -- --theme dark test/fixtures/syntax_sample.ml
+dune exec bin/zenbu.exe -- --theme dark --presentation relative test/fixtures/syntax_sample.ml
 dune exec bin/zenbu.exe -- --trace --profile --plugin-dir examples/plugins FILE
 ```
 
@@ -162,16 +174,45 @@ register grammar.
 See [the compatibility baseline](docs/models/VIM.md) and [modal model
 evaluation](docs/MODAL_MODEL_EVALUATION.md).
 
-Host keys have priority over model/configuration bindings:
+The Direct model is a non-modal product-adapter baseline: committed text
+inserts immediately, arrow/Emacs movement commands retain a caret or extend a
+selection, `Ctrl-W` cuts a selected region to a bounded shared kill history,
+and its `Ctrl-S` / `Ctrl-X Ctrl-S` requests the same host save path. It supports
+evaluation of basic Micro and Emacs-style editing without making a Micro or
+Emacs parity claim; see [its exact grammar and limits](docs/models/DIRECT.md).
+
+The optional adapter-level system clipboard commands are host operations, not
+general script process access. On macOS the default provider uses `pbcopy`/`pbpaste`;
+Linux detects `wl-clipboard`, `xclip`, or `xsel`. See
+[Getting Started](docs/GETTING_STARTED.md#system-clipboard) for limits and
+fallback behavior.
+
+Trusted Lua may separately request an external selection filter with an
+absolute executable and argument vector. The host runs it per selection with
+UTF-8, 16 MiB, and five-second limits, and only then commits the replacement
+transaction. See the [scripting guide](docs/SCRIPTING.md#external-selection-filters)
+for the exact contract and a headless fixture.
+
+The terminal chrome is independently selectable with
+`--presentation default|numbered|relative|minimal|bare|buffered|PATH` and can be
+switched live through `Ctrl-P` → `view.presentation.switch`; themes can
+likewise switch through `view.theme.switch`. These controls cover only a
+line-number gutter, status-row density, a bounded host-owned buffer line, and
+semantic-style colours; they are not an arbitrary widget or product-theme API. See [presentation
+profiles](docs/PRESENTATION.md) and [themes](docs/THEMES.md).
+
+Host keys normally have priority over model/configuration bindings. The Direct
+adapter intentionally owns `Ctrl-S`, `Ctrl-F`, `Ctrl-G`, and `Ctrl-P`: save is still a
+typed host request, while the latter two preserve its Emacs-style bindings.
 
 | Key | Host action |
 | --- | --- |
 | `Ctrl-S` / `Ctrl-Shift-S` | save / prompt for save-as |
 | `Ctrl-Q` | quit; press again after a dirty warning to force quit |
 | `Alt-R` or `Ctrl-Alt-R` | reload Lua configuration and plugins transactionally |
-| `Ctrl-F` | start literal Unicode search; `Ctrl-G` / `Ctrl-Shift-G` move next / previous |
+| `Ctrl-F` | start literal Unicode search; `Ctrl-G` / `Ctrl-Shift-G` move next / previous; `Ctrl-P` → `search.regexp` starts the UTF-8-safe regexp variant |
 | `Ctrl-P` | filter commands; collect declared typed arguments before invocation |
-| `Alt-M` | switch Vim-style, selection-first, or structural model while preserving shared semantic state |
+| `Alt-M` | switch Vim-style, selection-first, structural, direct, or the configured script model while preserving shared semantic state |
 | `Alt-H` | metadata-derived getting-started help |
 | `Ctrl-O` | toggle the local `why` inspector |
 | `Ctrl-Space` | explicit language completion for a ready language service |
@@ -195,11 +236,31 @@ The palette also exposes `workspace.split.vertical`,
 `workspace.split.horizontal`, `workspace.pane.next`,
 `workspace.pane.close`, `workspace.pane.only`, `workspace.buffer.new`,
 `workspace.buffer.open`, `workspace.buffer.next`, and
-`workspace.buffer.previous`. A pane has an independent viewport and can show
-any open buffer. Definitions can open local targets, and rename or server
+`workspace.buffer.previous`, plus `view.scroll.up`, `view.scroll.down`,
+`view.page.up`, `view.page.down`, and `view.center`. A pane has an independent viewport and can show
+any open buffer. Each `(pane, buffer)` pairing also retains an ordered
+selection set: panes showing the same buffer render and restore distinct
+carets/selections, and inactive positions rebase through that buffer's current
+history lineage after edits. Definitions can open local targets, and rename or server
 `workspace/applyEdit` can update already-open saved buffers together; unopened
 targets and file resource operations are rejected. Project discovery remains
 outside the workspace host.
+
+The checked viewport commands never alter a document or a selection. Lua
+adapters can bind them to non-reserved inputs; for example,
+[`examples/helix-adapter.lua`](examples/helix-adapter.lua) maps `PageUp`,
+`PageDown`, `Ctrl-U`, `Ctrl-D`, and `z z` in selection mode. Page size is the
+focused pane's current source-row height, so a hidden-status presentation uses
+one more source row than a status-bearing presentation.
+
+`editor.location.set` and `editor.location.jump` are also palette commands.
+They save a named ordered selection set in its current local buffer, rebase it
+through that buffer's active transaction history, and restore it through a
+normal selection transaction. A location whose source version is not on the
+current history branch is reported as stale instead of being guessed at.
+`editor.jump.push`, `editor.jump.backward`, and `editor.jump.forward` expose
+the same rebased positions as a bounded session jump history; the Vim model
+also maps `Ctrl-O` and `Ctrl-I` (or `Tab`) to backward/forward traversal.
 
 ## Headless tooling
 
@@ -207,6 +268,7 @@ outside the workspace host.
 dune exec bin/zenbu_headless.exe -- demo
 dune exec bin/zenbu_headless.exe -- replay test/fixtures/unicode.replay
 dune exec bin/zenbu_headless.exe -- session test/fixtures/sessions/vim-edit.session
+dune exec bin/zenbu_headless.exe -- bindings direct
 dune exec bin/zenbu_headless.exe -- syntax test/fixtures/syntax_sample.ml
 dune exec bin/zenbu_headless.exe -- language-status test/fixtures/syntax_sample.ml
 dune exec bin/zenbu_headless.exe -- lsp-position utf-16 0 test/fixtures/syntax_sample.ml

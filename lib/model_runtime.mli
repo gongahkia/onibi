@@ -32,6 +32,15 @@ module Make (Model : Editing_model.S) : sig
     Model_effect.t list ->
     (t * step, Zenbu_kernel.Error.t) result
 
+  val restore_selections :
+    t ->
+    selections:(int * int) list ->
+    primary:int ->
+    (t, Zenbu_kernel.Error.t) result
+  (** Applies a host-restored selection set without changing the model's private
+      input grammar state. Hosts use this when activating a saved view position.
+  *)
+
   val invoke_command :
     t ->
     ?augment_provenance:(Zenbu_kernel.Provenance.t -> Zenbu_kernel.Provenance.t) ->
@@ -54,6 +63,12 @@ module Make (Model : Editing_model.S) : sig
   (** Exposes only the active session macro register to the model input grammar.
       It does not expose stored macro contents or session state. *)
 
+  val with_kill_ring : t -> Clipboard.entry list -> t
+  (** Replaces the shared session kill history while retaining this runtime's
+      ordinary clipboard slots. Hosts use this when synchronizing buffers. *)
+
+  val kill_ring : t -> Clipboard.entry list
+
   val with_syntax_service :
     t ->
     syntax_service:Zenbu_syntax.Syntax.Service.t option ->
@@ -63,6 +78,7 @@ module Make (Model : Editing_model.S) : sig
 
   val context : t -> Editor_context.t
   val status : t -> Model_status.t
+  val model_state : t -> model_state
   val model_descriptor : t -> Editing_model.descriptor
   val input_trace : t -> Input_event.t list
   val trace : t -> Trace.t

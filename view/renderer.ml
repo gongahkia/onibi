@@ -20,6 +20,7 @@ type diagnostic_range = {
 }
 
 let spaces width = if width <= 0 then "" else String.make width ' '
+let decimal_width value = String.length (string_of_int (max 1 value))
 
 let selection_style selections primary_index (grapheme : Display.grapheme) =
   let rec loop index = function
@@ -159,8 +160,8 @@ let clipped_text text columns =
     in
     String.concat "" (List.map (fun cell -> cell.Frame.text) cells)
 
-let status_row ~columns ~status ~filename ~dirty ~line ~column ~selection_count
-    ~diagnostic_summary ~message =
+let status_row ~columns ~presentation ~status ~filename ~dirty ~line ~column
+    ~selection_count ~diagnostic_summary ~message =
   let dirty_marker = if dirty then " [+]" else "" in
   let pending =
     match Model_status.pending_input status with
@@ -168,13 +169,20 @@ let status_row ~columns ~status ~filename ~dirty ~line ~column ~selection_count
     | Some value -> " pending:" ^ value
   in
   let base =
-    Printf.sprintf "%s  %s%s  %d:%d  %d selection%s%s%s"
-      (Model_status.label status)
-      filename dirty_marker (line + 1) (column + 1) selection_count
-      (if selection_count = 1 then "" else "s")
-      pending
-      (Option.map (fun summary -> "  " ^ summary) diagnostic_summary
-      |> Option.value ~default:"")
+    match Presentation.status_line presentation with
+    | Presentation.Detailed ->
+        Printf.sprintf "%s  %s%s  %d:%d  %d selection%s%s%s"
+          (Model_status.label status)
+          filename dirty_marker (line + 1) (column + 1) selection_count
+          (if selection_count = 1 then "" else "s")
+          pending
+          (Option.map (fun summary -> "  " ^ summary) diagnostic_summary
+          |> Option.value ~default:"")
+    | Presentation.Minimal ->
+        Printf.sprintf "%s  %s%s  %d:%d"
+          (Model_status.label status)
+          filename dirty_marker (line + 1) (column + 1)
+    | Presentation.Hidden_status -> ""
   in
   let message = Option.value ~default:"" message in
   let text =
@@ -232,10 +240,50 @@ let text_frame ?(style = Frame.Message) dimensions lines =
     viewport = Viewport.origin;
   }
 
-let render_with_inspector ~inspector ?overlay ?source_lines ?(syntax_spans = [])
-    ?(search_ranges = []) ?(diagnostic_ranges = []) ?diagnostic_summary ~context
-    ~status ~filename ~dirty ~message ~viewport ~dimensions () =
-  if dimensions.rows < 2 || dimensions.columns < 1 then tiny_frame dimensions
+let has_status_line presentation =
+  Presentation.status_line presentation <> Presentation.Hidden_status
+
+let gutter_width presentation source_lines columns =
+  match Presentation.line_numbers presentation with
+  | Presentation.Hidden -> 0
+  | Presentation.Absolute | Presentation.Relative ->
+      min columns (decimal_width (List.length source_lines) + 1)
+
+let gutter_text ~width ~number_width number =
+  if width <= 0 then ""
+  else
+    let text = Printf.sprintf "%*d " number_width number in
+    if String.length text <= width then
+      spaces (width - String.length text) ^ text
+    else clipped_text text width
+
+let gutter_row ~presentation ~width ~number_width ~primary_line source_line =
+  match Presentation.line_numbers presentation with
+  | Presentation.Hidden -> []
+  | Presentation.Absolute ->
+      [
+        Frame.cell ~style:Frame.Dim ~width
+          (gutter_text ~width ~number_width (source_line.Display.number + 1));
+      ]
+  | Presentation.Relative ->
+      [
+        Frame.cell ~style:Frame.Dim ~width
+          (gutter_text ~width ~number_width
+             (abs (source_line.Display.number - primary_line)));
+      ]
+
+let blank_gutter width =
+  if width = 0 then []
+  else [ Frame.cell ~style:Frame.Dim ~width (spaces width) ]
+
+let render_with_inspector ~inspector ?(presentation = Presentation.default)
+    ?overlay ?source_lines ?(syntax_spans = []) ?(search_ranges = [])
+    ?(diagnostic_ranges = []) ?diagnostic_summary ~context ~status ~filename
+    ~dirty ~message ~viewport ~dimensions () =
+  if
+    dimensions.columns < 1
+    || dimensions.rows < if has_status_line presentation then 2 else 1
+  then tiny_frame dimensions
   else
     match inspector with
     | Some lines -> text_frame dimensions lines
@@ -260,12 +308,18 @@ let render_with_inspector ~inspector ?overlay ?source_lines ?(syntax_spans = [])
             let primary_column =
               Display.column_at primary_line primary.head_offset
             in
+            let gutter_columns =
+              gutter_width presentation source_lines dimensions.columns
+            in
+            let content_columns = dimensions.columns - gutter_columns in
+            let content_rows =
+              dimensions.rows - if has_status_line presentation then 1 else 0
+            in
             let viewport =
               Viewport.reconcile viewport ~line:primary_line.number
-                ~column:primary_column ~width:dimensions.columns
-                ~height:dimensions.rows
+                ~column:primary_column ~width:content_columns
+                ~height:(content_rows + 1)
             in
-            let content_rows = dimensions.rows - 1 in
             let first = viewport.top_line in
             let last = first + content_rows - 1 in
             let visible_source_lines =
@@ -304,36 +358,44 @@ let render_with_inspector ~inspector ?overlay ?source_lines ?(syntax_spans = [])
                   intersects range.start_offset range.stop_offset)
                 diagnostic_ranges
             in
+            let number_width = decimal_width (List.length source_lines) in
             let visible_rows =
               visible_source_lines
               |> List.map (fun source_line ->
                   let line = Display.layout contents source_line in
-                  row_for_line ~columns:dimensions.columns
-                    ~left_column:viewport.left_column
-                    ~syntax_spans:visible_syntax_spans
-                    ~search_ranges:visible_search_ranges
-                    ~diagnostic_ranges:visible_diagnostic_ranges ~selections
-                    ~primary_index:selections.primary_index line)
+                  gutter_row ~presentation ~width:gutter_columns ~number_width
+                    ~primary_line:primary_line.number source_line
+                  @ row_for_line ~columns:content_columns
+                      ~left_column:viewport.left_column
+                      ~syntax_spans:visible_syntax_spans
+                      ~search_ranges:visible_search_ranges
+                      ~diagnostic_ranges:visible_diagnostic_ranges ~selections
+                      ~primary_index:selections.primary_index line)
             in
             let missing_rows = content_rows - List.length visible_rows in
             let blank_row =
-              [
-                Frame.cell ~width:dimensions.columns (spaces dimensions.columns);
-              ]
+              blank_gutter gutter_columns
+              @ [ Frame.cell ~width:content_columns (spaces content_columns) ]
             in
             let rows =
               visible_rows
               @ List.init missing_rows (fun _ -> blank_row)
-              @ [
-                  status_row ~columns:dimensions.columns ~status ~filename
-                    ~dirty ~line:primary_line.number ~column:primary_column
+              @
+              if has_status_line presentation then
+                [
+                  status_row ~columns:dimensions.columns ~presentation ~status
+                    ~filename ~dirty ~line:primary_line.number
+                    ~column:primary_column
                     ~selection_count:(List.length selections.selections)
                     ~diagnostic_summary ~message;
                 ]
+              else []
             in
             let cursor =
               let row = primary_line.number - viewport.top_line in
-              let column = primary_column - viewport.left_column in
+              let column =
+                gutter_columns + primary_column - viewport.left_column
+              in
               if
                 row < 0 || row >= content_rows || column < 0
                 || column >= dimensions.columns
@@ -347,7 +409,12 @@ let render_with_inspector ~inspector ?overlay ?source_lines ?(syntax_spans = [])
               viewport;
             })
 
+let render_with_presentation ~presentation ~context ~status ~filename ~dirty
+    ~message ~viewport ~dimensions =
+  render_with_inspector ~inspector:None ~presentation ~syntax_spans:[]
+    ~search_ranges:[] ~diagnostic_ranges:[] ~context ~status ~filename ~dirty
+    ~message ~viewport ~dimensions ()
+
 let render ~context ~status ~filename ~dirty ~message ~viewport ~dimensions =
-  render_with_inspector ~inspector:None ~syntax_spans:[] ~search_ranges:[]
-    ~diagnostic_ranges:[] ~context ~status ~filename ~dirty ~message ~viewport
-    ~dimensions ()
+  render_with_presentation ~presentation:Presentation.default ~context ~status
+    ~filename ~dirty ~message ~viewport ~dimensions

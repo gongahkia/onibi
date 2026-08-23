@@ -60,6 +60,14 @@ Zenbu sends true-colour attributes through Notty when a theme uses `#RRGGBB`.
 Whether those colours render exactly is controlled by the user's terminal;
 Zenbu does not detect or remap terminal colour capabilities.
 
-Themes are selected at launch in this milestone. Runtime theme switching,
-Lua/plugin-defined themes, fonts, line-number/minimap widgets, mouse UI, and
+Switch to a built-in or validated TOML theme while Zenbu is running through
+`Ctrl-P` → `view.theme.switch`. The argument uses the same
+`default|dark|light|PATH` form as `--theme`. The Session retains the validated
+selection and the terminal backend applies it immediately before its next
+frame draw, without changing a document, selection, history, model state, or
+replay result.
+
+Pair a theme with a pure line-number/status-row policy using
+`--presentation`; see [Terminal presentation profiles](PRESENTATION.md).
+Lua/plugin-defined themes, fonts, minimaps, arbitrary widgets, mouse UI, and
 GUI presentation remain separate host evaluations.

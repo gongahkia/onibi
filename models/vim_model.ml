@@ -30,6 +30,8 @@ type state =
   | Register_prefix of normal
   | Macro_recording_prefix of normal
   | Macro_replay_prefix of normal
+  | Location_set_prefix of normal
+  | Location_jump_prefix of normal
   | Go_pending of normal
   | Find_pending of { normal : normal; direction : find_direction; till : bool }
   | Operator_find_pending of {
@@ -60,6 +62,8 @@ let descriptor =
          "A modal editing stress-test with a growing Vim compatibility \
           surface, implemented only through zenbu.model_api."
        ~provider ())
+
+let descriptor_of_state _ = descriptor
 
 let default_normal =
   { count = None; slot = Clipboard.unnamed; last_find = None }
@@ -138,6 +142,20 @@ let status = function
       static
         (Model_status.create ~id:"macro-replay-prefix" ~label:"REPLAY…"
            ~description:"awaiting a named macro register" ~pending_input:"@"
+           ~metadata:(count_metadata normal.count)
+           ())
+  | Location_set_prefix normal ->
+      static
+        (Model_status.create ~id:"location-set-prefix" ~label:"MARK…"
+           ~description:"awaiting a named location to capture"
+           ~pending_input:"m"
+           ~metadata:(count_metadata normal.count)
+           ())
+  | Location_jump_prefix normal ->
+      static
+        (Model_status.create ~id:"location-jump-prefix" ~label:"JUMP…"
+           ~description:"awaiting a named location to restore"
+           ~pending_input:"`"
            ~metadata:(count_metadata normal.count)
            ())
   | Go_pending normal ->
@@ -609,186 +627,215 @@ let visual_motion_key = function
   | _ -> false
 
 let normal_input normal event context =
-  match text_key event with
-  | Some "\"" -> (Register_prefix normal, [])
-  | Some "g" -> (Go_pending normal, [])
-  | Some "d" ->
-      ( Operator_pending
-          {
-            operator = Delete;
-            normal;
-            operator_count = count_value normal.count;
-            motion_count = None;
-          },
-        [] )
-  | Some "c" ->
-      ( Operator_pending
-          {
-            operator = Change;
-            normal;
-            operator_count = count_value normal.count;
-            motion_count = None;
-          },
-        [] )
-  | Some "y" ->
-      ( Operator_pending
-          {
-            operator = Yank;
-            normal;
-            operator_count = count_value normal.count;
-            motion_count = None;
-          },
-        [] )
-  | Some "i" -> (Insert (reset_normal normal), [])
-  | Some "a" ->
-      if all_heads_at_end context then (Insert (reset_normal normal), [])
-      else
+  if is_control event "o" then
+    ( Normal (reset_normal normal),
+      [
+        Model_effect.Request_jump
+          (Model_effect.Traverse_jump
+             {
+               direction = Model_effect.Backward;
+               count = count_value normal.count;
+             });
+      ] )
+  else if is_control event "i" || is_named event Input_event.Tab then
+    ( Normal (reset_normal normal),
+      [
+        Model_effect.Request_jump
+          (Model_effect.Traverse_jump
+             {
+               direction = Model_effect.Forward;
+               count = count_value normal.count;
+             });
+      ] )
+  else
+    match text_key event with
+    | Some "\"" -> (Register_prefix normal, [])
+    | Some "g" -> (Go_pending normal, [])
+    | Some "d" ->
+        ( Operator_pending
+            {
+              operator = Delete;
+              normal;
+              operator_count = count_value normal.count;
+              motion_count = None;
+            },
+          [] )
+    | Some "c" ->
+        ( Operator_pending
+            {
+              operator = Change;
+              normal;
+              operator_count = count_value normal.count;
+              motion_count = None;
+            },
+          [] )
+    | Some "y" ->
+        ( Operator_pending
+            {
+              operator = Yank;
+              normal;
+              operator_count = count_value normal.count;
+              motion_count = None;
+            },
+          [] )
+    | Some "i" -> (Insert (reset_normal normal), [])
+    | Some "a" ->
+        if all_heads_at_end context then (Insert (reset_normal normal), [])
+        else
+          ( Insert (reset_normal normal),
+            motion_effect Model_intent.Next_text_unit
+              Model_intent.Collapse_to_end 1 )
+    | Some "I" ->
         ( Insert (reset_normal normal),
-          motion_effect Model_intent.Next_text_unit Model_intent.Collapse_to_end
-            1 )
-  | Some "I" ->
-      ( Insert (reset_normal normal),
-        [ apply Model_intent.First_nonblank Model_intent.Collapse_to_end ] )
-  | Some "A" ->
-      ( Insert (reset_normal normal),
-        [ apply Model_intent.Line_end Model_intent.Collapse_to_end ] )
-  | Some "o" ->
-      ( Insert (reset_normal normal),
-        [
-          apply Model_intent.Line_end Model_intent.Collapse_to_end;
-          Model_effect.Execute_intent (Model_intent.insert_text "\n");
-        ] )
-  | Some "O" ->
-      ( Insert (reset_normal normal),
-        [
-          apply Model_intent.Line_start Model_intent.Collapse_to_start;
-          Model_effect.Execute_intent (Model_intent.insert_text "\n");
-          apply Model_intent.Previous_text_unit Model_intent.Collapse_to_start;
-        ] )
-  | Some "R" -> (Replace (reset_normal normal), [])
-  | Some "r" -> (Replace_pending normal, [])
-  | Some "v" ->
-      ( Visual
-          {
-            normal = reset_normal normal;
-            kind = Characterwise;
-            anchors = selection_heads context;
-          },
-        [] )
-  | Some "V" ->
-      ( Visual
-          {
-            normal = reset_normal normal;
-            kind = Linewise;
-            anchors = selection_heads context;
-          },
-        visual_line_effects context )
-  | Some "f" -> (Find_pending { normal; direction = Forward; till = false }, [])
-  | Some "F" -> (Find_pending { normal; direction = Backward; till = false }, [])
-  | Some "t" -> (Find_pending { normal; direction = Forward; till = true }, [])
-  | Some "T" -> (Find_pending { normal; direction = Backward; till = true }, [])
-  | Some ";" -> (
-      match normal.last_find with
-      | None -> (Normal (reset_normal normal), [])
-      | Some find ->
-          ( Normal (reset_normal normal),
-            find_effects context find (count_value normal.count) ))
-  | Some "," -> (
-      match normal.last_find with
-      | None -> (Normal (reset_normal normal), [])
-      | Some find ->
-          let direction =
-            match find.direction with
-            | Forward -> Backward
-            | Backward -> Forward
-          in
-          ( Normal (reset_normal normal),
-            find_effects context { find with direction }
-              (count_value normal.count) ))
-  | Some "x" ->
-      ( Normal (reset_normal normal),
-        repeated (count_value normal.count)
-          (apply Model_intent.Next_text_unit Model_intent.Delete) )
-  | Some "X" ->
-      ( Normal (reset_normal normal),
-        repeated (count_value normal.count)
-          (apply Model_intent.Previous_text_unit Model_intent.Delete) )
-  | Some "s" ->
-      ( Insert (reset_normal normal),
-        repeated (count_value normal.count)
-          (apply Model_intent.Next_text_unit Model_intent.Delete) )
-  | Some "D" ->
-      run_operator normal Delete ~count:(count_value normal.count)
-        ~selector:Model_intent.Line_end ~linewise:false
-  | Some "C" ->
-      run_operator normal Change ~count:(count_value normal.count)
-        ~selector:Model_intent.Line_end ~linewise:false
-  | Some "S" -> run_change_line normal (count_value normal.count) context
-  | Some "p" ->
-      ( Normal (reset_normal normal),
-        [
-          Model_effect.Paste_from_clipboard
-            { slot = normal.slot; placement = Clipboard.After };
-        ] )
-  | Some "P" ->
-      ( Normal (reset_normal normal),
-        [
-          Model_effect.Paste_from_clipboard
-            { slot = normal.slot; placement = Clipboard.Before };
-        ] )
-  | Some "q" -> (
-      match Editor_context.macro_recording_register context with
-      | Some register ->
-          ( Normal (reset_normal normal),
-            [
-              Model_effect.Request_macro
-                (Model_effect.Toggle_macro_recording register);
-            ] )
-      | None ->
-          ( Macro_recording_prefix normal,
-            [ Model_effect.Request_macro Model_effect.Reserve_macro_input ] ))
-  | Some "@" ->
-      ( Macro_replay_prefix normal,
-        [ Model_effect.Request_macro Model_effect.Reserve_macro_input ] )
-  | Some "u" -> (Normal (reset_normal normal), [ Model_effect.Undo ])
-  | Some "." -> (Normal (reset_normal normal), [ Model_effect.Repeat_last_edit ])
-  | Some "/" ->
-      ( Normal (reset_normal normal),
-        [ Model_effect.Request_search Model_effect.Forward ] )
-  | Some "?" ->
-      ( Normal (reset_normal normal),
-        [ Model_effect.Request_search Model_effect.Backward ] )
-  | Some "n" ->
-      ( Normal (reset_normal normal),
-        [ Model_effect.Repeat_search Model_effect.Forward ] )
-  | Some "N" ->
-      ( Normal (reset_normal normal),
-        [ Model_effect.Repeat_search Model_effect.Backward ] )
-  | Some "G" ->
-      ( Normal (reset_normal normal),
-        motion_effect Model_intent.Document_end Model_intent.Collapse_to_end 1
-      )
-  | Some value
-    when String.length value = 1 && value.[0] >= '1' && value.[0] <= '9' ->
-      ( Normal
-          {
-            normal with
-            count = add_digit normal.count (Char.code value.[0] - Char.code '0');
-          },
-        [] )
-  | Some "0" when Option.is_some normal.count ->
-      (Normal { normal with count = add_digit normal.count 0 }, [])
-  | Some key -> (
-      match motion key with
-      | Some (selector, transformation) ->
-          ( Normal (reset_normal normal),
-            motion_effect selector transformation (count_value normal.count) )
-      | None -> (Normal (reset_normal normal), []))
-  | None when is_control event "r" ->
-      (Normal (reset_normal normal), [ Model_effect.Redo ])
-  | None when is_named event Input_event.Escape ->
-      (Normal (reset_normal normal), [])
-  | None -> (Normal normal, [])
+          [ apply Model_intent.First_nonblank Model_intent.Collapse_to_end ] )
+    | Some "A" ->
+        ( Insert (reset_normal normal),
+          [ apply Model_intent.Line_end Model_intent.Collapse_to_end ] )
+    | Some "o" ->
+        ( Insert (reset_normal normal),
+          [
+            apply Model_intent.Line_end Model_intent.Collapse_to_end;
+            Model_effect.Execute_intent (Model_intent.insert_text "\n");
+          ] )
+    | Some "O" ->
+        ( Insert (reset_normal normal),
+          [
+            apply Model_intent.Line_start Model_intent.Collapse_to_start;
+            Model_effect.Execute_intent (Model_intent.insert_text "\n");
+            apply Model_intent.Previous_text_unit Model_intent.Collapse_to_start;
+          ] )
+    | Some "R" -> (Replace (reset_normal normal), [])
+    | Some "r" -> (Replace_pending normal, [])
+    | Some "v" ->
+        ( Visual
+            {
+              normal = reset_normal normal;
+              kind = Characterwise;
+              anchors = selection_heads context;
+            },
+          [] )
+    | Some "V" ->
+        ( Visual
+            {
+              normal = reset_normal normal;
+              kind = Linewise;
+              anchors = selection_heads context;
+            },
+          visual_line_effects context )
+    | Some "f" ->
+        (Find_pending { normal; direction = Forward; till = false }, [])
+    | Some "F" ->
+        (Find_pending { normal; direction = Backward; till = false }, [])
+    | Some "t" -> (Find_pending { normal; direction = Forward; till = true }, [])
+    | Some "T" ->
+        (Find_pending { normal; direction = Backward; till = true }, [])
+    | Some ";" -> (
+        match normal.last_find with
+        | None -> (Normal (reset_normal normal), [])
+        | Some find ->
+            ( Normal (reset_normal normal),
+              find_effects context find (count_value normal.count) ))
+    | Some "," -> (
+        match normal.last_find with
+        | None -> (Normal (reset_normal normal), [])
+        | Some find ->
+            let direction =
+              match find.direction with
+              | Forward -> Backward
+              | Backward -> Forward
+            in
+            ( Normal (reset_normal normal),
+              find_effects context { find with direction }
+                (count_value normal.count) ))
+    | Some "x" ->
+        ( Normal (reset_normal normal),
+          repeated (count_value normal.count)
+            (apply Model_intent.Next_text_unit Model_intent.Delete) )
+    | Some "X" ->
+        ( Normal (reset_normal normal),
+          repeated (count_value normal.count)
+            (apply Model_intent.Previous_text_unit Model_intent.Delete) )
+    | Some "s" ->
+        ( Insert (reset_normal normal),
+          repeated (count_value normal.count)
+            (apply Model_intent.Next_text_unit Model_intent.Delete) )
+    | Some "D" ->
+        run_operator normal Delete ~count:(count_value normal.count)
+          ~selector:Model_intent.Line_end ~linewise:false
+    | Some "C" ->
+        run_operator normal Change ~count:(count_value normal.count)
+          ~selector:Model_intent.Line_end ~linewise:false
+    | Some "S" -> run_change_line normal (count_value normal.count) context
+    | Some "p" ->
+        ( Normal (reset_normal normal),
+          [
+            Model_effect.Paste_from_clipboard
+              { slot = normal.slot; placement = Clipboard.After };
+          ] )
+    | Some "P" ->
+        ( Normal (reset_normal normal),
+          [
+            Model_effect.Paste_from_clipboard
+              { slot = normal.slot; placement = Clipboard.Before };
+          ] )
+    | Some "q" -> (
+        match Editor_context.macro_recording_register context with
+        | Some register ->
+            ( Normal (reset_normal normal),
+              [
+                Model_effect.Request_macro
+                  (Model_effect.Toggle_macro_recording register);
+              ] )
+        | None ->
+            ( Macro_recording_prefix normal,
+              [ Model_effect.Request_macro Model_effect.Reserve_macro_input ] ))
+    | Some "@" ->
+        ( Macro_replay_prefix normal,
+          [ Model_effect.Request_macro Model_effect.Reserve_macro_input ] )
+    | Some "m" -> (Location_set_prefix normal, [])
+    | Some "`" -> (Location_jump_prefix normal, [])
+    | Some "u" -> (Normal (reset_normal normal), [ Model_effect.Undo ])
+    | Some "." ->
+        (Normal (reset_normal normal), [ Model_effect.Repeat_last_edit ])
+    | Some "/" ->
+        ( Normal (reset_normal normal),
+          [ Model_effect.Request_search Model_effect.Forward ] )
+    | Some "?" ->
+        ( Normal (reset_normal normal),
+          [ Model_effect.Request_search Model_effect.Backward ] )
+    | Some "n" ->
+        ( Normal (reset_normal normal),
+          [ Model_effect.Repeat_search Model_effect.Forward ] )
+    | Some "N" ->
+        ( Normal (reset_normal normal),
+          [ Model_effect.Repeat_search Model_effect.Backward ] )
+    | Some "G" ->
+        ( Normal (reset_normal normal),
+          motion_effect Model_intent.Document_end Model_intent.Collapse_to_end 1
+        )
+    | Some value
+      when String.length value = 1 && value.[0] >= '1' && value.[0] <= '9' ->
+        ( Normal
+            {
+              normal with
+              count =
+                add_digit normal.count (Char.code value.[0] - Char.code '0');
+            },
+          [] )
+    | Some "0" when Option.is_some normal.count ->
+        (Normal { normal with count = add_digit normal.count 0 }, [])
+    | Some key -> (
+        match motion key with
+        | Some (selector, transformation) ->
+            ( Normal (reset_normal normal),
+              motion_effect selector transformation (count_value normal.count)
+            )
+        | None -> (Normal (reset_normal normal), []))
+    | None when is_control event "r" ->
+        (Normal (reset_normal normal), [ Model_effect.Redo ])
+    | None when is_named event Input_event.Escape ->
+        (Normal (reset_normal normal), [])
+    | None -> (Normal normal, [])
 
 let pending_input operator normal operator_count motion_count event context =
   let count = operator_count * count_value motion_count in
@@ -1001,6 +1048,24 @@ let handle_input state event context =
       | _ when is_named event Input_event.Escape ->
           (Normal (reset_normal normal), [])
       | _ -> (Macro_replay_prefix normal, []))
+  | Location_set_prefix normal -> (
+      match text_key event with
+      | Some name when is_single_scalar name ->
+          ( Normal (reset_normal normal),
+            [ Model_effect.Request_location (Model_effect.Set_location name) ]
+          )
+      | _ when is_named event Input_event.Escape ->
+          (Normal (reset_normal normal), [])
+      | _ -> (Location_set_prefix normal, []))
+  | Location_jump_prefix normal -> (
+      match text_key event with
+      | Some name when is_single_scalar name ->
+          ( Normal (reset_normal normal),
+            [ Model_effect.Request_location (Model_effect.Jump_location name) ]
+          )
+      | _ when is_named event Input_event.Escape ->
+          (Normal (reset_normal normal), [])
+      | _ -> (Location_jump_prefix normal, []))
   | Go_pending normal when is_text event "g" ->
       ( Normal (reset_normal normal),
         motion_effect Model_intent.Document_start Model_intent.Collapse_to_start
@@ -1081,6 +1146,16 @@ let input_rules = function
         input_rule "vim.normal.macro-replay" (Input_rule.Exact "@")
           Input_rule.Prefix "replay a named macro"
           ~next_status:"macro-replay-prefix";
+        input_rule "vim.normal.location-set" (Input_rule.Exact "m")
+          Input_rule.Prefix
+          "capture the active selection set as a named location"
+          ~next_status:"location-set-prefix";
+        input_rule "vim.normal.location-jump" (Input_rule.Exact "`")
+          Input_rule.Prefix "restore a named session location"
+          ~next_status:"location-jump-prefix";
+        input_rule "vim.normal.jump-history"
+          (Input_rule.Text_range "Ctrl-o, Ctrl-i, or Tab") Input_rule.Binding
+          "traverse bounded jump history";
       ]
   | Insert _ ->
       [
@@ -1142,6 +1217,14 @@ let input_rules = function
         input_rule "vim.macro.cancel" (Input_rule.Named "Escape")
           Input_rule.Binding "cancel macro register selection"
           ~next_status:"normal";
+      ]
+  | Location_set_prefix _ | Location_jump_prefix _ ->
+      [
+        input_rule "vim.location.name"
+          (Input_rule.Text_range "one UTF-8 scalar") Input_rule.Binding
+          "select a named session location";
+        input_rule "vim.location.cancel" (Input_rule.Named "Escape")
+          Input_rule.Binding "cancel location selection" ~next_status:"normal";
       ]
   | Go_pending _ ->
       [

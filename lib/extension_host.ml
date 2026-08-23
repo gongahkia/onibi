@@ -1,6 +1,6 @@
 open Zenbu_kernel
 
-type kind = Command | Selector | Transformation | Event
+type kind = Command | Selector | Transformation | Model | Event
 
 type invocation = {
   token : string;
@@ -35,6 +35,7 @@ let kind_name = function
   | Command -> "command"
   | Selector -> "selector"
   | Transformation -> "transformation"
+  | Model -> "model"
   | Event -> "event"
 
 let has values value = List.mem value values

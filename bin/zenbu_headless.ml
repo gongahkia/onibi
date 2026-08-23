@@ -38,6 +38,7 @@ let shortcut_key modifiers text =
 
 module Vim_runtime = Model_runtime.Make (Vim_model)
 module Selection_runtime = Model_runtime.Make (Selection_model)
+module Direct_runtime = Model_runtime.Make (Direct_model)
 module Structural_runtime = Model_runtime.Make (Structural_model)
 
 let semantic_registry () =
@@ -219,6 +220,34 @@ let run_selection_session contents inputs =
   in
   print_result (Selection_runtime.history runtime)
 
+let run_direct_session contents inputs =
+  let runtime =
+    match
+      Direct_runtime.create ~commands:(semantic_registry ())
+        ~document:(document_for "direct-session" contents)
+        ()
+    with
+    | Ok runtime -> runtime
+    | Error error -> fail error
+  in
+  let runtime =
+    List.fold_left
+      (fun runtime input ->
+        match Direct_runtime.handle_input runtime input with
+        | Error error -> fail error
+        | Ok (runtime, step) ->
+            print_step
+              (List.length (Direct_runtime.input_trace runtime))
+              input
+              (Direct_runtime.effects step)
+              (Direct_runtime.intents step)
+              (Direct_runtime.status_after step)
+              (Direct_runtime.history runtime);
+            runtime)
+      runtime inputs
+  in
+  print_result (Direct_runtime.history runtime)
+
 let run_structural_session ?(language = "ocaml") contents inputs =
   let syntax_service =
     match Syntax.Language.find language with
@@ -253,7 +282,7 @@ let run_structural_session ?(language = "ocaml") contents inputs =
   in
   print_result (Structural_runtime.history runtime)
 
-type session_model = Vim | Selection_first | Structural
+type session_model = Vim | Selection_first | Direct | Structural | Script
 
 type session = {
   model : session_model;
@@ -300,7 +329,9 @@ let session_of_string text =
       | [ "model"; "vim" ] -> Ok { session with model = Vim }
       | [ "model"; "selection-first" ] ->
           Ok { session with model = Selection_first }
+      | [ "model"; "direct" ] -> Ok { session with model = Direct }
       | [ "model"; "structural" ] -> Ok { session with model = Structural }
+      | [ "model"; "script" ] -> Ok { session with model = Script }
       | "language" :: value ->
           Ok { session with language = Some (String.concat "=" value) }
       | "text" :: value -> (
@@ -337,15 +368,23 @@ let run_session path =
   | Ok { model = Vim; contents; inputs; _ } -> run_vim_session contents inputs
   | Ok { model = Selection_first; contents; inputs; _ } ->
       run_selection_session contents inputs
+  | Ok { model = Direct; contents; inputs; _ } ->
+      run_direct_session contents inputs
   | Ok { model = Structural; language; contents; inputs } ->
       run_structural_session ?language contents inputs
+  | Ok { model = Script; _ } ->
+      fail
+        (Error.Invalid_command_arguments
+           "script sessions require script-session <init.lua> <fixture.session>")
 
 let print_lines lines = List.iter print_endline lines
 
 let app_model = function
   | Vim -> Zenbu_app.Session.Vim
   | Selection_first -> Zenbu_app.Session.Selection
+  | Direct -> Zenbu_app.Session.Direct
   | Structural -> Zenbu_app.Session.Structural
+  | Script -> Zenbu_app.Session.Script
 
 let observed_session ?(config = Scripting.Disabled) inspection path =
   match session_of_string (read_file path) with
@@ -396,6 +435,7 @@ let all_models =
   [
     Vim_model.descriptor;
     Selection_model.descriptor;
+    Direct_model.descriptor;
     Structural_model.descriptor;
   ]
 
@@ -562,6 +602,11 @@ let describe_config path =
         (Scripting.generation_id generation)
         (Scripting.source generation)
         (Zenbu_kernel.Provider.id (Scripting.provider generation));
+      Option.iter
+        (fun model ->
+          Printf.printf "model: %s\n"
+            (Editing_model.id (Scripting.model_descriptor model)))
+        (Scripting.model generation);
       List.iter
         (fun command ->
           let descriptor = Command.descriptor command in
@@ -610,6 +655,51 @@ let script_session config_path session_path =
             (Zenbu_app.Session.inspect session Zenbu_app.Session.Scripts);
           List.iter print_endline
             (Zenbu_app.Session.inspect session Zenbu_app.Session.History))
+
+let background_jobs_running session =
+  Zenbu_app.Session.inspect session Zenbu_app.Session.Jobs
+  |> List.exists (String.ends_with ~suffix:" running")
+
+let wait_for_background_jobs session =
+  let deadline = Unix.gettimeofday () +. 6.0 in
+  let rec wait session =
+    let session = Zenbu_app.Session.poll_background session in
+    if not (background_jobs_running session) then session
+    else if Unix.gettimeofday () >= deadline then
+      fail
+        (Error.Invalid_command_arguments
+           "background jobs did not settle within the host time limit")
+    else (
+      ignore (Unix.select (Zenbu_app.Session.wakeup_fds session) [] [] 0.1);
+      wait session)
+  in
+  wait session
+
+let script_jobs config_path session_path =
+  let config = Scripting.Explicit config_path in
+  match session_of_string (read_file session_path) with
+  | Error error -> fail error
+  | Ok definition -> (
+      let dimensions = Zenbu_view.Renderer.{ columns = 120; rows = 40 } in
+      match
+        Zenbu_app.Session.create
+          ~model:(app_model definition.model)
+          ?language:definition.language ~contents:definition.contents ~config
+          ~dimensions ()
+      with
+      | Error error -> fail error
+      | Ok initial ->
+          Fun.protect
+            ~finally:(fun () -> Zenbu_app.Session.close initial)
+            (fun () ->
+              let session =
+                List.fold_left Zenbu_app.Session.handle_input initial
+                  definition.inputs
+                |> wait_for_background_jobs
+              in
+              Printf.printf "text: %S\n" (Zenbu_app.Session.contents session);
+              Zenbu_app.Session.inspect session Zenbu_app.Session.Jobs
+              |> print_lines))
 
 let plugin_session plugin_directory session_path =
   match session_of_string (read_file session_path) with
@@ -1135,12 +1225,13 @@ let usage () =
      language-fake-session <fake-lsp-server> <file> | lsp-position \
      <utf-8|utf-16|utf-32> <byte-offset> <file> | commands | api | describe \
      <command|model|selector|transformation> <id> | bindings \
-     <vim|selection|structural> | why <fixture.session> | bindings-session \
-     <fixture.session> | history <fixture.session> | selection \
-     <fixture.session> | syntax-session <fixture.session> | search-session \
-     <fixture.session> | profile <fixture.session> | config-check <init.lua> | \
-     config-describe <init.lua> | script-session <init.lua> <fixture.session> \
-     | plugin-session <PLUGIN-ROOT> <fixture.session> | plugins [DIR] | \
+     <vim|selection|direct|structural> | why <fixture.session> | \
+     bindings-session <fixture.session> | history <fixture.session> | \
+     selection <fixture.session> | syntax-session <fixture.session> | \
+     search-session <fixture.session> | profile <fixture.session> | \
+     config-check <init.lua> | config-describe <init.lua> | script-session \
+     <init.lua> <fixture.session> | script-jobs <init.lua> <fixture.session> | \
+     plugin-session <PLUGIN-ROOT> <fixture.session> | plugins [DIR] | \
      plugin-check <PLUGIN-DIR> | plugin-describe <PLUGIN-DIR> | extension-api \
      | extension-sdk | extension-wit | benchmark";
   exit 2
@@ -1165,6 +1256,7 @@ let () =
   | [ _; "config-check"; path ] -> check_config path
   | [ _; "config-describe"; path ] -> describe_config path
   | [ _; "script-session"; config; session ] -> script_session config session
+  | [ _; "script-jobs"; config; session ] -> script_jobs config session
   | [ _; "plugins" ] -> plugins Plugins.Default
   | [ _; "plugins"; directory ] -> plugins (Plugins.Directories [ directory ])
   | [ _; "plugin-check"; path ] | [ _; "plugin-describe"; path ] ->
@@ -1177,6 +1269,7 @@ let () =
   | [ _; "describe"; kind; id ] -> inspect_description kind id
   | [ _; "bindings"; "vim" ] -> initial_bindings Vim
   | [ _; "bindings"; "selection" ] -> initial_bindings Selection_first
+  | [ _; "bindings"; "direct" ] -> initial_bindings Direct
   | [ _; "bindings"; "structural" ] -> initial_bindings Structural
   | [ _; "why"; path ] -> observed_session Zenbu_app.Session.Why path
   | [ _; "bindings-session"; path ] ->

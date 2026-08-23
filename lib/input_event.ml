@@ -15,6 +15,8 @@ type named_key =
   | Arrow_right
   | Home
   | End
+  | Page_up
+  | Page_down
 
 type key = Logical_text of string | Named_key of named_key
 type mouse_button = Primary | Middle | Secondary | Wheel_up | Wheel_down
@@ -122,6 +124,8 @@ let named_key_of_binding_name = function
   | "ArrowRight" -> Some Arrow_right
   | "Home" -> Some Home
   | "End" -> Some End
+  | "PageUp" -> Some Page_up
+  | "PageDown" -> Some Page_down
   | _ -> None
 
 let binding_text_alias = function
@@ -239,6 +243,8 @@ let named_key_to_string = function
   | Arrow_right -> "ArrowRight"
   | Home -> "Home"
   | End -> "End"
+  | Page_up -> "PageUp"
+  | Page_down -> "PageDown"
 
 let mouse_button_to_string = function
   | Primary -> "primary"

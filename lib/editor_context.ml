@@ -54,6 +54,7 @@ let document_version value = value.document_version
 let contents value = value.contents
 let byte_length value = value.byte_length
 let selections value = value.selections
+let with_selections value selections = { value with selections }
 let command_descriptors value = value.commands
 let clipboard_entry value ~slot = Clipboard.find value.clipboard ~slot
 let macro_recording_register value = value.macro_recording_register

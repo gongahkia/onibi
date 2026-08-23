@@ -1,5 +1,6 @@
 (** Experimental M7 trusted-local scripting API. This module deliberately
-    exposes semantic registrations, never Lua values or mutable editor state. *)
+    exposes semantic registrations and checked copied model state, never Lua
+    values or mutable editor state. *)
 
 type event = Zenbu_model_api.Extension_registration.event =
   | Document_changed
@@ -20,6 +21,8 @@ type mode_transition = Zenbu_model_api.Extension_registration.mode_transition =
 type binding = Zenbu_model_api.Extension_registration.binding
 type hook = Zenbu_model_api.Extension_registration.hook
 type mode
+type model
+type model_state
 type t
 type config = Default | Explicit of string | Disabled
 
@@ -57,6 +60,7 @@ val descriptors : t -> Zenbu_kernel.Semantic_descriptor.t list
 val bindings : t -> binding list
 val hooks : t -> hook list
 val modes : t -> mode list
+val model : t -> model option
 val initial_modes : t -> string list
 val counts : t -> int * int * int * int * int
 val dispose : t -> unit
@@ -71,6 +75,24 @@ val mode_id : mode -> string
 val mode_title : mode -> string
 val mode_description : mode -> string
 val mode_input_mode : mode -> Zenbu_model_api.Model_status.input_mode
+val model_descriptor : model -> Zenbu_model_api.Editing_model.descriptor
+val initial_model_state : model -> model_state
+val reset_model_state : model_state -> model_state
+val model_state_status : model_state -> Zenbu_model_api.Model_status.t
+
+val model_state_descriptor :
+  model_state -> Zenbu_model_api.Editing_model.descriptor
+
+val model_state_model : model_state -> model
+
+val run_model :
+  model_state ->
+  Zenbu_model_api.Input_event.t ->
+  Zenbu_model_api.Editor_context.t ->
+  ( model_state * Zenbu_model_api.Model_effect.t list,
+    Zenbu_kernel.Error.t )
+  result
+
 val hook_event : hook -> event
 val hook_provider : hook -> Zenbu_kernel.Provider.t
 

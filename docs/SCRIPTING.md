@@ -36,9 +36,10 @@ dune exec bin/zenbu_headless.exe -- script-session examples/m7-init.lua test/fix
 ```
 
 `config-check` fully evaluates and validates the file but does not retain its
-generation. `config-describe` reports registered ids and bindings. `script-session`
-runs an inspectable session fixture with the explicit configuration and prints
-the resulting text, script-generation view, and history.
+generation. `config-describe` reports registered commands, semantic ids,
+bindings, and any `zenbu.model` id. `script-session` runs an inspectable
+session fixture with the explicit configuration and prints the resulting text,
+script-generation view, and history.
 
 ## Trust and authority
 
@@ -146,7 +147,7 @@ declarative effects and retains no prompt or terminal authority.
 `zenbu.bind` takes `input`, `command`, and optional `scope`. `input` is one to
 sixteen logical input tokens separated by one ASCII space, for example
 `"Ctrl-X Ctrl-K"`. A token is named-key input (`Escape`, `Enter`, `Backspace`,
-`Tab`, `Delete`, arrows, `Home`, or `End`) or logical text with optional
+`Tab`, `Delete`, arrows, `Home`, `End`, `PageUp`, or `PageDown`) or logical text with optional
 `Ctrl-`, `Shift-`, `Alt-`, and `Meta-` modifiers. Write the text keys `Space`,
 `Minus`, `Plus`, `Comma`, `Period`, or `Slash` by name when required inside a
 sequence. Unmodified logical-text tokens preserve case, so `Q` and `q` are
@@ -242,8 +243,9 @@ The host validates that there is exactly one `<text>` pattern, that its scope
 is a declared `input_mode = "text"` custom mode, and that `text_argument`
 names a text parameter on the target command. Captured text is passed as one
 typed command argument; it never becomes ambient Lua state. This is sufficient
-for adapter-defined insert-like modes, but it is not a general script-owned
-state machine, input-method API, or arbitrary keymap runtime.
+for adapter-defined insert-like modes. Declared custom modes remain a host-owned
+binding stack; use `zenbu.model` when the editing grammar itself needs durable
+state.
 
 If a more-specific scope has an
 incomplete sequence prefix, Zenbu holds that prefix; a less-specific sequence
@@ -257,14 +259,66 @@ Bindings are considered before model input. The host retains `Ctrl-S`,
 `Ctrl-Shift-S`, `Ctrl-Q`, `Alt-R`, `Ctrl-Alt-R`, `Ctrl-F`, `Ctrl-G`,
 `Ctrl-Shift-G`, `Ctrl-P`, `Ctrl-Space`, `Alt-M`, `Meta-M`, `Alt-H`, `Meta-H`,
 and `Ctrl-O` as non-overridable controls; none may appear anywhere in a custom
-sequence. `config.reload`, `editor.macro.record`, and `editor.macro.replay`
-are permitted binding targets for script-defined non-host keys. The latter two
-are generic session commands, so an editor adapter can use its native-looking
-macro keys without making macro logic a model privilege:
+sequence. The explicit host targets permitted to a script binding are
+`config.reload`, `editor.macro.record`, `editor.macro.replay`,
+`editor.kill-ring.cut`, `editor.kill-ring.yank`, `editor.clipboard.copy`,
+`editor.clipboard.paste`, `editor.command-palette`, and the existing
+`search.start`, `search.regexp`,
+`workspace.split.*`, `workspace.pane.*`, and the safe
+`workspace.buffer.new`, `workspace.buffer.open`, `workspace.buffer.close`,
+`workspace.buffer.next`, and `workspace.buffer.previous` operations, plus
+`view.scroll.*`, `view.page.*`, and `view.center`. This is a closed
+allow-list rather than arbitrary host-command invocation: it excludes save,
+quit, force-quit, model switching, and language requests. A workspace-open
+binding can only open the normal host prompt; it receives neither a path nor a
+file handle. View commands receive no geometry and operate only on the focused
+view. The macro commands are generic session commands, so an editor adapter
+can use its native-looking macro keys without making macro logic a model
+privilege:
 
 ```lua
 zenbu.bind { input = "Q", command = "editor.macro.record" }
 zenbu.bind { input = "q", command = "editor.macro.replay" }
+```
+
+[`helix-adapter.lua`](../examples/helix-adapter.lua) demonstrates the same
+boundary for selection-editor view navigation: `PageUp`, `PageDown`, `Ctrl-U`,
+`Ctrl-D`, and `z z` request page movement or centering without changing the
+selection or exposing renderer state. It is a focused workload fixture, not a
+Helix compatibility configuration.
+
+For example, the bundled
+[`micro-adapter.lua`](../examples/micro-adapter.lua) runs on the Direct model
+and maps Micro's documented `Ctrl-E` command bar and `Ctrl-W` split cycle to
+the palette and `workspace.pane.next` respectively, plus selected-text
+`Ctrl-X` to the bounded shared kill history:
+
+```lua
+zenbu.bind {
+  input = "Ctrl-e",
+  command = "editor.command-palette",
+  scope = "model:zenbu.direct:direct",
+}
+zenbu.bind {
+  input = "Ctrl-w",
+  command = "workspace.pane.next",
+  scope = "model:zenbu.direct:direct",
+}
+zenbu.bind {
+  input = "Ctrl-x",
+  command = "editor.kill-ring.cut",
+  scope = "model:zenbu.direct:direct",
+}
+zenbu.bind {
+  input = "Ctrl-c",
+  command = "editor.clipboard.copy",
+  scope = "model:zenbu.direct:direct",
+}
+zenbu.bind {
+  input = "Ctrl-v",
+  command = "editor.clipboard.paste",
+  scope = "model:zenbu.direct:direct",
+}
 ```
 
 `editor.macro.record` starts recording when idle and stops/stores a macro when
@@ -324,7 +378,7 @@ Kakoune regexes.
 `zenbu-headless bindings vim` includes the same
 reserved-host list beside model and extension bindings.
 
-Use `zenbu-headless api` and `zenbu-headless bindings <vim|selection|structural>`
+Use `zenbu-headless api` and `zenbu-headless bindings <vim|selection|direct|structural>`
 to discover exact model and current status ids before writing a scoped binding;
 for example the Vim-style model id is `zenbu.vim-style` and its initial status
 id is `normal`.
@@ -335,6 +389,75 @@ and stops that callback's effects without undoing an already committed edit.
 Zenbu suppresses re-entrance of the same event during delivery, preventing a
 document-changed hook from looping on its own edit; this is not a general
 asynchronous event system.
+
+## Script-owned editing grammars
+
+One trusted configuration generation may register one `zenbu.model` and start
+it with `zenbu --model script --config PATH`. The declaration owns an explicit
+serialisable state value and returns the next state, the complete display
+status, and declarative effects for every logical input. The Session owns the
+document, history, transaction validation, syntax refresh, host requests,
+provenance, and callback lifetime; Lua never receives those mutable objects.
+
+```lua
+zenbu.model {
+  id = "user.modal",
+  title = "Minimal modal fixture",
+  initial_state = { mode = "normal" },
+  initial_status = { id = "normal", label = "NORMAL", input_mode = "keys" },
+  run = function(call)
+    local input = call.arguments.input
+    local state = call.arguments.state
+    if input.kind == "key" and input.key == "i" then
+      return {
+        state = { mode = "insert" },
+        status = { id = "insert", label = "INSERT", input_mode = "text" },
+        effects = {},
+      }
+    elseif input.kind == "text" and state.mode == "insert" then
+      return {
+        state = state,
+        status = { id = "insert", label = "INSERT", input_mode = "text" },
+        effects = {{ kind = "insert", text = input.text }},
+      }
+    end
+    return { state = state, status = { id = state.mode, label = string.upper(state.mode) } }
+  end,
+}
+```
+
+`initial_state` and every returned `state` use the ordinary extension-value
+format: `nil`, booleans, integers/floats, strings, lists, and string-keyed
+records. Mixed tables, functions, userdata, threads, non-string map keys, and
+values deeper than 32 tables or containing more than 4,096 values are rejected.
+`initial_status` and returned `status` require nonempty `id` and `label`, and
+may set `description`, `pending_input`, and `input_mode = "keys" | "text"`.
+The input object is `{ kind = "key", key, modifiers }`, `{ kind = "text",
+text }`, or `{ kind = "mouse", action, column, row, modifiers }`.
+
+The model response must be `{ state, status, effects? }`; an invalid callback
+result aborts that input before any effect commits. `effects` use the ordinary
+action vocabulary below, including `{ kind = "view", action = "center" }` or
+`{ kind = "view", action = "scroll-lines" | "scroll-pages", amount = integer }`.
+Those view requests operate only on the focused host view and do not expose
+geometry or renderer state. Reload stages a complete replacement Lua generation
+before installation, then recreates each script-model runtime with its declared
+initial state so no buffer retains a callback into a disposed Lua state. Script
+state migration is intentionally not implicit; make it a future explicit,
+versioned contract if a workload needs it.
+
+[`script-modal-editor.lua`](../examples/script-modal-editor.lua) is an
+inspectable modal fixture: it implements normal/insert/delete-pending states,
+UTF-8 text insertion, semantic word deletion, and a centered-view request. It
+demonstrates the framework boundary; it is not a Vim, Helix, Kakoune, Micro, or
+Emacs compatibility claim.
+
+Run its deterministic headless workload with:
+
+```sh
+dune exec bin/zenbu_headless.exe -- script-session \
+  examples/script-modal-editor.lua examples/script-modal-editor.session
+```
 
 ## Callback input and output
 
@@ -365,6 +488,10 @@ Commands and hooks return one action, a list of actions, or `nil`. Actions are:
 - `{ kind = "set-selections", selections = {{anchor, head}, ...}, primary = n }`
 - `{ kind = "command", id = string }`
 - `{ kind = "apply", selector = string, transformation = string, args = value }`
+- `{ kind = "view", action = "center" }`
+- `{ kind = "view", action = "scroll-lines" | "scroll-pages", amount = integer }`
+- `{ kind = "external-filter", program = absolute-path, arguments = {string, ...} }`
+- `{ kind = "background-process", program = absolute-path, arguments = {string, ...} }`
 
 Selectors return `{ selections = {{anchor, head}, ...}, primary = n }`.
 Transformations return `{ edits = {{start, stop, text}, ...} }`. Returned tables
@@ -374,17 +501,98 @@ and mixed list/map tables are rejected. Offsets, selection primary indexes,
 overlapping edits, UTF-8 boundaries, and transactions are validated by Zenbu;
 an invalid result creates no partial document mutation.
 
+### External selection filters
+
+Trusted Lua actions may request an `external-filter`. Zenbu passes the content
+of every current selection independently to the executable's standard input,
+then replaces all selections with their corresponding standard outputs in one
+checked transaction. The request is intentionally an absolute executable path
+and argument vector, never a shell command or a `PATH` lookup:
+
+```lua
+{
+  kind = "external-filter",
+  program = "/usr/bin/tr",
+  arguments = { "a-z", "A-Z" },
+}
+```
+
+`process.filter` is trusted-local configuration authority. Each input and
+output, and the combined output for a multi-selection invocation, is limited to
+16 MiB; stdout must be UTF-8; and the host terminates a process that runs for
+more than five seconds. An unavailable executable, nonzero exit, timeout,
+oversized result, or invalid output leaves the document unchanged. External
+side effects are not reversible, and a model state transition that requested a
+filter is not rolled back on a host failure. This is a bounded common primitive
+for Helix/Kakoune-style selection filters and Micro's `textfilter`, not a shell
+language, terminal buffer, or shell-completion API.
+
+The bundled modal fixture has `s` to select the current word and `u` to run the
+portable POSIX `/usr/bin/tr` example:
+
+```sh
+dune exec bin/zenbu_headless.exe -- script-session \
+  examples/script-modal-editor.lua examples/external-filter.session
+```
+
+### Background programs
+
+Trusted Lua actions may also request a bounded noninteractive
+`background-process`:
+
+```lua
+{
+  kind = "background-process",
+  program = "/usr/bin/printf",
+  arguments = { "index complete" },
+}
+```
+
+`process.background` is trusted-local authority. The request is an absolute
+executable plus an argument vector; Zenbu does not invoke a shell, perform a
+`PATH` lookup, provide stdin, or expose a process handle to the model. At most
+64 programs may run per session. Each has a five-second wall-clock limit;
+stdout is limited to 16 MiB and must be UTF-8, while stderr is retained only as
+a 4 KiB diagnostic. The registry retains at most 64 completed jobs and a
+16 KiB UTF-8-safe stdout preview per job. Completion wakes the terminal loop
+and updates the host message. Select `process.jobs` from `Ctrl-P`, or inspect
+`Jobs` headlessly, to view final status and bounded output. Closing the Session
+sends `SIGTERM` to running jobs. `process.job.cancel` is a typed host command
+in `Ctrl-P`: enter one retained job id to send `SIGTERM` followed by `SIGKILL`
+if it is still running. Cancellation is host-controlled; Lua receives no
+process handle or completion callback.
+
+The bundled modal fixture binds `j` to the portable `/usr/bin/printf` example:
+
+```sh
+dune exec bin/zenbu_headless.exe -- script-jobs \
+  examples/script-modal-editor.lua examples/background-job.session
+```
+
+Use the `process.jobs` palette command to inspect retained jobs. Once a job has
+finished, `process.job.open-output` accepts its positive `job-id` and opens its
+bounded final report as a normal `*job N output*` buffer in the focused pane.
+Successful jobs open their retained stdout preview; failed, timed-out, and
+cancelled jobs open a diagnostic report. The buffer is not backed by a file and
+starts clean, so it can be edited or saved through the ordinary workspace
+commands.
+
+There are intentionally no completion callbacks, streamed output, stdin,
+terminal/PTY allocation, process groups, or shell-language semantics. A
+trusted Lua file can still use Lua's ambient standard libraries outside this
+Zenbu action; this action is a checked host facility, not a Lua sandbox.
+
 ## Observability, history, and limits
 
 Script descriptors use provider ids such as `script.3` and retain their source
 path. `why`/trace reports script load/reload lifecycle, complete binding
-resolution with the full input sequence, command/selector/transformation/event
+resolution with the full input sequence, model/command/selector/transformation/event
 callback start/success/failure, and the ordinary provenance chain including binding, command, selector,
 transformation, and event entries. The interactive `Scripts` inspector lists
 the active generation, source, provider, counts, and last reload failure.
 `Bindings`, `Commands`, `API`, `History`, and `Why` use the same generic views
 as builtin behavior. Profiling adds bounded `script-load`, `script-reload`,
-`script-command`, `script-selector`, `script-transformation`, and `script-event`
+`script-model`, `script-command`, `script-selector`, `script-transformation`, and `script-event`
 samples when `--profile` is enabled.
 
 Dynamic semantic behavior resolves to a concrete transaction before commit, so
@@ -398,6 +606,8 @@ M7 intentionally has no separate capability policy because user configuration
 runs with the complete trusted-local Zenbu authority set. M8 plugins declare
 their capabilities separately and are checked at the data-only host boundary;
 M7 remains a configuration convenience rather than a stable third-party API.
-Both paths retain trusted-Lua limits: no sandbox, resolver, async callbacks,
-timers, external event streams, resource limits, or isolation. Lua error
-location is best-effort source/line extraction from PUC Lua messages.
+Both paths retain trusted-Lua limits: no sandbox, resolver, completion
+callbacks, timers, external event streams, general execution-time limits, or
+isolation. The narrowly scoped external filter and background-program actions
+have the explicit five-second process limits above. Lua error location is
+best-effort source/line extraction from PUC Lua messages.

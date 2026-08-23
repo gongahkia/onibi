@@ -17,6 +17,11 @@ module type S = sig
   type state
 
   val descriptor : descriptor
+
+  val descriptor_of_state : state -> descriptor
+  (** A host uses the initialized state descriptor for provenance and binding
+      scope. Built-in models normally return [descriptor]. *)
+
   val initialize : Editor_context.t -> state
 
   val handle_input :

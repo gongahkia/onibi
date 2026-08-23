@@ -14,6 +14,7 @@ let descriptor =
          "Minimal pending-operator grammar used only to validate the M2 API."
        ())
 
+let descriptor_of_state _ = descriptor
 let initialize _context = Command
 let reset _state _context = Command
 

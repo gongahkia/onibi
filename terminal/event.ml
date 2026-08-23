@@ -13,6 +13,8 @@ type key =
   | Arrow_right
   | Home
   | End
+  | Page_up
+  | Page_down
 
 type mouse_button = Primary | Middle | Secondary | Wheel_up | Wheel_down
 type mouse_action = Press of mouse_button | Drag | Release

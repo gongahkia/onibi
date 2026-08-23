@@ -23,6 +23,9 @@ type t =
   | Invalid_model_status of string
   | Invalid_clipboard_slot of string
   | Clipboard_slot_empty of string
+  | System_clipboard_error of string
+  | External_filter_error of string
+  | Background_job_error of string
   | Duplicate_command of string
   | Duplicate_descriptor of string
   | Unknown_command of string

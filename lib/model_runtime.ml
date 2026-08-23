@@ -32,6 +32,7 @@ module Make (Model : Editing_model.S) = struct
     syntax_service : Zenbu_syntax.Syntax.Service.t option;
     clipboard : Clipboard.t;
     macro_recording_register : string option;
+    model_descriptor : Editing_model.descriptor;
     state : Model.state;
     input_trace : Input_event.t list;
     repeatable_intents : Model_intent.t list option;
@@ -183,6 +184,7 @@ module Make (Model : Editing_model.S) = struct
             syntax_service;
             clipboard;
             macro_recording_register = None;
+            model_descriptor = Model.descriptor_of_state state;
             state;
             input_trace = [];
             repeatable_intents = None;
@@ -227,6 +229,7 @@ module Make (Model : Editing_model.S) = struct
             syntax_service = shared.syntax_service;
             clipboard = shared.clipboard;
             macro_recording_register = shared.macro_recording_register;
+            model_descriptor = Model.descriptor_of_state state;
             state;
             input_trace = shared.input_trace;
             repeatable_intents = shared.repeatable_intents;
@@ -243,6 +246,14 @@ module Make (Model : Editing_model.S) = struct
 
   let with_macro_recording_register runtime macro_recording_register =
     { runtime with macro_recording_register }
+
+  let with_kill_ring runtime kill_ring =
+    {
+      runtime with
+      clipboard = Clipboard.with_kill_ring runtime.clipboard kill_ring;
+    }
+
+  let kill_ring runtime = Clipboard.kill_ring_entries runtime.clipboard
 
   let sync_syntax_after_commit runtime ~execution_id history =
     match (runtime.syntax_service, History.current_change history) with
@@ -667,6 +678,47 @@ module Make (Model : Editing_model.S) = struct
              (Document.snapshot (History.current history))
              selections)
 
+  let cut_to_clipboard runtime ~execution_id history clipboard base ~slot
+      ~selector ~kind =
+    let snapshot = Document.snapshot (History.current history) in
+    match selection_set_for_selector history selector with
+    | Error _ as error -> error
+    | Ok selections -> (
+        let contents = copied_selection_contents snapshot selections in
+        if String.length contents = 0 then
+          Error
+            (Error.Invalid_command_arguments
+               "cut requires at least one non-empty selected range")
+        else
+          match Clipboard.entry ~kind ~contents with
+          | Error _ as error -> error
+          | Ok entry -> (
+              let selector_id =
+                Model_intent.selector_to_kernel selector |> Selector.to_string
+              in
+              let transformation_id =
+                Model_intent.transformation_to_kernel Model_intent.Delete
+                |> Transformation.name
+              in
+              let action =
+                dynamic_action ~base ~selector_id ~transformation_id
+              in
+              let transaction =
+                Intent.resolve_on_selections ~source:Transaction.User
+                  ~provenance:action.provenance ~intent:"cut-to-clipboard"
+                  snapshot selections
+                  (Model_intent.transformation_to_kernel Model_intent.Delete)
+              in
+              match transaction with
+              | Error _ as error -> error
+              | Ok transaction ->
+                  apply_transaction runtime ~execution_id history action
+                    transaction
+                  |> Result.map (fun (history, change_id) ->
+                      ( history,
+                        Clipboard.store_kill clipboard ~slot ~entry,
+                        change_id ))))
+
   let paste_intents history entry placement =
     let contents = Clipboard.contents entry in
     match placement with
@@ -952,6 +1004,22 @@ module Make (Model : Editing_model.S) = struct
                     [],
                     [],
                     repeatable_intents )))
+    | Model_effect.Cut_to_clipboard { slot; selector; kind } -> (
+        let base = effect_provenance base model_effect in
+        match
+          cut_to_clipboard runtime ~execution_id history clipboard base ~slot
+            ~selector ~kind
+        with
+        | Error _ as error -> error
+        | Ok (history, clipboard, change_id) ->
+            Ok
+              ( history,
+                clipboard,
+                [],
+                [ change_id ],
+                [],
+                retain_repeatable repeatable_intents
+                  [ Model_intent.delete_selected_ranges ] ))
     | Model_effect.Paste_from_clipboard { slot; placement } -> (
         match Clipboard.find clipboard ~slot with
         | None -> Error (Error.Clipboard_slot_empty (Clipboard.slot_name slot))
@@ -971,8 +1039,38 @@ module Make (Model : Editing_model.S) = struct
                         changes,
                         [],
                         retain_repeatable repeatable_intents intents ))))
+    | Model_effect.Paste_from_kill_ring { index; placement } -> (
+        if index < 0 then
+          Error
+            (Error.Invalid_command_arguments
+               "kill history index must not be negative")
+        else
+          match Clipboard.find_kill clipboard ~index with
+          | None ->
+              Error
+                (Error.Clipboard_slot_empty
+                   ("kill-ring[" ^ string_of_int index ^ "]"))
+          | Some entry -> (
+              match paste_intents history entry placement with
+              | Error _ as error -> error
+              | Ok intents -> (
+                  let base = effect_provenance base model_effect in
+                  let actions = List.map (action ~base) intents in
+                  match apply_actions runtime ~execution_id history actions with
+                  | Error _ as error -> error
+                  | Ok (history, changes) ->
+                      Ok
+                        ( history,
+                          clipboard,
+                          actions,
+                          changes,
+                          [],
+                          retain_repeatable repeatable_intents intents ))))
     | Model_effect.Request_search _ | Model_effect.Repeat_search _
-    | Model_effect.Request_macro _ ->
+    | Model_effect.Request_macro _ | Model_effect.Request_location _
+    | Model_effect.Request_jump _ | Model_effect.Request_workspace _
+    | Model_effect.Request_viewport _ | Model_effect.Request_external_filter _
+    | Model_effect.Request_background_process _ | Model_effect.Request_save ->
         Ok (history, clipboard, [], [], [], repeatable_intents)
     | Model_effect.Undo -> (
         match History.undo history with
@@ -1069,6 +1167,7 @@ module Make (Model : Editing_model.S) = struct
     let execution_id = !(runtime.next_execution_id) in
     runtime.next_execution_id := execution_id + 1;
     let status_before = Model.status runtime.state in
+    let descriptor = runtime.model_descriptor in
     trace runtime.trace (fun () ->
         Trace_event.Input_received
           { execution_id; input = Input_event.to_string input });
@@ -1076,7 +1175,7 @@ module Make (Model : Editing_model.S) = struct
         Trace_event.Model_before
           {
             execution_id;
-            model_id = Editing_model.id Model.descriptor;
+            model_id = Editing_model.id descriptor;
             status_id = Model_status.id status_before;
             status_label = Model_status.label status_before;
           });
@@ -1087,22 +1186,29 @@ module Make (Model : Editing_model.S) = struct
         runtime.history runtime.commands runtime.clipboard
     in
     let model_result =
-      Profiler.measure runtime.profiler
-        ~model_id:(Editing_model.id Model.descriptor) Profiler.Model_handle
-        (fun () ->
+      Profiler.measure runtime.profiler ~model_id:(Editing_model.id descriptor)
+        Profiler.Model_handle (fun () ->
           model_call (fun () -> Model.handle_input runtime.state input context))
     in
     match model_result with
     | Error error ->
+        trace_extension_callback runtime ~execution_id ~kind:"model"
+          ~provider:(Editing_model.provider descriptor)
+          ~semantic_id:(Editing_model.id descriptor)
+          ~reason:(Error.to_string error) "failed";
         trace runtime.trace (fun () ->
             Trace_event.Error_reported
               { execution_id; reason = Error.to_string error });
         Error error
     | Ok (state, effects) -> (
+        trace_extension_callback runtime ~execution_id ~kind:"model"
+          ~provider:(Editing_model.provider descriptor)
+          ~semantic_id:(Editing_model.id descriptor)
+          "succeeded";
         let base () =
           Provenance.create ~execution_id
-            ~model_id:(Editing_model.id Model.descriptor)
-            ~provider:(Editing_model.provider Model.descriptor)
+            ~model_id:(Editing_model.id descriptor)
+            ~provider:(Editing_model.provider descriptor)
             ~input:(Input_event.to_string input)
           |> fun provenance ->
           match runtime.pending_interaction with
@@ -1163,7 +1269,7 @@ module Make (Model : Editing_model.S) = struct
                     Trace_event.Model_transition
                       {
                         execution_id;
-                        model_id = Editing_model.id Model.descriptor;
+                        model_id = Editing_model.id descriptor;
                         previous_status = Model_status.id status_before;
                         next_status = Model_status.id status_after;
                       });
@@ -1174,6 +1280,7 @@ module Make (Model : Editing_model.S) = struct
                     semantic_behaviors = runtime.semantic_behaviors;
                     syntax_service = runtime.syntax_service;
                     clipboard;
+                    model_descriptor = runtime.model_descriptor;
                     macro_recording_register = runtime.macro_recording_register;
                     state;
                     input_trace = bounded_inputs runtime.input_trace input;
@@ -1206,13 +1313,14 @@ module Make (Model : Editing_model.S) = struct
     let execution_id = !(runtime.next_execution_id) in
     runtime.next_execution_id := execution_id + 1;
     let status_before = Model.status runtime.state in
+    let descriptor = runtime.model_descriptor in
     trace runtime.trace (fun () ->
         Trace_event.Input_received
           { execution_id; input = Input_event.to_string input });
     let base () =
       Provenance.create ~execution_id
-        ~model_id:(Editing_model.id Model.descriptor)
-        ~provider:(Editing_model.provider Model.descriptor)
+        ~model_id:(Editing_model.id descriptor)
+        ~provider:(Editing_model.provider descriptor)
         ~input:(Input_event.to_string input)
       |> augment_provenance
     in
@@ -1253,6 +1361,21 @@ module Make (Model : Editing_model.S) = struct
               status_after = status_before;
             } )
 
+  let restore_selections runtime ~selections ~primary =
+    match Model_intent.set_selections ~selections ~primary with
+    | Error _ as error -> error
+    | Ok intent ->
+        let input =
+          Input_event.key_press (Input_event.named_key Input_event.Escape)
+        in
+        execute_effects runtime
+          ~augment_provenance:(fun provenance ->
+            Provenance.add provenance
+              (Provenance.Effect "workspace.view.restore"))
+          ~input
+          [ Model_effect.Execute_intent intent ]
+        |> Result.map fst
+
   let invoke_command runtime ?augment_provenance ~input invocation =
     execute_effects runtime ?augment_provenance ~input
       [ Model_effect.Invoke_command invocation ]
@@ -1266,7 +1389,13 @@ module Make (Model : Editing_model.S) = struct
     in
     match model_call (fun () -> Model.reset runtime.state context) with
     | Error _ as error -> error
-    | Ok state -> Ok { runtime with state }
+    | Ok state ->
+        Ok
+          {
+            runtime with
+            state;
+            model_descriptor = Model.descriptor_of_state state;
+          }
 
   let history runtime = runtime.history
   let commands runtime = runtime.commands
@@ -1282,7 +1411,8 @@ module Make (Model : Editing_model.S) = struct
       runtime.commands runtime.clipboard
 
   let status runtime = Model.status runtime.state
-  let model_descriptor _ = Model.descriptor
+  let model_state runtime = runtime.state
+  let model_descriptor runtime = runtime.model_descriptor
   let input_trace runtime = runtime.input_trace
   let trace runtime = runtime.trace
   let profiler runtime = runtime.profiler

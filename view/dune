@@ -1,5 +1,5 @@
 (library
  (name zenbu_view)
  (public_name zenbu.view)
- (modules display frame layout theme viewport renderer)
+ (modules display frame layout presentation theme viewport renderer)
  (libraries zenbu_model_api otoml uucp uuseg))

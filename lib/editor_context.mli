@@ -16,6 +16,9 @@ val document_version : t -> int
 val contents : t -> string
 val byte_length : t -> int
 val selections : t -> selection_set
+
+(* A presentation-only context with an already validated selection set. *)
+val with_selections : t -> selection_set -> t
 val command_descriptors : t -> Command_descriptor.t list
 val clipboard_entry : t -> slot:Clipboard.slot -> Clipboard.entry option
 val macro_recording_register : t -> string option

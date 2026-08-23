@@ -67,7 +67,12 @@
   zenbu_terminal
   zenbu_app
   unix)
- (deps fixtures/m4_theme.toml fixtures/m4_theme_invalid.toml))
+ (deps
+  fixtures/m4_theme.toml
+  fixtures/m4_theme_invalid.toml
+  fixtures/m4_presentation.toml
+  fixtures/m4_presentation_buffered.toml
+  fixtures/m4_presentation_invalid.toml))
 
 (test
  (name test_m5_syntax)

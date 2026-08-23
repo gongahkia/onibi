@@ -33,6 +33,8 @@ let named_key = function
   | Event.Arrow_right -> Some Input_event.Arrow_right
   | Event.Home -> Some Input_event.Home
   | Event.End -> Some Input_event.End
+  | Event.Page_up -> Some Input_event.Page_up
+  | Event.Page_down -> Some Input_event.Page_down
   | Event.Text _ -> None
 
 let decode ~input_mode = function

@@ -13,6 +13,24 @@ offset. It is not a persistent marker. When an edit is committed, supplied or
 carried selections are deterministically rebased to the new snapshot, but an
 old anchor itself remains valid only for its old snapshot.
 
+The host-level location service is deliberately separate from anchors. A named
+session location records an active-buffer id, the complete ordered selection
+set and primary index, and its source document version. It advances those
+offsets through the current history lineage using the same transaction-edit
+rebasing rule as a document commit. A jump activates the recorded buffer and
+executes an ordinary `set-selections` intent. If the source version is no
+longer on that buffer's current lineage (for example after undo to an earlier
+branch), the location becomes `stale` and is rejected rather than mapped to a
+potentially unrelated snapshot.
+
+The Session jump history uses the same rebased location representation. It has
+bounded backward and forward stacks (100 entries total on a normal traversal),
+so a host or model can save the current selection before a deliberate jump and
+then restore older/newer selections. A new jump clears the forward stack. Stale
+entries are skipped and discarded during traversal rather than restored. The
+history is session-wide across local buffers; it is not a persistence format or
+a per-window compatibility layer.
+
 Ranges are half-open: `[start, stop)`. Empty ranges represent insertion points.
 
 ## Transaction construction and commit
@@ -189,6 +207,25 @@ paste finds each current physical line and inserts before its start or after
 its terminating boundary. First-party Vim-style `"a` syntax is only a grammar
 for choosing a slot; the stored slot itself is shared editor semantic state,
 also available to the selection-first model.
+
+`Cut_to_clipboard` is intentionally separate from copy. It rejects an empty
+selection, then commits the delete transaction and only on success stores the
+entry in its selected slot and prepends it to a 120-entry UTF-8 kill history.
+Session synchronizes that history, but not ordinary named slots, across local
+buffers. `Paste_from_kill_ring` takes a non-negative entry index and resolves
+the same documented paste placement; a missing index fails before it mutates
+the document. This is a bounded shared primitive for product adapters, not a
+system clipboard bridge or a complete Emacs kill-ring implementation.
+
+The optional system clipboard bridge is above the model runtime. Its two fixed
+host descriptors read/write only one UTF-8 text value with a 16 MiB limit.
+Copy first writes the external value and then updates the runtime's ordinary
+unnamed slot; paste converts a successfully read non-empty value into a normal
+replace-selections intent. A provider failure occurs before any document or
+ordinary-slot mutation. The Session test seam injects only `read` and `write`
+functions so the behavior is deterministic in regression tests; production
+selects a fixed platform tool rather than evaluating shell text from a model or
+script.
 
 `undo` and `redo` are declarative runtime effects that navigate the existing
 immutable history tree. They do not create private model histories. The runtime

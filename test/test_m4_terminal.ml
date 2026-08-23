@@ -4,6 +4,7 @@ module App = Zenbu_app
 module Display = Zenbu_view.Display
 module Frame = Zenbu_view.Frame
 module Layout = Zenbu_view.Layout
+module Presentation = Zenbu_view.Presentation
 module Renderer = Zenbu_view.Renderer
 module Theme = Zenbu_view.Theme
 module Terminal = Zenbu_terminal
@@ -41,6 +42,7 @@ let layout_must = function
 
 let key text = Input_event.key_press (Input_event.logical_text text |> must)
 let text_input text = Input_event.text_input text |> must
+let named key = Input_event.key_press (Input_event.named_key key)
 let pointer action ~column ~row = Input_event.mouse action ~column ~row |> must
 
 let status input_mode =
@@ -84,6 +86,15 @@ let test_input_decoder_is_model_neutral () =
     (Input_event.key (Option.get tab)
     = Some (Input_event.Named_key Input_event.Tab))
     "named terminal keys must remain logical key presses";
+  let page_down =
+    Terminal.Input_decoder.decode ~input_mode:Model_status.Key_commands
+      (Terminal.Event.Key { key = Terminal.Event.Page_down; modifiers = [] })
+    |> must
+  in
+  expect
+    (Input_event.key (Option.get page_down)
+    = Some (Input_event.Named_key Input_event.Page_down))
+    "PageDown did not remain a named logical key press";
   let mouse =
     Terminal.Input_decoder.decode ~input_mode:Model_status.Key_commands
       (Terminal.Event.Mouse
@@ -117,6 +128,12 @@ let test_binding_sequence_parser () =
   expect
     (Input_event.binding_sequence_to_string case_sensitive = "text(Q) text(q)")
     "plain binding tokens did not preserve letter case";
+  let pages =
+    Input_event.binding_sequence_of_string "PageUp PageDown" |> must
+  in
+  expect
+    (Input_event.binding_sequence_to_string pages = "PageUp PageDown")
+    "binding sequence parsing did not preserve page-navigation keys";
   expect
     (match Input_event.binding_sequence_of_string "Ctrl-X  Ctrl-K" with
     | Error _ -> true
@@ -255,6 +272,38 @@ let test_theme_contract () =
     (Result.is_error (Theme.load invalid))
     "an unknown theme role was accepted"
 
+let test_presentation_profile_contract () =
+  expect
+    (List.map Presentation.name (Presentation.builtins ())
+    = [ "default"; "numbered"; "relative"; "minimal"; "bare"; "buffered" ])
+    "built-in presentation profile names are not stable";
+  let path = theme_fixture "m4_presentation.toml" in
+  let profile =
+    match Presentation.load path with
+    | Ok profile -> profile
+    | Error reason -> failf "%s" reason
+  in
+  expect_string ~expected:"m4-relative-minimal"
+    ~actual:(Presentation.name profile);
+  expect
+    (Presentation.line_numbers profile = Presentation.Relative
+    && Presentation.status_line profile = Presentation.Minimal
+    && Presentation.buffer_line profile = Presentation.Hidden_buffer_line)
+    "a custom presentation profile did not preserve both renderer policies";
+  let buffered = theme_fixture "m4_presentation_buffered.toml" in
+  let buffered =
+    match Presentation.load buffered with
+    | Ok profile -> profile
+    | Error reason -> failf "%s" reason
+  in
+  expect
+    (Presentation.buffer_line buffered = Presentation.Visible)
+    "a custom presentation profile did not preserve its buffer-line policy";
+  let invalid = theme_fixture "m4_presentation_invalid.toml" in
+  expect
+    (Result.is_error (Presentation.load invalid))
+    "an invalid presentation line-number mode was accepted"
+
 let test_layout_composition () =
   let layout =
     Layout.single 0 |> fun layout ->
@@ -339,9 +388,116 @@ let test_renderer_selection_viewport_and_tiny_terminal () =
     (List.length (Frame.rows tiny.frame) = 1)
     "tiny terminals need a safe fallback frame"
 
+let test_renderer_presentation_profiles () =
+  let context = document_context ~selections:[ (5, 5) ] "zero\none\ntwo" in
+  let relative_minimal =
+    match Presentation.load (theme_fixture "m4_presentation.toml") with
+    | Ok profile -> profile
+    | Error reason -> failf "%s" reason
+  in
+  let relative =
+    Renderer.render_with_presentation ~presentation:relative_minimal ~context
+      ~status:(status Model_status.Key_commands)
+      ~filename:"sample" ~dirty:false ~message:None
+      ~viewport:Zenbu_view.Viewport.origin ~dimensions:{ columns = 8; rows = 3 }
+  in
+  let rows = Frame.rows relative.frame in
+  expect
+    (List.map Frame.row_text rows = [ "1 zero  "; "0 one   "; "TEST  sa" ])
+    "relative presentation did not reserve a stable gutter and minimal status \
+     row";
+  expect
+    (Frame.cursor relative.frame = Some Frame.{ column = 2; row = 1 })
+    "a line-number gutter did not shift the terminal cursor";
+  let bare =
+    Renderer.render_with_presentation ~presentation:Presentation.bare ~context
+      ~status:(status Model_status.Key_commands)
+      ~filename:"sample" ~dirty:false ~message:None
+      ~viewport:Zenbu_view.Viewport.origin ~dimensions:{ columns = 8; rows = 3 }
+  in
+  expect
+    (List.length (Frame.rows bare.frame) = 3
+    && not (List.mem Frame.Status (styles bare.frame)))
+    "hidden status presentation did not allocate the whole frame to source rows";
+  let narrow =
+    Renderer.render_with_presentation ~presentation:Presentation.numbered
+      ~context
+      ~status:(status Model_status.Key_commands)
+      ~filename:"sample" ~dirty:false ~message:None
+      ~viewport:Zenbu_view.Viewport.origin ~dimensions:{ columns = 1; rows = 2 }
+  in
+  expect
+    (Frame.width narrow.frame = 1
+    && List.length (Frame.rows narrow.frame) = 2
+    && Frame.cursor narrow.frame = None)
+    "a gutter wider than the canvas did not degrade to a safe cursorless frame"
+
 let primary_selection session =
   let selections = Editor_context.selections (App.Session.context session) in
   List.nth selections.selections selections.primary_index
+
+let test_session_presentation_profile () =
+  let presentation =
+    match Presentation.load (theme_fixture "m4_presentation.toml") with
+    | Ok profile -> profile
+    | Error reason -> failf "%s" reason
+  in
+  let session =
+    App.Session.create ~model:App.Session.Direct ~presentation
+      ~contents:"zero\none"
+      ~dimensions:Renderer.{ columns = 8; rows = 3 }
+      ()
+    |> must
+  in
+  let _, frame = App.Session.render session in
+  expect
+    (Frame.rows frame |> List.hd |> Frame.row_text = "0 zero  ")
+    "the Session did not pass its presentation profile to pane rendering";
+  let switched = App.Session.set_presentation session ~profile:"numbered" in
+  let _, frame = App.Session.render switched in
+  expect
+    (Frame.rows frame |> List.hd |> Frame.row_text = "1 zero  ")
+    "runtime presentation switching did not update the terminal chrome";
+  expect
+    (App.Session.contents switched = "zero\none"
+    && primary_selection switched = primary_selection session)
+    "runtime presentation switching changed semantic editor state";
+  let rejected =
+    App.Session.set_presentation switched ~profile:"not-a-presentation"
+  in
+  let _, frame = App.Session.render rejected in
+  expect
+    (Frame.rows frame |> List.hd |> Frame.row_text = "1 zero  ")
+    "an invalid runtime presentation replaced the active profile";
+  expect
+    (List.exists
+       (fun descriptor ->
+         Command_descriptor.id descriptor
+         |> Command_id.to_string
+         |> String.equal "view.presentation.switch")
+       (App.Session.host_command_descriptors ()))
+    "runtime presentation switching is not discoverable through the host \
+     palette";
+  let themed = App.Session.set_theme rejected ~theme:"dark" in
+  expect
+    (Theme.name (App.Session.theme themed) = "dark")
+    "runtime theme switching did not retain the selected terminal theme";
+  expect
+    (App.Session.contents themed = "zero\none"
+    && primary_selection themed = primary_selection session)
+    "runtime theme switching changed semantic editor state";
+  let rejected_theme = App.Session.set_theme themed ~theme:"not-a-theme" in
+  expect
+    (Theme.name (App.Session.theme rejected_theme) = "dark")
+    "an invalid runtime theme replaced the active theme";
+  expect
+    (List.exists
+       (fun descriptor ->
+         Command_descriptor.id descriptor
+         |> Command_id.to_string
+         |> String.equal "view.theme.switch")
+       (App.Session.host_command_descriptors ()))
+    "runtime theme switching is not discoverable through the host palette"
 
 let test_pointer_selection_and_scroll () =
   let dimensions = Renderer.{ columns = 12; rows = 5 } in
@@ -404,7 +560,33 @@ let test_pointer_selection_and_scroll () =
   in
   expect
     (App.Session.focused_pane session = 1)
-    "a mouse press did not focus the pane under the pointer"
+    "a mouse press did not focus the pane under the pointer";
+  let numbered =
+    App.Session.create ~model:App.Session.Direct ~contents:"abcd"
+      ~presentation:Presentation.numbered
+      ~dimensions:Renderer.{ columns = 8; rows = 3 }
+      ()
+    |> must
+    |> fun session ->
+    App.Session.handle_pointer session
+      (pointer (Input_event.Press Input_event.Primary) ~column:3 ~row:0)
+  in
+  expect
+    ((primary_selection numbered).head_offset = 1)
+    "a line-number gutter was not excluded from mouse source coordinates";
+  let bare =
+    App.Session.create ~model:App.Session.Direct ~contents:"a\nb\nc"
+      ~presentation:Presentation.bare
+      ~dimensions:Renderer.{ columns = 8; rows = 3 }
+      ()
+    |> must
+    |> fun session ->
+    App.Session.handle_pointer session
+      (pointer (Input_event.Press Input_event.Primary) ~column:0 ~row:2)
+  in
+  expect
+    ((primary_selection bare).head_offset = 4)
+    "a status-free presentation rejected a click on its final source row"
 
 let temporary_file () = Filename.temp_file "zenbu-m4-" ".txt"
 let remove path = try Unix.unlink path with Unix.Unix_error _ -> ()
@@ -612,6 +794,152 @@ let test_session_workspace_views () =
     (contains ~substring:"alpha" screen && contains ~substring:"delta" screen)
     "separate buffers were not rendered in their assigned split views"
 
+let host_session session command =
+  match App.Session.handle_host session command with
+  | App.Session.Continue session -> session
+  | App.Session.Exit _ -> failf "workspace command unexpectedly exited"
+
+let test_session_buffer_line_presentation () =
+  let dimensions = Renderer.{ columns = 24; rows = 5 } in
+  let session =
+    App.Session.create ~model:App.Session.Direct ~contents:"abcd" ~dimensions ()
+    |> must
+    |> fun session ->
+    App.Session.rename_buffer session ~name:"alpha" |> fun session ->
+    host_session session App.Session.New_buffer |> fun session ->
+    App.Session.rename_buffer session ~name:"beta" |> fun session ->
+    App.Session.switch_buffer session ~buffer_id:0 |> fun session ->
+    App.Session.set_presentation session ~profile:"buffered"
+  in
+  let session, frame = App.Session.render session in
+  let rows = Frame.rows frame in
+  expect
+    (Frame.height frame = 5
+    && String.starts_with ~prefix:"[0:alpha] 1:beta "
+         (Frame.row_text (List.hd rows)))
+    "the buffered presentation did not render stable buffer labels";
+  expect
+    (Frame.cursor frame = Some Frame.{ column = 0; row = 1 })
+    "the buffer line did not translate the document cursor";
+  let before = primary_selection session in
+  let after_bar =
+    App.Session.handle_pointer session
+      (pointer (Input_event.Press Input_event.Primary) ~column:0 ~row:0)
+  in
+  expect
+    (primary_selection after_bar = before)
+    "clicking the noninteractive buffer line changed a selection";
+  let after_document =
+    App.Session.handle_pointer after_bar
+      (pointer (Input_event.Press Input_event.Primary) ~column:2 ~row:1)
+  in
+  expect
+    ((primary_selection after_document).head_offset = 2)
+    "the buffer line did not shift document pointer coordinates";
+  let unbuffered =
+    App.Session.set_presentation after_document ~profile:"default"
+  in
+  let _, unbuffered_frame = App.Session.render unbuffered in
+  expect
+    (String.starts_with ~prefix:"abcd"
+       (Frame.rows unbuffered_frame |> List.hd |> Frame.row_text))
+    "disabling the buffer line did not return the top row to the document"
+
+let test_keyboard_viewport_commands () =
+  let dimensions = Renderer.{ columns = 20; rows = 5 } in
+  let contents = "zero\none\ntwo\nthree\nfour\nfive\nsix\nseven" in
+  let session =
+    App.Session.create ~model:App.Session.Direct ~contents ~dimensions ()
+    |> must
+  in
+  let original_selection = primary_selection session in
+  let session = host_session session App.Session.View_page_down in
+  expect
+    ((App.Session.viewport session).top_line = 4)
+    "a page-down host command did not use the rendered source-row height";
+  expect
+    (not (App.Session.viewport session).follow_cursor)
+    "page navigation did not retain an explicit viewport position";
+  expect
+    (primary_selection session = original_selection
+    && App.Session.contents session = contents)
+    "page navigation changed semantic document state";
+  let session = host_session session App.Session.View_scroll_up in
+  expect
+    ((App.Session.viewport session).top_line = 3)
+    "a line-scroll host command did not move one source row";
+  let session = host_session session App.Session.View_page_up in
+  expect
+    ((App.Session.viewport session).top_line = 0)
+    "a page-up host command did not clamp at the top of the buffer";
+  let session =
+    session |> fun session ->
+    App.Session.handle_input session (named Input_event.Arrow_down)
+    |> fun session ->
+    App.Session.handle_input session (named Input_event.Arrow_down)
+    |> fun session ->
+    App.Session.handle_input session (named Input_event.Arrow_down)
+    |> fun session ->
+    App.Session.handle_input session (named Input_event.Arrow_down)
+  in
+  let selection_before_center = primary_selection session in
+  let session = host_session session App.Session.View_center in
+  expect
+    ((App.Session.viewport session).top_line = 2)
+    "center-view did not center the primary selection in the source canvas";
+  expect
+    (primary_selection session = selection_before_center)
+    "center-view changed the primary selection";
+  let bare =
+    App.Session.create ~model:App.Session.Direct ~presentation:Presentation.bare
+      ~contents ~dimensions ()
+    |> must
+  in
+  let bare = host_session bare App.Session.View_page_down in
+  expect
+    ((App.Session.viewport bare).top_line = 3)
+    "page navigation did not account for a presentation with no status row"
+
+let test_workspace_view_positions () =
+  let dimensions = Renderer.{ columns = 100; rows = 6 } in
+  let session =
+    App.Session.create ~model:App.Session.Direct ~contents:"abcd" ~dimensions ()
+    |> must
+  in
+  let session =
+    session |> fun session ->
+    App.Session.handle_input session (named Input_event.Arrow_right)
+    |> fun session ->
+    App.Session.handle_input session (named Input_event.Arrow_right)
+    |> fun session -> host_session session App.Session.Split_vertical
+  in
+  let session =
+    session |> fun session ->
+    App.Session.handle_input session (named Input_event.Arrow_right)
+    |> fun session ->
+    App.Session.handle_input session (named Input_event.Arrow_right)
+  in
+  let session, frame = App.Session.render session in
+  let screen =
+    Frame.rows frame |> List.map Frame.row_text |> String.concat "\n"
+  in
+  expect
+    (contains ~substring:"1:3" screen && contains ~substring:"1:5" screen)
+    "split panes did not render their independently saved caret positions";
+  let session =
+    host_session session App.Session.Focus_next_pane |> fun session ->
+    App.Session.handle_input session (text_input "X")
+  in
+  expect_string ~expected:"abXcd" ~actual:(App.Session.contents session);
+  let session =
+    host_session session App.Session.Focus_next_pane |> fun session ->
+    App.Session.handle_input session (text_input "Y")
+  in
+  expect_string ~expected:"abXcdY" ~actual:(App.Session.contents session);
+  expect
+    (App.Session.pane_count session = 2)
+    "view-position restoration changed the split layout"
+
 let test_session_open_buffer_prompt () =
   let path = temporary_file () in
   Fun.protect
@@ -680,13 +1008,19 @@ let () =
     ("terminal input disposition", test_input_decoder_is_model_neutral);
     ("binding sequence parser", test_binding_sequence_parser);
     ("theme contract", test_theme_contract);
+    ("presentation profile contract", test_presentation_profile_contract);
     ("display coordinates", test_display_coordinates);
     ("pointer selection and scroll", test_pointer_selection_and_scroll);
     ( "renderer selections viewport tiny",
       test_renderer_selection_viewport_and_tiny_terminal );
+    ("renderer presentation profiles", test_renderer_presentation_profiles);
+    ("session presentation profile", test_session_presentation_profile);
+    ("session buffer-line presentation", test_session_buffer_line_presentation);
     ("pure pane layout composition", test_layout_composition);
     ("session file dirty and model host", test_session_file_dirty_and_models);
     ("session workspace views", test_session_workspace_views);
+    ("keyboard viewport commands", test_keyboard_viewport_commands);
+    ("workspace view positions", test_workspace_view_positions);
     ("session open-buffer prompt", test_session_open_buffer_prompt);
   ]
   |> List.iter (fun (name, test) -> run name test)

@@ -37,10 +37,18 @@ and mode_transition =
 
 type hook = { event : string; callback : callback }
 
+type model = {
+  descriptor : descriptor;
+  initial_state : Zenbu_model_api.Extension_value.t;
+  initial_status : Zenbu_model_api.Extension_value.t;
+  callback : callback;
+}
+
 type registration =
   | Command of descriptor * callback
   | Selector of descriptor * callback
   | Transformation of descriptor * callback
+  | Model of model
   | Mode of mode
   | Binding of binding
   | Hook of hook

@@ -23,17 +23,23 @@ take priority over model/configuration bindings.
 | `Alt-H` / `Ctrl-O` | metadata-derived help / latest-`why` inspector |
 | `Ctrl-Space` | explicit language completion |
 
-Search retains a literal UTF-8 query, pre-search selection, highlight ranges,
-and current result. It moves through an ordinary semantic `set-selections`
-intent, refreshes after document changes, restores the pre-search selection on
-prompt cancellation, and is inspectable through `Session.Search` or
-`zenbu-headless search-session`. Its descriptors are `search.start`,
-`search.next`, and `search.previous` with provider `zenbu.app`, so they appear
-in `commands`, `describe command`, bindings, and the same palette as model,
-Lua, and plugin commands. It is not regex/project search or a model-specific
-grammar. The palette filters descriptor id/title/summary/provider. A selected
-descriptor with parameters enters a host-owned prompt for each parameter;
-`Escape` abandons the invocation. Text parameters accept committed UTF-8.
+Search retains its query kind, UTF-8 query, pre-search selection, highlight
+ranges, and current result. `Ctrl-F` and model `Request_search` effects start
+the literal variant. The `search.regexp` palette command and permitted trusted
+adapter binding target start the incremental OCaml `Str` variant. It accepts
+only non-empty, non-overlapping matches whose byte endpoints are UTF-8 code
+point boundaries; an invalid, zero-width, or boundary-splitting match leaves
+the selection unchanged and the prompt open for correction. Both variants move
+through an ordinary semantic `set-selections` intent, refresh after document
+changes, restore the pre-search selection on prompt cancellation, and are
+inspectable through `Session.Search` or `zenbu-headless search-session`.
+Their descriptors are `search.start`, `search.regexp`, `search.next`, and
+`search.previous` with provider `zenbu.app`, so they appear in `commands`,
+`describe command`, bindings, and the same palette as model, Lua, and plugin
+commands. This is not product-regexp or project-search compatibility. The
+palette filters descriptor id/title/summary/provider. A selected descriptor
+with parameters enters a host-owned prompt for each parameter; `Escape`
+abandons the invocation. Text parameters accept committed UTF-8.
 Built-in selector parameters use canonical selector IDs such as `document` and
 transformations use `select`, `delete`, `collapse-to-start`, `collapse-to-end`,
 or `replace:<text>`. The completed values become a normal

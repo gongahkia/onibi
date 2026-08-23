@@ -20,6 +20,7 @@ let must = function
   | Ok value -> value
   | Error error -> failf "%s" (Error.to_string error)
 
+let expect_error = function Error _ -> () | Ok _ -> failf "expected an error"
 let key text = Input_event.logical_text text |> must |> Input_event.key_press
 let text_input text = Input_event.text_input text |> must
 let named value = Input_event.key_press (Input_event.named_key value)
@@ -44,10 +45,11 @@ let contains text fragment =
 let lines_contain lines fragment =
   List.exists (fun line -> contains line fragment) lines
 
-let make_session ?(model = App.Session.Vim) ?language ?trace
+let make_session ?(model = App.Session.Vim) ?language ?trace ?system_clipboard
     ?(config = Zenbu_scripting.Scripting.Disabled) ?(dimensions = dimensions)
     contents =
-  App.Session.create ~model ?language ?trace ~contents ~config ~dimensions ()
+  App.Session.create ~model ?language ?trace ?system_clipboard ~contents ~config
+    ~dimensions ()
   |> must
 
 let continue = function
@@ -65,6 +67,18 @@ let selection_offsets session =
     (fun (selection : Editor_context.selection) ->
       (selection.anchor_offset, selection.head_offset))
     selections.selections
+
+let invoke_palette_text_argument session command value =
+  let session =
+    App.Session.handle_host session App.Session.Open_palette |> continue
+  in
+  let session = App.Session.handle_input session (text_input command) in
+  let session = App.Session.handle_input session (named Input_event.Enter) in
+  expect
+    (Model_status.id (App.Session.status session) = "host-command-argument")
+    "command %s did not open its required text prompt" command;
+  let session = App.Session.handle_input session (text_input value) in
+  App.Session.handle_input session (named Input_event.Enter)
 
 let test_unicode_search_is_host_level_and_observable () =
   let trace = Trace.enabled ~capacity:64 |> must in
@@ -173,6 +187,60 @@ let test_unicode_search_is_host_level_and_observable () =
   expect
     ((App.Session.viewport followed).Zenbu_view.Viewport.top_line > 0)
     "searching a distant match did not move the viewport to the selected result"
+
+let test_regexp_search_is_incremental_and_utf8_safe () =
+  let session = make_session "a12 β34 a5" in
+  let session =
+    App.Session.handle_host session App.Session.Start_regexp_search |> continue
+  in
+  expect
+    (Model_status.input_mode (App.Session.status session)
+    = Model_status.Text_entry)
+    "regexp search did not declare text-entry input";
+  let session = App.Session.handle_input session (text_input "a[0-9][0-9]*") in
+  expect
+    (primary_offsets session = (0, 3))
+    "regexp search did not select its first non-empty match";
+  let search = App.Session.inspect session App.Session.Search in
+  expect
+    (lines_contain search "kind: regexp" && lines_contain search "matches: 2")
+    "regexp search is not distinguishable from literal search in inspection";
+  let session =
+    App.Session.handle_host session App.Session.Search_next |> continue
+  in
+  expect
+    (primary_offsets session = (9, 11))
+    "regexp search did not retain repeatable next-match navigation";
+  let utf8 = make_session "β" in
+  let utf8 =
+    App.Session.handle_host utf8 App.Session.Start_regexp_search |> continue
+  in
+  let utf8 = App.Session.handle_input utf8 (text_input ".") in
+  expect
+    (primary_offsets utf8 = (0, 0)
+    && lines_contain
+         (App.Session.inspect utf8 App.Session.Search)
+         "active-query: none")
+    "a byte-oriented regexp match splitting UTF-8 changed the selection";
+  let utf8 =
+    App.Session.handle_input utf8 (named Input_event.Backspace)
+    |> fun session -> App.Session.handle_input session (text_input "β")
+  in
+  expect
+    (primary_offsets utf8 = (0, 2))
+    "regexp search did not recover after rejecting a UTF-8-unsafe pattern";
+  let zero_width = make_session "a" in
+  let zero_width =
+    App.Session.handle_host zero_width App.Session.Start_regexp_search
+    |> continue
+    |> fun session -> App.Session.handle_input session (text_input "a*")
+  in
+  expect
+    (primary_offsets zero_width = (0, 0)
+    && lines_contain
+         (App.Session.inspect zero_width App.Session.Search)
+         "active-query: none")
+    "a zero-width regexp search was accepted as a selectable match"
 
 let test_vim_modal_search_requests () =
   let session = make_session "alpha beta alpha" in
@@ -591,6 +659,131 @@ zenbu.bind { input = "Ctrl-X Ctrl-T", command = "user.insert-argument" }
         && App.Session.file_path session = Some path)
         "palette open-buffer did not consume its typed path argument")
 
+let test_named_buffers_are_listed_and_promptable () =
+  let session = make_session "alpha" in
+  let session =
+    App.Session.handle_host session App.Session.New_buffer |> continue
+  in
+  let session =
+    invoke_palette_text_argument session "workspace.buffer.rename" "*scratch*"
+  in
+  expect
+    (App.Session.filename session = "*scratch*")
+    "a typed buffer rename did not update the focused buffer label";
+  let _, frame = App.Session.render session in
+  expect
+    ( Frame.rows frame |> List.map Frame.row_text |> String.concat "\n"
+    |> fun screen -> contains screen "*scratch*" )
+    "a named buffer did not render its label in terminal chrome";
+  expect
+    (App.Session.contents session = "")
+    "renaming a buffer changed its contents";
+  let listed =
+    App.Session.handle_host session App.Session.List_buffers |> continue
+  in
+  let buffers = App.Session.inspect listed App.Session.Buffers in
+  expect
+    (lines_contain buffers "0: [No Name]"
+    && lines_contain buffers "1: *scratch* (current)")
+    "the named workspace buffers were not inspectable";
+  let switched =
+    invoke_palette_text_argument listed "workspace.buffer.switch" "0"
+  in
+  expect
+    (App.Session.contents switched = "alpha"
+    && App.Session.filename switched = "[No Name]")
+    "a typed buffer switch did not restore the requested buffer";
+  let scratch =
+    invoke_palette_text_argument switched "workspace.buffer.switch" "1"
+  in
+  let dirty_scratch =
+    scratch |> fun session ->
+    App.Session.handle_input session (key "i") |> fun session ->
+    App.Session.handle_input session (text_input "x") |> fun session ->
+    App.Session.handle_input session (named Input_event.Escape)
+  in
+  let refused =
+    App.Session.handle_host dirty_scratch App.Session.Close_buffer |> continue
+  in
+  expect
+    (App.Session.buffer_count refused = 2 && App.Session.contents refused = "x")
+    "safe buffer close discarded a dirty buffer";
+  let closed =
+    App.Session.handle_host refused App.Session.Force_close_buffer |> continue
+  in
+  expect
+    (App.Session.buffer_count closed = 1
+    && App.Session.contents closed = "alpha")
+    "force-close did not discard the focused buffer and restore another buffer";
+  let rejected = App.Session.rename_buffer closed ~name:"\n" in
+  expect
+    (App.Session.filename rejected = "[No Name]")
+    "an invalid buffer name replaced the active display label";
+  let final =
+    App.Session.handle_host rejected App.Session.Close_buffer |> continue
+  in
+  expect
+    (App.Session.buffer_count final = 1
+    && App.Session.contents final = ""
+    && App.Session.filename final = "[No Name]")
+    "closing the final clean buffer did not create a fresh scratch buffer";
+  expect
+    (List.exists
+       (fun descriptor ->
+         Command_descriptor.id descriptor
+         |> Command_id.to_string
+         |> String.equal "workspace.buffer.rename")
+       (App.Session.host_command_descriptors ()))
+    "buffer renaming is not discoverable through the host palette"
+
+let test_buffer_close_retargets_views_and_is_bindable () =
+  let session = make_session ~model:App.Session.Direct "base" in
+  let session =
+    App.Session.handle_host session App.Session.New_buffer |> continue
+  in
+  let session =
+    App.Session.handle_host session App.Session.Split_vertical |> continue
+  in
+  let closed =
+    App.Session.handle_host session App.Session.Close_buffer |> continue
+  in
+  expect
+    (App.Session.buffer_count closed = 1
+    && App.Session.pane_count closed = 2
+    && App.Session.contents closed = "base")
+    "closing a shared buffer did not retarget the focused view to its \
+     replacement";
+  let other_view =
+    App.Session.handle_host closed App.Session.Focus_next_pane |> continue
+  in
+  expect
+    (App.Session.contents other_view = "base")
+    "closing a shared buffer left another pane pointing at a removed buffer";
+  let path = Filename.temp_file "zenbu-m10-close-buffer-binding" ".lua" in
+  Fun.protect
+    ~finally:(fun () -> Sys.remove path)
+    (fun () ->
+      write path
+        {|
+zenbu.bind {
+  input = "Ctrl-K",
+  command = "workspace.buffer.close",
+  scope = "model:zenbu.direct:direct",
+}
+|};
+      let session =
+        make_session ~model:App.Session.Direct
+          ~config:(Zenbu_scripting.Scripting.Explicit path) "bound-base"
+      in
+      let session =
+        App.Session.handle_host session App.Session.New_buffer |> continue
+      in
+      let closed = App.Session.handle_input session (ctrl "k") in
+      expect
+        (App.Session.buffer_count closed = 1
+        && App.Session.contents closed = "bound-base")
+        "a trusted binding could not request safe buffer close")
+
 let test_selection_commands_are_promptable_and_bindable () =
   let path = Filename.temp_file "zenbu-m10-selection-commands" ".lua" in
   let trace = Trace.enabled ~capacity:64 |> must in
@@ -757,6 +950,18 @@ zenbu.bind { input = "q", command = "editor.macro.replay" }
       expect
         (App.Session.contents session = "界界界!!!alpha")
         "named macro replay count did not use the requested register";
+      let invalid =
+        invoke_named_macro ~count:"0" session "editor.macro.replay" "a"
+      in
+      expect
+        (App.Session.contents invalid = "界界界!!!alpha"
+        && Model_status.id (App.Session.status invalid)
+           = "host-command-argument")
+        "an invalid macro replay count escaped the prompt or changed the \
+         document";
+      let session =
+        App.Session.handle_input invalid (named Input_event.Escape)
+      in
       let macros = App.Session.inspect session App.Session.Macros in
       expect
         (lines_contain macros "last-recorded-register: a"
@@ -823,6 +1028,544 @@ zenbu.bind { input = "q", command = "editor.macro.replay" }
         (lines_contain macro "recording: no"
         && lines_contain macro "recorded-inputs: none")
         "macro recording did not stop without retaining an over-limit macro")
+
+let test_locations_rebase_across_buffers_and_reject_stale_history () =
+  let session = make_session "abcdef" in
+  let session = App.Session.handle_input session (key "l") in
+  let session =
+    invoke_palette_text_argument session "editor.location.set" "origin"
+  in
+  expect
+    (lines_contain
+       (App.Session.inspect session App.Session.Locations)
+       "origin buffer=0 version=1 primary=0 selections=1:1 state=active")
+    "setting a location did not capture the active selection set";
+  let session = App.Session.handle_input session (key "i") in
+  let session = App.Session.handle_input session (text_input "!") in
+  let session = App.Session.handle_input session (named Input_event.Escape) in
+  expect
+    (lines_contain
+       (App.Session.inspect session App.Session.Locations)
+       "origin buffer=0 version=2 primary=0 selections=2:2 state=active")
+    "a location did not rebase through a preceding insertion";
+  let session =
+    App.Session.handle_host session App.Session.New_buffer |> continue
+  in
+  expect
+    (App.Session.buffer_count session = 2 && App.Session.contents session = "")
+    "new-buffer did not activate an independent target buffer";
+  let session =
+    invoke_palette_text_argument session "editor.location.jump" "origin"
+  in
+  expect
+    (App.Session.contents session = "a!bcdef"
+    && primary_offsets session = (2, 2))
+    "jumping a rebased location did not activate its buffer and selection";
+  expect
+    (lines_contain
+       (App.Session.inspect session App.Session.Locations)
+       "origin buffer=0 version=3 primary=0 selections=2:2 state=active")
+    "location inspection did not advance through the selection-only jump";
+  let trace = Trace.enabled ~capacity:32 |> must in
+  let vim = make_session ~trace "omega" in
+  let vim = App.Session.handle_input vim (key "l") in
+  let vim = App.Session.handle_input vim (key "m") in
+  expect
+    (Model_status.id (App.Session.status vim) = "location-set-prefix")
+    "Vim m did not wait for a location name";
+  let vim = App.Session.handle_input vim (key "a") in
+  let vim = App.Session.handle_input vim (key "i") in
+  let vim = App.Session.handle_input vim (text_input "!") in
+  let vim = App.Session.handle_input vim (named Input_event.Escape) in
+  let vim = App.Session.handle_input vim (key "`") in
+  expect
+    (Model_status.id (App.Session.status vim) = "location-jump-prefix")
+    "Vim backtick did not wait for a location name";
+  let vim = App.Session.handle_input vim (key "a") in
+  expect
+    (App.Session.contents vim = "o!mega" && primary_offsets vim = (2, 2))
+    "Vim ma and backtick-a did not use the host location service";
+  expect
+    (lines_contain (App.Session.inspect vim App.Session.Why) "location.jump:a")
+    "Vim location jump did not retain host provenance";
+  let jump_vim = make_session "abcdef" in
+  let jump_vim = App.Session.handle_input jump_vim (key "l") in
+  let jump_vim = App.Session.handle_input jump_vim (key "m") in
+  let jump_vim = App.Session.handle_input jump_vim (key "a") in
+  let jump_vim = App.Session.handle_input jump_vim (key "l") in
+  let jump_vim = App.Session.handle_input jump_vim (key "`") in
+  let jump_vim = App.Session.handle_input jump_vim (key "a") in
+  expect
+    (primary_offsets jump_vim = (1, 1)
+    && lines_contain
+         (App.Session.inspect jump_vim App.Session.Jumps)
+         "backward-count: 1")
+    "jumping to a Vim mark did not create a backward history entry";
+  let jump_vim = App.Session.handle_input jump_vim (ctrl "o") in
+  expect
+    (primary_offsets jump_vim = (2, 2)
+    && lines_contain
+         (App.Session.inspect jump_vim App.Session.Jumps)
+         "forward-count: 1")
+    "Vim Ctrl-o did not traverse backward through jump history";
+  let jump_vim = App.Session.handle_input jump_vim (ctrl "i") in
+  expect
+    (primary_offsets jump_vim = (1, 1))
+    "Vim Ctrl-i did not traverse forward through jump history";
+  let pushed = make_session "push" in
+  let pushed = App.Session.handle_input pushed (key "l") in
+  let pushed =
+    App.Session.handle_host pushed App.Session.Push_jump |> continue
+  in
+  let pushed = App.Session.handle_input pushed (key "l") in
+  let pushed =
+    App.Session.handle_host pushed App.Session.Jump_backward |> continue
+  in
+  expect
+    (primary_offsets pushed = (1, 1))
+    "the generic jump-history push/backward commands did not restore a \
+     selection";
+  let bounded = make_session "bounded" in
+  let bounded =
+    List.init 101 Fun.id
+    |> List.fold_left
+         (fun session _ ->
+           App.Session.handle_host session App.Session.Push_jump |> continue)
+         bounded
+  in
+  expect
+    (lines_contain
+       (App.Session.inspect bounded App.Session.Jumps)
+       "backward-count: 100")
+    "jump history did not enforce its bounded entry limit";
+  let stale_jump = make_session "alpha" in
+  let stale_jump = App.Session.handle_input stale_jump (key "i") in
+  let stale_jump = App.Session.handle_input stale_jump (text_input "!") in
+  let stale_jump =
+    App.Session.handle_input stale_jump (named Input_event.Escape)
+  in
+  let stale_jump =
+    App.Session.handle_host stale_jump App.Session.Push_jump |> continue
+  in
+  let stale_jump = App.Session.handle_input stale_jump (key "u") in
+  let selection_before_stale_jump = primary_offsets stale_jump in
+  let stale_jump =
+    App.Session.handle_host stale_jump App.Session.Jump_backward |> continue
+  in
+  expect
+    (App.Session.contents stale_jump = "alpha"
+    && primary_offsets stale_jump = selection_before_stale_jump
+    && lines_contain
+         (App.Session.inspect stale_jump App.Session.Jumps)
+         "backward-count: 0")
+    "a stale jump-history entry was restored instead of discarded";
+  let stale = make_session "alpha" in
+  let stale = App.Session.handle_input stale (key "i") in
+  let stale = App.Session.handle_input stale (text_input "!") in
+  let stale = App.Session.handle_input stale (named Input_event.Escape) in
+  let stale =
+    invoke_palette_text_argument stale "editor.location.set" "branch"
+  in
+  let stale = App.Session.handle_input stale (key "u") in
+  let selection_before_jump = primary_offsets stale in
+  let stale =
+    invoke_palette_text_argument stale "editor.location.jump" "branch"
+  in
+  expect
+    (App.Session.contents stale = "alpha"
+    && primary_offsets stale = selection_before_jump
+    && lines_contain
+         (App.Session.inspect stale App.Session.Locations)
+         "branch buffer=0 version=1 primary=0 selections=1:1 state=stale")
+    "a location from an unreachable history branch was restored instead of \
+     rejected";
+  let selection = make_session ~model:App.Session.Selection "selection" in
+  let selection =
+    invoke_palette_text_argument selection "editor.location.set"
+      "selection-origin"
+  in
+  let selection =
+    App.Session.handle_host selection App.Session.New_buffer |> continue
+  in
+  let selection =
+    invoke_palette_text_argument selection "editor.location.jump"
+      "selection-origin"
+  in
+  expect
+    (App.Session.model selection = App.Session.Selection
+    && App.Session.contents selection = "selection"
+    && primary_offsets selection = (0, 0))
+    "locations were not usable by the selection-first workload";
+  let selection_jump = make_session ~model:App.Session.Selection "abcdef" in
+  let selection_jump = App.Session.handle_input selection_jump (key "l") in
+  let selection_jump = App.Session.handle_input selection_jump (ctrl "s") in
+  let selection_jump = App.Session.handle_input selection_jump (key "l") in
+  let selection_jump = App.Session.handle_input selection_jump (ctrl "o") in
+  expect
+    (primary_offsets selection_jump = (0, 1)
+    && lines_contain
+         (App.Session.inspect selection_jump App.Session.Jumps)
+         "forward-count: 1")
+    "selection-first Ctrl-s and Ctrl-o did not save and restore a jump";
+  let selection_jump = App.Session.handle_input selection_jump (ctrl "i") in
+  expect
+    (primary_offsets selection_jump = (1, 2))
+    "selection-first Ctrl-i did not traverse forward through jump history"
+
+let test_direct_model_micro_and_emacs_baseline () =
+  let direct = make_session ~model:App.Session.Direct "abc" in
+  expect
+    (Model_status.id (App.Session.status direct) = "direct")
+    "the direct model did not expose always-inserting status";
+  let direct = App.Session.handle_input direct (text_input "X") in
+  expect
+    (App.Session.contents direct = "Xabc" && primary_offsets direct = (1, 1))
+    "direct text input did not insert and advance the caret";
+  let direct = App.Session.handle_input direct (named Input_event.Backspace) in
+  expect
+    (App.Session.contents direct = "abc")
+    "direct Backspace did not delete the preceding text unit";
+  let direct = App.Session.handle_input direct (ctrl "z") in
+  expect
+    (App.Session.contents direct = "Xabc")
+    "direct Ctrl-z did not undo the shared transaction";
+  let direct = App.Session.handle_input direct (ctrl "y") in
+  expect
+    (App.Session.contents direct = "abc")
+    "direct Ctrl-y did not redo the shared transaction";
+  let direct =
+    App.Session.handle_input direct (named Input_event.Arrow_right)
+  in
+  expect
+    (primary_offsets direct = (1, 1))
+    "direct ArrowRight did not move the caret through shared selectors";
+  let direct = App.Session.handle_input direct (named Input_event.Arrow_left) in
+  expect
+    (primary_offsets direct = (0, 0))
+    "direct ArrowLeft did not move the caret through shared selectors";
+  let direct =
+    App.Session.handle_input direct
+      (Input_event.key_press ~modifiers:[ Input_event.Shift ]
+         (Input_event.named_key Input_event.Arrow_right))
+  in
+  expect
+    (primary_offsets direct = (0, 1))
+    "direct Shift-ArrowRight did not extend the selection";
+  let direct = App.Session.handle_input direct (ctrl "w") in
+  expect
+    (App.Session.contents direct = "bc" && primary_offsets direct = (0, 0))
+    "direct Ctrl-w did not cut the non-empty selection";
+  let direct =
+    App.Session.handle_host direct App.Session.Kill_ring_yank |> continue
+  in
+  expect
+    (App.Session.contents direct = "abc")
+    "the host kill-ring yank did not restore the latest direct-model cut";
+  let direct = App.Session.handle_input direct (ctrl "x") in
+  expect
+    (Model_status.id (App.Session.status direct) = "control-x-prefix")
+    "direct Ctrl-x did not enter the Emacs-style prefix state";
+  let cancelled = App.Session.handle_input direct (ctrl "g") in
+  expect
+    (Model_status.id (App.Session.status cancelled) = "direct")
+    "direct Ctrl-x Ctrl-g did not cancel the Emacs-style prefix state";
+  let direct = App.Session.handle_input direct (ctrl "s") in
+  expect
+    (Model_status.id (App.Session.status direct) = "host-save-as"
+    && App.Session.contents direct = "abc")
+    "direct Ctrl-x Ctrl-s did not request a non-mutating host save";
+  let micro_save = make_session ~model:App.Session.Direct "micro" in
+  let micro_save = App.Session.handle_input micro_save (ctrl "s") in
+  expect
+    (Model_status.id (App.Session.status micro_save) = "host-save-as"
+    && App.Session.contents micro_save = "micro")
+    "direct Ctrl-s did not request the Micro-style host save";
+  let emacs_windows = make_session ~model:App.Session.Direct "windows" in
+  let emacs_windows = App.Session.handle_input emacs_windows (ctrl "x") in
+  let emacs_windows = App.Session.handle_input emacs_windows (key "2") in
+  expect
+    (App.Session.pane_count emacs_windows = 2)
+    "direct Ctrl-x 2 did not request a stacked workspace split";
+  let focused_before = App.Session.focused_pane emacs_windows in
+  let emacs_windows = App.Session.handle_input emacs_windows (ctrl "x") in
+  let emacs_windows = App.Session.handle_input emacs_windows (key "o") in
+  expect
+    (App.Session.focused_pane emacs_windows <> focused_before)
+    "direct Ctrl-x o did not request the next workspace view";
+  let emacs_windows = App.Session.handle_input emacs_windows (ctrl "x") in
+  let emacs_windows = App.Session.handle_input emacs_windows (key "3") in
+  expect
+    (App.Session.pane_count emacs_windows = 3)
+    "direct Ctrl-x 3 did not request a side-by-side workspace split";
+  let emacs_windows = App.Session.handle_input emacs_windows (ctrl "x") in
+  let emacs_windows = App.Session.handle_input emacs_windows (key "0") in
+  expect
+    (App.Session.pane_count emacs_windows = 2)
+    "direct Ctrl-x 0 did not request closing the selected workspace view";
+  let emacs_windows = App.Session.handle_input emacs_windows (ctrl "x") in
+  let emacs_windows = App.Session.handle_input emacs_windows (key "1") in
+  expect
+    (App.Session.pane_count emacs_windows = 1)
+    "direct Ctrl-x 1 did not request keeping only the selected workspace view";
+  let emacs_buffers = make_session ~model:App.Session.Direct "base" in
+  let emacs_buffers =
+    App.Session.handle_host emacs_buffers App.Session.New_buffer |> continue
+  in
+  let emacs_buffers = App.Session.handle_input emacs_buffers (ctrl "x") in
+  let emacs_buffers = App.Session.handle_input emacs_buffers (key "k") in
+  expect
+    (App.Session.buffer_count emacs_buffers = 1
+    && App.Session.contents emacs_buffers = "base")
+    "direct Ctrl-x k did not close the focused clean buffer";
+  let emacs_open = make_session ~model:App.Session.Direct "open" in
+  let emacs_open = App.Session.handle_input emacs_open (ctrl "x") in
+  let emacs_open = App.Session.handle_input emacs_open (ctrl "f") in
+  expect
+    (Model_status.id (App.Session.status emacs_open) = "host-open-buffer")
+    "direct Ctrl-x Ctrl-f did not request the host open-buffer prompt"
+
+let test_micro_adapter_can_request_host_workspace_actions () =
+  let path = Filename.temp_file "zenbu-m10-micro-adapter" ".lua" in
+  Fun.protect
+    ~finally:(fun () -> Sys.remove path)
+    (fun () ->
+      write path
+        {|
+zenbu.bind {
+  input = "Ctrl-e",
+  command = "editor.command-palette",
+  scope = "model:zenbu.direct:direct",
+}
+zenbu.bind {
+  input = "Ctrl-w",
+  command = "workspace.pane.next",
+  scope = "model:zenbu.direct:direct",
+}
+zenbu.bind {
+  input = "Ctrl-x",
+  command = "editor.kill-ring.cut",
+  scope = "model:zenbu.direct:direct",
+}
+zenbu.bind {
+  input = "Ctrl-y",
+  command = "editor.kill-ring.yank",
+  scope = "model:zenbu.direct:direct",
+}
+zenbu.bind {
+  input = "Ctrl-c",
+  command = "editor.clipboard.copy",
+  scope = "model:zenbu.direct:direct",
+}
+zenbu.bind {
+  input = "Ctrl-v",
+  command = "editor.clipboard.paste",
+  scope = "model:zenbu.direct:direct",
+}
+|};
+      let system_contents = ref "" in
+      let writes = ref 0 in
+      let system_clipboard =
+        App.System_clipboard.create ~name:"test"
+          ~read:(fun () -> Ok !system_contents)
+          ~write:(fun contents ->
+            incr writes;
+            system_contents := contents;
+            Ok ())
+      in
+      let session =
+        make_session ~model:App.Session.Direct
+          ~config:(Zenbu_scripting.Scripting.Explicit path) ~system_clipboard
+          "micro"
+      in
+      let session = App.Session.handle_input session (ctrl "e") in
+      expect
+        (Model_status.id (App.Session.status session) = "host-palette")
+        "a trusted adapter could not request the command palette";
+      let session =
+        App.Session.handle_input session (named Input_event.Escape)
+      in
+      let session =
+        App.Session.handle_host session App.Session.Split_vertical |> continue
+      in
+      let focused_before = App.Session.focused_pane session in
+      let session = App.Session.handle_input session (ctrl "w") in
+      expect
+        (App.Session.focused_pane session <> focused_before)
+        "a trusted adapter could not request the next workspace view";
+      expect
+        (App.Session.contents session = "micro")
+        "adapter workspace actions unexpectedly mutated document contents";
+      let session =
+        App.Session.handle_input session
+          (Input_event.key_press ~modifiers:[ Input_event.Shift ]
+             (Input_event.named_key Input_event.Arrow_right))
+      in
+      let session = App.Session.handle_input session (ctrl "x") in
+      expect
+        (App.Session.contents session = "icro")
+        "the Micro-style Ctrl-x adapter did not cut the selected text";
+      let session =
+        App.Session.handle_host session App.Session.New_buffer |> continue
+      in
+      let session = App.Session.handle_input session (ctrl "y") in
+      expect
+        (App.Session.contents session = "m")
+        "the adapter yank did not read the shared kill history across buffers";
+      let session =
+        App.Session.handle_input session
+          (Input_event.key_press ~modifiers:[ Input_event.Shift ]
+             (Input_event.named_key Input_event.Arrow_left))
+      in
+      let session = App.Session.handle_input session (ctrl "c") in
+      expect
+        (!writes = 1
+        && String.equal !system_contents "m"
+        && App.Session.contents session = "m")
+        "the Micro-style Ctrl-c adapter did not copy the selection externally";
+      system_contents := "external";
+      let session = App.Session.handle_input session (ctrl "v") in
+      expect
+        (App.Session.contents session = "external")
+        "the Micro-style Ctrl-v adapter did not paste external clipboard text";
+      let unavailable = App.System_clipboard.unavailable "fixture disabled" in
+      let unavailable_session =
+        make_session ~model:App.Session.Direct
+          ~config:(Zenbu_scripting.Scripting.Explicit path)
+          ~system_clipboard:unavailable "copy"
+      in
+      let unavailable_session =
+        App.Session.handle_input unavailable_session
+          (Input_event.key_press ~modifiers:[ Input_event.Shift ]
+             (Input_event.named_key Input_event.Arrow_right))
+      in
+      let unavailable_session =
+        App.Session.handle_input unavailable_session (ctrl "c")
+      in
+      expect
+        (App.Session.contents unavailable_session = "copy")
+        "failed system clipboard copy changed the document";
+      expect
+        (Editor_context.clipboard_entry
+           (App.Session.context unavailable_session)
+           ~slot:Clipboard.unnamed
+        = None)
+        "failed system clipboard copy changed the ordinary clipboard slot")
+
+let test_selection_adapter_can_request_viewport_actions () =
+  let path = Filename.temp_file "zenbu-m10-selection-viewport" ".lua" in
+  Fun.protect
+    ~finally:(fun () -> Sys.remove path)
+    (fun () ->
+      write path
+        {|
+zenbu.bind {
+  input = "PageUp",
+  command = "view.page.up",
+  scope = "model:zenbu.selection-first:select",
+}
+zenbu.bind {
+  input = "PageDown",
+  command = "view.page.down",
+  scope = "model:zenbu.selection-first:select",
+}
+zenbu.bind {
+  input = "Ctrl-u",
+  command = "view.page.up",
+  scope = "model:zenbu.selection-first:select",
+}
+zenbu.bind {
+  input = "Ctrl-d",
+  command = "view.page.down",
+  scope = "model:zenbu.selection-first:select",
+}
+zenbu.bind {
+  input = "z z",
+  command = "view.center",
+  scope = "model:zenbu.selection-first:select",
+}
+|};
+      let contents = "zero\none\ntwo\nthree\nfour\nfive\nsix\nseven" in
+      let dimensions = Zenbu_view.Renderer.{ columns = 20; rows = 5 } in
+      let session =
+        make_session ~model:App.Session.Selection
+          ~config:(Zenbu_scripting.Scripting.Explicit path) ~dimensions contents
+      in
+      let selection = primary_offsets session in
+      let session =
+        App.Session.handle_input session (named Input_event.Page_down)
+      in
+      expect
+        ((App.Session.viewport session).top_line = 4
+        && App.Session.contents session = contents
+        && primary_offsets session = selection)
+        "a selection-editor adapter could not request nonsemantic page-down";
+      let session = App.Session.handle_input session (key "z") in
+      expect
+        ((App.Session.viewport session).top_line = 4
+        && App.Session.contents session = contents)
+        "the center-view adapter prefix changed the viewport or document early";
+      let session = App.Session.handle_input session (key "z") in
+      expect
+        ((App.Session.viewport session).top_line = 0
+        && App.Session.contents session = contents
+        && primary_offsets session = selection)
+        "a selection-editor adapter could not center the viewport safely";
+      let session = App.Session.handle_input session (ctrl "d") in
+      let session = App.Session.handle_input session (ctrl "u") in
+      expect
+        ((App.Session.viewport session).top_line = 0
+        && App.Session.contents session = contents
+        && primary_offsets session = selection)
+        "adapter page bindings did not preserve model semantic state")
+
+let test_adapter_can_request_regexp_search () =
+  let path = Filename.temp_file "zenbu-m10-regexp-search" ".lua" in
+  Fun.protect
+    ~finally:(fun () -> Sys.remove path)
+    (fun () ->
+      write path
+        {|
+zenbu.bind {
+  input = "Ctrl-r",
+  command = "search.regexp",
+  scope = "model:zenbu.direct:direct",
+}
+|};
+      let session =
+        make_session ~model:App.Session.Direct
+          ~config:(Zenbu_scripting.Scripting.Explicit path) "a12 a5"
+      in
+      let session = App.Session.handle_input session (ctrl "r") in
+      expect
+        (Model_status.id (App.Session.status session) = "host-search")
+        "a trusted adapter could not request the bounded regexp prompt";
+      let session =
+        App.Session.handle_input session (text_input "a[0-9][0-9]*")
+      in
+      expect
+        (primary_offsets session = (0, 3)
+        && lines_contain
+             (App.Session.inspect session App.Session.Search)
+             "kind: regexp")
+        "an adapter-requested regexp search lost the host search contract")
+
+let test_system_clipboard_provider_boundaries () =
+  let writes = ref 0 in
+  let provider =
+    App.System_clipboard.create ~name:"test"
+      ~read:(fun () -> Ok (String.make 1 (Char.chr 255)))
+      ~write:(fun _ ->
+        incr writes;
+        Ok ())
+  in
+  expect_error (App.System_clipboard.read provider);
+  expect_error
+    (App.System_clipboard.write provider
+       (String.make (App.System_clipboard.maximum_bytes + 1) 'x'));
+  expect (!writes = 0) "oversized system clipboard write reached the provider";
+  expect_error
+    (App.System_clipboard.read
+       (App.System_clipboard.unavailable "fixture unavailable"))
 
 let test_save_as_and_model_switch_preserve_semantics () =
   let path = Filename.temp_file "zenbu-m10-save-as" ".txt" in
@@ -1018,6 +1761,8 @@ let tests =
   [
     ( "Unicode host search and inspection",
       test_unicode_search_is_host_level_and_observable );
+    ( "regexp search is incremental and UTF-8-safe",
+      test_regexp_search_is_incremental_and_utf8_safe );
     ("Vim modal search requests", test_vim_modal_search_requests);
     ( "syntax spans and render precedence",
       test_syntax_spans_and_render_precedence );
@@ -1027,10 +1772,26 @@ let tests =
       test_palette_discovers_all_active_command_providers );
     ( "command argument prompts execute typed and scripted commands",
       test_command_argument_prompt_executes_typed_and_scripted_commands );
+    ( "named buffers are listed and promptable",
+      test_named_buffers_are_listed_and_promptable );
+    ( "buffer close retargets views and is bindable",
+      test_buffer_close_retargets_views_and_is_bindable );
     ( "selection commands are promptable and bindable",
       test_selection_commands_are_promptable_and_bindable );
     ( "keyboard macros replay through the session dispatcher",
       test_keyboard_macros_replay_through_the_session_dispatcher );
+    ( "persistent locations rebase and reject stale branches",
+      test_locations_rebase_across_buffers_and_reject_stale_history );
+    ( "direct model supports Micro and Emacs editing baseline",
+      test_direct_model_micro_and_emacs_baseline );
+    ( "Micro adapter bindings can request host workspace actions",
+      test_micro_adapter_can_request_host_workspace_actions );
+    ( "selection adapter bindings can request viewport actions",
+      test_selection_adapter_can_request_viewport_actions );
+    ( "adapters can request regexp search",
+      test_adapter_can_request_regexp_search );
+    ( "system clipboard provider rejects invalid data and unavailable backends",
+      test_system_clipboard_provider_boundaries );
     ( "save-as and model switch",
       test_save_as_and_model_switch_preserve_semantics );
     ("save-as overwrite and failure", test_save_as_overwrite_and_write_failure);

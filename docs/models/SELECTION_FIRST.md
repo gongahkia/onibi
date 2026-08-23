@@ -26,6 +26,7 @@ then operate on that set. It uses only `zenbu.model_api`.
 | `Alt-;` / `Alt-:` | flip every selection's anchor/head / normalize every selection forward |
 | `"a` | choose clipboard slot `a` for the next copy or paste |
 | `u` / `Ctrl-r` / `.` | undo / redo / semantic repeat |
+| `Ctrl-s` / `Ctrl-o` / `Ctrl-i` | save the current selection / jump backward / jump forward through the shared selection jump history |
 | `Escape` | collapse current selections to their ends |
 
 Digits repeat a selector operation. The model intentionally treats a direct
@@ -81,7 +82,21 @@ UI is available through `Ctrl-F` without changing this model's grammar.
 Clipboard slots and history/repeat use the same runtime services as the
 Vim-style model.
 
+`Ctrl-s`, `Ctrl-o`, and `Ctrl-i` deliberately match the common normal-mode
+jump-list controls documented by Helix and Kakoune. The host, rather than the
+model, stores up to 100 rebased selection snapshots across local buffers. This
+does not make this a native Helix or Kakoune adapter: Zenbu does not yet record
+all goto, search, buffer-switch, or language-navigation actions automatically,
+and its session-wide list is not Helix's picker or Kakoune's client-local list.
+
 ## Runtime bindings inspection
+
+[`examples/helix-adapter.lua`](../../examples/helix-adapter.lua) adds a small
+view-navigation workload on top of this model: `PageUp`/`PageDown`, `Ctrl-U`/
+`Ctrl-D`, and `z z` request checked page movement or centering of the focused
+view. Those host requests preserve document and selection state and receive no
+renderer or terminal authority. This validates a shared view boundary rather
+than claiming Helix's complete view-mode grammar.
 
 `zenbu-headless bindings selection` and `bindings-session` render the current
 selection-first `Input_rule` values. Its visible-selection grammar remains

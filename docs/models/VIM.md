@@ -34,6 +34,8 @@ history, terminal, or search-state access.
 | `p` / `P` / `"a` | paste before/after and select a named internal clipboard slot |
 | `Ctrl-r{slot}` in insert | insert a named internal clipboard slot at the caret |
 | `/` / `?` / `n` / `N` | request forward/backward host literal search and repeat it |
+| `m{mark}` / backtick-`{mark}` | capture / restore a one-scalar named session location |
+| `Ctrl-o` / `Ctrl-i` or `Tab` | traverse older / newer shared jump-history entries |
 | `u` / `Ctrl-r` / `.` | shared undo, redo, and semantic repeat |
 
 Counts combine across an operator and its motion. Commands reject unavailable
@@ -56,7 +58,8 @@ models can use the same effect without depending on terminal code.
 ## Deliberate limits
 
 This is not a full Vim clone. It currently excludes Ex/command-line commands,
-full Vim-compatible macro/register behavior, marks, mappings, registers beyond
+full Vim-compatible macro/register behavior, linewise/global marks and
+jump-list source/per-window grammar, mappings, registers beyond
 Zenbu's internal characterwise and linewise slots, blockwise visual mode, text
 objects beyond words, regex search, full desired-column behavior, multi-buffer
 workflows, and Vimscript/plugin compatibility. Zenbu's generic session keyboard
@@ -69,6 +72,14 @@ macro editing. The shared `.` repeat facility records ordinary semantic intents;
 model-calculated find operators such as `df{char}` do not yet establish a
 repeat source. The explicit limits make additions useful API tests instead of an
 accidental second editor kernel.
+
+The host command palette has generic `editor.location.set` and
+`editor.location.jump` descriptors. They save/rebase complete selection sets
+across local buffers. The Vim model maps `m{mark}` and backtick-`{mark}` to
+the same model-neutral request effect; names are one UTF-8 scalar. It does not
+provide linewise marks or uppercase/global marks. Its `Ctrl-o` / `Ctrl-i`
+subset traverses Zenbu's 100-entry session-wide jump stack; it does not record
+every Vim jump source, provide a per-window list, or persist entries.
 
 `zenbu-headless bindings vim` and `bindings-session` report the runtime input
 rules. The model tests are the executable compatibility baseline; each added

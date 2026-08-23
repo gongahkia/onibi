@@ -253,6 +253,7 @@ let test_runtime_rejected_effect_is_atomic () =
     type state = int
 
     let descriptor = descriptor
+    let descriptor_of_state _ = descriptor
     let initialize _ = 0
     let reset _ _ = 0
 
@@ -290,6 +291,137 @@ let test_runtime_selector_failure_is_atomic () =
   expect
     (Selection_runtime.input_trace runtime = [])
     "failed selector execution entered the input trace"
+
+let test_viewport_requests_are_nonsemantic () =
+  let input = key "v" in
+  let runtime =
+    Operator_runtime.create ~commands:(registry ())
+      ~document:(document "viewport-request" "alpha\nbeta\ngamma")
+      ()
+    |> must
+  in
+  let before = text (History.current (Operator_runtime.history runtime)) in
+  let request =
+    Model_effect.Request_viewport (Model_effect.Scroll_view_pages 1)
+  in
+  let runtime, step =
+    Operator_runtime.execute_effects runtime ~input [ request ] |> must
+  in
+  expect
+    (Operator_runtime.effects step = [ request ]
+    && Operator_runtime.change_ids step = [])
+    "a viewport request did not remain a nonsemantic host effect";
+  expect_string ~expected:before
+    ~actual:(text (History.current (Operator_runtime.history runtime)));
+  expect_string ~expected:"request-viewport:scroll-pages:1"
+    ~actual:(Model_effect.identity request);
+  expect_string ~expected:"center the current view on the primary selection"
+    ~actual:
+      (Model_effect.describe
+         (Model_effect.Request_viewport Model_effect.Center_view))
+
+let test_bounded_kill_history () =
+  let add_entry clipboard index =
+    let entry =
+      Clipboard.entry ~kind:Clipboard.Characterwise
+        ~contents:(string_of_int index)
+      |> must
+    in
+    Clipboard.store_kill clipboard ~slot:Clipboard.unnamed ~entry
+  in
+  let clipboard =
+    List.init (Clipboard.maximum_kill_ring_entries + 1) Fun.id
+    |> List.fold_left add_entry Clipboard.empty
+  in
+  expect
+    (Clipboard.kill_ring_length clipboard = Clipboard.maximum_kill_ring_entries)
+    "kill history did not discard the oldest entry at its configured bound";
+  let newest = Clipboard.find_kill clipboard ~index:0 |> Option.get in
+  expect_string
+    ~expected:(string_of_int Clipboard.maximum_kill_ring_entries)
+    ~actual:(Clipboard.contents newest);
+  expect
+    (Clipboard.find_kill clipboard ~index:Clipboard.maximum_kill_ring_entries
+    = None)
+    "kill history retained an entry beyond its configured bound";
+  expect
+    (Clipboard.find_kill clipboard ~index:(-1) = None)
+    "kill history accepted a negative index";
+  let unnamed =
+    Clipboard.find clipboard ~slot:Clipboard.unnamed |> Option.get
+  in
+  expect_string
+    ~expected:(string_of_int Clipboard.maximum_kill_ring_entries)
+    ~actual:(Clipboard.contents unnamed)
+
+let test_cut_and_kill_history_effects () =
+  let input = key "x" in
+  let copy_effect =
+    Model_effect.Copy_to_clipboard
+      {
+        slot = Clipboard.unnamed;
+        selector = Model_intent.Current_selections;
+        kind = Clipboard.Characterwise;
+      }
+  in
+  let cut_effect =
+    Model_effect.Cut_to_clipboard
+      {
+        slot = Clipboard.unnamed;
+        selector = Model_intent.Current_selections;
+        kind = Clipboard.Characterwise;
+      }
+  in
+  let yank_effect =
+    Model_effect.Paste_from_kill_ring
+      { index = 0; placement = Clipboard.Replace }
+  in
+  let copied =
+    Operator_runtime.create ~commands:(registry ())
+      ~document:(document ~selections:[ selection 0 1 ] "copy-only" "abc")
+      ()
+    |> must
+  in
+  let copied, _ =
+    Operator_runtime.execute_effects copied ~input [ copy_effect ] |> must
+  in
+  expect_error (Operator_runtime.execute_effects copied ~input [ yank_effect ]);
+  expect_string ~expected:"abc"
+    ~actual:(text (History.current (Operator_runtime.history copied)));
+  let runtime =
+    Operator_runtime.create ~commands:(registry ())
+      ~document:(document ~selections:[ selection 0 1 ] "cut" "abc")
+      ()
+    |> must
+  in
+  let runtime, cut =
+    Operator_runtime.execute_effects runtime ~input [ cut_effect ] |> must
+  in
+  expect_string ~expected:"bc"
+    ~actual:(text (History.current (Operator_runtime.history runtime)));
+  expect
+    (List.length (Operator_runtime.change_ids cut) = 1)
+    "cut did not commit exactly one checked delete transaction";
+  let runtime, _ =
+    Operator_runtime.execute_effects runtime ~input [ yank_effect ] |> must
+  in
+  expect_string ~expected:"abc"
+    ~actual:(text (History.current (Operator_runtime.history runtime)));
+  let empty =
+    Operator_runtime.create ~commands:(registry ())
+      ~document:(document "empty-cut" "abc")
+      ()
+    |> must
+  in
+  expect_error (Operator_runtime.execute_effects empty ~input [ cut_effect ]);
+  expect_string ~expected:"abc"
+    ~actual:(text (History.current (Operator_runtime.history empty)));
+  expect
+    (Editor_context.clipboard_entry
+       (Operator_runtime.context empty)
+       ~slot:Clipboard.unnamed
+    = None)
+    "rejected empty cut changed the ordinary clipboard slot"
 
 let run_operator contents inputs =
   let runtime =
@@ -400,6 +532,9 @@ let tests =
     ("rejected runtime effect is atomic", test_runtime_rejected_effect_is_atomic);
     ( "rejected runtime selector is atomic",
       test_runtime_selector_failure_is_atomic );
+    ("viewport requests are nonsemantic", test_viewport_requests_are_nonsemantic);
+    ("bounded kill history", test_bounded_kill_history);
+    ("cut and kill-history effects", test_cut_and_kill_history_effects);
     ("cross-model proof", test_cross_model_proof);
     ( "semantic replay versus input trace",
       test_semantic_replay_is_not_input_trace );

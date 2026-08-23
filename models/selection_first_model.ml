@@ -14,6 +14,7 @@ let descriptor =
          "Minimal visible-selection grammar used only to validate the M2 API."
        ())
 
+let descriptor_of_state _ = descriptor
 let initialize _context = ()
 let reset _state _context = ()
 

@@ -13,6 +13,8 @@ type named_key =
   | Arrow_right
   | Home
   | End
+  | Page_up
+  | Page_down
 
 type key = Logical_text of string | Named_key of named_key
 type mouse_button = Primary | Middle | Secondary | Wheel_up | Wheel_down

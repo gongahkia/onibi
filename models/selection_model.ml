@@ -26,6 +26,7 @@ let descriptor =
           Zenbu semantics."
        ~provider ())
 
+let descriptor_of_state _ = descriptor
 let default_select = { count = None; slot = Clipboard.unnamed }
 let initialize _context = Select default_select
 let reset _state _context = Select default_select
@@ -213,6 +214,29 @@ let select_input selecting event context =
               (count_value selecting.count)
               (apply selector Model_intent.Select) )
       | None -> (Select default_select, []))
+  | None when is_control event "s" ->
+      ( Select default_select,
+        [ Model_effect.Request_jump Model_effect.Push_current_jump ] )
+  | None when is_control event "o" ->
+      ( Select default_select,
+        [
+          Model_effect.Request_jump
+            (Model_effect.Traverse_jump
+               {
+                 direction = Model_effect.Backward;
+                 count = count_value selecting.count;
+               });
+        ] )
+  | None when is_control event "i" ->
+      ( Select default_select,
+        [
+          Model_effect.Request_jump
+            (Model_effect.Traverse_jump
+               {
+                 direction = Model_effect.Forward;
+                 count = count_value selecting.count;
+               });
+        ] )
   | None when is_control event "r" ->
       (Select default_select, [ Model_effect.Redo ])
   | None when is_alt event "_" ->
@@ -309,6 +333,9 @@ let input_rules = function
           "enter committed text input" ~next_status:"insert";
         input_rule "selection.history" (Input_rule.Text_range "u, Ctrl-r, or .")
           Input_rule.Binding "move through or repeat shared semantic history";
+        input_rule "selection.jump-history"
+          (Input_rule.Text_range "Ctrl-s, Ctrl-o, or Ctrl-i") Input_rule.Binding
+          "save or traverse the shared selection jump history";
         input_rule "selection.retain-primary" (Input_rule.Exact ",")
           Input_rule.Binding "retain only the primary selection";
         input_rule "selection.selection-algebra"

@@ -7,9 +7,10 @@ type entry = { kind : kind; contents : string }
 
 module Slot_map = Map.Make (String)
 
-type t = entry Slot_map.t
+type t = { slots : entry Slot_map.t; kill_ring : entry list }
 
 let unnamed = "unnamed"
+let maximum_kill_ring_entries = 120
 
 let valid_slot_name value =
   String.length value > 0
@@ -32,9 +33,34 @@ let entry ~kind ~contents =
 
 let contents value = value.contents
 let kind value = value.kind
-let empty = Slot_map.empty
-let find value ~slot = Slot_map.find_opt slot value
-let store value ~slot ~entry = Slot_map.add slot entry value
+let empty = { slots = Slot_map.empty; kill_ring = [] }
+let find value ~slot = Slot_map.find_opt slot value.slots
+
+let store value ~slot ~entry =
+  { value with slots = Slot_map.add slot entry value.slots }
+
+let take_kill_entries entries =
+  let rec take remaining values = function
+    | _ when remaining = 0 -> List.rev values
+    | [] -> List.rev values
+    | entry :: rest -> take (remaining - 1) (entry :: values) rest
+  in
+  take maximum_kill_ring_entries [] entries
+
+let store_kill value ~slot ~entry =
+  {
+    slots = Slot_map.add slot entry value.slots;
+    kill_ring = take_kill_entries (entry :: value.kill_ring);
+  }
+
+let find_kill value ~index =
+  if index < 0 then None else List.nth_opt value.kill_ring index
+
+let kill_ring_length value = List.length value.kill_ring
+let kill_ring_entries value = value.kill_ring
+
+let with_kill_ring value kill_ring =
+  { value with kill_ring = take_kill_entries kill_ring }
 
 let kind_name = function
   | Characterwise -> "characterwise"

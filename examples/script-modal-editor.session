@@ -1,0 +1,7 @@
+model=script
+text=alpha beta
+input=i
+text-input=🙂
+input=Escape
+input=d
+input=w

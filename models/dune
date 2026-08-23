@@ -5,6 +5,7 @@
   proof_commands
   operator_first_model
   selection_first_model
+  direct_model
   semantic_commands
   vim_model
   selection_model)
