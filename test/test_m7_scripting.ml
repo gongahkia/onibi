@@ -575,6 +575,104 @@ zenbu.on {
         (contains scripts "saved: after-save")
         "after-save event did not receive its documented callback argument")
 
+let test_declared_modes_and_modal_bindings () =
+  let path = Filename.temp_file "zenbu-m7-modes" ".lua" in
+  Fun.protect
+    ~finally:(fun () -> Sys.remove path)
+    (fun () ->
+      write path
+        {|
+zenbu.mode {
+  id = "user.leader",
+  title = "LEADER",
+  description = "A transient custom keymap.",
+}
+zenbu.mode {
+  id = "user.goto",
+  title = "GOTO",
+  description = "A nested transient keymap.",
+}
+zenbu.command { id = "user.enter-leader", run = function(_) return {} end }
+zenbu.command { id = "user.enter-goto", run = function(_) return {} end }
+zenbu.command {
+  id = "user.insert-leader", run = function(_) return {{ kind = "insert", text = "L" }} end,
+}
+zenbu.command {
+  id = "user.insert-goto", run = function(_) return {{ kind = "insert", text = "G" }} end,
+}
+zenbu.bind { input = "Ctrl-X", command = "user.enter-leader", mode = "user.leader" }
+zenbu.bind {
+  input = "g", command = "user.enter-goto", scope = "mode:user.leader",
+  mode = { action = "push", id = "user.goto" },
+}
+zenbu.bind { input = "l", command = "user.insert-leader", scope = "mode:user.leader", mode = "" }
+zenbu.bind {
+  input = "h", command = "user.insert-goto", scope = "mode:user.goto",
+  mode = { action = "pop" },
+}
+|};
+      let session =
+        Zenbu_app.Session.create ~model:Zenbu_app.Session.Vim ~contents:"alpha"
+          ~config:(Zenbu_scripting.Scripting.Explicit path) ~dimensions ()
+        |> must
+      in
+      let session = Zenbu_app.Session.handle_input session (ctrl "X") in
+      expect
+        (Model_status.id (Zenbu_app.Session.status session)
+        = "host-custom-mode:user.leader")
+        "modal binding did not enter the declared mode";
+      let rejected =
+        Zenbu_app.Session.handle_input session
+          (Input_event.logical_text "z" |> must |> Input_event.key_press)
+      in
+      expect
+        (Zenbu_app.Session.contents rejected = "alpha")
+        "an unmatched custom-mode input leaked into the base model";
+      let session = Zenbu_app.Session.handle_input session (ctrl "X") in
+      let session =
+        Zenbu_app.Session.handle_input session
+          (Input_event.logical_text "g" |> must |> Input_event.key_press)
+      in
+      expect
+        (Model_status.id (Zenbu_app.Session.status session)
+        = "host-custom-mode:user.goto")
+        "a push transition did not enter the nested custom mode";
+      let session =
+        Zenbu_app.Session.handle_input session
+          (Input_event.logical_text "h" |> must |> Input_event.key_press)
+      in
+      expect
+        (Zenbu_app.Session.contents session = "Galpha"
+        && Model_status.id (Zenbu_app.Session.status session)
+           = "host-custom-mode:user.leader")
+        "a pop transition did not restore the containing custom mode";
+      let session =
+        Zenbu_app.Session.handle_input session
+          (Input_event.logical_text "g" |> must |> Input_event.key_press)
+      in
+      let session =
+        Zenbu_app.Session.handle_input session
+          (Input_event.key_press (Input_event.named_key Input_event.Escape))
+      in
+      expect
+        (Model_status.id (Zenbu_app.Session.status session)
+        = "host-custom-mode:user.leader")
+        "an unmatched Escape did not pop the innermost custom mode";
+      let session =
+        Zenbu_app.Session.handle_input session
+          (Input_event.logical_text "l" |> must |> Input_event.key_press)
+      in
+      expect
+        (Zenbu_app.Session.contents session = "GLalpha"
+        && Model_status.id (Zenbu_app.Session.status session) = "normal")
+        "a lower custom mode did not remain active beneath a nested mode";
+      write path
+        "zenbu.command { id = 'user.noop', run = function(_) return {} end }";
+      let session = Zenbu_app.Session.reload_config session in
+      expect
+        (Model_status.id (Zenbu_app.Session.status session) = "normal")
+        "reload retained a mode no longer declared by the staged generation")
+
 let tests =
   [
     ( "script load/reload and dynamic semantics",
@@ -587,6 +685,7 @@ let tests =
     ("script syntax API and reload stress", test_syntax_api_and_reload_stress);
     ( "script event delivery and recursion guard",
       test_event_delivery_and_recursion_guard );
+    ("declared modes and modal bindings", test_declared_modes_and_modal_bindings);
   ]
 
 let () =

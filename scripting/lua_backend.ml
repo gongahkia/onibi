@@ -19,8 +19,15 @@ type binding = {
   input : string;
   command : string;
   scope : string option;
-  next_mode : string option;
+  mode_transition : mode_transition option;
 }
+
+and mode_transition =
+  | Replace_mode of string
+  | Push_mode of string
+  | Pop_mode
+  | Clear_modes
+
 type hook = { event : string; callback : callback }
 
 type registration =
@@ -352,6 +359,47 @@ let optional_text state table name =
   pop state 1;
   value
 
+let mode_transition_error message = error "registration" "<lua>" message
+
+let mode_id fields =
+  match Value.find (Value.Record fields) "id" with
+  | Some (Value.Text value) when String.length value > 0 -> Ok value
+  | _ ->
+      Error
+        (mode_transition_error "mode transition requires nonempty string id")
+
+let mode_action fields =
+  match Value.find (Value.Record fields) "action" with
+  | Some (Value.Text value) -> Ok value
+  | _ -> Error (mode_transition_error "mode transition requires string action")
+
+let mode_transition_of_value = function
+  | Value.Nil -> Ok None
+  | Value.Text "" -> Ok (Some Clear_modes)
+  | Value.Text id -> Ok (Some (Replace_mode id))
+  | Value.Record fields -> (
+      match mode_action fields with
+      | Error _ as error -> error
+      | Ok "replace" ->
+          Result.map (fun id -> Some (Replace_mode id)) (mode_id fields)
+      | Ok "push" -> Result.map (fun id -> Some (Push_mode id)) (mode_id fields)
+      | Ok "pop" -> Ok (Some Pop_mode)
+      | Ok "clear" -> Ok (Some Clear_modes)
+      | Ok _ ->
+          Error
+            (mode_transition_error
+               "mode transition action must be replace, push, pop, or clear"))
+  | _ ->
+      Error
+        (mode_transition_error
+           "field mode must be a string or a mode transition table")
+
+let optional_mode_transition state table =
+  ignore (get_field state table "mode");
+  let result = value_at state (-1) |> Result.bind mode_transition_of_value in
+  pop state 1;
+  result
+
 let optional_boolean state table name =
   ignore (get_field state table name);
   let value =
@@ -482,7 +530,8 @@ let register_mode backend state =
     if value_type state 1 <> lua_table then
       Error (error "registration" backend.source "mode expects a table")
     else
-      Result.map (fun definition -> add_registration backend (Mode definition))
+      Result.map
+        (fun definition -> add_registration backend (Mode definition))
         (descriptor state 1)
   in
   match result with
@@ -498,14 +547,17 @@ let register_binding backend state =
         ( required_text state 1 "input",
           required_text state 1 "command",
           optional_text state 1 "scope",
-          optional_text state 1 "mode" )
+          optional_mode_transition state 1 )
       with
-      | Ok input, Ok command, Ok scope, Ok next_mode ->
+      | Ok input, Ok command, Ok scope, Ok mode_transition ->
           add_registration backend
-            (Binding { input; command; scope; next_mode });
+            (Binding { input; command; scope; mode_transition });
           Ok ()
-      | Error error, _, _, _ | _, Error error, _, _ | _, _, Error error, _
-      | _, _, _, Error error -> Error error
+      | Error error, _, _, _
+      | _, Error error, _, _
+      | _, _, Error error, _
+      | _, _, _, Error error ->
+          Error error
   in
   match result with
   | Ok () -> 0

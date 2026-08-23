@@ -892,9 +892,9 @@ let load ~(limits : limits) ~provider ~capabilities ~contributions
                                                 !command_registry command)
                                           |> Result.map (fun _ ->
                                               Registration.binding_sequence
-                                                ~next_mode:None ~head ~tail
-                                                ~command:definition.id ~scope
-                                                ~provider))))
+                                                ~mode_transition:None ~head
+                                                ~tail ~command:definition.id
+                                                ~scope ~provider))))
                         |> fun candidate ->
                         Result.bind candidate (fun binding ->
                             let duplicate =

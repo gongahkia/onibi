@@ -153,8 +153,53 @@ sequence. `Ctrl-X` remains a one-event binding and is fully backward
 compatible.
 
 A scope is `global`, `model:<model-id>`, or
-`model:<model-id>:<status-id>`. A completed model-status binding wins over a
-model binding, which wins over global. If a more-specific scope has an
+`model:<model-id>:<status-id>`, or `mode:<id>`. A completed custom-mode binding
+wins over a model-status binding, which wins over a model binding, which wins
+over global. Declare a custom mode before using it:
+
+```lua
+zenbu.mode {
+  id = "user.leader",
+  title = "LEADER",
+  description = "A transient project keymap.",
+}
+
+zenbu.bind { input = "Ctrl-X", command = "user.enter-leader", mode = "user.leader" }
+zenbu.bind { input = "f", command = "user.format", scope = "mode:user.leader", mode = "" }
+```
+
+`mode = "id"` replaces the custom-mode stack before its command runs and
+`mode = ""` clears it, preserving the original single-transient-map syntax.
+For nested maps, use an explicit transition table:
+
+```lua
+zenbu.bind {
+  input = "g",
+  command = "user.enter-goto",
+  scope = "mode:user.leader",
+  mode = { action = "push", id = "user.goto" },
+}
+zenbu.bind {
+  input = "h",
+  command = "user.goto-home",
+  scope = "mode:user.goto",
+  mode = { action = "pop" },
+}
+```
+
+The actions are `replace` and `push` (both require a declared `id`), `pop`,
+and `clear`. A pushed mode overlays the maps below it: its completed binding
+wins, but an otherwise unmatched key may resolve in the next lower custom map,
+then the ordinary model map. An unmatched key with any custom mode active is
+consumed rather than reaching the base model. Bare `Escape` pops the innermost
+custom mode when it has no matching binding, while a mode-local `Escape`
+binding takes precedence. A reload retains the full stack only when every
+active id remains declared by the replacement generation; otherwise it clears
+the stack. This supports nested leader/transient/minor-map patterns, but not
+yet arbitrary Emacs-style keymap composition or a script-defined text-input
+state machine.
+
+If a more-specific scope has an
 incomplete sequence prefix, Zenbu holds that prefix; a less-specific sequence
 can still resolve if the later event does not match the narrower candidate.
 The first prefix event is never sent to the model. `Escape` cancels a pending

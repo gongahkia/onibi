@@ -12,14 +12,15 @@ type scope = Registration.scope =
   | Model_status of { model : string; status : string }
   | Mode of string
 
+type mode_transition = Registration.mode_transition =
+  | Replace_mode of string
+  | Push_mode of string
+  | Pop_mode
+  | Clear_modes
+
 type binding = Registration.binding
 type hook = Registration.hook
-
-type mode = {
-  id : string;
-  title : string;
-  description : string;
-}
+type mode = { id : string; title : string; description : string }
 
 type t = {
   generation_id : int;
@@ -376,6 +377,17 @@ let validate_id source id =
   |> Result.map_error (fun error ->
       script_error "registration" source (Error.to_string error))
 
+let mode_transition_of_backend = function
+  | None -> None
+  | Some (Backend.Replace_mode id) -> Some (Replace_mode id)
+  | Some (Backend.Push_mode id) -> Some (Push_mode id)
+  | Some Backend.Pop_mode -> Some Pop_mode
+  | Some Backend.Clear_modes -> Some Clear_modes
+
+let mode_transition_target = function
+  | Some (Replace_mode id | Push_mode id) -> Some id
+  | None | Some Pop_mode | Some Clear_modes -> None
+
 let load_from_source ?provider ?(capabilities = trusted_capabilities)
     ?contributions ?(runtime = "lua-trusted") ~generation_id ~base_commands
     ~base_semantics ~source text =
@@ -490,7 +502,8 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
           let register_mode definition =
             match validate_id source definition.Backend.id with
             | Error error -> fail error
-            | Ok _ when List.exists (fun mode -> mode.id = definition.id) !modes ->
+            | Ok _ when List.exists (fun mode -> mode.id = definition.id) !modes
+              ->
                 fail (Error.Duplicate_descriptor definition.id)
             | Ok _ ->
                 modes :=
@@ -509,7 +522,8 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
                   register_mode definition
               | Backend.Mode _ | Backend.Binding _ | Backend.Hook _
               | Backend.Command _ | Backend.Selector _
-              | Backend.Transformation _ -> ())
+              | Backend.Transformation _ ->
+                  ())
             registrations;
           List.iter
             (function
@@ -608,8 +622,9 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
                                 | Error error -> fail error
                                 | Ok registry -> behavior_registry := registry))
                       ))
-              | Backend.Mode _ | Backend.Binding _ | Backend.Hook _ | Backend.Command _
-              | Backend.Selector _ | Backend.Transformation _ ->
+              | Backend.Mode _ | Backend.Binding _ | Backend.Hook _
+              | Backend.Command _ | Backend.Selector _
+              | Backend.Transformation _ ->
                   ())
             registrations;
           List.iter
@@ -619,9 +634,11 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
                     ( inputs_of_string source definition.input,
                       scope_of_string source definition.scope,
                       Command_id.of_string definition.command,
-                      Ok definition.next_mode )
+                      Ok (mode_transition_of_backend definition.mode_transition)
+                    )
                   with
-                  | Ok (head :: tail), Ok scope, Ok command, Ok next_mode -> (
+                  | Ok (head :: tail), Ok scope, Ok command, Ok mode_transition
+                    -> (
                       match
                         verify_registration "bindings" definition.command
                       with
@@ -633,7 +650,7 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
                                "reserved host input cannot appear in a binding")
                       | Ok () -> (
                           let mode_exists = function
-                            | None | Some "" -> true
+                            | None -> true
                             | Some id ->
                                 List.exists (fun mode -> mode.id = id) !modes
                           in
@@ -642,10 +659,15 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
                                 List.exists (fun mode -> mode.id = id) !modes
                             | Global | Model _ | Model_status _ -> true
                           in
-                          if not (mode_exists next_mode) then
+                          if
+                            not
+                              (mode_transition_target mode_transition
+                              |> mode_exists)
+                          then
                             fail
                               (script_error "registration" source
-                                 "binding mode must name a declared mode or be empty")
+                                 "binding mode transition must name a declared \
+                                  mode")
                           else if not (scope_mode_exists scope) then
                             fail
                               (script_error "registration" source
@@ -653,13 +675,14 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
                           else
                             match
                               ( String.equal definition.command "config.reload",
-                                Command_registry.find !command_registry command )
+                                Command_registry.find !command_registry command
+                              )
                             with
                             | true, _ | false, Ok _ ->
                                 let candidate =
-                                  Registration.binding_sequence
-                                    ~next_mode ~head ~tail
-                                    ~command:definition.command ~scope ~provider
+                                  Registration.binding_sequence ~mode_transition
+                                    ~head ~tail ~command:definition.command
+                                    ~scope ~provider
                                 in
                                 let duplicate =
                                   List.exists
@@ -679,8 +702,11 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
                       fail
                         (script_error "registration" source
                            "binding sequence must not be empty")
-                  | Error error, _, _, _ | _, Error error, _, _
-                  | _, _, Error error, _ | _, _, _, Error error -> fail error)
+                  | Error error, _, _, _
+                  | _, Error error, _, _
+                  | _, _, Error error, _
+                  | _, _, _, Error error ->
+                      fail error)
               | Backend.Hook definition when Option.is_none !failed -> (
                   match event_of_string source definition.event with
                   | Error error -> fail error
@@ -735,8 +761,9 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
                                   (Host.invoke host callback request)
                                   (actions source request));
                           ])
-              | Backend.Mode _ | Backend.Binding _ | Backend.Hook _ | Backend.Command _
-              | Backend.Selector _ | Backend.Transformation _ ->
+              | Backend.Mode _ | Backend.Binding _ | Backend.Hook _
+              | Backend.Command _ | Backend.Selector _
+              | Backend.Transformation _ ->
                   ())
             registrations;
           match !failed with
@@ -787,7 +814,7 @@ let binding_input = Registration.binding_input
 let binding_inputs = Registration.binding_inputs
 let binding_command = Registration.binding_command
 let binding_scope = Registration.binding_scope
-let binding_next_mode = Registration.binding_next_mode
+let binding_mode_transition = Registration.binding_mode_transition
 let binding_provider = Registration.binding_provider
 let mode_id value = value.id
 let mode_title value = value.title

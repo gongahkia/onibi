@@ -15,8 +15,15 @@ type binding = {
   input : string;
   command : string;
   scope : string option;
-  next_mode : string option;
+  mode_transition : mode_transition option;
 }
+
+and mode_transition =
+  | Replace_mode of string
+  | Push_mode of string
+  | Pop_mode
+  | Clear_modes
+
 type hook = { event : string; callback : callback }
 
 type registration =

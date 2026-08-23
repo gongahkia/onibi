@@ -177,7 +177,7 @@ type t = {
   pane_buffers : (int * int) list;
   mouse_drag : mouse_drag option;
   pending_binding : Input_event.t list;
-  active_mode : string option;
+  active_modes : string list;
 }
 
 type outcome = Continue of t | Exit of t
@@ -847,7 +847,7 @@ let create ~model ?language ?file_path ?(contents = "") ?trace ?profiler
                     pane_buffers = [ (0, 0) ];
                     mouse_drag = None;
                     pending_binding = [];
-                    active_mode = None;
+                    active_modes = [];
                   })))
 
 let context_of_active = function
@@ -869,9 +869,25 @@ let host_status ~id ~label ~description ?(text_entry = false) () =
     ()
   |> Result.get_ok
 
+let active_script_mode session =
+  match (session.active_modes, session.generation) with
+  | id :: _, Some generation ->
+      List.find_opt
+        (fun mode -> String.equal (Scripting.mode_id mode) id)
+        (Scripting.modes generation)
+  | [], _ | _, None -> None
+
 let status session =
   match session.interaction with
-  | Idle -> active_status session.active
+  | Idle -> (
+      match active_script_mode session with
+      | None -> active_status session.active
+      | Some mode ->
+          host_status
+            ~id:("host-custom-mode:" ^ Scripting.mode_id mode)
+            ~label:(Scripting.mode_title mode)
+            ~description:(Scripting.mode_description mode)
+            ())
   | Search_prompt _ ->
       host_status ~id:"host-search" ~label:"SEARCH"
         ~description:
@@ -1652,14 +1668,17 @@ let reload_config session =
           Option.iter Scripting.dispose session.generation;
           lifecycle trace ~execution_id ~phase:"reload" ?generation
             ~outcome:"succeeded" ();
-          let active_mode =
-            match (session.active_mode, generation) with
-            | Some id, Some generation
-              when List.exists
-                     (fun mode -> String.equal (Scripting.mode_id mode) id)
-                     (Scripting.modes generation) ->
-                Some id
-            | Some _, None | None, _ | Some _, Some _ -> None
+          let active_modes =
+            match generation with
+            | Some generation
+              when List.for_all
+                     (fun id ->
+                       List.exists
+                         (fun mode -> String.equal (Scripting.mode_id mode) id)
+                         (Scripting.modes generation))
+                     session.active_modes ->
+                session.active_modes
+            | None | Some _ -> []
           in
           let message =
             let plugin_count = List.length (Plugins.providers plugin_host) in
@@ -1690,7 +1709,7 @@ let reload_config session =
             message = Some message;
             quit_armed = false;
             pending_binding = [];
-            active_mode;
+            active_modes;
           })
 
 let model_descriptor = function
@@ -1707,8 +1726,15 @@ let binding_rank session binding =
   | Scripting.Model_status { model = candidate; status = candidate_status }
     when String.equal candidate model && String.equal candidate_status status ->
       Some 2
-  | Scripting.Mode candidate when session.active_mode = Some candidate -> Some 3
-  | Scripting.Model _ | Scripting.Model_status _ | Scripting.Mode _ -> None
+  | Scripting.Mode candidate ->
+      let rec mode_rank rank = function
+        | [] -> None
+        | mode :: rest ->
+            if String.equal candidate mode then Some rank
+            else mode_rank (rank - 1) rest
+      in
+      mode_rank (3 + List.length session.active_modes) session.active_modes
+  | Scripting.Model _ | Scripting.Model_status _ -> None
 
 let binding_inputs_equal left right =
   String.equal (Input_event.to_string left) (Input_event.to_string right)
@@ -1734,20 +1760,36 @@ let active_bindings session =
     | Some generation -> Scripting.bindings generation)
   @ Plugins.bindings session.plugins
 
-let transition_binding_mode session binding =
-  match Scripting.binding_next_mode binding with
-  | None -> session
-  | Some "" ->
+let pop_active_mode session =
+  match session.active_modes with
+  | [] -> session
+  | _ :: active_modes ->
       {
         session with
-        active_mode = None;
-        message = Some "custom mode exited";
+        active_modes;
+        message =
+          Some
+            (if active_modes = [] then "custom modes exited"
+             else "custom mode exited; resumed: " ^ List.hd active_modes);
       }
-  | Some mode ->
+
+let transition_binding_mode session binding =
+  match Scripting.binding_mode_transition binding with
+  | None -> session
+  | Some Scripting.Clear_modes ->
+      { session with active_modes = []; message = Some "custom modes exited" }
+  | Some Scripting.Pop_mode -> pop_active_mode session
+  | Some (Scripting.Replace_mode mode) ->
       {
         session with
-        active_mode = Some mode;
+        active_modes = [ mode ];
         message = Some ("custom mode entered: " ^ mode);
+      }
+  | Some (Scripting.Push_mode mode) ->
+      {
+        session with
+        active_modes = mode :: session.active_modes;
+        message = Some ("custom mode pushed: " ^ mode);
       }
 
 let matching_binding session input =
@@ -1764,7 +1806,7 @@ let matching_binding session input =
   in
   match bindings with
   | [] ->
-      if session.pending_binding = [] && Option.is_none session.active_mode then
+      if session.pending_binding = [] && session.active_modes = [] then
         No_binding
       else if binding_event_is_escape input then Binding_cancelled
       else Binding_rejected sequence
@@ -3079,12 +3121,11 @@ let input_for_interaction session input =
             quit_armed = false;
           }
       | Binding_cancelled ->
-          {
-            session with
-            pending_binding = [];
-            message = Some "binding prefix cancelled";
-            quit_armed = false;
-          }
+          let session =
+            { session with pending_binding = []; quit_armed = false }
+          in
+          if session.active_modes <> [] then pop_active_mode session
+          else { session with message = Some "binding prefix cancelled" }
       | Binding_rejected sequence ->
           {
             session with

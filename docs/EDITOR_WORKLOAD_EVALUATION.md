@@ -54,10 +54,10 @@ The feature sources are the projects' own documentation: [Vim help](https://vimh
 | workload | supported now | partial foundation | absent before a parity claim |
 | --- | --- | --- | --- |
 | Vim-style terminal editor | normal/insert/replace/visual grammar, operators, counts, motions, find, basic search requests, registers, undo/redo, local buffers/views, provenance, scoped sequence bindings, and typed command prompts | command palette and generic host controls | Ex command language, macros, broad motion/text-object coverage, marks/jumps, compatibility mappings, and terminal/GUI appearance parity |
-| Helix-style selection editor | selection-first model, multi-edit transactions, occurrence selection, syntax-structural selections, local buffers/views, scoped sequence bindings, and optional LSP completion/hover/definition/rename across already-open saved buffers | buffers can be assigned to split views | picker/config discovery, registers/macros, regex selection algebra, shell pipes, general workspace edits, full window model, and theme parity |
-| Kakoune-style multiple-selection editor | explicit ordered selections, selection-first edits, syntax context, scoped bindings/hooks, and local buffers/views | split views render independently and focus routes input to the assigned buffer | Kakoune's inclusive anchor/cursor model, selection split/rotate/merge/filter algebra, client/server sessions, shell filters, full command language, and face/highlighter ecosystem |
+| Helix-style selection editor | selection-first model, multi-edit transactions, occurrence selection, syntax-structural selections, local buffers/views, scoped sequence bindings, nested declarative transient modes, and optional LSP completion/hover/definition/rename across already-open saved buffers | buffers can be assigned to split views | picker/config discovery, registers/macros, regex selection algebra, shell pipes, general workspace edits, full window model, and theme parity |
+| Kakoune-style multiple-selection editor | explicit ordered selections, selection-first edits, syntax context, scoped bindings/hooks, nested declarative transient modes, and local buffers/views | split views render independently and focus routes input to the assigned buffer | Kakoune's inclusive anchor/cursor model, selection split/rotate/merge/filter algebra, client/server sessions, shell filters, full command language, and face/highlighter ecosystem |
 | Micro-style terminal editor | ordinary text editing, syntax spans, local buffers/views, trusted Lua configuration, local plugins, save/search/palette, terminal themes, basic click/drag selection plus wheel scrolling, and scoped sequence bindings | Components and Lua can supply editing commands | mouse clipboard/menu/multi-click parity, interactive shell split, buffer tabs, plugin-manager/install flow, runtime theme/configuration surface, and complete keybinding/configuration surface |
-| Emacs terminal product | key-addressable commands, scoped sequence bindings, local buffers in split views, a typed argument minibuffer, configuration/plugin concepts, and asynchronous language host | generic scope precedence, not Emacs keymap composition | buffer/window/frame system, completion ecosystem, major/minor mode composition, Elisp/package/process APIs, display engine, and terminal appearance parity |
+| Emacs terminal product | key-addressable commands, scoped sequence bindings, stackable declared transient modes, local buffers in split views, a typed argument minibuffer, configuration/plugin concepts, and asynchronous language host | transient stack composition, not general Emacs keymap composition | buffer/window/frame system, completion ecosystem, major/minor mode composition, Elisp/package/process APIs, display engine, and terminal appearance parity |
 
 “Supported now” means this repository has a testable behavior, not that its
 keystrokes or visual rendering exactly match the named editor. “Partial
@@ -104,10 +104,19 @@ scope selection; Session holds prefixes outside editing models, rejects
 same-scope prefix ambiguity at staging, records the full sequence in trace and
 provenance, and consumes an unbound suffix. M4/M7/M8 regressions cover parsing,
 modifier/named-key aliases, prefix persistence/cancellation, scope fallback,
-atomic staging, reserved-host rejection, and cross-plugin collisions. This
-does not claim Helix nested-mode, Kakoune keymap, or Emacs keymap parity: Zenbu
-has only its three fixed scopes and no user-defined mode stack or map
-composition.
+atomic staging, reserved-host rejection, and cross-plugin collisions.
+
+The next keymap result is a declared custom-mode stack for trusted Lua.
+`replace`, `push`, `pop`, and `clear` transitions are staged with bindings;
+the innermost map takes precedence while lower stacked maps remain available as
+fallbacks. An unmatched bare `Escape` pops the innermost map, and a reload
+retains the stack only when the replacement generation still declares every
+id. M7 covers nested push/pop, lower-map fallback, unmatched-input containment,
+Escape fallback, and invalidation on reload. This is enough to prototype
+Helix-style nested prefixes and transient leader maps. It is not general Emacs
+keymap composition: there are no dynamically enabled independent minor maps,
+per-buffer local maps, or script-defined text-entry state machines; Component
+ABI v1 cannot currently declare modes or transitions.
 
 The next evaluation gap was argument-taking commands. The command palette and
 custom bindings now collect descriptor-declared text, built-in selector, and

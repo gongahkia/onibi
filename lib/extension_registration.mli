@@ -13,6 +13,12 @@ type scope =
   | Model_status of { model : string; status : string }
   | Mode of string
 
+type mode_transition =
+  | Replace_mode of string
+  | Push_mode of string
+  | Pop_mode
+  | Clear_modes
+
 type binding
 type hook
 
@@ -20,7 +26,7 @@ val binding :
   input:Input_event.t ->
   command:string ->
   scope:scope ->
-  next_mode:string option ->
+  mode_transition:mode_transition option ->
   provider:Zenbu_kernel.Provider.t ->
   binding
 
@@ -29,7 +35,7 @@ val binding_sequence :
   tail:Input_event.t list ->
   command:string ->
   scope:scope ->
-  next_mode:string option ->
+  mode_transition:mode_transition option ->
   provider:Zenbu_kernel.Provider.t ->
   binding
 (** Register a nonempty ordered logical-input sequence. [head] is separate so
@@ -42,7 +48,7 @@ val binding_input : binding -> Input_event.t
 val binding_inputs : binding -> Input_event.t list
 val binding_command : binding -> string
 val binding_scope : binding -> scope
-val binding_next_mode : binding -> string option
+val binding_mode_transition : binding -> mode_transition option
 val binding_provider : binding -> Zenbu_kernel.Provider.t
 
 val bindings_conflict : binding -> binding -> bool

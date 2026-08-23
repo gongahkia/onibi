@@ -11,6 +11,12 @@ type scope = Zenbu_model_api.Extension_registration.scope =
   | Model_status of { model : string; status : string }
   | Mode of string
 
+type mode_transition = Zenbu_model_api.Extension_registration.mode_transition =
+  | Replace_mode of string
+  | Push_mode of string
+  | Pop_mode
+  | Clear_modes
+
 type binding = Zenbu_model_api.Extension_registration.binding
 type hook = Zenbu_model_api.Extension_registration.hook
 type mode
@@ -57,7 +63,7 @@ val binding_input : binding -> Zenbu_model_api.Input_event.t
 val binding_inputs : binding -> Zenbu_model_api.Input_event.t list
 val binding_command : binding -> string
 val binding_scope : binding -> scope
-val binding_next_mode : binding -> string option
+val binding_mode_transition : binding -> mode_transition option
 val binding_provider : binding -> Zenbu_kernel.Provider.t
 val mode_id : mode -> string
 val mode_title : mode -> string
