@@ -892,6 +892,8 @@ module Make (Model : Editing_model.S) = struct
                         changes,
                         [],
                         retain_repeatable repeatable_intents intents ))))
+    | Model_effect.Request_search _ | Model_effect.Repeat_search _ ->
+        Ok (history, clipboard, [], [], [], repeatable_intents)
     | Model_effect.Undo -> (
         match History.undo history with
         | Error _ as error -> error

@@ -76,7 +76,11 @@ type presentation_cache = {
 
 type interaction =
   | Idle
-  | Search_prompt of { query : string; origin : Editor_context.selection_set }
+  | Search_prompt of {
+      query : string;
+      origin : Editor_context.selection_set;
+      direction : Model_effect.search_direction;
+    }
   | Palette of { query : string; selected : int }
   | Save_as_prompt of string
   | Model_picker of int
@@ -883,54 +887,60 @@ let handle_model_input session input =
     | Vim_runtime runtime -> (
         match Vim_runtime.handle_input runtime input with
         | Error error ->
-            {
-              session with
-              message = Some (Error.to_string error);
-              quit_armed = false;
-              inspector = None;
-            }
+            ( {
+                session with
+                message = Some (Error.to_string error);
+                quit_armed = false;
+                inspector = None;
+              },
+              [] )
         | Ok (runtime, step) ->
-            {
-              session with
-              active = Vim_runtime runtime;
-              message = last_message (Vim_runtime.messages step);
-              quit_armed = false;
-              inspector = None;
-            })
+            ( {
+                session with
+                active = Vim_runtime runtime;
+                message = last_message (Vim_runtime.messages step);
+                quit_armed = false;
+                inspector = None;
+              },
+              Vim_runtime.effects step ))
     | Selection_runtime runtime -> (
         match Selection_runtime.handle_input runtime input with
         | Error error ->
-            {
-              session with
-              message = Some (Error.to_string error);
-              quit_armed = false;
-              inspector = None;
-            }
+            ( {
+                session with
+                message = Some (Error.to_string error);
+                quit_armed = false;
+                inspector = None;
+              },
+              [] )
         | Ok (runtime, step) ->
-            {
-              session with
-              active = Selection_runtime runtime;
-              message = last_message (Selection_runtime.messages step);
-              quit_armed = false;
-              inspector = None;
-            })
+            ( {
+                session with
+                active = Selection_runtime runtime;
+                message = last_message (Selection_runtime.messages step);
+                quit_armed = false;
+                inspector = None;
+              },
+              Selection_runtime.effects step ))
     | Structural_runtime runtime -> (
         match Structural_runtime.handle_input runtime input with
         | Error error ->
-            {
-              session with
-              message = Some (Error.to_string error);
-              quit_armed = false;
-              inspector = None;
-            }
+            ( {
+                session with
+                message = Some (Error.to_string error);
+                quit_armed = false;
+                inspector = None;
+              },
+              [] )
         | Ok (runtime, step) ->
-            {
-              session with
-              active = Structural_runtime runtime;
-              message = last_message (Structural_runtime.messages step);
-              quit_armed = false;
-              inspector = None;
-            })
+            ( {
+                session with
+                active = Structural_runtime runtime;
+                message = last_message (Structural_runtime.messages step);
+                quit_armed = false;
+                inspector = None;
+              },
+              Structural_runtime.effects step ))
   in
   next
 
@@ -1721,20 +1731,6 @@ let move_to_search_match session input search index =
           in
           { next with search = Some { search with current = Some index } })
 
-let update_search session input query =
-  if String.length query = 0 then
-    { session with search = None; message = Some "search: enter literal text" }
-  else
-    let search = search_with_query session query in
-    match search.current with
-    | None ->
-        {
-          session with
-          search = Some search;
-          message = Some ("search: no matches for " ^ query);
-        }
-    | Some index -> move_to_search_match session input search index
-
 let move_search session input direction =
   match session.search with
   | None -> { session with message = Some "search: no active query" }
@@ -1939,16 +1935,69 @@ let save_to session path =
 
 let model_choices = [ Vim; Selection; Structural ]
 
-let begin_search session =
+let begin_search ?(direction = Model_effect.Forward) session =
   {
     session with
     interaction =
       Search_prompt
-        { query = ""; origin = Editor_context.selections (context session) };
+        {
+          query = "";
+          origin = Editor_context.selections (context session);
+          direction;
+        };
     search = None;
     message = Some "search: enter a literal Unicode query";
     inspector = None;
   }
+
+let search_index ~origin ~direction matches =
+  let primary =
+    List.nth origin.Editor_context.selections origin.primary_index
+  in
+  let offset = primary.Editor_context.head_offset in
+  let rec first_after index = function
+    | [] -> None
+    | (range : Zenbu_view.Renderer.search_range) :: rest ->
+        if range.start_offset >= offset then Some index
+        else first_after (index + 1) rest
+  in
+  let rec last_before index best = function
+    | [] -> best
+    | (range : Zenbu_view.Renderer.search_range) :: rest ->
+        let best =
+          if range.start_offset < offset then Some index else best
+        in
+        last_before (index + 1) best rest
+  in
+  match direction with
+  | Model_effect.Forward ->
+      Option.value ~default:0 (first_after 0 matches)
+  | Model_effect.Backward ->
+      Option.value ~default:(max 0 (List.length matches - 1))
+        (last_before 0 None matches)
+
+let update_search session input ~origin ~direction query =
+  if String.length query = 0 then
+    { session with search = None; message = Some "search: enter literal text" }
+  else
+    let search = search_with_query session query in
+    match search.matches with
+    | [] ->
+        {
+          session with
+          search = Some search;
+          message = Some ("search: no matches for " ^ query);
+        }
+    | matches ->
+        move_to_search_match session input search
+          (search_index ~origin ~direction matches)
+
+let handle_model_search_request session input = function
+  | Model_effect.Request_search direction -> begin_search ~direction session
+  | Model_effect.Repeat_search Model_effect.Forward -> move_search session input 1
+  | Model_effect.Repeat_search Model_effect.Backward ->
+      move_search session input (-1)
+  | _ -> session
 
 let save session =
   match session.file_path with
@@ -2119,8 +2168,12 @@ let input_for_interaction session input =
       else
         match matching_binding session input with
         | Some binding -> fst (invoke_bound_command session input binding)
-        | None -> handle_model_input session input)
-  | Search_prompt { query; origin } -> (
+        | None ->
+            let session, effects = handle_model_input session input in
+            List.fold_left
+              (fun session effect -> handle_model_search_request session input effect)
+              session effects)
+  | Search_prompt { query; origin; direction } -> (
       if
         is_shortcut input ~text:"g"
           ~modifiers:[ Input_event.Shift; Input_event.Control ]
@@ -2133,20 +2186,22 @@ let input_for_interaction session input =
         { session with interaction = Idle; message = Some "search complete" }
       else if event_is_named input Input_event.Backspace then
         let next_query = drop_last_utf8 query in
-        let updated = update_search session input next_query in
+        let updated = update_search session input ~origin ~direction next_query in
         {
           updated with
-          interaction = Search_prompt { query = next_query; origin };
+          interaction = Search_prompt { query = next_query; origin; direction };
         }
       else
         match event_text input with
         | None -> session
         | Some text ->
             let next_query = query ^ text in
-            let updated = update_search session input next_query in
+            let updated =
+              update_search session input ~origin ~direction next_query
+            in
             {
               updated with
-              interaction = Search_prompt { query = next_query; origin };
+              interaction = Search_prompt { query = next_query; origin; direction };
             })
   | Palette { query; selected } -> (
       let items = matching_palette_items session query in

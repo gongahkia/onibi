@@ -1,5 +1,6 @@
 type message_level = Info | Warning | Error
 type message = { level : message_level; text : string }
+type search_direction = Forward | Backward
 
 type t =
   | Execute_intent of Model_intent.t
@@ -20,6 +21,8 @@ type t =
       slot : Clipboard.slot;
       placement : Clipboard.placement;
     }
+  | Request_search of search_direction
+  | Repeat_search of search_direction
   | Undo
   | Redo
   | Repeat_last_edit

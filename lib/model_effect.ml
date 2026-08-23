@@ -2,6 +2,7 @@ open Zenbu_kernel
 
 type message_level = Info | Warning | Error
 type message = { level : message_level; text : string }
+type search_direction = Forward | Backward
 
 type t =
   | Execute_intent of Model_intent.t
@@ -22,6 +23,8 @@ type t =
       slot : Clipboard.slot;
       placement : Clipboard.placement;
     }
+  | Request_search of search_direction
+  | Repeat_search of search_direction
   | Undo
   | Redo
   | Repeat_last_edit
@@ -45,7 +48,8 @@ let selector_id = function
   | Execute_semantic_operation operation ->
       Some (Semantic_operation.selector_id operation.selector)
   | Invoke_command _ | Emit_message _ | Copy_to_clipboard _
-  | Paste_from_clipboard _ | Undo | Redo | Repeat_last_edit ->
+  | Paste_from_clipboard _ | Request_search _ | Repeat_search _ | Undo | Redo
+  | Repeat_last_edit ->
       None
 
 let transformation_id = function
@@ -57,7 +61,8 @@ let transformation_id = function
   | Execute_semantic_operation operation ->
       Some (Semantic_operation.transformation_id operation.transformation)
   | Invoke_command _ | Emit_message _ | Copy_to_clipboard _
-  | Paste_from_clipboard _ | Undo | Redo | Repeat_last_edit ->
+  | Paste_from_clipboard _ | Request_search _ | Repeat_search _ | Undo | Redo
+  | Repeat_last_edit ->
       None
 
 let identity = function
@@ -70,6 +75,10 @@ let identity = function
   | Emit_message _ -> "emit-message"
   | Copy_to_clipboard _ -> "copy-to-clipboard"
   | Paste_from_clipboard _ -> "paste-from-clipboard"
+  | Request_search Forward -> "request-search:forward"
+  | Request_search Backward -> "request-search:backward"
+  | Repeat_search Forward -> "repeat-search:forward"
+  | Repeat_search Backward -> "repeat-search:backward"
   | Undo -> "undo"
   | Redo -> "redo"
   | Repeat_last_edit -> "repeat-last-edit"
@@ -94,6 +103,10 @@ let describe = function
   | Paste_from_clipboard { slot; placement } ->
       "paste " ^ Clipboard.slot_name slot ^ " "
       ^ Clipboard.placement_name placement
+  | Request_search Forward -> "request a forward literal search"
+  | Request_search Backward -> "request a backward literal search"
+  | Repeat_search Forward -> "request the next literal search match"
+  | Repeat_search Backward -> "request the previous literal search match"
   | Undo -> "undo"
   | Redo -> "redo"
   | Repeat_last_edit -> "repeat-last-edit"
