@@ -90,4 +90,5 @@ val toggle_inspector : t -> t
 val inspector_open : t -> bool
 val poll_language : t -> t
 val language_wakeup_fd : t -> Unix.file_descr option
+val language_wakeup_fds : t -> Unix.file_descr list
 val close : t -> unit

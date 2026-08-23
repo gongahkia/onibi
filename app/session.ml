@@ -1822,10 +1822,12 @@ let accept_completion session input item =
         message = Some ("completed " ^ item.label);
       }
 
-let select_definition session input target message =
+let select_definition session input (target : Language.definition_target)
+    message =
   match
     Model_intent.set_selections
-      ~selections:[ (target.start_offset, target.stop_offset) ] ~primary:0
+      ~selections:[ (target.start_offset, target.stop_offset) ]
+      ~primary:0
   with
   | Error error -> { session with message = Some (Error.to_string error) }
   | Ok intent ->
@@ -1838,7 +1840,7 @@ let select_definition session input target message =
       in
       { next with interaction = Idle; message = Some message }
 
-let apply_definition session input target =
+let apply_definition session input (target : Language.definition_target) =
   match session.file_path with
   | Some path
     when String.equal (Language.Uri.file_of_path path) target.Language.uri ->
@@ -3565,6 +3567,12 @@ let inspector_open session = Option.is_some session.inspector
 
 let language_wakeup_fd session =
   Option.map Lsp.wakeup_fd session.language_client
+
+let language_wakeup_fds session =
+  current_buffer session :: session.inactive_buffers
+  |> List.filter_map (fun (buffer : buffer) ->
+         Option.map Lsp.wakeup_fd buffer.language_client)
+  |> List.sort_uniq compare
 
 let close session =
   current_buffer session :: session.inactive_buffers

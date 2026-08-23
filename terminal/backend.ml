@@ -117,12 +117,15 @@ let pasted_text = function
   | Event.Unsupported _ ->
       None
 
-let rec read ?wakeup terminal =
-  match wakeup with
-  | Some wakeup ->
-      let readable, _, _ = Unix.select [ Unix.stdin; wakeup ] [] [] (-1.) in
-      if List.mem wakeup readable then Event.Wakeup else read_ready terminal
-  | None -> read_ready terminal
+let rec read ?wakeup ?(wakeups = []) terminal =
+  let wakeups = Option.to_list wakeup @ wakeups |> List.sort_uniq compare in
+  match wakeups with
+  | [] -> read_ready terminal
+  | _ ->
+      let readable, _, _ = Unix.select (Unix.stdin :: wakeups) [] [] (-1.) in
+      if List.exists (fun wakeup -> List.mem wakeup readable) wakeups then
+        Event.Wakeup
+      else read_ready terminal
 
 and read_ready terminal =
   match Notty_unix.Term.event terminal.terminal with

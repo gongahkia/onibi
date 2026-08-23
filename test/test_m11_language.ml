@@ -437,6 +437,53 @@ let session_integration_test () =
         (String.starts_with ~prefix:"ren" (Zenbu_app.Session.contents session))
         "current-document rename was not applied atomically")
 
+let cross_file_definition_session_test () =
+  let target = Filename.temp_file "zenbu-m11-definition" ".ml" in
+  Fun.protect
+    ~finally:(fun () -> try Sys.remove target with Sys_error _ -> ())
+    (fun () ->
+      (match
+         Zenbu_app.File_io.save_atomic ~path:target ~contents:"let target = 1\n"
+       with
+      | Ok () -> ()
+      | Error error -> fail (Zenbu_app.File_io.to_string error));
+      let session =
+        session [ "--definition-path"; target ] "let source = 1\n"
+      in
+      let current = ref session in
+      Fun.protect
+        ~finally:(fun () -> Zenbu_app.Session.close !current)
+        (fun () ->
+          let session =
+            wait_session session (fun session ->
+                Zenbu_app.Session.inspect session Zenbu_app.Session.Language
+                |> List.exists (String.equal "state: ready"))
+          in
+          let session = host session Zenbu_app.Session.Language_definition in
+          let session =
+            wait_session session (fun session ->
+                Zenbu_app.Session.file_path session = Some target)
+          in
+          current := session;
+          expect
+            (Zenbu_app.Session.buffer_count session = 2)
+            "cross-file definition did not retain both buffers";
+          expect
+            (String.equal
+               (Zenbu_app.Session.contents session)
+               "let target = 1\n")
+            "cross-file definition did not open the definition target";
+          let selections =
+            Zenbu_model_api.Editor_context.selections
+              (Zenbu_app.Session.context session)
+          in
+          let primary =
+            List.nth selections.selections selections.primary_index
+          in
+          expect
+            (primary.anchor_offset = 0 && primary.head_offset = 1)
+            "cross-file definition did not select the target range"))
+
 let apply_edit_session_test () =
   let session = session [ "--apply-edit" ] "abc\n" in
   Fun.protect
@@ -509,6 +556,7 @@ let () =
   malformed_server_test ();
   trace_attribution_test ();
   session_integration_test ();
+  cross_file_definition_session_test ();
   apply_edit_session_test ();
   save_as_activation_test ();
   print_endline "M11 language tests passed"

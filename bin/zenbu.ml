@@ -191,7 +191,7 @@ let rec run backend session =
   Zenbu_terminal.Backend.draw backend frame;
   match
     Zenbu_terminal.Backend.read
-      ?wakeup:(Zenbu_app.Session.language_wakeup_fd session)
+      ~wakeups:(Zenbu_app.Session.language_wakeup_fds session)
       backend
   with
   | Zenbu_terminal.Event.Wakeup ->

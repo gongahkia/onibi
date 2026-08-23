@@ -105,12 +105,16 @@ validate all edits as one normal transaction, with language provenance. The
 view treats diagnostics as ranges and uses style precedence selection, search,
 diagnostic, syntax, then plain. The status row reports error/warning totals.
 
-M11 remains single-buffer. Same-document definitions navigate by selection;
-another URI is reported as unsupported. Rename and `workspace/applyEdit` reject
-a workspace edit spanning another URI rather than partially applying it. The
-server receives `applied: false`. There are no panes/buffers, project search,
-watching, code actions, formatting, symbols, semantic tokens, or multi-file
-atomic edits.
+The M12 workspace host retains language/syntax state with each local buffer.
+A definition target for another local file opens or reuses that buffer in the
+focused view, then navigates through the ordinary selection effect; it does
+not depend on a model-private document pointer. Rename and
+`workspace/applyEdit` still reject an edit spanning another URI rather than
+partially applying it, and the server receives `applied: false`. Each open
+buffer retains its own client handle, but the terminal wake path drains the
+focused buffer's client; background multiplexing and multi-file atomic edits
+remain future work. There is no project search, file watching, code actions,
+formatting, symbols, semantic tokens, or workspace-wide edit transaction.
 
 ## Inspection, testing, and trust
 
@@ -124,7 +128,8 @@ dune exec bin/zenbu_headless.exe -- language-fake-session \
 
 The fake server covers initialize/negotiation, full and incremental sync,
 diagnostics, delayed stale hover, cancellation, completion additional edits,
-rename, server apply-edit, malformed frames, crash/restart, and shutdown.
+same- and cross-file definitions, rename, server apply-edit, malformed frames,
+crash/restart, and shutdown.
 `test_m11_ocamllsp` opens a small Dune fixture with real `ocamllsp` and obtains
 a hover response.
 

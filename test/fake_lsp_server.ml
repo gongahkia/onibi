@@ -289,10 +289,10 @@ let () =
         in
         response id
           (`List
-            [
-              `Assoc
-                [ ("uri", `String definition_uri); ("range", range 0 0 0 1) ];
-            ])
+             [
+               `Assoc
+                 [ ("uri", `String definition_uri); ("range", range 0 0 0 1) ];
+             ])
     | Some "textDocument/completion", Some id ->
         let point = request_position params in
         response id
