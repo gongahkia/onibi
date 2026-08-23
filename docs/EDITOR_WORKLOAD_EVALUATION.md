@@ -53,11 +53,11 @@ The feature sources are the projects' own documentation: [Vim help](https://vimh
 
 | workload | supported now | partial foundation | absent before a parity claim |
 | --- | --- | --- | --- |
-| Vim-style terminal editor | normal/insert/replace/visual grammar, operators, counts, motions, find, basic search requests, registers, undo/redo, local buffers/views, provenance, scoped sequence bindings, typed command prompts, and generic keyboard macro recording/replay | command palette and generic host controls | Ex command language, Vim macro/register compatibility, broad motion/text-object coverage, marks/jumps, compatibility mappings, and terminal/GUI appearance parity |
-| Helix-style selection editor | selection-first model, multi-edit transactions, occurrence selection, syntax-structural selections, regex selection/splitting/filtering through `Str`, touching-range merge, primary and content rotation, orientation operations, local buffers/views, scoped sequence bindings, nested declarative modes including one initial adapter map, generic keyboard macro recording/replay, and optional LSP completion/hover/definition/rename across already-open saved buffers | buffers can be assigned to split views | picker/config discovery, named registers/macros, Helix regex and exact post-rotation selection semantics, shell pipes, general workspace edits, full window model, and theme parity |
-| Kakoune-style multiple-selection editor | explicit ordered selections, selection-first edits, syntax context, regex selection/splitting/filtering through `Str`, touching-range merge, primary and validated count-grouped content rotation, orientation operations, scoped bindings/hooks, nested declarative modes including one initial adapter map, generic keyboard macro recording/replay, and local buffers/views | split views render independently and focus routes input to the assigned buffer | Kakoune's inclusive anchor/cursor model, exact regex/count grouping and post-rotation selection semantics, named/register-backed macros, client/server sessions, shell filters, full command language, and face/highlighter ecosystem |
+| Vim-style terminal editor | normal/insert/replace/visual grammar, operators, counts, motions, find, basic search requests, registers, undo/redo, local buffers/views, provenance, scoped sequence bindings, typed command prompts, and bounded named keyboard-macro storage/replay | command palette and generic host controls | Ex command language, Vim `q{register}` macro/register compatibility, broad motion/text-object coverage, marks/jumps, compatibility mappings, and terminal/GUI appearance parity |
+| Helix-style selection editor | selection-first model, multi-edit transactions, occurrence selection, syntax-structural selections, regex selection/splitting/filtering through `Str`, touching-range merge, primary and content rotation, orientation operations, local buffers/views, scoped sequence bindings, nested declarative modes including one initial adapter map, bounded named keyboard-macro storage/replay, and optional LSP completion/hover/definition/rename across already-open saved buffers | buffers can be assigned to split views | picker/config discovery, Helix selected-register macro workflow, Helix regex and exact post-rotation selection semantics, shell pipes, general workspace edits, full window model, and theme parity |
+| Kakoune-style multiple-selection editor | explicit ordered selections, selection-first edits, syntax context, regex selection/splitting/filtering through `Str`, touching-range merge, primary and validated count-grouped content rotation, orientation operations, scoped bindings/hooks, nested declarative modes including one initial adapter map, bounded named keyboard-macro storage/replay, and local buffers/views | split views render independently and focus routes input to the assigned buffer | Kakoune's inclusive anchor/cursor model, exact regex/count grouping and post-rotation selection semantics, Kakoune register-selection macro grammar, client/server sessions, shell filters, full command language, and face/highlighter ecosystem |
 | Micro-style terminal editor | ordinary text editing, syntax spans, local buffers/views, trusted Lua configuration, local plugins, save/search/palette, terminal themes, basic click/drag selection plus wheel scrolling, and scoped sequence bindings | Components and Lua can supply editing commands | mouse clipboard/menu/multi-click parity, interactive shell split, buffer tabs, plugin-manager/install flow, runtime theme/configuration surface, and complete keybinding/configuration surface |
-| Emacs terminal product | key-addressable commands, buffer-local stackable declared transient modes, local buffers in split views, a typed argument minibuffer, generic keyboard macro recording/replay, configuration/plugin concepts, and asynchronous language host | transient stack composition, not general Emacs keymap composition | buffer/window/frame system, completion ecosystem, major/minor mode composition, macro ring/naming/editing, Elisp/package/process APIs, display engine, and terminal appearance parity |
+| Emacs terminal product | key-addressable commands, buffer-local stackable declared transient modes, local buffers in split views, a typed argument minibuffer, bounded named keyboard-macro storage/replay, configuration/plugin concepts, and asynchronous language host | transient stack composition, not general Emacs keymap composition | buffer/window/frame system, completion ecosystem, major/minor mode composition, macro ring and Emacs macro name/edit commands, Elisp/package/process APIs, display engine, and terminal appearance parity |
 
 “Supported now” means this repository has a testable behavior, not that its
 keystrokes or visual rendering exactly match the named editor. “Partial
@@ -136,15 +136,19 @@ sequence once and replaying it later. See [Helix keymap](https://docs.helix-edit
 and [Emacs keyboard macros](https://www.gnu.org/s/emacs/manual/html_node/emacs/Keyboard-Macros.html).
 Zenbu now has `editor.macro.record` and `editor.macro.replay` as generic host
 descriptors. A Lua adapter can bind them to `Q` and `q`; plain binding tokens
-are case-sensitive so that mapping is representable. Recording executes its
-input once, stores at most 1,024 keyboard/text events, omits its own controls
-and pointer input, and retains one session-wide latest macro. Replay feeds the
-stored events through the standard Session input dispatcher, preserving normal
-transactions, hooks, history, syntax/language refresh, and error handling.
-M10 regression coverage checks adapter bindings, Unicode text input, repeat
-replay, empty replay rejection, state inspection, and the recording bound. It
-does not claim named macro registers, persistence, editing, counts, or exact
-Vim/Helix/Kakoune/Emacs macro semantics.
+are case-sensitive so that mapping is representable. Their optional
+`register` argument stores or retrieves a bounded named session entry (`@` is
+the default): at most 64 valid UTF-8 names of at most 64 bytes, each holding at
+most 1,024 keyboard/text events. Recording executes its input once, omits its
+own controls, palette/argument-prompt interaction, and pointer input. Replay
+feeds the stored events through the standard Session input dispatcher,
+preserving normal transactions, hooks, history, syntax/language refresh, and
+error handling. M10 regression coverage checks adapter bindings, Unicode text
+input, default and named register replay, catalog inspection, empty replay
+rejection, and the recording bound. This remains a shared storage primitive,
+not exact Vim `q{register}`, Helix selected-register, Kakoune register grammar,
+or Emacs macro-ring/name/edit compatibility; persistence and repeat counts are
+also absent.
 
 The next evaluation gap was argument-taking commands. The command palette and
 custom bindings now collect descriptor-declared text, built-in selector, and

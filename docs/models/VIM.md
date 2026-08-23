@@ -60,9 +60,9 @@ Vim-compatible macro/register behavior, marks, mappings, registers beyond
 Zenbu's internal characterwise and linewise slots, blockwise visual mode, text
 objects beyond words, regex search, full desired-column behavior, multi-buffer
 workflows, and Vimscript/plugin compatibility. Zenbu's generic session keyboard
-macro commands can be bound to `Q`/`q` through Lua, but they intentionally have
-one transient latest macro rather than Vim registers, persistence, counts, or
-macro editing. The shared `.` repeat facility records ordinary semantic intents;
+macro commands can be bound to `Q`/`q` through Lua and have a bounded transient
+named store (`@` by default), but do not implement Vim's `q{register}` grammar,
+persistence, counts, or macro editing. The shared `.` repeat facility records ordinary semantic intents;
 model-calculated find operators such as `df{char}` do not yet establish a
 repeat source. The explicit limits make additions useful API tests instead of an
 accidental second editor kernel.

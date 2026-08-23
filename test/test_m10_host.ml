@@ -712,6 +712,48 @@ zenbu.bind { input = "q", command = "editor.macro.replay" }
       expect
         (App.Session.contents session = "界界界alpha")
         "a recorded macro could not be replayed repeatedly";
+      let invoke_named_macro session command register =
+        let session =
+          App.Session.handle_host session App.Session.Open_palette |> continue
+        in
+        let session = App.Session.handle_input session (text_input command) in
+        let session =
+          App.Session.handle_input session (named Input_event.Enter)
+        in
+        expect
+          (Model_status.id (App.Session.status session)
+          = "host-command-argument")
+          "named macro command did not open its register prompt";
+        let session = App.Session.handle_input session (text_input register) in
+        App.Session.handle_input session (named Input_event.Enter)
+      in
+      let session = invoke_named_macro session "editor.macro.record" "a" in
+      let session = App.Session.handle_input session (key "i") in
+      let session = App.Session.handle_input session (text_input "!") in
+      let session =
+        App.Session.handle_input session (named Input_event.Escape)
+      in
+      let session = invoke_named_macro session "editor.macro.record" "a" in
+      expect
+        (App.Session.contents session = "界界界!alpha")
+        "named macro recording did not execute ordinary input once";
+      let macros = App.Session.inspect session App.Session.Macros in
+      expect
+        (lines_contain macros "last-recorded-register: a"
+        && lines_contain macros "recorded-inputs: 3"
+        && lines_contain macros "register-count: 2"
+        && lines_contain macros "@ (3), a (3)")
+        "named macro storage did not preserve the default and named registers";
+      let session = invoke_named_macro session "editor.macro.replay" "a" in
+      expect
+        (App.Session.contents session = "界界界!!alpha")
+        "named macro replay did not use the requested register";
+      let macros = App.Session.inspect session App.Session.Macros in
+      expect
+        (lines_contain macros "last-recorded-register: a"
+        && lines_contain macros "replaying: false"
+        && lines_contain macros "text(i)")
+        "named macro replay corrupted the stored named register";
       let no_macro = make_session "untouched" in
       let no_macro =
         App.Session.handle_host no_macro App.Session.Replay_macro |> continue

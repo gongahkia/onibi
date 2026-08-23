@@ -133,6 +133,8 @@ type active =
   | Selection_runtime of Selection_runtime.t
   | Structural_runtime of Structural_runtime.t
 
+type macro_recording = { register : string; inputs_rev : Input_event.t list }
+
 type buffer = {
   id : int;
   active : active;
@@ -182,9 +184,10 @@ type t = {
   mouse_drag : mouse_drag option;
   pending_binding : Input_event.t list;
   active_modes : string list;
-  macro_recording : Input_event.t list option;
-  last_macro : Input_event.t list option;
-  macro_replay_pending : bool;
+  macro_recording : macro_recording option;
+  macros : (string * Input_event.t list) list;
+  last_macro_register : string option;
+  macro_replay_pending : string option;
   macro_replaying : bool;
   macro_control : bool;
 }
@@ -196,18 +199,63 @@ let static = function
   | Error error -> failwith (Error.to_string error)
 
 let maximum_macro_events = 1024
+let maximum_macro_registers = 64
+let maximum_macro_register_bytes = 64
+let default_macro_register = "@"
 
-let toggle_macro_recording session =
-  match session.macro_recording with
-  | None ->
+let validate_macro_register register =
+  if String.length register = 0 then
+    Error (Error.Invalid_command_arguments "macro register must not be empty")
+  else if String.length register > maximum_macro_register_bytes then
+    Error
+      (Error.Invalid_command_arguments
+         "macro register exceeds the configured byte limit")
+  else
+    Text_buffer.of_utf8 register
+    |> Result.map_error (fun _ ->
+        Error.Invalid_command_arguments "macro register must be valid UTF-8")
+    |> Result.map (fun _ -> register)
+
+let find_macro session register = List.assoc_opt register session.macros
+
+let store_macro session register inputs =
+  let existing = List.mem_assoc register session.macros in
+  if (not existing) && List.length session.macros >= maximum_macro_registers
+  then
+    Error
+      (Error.Invalid_command_arguments
+         "macro register store is full; replace an existing register")
+  else Ok ((register, inputs) :: List.remove_assoc register session.macros)
+
+let toggle_macro_recording ?(register = default_macro_register) session =
+  match (validate_macro_register register, session.macro_recording) with
+  | Error error, _ ->
       {
         session with
-        macro_recording = Some [];
         macro_control = true;
-        message = Some "macro recording started";
+        message = Some (Error.to_string error);
         quit_armed = false;
       }
-  | Some [] ->
+  | Ok register, None ->
+      {
+        session with
+        macro_recording = Some { register; inputs_rev = [] };
+        macro_control = true;
+        message = Some ("macro recording started: " ^ register);
+        quit_armed = false;
+      }
+  | Ok register, Some recording
+    when not (String.equal register recording.register) ->
+      {
+        session with
+        macro_control = true;
+        message =
+          Some
+            ("macro recording is active for " ^ recording.register
+           ^ "; stop it before selecting " ^ register);
+        quit_armed = false;
+      }
+  | Ok _, Some { inputs_rev = []; _ } ->
       {
         session with
         macro_recording = None;
@@ -215,48 +263,69 @@ let toggle_macro_recording session =
         message = Some "macro recording discarded: no keyboard input";
         quit_armed = false;
       }
-  | Some inputs ->
+  | Ok register, Some { inputs_rev; _ } -> (
+      match store_macro session register (List.rev inputs_rev) with
+      | Error error ->
+          {
+            session with
+            macro_control = true;
+            message = Some (Error.to_string error);
+            quit_armed = false;
+          }
+      | Ok macros ->
+          {
+            session with
+            macro_recording = None;
+            macros;
+            last_macro_register = Some register;
+            macro_control = true;
+            message =
+              Some
+                (Printf.sprintf "macro recorded to %s: %d keyboard inputs"
+                   register (List.length inputs_rev));
+            quit_armed = false;
+          })
+
+let request_macro_replay ?(register = default_macro_register) session =
+  match
+    ( validate_macro_register register,
+      session.macro_recording,
+      session.macro_replaying,
+      find_macro session register )
+  with
+  | Error error, _, _, _ ->
       {
         session with
-        macro_recording = None;
-        last_macro = Some (List.rev inputs);
         macro_control = true;
-        message =
-          Some
-            (Printf.sprintf "macro recorded: %d keyboard inputs"
-               (List.length inputs));
+        message = Some (Error.to_string error);
         quit_armed = false;
       }
-
-let request_macro_replay session =
-  match
-    (session.macro_recording, session.macro_replaying, session.last_macro)
-  with
-  | Some _, _, _ ->
+  | Ok _, Some _, _, _ ->
       {
         session with
         macro_control = true;
         message = Some "macro replay rejected: finish recording first";
         quit_armed = false;
       }
-  | None, true, _ ->
+  | Ok _, None, true, _ ->
       {
         session with
         macro_control = true;
         message = Some "macro replay rejected: recursive replay is disabled";
         quit_armed = false;
       }
-  | None, false, None ->
+  | Ok register, None, false, None ->
       {
         session with
         macro_control = true;
-        message = Some "macro replay rejected: no recorded macro";
+        message =
+          Some ("macro replay rejected: register " ^ register ^ " is empty");
         quit_armed = false;
       }
-  | None, false, Some _ ->
+  | Ok register, None, false, Some _ ->
       {
         session with
-        macro_replay_pending = true;
+        macro_replay_pending = Some register;
         macro_control = true;
         quit_armed = false;
       }
@@ -264,21 +333,28 @@ let request_macro_replay session =
 let record_macro_input session input =
   match session.macro_recording with
   | None -> session
-  | Some inputs -> (
+  | Some recording -> (
       match input with
       | Input_event.Mouse _ -> session
       | Input_event.Key_press _ | Input_event.Text_input _ ->
-          if List.length inputs >= maximum_macro_events then
+          if List.length recording.inputs_rev >= maximum_macro_events then
             {
               session with
               macro_recording = None;
               message =
                 Some
                   (Printf.sprintf
-                     "macro recording stopped: maximum of %d keyboard inputs"
-                     maximum_macro_events);
+                     "macro recording stopped: register %s reached maximum of \
+                      %d keyboard inputs"
+                     recording.register maximum_macro_events);
             }
-          else { session with macro_recording = Some (input :: inputs) })
+          else
+            {
+              session with
+              macro_recording =
+                Some
+                  { recording with inputs_rev = input :: recording.inputs_rev };
+            })
 
 type host_command_entry = {
   command : host_command;
@@ -378,17 +454,34 @@ let host_command_entries =
       {
         command = Toggle_macro_recording;
         descriptor =
-          host_descriptor "editor.macro.record" "Start or stop keyboard macro"
+          host_descriptor
+            ~parameters:
+              [
+                text_parameter ~name:"register"
+                  ~description:
+                    "Optional named register; @ is used when this is blank."
+                  ~required:false;
+              ]
+            "editor.macro.record" "Start or stop keyboard macro"
             "Record ordinary keyboard input while executing it; invoking the \
-             command again stores the macro.";
+             command again stores it in the same named register.";
         palette = true;
       };
       {
         command = Replay_macro;
         descriptor =
-          host_descriptor "editor.macro.replay" "Replay keyboard macro"
-            "Replay the latest recorded keyboard macro through the normal \
-             input and transaction pipeline.";
+          host_descriptor
+            ~parameters:
+              [
+                text_parameter ~name:"register"
+                  ~description:
+                    "Optional named register to replay; @ is used when this is \
+                     blank."
+                  ~required:false;
+              ]
+            "editor.macro.replay" "Replay keyboard macro"
+            "Replay a named keyboard macro through the normal input and \
+             transaction pipeline.";
         palette = true;
       };
       {
@@ -957,8 +1050,9 @@ let create ~model ?language ?file_path ?(contents = "") ?trace ?profiler
                       | None -> []
                       | Some generation -> Scripting.initial_modes generation);
                     macro_recording = None;
-                    last_macro = None;
-                    macro_replay_pending = false;
+                    macros = [];
+                    last_macro_register = None;
+                    macro_replay_pending = None;
                     macro_replaying = false;
                     macro_control = false;
                   })))
@@ -2550,6 +2644,21 @@ let poll_language session =
   if session.current_buffer_id = foreground then session
   else activate_buffer ~reset_interaction:false session foreground
 
+let optional_text_argument arguments name =
+  match
+    List.find_opt
+      (fun argument -> Command_argument.name argument = name)
+      arguments
+  with
+  | None -> Ok None
+  | Some argument -> (
+      match Command_argument.value argument with
+      | Command_argument.Text value -> Ok (Some value)
+      | Command_argument.Selector _ | Command_argument.Transformation _ ->
+          Error
+            (Error.Invalid_command_arguments ("expected text argument " ^ name))
+      )
+
 let invoke_bound_command ?(arguments = []) session input binding =
   let command = Scripting.binding_command binding in
   let trace_binding next =
@@ -2581,9 +2690,19 @@ let invoke_bound_command ?(arguments = []) session input binding =
     let next = reload_config session in
     (trace_binding next, false)
   else if String.equal command "editor.macro.record" then
-    (trace_binding (toggle_macro_recording session), false)
+    match optional_text_argument arguments "register" with
+    | Ok register ->
+        (trace_binding (toggle_macro_recording ?register session), false)
+    | Error error ->
+        ( trace_binding { session with message = Some (Error.to_string error) },
+          false )
   else if String.equal command "editor.macro.replay" then
-    (trace_binding (request_macro_replay session), false)
+    match optional_text_argument arguments "register" with
+    | Ok register ->
+        (trace_binding (request_macro_replay ?register session), false)
+    | Error error ->
+        ( trace_binding { session with message = Some (Error.to_string error) },
+          false )
   else
     match Command_id.of_string command with
     | Error error ->
@@ -3134,18 +3253,24 @@ let invoke_host_palette_command ?(arguments = []) session input = function
         interaction = Idle;
         inspector = None;
       }
-  | Toggle_macro_recording ->
-      {
-        (toggle_macro_recording session) with
-        interaction = Idle;
-        inspector = None;
-      }
-  | Replay_macro ->
-      {
-        (request_macro_replay session) with
-        interaction = Idle;
-        inspector = None;
-      }
+  | Toggle_macro_recording -> (
+      match optional_text_argument arguments "register" with
+      | Error error -> { session with message = Some (Error.to_string error) }
+      | Ok register ->
+          {
+            (toggle_macro_recording ?register session) with
+            interaction = Idle;
+            inspector = None;
+          })
+  | Replay_macro -> (
+      match optional_text_argument arguments "register" with
+      | Error error -> { session with message = Some (Error.to_string error) }
+      | Ok register ->
+          {
+            (request_macro_replay ?register session) with
+            interaction = Idle;
+            inspector = None;
+          })
   | Open_palette ->
       {
         session with
@@ -3896,13 +4021,16 @@ let rec handle_input session input =
     if
       was_recording
       && (not session.macro_replaying)
+      && session.interaction = Idle
+      && completed.interaction = Idle
       && Option.is_some completed.macro_recording
       && not completed.macro_control
     then record_macro_input completed input
     else completed
   in
   let completed =
-    if completed.macro_replay_pending then replay_last_macro completed
+    if Option.is_some completed.macro_replay_pending then
+      replay_requested_macro completed
     else completed
   in
   let execution_id =
@@ -3914,25 +4042,35 @@ let rec handle_input session input =
     ~execution_id completed.plugins;
   completed
 
-and replay_last_macro session =
-  match session.last_macro with
+and replay_requested_macro session =
+  match session.macro_replay_pending with
   | None ->
       {
         session with
-        macro_replay_pending = false;
-        message = Some "macro replay rejected: no recorded macro";
+        message = Some "macro replay rejected: no requested register";
+      }
+  | Some register -> replay_macro session register
+
+and replay_macro session register =
+  match find_macro session register with
+  | None ->
+      {
+        session with
+        macro_replay_pending = None;
+        message =
+          Some ("macro replay rejected: register " ^ register ^ " is empty");
       }
   | Some _ when session.macro_replaying ->
       {
         session with
-        macro_replay_pending = false;
+        macro_replay_pending = None;
         message = Some "macro replay rejected: recursive replay is disabled";
       }
   | Some inputs ->
       let replaying =
         {
           session with
-          macro_replay_pending = false;
+          macro_replay_pending = None;
           macro_replaying = true;
           macro_control = false;
           pending_binding = [];
@@ -3941,13 +4079,13 @@ and replay_last_macro session =
       let completed = List.fold_left handle_input replaying inputs in
       {
         completed with
-        macro_replay_pending = false;
+        macro_replay_pending = None;
         macro_replaying = false;
         macro_control = false;
         message =
           Some
-            (Printf.sprintf "macro replayed: %d keyboard inputs"
-               (List.length inputs));
+            (Printf.sprintf "macro replayed from %s: %d keyboard inputs"
+               register (List.length inputs));
       }
 
 let handle_host session = function
@@ -3974,7 +4112,7 @@ let handle_host session = function
            (Input_event.key_press (Input_event.named_key Input_event.Enter))
            (-1))
   | Toggle_macro_recording -> Continue (toggle_macro_recording session)
-  | Replay_macro -> Continue (replay_last_macro session)
+  | Replay_macro -> Continue (replay_macro session default_macro_register)
   | Open_palette ->
       Continue
         {
@@ -4480,22 +4618,48 @@ let macro_lines session =
     if List.length inputs > List.length values then values @ [ "…" ] else values
   in
   let recorded =
-    match session.last_macro with
-    | None -> [ "recorded-inputs: none"; "preview: none" ]
-    | Some inputs ->
+    match session.last_macro_register with
+    | None ->
         [
-          "recorded-inputs: " ^ string_of_int (List.length inputs);
-          "preview: " ^ String.concat " " (preview inputs);
+          "last-recorded-register: none";
+          "recorded-inputs: none";
+          "preview: none";
         ]
+    | Some register -> (
+        match find_macro session register with
+        | None ->
+            [
+              "last-recorded-register: " ^ register;
+              "recorded-inputs: none";
+              "preview: none";
+            ]
+        | Some inputs ->
+            [
+              "last-recorded-register: " ^ register;
+              "recorded-inputs: " ^ string_of_int (List.length inputs);
+              "preview: " ^ String.concat " " (preview inputs);
+            ])
+  in
+  let register_catalog =
+    session.macros
+    |> List.sort (fun (left, _) (right, _) -> String.compare left right)
+    |> List.map (fun (register, inputs) ->
+        Printf.sprintf "%s (%d)" register (List.length inputs))
+    |> String.concat ", "
   in
   [
     "Keyboard macros";
     (match session.macro_recording with
     | None -> "recording: no"
-    | Some inputs ->
-        "recording: yes (" ^ string_of_int (List.length inputs) ^ " inputs)");
+    | Some { register; inputs_rev } ->
+        Printf.sprintf "recording: yes (register %s, %d inputs)" register
+          (List.length inputs_rev));
     "replaying: " ^ string_of_bool session.macro_replaying;
     "maximum-recorded-inputs: " ^ string_of_int maximum_macro_events;
+    "maximum-registers: " ^ string_of_int maximum_macro_registers;
+    "register-count: " ^ string_of_int (List.length session.macros);
+    ("registers: "
+    ^ if String.length register_catalog = 0 then "none" else register_catalog);
   ]
   @ recorded
 

@@ -58,8 +58,8 @@ and plugin examples live in [Getting Started](docs/GETTING_STARTED.md).
   built-in or validated TOML terminal themes without affecting editing state.
   Its editor canvas also supports pane focus/caret placement, `Shift`-click
   extension, grapheme-safe primary dragging, and wheel scrolling through typed
-  host pointer events. It also has a bounded, session-wide keyboard-macro
-  recorder/replayer that can be attached to adapter keymaps through Lua.
+  host pointer events. It also has a bounded, session-wide named keyboard-macro
+  store and replayer that can be attached to adapter keymaps through Lua.
 - `zenbu.language` exposes model-neutral diagnostics, hover, definition,
   completion, rename, position conversion, and sync data. A private async LSP
   adapter starts `ocamllsp` by default for saved OCaml files; results become
@@ -156,6 +156,9 @@ normal/insert/replace states, operator motions, find, characterwise/linewise
 visual selection, and `/ ? n N` search requests; it is not a full Vim clone.
 Keyboard macros are generic host commands rather than built-in Vim `q`/`Q`
 compatibility bindings; an adapter can declare those bindings in Lua.
+The default register is `@`; named registers are available through the command
+palette's optional `register` prompt. They are a reusable framework primitive,
+not a claim of native Vim register grammar.
 See [the compatibility baseline](docs/models/VIM.md) and [modal model
 evaluation](docs/MODAL_MODEL_EVALUATION.md).
 

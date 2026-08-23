@@ -267,15 +267,24 @@ zenbu.bind { input = "Q", command = "editor.macro.record" }
 zenbu.bind { input = "q", command = "editor.macro.replay" }
 ```
 
-`editor.macro.record` starts recording when idle and stops/stores the latest
-macro when recording. The recorder keeps at most 1,024 `Key_press` or
-`Text_input` events, never records its own record/replay controls, and ignores
-pointer events. `editor.macro.replay` re-enters each stored input through the
-normal Session dispatcher; transactions, hooks, undo history, provenance, and
-syntax/language refresh therefore remain ordinary per-input behavior. Macros
-are session-wide and transient: there is one latest macro, no named/register
-storage, persistence, editing, repeat count, or terminal-host-shortcut capture.
-The `Macros` inspection reports recording state, the bound, and a preview.
+`editor.macro.record` starts recording when idle and stops/stores a macro when
+recording. Its optional `register` text argument selects a named store entry;
+an omitted argument uses `@`, so the Lua bindings above retain one predictable
+default. The command palette collects that argument through its ordinary typed
+prompt. Register names must be valid UTF-8 and one to 64 bytes. A session holds
+at most 64 named registers, and each holds at most 1,024 `Key_press` or
+`Text_input` events. The recorder never records its own record/replay controls,
+does not record palette or command-prompt interaction, and ignores pointer
+events.
+
+`editor.macro.replay` accepts the same optional register argument and re-enters
+each stored input through the normal Session dispatcher; transactions, hooks,
+undo history, provenance, and syntax/language refresh therefore remain
+ordinary per-input behavior. Macro storage is session-wide and transient. It
+does not provide Vim's `q{register}` grammar, Helix's selected-register
+workflow, Emacs's macro ring/name/edit commands, persistence, repeat counts,
+or terminal-host-shortcut capture. The `Macros` inspection reports the active
+recording register, last stored register, bounded catalog, and preview.
 
 Builtin selection-algebra commands are ordinary binding targets too. The regex
 forms declare one required text parameter, so binding one opens the same typed
