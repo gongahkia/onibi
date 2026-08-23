@@ -121,7 +121,7 @@ type mouse_drag = { pane : int; anchor_offset : int }
 type binding_resolution =
   | No_binding
   | Binding_prefix of Input_event.t list
-  | Binding_resolved of Scripting.binding
+  | Binding_resolved of Scripting.binding * string option
   | Binding_cancelled
   | Binding_rejected of Input_event.t list
 
@@ -887,6 +887,8 @@ let status session =
             ~id:("host-custom-mode:" ^ Scripting.mode_id mode)
             ~label:(Scripting.mode_title mode)
             ~description:(Scripting.mode_description mode)
+            ~text_entry:
+              (Scripting.mode_input_mode mode = Model_status.Text_entry)
             ())
   | Search_prompt _ ->
       host_status ~id:"host-search" ~label:"SEARCH"
@@ -1737,16 +1739,19 @@ let binding_rank session binding =
       mode_rank (3 + List.length session.active_modes) session.active_modes
   | Scripting.Model _ | Scripting.Model_status _ -> None
 
-let binding_inputs_equal left right =
-  String.equal (Input_event.to_string left) (Input_event.to_string right)
-
-let rec binding_sequence_has_prefix prefix sequence =
-  match (prefix, sequence) with
+let rec binding_sequence_has_prefix events patterns =
+  match (events, patterns) with
   | [], _ -> true
   | _, [] -> false
-  | left :: left_rest, right :: right_rest ->
-      binding_inputs_equal left right
-      && binding_sequence_has_prefix left_rest right_rest
+  | event :: event_rest, pattern :: pattern_rest ->
+      Input_event.binding_pattern_matches pattern event
+      && binding_sequence_has_prefix event_rest pattern_rest
+
+let binding_text_input binding events =
+  List.combine (Scripting.binding_inputs binding) events
+  |> List.find_map (function
+    | Input_event.Any_text_input, Input_event.Text_input text -> Some text
+    | Input_event.Exact_event _, _ | Input_event.Any_text_input, _ -> None)
 
 let binding_event_is_escape = function
   | Input_event.Key_press { key = Input_event.Named_key Input_event.Escape; _ }
@@ -1841,7 +1846,8 @@ let matching_binding session input =
             match
               List.filter (fun (rank, _) -> rank = completed_rank) completed
             with
-            | [ (_, binding) ] -> Binding_resolved binding
+            | [ (_, binding) ] ->
+                Binding_resolved (binding, binding_text_input binding sequence)
             | _ -> Binding_rejected sequence))
 
 let history_of_active = function
@@ -2432,7 +2438,7 @@ let invoke_bound_command ?(arguments = []) session input binding =
           {
             execution_id;
             input =
-              Input_event.binding_sequence_to_string
+              Input_event.binding_pattern_sequence_to_string
                 (Scripting.binding_inputs binding);
             command_id = command;
             provider = Scripting.binding_provider binding;
@@ -2467,7 +2473,7 @@ let invoke_bound_command ?(arguments = []) session input binding =
                       (Provenance.Binding
                          {
                            input =
-                             Input_event.binding_sequence_to_string
+                             Input_event.binding_pattern_sequence_to_string
                                (Scripting.binding_inputs binding);
                            command;
                            provider = Scripting.binding_provider binding;
@@ -2487,7 +2493,7 @@ let invoke_bound_command ?(arguments = []) session input binding =
                   (Provenance.Binding
                      {
                        input =
-                         Input_event.binding_sequence_to_string
+                         Input_event.binding_pattern_sequence_to_string
                            (Scripting.binding_inputs binding);
                        command;
                        provider = Scripting.binding_provider binding;
@@ -3137,9 +3143,20 @@ let input_for_interaction session input =
                 ^ Input_event.binding_sequence_to_string sequence);
             quit_armed = false;
           }
-      | Binding_resolved binding ->
+      | Binding_resolved (binding, text) ->
+          let arguments =
+            match (Scripting.binding_text_argument binding, text) with
+            | Some name, Some text ->
+                [
+                  Command_argument.make ~name
+                    ~value:(Command_argument.Text text)
+                  |> Result.get_ok;
+                ]
+            | None, None -> []
+            | Some _, None | None, Some _ -> []
+          in
           fst
-            (invoke_bound_command
+            (invoke_bound_command ~arguments
                (transition_binding_mode
                   { session with pending_binding = [] }
                   binding)
@@ -4179,7 +4196,7 @@ let script_binding_lines session =
       bindings
       |> List.map (fun binding ->
           Printf.sprintf "script overlay: %s -> %s (%s; provider %s)"
-            (Input_event.binding_sequence_to_string
+            (Input_event.binding_pattern_sequence_to_string
                (Scripting.binding_inputs binding))
             (Scripting.binding_command binding)
             (scope_to_string (Scripting.binding_scope binding))

@@ -13,10 +13,11 @@ type mode_transition =
   | Clear_modes
 
 type binding = {
-  inputs : Input_event.t list;
+  inputs : Input_event.binding_pattern list;
   command : string;
   scope : scope;
   mode_transition : mode_transition option;
+  text_argument : string option;
   provider : Zenbu_kernel.Provider.t;
 }
 
@@ -26,17 +27,33 @@ type hook = {
   run : Editor_context.t -> (Model_effect.t list, Zenbu_kernel.Error.t) result;
 }
 
-let binding ~input ~command ~scope ~mode_transition ~provider =
-  { inputs = [ input ]; command; scope; mode_transition; provider }
+let binding ~input ~command ~scope ~mode_transition ~text_argument ~provider =
+  {
+    inputs = [ input ];
+    command;
+    scope;
+    mode_transition;
+    text_argument;
+    provider;
+  }
 
-let binding_sequence ~head ~tail ~command ~scope ~mode_transition ~provider =
-  { inputs = head :: tail; command; scope; mode_transition; provider }
+let binding_sequence ~head ~tail ~command ~scope ~mode_transition ~text_argument
+    ~provider =
+  {
+    inputs = head :: tail;
+    command;
+    scope;
+    mode_transition;
+    text_argument;
+    provider;
+  }
 
 let binding_input (value : binding) = List.hd value.inputs
 let binding_inputs (value : binding) = value.inputs
 let binding_command (value : binding) = value.command
 let binding_scope (value : binding) = value.scope
 let binding_mode_transition (value : binding) = value.mode_transition
+let binding_text_argument (value : binding) = value.text_argument
 let binding_provider (value : binding) = value.provider
 
 let rec sequence_is_prefix prefix sequence =
@@ -44,7 +61,8 @@ let rec sequence_is_prefix prefix sequence =
   | [], _ -> true
   | _, [] -> false
   | left :: left_rest, right :: right_rest ->
-      left = right && sequence_is_prefix left_rest right_rest
+      Input_event.binding_patterns_overlap left right
+      && sequence_is_prefix left_rest right_rest
 
 let bindings_conflict left right =
   left.scope = right.scope

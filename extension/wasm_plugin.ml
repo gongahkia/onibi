@@ -539,6 +539,7 @@ let behavior_transformation provider capabilities = function
 
 let inputs_of_string provider capabilities value =
   Input_event.binding_sequence_of_string value
+  |> Result.map (List.map (fun event -> Input_event.Exact_event event))
   |> Result.map_error (fun error ->
       extension_error provider capabilities ~operation:"registration"
         (Error.to_string error))
@@ -590,6 +591,10 @@ let reserved_host_input input =
             (Input_event.to_string input)
             (Input_event.to_string reserved))
       |> Result.value ~default:false)
+
+let reserved_host_pattern = function
+  | Input_event.Exact_event input -> reserved_host_input input
+  | Input_event.Any_text_input -> false
 
 let request_value request =
   Extension_value.Record
@@ -875,7 +880,7 @@ let load ~(limits : limits) ~provider ~capabilities ~contributions
                                       (scope_of_string provider capabilities
                                          definition.scope) (fun scope ->
                                         if
-                                          List.exists reserved_host_input
+                                          List.exists reserved_host_pattern
                                             (head :: tail)
                                         then
                                           Error
@@ -894,7 +899,8 @@ let load ~(limits : limits) ~provider ~capabilities ~contributions
                                               Registration.binding_sequence
                                                 ~mode_transition:None ~head
                                                 ~tail ~command:definition.id
-                                                ~scope ~provider))))
+                                                ~scope ~text_argument:None
+                                                ~provider))))
                         |> fun candidate ->
                         Result.bind candidate (fun binding ->
                             let duplicate =

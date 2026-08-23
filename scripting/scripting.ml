@@ -20,7 +20,13 @@ type mode_transition = Registration.mode_transition =
 
 type binding = Registration.binding
 type hook = Registration.hook
-type mode = { id : string; title : string; description : string }
+
+type mode = {
+  id : string;
+  title : string;
+  description : string;
+  input_mode : Model_status.input_mode;
+}
 
 type t = {
   generation_id : int;
@@ -316,9 +322,71 @@ let behavior_transformation source = function
            "transformation result must be a table")
 
 let inputs_of_string source value =
-  Input_event.binding_sequence_of_string value
+  Input_event.binding_pattern_sequence_of_string value
   |> Result.map_error (fun error ->
       script_error "registration" source (Error.to_string error))
+
+let text_argument_validation source ~patterns ~text_argument ~command_registry
+    command =
+  let text_patterns =
+    List.filter
+      (function
+        | Input_event.Any_text_input -> true
+        | Input_event.Exact_event _ -> false)
+      patterns
+  in
+  match (text_patterns, text_argument) with
+  | [], None -> Ok ()
+  | [], Some _ ->
+      Error
+        (script_error "registration" source
+           "binding text_argument requires an <text> input pattern")
+  | [ _ ], None ->
+      Error
+        (script_error "registration" source
+           "an <text> input pattern requires text_argument")
+  | _ :: _ :: _, _ ->
+      Error
+        (script_error "registration" source
+           "a binding may contain at most one <text> input pattern")
+  | [ _ ], Some name -> (
+      match Command_registry.find command_registry command with
+      | Error error -> Error error
+      | Ok command ->
+          if
+            List.exists
+              (fun parameter ->
+                String.equal parameter.Command_descriptor.name name
+                && parameter.kind = Command_descriptor.Text)
+              (Command.descriptor command |> Command_descriptor.parameters)
+          then Ok ()
+          else
+            Error
+              (script_error "registration" source
+                 "text_argument must name a declared text command parameter"))
+
+let text_pattern_mode_validation source ~patterns ~modes scope =
+  let has_text_pattern =
+    List.exists
+      (function
+        | Input_event.Any_text_input -> true
+        | Input_event.Exact_event _ -> false)
+      patterns
+  in
+  if not has_text_pattern then Ok ()
+  else
+    match scope with
+    | Mode id -> (
+        match List.find_opt (fun mode -> String.equal mode.id id) modes with
+        | Some { input_mode = Model_status.Text_entry; _ } -> Ok ()
+        | Some _ | None ->
+            Error
+              (script_error "registration" source
+                 "an <text> binding requires a mode with input_mode = text"))
+    | Global | Model _ | Model_status _ ->
+        Error
+          (script_error "registration" source
+             "an <text> binding requires a mode with input_mode = text")
 
 let scope_of_string source = function
   | None | Some "global" -> Ok Global
@@ -361,13 +429,17 @@ let reserved_host_input input =
             (Input_event.to_string reserved))
       |> Result.value ~default:false)
 
+let reserved_host_pattern = function
+  | Input_event.Exact_event input -> reserved_host_input input
+  | Input_event.Any_text_input -> false
+
 let event_of_string source = function
   | "document-changed" -> Ok Document_changed
   | "after-save" -> Ok After_save
   | value ->
       Error (script_error "registration" source ("unknown event " ^ value))
 
-let semantic_descriptor provider kind descriptor =
+let semantic_descriptor provider kind (descriptor : Backend.descriptor) =
   Semantic_descriptor.create ~id:descriptor.Backend.id ~title:descriptor.title
     ~description:descriptor.description ~provider ~kind
     ~requires_syntax:descriptor.requires_syntax ()
@@ -513,6 +585,10 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
                         id = definition.id;
                         title = definition.title;
                         description = definition.description;
+                        input_mode =
+                          (match definition.input_mode with
+                          | Backend.Key_commands -> Model_status.Key_commands
+                          | Backend.Text_entry -> Model_status.Text_entry);
                       };
                     ]
           in
@@ -643,8 +719,8 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
                         verify_registration "bindings" definition.command
                       with
                       | Error error -> fail error
-                      | Ok () when List.exists reserved_host_input (head :: tail)
-                        ->
+                      | Ok ()
+                        when List.exists reserved_host_pattern (head :: tail) ->
                           fail
                             (script_error "registration" source
                                "reserved host input cannot appear in a binding")
@@ -674,30 +750,51 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
                                  "mode binding scope must name a declared mode")
                           else
                             match
-                              ( String.equal definition.command "config.reload",
-                                Command_registry.find !command_registry command
-                              )
+                              text_pattern_mode_validation source
+                                ~patterns:(head :: tail) ~modes:!modes scope
                             with
-                            | true, _ | false, Ok _ ->
-                                let candidate =
-                                  Registration.binding_sequence ~mode_transition
-                                    ~head ~tail ~command:definition.command
-                                    ~scope ~provider
-                                in
-                                let duplicate =
-                                  List.exists
-                                    (Registration.bindings_conflict candidate)
-                                    !bindings
-                                in
-                                if duplicate then
-                                  fail
-                                    (script_error "registration" source
-                                       ("duplicate binding or prefix-ambiguous \
-                                         sequence for "
-                                       ^ Input_event.binding_sequence_to_string
-                                           (head :: tail)))
-                                else bindings := !bindings @ [ candidate ]
-                            | false, Error error -> fail error))
+                            | Error error -> fail error
+                            | Ok () -> (
+                                match
+                                  text_argument_validation source
+                                    ~patterns:(head :: tail)
+                                    ~text_argument:definition.text_argument
+                                    ~command_registry:!command_registry command
+                                with
+                                | Error error -> fail error
+                                | Ok () -> (
+                                    match
+                                      ( String.equal definition.command
+                                          "config.reload",
+                                        Command_registry.find !command_registry
+                                          command )
+                                    with
+                                    | true, _ | false, Ok _ ->
+                                        let candidate =
+                                          Registration.binding_sequence
+                                            ~mode_transition ~head ~tail
+                                            ~command:definition.command ~scope
+                                            ~text_argument:
+                                              definition.text_argument ~provider
+                                        in
+                                        let duplicate =
+                                          List.exists
+                                            (Registration.bindings_conflict
+                                               candidate)
+                                            !bindings
+                                        in
+                                        if duplicate then
+                                          fail
+                                            (script_error "registration" source
+                                               ("duplicate binding or \
+                                                 prefix-ambiguous sequence \
+                                                 for "
+                                               ^ Input_event
+                                                 .binding_pattern_sequence_to_string
+                                                   (head :: tail)))
+                                        else
+                                          bindings := !bindings @ [ candidate ]
+                                    | false, Error error -> fail error))))
                   | Ok [], _, _, _ ->
                       fail
                         (script_error "registration" source
@@ -815,10 +912,12 @@ let binding_inputs = Registration.binding_inputs
 let binding_command = Registration.binding_command
 let binding_scope = Registration.binding_scope
 let binding_mode_transition = Registration.binding_mode_transition
+let binding_text_argument = Registration.binding_text_argument
 let binding_provider = Registration.binding_provider
 let mode_id value = value.id
 let mode_title value = value.title
 let mode_description value = value.description
+let mode_input_mode value = value.input_mode
 let hook_event = Registration.hook_event
 let hook_provider = Registration.hook_provider
 let run_hook = Registration.run_hook

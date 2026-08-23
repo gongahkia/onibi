@@ -149,8 +149,9 @@ sixteen logical input tokens separated by one ASCII space, for example
 `Tab`, `Delete`, arrows, `Home`, or `End`) or logical text with optional
 `Ctrl-`, `Shift-`, `Alt-`, and `Meta-` modifiers. Write the text keys `Space`,
 `Minus`, `Plus`, `Comma`, `Period`, or `Slash` by name when required inside a
-sequence. `Ctrl-X` remains a one-event binding and is fully backward
-compatible.
+sequence. `<text>` is a distinct wildcard for one committed `Text_input`
+event; it does not match a logical key press. `Ctrl-X` remains a one-event
+binding and is fully backward compatible.
 
 A scope is `global`, `model:<model-id>`, or
 `model:<model-id>:<status-id>`, or `mode:<id>`. A completed custom-mode binding
@@ -196,8 +197,43 @@ custom mode when it has no matching binding, while a mode-local `Escape`
 binding takes precedence. A reload retains the full stack only when every
 active id remains declared by the replacement generation; otherwise it clears
 the stack. This supports nested leader/transient/minor-map patterns, but not
-yet arbitrary Emacs-style keymap composition or a script-defined text-input
-state machine.
+yet arbitrary Emacs-style keymap composition.
+
+Modes default to `input_mode = "keys"`. A mode may instead set
+`input_mode = "text"`, causing the terminal to emit committed Unicode text and
+paste as `Text_input` rather than logical key presses. A `<text>` binding must
+name a declared `kind = "text"` command parameter through `text_argument`:
+
+```lua
+zenbu.mode {
+  id = "user.insert",
+  title = "INSERT",
+  description = "A minimal adapter-defined insert mode.",
+  input_mode = "text",
+}
+
+zenbu.command {
+  id = "user.insert-text",
+  parameters = {{ name = "text", description = "Committed text.", kind = "text" }},
+  run = function(call)
+    return {{ kind = "insert", text = call.arguments.text }}
+  end,
+}
+
+zenbu.bind {
+  input = "<text>",
+  command = "user.insert-text",
+  text_argument = "text",
+  scope = "mode:user.insert",
+}
+```
+
+The host validates that there is exactly one `<text>` pattern, that its scope
+is a declared `input_mode = "text"` custom mode, and that `text_argument`
+names a text parameter on the target command. Captured text is passed as one
+typed command argument; it never becomes ambient Lua state. This is sufficient
+for adapter-defined insert-like modes, but it is not a general script-owned
+state machine, input-method API, or arbitrary keymap runtime.
 
 If a more-specific scope has an
 incomplete sequence prefix, Zenbu holds that prefix; a less-specific sequence

@@ -127,7 +127,26 @@ let test_binding_sequence_parser () =
     (match Input_event.binding_sequence_of_string "Hyper-X" with
     | Error _ -> true
     | Ok _ -> false)
-    "binding sequence parsing accepted an unknown modifier"
+    "binding sequence parsing accepted an unknown modifier";
+  let patterns =
+    Input_event.binding_pattern_sequence_of_string "Ctrl-X <text>" |> must
+  in
+  expect
+    (Input_event.binding_pattern_sequence_to_string patterns
+    = "Ctrl+text(x) <text>")
+    "binding pattern parsing did not preserve a committed-text wildcard";
+  expect
+    (match patterns with
+    | [ Input_event.Exact_event _; Input_event.Any_text_input ] -> true
+    | _ -> false)
+    "binding pattern parser did not expose the typed committed-text wildcard";
+  expect
+    (Input_event.binding_pattern_matches Input_event.Any_text_input
+       (text_input "界")
+    && not
+         (Input_event.binding_pattern_matches Input_event.Any_text_input
+            (key "x")))
+    "committed-text wildcard did not distinguish text entry from logical keys"
 
 let test_display_coordinates () =
   let line = List.hd (Display.lines "é\t界\r") in

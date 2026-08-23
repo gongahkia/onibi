@@ -11,11 +11,21 @@ type descriptor = {
   parameters : Zenbu_model_api.Command_descriptor.parameter list;
 }
 
+type mode = {
+  id : string;
+  title : string;
+  description : string;
+  input_mode : input_mode;
+}
+
+and input_mode = Key_commands | Text_entry
+
 type binding = {
   input : string;
   command : string;
   scope : string option;
   mode_transition : mode_transition option;
+  text_argument : string option;
 }
 
 and mode_transition =
@@ -30,7 +40,7 @@ type registration =
   | Command of descriptor * callback
   | Selector of descriptor * callback
   | Transformation of descriptor * callback
-  | Mode of descriptor
+  | Mode of mode
   | Binding of binding
   | Hook of hook
 

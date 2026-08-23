@@ -601,6 +601,128 @@ zenbu.bind {
             (Error.to_string error)
       | Ok _ -> failf "an undeclared mode transition was accepted")
 
+let test_text_binding_validation () =
+  let path = Filename.temp_file "zenbu-m7-text-validation" ".lua" in
+  let check () =
+    Zenbu_scripting.Scripting.check_file ~base_commands:(base_commands ())
+      ~base_semantics:(base_semantics ()) path
+  in
+  Fun.protect
+    ~finally:(fun () -> Sys.remove path)
+    (fun () ->
+      write path
+        {|
+zenbu.mode { id = "user.insert", input_mode = "text" }
+zenbu.command { id = "user.insert", run = function(_) return {} end }
+zenbu.bind { input = "<text>", command = "user.insert", scope = "mode:user.insert" }
+|};
+      (match check () with
+      | Error (Error.Script_error { phase = "registration"; message; _ }) ->
+          expect
+            (contains message "requires text_argument")
+            "a text wildcard without an argument target was accepted"
+      | Error error ->
+          failf "wrong missing text-argument error: %s" (Error.to_string error)
+      | Ok _ -> failf "a text wildcard without an argument target was accepted");
+      write path
+        {|
+zenbu.mode { id = "user.insert", input_mode = "text" }
+zenbu.command { id = "user.insert", run = function(_) return {} end }
+zenbu.bind {
+  input = "<text>", command = "user.insert", text_argument = "text",
+  scope = "mode:user.insert",
+}
+|};
+      match check () with
+      | Error (Error.Script_error { phase = "registration"; message; _ }) ->
+          expect
+            (contains message "declared text command parameter")
+            "a text argument not declared by its command was accepted"
+      | Error error ->
+          failf "wrong undeclared text-parameter error: %s"
+            (Error.to_string error)
+      | Ok _ -> failf "a text argument not declared by its command was accepted");
+      write path
+        {|
+zenbu.command {
+  id = "user.insert",
+  parameters = {{ name = "text", description = "Committed text.", kind = "text" }},
+  run = function(_) return {} end,
+}
+zenbu.bind { input = "<text>", command = "user.insert", text_argument = "text" }
+|};
+      match check () with
+      | Error (Error.Script_error { phase = "registration"; message; _ }) ->
+          expect
+            (contains message "requires a mode with input_mode = text")
+            "a text wildcard outside a text-entry custom mode was accepted"
+      | Error error ->
+          failf "wrong text-mode-scope error: %s" (Error.to_string error)
+      | Ok _ ->
+          failf "a text wildcard outside a text-entry custom mode was accepted")
+
+let test_custom_text_entry_binding () =
+  let path = Filename.temp_file "zenbu-m7-text-mode" ".lua" in
+  Fun.protect
+    ~finally:(fun () -> Sys.remove path)
+    (fun () ->
+      write path
+        {|
+zenbu.mode {
+  id = "user.insert",
+  title = "INSERT",
+  description = "A script-defined committed-text mode.",
+  input_mode = "text",
+}
+zenbu.command { id = "user.enter-insert", run = function(_) return {} end }
+zenbu.command { id = "user.leave-insert", run = function(_) return {} end }
+zenbu.command {
+  id = "user.insert-text",
+  parameters = {
+    { name = "text", description = "Committed text.", kind = "text" },
+  },
+  run = function(call)
+    return {{ kind = "insert", text = call.arguments.text }}
+  end,
+}
+zenbu.bind { input = "Ctrl-X", command = "user.enter-insert", mode = "user.insert" }
+zenbu.bind {
+  input = "<text>", command = "user.insert-text", text_argument = "text",
+  scope = "mode:user.insert",
+}
+zenbu.bind {
+  input = "Escape", command = "user.leave-insert", scope = "mode:user.insert",
+  mode = "",
+}
+|};
+      let session =
+        Zenbu_app.Session.create ~model:Zenbu_app.Session.Vim ~contents:"alpha"
+          ~config:(Zenbu_scripting.Scripting.Explicit path) ~dimensions ()
+        |> must
+      in
+      let session = Zenbu_app.Session.handle_input session (ctrl "X") in
+      expect
+        (Model_status.input_mode (Zenbu_app.Session.status session)
+        = Model_status.Text_entry)
+        "a text-entry custom mode did not publish text-entry input disposition";
+      let session =
+        Zenbu_app.Session.handle_input session
+          (Input_event.text_input "界🙂" |> must)
+      in
+      expect
+        (Zenbu_app.Session.contents session = "界🙂alpha"
+        && Model_status.id (Zenbu_app.Session.status session)
+           = "host-custom-mode:user.insert")
+        "a committed Unicode text binding did not forward its argument \
+         atomically";
+      let session =
+        Zenbu_app.Session.handle_input session
+          (Input_event.key_press (Input_event.named_key Input_event.Escape))
+      in
+      expect
+        (Model_status.id (Zenbu_app.Session.status session) = "normal")
+        "a text-entry custom mode did not return to its base model")
+
 let test_declared_modes_and_modal_bindings () =
   let path = Filename.temp_file "zenbu-m7-modes" ".lua" in
   Fun.protect
@@ -683,7 +805,7 @@ zenbu.bind {
           (Input_event.logical_text "h" |> must |> Input_event.key_press)
       in
       expect
-        (Zenbu_app.Session.contents session = "GLalpha"
+        (Zenbu_app.Session.contents session = "LGalpha"
         && Model_status.id (Zenbu_app.Session.status session)
            = "host-custom-mode:user.leader")
         "a pop transition did not restore the containing custom mode";
@@ -709,7 +831,7 @@ zenbu.bind {
           (Input_event.logical_text "l" |> must |> Input_event.key_press)
       in
       expect
-        (Zenbu_app.Session.contents session = "GLLalpha"
+        (Zenbu_app.Session.contents session = "LGLalpha"
         && Model_status.id (Zenbu_app.Session.status session) = "normal")
         "a resumed lower custom mode did not remain active after Escape";
       let session = Zenbu_app.Session.handle_input session (ctrl "X") in
@@ -737,6 +859,8 @@ let tests =
     ( "script event delivery and recursion guard",
       test_event_delivery_and_recursion_guard );
     ("mode transition validation", test_mode_transition_validation);
+    ("text binding validation", test_text_binding_validation);
+    ("custom text-entry binding", test_custom_text_entry_binding);
     ("declared modes and modal bindings", test_declared_modes_and_modal_bindings);
   ]
 

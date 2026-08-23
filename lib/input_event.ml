@@ -34,6 +34,8 @@ type t =
       modifiers : modifier list;
     }
 
+type binding_pattern = Exact_event of t | Any_text_input
+
 let modifier_rank = function Shift -> 0 | Control -> 1 | Alt -> 2 | Meta -> 3
 
 let normalize_modifiers modifiers =
@@ -192,6 +194,32 @@ let binding_sequence_of_string value =
     in
     collect [] tokens
 
+let binding_pattern_of_string token =
+  if String.equal token "<text>" then Ok Any_text_input
+  else
+    Result.map (fun event -> Exact_event event) (binding_event_of_string token)
+
+let binding_pattern_sequence_of_string value =
+  let tokens = String.split_on_char ' ' value in
+  if value = "" then
+    Error (Error.Invalid_input_event "binding sequence must not be empty")
+  else if List.exists (fun token -> String.length token = 0) tokens then
+    Error
+      (Error.Invalid_input_event
+         "binding sequence tokens must be separated by one ASCII space")
+  else if List.length tokens > 16 then
+    Error
+      (Error.Invalid_input_event
+         "binding sequences may contain at most 16 input events")
+  else
+    let rec collect result = function
+      | [] -> Ok (List.rev result)
+      | token :: rest ->
+          Result.bind (binding_pattern_of_string token) (fun pattern ->
+              collect (pattern :: result) rest)
+    in
+    collect [] tokens
+
 let modifier_to_string = function
   | Shift -> "Shift"
   | Control -> "Ctrl"
@@ -244,3 +272,29 @@ let to_string = function
 
 let binding_sequence_to_string events =
   events |> List.map to_string |> String.concat " "
+
+let binding_pattern_to_string = function
+  | Exact_event event -> to_string event
+  | Any_text_input -> "<text>"
+
+let binding_pattern_sequence_to_string patterns =
+  patterns |> List.map binding_pattern_to_string |> String.concat " "
+
+let events_equal left right = String.equal (to_string left) (to_string right)
+
+let binding_pattern_matches pattern event =
+  match (pattern, event) with
+  | Exact_event expected, actual -> events_equal expected actual
+  | Any_text_input, Text_input _ -> true
+  | Any_text_input, Key_press _ | Any_text_input, Mouse _ -> false
+
+let binding_patterns_overlap left right =
+  match (left, right) with
+  | Exact_event left, Exact_event right -> events_equal left right
+  | Any_text_input, Any_text_input -> true
+  | Any_text_input, Exact_event (Text_input _)
+  | Exact_event (Text_input _), Any_text_input ->
+      true
+  | Any_text_input, Exact_event (Key_press _ | Mouse _)
+  | Exact_event (Key_press _ | Mouse _), Any_text_input ->
+      false

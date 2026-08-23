@@ -15,11 +15,21 @@ type descriptor = {
   parameters : Descriptor.parameter list;
 }
 
+type mode = {
+  id : string;
+  title : string;
+  description : string;
+  input_mode : input_mode;
+}
+
+and input_mode = Key_commands | Text_entry
+
 type binding = {
   input : string;
   command : string;
   scope : string option;
   mode_transition : mode_transition option;
+  text_argument : string option;
 }
 
 and mode_transition =
@@ -34,7 +44,7 @@ type registration =
   | Command of descriptor * callback
   | Selector of descriptor * callback
   | Transformation of descriptor * callback
-  | Mode of descriptor
+  | Mode of mode
   | Binding of binding
   | Hook of hook
 
@@ -502,6 +512,27 @@ let descriptor state table =
   | _, _, _, _, Error error ->
       Error error
 
+let mode_input_mode = function
+  | None | Some "keys" -> Ok Key_commands
+  | Some "text" -> Ok Text_entry
+  | Some _ ->
+      Error
+        (error "registration" "<lua>" "mode input_mode must be keys or text")
+
+let mode_definition state table =
+  match (descriptor state table, optional_text state table "input_mode") with
+  | Ok descriptor, Ok input_mode ->
+      Result.map
+        (fun input_mode ->
+          {
+            id = descriptor.id;
+            title = descriptor.title;
+            description = descriptor.description;
+            input_mode;
+          })
+        (mode_input_mode input_mode)
+  | Error error, _ | _, Error error -> Error error
+
 let callback_error backend state error =
   backend.raised_error <- Some error;
   push_nil state;
@@ -532,7 +563,7 @@ let register_mode backend state =
     else
       Result.map
         (fun definition -> add_registration backend (Mode definition))
-        (descriptor state 1)
+        (mode_definition state 1)
   in
   match result with
   | Ok () -> 0
@@ -547,16 +578,18 @@ let register_binding backend state =
         ( required_text state 1 "input",
           required_text state 1 "command",
           optional_text state 1 "scope",
-          optional_mode_transition state 1 )
+          optional_mode_transition state 1,
+          optional_text state 1 "text_argument" )
       with
-      | Ok input, Ok command, Ok scope, Ok mode_transition ->
+      | Ok input, Ok command, Ok scope, Ok mode_transition, Ok text_argument ->
           add_registration backend
-            (Binding { input; command; scope; mode_transition });
+            (Binding { input; command; scope; mode_transition; text_argument });
           Ok ()
-      | Error error, _, _, _
-      | _, Error error, _, _
-      | _, _, Error error, _
-      | _, _, _, Error error ->
+      | Error error, _, _, _, _
+      | _, Error error, _, _, _
+      | _, _, Error error, _, _
+      | _, _, _, Error error, _
+      | _, _, _, _, Error error ->
           Error error
   in
   match result with

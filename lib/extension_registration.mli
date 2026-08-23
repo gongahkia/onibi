@@ -23,32 +23,35 @@ type binding
 type hook
 
 val binding :
-  input:Input_event.t ->
+  input:Input_event.binding_pattern ->
   command:string ->
   scope:scope ->
   mode_transition:mode_transition option ->
+  text_argument:string option ->
   provider:Zenbu_kernel.Provider.t ->
   binding
 
 val binding_sequence :
-  head:Input_event.t ->
-  tail:Input_event.t list ->
+  head:Input_event.binding_pattern ->
+  tail:Input_event.binding_pattern list ->
   command:string ->
   scope:scope ->
   mode_transition:mode_transition option ->
+  text_argument:string option ->
   provider:Zenbu_kernel.Provider.t ->
   binding
 (** Register a nonempty ordered logical-input sequence. [head] is separate so
     adapter code cannot construct an empty binding. *)
 
-val binding_input : binding -> Input_event.t
+val binding_input : binding -> Input_event.binding_pattern
 (** Legacy one-event projection. New consumers should inspect [binding_inputs].
 *)
 
-val binding_inputs : binding -> Input_event.t list
+val binding_inputs : binding -> Input_event.binding_pattern list
 val binding_command : binding -> string
 val binding_scope : binding -> scope
 val binding_mode_transition : binding -> mode_transition option
+val binding_text_argument : binding -> string option
 val binding_provider : binding -> Zenbu_kernel.Provider.t
 
 val bindings_conflict : binding -> binding -> bool

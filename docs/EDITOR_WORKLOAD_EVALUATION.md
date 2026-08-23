@@ -115,8 +115,18 @@ id. M7 covers nested push/pop, lower-map fallback, unmatched-input containment,
 Escape fallback, and invalidation on reload. This is enough to prototype
 Helix-style nested prefixes and transient leader maps. It is not general Emacs
 keymap composition: there are no dynamically enabled independent minor maps,
-per-buffer local maps, or script-defined text-entry state machines; Component
-ABI v1 cannot currently declare modes or transitions.
+per-buffer local maps, or script-owned arbitrary state machines; Component ABI
+v1 cannot currently declare modes or transitions.
+
+The insert-mode evaluation exposed a related boundary. A custom keymap could
+previously bind only fixed logical keys, so it could not express an adapter's
+committed-text state. Modes can now declare `input_mode = "text"`; a typed
+`<text>` binding captures one committed Unicode text or paste event and forwards
+it only to a declared text command parameter. M4 proves the wildcard remains
+distinct from logical keys, while M7 covers Unicode delivery, text-entry status,
+Escape exit, and staging rejection for a missing or undeclared parameter. This
+is an adapter-defined insert-mode primitive, not a general input-method API or
+a Lua-owned mutable event loop.
 
 The next evaluation gap was argument-taking commands. The command palette and
 custom bindings now collect descriptor-declared text, built-in selector, and

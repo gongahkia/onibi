@@ -32,6 +32,12 @@ type t =
       modifiers : modifier list;
     }
 
+type binding_pattern =
+  | Exact_event of t
+  | Any_text_input
+      (** A static input event or the committed-text wildcard used by a custom
+          text-entry binding. *)
+
 val physical_key : string -> (physical_key, Zenbu_kernel.Error.t) result
 val logical_text : string -> (key, Zenbu_kernel.Error.t) result
 val named_key : named_key -> key
@@ -63,8 +69,17 @@ val binding_sequence_of_string : string -> (t list, Zenbu_kernel.Error.t) result
 (** Parse one to sixteen binding tokens separated by one ASCII space. A literal
     space key is written [Space]. *)
 
+val binding_pattern_sequence_of_string :
+  string -> (binding_pattern list, Zenbu_kernel.Error.t) result
+(** Parse one to sixteen binding tokens, additionally accepting [<text>] as a
+    wildcard for one committed [Text_input] event. *)
+
+val binding_pattern_matches : binding_pattern -> t -> bool
+val binding_patterns_overlap : binding_pattern -> binding_pattern -> bool
 val modifier_to_string : modifier -> string
 val named_key_to_string : named_key -> string
 val mouse_button_to_string : mouse_button -> string
 val binding_sequence_to_string : t list -> string
+val binding_pattern_to_string : binding_pattern -> string
+val binding_pattern_sequence_to_string : binding_pattern list -> string
 val to_string : t -> string
