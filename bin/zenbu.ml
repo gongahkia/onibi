@@ -10,6 +10,7 @@ type options = {
   file_path : string option;
   trace : bool;
   profile : bool;
+  theme : Zenbu_view.Theme.t;
   config : Scripting.config;
   plugins : Plugins.config;
 }
@@ -18,8 +19,8 @@ type run_result = Exited | Unsaved_end
 
 let usage =
   "usage: zenbu [--model vim|selection|structural] [--language ID] [--trace] \
-   [--profile] [--config PATH | --no-config] [--plugin-dir PATH | \
-   --no-plugins] [FILE]"
+   [--profile] [--theme default|dark|light|PATH] [--config PATH | --no-config] \
+   [--plugin-dir PATH | --no-plugins] [FILE]"
 
 let parse_arguments () =
   let model = ref Zenbu_app.Session.Vim in
@@ -27,6 +28,7 @@ let parse_arguments () =
   let file_path = ref None in
   let trace = ref false in
   let profile = ref false in
+  let theme = ref Zenbu_view.Theme.default in
   let config = ref Scripting.Default in
   let plugin_dirs = ref [] in
   let plugins_disabled = ref false in
@@ -66,6 +68,14 @@ let parse_arguments () =
     | Some _ -> language := Some value
     | None -> raise (Arg.Bad ("unknown language: " ^ value))
   in
+  let set_theme value =
+    match Zenbu_view.Theme.find_builtin value with
+    | Some selected -> theme := selected
+    | None -> (
+        match Zenbu_view.Theme.load value with
+        | Ok selected -> theme := selected
+        | Error reason -> raise (Arg.Bad reason))
+  in
   let set_file value =
     match !file_path with
     | None -> file_path := Some value
@@ -81,6 +91,9 @@ let parse_arguments () =
         "syntax language ID (ocaml or json)" );
       ("--trace", Arg.Set trace, "record a bounded local execution trace");
       ("--profile", Arg.Set profile, "record bounded local CPU-time spans");
+      ( "--theme",
+        Arg.String set_theme,
+        "built-in default|dark|light or a validated TOML theme file" );
       ("--config", Arg.String set_config, "load this Lua configuration file");
       ( "--no-config",
         Arg.Unit disable_config,
@@ -108,6 +121,7 @@ let parse_arguments () =
         file_path = !file_path;
         trace = !trace;
         profile = !profile;
+        theme = !theme;
         config = !config;
         plugins =
           (if !plugins_disabled then Plugins.Disabled
@@ -313,6 +327,7 @@ let () =
               | None -> (
                   match
                     Zenbu_terminal.Backend.with_terminal (fun backend ->
+                        Zenbu_terminal.Backend.set_theme backend options.theme;
                         let columns, rows =
                           Zenbu_terminal.Backend.size backend
                         in

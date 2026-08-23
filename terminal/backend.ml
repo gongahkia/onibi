@@ -3,6 +3,7 @@ type t = {
   original_input : Unix.terminal_io option;
   mutable released : bool;
   mutable paste : Buffer.t option;
+  mutable theme : Zenbu_view.Theme.t;
 }
 
 open Zenbu_view
@@ -39,6 +40,7 @@ let create () =
           original_input;
           released = false;
           paste = None;
+          theme = Theme.default;
         }
     with exception_ ->
       restore_partial_terminal original_input;
@@ -63,6 +65,8 @@ let with_terminal run =
 let size terminal =
   let columns, rows = Notty_unix.Term.size terminal.terminal in
   (columns, rows)
+
+let set_theme terminal theme = terminal.theme <- theme
 
 let modifier = function
   | `Shift -> Event.Shift
@@ -149,36 +153,64 @@ and read_ready terminal =
   | `End -> Event.End
   | `Mouse _ -> Event.Unsupported "mouse input is not enabled"
 
-let attribute = function
-  | Frame.Plain -> Notty.A.empty
-  | Frame.Primary_selection -> Notty.A.(bg blue ++ fg white)
-  | Frame.Secondary_selection -> Notty.A.(st underline)
-  | Frame.Status -> Notty.A.(bg lightblack ++ fg white)
-  | Frame.Message -> Notty.A.(bg yellow ++ fg black)
-  | Frame.Dim -> Notty.A.(fg lightblack)
-  | Frame.Search_match -> Notty.A.(bg yellow ++ fg black)
-  | Frame.Diagnostic_error -> Notty.A.(fg red ++ st underline)
-  | Frame.Diagnostic_warning -> Notty.A.(fg yellow ++ st underline)
-  | Frame.Diagnostic_information -> Notty.A.(fg cyan ++ st underline)
-  | Frame.Diagnostic_hint -> Notty.A.(fg lightblack ++ st underline)
-  | Frame.Syntax_keyword -> Notty.A.(fg cyan ++ st bold)
-  | Frame.Syntax_string -> Notty.A.(fg green)
-  | Frame.Syntax_number -> Notty.A.(fg magenta)
-  | Frame.Syntax_comment -> Notty.A.(fg lightblack ++ st italic)
-  | Frame.Syntax_type -> Notty.A.(fg blue ++ st bold)
-  | Frame.Syntax_constructor -> Notty.A.(fg yellow)
-  | Frame.Overlay -> Notty.A.(bg lightblack ++ fg white)
+let notty_color = function
+  | Theme.Default -> None
+  | Theme.Ansi Theme.Black -> Some Notty.A.black
+  | Theme.Ansi Theme.Red -> Some Notty.A.red
+  | Theme.Ansi Theme.Green -> Some Notty.A.green
+  | Theme.Ansi Theme.Yellow -> Some Notty.A.yellow
+  | Theme.Ansi Theme.Blue -> Some Notty.A.blue
+  | Theme.Ansi Theme.Magenta -> Some Notty.A.magenta
+  | Theme.Ansi Theme.Cyan -> Some Notty.A.cyan
+  | Theme.Ansi Theme.White -> Some Notty.A.white
+  | Theme.Ansi Theme.Light_black -> Some Notty.A.lightblack
+  | Theme.Ansi Theme.Light_red -> Some Notty.A.lightred
+  | Theme.Ansi Theme.Light_green -> Some Notty.A.lightgreen
+  | Theme.Ansi Theme.Light_yellow -> Some Notty.A.lightyellow
+  | Theme.Ansi Theme.Light_blue -> Some Notty.A.lightblue
+  | Theme.Ansi Theme.Light_magenta -> Some Notty.A.lightmagenta
+  | Theme.Ansi Theme.Light_cyan -> Some Notty.A.lightcyan
+  | Theme.Ansi Theme.Light_white -> Some Notty.A.lightwhite
+  | Theme.Rgb (red, green, blue) ->
+      Some (Notty.A.rgb_888 ~r:red ~g:green ~b:blue)
 
-let image_of_cell cell =
-  let image = Notty.I.string (attribute cell.Frame.style) cell.text in
+let notty_decoration = function
+  | Theme.Bold -> Notty.A.bold
+  | Theme.Italic -> Notty.A.italic
+  | Theme.Underline -> Notty.A.underline
+
+let attribute theme style =
+  let attribute = Theme.attribute theme style in
+  let value =
+    match notty_color attribute.foreground with
+    | None -> Notty.A.empty
+    | Some color -> Notty.A.fg color
+  in
+  let value =
+    match notty_color attribute.background with
+    | None -> value
+    | Some color -> Notty.A.(value ++ bg color)
+  in
+  List.fold_left
+    (fun value decoration ->
+      Notty.A.(value ++ st (notty_decoration decoration)))
+    value attribute.decorations
+
+let image_of_cell theme cell =
+  let image = Notty.I.string (attribute theme cell.Frame.style) cell.text in
   Notty.I.hsnap ~align:`Left cell.width image
 
-let image_of_row width row =
-  row |> List.map image_of_cell |> Notty.I.hcat
+let image_of_row theme width row =
+  row
+  |> List.map (image_of_cell theme)
+  |> Notty.I.hcat
   |> Notty.I.hsnap ~align:`Left width
 
 let draw terminal frame =
-  let rows = Frame.rows frame |> List.map (image_of_row (Frame.width frame)) in
+  let rows =
+    Frame.rows frame
+    |> List.map (image_of_row terminal.theme (Frame.width frame))
+  in
   let image =
     Notty.I.vcat rows |> Notty.I.vsnap ~align:`Top (Frame.height frame)
   in

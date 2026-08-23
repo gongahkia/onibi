@@ -1,0 +1,13 @@
+name = "m4-custom"
+
+[plain]
+foreground = "#112233"
+background = "#fafafa"
+
+[syntax_keyword]
+foreground = "#abcdef"
+bold = false
+italic = true
+
+[status]
+background = "default"

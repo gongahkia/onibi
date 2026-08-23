@@ -40,7 +40,8 @@ The following remain deliberately out of scope:
   plugin marketplace;
 - hard wall-clock cancellation, asynchronous/background extension execution,
   richer Component imports, or a sandbox claim for trusted Lua;
-- project search, file watching, cross-file edits, command-line/Ex
+- project search, file watching, general cross-file workspace resource
+  operations, command-line/Ex
   compatibility, macros, or broad Vim/Helix/Kakoune emulation; the M12 local
   buffer table and split-view host are a tested workspace foundation, not a
   project workspace;
@@ -53,17 +54,17 @@ The following remain deliberately out of scope:
 
 ## Next proposed milestone
 
-M11 makes **M12: workspace buffers and cross-file language results** the
-strongest next step. M12 now has same-buffer split-view composition and a local
-buffer table: views have stable buffer ids, buffers retain their own model
-runtime/history, and focused input is routed to the selected view's buffer.
-The next increment should extend the version-gated language inbox across that
-document table, open same-workspace definition targets, and either apply a
-fully validated workspace edit or reject it atomically. It should define
-external-file-change and save coordination before adding file watching. It
-must not make buffers, providers, or language protocols visible to the kernel
-or model API, and should not bundle project search, a marketplace, or a
-Component distribution redesign.
+M12 has same-buffer split-view composition, a local buffer table, and bounded
+cross-file language results. Views have stable buffer ids, buffers retain their
+own model runtime/history, focused input is routed to the selected view, and
+all open saved buffers participate in language wakeup polling. A definition
+target opens/reuses a local buffer. Rename and `workspace/applyEdit` stage and
+publish edits across already-open saved targets all-or-none, while retaining
+per-buffer history. The next increment should define external-file-change and
+save coordination before adding file watching or target auto-open. It must not
+make buffers, providers, or language protocols visible to the kernel or model
+API, and should not bundle project search, a marketplace, or a Component
+distribution redesign.
 
 Portable Component distribution and a first-party guest authoring tool remain
 the next packaging concern after M11: they need a verified platform matrix and

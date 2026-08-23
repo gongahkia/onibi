@@ -8,6 +8,10 @@ let malformed = ref false
 let crash_marker = ref None
 let apply_edit = ref false
 let definition_path = ref None
+let rename_path = ref None
+let delay_rename = ref false
+let rename_conflict_path = ref None
+let apply_edit_path = ref None
 
 let options =
   [
@@ -21,6 +25,18 @@ let options =
     ( "--definition-path",
       Arg.String (fun path -> definition_path := Some path),
       "return this file as the definition target" );
+    ( "--rename-path",
+      Arg.String (fun path -> rename_path := Some path),
+      "include this file in rename edits" );
+    ( "--delay-rename",
+      Arg.Set delay_rename,
+      "delay rename responses to exercise stale workspace snapshots" );
+    ( "--rename-conflict-path",
+      Arg.String (fun path -> rename_conflict_path := Some path),
+      "include overlapping edits for this file in a rename response" );
+    ( "--apply-edit-path",
+      Arg.String (fun path -> apply_edit_path := Some path),
+      "include this file in a workspace/applyEdit after didChange" );
   ]
 
 let () = Arg.parse options (fun _ -> ()) "fake_lsp_server"
@@ -201,6 +217,7 @@ let () =
   let uri = ref "file:///missing.ml" in
   let version = ref 1 in
   let initialized = ref false in
+  let workspace_apply_edit_sent = ref false in
   let rec loop () =
     let packet = read_packet () in
     let method_ = string_field "method" packet in
@@ -250,7 +267,7 @@ let () =
                            ] );
                      ] );
                ])
-    | Some "textDocument/didChange", None ->
+    | Some "textDocument/didChange", None -> (
         let document =
           field "textDocument" params |> Option.value ~default:(`Assoc [])
         in
@@ -263,7 +280,43 @@ let () =
         | `List changes ->
             contents := List.fold_left apply_change !contents changes
         | _ -> ());
-        diagnostic ~uri:!uri ~version:!version !contents
+        diagnostic ~uri:!uri ~version:!version !contents;
+        match !apply_edit_path with
+        | Some path
+          when (not !workspace_apply_edit_sent)
+               && not (String.equal !uri ("file://" ^ path)) ->
+            workspace_apply_edit_sent := true;
+            request 100 "workspace/applyEdit"
+              (`Assoc
+                 [
+                   ( "edit",
+                     `Assoc
+                       [
+                         ( "changes",
+                           `Assoc
+                             [
+                               ( !uri,
+                                 `List
+                                   [
+                                     `Assoc
+                                       [
+                                         ("range", range 0 0 0 0);
+                                         ("newText", `String "X");
+                                       ];
+                                   ] );
+                               ( "file://" ^ path,
+                                 `List
+                                   [
+                                     `Assoc
+                                       [
+                                         ("range", range 0 0 0 0);
+                                         ("newText", `String "Y");
+                                       ];
+                                   ] );
+                             ] );
+                       ] );
+                 ])
+        | None | Some _ -> ())
     | Some "textDocument/didSave", None ->
         notification "window/logMessage"
           (`Assoc [ ("type", `Int 3); ("message", `String "fake saved") ])
@@ -326,31 +379,59 @@ let () =
                    ] );
              ])
     | Some "textDocument/rename", Some id ->
+        if !delay_rename then ignore (Unix.select [] [] [] 0.15);
         let new_name =
           Option.value ~default:"renamed" (string_field "newName" params)
         in
-        response id
-          (`Assoc
-             [
-               ( "changes",
-                 `Assoc
-                   [
-                     ( !uri,
-                       `List
-                         [
-                           `Assoc
-                             [
-                               ("range", range 0 0 0 1);
-                               ("newText", `String new_name);
-                             ];
-                           `Assoc
-                             [
-                               ("range", range 0 2 0 3);
-                               ("newText", `String new_name);
-                             ];
-                         ] );
-                   ] );
-             ])
+        let current_changes =
+          [
+            ( !uri,
+              `List
+                [
+                  `Assoc
+                    [ ("range", range 0 0 0 1); ("newText", `String new_name) ];
+                  `Assoc
+                    [ ("range", range 0 2 0 3); ("newText", `String new_name) ];
+                ] );
+          ]
+        in
+        let extra_changes =
+          match !rename_path with
+          | None -> []
+          | Some path ->
+              [
+                ( "file://" ^ path,
+                  `List
+                    [
+                      `Assoc
+                        [
+                          ("range", range 0 0 0 1); ("newText", `String new_name);
+                        ];
+                    ] );
+              ]
+        in
+        let conflicting_changes =
+          match !rename_conflict_path with
+          | None -> []
+          | Some path ->
+              [
+                ( "file://" ^ path,
+                  `List
+                    [
+                      `Assoc
+                        [
+                          ("range", range 0 0 0 1); ("newText", `String new_name);
+                        ];
+                      `Assoc
+                        [
+                          ("range", range 0 0 0 1);
+                          ("newText", `String "conflict");
+                        ];
+                    ] );
+              ]
+        in
+        let changes = current_changes @ extra_changes @ conflicting_changes in
+        response id (`Assoc [ ("changes", `Assoc changes) ])
     | Some "shutdown", Some id -> response id `Null
     | Some "exit", None -> exit 0
     | Some "$/cancelRequest", None -> ()

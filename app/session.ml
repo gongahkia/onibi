@@ -860,6 +860,24 @@ let buffer_for_id session id =
       (fun (buffer : buffer) -> buffer.id = id)
       session.inactive_buffers
 
+let workspace_documents session =
+  current_buffer session :: session.inactive_buffers
+  |> List.filter_map (fun (buffer : buffer) ->
+      Option.map
+        (fun path ->
+          ( Language.Uri.file_of_path path,
+            Editor_context.contents (context_of_active buffer.active) ))
+        buffer.file_path)
+
+let synchronize_workspace_documents session =
+  let documents = workspace_documents session in
+  current_buffer session :: session.inactive_buffers
+  |> List.iter (fun (buffer : buffer) ->
+      Option.iter
+        (fun client -> Lsp.set_workspace_documents client documents)
+        buffer.language_client);
+  session
+
 let buffer_id_for_pane session pane =
   List.assoc_opt pane session.pane_buffers
   |> Option.value ~default:session.current_buffer_id
@@ -1388,7 +1406,9 @@ let new_buffer session =
         interaction = Idle;
       }
   | Ok buffer ->
-      let session = show_new_buffer session buffer in
+      let session =
+        show_new_buffer session buffer |> synchronize_workspace_documents
+      in
       { session with message = Some "workspace: created unnamed buffer" }
 
 let show_buffer_in_focused_pane session buffer_id =
@@ -1446,7 +1466,10 @@ let open_buffer session path =
                      ^ Error.to_string error);
                 }
             | Ok buffer ->
-                let session = show_new_buffer session buffer in
+                let session =
+                  show_new_buffer session buffer
+                  |> synchronize_workspace_documents
+                in
                 { session with message = Some ("workspace: opened " ^ path) }))
 
 let reload_config session =
@@ -1866,23 +1889,23 @@ let execute_effects_in_active ?augment_provenance active input effects =
   | Vim_runtime runtime ->
       Vim_runtime.execute_effects runtime ?augment_provenance ~input effects
       |> Result.map (fun (runtime, step) ->
-             ( Vim_runtime runtime,
-               Vim_runtime.change_ids step <> [],
-               last_message (Vim_runtime.messages step) ))
+          ( Vim_runtime runtime,
+            Vim_runtime.change_ids step <> [],
+            last_message (Vim_runtime.messages step) ))
   | Selection_runtime runtime ->
       Selection_runtime.execute_effects runtime ?augment_provenance ~input
         effects
       |> Result.map (fun (runtime, step) ->
-             ( Selection_runtime runtime,
-               Selection_runtime.change_ids step <> [],
-               last_message (Selection_runtime.messages step) ))
+          ( Selection_runtime runtime,
+            Selection_runtime.change_ids step <> [],
+            last_message (Selection_runtime.messages step) ))
   | Structural_runtime runtime ->
       Structural_runtime.execute_effects runtime ?augment_provenance ~input
         effects
       |> Result.map (fun (runtime, step) ->
-             ( Structural_runtime runtime,
-               Structural_runtime.change_ids step <> [],
-               last_message (Structural_runtime.messages step) ))
+          ( Structural_runtime runtime,
+            Structural_runtime.change_ids step <> [],
+            last_message (Structural_runtime.messages step) ))
 
 let synchronize_buffer_after_change (buffer : buffer) ~fallback_contents =
   match buffer.language_client with
@@ -1905,7 +1928,8 @@ let synchronize_buffer_after_change (buffer : buffer) ~fallback_contents =
                 {
                   Language.start_offset = 0;
                   stop_offset = String.length fallback_contents;
-                  replacement = Editor_context.contents (context_of_active buffer.active);
+                  replacement =
+                    Editor_context.contents (context_of_active buffer.active);
                 };
               ] )
       in
@@ -1945,13 +1969,19 @@ let workspace_edit_targets session edits =
     match find edit.uri with
     | None -> Error ("workspace edit targets unopened buffer: " ^ edit.uri)
     | Some buffer ->
-        let rec append = function
-          | [] -> [ (buffer, edit.edits) ]
-          | (existing, edits) :: rest when existing.id = buffer.id ->
-              (existing, edits @ edit.edits) :: rest
-          | target :: rest -> target :: append rest
+        let contents =
+          Editor_context.contents (context_of_active buffer.active)
         in
-        Ok (append targets)
+        if not (String.equal contents edit.source_contents) then
+          Error ("workspace edit source changed for " ^ edit.uri)
+        else
+          let rec append = function
+            | [] -> [ (buffer, edit.edits) ]
+            | (existing, edits) :: rest when existing.id = buffer.id ->
+                (existing, edits @ edit.edits) :: rest
+            | target :: rest -> target :: append rest
+          in
+          Ok (append targets)
   in
   List.fold_left
     (fun targets edit -> Result.bind targets (fun targets -> add targets edit))
@@ -1960,19 +1990,23 @@ let workspace_edit_targets session edits =
 let apply_workspace_edits session input ~effect_id edits =
   Result.bind (workspace_edit_targets session edits) (fun targets ->
       let apply ((buffer : buffer), edits) =
-        let before = Editor_context.contents (context_of_active buffer.active) in
+        let before =
+          Editor_context.contents (context_of_active buffer.active)
+        in
         execute_effects_in_active
           ~augment_provenance:(fun provenance ->
             Provenance.add provenance (Provenance.Effect effect_id))
-          buffer.active input [ Language_commands.apply_edits edits ]
+          buffer.active input
+          [ Language_commands.apply_edits edits ]
         |> Result.map_error Error.to_string
         |> Result.map (fun (active, changed, message) ->
-               (buffer, { buffer with active }, changed, message, before))
+            (buffer, { buffer with active }, changed, message, before))
       in
       let rec stage values = function
         | [] -> Ok (List.rev values)
         | target :: rest ->
-            Result.bind (apply target) (fun value -> stage (value :: values) rest)
+            Result.bind (apply target) (fun value ->
+                stage (value :: values) rest)
       in
       Result.bind (stage [] targets) (fun staged ->
           let staged =
@@ -1993,7 +2027,10 @@ let apply_workspace_edits session input ~effect_id edits =
                 if before.id = buffer.id then Some after else None)
             |> Option.value ~default:buffer
           in
-          let session = update_current_from_buffer session (replacement (current_buffer session)) in
+          let session =
+            update_current_from_buffer session
+              (replacement (current_buffer session))
+          in
           let session =
             {
               session with
@@ -2003,7 +2040,10 @@ let apply_workspace_edits session input ~effect_id edits =
               quit_armed = false;
             }
           in
-          let changed = List.exists (fun (_, _, changed, _) -> changed) staged in
+          let session = synchronize_workspace_documents session in
+          let changed =
+            List.exists (fun (_, _, changed, _) -> changed) staged
+          in
           let message =
             staged |> List.find_map (fun (_, _, _, message) -> message)
           in
@@ -2075,7 +2115,9 @@ let poll_active_language ?(background = false) session =
         let input =
           Input_event.key_press (Input_event.named_key Input_event.Enter)
         in
-        match apply_workspace_edits session input ~effect_id:"language.rename" edits with
+        match
+          apply_workspace_edits session input ~effect_id:"language.rename" edits
+        with
         | Error reason ->
             { session with message = Some ("rename rejected: " ^ reason) }
         | Ok (next, _) ->
@@ -2565,6 +2607,7 @@ let save_to session path =
         in
         run_event_hooks saved Scripting.After_save input
   in
+  let completed = synchronize_workspace_documents completed in
   let execution_id =
     Option.value ~default:0 (last_execution_of_active completed.active)
   in
@@ -3072,7 +3115,10 @@ let handle_input session input =
         completed.language_client;
       completed)
   in
-  let completed = observe_language_document_version completed in
+  let completed =
+    completed |> observe_language_document_version
+    |> synchronize_workspace_documents
+  in
   let execution_id =
     Option.value ~default:0 (last_execution_of_active completed.active)
   in

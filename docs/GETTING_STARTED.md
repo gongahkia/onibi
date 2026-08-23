@@ -1,9 +1,9 @@
 # Getting started
 
-Zenbu is a single-buffer terminal editor with three interchangeable editing
-models. Its kernel owns every text mutation; models, Lua, and WebAssembly
-Components request ordinary semantic edits instead of changing a buffer
-directly.
+Zenbu is a terminal editor with three interchangeable editing models and a
+local multi-buffer split-view workspace. Its kernel owns every text mutation;
+models, Lua, and WebAssembly Components request ordinary semantic edits instead
+of changing a buffer directly.
 
 ## Install from a clone
 
@@ -86,12 +86,27 @@ dune exec bin/zenbu_headless.exe -- bindings vim
 dune exec bin/zenbu_headless.exe -- demo
 ```
 
+## Choose a terminal theme
+
+The default palette preserves Zenbu's original ANSI styling. Start with a
+built-in true-colour palette using `--theme dark` or `--theme light`, or load a
+validated TOML file with `--theme path/to/theme.toml`:
+
+```sh
+dune exec bin/zenbu.exe -- --theme dark README.md
+dune exec bin/zenbu.exe -- --theme path/to/theme.toml README.md
+```
+
+Themes affect only semantic terminal styles; they cannot change document state,
+input handling, layout, or plugin authority. See [Themes](THEMES.md) for the
+complete role list and TOML schema.
+
 For a saved `.ml` or `.mli`, M11 starts `ocamllsp` when it is available. Use
 the palette for `language.status`, hover, definition, completion, rename, and
 diagnostic navigation; `Ctrl-Space` asks for completion. The service is
 asynchronous but every accepted edit still becomes a normal transaction. See
 [Language services](LANGUAGE_SERVICES.md) for server selection, status, and
-the intentional single-buffer/cross-file limits.
+the bounded cross-file workspace contract.
 
 ## Configure and extend
 
@@ -121,7 +136,8 @@ and [WIT contract](wit/zenbu-plugin.wit) are the stable v1 references.
 
 ## Boundaries and limits
 
-M11 deliberately does not include cross-file buffers/edits, panes,
-project/file search, a file picker, grammar downloads, a marketplace,
-external-file conflict detection, or a system clipboard bridge. See
-[the roadmap](ROADMAP.md) before designing around a missing feature.
+M11 deliberately limits cross-file language edits to already-open saved
+buffers and does not include project/file search, a file picker, grammar
+downloads, a marketplace, external-file conflict detection, or a system
+clipboard bridge. See [the roadmap](ROADMAP.md) before designing around a
+missing feature.

@@ -14,10 +14,10 @@ An editor can vary independently along these layers:
 | --- | --- | --- |
 | editing grammar | OCaml implementation of the public model state machine; logical input, statuses, bindings, and semantic effects | models operate on one current document and only through declarative effects |
 | commands and semantic operations | built-in commands, trusted-local Lua, or capability-limited Wasm Components can contribute commands, selectors, transformations, bindings, and events | contributions cannot mutate documents outside a checked transaction |
-| language-aware editing | Tree-sitter-backed syntax context and the optional language-service host | only built-in OCaml/JSON syntax registration and current-document LSP results |
+| language-aware editing | Tree-sitter-backed syntax context and the optional language-service host | only built-in OCaml/JSON syntax registration; cross-file edits require every target to be open and saved |
 | configuration | reloadable Lua configuration and local Wasm plugin discovery | Lua is trusted local code; Components use the declared capability boundary |
-| workspace/view host | `zenbu.view.Layout` plus host commands to create/open/cycle buffers and split, focus, close, or retain views | local buffers have independent model/history, save, syntax, diagnostics, search, and viewport state; no project/workspace discovery or cross-file edits |
-| terminal presentation | renderer frame, style classes, viewport, terminal backend | one fixed terminal renderer; no public theme, mouse, GUI, or widget/layout API |
+| workspace/view host | `zenbu.view.Layout` plus host commands to create/open/cycle buffers and split, focus, close, or retain views | local buffers have independent model/history, save, syntax, diagnostics, search, and viewport state; no project/workspace discovery, target auto-open, or global history |
+| terminal presentation | renderer frame, semantic style classes, viewport, terminal backend, and built-in/custom TOML themes | no runtime theme switching, mouse, GUI, or widget/layout API |
 
 This is already enough to build and compare distinct **editing grammars**:
 the repository has Vim-style, selection-first, and syntax-structural models.
@@ -54,9 +54,9 @@ The feature sources are the projects' own documentation: [Vim help](https://vimh
 | workload | supported now | partial foundation | absent before a parity claim |
 | --- | --- | --- | --- |
 | Vim-style terminal editor | normal/insert/replace/visual grammar, operators, counts, motions, find, basic search requests, registers, undo/redo, local buffers/views, and provenance | command palette and generic host controls | Ex command language, macros, broad motion/text-object coverage, marks/jumps, compatibility mappings, and terminal/GUI appearance parity |
-| Helix-style selection editor | selection-first model, multi-edit transactions, occurrence selection, syntax-structural selections, local buffers/views, and optional LSP completion/hover/current-document definition/rename | buffers can be assigned to split views | picker/config discovery, registers/macros, regex selection algebra, shell pipes, multi-file LSP/workspace edits, full window model, and theme parity |
+| Helix-style selection editor | selection-first model, multi-edit transactions, occurrence selection, syntax-structural selections, local buffers/views, and optional LSP completion/hover/definition/rename across already-open saved buffers | buffers can be assigned to split views | picker/config discovery, registers/macros, regex selection algebra, shell pipes, general workspace edits, full window model, and theme parity |
 | Kakoune-style multiple-selection editor | explicit ordered selections, selection-first edits, syntax context, bindings/hooks, and local buffers/views | split views render independently and focus routes input to the assigned buffer | Kakoune's inclusive anchor/cursor model, selection split/rotate/merge/filter algebra, client/server sessions, shell filters, full command language, and face/highlighter ecosystem |
-| Micro-style terminal editor | ordinary text editing, syntax spans, local buffers/views, trusted Lua configuration, local plugins, save/search/palette | Components and Lua can supply editing commands | mouse, interactive shell split, buffer tabs, plugin-manager/install flow, configurable terminal theme, and complete keybinding/configuration surface |
+| Micro-style terminal editor | ordinary text editing, syntax spans, local buffers/views, trusted Lua configuration, local plugins, save/search/palette, and terminal themes | Components and Lua can supply editing commands | mouse, interactive shell split, buffer tabs, plugin-manager/install flow, runtime theme/configuration surface, and complete keybinding/configuration surface |
 | Emacs terminal product | key-addressable commands, local buffers in split views, configuration/plugin concepts, and asynchronous language host | no equivalent beyond the generic command and host layers | buffer/window/frame system, minibuffer and completion ecosystem, major/minor mode composition, Elisp/package/process APIs, display engine, and terminal appearance parity |
 
 “Supported now” means this repository has a testable behavior, not that its
@@ -76,13 +76,24 @@ covers layout bounds, divider composition, cursor translation, focus cycling,
 buffer creation, independent edits, pane-to-buffer rendering, file opening,
 and duplicate-open rejection.
 
-The next shared failure is **cross-file coordination**, not another keybinding.
-The language host still processes requests against the active buffer and
-rejects workspace edits spanning multiple files. A complete workspace step
-must drain every buffer's language events, route responses by buffer id, open
-same-workspace definition targets, and validate multi-document edits
-atomically. Project search, shell panes, mouse input, configurable
-presentation, and editor-specific command languages are separate evaluations.
+The cross-file coordination evaluation now has a bounded result. Every open
+saved buffer contributes a request-time text snapshot to each language client;
+the terminal waits on every client wakeup descriptor. Cross-file definitions
+open/reuse a local buffer. Rename and `workspace/applyEdit` stage edits against
+all target snapshots, then publish all candidate buffer runtimes only when
+every target validates. Regression tests cover successful rename/apply-edit,
+unopened targets, stale target snapshots, and conflicts without partial source
+or target edits. This is not a general project workspace: targets are not
+auto-opened, resource operations are rejected, and undo/history remains per
+buffer. Project search, shell panes, mouse input, configurable presentation,
+and editor-specific command languages are separate evaluations.
+
+The next shared presentation result is a terminal theme contract. The renderer
+continues to produce semantic styles, while the terminal maps those styles
+through `default`, `dark`, `light`, or a validated `--theme` TOML file. The
+regression suite checks stable built-in names, default-palette compatibility,
+true-colour parsing, decoration overrides, and rejection of unknown roles. It
+does not claim window/widget, mouse, font, or GUI parity.
 
 ## How to run the evidence
 

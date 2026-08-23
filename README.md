@@ -51,7 +51,8 @@ and plugin examples live in [Getting Started](docs/GETTING_STARTED.md).
   palette, save-as, a live model picker, metadata-derived help, and bracketed
   paste aggregation. These remain host interactions; editing models can make
   declarative requests for reusable interactions such as literal search without
-  receiving terminal-state access.
+  receiving terminal-state access. Its semantic styles can be mapped to
+  built-in or validated TOML terminal themes without affecting editing state.
 - `zenbu.language` exposes model-neutral diagnostics, hover, definition,
   completion, rename, position conversion, and sync data. A private async LSP
   adapter starts `ocamllsp` by default for saved OCaml files; results become
@@ -135,6 +136,7 @@ eval "$(./scripts/zenbu-env.sh)"
 dune exec bin/zenbu.exe -- test/fixtures/syntax_sample.ml
 dune exec bin/zenbu.exe -- --model selection test/fixtures/syntax_sample.ml
 dune exec bin/zenbu.exe -- --model structural test/fixtures/syntax_sample.ml
+dune exec bin/zenbu.exe -- --theme dark test/fixtures/syntax_sample.ml
 dune exec bin/zenbu.exe -- --trace --profile --plugin-dir examples/plugins FILE
 ```
 
@@ -173,8 +175,10 @@ The palette also exposes `workspace.split.vertical`,
 `workspace.pane.close`, `workspace.pane.only`, `workspace.buffer.new`,
 `workspace.buffer.open`, `workspace.buffer.next`, and
 `workspace.buffer.previous`. A pane has an independent viewport and can show
-any open buffer; the workspace does not yet provide cross-file language edits
-or project discovery.
+any open buffer. Definitions can open local targets, and rename or server
+`workspace/applyEdit` can update already-open saved buffers together; unopened
+targets and file resource operations are rejected. Project discovery remains
+outside the workspace host.
 
 ## Headless tooling
 
@@ -218,6 +222,7 @@ colours; neither can mutate the document.
 Start with [Getting Started](docs/GETTING_STARTED.md), then read
 [the architecture](docs/ARCHITECTURE.md), [editing protocol](docs/EDITING_PROTOCOL.md),
 [terminal guide](docs/TERMINAL.md), [syntax guide](docs/SYNTAX.md),
+[theme guide](docs/THEMES.md),
 [language-service guide](docs/LANGUAGE_SERVICES.md),
 [observability guide](docs/OBSERVABILITY.md), [scripting](docs/SCRIPTING.md),
 [extension guide](docs/EXTENSIONS.md), [isolation policy](docs/ISOLATION.md),
@@ -229,8 +234,9 @@ the M11 sanity numbers, and [release notes](docs/RELEASE.md) describe the gate.
 
 ## Deliberate limits
 
-Zenbu has a local multi-buffer split-view workspace but no cross-file LSP
-workflow, project search, external-file watcher, command-line/Ex language,
+Zenbu has a local multi-buffer split-view workspace and bounded cross-file LSP
+edits for already-open saved buffers, but no project search, external-file
+watcher, general workspace resource operations, command-line/Ex language,
 plugin marketplace, asynchronous extension execution, public Tree-sitter query
 API, grammar downloads, refactoring engine, or system clipboard bridge.
 Component runtime support is limited to Linux x86_64 and Apple Silicon macOS

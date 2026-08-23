@@ -170,12 +170,17 @@ and model libraries neither link to nor name a terminal backend.
 `zenbu.app.Session` is a coherent immutable session value: active model
 runtime, file path, saved document version, a focused view and per-view
 viewports, terminal dimensions, message, and quit confirmation. The pure
-`zenbu.view.Layout` composes same-buffer view frames in a binary vertical or
-horizontal tree; it sees only immutable frames and has no document mutation
-path. It handles host-only save, quit, and view-layout policy; models still
-receive only logical input and return semantic effects. The pure view layer
-converts immutable context selections to styled cells, while the backend alone
-places the physical cursor. This is not yet a buffer-to-pane workspace. See
+`zenbu.view.Layout` composes binary vertical or horizontal pane trees; it sees
+only immutable frames and has no document mutation path. Session assigns stable
+local buffer ids to panes and retains each buffer's independent model runtime,
+history, language state, search state, and viewport. It handles host-only save,
+quit, and view-layout policy; models still receive only logical input and
+return semantic effects. The pure view layer converts immutable context
+selections to styled cells, while the backend alone places the physical cursor.
+`zenbu.view.Theme` maps those stable semantic cell styles to terminal colours
+and decorations; it cannot observe or mutate editor state. The backend converts
+the selected theme to Notty attributes at draw time. See [Themes](THEMES.md).
+See
 [terminal host notes](TERMINAL.md), [editor workload evaluation](EDITOR_WORKLOAD_EVALUATION.md),
 and ADRs 0011-0013.
 
@@ -322,9 +327,12 @@ The process adapter owns initialize/shutdown, capability negotiation,
 position/sync conversion, request ids, cancellation, framing limits, stderr,
 and child cleanup. It exposes only `zenbu.language` values and a wakeup
 descriptor to the host. Session accepts a versioned diagnostic only for the
-current snapshot and drops stale feature results; it rejects any returned
-workspace edit that includes a non-active URI. The terminal waits on stdin and
-the wakeup descriptor, then renders diagnostics and overlays as view data.
+current snapshot and drops stale interactive feature results. It polls every
+open buffer's wakeup descriptor. For a workspace edit, adapters capture open
+saved-buffer contents while decoding LSP positions; Session requires every
+target to remain equal to that snapshot and stages all target effects before
+publishing any candidate buffer runtime. The terminal waits on stdin and all
+wakeup descriptors, then renders diagnostics and overlays as view data.
 Models neither parse LSP messages nor own an async loop. The public semantic
 `language.apply-edits` transformation is the sole document-mutation route for
 completion, rename, and accepted server edits. See

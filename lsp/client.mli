@@ -5,6 +5,8 @@ type request_kind = Hover | Definition | Completion | Rename
 
 type workspace_edit = {
   uri : string;
+      (** The exact document contents used to translate the LSP positions. *)
+  source_contents : string;
   edits : Zenbu_language.Language.text_edit list;
 }
 
@@ -65,6 +67,7 @@ val status : t -> Zenbu_language.Language.status
 val wakeup_fd : t -> Unix.file_descr
 val drain : t -> event list
 val set_execution_id : t -> execution_id:int -> unit
+val set_workspace_documents : t -> (string * string) list -> unit
 
 val notify_change :
   t ->

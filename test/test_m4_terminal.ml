@@ -5,6 +5,7 @@ module Display = Zenbu_view.Display
 module Frame = Zenbu_view.Frame
 module Layout = Zenbu_view.Layout
 module Renderer = Zenbu_view.Renderer
+module Theme = Zenbu_view.Theme
 module Terminal = Zenbu_terminal
 
 exception Test_failure of string
@@ -128,6 +129,55 @@ let frame ~width ~height ~text ?cursor () =
   Frame.create ~width ~height
     ~rows:(List.init height (fun _ -> [ Frame.cell ~width text ]))
     ~cursor
+
+let theme_fixture name =
+  match
+    [ "fixtures/" ^ name; "test/fixtures/" ^ name ]
+    |> List.map (Filename.concat (Sys.getcwd ()))
+    |> List.find_opt Sys.file_exists
+  with
+  | Some path -> path
+  | None -> failf "missing theme fixture %s" name
+
+let test_theme_contract () =
+  expect
+    (List.map Theme.name (Theme.builtins ()) = [ "default"; "dark"; "light" ])
+    "built-in theme names are not stable";
+  expect
+    (Theme.attribute Theme.default Frame.Status
+    = {
+        Theme.foreground = Theme.Ansi Theme.White;
+        background = Theme.Ansi Theme.Light_black;
+        decorations = [];
+      })
+    "the default theme no longer preserves the terminal status palette";
+  let path = theme_fixture "m4_theme.toml" in
+  let custom =
+    match Theme.load path with
+    | Ok theme -> theme
+    | Error reason -> failf "%s" reason
+  in
+  expect_string ~expected:"m4-custom" ~actual:(Theme.name custom);
+  expect
+    (Theme.attribute custom Frame.Plain
+    = {
+        Theme.foreground = Theme.Rgb (17, 34, 51);
+        background = Theme.Rgb (250, 250, 250);
+        decorations = [];
+      })
+    "a custom theme did not parse true-colour plain text";
+  expect
+    (Theme.attribute custom Frame.Syntax_keyword
+    = {
+        Theme.foreground = Theme.Rgb (171, 205, 239);
+        background = Theme.Default;
+        decorations = [ Theme.Italic ];
+      })
+    "a custom theme did not preserve and override syntax decorations";
+  let invalid = theme_fixture "m4_theme_invalid.toml" in
+  expect
+    (Result.is_error (Theme.load invalid))
+    "an unknown theme role was accepted"
 
 let test_layout_composition () =
   let layout =
@@ -485,6 +535,7 @@ let run name test =
 let () =
   [
     ("terminal input disposition", test_input_decoder_is_model_neutral);
+    ("theme contract", test_theme_contract);
     ("display coordinates", test_display_coordinates);
     ( "renderer selections viewport tiny",
       test_renderer_selection_viewport_and_tiny_terminal );

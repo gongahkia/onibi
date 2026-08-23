@@ -16,6 +16,9 @@ type named_key =
 
 type key = Logical_text of string | Named_key of named_key
 
+type mouse_button = Primary | Middle | Secondary | Wheel_up | Wheel_down
+type mouse_action = Press of mouse_button | Drag | Release
+
 type t =
   | Key_press of {
       key : key;
@@ -23,6 +26,12 @@ type t =
       physical_key : physical_key option;
     }
   | Text_input of string
+  | Mouse of {
+      action : mouse_action;
+      column : int;
+      row : int;
+      modifiers : modifier list;
+    }
 
 val physical_key : string -> (physical_key, Zenbu_kernel.Error.t) result
 val logical_text : string -> (key, Zenbu_kernel.Error.t) result
@@ -32,10 +41,15 @@ val key_press :
   ?modifiers:modifier list -> ?physical_key:physical_key -> key -> t
 
 val text_input : string -> (t, Zenbu_kernel.Error.t) result
+val mouse : ?modifiers:modifier list -> mouse_action -> column:int -> row:int ->
+  (t, Zenbu_kernel.Error.t) result
 val modifiers : t -> modifier list
 val key : t -> key option
 val physical : t -> physical_key option
 val text : t -> string option
+val mouse_action : t -> mouse_action option
+val mouse_position : t -> (int * int) option
 val modifier_to_string : modifier -> string
 val named_key_to_string : named_key -> string
+val mouse_button_to_string : mouse_button -> string
 val to_string : t -> string

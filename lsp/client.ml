@@ -5,7 +5,12 @@ module Trace_event = Zenbu_model_api.Trace_event
 module Profiler = Zenbu_model_api.Profiler
 
 type request_kind = Hover | Definition | Completion | Rename
-type workspace_edit = { uri : string; edits : Language.text_edit list }
+
+type workspace_edit = {
+  uri : string;
+  source_contents : string;
+  edits : Language.text_edit list;
+}
 
 type event =
   | Initialized
@@ -57,6 +62,7 @@ type pending = {
   document_version : int;
   lsp_version : int;
   contents : string;
+  workspace_documents : (string * string) list;
   byte_offset : int option;
   mutable cancelled : bool;
   started_at : float;
@@ -90,6 +96,7 @@ type t = {
   mutable pending : pending list;
   mutable inbound : (int * Jsonrpc.Id.t) list;
   mutable current_contents : string;
+  mutable workspace_documents : (string * string) list;
   mutable document_version : int;
   mutable lsp_version : int;
   mutable lsp_versions : (int * int * string) list;
@@ -568,19 +575,26 @@ let field name = function
 let list_field name json =
   match field name json with Some (`List values) -> values | _ -> []
 
-let workspace_edits_of_json ~current_uri ~contents ~encoding json =
+let workspace_edits_of_json ~current_uri ~contents ~workspace_documents
+    ~encoding json =
   let edits_for_uri uri text_edits =
-    if not (String.equal uri current_uri) then Ok { uri; edits = [] }
-    else
-      let parsed = List.map Lsp.Types.TextEdit.t_of_yojson text_edits in
-      let rec collect values result =
-        match values with
-        | [] -> Ok { uri; edits = List.rev result }
-        | value :: rest ->
-            Result.bind (text_edit_of_lsp ~contents ~encoding value)
-              (fun value -> collect rest (value :: result))
-      in
-      collect parsed []
+    let contents =
+      if String.equal uri current_uri then Some contents
+      else List.assoc_opt uri workspace_documents
+    in
+    match contents with
+    | None -> Error ("workspace edit has no buffer snapshot for " ^ uri)
+    | Some contents ->
+        let parsed = List.map Lsp.Types.TextEdit.t_of_yojson text_edits in
+        let rec collect values result =
+          match values with
+          | [] ->
+              Ok { uri; source_contents = contents; edits = List.rev result }
+          | value :: rest ->
+              Result.bind (text_edit_of_lsp ~contents ~encoding value)
+                (fun value -> collect rest (value :: result))
+        in
+        collect parsed []
   in
   try
     let from_changes =
@@ -601,7 +615,8 @@ let workspace_edits_of_json ~current_uri ~contents ~encoding json =
               match field "uri" text_document with
               | Some (`String uri) -> edits_for_uri uri edits
               | _ -> Error "workspace edit text document has no URI")
-          | _ -> Ok { uri = "<unsupported-resource-operation>"; edits = [] })
+          | _ ->
+              Error "workspace edit contains an unsupported resource operation")
     in
     let rec collect values result =
       match values with
@@ -753,6 +768,7 @@ let send_request ?byte_offset t kind ~document_version ~contents ~params =
               document_version;
               lsp_version = t.lsp_version;
               contents;
+              workspace_documents = t.workspace_documents;
               byte_offset;
               cancelled = false;
               started_at = Unix.gettimeofday ();
@@ -1000,6 +1016,7 @@ let feature_response t pending result =
                           })
                       (workspace_edits_of_json ~current_uri:t.uri
                          ~contents:pending.contents
+                         ~workspace_documents:pending.workspace_documents
                          ~encoding:t.position_encoding json)
               with
               | Jsonrpc.Json.Of_json (message, _) -> Error message
@@ -1069,8 +1086,13 @@ let immediate_response t id result =
 let parse_apply_edit t params =
   try
     let parameters = Lsp.Types.ApplyWorkspaceEditParams.t_of_yojson params in
-    workspace_edits_of_json ~current_uri:t.uri ~contents:t.current_contents
-      ~encoding:t.position_encoding
+    Mutex.lock t.lock;
+    let contents = t.current_contents in
+    let workspace_documents = t.workspace_documents in
+    let encoding = t.position_encoding in
+    Mutex.unlock t.lock;
+    workspace_edits_of_json ~current_uri:t.uri ~contents ~workspace_documents
+      ~encoding
       (Lsp.Types.WorkspaceEdit.yojson_of_t
          parameters.Lsp.Types.ApplyWorkspaceEditParams.edit)
   with
@@ -1394,6 +1416,7 @@ let start ~config ~document_id ~document_version ~file_path ~contents
       pending = [];
       inbound = [];
       current_contents = contents;
+      workspace_documents = [ (Language.Uri.file_of_path file_path, contents) ];
       document_version;
       lsp_version = 1;
       lsp_versions = [];
@@ -1462,6 +1485,11 @@ let set_execution_id t ~execution_id =
   t.trace_execution_id <- execution_id;
   Mutex.unlock t.lock
 
+let set_workspace_documents t documents =
+  Mutex.lock t.lock;
+  t.workspace_documents <- documents;
+  Mutex.unlock t.lock
+
 let drain t =
   drain_wakeup t.wake_read;
   Mutex.lock t.lock;
@@ -1509,6 +1537,11 @@ let cancel t kind =
 let notify_change t ~source_contents ~contents ~document_version ~edits =
   Mutex.lock t.lock;
   t.current_contents <- contents;
+  t.workspace_documents <-
+    (t.uri, contents)
+    :: List.filter
+         (fun (uri, _) -> not (String.equal uri t.uri))
+         t.workspace_documents;
   t.document_version <- document_version;
   t.diagnostic_count <- 0;
   let ready = t.state = Language.Ready && t.opened in
@@ -1559,6 +1592,11 @@ let observe_document_version t ~document_version =
 let notify_save t ~contents ~document_version =
   Mutex.lock t.lock;
   t.current_contents <- contents;
+  t.workspace_documents <-
+    (t.uri, contents)
+    :: List.filter
+         (fun (uri, _) -> not (String.equal uri t.uri))
+         t.workspace_documents;
   t.document_version <- document_version;
   t.pending_save <- true;
   Mutex.unlock t.lock;

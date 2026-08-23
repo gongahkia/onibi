@@ -41,9 +41,13 @@ The adapter spawns the configured executable directly with
 `Unix.create_process_env`, keeps its pipes private, and sends `initialize`,
 `initialized`, and `textDocument/didOpen`. Its reader and stderr-drainer
 threads only decode and enqueue bounded owned events. `Session.poll_language`,
-called from the terminal loop after its wakeup fd becomes readable, is the only
-place that changes session state, selections, overlays, or documents. The
-terminal can therefore redraw on server output without busy polling.
+called from the terminal loop after any open buffer's wakeup fd becomes
+readable, is the only place that changes session state, selections, overlays,
+or documents. It drains the focused client for interactive replies, then
+drains inactive clients for diagnostics, server lifecycle, and accepted
+workspace edits. Interactive replies from an inactive buffer are discarded;
+they cannot open an overlay in the wrong pane. The terminal can therefore
+redraw on server output without busy polling.
 
 The client negotiates UTF-8, UTF-16, and UTF-32 position encodings,
 text-document synchronization, save text policy, hover, definition,
@@ -100,21 +104,32 @@ type in completion to filter label/filter-text/detail, then use arrows,
 Backspace, Enter, or Escape.
 Completion accepts only plain text edits: snippets are rejected explicitly, and
 main plus additional edits use the one semantic transformation
-`language.apply-edits`. Rename and server `workspace/applyEdit` similarly
-validate all edits as one normal transaction, with language provenance. The
-view treats diagnostics as ranges and uses style precedence selection, search,
-diagnostic, syntax, then plain. The status row reports error/warning totals.
+`language.apply-edits`. The view treats diagnostics as ranges and uses style
+precedence selection, search, diagnostic, syntax, then plain. The status row
+reports error/warning totals.
 
 The M12 workspace host retains language/syntax state with each local buffer.
 A definition target for another local file opens or reuses that buffer in the
 focused view, then navigates through the ordinary selection effect; it does
-not depend on a model-private document pointer. Rename and
-`workspace/applyEdit` still reject an edit spanning another URI rather than
-partially applying it, and the server receives `applied: false`. Each open
-buffer retains its own client handle, but the terminal wake path drains the
-focused buffer's client; background multiplexing and multi-file atomic edits
-remain future work. There is no project search, file watching, code actions,
-formatting, symbols, semantic tokens, or workspace-wide edit transaction.
+not depend on a model-private document pointer.
+
+Rename and `workspace/applyEdit` support edits across **already-open, saved
+local buffers**. Before a request is decoded, an adapter captures a URI-to-text
+snapshot of every such buffer. Every returned URI must have a snapshot; file
+creation, deletion, rename/resource operations, and unopened targets are
+rejected. Before Session stages an edit, each target's live contents must still
+equal its captured snapshot. Session then stages an ordinary
+`language.apply-edits` effect in every affected buffer runtime. It publishes
+the candidate runtimes and sends their individual `didChange` notifications
+only if every target validates. A failed mapping, stale snapshot, or edit
+conflict leaves every buffer unchanged; an inbound `workspace/applyEdit`
+receives `applied: false`.
+
+This is Session-level all-or-none publication, not a kernel-wide
+multi-document transaction: affected buffers retain independent history and
+undo branches. Zenbu does not auto-open edit targets, coordinate external file
+changes, or provide project search, file watching, code actions, formatting,
+symbols, semantic tokens, or general workspace-edit resource operations.
 
 ## Inspection, testing, and trust
 
@@ -128,8 +143,9 @@ dune exec bin/zenbu_headless.exe -- language-fake-session \
 
 The fake server covers initialize/negotiation, full and incremental sync,
 diagnostics, delayed stale hover, cancellation, completion additional edits,
-same- and cross-file definitions, rename, server apply-edit, malformed frames,
-crash/restart, and shutdown.
+same- and cross-file definitions, open-buffer cross-file rename and server
+apply-edit, unopened and stale workspace-edit rejection, all-or-none
+conflicting workspace edits, malformed frames, crash/restart, and shutdown.
 `test_m11_ocamllsp` opens a small Dune fixture with real `ocamllsp` and obtains
 a hover response.
 
