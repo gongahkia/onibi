@@ -396,7 +396,7 @@ let mode_transition_of_value = function
 
 let optional_mode_transition state table =
   ignore (get_field state table "mode");
-  let result = value_at state (-1) |> Result.bind mode_transition_of_value in
+  let result = Result.bind (value_at state (-1)) mode_transition_of_value in
   pop state 1;
   result
 
