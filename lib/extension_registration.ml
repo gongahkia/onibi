@@ -4,11 +4,13 @@ type scope =
   | Global
   | Model of string
   | Model_status of { model : string; status : string }
+  | Mode of string
 
 type binding = {
   inputs : Input_event.t list;
   command : string;
   scope : scope;
+  next_mode : string option;
   provider : Zenbu_kernel.Provider.t;
 }
 
@@ -18,16 +20,17 @@ type hook = {
   run : Editor_context.t -> (Model_effect.t list, Zenbu_kernel.Error.t) result;
 }
 
-let binding ~input ~command ~scope ~provider =
-  { inputs = [ input ]; command; scope; provider }
+let binding ~input ~command ~scope ~next_mode ~provider =
+  { inputs = [ input ]; command; scope; next_mode; provider }
 
-let binding_sequence ~head ~tail ~command ~scope ~provider =
-  { inputs = head :: tail; command; scope; provider }
+let binding_sequence ~head ~tail ~command ~scope ~next_mode ~provider =
+  { inputs = head :: tail; command; scope; next_mode; provider }
 
 let binding_input (value : binding) = List.hd value.inputs
 let binding_inputs (value : binding) = value.inputs
 let binding_command (value : binding) = value.command
 let binding_scope (value : binding) = value.scope
+let binding_next_mode (value : binding) = value.next_mode
 let binding_provider (value : binding) = value.provider
 
 let rec sequence_is_prefix prefix sequence =

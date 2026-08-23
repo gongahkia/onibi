@@ -177,6 +177,7 @@ type t = {
   pane_buffers : (int * int) list;
   mouse_drag : mouse_drag option;
   pending_binding : Input_event.t list;
+  active_mode : string option;
 }
 
 type outcome = Continue of t | Exit of t
@@ -846,6 +847,7 @@ let create ~model ?language ?file_path ?(contents = "") ?trace ?profiler
                     pane_buffers = [ (0, 0) ];
                     mouse_drag = None;
                     pending_binding = [];
+                    active_mode = None;
                   })))
 
 let context_of_active = function
@@ -1650,6 +1652,15 @@ let reload_config session =
           Option.iter Scripting.dispose session.generation;
           lifecycle trace ~execution_id ~phase:"reload" ?generation
             ~outcome:"succeeded" ();
+          let active_mode =
+            match (session.active_mode, generation) with
+            | Some id, Some generation
+              when List.exists
+                     (fun mode -> String.equal (Scripting.mode_id mode) id)
+                     (Scripting.modes generation) ->
+                Some id
+            | Some _, None | None, _ | Some _, Some _ -> None
+          in
           let message =
             let plugin_count = List.length (Plugins.providers plugin_host) in
             match generation with
@@ -1679,6 +1690,7 @@ let reload_config session =
             message = Some message;
             quit_armed = false;
             pending_binding = [];
+            active_mode;
           })
 
 let model_descriptor = function
@@ -1688,14 +1700,15 @@ let model_descriptor = function
 
 let binding_rank session binding =
   let model = model_descriptor session.active |> Editing_model.id in
-  let status = status session |> Model_status.id in
+  let status = active_status session.active |> Model_status.id in
   match Scripting.binding_scope binding with
   | Scripting.Global -> Some 0
   | Scripting.Model candidate when String.equal candidate model -> Some 1
   | Scripting.Model_status { model = candidate; status = candidate_status }
     when String.equal candidate model && String.equal candidate_status status ->
       Some 2
-  | Scripting.Model _ | Scripting.Model_status _ -> None
+  | Scripting.Mode candidate when session.active_mode = Some candidate -> Some 3
+  | Scripting.Model _ | Scripting.Model_status _ | Scripting.Mode _ -> None
 
 let binding_inputs_equal left right =
   String.equal (Input_event.to_string left) (Input_event.to_string right)
@@ -1721,6 +1734,22 @@ let active_bindings session =
     | Some generation -> Scripting.bindings generation)
   @ Plugins.bindings session.plugins
 
+let transition_binding_mode session binding =
+  match Scripting.binding_next_mode binding with
+  | None -> session
+  | Some "" ->
+      {
+        session with
+        active_mode = None;
+        message = Some "custom mode exited";
+      }
+  | Some mode ->
+      {
+        session with
+        active_mode = Some mode;
+        message = Some ("custom mode entered: " ^ mode);
+      }
+
 let matching_binding session input =
   let sequence = session.pending_binding @ [ input ] in
   let bindings =
@@ -1735,7 +1764,8 @@ let matching_binding session input =
   in
   match bindings with
   | [] ->
-      if session.pending_binding = [] then No_binding
+      if session.pending_binding = [] && Option.is_none session.active_mode then
+        No_binding
       else if binding_event_is_escape input then Binding_cancelled
       else Binding_rejected sequence
   | _ -> (
@@ -2352,6 +2382,7 @@ let invoke_bound_command ?(arguments = []) session input binding =
       | Scripting.Model model -> "model:" ^ model
       | Scripting.Model_status { model; status } ->
           "model:" ^ model ^ ":" ^ status
+      | Scripting.Mode mode -> "mode:" ^ mode
     in
     Trace.emit_lazy (trace_of_active next.active) (fun () ->
         Trace_event.Binding_resolved
@@ -3067,7 +3098,9 @@ let input_for_interaction session input =
       | Binding_resolved binding ->
           fst
             (invoke_bound_command
-               { session with pending_binding = [] }
+               (transition_binding_mode
+                  { session with pending_binding = [] }
+                  binding)
                input binding)
       | No_binding ->
           if is_shortcut input ~text:"f" ~modifiers:[ Input_event.Control ] then
@@ -4089,6 +4122,7 @@ let scope_to_string = function
   | Scripting.Global -> "global"
   | Scripting.Model model -> "model:" ^ model
   | Scripting.Model_status { model; status } -> "model:" ^ model ^ ":" ^ status
+  | Scripting.Mode mode -> "mode:" ^ mode
 
 let script_binding_lines session =
   let bindings =

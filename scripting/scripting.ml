@@ -10,9 +10,16 @@ type scope = Registration.scope =
   | Global
   | Model of string
   | Model_status of { model : string; status : string }
+  | Mode of string
 
 type binding = Registration.binding
 type hook = Registration.hook
+
+type mode = {
+  id : string;
+  title : string;
+  description : string;
+}
 
 type t = {
   generation_id : int;
@@ -23,6 +30,7 @@ type t = {
   semantic_behaviors : Semantic_behavior_registry.t;
   bindings : binding list;
   hooks : hook list;
+  modes : mode list;
   descriptors : Semantic_descriptor.t list;
 }
 
@@ -319,10 +327,12 @@ let scope_of_string source = function
       | [ "model"; model; status ]
         when String.length model > 0 && String.length status > 0 ->
           Ok (Model_status { model; status })
+      | [ "mode"; mode ] when String.length mode > 0 -> Ok (Mode mode)
       | _ ->
           Error
             (script_error "registration" source
-               "scope must be global, model:<id>, or model:<id>:<status>"))
+               "scope must be global, model:<id>, model:<id>:<status>, or \
+                mode:<id>"))
 
 let reserved_host_input input =
   [
@@ -392,6 +402,7 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
           let script_commands = ref [] in
           let bindings = ref [] in
           let hooks = ref [] in
+          let modes = ref [] in
           let failed = ref None in
           let callbacks = ref [] in
           let next_callback = ref 0 in
@@ -476,6 +487,30 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
             if descriptor_taken id then fail (Error.Duplicate_descriptor id)
             else descriptors := !descriptors @ [ descriptor ]
           in
+          let register_mode definition =
+            match validate_id source definition.Backend.id with
+            | Error error -> fail error
+            | Ok _ when List.exists (fun mode -> mode.id = definition.id) !modes ->
+                fail (Error.Duplicate_descriptor definition.id)
+            | Ok _ ->
+                modes :=
+                  !modes
+                  @ [
+                      {
+                        id = definition.id;
+                        title = definition.title;
+                        description = definition.description;
+                      };
+                    ]
+          in
+          List.iter
+            (function
+              | Backend.Mode definition when Option.is_none !failed ->
+                  register_mode definition
+              | Backend.Mode _ | Backend.Binding _ | Backend.Hook _
+              | Backend.Command _ | Backend.Selector _
+              | Backend.Transformation _ -> ())
+            registrations;
           List.iter
             (function
               | Backend.Command (definition, callback)
@@ -573,7 +608,7 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
                                 | Error error -> fail error
                                 | Ok registry -> behavior_registry := registry))
                       ))
-              | Backend.Binding _ | Backend.Hook _ | Backend.Command _
+              | Backend.Mode _ | Backend.Binding _ | Backend.Hook _ | Backend.Command _
               | Backend.Selector _ | Backend.Transformation _ ->
                   ())
             registrations;
@@ -583,9 +618,10 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
                   match
                     ( inputs_of_string source definition.input,
                       scope_of_string source definition.scope,
-                      Command_id.of_string definition.command )
+                      Command_id.of_string definition.command,
+                      Ok definition.next_mode )
                   with
-                  | Ok (head :: tail), Ok scope, Ok command -> (
+                  | Ok (head :: tail), Ok scope, Ok command, Ok next_mode -> (
                       match
                         verify_registration "bindings" definition.command
                       with
@@ -596,35 +632,55 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
                             (script_error "registration" source
                                "reserved host input cannot appear in a binding")
                       | Ok () -> (
-                          match
-                            ( String.equal definition.command "config.reload",
-                              Command_registry.find !command_registry command )
-                          with
-                          | true, _ | false, Ok _ ->
-                              let candidate =
-                                Registration.binding_sequence ~head ~tail
-                                  ~command:definition.command ~scope ~provider
-                              in
-                              let duplicate =
-                                List.exists
-                                  (Registration.bindings_conflict candidate)
-                                  !bindings
-                              in
-                              if duplicate then
-                                fail
-                                  (script_error "registration" source
-                                     ("duplicate binding or prefix-ambiguous \
-                                       sequence for "
-                                     ^ Input_event.binding_sequence_to_string
-                                         (head :: tail)))
-                              else bindings := !bindings @ [ candidate ]
-                          | false, Error error -> fail error))
-                  | Ok [], _, _ ->
+                          let mode_exists = function
+                            | None | Some "" -> true
+                            | Some id ->
+                                List.exists (fun mode -> mode.id = id) !modes
+                          in
+                          let scope_mode_exists = function
+                            | Mode id ->
+                                List.exists (fun mode -> mode.id = id) !modes
+                            | Global | Model _ | Model_status _ -> true
+                          in
+                          if not (mode_exists next_mode) then
+                            fail
+                              (script_error "registration" source
+                                 "binding mode must name a declared mode or be empty")
+                          else if not (scope_mode_exists scope) then
+                            fail
+                              (script_error "registration" source
+                                 "mode binding scope must name a declared mode")
+                          else
+                            match
+                              ( String.equal definition.command "config.reload",
+                                Command_registry.find !command_registry command )
+                            with
+                            | true, _ | false, Ok _ ->
+                                let candidate =
+                                  Registration.binding_sequence
+                                    ~next_mode ~head ~tail
+                                    ~command:definition.command ~scope ~provider
+                                in
+                                let duplicate =
+                                  List.exists
+                                    (Registration.bindings_conflict candidate)
+                                    !bindings
+                                in
+                                if duplicate then
+                                  fail
+                                    (script_error "registration" source
+                                       ("duplicate binding or prefix-ambiguous \
+                                         sequence for "
+                                       ^ Input_event.binding_sequence_to_string
+                                           (head :: tail)))
+                                else bindings := !bindings @ [ candidate ]
+                            | false, Error error -> fail error))
+                  | Ok [], _, _, _ ->
                       fail
                         (script_error "registration" source
                            "binding sequence must not be empty")
-                  | Error error, _, _ | _, Error error, _ | _, _, Error error ->
-                      fail error)
+                  | Error error, _, _, _ | _, Error error, _, _
+                  | _, _, Error error, _ | _, _, _, Error error -> fail error)
               | Backend.Hook definition when Option.is_none !failed -> (
                   match event_of_string source definition.event with
                   | Error error -> fail error
@@ -679,7 +735,7 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
                                   (Host.invoke host callback request)
                                   (actions source request));
                           ])
-              | Backend.Binding _ | Backend.Hook _ | Backend.Command _
+              | Backend.Mode _ | Backend.Binding _ | Backend.Hook _ | Backend.Command _
               | Backend.Selector _ | Backend.Transformation _ ->
                   ())
             registrations;
@@ -698,6 +754,7 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
                   semantic_behaviors = !behavior_registry;
                   bindings = !bindings;
                   hooks = !hooks;
+                  modes = !modes;
                   descriptors = !descriptors;
                 }))
 
@@ -709,6 +766,7 @@ let semantic_behaviors value = value.semantic_behaviors
 let descriptors value = value.descriptors
 let bindings value = value.bindings
 let hooks value = value.hooks
+let modes value = value.modes
 
 let counts value =
   let selectors =
@@ -729,7 +787,11 @@ let binding_input = Registration.binding_input
 let binding_inputs = Registration.binding_inputs
 let binding_command = Registration.binding_command
 let binding_scope = Registration.binding_scope
+let binding_next_mode = Registration.binding_next_mode
 let binding_provider = Registration.binding_provider
+let mode_id value = value.id
+let mode_title value = value.title
+let mode_description value = value.description
 let hook_event = Registration.hook_event
 let hook_provider = Registration.hook_provider
 let run_hook = Registration.run_hook

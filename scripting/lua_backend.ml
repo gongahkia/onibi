@@ -15,13 +15,19 @@ type descriptor = {
   parameters : Descriptor.parameter list;
 }
 
-type binding = { input : string; command : string; scope : string option }
+type binding = {
+  input : string;
+  command : string;
+  scope : string option;
+  next_mode : string option;
+}
 type hook = { event : string; callback : callback }
 
 type registration =
   | Command of descriptor * callback
   | Selector of descriptor * callback
   | Transformation of descriptor * callback
+  | Mode of descriptor
   | Binding of binding
   | Hook of hook
 
@@ -471,6 +477,18 @@ let register_descriptor backend constructor state =
   | Ok () -> 0
   | Error error -> callback_error backend state error
 
+let register_mode backend state =
+  let result =
+    if value_type state 1 <> lua_table then
+      Error (error "registration" backend.source "mode expects a table")
+    else
+      Result.map (fun definition -> add_registration backend (Mode definition))
+        (descriptor state 1)
+  in
+  match result with
+  | Ok () -> 0
+  | Error error -> callback_error backend state error
+
 let register_binding backend state =
   let result =
     if value_type state 1 <> lua_table then
@@ -479,12 +497,15 @@ let register_binding backend state =
       match
         ( required_text state 1 "input",
           required_text state 1 "command",
-          optional_text state 1 "scope" )
+          optional_text state 1 "scope",
+          optional_text state 1 "mode" )
       with
-      | Ok input, Ok command, Ok scope ->
-          add_registration backend (Binding { input; command; scope });
+      | Ok input, Ok command, Ok scope, Ok next_mode ->
+          add_registration backend
+            (Binding { input; command; scope; next_mode });
           Ok ()
-      | Error error, _, _ | _, Error error, _ | _, _, Error error -> Error error
+      | Error error, _, _, _ | _, Error error, _, _ | _, _, Error error, _
+      | _, _, _, Error error -> Error error
   in
   match result with
   | Ok () -> 0
@@ -665,7 +686,7 @@ let create ~source =
       in
       open_libs state;
       configure_module_path backend;
-      create_table state 0 9;
+      create_table state 0 10;
       push_integer state 1L;
       set_field state (-2) "api_version";
       add_callback backend state "command"
@@ -677,6 +698,7 @@ let create ~source =
       add_callback backend state "transform"
         (register_descriptor backend (fun (descriptor, callback) ->
              Transformation (descriptor, callback)));
+      add_callback backend state "mode" (register_mode backend);
       add_callback backend state "bind" (register_binding backend);
       add_callback backend state "on" (register_hook backend);
       add_callback backend state "text" (text_callback backend);

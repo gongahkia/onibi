@@ -11,13 +11,19 @@ type descriptor = {
   parameters : Zenbu_model_api.Command_descriptor.parameter list;
 }
 
-type binding = { input : string; command : string; scope : string option }
+type binding = {
+  input : string;
+  command : string;
+  scope : string option;
+  next_mode : string option;
+}
 type hook = { event : string; callback : callback }
 
 type registration =
   | Command of descriptor * callback
   | Selector of descriptor * callback
   | Transformation of descriptor * callback
+  | Mode of descriptor
   | Binding of binding
   | Hook of hook
 

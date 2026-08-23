@@ -9,9 +9,11 @@ type scope = Zenbu_model_api.Extension_registration.scope =
   | Global
   | Model of string
   | Model_status of { model : string; status : string }
+  | Mode of string
 
 type binding = Zenbu_model_api.Extension_registration.binding
 type hook = Zenbu_model_api.Extension_registration.hook
+type mode
 type t
 type config = Default | Explicit of string | Disabled
 
@@ -48,13 +50,18 @@ val semantic_behaviors : t -> Zenbu_model_api.Semantic_behavior_registry.t
 val descriptors : t -> Zenbu_kernel.Semantic_descriptor.t list
 val bindings : t -> binding list
 val hooks : t -> hook list
+val modes : t -> mode list
 val counts : t -> int * int * int * int * int
 val dispose : t -> unit
 val binding_input : binding -> Zenbu_model_api.Input_event.t
 val binding_inputs : binding -> Zenbu_model_api.Input_event.t list
 val binding_command : binding -> string
 val binding_scope : binding -> scope
+val binding_next_mode : binding -> string option
 val binding_provider : binding -> Zenbu_kernel.Provider.t
+val mode_id : mode -> string
+val mode_title : mode -> string
+val mode_description : mode -> string
 val hook_event : hook -> event
 val hook_provider : hook -> Zenbu_kernel.Provider.t
 
