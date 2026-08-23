@@ -59,6 +59,13 @@ let primary_offsets session =
   let primary = List.nth selections.selections selections.primary_index in
   (primary.anchor_offset, primary.head_offset)
 
+let selection_offsets session =
+  App.Session.context session |> Editor_context.selections |> fun selections ->
+  List.map
+    (fun (selection : Editor_context.selection) ->
+      (selection.anchor_offset, selection.head_offset))
+    selections.selections
+
 let test_unicode_search_is_host_level_and_observable () =
   let trace = Trace.enabled ~capacity:64 |> must in
   let session = make_session ~trace "α beta α beta" in
@@ -388,7 +395,8 @@ zenbu.command {
 }
 |};
       let session =
-        make_session ~config:(Zenbu_scripting.Scripting.Explicit path) "alpha"
+        make_session ~config:(Zenbu_scripting.Scripting.Explicit path)
+          ~dimensions:Renderer.{ columns = 100; rows = 60 } "alpha"
       in
       let session =
         App.Session.handle_host session App.Session.Open_palette |> continue
@@ -399,21 +407,32 @@ zenbu.command {
         |> String.concat "\n"
       in
       expect
-        (contains initial_rows "editor.apply")
-        "palette did not include builtin/model-neutral commands";
+        (contains initial_rows "editor.apply"
+        && contains initial_rows "editor.selection.split-regex")
+        "palette did not include builtin model-neutral commands";
+      let navigated =
+        List.init 17 Fun.id
+        |> List.fold_left
+             (fun session _ ->
+               App.Session.handle_input session (named Input_event.Arrow_down))
+             session
+      in
+      let _, navigated_frame = App.Session.render navigated in
+      let navigated_rows =
+        Frame.rows navigated_frame |> List.map Frame.row_text
+        |> String.concat "\n"
+      in
       expect
-        (contains initial_rows "search.start"
-        && contains initial_rows "editor.macro.record"
-        && contains initial_rows "[zenbu.app]")
-        "palette did not include application host commands with their provider";
+        (contains navigated_rows "> ")
+        "palette navigation moved beyond the visible result window";
       let host = App.Session.handle_input session (text_input "search.next") in
       let _, host_frame = App.Session.render host in
       let host_rows =
         Frame.rows host_frame |> List.map Frame.row_text |> String.concat "\n"
       in
       expect
-        (contains host_rows "search.next")
-        "palette substring filtering did not retain a host command";
+        (contains host_rows "search.next" && contains host_rows "[zenbu.app]")
+        "palette substring filtering did not retain a host command/provider";
       let host = App.Session.handle_input host (named Input_event.Enter) in
       expect
         (Model_status.id (App.Session.status host) = "normal")
@@ -559,6 +578,41 @@ zenbu.bind { input = "Ctrl-X Ctrl-T", command = "user.insert-argument" }
         (App.Session.contents session = "opened from command argument"
         && App.Session.file_path session = Some path)
         "palette open-buffer did not consume its typed path argument")
+
+let test_selection_commands_are_promptable_and_bindable () =
+  let path = Filename.temp_file "zenbu-m10-selection-commands" ".lua" in
+  Fun.protect
+    ~finally:(fun () -> Sys.remove path)
+    (fun () ->
+      write path
+        {|
+zenbu.bind {
+  input = "S",
+  command = "editor.selection.split-regex",
+  scope = "model:zenbu.selection-first:select",
+}
+|};
+      let session =
+        make_session ~model:App.Session.Selection
+          ~config:(Zenbu_scripting.Scripting.Explicit path) "red, green, blue"
+      in
+      let session = App.Session.handle_input session (key "L") in
+      let session = App.Session.handle_input session (key "S") in
+      expect
+        (Model_status.id (App.Session.status session) = "host-command-argument")
+        "a bound selection command did not request its regex parameter";
+      let session = App.Session.handle_input session (text_input ", *") in
+      let session =
+        App.Session.handle_input session (named Input_event.Enter)
+      in
+      expect
+        (selection_offsets session = [ (0, 3); (5, 10); (12, 16) ])
+        "a prompt-bound selection command did not make the expected selections";
+      expect
+        (lines_contain
+           (App.Session.inspect session App.Session.Why)
+           "editor.selection.split-regex")
+        "selection command invocation was absent from provenance")
 
 let test_keyboard_macros_replay_through_the_session_dispatcher () =
   let path = Filename.temp_file "zenbu-m10-macros" ".lua" in
@@ -828,6 +882,8 @@ let tests =
       test_palette_discovers_all_active_command_providers );
     ( "command argument prompts execute typed and scripted commands",
       test_command_argument_prompt_executes_typed_and_scripted_commands );
+    ( "selection commands are promptable and bindable",
+      test_selection_commands_are_promptable_and_bindable );
     ( "keyboard macros replay through the session dispatcher",
       test_keyboard_macros_replay_through_the_session_dispatcher );
     ( "save-as and model switch",

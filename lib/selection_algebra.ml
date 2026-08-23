@@ -21,8 +21,7 @@ type group = {
 let invalid message = Error.Invalid_command_arguments message
 
 let selections context =
-  Editor_context.selections context
-  |> fun values ->
+  Editor_context.selections context |> fun values ->
   ( values.primary_index,
     List.map
       (fun (selection : Editor_context.selection) ->
@@ -36,7 +35,8 @@ let selections context =
 
 let set_selections context ~selections ~primary =
   if selections = [] then
-    Error (Error.Invalid_selection_set "selection operation produced no selections")
+    Error
+      (Error.Invalid_selection_set "selection operation produced no selections")
   else
     match Text_buffer.of_utf8 (Editor_context.contents context) with
     | Error _ as error -> error
@@ -50,7 +50,8 @@ let set_selections context ~selections ~primary =
         else
           Error
             (invalid
-               "selection operation produced an offset that splits a UTF-8 code point")
+               "selection operation produced an offset that splits a UTF-8 \
+                code point")
 
 let compile pattern =
   try Ok (Str.regexp pattern)
@@ -66,8 +67,7 @@ let matches regex text ~start_offset ~stop_offset =
       let stop = Str.match_end () in
       if start = stop then
         Error (invalid "selection regex must not match empty text")
-      else
-        collect stop ((start_offset + start, start_offset + stop) :: values)
+      else collect stop ((start_offset + start, start_offset + stop) :: values)
     with Not_found -> Ok (List.rev values)
   in
   collect 0 []
@@ -92,20 +92,21 @@ let selected_matches context ~pattern =
                     Some (List.length selected)
                   else primary_index
                 in
-                collect (index + 1) (List.rev_append found selected) primary_index
-                  rest)
+                collect (index + 1)
+                  (List.rev_append found selected)
+                  primary_index rest)
       in
       collect 0 [] None values
 
 let select_regex context ~pattern =
   match selected_matches context ~pattern with
   | Error _ as error -> error
-  | Ok (matches, primary) ->
-      set_selections context ~selections:matches ~primary
+  | Ok (matches, primary) -> set_selections context ~selections:matches ~primary
 
 let split_selection regex text (value : offsets) =
   match
-    matches regex text ~start_offset:value.start_offset ~stop_offset:value.stop_offset
+    matches regex text ~start_offset:value.start_offset
+      ~stop_offset:value.stop_offset
   with
   | Error _ as error -> error
   | Ok [] -> Ok [ (value.anchor_offset, value.head_offset) ]
@@ -113,12 +114,15 @@ let split_selection regex text (value : offsets) =
       let rec pieces cursor values = function
         | [] ->
             let values =
-              if cursor < value.stop_offset then (cursor, value.stop_offset) :: values
+              if cursor < value.stop_offset then
+                (cursor, value.stop_offset) :: values
               else values
             in
             Ok (List.rev values)
         | (start, stop) :: rest ->
-            let values = if cursor < start then (cursor, start) :: values else values in
+            let values =
+              if cursor < start then (cursor, start) :: values else values
+            in
             pieces stop values rest
       in
       pieces value.start_offset [] separators
@@ -126,7 +130,7 @@ let split_selection regex text (value : offsets) =
 let split_regex context ~pattern =
   match compile pattern with
   | Error _ as error -> error
-  | Ok regex ->
+  | Ok regex -> (
       let text = Editor_context.contents context in
       let primary, values = selections context in
       let rec collect index selected primary_index = function
@@ -140,17 +144,19 @@ let split_regex context ~pattern =
                     Some (List.length selected)
                   else primary_index
                 in
-                collect (index + 1) (List.rev_append pieces selected) primary_index
-                  rest)
+                collect (index + 1)
+                  (List.rev_append pieces selected)
+                  primary_index rest)
       in
       match collect 0 [] None values with
       | Error _ as error -> error
-      | Ok (pieces, primary) -> set_selections context ~selections:pieces ~primary
+      | Ok (pieces, primary) ->
+          set_selections context ~selections:pieces ~primary)
 
 let filter_matching context ~pattern ~keep =
   match compile pattern with
   | Error _ as error -> error
-  | Ok regex ->
+  | Ok regex -> (
       let text = Editor_context.contents context in
       let primary, values = selections context in
       let rec collect index selected primary_index = function
@@ -162,7 +168,7 @@ let filter_matching context ~pattern ~keep =
             with
             | Error _ as error -> error
             | Ok found ->
-                let retain = (found <> []) = keep in
+                let retain = found <> [] = keep in
                 let selected, primary_index =
                   if retain then
                     ( (value.anchor_offset, value.head_offset) :: selected,
@@ -175,10 +181,12 @@ let filter_matching context ~pattern ~keep =
       match collect 0 [] None values with
       | Error _ as error -> error
       | Ok (selected, primary) ->
-          set_selections context ~selections:selected ~primary
+          set_selections context ~selections:selected ~primary)
 
 let keep_matching context ~pattern = filter_matching context ~pattern ~keep:true
-let remove_matching context ~pattern = filter_matching context ~pattern ~keep:false
+
+let remove_matching context ~pattern =
+  filter_matching context ~pattern ~keep:false
 
 let group_of_selection index primary (value : offsets) =
   {
@@ -215,7 +223,8 @@ let merge_consecutive context =
                 (extend_group current value (index = primary))
                 groups rest
             else
-              collect (index + 1) (group_of_selection index primary value)
+              collect (index + 1)
+                (group_of_selection index primary value)
                 (current :: groups) rest
       in
       let groups = collect 1 (group_of_selection 0 primary first) [] rest in
@@ -230,7 +239,8 @@ let rotate_primary context direction =
   let primary, values = selections context in
   let count = List.length values in
   if count < 2 then
-    Error (invalid "rotating the primary selection requires multiple selections")
+    Error
+      (invalid "rotating the primary selection requires multiple selections")
   else
     let primary =
       match direction with

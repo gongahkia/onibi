@@ -187,8 +187,10 @@ let select_input selecting event context =
   | Some "u" -> (Select default_select, [ Model_effect.Undo ])
   | Some "." -> (Select default_select, [ Model_effect.Repeat_last_edit ])
   | Some "," -> (Select default_select, retain_primary context)
-  | Some ")" -> (Select default_select, [ Semantic_commands.rotate_primary_forward ])
-  | Some "(" -> (Select default_select, [ Semantic_commands.rotate_primary_backward ])
+  | Some ")" ->
+      (Select default_select, [ Semantic_commands.rotate_primary_forward ])
+  | Some "(" ->
+      (Select default_select, [ Semantic_commands.rotate_primary_backward ])
   | Some "G" ->
       ( Select default_select,
         [ apply Model_intent.Document_end Model_intent.Select ] )

@@ -42,8 +42,36 @@ let control text =
 let committed text = Input_event.text_input text |> must
 
 let registry () =
-  Command_registry.register Command_registry.empty
-    Semantic_commands.apply_command
+  List.fold_left
+    (fun registry command -> Command_registry.register registry command |> must)
+    Command_registry.empty
+    (Semantic_commands.apply_command :: Semantic_commands.selection_commands)
+
+let history_with_selections id contents selection_offsets ~primary =
+  let initial_selections =
+    List.map
+      (fun (anchor_offset, head_offset) ->
+        Selection_spec.make ~anchor_offset ~head_offset |> must)
+      selection_offsets
+  in
+  let history =
+    Document.create
+      ~id:(Document_id.of_string id |> must)
+      ~contents ~initial_selections ()
+    |> must |> History.create
+  in
+  Model_intent.set_selections ~selections:selection_offsets ~primary
+  |> must |> Model_intent.to_kernel
+  |> History.apply_intent ~source:Transaction.Test history
+  |> must
+
+let context history =
+  let snapshot = History.current history |> Document.snapshot in
+  Editor_context.from_snapshot ~snapshot ~commands:[] ()
+
+let apply_selection_intent history intent =
+  History.apply_intent ~source:Transaction.Test history
+    (Model_intent.to_kernel intent)
   |> must
 
 module Vim_runtime = Model_runtime.Make (Vim_model)
@@ -539,6 +567,102 @@ let test_selection_first_semantics_and_multiple_selections () =
     (List.length (Transaction.edits (History.transaction change)) = 3)
     "multi-selection delete did not preserve deterministic three-edit ordering"
 
+let test_selection_algebra_and_regex_commands () =
+  let history =
+    history_with_selections "selection-algebra" "red, green, blue"
+      [ (0, 16) ]
+      ~primary:0
+  in
+  let split =
+    Selection_algebra.split_regex (context history) ~pattern:", *" |> must
+  in
+  let history = apply_selection_intent history split in
+  expect
+    (offsets history = [ (0, 3); (5, 10); (12, 16) ])
+    "regex split did not preserve ordered, separator-free selection ranges";
+  let selected =
+    Selection_algebra.select_regex (context history) ~pattern:"[a-z]+" |> must
+  in
+  let selected = apply_selection_intent history selected in
+  expect
+    (offsets selected = [ (0, 3); (5, 10); (12, 16) ])
+    "regex select did not return non-empty matches in document order";
+  let kept =
+    Selection_algebra.keep_matching (context selected) ~pattern:"green" |> must
+  in
+  let kept = apply_selection_intent selected kept in
+  expect
+    (offsets kept = [ (5, 10) ])
+    "regex filter did not retain the matching selection";
+  let removed =
+    Selection_algebra.remove_matching (context selected) ~pattern:"green"
+    |> must
+  in
+  let removed = apply_selection_intent selected removed in
+  expect
+    (offsets removed = [ (0, 3); (12, 16) ])
+    "regex filter did not remove the matching selection";
+  let rotated =
+    Selection_algebra.rotate_primary (context selected)
+      Selection_algebra.Forward
+    |> must
+  in
+  let rotated = apply_selection_intent selected rotated in
+  let rotated_selections = Editor_context.selections (context rotated) in
+  expect
+    (rotated_selections.primary_index = 1)
+    "primary rotation did not move to the next selection";
+  let merged =
+    history_with_selections "selection-merge" "abcdef"
+      [ (0, 1); (1, 3); (4, 6) ]
+      ~primary:1
+  in
+  let merge = Selection_algebra.merge_consecutive (context merged) |> must in
+  let merged = apply_selection_intent merged merge in
+  expect
+    (offsets merged = [ (0, 3); (4, 6) ])
+    "merge-consecutive did not merge exactly touching ranges";
+  let reversed =
+    history_with_selections "selection-orientation" "abcdef"
+      [ (3, 0); (6, 4) ]
+      ~primary:1
+  in
+  let flipped = Selection_algebra.flip (context reversed) |> must in
+  let flipped = apply_selection_intent reversed flipped in
+  expect
+    (offsets flipped = [ (0, 3); (4, 6) ])
+    "flip did not reverse every selection orientation";
+  let forward = Selection_algebra.ensure_forward (context reversed) |> must in
+  let forward = apply_selection_intent reversed forward in
+  expect
+    (offsets forward = [ (0, 3); (4, 6) ])
+    "ensure-forward did not normalize every selection orientation";
+  let unicode =
+    history_with_selections "selection-unicode" "é" [ (0, 2) ] ~primary:0
+  in
+  expect
+    (Result.is_error
+       (Selection_algebra.select_regex (context unicode) ~pattern:"."))
+    "a byte-oriented regex match that splits UTF-8 was accepted";
+  expect
+    (Result.is_error
+       (Selection_algebra.split_regex (context history) ~pattern:"["))
+    "an invalid regex was accepted";
+  expect
+    (Result.is_error
+       (Selection_algebra.select_regex (context history) ~pattern:""))
+    "a zero-width regex was accepted";
+  let multi =
+    selection "foo bar foo" |> fun runtime ->
+    fold_selection runtime [ key "W"; key "*"; key ")" ]
+  in
+  let multi_selections =
+    Selection_runtime.context multi |> Editor_context.selections
+  in
+  expect
+    (multi_selections.primary_index = 1)
+    "selection-first primary rotation did not dispatch the generic command"
+
 let test_cross_model_equivalence_and_replay_boundary () =
   let vim_runtime = fold_vim (vim "alpha beta") [ key "d"; key "w" ] in
   let selection_runtime =
@@ -585,6 +709,8 @@ let tests =
     ("M3 selector property boundaries", test_selector_property_boundaries);
     ( "selection-first semantics and multiple selections",
       test_selection_first_semantics_and_multiple_selections );
+    ( "selection algebra and regex commands",
+      test_selection_algebra_and_regex_commands );
     ( "cross-model equivalence and replay boundary",
       test_cross_model_equivalence_and_replay_boundary );
   ]

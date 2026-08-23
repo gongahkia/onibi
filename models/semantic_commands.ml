@@ -64,7 +64,8 @@ let required_text invocation name =
   match argument with
   | Command_argument.Text text -> Ok text
   | Command_argument.Selector _ | Command_argument.Transformation _ ->
-      Error (Zenbu_kernel.Error.Invalid_command_arguments "expected a text argument")
+      Error
+        (Zenbu_kernel.Error.Invalid_command_arguments "expected a text argument")
 
 let regex_parameter =
   Command_descriptor.
@@ -78,26 +79,28 @@ let regex_parameter =
 let selection_commands =
   [
     selection_command "editor.selection.select-regex" "Select regex matches"
-      "Replace current selections with non-empty regex matches." ~parameters:[ regex_parameter ]
-      (fun context invocation ->
-        required_text invocation "pattern"
-        |> Result.bind (fun pattern -> Selection_algebra.select_regex context ~pattern));
-    selection_command "editor.selection.split-regex" "Split selections on regex"
-      "Split current selections at non-empty regex matches, dropping separators."
+      "Replace current selections with non-empty regex matches."
       ~parameters:[ regex_parameter ] (fun context invocation ->
-        required_text invocation "pattern"
-        |> Result.bind (fun pattern -> Selection_algebra.split_regex context ~pattern));
-    selection_command "editor.selection.keep-regex" "Keep regex-matching selections"
+        Result.bind (required_text invocation "pattern") (fun pattern ->
+            Selection_algebra.select_regex context ~pattern));
+    selection_command "editor.selection.split-regex" "Split selections on regex"
+      "Split current selections at non-empty regex matches, dropping \
+       separators."
+      ~parameters:[ regex_parameter ] (fun context invocation ->
+        Result.bind (required_text invocation "pattern") (fun pattern ->
+            Selection_algebra.split_regex context ~pattern));
+    selection_command "editor.selection.keep-regex"
+      "Keep regex-matching selections"
       "Keep current selections containing a non-empty regex match."
       ~parameters:[ regex_parameter ] (fun context invocation ->
-        required_text invocation "pattern"
-        |> Result.bind (fun pattern -> Selection_algebra.keep_matching context ~pattern));
+        Result.bind (required_text invocation "pattern") (fun pattern ->
+            Selection_algebra.keep_matching context ~pattern));
     selection_command "editor.selection.remove-regex"
       "Remove regex-matching selections"
       "Remove current selections containing a non-empty regex match."
       ~parameters:[ regex_parameter ] (fun context invocation ->
-        required_text invocation "pattern"
-        |> Result.bind (fun pattern -> Selection_algebra.remove_matching context ~pattern));
+        Result.bind (required_text invocation "pattern") (fun pattern ->
+            Selection_algebra.remove_matching context ~pattern));
     selection_command "editor.selection.merge-consecutive"
       "Merge consecutive selections"
       "Merge selections that touch at a document boundary." (fun context _ ->
@@ -115,13 +118,13 @@ let selection_commands =
         Selection_algebra.flip context);
     selection_command "editor.selection.ensure-forward"
       "Ensure selections are forward"
-      "Normalize every selection to increasing anchor/head order." (fun context _ ->
-        Selection_algebra.ensure_forward context);
+      "Normalize every selection to increasing anchor/head order."
+      (fun context _ -> Selection_algebra.ensure_forward context);
   ]
 
 let selection_effect id =
-  Command_id.of_string id
-  |> Result.bind (fun id -> Command_invocation.create ~id ~arguments:[])
+  Result.bind (Command_id.of_string id) (fun id ->
+      Command_invocation.create ~id ~arguments:[])
   |> Result.map (fun invocation -> Model_effect.Invoke_command invocation)
   |> static
 

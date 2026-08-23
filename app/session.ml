@@ -621,8 +621,8 @@ let commands () =
       | Error _ -> registry
       | Ok registry -> Command_registry.register registry command)
     (Ok Command_registry.empty)
-    (Semantic_commands.apply_command :: Semantic_commands.selection_commands
-   @ Syntax_commands.commands ())
+    ((Semantic_commands.apply_command :: Semantic_commands.selection_commands)
+    @ Syntax_commands.commands ())
 
 let base_semantics () =
   (Inspector.semantic_registry () |> Semantic_registry.descriptors)
@@ -4209,6 +4209,18 @@ let interaction_overlay session =
         )
   | Palette { query; selected } ->
       let items = matching_palette_items session query in
+      let maximum_visible = 16 in
+      let rec take remaining = function
+        | _ when remaining <= 0 -> []
+        | [] -> []
+        | value :: rest -> value :: take (remaining - 1) rest
+      in
+      let rec drop remaining values =
+        match (remaining, values) with
+        | remaining, _ when remaining <= 0 -> values
+        | _, [] -> []
+        | remaining, _ :: rest -> drop (remaining - 1) rest
+      in
       let visible =
         items
         |> List.mapi (fun index (item : palette_item) ->
@@ -4217,17 +4229,16 @@ let interaction_overlay session =
               item.id item.title
               (Provider.id item.provider))
         |> fun values ->
-        let rec take remaining = function
-          | _ when remaining <= 0 -> []
-          | [] -> []
-          | value :: rest -> value :: take (remaining - 1) rest
+        let first =
+          min (max 0 (List.length values - maximum_visible))
+            (max 0 (selected - maximum_visible + 1))
         in
-        take 16 values
+        values |> drop first |> take maximum_visible
       in
       Some
         ([ "Command palette"; "filter: " ^ query; "" ]
         @ (if visible = [] then [ "  no matching commands" ] else visible)
-        @ [ ""; "All active builtin, script, and plugin commands are listed." ]
+        @ [ ""; "All active builtin, script, and plugin commands are searchable." ]
         )
   | Hover_view hover ->
       Some
