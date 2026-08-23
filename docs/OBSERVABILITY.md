@@ -74,15 +74,18 @@ dune exec bin/zenbu_headless.exe -- bindings-session SESSION
 ```
 
 M10 adds a small `zenbu.app` descriptor set beside the active command registry:
-`search.start`, `search.regexp`, `search.next`, `search.previous`, save/save-as,
-reload, model switch, and help. `commands`, `describe command`, and session `Bindings`
+`search.start`, `search.regexp`, `search.replace.literal`,
+`search.replace.regexp`, `search.next`, `search.previous`, save/save-as, reload,
+model switch, and help. `commands`, `describe command`, and session `Bindings`
 therefore expose host controls with provider `zenbu.app` rather than hiding
 them in terminal code. The terminal palette joins those descriptors with the
 ordinary model/script/plugin registry and filters id, title, optional summary,
 and provider without a runtime-specific discovery path. Registry command
 invocation remains a normal command effect, so its transaction continues
 through provenance and `why`; host selection changes use the same semantic
-runtime path and appear as `host.search` provenance.
+runtime path and appear as `host.search` provenance. Replace-all uses that
+path once, recording `host.search.replace`, selector `search.matches`, and
+transformation `replace-all` on its one `replace-ranges` history transaction.
 
 ## History, selections, and syntax
 

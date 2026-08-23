@@ -98,6 +98,19 @@ let delete_selected_ranges = Intent.Delete_selected_ranges
 let replace_selected_ranges text = Intent.Replace_selected_ranges text
 let replace_selection_contents texts = Intent.Replace_selection_contents texts
 
+let replace_ranges ~ranges ~primary ~contents =
+  let rec specs values = function
+    | [] -> Ok (List.rev values)
+    | (anchor_offset, head_offset) :: rest -> (
+        match Selection_spec.make ~anchor_offset ~head_offset with
+        | Error _ as error -> error
+        | Ok spec -> specs (spec :: values) rest)
+  in
+  match specs [] ranges with
+  | Error _ as error -> error
+  | Ok selections ->
+      Ok (Intent.Replace_ranges { selections; primary; contents })
+
 let set_selections ~selections ~primary =
   let rec specs values = function
     | [] -> Ok (List.rev values)
@@ -123,7 +136,7 @@ let is_textual = function
   | Intent.Insert_text _ | Intent.Delete_selected_ranges
   | Intent.Replace_selected_ranges _ | Intent.Replace_selection_contents _ ->
       true
-  | Intent.Set_selections _ -> false
+  | Intent.Replace_ranges _ | Intent.Set_selections _ -> false
   | Intent.Apply { transformation = Transformation.Delete; _ }
   | Intent.Apply { transformation = Transformation.Replace_text _; _ } ->
       true
@@ -143,7 +156,7 @@ let semantic_components value =
         Some (Transformation.name transformation) )
   | Intent.Insert_text _ | Intent.Delete_selected_ranges
   | Intent.Replace_selected_ranges _ | Intent.Replace_selection_contents _
-  | Intent.Set_selections _ ->
+  | Intent.Replace_ranges _ | Intent.Set_selections _ ->
       (None, None)
 
 let to_kernel value = value

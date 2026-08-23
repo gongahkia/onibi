@@ -80,6 +80,21 @@ let invoke_palette_text_argument session command value =
   let session = App.Session.handle_input session (text_input value) in
   App.Session.handle_input session (named Input_event.Enter)
 
+let invoke_palette_text_arguments session command values =
+  let session =
+    App.Session.handle_host session App.Session.Open_palette |> continue
+  in
+  let session = App.Session.handle_input session (text_input command) in
+  let session = App.Session.handle_input session (named Input_event.Enter) in
+  List.fold_left
+    (fun session value ->
+      expect
+        (Model_status.id (App.Session.status session) = "host-command-argument")
+        "command %s did not open its required text prompt" command;
+      let session = App.Session.handle_input session (text_input value) in
+      App.Session.handle_input session (named Input_event.Enter))
+    session values
+
 let test_unicode_search_is_host_level_and_observable () =
   let trace = Trace.enabled ~capacity:64 |> must in
   let session = make_session ~trace "α beta α beta" in
@@ -241,6 +256,72 @@ let test_regexp_search_is_incremental_and_utf8_safe () =
          (App.Session.inspect zero_width App.Session.Search)
          "active-query: none")
     "a zero-width regexp search was accepted as a selectable match"
+
+let test_replace_all_is_atomic_and_utf8_safe () =
+  let literal =
+    make_session "aaaa" |> fun session ->
+    invoke_palette_text_arguments session "search.replace.literal" [ "aa"; "β" ]
+  in
+  expect
+    (App.Session.contents literal = "ββ")
+    "literal replace-all did not use leftmost non-overlapping matches";
+  expect
+    (lines_contain (App.Session.inspect literal App.Session.History) "v0 -> v1"
+    && lines_contain (App.Session.inspect literal App.Session.History) "edits=2"
+    )
+    "literal replace-all did not create a history change";
+  expect
+    (not
+       (lines_contain
+          (App.Session.inspect literal App.Session.History)
+          "v1 -> v2"))
+    "literal replace-all split one user request across history changes";
+  expect
+    (lines_contain
+       (App.Session.inspect literal App.Session.History)
+       "host.search.replace"
+    && lines_contain
+         (App.Session.inspect literal App.Session.History)
+         "search.matches"
+    && lines_contain
+         (App.Session.inspect literal App.Session.History)
+         "replace-all")
+    "literal replace-all did not retain host selector/transformation provenance";
+  let restored = App.Session.handle_input literal (key "u") in
+  expect
+    (App.Session.contents restored = "aaaa")
+    "one undo did not restore the entire literal replace-all operation";
+  let regexp =
+    make_session "a12 a5 β" |> fun session ->
+    invoke_palette_text_arguments session "search.replace.regexp"
+      [ "a[0-9][0-9]*"; "$1" ]
+  in
+  expect
+    (App.Session.contents regexp = "$1 $1 β")
+    "regexp replace-all did not use non-empty matches or literal replacement \
+     text";
+  let unsafe =
+    make_session "β" |> fun session ->
+    invoke_palette_text_arguments session "search.replace.regexp" [ "."; "x" ]
+  in
+  expect
+    (App.Session.contents unsafe = "β"
+    && not
+         (lines_contain
+            (App.Session.inspect unsafe App.Session.History)
+            "v0 -> v1"))
+    "UTF-8-unsafe regexp replacement mutated the document";
+  let zero_width =
+    make_session "a" |> fun session ->
+    invoke_palette_text_arguments session "search.replace.regexp" [ "a*"; "x" ]
+  in
+  expect
+    (App.Session.contents zero_width = "a"
+    && not
+         (lines_contain
+            (App.Session.inspect zero_width App.Session.History)
+            "v0 -> v1"))
+    "zero-width regexp replacement mutated the document"
 
 let test_vim_modal_search_requests () =
   let session = make_session "alpha beta alpha" in
@@ -1322,7 +1403,76 @@ let test_direct_model_micro_and_emacs_baseline () =
   let emacs_open = App.Session.handle_input emacs_open (ctrl "f") in
   expect
     (Model_status.id (App.Session.status emacs_open) = "host-open-buffer")
-    "direct Ctrl-x Ctrl-f did not request the host open-buffer prompt"
+    "direct Ctrl-x Ctrl-f did not request the host open-buffer prompt";
+  let divider_column frame =
+    let rec find_cell column = function
+      | [] -> None
+      | (cell : Frame.cell) :: cells ->
+          if String.equal cell.text "│" then Some column
+          else find_cell (column + cell.width) cells
+    in
+    Frame.rows frame |> List.find_map (find_cell 0)
+  in
+  let divider_row frame =
+    let rec loop row = function
+      | [] -> None
+      | cells :: rows ->
+          if
+            List.exists
+              (fun (cell : Frame.cell) -> contains cell.text "─")
+              cells
+          then Some row
+          else loop (row + 1) rows
+    in
+    Frame.rows frame |> loop 0
+  in
+  let emacs_resize =
+    make_session ~model:App.Session.Direct
+      ~dimensions:Renderer.{ columns = 11; rows = 7 }
+      "resize"
+  in
+  let emacs_resize = App.Session.handle_input emacs_resize (ctrl "x") in
+  let emacs_resize = App.Session.handle_input emacs_resize (key "3") in
+  let emacs_resize, frame = App.Session.render emacs_resize in
+  let initial_width =
+    match divider_column frame with
+    | Some column -> column
+    | None -> failf "direct Ctrl-x 3 rendered no vertical divider"
+  in
+  let emacs_resize = App.Session.handle_input emacs_resize (ctrl "x") in
+  let emacs_resize = App.Session.handle_input emacs_resize (key "}") in
+  let emacs_resize, frame = App.Session.render emacs_resize in
+  expect
+    (divider_column frame = Some (initial_width - 1))
+    "direct Ctrl-x } did not grow the focused right view";
+  let emacs_resize = App.Session.handle_input emacs_resize (ctrl "x") in
+  let emacs_resize = App.Session.handle_input emacs_resize (key "+") in
+  let emacs_resize, frame = App.Session.render emacs_resize in
+  expect
+    (divider_column frame = Some initial_width)
+    "direct Ctrl-x + did not balance split views";
+  let emacs_resize = App.Session.handle_input emacs_resize (ctrl "x") in
+  let emacs_resize = App.Session.handle_input emacs_resize (key "{") in
+  let emacs_resize, frame = App.Session.render emacs_resize in
+  expect
+    (divider_column frame = Some (initial_width + 1))
+    "direct Ctrl-x { did not shrink the focused right view";
+  let emacs_resize = App.Session.handle_input emacs_resize (ctrl "x") in
+  let emacs_resize = App.Session.handle_input emacs_resize (key "+") in
+  let emacs_resize = App.Session.handle_input emacs_resize (ctrl "x") in
+  let emacs_resize = App.Session.handle_input emacs_resize (key "2") in
+  let emacs_resize, frame = App.Session.render emacs_resize in
+  let initial_height =
+    match divider_row frame with
+    | Some row -> row
+    | None -> failf "direct Ctrl-x 2 rendered no horizontal divider"
+  in
+  let emacs_resize = App.Session.handle_input emacs_resize (ctrl "x") in
+  let emacs_resize = App.Session.handle_input emacs_resize (key "^") in
+  let _, frame = App.Session.render emacs_resize in
+  expect
+    (divider_row frame = Some (initial_height - 1))
+    "direct Ctrl-x ^ did not grow the focused bottom view"
 
 let test_micro_adapter_can_request_host_workspace_actions () =
   let path = Filename.temp_file "zenbu-m10-micro-adapter" ".lua" in
@@ -1763,6 +1913,8 @@ let tests =
       test_unicode_search_is_host_level_and_observable );
     ( "regexp search is incremental and UTF-8-safe",
       test_regexp_search_is_incremental_and_utf8_safe );
+    ( "replace-all is atomic and UTF-8-safe",
+      test_replace_all_is_atomic_and_utf8_safe );
     ("Vim modal search requests", test_vim_modal_search_requests);
     ( "syntax spans and render precedence",
       test_syntax_spans_and_render_precedence );

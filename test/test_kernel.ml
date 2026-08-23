@@ -229,6 +229,59 @@ let test_per_selection_replacement_is_atomic_and_replayable () =
   in
   expect_string ~expected:"bb a" ~actual:(text (History.current replayed))
 
+let test_explicit_range_replacement_is_atomic_and_replayable () =
+  let document = document "range-replacement" "zero one two" in
+  let intent =
+    Intent.Replace_ranges
+      {
+        selections = [ selection 0 4; selection 9 12 ];
+        primary = 0;
+        contents = [ "0"; "SECOND" ];
+      }
+  in
+  let history = History.create document in
+  let history =
+    History.apply_intent ~source:Transaction.Test history intent |> must
+  in
+  expect_string ~expected:"0 one SECOND"
+    ~actual:(text (History.current history));
+  expect
+    (List.length (History.lineage history) = 1)
+    "explicit range replacement did not create one history change";
+  let change =
+    match History.current_change history with
+    | Some change -> change
+    | None -> failf "explicit range replacement did not create a history change"
+  in
+  let transaction = History.transaction change in
+  expect
+    (List.length (Transaction.edits transaction) = 2)
+    "explicit range replacement did not retain every replacement edit";
+  expect
+    (Transaction.intent (Transaction.metadata_of transaction)
+    = Some "replace-ranges")
+    "explicit range replacement did not retain its intent identity";
+  let replay =
+    Replay.create ~document_id:"range-replacement-replay"
+      ~contents:"zero one two"
+      ~initial_selections:{ Replay.selections = [ selection 0 0 ]; primary = 0 }
+      ~actions:[ Replay.Intent intent ]
+    |> must
+  in
+  let replayed =
+    Replay.to_string replay |> Replay.of_string |> must |> Replay.run |> must
+  in
+  expect_string ~expected:"0 one SECOND"
+    ~actual:(text (History.current replayed));
+  expect_error
+    (History.apply_intent ~source:Transaction.Test (History.create document)
+       (Intent.Replace_ranges
+          {
+            selections = [ selection 0 1 ];
+            primary = 0;
+            contents = [ "x"; "y" ];
+          }))
+
 let test_history_undo_redo_and_branches () =
   let history = History.create (document "history" "abc") in
   let history = apply_intent history (Intent.Insert_text "x") in
@@ -361,6 +414,8 @@ let tests =
     ("semantic intent resolution", test_intents_resolve_to_transactions);
     ( "per-selection replacement is atomic and replayable",
       test_per_selection_replacement_is_atomic_and_replayable );
+    ( "explicit range replacement is atomic and replayable",
+      test_explicit_range_replacement_is_atomic_and_replayable );
     ("history undo, redo, and branches", test_history_undo_redo_and_branches);
     ("replay fixtures and serialization", test_replay_fixtures_and_serialization);
     ("deterministic generated properties", test_properties);

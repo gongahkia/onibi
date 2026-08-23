@@ -264,15 +264,21 @@ sequence. The explicit host targets permitted to a script binding are
 `editor.kill-ring.cut`, `editor.kill-ring.yank`, `editor.clipboard.copy`,
 `editor.clipboard.paste`, `editor.command-palette`, and the existing
 `search.start`, `search.regexp`,
-`workspace.split.*`, `workspace.pane.*`, and the safe
-`workspace.buffer.new`, `workspace.buffer.open`, `workspace.buffer.close`,
-`workspace.buffer.next`, and `workspace.buffer.previous` operations, plus
-`view.scroll.*`, `view.page.*`, and `view.center`. This is a closed
+`workspace.split.vertical`, `workspace.split.horizontal`,
+`workspace.pane.next`, `workspace.pane.close`, `workspace.pane.only`,
+`workspace.pane.grow-width`, `workspace.pane.shrink-width`,
+`workspace.pane.grow-height`, `workspace.pane.shrink-height`, and
+`workspace.panes.balance`, plus the safe `workspace.buffer.new`,
+`workspace.buffer.open`, `workspace.buffer.close`, `workspace.buffer.next`,
+and `workspace.buffer.previous` operations, plus `view.scroll.*`,
+`view.page.*`, and `view.center`. This is a closed
 allow-list rather than arbitrary host-command invocation: it excludes save,
 quit, force-quit, model switching, and language requests. A workspace-open
 binding can only open the normal host prompt; it receives neither a path nor a
 file handle. View commands receive no geometry and operate only on the focused
-view. The macro commands are generic session commands, so an editor adapter
+view. Resize commands carry only a signed one-cell delta; the host selects the
+nearest matching divider and keeps at least one cell on either side. The macro
+commands are generic session commands, so an editor adapter
 can use its native-looking macro keys without making macro logic a model
 privilege:
 

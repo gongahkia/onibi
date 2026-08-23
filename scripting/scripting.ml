@@ -645,9 +645,12 @@ let host_binding_target = function
   | "editor.clipboard.paste" | "editor.command-palette" | "search.start"
   | "search.regexp" | "workspace.split.vertical" | "workspace.split.horizontal"
   | "workspace.pane.next" | "workspace.pane.close" | "workspace.pane.only"
-  | "workspace.buffer.new" | "workspace.buffer.open" | "workspace.buffer.next"
-  | "workspace.buffer.previous" | "workspace.buffer.close" | "view.scroll.up"
-  | "view.scroll.down" | "view.page.up" | "view.page.down" | "view.center" ->
+  | "workspace.pane.grow-width" | "workspace.pane.shrink-width"
+  | "workspace.pane.grow-height" | "workspace.pane.shrink-height"
+  | "workspace.panes.balance" | "workspace.buffer.new" | "workspace.buffer.open"
+  | "workspace.buffer.next" | "workspace.buffer.previous"
+  | "workspace.buffer.close" | "view.scroll.up" | "view.scroll.down"
+  | "view.page.up" | "view.page.down" | "view.center" ->
       true
   | _ -> false
 

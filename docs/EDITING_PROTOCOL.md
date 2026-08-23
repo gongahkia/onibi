@@ -156,6 +156,14 @@ inspection, undo/redo, and deterministic replay.
 one validated replacement string per current selection in document order and
 builds one atomic multi-edit transaction. It rejects a count mismatch before
 any edit can commit, and it is represented explicitly in `zenbu-replay-v1`.
+
+`replace-ranges` is the same atomic operation for an explicitly supplied,
+snapshot-local selection specification and primary index. It first validates
+and normalizes the complete selection set, then requires exactly one replacement
+per resolved range before it constructs a single transaction. It is serialized
+as a dedicated replay-v1 intent. This is useful when a host or model derives
+disjoint ranges without first committing a visible `set-selections` action; it
+does not loosen range, UTF-8, overlap, version, replay, or transaction checks.
 The selection algebra uses it for content rotation. Forward rotation moves each
 non-empty selection's text to the next selection and wraps the last text to the
 first; backward does the inverse. Rotation rejects fewer than two selections

@@ -53,8 +53,8 @@ and plugin examples live in [Getting Started](docs/GETTING_STARTED.md).
   private Tree-sitter backend. Its public `Syntax.Highlight` projection feeds
   terminal presentation without exposing parser pointers or queries.
 - The terminal host has literal Unicode search plus an opt-in UTF-8-safe `Str`
-  regexp search, a provider-neutral searchable command palette with typed
-  argument prompts and a moving result window,
+  regexp search and palette-only literal/regexp replace-all, a provider-neutral
+  searchable command palette with typed argument prompts and a moving result window,
   save-as, a live model picker,
   metadata-derived help, and bracketed paste aggregation. These remain host interactions; editing models can make
   declarative requests for reusable interactions such as literal search without
@@ -227,6 +227,11 @@ input. Selecting a command with declared parameters from `Ctrl-P`, or reaching
 one through a custom binding, collects each parameter in descriptor order;
 `Escape` cancels without invoking it. This invokes the normal typed command
 effect rather than introducing an Ex parser or a second mutation path.
+`search.replace.literal` and `search.replace.regexp` each collect a query and
+literal replacement text through that prompt. They recompute matches in the
+active buffer and commit every accepted non-overlapping match as one checked
+transaction; they do not reuse an active search cursor, expose capture
+templates, or implement an interactive product query-replace UI.
 Bracketed terminal paste is collected as one committed text input only while a
 model or host prompt declares text entry; it is intentionally ignored in a
 command grammar. Selection styling wins over search styling, which wins over
@@ -234,10 +239,15 @@ syntax styling.
 
 The palette also exposes `workspace.split.vertical`,
 `workspace.split.horizontal`, `workspace.pane.next`,
-`workspace.pane.close`, `workspace.pane.only`, `workspace.buffer.new`,
+`workspace.pane.close`, `workspace.pane.only`,
+`workspace.pane.grow-width`, `workspace.pane.shrink-width`,
+`workspace.pane.grow-height`, `workspace.pane.shrink-height`, and
+`workspace.panes.balance`, followed by `workspace.buffer.new`,
 `workspace.buffer.open`, `workspace.buffer.next`, and
 `workspace.buffer.previous`, plus `view.scroll.up`, `view.scroll.down`,
-`view.page.up`, `view.page.down`, and `view.center`. A pane has an independent viewport and can show
+`view.page.up`, `view.page.down`, and `view.center`. Resize commands move the
+focused pane's nearest matching divider by one terminal cell; balance restores
+equal proportions. A pane has an independent viewport and can show
 any open buffer. Each `(pane, buffer)` pairing also retains an ordered
 selection set: panes showing the same buffer render and restore distinct
 carets/selections, and inactive positions rebase through that buffer's current

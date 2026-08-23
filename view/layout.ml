@@ -1,14 +1,16 @@
 type orientation = Horizontal | Vertical
+type dimension = Width | Height
 
 type t =
   | Leaf of int
-  | Split of { orientation : orientation; first : t; second : t }
+  | Split of { orientation : orientation; ratio : int; first : t; second : t }
 
 type rectangle = { x : int; y : int; width : int; height : int }
 
 type error =
   | Unknown_pane of int
   | Cannot_close_last_pane
+  | Cannot_resize_pane of int
   | Missing_frame of int
   | Frame_dimensions_mismatch of {
       pane : int;
@@ -19,6 +21,8 @@ type error =
     }
 
 let single pane = Leaf pane
+let equal_ratio = 500
+let ratio_scale = 1000
 
 let rec panes = function
   | Leaf pane -> [ pane ]
@@ -27,15 +31,22 @@ let rec panes = function
 let rec split tree ~pane ~new_pane orientation =
   match tree with
   | Leaf value when value = pane ->
-      Ok (Split { orientation; first = Leaf pane; second = Leaf new_pane })
+      Ok
+        (Split
+           {
+             orientation;
+             ratio = equal_ratio;
+             first = Leaf pane;
+             second = Leaf new_pane;
+           })
   | Leaf _ -> Error (Unknown_pane pane)
-  | Split { orientation = current; first; second } -> (
+  | Split { orientation = current; ratio; first; second } -> (
       match split first ~pane ~new_pane orientation with
-      | Ok first -> Ok (Split { orientation = current; first; second })
+      | Ok first -> Ok (Split { orientation = current; ratio; first; second })
       | Error (Unknown_pane _) ->
           split second ~pane ~new_pane orientation
           |> Result.map (fun second ->
-              Split { orientation = current; first; second })
+              Split { orientation = current; ratio; first; second })
       | Error _ as error -> error)
 
 let rec close tree ~pane =
@@ -44,46 +55,119 @@ let rec close tree ~pane =
   | Leaf _ -> Error (Unknown_pane pane)
   | Split { first = Leaf value; second; _ } when value = pane -> Ok second
   | Split { first; second = Leaf value; _ } when value = pane -> Ok first
-  | Split { orientation; first; second } -> (
+  | Split { orientation; ratio; first; second } -> (
       match close first ~pane with
-      | Ok first -> Ok (Split { orientation; first; second })
+      | Ok first -> Ok (Split { orientation; ratio; first; second })
       | Error (Unknown_pane _) ->
           close second ~pane
-          |> Result.map (fun second -> Split { orientation; first; second })
+          |> Result.map (fun second ->
+              Split { orientation; ratio; first; second })
       | Error Cannot_close_last_pane ->
           if List.length (panes tree) = 1 then Error Cannot_close_last_pane
           else Error (Unknown_pane pane)
       | Error _ as error -> error)
 
 let clamp value = max 0 value
+let first_extent available ratio = available * ratio / ratio_scale
+
+let split_rectangles orientation ratio rectangle =
+  match orientation with
+  | Vertical ->
+      let available = clamp (rectangle.width - 1) in
+      let first_width = first_extent available ratio in
+      ( available,
+        first_width,
+        { rectangle with width = first_width },
+        {
+          rectangle with
+          x = rectangle.x + first_width + 1;
+          width = available - first_width;
+        } )
+  | Horizontal ->
+      let available = clamp (rectangle.height - 1) in
+      let first_height = first_extent available ratio in
+      ( available,
+        first_height,
+        { rectangle with height = first_height },
+        {
+          rectangle with
+          y = rectangle.y + first_height + 1;
+          height = available - first_height;
+        } )
 
 let rec bounds_in tree rectangle =
   match tree with
   | Leaf pane -> [ (pane, rectangle) ]
-  | Split { orientation = Vertical; first; second } ->
-      let available = clamp (rectangle.width - 1) in
-      let first_width = available / 2 in
-      let second_width = available - first_width in
-      bounds_in first { rectangle with width = first_width }
-      @ bounds_in second
-          {
-            x = rectangle.x + first_width + 1;
-            y = rectangle.y;
-            width = second_width;
-            height = rectangle.height;
-          }
-  | Split { orientation = Horizontal; first; second } ->
-      let available = clamp (rectangle.height - 1) in
-      let first_height = available / 2 in
-      let second_height = available - first_height in
-      bounds_in first { rectangle with height = first_height }
-      @ bounds_in second
-          {
-            x = rectangle.x;
-            y = rectangle.y + first_height + 1;
-            width = rectangle.width;
-            height = second_height;
-          }
+  | Split { orientation; ratio; first; second } ->
+      let _, _, first_rectangle, second_rectangle =
+        split_rectangles orientation ratio rectangle
+      in
+      bounds_in first first_rectangle @ bounds_in second second_rectangle
+
+let orientation_for_dimension = function
+  | Width -> Vertical
+  | Height -> Horizontal
+
+let ratio_for_first_extent available first_extent =
+  ((first_extent * ratio_scale) + available - 1) / available
+  |> max 1
+  |> min (ratio_scale - 1)
+
+let rec resize_in tree rectangle ~pane ~dimension ~delta =
+  match tree with
+  | Leaf value ->
+      if value = pane then Error (Cannot_resize_pane pane)
+      else Error (Unknown_pane pane)
+  | Split { orientation; ratio; first; second } -> (
+      let available, first_extent, first_rectangle, second_rectangle =
+        split_rectangles orientation ratio rectangle
+      in
+      let resize_here first_contains =
+        if orientation <> orientation_for_dimension dimension || available < 2
+        then Error (Cannot_resize_pane pane)
+        else
+          let first_delta = if first_contains then delta else -delta in
+          let desired_first =
+            min (available - 1) (max 1 (first_extent + first_delta))
+          in
+          if desired_first = first_extent then Error (Cannot_resize_pane pane)
+          else
+            Ok
+              (Split
+                 {
+                   orientation;
+                   ratio = ratio_for_first_extent available desired_first;
+                   first;
+                   second;
+                 })
+      in
+      match resize_in first first_rectangle ~pane ~dimension ~delta with
+      | Ok first -> Ok (Split { orientation; ratio; first; second })
+      | Error (Cannot_resize_pane _) -> resize_here true
+      | Error (Unknown_pane _) -> (
+          match resize_in second second_rectangle ~pane ~dimension ~delta with
+          | Ok second -> Ok (Split { orientation; ratio; first; second })
+          | Error (Cannot_resize_pane _) -> resize_here false
+          | Error _ as error -> error)
+      | Error _ as error -> error)
+
+let resize tree ~pane ~dimension ~delta ~width ~height =
+  if delta = 0 then Error (Cannot_resize_pane pane)
+  else
+    resize_in tree
+      { x = 0; y = 0; width = clamp width; height = clamp height }
+      ~pane ~dimension ~delta
+
+let rec balance = function
+  | Leaf _ as leaf -> leaf
+  | Split { orientation; first; second; _ } ->
+      Split
+        {
+          orientation;
+          ratio = equal_ratio;
+          first = balance first;
+          second = balance second;
+        }
 
 let bounds tree ~width ~height =
   bounds_in tree { x = 0; y = 0; width = clamp width; height = clamp height }
@@ -139,17 +223,9 @@ let rec compose_in tree rectangle ~focused_pane frames =
           validate_frame ~pane rectangle frame
           |> Result.map (fun () ->
               (frame, cursor_for ~focused_pane pane frame ~x:0 ~y:0)))
-  | Split { orientation = Vertical; first; second } ->
-      let available = clamp (rectangle.width - 1) in
-      let first_width = available / 2 in
-      let second_width = available - first_width in
-      let first_rectangle = { rectangle with width = first_width } in
-      let second_rectangle =
-        {
-          rectangle with
-          x = rectangle.x + first_width + 1;
-          width = second_width;
-        }
+  | Split { orientation = Vertical; ratio; first; second } ->
+      let _, first_width, first_rectangle, second_rectangle =
+        split_rectangles Vertical ratio rectangle
       in
       Result.bind (compose_in first first_rectangle ~focused_pane frames)
         (fun (first, first_cursor) ->
@@ -175,17 +251,9 @@ let rec compose_in tree rectangle ~focused_pane frames =
               ( Frame.create ~width:rectangle.width ~height:rectangle.height
                   ~rows ~cursor,
                 cursor )))
-  | Split { orientation = Horizontal; first; second } ->
-      let available = clamp (rectangle.height - 1) in
-      let first_height = available / 2 in
-      let second_height = available - first_height in
-      let first_rectangle = { rectangle with height = first_height } in
-      let second_rectangle =
-        {
-          rectangle with
-          y = rectangle.y + first_height + 1;
-          height = second_height;
-        }
+  | Split { orientation = Horizontal; ratio; first; second } ->
+      let _, first_height, first_rectangle, second_rectangle =
+        split_rectangles Horizontal ratio rectangle
       in
       Result.bind (compose_in first first_rectangle ~focused_pane frames)
         (fun (first, first_cursor) ->
@@ -221,6 +289,8 @@ let compose tree ~width ~height ~focused_pane ~frames =
 let error_to_string = function
   | Unknown_pane pane -> "unknown pane " ^ string_of_int pane
   | Cannot_close_last_pane -> "cannot close the last pane"
+  | Cannot_resize_pane pane ->
+      "cannot resize pane " ^ string_of_int pane ^ " in that direction"
   | Missing_frame pane ->
       "missing rendered frame for pane " ^ string_of_int pane
   | Frame_dimensions_mismatch

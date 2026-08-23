@@ -139,6 +139,13 @@ UTF-8 code point; it is not a Helix, Kakoune, Micro, or Emacs regexp-compatibili
 claim. Search highlighting
 is view-only and selection styling always wins over it.
 
+`Ctrl-P` also exposes `search.replace.literal` and `search.replace.regexp`.
+Each asks for a query and literal replacement text, recomputes the active
+buffer's matches, and commits all accepted non-overlapping replacements as one
+normal transaction. Literal replacement means `$1` remains `$1`; regexp
+replacement does not implement captures, query confirmation, search/replace
+history, or another editor's replacement language.
+
 The command palette invokes parameterless commands immediately. For a command
 with declared parameters it opens one prompt per parameter; `Escape` cancels
 the whole invocation. The built-in `editor.apply` demonstrates the typed form:

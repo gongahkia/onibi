@@ -20,6 +20,9 @@ type workspace_request =
   | Focus_next_view
   | Close_view
   | Keep_only_view
+  | Resize_view_width of int
+  | Resize_view_height of int
+  | Balance_views
   | New_buffer
   | Open_buffer
   | Close_buffer

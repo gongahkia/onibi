@@ -22,6 +22,9 @@ type workspace_request =
   | Focus_next_view
   | Close_view
   | Keep_only_view
+  | Resize_view_width of int
+  | Resize_view_height of int
+  | Balance_views
   | New_buffer
   | Open_buffer
   | Close_buffer
@@ -178,6 +181,11 @@ let identity = function
   | Request_workspace Focus_next_view -> "request-workspace:focus-next-view"
   | Request_workspace Close_view -> "request-workspace:close-view"
   | Request_workspace Keep_only_view -> "request-workspace:keep-only-view"
+  | Request_workspace (Resize_view_width delta) ->
+      "request-workspace:resize-view-width:" ^ string_of_int delta
+  | Request_workspace (Resize_view_height delta) ->
+      "request-workspace:resize-view-height:" ^ string_of_int delta
+  | Request_workspace Balance_views -> "request-workspace:balance-views"
   | Request_workspace New_buffer -> "request-workspace:new-buffer"
   | Request_workspace Open_buffer -> "request-workspace:open-buffer"
   | Request_workspace Close_buffer -> "request-workspace:close-buffer"
@@ -259,6 +267,11 @@ let describe = function
   | Request_workspace Focus_next_view -> "focus the next view"
   | Request_workspace Close_view -> "close the current view"
   | Request_workspace Keep_only_view -> "keep only the current view"
+  | Request_workspace (Resize_view_width delta) ->
+      Printf.sprintf "resize the current view width by %d column(s)" delta
+  | Request_workspace (Resize_view_height delta) ->
+      Printf.sprintf "resize the current view height by %d row(s)" delta
+  | Request_workspace Balance_views -> "balance all split-view proportions"
   | Request_workspace New_buffer -> "create an unnamed buffer"
   | Request_workspace Open_buffer -> "open the host buffer prompt"
   | Request_workspace Close_buffer -> "close the active clean buffer"

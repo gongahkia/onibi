@@ -25,6 +25,8 @@ type host_command =
   | Reload_config
   | Start_search
   | Start_regexp_search
+  | Replace_all_literal
+  | Replace_all_regexp
   | Search_next
   | Search_previous
   | Toggle_macro_recording
@@ -60,6 +62,11 @@ type host_command =
   | Focus_next_pane
   | Close_pane
   | Only_pane
+  | Grow_pane_width
+  | Shrink_pane_width
+  | Grow_pane_height
+  | Shrink_pane_height
+  | Balance_panes
   | New_buffer
   | Open_buffer
   | List_buffers
@@ -621,6 +628,39 @@ let host_command_entries =
         palette = true;
       };
       {
+        command = Replace_all_literal;
+        descriptor =
+          host_descriptor
+            ~parameters:
+              [
+                text_parameter ~name:"query"
+                  ~description:"Literal UTF-8 text to replace." ~required:true;
+                text_parameter ~name:"replacement"
+                  ~description:"Literal UTF-8 replacement text." ~required:true;
+              ]
+            "search.replace.literal" "Replace all literal matches"
+            "Replace every non-overlapping literal match in one checked \
+             transaction.";
+        palette = true;
+      };
+      {
+        command = Replace_all_regexp;
+        descriptor =
+          host_descriptor
+            ~parameters:
+              [
+                text_parameter ~name:"query"
+                  ~description:"UTF-8-safe Str regexp to replace."
+                  ~required:true;
+                text_parameter ~name:"replacement"
+                  ~description:"Literal UTF-8 replacement text." ~required:true;
+              ]
+            "search.replace.regexp" "Replace all regexp matches"
+            "Replace every non-empty UTF-8-safe Str regexp match in one \
+             checked transaction; replacement text is literal.";
+        palette = true;
+      };
+      {
         command = Search_next;
         descriptor =
           host_descriptor "search.next" "Next search match"
@@ -800,6 +840,47 @@ let host_command_entries =
         descriptor =
           host_descriptor "workspace.pane.only" "Keep only current view"
             "Close every other pane while retaining the focused view.";
+        palette = true;
+      };
+      {
+        command = Grow_pane_width;
+        descriptor =
+          host_descriptor "workspace.pane.grow-width" "Grow current view width"
+            "Move the nearest vertical divider one cell toward the other view.";
+        palette = true;
+      };
+      {
+        command = Shrink_pane_width;
+        descriptor =
+          host_descriptor "workspace.pane.shrink-width"
+            "Shrink current view width"
+            "Move the nearest vertical divider one cell toward the current \
+             view.";
+        palette = true;
+      };
+      {
+        command = Grow_pane_height;
+        descriptor =
+          host_descriptor "workspace.pane.grow-height"
+            "Grow current view height"
+            "Move the nearest horizontal divider one cell toward the other \
+             view.";
+        palette = true;
+      };
+      {
+        command = Shrink_pane_height;
+        descriptor =
+          host_descriptor "workspace.pane.shrink-height"
+            "Shrink current view height"
+            "Move the nearest horizontal divider one cell toward the current \
+             view.";
+        palette = true;
+      };
+      {
+        command = Balance_panes;
+        descriptor =
+          host_descriptor "workspace.panes.balance" "Balance split views"
+            "Restore equal proportions for every split in the current layout.";
         palette = true;
       };
       {
@@ -2101,6 +2182,33 @@ let only_pane session =
     inspector = None;
   }
 
+let resize_focused_pane session ~dimension ~delta =
+  match
+    Layout.resize session.layout ~pane:session.focused_pane ~dimension ~delta
+      ~width:session.dimensions.columns ~height:(workspace_height session)
+  with
+  | Error error ->
+      {
+        session with
+        message = Some ("workspace: " ^ Layout.error_to_string error);
+        inspector = None;
+      }
+  | Ok layout ->
+      {
+        session with
+        layout;
+        message = Some "workspace: resized current view";
+        inspector = None;
+      }
+
+let balance_panes session =
+  {
+    session with
+    layout = Layout.balance session.layout;
+    message = Some "workspace: balanced split views";
+    inspector = None;
+  }
+
 let buffer_label ~buffer_name ~file_path =
   match buffer_name with
   | Some name -> name
@@ -2787,6 +2895,20 @@ let request_workspace session = function
       { (close_pane session) with interaction = Idle; quit_armed = false }
   | Model_effect.Keep_only_view ->
       { (only_pane session) with interaction = Idle; quit_armed = false }
+  | Model_effect.Resize_view_width delta ->
+      {
+        (resize_focused_pane session ~dimension:Layout.Width ~delta) with
+        interaction = Idle;
+        quit_armed = false;
+      }
+  | Model_effect.Resize_view_height delta ->
+      {
+        (resize_focused_pane session ~dimension:Layout.Height ~delta) with
+        interaction = Idle;
+        quit_armed = false;
+      }
+  | Model_effect.Balance_views ->
+      { (balance_panes session) with interaction = Idle; quit_armed = false }
   | Model_effect.New_buffer ->
       { (new_buffer session) with interaction = Idle; quit_armed = false }
   | Model_effect.Open_buffer ->
@@ -2813,6 +2935,12 @@ let workspace_request_of_binding = function
   | "workspace.pane.next" -> Some Model_effect.Focus_next_view
   | "workspace.pane.close" -> Some Model_effect.Close_view
   | "workspace.pane.only" -> Some Model_effect.Keep_only_view
+  | "workspace.pane.grow-width" -> Some (Model_effect.Resize_view_width 1)
+  | "workspace.pane.shrink-width" -> Some (Model_effect.Resize_view_width (-1))
+  | "workspace.pane.grow-height" -> Some (Model_effect.Resize_view_height 1)
+  | "workspace.pane.shrink-height" ->
+      Some (Model_effect.Resize_view_height (-1))
+  | "workspace.panes.balance" -> Some Model_effect.Balance_views
   | "workspace.buffer.new" -> Some Model_effect.New_buffer
   | "workspace.buffer.open" -> Some Model_effect.Open_buffer
   | "workspace.buffer.close" -> Some Model_effect.Close_buffer
@@ -4587,6 +4715,69 @@ let search_with_query session kind query =
       })
     matches
 
+let non_overlapping_matches matches =
+  let rec collect previous_stop accepted = function
+    | [] -> List.rev accepted
+    | (range : Zenbu_view.Renderer.search_range) :: rest ->
+        if range.start_offset >= previous_stop then
+          collect range.stop_offset (range :: accepted) rest
+        else collect previous_stop accepted rest
+  in
+  collect 0 [] matches
+
+let replace_all session input ~kind ~query ~replacement =
+  if String.length query = 0 then
+    { session with message = Some "replace: query must not be empty" }
+  else
+    match search_with_query session kind query with
+    | Error reason -> { session with message = Some ("replace: " ^ reason) }
+    | Ok search -> (
+        let matches = non_overlapping_matches search.matches in
+        if matches = [] then
+          {
+            session with
+            message =
+              Some
+                ("replace: no " ^ search_kind_name kind ^ " matches for "
+               ^ query);
+          }
+        else
+          let ranges =
+            List.map
+              (fun (range : Zenbu_view.Renderer.search_range) ->
+                (range.start_offset, range.stop_offset))
+              matches
+          in
+          let contents = List.map (fun _ -> replacement) matches in
+          match Model_intent.replace_ranges ~ranges ~primary:0 ~contents with
+          | Error error ->
+              { session with message = Some (Error.to_string error) }
+          | Ok intent ->
+              let next, changed =
+                execute_active_effects
+                  ~augment_provenance:(fun provenance ->
+                    Provenance.add provenance
+                      (Provenance.Effect "host.search.replace"))
+                  session input
+                  [
+                    Model_effect.execute ~selector_id:"search.matches"
+                      ~transformation_id:"replace-all" intent;
+                  ]
+              in
+              if not changed then next
+              else
+                {
+                  next with
+                  interaction = Idle;
+                  search = None;
+                  inspector = None;
+                  message =
+                    Some
+                      (Printf.sprintf "replace: %d %s match%s"
+                         (List.length matches) (search_kind_name kind)
+                         (if List.length matches = 1 then "" else "es"));
+                })
+
 let refresh_search_after_document_change session =
   match session.search with
   | None -> session
@@ -4704,16 +4895,18 @@ let language_host_command = function
   | Language_diagnostic_previous | Language_diagnostic_describe_current ->
       true
   | Save | Save_as | Quit | Force_quit | Reload_config | Start_search
-  | Start_regexp_search | Search_next | Search_previous | Toggle_macro_recording
-  | Replay_macro | Kill_ring_cut | Kill_ring_yank | System_clipboard_copy
-  | System_clipboard_paste | Set_location | Jump_location | Push_jump
-  | Jump_backward | Jump_forward | Open_palette | Switch_model | Help
-  | Switch_presentation | Switch_theme | Background_jobs | Cancel_background_job
-  | Open_background_job_output | Split_vertical | Split_horizontal
-  | Focus_next_pane | Close_pane | Only_pane | New_buffer | Open_buffer
-  | List_buffers | Switch_buffer | Rename_buffer | Close_buffer
-  | Force_close_buffer | Next_buffer | Previous_buffer | View_scroll_up
-  | View_scroll_down | View_page_up | View_page_down | View_center ->
+  | Start_regexp_search | Replace_all_literal | Replace_all_regexp | Search_next
+  | Search_previous | Toggle_macro_recording | Replay_macro | Kill_ring_cut
+  | Kill_ring_yank | System_clipboard_copy | System_clipboard_paste
+  | Set_location | Jump_location | Push_jump | Jump_backward | Jump_forward
+  | Open_palette | Switch_model | Help | Switch_presentation | Switch_theme
+  | Background_jobs | Cancel_background_job | Open_background_job_output
+  | Split_vertical | Split_horizontal | Focus_next_pane | Close_pane | Only_pane
+  | Grow_pane_width | Shrink_pane_width | Grow_pane_height | Shrink_pane_height
+  | Balance_panes | New_buffer | Open_buffer | List_buffers | Switch_buffer
+  | Rename_buffer | Close_buffer | Force_close_buffer | Next_buffer
+  | Previous_buffer | View_scroll_up | View_scroll_down | View_page_up
+  | View_page_down | View_center ->
       false
 
 let palette_items session =
@@ -5203,6 +5396,24 @@ let invoke_host_palette_command ?(arguments = []) session input = function
   | Reload_config -> { (reload_config session) with interaction = Idle }
   | Start_search -> begin_search session
   | Start_regexp_search -> begin_search ~kind:Regexp session
+  | Replace_all_literal -> (
+      match
+        ( required_text_argument arguments "query",
+          required_text_argument arguments "replacement" )
+      with
+      | Ok query, Ok replacement ->
+          replace_all session input ~kind:Literal ~query ~replacement
+      | Error error, _ | _, Error error ->
+          { session with message = Some (Error.to_string error) })
+  | Replace_all_regexp -> (
+      match
+        ( required_text_argument arguments "query",
+          required_text_argument arguments "replacement" )
+      with
+      | Ok query, Ok replacement ->
+          replace_all session input ~kind:Regexp ~query ~replacement
+      | Error error, _ | _, Error error ->
+          { session with message = Some (Error.to_string error) })
   | Search_next ->
       {
         (move_search session input 1) with
@@ -5275,6 +5486,27 @@ let invoke_host_palette_command ?(arguments = []) session input = function
   | Focus_next_pane -> { (focus_next_pane session) with interaction = Idle }
   | Close_pane -> { (close_pane session) with interaction = Idle }
   | Only_pane -> { (only_pane session) with interaction = Idle }
+  | Grow_pane_width ->
+      {
+        (resize_focused_pane session ~dimension:Layout.Width ~delta:1) with
+        interaction = Idle;
+      }
+  | Shrink_pane_width ->
+      {
+        (resize_focused_pane session ~dimension:Layout.Width ~delta:(-1)) with
+        interaction = Idle;
+      }
+  | Grow_pane_height ->
+      {
+        (resize_focused_pane session ~dimension:Layout.Height ~delta:1) with
+        interaction = Idle;
+      }
+  | Shrink_pane_height ->
+      {
+        (resize_focused_pane session ~dimension:Layout.Height ~delta:(-1)) with
+        interaction = Idle;
+      }
+  | Balance_panes -> { (balance_panes session) with interaction = Idle }
   | New_buffer -> { (new_buffer session) with interaction = Idle }
   | Open_buffer -> (
       if arguments = [] then
@@ -6150,6 +6382,17 @@ let handle_host session = function
   | Start_search -> Continue { (begin_search session) with quit_armed = false }
   | Start_regexp_search ->
       Continue { (begin_search ~kind:Regexp session) with quit_armed = false }
+  | Replace_all_literal | Replace_all_regexp ->
+      Continue
+        {
+          session with
+          message =
+            Some
+              "replace-all requires query and replacement through the command \
+               palette";
+          quit_armed = false;
+          inspector = None;
+        }
   | Search_next ->
       Continue
         (move_search session
@@ -6212,6 +6455,16 @@ let handle_host session = function
   | Focus_next_pane -> Continue (focus_next_pane session)
   | Close_pane -> Continue (close_pane session)
   | Only_pane -> Continue (only_pane session)
+  | Grow_pane_width ->
+      Continue (resize_focused_pane session ~dimension:Layout.Width ~delta:1)
+  | Shrink_pane_width ->
+      Continue (resize_focused_pane session ~dimension:Layout.Width ~delta:(-1))
+  | Grow_pane_height ->
+      Continue (resize_focused_pane session ~dimension:Layout.Height ~delta:1)
+  | Shrink_pane_height ->
+      Continue
+        (resize_focused_pane session ~dimension:Layout.Height ~delta:(-1))
+  | Balance_panes -> Continue (balance_panes session)
   | New_buffer -> Continue (new_buffer session)
   | Open_buffer ->
       Continue

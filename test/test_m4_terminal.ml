@@ -333,6 +333,50 @@ let test_layout_composition () =
   expect
     (Frame.cursor composed = Some Frame.{ column = 6; row = 0 })
     "focused pane cursor was not translated through the divider";
+  let resized =
+    Layout.resize layout ~pane:0 ~dimension:Layout.Width ~delta:2 ~width:11
+      ~height:4
+    |> layout_must
+  in
+  expect
+    (Layout.bounds resized ~width:11 ~height:4
+    = [
+        (0, Layout.{ x = 0; y = 0; width = 7; height = 4 });
+        (1, Layout.{ x = 8; y = 0; width = 3; height = 4 });
+      ])
+    "resizing a vertical split did not grow the focused pane by columns";
+  let nested =
+    Layout.split resized ~pane:0 ~new_pane:2 Layout.Horizontal |> layout_must
+  in
+  let nested =
+    Layout.resize nested ~pane:2 ~dimension:Layout.Height ~delta:1 ~width:11
+      ~height:7
+    |> layout_must
+  in
+  expect
+    (Layout.bounds nested ~width:11 ~height:7
+    = [
+        (0, Layout.{ x = 0; y = 0; width = 7; height = 2 });
+        (2, Layout.{ x = 0; y = 3; width = 7; height = 4 });
+        (1, Layout.{ x = 8; y = 0; width = 3; height = 7 });
+      ])
+    "resizing a nested split did not choose the nearest matching divider";
+  let balanced = Layout.balance resized in
+  expect
+    (Layout.bounds balanced ~width:11 ~height:4
+    = [
+        (0, Layout.{ x = 0; y = 0; width = 5; height = 4 });
+        (1, Layout.{ x = 6; y = 0; width = 5; height = 4 });
+      ])
+    "balancing a layout did not restore equal split proportions";
+  expect
+    (match
+       Layout.resize layout ~pane:0 ~dimension:Layout.Height ~delta:1 ~width:11
+         ~height:4
+     with
+    | Error (Layout.Cannot_resize_pane 0) -> true
+    | Ok _ | Error _ -> false)
+    "resizing without a matching divider was accepted";
   let layout = Layout.close layout ~pane:0 |> layout_must in
   expect (Layout.panes layout = [ 1 ]) "closing a pane retained a stale leaf";
   expect
@@ -685,6 +729,33 @@ let test_session_file_dirty_and_models () =
         "structural selection did not render through the existing view")
 
 let test_session_workspace_views () =
+  let host session command =
+    match App.Session.handle_host session command with
+    | App.Session.Continue session -> session
+    | App.Session.Exit _ -> failf "workspace command unexpectedly exited"
+  in
+  let divider_column frame =
+    let rec find_cell column = function
+      | [] -> None
+      | (cell : Frame.cell) :: cells ->
+          if String.equal cell.text "│" then Some column
+          else find_cell (column + cell.width) cells
+    in
+    Frame.rows frame |> List.find_map (find_cell 0)
+  in
+  let divider_row frame =
+    let rec loop row = function
+      | [] -> None
+      | cells :: rows ->
+          if
+            List.exists
+              (fun (cell : Frame.cell) -> contains ~substring:"─" cell.text)
+              cells
+          then Some row
+          else loop (row + 1) rows
+    in
+    Frame.rows frame |> loop 0
+  in
   let dimensions = Renderer.{ columns = 24; rows = 6 } in
   let session =
     App.Session.create ~model:App.Session.Vim ~contents:"alpha\nbeta"
@@ -711,6 +782,21 @@ let test_session_workspace_views () =
        (fun row -> contains ~substring:"│" (Frame.row_text row))
        (Frame.rows composed))
     "vertical split did not render a divider";
+  let vertical_divider =
+    match divider_column composed with
+    | Some column -> column
+    | None -> failf "vertical split had no addressable divider"
+  in
+  let session = host session App.Session.Grow_pane_width in
+  let session, composed = App.Session.render session in
+  expect
+    (divider_column composed = Some (vertical_divider - 1))
+    "growing the focused right pane did not move its nearest vertical divider";
+  let session = host session App.Session.Balance_panes in
+  let session, composed = App.Session.render session in
+  expect
+    (divider_column composed = Some vertical_divider)
+    "balancing panes did not restore the vertical split proportion";
   let session =
     match App.Session.handle_host session App.Session.Focus_next_pane with
     | App.Session.Continue session -> session
@@ -736,6 +822,22 @@ let test_session_workspace_views () =
        (fun row -> contains ~substring:"─" (Frame.row_text row))
        (Frame.rows composed))
     "horizontal split did not render a divider";
+  let horizontal_divider =
+    match divider_row composed with
+    | Some row -> row
+    | None -> failf "horizontal split had no addressable divider"
+  in
+  let session = host session App.Session.Grow_pane_height in
+  let session, composed = App.Session.render session in
+  expect
+    (divider_row composed = Some (horizontal_divider - 1))
+    "growing the focused bottom pane did not move its nearest horizontal \
+     divider";
+  let session = host session App.Session.Balance_panes in
+  let session, composed = App.Session.render session in
+  expect
+    (divider_row composed = Some horizontal_divider)
+    "balancing panes did not restore the horizontal split proportion";
   let session =
     match App.Session.handle_host session App.Session.Close_pane with
     | App.Session.Continue session -> session

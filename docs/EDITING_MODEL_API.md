@@ -94,8 +94,13 @@ Model effects are values, never closures:
   traverses its older/newer entries. The host owns its bounded storage and
   rebasing; models cannot access its entries or buffer table.
 - `Request_workspace` asks the host for a bounded view or buffer operation:
-  split, focus, close/keep a view, create/open/close a buffer, or cycle buffers.
-  The model supplies no pane id, buffer id, path, layout object, or file handle.
+  split, focus, close/keep a view, grow or shrink the focused view by one cell
+  along an existing matching divider, balance split proportions, create/open/
+  close a buffer, or cycle buffers. The model supplies no pane id, buffer id,
+  path, layout object, terminal geometry, or file handle. Resize requests carry
+  only a signed cell delta and dimension; the host chooses the nearest ancestor
+  divider, requires at least one cell for both sides, and reports an unavailable
+  divider without changing the layout.
   The host separately owns per-`(view, buffer)` selection snapshots and their
   transaction-lineage rebasing.
 - `Request_viewport` asks the host to scroll the focused view by checked line
@@ -109,7 +114,12 @@ Model effects are values, never closures:
 - `Emit_message` reports an inspectable message.
 
 `Model_intent` is the model-facing facade for M1 intents plus selector/
-transformation composition. M3 adds word, line, document, vertical, and literal
+transformation composition. Its explicit `replace_ranges` constructor accepts
+copied byte-offset pairs, a primary index, and exactly one replacement text per
+range; normal snapshot validation still constructs the anchors and rejects bad,
+overlapping, stale, or mismatched values before any transaction commits. It is
+for a model or host that has already derived disjoint ranges, not a mutable
+document escape hatch or a repeatable textual intent. M3 adds word, line, document, vertical, and literal
 all-occurrences selectors along with generic `collapse to start/end`
 transformations. The runtime converts it to the kernel intent and lets existing
 transaction/history validation perform the mutation.

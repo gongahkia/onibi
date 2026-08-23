@@ -3,6 +3,11 @@ type t =
   | Delete_selected_ranges
   | Replace_selected_ranges of string
   | Replace_selection_contents of string list
+  | Replace_ranges of {
+      selections : Selection_spec.t list;
+      primary : int;
+      contents : string list;
+    }
   | Set_selections of { selections : Selection_spec.t list; primary : int }
   | Apply of { selector : Selector.t; transformation : Transformation.t }
 
@@ -11,6 +16,7 @@ let identity = function
   | Delete_selected_ranges -> "delete-selected-ranges"
   | Replace_selected_ranges _ -> "replace-selected-ranges"
   | Replace_selection_contents _ -> "replace-selection-contents"
+  | Replace_ranges _ -> "replace-ranges"
   | Set_selections _ -> "set-selections"
   | Apply { selector; transformation } ->
       "apply:"
@@ -171,6 +177,16 @@ let resolve ~source ?description ?provenance snapshot = function
       | Ok edits ->
           transaction snapshot ~edits ~selection_change:None ~source
             ~intent:"replace-selection-contents" ~description ~provenance)
+  | Replace_ranges { selections; primary; contents } -> (
+      match selection_set_of_specs snapshot ~selections ~primary with
+      | Error _ as error -> error
+      | Ok selection_change -> (
+          match edits_for_selection_contents selection_change contents with
+          | Error _ as error -> error
+          | Ok edits ->
+              transaction snapshot ~edits
+                ~selection_change:(Some selection_change) ~source
+                ~intent:"replace-ranges" ~description ~provenance))
   | Set_selections { selections; primary } -> (
       match selection_set_of_specs snapshot ~selections ~primary with
       | Error _ as error -> error

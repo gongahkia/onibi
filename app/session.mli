@@ -8,6 +8,8 @@ type host_command =
   | Reload_config
   | Start_search
   | Start_regexp_search
+  | Replace_all_literal
+  | Replace_all_regexp
   | Search_next
   | Search_previous
   | Toggle_macro_recording
@@ -43,6 +45,11 @@ type host_command =
   | Focus_next_pane
   | Close_pane
   | Only_pane
+  | Grow_pane_width
+  | Shrink_pane_width
+  | Grow_pane_height
+  | Shrink_pane_height
+  | Balance_panes
   | New_buffer
   | Open_buffer
   | List_buffers

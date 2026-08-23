@@ -202,6 +202,19 @@ let handle_input state event context =
       (Direct, [ Model_effect.Request_workspace Model_effect.Keep_only_view ])
   | Control_x_prefix when is_plain_text event "o" ->
       (Direct, [ Model_effect.Request_workspace Model_effect.Focus_next_view ])
+  | Control_x_prefix when is_plain_text event "}" ->
+      ( Direct,
+        [ Model_effect.Request_workspace (Model_effect.Resize_view_width 1) ] )
+  | Control_x_prefix when is_plain_text event "{" ->
+      ( Direct,
+        [ Model_effect.Request_workspace (Model_effect.Resize_view_width (-1)) ]
+      )
+  | Control_x_prefix when is_plain_text event "^" ->
+      ( Direct,
+        [ Model_effect.Request_workspace (Model_effect.Resize_view_height 1) ]
+      )
+  | Control_x_prefix when is_plain_text event "+" ->
+      (Direct, [ Model_effect.Request_workspace Model_effect.Balance_views ])
   | Control_x_prefix
     when is_named event Input_event.Escape || is_control event "g" ->
       (Direct, [])
@@ -241,7 +254,7 @@ let input_rules = function
         input_rule "direct.control-x.save" (Input_rule.Exact "Ctrl-s")
           Input_rule.Binding "request host save" ~next_status:"direct";
         input_rule "direct.control-x.workspace"
-          (Input_rule.Text_range "Ctrl-f, k, 2, 3, 0, 1, or o")
+          (Input_rule.Text_range "Ctrl-f, k, 2, 3, 0, 1, o, {, }, ^, or +")
           Input_rule.Binding "request file or workspace host operation"
           ~next_status:"direct";
         input_rule "direct.control-x.cancel"

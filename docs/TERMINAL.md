@@ -33,10 +33,18 @@ the selection unchanged and the prompt open for correction. Both variants move
 through an ordinary semantic `set-selections` intent, refresh after document
 changes, restore the pre-search selection on prompt cancellation, and are
 inspectable through `Session.Search` or `zenbu-headless search-session`.
-Their descriptors are `search.start`, `search.regexp`, `search.next`, and
+The palette-only `search.replace.literal` and `search.replace.regexp`
+descriptors each collect `query` and `replacement` text. They recompute the
+current buffer's matches and commit all accepted non-overlapping matches through
+one `replace-ranges` transaction, with `search.matches`/`replace-all`
+provenance. The regexp variant has the same non-empty and UTF-8-endpoint checks
+as regexp search; `$1` and every other replacement byte sequence are literal.
+Their descriptors join `search.start`, `search.regexp`, `search.next`, and
 `search.previous` with provider `zenbu.app`, so they appear in `commands`,
-`describe command`, bindings, and the same palette as model, Lua, and plugin
-commands. This is not product-regexp or project-search compatibility. The
+`describe command`, and the same palette as model, Lua, and plugin commands.
+They are not adapter-bindable because both required arguments remain host prompt
+input. This is not product-regexp, query-replace, or project-search
+compatibility. The
 palette filters descriptor id/title/summary/provider. A selected descriptor
 with parameters enters a host-owned prompt for each parameter; `Escape`
 abandons the invocation. Text parameters accept committed UTF-8.
@@ -55,6 +63,16 @@ The model picker preserves history, document/selections, clipboard, command and
 semantic registries, syntax service, trace/profiler handles, execution identity,
 and repeatable semantic intents. It initializes the new model's private grammar
 state, so a pending operator/shrink stack never leaks across models.
+
+The palette's `workspace.pane.grow-width`, `workspace.pane.shrink-width`,
+`workspace.pane.grow-height`, `workspace.pane.shrink-height`, and
+`workspace.panes.balance` commands adjust the layout tree without altering a
+document, selection, history, or viewport. A grow/shrink request moves the
+focused pane's nearest vertical or horizontal divider by one cell; if none can
+move while preserving one cell for each child, it is rejected. Ratios survive
+terminal resizing and balance resets every split to equal proportions. This is
+deliberately a small generic layout contract, not per-editor minimum-window
+policy, numeric prefixes, divider dragging, or layout persistence.
 
 ## Backend and rendering
 

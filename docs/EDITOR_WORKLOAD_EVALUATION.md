@@ -16,7 +16,7 @@ An editor can vary independently along these layers:
 | commands and semantic operations | built-in commands, trusted-local Lua, or capability-limited Wasm Components can contribute commands, selectors, transformations, scoped one-to-sixteen-event bindings, and events; trusted Lua may request a bounded argument-vector selection filter or an inspectable background program | contributions cannot mutate documents outside a checked transaction; process actions cannot become a shell, terminal, or general job API |
 | language-aware editing | Tree-sitter-backed syntax context and the optional language-service host | only built-in OCaml/JSON syntax registration; cross-file edits require every target to be open and saved |
 | configuration | reloadable Lua configuration and local Wasm plugin discovery | Lua is trusted local code; Components use the declared capability boundary |
-| workspace/view host | `zenbu.view.Layout` plus host commands to create/open/cycle buffers; split, focus, close, or retain views; scroll by source line/page; and center the focused view; ordered selections are retained per `(pane, buffer)` and rebase through forward local history | local buffers have independent model/history, save, syntax, diagnostics, search, and viewport state; no project/workspace discovery, target auto-open, global history, or arbitrary view widgets |
+| workspace/view host | `zenbu.view.Layout` plus host commands to create/open/cycle buffers; split, focus, close, retain, grow/shrink the nearest matching divider, or balance views; scroll by source line/page; and center the focused view; ordered selections are retained per `(pane, buffer)` and rebase through forward local history | local buffers have independent model/history, save, syntax, diagnostics, search, and viewport state; no project/workspace discovery, target auto-open, global history, arbitrary view widgets, or per-product layout policy |
 | terminal presentation | renderer frame, semantic style classes, viewport, terminal backend, host-switchable built-in/custom TOML themes, pure line-number/status-row profiles, an optional bounded host buffer line, and basic typed pointer gestures | no GUI or widget/layout API; pointer support is canvas-only and the buffer line is intentionally noninteractive |
 
 This is already enough to build and compare distinct **editing grammars**:
@@ -60,11 +60,19 @@ The feature sources are the projects' own documentation: [Vim help](https://vimh
 | Helix-style selection editor | selection-first model, multi-edit transactions, occurrence selection, syntax-structural selections, regex selection/splitting/filtering through `Str`, host literal/regexp search, touching-range merge, primary and content rotation, orientation operations, local buffers/views, scoped sequence bindings, nested declarative modes including one initial adapter map, adapter-bindable page/center view requests, bounded named keyboard-macro storage/replay, trusted Lua's checked external selection filter, and optional LSP completion/hover/definition/rename across already-open saved buffers | buffers can be assigned to split views; fixed system clipboard host commands are available to a future adapter | picker/config discovery, native `+`/`*` register grammar and multi-selection clipboard behavior, Helix selected-register macro workflow, Helix regex and exact post-rotation selection semantics, shell command-line/pipes, general workspace edits, full window model, and theme parity |
 | Kakoune-style multiple-selection editor | explicit ordered selections, selection-first edits, syntax context, regex selection/splitting/filtering through `Str`, host literal/regexp search, touching-range merge, primary and validated count-grouped content rotation, orientation operations, scoped bindings/hooks, nested declarative modes including one initial adapter map, adapter-bindable page/center view requests, bounded named keyboard-macro storage/replay, generic rebased named session locations, named local buffers/views, and trusted Lua's checked external selection filter | split views render independently and focus routes input to the assigned buffer | Kakoune's inclusive anchor/cursor model, exact regex/count grouping and post-rotation selection semantics, Kakoune register-selection macro grammar, native mark/jump-list grammar, client/server sessions, shell expansions and asynchronous socket integration, full command language, and face/highlighter ecosystem |
 | Micro-style terminal editor | direct text/caret/selection editing, `Ctrl-S` host save, the supplied `Ctrl-E` palette / `Ctrl-W` split-cycle / selected-text `Ctrl-X` cut / `Ctrl-C`/`Ctrl-V` system-clipboard Lua adapter, syntax spans, named local buffers/views, an optional host-owned visual buffer line, trusted Lua configuration, local plugins, search/palette, terminal themes, basic click/drag selection plus adapter-bindable keyboard viewport movement, scoped sequence bindings, and trusted Lua's checked external selection filter | Components and Lua can supply editing commands; trusted Lua may start bounded no-stdin background programs, inspect final output, open its final report in a normal buffer, and the host can cancel a retained job | Micro's complete keybinding behavior, line-fallback cut behavior, mouse clipboard/menu/multi-click parity, OSC 52/SSH clipboard behavior, interactive shell split, interactive buffer tabs, plugin-manager/install flow, runtime theme/configuration surface, process input/streaming, and appearance parity |
-| Emacs terminal product | direct text/caret/selection editing, `Ctrl-W` cut, supplied `Ctrl-Y` latest-kill adapter, a bounded 120-entry cross-buffer kill history, fixed system-clipboard host commands available to an adapter, `Ctrl-X Ctrl-S` save, `Ctrl-X Ctrl-F` host open prompt, `Ctrl-X 2/3/0/1/o/k` split/close/only/focus/clean-buffer-close requests, same-buffer panes with independently retained/rebased ordered selections, key-addressable commands, host literal/regexp search, buffer-local stackable declared transient modes, named local buffers in split views, typed page/center view requests, a typed argument minibuffer, bounded named/countable keyboard-macro storage/replay, generic rebased named session locations, configuration/plugin concepts, bounded background-job reports opened as normal buffers, and asynchronous language host | transient stack composition and a bounded window-point analogue, not general Emacs keymap/window composition; trusted Lua's bounded program registry is a process-API probe | buffer/window/frame system, completion ecosystem, major/minor mode composition, Emacs regexp/search-ring semantics, automatic kill/yank clipboard integration, adjacent-kill concatenation, yank-pop, macro ring and Emacs macro name/edit commands, buffer-local mark and mark-ring semantics, Elisp/package/process APIs, display engine, and terminal appearance parity |
+| Emacs terminal product | direct text/caret/selection editing, `Ctrl-W` cut, supplied `Ctrl-Y` latest-kill adapter, a bounded 120-entry cross-buffer kill history, fixed system-clipboard host commands available to an adapter, `Ctrl-X Ctrl-S` save, `Ctrl-X Ctrl-F` host open prompt, `Ctrl-X 2/3/0/1/o/k` split/close/only/focus/clean-buffer-close requests, tested `Ctrl-X ^`, `Ctrl-X }`, `Ctrl-X {`, and `Ctrl-X +` grow/balance requests over a generic split tree, same-buffer panes with independently retained/rebased ordered selections, key-addressable commands, host literal/regexp search, buffer-local stackable declared transient modes, named local buffers in split views, typed page/center view requests, a typed argument minibuffer, bounded named/countable keyboard-macro storage/replay, generic rebased named session locations, configuration/plugin concepts, bounded background-job reports opened as normal buffers, and asynchronous language host | transient stack composition and a bounded window-point analogue, not general Emacs keymap/window composition; trusted Lua's bounded program registry is a process-API probe | buffer/window/frame system, completion ecosystem, major/minor mode composition, Emacs regexp/search-ring semantics, automatic kill/yank clipboard integration, adjacent-kill concatenation, yank-pop, macro ring and Emacs macro name/edit commands, buffer-local mark and mark-ring semantics, Elisp/package/process APIs, display engine, product minimum-window behavior, numeric arguments, divider dragging, layout persistence, and terminal appearance parity |
 
 “Supported now” means this repository has a testable behavior, not that its
 keystrokes or visual rendering exactly match the named editor. “Partial
 foundation” deliberately does not count toward parity.
+
+Every table entry that lists host literal/regexp search also includes the same
+palette-only, one-buffer atomic replace-all probe. `search.replace.literal` and
+`search.replace.regexp` accept a query and literal replacement string, choose
+leftmost non-overlapping accepted matches, and make one history transaction.
+They do not supply a native editor's capture expansion, confirmation loop,
+search/replace history, cross-buffer operation, key grammar, or replacement
+dialect, so this shared host capability does not advance a product-parity claim.
 
 The regexp-search probe makes the compatibility boundary concrete. Emacs
 documents separate incremental regexp searches, including forward and backward
@@ -77,6 +85,15 @@ stand in for the native regex/search semantics of any of these editors. See
 [GNU Emacs regexp search](https://www.gnu.org/software/emacs/manual/html_node/emacs/Regexp-Search.html),
 [Kakoune search keys](https://github.com/mawww/kakoune/blob/master/doc/pages/keys.asciidoc),
 and [Micro default bindings](https://github.com/micro-editor/micro/blob/master/runtime/help/defaultkeys.md).
+
+Replacement is a separate pressure case. Micro documents `replace` with
+replace-all and regexp/capture flags, while Emacs documents interactive
+query-replace and regexp query-replace. Zenbu instead offers two palette
+commands that take one query and literal replacement string, choose leftmost
+non-overlapping safe matches in one buffer, and commit them as one transaction.
+It has no confirmation loop, capture expansion, cross-buffer replacement, or
+product replacement grammar. See [Micro commands](https://github.com/micro-editor/micro/blob/master/runtime/help/commands.md)
+and [GNU Emacs query replace](https://www.gnu.org/software/emacs/manual/html_node/emacs/Query-Replace.html).
 
 Micro's [default bindings](https://github.com/micro-editor/micro/blob/master/runtime/help/defaultkeys.md)
 assign `Ctrl-S` to save, `Ctrl-E` to its command bar, `Ctrl-W` to split focus,
@@ -97,6 +114,21 @@ or mutable document state. M10 covers text, deletion, history, selection
 extension, prefix cancellation, save, workspace effects, and adapter bindings.
 The real terminal delegates `Ctrl-S`, `Ctrl-F`, `Ctrl-G`, and `Ctrl-P` to Direct
 so its controls are reachable rather than intercepted by global host bindings.
+
+Pane resizing is the next shared workspace pressure point. The [Emacs window
+commands](https://www.gnu.org/software/emacs/manual/html_node/emacs/Change-Window.html)
+define `C-x ^`, `C-x }`, `C-x {`, and `C-x +` for vertical growth, horizontal
+growth/shrink, and balancing. [Vim's window help](https://vimhelp.org/windows.txt.html)
+also defines incremental resizing and equalization, including mouse divider
+dragging. Zenbu therefore adds a model-neutral layout request that carries only
+a direction and signed cell delta. The host finds the focused pane's nearest
+matching ancestor divider, retains one cell for each child, and stores the
+resulting proportion in the layout tree. `zenbu.direct` maps the four Emacs
+keys above; scripts can opt into the generic host command IDs. This is useful
+evidence for a reusable layout contract, not product parity: there are no
+numeric prefixes, configurable product minimum sizes, `C-x -` semantics,
+mouse divider dragging, tab/frame layouts, or saved layout sessions.
+
 This remains a generic test adapter, not Micro or Emacs parity: their
 product-specific workspace, process, extension, and presentation layers remain
 the evaluation backlog.
@@ -481,8 +513,11 @@ dune exec bin/zenbu_headless.exe -- demo
 
 Use `Ctrl-P` in the terminal host and select `workspace.split.vertical`,
 `workspace.split.horizontal`, `workspace.pane.next`,
-`workspace.pane.close`, or `workspace.pane.only` to exercise the current
-workspace. Use `workspace.buffer.new`, `workspace.buffer.open`,
+`workspace.pane.close`, `workspace.pane.only`,
+`workspace.pane.grow-width`, `workspace.pane.shrink-width`,
+`workspace.pane.grow-height`, `workspace.pane.shrink-height`, or
+`workspace.panes.balance` to exercise the current workspace. Use
+`workspace.buffer.new`, `workspace.buffer.open`,
 `workspace.buffers`, `workspace.buffer.switch`, `workspace.buffer.rename`,
 `workspace.buffer.next`, and `workspace.buffer.previous` to exercise the
 buffer table. These commands are also available through the typed

@@ -18,13 +18,21 @@ This repository implements M0-M11.
 | M11 | model-neutral asynchronous language intelligence | implemented in this checkout |
 
 M10 added host/presentation policy above the existing semantic boundary:
-literal Unicode plus UTF-8-safe `Str` regexp search, all-provider command discovery/palette, save-as,
+literal Unicode plus UTF-8-safe `Str` regexp search, one-buffer atomic
+literal/regexp replace-all, all-provider command discovery/palette, save-as,
 metadata-derived help, live model switching, syntax colouring from public
 snapshot spans, bracketed-paste aggregation, Component health/reload behavior,
 basic terminal pointer selection/scrolling, scoped logical input sequences,
 checked line/page/center viewport requests and PageUp/PageDown decoding,
 bootstrap/install/release targets, CI, and adoption documentation. It did not
 grant a host or renderer a private document mutation path.
+
+The split-view host additionally stores bounded per-split proportions. It can
+move the focused pane's nearest matching divider by one cell or reset the tree
+to equal proportions, through palette, model-effect, and trusted-binding
+surfaces without exposing pane identifiers or terminal geometry to a model.
+It intentionally omits product-specific minimum-size policy, numeric resize
+arguments, mouse divider dragging, and persisted layouts.
 
 M11 adds optional `zenbu.language` data and a private `zenbu.lsp` adapter. The
 default `.ml`/`.mli` path starts `ocamllsp`; diagnostics, hover, same- and
