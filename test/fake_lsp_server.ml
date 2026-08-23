@@ -7,6 +7,7 @@ let delay_hover = ref false
 let malformed = ref false
 let crash_marker = ref None
 let apply_edit = ref false
+let definition_path = ref None
 
 let options =
   [
@@ -17,6 +18,9 @@ let options =
       Arg.String (fun path -> crash_marker := Some path),
       "exit after first initialize" );
     ("--apply-edit", Arg.Set apply_edit, "send one workspace/applyEdit request");
+    ( "--definition-path",
+      Arg.String (fun path -> definition_path := Some path),
+      "return this file as the definition target" );
   ]
 
 let () = Arg.parse options (fun _ -> ()) "fake_lsp_server"
@@ -278,8 +282,17 @@ let () =
                ("range", `Assoc [ ("start", position); ("end", position) ]);
              ])
     | Some "textDocument/definition", Some id ->
+        let definition_uri =
+          match !definition_path with
+          | None -> !uri
+          | Some path -> "file://" ^ path
+        in
         response id
-          (`List [ `Assoc [ ("uri", `String !uri); ("range", range 0 0 0 1) ] ])
+          (`List
+            [
+              `Assoc
+                [ ("uri", `String definition_uri); ("range", range 0 0 0 1) ];
+            ])
     | Some "textDocument/completion", Some id ->
         let point = request_position params in
         response id

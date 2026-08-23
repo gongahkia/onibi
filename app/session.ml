@@ -41,6 +41,10 @@ type host_command =
   | Focus_next_pane
   | Close_pane
   | Only_pane
+  | New_buffer
+  | Open_buffer
+  | Next_buffer
+  | Previous_buffer
 
 type inspection =
   | Why
@@ -89,6 +93,7 @@ type interaction =
     }
   | Palette of { query : string; selected : int }
   | Save_as_prompt of string
+  | Open_buffer_prompt of string
   | Model_picker of int
   | Help_view
   | Hover_view of Language.hover
@@ -99,14 +104,25 @@ type interaction =
     }
   | Rename_prompt of string
 
-type outcome = Continue of t | Exit of t
-
-and active =
+type active =
   | Vim_runtime of Vim_runtime.t
   | Selection_runtime of Selection_runtime.t
   | Structural_runtime of Structural_runtime.t
 
-and t = {
+type buffer = {
+  id : int;
+  active : active;
+  file_path : string option;
+  language_override : string option;
+  saved_version : int;
+  saved_contents : string;
+  language_client : Lsp.t option;
+  diagnostics : Language.diagnostic list;
+  presentation_cache : presentation_cache option;
+  search : search option;
+}
+
+type t = {
   active : active;
   base_commands : Command_registry.t;
   base_semantics : Semantic_descriptor.t list;
@@ -134,7 +150,13 @@ and t = {
   language_client : Lsp.t option;
   diagnostics : Language.diagnostic list;
   language_registry : Language.Registry.t;
+  current_buffer_id : int;
+  inactive_buffers : buffer list;
+  next_buffer_id : int;
+  pane_buffers : (int * int) list;
 }
+
+type outcome = Continue of t | Exit of t
 
 let static = function
   | Ok value -> value
@@ -265,6 +287,34 @@ let host_command_entries =
         descriptor =
           host_descriptor "workspace.pane.only" "Keep only current view"
             "Close every other pane while retaining the focused view.";
+        palette = true;
+      };
+      {
+        command = New_buffer;
+        descriptor =
+          host_descriptor "workspace.buffer.new" "Create buffer"
+            "Create an unnamed buffer in the focused view.";
+        palette = true;
+      };
+      {
+        command = Open_buffer;
+        descriptor =
+          host_descriptor "workspace.buffer.open" "Open file in buffer"
+            "Prompt for a path and load it into the focused view.";
+        palette = true;
+      };
+      {
+        command = Next_buffer;
+        descriptor =
+          host_descriptor "workspace.buffer.next" "Next buffer"
+            "Show the next open buffer in the focused view.";
+        palette = true;
+      };
+      {
+        command = Previous_buffer;
+        descriptor =
+          host_descriptor "workspace.buffer.previous" "Previous buffer"
+            "Show the previous open buffer in the focused view.";
         palette = true;
       };
       {
@@ -709,14 +759,18 @@ let create ~model ?language ?file_path ?(contents = "") ?trace ?profiler
                     language_client;
                     diagnostics = [];
                     language_registry;
+                    current_buffer_id = 0;
+                    inactive_buffers = [];
+                    next_buffer_id = 1;
+                    pane_buffers = [ (0, 0) ];
                   })))
 
-let context = function
-  | { active = Vim_runtime runtime; _ } -> Vim_runtime.context runtime
-  | { active = Selection_runtime runtime; _ } ->
-      Selection_runtime.context runtime
-  | { active = Structural_runtime runtime; _ } ->
-      Structural_runtime.context runtime
+let context_of_active = function
+  | Vim_runtime runtime -> Vim_runtime.context runtime
+  | Selection_runtime runtime -> Selection_runtime.context runtime
+  | Structural_runtime runtime -> Structural_runtime.context runtime
+
+let context session = context_of_active session.active
 
 let active_status = function
   | Vim_runtime runtime -> Vim_runtime.status runtime
@@ -746,6 +800,10 @@ let status session =
       host_status ~id:"host-save-as" ~label:"SAVE AS"
         ~description:"enter a destination path; Enter saves atomically"
         ~text_entry:true ()
+  | Open_buffer_prompt _ ->
+      host_status ~id:"host-open-buffer" ~label:"OPEN"
+        ~description:"enter a path; Enter opens it in the focused view"
+        ~text_entry:true ()
   | Model_picker _ ->
       host_status ~id:"host-model-picker" ~label:"MODEL"
         ~description:"choose an editing model without replacing semantic state"
@@ -765,14 +823,93 @@ let status session =
         ~description:"enter a new symbol name; Enter requests rename"
         ~text_entry:true ()
 
-let model = function
-  | { active = Vim_runtime _; _ } -> Vim
-  | { active = Selection_runtime _; _ } -> Selection
-  | { active = Structural_runtime _; _ } -> Structural
+let model_of_active = function
+  | Vim_runtime _ -> Vim
+  | Selection_runtime _ -> Selection
+  | Structural_runtime _ -> Structural
 
+let model session = model_of_active session.active
 let pane_ids session = Layout.panes session.layout
 let pane_count session = List.length (pane_ids session)
 let focused_pane session = session.focused_pane
+
+let current_buffer session =
+  {
+    id = session.current_buffer_id;
+    active = session.active;
+    file_path = session.file_path;
+    language_override = session.language_override;
+    saved_version = session.saved_version;
+    saved_contents = session.saved_contents;
+    language_client = session.language_client;
+    diagnostics = session.diagnostics;
+    presentation_cache = session.presentation_cache;
+    search = session.search;
+  }
+
+let buffer_ids session =
+  session.current_buffer_id
+  :: List.map (fun (buffer : buffer) -> buffer.id) session.inactive_buffers
+
+let buffer_count session = List.length (buffer_ids session)
+
+let buffer_for_id session id =
+  if id = session.current_buffer_id then Some (current_buffer session)
+  else
+    List.find_opt
+      (fun (buffer : buffer) -> buffer.id = id)
+      session.inactive_buffers
+
+let buffer_id_for_pane session pane =
+  List.assoc_opt pane session.pane_buffers
+  |> Option.value ~default:session.current_buffer_id
+
+let focused_buffer session = buffer_id_for_pane session session.focused_pane
+
+let set_pane_buffer session pane buffer =
+  let pane_buffers =
+    (pane, buffer)
+    :: List.filter
+         (fun (candidate, _) -> candidate <> pane)
+         session.pane_buffers
+  in
+  { session with pane_buffers }
+
+let load_buffer session (buffer : buffer) =
+  {
+    session with
+    active = buffer.active;
+    file_path = buffer.file_path;
+    language_override = buffer.language_override;
+    saved_version = buffer.saved_version;
+    saved_contents = buffer.saved_contents;
+    language_client = buffer.language_client;
+    diagnostics = buffer.diagnostics;
+    presentation_cache = buffer.presentation_cache;
+    search = buffer.search;
+    current_buffer_id = buffer.id;
+    inactive_buffers =
+      current_buffer session
+      :: List.filter
+           (fun (candidate : buffer) -> candidate.id <> buffer.id)
+           session.inactive_buffers;
+    interaction = Idle;
+    inspector = None;
+    quit_armed = false;
+  }
+
+let activate_buffer session buffer_id =
+  if buffer_id = session.current_buffer_id then session
+  else
+    match buffer_for_id session buffer_id with
+    | None ->
+        {
+          session with
+          message = Some ("workspace: unknown buffer " ^ string_of_int buffer_id);
+          interaction = Idle;
+          inspector = None;
+        }
+    | Some buffer -> load_buffer session buffer
 
 let pane_viewport session pane =
   match List.assoc_opt pane session.pane_viewports with
@@ -829,6 +966,9 @@ let split_pane session orientation =
           pane_viewports =
             (session.next_pane_id, pane_viewport session session.focused_pane)
             :: session.pane_viewports;
+          pane_buffers =
+            (session.next_pane_id, focused_buffer session)
+            :: session.pane_buffers;
           next_pane_id = session.next_pane_id + 1;
           message = Some "workspace: split current view";
           inspector = None;
@@ -845,9 +985,10 @@ let focus_next_pane session =
         | None -> List.hd panes
         | Some index -> List.nth panes ((index + 1) mod List.length panes)
       in
+      let session = { session with focused_pane = next } in
+      let session = activate_buffer session (focused_buffer session) in
       {
         session with
-        focused_pane = next;
         message = Some "workspace: focused next view";
         inspector = None;
       }
@@ -862,17 +1003,24 @@ let close_pane session =
       }
   | Ok layout ->
       let panes = Layout.panes layout in
-      {
-        session with
-        layout;
-        focused_pane = List.hd panes;
-        pane_viewports =
-          List.filter
-            (fun (pane, _) -> List.mem pane panes)
-            session.pane_viewports;
-        message = Some "workspace: closed current view";
-        inspector = None;
-      }
+      let next =
+        {
+          session with
+          layout;
+          focused_pane = List.hd panes;
+          pane_viewports =
+            List.filter
+              (fun (pane, _) -> List.mem pane panes)
+              session.pane_viewports;
+          pane_buffers =
+            List.filter
+              (fun (pane, _) -> List.mem pane panes)
+              session.pane_buffers;
+          message = Some "workspace: closed current view";
+          inspector = None;
+        }
+      in
+      activate_buffer next (focused_buffer next)
 
 let only_pane session =
   let pane = session.focused_pane in
@@ -880,6 +1028,7 @@ let only_pane session =
     session with
     layout = Layout.single pane;
     pane_viewports = [ (pane, pane_viewport session pane) ];
+    pane_buffers = [ (pane, focused_buffer session) ];
     message = Some "workspace: kept current view";
     inspector = None;
   }
@@ -899,10 +1048,18 @@ let plugin_load_errors session =
       | Plugins.Active, None | Plugins.Active, Some _ | Plugins.Failed, None ->
           None)
 
-let dirty session =
+let current_dirty session =
   let context = context session in
   Editor_context.document_version context <> session.saved_version
   && not (String.equal (Editor_context.contents context) session.saved_contents)
+
+let buffer_dirty (buffer : buffer) =
+  let context = context_of_active buffer.active in
+  Editor_context.document_version context <> buffer.saved_version
+  && not (String.equal (Editor_context.contents context) buffer.saved_contents)
+
+let dirty session =
+  current_dirty session || List.exists buffer_dirty session.inactive_buffers
 
 let primary_offset session =
   let selections = Editor_context.selections (context session) in
@@ -1122,6 +1279,11 @@ let active_commands = function
   | Selection_runtime runtime -> Selection_runtime.commands runtime
   | Structural_runtime runtime -> Structural_runtime.commands runtime
 
+let active_semantic_behaviors = function
+  | Vim_runtime runtime -> Vim_runtime.semantic_behaviors runtime
+  | Selection_runtime runtime -> Selection_runtime.semantic_behaviors runtime
+  | Structural_runtime runtime -> Structural_runtime.semantic_behaviors runtime
+
 let shared_state = function
   | Vim_runtime runtime -> Vim_runtime.shared_state runtime
   | Selection_runtime runtime -> Selection_runtime.shared_state runtime
@@ -1138,6 +1300,152 @@ let active_from_shared model shared =
   | Structural ->
       Structural_runtime.create_from_shared shared
       |> Result.map (fun value -> Structural_runtime value)
+
+let create_active ~model ~commands ~semantic_behaviors ?syntax_service ~trace
+    ~profiler ~document () =
+  match model with
+  | Vim ->
+      Vim_runtime.create ~commands ~semantic_behaviors ?syntax_service ~trace
+        ~profiler ~document ()
+      |> Result.map (fun runtime -> Vim_runtime runtime)
+  | Selection ->
+      Selection_runtime.create ~commands ~semantic_behaviors ?syntax_service
+        ~trace ~profiler ~document ()
+      |> Result.map (fun runtime -> Selection_runtime runtime)
+  | Structural ->
+      Structural_runtime.create ~commands ~semantic_behaviors ?syntax_service
+        ~trace ~profiler ~document ()
+      |> Result.map (fun runtime -> Structural_runtime runtime)
+
+let create_buffer session ~id ?file_path ?language ~contents () =
+  let language = Option.value ~default:session.language_override language in
+  Result.bind (document ~contents) (fun document ->
+      Result.bind (syntax_service ?language file_path) (fun syntax_service ->
+          let model = model session in
+          let commands = active_commands session.active in
+          let semantic_behaviors = active_semantic_behaviors session.active in
+          let trace = trace_of_active session.active in
+          let profiler = profiler_of_active session.active in
+          create_active ~model ~commands ~semantic_behaviors ?syntax_service
+            ~trace ~profiler ~document ()
+          |> Result.map (fun active ->
+              let language_client =
+                Option.bind file_path (fun path ->
+                    Language.Registry.find_for_path session.language_registry
+                      ~language_id:language path
+                    |> Option.map (fun server ->
+                        Lsp.start ~config:server
+                          ~document_id:("terminal-buffer-" ^ string_of_int id)
+                          ~document_version:0 ~file_path:path ~contents ~trace
+                          ~profiler))
+              in
+              {
+                id;
+                active;
+                file_path;
+                language_override = language;
+                saved_version = 0;
+                saved_contents = contents;
+                language_client;
+                diagnostics = [];
+                presentation_cache = None;
+                search = None;
+              })))
+
+let show_new_buffer session (buffer : buffer) =
+  {
+    session with
+    active = buffer.active;
+    file_path = buffer.file_path;
+    language_override = buffer.language_override;
+    saved_version = buffer.saved_version;
+    saved_contents = buffer.saved_contents;
+    language_client = buffer.language_client;
+    diagnostics = buffer.diagnostics;
+    presentation_cache = buffer.presentation_cache;
+    search = buffer.search;
+    current_buffer_id = buffer.id;
+    inactive_buffers = current_buffer session :: session.inactive_buffers;
+    next_buffer_id = buffer.id + 1;
+    pane_buffers =
+      (session.focused_pane, buffer.id)
+      :: List.filter
+           (fun (pane, _) -> pane <> session.focused_pane)
+           session.pane_buffers;
+    interaction = Idle;
+    inspector = None;
+    quit_armed = false;
+  }
+
+let new_buffer session =
+  match create_buffer session ~id:session.next_buffer_id ~contents:"" () with
+  | Error error ->
+      {
+        session with
+        message = Some ("workspace: new buffer failed: " ^ Error.to_string error);
+        interaction = Idle;
+      }
+  | Ok buffer ->
+      let session = show_new_buffer session buffer in
+      { session with message = Some "workspace: created unnamed buffer" }
+
+let show_buffer_in_focused_pane session buffer_id =
+  let session = set_pane_buffer session session.focused_pane buffer_id in
+  let session = activate_buffer session buffer_id in
+  {
+    session with
+    message = Some ("workspace: switched to buffer " ^ string_of_int buffer_id);
+  }
+
+let cycle_buffer session direction =
+  let buffers = buffer_ids session |> List.sort_uniq Int.compare in
+  match buffers with
+  | [] -> session
+  | _ ->
+      let current = focused_buffer session in
+      let index =
+        List.find_index (fun id -> id = current) buffers
+        |> Option.value ~default:0
+      in
+      let length = List.length buffers in
+      let index = (index + direction + length) mod length in
+      show_buffer_in_focused_pane session (List.nth buffers index)
+
+let open_buffer session path =
+  if String.length path = 0 then
+    { session with message = Some "workspace: file path is empty" }
+  else
+    match
+      List.find_opt
+        (fun (buffer : buffer) -> buffer.file_path = Some path)
+        (current_buffer session :: session.inactive_buffers)
+    with
+    | Some buffer -> show_buffer_in_focused_pane session buffer.id
+    | None -> (
+        match File_io.read path with
+        | Error error ->
+            {
+              session with
+              interaction = Idle;
+              message = Some (File_io.to_string error);
+            }
+        | Ok contents -> (
+            match
+              create_buffer session ~id:session.next_buffer_id ~file_path:path
+                ~contents ()
+            with
+            | Error error ->
+                {
+                  session with
+                  interaction = Idle;
+                  message =
+                    Some
+                      ("workspace: opening buffer failed: "
+                     ^ Error.to_string error);
+                }
+            | Ok buffer ->
+                let session = show_new_buffer session buffer in
+                { session with message = Some ("workspace: opened " ^ path) }))
 
 let reload_config session =
   let trace = trace_of_active session.active in
@@ -1207,6 +1515,20 @@ let reload_config session =
               ~semantic_behaviors:
                 (semantic_behaviors_with_plugins generation plugin_host)
           in
+          let semantic_behaviors =
+            semantic_behaviors_with_plugins generation plugin_host
+          in
+          let inactive_buffers =
+            List.map
+              (fun (buffer : buffer) ->
+                {
+                  buffer with
+                  active =
+                    active_with_extensions buffer.active ~commands
+                      ~semantic_behaviors;
+                })
+              session.inactive_buffers
+          in
           Option.iter Scripting.dispose session.generation;
           lifecycle trace ~execution_id ~phase:"reload" ?generation
             ~outcome:"succeeded" ();
@@ -1235,6 +1557,7 @@ let reload_config session =
             plugins = plugin_host;
             next_generation_id = session.next_generation_id + 1;
             last_reload_error = None;
+            inactive_buffers;
             message = Some message;
             quit_armed = false;
           })
@@ -1499,38 +1822,40 @@ let accept_completion session input item =
         message = Some ("completed " ^ item.label);
       }
 
+let select_definition session input target message =
+  match
+    Model_intent.set_selections
+      ~selections:[ (target.start_offset, target.stop_offset) ] ~primary:0
+  with
+  | Error error -> { session with message = Some (Error.to_string error) }
+  | Ok intent ->
+      let next, _ =
+        execute_active_effects
+          ~augment_provenance:(fun provenance ->
+            Provenance.add provenance (Provenance.Effect "language.definition"))
+          session input
+          [ Model_effect.Execute_intent intent ]
+      in
+      { next with interaction = Idle; message = Some message }
+
 let apply_definition session input target =
   match session.file_path with
   | Some path
-    when String.equal (Language.Uri.file_of_path path) target.Language.uri -> (
-      match
-        Model_intent.set_selections
-          ~selections:[ (target.start_offset, target.stop_offset) ]
-          ~primary:0
-      with
-      | Error error -> { session with message = Some (Error.to_string error) }
-      | Ok intent ->
-          let next, _ =
-            execute_active_effects
-              ~augment_provenance:(fun provenance ->
-                Provenance.add provenance
-                  (Provenance.Effect "language.definition"))
-              session input
-              [ Model_effect.Execute_intent intent ]
-          in
+    when String.equal (Language.Uri.file_of_path path) target.Language.uri ->
+      select_definition session input target "definition: same document"
+  | None | Some _ -> (
+      match Language.Uri.path_of_file target.Language.uri with
+      | Error reason ->
           {
-            next with
-            interaction = Idle;
-            message = Some "definition: same document";
-          })
-  | _ ->
-      {
-        session with
-        message =
-          Some
-            ("definition is outside the active buffer: " ^ target.Language.uri
-           ^ " (cross-file navigation is not supported yet)");
-      }
+            session with
+            message = Some ("definition target is not a local file: " ^ reason);
+          }
+      | Ok path ->
+          let next = open_buffer session path in
+          if next.file_path <> Some path then next
+          else
+            select_definition next input target
+              ("definition: opened " ^ Filename.basename path))
 
 let all_current_document_edits session edits =
   match session.file_path with
@@ -1963,7 +2288,7 @@ let language_host_command = function
   | Save | Save_as | Quit | Force_quit | Reload_config | Start_search
   | Search_next | Search_previous | Open_palette | Switch_model | Help
   | Split_vertical | Split_horizontal | Focus_next_pane | Close_pane | Only_pane
-    ->
+  | New_buffer | Open_buffer | Next_buffer | Previous_buffer ->
       false
 
 let palette_items session =
@@ -1994,12 +2319,13 @@ let palette_items session =
           descriptor)
   in
   List.sort
-    (fun left right -> String.compare left.id right.id)
+    (fun (left : palette_item) (right : palette_item) ->
+      String.compare left.id right.id)
     (host @ model_and_extensions)
 
 let matching_palette_items session query =
   palette_items session
-  |> List.filter (fun item ->
+  |> List.filter (fun (item : palette_item) ->
       contains_casefold ~needle:query item.id
       || contains_casefold ~needle:query item.title
       || Option.value ~default:false
@@ -2211,6 +2537,16 @@ let invoke_host_palette_command session input = function
   | Focus_next_pane -> { (focus_next_pane session) with interaction = Idle }
   | Close_pane -> { (close_pane session) with interaction = Idle }
   | Only_pane -> { (only_pane session) with interaction = Idle }
+  | New_buffer -> { (new_buffer session) with interaction = Idle }
+  | Open_buffer ->
+      {
+        session with
+        interaction = Open_buffer_prompt "";
+        message = Some "workspace: enter a file path";
+        inspector = None;
+      }
+  | Next_buffer -> { (cycle_buffer session 1) with interaction = Idle }
+  | Previous_buffer -> { (cycle_buffer session (-1)) with interaction = Idle }
   | Switch_model ->
       let current =
         model_choices
@@ -2423,6 +2759,22 @@ let input_for_interaction session input =
         | None -> session
         | Some text ->
             { session with interaction = Save_as_prompt (path ^ text) })
+  | Open_buffer_prompt path -> (
+      if event_is_named input Input_event.Escape then
+        {
+          session with
+          interaction = Idle;
+          message = Some "workspace: open cancelled";
+        }
+      else if event_is_named input Input_event.Enter then
+        open_buffer session path
+      else if event_is_named input Input_event.Backspace then
+        { session with interaction = Open_buffer_prompt (drop_last_utf8 path) }
+      else
+        match event_text input with
+        | None -> session
+        | Some text ->
+            { session with interaction = Open_buffer_prompt (path ^ text) })
   | Model_picker selected -> (
       if event_is_named input Input_event.Escape then
         {
@@ -2615,6 +2967,17 @@ let handle_host session = function
   | Focus_next_pane -> Continue (focus_next_pane session)
   | Close_pane -> Continue (close_pane session)
   | Only_pane -> Continue (only_pane session)
+  | New_buffer -> Continue (new_buffer session)
+  | Open_buffer ->
+      Continue
+        {
+          session with
+          interaction = Open_buffer_prompt "";
+          message = Some "workspace: enter a file path";
+          inspector = None;
+        }
+  | Next_buffer -> Continue (cycle_buffer session 1)
+  | Previous_buffer -> Continue (cycle_buffer session (-1))
   | Switch_model ->
       let current =
         model_choices
@@ -2805,7 +3168,9 @@ let model_choice_name = function
 
 let interaction_overlay session =
   match session.interaction with
-  | Idle | Search_prompt _ | Save_as_prompt _ | Rename_prompt _ -> None
+  | Idle | Search_prompt _ | Save_as_prompt _ | Open_buffer_prompt _
+  | Rename_prompt _ ->
+      None
   | Help_view -> Some (help_lines session)
   | Model_picker selected ->
       Some
@@ -2823,7 +3188,7 @@ let interaction_overlay session =
       let items = matching_palette_items session query in
       let visible =
         items
-        |> List.mapi (fun index item ->
+        |> List.mapi (fun index (item : palette_item) ->
             Printf.sprintf "%s%s — %s [%s]"
               (if index = selected then "> " else "  ")
               item.id item.title
@@ -2879,6 +3244,7 @@ let interaction_message session =
         (Printf.sprintf "/%s  %d match%s" query count
            (if count = 1 then "" else "es"))
   | Save_as_prompt path -> Some ("destination: " ^ path)
+  | Open_buffer_prompt path -> Some ("open: " ^ path)
   | Rename_prompt name -> Some ("rename: " ^ name)
   | Completion_view { query; _ } -> Some ("completion: " ^ query)
   | Idle | Palette _ | Model_picker _ | Help_view | Hover_view _ ->
@@ -2891,19 +3257,46 @@ let blank_frame ~width ~height =
            [ Zenbu_view.Frame.cell ~width (String.make width ' ') ]))
     ~cursor:None
 
-let render_pane session presentation pane rectangle =
+let session_for_buffer session (buffer : buffer) =
+  if buffer.id = session.current_buffer_id then session
+  else
+    {
+      session with
+      active = buffer.active;
+      file_path = buffer.file_path;
+      language_override = buffer.language_override;
+      saved_version = buffer.saved_version;
+      saved_contents = buffer.saved_contents;
+      language_client = buffer.language_client;
+      diagnostics = buffer.diagnostics;
+      presentation_cache = buffer.presentation_cache;
+      search = buffer.search;
+      inactive_buffers = [];
+      interaction = Idle;
+      inspector = None;
+      message = None;
+      quit_armed = false;
+    }
+
+let render_pane session pane rectangle =
   if rectangle.Layout.width = 0 || rectangle.height = 0 then
     (session, blank_frame ~width:rectangle.width ~height:rectangle.height)
   else
     let focused = pane = session.focused_pane in
+    let display =
+      match buffer_for_id session (buffer_id_for_pane session pane) with
+      | Some buffer -> session_for_buffer session buffer
+      | None -> session
+    in
+    let presentation = presentation_cache display in
     let dimensions =
       Zenbu_view.Renderer.{ columns = rectangle.width; rows = rectangle.height }
     in
     let rendered =
-      Zenbu_view.Renderer.render_with_inspector ~context:(context session)
+      Zenbu_view.Renderer.render_with_inspector ~context:(context display)
         ~status:
-          (if focused then status session else active_status session.active)
-        ~filename:(filename session) ~dirty:(dirty session)
+          (if focused then status session else active_status display.active)
+        ~filename:(filename display) ~dirty:(current_dirty display)
         ~message:(if focused then interaction_message session else None)
         ~viewport:(pane_viewport session pane)
         ~dimensions
@@ -2911,9 +3304,9 @@ let render_pane session presentation pane rectangle =
         ?overlay:(if focused then interaction_overlay session else None)
         ~source_lines:presentation.source_lines
         ~syntax_spans:presentation.syntax_spans
-        ~search_ranges:(search_ranges session)
-        ~diagnostic_ranges:(diagnostic_ranges session)
-        ?diagnostic_summary:(diagnostic_summary session)
+        ~search_ranges:(search_ranges display)
+        ~diagnostic_ranges:(diagnostic_ranges display)
+        ?diagnostic_summary:(diagnostic_summary display)
         ()
     in
     (set_pane_viewport session pane rendered.viewport, rendered.frame)
@@ -2925,9 +3318,7 @@ let render session =
       ~height:session.dimensions.rows
     |> List.fold_left
          (fun (session, frames) (pane, rectangle) ->
-           let session, frame =
-             render_pane session presentation pane rectangle
-           in
+           let session, frame = render_pane session pane rectangle in
            (session, (pane, frame) :: frames))
          (session, [])
   in
@@ -3080,8 +3471,9 @@ let inspect session inspection =
               | Some index -> "current-match: " ^ string_of_int (index + 1));
               (match session.interaction with
               | Search_prompt _ -> "prompt: open"
-              | Idle | Palette _ | Save_as_prompt _ | Model_picker _ | Help_view
-              | Hover_view _ | Completion_view _ | Rename_prompt _ ->
+              | Idle | Palette _ | Save_as_prompt _ | Open_buffer_prompt _
+              | Model_picker _ | Help_view | Hover_view _ | Completion_view _
+              | Rename_prompt _ ->
                   "prompt: closed");
             ])
     | Api ->
@@ -3174,4 +3566,7 @@ let inspector_open session = Option.is_some session.inspector
 let language_wakeup_fd session =
   Option.map Lsp.wakeup_fd session.language_client
 
-let close session = Option.iter Lsp.close session.language_client
+let close session =
+  current_buffer session :: session.inactive_buffers
+  |> List.iter (fun (buffer : buffer) ->
+      Option.iter Lsp.close buffer.language_client)

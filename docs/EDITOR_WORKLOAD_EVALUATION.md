@@ -16,7 +16,7 @@ An editor can vary independently along these layers:
 | commands and semantic operations | built-in commands, trusted-local Lua, or capability-limited Wasm Components can contribute commands, selectors, transformations, bindings, and events | contributions cannot mutate documents outside a checked transaction |
 | language-aware editing | Tree-sitter-backed syntax context and the optional language-service host | only built-in OCaml/JSON syntax registration and current-document LSP results |
 | configuration | reloadable Lua configuration and local Wasm plugin discovery | Lua is trusted local code; Components use the declared capability boundary |
-| workspace/view host | `zenbu.view.Layout` and host commands for vertical/horizontal splits, focus, close, and only | split leaves currently render independent viewports of the *same active buffer* |
+| workspace/view host | `zenbu.view.Layout` plus host commands to create/open/cycle buffers and split, focus, close, or retain views | local buffers have independent model/history, save, syntax, diagnostics, search, and viewport state; no project/workspace discovery or cross-file edits |
 | terminal presentation | renderer frame, style classes, viewport, terminal backend | one fixed terminal renderer; no public theme, mouse, GUI, or widget/layout API |
 
 This is already enough to build and compare distinct **editing grammars**:
@@ -53,11 +53,11 @@ The feature sources are the projects' own documentation: [Vim help](https://vimh
 
 | workload | supported now | partial foundation | absent before a parity claim |
 | --- | --- | --- | --- |
-| Vim-style terminal editor | normal/insert/replace/visual grammar, operators, counts, motions, find, basic search requests, registers, undo/redo, and provenance | command palette, save/search host controls, same-buffer split views | Ex command language, macros, broad motion/text-object coverage, marks/jumps, tabs/buffers/windows, mappings as a complete compatibility layer, terminal/GUI appearance parity |
-| Helix-style selection editor | selection-first model, multi-edit transactions, occurrence selection, syntax-structural selections, optional LSP completion/hover/current-document definition/rename | multiple viewport views and focus; model switching lets selection-first behavior share the same document history | buffers/pickers, language/config discovery, registers/macros, regex selection algebra, shell pipes, multi-file LSP/workspace edits, full window model, theme parity |
-| Kakoune-style multiple-selection editor | explicit ordered selections, selection-first edits, syntax context, bindings and hooks | split view rendering and focused viewport | Kakoune's inclusive anchor/cursor model, selection split/rotate/merge/filter algebra, client/server sessions, shell filters, full command language, face/highlighter ecosystem |
-| Micro-style terminal editor | ordinary text editing, syntax spans, trusted Lua configuration, local plugins, save/search/palette | same-buffer splits; Components and Lua can supply editing commands | mouse, interactive shell split, buffer tabs, plugin-manager/install flow, configurable terminal theme, complete keybinding/configuration surface |
-| Emacs terminal product | key-addressable commands, buffers represented as kernel documents internally, configuration/plugin concepts, asynchronous language host | no equivalent beyond the generic command and host layers | buffer/window/frame system, minibuffer and completion ecosystem, major/minor mode composition, Elisp/package/process APIs, display engine, terminal appearance parity |
+| Vim-style terminal editor | normal/insert/replace/visual grammar, operators, counts, motions, find, basic search requests, registers, undo/redo, local buffers/views, and provenance | command palette and generic host controls | Ex command language, macros, broad motion/text-object coverage, marks/jumps, compatibility mappings, and terminal/GUI appearance parity |
+| Helix-style selection editor | selection-first model, multi-edit transactions, occurrence selection, syntax-structural selections, local buffers/views, and optional LSP completion/hover/current-document definition/rename | buffers can be assigned to split views | picker/config discovery, registers/macros, regex selection algebra, shell pipes, multi-file LSP/workspace edits, full window model, and theme parity |
+| Kakoune-style multiple-selection editor | explicit ordered selections, selection-first edits, syntax context, bindings/hooks, and local buffers/views | split views render independently and focus routes input to the assigned buffer | Kakoune's inclusive anchor/cursor model, selection split/rotate/merge/filter algebra, client/server sessions, shell filters, full command language, and face/highlighter ecosystem |
+| Micro-style terminal editor | ordinary text editing, syntax spans, local buffers/views, trusted Lua configuration, local plugins, save/search/palette | Components and Lua can supply editing commands | mouse, interactive shell split, buffer tabs, plugin-manager/install flow, configurable terminal theme, and complete keybinding/configuration surface |
+| Emacs terminal product | key-addressable commands, local buffers in split views, configuration/plugin concepts, and asynchronous language host | no equivalent beyond the generic command and host layers | buffer/window/frame system, minibuffer and completion ecosystem, major/minor mode composition, Elisp/package/process APIs, display engine, and terminal appearance parity |
 
 “Supported now” means this repository has a testable behavior, not that its
 keystrokes or visual rendering exactly match the named editor. “Partial
@@ -65,21 +65,24 @@ foundation” deliberately does not count toward parity.
 
 ## Current result and next evaluations
 
-The first host gap exposed by Helix, Kakoune, Micro, and Emacs is the ability
-to show more than one view. `zenbu.view.Layout` now composes a binary vertical
-or horizontal split tree without gaining access to document mutation. Each
-leaf has an independent `Viewport`; input focus selects one leaf. The
-terminal regression suite covers layout bounds, divider composition, cursor
-translation, focus cycling, closing, and retaining only the focused view.
+The first host gaps exposed by Helix, Kakoune, Micro, and Emacs are the ability
+to show more than one view and to assign those views to independent documents.
+`zenbu.view.Layout` composes a binary vertical or horizontal split tree without
+gaining document-mutation authority. The Session workspace now gives each
+buffer a stable id and retains its model runtime/history, save state, syntax
+context, LSP client handle, diagnostics, search state, and viewports. Input
+focus activates the selected pane's buffer. The terminal regression suite
+covers layout bounds, divider composition, cursor translation, focus cycling,
+buffer creation, independent edits, pane-to-buffer rendering, file opening,
+and duplicate-open rejection.
 
-The next failed capability shared by all four non-Vim workloads is not another
-keybinding: it is a **workspace document table**. A generic workspace must
-give views stable buffer identifiers, route input and render state to the
-focused buffer, coordinate save/dirty state and language clients per buffer,
-and validate cross-file transactions atomically. Only then are file switching,
-definition targets, buffer pickers, and real pane-to-buffer assignment
-meaningful. Shell panes, mouse input, configurable presentation, and
-editor-specific command languages are separate later evaluations.
+The next shared failure is **cross-file coordination**, not another keybinding.
+The language host still processes requests against the active buffer and
+rejects workspace edits spanning multiple files. A complete workspace step
+must drain every buffer's language events, route responses by buffer id, open
+same-workspace definition targets, and validate multi-document edits
+atomically. Project search, shell panes, mouse input, configurable
+presentation, and editor-specific command languages are separate evaluations.
 
 ## How to run the evidence
 
@@ -93,6 +96,8 @@ dune exec bin/zenbu_headless.exe -- demo
 Use `Ctrl-P` in the terminal host and select `workspace.split.vertical`,
 `workspace.split.horizontal`, `workspace.pane.next`,
 `workspace.pane.close`, or `workspace.pane.only` to exercise the current
-same-buffer split-view foundation. These commands are also available through
-the typed `Session.handle_host` interface for headless tests and a future host
-binding layer.
+workspace. Use `workspace.buffer.new`, `workspace.buffer.open`,
+`workspace.buffer.next`, and `workspace.buffer.previous` to exercise the
+buffer table. These commands are also available through the typed
+`Session.handle_host` interface for headless tests and a future host binding
+layer.

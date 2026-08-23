@@ -371,7 +371,103 @@ let test_session_workspace_views () =
     "close-pane did not remove the focused view";
   expect
     (App.Session.focused_pane session = 0)
-    "close-pane did not retain the remaining view"
+    "close-pane did not retain the remaining view";
+  let session =
+    match App.Session.handle_host session App.Session.New_buffer with
+    | App.Session.Continue session -> session
+    | App.Session.Exit _ -> failf "new-buffer unexpectedly exited"
+  in
+  expect
+    (App.Session.buffer_count session = 2
+    && App.Session.focused_buffer session = 1)
+    "new-buffer did not create and focus an independent buffer";
+  let session =
+    App.Session.handle_input session (key "i") |> fun session ->
+    App.Session.handle_input session (text_input "delta") |> fun session ->
+    App.Session.handle_input session
+      (Input_event.key_press (Input_event.named_key Input_event.Escape))
+  in
+  expect_string ~expected:"delta" ~actual:(App.Session.contents session);
+  let session =
+    match App.Session.handle_host session App.Session.Next_buffer with
+    | App.Session.Continue session -> session
+    | App.Session.Exit _ -> failf "next-buffer unexpectedly exited"
+  in
+  expect_string ~expected:"alpha\nbeta" ~actual:(App.Session.contents session);
+  let session =
+    match App.Session.handle_host session App.Session.Split_vertical with
+    | App.Session.Continue session -> session
+    | App.Session.Exit _ -> failf "split for buffer routing unexpectedly exited"
+  in
+  let session =
+    match App.Session.handle_host session App.Session.Next_buffer with
+    | App.Session.Continue session -> session
+    | App.Session.Exit _ -> failf "next-buffer in split unexpectedly exited"
+  in
+  expect_string ~expected:"delta" ~actual:(App.Session.contents session);
+  let session =
+    match App.Session.handle_host session App.Session.Focus_next_pane with
+    | App.Session.Continue session -> session
+    | App.Session.Exit _ -> failf "focus buffer view unexpectedly exited"
+  in
+  expect_string ~expected:"alpha\nbeta" ~actual:(App.Session.contents session);
+  let _, frame = App.Session.render session in
+  let screen =
+    Frame.rows frame |> List.map Frame.row_text |> String.concat "\n"
+  in
+  expect
+    (contains ~substring:"alpha" screen && contains ~substring:"delta" screen)
+    "separate buffers were not rendered in their assigned split views"
+
+let test_session_open_buffer_prompt () =
+  let path = temporary_file () in
+  Fun.protect
+    ~finally:(fun () -> remove path)
+    (fun () ->
+      (match App.File_io.save_atomic ~path ~contents:"opened buffer" with
+      | Ok () -> ()
+      | Error error -> failf "%s" (App.File_io.to_string error));
+      let dimensions = Renderer.{ columns = 24; rows = 6 } in
+      let session =
+        App.Session.create ~model:App.Session.Vim ~contents:"original"
+          ~dimensions ()
+        |> must
+      in
+      let session =
+        match App.Session.handle_host session App.Session.Open_buffer with
+        | App.Session.Continue session -> session
+        | App.Session.Exit _ -> failf "open-buffer unexpectedly exited"
+      in
+      expect
+        (Model_status.input_mode (App.Session.status session)
+        = Model_status.Text_entry)
+        "open-buffer did not enter a text prompt";
+      let session =
+        App.Session.handle_input session (text_input path) |> fun session ->
+        App.Session.handle_input session
+          (Input_event.key_press (Input_event.named_key Input_event.Enter))
+      in
+      expect_string ~expected:"opened buffer"
+        ~actual:(App.Session.contents session);
+      expect
+        (App.Session.buffer_count session = 2)
+        "open-buffer did not retain the original buffer";
+      expect
+        (App.Session.file_path session = Some path)
+        "open-buffer did not retain the file path";
+      let session =
+        match App.Session.handle_host session App.Session.Open_buffer with
+        | App.Session.Continue session -> session
+        | App.Session.Exit _ -> failf "duplicate open unexpectedly exited"
+      in
+      let session =
+        App.Session.handle_input session (text_input path) |> fun session ->
+        App.Session.handle_input session
+          (Input_event.key_press (Input_event.named_key Input_event.Enter))
+      in
+      expect
+        (App.Session.buffer_count session = 2)
+        "opening an existing path duplicated its buffer")
 
 let run name test =
   try
@@ -395,5 +491,6 @@ let () =
     ("pure pane layout composition", test_layout_composition);
     ("session file dirty and model host", test_session_file_dirty_and_models);
     ("session workspace views", test_session_workspace_views);
+    ("session open-buffer prompt", test_session_open_buffer_prompt);
   ]
   |> List.iter (fun (name, test) -> run name test)

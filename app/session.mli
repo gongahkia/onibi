@@ -26,6 +26,10 @@ type host_command =
   | Focus_next_pane
   | Close_pane
   | Only_pane
+  | New_buffer
+  | Open_buffer
+  | Next_buffer
+  | Previous_buffer
 
 type inspection =
   | Why
@@ -66,6 +70,8 @@ val dirty : t -> bool
 val viewport : t -> Zenbu_view.Viewport.t
 val pane_count : t -> int
 val focused_pane : t -> int
+val buffer_count : t -> int
+val focused_buffer : t -> int
 val handle_input : t -> Zenbu_model_api.Input_event.t -> t
 val handle_host : t -> host_command -> outcome
 val host_command_descriptors : unit -> Zenbu_model_api.Command_descriptor.t list
