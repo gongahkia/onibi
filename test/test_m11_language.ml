@@ -311,6 +311,10 @@ let enter =
   Zenbu_model_api.Input_event.key_press
     (Zenbu_model_api.Input_event.named_key Zenbu_model_api.Input_event.Enter)
 
+let escape =
+  Zenbu_model_api.Input_event.key_press
+    (Zenbu_model_api.Input_event.named_key Zenbu_model_api.Input_event.Escape)
+
 let frame_contains frame text =
   Zenbu_view.Frame.rows frame
   |> List.exists (fun row ->
@@ -484,6 +488,64 @@ let cross_file_definition_session_test () =
             (primary.anchor_offset = 0 && primary.head_offset = 1)
             "cross-file definition did not select the target range"))
 
+let background_buffer_language_poll_test () =
+  let target = Filename.temp_file "zenbu-m11-background" ".ml" in
+  Fun.protect
+    ~finally:(fun () -> try Sys.remove target with Sys_error _ -> ())
+    (fun () ->
+      (match
+         Zenbu_app.File_io.save_atomic ~path:target ~contents:"let target = 1\n"
+       with
+      | Ok () -> ()
+      | Error error -> fail (Zenbu_app.File_io.to_string error));
+      let session = session [] "let source = 1\n" in
+      let current = ref session in
+      Fun.protect
+        ~finally:(fun () -> Zenbu_app.Session.close !current)
+        (fun () ->
+          let session =
+            wait_session session (fun session ->
+                Zenbu_app.Session.inspect session Zenbu_app.Session.Language
+                |> List.exists (String.equal "state: ready"))
+          in
+          let session = host session Zenbu_app.Session.Split_vertical in
+          let session = host session Zenbu_app.Session.Open_buffer in
+          let session =
+            Zenbu_app.Session.handle_input session
+              ( Zenbu_model_api.Input_event.text_input target |> function
+                | Ok input -> input
+                | Error error -> fail (Zenbu_kernel.Error.to_string error) )
+            |> fun session -> Zenbu_app.Session.handle_input session enter
+          in
+          expect
+            (List.length (Zenbu_app.Session.language_wakeup_fds session) = 2)
+            "workspace did not expose both buffer language wakeups";
+          let session = host session Zenbu_app.Session.Focus_next_pane in
+          let session =
+            Zenbu_app.Session.handle_input session
+              ( Zenbu_model_api.Input_event.logical_text "i" |> function
+                | Ok input -> Zenbu_model_api.Input_event.key_press input
+                | Error error -> fail (Zenbu_kernel.Error.to_string error) )
+            |> fun session ->
+            Zenbu_app.Session.handle_input session
+              ( Zenbu_model_api.Input_event.text_input "!" |> function
+                | Ok input -> input
+                | Error error -> fail (Zenbu_kernel.Error.to_string error) )
+            |> fun session -> Zenbu_app.Session.handle_input session escape
+          in
+          let session = host session Zenbu_app.Session.Focus_next_pane in
+          let session =
+            wait_session session (fun session ->
+                Zenbu_app.Session.inspect session Zenbu_app.Session.Language
+                |> List.exists (String.equal "state: ready"))
+          in
+          let session = host session Zenbu_app.Session.Focus_next_pane in
+          current := session;
+          expect
+            (Zenbu_app.Session.inspect session Zenbu_app.Session.Language
+            |> List.exists (String.equal "diagnostics: 1"))
+            "background buffer diagnostics were not drained into its buffer"))
+
 let apply_edit_session_test () =
   let session = session [ "--apply-edit" ] "abc\n" in
   Fun.protect
@@ -557,6 +619,7 @@ let () =
   trace_attribution_test ();
   session_integration_test ();
   cross_file_definition_session_test ();
+  background_buffer_language_poll_test ();
   apply_edit_session_test ();
   save_as_activation_test ();
   print_endline "M11 language tests passed"

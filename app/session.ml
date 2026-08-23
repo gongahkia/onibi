@@ -875,30 +875,32 @@ let set_pane_buffer session pane buffer =
   in
   { session with pane_buffers }
 
-let load_buffer session (buffer : buffer) =
-  {
-    session with
-    active = buffer.active;
-    file_path = buffer.file_path;
-    language_override = buffer.language_override;
-    saved_version = buffer.saved_version;
-    saved_contents = buffer.saved_contents;
-    language_client = buffer.language_client;
-    diagnostics = buffer.diagnostics;
-    presentation_cache = buffer.presentation_cache;
-    search = buffer.search;
-    current_buffer_id = buffer.id;
-    inactive_buffers =
-      current_buffer session
-      :: List.filter
-           (fun (candidate : buffer) -> candidate.id <> buffer.id)
-           session.inactive_buffers;
-    interaction = Idle;
-    inspector = None;
-    quit_armed = false;
-  }
+let load_buffer ?(reset_interaction = true) session (buffer : buffer) =
+  let next =
+    {
+      session with
+      active = buffer.active;
+      file_path = buffer.file_path;
+      language_override = buffer.language_override;
+      saved_version = buffer.saved_version;
+      saved_contents = buffer.saved_contents;
+      language_client = buffer.language_client;
+      diagnostics = buffer.diagnostics;
+      presentation_cache = buffer.presentation_cache;
+      search = buffer.search;
+      current_buffer_id = buffer.id;
+      inactive_buffers =
+        current_buffer session
+        :: List.filter
+             (fun (candidate : buffer) -> candidate.id <> buffer.id)
+             session.inactive_buffers;
+    }
+  in
+  if reset_interaction then
+    { next with interaction = Idle; inspector = None; quit_armed = false }
+  else next
 
-let activate_buffer session buffer_id =
+let activate_buffer ?reset_interaction session buffer_id =
   if buffer_id = session.current_buffer_id then session
   else
     match buffer_for_id session buffer_id with
@@ -909,7 +911,7 @@ let activate_buffer session buffer_id =
           interaction = Idle;
           inspector = None;
         }
-    | Some buffer -> load_buffer session buffer
+    | Some buffer -> load_buffer ?reset_interaction session buffer
 
 let pane_viewport session pane =
   match List.assoc_opt pane session.pane_viewports with
@@ -1859,38 +1861,166 @@ let apply_definition session input (target : Language.definition_target) =
             select_definition next input target
               ("definition: opened " ^ Filename.basename path))
 
-let all_current_document_edits session edits =
-  match session.file_path with
-  | None -> Error "rename requires a saved file"
-  | Some path ->
-      let current_uri = Language.Uri.file_of_path path in
-      if
-        List.for_all
-          (fun (edit : Lsp.workspace_edit) -> String.equal edit.uri current_uri)
-          edits
-      then
-        Ok
-          (List.concat_map
-             (fun (edit : Lsp.workspace_edit) -> edit.edits)
-             edits)
-      else
-        let paths =
-          edits
-          |> List.filter_map (fun (edit : Lsp.workspace_edit) ->
-              if String.equal edit.uri current_uri then None else Some edit.uri)
-          |> List.sort_uniq String.compare
-          |> fun values ->
-          if List.length values > 4 then
-            List.filteri (fun index _ -> index < 4) values @ [ "…" ]
-          else values
-        in
-        Error
-          ("workspace edit spans unsupported files: " ^ String.concat ", " paths)
+let execute_effects_in_active ?augment_provenance active input effects =
+  match active with
+  | Vim_runtime runtime ->
+      Vim_runtime.execute_effects runtime ?augment_provenance ~input effects
+      |> Result.map (fun (runtime, step) ->
+             ( Vim_runtime runtime,
+               Vim_runtime.change_ids step <> [],
+               last_message (Vim_runtime.messages step) ))
+  | Selection_runtime runtime ->
+      Selection_runtime.execute_effects runtime ?augment_provenance ~input
+        effects
+      |> Result.map (fun (runtime, step) ->
+             ( Selection_runtime runtime,
+               Selection_runtime.change_ids step <> [],
+               last_message (Selection_runtime.messages step) ))
+  | Structural_runtime runtime ->
+      Structural_runtime.execute_effects runtime ?augment_provenance ~input
+        effects
+      |> Result.map (fun (runtime, step) ->
+             ( Structural_runtime runtime,
+               Structural_runtime.change_ids step <> [],
+               last_message (Structural_runtime.messages step) ))
 
-let poll_language session =
+let synchronize_buffer_after_change (buffer : buffer) ~fallback_contents =
+  match buffer.language_client with
+  | None -> { buffer with diagnostics = []; search = None }
+  | Some client ->
+      Lsp.set_execution_id client
+        ~execution_id:
+          (Option.value ~default:0 (last_execution_of_active buffer.active));
+      let history = history_of_active buffer.active in
+      let source_contents, edits =
+        match History.current_change history with
+        | Some change ->
+            let transaction = History.transaction change in
+            ( Document.snapshot (History.before change)
+              |> Document_snapshot.contents,
+              transaction_edits transaction )
+        | None ->
+            ( fallback_contents,
+              [
+                {
+                  Language.start_offset = 0;
+                  stop_offset = String.length fallback_contents;
+                  replacement = Editor_context.contents (context_of_active buffer.active);
+                };
+              ] )
+      in
+      Lsp.notify_change client ~source_contents
+        ~contents:(Editor_context.contents (context_of_active buffer.active))
+        ~document_version:
+          (Editor_context.document_version (context_of_active buffer.active))
+        ~edits;
+      { buffer with diagnostics = []; search = None }
+
+let update_current_from_buffer session (buffer : buffer) =
+  {
+    session with
+    active = buffer.active;
+    file_path = buffer.file_path;
+    language_override = buffer.language_override;
+    saved_version = buffer.saved_version;
+    saved_contents = buffer.saved_contents;
+    language_client = buffer.language_client;
+    diagnostics = buffer.diagnostics;
+    presentation_cache = buffer.presentation_cache;
+    search = buffer.search;
+  }
+
+let workspace_edit_targets session edits =
+  let buffers = current_buffer session :: session.inactive_buffers in
+  let find uri =
+    List.find_opt
+      (fun (buffer : buffer) ->
+        Option.map
+          (fun path -> String.equal uri (Language.Uri.file_of_path path))
+          buffer.file_path
+        |> Option.value ~default:false)
+      buffers
+  in
+  let add targets (edit : Lsp.workspace_edit) =
+    match find edit.uri with
+    | None -> Error ("workspace edit targets unopened buffer: " ^ edit.uri)
+    | Some buffer ->
+        let rec append = function
+          | [] -> [ (buffer, edit.edits) ]
+          | (existing, edits) :: rest when existing.id = buffer.id ->
+              (existing, edits @ edit.edits) :: rest
+          | target :: rest -> target :: append rest
+        in
+        Ok (append targets)
+  in
+  List.fold_left
+    (fun targets edit -> Result.bind targets (fun targets -> add targets edit))
+    (Ok []) edits
+
+let apply_workspace_edits session input ~effect_id edits =
+  Result.bind (workspace_edit_targets session edits) (fun targets ->
+      let apply ((buffer : buffer), edits) =
+        let before = Editor_context.contents (context_of_active buffer.active) in
+        execute_effects_in_active
+          ~augment_provenance:(fun provenance ->
+            Provenance.add provenance (Provenance.Effect effect_id))
+          buffer.active input [ Language_commands.apply_edits edits ]
+        |> Result.map_error Error.to_string
+        |> Result.map (fun (active, changed, message) ->
+               (buffer, { buffer with active }, changed, message, before))
+      in
+      let rec stage values = function
+        | [] -> Ok (List.rev values)
+        | target :: rest ->
+            Result.bind (apply target) (fun value -> stage (value :: values) rest)
+      in
+      Result.bind (stage [] targets) (fun staged ->
+          let staged =
+            List.map
+              (fun (before, after, changed, message, contents_before) ->
+                let after =
+                  if changed then
+                    synchronize_buffer_after_change after
+                      ~fallback_contents:contents_before
+                  else after
+                in
+                (before, after, changed, message))
+              staged
+          in
+          let replacement buffer =
+            staged
+            |> List.find_map (fun (before, after, _, _) ->
+                if before.id = buffer.id then Some after else None)
+            |> Option.value ~default:buffer
+          in
+          let session = update_current_from_buffer session (replacement (current_buffer session)) in
+          let session =
+            {
+              session with
+              inactive_buffers = List.map replacement session.inactive_buffers;
+              interaction = Idle;
+              inspector = None;
+              quit_armed = false;
+            }
+          in
+          let changed = List.exists (fun (_, _, changed, _) -> changed) staged in
+          let message =
+            staged |> List.find_map (fun (_, _, _, message) -> message)
+          in
+          Ok
+            ( {
+                session with
+                message =
+                  (if changed then Some "workspace edit applied" else message);
+              },
+              changed )))
+
+let poll_active_language ?(background = false) session =
   let current_version = Editor_context.document_version (context session) in
   let handle session = function
-    | Lsp.Initialized -> { session with message = Some "language server ready" }
+    | Lsp.Initialized ->
+        if background then session
+        else { session with message = Some "language server ready" }
     | Lsp.Diagnostics { document_version = Some version; diagnostics }
       when version = current_version ->
         { session with diagnostics }
@@ -1903,12 +2033,14 @@ let poll_language session =
     | Lsp.Diagnostics _ -> session
     | Lsp.Hover_result { document_version; byte_offset; hover; _ }
       when document_version = current_version
-           && byte_offset = primary_offset session -> (
+           && byte_offset = primary_offset session
+           && not background -> (
         match hover with
         | None ->
             { session with message = Some "language: no hover information" }
         | Some hover ->
             { session with interaction = Hover_view hover; message = None })
+    | Lsp.Hover_result _ when background -> session
     | Lsp.Hover_result _ ->
         {
           session with
@@ -1916,7 +2048,8 @@ let poll_language session =
         }
     | Lsp.Definition_result { document_version; byte_offset; targets; _ }
       when document_version = current_version
-           && byte_offset = primary_offset session -> (
+           && byte_offset = primary_offset session
+           && not background -> (
         match targets with
         | [] -> { session with message = Some "language: no definition found" }
         | target :: _ ->
@@ -1926,7 +2059,8 @@ let poll_language session =
     | Lsp.Definition_result _ -> session
     | Lsp.Completion_result { document_version; byte_offset; items; _ }
       when document_version = current_version
-           && byte_offset = primary_offset session ->
+           && byte_offset = primary_offset session
+           && not background ->
         if items = [] then
           { session with message = Some "language: no completions" }
         else
@@ -1937,22 +2071,24 @@ let poll_language session =
           }
     | Lsp.Completion_result _ -> session
     | Lsp.Rename_result { document_version; edits; _ }
-      when document_version = current_version -> (
-        match all_current_document_edits session edits with
+      when document_version = current_version && not background -> (
+        let input =
+          Input_event.key_press (Input_event.named_key Input_event.Enter)
+        in
+        match apply_workspace_edits session input ~effect_id:"language.rename" edits with
         | Error reason ->
             { session with message = Some ("rename rejected: " ^ reason) }
-        | Ok edits ->
-            let input =
-              Input_event.key_press (Input_event.named_key Input_event.Enter)
-            in
-            let next =
-              apply_language_edits session input ~effect_id:"language.rename"
-                ~edits
-            in
+        | Ok (next, _) ->
             { next with interaction = Idle; message = Some "rename applied" })
     | Lsp.Rename_result _ -> session
     | Lsp.Apply_edit { request_id; edits } -> (
-        match all_current_document_edits session edits with
+        let input =
+          Input_event.key_press (Input_event.named_key Input_event.Enter)
+        in
+        match
+          apply_workspace_edits session input ~effect_id:"language.apply-edit"
+            edits
+        with
         | Error reason ->
             Option.iter
               (fun client ->
@@ -1963,22 +2099,17 @@ let poll_language session =
               session with
               message = Some ("workspace/applyEdit rejected: " ^ reason);
             }
-        | Ok edits ->
-            let input =
-              Input_event.key_press (Input_event.named_key Input_event.Enter)
-            in
-            let next =
-              apply_language_edits session input
-                ~effect_id:"language.apply-edit" ~edits
-            in
+        | Ok (next, _) ->
             Option.iter
               (fun client ->
                 Lsp.respond_apply_edit client ~request_id ~applied:true
                   ~reason:None)
               next.language_client;
             { next with message = Some "workspace/applyEdit applied" })
+    | Lsp.Server_message _ when background -> session
     | Lsp.Server_message message ->
         { session with message = Some ("language: " ^ message) }
+    | Lsp.Request_failed _ when background -> session
     | Lsp.Request_failed { kind; reason; _ } ->
         let kind =
           match kind with
@@ -1991,6 +2122,7 @@ let poll_language session =
           session with
           message = Some ("language " ^ kind ^ " failed: " ^ reason);
         }
+    | (Lsp.Server_failed _ | Lsp.Server_exited _) when background -> session
     | Lsp.Server_failed reason | Lsp.Server_exited reason ->
         {
           session with
@@ -2000,6 +2132,24 @@ let poll_language session =
   match session.language_client with
   | None -> session
   | Some client -> List.fold_left handle session (Lsp.drain client)
+
+let poll_language session =
+  let session = poll_active_language session in
+  let foreground = session.current_buffer_id in
+  let session =
+    buffer_ids session
+    |> List.filter (fun buffer_id -> buffer_id <> foreground)
+    |> List.fold_left
+         (fun session buffer_id ->
+           let session =
+             if buffer_id = session.current_buffer_id then session
+             else activate_buffer ~reset_interaction:false session buffer_id
+           in
+           poll_active_language ~background:true session)
+         session
+  in
+  if session.current_buffer_id = foreground then session
+  else activate_buffer ~reset_interaction:false session foreground
 
 let invoke_bound_command session input binding =
   let command = Scripting.binding_command binding in
@@ -3571,7 +3721,7 @@ let language_wakeup_fd session =
 let language_wakeup_fds session =
   current_buffer session :: session.inactive_buffers
   |> List.filter_map (fun (buffer : buffer) ->
-         Option.map Lsp.wakeup_fd buffer.language_client)
+      Option.map Lsp.wakeup_fd buffer.language_client)
   |> List.sort_uniq compare
 
 let close session =
