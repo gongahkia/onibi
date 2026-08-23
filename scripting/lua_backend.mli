@@ -16,6 +16,7 @@ type mode = {
   title : string;
   description : string;
   input_mode : input_mode;
+  initial : bool;
 }
 
 and input_mode = Key_commands | Text_entry

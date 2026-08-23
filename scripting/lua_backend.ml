@@ -20,6 +20,7 @@ type mode = {
   title : string;
   description : string;
   input_mode : input_mode;
+  initial : bool;
 }
 
 and input_mode = Key_commands | Text_entry
@@ -520,8 +521,12 @@ let mode_input_mode = function
         (error "registration" "<lua>" "mode input_mode must be keys or text")
 
 let mode_definition state table =
-  match (descriptor state table, optional_text state table "input_mode") with
-  | Ok descriptor, Ok input_mode ->
+  match
+    ( descriptor state table,
+      optional_text state table "input_mode",
+      optional_boolean state table "initial" )
+  with
+  | Ok descriptor, Ok input_mode, Ok initial ->
       Result.map
         (fun input_mode ->
           {
@@ -529,9 +534,10 @@ let mode_definition state table =
             title = descriptor.title;
             description = descriptor.description;
             input_mode;
+            initial;
           })
         (mode_input_mode input_mode)
-  | Error error, _ | _, Error error -> Error error
+  | Error error, _, _ | _, Error error, _ | _, _, Error error -> Error error
 
 let callback_error backend state error =
   backend.raised_error <- Some error;

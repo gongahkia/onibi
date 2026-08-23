@@ -737,6 +737,51 @@ zenbu.bind {
         (Model_status.id (Zenbu_app.Session.status session) = "normal")
         "a text-entry custom mode did not return to its base model")
 
+let test_initial_custom_mode () =
+  let path = Filename.temp_file "zenbu-m7-initial-mode" ".lua" in
+  let host session command =
+    match Zenbu_app.Session.handle_host session command with
+    | Zenbu_app.Session.Continue session -> session
+    | Zenbu_app.Session.Exit _ -> failf "workspace command unexpectedly exited"
+  in
+  Fun.protect
+    ~finally:(fun () -> Sys.remove path)
+    (fun () ->
+      write path
+        {|
+zenbu.mode {
+  id = "user.default",
+  title = "DEFAULT",
+  description = "The adapter's default editing map.",
+  initial = true,
+}
+zenbu.command {
+  id = "user.type", run = function(_) return {{ kind = "insert", text = "T" }} end,
+}
+zenbu.bind { input = "t", command = "user.type", scope = "mode:user.default" }
+|};
+      let session =
+        Zenbu_app.Session.create ~model:Zenbu_app.Session.Vim ~contents:"alpha"
+          ~config:(Zenbu_scripting.Scripting.Explicit path) ~dimensions ()
+        |> must
+      in
+      expect
+        (Model_status.id (Zenbu_app.Session.status session)
+        = "host-custom-mode:user.default")
+        "an initial custom mode did not own the first buffer's default status";
+      let session =
+        Zenbu_app.Session.handle_input session
+          (Input_event.logical_text "t" |> must |> Input_event.key_press)
+      in
+      expect
+        (Zenbu_app.Session.contents session = "Talpha")
+        "the initial custom mode did not receive ordinary input";
+      let session = host session Zenbu_app.Session.New_buffer in
+      expect
+        (Model_status.id (Zenbu_app.Session.status session)
+        = "host-custom-mode:user.default")
+        "a new buffer did not receive the declared initial custom mode")
+
 let test_declared_modes_and_modal_bindings () =
   let path = Filename.temp_file "zenbu-m7-modes" ".lua" in
   Fun.protect
@@ -875,6 +920,7 @@ let tests =
     ("mode transition validation", test_mode_transition_validation);
     ("text binding validation", test_text_binding_validation);
     ("custom text-entry binding", test_custom_text_entry_binding);
+    ("initial custom mode", test_initial_custom_mode);
     ("declared modes and modal bindings", test_declared_modes_and_modal_bindings);
   ]
 

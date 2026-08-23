@@ -848,7 +848,10 @@ let create ~model ?language ?file_path ?(contents = "") ?trace ?profiler
                     pane_buffers = [ (0, 0) ];
                     mouse_drag = None;
                     pending_binding = [];
-                    active_modes = [];
+                    active_modes =
+                      (match generation with
+                      | None -> []
+                      | Some generation -> Scripting.initial_modes generation);
                   })))
 
 let context_of_active = function
@@ -1486,7 +1489,10 @@ let create_buffer session ~id ?file_path ?language ~contents () =
                 diagnostics = [];
                 presentation_cache = None;
                 search = None;
-                active_modes = [];
+                active_modes =
+                  (match session.generation with
+                  | None -> []
+                  | Some generation -> Scripting.initial_modes generation);
               })))
 
 let show_new_buffer session (buffer : buffer) =

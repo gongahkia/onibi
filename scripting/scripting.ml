@@ -26,6 +26,7 @@ type mode = {
   title : string;
   description : string;
   input_mode : Model_status.input_mode;
+  initial : bool;
 }
 
 type t = {
@@ -577,6 +578,12 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
             | Ok _ when List.exists (fun mode -> mode.id = definition.id) !modes
               ->
                 fail (Error.Duplicate_descriptor definition.id)
+            | Ok _
+              when definition.initial
+                   && List.exists (fun mode -> mode.initial) !modes ->
+                fail
+                  (script_error "registration" source
+                     "only one custom mode may set initial = true")
             | Ok _ ->
                 modes :=
                   !modes
@@ -589,6 +596,7 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
                           (match definition.input_mode with
                           | Backend.Key_commands -> Model_status.Key_commands
                           | Backend.Text_entry -> Model_status.Text_entry);
+                        initial = definition.initial;
                       };
                     ]
           in
@@ -891,6 +899,10 @@ let descriptors value = value.descriptors
 let bindings value = value.bindings
 let hooks value = value.hooks
 let modes value = value.modes
+let initial_modes value =
+  value.modes
+  |> List.filter (fun mode -> mode.initial)
+  |> List.map (fun mode -> mode.id)
 
 let counts value =
   let selectors =

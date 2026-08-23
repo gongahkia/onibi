@@ -57,6 +57,7 @@ val descriptors : t -> Zenbu_kernel.Semantic_descriptor.t list
 val bindings : t -> binding list
 val hooks : t -> hook list
 val modes : t -> mode list
+val initial_modes : t -> string list
 val counts : t -> int * int * int * int * int
 val dispose : t -> unit
 val binding_input : binding -> Zenbu_model_api.Input_event.binding_pattern
