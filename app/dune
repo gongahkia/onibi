@@ -11,11 +11,12 @@
   session_layout
   system_clipboard
   script_model
- session)
+  session)
  (foreign_stubs
   (language c)
   (names background_job_stubs)
-  (flags (:standard -Wall -Wextra -Werror)))
+  (flags
+   (:standard -Wall -Wextra -Werror)))
  (libraries
   zenbu_kernel
   zenbu_model_api

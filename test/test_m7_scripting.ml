@@ -898,6 +898,8 @@ zenbu.model {
       expect
         (Zenbu_app.Session.contents finished = "alpha")
         "a completed background process mutated the document";
+      let finished = wait_for_background_job finished "succeeded" in
+      session := Some finished;
       let output_buffer =
         invoke_palette_text_argument finished "process.job.open-output" "1"
       in

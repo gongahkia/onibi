@@ -13,7 +13,7 @@ static char **string_vector(value vector) {
   char **values = calloc(count + 1, sizeof(*values));
   if (values == NULL) return NULL;
   for (mlsize_t index = 0; index < count; index++) {
-    values[index] = String_val(Field(vector, index));
+    values[index] = (char *)String_val(Field(vector, index));
   }
   return values;
 }

@@ -9384,6 +9384,13 @@ let wakeup_fds session =
 
 let poll_background session =
   let session = poll_language session |> poll_file_watcher in
+  let refresh_jobs_inspector session =
+    match session.inspector with
+    | Some ("Jobs" :: _) ->
+        { session with inspector = Some (background_job_lines session) }
+    | None | Some _ -> session
+  in
+  let session = refresh_jobs_inspector session in
   match session.jobs with
   | None -> session
   | Some jobs -> (
