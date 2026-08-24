@@ -2,6 +2,7 @@ type orientation = Horizontal | Vertical
 type dimension = Width | Height
 type t
 type rectangle = { x : int; y : int; width : int; height : int }
+type divider
 
 type error =
   | Unknown_pane of int
@@ -32,6 +33,17 @@ val resize :
 
 val balance : t -> t
 val bounds : t -> width:int -> height:int -> (int * rectangle) list
+
+val divider_at :
+  t -> column:int -> row:int -> width:int -> height:int -> divider option
+(** Return the exact split divider at a terminal cell. Pane rectangles and
+    undersized splits have no divider target. *)
+
+val drag_divider :
+  t -> divider -> column:int -> row:int -> width:int -> height:int -> t option
+(** Move the originally targeted divider to a terminal cell, clamping both
+    children to at least one cell. Returns [None] when the target no longer
+    exists or the available extent is too small. *)
 
 val compose :
   t ->

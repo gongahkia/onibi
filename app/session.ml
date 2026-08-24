@@ -161,7 +161,9 @@ type interaction =
     }
   | Rename_prompt of string
 
-type mouse_drag = { pane : int; anchor_offset : int }
+type mouse_drag =
+  | Selection_drag of { pane : int; anchor_offset : int }
+  | Divider_drag of Layout.divider
 
 type binding_resolution =
   | No_binding
@@ -6112,6 +6114,45 @@ let pane_at session ~column ~row =
         then Some (pane, rectangle)
         else None)
 
+let divider_target session ~column ~row =
+  let row = row - buffer_line_rows session in
+  let on_status_row =
+    match Zenbu_view.Presentation.status_line session.presentation with
+    | Zenbu_view.Presentation.Hidden_status -> false
+    | Zenbu_view.Presentation.Detailed | Zenbu_view.Presentation.Minimal ->
+        layout_bounds session
+        |> List.exists (fun (_, rectangle) ->
+            rectangle.Layout.height > 0
+            && row = rectangle.y + rectangle.height - 1)
+  in
+  if row < 0 || on_status_row then None
+  else
+    Layout.divider_at session.layout ~column ~row
+      ~width:session.dimensions.columns ~height:(workspace_height session)
+
+let drag_divider session divider ~column ~row =
+  let row = row - buffer_line_rows session in
+  if
+    column < 0
+    || column >= session.dimensions.columns
+    || row < 0
+    || row >= workspace_height session
+  then session
+  else
+    match
+      Layout.drag_divider session.layout divider ~column ~row
+        ~width:session.dimensions.columns ~height:(workspace_height session)
+    with
+    | None -> { session with mouse_drag = None }
+    | Some layout ->
+        {
+          session with
+          layout;
+          message = None;
+          inspector = None;
+          quit_armed = false;
+        }
+
 let pointer_target session ~column ~row =
   match pane_at session ~column ~row with
   | None -> None
@@ -6235,35 +6276,52 @@ let handle_pointer session input =
       match Input_event.mouse_position input with
       | None -> session
       | Some (column, row) -> (
-          match pointer_target session ~column ~row with
-          | None -> { session with mouse_drag = None }
-          | Some (pane, offset) ->
-              let focused = focus_pane session pane in
-              let selections = Editor_context.selections (context focused) in
-              let primary =
-                List.nth selections.selections selections.primary_index
-              in
-              let anchor_offset =
-                if List.mem Input_event.Shift (Input_event.modifiers input) then
-                  primary.anchor_offset
-                else offset
-              in
-              apply_pointer_selection focused input ~pane ~anchor_offset
-                ~head_offset:offset
-                ~mouse_drag:(Some { pane; anchor_offset })))
+          match divider_target session ~column ~row with
+          | Some divider ->
+              {
+                session with
+                mouse_drag = Some (Divider_drag divider);
+                interaction = Idle;
+                inspector = None;
+                message = None;
+                quit_armed = false;
+              }
+          | None -> (
+              match pointer_target session ~column ~row with
+              | None -> { session with mouse_drag = None }
+              | Some (pane, offset) ->
+                  let focused = focus_pane session pane in
+                  let selections =
+                    Editor_context.selections (context focused)
+                  in
+                  let primary =
+                    List.nth selections.selections selections.primary_index
+                  in
+                  let anchor_offset =
+                    if List.mem Input_event.Shift (Input_event.modifiers input)
+                    then primary.anchor_offset
+                    else offset
+                  in
+                  apply_pointer_selection focused input ~pane ~anchor_offset
+                    ~head_offset:offset
+                    ~mouse_drag:(Some (Selection_drag { pane; anchor_offset })))
+          ))
   | None, Idle, Some Input_event.Drag -> (
       match (session.mouse_drag, Input_event.mouse_position input) with
-      | Some { pane; anchor_offset }, Some (column, row) -> (
+      | Some (Divider_drag divider), Some (column, row) ->
+          drag_divider session divider ~column ~row
+      | Some (Selection_drag { pane; anchor_offset }), Some (column, row) -> (
           match pointer_target session ~column ~row with
           | Some (target_pane, offset) when target_pane = pane ->
               apply_pointer_selection session input ~pane ~anchor_offset
                 ~head_offset:offset
-                ~mouse_drag:(Some { pane; anchor_offset })
+                ~mouse_drag:(Some (Selection_drag { pane; anchor_offset }))
           | Some _ | None -> session)
       | None, Some _ | _, None -> session)
   | None, Idle, Some Input_event.Release -> (
       match (session.mouse_drag, Input_event.mouse_position input) with
-      | Some { pane; anchor_offset }, Some (column, row) -> (
+      | Some (Divider_drag _), _ -> { session with mouse_drag = None }
+      | Some (Selection_drag { pane; anchor_offset }), Some (column, row) -> (
           match pointer_target session ~column ~row with
           | Some (target_pane, offset) when target_pane = pane ->
               apply_pointer_selection session input ~pane ~anchor_offset

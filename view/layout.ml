@@ -6,6 +6,8 @@ type t =
   | Split of { orientation : orientation; ratio : int; first : t; second : t }
 
 type rectangle = { x : int; y : int; width : int; height : int }
+type branch = First | Second
+type divider = { path : branch list; orientation : orientation }
 
 type error =
   | Unknown_pane of int
@@ -112,6 +114,85 @@ let ratio_for_first_extent available first_extent =
   ((first_extent * ratio_scale) + available - 1) / available
   |> max 1
   |> min (ratio_scale - 1)
+
+let in_rectangle rectangle ~column ~row =
+  column >= rectangle.x
+  && column < rectangle.x + rectangle.width
+  && row >= rectangle.y
+  && row < rectangle.y + rectangle.height
+
+let rec divider_at_in tree rectangle path_rev ~column ~row =
+  match tree with
+  | Leaf _ -> None
+  | Split { orientation; ratio; first; second } ->
+      let available, first_extent, first_rectangle, second_rectangle =
+        split_rectangles orientation ratio rectangle
+      in
+      let hits_divider =
+        available >= 2
+        &&
+        match orientation with
+        | Vertical ->
+            column = rectangle.x + first_extent
+            && row >= rectangle.y
+            && row < rectangle.y + rectangle.height
+        | Horizontal ->
+            row = rectangle.y + first_extent
+            && column >= rectangle.x
+            && column < rectangle.x + rectangle.width
+      in
+      if hits_divider then Some { path = List.rev path_rev; orientation }
+      else if in_rectangle first_rectangle ~column ~row then
+        divider_at_in first first_rectangle (First :: path_rev) ~column ~row
+      else if in_rectangle second_rectangle ~column ~row then
+        divider_at_in second second_rectangle (Second :: path_rev) ~column ~row
+      else None
+
+let divider_at tree ~column ~row ~width ~height =
+  divider_at_in tree
+    { x = 0; y = 0; width = clamp width; height = clamp height }
+    [] ~column ~row
+
+let rec drag_divider_in tree rectangle path ~target_orientation ~column ~row =
+  match (tree, path) with
+  | Split { orientation = actual; ratio; first; second }, [] ->
+      let available, _, _, _ = split_rectangles actual ratio rectangle in
+      if actual <> target_orientation || available < 2 then None
+      else
+        let desired_first =
+          match actual with
+          | Vertical -> column - rectangle.x
+          | Horizontal -> row - rectangle.y
+        in
+        let desired_first = min (available - 1) (max 1 desired_first) in
+        Some
+          (Split
+             {
+               orientation = actual;
+               ratio = ratio_for_first_extent available desired_first;
+               first;
+               second;
+             })
+  | Split { orientation; ratio; first; second }, First :: remaining ->
+      let _, _, first_rectangle, _ =
+        split_rectangles orientation ratio rectangle
+      in
+      drag_divider_in first first_rectangle remaining ~target_orientation
+        ~column ~row
+      |> Option.map (fun first -> Split { orientation; ratio; first; second })
+  | Split { orientation; ratio; first; second }, Second :: remaining ->
+      let _, _, _, second_rectangle =
+        split_rectangles orientation ratio rectangle
+      in
+      drag_divider_in second second_rectangle remaining ~target_orientation
+        ~column ~row
+      |> Option.map (fun second -> Split { orientation; ratio; first; second })
+  | Leaf _, _ -> None
+
+let drag_divider tree divider ~column ~row ~width ~height =
+  drag_divider_in tree
+    { x = 0; y = 0; width = clamp width; height = clamp height }
+    divider.path ~target_orientation:divider.orientation ~column ~row
 
 let rec resize_in tree rectangle ~pane ~dimension ~delta =
   match tree with

@@ -45,6 +45,15 @@ let text_input text = Input_event.text_input text |> must
 let named key = Input_event.key_press (Input_event.named_key key)
 let pointer action ~column ~row = Input_event.mouse action ~column ~row |> must
 
+let vertical_divider_column row =
+  let rec loop column = function
+    | [] -> None
+    | (cell : Frame.cell) :: remaining ->
+        if cell.style = Frame.Dim && String.equal cell.text "│" then Some column
+        else loop (column + cell.width) remaining
+  in
+  loop 0 row
+
 let status input_mode =
   Model_status.create ~id:"test" ~label:"TEST" ~input_mode () |> must
 
@@ -333,6 +342,51 @@ let test_layout_composition () =
   expect
     (Frame.cursor composed = Some Frame.{ column = 6; row = 0 })
     "focused pane cursor was not translated through the divider";
+  let divider =
+    match Layout.divider_at layout ~column:5 ~row:0 ~width:11 ~height:4 with
+    | Some divider -> divider
+    | None -> failf "the vertical separator did not expose a divider target"
+  in
+  expect
+    (Layout.divider_at layout ~column:4 ~row:0 ~width:11 ~height:4 = None)
+    "a pane canvas cell was accepted as a divider target";
+  let dragged =
+    match
+      Layout.drag_divider layout divider ~column:10 ~row:0 ~width:11 ~height:4
+    with
+    | Some layout -> layout
+    | None -> failf "dragging a valid vertical divider was rejected"
+  in
+  expect
+    (Layout.bounds dragged ~width:11 ~height:4
+    = [
+        (0, Layout.{ x = 0; y = 0; width = 9; height = 4 });
+        (1, Layout.{ x = 10; y = 0; width = 1; height = 4 });
+      ])
+    "dragging a vertical divider did not clamp both child panes to one cell";
+  let horizontal =
+    Layout.single 0 |> fun layout ->
+    Layout.split layout ~pane:0 ~new_pane:1 Layout.Horizontal |> layout_must
+  in
+  let divider =
+    match Layout.divider_at horizontal ~column:0 ~row:3 ~width:8 ~height:7 with
+    | Some divider -> divider
+    | None -> failf "the horizontal separator did not expose a divider target"
+  in
+  let horizontal =
+    match
+      Layout.drag_divider horizontal divider ~column:0 ~row:0 ~width:8 ~height:7
+    with
+    | Some layout -> layout
+    | None -> failf "dragging a valid horizontal divider was rejected"
+  in
+  expect
+    (Layout.bounds horizontal ~width:8 ~height:7
+    = [
+        (0, Layout.{ x = 0; y = 0; width = 8; height = 1 });
+        (1, Layout.{ x = 0; y = 2; width = 8; height = 5 });
+      ])
+    "dragging a horizontal divider did not clamp both child panes to one cell";
   let resized =
     Layout.resize layout ~pane:0 ~dimension:Layout.Width ~delta:2 ~width:11
       ~height:4
@@ -361,6 +415,31 @@ let test_layout_composition () =
         (1, Layout.{ x = 8; y = 0; width = 3; height = 7 });
       ])
     "resizing a nested split did not choose the nearest matching divider";
+  let nested_divider =
+    match Layout.divider_at nested ~column:0 ~row:2 ~width:11 ~height:7 with
+    | Some divider -> divider
+    | None -> failf "the nested horizontal separator was not targetable"
+  in
+  let nested =
+    match
+      Layout.drag_divider nested nested_divider ~column:0 ~row:5 ~width:11
+        ~height:7
+    with
+    | Some layout -> layout
+    | None -> failf "dragging the nested separator was rejected"
+  in
+  expect
+    (Layout.bounds nested ~width:11 ~height:7
+    = [
+        (0, Layout.{ x = 0; y = 0; width = 7; height = 5 });
+        (2, Layout.{ x = 0; y = 6; width = 7; height = 1 });
+        (1, Layout.{ x = 8; y = 0; width = 3; height = 7 });
+      ])
+    "dragging a nested divider changed a different split";
+  expect
+    (Layout.drag_divider layout divider ~column:0 ~row:0 ~width:2 ~height:4
+    = None)
+    "an undersized layout accepted a stale divider drag";
   let balanced = Layout.balance resized in
   expect
     (Layout.bounds balanced ~width:11 ~height:4
@@ -904,6 +983,105 @@ let host_session session command =
   | App.Session.Continue session -> session
   | App.Session.Exit _ -> failf "workspace command unexpectedly exited"
 
+let test_pointer_divider_dragging () =
+  let dimensions = Renderer.{ columns = 12; rows = 5 } in
+  let session =
+    App.Session.create ~model:App.Session.Direct
+      ~contents:"alpha\nbeta\ngamma\ndelta" ~dimensions ()
+    |> must
+    |> fun session -> host_session session App.Session.Split_vertical
+  in
+  let contents_before = App.Session.contents session in
+  let selection_before = primary_selection session in
+  let version_before =
+    Editor_context.document_version (App.Session.context session)
+  in
+  let focused_before = App.Session.focused_pane session in
+  let session =
+    App.Session.handle_pointer session
+      (pointer (Input_event.Press Input_event.Primary) ~column:5 ~row:0)
+  in
+  let session =
+    App.Session.handle_pointer session
+      (pointer Input_event.Drag ~column:9 ~row:0)
+  in
+  let session =
+    App.Session.handle_pointer session
+      (pointer Input_event.Release ~column:9 ~row:0)
+  in
+  let session, frame = App.Session.render session in
+  expect
+    (vertical_divider_column (List.hd (Frame.rows frame)) = Some 9)
+    "dragging a vertical divider did not move the rendered separator";
+  expect
+    (App.Session.contents session = contents_before
+    && primary_selection session = selection_before
+    && Editor_context.document_version (App.Session.context session)
+       = version_before
+    && App.Session.focused_pane session = focused_before)
+    "a divider drag changed semantic or focused-pane state";
+  let session =
+    App.Session.handle_pointer session
+      (pointer (Input_event.Press Input_event.Primary) ~column:9 ~row:4)
+  in
+  let session =
+    App.Session.handle_pointer session
+      (pointer Input_event.Drag ~column:2 ~row:0)
+  in
+  let session =
+    App.Session.handle_pointer session
+      (pointer Input_event.Release ~column:2 ~row:0)
+  in
+  let session, frame = App.Session.render session in
+  expect
+    (vertical_divider_column (List.hd (Frame.rows frame)) = Some 9
+    && primary_selection session = selection_before)
+    "a status-row press started a divider gesture";
+  let cancelled =
+    App.Session.create ~model:App.Session.Direct ~contents:"alpha" ~dimensions
+      ()
+    |> must
+    |> fun session -> host_session session App.Session.Split_vertical
+  in
+  let cancelled =
+    App.Session.handle_pointer cancelled
+      (pointer (Input_event.Press Input_event.Primary) ~column:5 ~row:0)
+  in
+  let cancelled =
+    App.Session.handle_pointer cancelled
+      (pointer Input_event.Release ~column:12 ~row:0)
+  in
+  let _cancelled, frame = App.Session.render cancelled in
+  expect
+    (vertical_divider_column (List.hd (Frame.rows frame)) = Some 5)
+    "releasing outside the workspace changed a divider";
+  let buffered =
+    App.Session.create ~model:App.Session.Direct ~contents:"alpha"
+      ~presentation:Presentation.buffered
+      ~dimensions:Renderer.{ columns = 12; rows = 6 }
+      ()
+    |> must
+    |> fun session -> host_session session App.Session.Split_vertical
+  in
+  let buffered_before = primary_selection buffered in
+  let buffered =
+    App.Session.handle_pointer buffered
+      (pointer (Input_event.Press Input_event.Primary) ~column:5 ~row:0)
+  in
+  let buffered =
+    App.Session.handle_pointer buffered
+      (pointer Input_event.Drag ~column:9 ~row:1)
+  in
+  let buffered =
+    App.Session.handle_pointer buffered
+      (pointer Input_event.Release ~column:9 ~row:1)
+  in
+  let buffered, frame = App.Session.render buffered in
+  expect
+    (vertical_divider_column (List.nth (Frame.rows frame) 1) = Some 5
+    && primary_selection buffered = buffered_before)
+    "a buffer-line press started a divider gesture"
+
 let test_session_buffer_line_presentation () =
   let dimensions = Renderer.{ columns = 24; rows = 5 } in
   let session =
@@ -1124,6 +1302,7 @@ let () =
     ("pure pane layout composition", test_layout_composition);
     ("session file dirty and model host", test_session_file_dirty_and_models);
     ("session workspace views", test_session_workspace_views);
+    ("pointer divider dragging", test_pointer_divider_dragging);
     ("keyboard viewport commands", test_keyboard_viewport_commands);
     ("workspace view positions", test_workspace_view_positions);
     ("session open-buffer prompt", test_session_open_buffer_prompt);

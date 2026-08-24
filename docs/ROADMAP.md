@@ -28,11 +28,12 @@ bootstrap/install/release targets, CI, and adoption documentation. It did not
 grant a host or renderer a private document mutation path.
 
 The split-view host additionally stores bounded per-split proportions. It can
-move the focused pane's nearest matching divider by one cell or reset the tree
-to equal proportions, through palette, model-effect, and trusted-binding
-surfaces without exposing pane identifiers or terminal geometry to a model.
-It intentionally omits product-specific minimum-size policy, numeric resize
-arguments, mouse divider dragging, and persisted layouts.
+move the focused pane's nearest matching divider by one cell, drag an exact
+visible divider, or reset the tree to equal proportions. These are host-owned
+operations exposed through palette, model-effect, and trusted-binding surfaces
+without exposing pane identifiers or terminal geometry to a model. It
+intentionally omits product-specific minimum-size policy, numeric resize
+arguments, and persisted layouts.
 
 M11 adds optional `zenbu.language` data and a private `zenbu.lsp` adapter. The
 default `.ml`/`.mli` path starts `ocamllsp`; diagnostics, hover, same- and

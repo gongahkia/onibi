@@ -70,9 +70,12 @@ The palette's `workspace.pane.grow-width`, `workspace.pane.shrink-width`,
 document, selection, history, or viewport. A grow/shrink request moves the
 focused pane's nearest vertical or horizontal divider by one cell; if none can
 move while preserving one cell for each child, it is rejected. Ratios survive
-terminal resizing and balance resets every split to equal proportions. This is
-deliberately a small generic layout contract, not per-editor minimum-window
-policy, numeric prefixes, divider dragging, or layout persistence.
+terminal resizing and balance resets every split to equal proportions. A primary
+press on an exact visible divider begins a host-owned drag of that original
+split; buffer lines, status rows, and document canvas cells are not targets.
+The gesture changes neither document nor selection state. This is deliberately
+a small generic layout contract, not per-editor minimum-window policy, numeric
+prefixes, or layout persistence.
 
 ## Backend and rendering
 
