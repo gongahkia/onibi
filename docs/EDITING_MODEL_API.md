@@ -354,8 +354,10 @@ state-derived descriptor hook, so `Model_runtime` retains the script provider
 in trace and transaction provenance. It uses the existing effect interpreter;
 there is no M7-only mutation path. A response conversion or validation failure
 is an ordinary model failure and leaves the prior runtime state/history/input
-trace intact. See [scripting](SCRIPTING.md) for its checked data contract and
-reload semantics.
+trace intact. An optional explicit schema/version export-import declaration can
+migrate only bounded `Extension_value` data during a reload; failures retain
+the prior live generation without installing candidate bindings. See
+[scripting](SCRIPTING.md) for its checked data contract and reload semantics.
 
 ## M8/M9 runtime-neutral extension host
 

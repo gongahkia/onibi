@@ -12,7 +12,7 @@ An editor can vary independently along these layers:
 
 | layer | Zenbu extension point today | current boundary |
 | --- | --- | --- |
-| editing grammar | OCaml models or one trusted-local Lua `zenbu.model` declaration per configuration generation; logical input, explicit serialisable state, statuses, and semantic effects | models operate on one current document and only through declarative effects; Lua models reset to declared initial state on reload and cannot receive mutable editor/runtime objects |
+| editing grammar | OCaml models or one trusted-local Lua `zenbu.model` declaration per configuration generation; logical input, explicit serialisable state, statuses, semantic effects, and optional versioned reload migration | models operate on one current document and only through declarative effects; migration passes only bounded data values and cannot receive mutable editor/runtime objects |
 | commands and semantic operations | built-in commands, trusted-local Lua, or capability-limited Wasm Components can contribute commands, selectors, transformations, scoped one-to-sixteen-event bindings, and events; trusted Lua may additionally declare buffer-local data-only binding layers and request a bounded argument-vector selection filter or an inspectable background program | contributions cannot mutate documents outside a checked transaction; process actions cannot become a shell, terminal, or general job API |
 | language-aware editing | Tree-sitter-backed syntax context and the optional language-service host | only built-in OCaml/JSON syntax registration; cross-file edits require every target to be open and saved |
 | configuration | reloadable Lua configuration and local Wasm plugin discovery | Lua is trusted local code; Components use the declared capability boundary |
@@ -474,15 +474,17 @@ and status, then accepts `{ input, state }` and returns `{ state, status,
 effects? }` for every input. The model's identity is retained in normal trace
 and transaction provenance; the Host validates every returned effect exactly as
 for built-in models. Callback failures leave both state and document unchanged.
-M7 regresses text-mode transitions, UTF-8 insertion, state persistence,
-provenance, replacement-generation reload, disposed-callback avoidance, and an
-invalid response boundary. The bundled
+M7 and reload-migration regressions cover text-mode transitions, UTF-8
+insertion, successful schema upgrade/downgrade, rejected migration retention,
+disabled persistence, bounded exported values, provenance,
+replacement-generation reload, disposed-callback avoidance, and an invalid
+response boundary. The bundled
 [`script-modal-editor.lua`](../examples/script-modal-editor.lua) is the first
 workload fixture. It makes a stateful modal adapter demonstrable, not complete
-product parity: there is still no persistence/migration of script state,
-Component-defined dynamic maps, arbitrary workspace or display APIs, product
-command languages, general process integration, or full terminal appearance
-reproduction.
+product parity: reload migration is local to one live session, with no
+cross-session state persistence; Component-defined dynamic maps, arbitrary
+workspace or display APIs, product command languages, general process
+integration, and full terminal appearance reproduction remain absent.
 
 The next shared product failure was external filtering. Helix documents `|`,
 `!`, and related shell commands over selections; Kakoune documents selection

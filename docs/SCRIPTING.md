@@ -480,7 +480,8 @@ zenbu.model {
 `initial_state` and every returned `state` use the ordinary extension-value
 format: `nil`, booleans, integers/floats, strings, lists, and string-keyed
 records. Mixed tables, functions, userdata, threads, non-string map keys, and
-values deeper than 32 tables or containing more than 4,096 values are rejected.
+values deeper than 32 tables, containing more than 4,096 nodes, or containing
+more than 1 MiB of combined string/key data are rejected.
 `initial_status` and returned `status` require nonempty `id` and `label`, and
 may set `description`, `pending_input`, and `input_mode = "keys" | "text"`.
 The input object is `{ kind = "key", key, modifiers }`, `{ kind = "text",
@@ -493,9 +494,55 @@ action vocabulary below, including `{ kind = "view", action = "center" }` or
 Those view requests operate only on the focused host view and do not expose
 geometry or renderer state. Reload stages a complete replacement Lua generation
 before installation, then recreates each script-model runtime with its declared
-initial state so no buffer retains a callback into a disposed Lua state. Script
-state migration is intentionally not implicit; make it a future explicit,
-versioned contract if a workload needs it.
+initial state so no buffer retains a callback into a disposed Lua state.
+
+### Explicit reload persistence
+
+`persistence` is an optional `zenbu.model` field. It opts a model into a
+data-only export/import transition at a configuration reload boundary:
+
+```lua
+persistence = {
+  schema = "user.modal-state",
+  version = 2,
+  export = function(call)
+    return call.arguments.state
+  end,
+  import = function(call)
+    local source = call.arguments
+    if source.from_schema ~= "user.modal-state" then
+      error("unsupported state schema")
+    end
+    local state = source.state
+    return {
+      state = state,
+      status = { id = state.mode, label = string.upper(state.mode) },
+    }
+  end,
+},
+```
+
+`schema` uses the normal nonempty Zenbu id grammar and `version` is an integer
+from 1 through 1,000,000. The previous generation's `export` receives
+`{ schema, version, state }` and returns one bounded extension value. The
+staged replacement's `import` receives
+`{ from_schema, from_version, state, to_schema, to_version }` and must return
+at least `{ state, status }`; it cannot return effects. The callbacks have an
+empty host context, so they cannot read a document, selections, syntax, or a
+runtime handle. The same 32-level, 4,096-node, and 1 MiB string/key limits
+apply to exported and imported values.
+
+Both generations must declare `persistence`. If either declaration is absent,
+Zenbu deliberately uses the existing reset-to-`initial_state` behavior. This
+allows a configuration to disable preservation explicitly and keeps
+cross-session persistence out of scope.
+
+Before installing a candidate, Zenbu exports and imports the state of every
+script-backed buffer. An export/import validation or callback failure discards
+the candidate, retains the prior generation, bindings, document, and runtime
+states, and reports the error in `Scripts` as the last reload failure. A
+successful import may implement either an upgrade or a downgrade; the host does
+not infer version compatibility. No Lua object crosses the generation boundary.
 
 [`script-modal-editor.lua`](../examples/script-modal-editor.lua) is an
 inspectable modal fixture: it implements normal/insert/delete-pending states,

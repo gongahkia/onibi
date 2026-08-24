@@ -72,7 +72,8 @@ and plugin examples live in [Getting Started](docs/GETTING_STARTED.md).
   ordinary selections or validated transactions, never protocol-driven edits.
 - Lua configuration and local plugins contribute commands, selectors,
   transformations, bindings, and events through host validation. One trusted
-  Lua generation may also provide a persistent, serialisable editing model,
+  Lua generation may also provide a serialisable editing model with optional
+  explicit reload-state migration,
   declare buffer-local data-only binding layers with deterministic priorities,
   request bounded external selection filters, and start bounded inspectable
   background programs through absolute executable paths and argument vectors;

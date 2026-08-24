@@ -468,6 +468,25 @@ persistence = {
 },
 |}
 
+let counter_persistence_effectful =
+  {|
+persistence = {
+  schema = "workload.counter",
+  version = 2,
+  export = function(call)
+    return call.arguments.state
+  end,
+  import = function(call)
+    local state = { version = 2, count = call.arguments.state.count }
+    return {
+      state = state,
+      status = counter_status(state),
+      effects = {{ kind = "insert", text = "must-not-commit" }},
+    }
+  end,
+},
+|}
+
 let counter_persistence_large_export =
   {|
 persistence = {
@@ -530,6 +549,18 @@ let test_script_model_state_persistence_and_migration () =
       expect
         (Zenbu_app.Session.contents session = "v2:11v1:1alpha")
         "downgraded state was not dispatched through the replacement callback";
+      write path
+        (counter_model_config ~persistence:counter_persistence_effectful 2);
+      let effectful = Zenbu_app.Session.reload_config session in
+      let effectful_errors =
+        Zenbu_app.Session.inspect effectful Zenbu_app.Session.Scripts
+        |> String.concat "\n"
+      in
+      expect
+        (Zenbu_app.Session.contents effectful = "v2:11v1:1alpha"
+        && contains effectful_errors "state import must not return effects")
+        "an effectful import mutated the document or was not rejected: %s"
+        effectful_errors;
       let candidate_binding =
         {|
 zenbu.command {
@@ -542,7 +573,7 @@ zenbu.bind { input = "Ctrl-K", command = "user.migration-candidate" }
       write path
         (counter_model_config ~persistence:counter_persistence_rejected
            ~extra:candidate_binding 2);
-      let rejected = Zenbu_app.Session.reload_config session in
+      let rejected = Zenbu_app.Session.reload_config effectful in
       let errors =
         Zenbu_app.Session.inspect rejected Zenbu_app.Session.Scripts
         |> String.concat "\n"
@@ -608,6 +639,48 @@ zenbu.bind { input = "Ctrl-K", command = "user.migration-candidate" }
           failf "wrong persistence-version validation error: %s"
             (Error.to_string error)
       | Ok _ -> failf "invalid persistence version was accepted")
+
+let test_script_model_state_migration_across_buffers () =
+  let path = Filename.temp_file "zenbu-m9-model-buffers" ".lua" in
+  Fun.protect
+    ~finally:(fun () -> Sys.remove path)
+    (fun () ->
+      write path (counter_model_config ~persistence:counter_persistence_v1 1);
+      let session =
+        Zenbu_app.Session.create ~model:Zenbu_app.Session.Script
+          ~contents:"alpha" ~config:(Zenbu_scripting.Scripting.Explicit path)
+          ~dimensions ()
+        |> must
+        |> fun session -> Zenbu_app.Session.handle_input session (key "a")
+      in
+      let session =
+        match
+          Zenbu_app.Session.handle_host session Zenbu_app.Session.New_buffer
+        with
+        | Zenbu_app.Session.Continue session -> session
+        | Zenbu_app.Session.Exit _ ->
+            failf "new script buffer unexpectedly exited"
+      in
+      let session = Zenbu_app.Session.handle_input session (key "a") in
+      write path (counter_model_config ~persistence:counter_persistence_v2 2);
+      let session = Zenbu_app.Session.reload_config session in
+      let current = Zenbu_app.Session.handle_input session (key "x") in
+      expect
+        (Zenbu_app.Session.contents current = "v2:11")
+        "active script buffer did not receive migrated state";
+      let original =
+        match
+          Zenbu_app.Session.handle_host current
+            Zenbu_app.Session.Previous_buffer
+        with
+        | Zenbu_app.Session.Continue session -> session
+        | Zenbu_app.Session.Exit _ ->
+            failf "switching to the original script buffer unexpectedly exited"
+      in
+      let original = Zenbu_app.Session.handle_input original (key "x") in
+      expect
+        (Zenbu_app.Session.contents original = "v2:11alpha")
+        "inactive script buffer did not receive migrated state")
 
 let test_script_model_value_limits () =
   let path = Filename.temp_file "zenbu-m7-model-limit" ".lua" in
@@ -1871,6 +1944,8 @@ let tests =
       test_script_owned_model_state_and_reload );
     ( "script-model state persistence and migration",
       test_script_model_state_persistence_and_migration );
+    ( "script-model migration across buffers",
+      test_script_model_state_migration_across_buffers );
     ("script-model value conversion limits", test_script_model_value_limits);
     ("script external filter", test_script_external_filter);
     ("script background process", test_script_background_process);
