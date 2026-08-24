@@ -348,5 +348,5 @@ publishing any candidate buffer runtime. The terminal waits on stdin and all
 wakeup descriptors, then renders diagnostics and overlays as view data.
 Models neither parse LSP messages nor own an async loop. The public semantic
 `language.apply-edits` transformation is the sole document-mutation route for
-completion, rename, and accepted server edits. See
+completion, rename, accepted code-action edits, and accepted server edits. See
 [Language services](LANGUAGE_SERVICES.md) and ADRs 0030-0032.

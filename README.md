@@ -73,9 +73,10 @@ and plugin examples live in [Getting Started](docs/GETTING_STARTED.md).
   annotations and virtual rows through a data-only decoration protocol; these
   cannot take terminal or editing authority.
 - `zenbu.language` exposes model-neutral diagnostics, hover, definition,
-  completion, rename, position conversion, and sync data. A private async LSP
-  adapter starts `ocamllsp` by default for saved OCaml files; results become
-  ordinary selections or validated transactions, never protocol-driven edits.
+  completion, code actions, rename, position conversion, and sync data. A
+  private async LSP adapter starts `ocamllsp` by default for saved OCaml files;
+  results become ordinary selections or validated transactions, never
+  protocol-driven edits. Code-action server commands are always denied.
 - Lua configuration and local plugins contribute commands, selectors,
   transformations, bindings, and events through host validation. One trusted
   Lua generation may also provide a serialisable editing model with optional
@@ -376,7 +377,8 @@ the M11 sanity numbers, and [release notes](docs/RELEASE.md) describe the gate.
 Zenbu has a local multi-buffer split-view workspace, bounded explicit-root
 project-text search, a report-only local file watcher, and bounded cross-file
 LSP edits for already-open saved buffers, but no automatic external reload,
-general workspace resource operations, command-line/Ex language, plugin
+general workspace resource operations, code-action command execution,
+command-line/Ex language, plugin
 marketplace, asynchronous extension execution, public Tree-sitter query API,
 grammar downloads, refactoring engine, or system clipboard bridge.
 Component runtime support is limited to Linux x86_64 and Apple Silicon macOS

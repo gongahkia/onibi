@@ -210,9 +210,10 @@ surface. Switch built-ins or a validated TOML profile live through `Ctrl-P` →
 profiles](PRESENTATION.md) for the complete contract and its limits.
 
 For a saved `.ml` or `.mli`, M11 starts `ocamllsp` when it is available. Use
-the palette for `language.status`, hover, definition, completion, rename, and
-diagnostic navigation; `Ctrl-Space` asks for completion. The service is
-asynchronous but every accepted edit still becomes a normal transaction. See
+the palette for `language.status`, hover, definition, completion, code actions,
+rename, and diagnostic navigation; `Ctrl-Space` asks for completion. The
+service is asynchronous but every accepted edit still becomes a normal
+transaction. Code-action server commands are displayed but denied. See
 [Language services](LANGUAGE_SERVICES.md) for server selection, status, and
 the bounded cross-file workspace contract.
 

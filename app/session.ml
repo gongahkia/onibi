@@ -5480,7 +5480,11 @@ let poll_active_language ?(background = false) session =
                 };
             message = None;
           }
-    | Lsp.Code_action_result _ when background -> session
+    | Lsp.Code_action_result { request_id; _ } when background ->
+        (* a pending action belongs to the buffer that initiated it. Do not
+           retain its overlay after that buffer is no longer foreground: a
+           background result cannot be safely presented or accepted. *)
+        clear_code_action_request session ~request_id
     | Lsp.Code_action_result { request_id; _ } ->
         {
           (clear_code_action_request session ~request_id) with
@@ -5527,6 +5531,9 @@ let poll_active_language ?(background = false) session =
     | Lsp.Server_message _ when background -> session
     | Lsp.Server_message message ->
         { session with message = Some ("language: " ^ message) }
+    | Lsp.Request_failed { request_id; kind = Lsp.Code_action; _ }
+      when background ->
+        clear_code_action_request session ~request_id
     | Lsp.Request_failed _ when background -> session
     | Lsp.Request_failed { request_id; kind = Lsp.Code_action; reason; _ } ->
         {

@@ -51,8 +51,9 @@ redraw on server output without busy polling.
 
 The client negotiates UTF-8, UTF-16, and UTF-32 position encodings,
 text-document synchronization, save text policy, hover, definition,
-completion, rename, diagnostics, and workspace settings. It defaults to UTF-16
-until the server chooses otherwise. `Language.Position` converts only valid
+completion, code actions, rename, diagnostics, and workspace settings. It
+defaults to UTF-16 until the server chooses otherwise. `Language.Position`
+converts only valid
 UTF-8 code-point boundaries and rejects offsets inside a multi-byte code point,
 a UTF-16 surrogate pair, or a CRLF pair. Lines are zero-based:
 
@@ -75,9 +76,10 @@ A versioned diagnostic renders only for the current Zenbu version. Unversioned
 diagnostics are accepted only at the untouched original snapshot (version zero)
 and are dropped after an edit rather than displayed as possibly current. Hover,
 completion, definition, and rename retain document version plus source caret
-offset. A later edit/caret move sends `$/cancelRequest` where possible, and
-late results are discarded before session mutation. Cancellation is a stale
-safety mechanism, not a promise that every server stops immediately.
+offset. Code actions retain document version and the exact primary-selection
+range. A later edit/caret move sends `$/cancelRequest` where possible, and late
+results are discarded before session mutation. Cancellation is a stale safety
+mechanism, not a promise that every server stops immediately.
 
 Limits are explicit: 32 KiB headers, 8 MiB protocol bodies, 16 KiB retained
 stderr/hover text, 1,024 diagnostics/completion items, and 2 KiB user-visible
@@ -93,9 +95,9 @@ and host dispatch as other providers:
 
 - `language.status` reports language/server id, executable, root, lifecycle,
   encoding, sync kind, pending request count, diagnostics count, and last error.
-- `language.restart`, `.hover`, `.definition`, `.complete`, and `.rename`
-  start the corresponding async operation at the primary caret. Rename opens a
-  text prompt.
+- `language.restart`, `.hover`, `.definition`, `.complete`, `.code-action`,
+  and `.rename` start the corresponding async operation. Code actions use the
+  primary selection; rename opens a text prompt.
 - `language.diagnostic.next`, `.previous`, and `.describe-current` navigate or
   describe current diagnostics with normal selection semantics.
 
@@ -127,9 +129,20 @@ receives `applied: false`.
 
 This is Session-level all-or-none publication, not a kernel-wide
 multi-document transaction: affected buffers retain independent history and
-undo branches. Zenbu does not auto-open edit targets, coordinate external file
-changes, or provide project search, file watching, code actions, formatting,
-symbols, semantic tokens, or general workspace-edit resource operations.
+undo branches.
+
+`language.code-action` requests `textDocument/codeAction` for the current
+primary selection. Its inspector records the request id, document version,
+range, and bounded action list. A pending request and its displayed actions are
+cancelled or discarded when that snapshot is no longer current. Selecting an
+enabled action with a workspace edit uses the same checked, all-or-none staging
+path as rename. Every attached server command is shown as denied and is never
+executed; command-only, disabled, and edit-less actions are rejected. Zenbu
+does not auto-open action targets or allow code-action resource operations.
+
+Zenbu does not coordinate external file changes, or provide project search,
+file watching, formatting, symbols, semantic tokens, or general workspace-edit
+resource operations.
 
 ## Inspection, testing, and trust
 
@@ -143,9 +156,10 @@ dune exec bin/zenbu_headless.exe -- language-fake-session \
 
 The fake server covers initialize/negotiation, full and incremental sync,
 diagnostics, delayed stale hover, cancellation, completion additional edits,
-same- and cross-file definitions, open-buffer cross-file rename and server
-apply-edit, unopened and stale workspace-edit rejection, all-or-none
-conflicting workspace edits, malformed frames, crash/restart, and shutdown.
+same- and cross-file definitions, checked code actions and command denial,
+open-buffer cross-file rename and server apply-edit, unopened and stale
+workspace-edit rejection, all-or-none conflicting workspace edits, malformed
+frames, crash/restart, and shutdown.
 `test_m11_ocamllsp` opens a small Dune fixture with real `ocamllsp` and obtains
 a hover response.
 
@@ -153,7 +167,8 @@ a hover response.
 request, cancellation, response, decode, exit, and failure stages with server
 id, request id/document version where applicable, outcome, and bounded detail.
 The generic `why` view formats these events. The profiler adds language sync,
-hover, definition, completion, rename, and decode samples. Neither retains raw
+hover, definition, completion, code-action, rename, and decode samples.
+Neither retains raw
 JSON-RPC packets, full source, protocol objects, or server secrets.
 
 Language servers are local processes chosen by the trusted host/embedding

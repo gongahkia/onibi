@@ -40,7 +40,8 @@ state serialization.
 
 M11 adds optional `zenbu.language` data and a private `zenbu.lsp` adapter. The
 default `.ml`/`.mli` path starts `ocamllsp`; diagnostics, hover, same- and
-cross-file definition, explicit completion, rename, and bounded
+cross-file definition, explicit completion, checked code actions, rename, and
+bounded
 `workspace/applyEdit` results arrive asynchronously, then use normal selection
 effects or transactions. LSP/JSON-RPC values remain outside the kernel and
 editing-model API. See [Language services](LANGUAGE_SERVICES.md).
@@ -58,8 +59,9 @@ The following remain deliberately out of scope:
   emulation; the explicit-root picker, bounded literal project search, and
   report-only local watcher are host-owned surfaces, not a general project
   workspace;
-- LSP code actions, formatting, symbols, semantic tokens, user-authored server
-  configuration, workspace folders, and a language-server trust/sandbox model;
+- LSP formatting, symbols, semantic tokens, user-authored server configuration,
+  workspace folders, code-action command execution, and a language-server
+  trust/sandbox model;
 - public Tree-sitter query APIs, grammar downloads, embedded-language parsing,
   refactoring, or asynchronous syntax workers;
 - parent-directory fsync after save (normal save detects externally changed,

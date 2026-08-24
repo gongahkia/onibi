@@ -232,12 +232,13 @@ format.
 M11 starts an optional language service for a saved path selected by the
 language registry (the default is `ocamllsp` for OCaml). The backend waits on
 stdin and every open buffer's client wakeup descriptor, so an idle terminal
-redraws when diagnostics or feature replies arrive. Hover and completion are
-host overlays; diagnostic navigation and accepted language edits use normal
-selection effects/transactions. Definitions can open a local target buffer,
-and rename or `workspace/applyEdit` can update every already-open saved target
-all-or-none. `language.status` is available through the palette and inspector.
-See [Language services](LANGUAGE_SERVICES.md).
+redraws when diagnostics or feature replies arrive. Hover, completion, and code
+actions are host overlays; diagnostic navigation and accepted language edits
+use normal selection effects/transactions. Definitions can open a local target
+buffer, and rename, checked code actions, or `workspace/applyEdit` can update
+every already-open saved target all-or-none. Code-action server commands are
+explicitly denied. `language.status` is available through the palette and
+inspector. See [Language services](LANGUAGE_SERVICES.md).
 
 Plugin inspection shows manifest, runtime, capabilities, contributions, limits,
 last error, and health. A Component fuel/memory/trap failure makes its runtime
