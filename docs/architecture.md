@@ -45,7 +45,10 @@ then an approved public page. Imported browser state is base64 storage-state JSO
 decoded only in memory. Browser code can submit a configured login form but has
 no booking, payment, cancellation, or CAPTCHA/OTP path. A successful refresh
 persists a bounded snapshot and marks previously available slots absent from that
-source/date scope unavailable.
+source/date scope unavailable. ActiveSG can additionally enable its dedicated
+imported-session date-card reader after those generic modes; source health
+persists each failed access mode in attempt order even when a later mode
+succeeds.
 
 ## Query, ranking and watches
 

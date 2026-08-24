@@ -258,6 +258,9 @@ CREATE INDEX availability_venue_idx
 CREATE INDEX availability_source_idx
     ON availability_slots (source_id, fetched_at);
 `},
+	{version: 4, sql: `
+ALTER TABLE source_health ADD COLUMN access_failures_json TEXT NOT NULL DEFAULT '[]';
+`},
 }
 
 func (store *Store) Migrate(ctx context.Context) error {

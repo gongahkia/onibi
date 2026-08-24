@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"text/tabwriter"
 
@@ -364,7 +365,15 @@ func writeSources(writer io.Writer, records []store.SourceRecord, asJSON bool) e
 }
 
 func writeSource(writer io.Writer, record store.SourceRecord) error {
-	_, err := fmt.Fprintf(writer, "id: %s\nname: %s\noperator: %s\nenabled: %t\npolicy: %s\nhealth: %s\nwebsite: %s\nnotes: %s\n", record.Info.ID, record.Info.Name, record.Info.Operator, record.Enabled, record.Info.Policy.Status, record.Health.State, record.Info.Website, record.Info.Policy.Notes)
+	failedModes := "none"
+	if len(record.Health.AccessFailures) > 0 {
+		values := make([]string, 0, len(record.Health.AccessFailures))
+		for _, failure := range record.Health.AccessFailures {
+			values = append(values, failure.Mode+": "+failure.Error)
+		}
+		failedModes = strings.Join(values, "; ")
+	}
+	_, err := fmt.Fprintf(writer, "id: %s\nname: %s\noperator: %s\nenabled: %t\npolicy: %s\nhealth: %s\naccess mode: %s\nfailed access modes: %s\nwebsite: %s\nnotes: %s\n", record.Info.ID, record.Info.Name, record.Info.Operator, record.Enabled, record.Info.Policy.Status, record.Health.State, record.Health.LastCategory, failedModes, record.Info.Website, record.Info.Policy.Notes)
 	return err
 }
 

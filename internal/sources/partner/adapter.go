@@ -26,6 +26,12 @@ type Spec struct {
 	ID string
 }
 
+const (
+	AccessModeAPI     = "api"
+	AccessModeBrowser = "browser"
+	AccessModePublic  = "public"
+)
+
 type Adapter struct {
 	info     domain.SourceInfo
 	spec     Spec
@@ -63,34 +69,22 @@ func (adapter *Adapter) FetchAvailability(ctx context.Context, request source.Av
 
 func (adapter *Adapter) FetchSnapshot(ctx context.Context, request source.AvailabilityRequest) (source.AvailabilitySnapshot, error) {
 	started := time.Now()
-	var failures []error
-	if adapter.settings.API.Enabled {
-		snapshot, err := adapter.fetchAPI(ctx, request)
+	var (
+		failures       []error
+		accessFailures []domain.AccessFailure
+	)
+	for _, mode := range adapter.Modes() {
+		snapshot, err := adapter.FetchMode(ctx, request, mode)
 		if err == nil {
-			adapter.setSuccess(started, len(snapshot.Slots), "api")
+			adapter.setSuccess(started, len(snapshot.Slots), mode, accessFailures)
 			return snapshot, nil
 		}
-		failures = append(failures, fmt.Errorf("API: %w", err))
-	}
-	if adapter.settings.Browser.Enabled {
-		snapshot, err := adapter.fetchBrowser(ctx, request, adapter.settings.Browser)
-		if err == nil {
-			adapter.setSuccess(started, len(snapshot.Slots), "browser")
-			return snapshot, nil
-		}
-		failures = append(failures, fmt.Errorf("browser: %w", err))
-	}
-	if adapter.settings.Public.Enabled {
-		snapshot, err := adapter.fetchPublic(ctx, request)
-		if err == nil {
-			adapter.setSuccess(started, len(snapshot.Slots), "public")
-			return snapshot, nil
-		}
-		failures = append(failures, fmt.Errorf("public: %w", err))
+		failures = append(failures, fmt.Errorf("%s: %w", mode, err))
+		accessFailures = append(accessFailures, domain.AccessFailure{Mode: mode, Error: err.Error()})
 	}
 	if len(failures) == 0 {
 		err := errors.New("no approved availability access mode is configured")
-		adapter.setFailure(started, err, domain.HealthCredentials, "not_configured")
+		adapter.setFailure(started, err, domain.HealthCredentials, "not_configured", nil)
 		return source.AvailabilitySnapshot{}, err
 	}
 	err := errors.Join(failures...)
@@ -100,8 +94,47 @@ func (adapter *Adapter) FetchSnapshot(ctx context.Context, request source.Availa
 		state = domain.HealthCredentials
 		category = "api_unavailable"
 	}
-	adapter.setFailure(started, err, state, category)
+	adapter.setFailure(started, err, state, category, accessFailures)
 	return source.AvailabilitySnapshot{}, err
+}
+
+// Modes returns the enabled generic access modes in the safe fallback order.
+func (adapter *Adapter) Modes() []string {
+	modes := make([]string, 0, 3)
+	if adapter.settings.API.Enabled {
+		modes = append(modes, AccessModeAPI)
+	}
+	if adapter.settings.Browser.Enabled {
+		modes = append(modes, AccessModeBrowser)
+	}
+	if adapter.settings.Public.Enabled {
+		modes = append(modes, AccessModePublic)
+	}
+	return modes
+}
+
+// FetchMode runs exactly one configured generic access mode. It allows a
+// provider-specific fallback chain to record each failed mode independently.
+func (adapter *Adapter) FetchMode(ctx context.Context, request source.AvailabilityRequest, mode string) (source.AvailabilitySnapshot, error) {
+	switch mode {
+	case AccessModeAPI:
+		if !adapter.settings.API.Enabled {
+			return source.AvailabilitySnapshot{}, errors.New("API access mode is not enabled")
+		}
+		return adapter.fetchAPI(ctx, request)
+	case AccessModeBrowser:
+		if !adapter.settings.Browser.Enabled {
+			return source.AvailabilitySnapshot{}, errors.New("browser access mode is not enabled")
+		}
+		return adapter.fetchBrowser(ctx, request, adapter.settings.Browser)
+	case AccessModePublic:
+		if !adapter.settings.Public.Enabled {
+			return source.AvailabilitySnapshot{}, errors.New("public access mode is not enabled")
+		}
+		return adapter.fetchPublic(ctx, request)
+	default:
+		return source.AvailabilitySnapshot{}, fmt.Errorf("unknown access mode %q", mode)
+	}
 }
 
 func (adapter *Adapter) Health(context.Context) (domain.SourceHealth, error) {
@@ -195,18 +228,18 @@ func (adapter *Adapter) staleAfter(now time.Time) time.Time {
 	return now.Add(2 * time.Duration(interval) * time.Minute)
 }
 
-func (adapter *Adapter) setSuccess(started time.Time, records int, mode string) {
+func (adapter *Adapter) setSuccess(started time.Time, records int, mode string, accessFailures []domain.AccessFailure) {
 	adapter.mu.Lock()
 	defer adapter.mu.Unlock()
 	now := time.Now().UTC()
-	adapter.health = domain.SourceHealth{SourceID: adapter.info.ID, State: domain.HealthHealthy, LastAttempt: &now, LastSuccess: &now, LastCategory: mode, LatencyMilliseconds: time.Since(started).Milliseconds(), RecordsParsed: records}
+	adapter.health = domain.SourceHealth{SourceID: adapter.info.ID, State: domain.HealthHealthy, LastAttempt: &now, LastSuccess: &now, LastCategory: mode, AccessFailures: accessFailures, LatencyMilliseconds: time.Since(started).Milliseconds(), RecordsParsed: records}
 }
 
-func (adapter *Adapter) setFailure(started time.Time, err error, state domain.HealthState, category string) {
+func (adapter *Adapter) setFailure(started time.Time, err error, state domain.HealthState, category string, accessFailures []domain.AccessFailure) {
 	adapter.mu.Lock()
 	defer adapter.mu.Unlock()
 	now := time.Now().UTC()
-	adapter.health = domain.SourceHealth{SourceID: adapter.info.ID, State: state, LastAttempt: &now, LastCategory: category, LatencyMilliseconds: time.Since(started).Milliseconds(), ConsecutiveFailures: adapter.health.ConsecutiveFailures + 1, LastError: err.Error()}
+	adapter.health = domain.SourceHealth{SourceID: adapter.info.ID, State: state, LastAttempt: &now, LastCategory: category, AccessFailures: accessFailures, LatencyMilliseconds: time.Since(started).Milliseconds(), ConsecutiveFailures: adapter.health.ConsecutiveFailures + 1, LastError: err.Error()}
 }
 
 func endpointURL(baseURL, path string, request source.AvailabilityRequest) (string, error) {

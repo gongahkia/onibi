@@ -68,14 +68,23 @@ const (
 )
 
 type SourceHealth struct {
-	SourceID            string      `json:"source_id"`
-	State               HealthState `json:"state"`
-	LastAttempt         *time.Time  `json:"last_attempt,omitempty"`
-	LastSuccess         *time.Time  `json:"last_success,omitempty"`
-	LastCategory        string      `json:"last_category,omitempty"`
-	LatencyMilliseconds int64       `json:"latency_ms,omitempty"`
-	RecordsParsed       int         `json:"records_parsed,omitempty"`
-	ConsecutiveFailures int         `json:"consecutive_failures"`
-	BackoffUntil        *time.Time  `json:"backoff_until,omitempty"`
-	LastError           string      `json:"last_error,omitempty"`
+	SourceID            string          `json:"source_id"`
+	State               HealthState     `json:"state"`
+	LastAttempt         *time.Time      `json:"last_attempt,omitempty"`
+	LastSuccess         *time.Time      `json:"last_success,omitempty"`
+	LastCategory        string          `json:"last_category,omitempty"`
+	AccessFailures      []AccessFailure `json:"access_failures,omitempty"`
+	LatencyMilliseconds int64           `json:"latency_ms,omitempty"`
+	RecordsParsed       int             `json:"records_parsed,omitempty"`
+	ConsecutiveFailures int             `json:"consecutive_failures"`
+	BackoffUntil        *time.Time      `json:"backoff_until,omitempty"`
+	LastError           string          `json:"last_error,omitempty"`
+}
+
+// AccessFailure records one read-only access mode that was attempted before a
+// source either succeeded through another mode or exhausted its configured
+// fallbacks. Entries are kept in attempt order.
+type AccessFailure struct {
+	Mode  string `json:"mode"`
+	Error string `json:"error"`
 }

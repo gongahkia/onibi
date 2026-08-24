@@ -73,7 +73,7 @@ func (store *Store) ListSources(ctx context.Context) ([]SourceRecord, error) {
 	rows, err := store.db.QueryContext(ctx, `SELECT s.id, s.name, s.operator, s.website, s.policy_json, s.enabled,
 COALESCE(h.state, ''), h.last_attempt, h.last_success, COALESCE(h.last_category, ''),
 COALESCE(h.latency_ms, 0), COALESCE(h.records_parsed, 0), COALESCE(h.consecutive_failures, 0),
-h.backoff_until, COALESCE(h.last_error, '')
+h.backoff_until, COALESCE(h.last_error, ''), COALESCE(h.access_failures_json, '[]')
 FROM sources s LEFT JOIN source_health h ON h.source_id = s.id ORDER BY s.id`)
 	if err != nil {
 		return nil, fmt.Errorf("list sources: %w", err)
@@ -97,7 +97,7 @@ func (store *Store) GetSource(ctx context.Context, sourceID string) (SourceRecor
 	row := store.db.QueryRowContext(ctx, `SELECT s.id, s.name, s.operator, s.website, s.policy_json, s.enabled,
 COALESCE(h.state, ''), h.last_attempt, h.last_success, COALESCE(h.last_category, ''),
 COALESCE(h.latency_ms, 0), COALESCE(h.records_parsed, 0), COALESCE(h.consecutive_failures, 0),
-h.backoff_until, COALESCE(h.last_error, '')
+h.backoff_until, COALESCE(h.last_error, ''), COALESCE(h.access_failures_json, '[]')
 FROM sources s LEFT JOIN source_health h ON h.source_id = s.id WHERE s.id = ?`, sourceID)
 	record, err := scanSourceRecord(row)
 	if err == sql.ErrNoRows {
@@ -118,10 +118,11 @@ func scanSourceRecord(row rowScanner) (SourceRecord, error) {
 	var policyJSON string
 	var enabled int
 	var state string
+	var accessFailuresJSON string
 	var lastAttempt, lastSuccess, backoff sql.NullString
 	if err := row.Scan(&record.Info.ID, &record.Info.Name, &record.Info.Operator, &record.Info.Website, &policyJSON, &enabled,
 		&state, &lastAttempt, &lastSuccess, &record.Health.LastCategory, &record.Health.LatencyMilliseconds,
-		&record.Health.RecordsParsed, &record.Health.ConsecutiveFailures, &backoff, &record.Health.LastError); err != nil {
+		&record.Health.RecordsParsed, &record.Health.ConsecutiveFailures, &backoff, &record.Health.LastError, &accessFailuresJSON); err != nil {
 		return SourceRecord{}, fmt.Errorf("scan source: %w", err)
 	}
 	if err := json.Unmarshal([]byte(policyJSON), &record.Info.Policy); err != nil {
@@ -150,18 +151,25 @@ func scanSourceRecord(row rowScanner) (SourceRecord, error) {
 	if record.Health.BackoffUntil, err = parseNullableTime(backoff); err != nil {
 		return SourceRecord{}, err
 	}
+	if err := json.Unmarshal([]byte(accessFailuresJSON), &record.Health.AccessFailures); err != nil {
+		return SourceRecord{}, fmt.Errorf("decode source %q access failures: %w", record.Info.ID, err)
+	}
 	return record, nil
 }
 
 func (store *Store) SaveSourceHealth(ctx context.Context, health domain.SourceHealth) error {
-	_, err := store.db.ExecContext(ctx, `INSERT INTO source_health(source_id, state, last_attempt, last_success, last_category, latency_ms, records_parsed, consecutive_failures, backoff_until, last_error, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	accessFailures, err := json.Marshal(health.AccessFailures)
+	if err != nil {
+		return fmt.Errorf("encode source health %q access failures: %w", health.SourceID, err)
+	}
+	_, err = store.db.ExecContext(ctx, `INSERT INTO source_health(source_id, state, last_attempt, last_success, last_category, latency_ms, records_parsed, consecutive_failures, backoff_until, last_error, access_failures_json, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(source_id) DO UPDATE SET state = excluded.state, last_attempt = excluded.last_attempt,
 last_success = excluded.last_success, last_category = excluded.last_category, latency_ms = excluded.latency_ms,
 records_parsed = excluded.records_parsed, consecutive_failures = excluded.consecutive_failures,
-backoff_until = excluded.backoff_until, last_error = excluded.last_error, updated_at = excluded.updated_at`,
+backoff_until = excluded.backoff_until, last_error = excluded.last_error, access_failures_json = excluded.access_failures_json, updated_at = excluded.updated_at`,
 		health.SourceID, health.State, nullableTime(health.LastAttempt), nullableTime(health.LastSuccess), health.LastCategory,
-		health.LatencyMilliseconds, health.RecordsParsed, health.ConsecutiveFailures, nullableTime(health.BackoffUntil), health.LastError, timestamp(time.Now()))
+		health.LatencyMilliseconds, health.RecordsParsed, health.ConsecutiveFailures, nullableTime(health.BackoffUntil), health.LastError, string(accessFailures), timestamp(time.Now()))
 	if err != nil {
 		return fmt.Errorf("save source health %q: %w", health.SourceID, err)
 	}

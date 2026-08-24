@@ -238,9 +238,6 @@ func (config Config) Validate() error {
 			if !source.ActiveSG.ScanAll && len(normalizedStrings(source.ActiveSG.VenueNames)) == 0 {
 				return fmt.Errorf("sources.%s.activesg needs venue_names or scan_all = true", id)
 			}
-			if source.API.Enabled || source.Browser.Enabled || source.Public.Enabled {
-				return fmt.Errorf("sources.%s.activesg cannot be combined with api, browser, or public access", id)
-			}
 		}
 		if !builtInPublicReader(id) && id != "sportsg-facilities" && id != "onemap" && !source.API.Enabled && !source.Browser.Enabled && !source.Public.Enabled && !source.ActiveSG.Enabled {
 			return fmt.Errorf("sources.%s is enabled without an availability access mode", id)
@@ -317,9 +314,10 @@ enabled = false
 refresh_minutes = 60
 # availability_max_days = 0 # 0 uses the source's supported maximum
 
-# The dedicated ActiveSG badminton reader is session-import only. It reads the
-# venue list, clicks date cards, and records visible instant hourly slots. It
-# never selects a slot or opens ballot, checkout, or payment flows.
+# The dedicated ActiveSG badminton reader is session-import only. It is tried
+# after any enabled generic API, browser, and public reader. It reads the venue
+# list, clicks date cards, and records visible instant hourly slots. It never
+# selects a slot or opens ballot, checkout, or payment flows.
 [sources.myactivesg.activesg]
 enabled = false
 venue_list_url = "https://activesg.gov.sg/facility-bookings/activities/YLONatwvqJfikKOmB5N9U/venues"

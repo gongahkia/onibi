@@ -22,6 +22,7 @@ import (
 
 const (
 	SourceID              = "myactivesg"
+	AccessMode            = "activesg"
 	BadmintonVenueListURL = "https://activesg.gov.sg/facility-bookings/activities/YLONatwvqJfikKOmB5N9U/venues"
 	adapterVersion        = "activesg-browser-v1"
 )
@@ -205,7 +206,7 @@ func (adapter *Adapter) setFailure(started time.Time, err error, state domain.He
 	adapter.mu.Lock()
 	defer adapter.mu.Unlock()
 	now := time.Now().UTC()
-	adapter.health = domain.SourceHealth{SourceID: adapter.info.ID, State: state, LastAttempt: &now, LastCategory: category, LatencyMilliseconds: time.Since(started).Milliseconds(), ConsecutiveFailures: adapter.health.ConsecutiveFailures + 1, LastError: err.Error()}
+	adapter.health = domain.SourceHealth{SourceID: adapter.info.ID, State: state, LastAttempt: &now, LastCategory: category, AccessFailures: []domain.AccessFailure{{Mode: AccessMode, Error: err.Error()}}, LatencyMilliseconds: time.Since(started).Milliseconds(), ConsecutiveFailures: adapter.health.ConsecutiveFailures + 1, LastError: err.Error()}
 }
 
 func activeSGStart(date time.Time, value string) (time.Time, error) {

@@ -8,8 +8,10 @@ enabled = true
 [sources.onemap]
 enabled = true
 
-# ActiveSG is an imported-session reader. It remains disabled until the local
-# environment contains a deliberately exported Playwright storage state.
+# ActiveSG is an imported-session reader. When enabled alongside generic API,
+# browser, or public modes, it is the final fallback after those modes fail.
+# It remains disabled until the local environment contains a deliberately
+# exported Playwright storage state.
 [sources.myactivesg]
 enabled = false
 refresh_minutes = 60

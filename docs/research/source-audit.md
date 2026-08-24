@@ -15,8 +15,10 @@ availability window.
 The runtime selection order is partner API, approved authenticated Playwright
 browser session, then a partner-approved public page. Four verified public
 readers are enabled without credentials; configured API/browser/public access
-takes precedence over their built-in reader. A failed source is reported through
-source health; an empty successful snapshot is distinct from a failed request.
+takes precedence over their built-in reader. ActiveSG can additionally enable
+its dedicated imported-session date-card reader after its enabled generic modes.
+Source health records each failed access mode in attempt order; an empty
+successful snapshot is distinct from a failed request.
 
 | Source ID | Operator / badminton surface | Read access | Horizon default |
 | --- | --- | --- | --- |

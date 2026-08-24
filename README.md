@@ -31,7 +31,9 @@ labels only. It does not automate login or select a slot, open a ballot,
 checkout, or payment flow. The remaining partners can be configured with a
 partner API, approved browser session, or public JSON mapper, in that order.
 A configured API/browser/public reader takes precedence over a built-in reader,
-so a provider can migrate to an official API without code changes.
+so a provider can migrate to an official API without code changes. For
+ActiveSG, enabled generic API, browser, and public modes run in that order
+before the dedicated reader; source health records every failed mode in order.
 
 SportSG's official facility dataset remains enabled for venue discovery. OneMap
 is used for optional geocoding/routing when its credentials are configured.
