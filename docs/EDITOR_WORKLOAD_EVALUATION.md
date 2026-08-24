@@ -531,12 +531,44 @@ Zenbu deliberately exposes none of those authorities: there is no callback,
 stdin, shell expansion, PTY, terminal emulation, or interactive pane. The
 process group is cleanup machinery rather than an adapter-facing API.
 
+## Executable workload scenarios
+
+[`test/test_editor_workloads.ml`](../test/test_editor_workloads.ml) reads the
+TOML fixtures in [`test/fixtures/workloads`](../test/fixtures/workloads). Each
+fixture identifies an upstream primary source, the precise Zenbu boundary it
+exercises, its supported/partial/rejected outcome, and the expected document,
+ordered selections, focused view, status, typed command trace, and (where a
+workflow reaches model execution) normal `Why` provenance.
+The test also requires every declared limitation to remain in this document.
+It is therefore evidence for a narrow capability rather than evidence that a
+familiar key establishes product parity.
+
+| fixture | outcome | Zenbu boundary and declared limit |
+| --- | --- | --- |
+| `vim-delete-next-word` | supported | The Vim model’s tested `d` + next-word selector; Ex command language, Vim regexp semantics, broad text objects, and appearance parity remain absent. |
+| `helix-page-down-adapter` | partial | The supplied Helix-style adapter requests model-neutral page movement; picker/config discovery, native register behavior, shell command-line/pipes, full windows, and theme parity remain absent. |
+| `kakoune-ordered-multiple-selection` | partial | The selection-first model applies one checked transaction to ordered current selections; Kakoune’s inclusive anchor/cursor model, client/server sessions, socket integration, command language, and face/highlighter ecosystem remain absent. |
+| `micro-selected-cut-adapter` | partial | The supplied Micro-style adapter maps selected-text `Ctrl-X` to a checked cut; line-fallback cut behavior, mouse/OSC 52 behavior, interactive panes/tabs, plugin installation, and appearance parity remain absent. |
+| `emacs-kill-yank-adapter` | partial | The Direct model plus supplied `Ctrl-Y` adapter exercises bounded kill history; kill coalescing, yank-pop, automatic clipboard synchronization, Elisp, general keymaps/windows, and display parity remain absent. |
+| `vim-ex-substitute-rejected` | rejected | A leading `:` is not a Vim-model command prompt. [#27](https://github.com/gongahkia/zenbu/issues/27) owns evaluation of one bounded `:substitute` workflow; it explicitly excludes an Ex parser, Vim regexp semantics, ranges, mappings, history, and compatibility claims. |
+
+The fixture strings below are intentionally exact: the conformance test checks
+them against the baseline matrix above so a limitation cannot disappear while a
+scenario remains labeled supported or partial.
+
+- `vim-delete-next-word` and `vim-ex-substitute-rejected`: Ex command language, Vim regexp/search semantics, uppercase/global-register semantics, macro editing/persistence, broad motion/text-object coverage, linewise/global marks, full jump-source/per-window semantics, compatibility mappings, and terminal/GUI appearance parity.
+- `helix-page-down-adapter`: picker/config discovery, native `+`/`*` register grammar and multi-selection clipboard behavior, Helix selected-register macro workflow, Helix regex and exact post-rotation selection semantics, shell command-line/pipes, general workspace edits, full window model, and theme parity.
+- `kakoune-ordered-multiple-selection`: Kakoune's inclusive anchor/cursor model, exact regex/count grouping and post-rotation selection semantics, Kakoune register-selection macro grammar, native mark/jump-list grammar, client/server sessions, shell expansions and asynchronous socket integration, full command language, and face/highlighter ecosystem.
+- `micro-selected-cut-adapter`: Micro's complete keybinding behavior, line-fallback cut behavior, mouse clipboard/menu/multi-click parity, OSC 52/SSH clipboard behavior, interactive shell split, interactive buffer tabs, plugin-manager/install flow, runtime theme/configuration surface, process input, and appearance parity.
+- `emacs-kill-yank-adapter`: buffer/window/frame system, completion ecosystem, arbitrary keymap composition and Component-defined layers, Emacs regexp/search-ring semantics, automatic kill/yank clipboard integration, adjacent-kill concatenation, yank-pop, macro ring and Emacs macro name/edit commands, buffer-local mark and mark-ring semantics, Elisp/package/process APIs, display engine, product minimum-window behavior, numeric arguments, layout persistence, and terminal appearance parity.
+
 ## How to run the evidence
 
 ```sh
 make check
 dune exec test/test_m4_terminal.exe
 dune exec test/test_model_runtime.exe
+dune exec test/test_editor_workloads.exe
 dune exec bin/zenbu_headless.exe -- demo
 ```
 

@@ -1,0 +1,21 @@
+id = "kakoune-ordered-multiple-selection"
+editor = "kakoune"
+outcome = "partial"
+source = "https://github.com/mawww/kakoune/blob/master/doc/pages/keys.asciidoc"
+boundary = "The selection-first model exposes ordered selections and applies one checked delete transaction to every current selection."
+limitations = ["Kakoune's inclusive anchor/cursor model, exact regex/count grouping and post-rotation selection semantics, Kakoune register-selection macro grammar, native mark/jump-list grammar, client/server sessions, shell expansions and asynchronous socket integration, full command language, and face/highlighter ecosystem"]
+model = "selection"
+contents = "foo bar foo baz foo"
+inputs = ["W", "*", "d"]
+columns = 20
+rows = 5
+
+[expect]
+contents = " bar  baz "
+selections = ["0:0", "5:5", "10:10"]
+primary_selection = 0
+viewport_top_line = 0
+pane_count = 1
+status = "select"
+trace = ["command:editor.apply", "transformation:delete", "transaction:committed"]
+provenance = ["selector: current-selections (3 selections)", "transformation: delete"]

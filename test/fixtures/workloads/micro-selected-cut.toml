@@ -1,0 +1,22 @@
+id = "micro-selected-cut-adapter"
+editor = "micro"
+outcome = "partial"
+source = "https://github.com/micro-editor/micro/blob/master/runtime/help/defaultkeys.md"
+boundary = "The supplied Micro-style adapter maps selected-text Ctrl-X to Zenbu's checked kill-ring cut command."
+limitations = ["Micro's complete keybinding behavior, line-fallback cut behavior, mouse clipboard/menu/multi-click parity, OSC 52/SSH clipboard behavior, interactive shell split, interactive buffer tabs, plugin-manager/install flow, runtime theme/configuration surface, process input, and appearance parity"]
+model = "direct"
+adapter = "examples/micro-adapter.lua"
+contents = "micro"
+inputs = ["Shift-ArrowRight", "Ctrl-X"]
+columns = 20
+rows = 5
+
+[expect]
+contents = "icro"
+selections = ["0:0"]
+primary_selection = 0
+viewport_top_line = 0
+pane_count = 1
+status = "direct"
+trace = ["binding:editor.kill-ring.cut", "transaction:committed"]
+provenance = []

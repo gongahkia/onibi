@@ -154,3 +154,20 @@
   zenbu_terminal
   zenbu_app
   unix))
+
+(test
+ (name test_editor_workloads)
+ (libraries
+  zenbu_kernel
+  zenbu_model_api
+  zenbu_scripting
+  zenbu_view
+  zenbu_app
+  otoml
+  unix)
+ (deps
+  (glob_files fixtures/workloads/*.toml)
+  ../docs/EDITOR_WORKLOAD_EVALUATION.md
+  ../examples/helix-adapter.lua
+  ../examples/micro-adapter.lua
+  ../examples/emacs-adapter.lua))

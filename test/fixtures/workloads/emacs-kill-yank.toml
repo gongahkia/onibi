@@ -1,0 +1,22 @@
+id = "emacs-kill-yank-adapter"
+editor = "emacs"
+outcome = "partial"
+source = "https://www.gnu.org/software/emacs/manual/html_node/emacs/Deletion-and-Killing.html"
+boundary = "The Direct model's checked Ctrl-W cut and supplied Ctrl-Y adapter exercise Zenbu's bounded session kill history."
+limitations = ["buffer/window/frame system, completion ecosystem, arbitrary keymap composition and Component-defined layers, Emacs regexp/search-ring semantics, automatic kill/yank clipboard integration, adjacent-kill concatenation, yank-pop, macro ring and Emacs macro name/edit commands, buffer-local mark and mark-ring semantics, Elisp/package/process APIs, display engine, product minimum-window behavior, numeric arguments, layout persistence, and terminal appearance parity"]
+model = "direct"
+adapter = "examples/emacs-adapter.lua"
+contents = "kill"
+inputs = ["Shift-ArrowRight", "Ctrl-W", "Ctrl-Y"]
+columns = 20
+rows = 5
+
+[expect]
+contents = "kill"
+selections = ["1:1"]
+primary_selection = 0
+viewport_top_line = 0
+pane_count = 1
+status = "direct"
+trace = ["binding:editor.kill-ring.yank", "transaction:committed"]
+provenance = ["binding: Ctrl+text(y) -> editor.kill-ring.yank", "transaction:"]

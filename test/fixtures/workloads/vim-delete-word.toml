@@ -1,0 +1,21 @@
+id = "vim-delete-next-word"
+editor = "vim"
+outcome = "supported"
+source = "https://vimhelp.org/change.txt.html"
+boundary = "Zenbu's Vim model applies its tested delete operator to the reusable next-word selector."
+limitations = ["Ex command language, Vim regexp/search semantics, uppercase/global-register semantics, macro editing/persistence, broad motion/text-object coverage, linewise/global marks, full jump-source/per-window semantics, compatibility mappings, and terminal/GUI appearance parity"]
+model = "vim"
+contents = "alpha beta gamma"
+inputs = ["d", "w"]
+columns = 20
+rows = 5
+
+[expect]
+contents = "beta gamma"
+selections = ["0:0"]
+primary_selection = 0
+viewport_top_line = 0
+pane_count = 1
+status = "normal"
+trace = ["command:editor.apply", "transaction:committed"]
+provenance = ["selector: next-word (1 selections)", "transformation: delete"]

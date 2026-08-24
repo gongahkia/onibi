@@ -1,0 +1,22 @@
+id = "vim-ex-substitute-rejected"
+editor = "vim"
+outcome = "rejected"
+source = "https://vimhelp.org/change.txt.html#:substitute"
+boundary = "Zenbu has no Vim Ex command language; a leading colon is not a Vim-model command prompt."
+limitations = ["Ex command language, Vim regexp/search semantics, uppercase/global-register semantics, macro editing/persistence, broad motion/text-object coverage, linewise/global marks, full jump-source/per-window semantics, compatibility mappings, and terminal/GUI appearance parity"]
+capability_issue = "https://github.com/gongahkia/zenbu/issues/27"
+model = "vim"
+contents = "alpha"
+inputs = [":"]
+columns = 20
+rows = 5
+
+[expect]
+contents = "alpha"
+selections = ["0:0"]
+primary_selection = 0
+viewport_top_line = 0
+pane_count = 1
+status = "normal"
+trace = ["input:colon"]
+provenance = []
