@@ -165,6 +165,8 @@ type presentation_cache = {
   contents : string;
   source_lines : Zenbu_view.Display.source_line list;
   syntax_spans : Zenbu_view.Renderer.syntax_span list;
+  semantic_tokens : Lsp.semantic_token list;
+  semantic_spans : Zenbu_view.Renderer.semantic_span list;
 }
 
 type interaction =
@@ -275,6 +277,7 @@ type buffer = {
   saved_snapshot : File_io.snapshot option;
   language_client : Lsp.t option;
   diagnostics : Language.diagnostic list;
+  semantic_tokens : Lsp.semantic_token list;
   presentation_cache : presentation_cache option;
   search : search option;
   active_modes : string list;
@@ -321,6 +324,7 @@ type t = {
   interaction : interaction;
   language_client : Lsp.t option;
   diagnostics : Language.diagnostic list;
+  semantic_tokens : Lsp.semantic_token list;
   language_registry : Language.Registry.t;
   current_buffer_id : int;
   inactive_buffers : buffer list;
@@ -2032,6 +2036,7 @@ let create ~model ?language ?file_path ?(contents = "") ?trace ?profiler
                       interaction = Idle;
                       language_client;
                       diagnostics = [];
+                      semantic_tokens = [];
                       language_registry;
                       current_buffer_id = 0;
                       inactive_buffers = [];
@@ -2333,6 +2338,7 @@ let current_buffer session =
     saved_snapshot = session.saved_snapshot;
     language_client = session.language_client;
     diagnostics = session.diagnostics;
+    semantic_tokens = session.semantic_tokens;
     presentation_cache = session.presentation_cache;
     search = session.search;
     active_modes = session.active_modes;
@@ -2518,6 +2524,7 @@ let load_buffer ?(reset_interaction = true) session (buffer : buffer) =
       saved_snapshot = buffer.saved_snapshot;
       language_client = buffer.language_client;
       diagnostics = buffer.diagnostics;
+      semantic_tokens = buffer.semantic_tokens;
       presentation_cache = buffer.presentation_cache;
       search = buffer.search;
       active_modes = buffer.active_modes;
@@ -3307,6 +3314,7 @@ let replace_language_client session path =
         session with
         language_client = None;
         diagnostics = [];
+        semantic_tokens = [];
         message = Some ("syntax activation failed: " ^ Error.to_string error);
       }
   | Ok syntax_service -> (
@@ -3316,6 +3324,7 @@ let replace_language_client session path =
             session with
             language_client = None;
             diagnostics = [];
+            semantic_tokens = [];
             message = Some ("syntax activation failed: " ^ Error.to_string error);
           }
       | Ok active ->
@@ -3331,7 +3340,7 @@ let replace_language_client session path =
                   ~trace:(trace_of_active active)
                   ~profiler:(profiler_of_active active))
           in
-          { session with active; language_client; diagnostics = [] })
+          { session with active; language_client; diagnostics = []; semantic_tokens = [] })
 
 let observe_language_document_version session =
   Option.iter
@@ -3580,6 +3589,7 @@ let create_buffer session ~id ?file_path ?buffer_name ?language ?saved_snapshot
                   saved_snapshot;
                   language_client;
                   diagnostics = [];
+                  semantic_tokens = [];
                   presentation_cache = None;
                   search = None;
                   active_modes =
@@ -3612,6 +3622,7 @@ let show_new_buffer session (buffer : buffer) =
       saved_snapshot = buffer.saved_snapshot;
       language_client = buffer.language_client;
       diagnostics = buffer.diagnostics;
+      semantic_tokens = buffer.semantic_tokens;
       presentation_cache = buffer.presentation_cache;
       search = buffer.search;
       active_modes = buffer.active_modes;
@@ -4740,7 +4751,13 @@ let transaction_edits transaction =
 
 let synchronize_language_after_change session ~fallback_contents =
   match session.language_client with
-  | None -> session
+  | None ->
+      {
+        session with
+        diagnostics = [];
+        semantic_tokens = [];
+        presentation_cache = None;
+      }
   | Some client ->
       Lsp.set_execution_id client
         ~execution_id:
@@ -4767,7 +4784,8 @@ let synchronize_language_after_change session ~fallback_contents =
         ~contents:(Editor_context.contents (context session))
         ~document_version:(Editor_context.document_version (context session))
         ~edits;
-      { session with diagnostics = [] }
+      ignore (Lsp.request_semantic_tokens client);
+      { session with diagnostics = []; semantic_tokens = []; presentation_cache = None }
 
 let execute_active_effects ?augment_provenance session input effects =
   let result =
@@ -5297,7 +5315,14 @@ let execute_effects_in_active ?augment_provenance active input effects =
 
 let synchronize_buffer_after_change (buffer : buffer) ~fallback_contents =
   match buffer.language_client with
-  | None -> { buffer with diagnostics = []; search = None }
+  | None ->
+      {
+        buffer with
+        diagnostics = [];
+        semantic_tokens = [];
+        presentation_cache = None;
+        search = None;
+      }
   | Some client ->
       Lsp.set_execution_id client
         ~execution_id:
@@ -5326,7 +5351,14 @@ let synchronize_buffer_after_change (buffer : buffer) ~fallback_contents =
         ~document_version:
           (Editor_context.document_version (context_of_active buffer.active))
         ~edits;
-      { buffer with diagnostics = []; search = None }
+      ignore (Lsp.request_semantic_tokens client);
+      {
+        buffer with
+        diagnostics = [];
+        semantic_tokens = [];
+        presentation_cache = None;
+        search = None;
+      }
 
 let update_current_from_buffer session (buffer : buffer) =
   {
@@ -5340,6 +5372,7 @@ let update_current_from_buffer session (buffer : buffer) =
     saved_snapshot = buffer.saved_snapshot;
     language_client = buffer.language_client;
     diagnostics = buffer.diagnostics;
+    semantic_tokens = buffer.semantic_tokens;
     presentation_cache = buffer.presentation_cache;
     search = buffer.search;
     active_modes = buffer.active_modes;
@@ -5656,6 +5689,9 @@ let poll_active_language ?(background = false) session =
   let current_version = Editor_context.document_version (context session) in
   let handle session = function
     | Lsp.Initialized ->
+        Option.iter
+          (fun client -> ignore (Lsp.request_semantic_tokens client))
+          session.language_client;
         if background then session
         else { session with message = Some "language server ready" }
     | Lsp.Diagnostics { document_version = Some version; diagnostics }
@@ -5668,6 +5704,10 @@ let poll_active_language ?(background = false) session =
            information as current. *)
         { session with diagnostics }
     | Lsp.Diagnostics _ -> session
+    | Lsp.Semantic_tokens_result { document_version; tokens; _ }
+      when document_version = current_version ->
+        { session with semantic_tokens = tokens; presentation_cache = None }
+    | Lsp.Semantic_tokens_result _ -> session
     | Lsp.Hover_result { document_version; byte_offset; hover; _ }
       when document_version = current_version
            && byte_offset = primary_offset session
@@ -5853,6 +5893,7 @@ let poll_active_language ?(background = false) session =
     | Lsp.Request_failed { request_id; kind = Lsp.Code_action; _ }
       when background ->
         clear_code_action_request session ~request_id
+    | Lsp.Request_failed { kind = Lsp.Semantic_tokens; _ } -> session
     | Lsp.Request_failed _ when background -> session
     | Lsp.Request_failed { request_id; kind = Lsp.Code_action; reason; _ } ->
         {
@@ -5870,6 +5911,7 @@ let poll_active_language ?(background = false) session =
           | Lsp.Range_formatting -> "range formatting"
           | Lsp.Document_symbols -> "document symbols"
           | Lsp.Workspace_symbols -> "workspace symbols"
+          | Lsp.Semantic_tokens -> "semantic tokens"
           | Lsp.Rename -> "rename"
         in
         {
@@ -8127,6 +8169,8 @@ let invoke_host_palette_command ?(arguments = []) session input = function
           {
             session with
             diagnostics = [];
+            semantic_tokens = [];
+            presentation_cache = None;
             message = Some "language server restart requested";
           })
   | Language_hover -> begin_hover session
@@ -9543,11 +9587,13 @@ let handle_host session = function
                  (last_execution_of_active session.active));
           Lsp.restart client;
           Continue
-            {
-              session with
-              diagnostics = [];
-              message = Some "language server restart requested";
-            })
+          {
+            session with
+            diagnostics = [];
+            semantic_tokens = [];
+            presentation_cache = None;
+            message = Some "language server restart requested";
+          })
   | Language_hover -> Continue (begin_hover session)
   | Language_definition -> Continue (begin_definition session)
   | Language_complete -> Continue (begin_completion session)
@@ -9593,7 +9639,7 @@ let syntax_spans session =
   | Some snapshot ->
       Syntax.Highlight.spans snapshot
       |> List.map (fun span ->
-          {
+          ({
             Zenbu_view.Renderer.start_offset =
               Syntax.Highlight.start_offset span;
             stop_offset = Syntax.Highlight.stop_offset span;
@@ -9605,17 +9651,38 @@ let syntax_spans session =
               | Syntax.Highlight.Comment -> Zenbu_view.Renderer.Comment
               | Syntax.Highlight.Type -> Zenbu_view.Renderer.Type
               | Syntax.Highlight.Constructor -> Zenbu_view.Renderer.Constructor);
-          })
+          } : Zenbu_view.Renderer.syntax_span))
+
+let semantic_spans session =
+  session.semantic_tokens
+  |> List.map (fun (token : Lsp.semantic_token) ->
+      ({
+        Zenbu_view.Renderer.start_offset = token.start_offset;
+        stop_offset = token.stop_offset;
+        class_ =
+          (match token.class_ with
+          | Lsp.Namespace -> Zenbu_view.Renderer.Namespace
+          | Lsp.Type -> Semantic_type
+          | Lsp.Function -> Semantic_function
+          | Lsp.Variable -> Semantic_variable
+          | Lsp.Property -> Semantic_property
+          | Lsp.Modifier -> Semantic_modifier);
+      } : Zenbu_view.Renderer.semantic_span))
 
 let presentation_cache session =
   let contents = Editor_context.contents (context session) in
   match session.presentation_cache with
-  | Some cache when String.equal cache.contents contents -> cache
+  | Some cache
+    when String.equal cache.contents contents
+         && cache.semantic_tokens = session.semantic_tokens ->
+      cache
   | None | Some _ ->
       {
         contents;
         source_lines = Zenbu_view.Display.source_lines contents;
         syntax_spans = syntax_spans session;
+        semantic_tokens = session.semantic_tokens;
+        semantic_spans = semantic_spans session;
       }
 
 let search_ranges session =
@@ -10044,6 +10111,7 @@ let session_for_buffer session (buffer : buffer) =
       saved_snapshot = buffer.saved_snapshot;
       language_client = buffer.language_client;
       diagnostics = buffer.diagnostics;
+      semantic_tokens = buffer.semantic_tokens;
       presentation_cache = buffer.presentation_cache;
       search = buffer.search;
       active_modes = buffer.active_modes;
@@ -10101,6 +10169,7 @@ let render_pane session pane rectangle =
         ?overlay:(if focused then interaction_overlay session else None)
         ~source_lines:display_presentation.source_lines
         ~syntax_spans:display_presentation.syntax_spans
+        ~semantic_spans:display_presentation.semantic_spans
         ~search_ranges:(search_ranges display)
         ~diagnostic_ranges:(diagnostic_ranges display)
         ~fold_ranges:(fold_ranges_for_pane session pane)

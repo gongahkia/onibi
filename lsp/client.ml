@@ -219,6 +219,52 @@ let request_kind_name = function
   | Semantic_tokens -> "semantic-tokens"
   | Rename -> "rename"
 
+(* The protocol requires clients to advertise the semantic token types and
+   modifiers they understand. We retain only the small owned palette below,
+   but advertise the standard legend so a server can provide its normal
+   stream without being needlessly constrained. Unsupported classes are
+   validated then deliberately omitted from the renderer snapshot. *)
+let semantic_token_client_types =
+  [
+    "namespace";
+    "type";
+    "class";
+    "enum";
+    "interface";
+    "struct";
+    "typeParameter";
+    "parameter";
+    "variable";
+    "property";
+    "enumMember";
+    "event";
+    "function";
+    "method";
+    "macro";
+    "keyword";
+    "modifier";
+    "comment";
+    "string";
+    "number";
+    "regexp";
+    "operator";
+    "decorator";
+  ]
+
+let semantic_token_client_modifiers =
+  [
+    "declaration";
+    "definition";
+    "readonly";
+    "static";
+    "deprecated";
+    "abstract";
+    "async";
+    "modification";
+    "documentation";
+    "defaultLibrary";
+  ]
+
 let sync_name = function
   | No_sync -> "none"
   | Full -> "full"
@@ -875,7 +921,7 @@ let semantic_token_class token_type modifiers =
   | "type" | "class" | "enum" | "interface" | "struct" | "typeparameter" ->
       Some Type
   | "function" | "method" | "macro" -> Some Function
-  | "property" | "enumMember" | "event" -> Some Property
+  | "property" | "enummember" | "event" -> Some Property
   | "variable" | "parameter" when declared -> Some Modifier
   | "variable" | "parameter" -> Some Variable
   | "keyword" | "modifier" | "decorator" -> Some Modifier
@@ -891,7 +937,7 @@ let semantic_tokens_of_json ~contents ~encoding ~types ~modifiers = function
         else if Array.length data / 5 > max_semantic_tokens then
           Error "semantic token stream exceeds the configured limit"
         else
-          let rec decode index line character values =
+          let rec decode index line character last_stop values =
             if index = Array.length data then Ok (List.rev values)
             else
               let delta_line = data.(index) in
@@ -931,14 +977,18 @@ let semantic_tokens_of_json ~contents ~encoding ~types ~modifiers = function
                             (Language.Position.position_to_offset ~contents ~encoding
                                { line; character = character + length })
                             (fun stop_offset ->
-                              let values =
-                                match semantic_token_class token_type active_modifiers with
-                                | None -> values
-                                | Some class_ -> { start_offset; stop_offset; class_ } :: values
-                              in
-                              decode (index + 5) line character values))
+                              if start_offset < last_stop then
+                                Error "semantic token stream overlaps or is out of order"
+                              else
+                                let values =
+                                  match semantic_token_class token_type active_modifiers with
+                                  | None -> values
+                                  | Some class_ ->
+                                      { start_offset; stop_offset; class_ } :: values
+                                in
+                                decode (index + 5) line character stop_offset values))
           in
-          decode 0 0 0 []
+          decode 0 0 0 0 []
       with Jsonrpc.Json.Of_json (message, _) ->
         Error ("invalid semantic token response: " ^ message))
 
@@ -1062,8 +1112,12 @@ let client_capabilities () =
                 [
                   ("dynamicRegistration", `Bool false);
                   ("requests", assoc [ ("full", `Bool true) ]);
-                  ("tokenTypes", `List []);
-                  ("tokenModifiers", `List []);
+                  ( "tokenTypes",
+                    `List (List.map (fun value -> `String value) semantic_token_client_types) );
+                  ( "tokenModifiers",
+                    `List
+                      (List.map (fun value -> `String value)
+                         semantic_token_client_modifiers) );
                   ("formats", `List [ `String "relative" ]);
                   ("overlappingTokenSupport", `Bool false);
                   ("multilineTokenSupport", `Bool false);
