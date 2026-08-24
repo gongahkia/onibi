@@ -16,8 +16,6 @@ type response = (contribution, string) result
 
 type resolved = {
   provider_id : string;
-  priority : int;
-  ordinal : int;
   item : item;
 }
 
@@ -143,9 +141,9 @@ let collect ~contents ~document_id ~document_version responses =
       (fun (resolved, rejections, item_count, text_bytes)
            (contribution : contribution) ->
         contribution.items
-        |> List.mapi (fun ordinal item -> (ordinal, item))
+        |> List.mapi (fun _ordinal item -> item)
         |> List.fold_left
-             (fun (resolved, rejections, item_count, text_bytes) (ordinal, item) ->
+             (fun (resolved, rejections, item_count, text_bytes) item ->
                let next_item_count = item_count + 1 in
                let next_text_bytes = text_bytes + String.length (item_text item) in
                let anchor = item_anchor item in
@@ -174,8 +172,6 @@ let collect ~contents ~document_id ~document_version responses =
                    text_bytes )
                else
                  ( { provider_id = contribution.provider_id;
-                     priority = contribution.priority;
-                     ordinal;
                      item }
                    :: resolved,
                    rejections,
