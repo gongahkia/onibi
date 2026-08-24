@@ -49,6 +49,8 @@ type host_command =
   | Language_code_action
   | Language_format_document
   | Language_format_selection
+  | Language_document_symbols
+  | Language_workspace_symbols
   | Language_rename
   | Language_diagnostic_next
   | Language_diagnostic_previous
@@ -104,6 +106,7 @@ type inspection =
   | Language
   | Decorations
   | Code_actions
+  | Symbols
 
 type t
 type outcome = Continue of t | Exit of t

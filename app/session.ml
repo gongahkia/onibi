@@ -66,6 +66,8 @@ type host_command =
   | Language_code_action
   | Language_format_document
   | Language_format_selection
+  | Language_document_symbols
+  | Language_workspace_symbols
   | Language_rename
   | Language_diagnostic_next
   | Language_diagnostic_previous
@@ -121,6 +123,7 @@ type inspection =
   | Language
   | Decorations
   | Code_actions
+  | Symbols
 
 type search = {
   kind : search_kind;
@@ -206,6 +209,17 @@ type interaction =
       actions : Lsp.code_action list;
       selected : int;
     }
+  | Symbol_view of {
+      request_id : int;
+      document_id : string;
+      document_version : int;
+      scope : Lsp.symbol_scope;
+      project_root : string option;
+      query : string;
+      symbols : Lsp.symbol list;
+      selected : int;
+    }
+  | Workspace_symbol_prompt of string
   | Rename_prompt of string
 
 type mouse_drag =
@@ -1493,6 +1507,23 @@ let host_command_entries =
         palette = true;
       };
       {
+        command = Language_document_symbols;
+        descriptor =
+          language_descriptor "language.symbols" "Browse document symbols"
+            "Request bounded version-bound document symbols and navigate a \
+             selected range.";
+        palette = true;
+      };
+      {
+        command = Language_workspace_symbols;
+        descriptor =
+          language_descriptor "language.workspace-symbols"
+            "Browse workspace symbols"
+            "Query bounded workspace symbols beneath the selected project \
+             root; only open local targets may be selected.";
+        palette = true;
+      };
+      {
         command = Language_rename;
         descriptor =
           language_descriptor "language.rename" "Rename symbol"
@@ -2251,6 +2282,13 @@ let status session =
   | Code_action_view _ ->
       host_status ~id:"language-code-action" ~label:"ACTION"
         ~description:"choose a checked language code action; Escape cancels" ()
+  | Symbol_view _ ->
+      host_status ~id:"language-symbols" ~label:"SYMBOL"
+        ~description:"choose a bounded language symbol; Escape cancels" ()
+  | Workspace_symbol_prompt _ ->
+      host_status ~id:"language-workspace-symbols" ~label:"SYMBOL QUERY"
+        ~description:"enter a workspace-symbol query; Escape cancels"
+        ~text_entry:true ()
   | Rename_prompt _ ->
       host_status ~id:"language-rename" ~label:"RENAME"
         ~description:"enter a new symbol name; Enter requests rename"
@@ -3163,6 +3201,91 @@ let begin_range_formatting session =
   let stop_offset = max selection.anchor_offset selection.head_offset in
   request_language session (fun client ->
       Lsp.request_range_formatting client ~start_offset ~stop_offset)
+
+let begin_document_symbols session =
+  match session.language_client with
+  | None -> language_unavailable session
+  | Some client -> (
+      Lsp.set_execution_id client
+        ~execution_id:
+          (Option.value ~default:0 (last_execution_of_active session.active));
+      match Lsp.request_document_symbols client with
+      | Error reason ->
+          { session with message = Some ("language symbols failed: " ^ reason) }
+      | Ok request_id ->
+          let context = context session in
+          {
+            session with
+            interaction =
+              Symbol_view
+                {
+                  request_id;
+                  document_id = Editor_context.document_id context;
+                  document_version = Editor_context.document_version context;
+                  scope = Lsp.Document_symbols_scope;
+                  project_root = None;
+                  query = "";
+                  symbols = [];
+                  selected = 0;
+                };
+            message =
+              Some ("language symbols " ^ string_of_int request_id ^ " pending");
+            inspector = None;
+            quit_armed = false;
+          })
+
+let begin_workspace_symbols session =
+  match session.project_root with
+  | None ->
+      {
+        session with
+        message = Some "workspace symbols require a selected project root";
+        quit_armed = false;
+      }
+  | Some _ ->
+      {
+        session with
+        interaction = Workspace_symbol_prompt "";
+        message = Some "workspace symbols: enter a query";
+        inspector = None;
+        quit_armed = false;
+      }
+
+let request_workspace_symbols session query =
+  match (session.project_root, session.language_client) with
+  | None, _ -> begin_workspace_symbols session
+  | Some _, None -> language_unavailable session
+  | Some root, Some client -> (
+      Lsp.set_execution_id client
+        ~execution_id:
+          (Option.value ~default:0 (last_execution_of_active session.active));
+      match Lsp.request_workspace_symbols client ~query with
+      | Error reason ->
+          {
+            session with
+            message = Some ("workspace symbols failed: " ^ reason);
+          }
+      | Ok request_id ->
+          let context = context session in
+          {
+            session with
+            interaction =
+              Symbol_view
+                {
+                  request_id;
+                  document_id = Editor_context.document_id context;
+                  document_version = Editor_context.document_version context;
+                  scope = Lsp.Workspace_symbols_scope;
+                  project_root = Some (Project_root.path root);
+                  query;
+                  symbols = [];
+                  selected = 0;
+                };
+            message =
+              Some ("workspace symbols " ^ string_of_int request_id ^ " pending");
+            inspector = None;
+            quit_armed = false;
+          })
 
 let begin_rename session =
   match session.language_client with
@@ -5410,7 +5533,8 @@ let code_action_response_is_current session ~request_id ~document_version
   | Idle | Search_prompt _ | Palette _ | Command_line _ | Command_prompt _
   | Save_as_prompt _ | Open_buffer_prompt _ | File_picker _
   | Project_search_view _ | Query_replace _ | Model_picker _ | Help_view
-  | Hover_view _ | Completion_view _ | Rename_prompt _ ->
+  | Hover_view _ | Completion_view _ | Symbol_view _ | Workspace_symbol_prompt _
+  | Rename_prompt _ ->
       false
 
 let formatting_response_is_current session ~scope ~document_version
@@ -5436,6 +5560,85 @@ let formatting_effect_id = function
   | Lsp.Document -> "language.format"
   | Lsp.Range -> "language.format-selection"
 
+let symbol_response_is_current session ~request_id ~document_version ~scope =
+  match session.interaction with
+  | Symbol_view
+      {
+        request_id = expected_request_id;
+        document_id;
+        document_version = expected_document_version;
+        symbols = [];
+        scope = expected_scope;
+        _;
+      } ->
+      request_id = expected_request_id
+      && scope = expected_scope
+      && document_version = expected_document_version
+      && String.equal document_id (Editor_context.document_id (context session))
+      && document_version = Editor_context.document_version (context session)
+  | _ -> false
+
+let clear_symbol_request session ~request_id =
+  match session.interaction with
+  | Symbol_view { request_id = expected_request_id; _ }
+    when request_id = expected_request_id ->
+      { session with interaction = Idle }
+  | _ -> session
+
+let symbol_target session scope (symbol : Lsp.symbol) =
+  match scope with
+  | Lsp.Document_symbols_scope ->
+      if
+        Option.map
+          (fun path -> String.equal (Language.Uri.file_of_path path) symbol.uri)
+          session.file_path
+        |> Option.value ~default:false
+      then Ok session
+      else Error "document symbol target is not the current saved buffer"
+  | Lsp.Workspace_symbols_scope -> (
+      match (session.project_root, Language.Uri.path_of_file symbol.uri) with
+      | None, _ -> Error "workspace symbol requires a selected project root"
+      | Some _, Error reason ->
+          Error ("workspace symbol is not a local file: " ^ reason)
+      | Some root, Ok path when not (Project_root.contains root ~path) ->
+          Error "workspace symbol target is outside the selected project root"
+      | Some _, Ok path -> (
+          match
+            List.find_opt
+              (fun (buffer : buffer) -> buffer.file_path = Some path)
+              (current_buffer session :: session.inactive_buffers)
+          with
+          | None -> Error "workspace symbol target is not an open buffer"
+          | Some buffer -> Ok (show_buffer_in_focused_pane session buffer.id)))
+
+let accept_symbol session input ~document_id ~document_version ~scope symbol =
+  if
+    not
+      (String.equal document_id (Editor_context.document_id (context session))
+      && document_version = Editor_context.document_version (context session))
+  then
+    {
+      session with
+      interaction = Idle;
+      message = Some "symbol rejected: source snapshot is stale";
+    }
+  else
+    match symbol_target session scope symbol with
+    | Error reason ->
+        {
+          session with
+          interaction = Idle;
+          message = Some ("symbol rejected: " ^ reason);
+        }
+    | Ok session ->
+        select_definition session input
+          {
+            Language.uri = symbol.uri;
+            start_offset = symbol.start_offset;
+            stop_offset = symbol.stop_offset;
+          }
+          ("symbol: " ^ symbol.label)
+
 let clear_code_action_request session ~request_id =
   match session.interaction with
   | Code_action_view { request_id = expected_request_id; _ }
@@ -5445,7 +5648,8 @@ let clear_code_action_request session ~request_id =
   | Idle | Search_prompt _ | Palette _ | Command_line _ | Command_prompt _
   | Save_as_prompt _ | Open_buffer_prompt _ | File_picker _
   | Project_search_view _ | Query_replace _ | Model_picker _ | Help_view
-  | Hover_view _ | Completion_view _ | Rename_prompt _ ->
+  | Hover_view _ | Completion_view _ | Symbol_view _ | Workspace_symbol_prompt _
+  | Rename_prompt _ ->
       session
 
 let poll_active_language ?(background = false) session =
@@ -5575,6 +5779,36 @@ let poll_active_language ?(background = false) session =
               ("language " ^ formatting_label scope
              ^ " stale response discarded");
         }
+    | Lsp.Symbol_result { request_id; document_version; scope; query; symbols }
+      when (not background)
+           && symbol_response_is_current session ~request_id ~document_version
+                ~scope ->
+        if symbols = [] then
+          {
+            (clear_symbol_request session ~request_id) with
+            message = Some "language: no symbols found";
+          }
+        else
+          {
+            session with
+            interaction =
+              (match session.interaction with
+              | Symbol_view state -> Symbol_view { state with symbols }
+              | _ -> assert false);
+            message =
+              Some
+                ((match scope with
+                   | Lsp.Document_symbols_scope -> "document symbols"
+                   | Lsp.Workspace_symbols_scope -> "workspace symbols")
+                ^ " ready: " ^ query);
+          }
+    | Lsp.Symbol_result { request_id; _ } when background ->
+        clear_symbol_request session ~request_id
+    | Lsp.Symbol_result { request_id; _ } ->
+        {
+          (clear_symbol_request session ~request_id) with
+          message = Some "language: stale symbol response discarded";
+        }
     | Lsp.Rename_result { document_version; edits; _ }
       when document_version = current_version && not background -> (
         let input =
@@ -5634,6 +5868,8 @@ let poll_active_language ?(background = false) session =
           | Lsp.Code_action -> "code action"
           | Lsp.Document_formatting -> "formatting"
           | Lsp.Range_formatting -> "range formatting"
+          | Lsp.Document_symbols -> "document symbols"
+          | Lsp.Workspace_symbols -> "workspace symbols"
           | Lsp.Rename -> "rename"
         in
         {
@@ -6356,7 +6592,8 @@ let matching_completion_items items query =
 let language_host_command = function
   | Language_status | Language_restart | Language_hover | Language_definition
   | Language_complete | Language_code_action | Language_format_document
-  | Language_format_selection | Language_rename | Language_diagnostic_next
+  | Language_format_selection | Language_document_symbols
+  | Language_workspace_symbols | Language_rename | Language_diagnostic_next
   | Language_diagnostic_previous | Language_diagnostic_describe_current ->
       true
   | Save | Save_as | Save_layout | Restore_layout | Set_project_root
@@ -7898,6 +8135,8 @@ let invoke_host_palette_command ?(arguments = []) session input = function
   | Language_code_action -> begin_code_action session
   | Language_format_document -> begin_document_formatting session
   | Language_format_selection -> begin_range_formatting session
+  | Language_document_symbols -> begin_document_symbols session
+  | Language_workspace_symbols -> begin_workspace_symbols session
   | Language_rename -> begin_rename session
   | Language_diagnostic_next -> move_to_diagnostic session input 1
   | Language_diagnostic_previous -> move_to_diagnostic session input (-1)
@@ -8434,6 +8673,92 @@ let input_for_interaction session input =
               interaction =
                 Completion_view { items; selected = 0; query = query ^ text };
             })
+  | Workspace_symbol_prompt query -> (
+      if event_is_named input Input_event.Escape then
+        {
+          session with
+          interaction = Idle;
+          message = Some "workspace symbols cancelled";
+        }
+      else if event_is_named input Input_event.Enter then
+        request_workspace_symbols session query
+      else if event_is_named input Input_event.Backspace then
+        {
+          session with
+          interaction = Workspace_symbol_prompt (drop_last_utf8 query);
+        }
+      else
+        match event_text input with
+        | None -> session
+        | Some text ->
+            {
+              session with
+              interaction = Workspace_symbol_prompt (query ^ text);
+            })
+  | Symbol_view
+      {
+        request_id;
+        document_id;
+        document_version;
+        scope;
+        project_root;
+        query;
+        symbols;
+        selected;
+      } ->
+      if event_is_named input Input_event.Escape then (
+        Option.iter
+          (fun client ->
+            Lsp.cancel client
+              (match scope with
+              | Lsp.Document_symbols_scope -> Lsp.Document_symbols
+              | Lsp.Workspace_symbols_scope -> Lsp.Workspace_symbols))
+          session.language_client;
+        { session with interaction = Idle; message = Some "symbols cancelled" })
+      else if event_is_named input Input_event.Arrow_up then
+        {
+          session with
+          interaction =
+            Symbol_view
+              {
+                request_id;
+                document_id;
+                document_version;
+                scope;
+                project_root;
+                query;
+                symbols;
+                selected = max 0 (selected - 1);
+              };
+        }
+      else if event_is_named input Input_event.Arrow_down then
+        {
+          session with
+          interaction =
+            Symbol_view
+              {
+                request_id;
+                document_id;
+                document_version;
+                scope;
+                project_root;
+                query;
+                symbols;
+                selected = min (max 0 (List.length symbols - 1)) (selected + 1);
+              };
+        }
+      else if event_is_named input Input_event.Enter then
+        match List.nth_opt symbols selected with
+        | None ->
+            {
+              session with
+              interaction = Idle;
+              message = Some "symbol selection is unavailable";
+            }
+        | Some symbol ->
+            accept_symbol session input ~document_id ~document_version ~scope
+              symbol
+      else session
   | Code_action_view
       {
         request_id;
@@ -8645,6 +8970,8 @@ let cancel_language_for_pointer session =
           Lsp.Code_action;
           Lsp.Document_formatting;
           Lsp.Range_formatting;
+          Lsp.Document_symbols;
+          Lsp.Workspace_symbols;
         ])
     session.language_client;
   session
@@ -8697,8 +9024,8 @@ let handle_pointer session input =
       ( Search_prompt _ | Palette _ | Command_line _ | Command_prompt _
       | Save_as_prompt _ | Open_buffer_prompt _ | File_picker _
       | Project_search_view _ | Query_replace _ | Model_picker _ | Help_view
-      | Hover_view _ | Completion_view _ | Code_action_view _ | Rename_prompt _
-        ),
+      | Hover_view _ | Completion_view _ | Code_action_view _ | Symbol_view _
+      | Workspace_symbol_prompt _ | Rename_prompt _ ),
       _ ) ->
       { session with mouse_drag = None }
   | None, Idle, None -> session
@@ -8821,6 +9148,8 @@ let rec handle_input session input =
               Lsp.Code_action;
               Lsp.Document_formatting;
               Lsp.Range_formatting;
+              Lsp.Document_symbols;
+              Lsp.Workspace_symbols;
             ])
         completed.language_client;
       completed)
@@ -9225,6 +9554,8 @@ let handle_host session = function
   | Language_code_action -> Continue (begin_code_action session)
   | Language_format_document -> Continue (begin_document_formatting session)
   | Language_format_selection -> Continue (begin_range_formatting session)
+  | Language_document_symbols -> Continue (begin_document_symbols session)
+  | Language_workspace_symbols -> Continue (begin_workspace_symbols session)
   | Language_rename -> Continue (begin_rename session)
   | Language_diagnostic_next ->
       Continue
@@ -9372,7 +9703,8 @@ let model_choice_name = function
 let interaction_overlay session =
   match session.interaction with
   | Idle | Search_prompt _ | Command_line _ | Command_prompt _
-  | Save_as_prompt _ | Open_buffer_prompt _ | Rename_prompt _ ->
+  | Save_as_prompt _ | Open_buffer_prompt _ | Rename_prompt _
+  | Workspace_symbol_prompt _ ->
       None
   | Help_view -> Some (help_lines session)
   | Model_picker selected ->
@@ -9566,6 +9898,30 @@ let interaction_overlay session =
             "Arrow keys select; Enter stages checked edits; Escape cancels.";
             "Server commands are denied and never executed.";
           ])
+  | Symbol_view { scope; query; symbols; selected; _ } ->
+      let visible =
+        symbols
+        |> List.mapi (fun index (symbol : Lsp.symbol) ->
+            Printf.sprintf "%s%s%s"
+              (if index = selected then "> " else "  ")
+              symbol.label
+              (Option.map (fun detail -> " — " ^ detail) symbol.detail
+              |> Option.value ~default:""))
+        |> List.filteri (fun index _ -> index < 16)
+      in
+      Some
+        ([
+           (match scope with
+           | Lsp.Document_symbols_scope -> "Document symbols"
+           | Lsp.Workspace_symbols_scope -> "Workspace symbols");
+           "query: " ^ query;
+           "";
+         ]
+        @
+        if visible = [] then [ "  pending or no symbols" ]
+        else
+          visible
+          @ [ ""; "Arrow keys select; Enter navigates; Escape cancels." ])
 
 let interaction_message session =
   match session.interaction with
@@ -9595,6 +9951,8 @@ let interaction_message session =
   | Rename_prompt name -> Some ("rename: " ^ name)
   | Completion_view { query; _ } -> Some ("completion: " ^ query)
   | Code_action_view _ -> Some "code actions"
+  | Symbol_view _ -> Some "symbols"
+  | Workspace_symbol_prompt query -> Some ("workspace symbols: " ^ query)
   | Idle | Palette _ | Model_picker _ | Help_view | Hover_view _ ->
       session.message
 
@@ -10079,8 +10437,35 @@ let code_action_lines session =
   | Idle | Search_prompt _ | Palette _ | Command_line _ | Command_prompt _
   | Save_as_prompt _ | Open_buffer_prompt _ | File_picker _
   | Project_search_view _ | Query_replace _ | Model_picker _ | Help_view
-  | Hover_view _ | Completion_view _ | Rename_prompt _ ->
+  | Hover_view _ | Completion_view _ | Symbol_view _ | Workspace_symbol_prompt _
+  | Rename_prompt _ ->
       [ "Code actions"; "state: none"; "commands: deny all" ]
+
+let symbol_lines session =
+  match session.interaction with
+  | Symbol_view
+      { request_id; document_version; scope; project_root; query; symbols; _ }
+    ->
+      [
+        "Symbols";
+        "request: " ^ string_of_int request_id;
+        ("scope: "
+        ^
+        match scope with
+        | Lsp.Document_symbols_scope -> "document"
+        | Lsp.Workspace_symbols_scope -> "workspace");
+        "document version: " ^ string_of_int document_version;
+        "project root: " ^ Option.value ~default:"none" project_root;
+        "query: " ^ query;
+        "symbols: " ^ string_of_int (List.length symbols);
+        "limits: symbols=512 hierarchy-depth=32 text-bytes=256";
+      ]
+      @ List.map
+          (fun (symbol : Lsp.symbol) ->
+            Printf.sprintf "%s kind=%d byte=%d..%d uri=%s" symbol.label
+              symbol.kind symbol.start_offset symbol.stop_offset symbol.uri)
+          symbols
+  | _ -> [ "Symbols"; "state: none" ]
 
 let inspect session inspection =
   let format ~last_execution ~trace ~model_descriptor ~model_status ~rules
@@ -10136,7 +10521,8 @@ let inspect session inspection =
               | Save_as_prompt _ | Open_buffer_prompt _ | File_picker _
               | Project_search_view _ | Query_replace _ | Model_picker _
               | Help_view | Hover_view _ | Completion_view _
-              | Code_action_view _ | Rename_prompt _ ->
+              | Code_action_view _ | Symbol_view _ | Workspace_symbol_prompt _
+              | Rename_prompt _ ->
                   "prompt: closed");
             ])
     | Macros -> macro_lines session
@@ -10149,6 +10535,7 @@ let inspect session inspection =
     | File_watches -> file_watch_lines session
     | Decorations -> decoration_lines session
     | Code_actions -> code_action_lines session
+    | Symbols -> symbol_lines session
     | Api ->
         "API"
         :: Inspector.format_api

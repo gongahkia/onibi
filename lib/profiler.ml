@@ -26,6 +26,7 @@ type stage =
   | Language_completion
   | Language_code_action
   | Language_formatting
+  | Language_symbols
   | Language_rename
   | Lsp_decode
 
@@ -84,6 +85,7 @@ let stage_name = function
   | Language_completion -> "language.completion"
   | Language_code_action -> "language.code-action"
   | Language_formatting -> "language.formatting"
+  | Language_symbols -> "language.symbols"
   | Language_rename -> "language.rename"
   | Lsp_decode -> "lsp.decode"
 

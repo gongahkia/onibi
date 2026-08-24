@@ -97,8 +97,9 @@ and host dispatch as other providers:
 - `language.status` reports language/server id, executable, root, lifecycle,
   encoding, sync kind, pending request count, diagnostics count, and last error.
 - `language.restart`, `.hover`, `.definition`, `.complete`, `.code-action`,
-  `.format`, `.format-selection`, and `.rename` start the corresponding async
-  operation. Code actions and selection formatting use the primary selection;
+  `.format`, `.format-selection`, `.symbols`, `.workspace-symbols`, and
+  `.rename` start the corresponding async operation. Code actions and selection
+  formatting use the primary selection; workspace symbols prompt for a query;
   rename opens a text prompt.
 - `language.diagnostic.next`, `.previous`, and `.describe-current` navigate or
   describe current diagnostics with normal selection semantics.
@@ -152,9 +153,16 @@ are unchanged. Empty results report no change. Dirty buffers are formatted as
 their current in-memory snapshot; syntactic validity is left to the language
 server. Malformed, stale, or overlapping edits leave the buffer unchanged.
 
+`language.symbols` flattens `textDocument/documentSymbol` hierarchies in
+depth-first order, retaining ancestor labels and selection ranges. Results are
+bounded to 512 entries, depth 32, and 256 bytes per label/detail. Selecting a
+current document symbol uses the normal selection boundary. Workspace-symbol
+queries require an explicit project root; a result must resolve to an already
+open local buffer inside that root before selection. Duplicate labels remain
+separate entries by hierarchy/range; malformed or stale results are discarded.
+
 Zenbu does not coordinate external file changes, or provide project search,
-file watching, symbols, semantic tokens, or general workspace-edit resource
-operations.
+file watching, semantic tokens, or general workspace-edit resource operations.
 
 ## Inspection, testing, and trust
 

@@ -8,9 +8,12 @@ type request_kind =
   | Code_action
   | Document_formatting
   | Range_formatting
+  | Document_symbols
+  | Workspace_symbols
   | Rename
 
 type formatting_scope = Document | Range
+type symbol_scope = Document_symbols_scope | Workspace_symbols_scope
 
 type workspace_edit = {
   uri : string;
@@ -24,6 +27,16 @@ type code_action = {
   edits : workspace_edit list option;
   command : string option;
   disabled_reason : string option;
+}
+
+type symbol = {
+  label : string;
+  detail : string option;
+  kind : int;
+  uri : string;
+  start_offset : int;
+  stop_offset : int;
+  hierarchy : string list;
 }
 
 type event =
@@ -64,6 +77,13 @@ type event =
       start_offset : int;
       stop_offset : int;
       edits : workspace_edit list;
+    }
+  | Symbol_result of {
+      request_id : int;
+      document_version : int;
+      scope : symbol_scope;
+      query : string;
+      symbols : symbol list;
     }
   | Rename_result of {
       request_id : int;
@@ -121,6 +141,9 @@ val request_document_formatting : t -> (int, string) result
 
 val request_range_formatting :
   t -> start_offset:int -> stop_offset:int -> (int, string) result
+
+val request_document_symbols : t -> (int, string) result
+val request_workspace_symbols : t -> query:string -> (int, string) result
 
 val request_rename :
   t -> byte_offset:int -> new_name:string -> (int, string) result

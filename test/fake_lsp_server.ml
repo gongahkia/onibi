@@ -23,6 +23,8 @@ let formatting_noop = ref false
 let formatting_malformed = ref false
 let formatting_conflict = ref false
 let formatting_error = ref false
+let delay_symbols = ref false
+let invalid_symbols = ref false
 
 let options =
   [
@@ -81,6 +83,12 @@ let options =
     ( "--formatting-error",
       Arg.Set formatting_error,
       "return a formatting server error" );
+    ( "--delay-symbols",
+      Arg.Set delay_symbols,
+      "delay symbol responses to exercise cancellation and staleness" );
+    ( "--invalid-symbols",
+      Arg.Set invalid_symbols,
+      "return a symbol with an invalid range" );
   ]
 
 let () = Arg.parse options (fun _ -> ()) "fake_lsp_server"
@@ -269,6 +277,8 @@ let initialized_result () =
             ("codeActionProvider", `Bool true);
             ("documentFormattingProvider", `Bool true);
             ("documentRangeFormattingProvider", `Bool true);
+            ("documentSymbolProvider", `Bool true);
+            ("workspaceSymbolProvider", `Bool true);
             ("renameProvider", `Bool true);
           ] );
     ]
@@ -578,6 +588,48 @@ let () =
             else edits
           in
           response id (`List edits)
+    | Some "textDocument/documentSymbol", Some id ->
+        if !delay_symbols then ignore (Unix.select [] [] [] 0.15);
+        let symbol_range =
+          if !invalid_symbols then range 99 0 99 1 else range 0 0 0 1
+        in
+        response id
+          (`List
+             [
+               `Assoc
+                 [
+                   ("name", `String "Top");
+                   ("kind", `Int 12);
+                   ("range", symbol_range);
+                   ("selectionRange", symbol_range);
+                   ( "children",
+                     `List
+                       [
+                         `Assoc
+                           [
+                             ("name", `String "Child");
+                             ("kind", `Int 6);
+                             ("range", range 0 0 0 1);
+                             ("selectionRange", range 0 0 0 1);
+                           ];
+                       ] );
+                 ];
+             ])
+    | Some "workspace/symbol", Some id ->
+        if !delay_symbols then ignore (Unix.select [] [] [] 0.15);
+        response id
+          (`List
+             [
+               `Assoc
+                 [
+                   ("name", `String "Workspace");
+                   ("kind", `Int 12);
+                   ("containerName", `String "Fake");
+                   ( "location",
+                     `Assoc [ ("uri", `String !uri); ("range", range 0 0 0 1) ]
+                   );
+                 ];
+             ])
     | Some "textDocument/rename", Some id ->
         if !delay_rename then ignore (Unix.select [] [] [] 0.15);
         let new_name =
@@ -636,7 +688,8 @@ let () =
     | Some "exit", None -> exit 0
     | Some "$/cancelRequest", None -> ()
     | _, Some id ->
-        response id (`Assoc [ ("error", `String "unexpected request") ])
+        response_error id
+          ("unexpected request: " ^ Option.value ~default:"none" method_)
     | _ -> ());
     if !initialized then loop () else loop ()
   in

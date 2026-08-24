@@ -130,6 +130,8 @@ let inside root path =
     let prefix = root.path ^ Filename.dir_sep in
     String.length path > String.length prefix && String.starts_with ~prefix path
 
+let contains root ~path = inside root path
+
 let resolve root ~relative_path =
   if not (relative_path_is_safe relative_path) then
     error "path rejected" relative_path

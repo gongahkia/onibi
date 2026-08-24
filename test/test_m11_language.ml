@@ -49,10 +49,11 @@ let wait_for client predicate =
           | Completion_result _ -> "completion"
           | Code_action_result _ -> "code-action"
           | Formatting_result _ -> "formatting"
+          | Symbol_result _ -> "symbols"
           | Rename_result _ -> "rename"
           | Apply_edit _ -> "apply-edit"
           | Server_message _ -> "message"
-          | Request_failed _ -> "request-failed"
+          | Request_failed { reason; _ } -> "request-failed:" ^ reason
           | Server_failed _ -> "server-failed"
           | Server_exited _ -> "server-exited")
       in
@@ -225,6 +226,22 @@ let feature_test () =
              | Lsp.Formatting_result { scope = Lsp.Range; edits = _ :: _; _ } ->
                  true
              | _ -> false)));
+      ignore (Lsp.request_document_symbols client |> must);
+      ignore
+        (wait_for client
+           (List.exists (function
+             | Lsp.Symbol_result
+                 { scope = Lsp.Document_symbols_scope; symbols = _ :: _; _ } ->
+                 true
+             | _ -> false)));
+      ignore (Lsp.request_workspace_symbols client ~query:"fake" |> must);
+      ignore
+        (wait_for client
+           (List.exists (function
+             | Lsp.Symbol_result
+                 { scope = Lsp.Workspace_symbols_scope; symbols = _ :: _; _ } ->
+                 true
+             | _ -> false)));
       ignore
         (Lsp.request_rename client ~byte_offset:0 ~new_name:"renamed" |> must);
       ignore
@@ -363,6 +380,54 @@ let malformed_formatting_response_test () =
              | _ -> false)
            events)
         "a malformed formatting response was accepted")
+
+let stale_symbol_response_test () =
+  let client = start [ "--delay-symbols" ] "old" in
+  Fun.protect
+    ~finally:(fun () -> Lsp.close client)
+    (fun () ->
+      wait_ready client;
+      ignore (Lsp.request_document_symbols client |> must);
+      Lsp.notify_change client ~source_contents:"old" ~contents:"new"
+        ~document_version:1
+        ~edits:
+          [
+            { Language.start_offset = 0; stop_offset = 3; replacement = "new" };
+          ];
+      let deadline = Unix.gettimeofday () +. 0.4 in
+      let rec collect values =
+        if Unix.gettimeofday () >= deadline then values
+        else (
+          ignore (Unix.select [ Lsp.wakeup_fd client ] [] [] 0.05);
+          collect (values @ Lsp.drain client))
+      in
+      expect
+        (not
+           (List.exists
+              (function Lsp.Symbol_result _ -> true | _ -> false)
+              (collect [])))
+        "late symbol response was not discarded after a document edit")
+
+let invalid_symbol_response_test () =
+  let client = start [ "--invalid-symbols" ] "abc" in
+  Fun.protect
+    ~finally:(fun () -> Lsp.close client)
+    (fun () ->
+      wait_ready client;
+      ignore (Lsp.request_document_symbols client |> must);
+      let events =
+        wait_for client
+          (List.exists (function
+            | Lsp.Request_failed { kind = Lsp.Document_symbols; _ } -> true
+            | _ -> false))
+      in
+      expect
+        (List.exists
+           (function
+             | Lsp.Request_failed { kind = Lsp.Document_symbols; _ } -> true
+             | _ -> false)
+           events)
+        "an invalid symbol range was accepted")
 
 let code_action_resource_rejection_test () =
   let client = start [ "--code-action-resource" ] "resource" in
@@ -759,6 +824,33 @@ let formatting_server_failure_test () =
       expect
         (String.equal (Zenbu_app.Session.contents session) contents)
         "a formatting server failure did not leave the document unchanged")
+
+let document_symbol_session_test () =
+  let session = session [] "abc\n" in
+  Fun.protect
+    ~finally:(fun () -> Zenbu_app.Session.close session)
+    (fun () ->
+      let session =
+        wait_session session (fun session ->
+            Zenbu_app.Session.inspect session Zenbu_app.Session.Language
+            |> List.exists (String.equal "state: ready"))
+      in
+      let session = host session Zenbu_app.Session.Language_document_symbols in
+      let session =
+        wait_session session (fun session ->
+            Zenbu_app.Session.inspect session Zenbu_app.Session.Symbols
+            |> List.exists (String.equal "symbols: 2"))
+      in
+      let session = Zenbu_app.Session.handle_input session enter in
+      let primary =
+        Zenbu_model_api.Editor_context.selections
+          (Zenbu_app.Session.context session)
+        |> fun selections ->
+        List.nth selections.selections selections.primary_index
+      in
+      expect
+        (primary.anchor_offset = 0 && primary.head_offset = 1)
+        "selecting a document symbol did not navigate through host selection")
 
 let code_action_session_test () =
   let session = session [] "abc abc\n" in
@@ -1365,6 +1457,8 @@ let () =
   stale_formatting_response_test ();
   formatting_cancellation_test ();
   malformed_formatting_response_test ();
+  stale_symbol_response_test ();
+  invalid_symbol_response_test ();
   code_action_resource_rejection_test ();
   crash_restart_test ();
   malformed_server_test ();
@@ -1376,6 +1470,7 @@ let () =
   formatting_dirty_invalid_syntax_test ();
   formatting_conflict_session_test ();
   formatting_server_failure_test ();
+  document_symbol_session_test ();
   code_action_session_test ();
   code_action_cancellation_test ();
   code_action_command_denial_test ();

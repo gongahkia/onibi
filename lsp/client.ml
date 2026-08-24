@@ -11,9 +11,12 @@ type request_kind =
   | Code_action
   | Document_formatting
   | Range_formatting
+  | Document_symbols
+  | Workspace_symbols
   | Rename
 
 type formatting_scope = Document | Range
+type symbol_scope = Document_symbols_scope | Workspace_symbols_scope
 
 type workspace_edit = {
   uri : string;
@@ -26,6 +29,16 @@ type code_action = {
   edits : workspace_edit list option;
   command : string option;
   disabled_reason : string option;
+}
+
+type symbol = {
+  label : string;
+  detail : string option;
+  kind : int;
+  uri : string;
+  start_offset : int;
+  stop_offset : int;
+  hierarchy : string list;
 }
 
 type event =
@@ -67,6 +80,13 @@ type event =
       stop_offset : int;
       edits : workspace_edit list;
     }
+  | Symbol_result of {
+      request_id : int;
+      document_version : int;
+      scope : symbol_scope;
+      query : string;
+      symbols : symbol list;
+    }
   | Rename_result of {
       request_id : int;
       document_version : int;
@@ -96,6 +116,7 @@ type pending = {
   workspace_documents : (string * string) list;
   byte_offset : int option;
   stop_offset : int option;
+  symbol_query : string option;
   mutable cancelled : bool;
   started_at : float;
 }
@@ -150,6 +171,9 @@ let max_message_bytes = 8 * 1024 * 1024
 let max_hover_bytes = 16 * 1024
 let max_completion_items = 1_024
 let max_code_action_items = 128
+let max_symbol_items = 512
+let max_symbol_depth = 32
+let max_symbol_text = 256
 let max_diagnostics = 1_024
 let max_stderr_bytes = 16 * 1024
 let max_message_bytes_for_ui = 2_048
@@ -167,6 +191,8 @@ let request_kind_name = function
   | Code_action -> "code-action"
   | Document_formatting -> "formatting"
   | Range_formatting -> "range-formatting"
+  | Document_symbols -> "document-symbols"
+  | Workspace_symbols -> "workspace-symbols"
   | Rename -> "rename"
 
 let sync_name = function
@@ -686,6 +712,138 @@ let formatting_edits_of_json ~current_uri ~contents ~encoding = function
         Error ("invalid formatting edit: " ^ message))
   | _ -> Error "invalid formatting result: expected an edit list or null"
 
+let symbol_name json =
+  match field "name" json with
+  | Some (`String name) ->
+      let name = trim_text max_symbol_text name in
+      if String.length name = 0 then Error "symbol has an empty name"
+      else Ok name
+  | _ -> Error "symbol has no name"
+
+let symbol_kind json =
+  match field "kind" json with
+  | Some (`Int kind) when kind >= 1 -> Ok kind
+  | _ -> Error "symbol has no valid kind"
+
+let symbol_detail json =
+  match field "detail" json with
+  | Some (`String detail) ->
+      let detail = trim_text max_symbol_text detail in
+      if String.length detail = 0 then None else Some detail
+  | _ -> None
+
+let offsets_of_symbol_range ~contents ~encoding range =
+  try Lsp.Types.Range.t_of_yojson range |> range_of_lsp ~contents ~encoding
+  with Jsonrpc.Json.Of_json (message, _) ->
+    Error ("symbol has an invalid range: " ^ message)
+
+let symbol_range ~contents ~encoding json =
+  match field "selectionRange" json with
+  | Some range -> offsets_of_symbol_range ~contents ~encoding range
+  | None -> (
+      match field "range" json with
+      | Some range -> offsets_of_symbol_range ~contents ~encoding range
+      | None -> Error "symbol has no range")
+
+let rec document_symbol_nodes ~current_uri ~contents ~encoding ~hierarchy =
+  function
+  | [] -> Ok []
+  | json :: rest ->
+      if List.length hierarchy >= max_symbol_depth then
+        Error "document symbol hierarchy exceeds the depth limit"
+      else
+        Result.bind (symbol_name json) (fun name ->
+            Result.bind (symbol_kind json) (fun kind ->
+                Result.bind (symbol_range ~contents ~encoding json)
+                  (fun (start_offset, stop_offset) ->
+                    let children =
+                      match field "children" json with
+                      | None -> Ok []
+                      | Some (`List children) ->
+                          document_symbol_nodes ~current_uri ~contents ~encoding
+                            ~hierarchy:(hierarchy @ [ name ]) children
+                      | Some _ -> Error "document symbol children are invalid"
+                    in
+                    Result.bind children (fun children ->
+                        Result.bind
+                          (document_symbol_nodes ~current_uri ~contents
+                             ~encoding ~hierarchy rest) (fun rest ->
+                            let label =
+                              String.concat " › " (hierarchy @ [ name ])
+                            in
+                            Ok
+                              ({
+                                 label;
+                                 detail = symbol_detail json;
+                                 kind;
+                                 uri = current_uri;
+                                 start_offset;
+                                 stop_offset;
+                                 hierarchy;
+                               }
+                               :: children
+                              @ rest))))))
+
+let document_symbols_of_json ~current_uri ~contents ~encoding = function
+  | `Null -> Ok []
+  | `List values ->
+      document_symbol_nodes ~current_uri ~contents ~encoding ~hierarchy:[]
+        values
+      |> Result.map (fun values ->
+          if List.length values > max_symbol_items then
+            List.filteri (fun index _ -> index < max_symbol_items) values
+          else values)
+  | json ->
+      Error
+        ("invalid document-symbol result: expected a list or null: "
+        ^ trim_text 512 (Yojson.Safe.to_string json))
+
+let workspace_symbol_of_json ~contents ~encoding json =
+  Result.bind (symbol_name json) (fun name ->
+      Result.bind (symbol_kind json) (fun kind ->
+          match field "location" json with
+          | Some location -> (
+              match field "uri" location with
+              | Some (`String uri) ->
+                  Result.bind (symbol_range ~contents ~encoding location)
+                    (fun (start_offset, stop_offset) ->
+                      let hierarchy =
+                        match field "containerName" json with
+                        | Some (`String name) when String.length name > 0 ->
+                            [ trim_text max_symbol_text name ]
+                        | _ -> []
+                      in
+                      Ok
+                        {
+                          label = String.concat " › " (hierarchy @ [ name ]);
+                          detail = symbol_detail json;
+                          kind;
+                          uri;
+                          start_offset;
+                          stop_offset;
+                          hierarchy;
+                        })
+              | _ -> Error "workspace symbol location has no URI")
+          | None -> Error "workspace symbol has no location"))
+
+let workspace_symbols_of_json ~contents ~encoding = function
+  | `Null -> Ok []
+  | `List values ->
+      let values =
+        if List.length values > max_symbol_items then
+          List.filteri (fun index _ -> index < max_symbol_items) values
+        else values
+      in
+      let rec collect values result =
+        match values with
+        | [] -> Ok (List.rev result)
+        | value :: rest ->
+            Result.bind (workspace_symbol_of_json ~contents ~encoding value)
+              (fun value -> collect rest (value :: result))
+      in
+      collect values []
+  | _ -> Error "invalid workspace-symbol result: expected a list or null"
+
 let code_action_of_lsp ~current_uri ~contents ~workspace_documents ~encoding =
   function
   | `Command command ->
@@ -799,6 +957,8 @@ let client_capabilities () =
                   ("isPreferredSupport", `Bool false);
                   ("disabledSupport", `Bool true);
                 ] );
+            ( "documentSymbol",
+              assoc [ ("hierarchicalDocumentSymbolSupport", `Bool true) ] );
             ("formatting", assoc [ ("dynamicRegistration", `Bool false) ]);
             ("rangeFormatting", assoc [ ("dynamicRegistration", `Bool false) ]);
             ("publishDiagnostics", assoc [ ("relatedInformation", `Bool false) ]);
@@ -808,6 +968,7 @@ let client_capabilities () =
           [
             ("configuration", `Bool true);
             ("workspaceEdit", assoc [ ("documentChanges", `Bool false) ]);
+            ("symbol", assoc [ ("dynamicRegistration", `Bool false) ]);
           ] );
     ]
 
@@ -889,8 +1050,8 @@ let send_configuration t =
       notify t ~method_:"workspace/didChangeConfiguration"
         ~params:[ ("settings", data_to_json settings) ]
 
-let send_request ?byte_offset ?stop_offset t kind ~document_version ~contents
-    ~params =
+let send_request ?byte_offset ?stop_offset ?symbol_query t kind
+    ~document_version ~contents ~params =
   let pending =
     Mutex.lock t.lock;
     let result =
@@ -908,6 +1069,7 @@ let send_request ?byte_offset ?stop_offset t kind ~document_version ~contents
               workspace_documents = t.workspace_documents;
               byte_offset;
               stop_offset;
+              symbol_query;
               cancelled = false;
               started_at = Unix.gettimeofday ();
             }
@@ -930,6 +1092,8 @@ let send_request ?byte_offset ?stop_offset t kind ~document_version ~contents
         | Feature Code_action -> "textDocument/codeAction"
         | Feature Document_formatting -> "textDocument/formatting"
         | Feature Range_formatting -> "textDocument/rangeFormatting"
+        | Feature Document_symbols -> "textDocument/documentSymbol"
+        | Feature Workspace_symbols -> "workspace/symbol"
         | Feature Rename -> "textDocument/rename"
       in
       match
@@ -1030,6 +1194,7 @@ let feature_stage = function
   | Completion -> Profiler.Language_completion
   | Code_action -> Profiler.Language_code_action
   | Document_formatting | Range_formatting -> Profiler.Language_formatting
+  | Document_symbols | Workspace_symbols -> Profiler.Language_symbols
   | Rename -> Profiler.Language_rename
 
 let feature_response t pending result =
@@ -1175,7 +1340,7 @@ let feature_response t pending result =
                               | Document_formatting -> Document
                               | Range_formatting -> Range
                               | Hover | Definition | Completion | Code_action
-                              | Rename ->
+                              | Document_symbols | Workspace_symbols | Rename ->
                                   assert false);
                             start_offset =
                               Option.value ~default:(-1) pending.byte_offset;
@@ -1185,6 +1350,34 @@ let feature_response t pending result =
                           })
                       (formatting_edits_of_json ~current_uri:t.uri
                          ~contents:pending.contents
+                         ~encoding:t.position_encoding json)
+                | Document_symbols ->
+                    Result.map
+                      (fun symbols ->
+                        Symbol_result
+                          {
+                            request_id = pending.id;
+                            document_version = pending.document_version;
+                            scope = Document_symbols_scope;
+                            query = "";
+                            symbols;
+                          })
+                      (document_symbols_of_json ~current_uri:t.uri
+                         ~contents:pending.contents
+                         ~encoding:t.position_encoding json)
+                | Workspace_symbols ->
+                    Result.map
+                      (fun symbols ->
+                        Symbol_result
+                          {
+                            request_id = pending.id;
+                            document_version = pending.document_version;
+                            scope = Workspace_symbols_scope;
+                            query =
+                              Option.value ~default:"" pending.symbol_query;
+                            symbols;
+                          })
+                      (workspace_symbols_of_json ~contents:pending.contents
                          ~encoding:t.position_encoding json)
                 | Rename ->
                     Result.map
@@ -1870,7 +2063,8 @@ let request_formatting t kind ~start_offset ~stop_offset =
           match kind with
           | Document_formatting -> []
           | Range_formatting -> [ ("range", range_json range) ]
-          | Hover | Definition | Completion | Code_action | Rename ->
+          | Hover | Definition | Completion | Code_action | Document_symbols
+          | Workspace_symbols | Rename ->
               assert false
         in
         send_request ~byte_offset:start_offset ~stop_offset t (Feature kind)
@@ -1884,6 +2078,30 @@ let request_document_formatting t =
 
 let request_range_formatting t ~start_offset ~stop_offset =
   request_formatting t Range_formatting ~start_offset ~stop_offset
+
+let request_document_symbols t =
+  Mutex.lock t.lock;
+  let state = t.state in
+  let contents = t.current_contents in
+  let document_version = t.document_version in
+  Mutex.unlock t.lock;
+  if state <> Language.Ready then Error "language server is unavailable"
+  else
+    send_request t (Feature Document_symbols) ~document_version ~contents
+      ~params:[ ("textDocument", assoc [ ("uri", `String t.uri) ]) ]
+
+let request_workspace_symbols t ~query =
+  let query = trim_text max_symbol_text query in
+  Mutex.lock t.lock;
+  let state = t.state in
+  let contents = t.current_contents in
+  let document_version = t.document_version in
+  Mutex.unlock t.lock;
+  if state <> Language.Ready then Error "language server is unavailable"
+  else
+    send_request ~symbol_query:query t (Feature Workspace_symbols)
+      ~document_version ~contents
+      ~params:[ ("query", `String query) ]
 
 let request_rename t ~byte_offset ~new_name =
   if String.length new_name = 0 then Error "rename target must not be empty"
