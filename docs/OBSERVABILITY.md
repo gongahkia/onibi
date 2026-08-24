@@ -188,9 +188,10 @@ events retain the matching structured error text. See [extensions](EXTENSIONS.md
 `wasm-component` keeps generic extension callback/provenance events and adds
 optional `Extension_runtime` observations for Component compile, instantiate,
 register, and call stages. Each event retains provider, runtime identifier,
-stage, outcome, bounded reason, CPU duration, operation where applicable, and
-fuel consumed where Wasmtime reports it. The inspector formats these through the
-same `why` surface; it does not expose a store, linker, pointer, or guest value.
+stage, outcome, bounded reason, elapsed call duration, operation where
+applicable, and fuel consumed where Wasmtime reports it. The inspector formats
+these through the same `why` surface; it does not expose a store, linker,
+pointer, worker, or guest value.
 
 The profiler keeps generic `extension.command`, `.selector`,
 `.transformation`, and `.event` samples, plus bounded
@@ -199,9 +200,11 @@ These observations do not affect semantic equality or replay. Component
 resource/ABI/trap errors remain structured extension errors and are visible in
 plugin inspection and normal error tracing. See [the isolation policy](ISOLATION.md).
 
-After a fatal Component callback (fuel exhaustion, memory limit, or trap), M10
-marks runtime health `unavailable`. Plugins inspection exposes that state; a
-repeated callback returns structured `extension-runtime-unavailable` before
-guest entry. Reload follows normal extension lifecycle staging and restores
-`healthy` only when the new generation succeeds. This transition never changes
-the document or disables unrelated models/plugins.
+After a fatal Component callback (fuel exhaustion, memory limit, trap, or
+deadline), M10 marks runtime health `unavailable`. Plugins inspection exposes
+that state; a repeated callback returns structured
+`extension-runtime-unavailable` before guest entry. Reload follows normal
+extension lifecycle staging and restores `healthy` only when the new generation
+succeeds. Worker cancellation from reload, unload, or session shutdown is
+discarded rather than reported as a replacement-generation failure. This
+transition never changes the document or disables unrelated models/plugins.

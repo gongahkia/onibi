@@ -67,5 +67,6 @@ val view_contributions : view -> Contribution.t list
 val view_registered_ids : view -> string list
 val view_error : view -> Zenbu_kernel.Error.t option
 val view_runtime_limits : view -> (int * int) option
+val view_runtime_deadline_ms : view -> int option
 val state_name : state -> string
 val health_name : health -> string

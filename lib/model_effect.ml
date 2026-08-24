@@ -58,6 +58,7 @@ type t =
       selector_id : string;
       action : selection_action;
     }
+  | Await_extension of int
   | Invoke_command of Command_invocation.t
   | Emit_message of message
   | Copy_to_clipboard of {
@@ -108,12 +109,12 @@ let selector_id = function
   | Execute_semantic_operation operation ->
       Some (Semantic_operation.selector_id operation.selector)
   | Apply_to_selections { selector_id; _ } -> Some selector_id
-  | Invoke_command _ | Emit_message _ | Copy_to_clipboard _ | Cut_to_clipboard _
-  | Paste_from_clipboard _ | Paste_from_kill_ring _ | Request_search _
-  | Repeat_search _ | Request_macro _ | Request_location _ | Request_jump _
-  | Request_workspace _ | Request_viewport _ | Request_external_filter _
-  | Request_background_process _ | Request_save | Undo | Redo | Repeat_last_edit
-    ->
+  | Await_extension _ | Invoke_command _ | Emit_message _ | Copy_to_clipboard _
+  | Cut_to_clipboard _ | Paste_from_clipboard _ | Paste_from_kill_ring _
+  | Request_search _ | Repeat_search _ | Request_macro _ | Request_location _
+  | Request_jump _ | Request_workspace _ | Request_viewport _
+  | Request_external_filter _ | Request_background_process _ | Request_save
+  | Undo | Redo | Repeat_last_edit ->
       None
 
 let transformation_id = function
@@ -129,12 +130,12 @@ let transformation_id = function
         (Zenbu_kernel.Transformation.name
            (Model_intent.transformation_to_kernel transformation))
   | Apply_to_selections { action = Copy _; _ } -> None
-  | Invoke_command _ | Emit_message _ | Copy_to_clipboard _ | Cut_to_clipboard _
-  | Paste_from_clipboard _ | Paste_from_kill_ring _ | Request_search _
-  | Repeat_search _ | Request_macro _ | Request_location _ | Request_jump _
-  | Request_workspace _ | Request_viewport _ | Request_external_filter _
-  | Request_background_process _ | Request_save | Undo | Redo | Repeat_last_edit
-    ->
+  | Await_extension _ | Invoke_command _ | Emit_message _ | Copy_to_clipboard _
+  | Cut_to_clipboard _ | Paste_from_clipboard _ | Paste_from_kill_ring _
+  | Request_search _ | Repeat_search _ | Request_macro _ | Request_location _
+  | Request_jump _ | Request_workspace _ | Request_viewport _
+  | Request_external_filter _ | Request_background_process _ | Request_save
+  | Undo | Redo | Repeat_last_edit ->
       None
 
 let identity = function
@@ -151,6 +152,7 @@ let identity = function
           ^ Zenbu_kernel.Transformation.name
               (Model_intent.transformation_to_kernel transformation)
       | Copy _ -> ":copy")
+  | Await_extension id -> "await-extension:" ^ string_of_int id
   | Invoke_command invocation ->
       "invoke " ^ Command_id.to_string (Command_invocation.id invocation)
   | Emit_message _ -> "emit-message"
@@ -222,6 +224,7 @@ let describe = function
             ^ Clipboard.slot_name slot
       in
       "apply " ^ selector_id ^ " with " ^ action
+  | Await_extension id -> "await extension callback " ^ string_of_int id
   | Invoke_command invocation ->
       "invoke " ^ Command_id.to_string (Command_invocation.id invocation)
   | Emit_message { level; text } ->

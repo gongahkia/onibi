@@ -8,20 +8,19 @@ process is invulnerable.
 ## Boundary
 
 One active Component generation owns one private Wasmtime engine, store,
-Component linker, compiled Component, and instance. Zenbu creates them during
-staging and disposes the old generation only after a replacement stages. No
-Wasmtime handle crosses the private `zenbu.extension` adapter boundary.
+Component linker, compiled Component, instance, and worker. Zenbu creates them
+during staging and disposes the old generation only after a replacement stages.
+The worker is the sole store user; no Wasmtime handle crosses the private
+`zenbu.extension` adapter boundary.
 
 ```text
-Component callback
+terminal/session main thread
+        ↓ data-only deferred request + shared wakeup fd
+private Component worker → Wasmtime store/Component
         ↓ typed WIT value
-private Wasm adapter
-        ↓ Extension_value
 Extension_host capability/decode checks
         ↓ Model_effect / Semantic_behavior
-Model_runtime
-        ↓ validated Transaction
-Document + History
+Model_runtime → validated Transaction → Document + History
 ```
 
 The Component has no document pointer, mutable editor value, transaction,
@@ -70,11 +69,12 @@ defect in Wasmtime, the C bridge, the kernel, or the OS.
 
 ## Resource policy
 
-The default policy is one 16 MiB store memory limit and 5,000,000 fuel units
-for each `register` and `invoke`. A `wasm-component` manifest may supply
-positive `wasm.fuel` and `wasm.memory_bytes` values. Fuel is reset before every
-callback. The private store limiter also limits table elements to 10,000,
-instances to 16, tables to 64, and memories to 64.
+The default policy is one 16 MiB store memory limit, 5,000,000 fuel units per
+`register`/`invoke`, and a 1,000 ms elapsed deadline. A `wasm-component`
+manifest may supply positive `wasm.fuel`, `wasm.memory_bytes`, and
+`wasm.deadline_ms`; the optional deadline defaults to 1,000. Fuel is reset
+before every callback. The private store limiter also limits table elements to
+10,000, instances to 16, tables to 64, and memories to 64.
 
 Component output has independent host-side quotas:
 
@@ -85,16 +85,21 @@ Component output has independent host-side quotas:
 
 Exceeding a quota is `extension-response-limit`, before any action is
 interpreted. Fuel exhaustion is `extension-fuel-exhausted`, memory growth is
-`extension-memory-exhausted`, traps are `extension-trap`, and ABI/link errors
-are `extension-abi-mismatch`. A guest-declared `result` error or malformed
-value remains `extension-runtime-error`.
+`extension-memory-exhausted`, traps are `extension-trap`, deadlines are
+`extension-deadline-exhausted`, and ABI/link errors are
+`extension-abi-mismatch`. A guest-declared `result` error or malformed value
+remains `extension-runtime-error`.
 
-Fuel bounds guest instructions, including an infinite guest loop. Calls are
-synchronous and M9 does not provide an epoch-based hard wall-clock deadline,
-asynchronous worker, or cancellation API. Component compilation is also
-synchronous. A resource failure rejects that invocation and never commits a
-partial transaction. M10 records fatal fuel/memory/trap callback failure as
-runtime health `unavailable`; later callbacks return
+Fuel bounds guest instructions, including an infinite guest loop. The watchdog
+uses Wasmtime's generation-local epoch to interrupt an elapsed callback; session
+close, replacement, and unload cancel and join pending work. Commands and
+events run off the terminal thread, while selectors, transformations, and model
+callbacks still wait for their worker at the current semantic API boundary.
+Component compilation is also synchronous. Completion returns as data only and
+must match the source document id, version, and contents before it is decoded
+or committed. A resource failure rejects that invocation and never commits a
+partial transaction. M10 records fatal fuel/memory/trap/deadline callback
+failure as runtime health `unavailable`; later callbacks return
 `extension-runtime-unavailable` before guest entry. Ordinary editor input
 remains usable. Explicit reload stages a fresh generation and restores
 `healthy` only after successful construction.
@@ -110,8 +115,9 @@ package fails.
 M9 does not defend against vulnerabilities in Wasmtime or Zenbu's native
 dependencies, malicious native code already loaded into the process, kernel or
 OS compromise, side channels, speculative-execution attacks, or denial of
-service outside the bounded synchronous guest call. It does not claim formal
-memory-leak freedom from lifecycle stress testing.
+service outside a guest callback. It does not claim formal memory-leak freedom
+from lifecycle stress testing. The worker/cancellation path is verified on
+Linux x86_64; macOS parity remains separate work.
 
 ## Lua and Components
 

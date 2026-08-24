@@ -65,6 +65,8 @@ and extension_error_code =
   | Extension_fuel_exhausted
   | Extension_memory_exhausted
   | Extension_trap
+  | Extension_deadline_exhausted
+  | Extension_cancelled
   | Extension_response_limit
   | Extension_runtime_unavailable
 
@@ -84,6 +86,8 @@ let extension_error_code_name = function
   | Extension_fuel_exhausted -> "extension-fuel-exhausted"
   | Extension_memory_exhausted -> "extension-memory-exhausted"
   | Extension_trap -> "extension-trap"
+  | Extension_deadline_exhausted -> "extension-deadline-exhausted"
+  | Extension_cancelled -> "extension-cancelled"
   | Extension_response_limit -> "extension-response-limit"
   | Extension_runtime_unavailable -> "extension-runtime-unavailable"
 

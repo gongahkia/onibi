@@ -35,6 +35,7 @@ type view = {
   registered_ids : string list;
   error : Error.t option;
   runtime_limits : (int * int) option;
+  runtime_deadline_ms : int option;
 }
 
 type t = { config : config; active : active list; failures : failure list }
@@ -165,6 +166,10 @@ let generation_runtime_limits = function
       let limits = Wasm.limits generation in
       Some (limits.fuel, limits.memory_bytes)
 
+let generation_runtime_deadline_ms = function
+  | Lua _ -> None
+  | Wasm generation -> Some (Wasm.limits generation).deadline_ms
+
 let generation_health = function
   | Lua _ -> Healthy
   | Wasm generation -> (
@@ -220,6 +225,7 @@ let stage ~base_commands ~base_semantics manifest =
                         {
                           fuel = manifest_limits.fuel;
                           memory_bytes = manifest_limits.memory_bytes;
+                          deadline_ms = manifest_limits.deadline_ms;
                         }
                 in
                 Wasm.load ~provider ~capabilities ~contributions ~base_commands
@@ -509,6 +515,7 @@ let view_of_active (active : active) =
     registered_ids = registered_ids active;
     error;
     runtime_limits = generation_runtime_limits active.generation;
+    runtime_deadline_ms = generation_runtime_deadline_ms active.generation;
   }
 
 let view_of_failure (failure : failure) =
@@ -519,6 +526,7 @@ let view_of_failure (failure : failure) =
     registered_ids = [];
     error = Some failure.error;
     runtime_limits = None;
+    runtime_deadline_ms = None;
   }
 
 let views value =
@@ -554,3 +562,4 @@ let view_contributions value =
 let view_registered_ids value = value.registered_ids
 let view_error value = value.error
 let view_runtime_limits value = value.runtime_limits
+let view_runtime_deadline_ms value = value.runtime_deadline_ms

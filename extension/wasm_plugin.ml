@@ -1,6 +1,7 @@
 open Zenbu_kernel
 open Zenbu_model_api
 module Backend = Wasmtime_backend
+module Async = Wasmtime_async
 module Host = Extension_host
 module Registration = Extension_registration
 
@@ -16,7 +17,7 @@ type definition = {
   event : string;
 }
 
-type limits = { fuel : int; memory_bytes : int }
+type limits = { fuel : int; memory_bytes : int; deadline_ms : int }
 type health = Healthy | Unavailable of Error.t
 
 let max_registrations = 128
@@ -26,7 +27,7 @@ let max_edits = 4_096
 
 let default_limits =
   let value = Backend.default_limits in
-  { fuel = value.fuel; memory_bytes = value.memory_bytes }
+  { fuel = value.fuel; memory_bytes = value.memory_bytes; deadline_ms = 1_000 }
 
 type runtime_event = {
   stage : string;
@@ -39,7 +40,7 @@ type runtime_event = {
 
 type t = {
   provider : Provider.t;
-  backend : Backend.t;
+  runtime : Async.t;
   commands : Command.t list;
   semantic_behaviors : Semantic_behavior_registry.t;
   bindings : Registration.binding list;
@@ -72,6 +73,12 @@ let runtime_error_code message =
     Error.Extension_fuel_exhausted
   else if contains ~substring:"component response exceeds Zenbu limit" message
   then Error.Extension_response_limit
+  else if
+    contains ~substring:"component deadline exhausted" message
+    || contains ~substring:"epoch deadline" message
+  then Error.Extension_deadline_exhausted
+  else if contains ~substring:"component call was cancelled" message then
+    Error.Extension_cancelled
   else if
     contains ~substring:"memory allocation denied" message
     || contains ~substring:"cannot grow memory" message
@@ -106,6 +113,9 @@ let runtime_message code message =
       "component exceeded its memory limit (memory allocation denied); reload \
        the plugin"
   | Error.Extension_trap -> "component trapped (wasm trap); reload the plugin"
+  | Error.Extension_deadline_exhausted ->
+      "component exceeded its wall-clock deadline; reload the plugin"
+  | Error.Extension_cancelled -> "component callback was cancelled"
   | _ -> bounded_message message
 
 let extension_error provider capabilities ?operation message =
@@ -145,7 +155,7 @@ let failure_needs_reload = function
       {
         code =
           ( Error.Extension_fuel_exhausted | Error.Extension_memory_exhausted
-          | Error.Extension_trap );
+          | Error.Extension_trap | Error.Extension_deadline_exhausted );
         _;
       } ->
       true
@@ -607,16 +617,21 @@ let request_value request =
 
 let load ~(limits : limits) ~provider ~capabilities ~contributions
     ~base_commands ~base_semantics ~entrypoint =
-  let backend_limits =
-    Backend.{ fuel = limits.fuel; memory_bytes = limits.memory_bytes }
+  let runtime_limits =
+    Async.
+      {
+        fuel = limits.fuel;
+        memory_bytes = limits.memory_bytes;
+        deadline_ms = limits.deadline_ms;
+      }
   in
-  match Backend.load ~entrypoint ~capabilities ~limits:backend_limits with
+  match Async.create ~entrypoint ~capabilities ~limits:runtime_limits with
   | Error message ->
       Error (extension_error provider capabilities ~operation:"load" message)
-  | Ok backend -> (
+  | Ok (runtime, initialization) ->
       let runtime_events = Queue.create () in
       let health = ref Healthy in
-      let metrics = Backend.metrics backend in
+      let metrics = initialization.metrics in
       Queue.add
         {
           stage = "compile";
@@ -638,349 +653,352 @@ let load ~(limits : limits) ~provider ~capabilities ~contributions
         }
         runtime_events;
       let dispose_on_error error =
-        Backend.dispose backend;
+        Async.close runtime;
         Error error
       in
-      match Backend.register backend with
-      | Error message ->
-          let metrics = Backend.metrics backend in
-          Queue.add
-            {
-              stage = "register";
-              operation = None;
-              outcome = "failed";
-              duration_seconds = metrics.call_seconds;
-              fuel_consumed = Some metrics.fuel_consumed;
-              reason = Some message;
-            }
-            runtime_events;
-          dispose_on_error
-            (extension_error provider capabilities ~operation:"register" message)
-      | Ok registrations ->
-          let metrics = Backend.metrics backend in
-          Queue.add
-            {
-              stage = "register";
-              operation = None;
-              outcome = "succeeded";
-              duration_seconds = metrics.call_seconds;
-              fuel_consumed = Some metrics.fuel_consumed;
-              reason = None;
-            }
-            runtime_events;
-          Result.bind (definitions ~provider ~capabilities registrations)
-            (fun definitions ->
-              let callbacks = Hashtbl.create (List.length definitions) in
-              List.iter
-                (fun definition ->
-                  Hashtbl.replace callbacks definition.callback ())
-                definitions;
-              let host =
-                Host.create ~runtime:"wasm-component"
-                  ~invoke:(fun invocation request ->
-                    let token = Host.invocation_token invocation in
-                    if not (Hashtbl.mem callbacks token) then
+      Queue.add
+        {
+          stage = "register";
+          operation = None;
+          outcome = "succeeded";
+          duration_seconds = metrics.call_seconds;
+          fuel_consumed = Some metrics.fuel_consumed;
+          reason = None;
+        }
+        runtime_events;
+      Result.bind
+        (definitions ~provider ~capabilities initialization.registrations)
+        (fun definitions ->
+          let callbacks = Hashtbl.create (List.length definitions) in
+          List.iter
+            (fun definition -> Hashtbl.replace callbacks definition.callback ())
+            definitions;
+          let host =
+            Host.create ~runtime:"wasm-component"
+              ~invoke:(fun invocation request ->
+                let token = Host.invocation_token invocation in
+                if not (Hashtbl.mem callbacks token) then
+                  Error
+                    (extension_error provider capabilities
+                       ~operation:request.operation
+                       "component callback is no longer available")
+                else
+                  match !health with
+                  | Unavailable error ->
                       Error
-                        (extension_error provider capabilities
-                           ~operation:request.operation
-                           "component callback is no longer available")
-                    else
-                      match !health with
-                      | Unavailable error ->
-                          Error
-                            (runtime_unavailable provider capabilities
-                               ~operation:request.operation error)
-                      | Healthy ->
-                          let result =
-                            Backend.invoke backend ~token
-                              ~request:(request_value request)
-                          in
-                          let metrics = Backend.metrics backend in
-                          let result =
-                            result
+                        (runtime_unavailable provider capabilities
+                           ~operation:request.operation error)
+                  | Healthy -> (
+                      let finish result metrics =
+                        let result =
+                          result
+                          |> Result.map_error (fun message ->
+                              extension_error provider capabilities
+                                ~operation:request.operation message)
+                        in
+                        Result.iter_error
+                          (fun error ->
+                            if failure_needs_reload error then
+                              health := Unavailable error)
+                          result;
+                        Queue.add
+                          {
+                            stage = "call";
+                            operation = Some request.operation;
+                            outcome =
+                              (match result with
+                              | Ok _ -> "succeeded"
+                              | Error _ -> "failed");
+                            duration_seconds = metrics.Async.call_seconds;
+                            fuel_consumed = Some metrics.fuel_consumed;
+                            reason =
+                              (match result with
+                              | Ok _ -> None
+                              | Error error -> Some (Error.to_string error));
+                          }
+                          runtime_events;
+                        result
+                      in
+                      let request_value = request_value request in
+                      match request.kind with
+                      | Host.Command | Host.Event ->
+                          Ok
+                            (Host.deferred ~start:(fun () ->
+                                 Async.start runtime ~token
+                                   ~request:request_value
+                                 |> Result.map_error (fun message ->
+                                     extension_error provider capabilities
+                                       ~operation:request.operation message)
+                                 |> Result.map (fun call ->
+                                     Host.call
+                                       ~wakeup_fd:(Async.wakeup_fd runtime)
+                                       ~closed:(fun () -> Async.closed runtime)
+                                       ~take:(fun () ->
+                                         Async.take runtime call
+                                         |> Option.map (fun (result, metrics) ->
+                                             finish result metrics))
+                                       ~cancel:(fun () ->
+                                         Async.cancel runtime call))))
+                      | Host.Selector | Host.Transformation | Host.Model ->
+                          Result.bind
+                            (Async.invoke_blocking runtime ~token
+                               ~request:request_value
                             |> Result.map_error (fun message ->
                                 extension_error provider capabilities
-                                  ~operation:request.operation message)
-                          in
-                          Result.iter_error
-                            (fun error ->
-                              if failure_needs_reload error then
-                                health := Unavailable error)
-                            result;
-                          Queue.add
-                            {
-                              stage = "call";
-                              operation = Some request.operation;
-                              outcome =
-                                (match result with
-                                | Ok _ -> "succeeded"
-                                | Error _ -> "failed");
-                              duration_seconds = metrics.call_seconds;
-                              fuel_consumed = Some metrics.fuel_consumed;
-                              reason =
-                                (match result with
-                                | Ok _ -> None
-                                | Error error -> Some (Error.to_string error));
-                            }
-                            runtime_events;
-                          result)
-              in
-              let contribution_allowed name = List.mem name contributions in
-              let namespaced id =
-                Provider.plugin_id provider
-                |> Option.map (fun plugin_id ->
-                    String.starts_with ~prefix:(plugin_id ^ ".") id)
-                |> Option.value ~default:false
-              in
-              let command_registry = ref base_commands in
-              let semantic_registry = ref Semantic_behavior_registry.empty in
-              let descriptors = ref [] in
-              let commands = ref [] in
-              let bindings = ref [] in
-              let hooks = ref [] in
-              let failed = ref None in
-              let fail error =
-                if Option.is_none !failed then failed := Some error
-              in
-              let require_contribution name =
-                if contribution_allowed name then Ok ()
-                else Error (contribution_error provider capabilities name)
-              in
-              let register_descriptor descriptor =
-                let id = Semantic_descriptor.id descriptor in
-                if
-                  List.exists
-                    (fun existing ->
-                      String.equal (Semantic_descriptor.id existing) id)
-                    !descriptors
-                  || List.exists
-                       (fun existing ->
-                         String.equal (Semantic_descriptor.id existing) id)
-                       base_semantics
-                then fail (Error.Duplicate_descriptor id)
-                else descriptors := !descriptors @ [ descriptor ]
-              in
-              let invocation definition =
-                Host.invocation ~token:definition.callback ~provider
-                  ~granted:capabilities
-              in
-              List.iter
-                (fun definition ->
-                  if Option.is_none !failed then
-                    match definition.contribution with
-                    | "commands" ->
-                        Result.bind
-                          (Result.bind
-                             (Result.bind (require_contribution "commands")
-                                (fun () ->
-                                  if not (namespaced definition.id) then
-                                    Error
-                                      (namespace_error provider capabilities
-                                         definition.id)
-                                  else Command_id.of_string definition.id))
-                             (fun id ->
-                               Command_descriptor.create ~id
-                                 ~title:definition.title
-                                 ~description:definition.description ~provider
-                                 ()))
-                          (fun descriptor ->
-                            let command =
-                              Command.create_extension_effectful ~descriptor
-                                ~host ~invocation:(invocation definition)
-                                ~decode:(actions provider capabilities)
+                                  ~operation:request.operation message))
+                            (fun (result, metrics) ->
+                              finish result metrics
+                              |> Result.map (fun value -> Host.Immediate value))
+                      ))
+          in
+          let contribution_allowed name = List.mem name contributions in
+          let namespaced id =
+            Provider.plugin_id provider
+            |> Option.map (fun plugin_id ->
+                String.starts_with ~prefix:(plugin_id ^ ".") id)
+            |> Option.value ~default:false
+          in
+          let command_registry = ref base_commands in
+          let semantic_registry = ref Semantic_behavior_registry.empty in
+          let descriptors = ref [] in
+          let commands = ref [] in
+          let bindings = ref [] in
+          let hooks = ref [] in
+          let failed = ref None in
+          let fail error =
+            if Option.is_none !failed then failed := Some error
+          in
+          let require_contribution name =
+            if contribution_allowed name then Ok ()
+            else Error (contribution_error provider capabilities name)
+          in
+          let register_descriptor descriptor =
+            let id = Semantic_descriptor.id descriptor in
+            if
+              List.exists
+                (fun existing ->
+                  String.equal (Semantic_descriptor.id existing) id)
+                !descriptors
+              || List.exists
+                   (fun existing ->
+                     String.equal (Semantic_descriptor.id existing) id)
+                   base_semantics
+            then fail (Error.Duplicate_descriptor id)
+            else descriptors := !descriptors @ [ descriptor ]
+          in
+          let invocation definition =
+            Host.invocation ~token:definition.callback ~provider
+              ~granted:capabilities
+          in
+          List.iter
+            (fun definition ->
+              if Option.is_none !failed then
+                match definition.contribution with
+                | "commands" ->
+                    Result.bind
+                      (Result.bind
+                         (Result.bind (require_contribution "commands")
+                            (fun () ->
+                              if not (namespaced definition.id) then
+                                Error
+                                  (namespace_error provider capabilities
+                                     definition.id)
+                              else Command_id.of_string definition.id))
+                         (fun id ->
+                           Command_descriptor.create ~id ~title:definition.title
+                             ~description:definition.description ~provider ()))
+                      (fun descriptor ->
+                        let command =
+                          Command.create_extension_effectful ~descriptor ~host
+                            ~invocation:(invocation definition)
+                            ~decode:(actions provider capabilities)
+                        in
+                        Command_registry.register !command_registry command
+                        |> Result.map (fun registry ->
+                            command_registry := registry;
+                            commands := !commands @ [ command ]))
+                    |> Result.iter_error fail
+                | "selectors" ->
+                    Result.bind
+                      (Result.bind (require_contribution "selectors") (fun () ->
+                           if not (namespaced definition.id) then
+                             Error
+                               (namespace_error provider capabilities
+                                  definition.id)
+                           else
+                             Semantic_descriptor.create ~id:definition.id
+                               ~title:definition.title
+                               ~description:definition.description ~provider
+                               ~kind:Semantic_descriptor.Selector
+                               ~requires_syntax:definition.requires_syntax ()))
+                      (fun descriptor ->
+                        register_descriptor descriptor;
+                        match !failed with
+                        | Some error -> Error error
+                        | None ->
+                            let entry =
+                              Semantic_behavior.extension_selector_entry
+                                ~descriptor ~host
+                                ~invocation:(invocation definition)
+                                ~decode:(fun _ ->
+                                  behavior_selection provider capabilities)
                             in
-                            Command_registry.register !command_registry command
+                            Semantic_behavior_registry.register_selector
+                              !semantic_registry entry
                             |> Result.map (fun registry ->
-                                command_registry := registry;
-                                commands := !commands @ [ command ]))
-                        |> Result.iter_error fail
-                    | "selectors" ->
-                        Result.bind
-                          (Result.bind (require_contribution "selectors")
-                             (fun () ->
-                               if not (namespaced definition.id) then
-                                 Error
-                                   (namespace_error provider capabilities
-                                      definition.id)
-                               else
-                                 Semantic_descriptor.create ~id:definition.id
-                                   ~title:definition.title
-                                   ~description:definition.description ~provider
-                                   ~kind:Semantic_descriptor.Selector
-                                   ~requires_syntax:definition.requires_syntax
-                                   ()))
-                          (fun descriptor ->
-                            register_descriptor descriptor;
-                            match !failed with
-                            | Some error -> Error error
-                            | None ->
-                                let entry =
-                                  Semantic_behavior.extension_selector_entry
-                                    ~descriptor ~host
-                                    ~invocation:(invocation definition)
-                                    ~decode:(fun _ ->
-                                      behavior_selection provider capabilities)
-                                in
-                                Semantic_behavior_registry.register_selector
-                                  !semantic_registry entry
-                                |> Result.map (fun registry ->
-                                    semantic_registry := registry))
-                        |> Result.iter_error fail
-                    | "transformations" ->
-                        Result.bind
-                          (Result.bind (require_contribution "transformations")
-                             (fun () ->
-                               if not (namespaced definition.id) then
-                                 Error
-                                   (namespace_error provider capabilities
-                                      definition.id)
-                               else
-                                 Semantic_descriptor.create ~id:definition.id
-                                   ~title:definition.title
-                                   ~description:definition.description ~provider
-                                   ~kind:Semantic_descriptor.Transformation
-                                   ~requires_syntax:definition.requires_syntax
-                                   ()))
-                          (fun descriptor ->
-                            register_descriptor descriptor;
-                            match !failed with
-                            | Some error -> Error error
-                            | None ->
-                                let entry =
-                                  Semantic_behavior
-                                  .extension_transformation_entry ~descriptor
-                                    ~host ~invocation:(invocation definition)
-                                    ~decode:(fun _ ->
-                                      behavior_transformation provider
-                                        capabilities)
-                                in
-                                Semantic_behavior_registry
-                                .register_transformation !semantic_registry
-                                  entry
-                                |> Result.map (fun registry ->
-                                    semantic_registry := registry))
-                        |> Result.iter_error fail
-                    | "bindings" ->
-                        Result.bind (require_contribution "bindings") (fun () ->
-                            if not (namespaced definition.id) then
-                              Error
-                                (namespace_error provider capabilities
-                                   definition.id)
-                            else
-                              Result.bind
-                                (inputs_of_string provider capabilities
-                                   definition.input) (function
-                                | [] ->
-                                    Error
-                                      (extension_error provider capabilities
-                                         ~operation:"registration"
-                                         "binding sequence must not be empty")
-                                | head :: tail ->
-                                    Result.bind
-                                      (scope_of_string provider capabilities
-                                         definition.scope) (fun scope ->
-                                        if
-                                          List.exists reserved_host_pattern
-                                            (head :: tail)
-                                        then
-                                          Error
-                                            (extension_error provider
-                                               capabilities
-                                               ~operation:"registration"
-                                               "reserved host input cannot \
-                                                appear in a binding")
-                                        else
-                                          Result.bind
-                                            (Command_id.of_string definition.id)
-                                            (fun command ->
-                                              Command_registry.find
-                                                !command_registry command)
-                                          |> Result.map (fun _ ->
-                                              Registration.binding_sequence
-                                                ~mode_transition:None ~head
-                                                ~tail ~command:definition.id
-                                                ~scope ~text_argument:None
-                                                ~provider))))
-                        |> fun candidate ->
-                        Result.bind candidate (fun binding ->
-                            let duplicate =
-                              List.exists
-                                (Registration.bindings_conflict binding)
-                                !bindings
+                                semantic_registry := registry))
+                    |> Result.iter_error fail
+                | "transformations" ->
+                    Result.bind
+                      (Result.bind (require_contribution "transformations")
+                         (fun () ->
+                           if not (namespaced definition.id) then
+                             Error
+                               (namespace_error provider capabilities
+                                  definition.id)
+                           else
+                             Semantic_descriptor.create ~id:definition.id
+                               ~title:definition.title
+                               ~description:definition.description ~provider
+                               ~kind:Semantic_descriptor.Transformation
+                               ~requires_syntax:definition.requires_syntax ()))
+                      (fun descriptor ->
+                        register_descriptor descriptor;
+                        match !failed with
+                        | Some error -> Error error
+                        | None ->
+                            let entry =
+                              Semantic_behavior.extension_transformation_entry
+                                ~descriptor ~host
+                                ~invocation:(invocation definition)
+                                ~decode:(fun _ ->
+                                  behavior_transformation provider capabilities)
                             in
-                            if duplicate then
-                              Error
-                                (extension_error provider capabilities
-                                   ~operation:"registration"
-                                   "duplicate component binding")
-                            else (
-                              bindings := !bindings @ [ binding ];
-                              Ok ()))
-                        |> Result.iter_error fail
-                    | "events" ->
-                        Result.bind (require_contribution "events") (fun () ->
-                            if not (List.mem "event.subscribe" capabilities)
-                            then
-                              Error
-                                (Error.Extension_error
-                                   {
-                                     code = Error.Capability_denied;
-                                     plugin_id = Provider.plugin_id provider;
-                                     provider = Some (Provider.id provider);
-                                     operation = Some "event.subscribe";
-                                     required = Some "event.subscribe";
-                                     granted = capabilities;
-                                     message = "event subscription was denied";
-                                   })
-                            else
-                              event_of_string provider capabilities
-                                definition.event)
-                        |> Result.map (fun event ->
-                            let callback = invocation definition in
-                            Registration.hook ~event ~provider
-                              ~run:(fun context ->
-                                let event =
-                                  match event with
-                                  | Registration.Document_changed ->
-                                      "document-changed"
-                                  | Registration.After_save -> "after-save"
-                                in
-                                let request =
-                                  Host.request callback ~kind:Host.Event
-                                    ~operation:"event.deliver" ~context
-                                    ~arguments:
-                                      (Extension_value.Record
-                                         [
-                                           ("event", Extension_value.Text event);
-                                         ])
-                                in
+                            Semantic_behavior_registry.register_transformation
+                              !semantic_registry entry
+                            |> Result.map (fun registry ->
+                                semantic_registry := registry))
+                    |> Result.iter_error fail
+                | "bindings" ->
+                    Result.bind (require_contribution "bindings") (fun () ->
+                        if not (namespaced definition.id) then
+                          Error
+                            (namespace_error provider capabilities definition.id)
+                        else
+                          Result.bind
+                            (inputs_of_string provider capabilities
+                               definition.input) (function
+                            | [] ->
+                                Error
+                                  (extension_error provider capabilities
+                                     ~operation:"registration"
+                                     "binding sequence must not be empty")
+                            | head :: tail ->
                                 Result.bind
-                                  (Host.invoke host callback request)
-                                  (actions provider capabilities request)))
-                        |> Result.map (fun hook -> hooks := !hooks @ [ hook ])
-                        |> Result.iter_error fail
-                    | unknown ->
-                        fail
-                          (extension_error provider capabilities
-                             ~operation:"register"
-                             ("unknown component contribution " ^ unknown)))
-                definitions;
-              match !failed with
-              | Some error -> dispose_on_error error
-              | None ->
-                  Ok
-                    {
-                      provider;
-                      backend;
-                      commands = !commands;
-                      semantic_behaviors = !semantic_registry;
-                      bindings = !bindings;
-                      hooks = !hooks;
-                      descriptors = !descriptors;
-                      limits;
-                      health;
-                      runtime_events;
-                    }))
+                                  (scope_of_string provider capabilities
+                                     definition.scope) (fun scope ->
+                                    if
+                                      List.exists reserved_host_pattern
+                                        (head :: tail)
+                                    then
+                                      Error
+                                        (extension_error provider capabilities
+                                           ~operation:"registration"
+                                           "reserved host input cannot appear \
+                                            in a binding")
+                                    else
+                                      Result.bind
+                                        (Command_id.of_string definition.id)
+                                        (fun command ->
+                                          Command_registry.find
+                                            !command_registry command)
+                                      |> Result.map (fun _ ->
+                                          Registration.binding_sequence
+                                            ~mode_transition:None ~head ~tail
+                                            ~command:definition.id ~scope
+                                            ~text_argument:None ~provider))))
+                    |> fun candidate ->
+                    Result.bind candidate (fun binding ->
+                        let duplicate =
+                          List.exists
+                            (Registration.bindings_conflict binding)
+                            !bindings
+                        in
+                        if duplicate then
+                          Error
+                            (extension_error provider capabilities
+                               ~operation:"registration"
+                               "duplicate component binding")
+                        else (
+                          bindings := !bindings @ [ binding ];
+                          Ok ()))
+                    |> Result.iter_error fail
+                | "events" ->
+                    Result.bind (require_contribution "events") (fun () ->
+                        if not (List.mem "event.subscribe" capabilities) then
+                          Error
+                            (Error.Extension_error
+                               {
+                                 code = Error.Capability_denied;
+                                 plugin_id = Provider.plugin_id provider;
+                                 provider = Some (Provider.id provider);
+                                 operation = Some "event.subscribe";
+                                 required = Some "event.subscribe";
+                                 granted = capabilities;
+                                 message = "event subscription was denied";
+                               })
+                        else
+                          event_of_string provider capabilities definition.event)
+                    |> Result.map (fun event ->
+                        let callback = invocation definition in
+                        Registration.hook ~event ~provider ~run:(fun context ->
+                            let event =
+                              match event with
+                              | Registration.Document_changed ->
+                                  "document-changed"
+                              | Registration.After_save -> "after-save"
+                            in
+                            let request =
+                              Host.request callback ~kind:Host.Event
+                                ~operation:"event.deliver" ~context
+                                ~arguments:
+                                  (Extension_value.Record
+                                     [ ("event", Extension_value.Text event) ])
+                            in
+                            Result.bind (Host.invoke host callback request)
+                              (function
+                              | Host.Immediate response ->
+                                  actions provider capabilities request response
+                              | Host.Deferred _ as response ->
+                                  Extension_async.schedule ~response ~request
+                                    ~context
+                                    ~decode:(actions provider capabilities)
+                                  |> Result.map (fun id ->
+                                      [ Model_effect.Await_extension id ]))))
+                    |> Result.map (fun hook -> hooks := !hooks @ [ hook ])
+                    |> Result.iter_error fail
+                | unknown ->
+                    fail
+                      (extension_error provider capabilities
+                         ~operation:"register"
+                         ("unknown component contribution " ^ unknown)))
+            definitions;
+          match !failed with
+          | Some error -> dispose_on_error error
+          | None ->
+              Ok
+                {
+                  provider;
+                  runtime;
+                  commands = !commands;
+                  semantic_behaviors = !semantic_registry;
+                  bindings = !bindings;
+                  hooks = !hooks;
+                  descriptors = !descriptors;
+                  limits;
+                  health;
+                  runtime_events;
+                })
 
 let provider value = value.provider
 let commands value = value.commands
@@ -999,4 +1017,4 @@ let drain_runtime_events value =
   Queue.clear value.runtime_events;
   events
 
-let dispose value = Backend.dispose value.backend
+let dispose value = Async.close value.runtime

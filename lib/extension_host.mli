@@ -7,6 +7,8 @@
 type kind = Command | Selector | Transformation | Model | Event
 type invocation
 type t
+type deferred
+type call
 
 type request = {
   kind : kind;
@@ -17,7 +19,7 @@ type request = {
   arguments : Extension_value.t;
 }
 
-type response = Extension_value.t
+type response = Immediate of Extension_value.t | Deferred of deferred
 
 val create :
   runtime:string ->
@@ -47,6 +49,21 @@ val request :
 val invoke :
   t -> invocation -> request -> (response, Zenbu_kernel.Error.t) result
 
+val deferred : start:(unit -> (call, Zenbu_kernel.Error.t) result) -> response
+
+val call :
+  wakeup_fd:Unix.file_descr ->
+  closed:(unit -> bool) ->
+  take:(unit -> (Extension_value.t, Zenbu_kernel.Error.t) result option) ->
+  cancel:(unit -> unit) ->
+  call
+
+val start : response -> (call, Zenbu_kernel.Error.t) result
+val immediate : response -> (Extension_value.t, Zenbu_kernel.Error.t) result
+val wakeup_fd : call -> Unix.file_descr
+val closed : call -> bool
+val take : call -> (Extension_value.t, Zenbu_kernel.Error.t) result option
+val cancel : call -> unit
 val has_capability : request -> string -> bool
 
 val require :

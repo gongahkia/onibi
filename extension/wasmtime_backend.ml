@@ -23,6 +23,11 @@ external invoke_raw :
   (Zenbu_model_api.Extension_value.t, string) result
   = "caml_zenbu_wasmtime_invoke"
 
+external interrupt_raw : t -> unit = "caml_zenbu_wasmtime_interrupt"
+
+external monotonic_seconds_raw : unit -> float
+  = "caml_zenbu_wasmtime_monotonic_seconds"
+
 external dispose_raw : t -> unit = "caml_zenbu_wasmtime_dispose"
 
 external metrics_raw : t -> int * int * int * int
@@ -41,6 +46,8 @@ let invoke value ~token ~request =
     Wasm_value.decode
 
 let dispose = dispose_raw
+let interrupt = interrupt_raw
+let monotonic_seconds = monotonic_seconds_raw
 
 let metrics value =
   let ( compile_microseconds,

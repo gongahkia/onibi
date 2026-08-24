@@ -43,16 +43,18 @@ typedef struct {
   uint64_t last_fuel_consumed;
 } zenbu_wasmtime_runtime;
 
-static uint64_t elapsed_microseconds(clock_t started) {
-  clock_t finished = clock();
-  if (finished <= started) return 0;
-  return ((uint64_t)(finished - started) * UINT64_C(1000000)) /
-      (uint64_t)CLOCKS_PER_SEC;
+static uint64_t monotonic_microseconds(void) {
+  struct timespec value;
+  if (clock_gettime(CLOCK_MONOTONIC, &value) != 0) return 0;
+  return (uint64_t)value.tv_sec * UINT64_C(1000000) +
+      (uint64_t)value.tv_nsec / UINT64_C(1000);
 }
 
 static void record_call_metrics(zenbu_wasmtime_runtime *runtime,
-                                clock_t started) {
-  runtime->last_call_microseconds = elapsed_microseconds(started);
+                                uint64_t started) {
+  uint64_t finished = monotonic_microseconds();
+  runtime->last_call_microseconds =
+      finished >= started ? finished - started : 0;
   uint64_t remaining = 0;
   wasmtime_error_t *error = wasmtime_context_get_fuel(
       wasmtime_store_context(runtime->store), &remaining);
@@ -63,6 +65,16 @@ static void record_call_metrics(zenbu_wasmtime_runtime *runtime,
     runtime->last_fuel_consumed =
         remaining <= runtime->fuel ? runtime->fuel - remaining : 0;
   }
+}
+
+static wasmtime_error_t *epoch_deadline_callback(
+    wasmtime_context_t *context, void *data, uint64_t *epoch_deadline_delta,
+    wasmtime_update_deadline_kind_t *update_kind) {
+  (void)context;
+  (void)data;
+  (void)epoch_deadline_delta;
+  (void)update_kind;
+  return wasmtime_error_new("component epoch deadline exceeded");
 }
 
 static void runtime_dispose(zenbu_wasmtime_runtime *runtime) {
@@ -537,15 +549,20 @@ CAMLprim value caml_zenbu_wasmtime_load(value entrypoint, value capabilities,
   }
   wasmtime_config_wasm_component_model_set(config, true);
   wasmtime_config_consume_fuel_set(config, true);
+  wasmtime_config_epoch_interruption_set(config, true);
   runtime->engine = wasm_engine_new_with_config(config);
   if (runtime->engine == NULL) {
     message = copy_text("cannot create Wasmtime engine", 29);
     goto error;
   }
-  clock_t compile_started = clock();
+  uint64_t compile_started = monotonic_microseconds();
   wasmtime_error_t *wasmtime_error = wasmtime_component_new(runtime->engine,
       bytes, length, &runtime->component);
-  runtime->compile_microseconds = elapsed_microseconds(compile_started);
+  {
+    uint64_t compile_finished = monotonic_microseconds();
+    runtime->compile_microseconds = compile_finished >= compile_started
+        ? compile_finished - compile_started : 0;
+  }
   free(bytes);
   bytes = NULL;
   if (wasmtime_error != NULL) {
@@ -557,6 +574,8 @@ CAMLprim value caml_zenbu_wasmtime_load(value entrypoint, value capabilities,
     message = copy_text("cannot create Wasmtime store", 28);
     goto error;
   }
+  wasmtime_store_epoch_deadline_callback(runtime->store,
+      epoch_deadline_callback, NULL, NULL);
   wasmtime_store_limiter(runtime->store, Long_val(memory_bytes), 10000, 16,
       64, 64);
   runtime->fuel = (uint64_t)Long_val(fuel);
@@ -572,10 +591,14 @@ CAMLprim value caml_zenbu_wasmtime_load(value entrypoint, value capabilities,
     goto error;
   }
   wasmtime_component_instance_t instance;
-  clock_t instantiate_started = clock();
+  uint64_t instantiate_started = monotonic_microseconds();
   wasmtime_error = wasmtime_component_linker_instantiate(runtime->linker,
       wasmtime_store_context(runtime->store), runtime->component, &instance);
-  runtime->instantiate_microseconds = elapsed_microseconds(instantiate_started);
+  {
+    uint64_t instantiate_finished = monotonic_microseconds();
+    runtime->instantiate_microseconds = instantiate_finished >= instantiate_started
+        ? instantiate_finished - instantiate_started : 0;
+  }
   if (wasmtime_error != NULL) {
     message = wasmtime_message(wasmtime_error);
     goto error;
@@ -606,7 +629,12 @@ error:
 static char *reset_fuel(zenbu_wasmtime_runtime *runtime) {
   wasmtime_error_t *error = wasmtime_context_set_fuel(
       wasmtime_store_context(runtime->store), runtime->fuel);
-  return error == NULL ? NULL : wasmtime_message(error);
+  if (error != NULL) return wasmtime_message(error);
+  /* The worker's watchdog increments this generation-local engine epoch when
+     its current call reaches its deadline or is cancelled. A one-tick local
+     deadline makes that increment trap only the call currently in this store. */
+  wasmtime_context_set_epoch_deadline(wasmtime_store_context(runtime->store), 1);
+  return NULL;
 }
 
 CAMLprim value caml_zenbu_wasmtime_register(value handle) {
@@ -627,9 +655,11 @@ CAMLprim value caml_zenbu_wasmtime_register(value handle) {
       .kind = WASMTIME_COMPONENT_BOOL,
       .of.boolean = false,
   };
-  clock_t call_started = clock();
+  uint64_t call_started = monotonic_microseconds();
+  caml_enter_blocking_section();
   wasmtime_error_t *error = wasmtime_component_func_call(&runtime->register_func,
       wasmtime_store_context(runtime->store), NULL, 0, &output, 1);
+  caml_leave_blocking_section();
   record_call_metrics(runtime, call_started);
   if (error != NULL) {
     message = wasmtime_message(error);
@@ -717,9 +747,11 @@ CAMLprim value caml_zenbu_wasmtime_invoke(value handle, value token,
       .kind = WASMTIME_COMPONENT_BOOL,
       .of.boolean = false,
   };
-  clock_t call_started = clock();
+  uint64_t call_started = monotonic_microseconds();
+  caml_enter_blocking_section();
   wasmtime_error_t *error = wasmtime_component_func_call(&runtime->invoke_func,
       wasmtime_store_context(runtime->store), fields, 1, &output, 1);
+  caml_leave_blocking_section();
   record_call_metrics(runtime, call_started);
   wasmtime_component_val_delete(&fields[0]);
   if (error != NULL) {
@@ -745,6 +777,23 @@ CAMLprim value caml_zenbu_wasmtime_dispose(value handle) {
   zenbu_wasmtime_runtime *runtime = runtime_of(handle);
   runtime_dispose(runtime);
   CAMLreturn(Val_unit);
+}
+
+CAMLprim value caml_zenbu_wasmtime_interrupt(value handle) {
+  CAMLparam1(handle);
+  zenbu_wasmtime_runtime *runtime = runtime_of(handle);
+  if (runtime != NULL && !runtime->disposed && runtime->engine != NULL) {
+    wasmtime_engine_increment_epoch(runtime->engine);
+    /* The C API's deadline is exceeded only after the configured relative
+       tick, so move the generation-local epoch past its one-tick boundary. */
+    wasmtime_engine_increment_epoch(runtime->engine);
+  }
+  CAMLreturn(Val_unit);
+}
+
+CAMLprim value caml_zenbu_wasmtime_monotonic_seconds(value unit) {
+  CAMLparam1(unit);
+  CAMLreturn(caml_copy_double((double)monotonic_microseconds() / 1000000.0));
 }
 
 CAMLprim value caml_zenbu_wasmtime_metrics(value handle) {

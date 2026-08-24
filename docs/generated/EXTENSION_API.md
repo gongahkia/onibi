@@ -112,6 +112,8 @@ register a document-changed or after-save handler
 - `extension-fuel-exhausted`
 - `extension-memory-exhausted`
 - `extension-trap`
+- `extension-deadline-exhausted`
+- `extension-cancelled`
 - `extension-response-limit`
 - `extension-runtime-unavailable`
 - `duplicate-id`

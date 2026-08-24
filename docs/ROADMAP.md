@@ -13,7 +13,7 @@ This repository implements M0-M11.
 | M6 | provenance, `why`, discovery, history, trace, syntax, profiling | implemented |
 | M7 | trusted-local hot-reloadable Lua configuration | implemented; experimental API |
 | M8 | local plugin contract, capabilities, SDK, diagnostics | implemented |
-| M9 | isolated WebAssembly Component plugin runtime | implemented on Linux x86_64 and Apple Silicon macOS |
+| M9 | isolated WebAssembly Component plugin runtime | implemented; worker/deadline/cancellation verified on Linux x86_64, macOS parity pending |
 | M10 | usability, adoption, and release hardening | implemented in this checkout |
 | M11 | model-neutral asynchronous language intelligence | implemented in this checkout |
 
@@ -52,8 +52,8 @@ editing-model API. See [Language services](LANGUAGE_SERVICES.md).
 The following remain deliberately out of scope:
 
 - dependency resolution, remote download, or a plugin marketplace;
-- hard wall-clock cancellation, asynchronous/background extension execution,
-  richer Component imports, or a sandbox claim for trusted Lua;
+- richer Component imports, asynchronous selector/transformation semantics, or
+  a sandbox claim for trusted Lua;
 - automatic external reload/merge, general cross-file workspace resource
   operations, command-line/Ex compatibility, or broad Vim/Helix/Kakoune
   emulation; the explicit-root picker, bounded literal project search, and

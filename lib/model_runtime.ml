@@ -12,6 +12,7 @@ type shared_state = {
   trace : Trace.t;
   profiler : Profiler.t;
   next_execution_id : int ref;
+  extension_owner : int;
   last_execution : int option;
 }
 
@@ -39,6 +40,7 @@ module Make (Model : Editing_model.S) = struct
     trace : Trace.t;
     profiler : Profiler.t;
     next_execution_id : int ref;
+    extension_owner : int;
     last_execution : int option;
     pending_interaction : (int * int * Input_event.t list) option;
   }
@@ -191,6 +193,7 @@ module Make (Model : Editing_model.S) = struct
             trace;
             profiler;
             next_execution_id = ref 1;
+            extension_owner = Extension_async.new_owner ();
             last_execution = None;
             pending_interaction = None;
           }
@@ -208,6 +211,7 @@ module Make (Model : Editing_model.S) = struct
       trace = runtime.trace;
       profiler = runtime.profiler;
       next_execution_id = runtime.next_execution_id;
+      extension_owner = runtime.extension_owner;
       last_execution = runtime.last_execution;
     }
 
@@ -236,6 +240,7 @@ module Make (Model : Editing_model.S) = struct
             trace = shared.trace;
             profiler = shared.profiler;
             next_execution_id = shared.next_execution_id;
+            extension_owner = shared.extension_owner;
             last_execution = shared.last_execution;
             pending_interaction = None;
           }
@@ -800,7 +805,7 @@ module Make (Model : Editing_model.S) = struct
     let transformation_id = Model_effect.transformation_id model_effect in
     List.map (action ~base ?selector_id ?transformation_id) intents
 
-  let rec interpret_effect runtime ~execution_id history clipboard
+  let rec interpret_effect runtime ~execution_id ~input history clipboard
       repeatable_intents base model_effect =
     trace runtime.trace (fun () ->
         Trace_event.Model_effect
@@ -902,6 +907,12 @@ module Make (Model : Editing_model.S) = struct
                             [ change_id ],
                             [],
                             repeatable_intents )))))
+    | Model_effect.Await_extension id ->
+        let provenance = effect_provenance base model_effect in
+        Extension_async.activate ~id ~owner:runtime.extension_owner ~input
+          ~provenance
+        |> Result.map (fun () ->
+            (history, clipboard, [], [], [], repeatable_intents))
     | Model_effect.Invoke_command invocation -> (
         let command_id =
           Command_invocation.id invocation |> Command_id.to_string
@@ -961,7 +972,7 @@ module Make (Model : Editing_model.S) = struct
                 invocation
             in
             match
-              interpret_effects runtime ~execution_id history clipboard
+              interpret_effects runtime ~execution_id ~input history clipboard
                 repeatable_intents
                 (fun () -> base)
                 effects
@@ -1128,7 +1139,7 @@ module Make (Model : Editing_model.S) = struct
                 Ok (history, clipboard, actions, changes, [], repeatable_intents)
             ))
 
-  and interpret_effects runtime ~execution_id history clipboard
+  and interpret_effects runtime ~execution_id ~input history clipboard
       repeatable_intents base effects =
     let rec loop history clipboard actions changes messages repeatable_intents =
       function
@@ -1142,7 +1153,7 @@ module Make (Model : Editing_model.S) = struct
               repeatable_intents )
       | model_effect :: rest -> (
           match
-            interpret_effect runtime ~execution_id history clipboard
+            interpret_effect runtime ~execution_id ~input history clipboard
               repeatable_intents base model_effect
           with
           | Error _ as error -> error
@@ -1225,7 +1236,7 @@ module Make (Model : Editing_model.S) = struct
           | None -> provenance
         in
         match
-          interpret_effects runtime ~execution_id runtime.history
+          interpret_effects runtime ~execution_id ~input runtime.history
             runtime.clipboard runtime.repeatable_intents base effects
         with
         | Error error ->
@@ -1296,6 +1307,7 @@ module Make (Model : Editing_model.S) = struct
                     trace = runtime.trace;
                     profiler = runtime.profiler;
                     next_execution_id = runtime.next_execution_id;
+                    extension_owner = runtime.extension_owner;
                     last_execution = Some execution_id;
                     pending_interaction;
                   }
@@ -1333,8 +1345,8 @@ module Make (Model : Editing_model.S) = struct
       |> augment_provenance
     in
     match
-      interpret_effects runtime ~execution_id runtime.history runtime.clipboard
-        runtime.repeatable_intents base effects
+      interpret_effects runtime ~execution_id ~input runtime.history
+        runtime.clipboard runtime.repeatable_intents base effects
     with
     | Error error ->
         trace runtime.trace (fun () ->
@@ -1408,6 +1420,7 @@ module Make (Model : Editing_model.S) = struct
   let history runtime = runtime.history
   let commands runtime = runtime.commands
   let semantic_behaviors runtime = runtime.semantic_behaviors
+  let extension_owner runtime = runtime.extension_owner
 
   let with_extensions runtime ~commands ~semantic_behaviors =
     { runtime with commands; semantic_behaviors }

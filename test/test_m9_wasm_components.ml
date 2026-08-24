@@ -159,6 +159,7 @@ let ctrl text =
   |> Input_event.key_press ~modifiers:[ Input_event.Control ]
 
 let key text = Input_event.logical_text text |> must |> Input_event.key_press
+let text_input text = Input_event.text_input text |> must
 let dimensions = Zenbu_view.Renderer.{ columns = 120; rows = 40 }
 
 let session root ?language ?(trace = Trace.disabled ())
@@ -168,6 +169,17 @@ let session root ?language ?(trace = Trace.disabled ())
     ~config:Zenbu_scripting.Scripting.Disabled
     ~plugins:(Plugins.Directories [ root ]) ~dimensions ()
   |> must
+
+let await_component session predicate =
+  let rec loop remaining session =
+    if predicate session then session
+    else if remaining = 0 then
+      failf "Component callback did not complete before its host deadline"
+    else (
+      ignore (Unix.select (Zenbu_app.Session.wakeup_fds session) [] [] 0.1);
+      Zenbu_app.Session.poll_background session |> loop (remaining - 1))
+  in
+  loop 100 session
 
 let scripts value =
   Zenbu_app.Session.inspect value Zenbu_app.Session.Scripts
@@ -317,11 +329,19 @@ let assert_runtime_neutral_conformance ~runtime root =
   let trace = Trace.enabled ~capacity:512 |> must in
   let profiler = Profiler.enabled ~capacity:512 |> must in
   let value = session root ~trace ~profiler () in
-  let value = Zenbu_app.Session.handle_input value (ctrl "K") in
+  let value =
+    await_component
+      (Zenbu_app.Session.handle_input value (ctrl "K"))
+      (fun value -> Zenbu_app.Session.contents value = "!alpha")
+  in
   expect
     (Zenbu_app.Session.contents value = "!alpha")
     "%s command binding did not use the semantic transaction path" runtime;
-  let value = Zenbu_app.Session.handle_input value (ctrl "A") in
+  let value =
+    await_component
+      (Zenbu_app.Session.handle_input value (ctrl "A"))
+      (fun value -> Zenbu_app.Session.contents value = "done")
+  in
   expect
     (Zenbu_app.Session.contents value = "done")
     "%s selector/transformation composition diverged" runtime;
@@ -410,6 +430,32 @@ let invoke_component_command runtime id =
   in
   Vim_runtime.invoke_command runtime ~input:(ctrl "K") invocation
 
+let await_deferred_completion ~owner =
+  let rec loop remaining =
+    if remaining = 0 then
+      failf "deferred Component call did not complete before its host deadline"
+    else (
+      ignore
+        (Unix.select (Extension_async.wakeup_fds ~owners:[ owner ]) [] [] 0.1);
+      match Extension_async.drain ~owners:[ owner ] with
+      | [ completion ] -> completion
+      | [] -> loop (remaining - 1)
+      | _ -> failf "expected one deferred Component completion")
+  in
+  loop 100
+
+let resolve_component_command runtime id =
+  let started, _ = invoke_component_command runtime id |> must in
+  let completion =
+    await_deferred_completion ~owner:(Vim_runtime.extension_owner started)
+  in
+  match completion.Extension_async.result with
+  | Error _ as error -> error
+  | Ok effects ->
+      Vim_runtime.execute_effects started
+        ~augment_provenance:(fun _ -> completion.provenance)
+        ~input:completion.input effects
+
 let runtime_contents runtime =
   Vim_runtime.context runtime |> Editor_context.contents
 
@@ -495,14 +541,14 @@ let test_component_output_limits_atomicity_and_replay_without_runtime () =
               "%s changed history before rejection" description
       in
       assert_unchanged
-        (invoke_component_command initial "com.example.conformance.invalid")
+        (resolve_component_command initial "com.example.conformance.invalid")
         "a response containing valid then invalid actions";
       assert_unchanged
-        (invoke_component_command initial
+        (resolve_component_command initial
            "com.example.conformance.bad-selection")
         "an invalid Component selection";
       let overlarge =
-        invoke_component_command initial "com.example.conformance.large"
+        resolve_component_command initial "com.example.conformance.large"
       in
       (match overlarge with
       | Error error ->
@@ -514,7 +560,7 @@ let test_component_output_limits_atomicity_and_replay_without_runtime () =
         (runtime_contents initial = "alpha")
         "oversized Component response changed the document";
       let committed, _ =
-        invoke_component_command initial "com.example.conformance.insert"
+        resolve_component_command initial "com.example.conformance.insert"
         |> must
       in
       expect
@@ -547,7 +593,7 @@ let test_component_generation_stress () =
       for _ = 1 to 200 do
         let runtime = runtime_for_plugins !active in
         let invoked, _ =
-          invoke_component_command runtime "com.example.conformance.insert"
+          resolve_component_command runtime "com.example.conformance.insert"
           |> must
         in
         expect
@@ -580,7 +626,11 @@ let test_mixed_runtime_snapshot_and_cross_runtime_collision () =
            ~input:"Ctrl-J" ~text:"L");
       let trace = Trace.enabled ~capacity:256 |> must in
       let value = session root ~trace () in
-      let value = Zenbu_app.Session.handle_input value (ctrl "K") in
+      let value =
+        await_component
+          (Zenbu_app.Session.handle_input value (ctrl "K"))
+          (fun value -> Zenbu_app.Session.contents value = "!alpha")
+      in
       let value = Zenbu_app.Session.handle_input value (ctrl "J") in
       expect
         (Zenbu_app.Session.contents value = "!Lalpha")
@@ -658,14 +708,18 @@ let test_component_semantic_conformance_and_provenance () =
       let profiler = Profiler.enabled ~capacity:256 |> must in
       let inserted =
         session root ~trace ~profiler () |> fun value ->
-        Zenbu_app.Session.handle_input value (ctrl "K")
+        await_component
+          (Zenbu_app.Session.handle_input value (ctrl "K"))
+          (fun value -> Zenbu_app.Session.contents value = "!alpha")
       in
       expect
         (Zenbu_app.Session.contents inserted = "!alpha")
         "Component command did not commit through the shared semantic path";
       let applied =
         session root () |> fun value ->
-        Zenbu_app.Session.handle_input value (ctrl "A")
+        await_component
+          (Zenbu_app.Session.handle_input value (ctrl "A"))
+          (fun value -> Zenbu_app.Session.contents value = "done")
       in
       expect
         (Zenbu_app.Session.contents applied = "done")
@@ -746,7 +800,9 @@ let test_callback_failures_are_nonmutating_and_classified () =
       let assert_failure input code fragment =
         let value =
           session root () |> fun value ->
-          Zenbu_app.Session.handle_input value (ctrl input)
+          await_component
+            (Zenbu_app.Session.handle_input value (ctrl input))
+            (fun value -> contains (scripts value) code)
         in
         expect
           (Zenbu_app.Session.contents value = "alpha")
@@ -766,7 +822,9 @@ let test_callback_failures_are_nonmutating_and_classified () =
       assert_failure "M" "extension-memory-exhausted" "memory allocation denied";
       let after_loop =
         session root () |> fun value ->
-        Zenbu_app.Session.handle_input value (ctrl "L")
+        await_component
+          (Zenbu_app.Session.handle_input value (ctrl "L"))
+          (fun value -> contains (scripts value) "extension-fuel-exhausted")
       in
       let health =
         Zenbu_app.Session.inspect after_loop Zenbu_app.Session.Plugins
@@ -809,7 +867,11 @@ let test_callback_failures_are_nonmutating_and_classified () =
       expect
         (contains reloaded_plugins "health: healthy")
         "Component reload did not restore runtime health: %s" reloaded_plugins;
-      let restored = Zenbu_app.Session.handle_input reloaded (ctrl "K") in
+      let restored =
+        await_component
+          (Zenbu_app.Session.handle_input reloaded (ctrl "K"))
+          (fun value -> Zenbu_app.Session.contents value = "!alpha")
+      in
       expect
         (Zenbu_app.Session.contents restored = "!alpha")
         "Component reload did not restore callback availability")
@@ -823,7 +885,9 @@ let test_capability_denial_remains_at_the_host_boundary () =
       let trace = Trace.enabled ~capacity:128 |> must in
       let value =
         session root ~trace () |> fun value ->
-        Zenbu_app.Session.handle_input value (ctrl "K")
+        await_component
+          (Zenbu_app.Session.handle_input value (ctrl "K"))
+          (fun value -> contains (scripts value) "extension capability-denied")
       in
       expect
         (Zenbu_app.Session.contents value = "alpha")
@@ -849,14 +913,24 @@ let test_sdk_fixture_exercises_command_and_syntax_capabilities () =
            ~capabilities:all_capabilities ());
       let invoked =
         session root () |> fun value ->
-        Zenbu_app.Session.handle_input value (ctrl "J")
+        await_component
+          (Zenbu_app.Session.handle_input value (ctrl "J"))
+          (fun value -> Zenbu_app.Session.contents value = "!alpha")
       in
       expect
         (Zenbu_app.Session.contents invoked = "!alpha")
         "SDK Component command-invoke action did not dispatch through the host";
       let syntax =
         session root ~language:"ocaml" () |> fun value ->
-        Zenbu_app.Session.handle_input value (ctrl "Y")
+        await_component
+          (Zenbu_app.Session.handle_input value (ctrl "Y"))
+          (fun value ->
+            match
+              (Editor_context.selections (Zenbu_app.Session.context value))
+                .selections
+            with
+            | [ selection ] -> selection.head_offset = 5
+            | _ -> false)
       in
       match
         (Editor_context.selections (Zenbu_app.Session.context syntax))
@@ -1020,7 +1094,11 @@ let test_manifest_limits_are_applied_and_inspectable () =
            ~capabilities:
              [ "document.edit"; "selection.read"; "selection.write" ]
            ()
-        ^ "\n[wasm]\nfuel = 6000000\nmemory_bytes = 17825792\n");
+        ^ "\n\
+           [wasm]\n\
+           fuel = 6000000\n\
+           memory_bytes = 17825792\n\
+           deadline_ms = 750\n");
       let plugins =
         Plugins.load ~config:(Plugins.Directories [ root ])
           ~base_commands:(base_commands ()) ~base_semantics:[] ()
@@ -1033,7 +1111,184 @@ let test_manifest_limits_are_applied_and_inspectable () =
       expect
         (Plugins.view_runtime_limits view = Some (6_000_000, 17_825_792))
         "configured Component resource limits were not retained for inspection";
+      expect
+        (Plugins.view_runtime_deadline_ms view = Some 750)
+        "configured Component deadline was not retained for inspection";
       Plugins.dispose plugins)
+
+let component_manifest_with_policy ~id ~version ~contributions ~capabilities
+    ~fuel ~deadline_ms =
+  manifest ~id ~version ~contributions ~capabilities ()
+  ^ Printf.sprintf
+      "\n[wasm]\nfuel = %d\nmemory_bytes = 16777216\ndeadline_ms = %d\n" fuel
+      deadline_ms
+
+let test_async_component_deadline_is_woken_and_nonmutating () =
+  with_root (fun root ->
+      let package =
+        create_package root ~id:"com.example.m9" ~version:"1.0.0"
+          ~contributions:all_contributions ~capabilities:all_capabilities ()
+      in
+      write
+        (Filename.concat package "zenbu-plugin.toml")
+        (component_manifest_with_policy ~id:"com.example.m9" ~version:"1.0.0"
+           ~contributions:all_contributions ~capabilities:all_capabilities
+           ~fuel:4_000_000_000_000_000_000 ~deadline_ms:500);
+      let initial = session root () in
+      let initial_wakeups = Zenbu_app.Session.wakeup_fds initial in
+      let started = Zenbu_app.Session.handle_input initial (ctrl "L") in
+      expect
+        (Zenbu_app.Session.contents started = "alpha")
+        "Component loop changed the document before timeout delivery";
+      let component_wakeups =
+        Zenbu_app.Session.wakeup_fds started
+        |> List.filter (fun fd -> not (List.mem fd initial_wakeups))
+      in
+      expect (component_wakeups <> [])
+        "deferred Component call did not add a terminal wakeup descriptor";
+      let ready, _, _ = Unix.select component_wakeups [] [] 2. in
+      expect (ready <> [])
+        "Component deadline completion did not wake the terminal";
+      let timed_out =
+        await_component started (fun value ->
+            contains (scripts value) "extension-deadline-exhausted")
+      in
+      expect
+        (Zenbu_app.Session.contents timed_out = "alpha")
+        "deadline-exhausted Component callback changed the document";
+      let health =
+        Zenbu_app.Session.inspect timed_out Zenbu_app.Session.Plugins
+        |> String.concat "\n"
+      in
+      expect
+        (contains health "health: unavailable"
+        && contains health "extension-deadline-exhausted")
+        "deadline exhaustion did not retain fatal Component health: %s" health;
+      let repeated = Zenbu_app.Session.handle_input timed_out (ctrl "K") in
+      expect
+        (Zenbu_app.Session.contents repeated = "alpha"
+        && contains (scripts repeated) "extension-runtime-unavailable")
+        "a post-timeout Component call did not fail before guest entry";
+      Zenbu_app.Session.close repeated)
+
+let test_async_component_reload_cancels_pending_call () =
+  with_root (fun root ->
+      let package =
+        create_package root ~id:"com.example.m9" ~version:"1.0.0"
+          ~contributions:all_contributions ~capabilities:all_capabilities ()
+      in
+      write
+        (Filename.concat package "zenbu-plugin.toml")
+        (component_manifest_with_policy ~id:"com.example.m9" ~version:"1.0.0"
+           ~contributions:all_contributions ~capabilities:all_capabilities
+           ~fuel:4_000_000_000_000_000_000 ~deadline_ms:10_000);
+      let initial = session root () in
+      let initial_wakeups = Zenbu_app.Session.wakeup_fds initial in
+      let pending = Zenbu_app.Session.handle_input initial (ctrl "L") in
+      let pending_wakeups =
+        Zenbu_app.Session.wakeup_fds pending
+        |> List.filter (fun fd -> not (List.mem fd initial_wakeups))
+      in
+      expect (pending_wakeups <> [])
+        "pending Component call was not represented in the terminal wakeup set";
+      Thread.delay 0.02;
+      let started_at = Unix.gettimeofday () in
+      let reloaded = Zenbu_app.Session.reload_config pending in
+      let duration = Unix.gettimeofday () -. started_at in
+      expect (duration < 2.)
+        "reload waited %.3fs for a pending Component call instead of \
+         cancelling it"
+        duration;
+      let settled = Zenbu_app.Session.poll_background reloaded in
+      expect
+        (Zenbu_app.Session.contents settled = "alpha")
+        "cancelled pre-reload Component call changed the replacement document";
+      let plugins =
+        Zenbu_app.Session.inspect settled Zenbu_app.Session.Plugins
+        |> String.concat "\n"
+      in
+      expect
+        (contains plugins "com.example.m9 1.0.0 active wasm-component"
+        && contains plugins "health: healthy")
+        "reload did not atomically retain one healthy replacement Component: %s"
+        plugins;
+      let usable =
+        await_component
+          (Zenbu_app.Session.handle_input settled (ctrl "K"))
+          (fun value -> Zenbu_app.Session.contents value = "!alpha")
+      in
+      expect
+        (Zenbu_app.Session.contents usable = "!alpha")
+        "replacement Component was unusable after cancelling its predecessor";
+      Zenbu_app.Session.close usable)
+
+let test_async_component_host_shutdown_cleans_pending_call () =
+  with_root (fun root ->
+      let package =
+        create_package root ~id:"com.example.m9" ~version:"1.0.0"
+          ~contributions:all_contributions ~capabilities:all_capabilities ()
+      in
+      write
+        (Filename.concat package "zenbu-plugin.toml")
+        (component_manifest_with_policy ~id:"com.example.m9" ~version:"1.0.0"
+           ~contributions:all_contributions ~capabilities:all_capabilities
+           ~fuel:4_000_000_000_000_000_000 ~deadline_ms:10_000);
+      let pending =
+        session root () |> fun value ->
+        Zenbu_app.Session.handle_input value (ctrl "L")
+      in
+      Thread.delay 0.02;
+      let started_at = Unix.gettimeofday () in
+      Zenbu_app.Session.close pending;
+      let duration = Unix.gettimeofday () -. started_at in
+      expect (duration < 2.)
+        "host shutdown waited %.3fs for a pending Component call" duration;
+      let fresh = session root () in
+      let usable =
+        await_component
+          (Zenbu_app.Session.handle_input fresh (ctrl "K"))
+          (fun value -> Zenbu_app.Session.contents value = "!alpha")
+      in
+      expect
+        (Zenbu_app.Session.contents usable = "!alpha")
+        "host shutdown left the next Component generation unusable";
+      Zenbu_app.Session.close usable)
+
+let test_async_component_session_ownership_and_stale_snapshot () =
+  with_root (fun root ->
+      ignore
+        (create_package root ~id:"com.example.m9" ~version:"1.0.0"
+           ~contributions:all_contributions ~capabilities:all_capabilities ());
+      let first = session root () in
+      let second = session root () in
+      let first_pending = Zenbu_app.Session.handle_input first (ctrl "K") in
+      Thread.delay 0.02;
+      let second_polled = Zenbu_app.Session.poll_background second in
+      expect
+        (Zenbu_app.Session.contents second_polled = "alpha")
+        "a session consumed a deferred Component result owned by another \
+         session";
+      let first_done =
+        await_component first_pending (fun value ->
+            Zenbu_app.Session.contents value = "!alpha")
+      in
+      expect
+        (Zenbu_app.Session.contents first_done = "!alpha")
+        "the deferred Component result did not remain available to its owner";
+      let pending = Zenbu_app.Session.handle_input first_done (ctrl "K") in
+      let changed =
+        pending |> fun value ->
+        Zenbu_app.Session.handle_input value (key "i") |> fun value ->
+        Zenbu_app.Session.handle_input value (text_input "z")
+      in
+      Thread.delay 0.02;
+      let settled = Zenbu_app.Session.poll_background changed in
+      expect
+        (Zenbu_app.Session.contents settled = "!zalpha")
+        "a deferred Component result committed after its source snapshot \
+         changed";
+      Zenbu_app.Session.close settled;
+      Zenbu_app.Session.close second_polled)
 
 let tests =
   [
@@ -1060,6 +1315,14 @@ let tests =
       test_failed_wasm_reload_retains_the_generation );
     ( "Component manifest limits are inspectable",
       test_manifest_limits_are_applied_and_inspectable );
+    ( "asynchronous Component deadline wakeup and atomicity",
+      test_async_component_deadline_is_woken_and_nonmutating );
+    ( "asynchronous Component reload cancels pending calls",
+      test_async_component_reload_cancels_pending_call );
+    ( "asynchronous Component host shutdown cleans pending calls",
+      test_async_component_host_shutdown_cleans_pending_call );
+    ( "asynchronous Component ownership and stale snapshots are isolated",
+      test_async_component_session_ownership_and_stale_snapshot );
   ]
 
 let () =

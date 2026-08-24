@@ -242,6 +242,9 @@ are explicitly denied. `language.status` is available through the palette and
 inspector. See [Language services](LANGUAGE_SERVICES.md).
 
 Plugin inspection shows manifest, runtime, capabilities, contributions, limits,
-last error, and health. A Component fuel/memory/trap failure makes its runtime
-`unavailable`; repeated callbacks return `extension-runtime-unavailable`
-without entering Wasmtime. Reload creates a fresh healthy generation on success.
+deadline, last error, and health. A Component fuel/memory/trap/deadline failure
+makes its runtime `unavailable`; repeated callbacks return
+`extension-runtime-unavailable` without entering Wasmtime. Component command
+and event completions wake the terminal through the normal session descriptor
+set and are committed only after their source snapshot revalidation. Reload
+creates a fresh healthy generation on success and discards old pending results.

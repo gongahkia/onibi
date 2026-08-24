@@ -80,7 +80,10 @@ let run_selector = function
         let invoked =
           Result.bind
             (Extension_host.require request ~capability:"selection.write")
-            (fun () -> Extension_host.invoke host invocation request)
+            (fun () ->
+              Result.bind
+                (Extension_host.invoke host invocation request)
+                Extension_host.immediate)
         in
         Result.bind invoked (decode request)
 
@@ -114,6 +117,8 @@ let run_transformation = function
               Extension_host.require request ~capability:"document.edit")
           |> fun result ->
           Result.bind result (fun () ->
-              Extension_host.invoke host invocation request)
+              Result.bind
+                (Extension_host.invoke host invocation request)
+                Extension_host.immediate)
         in
         Result.bind invoked (decode request)

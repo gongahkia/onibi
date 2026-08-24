@@ -30,5 +30,7 @@ val invoke :
   request:Zenbu_model_api.Extension_value.t ->
   (Zenbu_model_api.Extension_value.t, string) result
 
+val interrupt : t -> unit
+val monotonic_seconds : unit -> float
 val dispose : t -> unit
 val metrics : t -> metrics

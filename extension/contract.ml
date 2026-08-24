@@ -99,6 +99,8 @@ let stable_error_codes =
     "extension-fuel-exhausted";
     "extension-memory-exhausted";
     "extension-trap";
+    "extension-deadline-exhausted";
+    "extension-cancelled";
     "extension-response-limit";
     "extension-runtime-unavailable";
     "duplicate-id";

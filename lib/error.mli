@@ -65,6 +65,8 @@ and extension_error_code =
   | Extension_fuel_exhausted
   | Extension_memory_exhausted
   | Extension_trap
+  | Extension_deadline_exhausted
+  | Extension_cancelled
   | Extension_response_limit
   | Extension_runtime_unavailable
 

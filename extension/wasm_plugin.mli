@@ -2,7 +2,7 @@
 *)
 
 type t
-type limits = { fuel : int; memory_bytes : int }
+type limits = { fuel : int; memory_bytes : int; deadline_ms : int }
 type health = Healthy | Unavailable of Zenbu_kernel.Error.t
 
 type runtime_event = {

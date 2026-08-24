@@ -303,10 +303,10 @@ generic registry shape:
 
 ```text
 compiled WebAssembly Component / typed WIT values
-      ↑ private Wasmtime 47 C shim (engine/store/linker per generation)
+      ↑ private worker + Wasmtime 47 C shim (engine/store/linker per generation)
 zenbu.extension.Wasm_plugin / opaque Extension_host token
       ↑ commands / semantic behavior registry / bindings / hooks
-Session snapshot composition → zenbu.model_api runtime → transactions/history
+Session main-thread completion gate → zenbu.model_api runtime → transactions/history
 ```
 
 The Component world has control exports only. Zenbu links no WASI or host
@@ -318,14 +318,19 @@ resolution, transaction validation, syntax refresh, history, provenance, and
 generic trace/profile services. A Wasm Component therefore has no privileged
 editing route.
 
-Each Component generation owns a private Wasmtime store with a manifest-visible
-memory cap and a fuel budget reset before `register`/`invoke`. Plugin staging,
-collision checks, reload retention, disposal, and provider ordering remain
-shared `Plugin_host` behavior. M9's synchronous fuel-limited calls do not yet
-provide async/background scheduling or hard wall-clock cancellation. See
-[extensions](EXTENSIONS.md), [Component authoring](WASM_COMPONENTS.md), the
+Each Component generation owns a private worker and Wasmtime store with a
+manifest-visible memory cap, per-call fuel reset, and elapsed deadline. Commands
+and events return through a bounded data-only completion inbox and shared wakeup
+descriptor; a Wasmtime epoch interrupt ends expired or cancelled callbacks.
+Session applies a completion only when its immutable source snapshot still
+matches, so it cannot mutate a reloaded/stale document. Selectors,
+transformations, and model callbacks still wait on the same worker at the
+current semantic API boundary. Plugin staging, collision checks, reload
+retention, disposal, and provider ordering remain shared `Plugin_host`
+behavior. This path is verified on Linux x86_64; macOS parity is separate work.
+See [extensions](EXTENSIONS.md), [Component authoring](WASM_COMPONENTS.md), the
 [isolation policy](ISOLATION.md), [M9 pressure test](M9_PRESSURE_TEST.md), and
-ADRs 0022-0028.
+ADRs 0022-0028 and 0034.
 
 ## M11 language-service boundary
 

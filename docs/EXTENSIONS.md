@@ -48,6 +48,7 @@ capabilities = ["document.read", "document.edit", "selection.read", "selection.w
 [wasm]
 fuel = 5000000
 memory_bytes = 16777216
+deadline_ms = 1000
 ```
 
 `manifest_version` and `api` must both be supported v1 values. Plugin IDs have
@@ -157,14 +158,23 @@ This preserves the existing `Extension_value` protocol without making a Wasm
 object part of a command or semantic registry. See
 [Component authoring](WASM_COMPONENTS.md) for a complete guest contract.
 
-The default Component policy is 5,000,000 fuel units for each `register` or
-`invoke` call and a 16 MiB Wasmtime store memory limit. A package can replace
-both positive values with its optional `[wasm]` manifest table. The active
-Plugins inspector shows the effective limits. Fuel is reset per callback, so a
-successful callback cannot borrow budget from the next one. Fuel stops guest
-instruction loops; memory growth is constrained by the store limiter. Calls
-remain synchronous on the host thread: there is no hard wall-clock cancellation
-or background scheduling yet.
+The default Component policy is 5,000,000 fuel units per `register`/`invoke`,
+a 16 MiB Wasmtime store cap, and a 1,000 ms elapsed-time deadline. A package
+may replace the positive values in `[wasm]`; `deadline_ms` defaults to 1,000
+when that table omits it. The Plugins inspector shows all effective limits.
+Fuel resets per callback, memory growth is store-limited, and the response
+quotas below bound host decoding.
+
+Each Component generation has one private worker that is the only caller of
+its Wasmtime store. Commands and event hooks enqueue a bounded callback and
+return to the terminal; their shared wakeup descriptor is included in the
+normal session poll set. The watchdog interrupts an elapsed call through
+Wasmtime's generation-local epoch. Completion reaches the main thread as data
+only and is applied only if its exact document id, version, and contents still
+match. A stale, cancelled, trapped, or deadline-exhausted response cannot
+commit a document/provider snapshot change. Selectors, transformations, and
+model callbacks still wait for that worker at the existing synchronous semantic
+API boundary.
 
 The Component conversion path also bounds host response amplification: 4,096
 WIT nodes, 64 path segments, 1 MiB decoded string data, 128 registrations, 256
@@ -172,18 +182,20 @@ actions, 1,024 selections, and 4,096 edits. An excess is the stable
 `extension-response-limit` error and is rejected before semantic action
 interpretation. See ADR 0028.
 
-M9 maps Component ABI/linker mismatch, fuel exhaustion, memory exhaustion, and
-traps to distinct stable extension errors. A guest `result<_, string>` error or
-a malformed declarative response remains an ordinary `extension-runtime-error`.
-All failures occur before a transaction commit and leave the current immutable
-document/history value unchanged.
+M9 maps Component ABI/linker mismatch, fuel exhaustion, memory exhaustion,
+traps, deadline exhaustion, and lifecycle cancellation to distinct stable
+extension errors. A guest `result<_, string>` error or malformed declarative
+response remains an ordinary `extension-runtime-error`. All failures occur
+before a transaction commit and leave the current immutable document/history
+value unchanged.
 
 M10 additionally exposes runtime health in every plugin view. Fuel exhaustion,
-memory exhaustion, and traps transition a Component to `unavailable`; a second
-callback reports `extension-runtime-unavailable` without calling Wasmtime.
-Reload builds a replacement generation and returns it to `healthy` only when
-staging succeeds. Lua-trusted plugins remain `healthy` in this generic view
-because they do not have a fatal Component store state.
+memory exhaustion, traps, and deadline exhaustion transition a Component to
+`unavailable`; a second callback reports `extension-runtime-unavailable`
+without calling Wasmtime. Session close, successful replacement, and unload
+cancel and join pending callbacks deterministically; cancellation does not
+poison a replacement generation. Lua-trusted plugins remain `healthy` in this
+generic view because they do not have a fatal Component store state.
 
 ## Lifecycle and atomicity
 
@@ -271,11 +283,12 @@ requires an API-version increment. Existing M7 configuration remains supported
 as experimental trusted local configuration, but it is not a plugin package
 and makes no stable-plugin compatibility claim.
 
-M9 still defers dependency resolution, permissions UI, per-plugin enablement
-persistence, cross-platform signed-package validation, asynchronous services,
-hard wall-clock cancellation, language-grammar packages, marketplace
-distribution, and richer Component host imports. `lua-trusted` remains
-intentionally unsandboxed. See [signed Component distribution](COMPONENT_DISTRIBUTION.md),
-[roadmap](ROADMAP.md),
-[the M9 pressure test](M9_PRESSURE_TEST.md), ADRs 0022-0028, and
-[ADR 0033](adr/0033-signed-component-package-distribution.md).
+Zenbu still defers dependency resolution, permissions UI, per-plugin enablement
+persistence, cross-platform signed-package validation, asynchronous selector /
+transformation semantics, language-grammar packages, marketplace distribution,
+and richer Component host imports. The worker and hard cancellation path are
+implemented and verified on Linux x86_64; macOS parity remains separate work.
+`lua-trusted` remains intentionally unsandboxed. See [signed Component
+distribution](COMPONENT_DISTRIBUTION.md), [roadmap](ROADMAP.md), [the M9
+pressure test](M9_PRESSURE_TEST.md), ADRs 0022-0028, [ADR 0033](adr/0033-signed-component-package-distribution.md),
+and [ADR 0034](adr/0034-component-worker-and-epoch-cancellation.md).

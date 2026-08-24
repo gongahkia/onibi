@@ -48,6 +48,7 @@
   command_argument
   command_invocation
   model_effect
+  extension_async
   trace_event
   trace
   profiler

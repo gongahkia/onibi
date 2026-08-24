@@ -91,9 +91,10 @@ and plugin examples live in [Getting Started](docs/GETTING_STARTED.md).
   request bounded external selection filters, and start bounded inspectable
   streaming background programs through absolute executable paths and argument
   vectors; it never receives a shell parser or process handle. Wasmtime
-  Components have bounded fuel/memory and become explicitly unavailable after
-  a fatal callback until reload; the document and ordinary editing remain
-  available.
+  Components have bounded fuel/memory/deadline policy and a Linux-verified
+  worker/cancellation path; they become explicitly unavailable after a fatal
+  callback until reload while the document and ordinary editing remain
+  available. macOS parity for that worker path remains separate work.
 - `zenbu-headless` provides replay, model/session execution, syntax,
   inspection, configuration, plugin, Component-contract, and generated-API
   tooling for deterministic CI use.

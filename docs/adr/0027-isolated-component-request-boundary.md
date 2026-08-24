@@ -35,5 +35,6 @@ path as Lua and first-party clients. An attempted WASI/unlinked import fails
 instantiation rather than producing a partial package.
 
 This intentionally leaves richer imported Component host functions for later.
-M9 is synchronous and fuel-limited, not an async worker or hard wall-clock
-cancellation system. `lua-trusted` remains outside this isolation boundary.
+The private worker/epoch-cancellation mechanics are specified separately in
+[ADR 0034](0034-component-worker-and-epoch-cancellation.md); they do not widen
+this request boundary. `lua-trusted` remains outside this isolation boundary.

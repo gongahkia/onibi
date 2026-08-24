@@ -56,6 +56,7 @@ type t =
       selector_id : string;
       action : selection_action;
     }
+  | Await_extension of int
   | Invoke_command of Command_invocation.t
   | Emit_message of message
   | Copy_to_clipboard of {

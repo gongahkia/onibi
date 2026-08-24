@@ -101,6 +101,9 @@ let execute_effects value context invocation =
             ~kind:Extension_host.Command ~operation:"command.invoke" ~context
             ~arguments:(extension_arguments invocation)
         in
-        Result.bind
-          (Extension_host.invoke host extension_invocation request)
-          (decode request)
+        Result.bind (Extension_host.invoke host extension_invocation request)
+          (function
+          | Extension_host.Immediate response -> decode request response
+          | Extension_host.Deferred _ as response ->
+              Extension_async.schedule ~response ~request ~context ~decode
+              |> Result.map (fun id -> [ Model_effect.Await_extension id ]))

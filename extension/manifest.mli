@@ -1,4 +1,4 @@
-type wasm_limits = { fuel : int; memory_bytes : int }
+type wasm_limits = { fuel : int; memory_bytes : int; deadline_ms : int }
 type t
 
 val filename : string

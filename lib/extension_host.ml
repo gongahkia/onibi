@@ -17,7 +17,15 @@ type request = {
   arguments : Extension_value.t;
 }
 
-type response = Extension_value.t
+type response = Immediate of Extension_value.t | Deferred of deferred
+and deferred = { start : unit -> (call, Error.t) result }
+
+and call = {
+  wakeup_fd : Unix.file_descr;
+  closed : unit -> bool;
+  take : unit -> (Extension_value.t, Error.t) result option;
+  cancel : unit -> unit;
+}
 
 type t = {
   runtime : string;
@@ -198,6 +206,27 @@ let request (invocation : invocation) ~kind ~operation ~context ~arguments =
   }
 
 let invoke host invocation request = host.invoke invocation request
+let deferred ~start = Deferred { start }
+let call ~wakeup_fd ~closed ~take ~cancel = { wakeup_fd; closed; take; cancel }
+
+let start = function
+  | Immediate _ ->
+      Error
+        (Error.Invalid_provenance
+           "attempted to start an immediate extension response")
+  | Deferred deferred -> deferred.start ()
+
+let immediate = function
+  | Immediate value -> Ok value
+  | Deferred _ ->
+      Error
+        (Error.Invalid_provenance
+           "extension response is asynchronous in a synchronous callback")
+
+let wakeup_fd call = call.wakeup_fd
+let closed call = call.closed ()
+let take call = call.take ()
+let cancel call = call.cancel ()
 let has_capability request capability = has request.granted capability
 
 let require request ~capability =

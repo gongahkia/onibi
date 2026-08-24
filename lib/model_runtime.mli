@@ -57,6 +57,7 @@ module Make (Model : Editing_model.S) : sig
   val history : t -> Zenbu_kernel.History.t
   val commands : t -> Command_registry.t
   val semantic_behaviors : t -> Semantic_behavior_registry.t
+  val extension_owner : t -> int
 
   val with_extensions :
     t ->

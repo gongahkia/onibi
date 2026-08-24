@@ -478,7 +478,10 @@ let migrate_model_state ~(previous : model_state) ~(replacement : model) =
                  ("state", previous.value);
                ])
       in
-      Result.bind (Host.invoke previous.model.host prior.export export_request)
+      Result.bind
+        (Result.bind
+           (Host.invoke previous.model.host prior.export export_request)
+           Host.immediate)
         (fun exported ->
           let import_request =
             state_persistence_request next.import
@@ -494,7 +497,9 @@ let migrate_model_state ~(previous : model_state) ~(replacement : model) =
                    ])
           in
           Result.bind
-            (Host.invoke replacement.host next.import import_request)
+            (Result.bind
+               (Host.invoke replacement.host next.import import_request)
+               Host.immediate)
             (state_import_result replacement.source replacement)
           |> Result.map Option.some)
   | None, _ | _, None -> Ok None
@@ -508,7 +513,9 @@ let run_model (state : model_state) input context =
            [ ("input", input_value input); ("state", state.value) ])
   in
   Result.bind
-    (Host.invoke state.model.host state.model.invocation request)
+    (Result.bind
+       (Host.invoke state.model.host state.model.invocation request)
+       Host.immediate)
     (model_result state.model.source request state)
 
 let behavior_selection source = function
@@ -789,7 +796,9 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
                 match
                   List.assoc_opt (Host.invocation_token invocation) !callbacks
                 with
-                | Some callback -> Backend.call backend callback ~request
+                | Some callback ->
+                    Backend.call backend callback ~request
+                    |> Result.map (fun response -> Host.Immediate response)
                 | None ->
                     Error
                       (Error.Extension_error
@@ -1286,7 +1295,9 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
                                          ])
                                 in
                                 Result.bind
-                                  (Host.invoke host callback request)
+                                  (Result.bind
+                                     (Host.invoke host callback request)
+                                     Host.immediate)
                                   (actions source request));
                           ])
               | Backend.Model _ | Backend.Mode _ | Backend.Binding_layer _

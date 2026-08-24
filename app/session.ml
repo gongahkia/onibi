@@ -2125,6 +2125,13 @@ let context_of_active = function
   | Structural_runtime runtime -> Structural_runtime.context runtime
   | Script_runtime runtime -> Script_runtime.context runtime
 
+let extension_owner_of_active = function
+  | Vim_runtime runtime -> Vim_runtime.extension_owner runtime
+  | Selection_runtime runtime -> Selection_runtime.extension_owner runtime
+  | Direct_runtime runtime -> Direct_runtime.extension_owner runtime
+  | Structural_runtime runtime -> Structural_runtime.extension_owner runtime
+  | Script_runtime runtime -> Script_runtime.extension_owner runtime
+
 let context session = context_of_active session.active
 
 let language_client_for_active ~registry ~document_id ~language ~file_path
@@ -2430,6 +2437,11 @@ let current_buffer session =
     active_modes = session.active_modes;
     active_binding_layers = session.active_binding_layers;
   }
+
+let extension_owners session =
+  current_buffer session :: session.inactive_buffers
+  |> List.map (fun (buffer : buffer) -> extension_owner_of_active buffer.active)
+  |> List.sort_uniq compare
 
 let buffer_ids session =
   session.current_buffer_id
@@ -4361,6 +4373,7 @@ let reload_config session =
                                   Some (Scripting.binding_layers generation))
                             ())
                     in
+                    Extension_async.cancel ~owners:(extension_owners session);
                     trace_plugins trace ~execution_id ~phase:"reload"
                       plugin_host;
                     trace_runtime_events trace profiler ~execution_id
@@ -10518,6 +10531,9 @@ let plugin_lines session =
             | Some (fuel, memory_bytes) ->
                 Printf.sprintf "  limits: fuel=%d memory-bytes=%d" fuel
                   memory_bytes);
+            (match Plugins.view_runtime_deadline_ms view with
+            | None -> "  deadline-ms: none"
+            | Some deadline_ms -> Printf.sprintf "  deadline-ms: %d" deadline_ms);
             (match Plugins.view_error view with
             | None -> "  last-error: none"
             | Some error -> "  last-error: " ^ Error.to_string error);
@@ -10902,14 +10918,80 @@ let language_wakeup_fds session =
 let background_job_wakeup_fd session =
   Option.map Background_job.wakeup_fd session.jobs
 
+let component_wakeup_fds session =
+  Extension_async.wakeup_fds ~owners:(extension_owners session)
+
 let wakeup_fds session =
   language_wakeup_fds session
   @ Option.to_list (background_job_wakeup_fd session)
+  @ component_wakeup_fds session
   @ [ File_watcher.wakeup_fd session.file_watcher ]
   |> List.sort_uniq compare
 
 let poll_background session =
   let session = poll_language session |> poll_file_watcher in
+  let apply_component_completion session completion =
+    let context = context session in
+    let snapshot = completion.Extension_async.snapshot in
+    if
+      not
+        (String.equal snapshot.document_id (Editor_context.document_id context)
+        && snapshot.document_version = Editor_context.document_version context
+        && String.equal snapshot.contents (Editor_context.contents context))
+    then
+      {
+        session with
+        message =
+          Some
+            ("component callback discarded: source document snapshot is stale ("
+           ^ completion.operation ^ ")");
+        quit_armed = false;
+      }
+    else
+      match completion.result with
+      | Error error ->
+          let execution_id =
+            Option.value ~default:0 (last_execution_of_active session.active)
+          in
+          capability_denied
+            (trace_of_active session.active)
+            ~execution_id ~provider:completion.provider error;
+          {
+            session with
+            message = Some (Error.to_string error);
+            quit_armed = false;
+          }
+      | Ok effects ->
+          let contents_before = Editor_context.contents context in
+          let next, changed =
+            execute_active_effects
+              ~augment_provenance:(fun _ -> completion.provenance)
+              session completion.input effects
+          in
+          let next =
+            if changed then
+              run_event_hooks next Scripting.Document_changed completion.input
+            else next
+          in
+          let next =
+            if changed then refresh_search_after_document_change next else next
+          in
+          if changed then
+            synchronize_language_after_change next
+              ~fallback_contents:contents_before
+          else next
+  in
+  let session =
+    Extension_async.drain ~owners:(extension_owners session)
+    |> List.fold_left apply_component_completion session
+  in
+  let execution_id =
+    Option.value ~default:0 (last_execution_of_active session.active)
+  in
+  trace_runtime_events
+    (trace_of_active session.active)
+    (profiler_of_active session.active)
+    ~execution_id session.plugins;
   let refresh_jobs_inspector session =
     match session.inspector with
     | Some ("Jobs" :: _) ->
@@ -10930,8 +11012,10 @@ let poll_background session =
           { session with message = Some message; quit_armed = false })
 
 let close session =
+  Extension_async.cancel ~owners:(extension_owners session);
   File_watcher.close session.file_watcher;
   Option.iter Background_job.close session.jobs;
   current_buffer session :: session.inactive_buffers
   |> List.iter (fun (buffer : buffer) ->
-      Option.iter Lsp.close buffer.language_client)
+      Option.iter Lsp.close buffer.language_client);
+  Plugins.dispose session.plugins

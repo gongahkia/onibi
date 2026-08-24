@@ -10,7 +10,10 @@ provenance.
 
 The host embeds the official Wasmtime 47.0.3 C API behind a private C shim.
 Linux x86_64 uses the matching Linux archive; Apple Silicon macOS uses the
-matching aarch64 macOS archive. Run this once in a fresh checkout:
+matching aarch64 macOS archive for the baseline Component runtime. The worker,
+deadline, and hard-cancellation path is implemented and verified on Linux
+x86_64 only; macOS parity requires separate implementation and validation. Run
+this once in a fresh checkout:
 
 ```sh
 make wasm-runtime
@@ -47,14 +50,18 @@ capabilities = ["document.edit"]
 [wasm]
 fuel = 5000000
 memory_bytes = 16777216
+deadline_ms = 1000
 ```
 
-Absent `[wasm]`, these two values are the defaults: 5,000,000 fuel units per
-`register`/`invoke` callback and a 16 MiB per-generation store memory limit.
+Absent `[wasm]`, the defaults are 5,000,000 fuel units per `register`/`invoke`
+callback, a 16 MiB per-generation store memory limit, and a 1,000 ms elapsed
+deadline. `deadline_ms` is optional within `[wasm]` and defaults to 1,000.
 Fuel resets before every callback. The host classifies a fuel trap as
 `extension-fuel-exhausted`, memory exhaustion as
 `extension-memory-exhausted`, an ABI/linker mismatch as
-`extension-abi-mismatch`, and an execution trap as `extension-trap`.
+`extension-abi-mismatch`, an execution trap as `extension-trap`, a deadline as
+`extension-deadline-exhausted`, and lifecycle cancellation as
+`extension-cancelled`.
 Guest `result<_, string>` failures and invalid returned data use
 `extension-runtime-error`.
 
@@ -65,15 +72,17 @@ response is `extension-response-limit` before semantic action interpretation.
 See [the isolation policy](ISOLATION.md) and ADR 0028 for the full store and
 conversion limits.
 
-Fuel bounds guest instructions but callbacks are synchronous. M9 does not yet
-offer a separate worker, an epoch/wall-clock deadline, cancellation of native
-compilation, or a promise that a malicious native process cannot starve the
-host outside this runtime. The resource policy is a Component guest boundary,
-not a universal liveness guarantee. After fuel exhaustion, memory failure, or
-a trap, M10 marks the active Component runtime `unavailable`; later callbacks
-return `extension-runtime-unavailable` without guest entry. Ordinary editor
-input remains usable and explicit plugin reload stages a fresh, healthy
-Component generation.
+One worker exclusively owns each Component store. Commands and event hooks
+enqueue work, expose only a shared terminal wakeup descriptor, and return to
+the session; the worker never exposes a Wasmtime handle to a model. A watchdog
+uses Wasmtime epoch interruption after the elapsed deadline. Completion is
+decoded and committed only on the session main thread and only against its
+exact source document snapshot. Reload, unload, and host shutdown cancel and
+join pending work; results from a disposed generation are dropped. Native
+Component compilation and synchronous selector/transformation/model calls are
+not independently cancellable. The policy is a Component guest boundary, not
+a universal liveness guarantee. Fuel, memory, trap, or deadline failure makes
+the active Component unavailable until a successful reload.
 
 ## WIT ABI
 
@@ -190,7 +199,8 @@ callback events.
 
 The conformance suite runs the same semantic assertions against paired Lua and
 Component packages, then adds Component-only trap, loop, memory, malformed
-binary/WASI/import, output-limit, reload, mixed-runtime, replay-after-unload,
-and 200-generation stress coverage. See the
+binary/WASI/import, output-limit, deadline, cancellation race, reload,
+host-shutdown, mixed-runtime, replay-after-unload, and 200-generation stress
+coverage. See the
 [M9 pressure test](M9_PRESSURE_TEST.md). It does not assert an OS-process
 sandbox, as there is no guest process.

@@ -1,6 +1,6 @@
 open Zenbu_kernel
 
-type wasm_limits = { fuel : int; memory_bytes : int }
+type wasm_limits = { fuel : int; memory_bytes : int; deadline_ms : int }
 
 type t = {
   manifest_version : int;
@@ -62,6 +62,14 @@ let required_positive_int fields name =
   let* value = required_int fields name in
   if value > 0 then Ok value
   else invalid ~operation:name "manifest field must be a positive integer"
+
+let optional_positive_int ~default fields name =
+  match field fields name with
+  | None -> Ok default
+  | Some (Otoml.TomlInteger value) when value > 0 -> Ok value
+  | Some (Otoml.TomlInteger _) ->
+      invalid ~operation:name "manifest field must be a positive integer"
+  | Some _ -> invalid ~operation:name "manifest field must be an integer"
 
 let required_strings fields name =
   match field fields name with
@@ -145,7 +153,10 @@ let optional_wasm_limits root =
       | Some fields ->
           let* fuel = required_positive_int fields "fuel" in
           let* memory_bytes = required_positive_int fields "memory_bytes" in
-          Ok (Some { fuel; memory_bytes }))
+          let* deadline_ms =
+            optional_positive_int ~default:1_000 fields "deadline_ms"
+          in
+          Ok (Some { fuel; memory_bytes; deadline_ms }))
 
 let parse path =
   let* document =
