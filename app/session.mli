@@ -15,6 +15,8 @@ type host_command =
   | Start_regexp_search
   | Replace_all_literal
   | Replace_all_regexp
+  | Start_query_replace_literal
+  | Start_query_replace_regexp
   | Search_next
   | Search_previous
   | Toggle_macro_recording

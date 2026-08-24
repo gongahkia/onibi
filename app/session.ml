@@ -767,6 +767,40 @@ let host_command_entries =
         palette = true;
       };
       {
+        command = Start_query_replace_literal;
+        descriptor =
+          host_descriptor
+            ~parameters:
+              [
+                text_parameter ~name:"query"
+                  ~description:"Literal UTF-8 text to review and replace."
+                  ~required:true;
+                text_parameter ~name:"replacement"
+                  ~description:"Literal UTF-8 replacement text." ~required:true;
+              ]
+            "search.query-replace.literal" "Query-replace literal matches"
+            "Review literal matches one at a time: skip, replace, replace the \
+             rest, or quit.";
+        palette = true;
+      };
+      {
+        command = Start_query_replace_regexp;
+        descriptor =
+          host_descriptor
+            ~parameters:
+              [
+                text_parameter ~name:"query"
+                  ~description:"UTF-8-safe Str regexp to review and replace."
+                  ~required:true;
+                text_parameter ~name:"replacement"
+                  ~description:"Literal UTF-8 replacement text." ~required:true;
+              ]
+            "search.query-replace.regexp" "Query-replace regexp matches"
+            "Review non-empty UTF-8-safe Str regexp matches one at a time; \
+             replacement text is literal.";
+        palette = true;
+      };
+      {
         command = Search_next;
         descriptor =
           host_descriptor "search.next" "Next search match"
@@ -1890,6 +1924,9 @@ let status session =
           "browse bounded project-search results; Enter opens and Escape \
            cancels"
         ()
+  | Query_replace _ ->
+      host_status ~id:"host-query-replace" ~label:"QUERY REPLACE"
+        ~description:"s skip, r replace, a replace remaining, q quit" ()
   | Model_picker _ ->
       host_status ~id:"host-model-picker" ~label:"MODEL"
         ~description:"choose an editing model without replacing semantic state"
@@ -4910,6 +4947,193 @@ let replace_all session input ~kind ~query ~replacement =
                          (if List.length matches = 1 then "" else "es"));
                 })
 
+let query_replace_message (state : query_replace) action =
+  Printf.sprintf "query-replace: %s; %d replaced, %d skipped" action
+    state.replaced state.skipped
+
+let finish_query_replace session (state : query_replace) action =
+  {
+    session with
+    interaction = Idle;
+    search = None;
+    inspector = None;
+    message = Some (query_replace_message state action);
+    quit_armed = false;
+  }
+
+let begin_query_replace session ~kind ~query ~replacement =
+  if String.length query = 0 then
+    { session with message = Some "query-replace: query must not be empty" }
+  else
+    match search_with_query session kind query with
+    | Error reason ->
+        { session with message = Some ("query-replace: " ^ reason) }
+    | Ok search ->
+        let pending = non_overlapping_matches search.matches in
+        if pending = [] then
+          {
+            session with
+            message =
+              Some
+                ("query-replace: no " ^ search_kind_name kind ^ " matches for "
+               ^ query);
+            quit_armed = false;
+          }
+        else
+          {
+            session with
+            interaction =
+              Query_replace
+                {
+                  kind;
+                  query;
+                  replacement;
+                  document_version =
+                    Editor_context.document_version (context session);
+                  pending;
+                  replaced = 0;
+                  skipped = 0;
+                };
+            search = None;
+            inspector = None;
+            message =
+              Some
+                "query-replace: s skip, r replace, a replace remaining, q quit";
+            quit_armed = false;
+          }
+
+let query_replace_stale session (state : query_replace) =
+  if Editor_context.document_version (context session) = state.document_version
+  then None
+  else
+    Some
+      {
+        session with
+        interaction = Idle;
+        search = None;
+        inspector = None;
+        message =
+          Some
+            "query-replace cancelled: the document changed since this review \
+             began";
+        quit_armed = false;
+      }
+
+let query_replace_next session (state : query_replace) =
+  match state.pending with
+  | [] -> finish_query_replace session state "complete"
+  | _ ->
+      {
+        session with
+        interaction = Query_replace state;
+        message =
+          Some
+            (Printf.sprintf
+               "query-replace: %d remaining; s skip, r replace, a all, q quit"
+               (List.length state.pending));
+        quit_armed = false;
+      }
+
+let replace_query_ranges session input (_state : query_replace) ranges
+    replacement =
+  let ranges =
+    List.map
+      (fun (range : Zenbu_view.Renderer.search_range) ->
+        (range.start_offset, range.stop_offset))
+      ranges
+  in
+  let contents = List.map (fun _ -> replacement) ranges in
+  match Model_intent.replace_ranges ~ranges ~primary:0 ~contents with
+  | Error error ->
+      ({ session with message = Some (Error.to_string error) }, false)
+  | Ok intent ->
+      execute_active_effects
+        ~augment_provenance:(fun provenance ->
+          Provenance.add provenance
+            (Provenance.Effect "host.search.query-replace"))
+        session input
+        [
+          Model_effect.execute ~selector_id:"query-replace.matches"
+            ~transformation_id:"replace" intent;
+        ]
+
+let replace_query_current session input (state : query_replace) current rest =
+  let next, changed =
+    replace_query_ranges session input state [ current ] state.replacement
+  in
+  if not changed then
+    {
+      next with
+      interaction = Idle;
+      message = Some "query-replace cancelled: current replacement was rejected";
+      inspector = None;
+      quit_armed = false;
+    }
+  else
+    let delta =
+      String.length state.replacement
+      - (current.stop_offset - current.start_offset)
+    in
+    let pending =
+      List.map
+        (fun (range : Zenbu_view.Renderer.search_range) ->
+          {
+            Zenbu_view.Renderer.start_offset = range.start_offset + delta;
+            stop_offset = range.stop_offset + delta;
+          })
+        rest
+    in
+    query_replace_next next
+      {
+        state with
+        document_version = Editor_context.document_version (context next);
+        pending;
+        replaced = state.replaced + 1;
+      }
+
+let replace_query_remaining session input (state : query_replace) =
+  let next, changed =
+    replace_query_ranges session input state state.pending state.replacement
+  in
+  if not changed then
+    {
+      next with
+      interaction = Idle;
+      message =
+        Some "query-replace cancelled: remaining replacements were rejected";
+      inspector = None;
+      quit_armed = false;
+    }
+  else
+    finish_query_replace next
+      {
+        state with
+        pending = [];
+        document_version = Editor_context.document_version (context next);
+        replaced = state.replaced + List.length state.pending;
+      }
+      "complete"
+
+let handle_query_replace_input session (state : query_replace) input =
+  match query_replace_stale session state with
+  | Some session -> session
+  | None -> (
+      match state.pending with
+      | [] -> finish_query_replace session state "complete"
+      | current :: rest ->
+          if
+            event_is_named input Input_event.Escape
+            || is_shortcut input ~text:"q" ~modifiers:[]
+          then finish_query_replace session state "quit"
+          else if is_shortcut input ~text:"s" ~modifiers:[] then
+            query_replace_next session
+              { state with pending = rest; skipped = state.skipped + 1 }
+          else if is_shortcut input ~text:"r" ~modifiers:[] then
+            replace_query_current session input state current rest
+          else if is_shortcut input ~text:"a" ~modifiers:[] then
+            replace_query_remaining session input state
+          else session)
+
 let refresh_search_after_document_change session =
   match session.search with
   | None -> session
@@ -5029,18 +5253,19 @@ let language_host_command = function
   | Save | Save_as | Save_layout | Restore_layout | Set_project_root
   | Open_file_picker | Search_project | Quit | Force_quit | Reload_config
   | Start_search | Start_regexp_search | Replace_all_literal
-  | Replace_all_regexp | Search_next | Search_previous | Toggle_macro_recording
-  | Replay_macro | Kill_ring_cut | Kill_ring_yank | System_clipboard_copy
-  | System_clipboard_paste | Set_location | Jump_location | Push_jump
-  | Jump_backward | Jump_forward | Open_palette | Switch_model | Help
-  | Switch_presentation | Switch_theme | Background_jobs | Cancel_background_job
-  | Open_background_job_output | Split_vertical | Split_horizontal
-  | Focus_next_pane | Close_pane | Only_pane | Grow_pane_width
-  | Shrink_pane_width | Grow_pane_height | Shrink_pane_height | Balance_panes
-  | New_buffer | Open_buffer | List_buffers | Switch_buffer | Rename_buffer
-  | Close_buffer | Force_close_buffer | Next_buffer | Previous_buffer
-  | View_scroll_up | View_scroll_down | View_page_up | View_page_down
-  | View_center ->
+  | Replace_all_regexp | Start_query_replace_literal
+  | Start_query_replace_regexp | Search_next | Search_previous
+  | Toggle_macro_recording | Replay_macro | Kill_ring_cut | Kill_ring_yank
+  | System_clipboard_copy | System_clipboard_paste | Set_location
+  | Jump_location | Push_jump | Jump_backward | Jump_forward | Open_palette
+  | Switch_model | Help | Switch_presentation | Switch_theme | Background_jobs
+  | Cancel_background_job | Open_background_job_output | Split_vertical
+  | Split_horizontal | Focus_next_pane | Close_pane | Only_pane
+  | Grow_pane_width | Shrink_pane_width | Grow_pane_height | Shrink_pane_height
+  | Balance_panes | New_buffer | Open_buffer | List_buffers | Switch_buffer
+  | Rename_buffer | Close_buffer | Force_close_buffer | Next_buffer
+  | Previous_buffer | View_scroll_up | View_scroll_down | View_page_up
+  | View_page_down | View_center ->
       false
 
 let palette_items session =
@@ -6299,6 +6524,24 @@ let invoke_host_palette_command ?(arguments = []) session input = function
           replace_all session input ~kind:Regexp ~query ~replacement
       | Error error, _ | _, Error error ->
           { session with message = Some (Error.to_string error) })
+  | Start_query_replace_literal -> (
+      match
+        ( required_text_argument arguments "query",
+          required_text_argument arguments "replacement" )
+      with
+      | Ok query, Ok replacement ->
+          begin_query_replace session ~kind:Literal ~query ~replacement
+      | Error error, _ | _, Error error ->
+          { session with message = Some (Error.to_string error) })
+  | Start_query_replace_regexp -> (
+      match
+        ( required_text_argument arguments "query",
+          required_text_argument arguments "replacement" )
+      with
+      | Ok query, Ok replacement ->
+          begin_query_replace session ~kind:Regexp ~query ~replacement
+      | Error error, _ | _, Error error ->
+          { session with message = Some (Error.to_string error) })
   | Search_next ->
       {
         (move_search session input 1) with
@@ -6838,6 +7081,7 @@ let input_for_interaction session input =
       handle_file_picker_input session query selected input
   | Project_search_view { snapshot; selected } ->
       handle_project_search_input session snapshot selected input
+  | Query_replace state -> handle_query_replace_input session state input
   | Model_picker selected -> (
       if event_is_named input Input_event.Escape then
         {
@@ -7104,8 +7348,8 @@ let handle_pointer session input =
   | ( None,
       ( Search_prompt _ | Palette _ | Command_prompt _ | Save_as_prompt _
       | Open_buffer_prompt _ | File_picker _ | Project_search_view _
-      | Model_picker _ | Help_view | Hover_view _ | Completion_view _
-      | Rename_prompt _ ),
+      | Query_replace _ | Model_picker _ | Help_view | Hover_view _
+      | Completion_view _ | Rename_prompt _ ),
       _ ) ->
       { session with mouse_drag = None }
   | None, Idle, None -> session
@@ -7363,14 +7607,15 @@ let handle_host session = function
   | Start_search -> Continue { (begin_search session) with quit_armed = false }
   | Start_regexp_search ->
       Continue { (begin_search ~kind:Regexp session) with quit_armed = false }
-  | Replace_all_literal | Replace_all_regexp ->
+  | Replace_all_literal | Replace_all_regexp | Start_query_replace_literal
+  | Start_query_replace_regexp ->
       Continue
         {
           session with
           message =
             Some
-              "replace-all requires query and replacement through the command \
-               palette";
+              "replacement commands require query and replacement through the \
+               command palette";
           quit_armed = false;
           inspector = None;
         }
@@ -7859,6 +8104,24 @@ let interaction_overlay session =
         @ (if visible = [] then [ "  no matching readable text files" ]
            else visible)
         @ [ ""; "Arrow keys select; Enter opens; Escape cancels." ])
+  | Query_replace state -> (
+      match state.pending with
+      | [] -> None
+      | current :: _ ->
+          Some
+            [
+              "Query replace";
+              "kind: " ^ search_kind_name state.kind;
+              "query: " ^ state.query;
+              "replacement: " ^ state.replacement;
+              Printf.sprintf "match: byte %d..%d  remaining: %d"
+                current.start_offset current.stop_offset
+                (List.length state.pending);
+              Printf.sprintf "replaced: %d  skipped: %d" state.replaced
+                state.skipped;
+              "";
+              "s skip   r replace   a replace remaining   q quit";
+            ])
   | Hover_view hover ->
       Some
         ([ "Language hover"; "" ]
@@ -7909,6 +8172,10 @@ let interaction_message session =
   | File_picker { query; _ } -> Some ("files: " ^ query)
   | Project_search_view { snapshot; _ } ->
       Some ("project search: " ^ snapshot.query)
+  | Query_replace state ->
+      Some
+        (Printf.sprintf "query-replace: %d remaining"
+           (List.length state.pending))
   | Rename_prompt name -> Some ("rename: " ^ name)
   | Completion_view { query; _ } -> Some ("completion: " ^ query)
   | Idle | Palette _ | Model_picker _ | Help_view | Hover_view _ ->
@@ -8335,8 +8602,8 @@ let inspect session inspection =
               | Search_prompt _ -> "prompt: open"
               | Idle | Palette _ | Command_prompt _ | Save_as_prompt _
               | Open_buffer_prompt _ | File_picker _ | Project_search_view _
-              | Model_picker _ | Help_view | Hover_view _ | Completion_view _
-              | Rename_prompt _ ->
+              | Query_replace _ | Model_picker _ | Help_view | Hover_view _
+              | Completion_view _ | Rename_prompt _ ->
                   "prompt: closed");
             ])
     | Macros -> macro_lines session

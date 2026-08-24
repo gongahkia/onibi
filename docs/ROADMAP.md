@@ -19,7 +19,7 @@ This repository implements M0-M11.
 
 M10 added host/presentation policy above the existing semantic boundary:
 literal Unicode plus UTF-8-safe `Str` regexp search, one-buffer atomic
-literal/regexp replace-all, all-provider command discovery/palette, save-as,
+literal/regexp replace-all and reviewed query-replace, all-provider command discovery/palette, save-as,
 metadata-derived help, live model switching, syntax colouring from public
 snapshot spans, bracketed-paste aggregation, Component health/reload behavior,
 basic terminal pointer selection/scrolling, scoped logical input sequences,

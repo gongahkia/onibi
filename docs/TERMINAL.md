@@ -42,8 +42,15 @@ as regexp search; `$1` and every other replacement byte sequence are literal.
 Their descriptors join `search.start`, `search.regexp`, `search.next`, and
 `search.previous` with provider `zenbu.app`, so they appear in `commands`,
 `describe command`, and the same palette as model, Lua, and plugin commands.
-They are not adapter-bindable because both required arguments remain host prompt
-input. This is not product-regexp, query-replace, or project-search
+`search.query-replace.literal` and `search.query-replace.regexp` collect the
+same arguments, then retain a version-bound non-overlapping match plan in a
+host-owned review state. `s` skips, `r` replaces the current match through one
+checked transaction, `a` replaces every remaining planned match through one
+checked transaction, and `q`/`Escape` stops without changing unreviewed
+matches. A version change outside the review cancels the remaining plan before
+an edit. Replacements are literal for both modes, so capture templates are not
+supported. These are not adapter-bindable because their arguments and review
+keys remain host input. This is not product-regexp or project-search
 compatibility. The
 palette filters descriptor id/title/summary/provider. A selected descriptor
 with parameters enters a host-owned prompt for each parameter; `Escape`

@@ -232,7 +232,12 @@ effect rather than introducing an Ex parser or a second mutation path.
 literal replacement text through that prompt. They recompute matches in the
 active buffer and commit every accepted non-overlapping match as one checked
 transaction; they do not reuse an active search cursor, expose capture
-templates, or implement an interactive product query-replace UI.
+templates, or implement another editor's replacement dialect.
+`search.query-replace.literal` and `search.query-replace.regexp` instead hold
+a version-bound host review plan: `s` skips, `r` replaces one match, `a`
+replaces the remaining planned matches, and `q`/`Escape` quits. Each accepted
+decision remains a checked transaction; a changed document cancels remaining
+decisions before they can apply.
 Bracketed terminal paste is collected as one committed text input only while a
 model or host prompt declares text entry; it is intentionally ignored in a
 command grammar. Selection styling wins over search styling, which wins over

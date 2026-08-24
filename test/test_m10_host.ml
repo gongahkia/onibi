@@ -323,6 +323,70 @@ let test_replace_all_is_atomic_and_utf8_safe () =
             "v0 -> v1"))
     "zero-width regexp replacement mutated the document"
 
+let test_query_replace_is_reviewed_and_atomic_per_decision () =
+  let session =
+    make_session "aa aa aa" |> fun session ->
+    invoke_palette_text_arguments session "search.query-replace.literal"
+      [ "aa"; "z" ]
+  in
+  expect
+    (Model_status.id (App.Session.status session) = "host-query-replace")
+    "query-replace did not enter its host-owned review state";
+  let _, frame = App.Session.render session in
+  let screen =
+    Frame.rows frame |> List.map Frame.row_text |> String.concat "\n"
+  in
+  expect
+    (contains screen "Query replace" && contains screen "remaining: 3")
+    "query-replace did not render its current match and decision state";
+  let skipped = App.Session.handle_input session (key "s") in
+  expect
+    (App.Session.contents skipped = "aa aa aa")
+    "skipping a query-replace match changed the document";
+  let replaced = App.Session.handle_input skipped (key "r") in
+  expect
+    (App.Session.contents replaced = "aa z aa")
+    "query-replace did not replace its reviewed current match";
+  let completed = App.Session.handle_input replaced (key "a") in
+  expect
+    (App.Session.contents completed = "aa z z")
+    "query-replace did not replace all remaining planned matches";
+  expect
+    (lines_contain
+       (App.Session.inspect completed App.Session.History)
+       "host.search.query-replace"
+    && lines_contain
+         (App.Session.inspect completed App.Session.History)
+         "query-replace.matches")
+    "query-replace did not retain checked host provenance";
+  let cancelled =
+    make_session "a a" |> fun session ->
+    invoke_palette_text_arguments session "search.query-replace.literal"
+      [ "a"; "x" ]
+    |> fun session -> App.Session.handle_input session (key "q")
+  in
+  expect
+    (App.Session.contents cancelled = "a a")
+    "quitting query-replace changed an unreviewed document";
+  let unicode =
+    make_session "β β" |> fun session ->
+    invoke_palette_text_arguments session "search.query-replace.literal"
+      [ "β"; "λ" ]
+    |> fun session -> App.Session.handle_input session (key "a")
+  in
+  expect
+    (App.Session.contents unicode = "λ λ")
+    "query-replace did not preserve UTF-8 match boundaries";
+  let invalid =
+    make_session "a" |> fun session ->
+    invoke_palette_text_arguments session "search.query-replace.regexp"
+      [ "a*"; "x" ]
+  in
+  expect
+    (App.Session.contents invalid = "a"
+    && Model_status.id (App.Session.status invalid) <> "host-query-replace")
+    "query-replace accepted a zero-width regexp match"
+
 let test_vim_modal_search_requests () =
   let session = make_session "alpha beta alpha" in
   let session = App.Session.handle_input session (key "/") in
@@ -2013,6 +2077,8 @@ let tests =
       test_regexp_search_is_incremental_and_utf8_safe );
     ( "replace-all is atomic and UTF-8-safe",
       test_replace_all_is_atomic_and_utf8_safe );
+    ( "query-replace is reviewed and atomic per decision",
+      test_query_replace_is_reviewed_and_atomic_per_decision );
     ("Vim modal search requests", test_vim_modal_search_requests);
     ( "syntax spans and render precedence",
       test_syntax_spans_and_render_precedence );
