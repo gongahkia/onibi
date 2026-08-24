@@ -151,6 +151,13 @@ slot_json_selector = "script#kaypoh-slots"
 enabled = false
 availability_url = "https://partner.example/availability?from={start_date}&to={end_date}"
 slot_json_selector = "script#kaypoh-slots"
+
+# Final fallback: the built-in anonymous onePA reader. Use the exact public
+# facilityId selected in onePA's availability page. It reads named courts and
+# available slots only; it never starts a booking.
+[sources.onepa.onepa]
+enabled = true
+facility_ids = ["WoodlandsCC_BADMINTONCOURTS"]
 ```
 
 The configured API response, or the JSON text selected from a browser/public

@@ -39,6 +39,7 @@ type Source struct {
 	Public              SourcePublic     `toml:"public"`
 	ActiveSG            SourceActiveSG   `toml:"activesg"`
 	PerfectGym          SourcePerfectGym `toml:"perfectgym"`
+	OnePA               SourceOnePA      `toml:"onepa"`
 }
 
 // SourceAPI describes a partner-provided, read-only availability endpoint.
@@ -96,6 +97,15 @@ type SourcePerfectGym struct {
 	AvailabilityURL    string `toml:"availability_url"`
 	FacilityTypeName   string `toml:"facility_type_name"`
 	SessionStateBase64 string `toml:"session_state_base64"`
+}
+
+// SourceOnePA configures the dedicated, anonymous onePA availability reader.
+// FacilityIDs are the public facilityId values in onePA's availability URL.
+// The reader only requests availability; it does not select a slot or begin a
+// booking flow.
+type SourceOnePA struct {
+	Enabled     bool     `toml:"enabled"`
+	FacilityIDs []string `toml:"facility_ids"`
 }
 
 type Routing struct {
@@ -265,7 +275,15 @@ func (config Config) Validate() error {
 				return fmt.Errorf("sources.%s.perfectgym facility_type_name must be %q", id, PerfectGymBadmintonFacilityType)
 			}
 		}
-		if !builtInPublicReader(id) && id != "sportsg-facilities" && id != "onemap" && !source.API.Enabled && !source.Browser.Enabled && !source.Public.Enabled && !source.ActiveSG.Enabled && !source.PerfectGym.Enabled {
+		if source.OnePA.Enabled {
+			if id != "onepa" {
+				return fmt.Errorf("sources.%s.onepa is only supported for onepa", id)
+			}
+			if len(normalizedStrings(source.OnePA.FacilityIDs)) == 0 {
+				return fmt.Errorf("sources.%s.onepa needs facility_ids", id)
+			}
+		}
+		if !builtInPublicReader(id) && id != "sportsg-facilities" && id != "onemap" && !source.API.Enabled && !source.Browser.Enabled && !source.Public.Enabled && !source.ActiveSG.Enabled && !source.PerfectGym.Enabled && !source.OnePA.Enabled {
 			return fmt.Errorf("sources.%s is enabled without an availability access mode", id)
 		}
 	}
@@ -382,6 +400,17 @@ enabled = false
 availability_url = "https://thekallang.perfectgym.com/clientportal2/"
 facility_type_name = "Badminton Courts"
 # session_state_base64 = "env:KAYPOH_THE_KALLANG_SESSION_STATE_B64"
+
+[sources.onepa]
+enabled = false
+refresh_minutes = 30
+
+# The onePA reader is anonymous and direct. Copy facility_ids from the public
+# availability URL's facilityId value, for example after choosing Woodlands CC
+# and Badminton Courts. It requests availability only; it never opens booking.
+[sources.onepa.onepa]
+enabled = false
+# facility_ids = ["WoodlandsCC_BADMINTONCOURTS"]
 
 [routing]
 provider = "onemap"

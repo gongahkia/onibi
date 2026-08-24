@@ -13,6 +13,7 @@ import (
 	"github.com/gongahkia/kaypoh/internal/geo"
 	"github.com/gongahkia/kaypoh/internal/sources/activesg"
 	"github.com/gongahkia/kaypoh/internal/sources/fallback"
+	"github.com/gongahkia/kaypoh/internal/sources/onepa"
 	"github.com/gongahkia/kaypoh/internal/sources/perfectgym"
 )
 
@@ -160,6 +161,55 @@ func TestOpenChainsGenericAndDedicatedPerfectGymReaders(t *testing.T) {
 	}
 	if _, ok := adapter.(*fallback.Adapter); !ok {
 		t.Fatalf("the-kallang adapter = %T, want fallback chain", adapter)
+	}
+}
+
+func TestOpenSelectsDedicatedOnePAReader(t *testing.T) {
+	cfg, err := config.Default()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.DatabasePath = filepath.Join(t.TempDir(), "kaypoh.db")
+	onePA := cfg.Sources[onepa.SourceID]
+	onePA.Enabled = true
+	onePA.OnePA = config.SourceOnePA{Enabled: true, FacilityIDs: []string{"WoodlandsCC_BADMINTONCOURTS"}}
+	cfg.Sources[onepa.SourceID] = onePA
+	service, err := Open(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = service.Close() })
+	adapter, err := service.sources.Adapter(onepa.SourceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := adapter.(*onepa.Adapter); !ok {
+		t.Fatalf("onepa adapter = %T, want dedicated onePA reader", adapter)
+	}
+}
+
+func TestOpenChainsGenericAndDedicatedOnePAReaders(t *testing.T) {
+	cfg, err := config.Default()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.DatabasePath = filepath.Join(t.TempDir(), "kaypoh.db")
+	onePA := cfg.Sources[onepa.SourceID]
+	onePA.Enabled = true
+	onePA.Public = config.SourcePublic{Enabled: true, AvailabilityURL: "https://www.onepa.gov.sg/availability", SlotJSONSelector: "script#kaypoh-slots"}
+	onePA.OnePA = config.SourceOnePA{Enabled: true, FacilityIDs: []string{"WoodlandsCC_BADMINTONCOURTS"}}
+	cfg.Sources[onepa.SourceID] = onePA
+	service, err := Open(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = service.Close() })
+	adapter, err := service.sources.Adapter(onepa.SourceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := adapter.(*fallback.Adapter); !ok {
+		t.Fatalf("onepa adapter = %T, want fallback chain", adapter)
 	}
 }
 

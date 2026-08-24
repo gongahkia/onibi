@@ -8,7 +8,7 @@ automation.
 
 ## Handoff status
 
-Completed on 2026-08-23:
+Completed on 2026-08-24:
 
 - The Docker image builds with its matching Playwright driver and Chromium.
 - The enabled anonymous providers passed a live Docker refresh: SBA, Singapore
@@ -18,6 +18,9 @@ Completed on 2026-08-23:
   URL. It requires an imported browser session and is disabled by default.
 - A dedicated The Kallang reader exists for the PerfectGym **Badminton Courts**
   calendar. It requires an imported browser session and is disabled by default.
+- A dedicated onePA reader exists for configured public facility IDs. It uses
+  the anonymous availability endpoint, maps named courts, and is disabled by
+  default.
 
 Not yet complete:
 
@@ -25,8 +28,9 @@ Not yet complete:
   accepts only the badminton activity URL; it is not a generic all-sport
   ActiveSG reader.
 - A live ActiveSG or The Kallang scan with a transferred session state.
-- onePA and TruSmash. They remain disabled until a provider-specific approved
-  API, imported session, or public payload contract is captured and implemented.
+- A live onePA refresh with an enabled configured facility ID, and TruSmash.
+  TruSmash remains disabled until a provider-specific approved API, imported
+  session, or public payload contract is captured and implemented.
 - OneMap routing. It remains `credentials_required` until local credentials are
   supplied.
 

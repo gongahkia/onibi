@@ -69,7 +69,7 @@ func TestWriteExampleRefusesOverwrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, section := range []string{"[sources.myactivesg.activesg]", "[sources.the-kallang.perfectgym]"} {
+	for _, section := range []string{"[sources.myactivesg.activesg]", "[sources.the-kallang.perfectgym]", "[sources.onepa.onepa]"} {
 		if !strings.Contains(string(contents), section) {
 			t.Fatalf("config example is missing %s", section)
 		}
@@ -128,5 +128,36 @@ func TestValidatePerfectGymReaderNeedsImportedSessionAndBadmintonType(t *testing
 	config.Sources["the-kallang"] = kallang
 	if err := config.Validate(); err != nil {
 		t.Fatalf("valid PerfectGym reader configuration = %v", err)
+	}
+}
+
+func TestValidateOnePAReaderNeedsFacilityIDs(t *testing.T) {
+	config, err := Default()
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.Sources["onepa"] = Source{Enabled: true, OnePA: SourceOnePA{Enabled: true}}
+	if err := config.Validate(); err == nil {
+		t.Fatal("onePA reader without facility IDs was accepted")
+	}
+	config.Sources["onepa"] = Source{Enabled: true, OnePA: SourceOnePA{Enabled: true, FacilityIDs: []string{"WoodlandsCC_BADMINTONCOURTS"}}}
+	if err := config.Validate(); err != nil {
+		t.Fatalf("valid onePA reader configuration = %v", err)
+	}
+}
+
+func TestLoadOnePAReaderConfiguration(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	contents := []byte("version = 1\n[sources.onepa]\nenabled = true\n[sources.onepa.onepa]\nenabled = true\nfacility_ids = [\"WoodlandsCC_BADMINTONCOURTS\"]\n")
+	if err := os.WriteFile(path, contents, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	config, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader := config.Sources["onepa"].OnePA
+	if !reader.Enabled || len(reader.FacilityIDs) != 1 || reader.FacilityIDs[0] != "WoodlandsCC_BADMINTONCOURTS" {
+		t.Fatalf("onePA reader = %#v", reader)
 	}
 }

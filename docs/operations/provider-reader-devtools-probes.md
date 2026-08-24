@@ -99,15 +99,24 @@ reader, or a provider-specific DOM reader.
 
 ### onePA
 
-```js
-location.assign("https://www.onepa.gov.sg/facilities/availability")
+onePA now has a dedicated anonymous reader. Configure it with the exact public
+`facilityId` after selecting a community club and **Badminton Courts**. For
+example, Woodlands CC uses:
+
+```toml
+[sources.onepa]
+enabled = true
+
+[sources.onepa.onepa]
+enabled = true
+facility_ids = ["WoodlandsCC_BADMINTONCOURTS"]
 ```
 
-After the page loads and the probe is installed:
-
-```js
-__kaypohProbe.configure("onepa", /availability|facility|slot|timeslot|venue|calendar|schedule/i)
-```
+The reader opens the public availability page once per refresh, then sends only
+read-only `selectedFacility` and `selectedDate` availability requests. It uses
+non-overlapping three-day calendar windows, and does not log in, click a court,
+or begin a booking. Use the generic probe only when that endpoint's contract
+changes.
 
 ### The Kallang / OCBC Arena
 
@@ -135,12 +144,13 @@ __kaypohProbe.configure("trusmash", /availability|court|facility|slot|timeslot|v
 
 ## Existing custom public readers
 
-SBA, Singapore Badminton Hall, Smash Arena, and Wyse Active Hub already have
-provider-specific, anonymous public readers. Use the following commands only
-to investigate a contract change or to extend their coverage.
+onePA, SBA, Singapore Badminton Hall, Smash Arena, and Wyse Active Hub already
+have provider-specific, anonymous public readers. Use the following commands
+only to investigate a contract change or to extend their coverage.
 
 | Provider | Open | Configure |
 | --- | --- | --- |
+| onePA | `location.assign("https://www.onepa.gov.sg/facilities/availability")` | `__kaypohProbe.configure("onepa", /facility|slot|availability/i)` |
 | SBA / KFF Guillemard | `location.assign("https://booking.singaporebadminton.org.sg/")` | `__kaypohProbe.configure("sba-stadium", /location|slot|court|booking/i)` |
 | Singapore Badminton Hall | `location.assign("https://playtomic.com/clubs/sbh-sims")` | `__kaypohProbe.configure("singapore-badminton-hall", /availability|club|resource|slot|court/i)` |
 | Smash Arena | `location.assign("https://booking.smasharena.sg/")` | `__kaypohProbe.configure("smash-arena", /getSmashSlot|getSmashCourt/i)` |

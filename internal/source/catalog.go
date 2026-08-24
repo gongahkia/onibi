@@ -16,7 +16,7 @@ func Catalog() []domain.SourceInfo {
 		{ID: "sportsg-facilities", Name: "SportSG facilities", Operator: "Sport Singapore", Website: "https://data.gov.sg/datasets/d_9b87bab59d036a60fad2a91530e10773/view", Policy: domain.SourcePolicy{Status: domain.SourceEnabledPublicData, PermittedHosts: []string{"api-open.data.gov.sg", "api-production.data.gov.sg", "s3.ap-southeast-1.amazonaws.com"}, Capabilities: domain.Capabilities{VenueDiscovery: true, Metadata: true, GeographicData: true, BookingURL: true}, PollFloor: 24 * time.Hour, Concurrency: 1, Timeout: 20 * time.Second, EvidenceURLs: []string{"https://data.gov.sg/datasets/d_9b87bab59d036a60fad2a91530e10773/view"}, ReviewedAt: auditReviewedAt}},
 		{ID: "onemap", Name: "OneMap", Operator: "Singapore Land Authority", Website: "https://www.onemap.gov.sg/apidocs/", Policy: domain.SourcePolicy{Status: domain.SourceEnabledOfficialAPI, PermittedHosts: []string{"www.onemap.gov.sg"}, Capabilities: domain.Capabilities{GeographicData: true}, AuthRequired: true, PollFloor: time.Minute, Concurrency: 2, Timeout: 15 * time.Second, TermsURL: "https://www.onemap.gov.sg/legal/apitermsofservice.html", EvidenceURLs: []string{"https://www.onemap.gov.sg/apidocs/routing"}, ReviewedAt: auditReviewedAt}},
 		activeSGSource(availability),
-		partnerSource("onepa", "onePA", "People's Association", "https://www.onepa.gov.sg/facilities/availability", []string{"www.onepa.gov.sg"}, 15, availability),
+		onePASource(availability),
 		perfectGymSource(availability),
 		publicAvailabilitySource("sba-stadium", "KFF Badminton Arena @ Guillemard", "Singapore Badminton Association", "https://booking.singaporebadminton.org.sg/", []string{"booking.singaporebadminton.org.sg", "singaporebadminton.org.sg"}, 7, availability),
 		publicAvailabilitySource("singapore-badminton-hall", "Singapore Badminton Hall", "Singapore Badminton Hall", "https://singaporebadmintonhall.com/book-now/", []string{"singaporebadmintonhall.com", "playtomic.com"}, 7, availability),
@@ -24,6 +24,10 @@ func Catalog() []domain.SourceInfo {
 		publicAvailabilitySource("wyse-active", "Wyse Active Hub", "Wyse Active Hub / Rezerv", "https://wyseactivehub.rezerv.co/", []string{"www.wyseactivehub.com", "wyseactivehub.rezerv.co", "customer-api.rezerv.co"}, 7, availability),
 		partnerSource("trusmash", "TruSmash", "Viva Capital / AFA", "https://book.afa-sports.com/scheduler", []string{"trusmash.com.sg", "book.afa-sports.com"}, 14, availability),
 	}
+}
+
+func onePASource(capabilities domain.Capabilities) domain.SourceInfo {
+	return domain.SourceInfo{ID: "onepa", Name: "onePA", Operator: "People's Association", Website: "https://www.onepa.gov.sg/facilities/availability", Policy: domain.SourcePolicy{Status: domain.SourceExperimental, PermittedHosts: []string{"www.onepa.gov.sg"}, Capabilities: capabilities, PollFloor: 30 * time.Minute, AvailabilityMaxDays: 10, Concurrency: 1, Timeout: 25 * time.Second, EvidenceURLs: []string{"https://www.onepa.gov.sg/facilities/availability"}, ReviewedAt: auditReviewedAt, Notes: "Partner-authorized, read-only onePA badminton availability integration. The dedicated reader uses configured public facility IDs and requests the availability endpoint only. Its verified window is ten days. It never logs in, selects a slot, or opens booking, checkout, payment, CAPTCHA, or OTP flows."}}
 }
 
 func partnerSource(id, name, operator, website string, hosts []string, maximumDays int, capabilities domain.Capabilities) domain.SourceInfo {

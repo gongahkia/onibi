@@ -87,6 +87,12 @@ enabled = false
 # availability_url = "https://partner.example/availability?from={start_date}&to={end_date}"
 # slot_json_selector = "script#kaypoh-slots"
 
+# The built-in reader fetches public availability for explicit facility IDs.
+# It does not log in or start a booking flow.
+[sources.onepa.onepa]
+enabled = false
+# facility_ids = ["WoodlandsCC_BADMINTONCOURTS"]
+
 [routing]
 provider = "onemap"
 
