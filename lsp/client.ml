@@ -4,12 +4,19 @@ module Trace = Zenbu_model_api.Trace
 module Trace_event = Zenbu_model_api.Trace_event
 module Profiler = Zenbu_model_api.Profiler
 
-type request_kind = Hover | Definition | Completion | Rename
+type request_kind = Hover | Definition | Completion | Code_action | Rename
 
 type workspace_edit = {
   uri : string;
   source_contents : string;
   edits : Language.text_edit list;
+}
+
+type code_action = {
+  title : string;
+  edits : workspace_edit list option;
+  command : string option;
+  disabled_reason : string option;
 }
 
 type event =
@@ -35,6 +42,13 @@ type event =
       document_version : int;
       byte_offset : int;
       items : Language.completion list;
+    }
+  | Code_action_result of {
+      request_id : int;
+      document_version : int;
+      start_offset : int;
+      stop_offset : int;
+      actions : code_action list;
     }
   | Rename_result of {
       request_id : int;
@@ -64,6 +78,7 @@ type pending = {
   contents : string;
   workspace_documents : (string * string) list;
   byte_offset : int option;
+  stop_offset : int option;
   mutable cancelled : bool;
   started_at : float;
 }
@@ -117,6 +132,7 @@ let max_header_bytes = 32 * 1024
 let max_message_bytes = 8 * 1024 * 1024
 let max_hover_bytes = 16 * 1024
 let max_completion_items = 1_024
+let max_code_action_items = 128
 let max_diagnostics = 1_024
 let max_stderr_bytes = 16 * 1024
 let max_message_bytes_for_ui = 2_048
@@ -131,6 +147,7 @@ let request_kind_name = function
   | Hover -> "hover"
   | Definition -> "definition"
   | Completion -> "completion"
+  | Code_action -> "code-action"
   | Rename -> "rename"
 
 let sync_name = function
@@ -628,6 +645,75 @@ let workspace_edits_of_json ~current_uri ~contents ~workspace_documents
   with Jsonrpc.Json.Of_json (message, _) ->
     Error ("invalid workspace edit: " ^ message)
 
+let code_action_of_lsp ~current_uri ~contents ~workspace_documents ~encoding =
+  function
+  | `Command command ->
+      let title = trim_text 512 command.Lsp.Types.Command.title in
+      if title = "" then Error "code action command has an empty title"
+      else
+        Ok
+          {
+            title;
+            edits = None;
+            command = Some command.command;
+            disabled_reason = None;
+          }
+  | `CodeAction action ->
+      let title = trim_text 512 action.Lsp.Types.CodeAction.title in
+      if title = "" then Error "code action has an empty title"
+      else
+        let edits =
+          match action.edit with
+          | None -> Ok None
+          | Some edit ->
+              workspace_edits_of_json ~current_uri ~contents
+                ~workspace_documents ~encoding
+                (Lsp.Types.WorkspaceEdit.yojson_of_t edit)
+              |> Result.map Option.some
+        in
+        Result.map
+          (fun edits ->
+            {
+              title;
+              edits;
+              command =
+                Option.map
+                  (fun (command : Lsp.Types.Command.t) -> command.command)
+                  action.command;
+              disabled_reason =
+                Option.map
+                  (fun (disabled : Lsp.Types.CodeAction.disabled) ->
+                    disabled.reason)
+                  action.disabled;
+            })
+          edits
+
+let code_actions_of_json ~current_uri ~contents ~workspace_documents ~encoding
+    json =
+  try
+    let values =
+      match json with
+      | `Null -> []
+      | _ ->
+          Lsp.Types.CodeActionResult.t_of_yojson json
+          |> Option.value ~default:[]
+    in
+    let values =
+      if List.length values > max_code_action_items then
+        List.filteri (fun index _ -> index < max_code_action_items) values
+      else values
+    in
+    let rec collect values result =
+      match values with
+      | [] -> Ok (List.rev result)
+      | value :: rest ->
+          Result.bind
+            (code_action_of_lsp ~current_uri ~contents ~workspace_documents
+               ~encoding value) (fun value -> collect rest (value :: result))
+    in
+    collect values []
+  with Jsonrpc.Json.Of_json (message, _) -> Error message
+
 let client_capabilities () =
   assoc
     [
@@ -665,6 +751,13 @@ let client_capabilities () =
                       ] );
                 ] );
             ("rename", assoc [ ("prepareSupport", `Bool true) ]);
+            ( "codeAction",
+              assoc
+                [
+                  ("dynamicRegistration", `Bool false);
+                  ("isPreferredSupport", `Bool false);
+                  ("disabledSupport", `Bool true);
+                ] );
             ("publishDiagnostics", assoc [ ("relatedInformation", `Bool false) ]);
           ] );
       ( "workspace",
@@ -753,7 +846,8 @@ let send_configuration t =
       notify t ~method_:"workspace/didChangeConfiguration"
         ~params:[ ("settings", data_to_json settings) ]
 
-let send_request ?byte_offset t kind ~document_version ~contents ~params =
+let send_request ?byte_offset ?stop_offset t kind ~document_version ~contents
+    ~params =
   let pending =
     Mutex.lock t.lock;
     let result =
@@ -770,6 +864,7 @@ let send_request ?byte_offset t kind ~document_version ~contents ~params =
               contents;
               workspace_documents = t.workspace_documents;
               byte_offset;
+              stop_offset;
               cancelled = false;
               started_at = Unix.gettimeofday ();
             }
@@ -789,6 +884,7 @@ let send_request ?byte_offset t kind ~document_version ~contents ~params =
         | Feature Hover -> "textDocument/hover"
         | Feature Definition -> "textDocument/definition"
         | Feature Completion -> "textDocument/completion"
+        | Feature Code_action -> "textDocument/codeAction"
         | Feature Rename -> "textDocument/rename"
       in
       match
@@ -887,6 +983,7 @@ let feature_stage = function
   | Hover -> Profiler.Language_hover
   | Definition -> Profiler.Language_definition
   | Completion -> Profiler.Language_completion
+  | Code_action -> Profiler.Language_code_action
   | Rename -> Profiler.Language_rename
 
 let feature_response t pending result =
@@ -1003,6 +1100,23 @@ let feature_response t pending result =
                             items;
                           })
                       (collect values [])
+                | Code_action ->
+                    Result.map
+                      (fun actions ->
+                        Code_action_result
+                          {
+                            request_id = pending.id;
+                            document_version = pending.document_version;
+                            start_offset =
+                              Option.value ~default:(-1) pending.byte_offset;
+                            stop_offset =
+                              Option.value ~default:(-1) pending.stop_offset;
+                            actions;
+                          })
+                      (code_actions_of_json ~current_uri:t.uri
+                         ~contents:pending.contents
+                         ~workspace_documents:pending.workspace_documents
+                         ~encoding:t.position_encoding json)
                 | Rename ->
                     Result.map
                       (fun edits ->
@@ -1637,6 +1751,30 @@ let request_definition t ~byte_offset =
 let request_completion t ~byte_offset =
   request_position t Completion byte_offset
     [ ("context", assoc [ ("triggerKind", `Int 1) ]) ]
+
+let request_code_actions t ~start_offset ~stop_offset =
+  Mutex.lock t.lock;
+  let state = t.state in
+  let contents = t.current_contents in
+  let document_version = t.document_version in
+  let encoding = t.position_encoding in
+  Mutex.unlock t.lock;
+  if state <> Language.Ready then Error "language server is unavailable"
+  else if start_offset < 0 || stop_offset < start_offset then
+    Error "code action range is invalid"
+  else
+    Result.bind
+      (Language.Position.offsets_to_range ~contents ~encoding ~start_offset
+         ~stop_offset) (fun range ->
+        let params =
+          [
+            ("textDocument", assoc [ ("uri", `String t.uri) ]);
+            ("range", range_json range);
+            ("context", assoc [ ("diagnostics", `List []) ]);
+          ]
+        in
+        send_request ~byte_offset:start_offset ~stop_offset t
+          (Feature Code_action) ~document_version ~contents ~params)
 
 let request_rename t ~byte_offset ~new_name =
   if String.length new_name = 0 then Error "rename target must not be empty"

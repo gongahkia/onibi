@@ -63,6 +63,7 @@ type host_command =
   | Language_hover
   | Language_definition
   | Language_complete
+  | Language_code_action
   | Language_rename
   | Language_diagnostic_next
   | Language_diagnostic_previous
@@ -117,6 +118,7 @@ type inspection =
   | File_watches
   | Language
   | Decorations
+  | Code_actions
 
 type search = {
   kind : search_kind;
@@ -192,6 +194,15 @@ type interaction =
       items : Language.completion list;
       selected : int;
       query : string;
+    }
+  | Code_action_view of {
+      request_id : int;
+      document_id : string;
+      document_version : int;
+      start_offset : int;
+      stop_offset : int;
+      actions : Lsp.code_action list;
+      selected : int;
     }
   | Rename_prompt of string
 
@@ -1457,6 +1468,14 @@ let host_command_entries =
         palette = true;
       };
       {
+        command = Language_code_action;
+        descriptor =
+          language_descriptor "language.code-action" "Request code actions"
+            "Request version-bound language actions for the primary selection. \
+             Only checked workspace edits may be applied.";
+        palette = true;
+      };
+      {
         command = Language_rename;
         descriptor =
           language_descriptor "language.rename" "Rename symbol"
@@ -2212,6 +2231,9 @@ let status session =
       host_status ~id:"language-completion" ~label:"COMPLETE"
         ~description:"filter and choose a language completion item"
         ~text_entry:true ()
+  | Code_action_view _ ->
+      host_status ~id:"language-code-action" ~label:"ACTION"
+        ~description:"choose a checked language code action; Escape cancels" ()
   | Rename_prompt _ ->
       host_status ~id:"language-rename" ~label:"RENAME"
         ~description:"enter a new symbol name; Enter requests rename"
@@ -3075,6 +3097,45 @@ let begin_definition session =
 let begin_completion session =
   request_language session (fun client ->
       Lsp.request_completion client ~byte_offset:(primary_offset session))
+
+let begin_code_action session =
+  let selection = primary_selection session in
+  let start_offset = min selection.anchor_offset selection.head_offset in
+  let stop_offset = max selection.anchor_offset selection.head_offset in
+  match session.language_client with
+  | None -> language_unavailable session
+  | Some client -> (
+      Lsp.set_execution_id client
+        ~execution_id:
+          (Option.value ~default:0 (last_execution_of_active session.active));
+      match Lsp.request_code_actions client ~start_offset ~stop_offset with
+      | Error reason ->
+          {
+            session with
+            message = Some ("language code action failed: " ^ reason);
+            quit_armed = false;
+          }
+      | Ok request_id ->
+          let context = context session in
+          {
+            session with
+            interaction =
+              Code_action_view
+                {
+                  request_id;
+                  document_id = Editor_context.document_id context;
+                  document_version = Editor_context.document_version context;
+                  start_offset;
+                  stop_offset;
+                  actions = [];
+                  selected = 0;
+                };
+            message =
+              Some
+                ("language code action " ^ string_of_int request_id ^ " pending");
+            inspector = None;
+            quit_armed = false;
+          })
 
 let begin_rename session =
   match session.language_client with
@@ -5236,6 +5297,107 @@ let apply_workspace_edits session input ~effect_id edits =
               },
               changed )))
 
+let code_action_is_current session ~document_id ~document_version ~start_offset
+    ~stop_offset =
+  let context = context session in
+  let selection = primary_selection session in
+  String.equal document_id (Editor_context.document_id context)
+  && document_version = Editor_context.document_version context
+  && start_offset = min selection.anchor_offset selection.head_offset
+  && stop_offset = max selection.anchor_offset selection.head_offset
+
+let accept_code_action session input ~document_id ~document_version
+    ~start_offset ~stop_offset (action : Lsp.code_action) =
+  if
+    not
+      (code_action_is_current session ~document_id ~document_version
+         ~start_offset ~stop_offset)
+  then
+    {
+      session with
+      interaction = Idle;
+      message = Some "code action rejected: source snapshot is stale";
+    }
+  else
+    match (action.disabled_reason, action.command, action.edits) with
+    | Some reason, _, _ ->
+        {
+          session with
+          interaction = Idle;
+          message = Some ("code action rejected: disabled: " ^ reason);
+        }
+    | None, Some command, _ ->
+        {
+          session with
+          interaction = Idle;
+          message =
+            Some
+              ("code action rejected: server command is denied (" ^ command
+             ^ ")");
+        }
+    | None, None, None | None, None, Some [] ->
+        {
+          session with
+          interaction = Idle;
+          message = Some "code action rejected: action has no workspace edit";
+        }
+    | None, None, Some edits -> (
+        match
+          apply_workspace_edits session input ~effect_id:"language.code-action"
+            edits
+        with
+        | Error reason ->
+            {
+              session with
+              interaction = Idle;
+              message = Some ("code action rejected: " ^ reason);
+            }
+        | Ok (next, _) ->
+            {
+              next with
+              interaction = Idle;
+              message = Some ("code action applied: " ^ action.title);
+            })
+
+let code_action_response_is_current session ~request_id ~document_version
+    ~start_offset ~stop_offset =
+  match session.interaction with
+  | Code_action_view
+      {
+        request_id = expected_request_id;
+        document_id;
+        document_version = expected_document_version;
+        start_offset = expected_start_offset;
+        stop_offset = expected_stop_offset;
+        actions = [];
+        _;
+      } ->
+      request_id = expected_request_id
+      && code_action_is_current session ~document_id
+           ~document_version:expected_document_version
+           ~start_offset:expected_start_offset ~stop_offset:expected_stop_offset
+      && document_version = expected_document_version
+      && start_offset = expected_start_offset
+      && stop_offset = expected_stop_offset
+  | Code_action_view _ -> false
+  | Idle | Search_prompt _ | Palette _ | Command_line _ | Command_prompt _
+  | Save_as_prompt _ | Open_buffer_prompt _ | File_picker _
+  | Project_search_view _ | Query_replace _ | Model_picker _ | Help_view
+  | Hover_view _ | Completion_view _ | Rename_prompt _ ->
+      false
+
+let clear_code_action_request session ~request_id =
+  match session.interaction with
+  | Code_action_view { request_id = expected_request_id; _ }
+    when request_id = expected_request_id ->
+      { session with interaction = Idle }
+  | Code_action_view _ -> session
+  | Idle | Search_prompt _ | Palette _ | Command_line _ | Command_prompt _
+  | Save_as_prompt _ | Open_buffer_prompt _ | File_picker _
+  | Project_search_view _ | Query_replace _ | Model_picker _ | Help_view
+  | Hover_view _ | Completion_view _ | Rename_prompt _ ->
+      session
+
 let poll_active_language ?(background = false) session =
   let current_version = Editor_context.document_version (context session) in
   let handle session = function
@@ -5291,6 +5453,39 @@ let poll_active_language ?(background = false) session =
             message = None;
           }
     | Lsp.Completion_result _ -> session
+    | Lsp.Code_action_result
+        { request_id; document_version; start_offset; stop_offset; actions }
+      when document_version = current_version
+           && (not background)
+           && code_action_response_is_current session ~request_id
+                ~document_version ~start_offset ~stop_offset ->
+        if actions = [] then
+          {
+            (clear_code_action_request session ~request_id) with
+            message = Some "language: no code actions";
+          }
+        else
+          {
+            session with
+            interaction =
+              Code_action_view
+                {
+                  request_id;
+                  document_id = Editor_context.document_id (context session);
+                  document_version;
+                  start_offset;
+                  stop_offset;
+                  actions;
+                  selected = 0;
+                };
+            message = None;
+          }
+    | Lsp.Code_action_result _ when background -> session
+    | Lsp.Code_action_result { request_id; _ } ->
+        {
+          (clear_code_action_request session ~request_id) with
+          message = Some "language: stale code actions discarded";
+        }
     | Lsp.Rename_result { document_version; edits; _ }
       when document_version = current_version && not background -> (
         let input =
@@ -5333,12 +5528,18 @@ let poll_active_language ?(background = false) session =
     | Lsp.Server_message message ->
         { session with message = Some ("language: " ^ message) }
     | Lsp.Request_failed _ when background -> session
+    | Lsp.Request_failed { request_id; kind = Lsp.Code_action; reason; _ } ->
+        {
+          (clear_code_action_request session ~request_id) with
+          message = Some ("language code action failed: " ^ reason);
+        }
     | Lsp.Request_failed { kind; reason; _ } ->
         let kind =
           match kind with
           | Lsp.Hover -> "hover"
           | Lsp.Definition -> "definition"
           | Lsp.Completion -> "completion"
+          | Lsp.Code_action -> "code action"
           | Lsp.Rename -> "rename"
         in
         {
@@ -6060,8 +6261,9 @@ let matching_completion_items items query =
 
 let language_host_command = function
   | Language_status | Language_restart | Language_hover | Language_definition
-  | Language_complete | Language_rename | Language_diagnostic_next
-  | Language_diagnostic_previous | Language_diagnostic_describe_current ->
+  | Language_complete | Language_code_action | Language_rename
+  | Language_diagnostic_next | Language_diagnostic_previous
+  | Language_diagnostic_describe_current ->
       true
   | Save | Save_as | Save_layout | Restore_layout | Set_project_root
   | Open_file_picker | Search_project | Quit | Force_quit | Reload_config
@@ -7599,6 +7801,7 @@ let invoke_host_palette_command ?(arguments = []) session input = function
   | Language_hover -> begin_hover session
   | Language_definition -> begin_definition session
   | Language_complete -> begin_completion session
+  | Language_code_action -> begin_code_action session
   | Language_rename -> begin_rename session
   | Language_diagnostic_next -> move_to_diagnostic session input 1
   | Language_diagnostic_previous -> move_to_diagnostic session input (-1)
@@ -8135,6 +8338,67 @@ let input_for_interaction session input =
               interaction =
                 Completion_view { items; selected = 0; query = query ^ text };
             })
+  | Code_action_view
+      {
+        request_id;
+        document_id;
+        document_version;
+        start_offset;
+        stop_offset;
+        actions;
+        selected;
+      } ->
+      if event_is_named input Input_event.Escape then (
+        Option.iter
+          (fun client -> Lsp.cancel client Lsp.Code_action)
+          session.language_client;
+        {
+          session with
+          interaction = Idle;
+          message = Some "code actions cancelled";
+        })
+      else if event_is_named input Input_event.Arrow_up then
+        {
+          session with
+          interaction =
+            Code_action_view
+              {
+                request_id;
+                document_id;
+                document_version;
+                start_offset;
+                stop_offset;
+                actions;
+                selected = max 0 (selected - 1);
+              };
+        }
+      else if event_is_named input Input_event.Arrow_down then
+        {
+          session with
+          interaction =
+            Code_action_view
+              {
+                request_id;
+                document_id;
+                document_version;
+                start_offset;
+                stop_offset;
+                actions;
+                selected = min (max 0 (List.length actions - 1)) (selected + 1);
+              };
+        }
+      else if event_is_named input Input_event.Enter then
+        match List.nth_opt actions selected with
+        | None ->
+            {
+              session with
+              interaction = Idle;
+              message = Some "code action selection is unavailable";
+            }
+        | Some action ->
+            accept_code_action session input ~document_id ~document_version
+              ~start_offset ~stop_offset action
+      else session
   | Rename_prompt name -> (
       if event_is_named input Input_event.Escape then
         { session with interaction = Idle; message = Some "rename cancelled" }
@@ -8278,7 +8542,7 @@ let cancel_language_for_pointer session =
         ~execution_id:
           (Option.value ~default:0 (last_execution_of_active session.active));
       List.iter (Lsp.cancel client)
-        [ Lsp.Hover; Lsp.Completion; Lsp.Definition ])
+        [ Lsp.Hover; Lsp.Completion; Lsp.Definition; Lsp.Code_action ])
     session.language_client;
   session
 
@@ -8330,7 +8594,8 @@ let handle_pointer session input =
       ( Search_prompt _ | Palette _ | Command_line _ | Command_prompt _
       | Save_as_prompt _ | Open_buffer_prompt _ | File_picker _
       | Project_search_view _ | Query_replace _ | Model_picker _ | Help_view
-      | Hover_view _ | Completion_view _ | Rename_prompt _ ),
+      | Hover_view _ | Completion_view _ | Code_action_view _ | Rename_prompt _
+        ),
       _ ) ->
       { session with mouse_drag = None }
   | None, Idle, None -> session
@@ -8446,7 +8711,7 @@ let rec handle_input session input =
               (Option.value ~default:0
                  (last_execution_of_active completed.active));
           List.iter (Lsp.cancel client)
-            [ Lsp.Hover; Lsp.Completion; Lsp.Definition ])
+            [ Lsp.Hover; Lsp.Completion; Lsp.Definition; Lsp.Code_action ])
         completed.language_client;
       completed)
   in
@@ -8847,6 +9112,7 @@ let handle_host session = function
   | Language_hover -> Continue (begin_hover session)
   | Language_definition -> Continue (begin_definition session)
   | Language_complete -> Continue (begin_completion session)
+  | Language_code_action -> Continue (begin_code_action session)
   | Language_rename -> Continue (begin_rename session)
   | Language_diagnostic_next ->
       Continue
@@ -9156,6 +9422,38 @@ let interaction_overlay session =
             "";
             "Type to filter; Arrow keys select; Enter accepts; Escape cancels.";
           ])
+  | Code_action_view { actions; selected; _ } ->
+      let visible =
+        actions
+        |> List.mapi (fun index (action : Lsp.code_action) ->
+            let state =
+              match (action.disabled_reason, action.command, action.edits) with
+              | Some reason, _, _ -> " — disabled: " ^ reason
+              | None, Some command, _ -> " — command denied: " ^ command
+              | None, None, None | None, None, Some [] -> " — no edit"
+              | None, None, Some edits ->
+                  let count =
+                    List.fold_left
+                      (fun count (edit : Lsp.workspace_edit) ->
+                        count + List.length edit.edits)
+                      0 edits
+                  in
+                  Printf.sprintf " — %d checked edit%s" count
+                    (if count = 1 then "" else "s")
+            in
+            Printf.sprintf "%s%s%s"
+              (if index = selected then "> " else "  ")
+              action.title state)
+        |> List.filteri (fun index _ -> index < 16)
+      in
+      Some
+        ([ "Language code actions"; "" ]
+        @ visible
+        @ [
+            "";
+            "Arrow keys select; Enter stages checked edits; Escape cancels.";
+            "Server commands are denied and never executed.";
+          ])
 
 let interaction_message session =
   match session.interaction with
@@ -9184,6 +9482,7 @@ let interaction_message session =
            (List.length state.pending))
   | Rename_prompt name -> Some ("rename: " ^ name)
   | Completion_view { query; _ } -> Some ("completion: " ^ query)
+  | Code_action_view _ -> Some "code actions"
   | Idle | Palette _ | Model_picker _ | Help_view | Hover_view _ ->
       session.message
 
@@ -9633,6 +9932,44 @@ let decoration_lines session =
     session.view_decorations
   |> Zenbu_view.Decoration.inspection_lines
 
+let code_action_lines session =
+  match session.interaction with
+  | Code_action_view
+      {
+        request_id;
+        document_id;
+        document_version;
+        start_offset;
+        stop_offset;
+        actions;
+        _;
+      } ->
+      [
+        "Code actions";
+        "request: " ^ string_of_int request_id;
+        "document: " ^ document_id ^ " version="
+        ^ string_of_int document_version;
+        Printf.sprintf "range: byte %d..%d" start_offset stop_offset;
+        "actions: " ^ string_of_int (List.length actions);
+        "commands: deny all";
+      ]
+      @ List.mapi
+          (fun index (action : Lsp.code_action) ->
+            let kind =
+              match (action.disabled_reason, action.command, action.edits) with
+              | Some _, _, _ -> "disabled"
+              | None, Some _, _ -> "command denied"
+              | None, None, None | None, None, Some [] -> "no edit"
+              | None, None, Some _ -> "workspace edit"
+            in
+            Printf.sprintf "%d. %s [%s]" (index + 1) action.title kind)
+          actions
+  | Idle | Search_prompt _ | Palette _ | Command_line _ | Command_prompt _
+  | Save_as_prompt _ | Open_buffer_prompt _ | File_picker _
+  | Project_search_view _ | Query_replace _ | Model_picker _ | Help_view
+  | Hover_view _ | Completion_view _ | Rename_prompt _ ->
+      [ "Code actions"; "state: none"; "commands: deny all" ]
+
 let inspect session inspection =
   let format ~last_execution ~trace ~model_descriptor ~model_status ~rules
       ~command_registry ~semantic_behaviors ~runtime_history ~runtime_context
@@ -9686,8 +10023,8 @@ let inspect session inspection =
               | Idle | Palette _ | Command_line _ | Command_prompt _
               | Save_as_prompt _ | Open_buffer_prompt _ | File_picker _
               | Project_search_view _ | Query_replace _ | Model_picker _
-              | Help_view | Hover_view _ | Completion_view _ | Rename_prompt _
-                ->
+              | Help_view | Hover_view _ | Completion_view _
+              | Code_action_view _ | Rename_prompt _ ->
                   "prompt: closed");
             ])
     | Macros -> macro_lines session
@@ -9699,6 +10036,7 @@ let inspect session inspection =
     | Project_search -> project_search_lines session
     | File_watches -> file_watch_lines session
     | Decorations -> decoration_lines session
+    | Code_actions -> code_action_lines session
     | Api ->
         "API"
         :: Inspector.format_api

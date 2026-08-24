@@ -24,6 +24,7 @@ type stage =
   | Language_hover
   | Language_definition
   | Language_completion
+  | Language_code_action
   | Language_rename
   | Lsp_decode
 
@@ -80,6 +81,7 @@ let stage_name = function
   | Language_hover -> "language.hover"
   | Language_definition -> "language.definition"
   | Language_completion -> "language.completion"
+  | Language_code_action -> "language.code-action"
   | Language_rename -> "language.rename"
   | Lsp_decode -> "lsp.decode"
 

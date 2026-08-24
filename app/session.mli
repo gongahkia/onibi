@@ -46,6 +46,7 @@ type host_command =
   | Language_hover
   | Language_definition
   | Language_complete
+  | Language_code_action
   | Language_rename
   | Language_diagnostic_next
   | Language_diagnostic_previous
@@ -100,6 +101,7 @@ type inspection =
   | File_watches
   | Language
   | Decorations
+  | Code_actions
 
 type t
 type outcome = Continue of t | Exit of t

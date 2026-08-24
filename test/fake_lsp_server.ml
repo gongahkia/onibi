@@ -12,6 +12,12 @@ let rename_path = ref None
 let delay_rename = ref false
 let rename_conflict_path = ref None
 let apply_edit_path = ref None
+let code_action_path = ref None
+let code_action_conflict_path = ref None
+let delay_code_action = ref false
+let code_action_resource = ref false
+let code_action_command = ref false
+let code_action_error = ref false
 
 let options =
   [
@@ -37,6 +43,24 @@ let options =
     ( "--apply-edit-path",
       Arg.String (fun path -> apply_edit_path := Some path),
       "include this file in a workspace/applyEdit after didChange" );
+    ( "--code-action-path",
+      Arg.String (fun path -> code_action_path := Some path),
+      "include this file in a code-action edit" );
+    ( "--code-action-conflict-path",
+      Arg.String (fun path -> code_action_conflict_path := Some path),
+      "include overlapping edits for this file in a code action" );
+    ( "--delay-code-action",
+      Arg.Set delay_code_action,
+      "delay code-action responses to exercise cancellation and staleness" );
+    ( "--code-action-resource",
+      Arg.Set code_action_resource,
+      "return an unsupported resource operation in a code action" );
+    ( "--code-action-command",
+      Arg.Set code_action_command,
+      "return a command-only code action" );
+    ( "--code-action-error",
+      Arg.Set code_action_error,
+      "return a code-action server error" );
   ]
 
 let () = Arg.parse options (fun _ -> ()) "fake_lsp_server"
@@ -96,6 +120,16 @@ let read_packet () =
 
 let response id result =
   send (`Assoc [ ("jsonrpc", `String "2.0"); ("id", id); ("result", result) ])
+
+let response_error id message =
+  send
+    (`Assoc
+       [
+         ("jsonrpc", `String "2.0");
+         ("id", id);
+         ( "error",
+           `Assoc [ ("code", `Int (-32001)); ("message", `String message) ] );
+       ])
 
 let notification method_ params =
   send
@@ -205,6 +239,7 @@ let initialized_result () =
             ("hoverProvider", `Bool true);
             ("definitionProvider", `Bool true);
             ("completionProvider", `Assoc []);
+            ("codeActionProvider", `Bool true);
             ("renameProvider", `Bool true);
           ] );
     ]
@@ -378,6 +413,105 @@ let () =
                        ];
                    ] );
              ])
+    | Some "textDocument/codeAction", Some id ->
+        if !delay_code_action then ignore (Unix.select [] [] [] 0.15);
+        if !code_action_error then response_error id "fake code action failure"
+        else if !code_action_command then
+          response id
+            (`List
+               [
+                 `Assoc
+                   [
+                     ("title", `String "run denied fake command");
+                     ( "command",
+                       `Assoc
+                         [
+                           ("title", `String "fake command");
+                           ("command", `String "fake.execute");
+                         ] );
+                   ];
+               ])
+        else
+          let current_changes =
+            [
+              ( !uri,
+                `List
+                  [
+                    `Assoc
+                      [
+                        ("range", range 0 0 0 1); ("newText", `String "action");
+                      ];
+                  ] );
+            ]
+          in
+          let extra_changes =
+            match !code_action_path with
+            | None -> []
+            | Some path ->
+                [
+                  ( "file://" ^ path,
+                    `List
+                      [
+                        `Assoc
+                          [
+                            ("range", range 0 0 0 1);
+                            ("newText", `String "action-target");
+                          ];
+                      ] );
+                ]
+          in
+          let conflicting_changes =
+            match !code_action_conflict_path with
+            | None -> []
+            | Some path ->
+                [
+                  ( "file://" ^ path,
+                    `List
+                      [
+                        `Assoc
+                          [
+                            ("range", range 0 0 0 1);
+                            ("newText", `String "action-target");
+                          ];
+                        `Assoc
+                          [
+                            ("range", range 0 0 0 1);
+                            ("newText", `String "conflict");
+                          ];
+                      ] );
+                ]
+          in
+          let edit =
+            if !code_action_resource then
+              `Assoc
+                [
+                  ( "documentChanges",
+                    `List
+                      [
+                        `Assoc
+                          [
+                            ("kind", `String "rename");
+                            ("oldUri", `String !uri);
+                            ("newUri", `String (!uri ^ ".renamed"));
+                          ];
+                      ] );
+                ]
+            else
+              `Assoc
+                [
+                  ( "changes",
+                    `Assoc
+                      (current_changes @ extra_changes @ conflicting_changes) );
+                ]
+          in
+          response id
+            (`List
+               [
+                 `Assoc
+                   [
+                     ("title", `String "apply fake code action"); ("edit", edit);
+                   ];
+               ])
     | Some "textDocument/rename", Some id ->
         if !delay_rename then ignore (Unix.select [] [] [] 0.15);
         let new_name =

@@ -37,6 +37,7 @@ let wait_for client predicate =
           | Hover_result _ -> "hover"
           | Definition_result _ -> "definition"
           | Completion_result _ -> "completion"
+          | Code_action_result _ -> "code-action"
           | Rename_result _ -> "rename"
           | Apply_edit _ -> "apply-edit"
           | Server_message _ -> "message"
@@ -190,6 +191,13 @@ let feature_test () =
              | Lsp.Completion_result { items = _ :: _; _ } -> true
              | _ -> false)));
       ignore
+        (Lsp.request_code_actions client ~start_offset:0 ~stop_offset:0 |> must);
+      ignore
+        (wait_for client
+           (List.exists (function
+             | Lsp.Code_action_result { actions = _ :: _; _ } -> true
+             | _ -> false)));
+      ignore
         (Lsp.request_rename client ~byte_offset:0 ~new_name:"renamed" |> must);
       ignore
         (wait_for client
@@ -224,6 +232,61 @@ let stale_response_test () =
               (function Lsp.Hover_result _ -> true | _ -> false)
               events))
         "late hover response was not discarded after a document edit")
+
+let stale_code_action_response_test () =
+  let client = start [ "--delay-code-action" ] "old" in
+  Fun.protect
+    ~finally:(fun () -> Lsp.close client)
+    (fun () ->
+      wait_ready client;
+      ignore
+        (Lsp.request_code_actions client ~start_offset:0 ~stop_offset:0 |> must);
+      Lsp.notify_change client ~source_contents:"old" ~contents:"new"
+        ~document_version:1
+        ~edits:
+          [
+            { Language.start_offset = 0; stop_offset = 3; replacement = "new" };
+          ];
+      let deadline = Unix.gettimeofday () +. 0.4 in
+      let rec collect values =
+        if Unix.gettimeofday () >= deadline then values
+        else (
+          ignore (Unix.select [ Lsp.wakeup_fd client ] [] [] 0.05);
+          collect (values @ Lsp.drain client))
+      in
+      let events = collect [] in
+      expect
+        (not
+           (List.exists
+              (function Lsp.Code_action_result _ -> true | _ -> false)
+              events))
+        "late code-action response was not discarded after a document edit")
+
+let code_action_resource_rejection_test () =
+  let client = start [ "--code-action-resource" ] "resource" in
+  Fun.protect
+    ~finally:(fun () -> Lsp.close client)
+    (fun () ->
+      wait_ready client;
+      ignore
+        (Lsp.request_code_actions client ~start_offset:0 ~stop_offset:0 |> must);
+      let events =
+        wait_for client
+          (List.exists (function
+            | Lsp.Request_failed { kind = Lsp.Code_action; _ } -> true
+            | _ -> false))
+      in
+      expect
+        (List.exists
+           (function
+             | Lsp.Request_failed { kind = Lsp.Code_action; reason; _ } ->
+                 String.starts_with
+                   ~prefix:
+                     "workspace edit contains an unsupported resource operation"
+                   reason
+             | _ -> false)
+           events)
+        "a resource operation embedded in a code action was accepted")
 
 let crash_restart_test () =
   let marker = Filename.temp_file "zenbu-m11-crash" ".marker" in
@@ -450,6 +513,201 @@ let session_integration_test () =
       expect
         (String.starts_with ~prefix:"ren" (Zenbu_app.Session.contents session))
         "current-document rename was not applied atomically")
+
+let code_action_session_test () =
+  let session = session [] "abc abc\n" in
+  Fun.protect
+    ~finally:(fun () -> Zenbu_app.Session.close session)
+    (fun () ->
+      let session =
+        wait_session session (fun session ->
+            Zenbu_app.Session.inspect session Zenbu_app.Session.Language
+            |> List.exists (String.equal "state: ready"))
+      in
+      let session = host session Zenbu_app.Session.Language_code_action in
+      let session =
+        wait_session session (fun session ->
+            let _, frame = Zenbu_app.Session.render session in
+            frame_contains frame "Language code actions")
+      in
+      expect
+        (Zenbu_app.Session.inspect session Zenbu_app.Session.Code_actions
+        |> List.exists (String.equal "commands: deny all"))
+        "code-action results were not inspectable with their command policy";
+      let session = Zenbu_app.Session.handle_input session enter in
+      expect
+        (String.starts_with ~prefix:"action"
+           (Zenbu_app.Session.contents session))
+        "a selected code action did not apply its checked workspace edit: %s"
+        (String.concat " | "
+           (Zenbu_app.Session.inspect session Zenbu_app.Session.Scripts)))
+
+let code_action_cancellation_test () =
+  let contents = "abc\n" in
+  let session = session [ "--delay-code-action" ] contents in
+  Fun.protect
+    ~finally:(fun () -> Zenbu_app.Session.close session)
+    (fun () ->
+      let session =
+        wait_session session (fun session ->
+            Zenbu_app.Session.inspect session Zenbu_app.Session.Language
+            |> List.exists (String.equal "state: ready"))
+      in
+      let session = host session Zenbu_app.Session.Language_code_action in
+      expect
+        (Zenbu_app.Session.inspect session Zenbu_app.Session.Code_actions
+        |> List.exists (String.equal "actions: 0"))
+        "an in-flight code action was not inspectable";
+      let session = Zenbu_app.Session.handle_input session escape in
+      let session =
+        wait_session session (fun session ->
+            Zenbu_app.Session.inspect session Zenbu_app.Session.Language
+            |> List.exists (String.equal "pending requests: 0"))
+      in
+      let _, frame = Zenbu_app.Session.render session in
+      expect
+        ((not (frame_contains frame "Language code actions"))
+        && String.equal (Zenbu_app.Session.contents session) contents)
+        "cancelling an in-flight code action left a selectable or applied \
+         result")
+
+let code_action_command_denial_test () =
+  let contents = "abc\n" in
+  let session = session [ "--code-action-command" ] contents in
+  Fun.protect
+    ~finally:(fun () -> Zenbu_app.Session.close session)
+    (fun () ->
+      let session =
+        wait_session session (fun session ->
+            Zenbu_app.Session.inspect session Zenbu_app.Session.Language
+            |> List.exists (String.equal "state: ready"))
+      in
+      let session = host session Zenbu_app.Session.Language_code_action in
+      let session =
+        wait_session session (fun session ->
+            let _, frame = Zenbu_app.Session.render session in
+            frame_contains frame "command denied: fake.execute")
+      in
+      let session = Zenbu_app.Session.handle_input session enter in
+      expect
+        (String.equal (Zenbu_app.Session.contents session) contents
+        && Zenbu_app.Session.inspect session Zenbu_app.Session.Scripts
+           |> List.exists
+                (String.equal
+                   "message: code action rejected: server command is denied \
+                    (fake.execute)"))
+        "a server command attached to a code action was not denied")
+
+let code_action_server_failure_test () =
+  let contents = "abc\n" in
+  let session = session [ "--code-action-error" ] contents in
+  Fun.protect
+    ~finally:(fun () -> Zenbu_app.Session.close session)
+    (fun () ->
+      let session =
+        wait_session session (fun session ->
+            Zenbu_app.Session.inspect session Zenbu_app.Session.Language
+            |> List.exists (String.equal "state: ready"))
+      in
+      let session = host session Zenbu_app.Session.Language_code_action in
+      let session =
+        wait_session session (fun session ->
+            Zenbu_app.Session.inspect session Zenbu_app.Session.Scripts
+            |> List.exists
+                 (String.equal
+                    "message: language code action failed: fake code action \
+                     failure"))
+      in
+      expect
+        (String.equal (Zenbu_app.Session.contents session) contents
+        && Zenbu_app.Session.inspect session Zenbu_app.Session.Code_actions
+           |> List.exists (String.equal "state: none"))
+        "a code-action server failure did not fail closed")
+
+let code_action_unopened_target_test () =
+  let target = Filename.temp_file "zenbu-m11-code-action-closed" ".ml" in
+  Fun.protect
+    ~finally:(fun () -> try Sys.remove target with Sys_error _ -> ())
+    (fun () ->
+      (match
+         Zenbu_app.File_io.save_atomic ~path:target ~contents:"let target = 1\n"
+       with
+      | Ok () -> ()
+      | Error error -> fail (Zenbu_app.File_io.to_string error));
+      let contents = "let source = 1\n" in
+      let session = session [ "--code-action-path"; target ] contents in
+      Fun.protect
+        ~finally:(fun () -> Zenbu_app.Session.close session)
+        (fun () ->
+          let session =
+            wait_session session (fun session ->
+                Zenbu_app.Session.inspect session Zenbu_app.Session.Language
+                |> List.exists (String.equal "state: ready"))
+          in
+          let session = host session Zenbu_app.Session.Language_code_action in
+          let session =
+            wait_session session (fun session ->
+                Zenbu_app.Session.inspect session Zenbu_app.Session.Scripts
+                |> List.exists
+                     (String.starts_with
+                        ~prefix:
+                          "message: language code action failed: workspace \
+                           edit has no buffer snapshot"))
+          in
+          expect
+            (String.equal (Zenbu_app.Session.contents session) contents)
+            "a code action targeting an unopened file changed the source buffer"))
+
+let code_action_workspace_failure_test () =
+  let open_target_in_split session target =
+    let session = host session Zenbu_app.Session.Split_vertical in
+    let session = host session Zenbu_app.Session.Open_buffer in
+    let session = Zenbu_app.Session.handle_input session (text_input target) in
+    Zenbu_app.Session.handle_input session enter
+  in
+  let target = Filename.temp_file "zenbu-m11-code-action-conflict" ".ml" in
+  Fun.protect
+    ~finally:(fun () -> try Sys.remove target with Sys_error _ -> ())
+    (fun () ->
+      (match
+         Zenbu_app.File_io.save_atomic ~path:target ~contents:"let target = 1\n"
+       with
+      | Ok () -> ()
+      | Error error -> fail (Zenbu_app.File_io.to_string error));
+      let source = "let source = 1\n" in
+      let session = session [ "--code-action-conflict-path"; target ] source in
+      let current = ref session in
+      Fun.protect
+        ~finally:(fun () -> Zenbu_app.Session.close !current)
+        (fun () ->
+          let session =
+            wait_session session (fun session ->
+                Zenbu_app.Session.inspect session Zenbu_app.Session.Language
+                |> List.exists (String.equal "state: ready"))
+          in
+          let session = open_target_in_split session target in
+          let session = host session Zenbu_app.Session.Focus_next_pane in
+          let session = host session Zenbu_app.Session.Language_code_action in
+          let session =
+            wait_session session (fun session ->
+                let _, frame = Zenbu_app.Session.render session in
+                frame_contains frame "apply fake code action")
+          in
+          let session = Zenbu_app.Session.handle_input session enter in
+          expect
+            (String.equal (Zenbu_app.Session.contents session) source
+            && Zenbu_app.Session.inspect session Zenbu_app.Session.Scripts
+               |> List.exists
+                    (String.starts_with ~prefix:"message: code action rejected:")
+            )
+            "a rejected multi-buffer code action partially changed its source";
+          let session = host session Zenbu_app.Session.Focus_next_pane in
+          current := session;
+          expect
+            (String.equal
+               (Zenbu_app.Session.contents session)
+               "let target = 1\n")
+            "a rejected multi-buffer code action partially changed its target"))
 
 let cross_file_definition_session_test () =
   let target = Filename.temp_file "zenbu-m11-definition" ".ml" in
@@ -857,10 +1115,18 @@ let () =
   synchronization_test "incremental";
   feature_test ();
   stale_response_test ();
+  stale_code_action_response_test ();
+  code_action_resource_rejection_test ();
   crash_restart_test ();
   malformed_server_test ();
   trace_attribution_test ();
   session_integration_test ();
+  code_action_session_test ();
+  code_action_cancellation_test ();
+  code_action_command_denial_test ();
+  code_action_server_failure_test ();
+  code_action_unopened_target_test ();
+  code_action_workspace_failure_test ();
   cross_file_definition_session_test ();
   background_buffer_language_poll_test ();
   cross_file_workspace_rename_test ();
