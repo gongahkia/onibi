@@ -56,7 +56,7 @@ and plugin examples live in [Getting Started](docs/GETTING_STARTED.md).
 - The terminal host has literal Unicode search plus an opt-in UTF-8-safe `Str`
   regexp search and palette-only literal/regexp replace-all, a provider-neutral
   searchable command palette with typed argument prompts and a moving result window,
-  save-as, a live model picker,
+  save-as, bounded explicit-root project-text search, a live model picker,
   metadata-derived help, and bracketed paste aggregation. These remain host interactions; editing models can make
   declarative requests for reusable interactions such as literal search without
   receiving terminal-state access. Its semantic styles can be mapped to
@@ -247,7 +247,7 @@ The palette also exposes `workspace.split.vertical`,
 `workspace.buffer.open`, `workspace.buffer.next`, and
 `workspace.buffer.previous`, `workspace.layout.save`, and
 `workspace.layout.restore`, `workspace.project.root.set`, and
-`workspace.file-picker`, plus `view.scroll.up`, `view.scroll.down`,
+`workspace.file-picker`, and `workspace.project.search`, plus `view.scroll.up`, `view.scroll.down`,
 `view.page.up`, `view.page.down`, and `view.center`. Resize commands move the
 focused pane's nearest matching divider by one terminal cell; balance restores
 equal proportions. A pane has an independent viewport and can show
@@ -264,8 +264,14 @@ directory with `workspace.project.root.set`, then use
 `workspace.file-picker` to filter deterministic readable text files beneath it.
 It skips hidden, binary, unreadable, and symlink entries and revalidates the
 selected relative path before the existing buffer opener loads or reuses it.
-It does not grant filesystem authority to models, scripts, or plugins, and it
-is not project-wide search or file watching.
+`workspace.project.search` takes a literal query and presents bounded results
+from the same root. Selecting one revalidates its relative path and UTF-8 byte
+location before the ordinary buffer opener selects it; `Escape` closes the
+result view without changing a document. The host caps a search at 512 files,
+256 results, 1 MiB per file, and 32 MiB total, and exposes the scan and limit
+state through the inspector. Dot-prefixed names are the only ignored-path
+policy; `.gitignore` is not read. It does not grant filesystem authority to models, scripts, or
+plugins, and it does not provide replacement, file watching, or shell search.
 
 Layout commands accept a JSON path through the palette. They save or restore
 only clean file-backed local buffers plus host-owned split/view state; unsaved
@@ -344,11 +350,12 @@ the M11 sanity numbers, and [release notes](docs/RELEASE.md) describe the gate.
 
 ## Deliberate limits
 
-Zenbu has a local multi-buffer split-view workspace and bounded cross-file LSP
-edits for already-open saved buffers, but no project search, external-file
-watcher, general workspace resource operations, command-line/Ex language,
-plugin marketplace, asynchronous extension execution, public Tree-sitter query
-API, grammar downloads, refactoring engine, or system clipboard bridge.
+Zenbu has a local multi-buffer split-view workspace, bounded explicit-root
+project-text search, and bounded cross-file LSP edits for already-open saved
+buffers, but no external-file watcher, general workspace resource operations,
+command-line/Ex language, plugin marketplace, asynchronous extension execution,
+public Tree-sitter query API, grammar downloads, refactoring engine, or system
+clipboard bridge.
 Component runtime support is limited to Linux x86_64 and Apple Silicon macOS
 because of the pinned native C API.
 See the deferred work in

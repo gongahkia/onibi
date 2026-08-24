@@ -6,6 +6,7 @@
   external_filter
   file_io
   project_root
+  project_search
   session_layout
   system_clipboard
   script_model

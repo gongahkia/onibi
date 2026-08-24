@@ -16,7 +16,7 @@ An editor can vary independently along these layers:
 | commands and semantic operations | built-in commands, trusted-local Lua, or capability-limited Wasm Components can contribute commands, selectors, transformations, scoped one-to-sixteen-event bindings, and events; trusted Lua may request a bounded argument-vector selection filter or an inspectable background program | contributions cannot mutate documents outside a checked transaction; process actions cannot become a shell, terminal, or general job API |
 | language-aware editing | Tree-sitter-backed syntax context and the optional language-service host | only built-in OCaml/JSON syntax registration; cross-file edits require every target to be open and saved |
 | configuration | reloadable Lua configuration and local Wasm plugin discovery | Lua is trusted local code; Components use the declared capability boundary |
-| workspace/view host | `zenbu.view.Layout` plus host commands to create/open/cycle buffers; split, focus, close, retain, grow/shrink the nearest matching divider, drag an exact visible divider, balance views, save/restore validated local JSON layouts, or open a file through an explicit-root host picker; scroll by source line/page; and center the focused view; ordered selections are retained per `(pane, buffer)` and rebase through forward local history | local buffers have independent model/history, save, syntax, diagnostics, search, and viewport state; layouts contain only clean file-backed host state, and picker candidates remain host-owned relative paths; no target auto-open, global history, arbitrary view widgets, cross-machine sync, project search/watchers, or per-product layout policy |
+| workspace/view host | `zenbu.view.Layout` plus host commands to create/open/cycle buffers; split, focus, close, retain, grow/shrink the nearest matching divider, drag an exact visible divider, balance views, save/restore validated local JSON layouts, open a file through an explicit-root host picker, or search literal text through that same bounded root; scroll by source line/page; and center the focused view; ordered selections are retained per `(pane, buffer)` and rebase through forward local history | local buffers have independent model/history, save, syntax, diagnostics, search, and viewport state; layouts contain only clean file-backed host state, and picker/search candidates remain host-owned relative paths; no target auto-open, global history, arbitrary view widgets, cross-machine sync, file watchers, or per-product layout policy |
 | terminal presentation | renderer frame, semantic style classes, viewport, terminal backend, host-switchable built-in/custom TOML themes, pure line-number/status-row profiles, an optional bounded host buffer line, and typed canvas-selection plus exact-divider pointer gestures | no GUI or widget/layout API; the buffer line is intentionally noninteractive |
 
 This is already enough to build and compare distinct **editing grammars**:
@@ -258,8 +258,8 @@ every target validates. Regression tests cover successful rename/apply-edit,
 unopened targets, stale target snapshots, and conflicts without partial source
 or target edits. This is not a general project workspace: targets are not
 auto-opened, resource operations are rejected, and undo/history remains per
-buffer. Project search, shell panes, full mouse interaction, configurable
-presentation, and editor-specific command languages are separate evaluations.
+buffer. Shell panes, full mouse interaction, configurable presentation, and
+editor-specific command languages are separate evaluations.
 
 The keymap evaluation exposed a shared missing contract. Helix documents
 normal, select, picker, prompt, and nested minor modes; its `g`, `z`,
@@ -524,7 +524,8 @@ Use `Ctrl-P` in the terminal host and select `workspace.split.vertical`,
 `workspace.buffers`, `workspace.buffer.switch`, `workspace.buffer.rename`,
 `workspace.buffer.next`, `workspace.buffer.previous`,
 `workspace.layout.save`, and `workspace.layout.restore` to exercise the
-buffer table and local layout format. Use `workspace.project.root.set` and
-`workspace.file-picker` to inspect the explicit-root navigation boundary.
+buffer table and local layout format. Use `workspace.project.root.set`,
+`workspace.file-picker`, and `workspace.project.search` to inspect the
+explicit-root navigation and bounded search boundaries.
 These commands are also available through the typed `Session.handle_host`
 interface for headless tests and a future host binding layer.

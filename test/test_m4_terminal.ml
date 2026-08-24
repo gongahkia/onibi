@@ -1635,6 +1635,228 @@ let test_project_root_file_picker () =
         "opening a picked buffer duplicated an existing local buffer";
       App.Session.close deduplicated)
 
+let test_project_text_search () =
+  let root_path = temporary_directory () in
+  let nested_path = Filename.concat root_path "nested" in
+  let alpha_path = Filename.concat root_path "alpha.txt" in
+  let boundary_path = Filename.concat root_path "boundary.txt" in
+  let capped_path = Filename.concat root_path "capped.txt" in
+  let bravo_path = Filename.concat nested_path "bravo.txt" in
+  let unicode_path = Filename.concat root_path "unicode.txt" in
+  let hidden_path = Filename.concat root_path ".hidden.txt" in
+  let binary_path = Filename.concat root_path "binary.bin" in
+  Unix.mkdir nested_path 0o700;
+  Fun.protect
+    ~finally:(fun () -> remove_tree root_path)
+    (fun () ->
+      save_file alpha_path "alpha\nneedle\n";
+      save_file capped_path ("needle" ^ String.make 64 'x');
+      save_file bravo_path "bravo\nspecial needle\n";
+      save_file unicode_path "prefix\n界needle界\n";
+      save_file hidden_path "needle";
+      save_file binary_path "needle\000binary";
+      let root = App.Project_root.select root_path |> project_must in
+      let limits =
+        App.Project_search.
+          {
+            maximum_files = 16;
+            maximum_results = 16;
+            maximum_bytes_per_file = 256;
+            maximum_total_bytes = 4096;
+          }
+      in
+      let snapshot =
+        App.Project_search.search root ~limits ~query:"needle" |> project_must
+      in
+      expect
+        (List.map
+           (fun (result : App.Project_search.result) -> result.relative_path)
+           snapshot.results
+        = [ "alpha.txt"; "capped.txt"; "nested/bravo.txt"; "unicode.txt" ])
+        "project search did not return deterministic rooted text results";
+      let unicode_result =
+        match
+          List.find_opt
+            (fun (result : App.Project_search.result) ->
+              String.equal result.relative_path "unicode.txt")
+            snapshot.results
+        with
+        | Some result -> result
+        | None -> failf "project search omitted the UTF-8 fixture"
+      in
+      expect
+        (unicode_result.byte_offset = 10 && unicode_result.line = 2)
+        "project search did not retain a UTF-8-safe byte location and line";
+      expect
+        (match
+           App.Project_search.validate_result root ~query:"needle"
+             unicode_result
+         with
+        | Ok path -> String.equal path unicode_path
+        | Error _ -> false)
+        "project search rejected a current UTF-8 result";
+      let file_limited =
+        App.Project_search.search root
+          ~limits:
+            App.Project_search.
+              {
+                maximum_files = 1;
+                maximum_results = 16;
+                maximum_bytes_per_file = 256;
+                maximum_total_bytes = 4096;
+              }
+          ~query:"needle"
+        |> project_must
+      in
+      expect
+        (file_limited.scanned_files = 1 && file_limited.truncated)
+        "project search did not enforce its file bound";
+      save_file boundary_path "needle界";
+      let boundary_limited =
+        App.Project_search.search root
+          ~limits:
+            App.Project_search.
+              {
+                maximum_files = 16;
+                maximum_results = 16;
+                maximum_bytes_per_file = 7;
+                maximum_total_bytes = 4096;
+              }
+          ~query:"needle"
+        |> project_must
+      in
+      expect
+        (List.exists
+           (fun (result : App.Project_search.result) ->
+             String.equal result.relative_path "boundary.txt")
+           boundary_limited.results)
+        "project search dropped a UTF-8 match at a byte-limit boundary";
+      let result_limited =
+        App.Project_search.search root
+          ~limits:
+            App.Project_search.
+              {
+                maximum_files = 16;
+                maximum_results = 1;
+                maximum_bytes_per_file = 256;
+                maximum_total_bytes = 4096;
+              }
+          ~query:"needle"
+        |> project_must
+      in
+      expect
+        (List.length result_limited.results = 1 && result_limited.truncated)
+        "project search did not enforce its result bound";
+      let byte_limited =
+        App.Project_search.search root
+          ~limits:
+            App.Project_search.
+              {
+                maximum_files = 16;
+                maximum_results = 16;
+                maximum_bytes_per_file = 3;
+                maximum_total_bytes = 4096;
+              }
+          ~query:"needle"
+        |> project_must
+      in
+      expect byte_limited.truncated
+        "project search did not report the per-file byte bound";
+      let total_limited =
+        App.Project_search.search root
+          ~limits:
+            App.Project_search.
+              {
+                maximum_files = 16;
+                maximum_results = 16;
+                maximum_bytes_per_file = 256;
+                maximum_total_bytes = 10;
+              }
+          ~query:"needle"
+        |> project_must
+      in
+      expect
+        (total_limited.scanned_bytes = 10 && total_limited.truncated)
+        "project search did not enforce its total byte bound";
+      let special =
+        App.Project_search.search root ~limits ~query:"special" |> project_must
+      in
+      let stale_result =
+        match special.results with
+        | [ result ] -> result
+        | _ -> failf "project search special fixture was not unique"
+      in
+      save_file bravo_path "bravo\nchanged\n";
+      expect
+        (match
+           App.Project_search.validate_result root ~query:"special" stale_result
+         with
+        | Error _ -> true
+        | Ok _ -> false)
+        "project search accepted a stale result";
+      save_file bravo_path "bravo\nspecial needle\n";
+      let dimensions = Renderer.{ columns = 48; rows = 8 } in
+      let session =
+        App.Session.create ~model:App.Session.Direct ~file_path:alpha_path
+          ~contents:"alpha\nneedle\n" ~dimensions ()
+        |> must
+      in
+      let session =
+        match App.Session.set_project_root session ~path:root_path with
+        | Ok session -> session
+        | Error error -> failf "%s" (Error.to_string error)
+      in
+      expect
+        (List.exists
+           (fun descriptor ->
+             Command_descriptor.id descriptor
+             |> Command_id.to_string
+             |> String.equal "workspace.project.search")
+           (App.Session.host_command_descriptors ()))
+        "project search is not discoverable through the command palette";
+      let cancelled = App.Session.search_project session ~query:"special" in
+      let cancelled =
+        App.Session.handle_input cancelled (named Input_event.Escape)
+      in
+      expect
+        (App.Session.contents cancelled = "alpha\nneedle\n"
+        && App.Session.buffer_count cancelled = 1)
+        "cancelling project-search results changed the workspace";
+      let stale_session = App.Session.search_project session ~query:"special" in
+      save_file bravo_path "bravo\nchanged\n";
+      let stale_session =
+        App.Session.handle_input stale_session (named Input_event.Enter)
+      in
+      expect
+        (App.Session.contents stale_session = "alpha\nneedle\n"
+        && App.Session.buffer_count stale_session = 1)
+        "activating a stale project-search result changed the workspace";
+      save_file bravo_path "bravo\nspecial needle\n";
+      let opened = App.Session.search_project session ~query:"special" in
+      let _, frame = App.Session.render opened in
+      let screen =
+        Frame.rows frame |> List.map Frame.row_text |> String.concat "\n"
+      in
+      expect
+        (contains ~substring:"Project search" screen
+        && contains ~substring:"nested/bravo.txt:2" screen)
+        "project-search results were not rendered in the host interaction view";
+      let inspection = App.Session.inspect opened App.Session.Project_search in
+      expect
+        (List.mem "query: special" inspection
+        && List.exists (String.starts_with ~prefix:"limits: files=") inspection
+        )
+        "project-search limits and result state are not inspectable";
+      let opened = App.Session.handle_input opened (named Input_event.Enter) in
+      expect
+        (App.Session.contents opened = "bravo\nspecial needle\n"
+        && App.Session.buffer_count opened = 2
+        && App.Session.file_path opened = Some bravo_path
+        && (primary_selection opened).head_offset = String.length "bravo\n")
+        "project-search activation did not use the normal buffer and selection \
+         path";
+      App.Session.close opened)
+
 let run name test =
   try
     test ();
@@ -1670,5 +1892,6 @@ let () =
     ("session open-buffer prompt", test_session_open_buffer_prompt);
     ("session layout persistence", test_session_layout_persistence);
     ("project root file picker", test_project_root_file_picker);
+    ("project text search", test_project_text_search);
   ]
   |> List.iter (fun (name, test) -> run name test)

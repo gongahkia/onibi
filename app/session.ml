@@ -24,6 +24,7 @@ type host_command =
   | Restore_layout
   | Set_project_root
   | Open_file_picker
+  | Search_project
   | Quit
   | Force_quit
   | Reload_config
@@ -104,6 +105,7 @@ type inspection =
   | Jobs
   | Buffers
   | Project
+  | Project_search
   | Language
 
 type search = {
@@ -157,6 +159,10 @@ type interaction =
   | Save_as_prompt of string
   | Open_buffer_prompt of string
   | File_picker of { query : string; selected : int }
+  | Project_search_view of {
+      snapshot : Project_search.snapshot;
+      selected : int;
+    }
   | Model_picker of int
   | Help_view
   | Hover_view of Language.hover
@@ -238,6 +244,7 @@ type t = {
   saved_contents : string;
   saved_snapshot : File_io.snapshot option;
   project_root : Project_root.t option;
+  project_search : Project_search.snapshot option;
   layout : Layout.t;
   focused_pane : int;
   pane_viewports : (int * Zenbu_view.Viewport.t) list;
@@ -657,6 +664,23 @@ let host_command_entries =
           host_descriptor "workspace.file-picker" "Open project file picker"
             "Filter validated readable text files below the selected project \
              root.";
+        palette = true;
+      };
+      {
+        command = Search_project;
+        descriptor =
+          host_descriptor
+            ~parameters:
+              [
+                text_parameter ~name:"query"
+                  ~description:
+                    "Literal UTF-8 text to search under the selected project \
+                     root."
+                  ~required:true;
+              ]
+            "workspace.project.search" "Search project text"
+            "Run a bounded literal search below the selected project root; \
+             results are host-owned and open through the normal buffer path.";
         palette = true;
       };
       {
@@ -1671,6 +1695,7 @@ let create ~model ?language ?file_path ?(contents = "") ?trace ?profiler
                     saved_contents = contents;
                     saved_snapshot;
                     project_root = None;
+                    project_search = None;
                     layout = Layout.single 0;
                     focused_pane = 0;
                     pane_viewports = [ (0, Zenbu_view.Viewport.origin) ];
@@ -1846,6 +1871,12 @@ let status session =
           "filter files under the selected project root; Enter opens and \
            Escape cancels"
         ~text_entry:true ()
+  | Project_search_view _ ->
+      host_status ~id:"host-project-search" ~label:"PROJECT SEARCH"
+        ~description:
+          "browse bounded project-search results; Enter opens and Escape \
+           cancels"
+        ()
   | Model_picker _ ->
       host_status ~id:"host-model-picker" ~label:"MODEL"
         ~description:"choose an editing model without replacing semantic state"
@@ -4983,19 +5014,20 @@ let language_host_command = function
   | Language_diagnostic_previous | Language_diagnostic_describe_current ->
       true
   | Save | Save_as | Save_layout | Restore_layout | Set_project_root
-  | Open_file_picker | Quit | Force_quit | Reload_config | Start_search
-  | Start_regexp_search | Replace_all_literal | Replace_all_regexp | Search_next
-  | Search_previous | Toggle_macro_recording | Replay_macro | Kill_ring_cut
-  | Kill_ring_yank | System_clipboard_copy | System_clipboard_paste
-  | Set_location | Jump_location | Push_jump | Jump_backward | Jump_forward
-  | Open_palette | Switch_model | Help | Switch_presentation | Switch_theme
-  | Background_jobs | Cancel_background_job | Open_background_job_output
-  | Split_vertical | Split_horizontal | Focus_next_pane | Close_pane | Only_pane
-  | Grow_pane_width | Shrink_pane_width | Grow_pane_height | Shrink_pane_height
-  | Balance_panes | New_buffer | Open_buffer | List_buffers | Switch_buffer
-  | Rename_buffer | Close_buffer | Force_close_buffer | Next_buffer
-  | Previous_buffer | View_scroll_up | View_scroll_down | View_page_up
-  | View_page_down | View_center ->
+  | Open_file_picker | Search_project | Quit | Force_quit | Reload_config
+  | Start_search | Start_regexp_search | Replace_all_literal
+  | Replace_all_regexp | Search_next | Search_previous | Toggle_macro_recording
+  | Replay_macro | Kill_ring_cut | Kill_ring_yank | System_clipboard_copy
+  | System_clipboard_paste | Set_location | Jump_location | Push_jump
+  | Jump_backward | Jump_forward | Open_palette | Switch_model | Help
+  | Switch_presentation | Switch_theme | Background_jobs | Cancel_background_job
+  | Open_background_job_output | Split_vertical | Split_horizontal
+  | Focus_next_pane | Close_pane | Only_pane | Grow_pane_width
+  | Shrink_pane_width | Grow_pane_height | Shrink_pane_height | Balance_panes
+  | New_buffer | Open_buffer | List_buffers | Switch_buffer | Rename_buffer
+  | Close_buffer | Force_close_buffer | Next_buffer | Previous_buffer
+  | View_scroll_up | View_scroll_down | View_page_up | View_page_down
+  | View_center ->
       false
 
 let palette_items session =
@@ -5895,6 +5927,32 @@ let project_root_lines session =
         "picker: hidden, binary, unreadable, and symlink entries are excluded";
       ]
 
+let project_search_lines session =
+  match session.project_search with
+  | None -> [ "Project search"; "query: none" ]
+  | Some snapshot ->
+      [
+        "Project search";
+        "query: " ^ snapshot.Project_search.query;
+        "results: " ^ string_of_int (List.length snapshot.results);
+        "scanned-files: " ^ string_of_int snapshot.scanned_files;
+        "scanned-bytes: " ^ string_of_int snapshot.scanned_bytes;
+        "truncated: " ^ string_of_bool snapshot.truncated;
+        "limits: files="
+        ^ string_of_int Project_search.default_limits.maximum_files
+        ^ " results="
+        ^ string_of_int Project_search.default_limits.maximum_results
+        ^ " bytes-per-file="
+        ^ string_of_int Project_search.default_limits.maximum_bytes_per_file
+        ^ " total-bytes="
+        ^ string_of_int Project_search.default_limits.maximum_total_bytes;
+      ]
+      @ List.map
+          (fun (result : Project_search.result) ->
+            Printf.sprintf "%s:%d byte=%d" result.relative_path result.line
+              result.byte_offset)
+          snapshot.results
+
 let set_project_root session ~path =
   Project_root.select path
   |> Result.map_error project_root_error
@@ -6019,6 +6077,142 @@ let handle_file_picker_input session query selected input =
     | Some text ->
         file_picker_with_query session ~query:(query ^ text) ~selected:0
 
+let project_search_error message =
+  Error.Invalid_command_arguments ("project search: " ^ message)
+
+let search_project session ~query =
+  match session.project_root with
+  | None ->
+      {
+        session with
+        message = Some "project search: select a root before searching";
+        inspector = None;
+        quit_armed = false;
+      }
+  | Some root -> (
+      match
+        Project_search.search root ~limits:Project_search.default_limits ~query
+      with
+      | Error error ->
+          {
+            session with
+            message = Some error;
+            inspector = None;
+            quit_armed = false;
+          }
+      | Ok snapshot ->
+          {
+            session with
+            project_search = Some snapshot;
+            interaction = Project_search_view { snapshot; selected = 0 };
+            message =
+              Some
+                (Printf.sprintf "project search: %d result%s"
+                   (List.length snapshot.results)
+                   (if List.length snapshot.results = 1 then "" else "s"));
+            inspector = None;
+            quit_armed = false;
+          })
+
+let project_search_with_selection session snapshot selected =
+  let maximum = List.length snapshot.Project_search.results - 1 in
+  let selected = if maximum < 0 then 0 else min (max 0 selected) maximum in
+  {
+    session with
+    interaction = Project_search_view { snapshot; selected };
+    quit_armed = false;
+  }
+
+let activate_project_search_result session snapshot selected input =
+  match
+    (session.project_root, List.nth_opt snapshot.Project_search.results selected)
+  with
+  | None, _ ->
+      {
+        session with
+        interaction = Idle;
+        message = Some "project search: selection was cleared";
+        inspector = None;
+        quit_armed = false;
+      }
+  | _, None ->
+      {
+        session with
+        message = Some "project search has no matching result";
+        inspector = None;
+        quit_armed = false;
+      }
+  | Some root, Some result -> (
+      match
+        Project_search.validate_result root ~query:snapshot.query result
+      with
+      | Error error ->
+          {
+            session with
+            message = Some (Error.to_string (project_search_error error));
+            inspector = None;
+            quit_armed = false;
+          }
+      | Ok path -> (
+          let opened = open_buffer session path in
+          if opened.file_path <> Some path then
+            {
+              opened with
+              interaction = Idle;
+              inspector = None;
+              quit_armed = false;
+            }
+          else
+            match
+              Model_intent.set_selections
+                ~selections:[ (result.byte_offset, result.byte_offset) ]
+                ~primary:0
+            with
+            | Error error ->
+                {
+                  opened with
+                  interaction = Idle;
+                  message = Some (Error.to_string error);
+                  inspector = None;
+                  quit_armed = false;
+                }
+            | Ok intent ->
+                let selected, _ =
+                  execute_active_effects
+                    ~augment_provenance:(fun provenance ->
+                      Provenance.add provenance
+                        (Provenance.Effect "host.project-search.open"))
+                    opened input
+                    [ Model_effect.Execute_intent intent ]
+                in
+                {
+                  selected with
+                  interaction = Idle;
+                  message =
+                    Some
+                      (Printf.sprintf "project search: opened %s:%d"
+                         result.relative_path result.line);
+                  inspector = None;
+                  quit_armed = false;
+                }))
+
+let handle_project_search_input session snapshot selected input =
+  if event_is_named input Input_event.Escape then
+    {
+      session with
+      interaction = Idle;
+      message = Some "project search cancelled";
+      inspector = None;
+      quit_armed = false;
+    }
+  else if event_is_named input Input_event.Arrow_up then
+    project_search_with_selection session snapshot (selected - 1)
+  else if event_is_named input Input_event.Arrow_down then
+    project_search_with_selection session snapshot (selected + 1)
+  else if event_is_named input Input_event.Enter then
+    activate_project_search_result session snapshot selected input
+  else session
+
 let invoke_host_palette_command ?(arguments = []) session input = function
   | Save -> save session
   | Save_as -> (
@@ -6067,6 +6261,10 @@ let invoke_host_palette_command ?(arguments = []) session input = function
               { session with message = Some (Error.to_string error) }
           | Ok session -> session))
   | Open_file_picker -> begin_file_picker session
+  | Search_project -> (
+      match required_text_argument arguments "query" with
+      | Error error -> { session with message = Some (Error.to_string error) }
+      | Ok query -> search_project session ~query)
   | Reload_config -> { (reload_config session) with interaction = Idle }
   | Start_search -> begin_search session
   | Start_regexp_search -> begin_search ~kind:Regexp session
@@ -6625,6 +6823,8 @@ let input_for_interaction session input =
             { session with interaction = Open_buffer_prompt (path ^ text) })
   | File_picker { query; selected } ->
       handle_file_picker_input session query selected input
+  | Project_search_view { snapshot; selected } ->
+      handle_project_search_input session snapshot selected input
   | Model_picker selected -> (
       if event_is_named input Input_event.Escape then
         {
@@ -6890,8 +7090,9 @@ let handle_pointer session input =
   | Some _, _, _
   | ( None,
       ( Search_prompt _ | Palette _ | Command_prompt _ | Save_as_prompt _
-      | Open_buffer_prompt _ | File_picker _ | Model_picker _ | Help_view
-      | Hover_view _ | Completion_view _ | Rename_prompt _ ),
+      | Open_buffer_prompt _ | File_picker _ | Project_search_view _
+      | Model_picker _ | Help_view | Hover_view _ | Completion_view _
+      | Rename_prompt _ ),
       _ ) ->
       { session with mouse_drag = None }
   | None, Idle, None -> session
@@ -7135,6 +7336,16 @@ let handle_host session = function
           inspector = None;
         }
   | Open_file_picker -> Continue (begin_file_picker session)
+  | Search_project ->
+      Continue
+        {
+          session with
+          interaction = Idle;
+          message =
+            Some "project search requires a query through the command palette";
+          quit_armed = false;
+          inspector = None;
+        }
   | Reload_config -> Continue (reload_config session)
   | Start_search -> Continue { (begin_search session) with quit_armed = false }
   | Start_regexp_search ->
@@ -7607,6 +7818,34 @@ let interaction_overlay session =
             @ (if visible = [] then [ "  no matching readable text files" ]
                else visible)
             @ [ ""; "Type to filter; Enter opens; Escape cancels." ]))
+  | Project_search_view { snapshot; selected } ->
+      let visible =
+        snapshot.Project_search.results
+        |> List.mapi (fun index (result : Project_search.result) ->
+            Printf.sprintf "%s%s:%d"
+              (if index = selected then "> " else "  ")
+              result.relative_path result.line)
+        |> fun results ->
+        let rec take remaining = function
+          | _ when remaining <= 0 -> []
+          | [] -> []
+          | result :: rest -> result :: take (remaining - 1) rest
+        in
+        take 16 results
+      in
+      Some
+        ([
+           "Project search";
+           "query: " ^ snapshot.query;
+           Printf.sprintf "results: %d  scanned: %d files, %d bytes%s"
+             (List.length snapshot.results)
+             snapshot.scanned_files snapshot.scanned_bytes
+             (if snapshot.truncated then " (truncated)" else "");
+           "";
+         ]
+        @ (if visible = [] then [ "  no matching readable text files" ]
+           else visible)
+        @ [ ""; "Arrow keys select; Enter opens; Escape cancels." ])
   | Hover_view hover ->
       Some
         ([ "Language hover"; "" ]
@@ -7655,6 +7894,8 @@ let interaction_message session =
   | Save_as_prompt path -> Some ("destination: " ^ path)
   | Open_buffer_prompt path -> Some ("open: " ^ path)
   | File_picker { query; _ } -> Some ("files: " ^ query)
+  | Project_search_view { snapshot; _ } ->
+      Some ("project search: " ^ snapshot.query)
   | Rename_prompt name -> Some ("rename: " ^ name)
   | Completion_view { query; _ } -> Some ("completion: " ^ query)
   | Idle | Palette _ | Model_picker _ | Help_view | Hover_view _ ->
@@ -8080,9 +8321,9 @@ let inspect session inspection =
               (match session.interaction with
               | Search_prompt _ -> "prompt: open"
               | Idle | Palette _ | Command_prompt _ | Save_as_prompt _
-              | Open_buffer_prompt _ | File_picker _ | Model_picker _
-              | Help_view | Hover_view _ | Completion_view _ | Rename_prompt _
-                ->
+              | Open_buffer_prompt _ | File_picker _ | Project_search_view _
+              | Model_picker _ | Help_view | Hover_view _ | Completion_view _
+              | Rename_prompt _ ->
                   "prompt: closed");
             ])
     | Macros -> macro_lines session
@@ -8091,6 +8332,7 @@ let inspect session inspection =
     | Jobs -> background_job_lines session
     | Buffers -> buffer_lines session
     | Project -> project_root_lines session
+    | Project_search -> project_search_lines session
     | Api ->
         "API"
         :: Inspector.format_api

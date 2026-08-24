@@ -88,8 +88,20 @@ The picker revalidates a selected non-empty relative path without `.` or `..`
 components, rejects a target outside the canonical root, then delegates to the
 normal buffer opener. Therefore an already-open picked file is reused and its
 read/snapshot policy remains the existing buffer-load policy. This is a bounded
-local navigation surface, not project search, file watching, remote-file
-access, or a product-specific picker.
+local navigation surface.
+
+`workspace.project.search` accepts a literal query through the palette and
+searches the same canonical root. Its host-owned result view is bounded to 512
+files, 256 results, the first 1 MiB of each file, and 32 MiB total; the latest
+query, scan counts, truncation state, and limits are available through the
+project-search inspector. Search uses the picker's discovery policy: dot-prefixed names are
+ignored (it does not read `.gitignore`), and unreadable, NUL-containing,
+symlink, and invalid-UTF-8 files are skipped. Results contain a relative path,
+one-based line, and UTF-8-safe byte offset. `Enter` revalidates the path and
+literal at that offset before the normal buffer opener focuses a selection;
+stale results are rejected. `Escape` only closes the result view, so cancelling
+does not mutate a document. There is no shell/ripgrep integration, replacement,
+file watching, or filesystem capability exposed to models, Lua, or Components.
 
 ## Backend and rendering
 
