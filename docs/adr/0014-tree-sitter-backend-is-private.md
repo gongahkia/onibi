@@ -14,9 +14,11 @@ and the required `Tree.edit` plus `Parser.parse_string ~old` incremental path.
 `syntax/Tree_sitter_backend` is a private Dune module. Public callers use only
 `zenbu.syntax` language, snapshot, node, selector, and service values.
 
-M5 uses node traversal rather than queries for core structural selection.
-Tree-sitter queries remain an optional future backend detail, not a plugin or
-model-facing foundational API.
+M5 uses node traversal rather than queries for core structural selection. A
+later bounded `Syntax.Query` facade may compile against an error-free,
+version-bound snapshot and project only validated capture ranges or normal
+kernel selections. It does not expose a Tree-sitter query, cursor, parser, or
+tree to a model or plugin.
 
 ## Alternatives considered
 
@@ -32,6 +34,6 @@ model-facing foundational API.
 Tree-sitter can theoretically be replaced for a language without rewriting the
 structural model. The package is a new build/runtime dependency and M5 tracks
 its exact currently available 0.1.0 release. M10 adds syntax highlighting only
-through public snapshot-derived range/classes; Tree-sitter queries remain
-private. LSP and
-arbitrary grammar distribution remain out of scope.
+through public snapshot-derived range/classes. The bounded query facade retains
+the same private backend boundary, while unbounded or plugin-hosted query
+execution, LSP, and arbitrary grammar distribution remain out of scope.
