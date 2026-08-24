@@ -19,6 +19,7 @@ type mode_transition = Registration.mode_transition =
   | Clear_modes
 
 type binding = Registration.binding
+type binding_layer = Registration.binding_layer
 type hook = Registration.hook
 
 type mode = {
@@ -51,6 +52,7 @@ type t = {
   backend : Backend.t;
   commands : Command.t list;
   semantic_behaviors : Semantic_behavior_registry.t;
+  binding_layers : binding_layer list;
   bindings : binding list;
   hooks : hook list;
   modes : mode list;
@@ -705,6 +707,7 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
           let behavior_registry = ref Semantic_behavior_registry.empty in
           let descriptors = ref [] in
           let script_commands = ref [] in
+          let binding_layers = ref [] in
           let bindings = ref [] in
           let hooks = ref [] in
           let modes = ref [] in
@@ -793,7 +796,7 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
             if descriptor_taken id then fail (Error.Duplicate_descriptor id)
             else descriptors := !descriptors @ [ descriptor ]
           in
-          let register_mode definition =
+          let register_mode (definition : Backend.mode) =
             match validate_id source definition.Backend.id with
             | Error error -> fail error
             | Ok _ when List.exists (fun mode -> mode.id = definition.id) !modes
@@ -820,6 +823,36 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
                         initial = definition.initial;
                       };
                     ]
+          in
+          let register_binding_layer definition =
+            match validate_id source definition.Backend.id with
+            | Error error -> fail error
+            | Ok _
+              when definition.priority < 1 || definition.priority > 64 ->
+                fail
+                  (script_error "registration" source
+                     "binding layer priority must be between 1 and 64")
+            | Ok _
+              when List.exists
+                     (fun layer ->
+                       String.equal (Registration.binding_layer_id layer)
+                         definition.id)
+                     !binding_layers ->
+                fail
+                  (script_error "registration" source
+                     "binding layer id is declared more than once")
+            | Ok _ -> (
+                match verify_registration "bindings" definition.id with
+                | Error error -> fail error
+                | Ok () ->
+                    binding_layers :=
+                      !binding_layers
+                      @ [
+                          Registration.create_binding_layer
+                            ~id:definition.id ~title:definition.title
+                            ~description:definition.description
+                            ~priority:definition.priority ~provider;
+                        ])
           in
           let register_model (definition : Backend.model) =
             match Provider.kind provider with
@@ -870,9 +903,11 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
                   register_model definition
               | Backend.Mode definition when Option.is_none !failed ->
                   register_mode definition
-              | Backend.Model _ | Backend.Mode _ | Backend.Binding _
-              | Backend.Hook _ | Backend.Command _ | Backend.Selector _
-              | Backend.Transformation _ ->
+              | Backend.Binding_layer definition when Option.is_none !failed ->
+                  register_binding_layer definition
+              | Backend.Model _ | Backend.Mode _ | Backend.Binding_layer _
+              | Backend.Binding _ | Backend.Hook _ | Backend.Command _
+              | Backend.Selector _ | Backend.Transformation _ ->
                   ())
             registrations;
           List.iter
@@ -972,9 +1007,9 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
                                 | Error error -> fail error
                                 | Ok registry -> behavior_registry := registry))
                       ))
-              | Backend.Model _ | Backend.Mode _ | Backend.Binding _
-              | Backend.Hook _ | Backend.Command _ | Backend.Selector _
-              | Backend.Transformation _ ->
+              | Backend.Model _ | Backend.Mode _ | Backend.Binding_layer _
+              | Backend.Binding _ | Backend.Hook _ | Backend.Command _
+              | Backend.Selector _ | Backend.Transformation _ ->
                   ())
             registrations;
           List.iter
@@ -984,11 +1019,31 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
                     ( inputs_of_string source definition.input,
                       scope_of_string source definition.scope,
                       Command_id.of_string definition.command,
-                      Ok (mode_transition_of_backend definition.mode_transition)
+                      Ok (mode_transition_of_backend definition.mode_transition),
+                      (match definition.layer with
+                      | None -> Ok None
+                      | Some id ->
+                          Result.bind (validate_id source id) (fun _ ->
+                              if
+                                List.exists
+                                  (fun layer ->
+                                    String.equal
+                                      (Registration.binding_layer_id layer)
+                                      id)
+                                  !binding_layers
+                              then Ok (Some id)
+                              else
+                                Error
+                                  (script_error "registration" source
+                                     "binding layer must be declared by the \
+                                      same provider")))
                     )
                   with
-                  | Ok (head :: tail), Ok scope, Ok command, Ok mode_transition
-                    -> (
+                  | ( Ok (head :: tail),
+                      Ok scope,
+                      Ok command,
+                      Ok mode_transition,
+                      Ok layer ) -> (
                       match
                         verify_registration "bindings" definition.command
                       with
@@ -1044,8 +1099,8 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
                                     with
                                     | true, _ | false, Ok _ ->
                                         let candidate =
-                                          Registration.binding_sequence
-                                            ~mode_transition ~head ~tail
+                                          Registration.binding_sequence_in_layer
+                                            ~layer ~mode_transition ~head ~tail
                                             ~command:definition.command ~scope
                                             ~text_argument:
                                               definition.text_argument ~provider
@@ -1068,14 +1123,15 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
                                         else
                                           bindings := !bindings @ [ candidate ]
                                     | false, Error error -> fail error))))
-                  | Ok [], _, _, _ ->
+                  | Ok [], _, _, _, _ ->
                       fail
                         (script_error "registration" source
                            "binding sequence must not be empty")
-                  | Error error, _, _, _
-                  | _, Error error, _, _
-                  | _, _, Error error, _
-                  | _, _, _, Error error ->
+                  | Error error, _, _, _, _
+                  | _, Error error, _, _, _
+                  | _, _, Error error, _, _
+                  | _, _, _, Error error, _
+                  | _, _, _, _, Error error ->
                       fail error)
               | Backend.Hook definition when Option.is_none !failed -> (
                   match event_of_string source definition.event with
@@ -1131,9 +1187,9 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
                                   (Host.invoke host callback request)
                                   (actions source request));
                           ])
-              | Backend.Model _ | Backend.Mode _ | Backend.Binding _
-              | Backend.Hook _ | Backend.Command _ | Backend.Selector _
-              | Backend.Transformation _ ->
+              | Backend.Model _ | Backend.Mode _ | Backend.Binding_layer _
+              | Backend.Binding _ | Backend.Hook _ | Backend.Command _
+              | Backend.Selector _ | Backend.Transformation _ ->
                   ())
             registrations;
           match !failed with
@@ -1149,6 +1205,7 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
                   backend;
                   commands = !script_commands;
                   semantic_behaviors = !behavior_registry;
+                  binding_layers = !binding_layers;
                   bindings = !bindings;
                   hooks = !hooks;
                   modes = !modes;
@@ -1163,6 +1220,7 @@ let commands value = value.commands
 let semantic_behaviors value = value.semantic_behaviors
 let descriptors value = value.descriptors
 let bindings value = value.bindings
+let binding_layers value = value.binding_layers
 let hooks value = value.hooks
 let modes value = value.modes
 let model value = value.model
@@ -1191,9 +1249,15 @@ let binding_input = Registration.binding_input
 let binding_inputs = Registration.binding_inputs
 let binding_command = Registration.binding_command
 let binding_scope = Registration.binding_scope
+let binding_layer = Registration.binding_layer
 let binding_mode_transition = Registration.binding_mode_transition
 let binding_text_argument = Registration.binding_text_argument
 let binding_provider = Registration.binding_provider
+let binding_layer_id = Registration.binding_layer_id
+let binding_layer_title = Registration.binding_layer_title
+let binding_layer_description = Registration.binding_layer_description
+let binding_layer_priority = Registration.binding_layer_priority
+let binding_layer_provider = Registration.binding_layer_provider
 let mode_id value = value.id
 let mode_title value = value.title
 let mode_description value = value.description

@@ -25,10 +25,18 @@ type mode = {
 
 and input_mode = Key_commands | Text_entry
 
+type binding_layer = {
+  id : string;
+  title : string;
+  description : string;
+  priority : int;
+}
+
 type binding = {
   input : string;
   command : string;
   scope : string option;
+  layer : string option;
   mode_transition : mode_transition option;
   text_argument : string option;
 }
@@ -54,6 +62,7 @@ type registration =
   | Transformation of descriptor * callback
   | Model of model
   | Mode of mode
+  | Binding_layer of binding_layer
   | Binding of binding
   | Hook of hook
 
@@ -397,6 +406,19 @@ let optional_text state table name =
   pop state 1;
   value
 
+let required_integer state table name =
+  ignore (get_field state table name);
+  let value =
+    if value_type state (-1) = lua_number && is_integer state (-1) <> 0 then (
+      let accepted = allocate int 0 in
+      Ok (to_integer state (-1) accepted |> Int64.to_int))
+    else
+      Error
+        (error "registration" "<lua>" ("missing integer field " ^ name))
+  in
+  pop state 1;
+  value
+
 let required_value state table name =
   ignore (get_field state table name);
   let value =
@@ -576,6 +598,27 @@ let mode_definition state table =
         (mode_input_mode input_mode)
   | Error error, _, _ | _, Error error, _ | _, _, Error error -> Error error
 
+let binding_layer_definition state table =
+  match
+    ( required_text state table "id",
+      optional_text state table "title",
+      optional_text state table "description",
+      required_integer state table "priority" )
+  with
+  | Ok id, Ok title, Ok description, Ok priority ->
+      Ok
+        {
+          id;
+          title = Option.value title ~default:id;
+          description = Option.value description ~default:id;
+          priority;
+        }
+  | Error error, _, _, _
+  | _, Error error, _, _
+  | _, _, Error error, _
+  | _, _, _, Error error ->
+      Error error
+
 let model_definition state table =
   match
     ( descriptor state table,
@@ -627,6 +670,21 @@ let register_mode backend state =
   | Ok () -> 0
   | Error error -> callback_error backend state error
 
+let register_binding_layer backend state =
+  let result =
+    if value_type state 1 <> lua_table then
+      Error
+        (error "registration" backend.source
+           "binding_layer expects a table")
+    else
+      Result.map
+        (fun definition -> add_registration backend (Binding_layer definition))
+        (binding_layer_definition state 1)
+  in
+  match result with
+  | Ok () -> 0
+  | Error error -> callback_error backend state error
+
 let register_model backend state =
   let result =
     if value_type state 1 <> lua_table then
@@ -649,18 +707,33 @@ let register_binding backend state =
         ( required_text state 1 "input",
           required_text state 1 "command",
           optional_text state 1 "scope",
+          optional_text state 1 "layer",
           optional_mode_transition state 1,
           optional_text state 1 "text_argument" )
       with
-      | Ok input, Ok command, Ok scope, Ok mode_transition, Ok text_argument ->
+      | ( Ok input,
+          Ok command,
+          Ok scope,
+          Ok layer,
+          Ok mode_transition,
+          Ok text_argument ) ->
           add_registration backend
-            (Binding { input; command; scope; mode_transition; text_argument });
+            (Binding
+               {
+                 input;
+                 command;
+                 scope;
+                 layer;
+                 mode_transition;
+                 text_argument;
+               });
           Ok ()
-      | Error error, _, _, _, _
-      | _, Error error, _, _, _
-      | _, _, Error error, _, _
-      | _, _, _, Error error, _
-      | _, _, _, _, Error error ->
+      | Error error, _, _, _, _, _
+      | _, Error error, _, _, _, _
+      | _, _, Error error, _, _, _
+      | _, _, _, Error error, _, _
+      | _, _, _, _, Error error, _
+      | _, _, _, _, _, Error error ->
           Error error
   in
   match result with
@@ -842,7 +915,7 @@ let create ~source =
       in
       open_libs state;
       configure_module_path backend;
-      create_table state 0 11;
+      create_table state 0 12;
       push_integer state 1L;
       set_field state (-2) "api_version";
       add_callback backend state "command"
@@ -856,6 +929,7 @@ let create ~source =
              Transformation (descriptor, callback)));
       add_callback backend state "model" (register_model backend);
       add_callback backend state "mode" (register_mode backend);
+      add_callback backend state "binding_layer" (register_binding_layer backend);
       add_callback backend state "bind" (register_binding backend);
       add_callback backend state "on" (register_hook backend);
       add_callback backend state "text" (text_callback backend);

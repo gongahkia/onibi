@@ -19,6 +19,7 @@ type mode_transition = Zenbu_model_api.Extension_registration.mode_transition =
   | Clear_modes
 
 type binding = Zenbu_model_api.Extension_registration.binding
+type binding_layer = Zenbu_model_api.Extension_registration.binding_layer
 type hook = Zenbu_model_api.Extension_registration.hook
 type mode
 type model
@@ -58,6 +59,7 @@ val commands : t -> Zenbu_model_api.Command.t list
 val semantic_behaviors : t -> Zenbu_model_api.Semantic_behavior_registry.t
 val descriptors : t -> Zenbu_kernel.Semantic_descriptor.t list
 val bindings : t -> binding list
+val binding_layers : t -> binding_layer list
 val hooks : t -> hook list
 val modes : t -> mode list
 val model : t -> model option
@@ -68,9 +70,15 @@ val binding_input : binding -> Zenbu_model_api.Input_event.binding_pattern
 val binding_inputs : binding -> Zenbu_model_api.Input_event.binding_pattern list
 val binding_command : binding -> string
 val binding_scope : binding -> scope
+val binding_layer : binding -> string option
 val binding_mode_transition : binding -> mode_transition option
 val binding_text_argument : binding -> string option
 val binding_provider : binding -> Zenbu_kernel.Provider.t
+val binding_layer_id : binding_layer -> string
+val binding_layer_title : binding_layer -> string
+val binding_layer_description : binding_layer -> string
+val binding_layer_priority : binding_layer -> int
+val binding_layer_provider : binding_layer -> Zenbu_kernel.Provider.t
 val mode_id : mode -> string
 val mode_title : mode -> string
 val mode_description : mode -> string

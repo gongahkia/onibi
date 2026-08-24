@@ -26,6 +26,7 @@ val load :
   base_commands:Zenbu_model_api.Command_registry.t ->
   base_semantics:Zenbu_kernel.Semantic_descriptor.t list ->
   ?base_bindings:Zenbu_model_api.Extension_registration.binding list ->
+  ?base_binding_layers:Zenbu_model_api.Extension_registration.binding_layer list ->
   unit ->
   t
 
@@ -34,6 +35,7 @@ val reload :
   base_commands:Zenbu_model_api.Command_registry.t ->
   base_semantics:Zenbu_kernel.Semantic_descriptor.t list ->
   ?base_bindings:Zenbu_model_api.Extension_registration.binding list ->
+  ?base_binding_layers:Zenbu_model_api.Extension_registration.binding_layer list ->
   unit ->
   t
 
@@ -42,6 +44,7 @@ val dispose : t -> unit
 val commands : t -> Zenbu_model_api.Command.t list
 val semantic_behaviors : t -> Zenbu_model_api.Semantic_behavior_registry.t
 val bindings : t -> Zenbu_model_api.Extension_registration.binding list
+val binding_layers : t -> Zenbu_model_api.Extension_registration.binding_layer list
 val hooks : t -> Zenbu_model_api.Extension_registration.hook list
 val drain_runtime_events : t -> runtime_event list
 val providers : t -> Zenbu_kernel.Provider.t list

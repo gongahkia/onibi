@@ -49,6 +49,8 @@ type host_command =
   | Jump_forward
   | Open_palette
   | Switch_model
+  | Enable_binding_layer
+  | Disable_binding_layer
   | Help
   | Switch_presentation
   | Switch_theme
@@ -238,6 +240,7 @@ type buffer = {
   presentation_cache : presentation_cache option;
   search : search option;
   active_modes : string list;
+  active_binding_layers : Scripting.binding_layer list;
 }
 
 type t = {
@@ -285,6 +288,7 @@ type t = {
   mouse_drag : mouse_drag option;
   pending_binding : Input_event.t list;
   active_modes : string list;
+  active_binding_layers : Scripting.binding_layer list;
   macro_recording : macro_recording option;
   macros : (string * Input_event.t list) list;
   last_macro_register : string option;
@@ -315,6 +319,7 @@ let maximum_locations = 64
 let maximum_location_name_bytes = 64
 let maximum_jump_entries = 100
 let maximum_file_watch_notices = 128
+let maximum_active_binding_layers = 32
 
 let synchronize_macro_context session =
   let register =
@@ -1166,6 +1171,36 @@ let host_command_entries =
         palette = true;
       };
       {
+        command = Enable_binding_layer;
+        descriptor =
+          host_descriptor
+            ~parameters:
+              [
+                text_parameter ~name:"layer"
+                  ~description:
+                    "Declared data-only binding layer to enable in the current buffer."
+                  ~required:true;
+              ]
+            "keymap.layer.enable" "Enable binding layer"
+            "Atomically enable a declared binding layer for the current buffer.";
+        palette = true;
+      };
+      {
+        command = Disable_binding_layer;
+        descriptor =
+          host_descriptor
+            ~parameters:
+              [
+                text_parameter ~name:"layer"
+                  ~description:
+                    "Declared data-only binding layer to disable in the current buffer."
+                  ~required:true;
+              ]
+            "keymap.layer.disable" "Disable binding layer"
+            "Disable a binding layer in the current buffer without changing its document.";
+        palette = true;
+      };
+      {
         command = Help;
         descriptor =
           host_descriptor "editor.help" "Show help"
@@ -1672,6 +1707,11 @@ let create ~model ?language ?file_path ?(contents = "") ?trace ?profiler
                         | None -> None
                         | Some generation ->
                             Some (Scripting.bindings generation))
+                      ?base_binding_layers:
+                        (match generation with
+                        | None -> None
+                        | Some generation ->
+                            Some (Scripting.binding_layers generation))
                       ())
               in
               trace_plugins trace ~execution_id:0 ~phase:"load" plugin_host;
@@ -1791,6 +1831,7 @@ let create ~model ?language ?file_path ?(contents = "") ?trace ?profiler
                         (match generation with
                         | None -> []
                         | Some generation -> Scripting.initial_modes generation);
+                      active_binding_layers = [];
                       macro_recording = None;
                       macros = [];
                       last_macro_register = None;
@@ -2864,6 +2905,7 @@ let create_buffer session ~id ?file_path ?buffer_name ?language ?saved_snapshot
                     (match session.generation with
                     | None -> []
                     | Some generation -> Scripting.initial_modes generation);
+                  active_binding_layers = [];
                 }
               in
               Option.iter
@@ -3440,6 +3482,11 @@ let reload_config session =
                       (match generation with
                       | None -> None
                       | Some generation -> Some (Scripting.bindings generation))
+                    ?base_binding_layers:
+                      (match generation with
+                      | None -> None
+                      | Some generation ->
+                          Some (Scripting.binding_layers generation))
                     ())
             in
             trace_plugins trace ~execution_id ~phase:"reload" plugin_host;

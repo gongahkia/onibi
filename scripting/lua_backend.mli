@@ -21,10 +21,18 @@ type mode = {
 
 and input_mode = Key_commands | Text_entry
 
+type binding_layer = {
+  id : string;
+  title : string;
+  description : string;
+  priority : int;
+}
+
 type binding = {
   input : string;
   command : string;
   scope : string option;
+  layer : string option;
   mode_transition : mode_transition option;
   text_argument : string option;
 }
@@ -50,6 +58,7 @@ type registration =
   | Transformation of descriptor * callback
   | Model of model
   | Mode of mode
+  | Binding_layer of binding_layer
   | Binding of binding
   | Hook of hook
 

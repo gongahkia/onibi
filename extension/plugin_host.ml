@@ -151,6 +151,10 @@ let generation_bindings = function
   | Lua generation -> Scripting.bindings generation
   | Wasm generation -> Wasm.bindings generation
 
+let generation_binding_layers = function
+  | Lua generation -> Scripting.binding_layers generation
+  | Wasm _ -> []
+
 let generation_hooks = function
   | Lua generation -> Scripting.hooks generation
   | Wasm generation -> Wasm.hooks generation
@@ -242,7 +246,7 @@ let registered_ids active =
   in
   commands @ semantics
 
-let collisions ~base_bindings (staged : active list) =
+let collisions ~base_bindings ~base_binding_layers (staged : active list) =
   let owners = Hashtbl.create 32 in
   let conflicted = Hashtbl.create 8 in
   let mark (left : active) (right : active) =
@@ -261,6 +265,29 @@ let collisions ~base_bindings (staged : active list) =
           | None -> Hashtbl.add owners id active
           | Some prior -> mark prior active)
         (registered_ids active))
+    staged;
+  let binding_layer_owners =
+    ref (List.map (fun layer -> (None, layer)) base_binding_layers)
+  in
+  List.iter
+    (fun (active : active) ->
+      generation_binding_layers active.generation
+      |> List.iter (fun layer ->
+          List.iter
+            (fun (owner, existing) ->
+              if
+                String.equal
+                  (Registration.binding_layer_id existing)
+                  (Registration.binding_layer_id layer)
+              then
+                match owner with
+                | None ->
+                    Hashtbl.replace conflicted
+                      (Manifest.id active.manifest |> Plugin_id.to_string)
+                      ()
+                | Some prior -> mark prior active)
+            !binding_layer_owners;
+          binding_layer_owners := (Some active, layer) :: !binding_layer_owners))
     staged;
   let binding_owners =
     ref (List.map (fun binding -> (None, binding)) base_bindings)
@@ -298,7 +325,7 @@ let failure_of_collision (active : active) =
   }
 
 let build ?(previous = []) ~config ~base_commands ~base_semantics ~base_bindings
-    () =
+    ~base_binding_layers () =
   let current_paths = manifest_paths config in
   let parsed = parse_candidates config in
   let parse_failures =
@@ -347,7 +374,9 @@ let build ?(previous = []) ~config ~base_commands ~base_semantics ~base_bindings
       ([], []) manifests
   in
   let stages = List.rev stages in
-  let collision_active = collisions ~base_bindings stages in
+  let collision_active =
+    collisions ~base_bindings ~base_binding_layers stages
+  in
   let collision_ids =
     List.map
       (fun (active : active) ->
@@ -407,12 +436,15 @@ let build ?(previous = []) ~config ~base_commands ~base_semantics ~base_bindings
         replacement_failures;
   }
 
-let load ~config ~base_commands ~base_semantics ?(base_bindings = []) () =
-  build ~config ~base_commands ~base_semantics ~base_bindings ()
+let load ~config ~base_commands ~base_semantics ?(base_bindings = [])
+    ?(base_binding_layers = []) () =
+  build ~config ~base_commands ~base_semantics ~base_bindings
+    ~base_binding_layers ()
 
-let reload value ~base_commands ~base_semantics ?(base_bindings = []) () =
+let reload value ~base_commands ~base_semantics ?(base_bindings = [])
+    ?(base_binding_layers = []) () =
   build ~previous:value.active ~config:value.config ~base_commands
-    ~base_semantics ~base_bindings ()
+    ~base_semantics ~base_bindings ~base_binding_layers ()
 
 let deactivate value id =
   let active, removed =
@@ -444,6 +476,11 @@ let semantic_behaviors value =
 let bindings value =
   List.concat_map
     (fun active -> generation_bindings active.generation)
+    value.active
+
+let binding_layers value =
+  List.concat_map
+    (fun active -> generation_binding_layers active.generation)
     value.active
 
 let hooks value =

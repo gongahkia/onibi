@@ -19,10 +19,37 @@ type mode_transition =
   | Pop_mode
   | Clear_modes
 
+type binding_layer
 type binding
 type hook
 
+val create_binding_layer :
+  id:string ->
+  title:string ->
+  description:string ->
+  priority:int ->
+  provider:Zenbu_kernel.Provider.t ->
+  binding_layer
+(** A host-owned, data-only binding layer. Higher priorities resolve before
+    lower priorities when bindings have the same ordinary scope. *)
+
+val binding_layer_id : binding_layer -> string
+val binding_layer_title : binding_layer -> string
+val binding_layer_description : binding_layer -> string
+val binding_layer_priority : binding_layer -> int
+val binding_layer_provider : binding_layer -> Zenbu_kernel.Provider.t
+
 val binding :
+  input:Input_event.binding_pattern ->
+  command:string ->
+  scope:scope ->
+  mode_transition:mode_transition option ->
+  text_argument:string option ->
+  provider:Zenbu_kernel.Provider.t ->
+  binding
+
+val binding_in_layer :
+  layer:string option ->
   input:Input_event.binding_pattern ->
   command:string ->
   scope:scope ->
@@ -43,6 +70,17 @@ val binding_sequence :
 (** Register a nonempty ordered logical-input sequence. [head] is separate so
     adapter code cannot construct an empty binding. *)
 
+val binding_sequence_in_layer :
+  layer:string option ->
+  head:Input_event.binding_pattern ->
+  tail:Input_event.binding_pattern list ->
+  command:string ->
+  scope:scope ->
+  mode_transition:mode_transition option ->
+  text_argument:string option ->
+  provider:Zenbu_kernel.Provider.t ->
+  binding
+
 val binding_input : binding -> Input_event.binding_pattern
 (** Legacy one-event projection. New consumers should inspect [binding_inputs].
 *)
@@ -50,14 +88,15 @@ val binding_input : binding -> Input_event.binding_pattern
 val binding_inputs : binding -> Input_event.binding_pattern list
 val binding_command : binding -> string
 val binding_scope : binding -> scope
+val binding_layer : binding -> string option
 val binding_mode_transition : binding -> mode_transition option
 val binding_text_argument : binding -> string option
 val binding_provider : binding -> Zenbu_kernel.Provider.t
 
 val bindings_conflict : binding -> binding -> bool
-(** Two bindings conflict when their scopes are equal and either input sequence
-    is a prefix of the other. This excludes an ambiguous command/prefix entry in
-    one effective keymap. *)
+(** Two bindings conflict when they belong to the same layer and scope and
+    either input sequence is a prefix of the other. This excludes an ambiguous
+    command/prefix entry in one effective keymap. *)
 
 val hook :
   event:event ->

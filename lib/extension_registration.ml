@@ -12,10 +12,19 @@ type mode_transition =
   | Pop_mode
   | Clear_modes
 
+type binding_layer = {
+  id : string;
+  title : string;
+  description : string;
+  priority : int;
+  provider : Zenbu_kernel.Provider.t;
+}
+
 type binding = {
   inputs : Input_event.binding_pattern list;
   command : string;
   scope : scope;
+  layer : string option;
   mode_transition : mode_transition option;
   text_argument : string option;
   provider : Zenbu_kernel.Provider.t;
@@ -32,29 +41,64 @@ let binding ~input ~command ~scope ~mode_transition ~text_argument ~provider =
     inputs = [ input ];
     command;
     scope;
+    layer = None;
     mode_transition;
     text_argument;
     provider;
   }
 
-let binding_sequence ~head ~tail ~command ~scope ~mode_transition ~text_argument
-    ~provider =
+let binding_in_layer ~layer ~input ~command ~scope ~mode_transition
+    ~text_argument ~provider =
   {
-    inputs = head :: tail;
+    inputs = [ input ];
     command;
     scope;
+    layer;
     mode_transition;
     text_argument;
     provider;
   }
+
+let binding_sequence ~head ~tail ~command ~scope ~mode_transition
+    ~text_argument ~provider =
+  {
+    inputs = head :: tail;
+    command;
+    scope;
+    layer = None;
+    mode_transition;
+    text_argument;
+    provider;
+  }
+
+let binding_sequence_in_layer ~layer ~head ~tail ~command ~scope
+    ~mode_transition ~text_argument ~provider =
+  {
+    inputs = head :: tail;
+    command;
+    scope;
+    layer;
+    mode_transition;
+    text_argument;
+    provider;
+  }
+
+let create_binding_layer ~id ~title ~description ~priority ~provider =
+  { id; title; description; priority; provider }
 
 let binding_input (value : binding) = List.hd value.inputs
 let binding_inputs (value : binding) = value.inputs
 let binding_command (value : binding) = value.command
 let binding_scope (value : binding) = value.scope
+let binding_layer (value : binding) = value.layer
 let binding_mode_transition (value : binding) = value.mode_transition
 let binding_text_argument (value : binding) = value.text_argument
 let binding_provider (value : binding) = value.provider
+let binding_layer_id (value : binding_layer) = value.id
+let binding_layer_title (value : binding_layer) = value.title
+let binding_layer_description (value : binding_layer) = value.description
+let binding_layer_priority (value : binding_layer) = value.priority
+let binding_layer_provider (value : binding_layer) = value.provider
 
 let rec sequence_is_prefix prefix sequence =
   match (prefix, sequence) with
@@ -66,6 +110,7 @@ let rec sequence_is_prefix prefix sequence =
 
 let bindings_conflict left right =
   left.scope = right.scope
+  && left.layer = right.layer
   && (sequence_is_prefix left.inputs right.inputs
      || sequence_is_prefix right.inputs left.inputs)
 
