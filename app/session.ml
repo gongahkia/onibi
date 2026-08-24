@@ -48,6 +48,7 @@ type host_command =
   | Jump_backward
   | Jump_forward
   | Open_palette
+  | Open_command_line
   | Switch_model
   | Enable_binding_layer
   | Disable_binding_layer
@@ -164,6 +165,7 @@ type interaction =
       direction : Model_effect.search_direction;
     }
   | Palette of { query : string; selected : int }
+  | Command_line of string
   | Command_prompt of {
       action : command_prompt_action;
       descriptor : Command_descriptor.t;
@@ -1046,6 +1048,14 @@ let host_command_entries =
             "Discover commands contributed by Zenbu, models, scripts, and \
              plugins.";
         palette = false;
+      };
+      {
+        command = Open_command_line;
+        descriptor =
+          host_descriptor "editor.command-line" "Run declared command line"
+            "Parse one exact registered command ID and its declared typed \
+             arguments without shell or product-command compatibility.";
+        palette = true;
       };
       {
         command = Split_vertical;
@@ -2054,6 +2064,12 @@ let status session =
   | Palette _ ->
       host_status ~id:"host-palette" ~label:"COMMAND"
         ~description:"filter registered commands from all active providers"
+        ~text_entry:true ()
+  | Command_line _ ->
+      host_status ~id:"host-command-line" ~label:"COMMAND LINE"
+        ~description:
+          "enter a colon-prefixed registered command ID and space-separated \
+           typed arguments"
         ~text_entry:true ()
   | Command_prompt _ ->
       host_status ~id:"host-command-argument" ~label:"ARGUMENT"
@@ -5691,15 +5707,15 @@ let language_host_command = function
   | Toggle_macro_recording | Replay_macro | Kill_ring_cut | Kill_ring_yank
   | System_clipboard_copy | System_clipboard_paste | Set_location
   | Jump_location | Push_jump | Jump_backward | Jump_forward | Open_palette
-  | Switch_model | Enable_binding_layer | Disable_binding_layer | Help
-  | Switch_presentation | Switch_theme | Background_jobs | Cancel_background_job
-  | Open_background_job_output | Split_vertical | Split_horizontal
-  | Focus_next_pane | Close_pane | Only_pane | Grow_pane_width
-  | Shrink_pane_width | Grow_pane_height | Shrink_pane_height | Balance_panes
-  | New_buffer | Open_buffer | List_buffers | Switch_buffer | Rename_buffer
-  | Close_buffer | Force_close_buffer | Next_buffer | Previous_buffer
-  | View_scroll_up | View_scroll_down | View_page_up | View_page_down
-  | View_center ->
+  | Open_command_line | Switch_model | Enable_binding_layer
+  | Disable_binding_layer | Help | Switch_presentation | Switch_theme
+  | Background_jobs | Cancel_background_job | Open_background_job_output
+  | Split_vertical | Split_horizontal | Focus_next_pane | Close_pane | Only_pane
+  | Grow_pane_width | Shrink_pane_width | Grow_pane_height | Shrink_pane_height
+  | Balance_panes | New_buffer | Open_buffer | List_buffers | Switch_buffer
+  | Rename_buffer | Close_buffer | Force_close_buffer | Next_buffer
+  | Previous_buffer | View_scroll_up | View_scroll_down | View_page_up
+  | View_page_down | View_center ->
       false
 
 let palette_items session =
@@ -7053,6 +7069,14 @@ let invoke_host_palette_command ?(arguments = []) session input = function
         quit_armed = false;
         inspector = None;
       }
+  | Open_command_line ->
+      {
+        session with
+        interaction = Command_line ":";
+        message = Some "command line: enter one registered command ID";
+        quit_armed = false;
+        inspector = None;
+      }
   | Enable_binding_layer -> (
       match required_text_argument arguments "layer" with
       | Ok id -> { (enable_binding_layer session ~id) with interaction = Idle }
@@ -7236,6 +7260,76 @@ let invoke_palette_item session input (item : palette_item) =
       begin_command_prompt session ~action:(Palette_item item)
         ~descriptor:item.descriptor
 
+let maximum_command_line_bytes = 4096
+
+let command_line_tokens line =
+  if String.length line = 0 || line.[0] <> ':' then
+    Error
+      (Error.Invalid_command_arguments
+         "command line must begin with a colon and an exact command ID")
+  else
+    String.sub line 1 (String.length line - 1)
+    |> String.split_on_char ' '
+    |> List.filter (fun value -> String.length value > 0)
+    |> function
+    | [] ->
+        Error
+          (Error.Invalid_command_arguments
+             "command line requires an exact registered command ID")
+    | command :: arguments -> Ok (command, arguments)
+
+let command_line_arguments descriptor values =
+  let rec collect arguments parameters values =
+    match (parameters, values) with
+    | [], [] -> Ok (List.rev arguments)
+    | [], _ :: _ ->
+        Error
+          (Error.Invalid_command_arguments
+             "command line has more arguments than the descriptor declares")
+    | parameter :: rest, [] when parameter.required ->
+        Error
+          (Error.Invalid_command_arguments
+             ("command line requires argument " ^ parameter.name))
+    | _ :: rest, [] -> collect arguments rest []
+    | parameter :: rest, value :: values ->
+        command_argument_of_text parameter value
+        |> Result.bind (fun argument ->
+            collect (argument :: arguments) rest values)
+  in
+  collect [] (Command_descriptor.parameters descriptor) values
+
+let run_command_line session input line =
+  Result.bind (command_line_tokens line) (fun (id, values) ->
+      let items =
+        palette_items session
+        |> List.filter (fun (item : palette_item) -> String.equal item.id id)
+        |> List.filter (fun item ->
+            not (String.equal item.id "editor.command-line"))
+      in
+      match items with
+      | [] ->
+          Error
+            (Error.Invalid_command_arguments
+               ("command line does not name an active command: " ^ id))
+      | [ item ] ->
+          command_line_arguments item.descriptor values
+          |> Result.map (fun arguments -> (item, arguments))
+      | _ :: _ :: _ ->
+          Error
+            (Error.Invalid_command_arguments
+               ("command line is ambiguous for command ID: " ^ id)))
+  |> function
+  | Ok (item, arguments) ->
+      invoke_palette_item_with_arguments session input item arguments
+  | Error error ->
+      {
+        session with
+        interaction = Command_line line;
+        message = Some ("command line: " ^ Error.to_string error);
+        inspector = None;
+        quit_armed = false;
+      }
+
 let input_for_interaction session input =
   match session.interaction with
   | Idle -> (
@@ -7413,41 +7507,121 @@ let input_for_interaction session input =
               session with
               interaction = Palette { query = query ^ text; selected = 0 };
             })
-  | Command_prompt { action; descriptor; remaining; arguments_rev; text } -> (
-      match remaining with
-      | [] -> { session with interaction = Idle }
-      | parameter :: rest -> (
-          if event_is_named input Input_event.Escape then
-            {
-              session with
-              interaction = Idle;
-              message = Some "command argument prompt cancelled";
-            }
-          else if event_is_named input Input_event.Enter then
-            if String.length text = 0 && parameter.required then
+  | Command_line line -> (
+      if event_is_named input Input_event.Escape then
+        {
+          session with
+          interaction = Idle;
+          message = Some "command line cancelled";
+          inspector = None;
+          quit_armed = false;
+        }
+      else if event_is_named input Input_event.Enter then
+        run_command_line session input line
+      else if event_is_named input Input_event.Backspace then
+        {
+          session with
+          interaction = Command_line (drop_last_utf8 line);
+          quit_armed = false;
+        }
+      else
+        match event_text input with
+        | None -> session
+        | Some value ->
+            let next = line ^ value in
+            if String.length next > maximum_command_line_bytes then
               {
                 session with
                 message =
-                  Some ("command argument " ^ parameter.name ^ " is required");
+                  Some
+                    (Printf.sprintf "command line is limited to %d bytes"
+                       maximum_command_line_bytes);
+                quit_armed = false;
               }
             else
-              let argument =
-                if String.length text = 0 then Ok None
-                else
-                  command_argument_of_text parameter text
-                  |> Result.map Option.some
-              in
-              match argument with
-              | Error error ->
-                  { session with message = Some (Error.to_string error) }
-              | Ok argument -> (
-                  let arguments_rev =
+              {
+                session with
+                interaction = Command_line next;
+                quit_armed = false;
+              })
+  | Command_prompt { action; descriptor; remaining; arguments_rev; text } -> (
+            match remaining with
+            | [] -> { session with interaction = Idle }
+            | parameter :: rest -> (
+                if event_is_named input Input_event.Escape then
+                  {
+                    session with
+                    interaction = Idle;
+                    message = Some "command argument prompt cancelled";
+                  }
+                else if event_is_named input Input_event.Enter then
+                  if String.length text = 0 && parameter.required then
+                    {
+                      session with
+                      message =
+                        Some
+                          ("command argument " ^ parameter.name ^ " is required");
+                    }
+                  else
+                    let argument =
+                      if String.length text = 0 then Ok None
+                      else
+                        command_argument_of_text parameter text
+                        |> Result.map Option.some
+                    in
                     match argument with
-                    | None -> arguments_rev
-                    | Some argument -> argument :: arguments_rev
-                  in
-                  match rest with
-                  | next :: _ ->
+                    | Error error ->
+                        { session with message = Some (Error.to_string error) }
+                    | Ok argument -> (
+                        let arguments_rev =
+                          match argument with
+                          | None -> arguments_rev
+                          | Some argument -> argument :: arguments_rev
+                        in
+                        match rest with
+                        | next :: _ ->
+                            {
+                              session with
+                              interaction =
+                                Command_prompt
+                                  {
+                                    action;
+                                    descriptor;
+                                    remaining = rest;
+                                    arguments_rev;
+                                    text = "";
+                                  };
+                              message =
+                                Some (command_prompt_message descriptor next);
+                            }
+                        | [] -> (
+                            let arguments = List.rev arguments_rev in
+                            match action with
+                            | Palette_item item ->
+                                invoke_palette_item_with_arguments session input
+                                  item arguments
+                            | Bound_command binding ->
+                                fst
+                                  (invoke_bound_command ~arguments
+                                     { session with interaction = Idle }
+                                     input binding)))
+                else if event_is_named input Input_event.Backspace then
+                  {
+                    session with
+                    interaction =
+                      Command_prompt
+                        {
+                          action;
+                          descriptor;
+                          remaining;
+                          arguments_rev;
+                          text = drop_last_utf8 text;
+                        };
+                  }
+                else
+                  match event_text input with
+                  | None -> session
+                  | Some value ->
                       {
                         session with
                         interaction =
@@ -7455,198 +7629,182 @@ let input_for_interaction session input =
                             {
                               action;
                               descriptor;
-                              remaining = rest;
+                              remaining;
                               arguments_rev;
-                              text = "";
+                              text = text ^ value;
                             };
-                        message = Some (command_prompt_message descriptor next);
-                      }
-                  | [] -> (
-                      let arguments = List.rev arguments_rev in
-                      match action with
-                      | Palette_item item ->
-                          invoke_palette_item_with_arguments session input item
-                            arguments
-                      | Bound_command binding ->
-                          fst
-                            (invoke_bound_command ~arguments
-                               { session with interaction = Idle }
-                               input binding)))
-          else if event_is_named input Input_event.Backspace then
-            {
-              session with
-              interaction =
-                Command_prompt
-                  {
-                    action;
-                    descriptor;
-                    remaining;
-                    arguments_rev;
-                    text = drop_last_utf8 text;
-                  };
-            }
-          else
-            match event_text input with
-            | None -> session
-            | Some value ->
+                      }))
+        | Save_as_prompt path -> (
+            if event_is_named input Input_event.Escape then
+              {
+                session with
+                interaction = Idle;
+                message = Some "save-as cancelled";
+              }
+            else if event_is_named input Input_event.Enter then
+              if String.length path = 0 then
                 {
                   session with
-                  interaction =
-                    Command_prompt
-                      {
-                        action;
-                        descriptor;
-                        remaining;
-                        arguments_rev;
-                        text = text ^ value;
-                      };
-                }))
-  | Save_as_prompt path -> (
-      if event_is_named input Input_event.Escape then
-        { session with interaction = Idle; message = Some "save-as cancelled" }
-      else if event_is_named input Input_event.Enter then
-        if String.length path = 0 then
-          { session with message = Some "save-as: destination path is empty" }
-        else save_to ~overwrite:true session path
-      else if event_is_named input Input_event.Backspace then
-        { session with interaction = Save_as_prompt (drop_last_utf8 path) }
-      else
-        match event_text input with
-        | None -> session
-        | Some text ->
-            { session with interaction = Save_as_prompt (path ^ text) })
-  | Open_buffer_prompt path -> (
-      if event_is_named input Input_event.Escape then
-        {
-          session with
-          interaction = Idle;
-          message = Some "workspace: open cancelled";
-        }
-      else if event_is_named input Input_event.Enter then
-        open_buffer session path
-      else if event_is_named input Input_event.Backspace then
-        { session with interaction = Open_buffer_prompt (drop_last_utf8 path) }
-      else
-        match event_text input with
-        | None -> session
-        | Some text ->
-            { session with interaction = Open_buffer_prompt (path ^ text) })
-  | File_picker { query; selected } ->
-      handle_file_picker_input session query selected input
-  | Project_search_view { snapshot; selected } ->
-      handle_project_search_input session snapshot selected input
-  | Query_replace state -> handle_query_replace_input session state input
-  | Model_picker selected -> (
-      if event_is_named input Input_event.Escape then
-        {
-          session with
-          interaction = Idle;
-          message = Some "model switch cancelled";
-        }
-      else if event_is_named input Input_event.Arrow_up then
-        { session with interaction = Model_picker (max 0 (selected - 1)) }
-      else if event_is_named input Input_event.Arrow_down then
-        {
-          session with
-          interaction =
-            Model_picker
-              (min (List.length (model_choices session) - 1) (selected + 1));
-        }
-      else if event_is_named input Input_event.Enter then
-        switch_to_model session (List.nth (model_choices session) selected)
-      else
-        match event_text input with
-        | Some "1" -> switch_to_model session Vim
-        | Some "2" -> switch_to_model session Selection
-        | Some "3" -> switch_to_model session Structural
-        | Some "4" -> switch_to_model session Direct
-        | Some "5" when List.mem Script (model_choices session) ->
-            switch_to_model session Script
-        | Some _ | None -> session)
-  | Help_view ->
-      if
-        event_is_named input Input_event.Escape
-        || event_is_named input Input_event.Enter
-      then { session with interaction = Idle }
-      else session
-  | Hover_view _ ->
-      if
-        event_is_named input Input_event.Escape
-        || event_is_named input Input_event.Enter
-      then { session with interaction = Idle; message = None }
-      else session
-  | Completion_view { items; selected; query } -> (
-      let visible = matching_completion_items items query in
-      if event_is_named input Input_event.Escape then
-        {
-          session with
-          interaction = Idle;
-          message = Some "completion cancelled";
-        }
-      else if event_is_named input Input_event.Arrow_up then
-        {
-          session with
-          interaction =
-            Completion_view { items; selected = max 0 (selected - 1); query };
-        }
-      else if event_is_named input Input_event.Arrow_down then
-        {
-          session with
-          interaction =
-            Completion_view
+                  message = Some "save-as: destination path is empty";
+                }
+              else save_to ~overwrite:true session path
+            else if event_is_named input Input_event.Backspace then
               {
-                items;
-                selected =
-                  (if visible = [] then 0
-                   else min (List.length visible - 1) (selected + 1));
-                query;
-              };
-        }
-      else if event_is_named input Input_event.Enter then
-        match List.nth_opt visible selected with
-        | None ->
-            {
-              session with
-              interaction = Idle;
-              message = Some "completion filter has no matching item";
-            }
-        | Some item -> accept_completion session input item
-      else if event_is_named input Input_event.Backspace then
-        {
-          session with
-          interaction =
-            Completion_view
-              { items; selected = 0; query = drop_last_utf8 query };
-        }
-      else
-        match event_text input with
-        | None -> session
-        | Some text ->
-            {
-              session with
-              interaction =
-                Completion_view { items; selected = 0; query = query ^ text };
-            })
-  | Rename_prompt name -> (
-      if event_is_named input Input_event.Escape then
-        { session with interaction = Idle; message = Some "rename cancelled" }
-      else if event_is_named input Input_event.Enter then
-        if String.length name = 0 then
-          { session with message = Some "rename: new name is empty" }
-        else
-          let next =
-            request_language session (fun client ->
-                Lsp.request_rename client ~byte_offset:(primary_offset session)
-                  ~new_name:name)
-          in
-          { next with interaction = Idle }
-      else if event_is_named input Input_event.Backspace then
-        { session with interaction = Rename_prompt (drop_last_utf8 name) }
-      else
-        match event_text input with
-        | None -> session
-        | Some text ->
-            { session with interaction = Rename_prompt (name ^ text) })
+                session with
+                interaction = Save_as_prompt (drop_last_utf8 path);
+              }
+            else
+              match event_text input with
+              | None -> session
+              | Some text ->
+                  { session with interaction = Save_as_prompt (path ^ text) })
+        | Open_buffer_prompt path -> (
+            if event_is_named input Input_event.Escape then
+              {
+                session with
+                interaction = Idle;
+                message = Some "workspace: open cancelled";
+              }
+            else if event_is_named input Input_event.Enter then
+              open_buffer session path
+            else if event_is_named input Input_event.Backspace then
+              {
+                session with
+                interaction = Open_buffer_prompt (drop_last_utf8 path);
+              }
+            else
+              match event_text input with
+              | None -> session
+              | Some text ->
+                  {
+                    session with
+                    interaction = Open_buffer_prompt (path ^ text);
+                  })
+        | File_picker { query; selected } ->
+            handle_file_picker_input session query selected input
+        | Project_search_view { snapshot; selected } ->
+            handle_project_search_input session snapshot selected input
+        | Query_replace state -> handle_query_replace_input session state input
+        | Model_picker selected -> (
+            if event_is_named input Input_event.Escape then
+              {
+                session with
+                interaction = Idle;
+                message = Some "model switch cancelled";
+              }
+            else if event_is_named input Input_event.Arrow_up then
+              { session with interaction = Model_picker (max 0 (selected - 1)) }
+            else if event_is_named input Input_event.Arrow_down then
+              {
+                session with
+                interaction =
+                  Model_picker
+                    (min
+                       (List.length (model_choices session) - 1)
+                       (selected + 1));
+              }
+            else if event_is_named input Input_event.Enter then
+              switch_to_model session
+                (List.nth (model_choices session) selected)
+            else
+              match event_text input with
+              | Some "1" -> switch_to_model session Vim
+              | Some "2" -> switch_to_model session Selection
+              | Some "3" -> switch_to_model session Structural
+              | Some "4" -> switch_to_model session Direct
+              | Some "5" when List.mem Script (model_choices session) ->
+                  switch_to_model session Script
+              | Some _ | None -> session)
+        | Help_view ->
+            if
+              event_is_named input Input_event.Escape
+              || event_is_named input Input_event.Enter
+            then { session with interaction = Idle }
+            else session
+        | Hover_view _ ->
+            if
+              event_is_named input Input_event.Escape
+              || event_is_named input Input_event.Enter
+            then { session with interaction = Idle; message = None }
+            else session
+        | Completion_view { items; selected; query } -> (
+            let visible = matching_completion_items items query in
+            if event_is_named input Input_event.Escape then
+              {
+                session with
+                interaction = Idle;
+                message = Some "completion cancelled";
+              }
+            else if event_is_named input Input_event.Arrow_up then
+              {
+                session with
+                interaction =
+                  Completion_view
+                    { items; selected = max 0 (selected - 1); query };
+              }
+            else if event_is_named input Input_event.Arrow_down then
+              {
+                session with
+                interaction =
+                  Completion_view
+                    {
+                      items;
+                      selected =
+                        (if visible = [] then 0
+                         else min (List.length visible - 1) (selected + 1));
+                      query;
+                    };
+              }
+            else if event_is_named input Input_event.Enter then
+              match List.nth_opt visible selected with
+              | None ->
+                  {
+                    session with
+                    interaction = Idle;
+                    message = Some "completion filter has no matching item";
+                  }
+              | Some item -> accept_completion session input item
+            else if event_is_named input Input_event.Backspace then
+              {
+                session with
+                interaction =
+                  Completion_view
+                    { items; selected = 0; query = drop_last_utf8 query };
+              }
+            else
+              match event_text input with
+              | None -> session
+              | Some text ->
+                  {
+                    session with
+                    interaction =
+                      Completion_view
+                        { items; selected = 0; query = query ^ text };
+                  })
+        | Rename_prompt name -> (
+            if event_is_named input Input_event.Escape then
+              {
+                session with
+                interaction = Idle;
+                message = Some "rename cancelled";
+              }
+            else if event_is_named input Input_event.Enter then
+              if String.length name = 0 then
+                { session with message = Some "rename: new name is empty" }
+              else
+                let next =
+                  request_language session (fun client ->
+                      Lsp.request_rename client
+                        ~byte_offset:(primary_offset session) ~new_name:name)
+                in
+                { next with interaction = Idle }
+            else if event_is_named input Input_event.Backspace then
+              { session with interaction = Rename_prompt (drop_last_utf8 name) }
+            else
+              match event_text input with
+              | None -> session
+              | Some text ->
+                  { session with interaction = Rename_prompt (name ^ text) }))
 
 let pane_at session ~column ~row =
   let row = row - buffer_line_rows session in
@@ -7800,10 +7958,10 @@ let handle_pointer session input =
   with
   | Some _, _, _
   | ( None,
-      ( Search_prompt _ | Palette _ | Command_prompt _ | Save_as_prompt _
-      | Open_buffer_prompt _ | File_picker _ | Project_search_view _
-      | Query_replace _ | Model_picker _ | Help_view | Hover_view _
-      | Completion_view _ | Rename_prompt _ ),
+      ( Search_prompt _ | Palette _ | Command_line _ | Command_prompt _
+      | Save_as_prompt _ | Open_buffer_prompt _ | File_picker _
+      | Project_search_view _ | Query_replace _ | Model_picker _ | Help_view
+      | Hover_view _ | Completion_view _ | Rename_prompt _ ),
       _ ) ->
       { session with mouse_drag = None }
   | None, Idle, None -> session
@@ -8127,6 +8285,15 @@ let handle_host session = function
           session with
           interaction = Palette { query = ""; selected = 0 };
           message = Some "command palette: filter active commands";
+          quit_armed = false;
+          inspector = None;
+        }
+  | Open_command_line ->
+      Continue
+        {
+          session with
+          interaction = Command_line ":";
+          message = Some "command line: enter one registered command ID";
           quit_armed = false;
           inspector = None;
         }
@@ -8454,8 +8621,8 @@ let model_choice_name = function
 
 let interaction_overlay session =
   match session.interaction with
-  | Idle | Search_prompt _ | Command_prompt _ | Save_as_prompt _
-  | Open_buffer_prompt _ | Rename_prompt _ ->
+  | Idle | Search_prompt _ | Command_line _ | Command_prompt _
+  | Save_as_prompt _ | Open_buffer_prompt _ | Rename_prompt _ ->
       None
   | Help_view -> Some (help_lines session)
   | Model_picker selected ->
@@ -8633,6 +8800,7 @@ let interaction_message session =
            (Command_descriptor.id descriptor |> Command_id.to_string)
            parameter.name text)
   | Command_prompt { remaining = []; _ } -> session.message
+  | Command_line line -> Some line
   | Save_as_prompt path -> Some ("destination: " ^ path)
   | Open_buffer_prompt path -> Some ("open: " ^ path)
   | File_picker { query; _ } -> Some ("files: " ^ query)
@@ -9091,10 +9259,11 @@ let inspect session inspection =
               | Some index -> "current-match: " ^ string_of_int (index + 1));
               (match session.interaction with
               | Search_prompt _ -> "prompt: open"
-              | Idle | Palette _ | Command_prompt _ | Save_as_prompt _
-              | Open_buffer_prompt _ | File_picker _ | Project_search_view _
-              | Query_replace _ | Model_picker _ | Help_view | Hover_view _
-              | Completion_view _ | Rename_prompt _ ->
+              | Idle | Palette _ | Command_line _ | Command_prompt _
+              | Save_as_prompt _ | Open_buffer_prompt _ | File_picker _
+              | Project_search_view _ | Query_replace _ | Model_picker _
+              | Help_view | Hover_view _ | Completion_view _ | Rename_prompt _
+                ->
                   "prompt: closed");
             ])
     | Macros -> macro_lines session

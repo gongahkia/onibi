@@ -31,6 +31,7 @@ type host_command =
   | Jump_backward
   | Jump_forward
   | Open_palette
+  | Open_command_line
   | Switch_model
   | Enable_binding_layer
   | Disable_binding_layer

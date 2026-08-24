@@ -713,15 +713,15 @@ let reserved_host_pattern = function
 let host_binding_target = function
   | "config.reload" | "editor.macro.record" | "editor.macro.replay"
   | "editor.kill-ring.cut" | "editor.kill-ring.yank" | "editor.clipboard.copy"
-  | "editor.clipboard.paste" | "editor.command-palette" | "search.start"
-  | "search.regexp" | "workspace.split.vertical" | "workspace.split.horizontal"
-  | "workspace.pane.next" | "workspace.pane.close" | "workspace.pane.only"
-  | "workspace.pane.grow-width" | "workspace.pane.shrink-width"
-  | "workspace.pane.grow-height" | "workspace.pane.shrink-height"
-  | "workspace.panes.balance" | "workspace.buffer.new" | "workspace.buffer.open"
-  | "workspace.buffer.next" | "workspace.buffer.previous"
-  | "workspace.buffer.close" | "view.scroll.up" | "view.scroll.down"
-  | "view.page.up" | "view.page.down" | "view.center" ->
+  | "editor.clipboard.paste" | "editor.command-palette" | "editor.command-line"
+  | "search.start" | "search.regexp" | "workspace.split.vertical"
+  | "workspace.split.horizontal" | "workspace.pane.next"
+  | "workspace.pane.close" | "workspace.pane.only" | "workspace.pane.grow-width"
+  | "workspace.pane.shrink-width" | "workspace.pane.grow-height"
+  | "workspace.pane.shrink-height" | "workspace.panes.balance"
+  | "workspace.buffer.new" | "workspace.buffer.open" | "workspace.buffer.next"
+  | "workspace.buffer.previous" | "workspace.buffer.close" | "view.scroll.up"
+  | "view.scroll.down" | "view.page.up" | "view.page.down" | "view.center" ->
       true
   | _ -> false
 
