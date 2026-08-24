@@ -1,0 +1,21 @@
+[package]
+name = "zenbu_component_guest"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wit-bindgen = "=0.41.0"
+
+[package.metadata.component]
+package = "comexample:zenbu-component-guest"
+
+[package.metadata.component.target]
+path = "wit"
+world = "extension"
+
+[package.metadata.zenbu]
+artifact = "zenbu_component_guest"
+sdk = "1.0.0"

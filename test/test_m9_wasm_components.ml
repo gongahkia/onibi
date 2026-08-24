@@ -161,10 +161,11 @@ let ctrl text =
 let key text = Input_event.logical_text text |> must |> Input_event.key_press
 let dimensions = Zenbu_view.Renderer.{ columns = 120; rows = 40 }
 
-let session root ?(trace = Trace.disabled ()) ?(profiler = Profiler.disabled ())
-    () =
-  Zenbu_app.Session.create ~model:Zenbu_app.Session.Vim ~contents:"alpha" ~trace
-    ~profiler ~config:Zenbu_scripting.Scripting.Disabled
+let session root ?language ?(trace = Trace.disabled ())
+    ?(profiler = Profiler.disabled ()) () =
+  Zenbu_app.Session.create ~model:Zenbu_app.Session.Vim ?language
+    ~contents:"alpha" ~trace ~profiler
+    ~config:Zenbu_scripting.Scripting.Disabled
     ~plugins:(Plugins.Directories [ root ]) ~dimensions ()
   |> must
 
@@ -306,6 +307,8 @@ let all_capabilities =
     "document.edit";
     "selection.read";
     "selection.write";
+    "syntax.read";
+    "command.invoke";
     "ui.message";
     "event.subscribe";
   ]
@@ -814,10 +817,9 @@ let test_callback_failures_are_nonmutating_and_classified () =
 let test_capability_denial_remains_at_the_host_boundary () =
   with_root (fun root ->
       ignore
-        (create_package root ~id:"com.example.m9" ~version:"1.0.0"
-           ~contributions:
-             [ "commands"; "selectors"; "transformations"; "bindings" ]
-           ~capabilities:[] ());
+        (create_package root ~binary:conformance_fixture ~id:conformance_id
+           ~version:"1.0.0" ~contributions:all_contributions
+           ~capabilities:[ "event.subscribe" ] ());
       let trace = Trace.enabled ~capacity:128 |> must in
       let value =
         session root ~trace () |> fun value ->
@@ -838,6 +840,36 @@ let test_capability_denial_remains_at_the_host_boundary () =
              | _ -> false)
            (Trace.events trace))
         "capability denial did not use the ordinary trace path")
+
+let test_sdk_fixture_exercises_command_and_syntax_capabilities () =
+  with_root (fun root ->
+      ignore
+        (create_package root ~binary:conformance_fixture ~id:conformance_id
+           ~version:"1.0.0" ~contributions:all_contributions
+           ~capabilities:all_capabilities ());
+      let invoked =
+        session root () |> fun value ->
+        Zenbu_app.Session.handle_input value (ctrl "J")
+      in
+      expect
+        (Zenbu_app.Session.contents invoked = "!alpha")
+        "SDK Component command-invoke action did not dispatch through the host";
+      let syntax =
+        session root ~language:"ocaml" () |> fun value ->
+        Zenbu_app.Session.handle_input value (ctrl "Y")
+      in
+      match
+        (Editor_context.selections (Zenbu_app.Session.context syntax))
+          .selections
+      with
+      | [ selection ] ->
+          expect
+            (selection.anchor_offset = 0 && selection.head_offset = 5)
+            "SDK Component syntax selector did not receive the projected \
+             syntax node"
+      | selections ->
+          failf "SDK Component syntax selector returned %d selections"
+            (List.length selections))
 
 let test_invalid_wasi_component_and_malformed_binary_are_rejected () =
   let assert_failed ?binary ~entrypoint expected =
@@ -1018,6 +1050,8 @@ let tests =
       test_callback_failures_are_nonmutating_and_classified );
     ( "Component capability denial stays at the host boundary",
       test_capability_denial_remains_at_the_host_boundary );
+    ( "SDK Component fixture exercises command and syntax capabilities",
+      test_sdk_fixture_exercises_command_and_syntax_capabilities );
     ( "WASI and malformed Components are rejected",
       test_invalid_wasi_component_and_malformed_binary_are_rejected );
     ( "unauthorized Component imports fail during staging",

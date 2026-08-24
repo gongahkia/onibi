@@ -13,5 +13,9 @@ wit-bindgen = "=0.41.0"
 package = "comexample:conformance"
 
 [package.metadata.component.target]
-path = "../../docs/wit"
+path = "wit"
 world = "extension"
+
+[package.metadata.zenbu]
+artifact = "zenbu_component_conformance"
+sdk = "1.0.0"

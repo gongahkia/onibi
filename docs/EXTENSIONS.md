@@ -220,6 +220,8 @@ dune exec bin/zenbu_headless.exe -- extension-api
 dune exec bin/zenbu_headless.exe -- extension-sdk
 dune exec bin/zenbu_headless.exe -- plugin-session examples/plugins test/fixtures/m8-surround.session
 make extension-docs
+./scripts/zenbu-component-package.sh build COMPONENT-DIRECTORY
+./scripts/zenbu-component-package.sh check COMPONENT-DIRECTORY
 ```
 
 `plugin-check` fully stages the package entrypoint without retaining it and
@@ -233,9 +235,16 @@ stub; it is intentionally a small editor-assistance SDK, not a second runtime.
 `plugin-check PATH` stages `PATH` itself, not sibling packages, so it validates
 one package without introducing unrelated directory collisions.
 
+The first-party [Component guest SDK](../sdk/wasm-component) supplies a pinned
+WIT snapshot, Rust helper source, starter package, lockfile, and reproducible
+build/check tool. Its `build` command runs `plugin-check` after emitting the
+Component; its `check` command validates an already-built artifact. It has no
+dependency resolver, registry, signing format, or additional authority.
+
 `make extension-docs` deterministically regenerates the committed reference
-and SDK from `zenbu.extension.Contract`. The M8 test suite checks that the
-committed outputs still equal the contract.
+and SDK sources from `zenbu.extension.Contract`. The M8 test suite checks the
+generated outputs; the ordinary check also rejects stale Component SDK WIT or
+helper snapshots.
 
 ## Observability and compatibility
 

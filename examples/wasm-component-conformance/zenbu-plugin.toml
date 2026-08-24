@@ -9,7 +9,7 @@ api = 1
 runtime = "wasm-component"
 entrypoint = "plugin.wasm"
 contributions = ["commands", "selectors", "transformations", "bindings", "events"]
-capabilities = ["document.read", "document.edit", "selection.read", "selection.write", "ui.message", "event.subscribe"]
+capabilities = ["document.read", "document.edit", "selection.read", "selection.write", "syntax.read", "command.invoke", "ui.message", "event.subscribe"]
 
 [wasm]
 fuel = 5000000

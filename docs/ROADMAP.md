@@ -51,7 +51,6 @@ editing-model API. See [Language services](LANGUAGE_SERVICES.md).
 
 The following remain deliberately out of scope:
 
-- a first-party Component guest SDK/package build tool;
 - signatures, dependency resolution, remote download, or a plugin marketplace;
 - hard wall-clock cancellation, asynchronous/background extension execution,
   richer Component imports, or a sandbox claim for trusted Lua;
@@ -87,10 +86,10 @@ detection without making buffers, providers, or language protocols visible to
 the kernel or model API, and should not bundle a marketplace or a Component
 distribution redesign.
 
-Portable Component distribution and a first-party guest authoring tool remain
-the next packaging concern after M11: they need a verified platform matrix and
-must preserve WIT capability projection plus fatal-runtime health/reload
-semantics without adding a resolver or marketplace.
+Portable Component distribution remains the next packaging concern after the
+first-party guest SDK: it needs a verified platform matrix and must preserve
+WIT capability projection plus fatal-runtime health/reload semantics without
+adding a resolver or marketplace.
 
 See [the architecture](ARCHITECTURE.md), [editor workload evaluation](EDITOR_WORKLOAD_EVALUATION.md), [Component authoring](WASM_COMPONENTS.md),
 [isolation policy](ISOLATION.md), [M11 pressure report](M11_PRESSURE_TEST.md),

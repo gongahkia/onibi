@@ -1,0 +1,16 @@
+manifest_version = 1
+
+[plugin]
+id = "com.example.component"
+name = "Zenbu Component"
+description = "A capability-limited Zenbu Component package"
+version = "0.1.0"
+api = 1
+runtime = "wasm-component"
+entrypoint = "plugin.wasm"
+contributions = ["commands"]
+capabilities = ["document.edit"]
+
+[wasm]
+fuel = 5000000
+memory_bytes = 16777216

@@ -1,208 +1,187 @@
 wit_bindgen::generate!({
     world: "extension",
-    path: "../../docs/wit",
+    path: "wit",
 });
 
+mod zenbu_sdk;
+
 use exports::zenbu::plugin::control::Guest;
-use zenbu::plugin::types::{
-    Invocation, PathSegment, PathSegmentKind, Registration, Value, ValueKind, ValueNode,
-};
+use zenbu::plugin::types::{Invocation, Registration, Value};
 
 struct Conformance;
 
-fn field(name: &str) -> PathSegment {
-    PathSegment {
-        kind: PathSegmentKind::Field,
-        name: name.to_string(),
-        index: 0,
-    }
-}
-
-fn item(index: u32) -> PathSegment {
-    PathSegment {
-        kind: PathSegmentKind::Item,
-        name: String::new(),
-        index,
-    }
-}
-
-fn extend(path: &[PathSegment], segment: PathSegment) -> Vec<PathSegment> {
-    let mut result = path.to_vec();
-    result.push(segment);
-    result
-}
-
-fn node(path: Vec<PathSegment>, kind: ValueKind) -> ValueNode {
-    ValueNode {
-        path,
-        kind,
-        boolean: false,
-        integer: 0,
-        floating: 0.0,
-        text: String::new(),
-    }
-}
-
-fn text(path: Vec<PathSegment>, value: &str) -> ValueNode {
-    let mut node = node(path, ValueKind::Text);
-    node.text = value.to_string();
-    node
-}
-
-fn integer(path: Vec<PathSegment>, value: i64) -> ValueNode {
-    let mut node = node(path, ValueKind::Integer);
-    node.integer = value;
-    node
-}
-
-fn root_record() -> Value {
-    vec![node(vec![], ValueKind::Fields)]
-}
-
-fn action(kind: &str) -> Value {
-    let mut result = root_record();
-    result.push(text(vec![field("kind")], kind));
-    result
-}
-
-fn insert(text_value: &str) -> Value {
-    let mut result = action("insert");
-    result.push(text(vec![field("text")], text_value));
-    result
-}
-
-fn message(text_value: &str) -> Value {
-    let mut result = action("message");
-    result.push(text(vec![field("text")], text_value));
-    result
-}
-
-fn apply() -> Value {
-    let mut result = action("apply");
-    result.push(text(
-        vec![field("selector")],
-        "com.example.conformance.document",
-    ));
-    result.push(text(
-        vec![field("transformation")],
-        "com.example.conformance.done",
-    ));
-    result
-}
-
-fn same_segment(left: &PathSegment, right: &PathSegment) -> bool {
-    left.kind == right.kind && left.name == right.name && left.index == right.index
-}
-
-fn same_path(left: &[PathSegment], right: &[PathSegment]) -> bool {
-    left.len() == right.len()
-        && left
-            .iter()
-            .zip(right.iter())
-            .all(|(left, right)| same_segment(left, right))
-}
-
-fn integer_at(value: &Value, path: &[PathSegment]) -> Option<i64> {
-    value
-        .iter()
-        .find(|node| node.kind == ValueKind::Integer && same_path(&node.path, path))
-        .map(|node| node.integer)
+fn apply(selector: &str, transformation: &str) -> Value {
+    zenbu_sdk::record([
+        ("kind", zenbu_sdk::text("apply")),
+        ("selector", zenbu_sdk::text(selector)),
+        ("transformation", zenbu_sdk::text(transformation)),
+    ])
 }
 
 fn document_selector(request: &Value) -> Value {
-    let length_path = vec![
-        field("context"),
-        field("document"),
-        field("length"),
-    ];
-    let length = integer_at(request, &length_path).unwrap_or(0);
-    let mut result = root_record();
-    let selections = vec![field("selections")];
-    let selection = extend(&selections, item(0));
-    result.push(node(selections.clone(), ValueKind::Items));
-    result.push(node(selection.clone(), ValueKind::Fields));
-    result.push(integer(extend(&selection, field("anchor")), 0));
-    result.push(integer(extend(&selection, field("head")), length));
-    result.push(integer(vec![field("primary")], 1));
-    result
+    let length = zenbu_sdk::integer_at(
+        request,
+        &[
+            zenbu_sdk::field("context"),
+            zenbu_sdk::field("document"),
+            zenbu_sdk::field("length"),
+        ],
+    )
+    .unwrap_or(0);
+    zenbu_sdk::record([
+        (
+            "selections",
+            zenbu_sdk::list([zenbu_sdk::record([
+                ("anchor", zenbu_sdk::integer(0)),
+                ("head", zenbu_sdk::integer(length)),
+            ])]),
+        ),
+        ("primary", zenbu_sdk::integer(1)),
+    ])
+}
+
+fn syntax_selector(request: &Value) -> Value {
+    let start = zenbu_sdk::integer_at(
+        request,
+        &[
+            zenbu_sdk::field("context"),
+            zenbu_sdk::field("syntax"),
+            zenbu_sdk::field("node"),
+            zenbu_sdk::field("start"),
+        ],
+    )
+    .unwrap_or(0);
+    let stop = zenbu_sdk::integer_at(
+        request,
+        &[
+            zenbu_sdk::field("context"),
+            zenbu_sdk::field("syntax"),
+            zenbu_sdk::field("node"),
+            zenbu_sdk::field("stop"),
+        ],
+    )
+    .unwrap_or(start);
+    zenbu_sdk::record([
+        (
+            "selections",
+            zenbu_sdk::list([zenbu_sdk::record([
+                ("anchor", zenbu_sdk::integer(start)),
+                ("head", zenbu_sdk::integer(stop)),
+            ])]),
+        ),
+        ("primary", zenbu_sdk::integer(1)),
+    ])
 }
 
 fn done_transformation(request: &Value) -> Value {
-    let selection = vec![field("arguments"), field("selection_set"), item(0)];
-    let anchor = integer_at(request, &extend(&selection, field("anchor"))).unwrap_or(0);
-    let head = integer_at(request, &extend(&selection, field("head"))).unwrap_or(0);
-    let mut result = root_record();
-    let edits = vec![field("edits")];
-    let edit = extend(&edits, item(0));
-    result.push(node(edits.clone(), ValueKind::Items));
-    result.push(node(edit.clone(), ValueKind::Fields));
-    result.push(integer(extend(&edit, field("start")), anchor.min(head)));
-    result.push(integer(extend(&edit, field("stop")), anchor.max(head)));
-    result.push(text(extend(&edit, field("text")), "done"));
-    result
+    let selection = [
+        zenbu_sdk::field("arguments"),
+        zenbu_sdk::field("selection_set"),
+        zenbu_sdk::item(0),
+    ];
+    let anchor = zenbu_sdk::integer_at(
+        request,
+        &zenbu_sdk::extend(&selection, zenbu_sdk::field("anchor")),
+    )
+    .unwrap_or(0);
+    let head = zenbu_sdk::integer_at(
+        request,
+        &zenbu_sdk::extend(&selection, zenbu_sdk::field("head")),
+    )
+    .unwrap_or(0);
+    zenbu_sdk::record([(
+        "edits",
+        zenbu_sdk::list([zenbu_sdk::record([
+            ("start", zenbu_sdk::integer(anchor.min(head))),
+            ("stop", zenbu_sdk::integer(anchor.max(head))),
+            ("text", zenbu_sdk::text("done")),
+        ])]),
+    )])
 }
 
 fn invalid_action_list() -> Value {
-    let mut result = vec![node(vec![], ValueKind::Items)];
-    let first = vec![item(0)];
-    let second = vec![item(1)];
-    result.push(node(first.clone(), ValueKind::Fields));
-    result.push(text(extend(&first, field("kind")), "insert"));
-    result.push(text(extend(&first, field("text")), "must-not-commit"));
-    result.push(node(second.clone(), ValueKind::Fields));
-    result.push(text(extend(&second, field("kind")), "not-an-action"));
-    result
-}
-
-fn invalid_selection() -> Value {
-    let mut result = action("set-selections");
-    let selections = vec![field("selections")];
-    let selection = extend(&selections, item(0));
-    result.push(node(selections.clone(), ValueKind::Items));
-    result.push(node(selection.clone(), ValueKind::Fields));
-    result.push(integer(extend(&selection, field("anchor")), -1));
-    result.push(integer(extend(&selection, field("head")), -1));
-    result.push(integer(vec![field("primary")], 1));
-    result
+    zenbu_sdk::actions([
+        zenbu_sdk::insert("must-not-commit"),
+        zenbu_sdk::action("not-an-action"),
+    ])
 }
 
 fn oversized_value() -> Value {
-    let mut result = vec![node(vec![], ValueKind::Items)];
-    for index in 0..4_096 {
-        result.push(text(vec![item(index)], "x"));
-    }
-    result
+    zenbu_sdk::list((0..4_096).map(|_| zenbu_sdk::text("x")))
 }
 
-fn registration(contribution: &str, id: &str, callback: &str, input: &str, event: &str) -> Registration {
-    Registration {
-        contribution: contribution.to_string(),
-        id: id.to_string(),
-        callback: callback.to_string(),
-        title: id.to_string(),
-        description: "deterministic Component conformance fixture".to_string(),
-        requires_syntax: false,
-        input: input.to_string(),
-        scope: if input.is_empty() { String::new() } else { "global".to_string() },
-        event: event.to_string(),
-    }
+fn registration(contribution: &str, id: &str, callback: &str) -> Registration {
+    zenbu_sdk::registration(
+        contribution,
+        id,
+        callback,
+        id,
+        "deterministic Component conformance fixture",
+    )
 }
 
 fn registrations() -> Vec<Registration> {
+    let mut syntax = registration("selectors", "com.example.conformance.syntax", "syntax");
+    syntax.requires_syntax = true;
+    let mut insert_binding = registration(
+        "bindings",
+        "com.example.conformance.insert",
+        "insert-binding",
+    );
+    insert_binding.input = "Ctrl-K".to_owned();
+    insert_binding.scope = "global".to_owned();
+    let mut apply_binding =
+        registration("bindings", "com.example.conformance.apply", "apply-binding");
+    apply_binding.input = "Ctrl-A".to_owned();
+    apply_binding.scope = "global".to_owned();
+    let mut command_binding = registration(
+        "bindings",
+        "com.example.conformance.invoke-command",
+        "command-binding",
+    );
+    command_binding.input = "Ctrl-J".to_owned();
+    command_binding.scope = "global".to_owned();
+    let mut syntax_binding = registration(
+        "bindings",
+        "com.example.conformance.syntax-action",
+        "syntax-binding",
+    );
+    syntax_binding.input = "Ctrl-Y".to_owned();
+    syntax_binding.scope = "global".to_owned();
+    let mut changed = registration("events", "com.example.conformance.changed", "changed");
+    changed.event = "document-changed".to_owned();
+
     vec![
-        registration("commands", "com.example.conformance.insert", "insert", "", ""),
-        registration("commands", "com.example.conformance.apply", "apply", "", ""),
-        registration("commands", "com.example.conformance.invalid", "invalid", "", ""),
-        registration("commands", "com.example.conformance.bad-selection", "bad-selection", "", ""),
-        registration("commands", "com.example.conformance.trap", "trap", "", ""),
-        registration("commands", "com.example.conformance.loop", "loop", "", ""),
-        registration("commands", "com.example.conformance.memory", "memory", "", ""),
-        registration("commands", "com.example.conformance.large", "large", "", ""),
-        registration("selectors", "com.example.conformance.document", "document", "", ""),
-        registration("transformations", "com.example.conformance.done", "done", "", ""),
-        registration("bindings", "com.example.conformance.insert", "insert-binding", "Ctrl-K", ""),
-        registration("bindings", "com.example.conformance.apply", "apply-binding", "Ctrl-A", ""),
-        registration("events", "com.example.conformance.changed", "changed", "", "document-changed"),
+        registration("commands", "com.example.conformance.insert", "insert"),
+        registration("commands", "com.example.conformance.apply", "apply"),
+        registration("commands", "com.example.conformance.invalid", "invalid"),
+        registration(
+            "commands",
+            "com.example.conformance.bad-selection",
+            "bad-selection",
+        ),
+        registration("commands", "com.example.conformance.trap", "trap"),
+        registration("commands", "com.example.conformance.loop", "loop"),
+        registration("commands", "com.example.conformance.memory", "memory"),
+        registration("commands", "com.example.conformance.large", "large"),
+        registration(
+            "commands",
+            "com.example.conformance.invoke-command",
+            "command",
+        ),
+        registration(
+            "commands",
+            "com.example.conformance.syntax-action",
+            "syntax-action",
+        ),
+        registration("selectors", "com.example.conformance.document", "document"),
+        registration("transformations", "com.example.conformance.done", "done"),
+        syntax,
+        insert_binding,
+        apply_binding,
+        command_binding,
+        syntax_binding,
+        changed,
     ]
 }
 
@@ -213,13 +192,19 @@ impl Guest for Conformance {
 
     fn invoke(invocation: Invocation) -> Result<Value, String> {
         match invocation.callback.as_str() {
-            "insert" => Ok(insert("!")),
-            "apply" => Ok(apply()),
+            "insert" => Ok(zenbu_sdk::insert("!")),
+            "apply" => Ok(apply(
+                "com.example.conformance.document",
+                "com.example.conformance.done",
+            )),
             "invalid" => Ok(invalid_action_list()),
-            "bad-selection" => Ok(invalid_selection()),
+            "bad-selection" => Ok(zenbu_sdk::set_selections([(-1, -1)], 1)),
             "document" => Ok(document_selector(&invocation.request)),
+            "syntax" => Ok(syntax_selector(&invocation.request)),
+            "syntax-action" => Ok(apply("com.example.conformance.syntax", "select")),
             "done" => Ok(done_transformation(&invocation.request)),
-            "changed" => Ok(message("component event delivered")),
+            "changed" => Ok(zenbu_sdk::message("component event delivered")),
+            "command" => Ok(zenbu_sdk::invoke_command("com.example.conformance.insert")),
             "large" => Ok(oversized_value()),
             "trap" => panic!("intentional Component trap"),
             "loop" => {

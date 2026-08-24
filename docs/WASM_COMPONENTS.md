@@ -111,28 +111,53 @@ calls the required exports. Cargo Component output includes the expected
 Component custom sections; Zenbu relies on Wasmtime's Component validator and
 typed calls, rather than treating an untrusted custom section as authority.
 
-## Minimal Rust guest
+## First-party Rust guest SDK and package tool
 
-[`examples/wasm-component-hello`](../examples/wasm-component-hello) is a
-compilable Rust guest using `wit-bindgen` 0.41.0. It registers a command and a
-Ctrl-K binding and returns a typed declarative insert action. With Rust, the
-`wasm32-unknown-unknown` target, and `cargo-component` installed:
+[`sdk/wasm-component`](../sdk/wasm-component) is the supported source SDK for
+Component guests. Version 1.0.0 pins `zenbu:plugin@1.0.0`,
+`wit-bindgen = 0.41.0`, `cargo-component = 0.21.1`, Rust 1.97.1, and the
+`wasm32-unknown-unknown`/`wasm32-wasip1` targets. Every package carries an exact `Cargo.lock`,
+a local WIT snapshot, and a copied `zenbu_sdk.rs` helper. The helper builds the
+typed WIT value tree and registrations, while each guest continues to generate
+its own final Component exports with `wit-bindgen`.
+
+Install the exact packager once:
 
 ```sh
-cd examples/wasm-component-hello
-make component
-make check
+cargo install cargo-component --version 0.21.1 --locked
 ```
 
-`make component` produces `plugin.wasm` beside the manifest. The repository
-does not require Rust or Cargo Component for ordinary builds/tests: the M9 test
-suite commits actual Component fixture artifacts. The
-[`wasm-component-conformance`](../examples/wasm-component-conformance) and
-[`wasm-component-unauthorized-import`](../examples/wasm-component-unauthorized-import)
-sources regenerate the principal positive and import-denial fixtures with
-`make fixture`; each target verifies the committed base64 SHA-256 file. Rust,
-the `wasm32-unknown-unknown` target, and `cargo-component` are required only
-for that regeneration path.
+Then create, build, and stage-check a package from a Zenbu checkout:
+
+```sh
+./scripts/zenbu-component-package.sh new /path/to/my-component
+./scripts/zenbu-component-package.sh build /path/to/my-component
+./scripts/zenbu-component-package.sh check /path/to/my-component
+```
+
+`build` uses a temporary target directory, atomically replaces `plugin.wasm`,
+and runs the ordinary `plugin-check` staging path. It rejects a missing lock,
+stale SDK/WIT source, unpinned binding version, wrong Component world, or a
+different Cargo Component version before the binary can become active.
+`plugin-check` then validates the manifest, declared capabilities, Component
+exports and function types, imports, and returned registrations against the
+actual host. `check` repeats that validation for an existing artifact without
+rebuilding it.
+
+[`examples/wasm-component-hello`](../examples/wasm-component-hello) is the
+small guest. [`wasm-component-conformance`](../examples/wasm-component-conformance)
+uses the SDK and exercises every permitted v1 capability; its rebuilt binary is
+the fixture executed by the normal M9 conformance suite. That suite also stages
+the fixture with authority withheld and proves host-side capability denial. The
+separate [`wasm-component-unauthorized-import`](../examples/wasm-component-unauthorized-import)
+fixture proves that an added WIT import cannot manufacture host authority.
+
+Rust/Cargo Component remains optional for ordinary local Zenbu builds because
+the checked-in M9 fixture is already runnable. Linux CI installs the pinned
+toolchain, rebuilds both first-party guests, confirms the conformance fixture
+checksum, and runs that normal suite. `make extension-docs` refreshes the
+generated WIT source and every SDK/example snapshot; `make check` rejects
+snapshot drift without requiring Rust.
 
 ## Semantic behavior and diagnostics
 

@@ -1,4 +1,4 @@
-.PHONY: bootstrap build test fmt check demo benchmark extension-docs wasm-runtime wasm-runtime-ready lua-runtime-ready install release release-archive release-check
+.PHONY: bootstrap build test fmt check demo benchmark extension-docs wasm-component-sdk-check wasm-runtime wasm-runtime-ready lua-runtime-ready install release release-archive release-check
 
 LOCAL_OPAM_BIN := $(CURDIR)/_opam/bin
 ifneq ($(wildcard $(LOCAL_OPAM_BIN)/dune),)
@@ -43,7 +43,7 @@ test: wasm-runtime-ready lua-runtime-ready
 fmt:
 	$(PLATFORM_ENV) $(OPAM_ENV) dune fmt
 
-check: wasm-runtime-ready lua-runtime-ready
+check: wasm-runtime-ready lua-runtime-ready wasm-component-sdk-check
 	$(PLATFORM_ENV) $(OPAM_ENV) dune build @fmt
 	$(PLATFORM_ENV) $(OPAM_ENV) dune build
 	$(PLATFORM_ENV) $(OPAM_ENV) dune runtest
@@ -59,6 +59,10 @@ extension-docs: wasm-runtime-ready lua-runtime-ready
 	$(PLATFORM_ENV) $(OPAM_ENV) dune exec bin/zenbu_headless.exe -- extension-api > docs/generated/EXTENSION_API.md
 	$(PLATFORM_ENV) $(OPAM_ENV) dune exec bin/zenbu_headless.exe -- extension-sdk > sdk/lua/zenbu.lua
 	$(PLATFORM_ENV) $(OPAM_ENV) dune exec bin/zenbu_headless.exe -- extension-wit > docs/wit/zenbu-plugin.wit
+	./scripts/zenbu-component-package.sh sync-contract
+
+wasm-component-sdk-check:
+	./scripts/zenbu-component-package.sh verify-sdk
 
 install: wasm-runtime-ready lua-runtime-ready
 	$(PLATFORM_ENV) $(OPAM_ENV) dune install zenbu
