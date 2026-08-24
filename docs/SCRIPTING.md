@@ -210,6 +210,51 @@ views restores the target buffer's stack. This supports nested
 leader/transient/minor-map patterns, but not yet arbitrary Emacs-style keymap
 composition.
 
+### Dynamic binding layers
+
+Trusted Lua configuration and trusted Lua plugins may declare independent,
+data-only maps and opt bindings into them. A layer is disabled by default and
+belongs to the current buffer when enabled:
+
+```lua
+zenbu.binding_layer {
+  id = "user.project",
+  title = "Project commands",
+  description = "Bindings for this project's files.",
+  priority = 20,
+}
+
+zenbu.bind {
+  input = "Ctrl-K",
+  command = "user.project-action",
+  layer = "user.project",
+  scope = "global",
+}
+```
+
+`id` and integral `priority` are required. Priorities range from 1 through 64;
+ordinary unlayered bindings have priority 0. A binding may name only a layer
+declared by the same provider. Use the command palette's
+`keymap.layer.enable` or `keymap.layer.disable` command and provide the layer
+id in its typed prompt. The lifecycle commands are deliberately not valid
+script binding targets, so a binding cannot recursively alter its own map.
+
+Within an ordinary scope, an enabled layer with a higher priority wins. Scope
+still comes first: an active custom-mode binding remains above a model-status,
+model, or global layer binding. If a higher-priority map supplies a longer
+matching prefix, Zenbu waits for that prefix; `Escape` cancels it. Enabling a
+layer is atomic: two active layers at the same priority may not have identical
+or prefix-overlapping bindings in the same scope. The attempted layer stays
+disabled on that error, and a buffer may have at most 32 active layers.
+
+`Bindings` lists every declared layer, priority, provider, and enabled state;
+`Why` records the resolved layer. Reload retains a layer only when the
+replacement generation still declares the same layer from the same source (or
+plugin); stale or newly conflicting layers are disabled per buffer. A Lua
+plugin cannot reuse a layer id already declared by configuration or another
+plugin. Wasm Components keep their v1 unlayered binding ABI and cannot declare
+or activate layers.
+
 Modes default to `input_mode = "keys"`. A mode may instead set
 `input_mode = "text"`, causing the terminal to emit committed Unicode text and
 paste as `Text_input` rather than logical key presses. A `<text>` binding must

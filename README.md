@@ -73,6 +73,7 @@ and plugin examples live in [Getting Started](docs/GETTING_STARTED.md).
 - Lua configuration and local plugins contribute commands, selectors,
   transformations, bindings, and events through host validation. One trusted
   Lua generation may also provide a persistent, serialisable editing model,
+  declare buffer-local data-only binding layers with deterministic priorities,
   request bounded external selection filters, and start bounded inspectable
   background programs through absolute executable paths and argument vectors;
   it never receives a shell or process handle. Wasmtime

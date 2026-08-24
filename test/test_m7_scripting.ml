@@ -1074,7 +1074,7 @@ let test_dynamic_binding_layers () =
         |> String.concat "\n"
       in
       expect
-        (Zenbu_app.Session.contents session = "AGalpha")
+        (Zenbu_app.Session.contents session = "GAalpha")
         "an enabled layer did not override the base binding: %s\n%s"
         enabled_bindings why_after_enable;
       let bindings =
@@ -1090,7 +1090,7 @@ let test_dynamic_binding_layers () =
       in
       let session = Zenbu_app.Session.handle_input session (ctrl "K") in
       expect
-        (Zenbu_app.Session.contents session = "BAGalpha")
+        (Zenbu_app.Session.contents session = "GABalpha")
         "a higher-priority layer did not win deterministically";
       let why =
         Zenbu_app.Session.inspect session Zenbu_app.Session.Why
@@ -1105,21 +1105,21 @@ let test_dynamic_binding_layers () =
           (Input_event.key_press (Input_event.named_key Input_event.Escape))
       in
       expect
-        (Zenbu_app.Session.contents cancelled = "BAGalpha")
+        (Zenbu_app.Session.contents cancelled = "GABalpha")
         "Escape did not cancel a higher-priority layer prefix";
       let session =
         Zenbu_app.Session.disable_binding_layer cancelled ~id:"user.high"
       in
       let session = Zenbu_app.Session.handle_input session (ctrl "X") in
       expect
-        (Zenbu_app.Session.contents session = "ABAGalpha")
+        (Zenbu_app.Session.contents session = "GABAalpha")
         "disabling a layer did not restore the lower-priority complete binding";
       let session =
         Zenbu_app.Session.enable_binding_layer session ~id:"user.conflict"
       in
       let session = Zenbu_app.Session.handle_input session (ctrl "K") in
       expect
-        (Zenbu_app.Session.contents session = "AABAGalpha")
+        (Zenbu_app.Session.contents session = "GABAAalpha")
         "an equal-priority overlapping layer was not rejected atomically";
       let bindings =
         Zenbu_app.Session.inspect session Zenbu_app.Session.Bindings

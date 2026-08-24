@@ -92,6 +92,15 @@ model-scoped, or model-status-scoped. Identical or prefix-overlapping sequences
 in the same scope are rejected during staging; host-reserved controls cannot
 appear at any position in an extension sequence.
 
+Trusted Lua configuration and `lua-trusted` plugins may additionally declare
+data-only binding layers; see [Scripting](SCRIPTING.md#dynamic-binding-layers).
+Layered bindings remain outside the stable Component ABI v1: a Component's
+bindings are ordinary unlayered maps and it cannot enable or disable a layer.
+Layer IDs are unique across configuration and plugins during staging. Different
+Lua layers may safely contain overlapping bindings until activation, where
+equal-priority, same-scope prefix overlap is rejected atomically for the
+current buffer.
+
 V1 capabilities are:
 
 - `document.read` — copied document metadata and text; enables `zenbu.text`.
@@ -183,8 +192,11 @@ fresh runtime. A plugin's commands, semantic descriptors, bindings, and hooks
 are activated as one immutable snapshot or none are. Duplicate IDs and binding
 collisions, including same-scope prefix overlaps, are checked across all staged
 plugins and the existing configuration overlay; two plugins that collide with
-each other both fail activation. Failure of one unrelated plugin does not
-disable independently valid plugins.
+each other both fail activation. This includes a Lua binding-layer ID that is
+already owned by configuration or another plugin. Ordinary bindings continue to
+reject same-scope prefix overlap at staging; layered-map overlap is instead
+checked when a user enables equal-priority layers. Failure of one unrelated
+plugin does not disable independently valid plugins.
 
 Reload repeats discovery/staging before replacing a package's active snapshot.
 A successful candidate disposes the old private runtime only after its
