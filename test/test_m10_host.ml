@@ -825,6 +825,36 @@ zenbu.bind { input = "Ctrl-X Ctrl-T", command = "user.insert-argument" }
         && App.Session.file_path session = Some path)
         "palette open-buffer did not consume its typed path argument")
 
+let test_declarative_command_line () =
+  let session = make_session "alpha" in
+  let session =
+    invoke_command_line session "editor.apply document replace:replacement"
+  in
+  expect
+    (App.Session.contents session = "replacement")
+    "command line did not dispatch declared typed arguments";
+  let unknown = invoke_command_line session "sh -c must-not-run" in
+  expect
+    (App.Session.contents unknown = "replacement"
+    && Model_status.id (App.Session.status unknown) = "host-command-line")
+    "unknown command-line text escaped the registered-command boundary";
+  let missing = invoke_command_line unknown "editor.apply document" in
+  expect
+    (App.Session.contents missing = "replacement"
+    && Model_status.id (App.Session.status missing) = "host-command-line")
+    "a missing typed argument executed or dismissed the command line";
+  let extra =
+    invoke_command_line missing "editor.apply document replace:again extra"
+  in
+  expect
+    (App.Session.contents extra = "replacement"
+    && Model_status.id (App.Session.status extra) = "host-command-line")
+    "extra command-line arguments were accepted";
+  let cancelled = App.Session.handle_input extra (named Input_event.Escape) in
+  expect
+    (Model_status.id (App.Session.status cancelled) = "normal")
+    "Escape did not cancel the command line"
+
 let test_named_buffers_are_listed_and_promptable () =
   let session = make_session "alpha" in
   let session =
@@ -2098,6 +2128,7 @@ let tests =
       test_palette_discovers_all_active_command_providers );
     ( "command argument prompts execute typed and scripted commands",
       test_command_argument_prompt_executes_typed_and_scripted_commands );
+    ("declarative command line", test_declarative_command_line);
     ( "named buffers are listed and promptable",
       test_named_buffers_are_listed_and_promptable );
     ( "buffer close retargets views and is bindable",
