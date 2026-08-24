@@ -1,0 +1,13 @@
+zenbu-frame-snapshot-v1
+fixture: zenbu-owned-numbered-tiny
+classification: zenbu-owned profile
+review-reason: initial safe cursorless frame for a gutter-only terminal
+profile: numbered
+theme: default
+focused-pane: 0
+frame: 1x2
+cursor: none
+palette dim: fg=ansi:light-black bg=default decorations=
+palette status: fg=ansi:white bg=ansi:light-black decorations=
+row 0: dim width=1 text="1"
+row 1: status width=1 text="D"

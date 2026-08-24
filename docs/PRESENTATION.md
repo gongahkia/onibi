@@ -75,6 +75,36 @@ buffer bars without claiming their tab implementations. See [Micro commands](htt
 [Helix commands](https://docs.helix-editor.com/commands.html), and the
 [GNU Emacs Tab Bars manual](https://www.gnu.org/software/emacs/manual/html_node/emacs/Tab-Bars.html).
 
+## Deterministic frame snapshots
+
+[`test/test_presentation_snapshots.ml`](../test/test_presentation_snapshots.ml)
+compares checked-in frames under [`test/fixtures/presentation`](../test/fixtures/presentation).
+They serialize frame dimensions, cursor coordinates, every cell's text/display
+width/semantic style, and the active semantic palette. They deliberately do
+not contain terminal escape sequences, platform fonts, or screenshots.
+
+| fixture | classification | evidence and retained boundary |
+| --- | --- | --- |
+| `zenbu-owned-relative-unicode-diagnostics` | Zenbu-owned profile | relative gutter, Unicode cell width, selection/diagnostic precedence, status message, and dark semantic palette |
+| `helix-style-relative-page-adapter` | Helix-style adapter | checked page navigation with relative chrome; it is not Helix view-mode or theme parity |
+| `micro-style-buffered-split-adapter` | Micro-style adapter | buffer line, focused vertical split, selected Unicode text, and invalid-theme fallback retaining the dark palette; it is not Micro tab or terminal parity |
+| `emacs-style-numbered-split-adapter` | Emacs-style adapter | numbered horizontal split and bounded kill/yank adapter path; it is not an Emacs window/display implementation |
+| `zenbu-owned-numbered-tiny` | Zenbu-owned profile | safe cursorless gutter-only terminal boundary |
+
+An adapter view request, such as the Helix-style page command, keeps its
+explicit viewport through rendering. A later caret movement returns that pane
+to cursor-following behavior. This keeps page navigation visual rather than a
+document mutation.
+
+Each snapshot embeds a nonempty review reason. There is intentionally no
+automatic snapshot-update command: a visual-frame change must update the
+checked-in semantic data and its fixture definition's review reason for normal
+review. Run it directly with:
+
+```sh
+dune exec test/test_presentation_snapshots.exe
+```
+
 Editor-owned status-line functions, interactive tabs, arbitrary widgets,
 minimaps, GUI rendering, mouse menus, terminal font control, and exact
 Vim/Helix/Kakoune/Micro/Emacs appearance are intentionally outside this

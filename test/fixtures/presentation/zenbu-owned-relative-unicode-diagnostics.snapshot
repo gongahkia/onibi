@@ -1,0 +1,18 @@
+zenbu-frame-snapshot-v1
+fixture: zenbu-owned-relative-unicode-diagnostics
+classification: zenbu-owned profile
+review-reason: initial semantic frame for unicode selection and diagnostic styling
+profile: relative
+theme: dark
+focused-pane: none
+frame: 24x4
+cursor: 4:0
+palette diagnostic_error: fg=rgb:e06c75 bg=rgb:14161b decorations=underline
+palette dim: fg=rgb:5c6370 bg=rgb:14161b decorations=
+palette message: fg=rgb:14161b bg=rgb:e5c07b decorations=
+palette plain: fg=rgb:dcdee2 bg=rgb:14161b decorations=
+palette primary_selection: fg=rgb:14161b bg=rgb:61afef decorations=
+row 0: dim width=2 text="0 " | primary_selection width=2 text="界" | diagnostic_error width=1 text="=" | plain width=1 text=" " | plain width=1 text="1" | plain width=17 text="                 "
+row 1: dim width=2 text="1 " | plain width=1 text="w" | plain width=1 text="a" | plain width=1 text="r" | plain width=1 text="n" | plain width=18 text="                  "
+row 2: dim width=2 text="  " | plain width=22 text="                      "
+row 3: message width=24 text="SNAPSHOT  diagnostic.zen"

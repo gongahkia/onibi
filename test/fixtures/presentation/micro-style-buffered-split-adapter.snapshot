@@ -1,0 +1,21 @@
+zenbu-frame-snapshot-v1
+fixture: micro-style-buffered-split-adapter
+classification: Micro-style adapter
+review-reason: initial buffered split frame, focus routing, and retained theme fallback
+profile: buffered
+theme: dark
+focused-pane: 0
+frame: 26x7
+cursor: 2:1
+palette dim: fg=rgb:5c6370 bg=rgb:14161b decorations=
+palette message: fg=rgb:14161b bg=rgb:e5c07b decorations=
+palette plain: fg=rgb:dcdee2 bg=rgb:14161b decorations=
+palette primary_selection: fg=rgb:14161b bg=rgb:61afef decorations=
+palette status: fg=rgb:dcdee2 bg=rgb:282c34 decorations=
+row 0: status width=13 text="[0:[No Name]]" | status width=13 text="             "
+row 1: primary_selection width=2 text="界" | plain width=1 text=" " | plain width=1 text="m" | plain width=1 text="i" | plain width=1 text="c" | plain width=1 text="r" | plain width=1 text="o" | plain width=4 text="    " | dim width=1 text="│" | plain width=2 text="界" | plain width=1 text=" " | plain width=1 text="m" | plain width=1 text="i" | plain width=1 text="c" | plain width=1 text="r" | plain width=1 text="o" | plain width=5 text="     "
+row 2: plain width=1 text="s" | plain width=1 text="t" | plain width=1 text="a" | plain width=1 text="t" | plain width=1 text="u" | plain width=1 text="s" | plain width=6 text="      " | dim width=1 text="│" | plain width=1 text="s" | plain width=1 text="t" | plain width=1 text="a" | plain width=1 text="t" | plain width=1 text="u" | plain width=1 text="s" | plain width=7 text="       "
+row 3: plain width=12 text="            " | dim width=1 text="│" | plain width=13 text="             "
+row 4: plain width=12 text="            " | dim width=1 text="│" | plain width=13 text="             "
+row 5: plain width=12 text="            " | dim width=1 text="│" | plain width=13 text="             "
+row 6: message width=12 text="DIRECT  [No " | dim width=1 text="│" | status width=13 text="DIRECT  [No N"

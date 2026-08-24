@@ -1,0 +1,17 @@
+zenbu-frame-snapshot-v1
+fixture: helix-style-relative-page-adapter
+classification: Helix-style adapter
+review-reason: initial adapter-owned page movement with Zenbu relative chrome
+profile: relative
+theme: dark
+focused-pane: 0
+frame: 24x5
+cursor: none
+palette dim: fg=rgb:5c6370 bg=rgb:14161b decorations=
+palette plain: fg=rgb:dcdee2 bg=rgb:14161b decorations=
+palette status: fg=rgb:dcdee2 bg=rgb:282c34 decorations=
+row 0: dim width=2 text="4 " | plain width=1 text="f" | plain width=1 text="o" | plain width=1 text="u" | plain width=1 text="r" | plain width=18 text="                  "
+row 1: dim width=2 text="5 " | plain width=1 text="f" | plain width=1 text="i" | plain width=1 text="v" | plain width=1 text="e" | plain width=18 text="                  "
+row 2: dim width=2 text="6 " | plain width=1 text="s" | plain width=1 text="i" | plain width=1 text="x" | plain width=19 text="                   "
+row 3: dim width=2 text="7 " | plain width=1 text="s" | plain width=1 text="e" | plain width=1 text="v" | plain width=1 text="e" | plain width=1 text="n" | plain width=17 text="                 "
+row 4: status width=24 text="SELECT  [No Name]  1:1  "

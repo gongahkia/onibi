@@ -171,3 +171,18 @@
   ../examples/helix-adapter.lua
   ../examples/micro-adapter.lua
   ../examples/emacs-adapter.lua))
+
+(test
+ (name test_presentation_snapshots)
+ (libraries
+  zenbu_kernel
+  zenbu_model_api
+  zenbu_scripting
+  zenbu_view
+  zenbu_app
+  unix)
+ (deps
+  (glob_files fixtures/presentation/*.snapshot)
+  ../examples/helix-adapter.lua
+  ../examples/micro-adapter.lua
+  ../examples/emacs-adapter.lua))

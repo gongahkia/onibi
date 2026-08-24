@@ -556,6 +556,12 @@ The fixture strings below are intentionally exact: the conformance test checks
 them against the baseline matrix above so a limitation cannot disappear while a
 scenario remains labeled supported or partial.
 
+Terminal-presentation evidence is kept separately in the
+[deterministic frame snapshots](PRESENTATION.md#deterministic-frame-snapshots).
+Those fixtures distinguish Zenbu-owned profiles from the supplied editor-style
+adapters and inspect only semantic frame data; they do not establish product
+appearance parity.
+
 - `vim-delete-next-word` and `vim-ex-substitute-rejected`: Ex command language, Vim regexp/search semantics, uppercase/global-register semantics, macro editing/persistence, broad motion/text-object coverage, linewise/global marks, full jump-source/per-window semantics, compatibility mappings, and terminal/GUI appearance parity.
 - `helix-page-down-adapter`: picker/config discovery, native `+`/`*` register grammar and multi-selection clipboard behavior, Helix selected-register macro workflow, Helix regex and exact post-rotation selection semantics, shell command-line/pipes, general workspace edits, full window model, and theme parity.
 - `kakoune-ordered-multiple-selection`: Kakoune's inclusive anchor/cursor model, exact regex/count grouping and post-rotation selection semantics, Kakoune register-selection macro grammar, native mark/jump-list grammar, client/server sessions, shell expansions and asynchronous socket integration, full command language, and face/highlighter ecosystem.

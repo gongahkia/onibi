@@ -1,0 +1,20 @@
+zenbu-frame-snapshot-v1
+fixture: emacs-style-numbered-split-adapter
+classification: Emacs-style adapter
+review-reason: initial numbered horizontal split and bounded kill/yank adapter frame
+profile: numbered
+theme: light
+focused-pane: 1
+frame: 26x8
+cursor: 3:4
+palette dim: fg=rgb:787d87 bg=rgb:fafafa decorations=
+palette plain: fg=rgb:383a42 bg=rgb:fafafa decorations=
+palette status: fg=rgb:fafafa bg=rgb:383a42 decorations=
+row 0: dim width=2 text="1 " | plain width=1 text="a" | plain width=1 text="l" | plain width=1 text="p" | plain width=1 text="h" | plain width=1 text="a" | plain width=19 text="                   "
+row 1: dim width=2 text="2 " | plain width=1 text="b" | plain width=1 text="e" | plain width=1 text="t" | plain width=1 text="a" | plain width=20 text="                    "
+row 2: status width=26 text="DIRECT  [No Name]  1:2  1 "
+row 3: dim width=26 text="──────────────────────────"
+row 4: dim width=2 text="1 " | plain width=1 text="a" | plain width=1 text="l" | plain width=1 text="p" | plain width=1 text="h" | plain width=1 text="a" | plain width=19 text="                   "
+row 5: dim width=2 text="2 " | plain width=1 text="b" | plain width=1 text="e" | plain width=1 text="t" | plain width=1 text="a" | plain width=20 text="                    "
+row 6: dim width=2 text="  " | plain width=24 text="                        "
+row 7: status width=26 text="DIRECT  [No Name]  1:2  1 "

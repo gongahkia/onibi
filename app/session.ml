@@ -9353,8 +9353,9 @@ let rec handle_input session input =
       synchronize_language_after_change completed
         ~fallback_contents:contents_before
   in
+  let caret_changed = primary_offset completed <> caret_before in
   let completed =
-    if primary_offset completed = caret_before then completed
+    if not caret_changed then completed
     else (
       Option.iter
         (fun client ->
@@ -9383,9 +9384,12 @@ let rec handle_input session input =
     |> refresh_pane_view_positions
   in
   let completed =
-    set_pane_viewport completed completed.focused_pane
-      (Zenbu_view.Viewport.follow
-         (pane_viewport completed completed.focused_pane))
+    if caret_changed then
+      (* preserve explicit host scrolling until the caret itself moves. *)
+      set_pane_viewport completed completed.focused_pane
+        (Zenbu_view.Viewport.follow
+           (pane_viewport completed completed.focused_pane))
+    else completed
   in
   let completed =
     if
