@@ -53,6 +53,11 @@ same `default|numbered|relative|minimal|bare|buffered|PATH` form as
 The change is host-owned: it redraws chrome without changing a document,
 selection, history, model state, or replay result.
 
+Each pane may instead inherit that session presentation or choose a bounded
+built-in override without a buffer line. The workspace-wide buffer line and
+custom presentation TOML files remain session-level policy. See [pane-local
+display options](VIEW_OPTIONS.md).
+
 When `buffer_line = "visible"`, Zenbu reserves the top terminal row for a
 bounded workspace summary. It lists open local buffers by stable numeric id,
 brackets the current buffer, and adds `*` to dirty buffers. Labels use an

@@ -128,6 +128,18 @@ val model : t -> model
 val filename : t -> string
 val dirty : t -> bool
 val viewport : t -> Zenbu_view.Viewport.t
+val pane_scroll_margin : t -> pane:int -> int option
+val pane_presentation_override : t -> pane:int -> string option option
+val pane_presentation : t -> pane:int -> string option
+
+val set_pane_display :
+  t ->
+  pane:int ->
+  scroll_margin:int ->
+  presentation:string option ->
+  (t, Zenbu_kernel.Error.t) result
+
+val reset_pane_display : t -> pane:int -> t
 val pane_count : t -> int
 val focused_pane : t -> int
 val buffer_count : t -> int

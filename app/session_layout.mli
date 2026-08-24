@@ -17,6 +17,7 @@ type viewport = {
   follow_cursor : bool;
 }
 
+type pane_display_options = { pane : int; options : Zenbu_view.View_options.t }
 type selection = { anchor : int; head : int }
 
 type view_position = {
@@ -33,6 +34,7 @@ type t = {
   focused_pane : int;
   pane_buffers : pane_buffer list;
   viewports : viewport list;
+  pane_display_options : pane_display_options list;
   view_positions : view_position list;
 }
 

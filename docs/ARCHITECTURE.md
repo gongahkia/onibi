@@ -11,6 +11,8 @@ old document + transaction -> new document
 ```
 
 M10 adds a host interaction/presentation layer, not a second editing kernel.
+Pane-local display options sit in that host layer: a validated renderer policy
+can change viewport follow and pane chrome without entering semantic history.
 Search, command discovery, save-as, help, model switching, and syntax styling
 live in `zenbu.app`/`zenbu.view`; their selection and command operations still
 enter the public model runtime as semantic effects. The terminal only turns

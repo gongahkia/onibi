@@ -841,6 +841,138 @@ let test_session_presentation_profile () =
        (App.Session.host_command_descriptors ()))
     "runtime theme switching is not discoverable through the host palette"
 
+let test_pane_display_options () =
+  let host session command =
+    match App.Session.handle_host session command with
+    | App.Session.Continue session -> session
+    | App.Session.Exit _ -> failf "host command unexpectedly exited"
+  in
+  let configure session ~pane ~scroll_margin ~presentation =
+    match
+      App.Session.set_pane_display session ~pane ~scroll_margin ~presentation
+    with
+    | Ok session -> session
+    | Error error -> failf "%s" (Error.to_string error)
+  in
+  let contents = "zero\none\ntwo\nthree\nfour\nfive\nsix" in
+  let session =
+    App.Session.create ~model:App.Session.Direct ~presentation:Presentation.bare
+      ~contents
+      ~dimensions:Renderer.{ columns = 40; rows = 4 }
+      ()
+    |> must
+    |> fun session ->
+    App.Session.handle_input session (named Input_event.Arrow_down)
+    |> fun session ->
+    App.Session.handle_input session (named Input_event.Arrow_down)
+    |> fun session ->
+    App.Session.handle_input session (named Input_event.Arrow_down)
+    |> fun session ->
+    App.Session.handle_input session (named Input_event.Arrow_down)
+    |> fun session ->
+    host session App.Session.Split_vertical
+    |> configure ~pane:0 ~scroll_margin:1 ~presentation:(Some "numbered")
+    |> configure ~pane:1 ~scroll_margin:0 ~presentation:(Some "bare")
+  in
+  expect
+    (App.Session.pane_count session = 2
+    && App.Session.focused_buffer session = 0
+    && App.Session.pane_scroll_margin session ~pane:0 = Some 1
+    && App.Session.pane_presentation_override session ~pane:0
+       = Some (Some "numbered")
+    && App.Session.pane_scroll_margin session ~pane:1 = Some 0
+    && App.Session.pane_presentation_override session ~pane:1
+       = Some (Some "bare"))
+    "split panes did not retain independent display options for the same buffer";
+  let selection = primary_selection session in
+  let session, _ = App.Session.render session in
+  let pane_zero = host session App.Session.Focus_next_pane in
+  let pane_zero_top_line = (App.Session.viewport pane_zero).top_line in
+  let pane_one = host pane_zero App.Session.Focus_next_pane in
+  let pane_one_top_line = (App.Session.viewport pane_one).top_line in
+  expect
+    (pane_zero_top_line > pane_one_top_line)
+    "pane-local scroll margins did not affect cursor following independently";
+  expect
+    (App.Session.contents pane_one = contents
+    && primary_selection pane_one = selection)
+    "pane display options changed document or selection state";
+  let fourth_line = List.nth (Display.source_lines contents) 4 in
+  let status_free_click =
+    App.Session.handle_pointer pane_one
+      (pointer (Input_event.Press Input_event.Primary) ~column:20 ~row:3)
+  in
+  expect
+    (App.Session.focused_pane status_free_click = 1
+    && (primary_selection status_free_click).head_offset
+       = fourth_line.start_offset)
+    "a pane-local hidden status row broke pointer coordinates in a split";
+  let reset = App.Session.reset_pane_display status_free_click ~pane:0 in
+  expect
+    (App.Session.pane_scroll_margin reset ~pane:0 = Some 0
+    && App.Session.pane_presentation_override reset ~pane:0 = Some None)
+    "reset did not restore the explicit inherited pane-display default";
+  let inherited = App.Session.set_presentation reset ~profile:"relative" in
+  let themed = App.Session.set_theme inherited ~theme:"dark" in
+  let resized = host themed App.Session.Grow_pane_width in
+  let buffer_switched = host resized App.Session.New_buffer in
+  expect
+    (App.Session.pane_presentation themed ~pane:0 = Some "relative"
+    && App.Session.pane_presentation themed ~pane:1 = Some "bare"
+    && App.Session.pane_scroll_margin buffer_switched ~pane:0 = Some 0
+    && App.Session.pane_presentation_override buffer_switched ~pane:0
+       = Some None
+    && App.Session.pane_scroll_margin buffer_switched ~pane:1 = Some 0
+    && App.Session.pane_presentation_override buffer_switched ~pane:1
+       = Some (Some "bare"))
+    "pane display inheritance was not stable across profile, theme, resize, or \
+     buffer changes";
+  let invalid_margin =
+    App.Session.set_pane_display buffer_switched ~pane:0 ~scroll_margin:(-1)
+      ~presentation:None
+  in
+  let invalid_buffer_line =
+    App.Session.set_pane_display buffer_switched ~pane:0 ~scroll_margin:0
+      ~presentation:(Some "buffered")
+  in
+  let invalid_profile =
+    App.Session.set_pane_display buffer_switched ~pane:0 ~scroll_margin:0
+      ~presentation:(Some "not-a-profile")
+  in
+  expect
+    (Result.is_error invalid_margin
+    && Result.is_error invalid_buffer_line
+    && Result.is_error invalid_profile
+    && App.Session.pane_scroll_margin buffer_switched ~pane:0 = Some 0
+    && App.Session.contents buffer_switched = ""
+    && primary_selection buffer_switched
+       = { anchor_offset = 0; head_offset = 0 })
+    "invalid pane display configuration was not rejected atomically";
+  let numbered =
+    App.Session.create ~model:App.Session.Direct ~contents:"abcd"
+      ~dimensions:Renderer.{ columns = 8; rows = 3 }
+      ()
+    |> must
+    |> configure ~pane:0 ~scroll_margin:0 ~presentation:(Some "numbered")
+    |> fun session ->
+    App.Session.handle_pointer session
+      (pointer (Input_event.Press Input_event.Primary) ~column:2 ~row:0)
+  in
+  expect
+    ((primary_selection numbered).head_offset = 0)
+    "a pane-local line-number gutter broke source pointer conversion";
+  let tiny =
+    App.Session.create ~model:App.Session.Direct ~contents:"a"
+      ~dimensions:Renderer.{ columns = 1; rows = 1 }
+      ()
+    |> must
+    |> configure ~pane:0 ~scroll_margin:32 ~presentation:(Some "numbered")
+  in
+  let _, tiny_frame = App.Session.render tiny in
+  expect
+    (Frame.width tiny_frame = 1 && Frame.height tiny_frame = 1)
+    "a maximal pane scroll margin did not degrade safely in a tiny terminal"
+
 let test_pointer_selection_and_scroll () =
   let dimensions = Renderer.{ columns = 12; rows = 5 } in
   let session =
@@ -1688,9 +1820,14 @@ let single_pane_layout_json ~schema_version ~path ~positions =
     else
       ",\"viewports\":[{\"pane\":0,\"top_line\":0,\"left_column\":0,\"follow_cursor\":true}]"
   in
+  let pane_display_options =
+    if schema_version < 3 then ""
+    else
+      ",\"pane_display_options\":[{\"pane\":0,\"scroll_margin\":0,\"presentation\":null}]"
+  in
   Printf.sprintf
-    "{\"schema_version\":%d,\"buffers\":[{\"id\":0,\"path\":\"%s\",\"name\":null,\"language\":null,\"model\":\"direct\"}],\"layout\":{\"kind\":\"pane\",\"pane\":0},\"focused_pane\":0,\"pane_buffers\":[{\"pane\":0,\"buffer\":0}]%s,\"view_positions\":%s}"
-    schema_version path viewports positions
+    "{\"schema_version\":%d,\"buffers\":[{\"id\":0,\"path\":\"%s\",\"name\":null,\"language\":null,\"model\":\"direct\"}],\"layout\":{\"kind\":\"pane\",\"pane\":0},\"focused_pane\":0,\"pane_buffers\":[{\"pane\":0,\"buffer\":0}]%s%s,\"view_positions\":%s}"
+    schema_version path viewports pane_display_options positions
 
 let test_session_layout_persistence () =
   let first_path = temporary_file () in
@@ -1701,7 +1838,9 @@ let test_session_layout_persistence () =
   let invalid_ratio_path = temporary_file () in
   let stale_schema_path = temporary_file () in
   let invalid_selection_path = temporary_file () in
+  let invalid_display_path = temporary_file () in
   let v1_path = temporary_file () in
+  let v2_path = temporary_file () in
   let missing_path = temporary_file () in
   remove missing_path;
   Fun.protect
@@ -1715,7 +1854,9 @@ let test_session_layout_persistence () =
         invalid_ratio_path;
         stale_schema_path;
         invalid_selection_path;
+        invalid_display_path;
         v1_path;
+        v2_path;
       ]
       |> List.iter remove)
     (fun () ->
@@ -1750,6 +1891,22 @@ let test_session_layout_persistence () =
         App.Session.handle_input session (named Input_event.Arrow_right)
         |> fun session -> host_session session App.Session.View_scroll_down
       in
+      let session =
+        match
+          App.Session.set_pane_display session ~pane:0 ~scroll_margin:1
+            ~presentation:(Some "numbered")
+        with
+        | Ok session -> session
+        | Error error -> failf "%s" (Error.to_string error)
+      in
+      let session =
+        match
+          App.Session.set_pane_display session ~pane:1 ~scroll_margin:2
+            ~presentation:(Some "bare")
+        with
+        | Ok session -> session
+        | Error error -> failf "%s" (Error.to_string error)
+      in
       (match App.Session.save_layout session ~path:layout_path with
       | Ok () -> ()
       | Error error -> failf "%s" (Error.to_string error));
@@ -1777,7 +1934,10 @@ let test_session_layout_persistence () =
         (App.Session.pane_count restored = 2
         && App.Session.buffer_count restored = 2
         && App.Session.focused_pane restored = 1
-        && App.Session.focused_buffer restored = 1)
+        && App.Session.focused_buffer restored = 1
+        && App.Session.pane_scroll_margin restored ~pane:1 = Some 2
+        && App.Session.pane_presentation_override restored ~pane:1
+           = Some (Some "bare"))
         "round-trip did not restore the split, focused pane, and buffer routing";
       expect_string ~expected:"zero\none\ntwo\nthree\nfour\nfive"
         ~actual:(App.Session.contents restored);
@@ -1789,14 +1949,20 @@ let test_session_layout_persistence () =
       expect
         (App.Session.focused_pane restored = 0
         && App.Session.contents restored = "alpha\nbeta\ngamma\ndelta\nepsilon"
-        && (primary_selection restored).head_offset = 2)
+        && (primary_selection restored).head_offset = 2
+        && App.Session.pane_scroll_margin restored ~pane:0 = Some 1
+        && App.Session.pane_presentation_override restored ~pane:0
+           = Some (Some "numbered"))
         "round-trip did not restore the first pane's saved buffer and selection";
       let restored = host_session restored App.Session.Focus_next_pane in
       let restored = host_session restored App.Session.Next_buffer in
       expect
         (App.Session.focused_pane restored = 1
         && App.Session.focused_buffer restored = 0
-        && (primary_selection restored).head_offset = 4)
+        && (primary_selection restored).head_offset = 4
+        && App.Session.pane_scroll_margin restored ~pane:1 = Some 2
+        && App.Session.pane_presentation_override restored ~pane:1
+           = Some (Some "bare"))
         "restored pane-local selections leaked between pane and buffer pairs";
       let restored = host_session restored App.Session.Focus_next_pane in
       expect
@@ -1821,6 +1987,14 @@ let test_session_layout_persistence () =
       expect_layout_restore_error invalid_ratio ~path:invalid_ratio_path
         ~description:"invalid split ratio";
       App.Session.close invalid_ratio;
+      save_file invalid_display_path
+        (Printf.sprintf
+           "{\"schema_version\":3,\"buffers\":[{\"id\":0,\"path\":\"%s\",\"name\":null,\"language\":null,\"model\":\"direct\"}],\"layout\":{\"kind\":\"pane\",\"pane\":0},\"focused_pane\":0,\"pane_buffers\":[{\"pane\":0,\"buffer\":0}],\"viewports\":[{\"pane\":0,\"top_line\":0,\"left_column\":0,\"follow_cursor\":true}],\"pane_display_options\":[{\"pane\":0,\"scroll_margin\":-1,\"presentation\":null}],\"view_positions\":[]}"
+           first_path);
+      let invalid_display = unchanged () in
+      expect_layout_restore_error invalid_display ~path:invalid_display_path
+        ~description:"invalid pane display configuration";
+      App.Session.close invalid_display;
       save_file stale_schema_path
         (single_pane_layout_json ~schema_version:99 ~path:first_path
            ~positions:"[]");
@@ -1853,9 +2027,31 @@ let test_session_layout_persistence () =
       expect
         (App.Session.pane_count v1_restored = 1
         && (primary_selection v1_restored).head_offset = 1
-        && App.Session.viewport v1_restored = Zenbu_view.Viewport.origin)
-        "schema v1 layout did not restore with the version-2 viewport default";
+        && App.Session.viewport v1_restored = Zenbu_view.Viewport.origin
+        && App.Session.pane_scroll_margin v1_restored ~pane:0 = Some 0
+        && App.Session.pane_presentation_override v1_restored ~pane:0
+           = Some None)
+        "schema v1 layout did not restore with current display defaults";
       App.Session.close v1_restored;
+      save_file v2_path
+        (single_pane_layout_json ~schema_version:2 ~path:first_path
+           ~positions:
+             "[{\"pane\":0,\"buffer\":0,\"selections\":[{\"anchor\":1,\"head\":1}],\"primary\":0}]");
+      let v2_target = unchanged () in
+      let v2_restored =
+        match App.Session.restore_layout v2_target ~path:v2_path with
+        | Ok restored -> restored
+        | Error error -> failf "%s" (Error.to_string error)
+      in
+      expect
+        (App.Session.pane_count v2_restored = 1
+        && (primary_selection v2_restored).head_offset = 1
+        && App.Session.viewport v2_restored = Zenbu_view.Viewport.origin
+        && App.Session.pane_scroll_margin v2_restored ~pane:0 = Some 0
+        && App.Session.pane_presentation_override v2_restored ~pane:0
+           = Some None)
+        "schema v2 layout did not restore with current display defaults";
+      App.Session.close v2_restored;
       let unnamed =
         App.Session.create ~model:App.Session.Direct ~contents:"unsaved"
           ~dimensions ()
@@ -2430,6 +2626,7 @@ let () =
     ("renderer presentation profiles", test_renderer_presentation_profiles);
     ("view decorations", test_view_decorations);
     ("session presentation profile", test_session_presentation_profile);
+    ("pane display options", test_pane_display_options);
     ("session buffer-line presentation", test_session_buffer_line_presentation);
     ("pure pane layout composition", test_layout_composition);
     ("session file dirty and model host", test_session_file_dirty_and_models);

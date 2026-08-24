@@ -320,8 +320,8 @@ let decoration_text decoration =
 let render_with_inspector ~inspector ?(presentation = Presentation.default)
     ?overlay ?source_lines ?(syntax_spans = []) ?(search_ranges = [])
     ?(diagnostic_ranges = []) ?(fold_ranges = []) ?(decorations = [])
-    ?diagnostic_summary ~context ~status ~filename ~dirty ~message ~viewport
-    ~dimensions () =
+    ?diagnostic_summary ?(scroll_margin = 0) ~context ~status ~filename ~dirty
+    ~message ~viewport ~dimensions () =
   if
     dimensions.columns < 1
     || dimensions.rows < if has_status_line presentation then 2 else 1
@@ -392,7 +392,12 @@ let render_with_inspector ~inspector ?(presentation = Presentation.default)
             let viewport =
               Viewport.reconcile viewport ~line:primary_projected_index
                 ~column:cursor_column ~width:content_columns
-                ~height:(content_rows + 1)
+                ~height:(content_rows + 1) ~scroll_margin
+              |> fun viewport ->
+              {
+                viewport with
+                top_line = min maximum_top_line viewport.top_line;
+              }
             in
             let first = viewport.top_line in
             let last = first + content_rows - 1 in

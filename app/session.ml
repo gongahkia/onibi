@@ -280,6 +280,7 @@ type t = {
   pane_viewports : (int * Zenbu_view.Viewport.t) list;
   pane_view_positions : ((int * int) * view_position) list;
   pane_folds : ((int * int) * fold_state) list;
+  pane_display_options : (int * Zenbu_view.View_options.t) list;
   view_decorations : Zenbu_view.Decoration.response list;
   next_pane_id : int;
   dimensions : Zenbu_view.Renderer.dimensions;
@@ -1949,6 +1950,8 @@ let create ~model ?language ?file_path ?(contents = "") ?trace ?profiler
                             } );
                         ];
                       pane_folds = [];
+                      pane_display_options =
+                        [ (0, Zenbu_view.View_options.default) ];
                       view_decorations = [];
                       next_pane_id = 1;
                       dimensions;
@@ -2476,6 +2479,15 @@ let pane_viewport session pane =
   | Some viewport -> viewport
   | None -> Zenbu_view.Viewport.origin
 
+let pane_display_options_for_pane session pane =
+  match List.assoc_opt pane session.pane_display_options with
+  | Some options -> options
+  | None -> Zenbu_view.View_options.default
+
+let presentation_for_pane session pane =
+  Zenbu_view.View_options.effective_presentation ~default:session.presentation
+    (pane_display_options_for_pane session pane)
+
 let set_pane_viewport session pane viewport =
   {
     session with
@@ -2485,6 +2497,16 @@ let set_pane_viewport session pane viewport =
           if candidate = pane then (candidate, viewport)
           else (candidate, current))
         session.pane_viewports;
+  }
+
+let set_pane_display_options session pane options =
+  {
+    session with
+    pane_display_options =
+      List.map
+        (fun (candidate, current) ->
+          if candidate = pane then (candidate, options) else (candidate, current))
+        session.pane_display_options;
   }
 
 let fold_state_for_pane session pane =
@@ -2616,6 +2638,10 @@ let split_pane session orientation =
             ((session.next_pane_id, buffer_id), position)
             :: session.pane_view_positions;
           pane_folds = copied_folds @ session.pane_folds;
+          pane_display_options =
+            ( session.next_pane_id,
+              pane_display_options_for_pane session session.focused_pane )
+            :: session.pane_display_options;
           pane_buffers =
             (session.next_pane_id, buffer_id) :: session.pane_buffers;
           next_pane_id = session.next_pane_id + 1;
@@ -2669,6 +2695,10 @@ let close_pane session =
             List.filter
               (fun ((pane, _), _) -> List.mem pane panes)
               session.pane_folds;
+          pane_display_options =
+            List.filter
+              (fun (pane, _) -> List.mem pane panes)
+              session.pane_display_options;
           pane_buffers =
             List.filter
               (fun (pane, _) -> List.mem pane panes)
@@ -2695,6 +2725,10 @@ let only_pane session =
       List.filter
         (fun ((candidate_pane, _), _) -> candidate_pane = pane)
         session.pane_folds;
+    pane_display_options =
+      List.filter
+        (fun (candidate_pane, _) -> candidate_pane = pane)
+        session.pane_display_options;
     pane_buffers = [ (pane, focused_buffer session) ];
     message = Some "workspace: kept current view";
     inspector = None;
@@ -3692,9 +3726,11 @@ let workspace_request_of_binding = function
   | "workspace.buffer.previous" -> Some Model_effect.Previous_buffer
   | _ -> None
 
-let source_rows_for_pane session rectangle =
+let source_rows_for_pane session pane rectangle =
   let status_rows =
-    match Zenbu_view.Presentation.status_line session.presentation with
+    match
+      Zenbu_view.Presentation.status_line (presentation_for_pane session pane)
+    with
     | Zenbu_view.Presentation.Hidden_status -> 0
     | Zenbu_view.Presentation.Detailed | Zenbu_view.Presentation.Minimal -> 1
   in
@@ -3715,7 +3751,7 @@ let scroll_pane session pane ~lines =
   match pane_rectangle session pane with
   | None -> session
   | Some rectangle ->
-      let source_rows = source_rows_for_pane session rectangle in
+      let source_rows = source_rows_for_pane session pane rectangle in
       if source_rows = 0 then session
       else
         let contents = Editor_context.contents (context session) in
@@ -3737,7 +3773,7 @@ let scroll_pane_pages session pane ~pages =
   match pane_rectangle session pane with
   | None -> session
   | Some rectangle ->
-      let source_rows = source_rows_for_pane session rectangle in
+      let source_rows = source_rows_for_pane session pane rectangle in
       if source_rows = 0 then session
       else
         let contents = Editor_context.contents (context session) in
@@ -3765,7 +3801,7 @@ let center_pane_viewport session pane =
   match pane_rectangle session pane with
   | None -> session
   | Some rectangle ->
-      let source_rows = source_rows_for_pane session rectangle in
+      let source_rows = source_rows_for_pane session pane rectangle in
       if source_rows = 0 then session
       else
         let contents = Editor_context.contents (context session) in
@@ -6680,6 +6716,10 @@ let save_layout session ~path =
                           follow_cursor = viewport.follow_cursor;
                         })
                     session.pane_viewports;
+                pane_display_options =
+                  List.map
+                    (fun (pane, options) -> Session_layout.{ pane; options })
+                    session.pane_display_options;
                 view_positions;
               }
           in
@@ -6878,6 +6918,12 @@ let restore_layout session ~path =
                                                 viewport.follow_cursor;
                                             } ))
                                       layout.viewports;
+                                  pane_display_options =
+                                    List.map
+                                      (fun (options :
+                                             Session_layout.pane_display_options)
+                                         -> (options.pane, options.options))
+                                      layout.pane_display_options;
                                   pane_view_positions =
                                     List.map
                                       (fun (position :
@@ -8127,13 +8173,18 @@ let pane_at session ~column ~row =
 let divider_target session ~column ~row =
   let row = row - buffer_line_rows session in
   let on_status_row =
-    match Zenbu_view.Presentation.status_line session.presentation with
-    | Zenbu_view.Presentation.Hidden_status -> false
-    | Zenbu_view.Presentation.Detailed | Zenbu_view.Presentation.Minimal ->
-        layout_bounds session
-        |> List.exists (fun (_, rectangle) ->
-            rectangle.Layout.height > 0
-            && row = rectangle.y + rectangle.height - 1)
+    layout_bounds session
+    |> List.exists (fun (pane, rectangle) ->
+        rectangle.Layout.height > 0
+        && row = rectangle.y + rectangle.height - 1
+        &&
+        match
+          Zenbu_view.Presentation.status_line
+            (presentation_for_pane session pane)
+        with
+        | Zenbu_view.Presentation.Hidden_status -> false
+        | Zenbu_view.Presentation.Detailed | Zenbu_view.Presentation.Minimal ->
+            true)
   in
   if row < 0 || on_status_row then None
   else
@@ -8169,7 +8220,10 @@ let pointer_target session ~column ~row =
   | Some (pane, rectangle) -> (
       let local_row = row - buffer_line_rows session - rectangle.Layout.y in
       let status_rows =
-        match Zenbu_view.Presentation.status_line session.presentation with
+        match
+          Zenbu_view.Presentation.status_line
+            (presentation_for_pane session pane)
+        with
         | Zenbu_view.Presentation.Hidden_status -> 0
         | Zenbu_view.Presentation.Detailed | Zenbu_view.Presentation.Minimal ->
             1
@@ -8200,7 +8254,8 @@ let pointer_target session ~column ~row =
                 let column =
                   (pane_viewport session pane).left_column + column
                   - rectangle.x
-                  - Zenbu_view.Renderer.gutter_width session.presentation
+                  - Zenbu_view.Renderer.gutter_width
+                      (presentation_for_pane session pane)
                       source_lines rectangle.width
                 in
                 (pane, Zenbu_view.Display.offset_at_column line column))
@@ -9258,14 +9313,15 @@ let render_pane session pane rectangle =
       | Some buffer -> session_for_buffer session buffer
       | None -> session
     in
-    let presentation = presentation_cache display in
+    let display_presentation = presentation_cache display in
+    let pane_options = pane_display_options_for_pane session pane in
     let context = render_context_for_pane session pane display in
     let dimensions =
       Zenbu_view.Renderer.{ columns = rectangle.width; rows = rectangle.height }
     in
     let rendered =
       Zenbu_view.Renderer.render_with_inspector ~context
-        ~presentation:session.presentation
+        ~presentation:(presentation_for_pane session pane)
         ~status:
           (if focused then status session else active_status display.active)
         ~filename:(filename display) ~dirty:(current_dirty display)
@@ -9274,12 +9330,13 @@ let render_pane session pane rectangle =
         ~dimensions
         ~inspector:(if focused then session.inspector else None)
         ?overlay:(if focused then interaction_overlay session else None)
-        ~source_lines:presentation.source_lines
-        ~syntax_spans:presentation.syntax_spans
+        ~source_lines:display_presentation.source_lines
+        ~syntax_spans:display_presentation.syntax_spans
         ~search_ranges:(search_ranges display)
         ~diagnostic_ranges:(diagnostic_ranges display)
         ~fold_ranges:(fold_ranges_for_pane session pane)
         ~decorations:session.view_decorations
+        ~scroll_margin:(Zenbu_view.View_options.scroll_margin pane_options)
         ?diagnostic_summary:(diagnostic_summary display)
         ()
     in
@@ -9314,6 +9371,41 @@ let contents session = Editor_context.contents (context session)
 let file_path session = session.file_path
 let dimensions session = session.dimensions
 let viewport session = pane_viewport session session.focused_pane
+
+let pane_scroll_margin session ~pane =
+  if List.mem pane (pane_ids session) then
+    Some
+      (Zenbu_view.View_options.scroll_margin
+         (pane_display_options_for_pane session pane))
+  else None
+
+let pane_presentation_override session ~pane =
+  if List.mem pane (pane_ids session) then
+    Some
+      (Zenbu_view.View_options.presentation
+         (pane_display_options_for_pane session pane))
+  else None
+
+let pane_presentation session ~pane =
+  if List.mem pane (pane_ids session) then
+    Some (Zenbu_view.Presentation.name (presentation_for_pane session pane))
+  else None
+
+let set_pane_display session ~pane ~scroll_margin ~presentation =
+  if not (List.mem pane (pane_ids session)) then
+    Error
+      (Error.Invalid_command_arguments
+         ("pane display: unknown pane " ^ string_of_int pane))
+  else
+    Zenbu_view.View_options.create ~scroll_margin ~presentation
+    |> Result.map_error (fun reason ->
+        Error.Invalid_command_arguments ("pane display: " ^ reason))
+    |> Result.map (set_pane_display_options session pane)
+
+let reset_pane_display session ~pane =
+  if List.mem pane (pane_ids session) then
+    set_pane_display_options session pane Zenbu_view.View_options.default
+  else session
 
 let set_view_decorations session view_decorations =
   { session with view_decorations }

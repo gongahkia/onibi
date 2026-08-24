@@ -305,6 +305,9 @@ presentation uses one more projected row than a status-bearing presentation.
 The separate [decoration protocol](docs/DECORATIONS.md) gives embedding hosts
 bounded snapshot-bound virtual rows and trailing annotations without a
 renderer callback or provider-owned input path.
+Pane-local [display options](docs/VIEW_OPTIONS.md) add a bounded vertical
+scroll margin and built-in presentation override with dynamic inheritance from
+the session presentation.
 
 `editor.location.set` and `editor.location.jump` are also palette commands.
 They save a named ordered selection set in its current local buffer, rebase it

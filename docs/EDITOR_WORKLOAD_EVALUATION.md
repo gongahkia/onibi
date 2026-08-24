@@ -457,7 +457,10 @@ exposes scrolling/centering through normal-mode mappings; [Micro's default
 bindings](https://github.com/micro-editor/micro/blob/master/runtime/help/defaultkeys.md)
 and [Emacs point movement](https://www.gnu.org/software/emacs/manual/html_node/emacs/Moving-Point.html)
 expose page navigation independently of text mutation. Zenbu therefore adds
-`Request_viewport` with line scroll, page scroll, and center operations.
+`Request_viewport` with line scroll, page scroll, and center operations. M10
+also keeps a bounded pane-local display policy for vertical scroll margins and
+built-in line-number/status presentation overrides; it is not a general window
+option registry.
 Models supply only the request; `Session` derives the focused pane, source-row
 height, and active presentation policy, then clamps the viewport. The request
 has no document, selection, history, renderer-frame, or terminal-handle
@@ -471,8 +474,8 @@ receives neither dimensions nor renderer state. The bundled
 nonsemantic, M4 verifies decoding, viewport geometry, status-row policy,
 clamping, and centering, and M10 verifies a scoped Lua adapter and sequence
 prefix. This is still not Helix/Kakoune/Micro/Emacs view parity: there is no
-native view-mode grammar, scrolloff, virtual lines, window-local
-display configuration, or product-specific scrolling behavior.
+native view-mode grammar, horizontal scroll margins, arbitrary window-local
+state, or product-specific scrolling behavior.
 
 The next grammar evaluation was persistent script ownership. A static adapter
 can rename commands and layer transient bindings, but it cannot encode

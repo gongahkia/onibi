@@ -17,6 +17,7 @@ type viewport = {
   follow_cursor : bool;
 }
 
+type pane_display_options = { pane : int; options : Zenbu_view.View_options.t }
 type selection = { anchor : int; head : int }
 
 type view_position = {
@@ -33,10 +34,11 @@ type t = {
   focused_pane : int;
   pane_buffers : pane_buffer list;
   viewports : viewport list;
+  pane_display_options : pane_display_options list;
   view_positions : view_position list;
 }
 
-let current_schema_version = 2
+let current_schema_version = 3
 let error path message = Error (path ^ ": " ^ message)
 let ( let* ) = Result.bind
 
@@ -216,6 +218,27 @@ let viewport path value =
   let* follow_cursor = required path fields "follow_cursor" boolean in
   Ok { pane; top_line; left_column; follow_cursor }
 
+let pane_display_options_json (value : pane_display_options) =
+  `Assoc
+    [
+      ("pane", `Int value.pane);
+      ( "scroll_margin",
+        `Int (Zenbu_view.View_options.scroll_margin value.options) );
+      ( "presentation",
+        option_json
+          (fun value -> `String value)
+          (Zenbu_view.View_options.presentation value.options) );
+    ]
+
+let pane_display_options path value =
+  let* fields = fields path [ "pane"; "scroll_margin"; "presentation" ] value in
+  let* pane = required path fields "pane" nonnegative in
+  let* scroll_margin = required path fields "scroll_margin" integer in
+  let* presentation = optional path fields "presentation" nonempty_string in
+  Zenbu_view.View_options.create ~scroll_margin ~presentation
+  |> Result.map_error (fun reason -> path ^ ": " ^ reason)
+  |> Result.map (fun options -> { pane; options })
+
 let selection_json (value : selection) =
   `Assoc [ ("anchor", `Int value.anchor); ("head", `Int value.head) ]
 
@@ -254,7 +277,9 @@ let duplicate_pairs values =
 
 let validate (value : t) =
   let* () =
-    if value.schema_version = 1 || value.schema_version = current_schema_version
+    if
+      value.schema_version = 1 || value.schema_version = 2
+      || value.schema_version = current_schema_version
     then Ok ()
     else
       error "schema_version"
@@ -310,6 +335,18 @@ let validate (value : t) =
     if pane_ids = viewport_ids then Ok ()
     else error "viewports" "must describe every layout pane exactly once"
   in
+  let pane_display_option_ids =
+    List.map
+      (fun (value : pane_display_options) -> value.pane)
+      value.pane_display_options
+    |> ids
+  in
+  let* () =
+    if pane_ids = pane_display_option_ids then Ok ()
+    else
+      error "pane_display_options"
+        "must describe every layout pane exactly once"
+  in
   let position_pairs =
     List.map
       (fun (value : view_position) -> (value.pane, value.buffer))
@@ -337,6 +374,8 @@ let json value =
       ("focused_pane", `Int value.focused_pane);
       ("pane_buffers", `List (List.map pane_buffer_json value.pane_buffers));
       ("viewports", `List (List.map viewport_json value.viewports));
+      ( "pane_display_options",
+        `List (List.map pane_display_options_json value.pane_display_options) );
       ( "view_positions",
         `List (List.map view_position_json value.view_positions) );
     ]
@@ -358,6 +397,7 @@ let decode contents =
         "focused_pane";
         "pane_buffers";
         "viewports";
+        "pane_display_options";
         "view_positions";
       ]
       value
@@ -366,7 +406,10 @@ let decode contents =
     required "layout" initial_fields "schema_version" integer
   in
   let* () =
-    if schema_version = 1 || schema_version = current_schema_version then Ok ()
+    if
+      schema_version = 1 || schema_version = 2
+      || schema_version = current_schema_version
+    then Ok ()
     else
       error "schema_version"
         ("unsupported version " ^ string_of_int schema_version)
@@ -382,6 +425,16 @@ let decode contents =
           "pane_buffers";
           "view_positions";
         ]
+    | 2 ->
+        [
+          "schema_version";
+          "buffers";
+          "layout";
+          "focused_pane";
+          "pane_buffers";
+          "viewports";
+          "view_positions";
+        ]
     | value when value = current_schema_version ->
         [
           "schema_version";
@@ -390,6 +443,7 @@ let decode contents =
           "focused_pane";
           "pane_buffers";
           "viewports";
+          "pane_display_options";
           "view_positions";
         ]
     | _ -> assert false
@@ -411,6 +465,18 @@ let decode contents =
               { pane; top_line = 0; left_column = 0; follow_cursor = true }))
     | _ -> required "layout" fields "viewports" (array viewport)
   in
+  let* pane_display_options =
+    match schema_version with
+    | 1 | 2 ->
+        let* restored = Zenbu_view.Layout.of_persisted layout in
+        Ok
+          (Zenbu_view.Layout.panes restored
+          |> List.map (fun pane ->
+              { pane; options = Zenbu_view.View_options.default }))
+    | _ ->
+        required "layout" fields "pane_display_options"
+          (array pane_display_options)
+  in
   let* view_positions =
     required "layout" fields "view_positions" (array view_position)
   in
@@ -422,5 +488,6 @@ let decode contents =
       focused_pane;
       pane_buffers;
       viewports;
+      pane_display_options;
       view_positions;
     }

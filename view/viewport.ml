@@ -10,7 +10,7 @@ let scroll viewport ~lines ~maximum_top_line =
     follow_cursor = false;
   }
 
-let reconcile viewport ~line ~column ~width ~height =
+let reconcile ?(scroll_margin = 0) viewport ~line ~column ~width ~height =
   if not viewport.follow_cursor then
     {
       viewport with
@@ -19,10 +19,11 @@ let reconcile viewport ~line ~column ~width ~height =
     }
   else
     let usable_height = max 1 (height - 1) in
+    let scroll_margin = min (max 0 scroll_margin) ((usable_height - 1) / 2) in
     let top_line =
-      if line < viewport.top_line then line
-      else if line >= viewport.top_line + usable_height then
-        line - usable_height + 1
+      if line < viewport.top_line + scroll_margin then line - scroll_margin
+      else if line > viewport.top_line + usable_height - scroll_margin - 1 then
+        line - usable_height + scroll_margin + 1
       else viewport.top_line
     in
     let left_column =
