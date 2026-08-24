@@ -5,6 +5,8 @@ type host_command =
   | Save_as
   | Save_layout
   | Restore_layout
+  | Set_project_root
+  | Open_file_picker
   | Quit
   | Force_quit
   | Reload_config
@@ -84,6 +86,7 @@ type inspection =
   | Jumps
   | Jobs
   | Buffers
+  | Project
   | Language
 
 type t
@@ -127,6 +130,8 @@ val reload_config : t -> t
 val resize : t -> columns:int -> rows:int -> t
 val save_layout : t -> path:string -> (unit, Zenbu_kernel.Error.t) result
 val restore_layout : t -> path:string -> (t, Zenbu_kernel.Error.t) result
+val set_project_root : t -> path:string -> (t, Zenbu_kernel.Error.t) result
+val project_root : t -> string option
 val render : t -> t * Zenbu_view.Frame.t
 val contents : t -> string
 val file_path : t -> string option

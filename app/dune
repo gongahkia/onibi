@@ -5,6 +5,7 @@
   background_job
   external_filter
   file_io
+  project_root
   session_layout
   system_clipboard
   script_model

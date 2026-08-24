@@ -22,6 +22,8 @@ type host_command =
   | Save_as
   | Save_layout
   | Restore_layout
+  | Set_project_root
+  | Open_file_picker
   | Quit
   | Force_quit
   | Reload_config
@@ -101,6 +103,7 @@ type inspection =
   | Jumps
   | Jobs
   | Buffers
+  | Project
   | Language
 
 type search = {
@@ -153,6 +156,7 @@ type interaction =
     }
   | Save_as_prompt of string
   | Open_buffer_prompt of string
+  | File_picker of { query : string; selected : int }
   | Model_picker of int
   | Help_view
   | Hover_view of Language.hover
@@ -233,6 +237,7 @@ type t = {
   saved_version : int;
   saved_contents : string;
   saved_snapshot : File_io.snapshot option;
+  project_root : Project_root.t option;
   layout : Layout.t;
   focused_pane : int;
   pane_viewports : (int * Zenbu_view.Viewport.t) list;
@@ -628,6 +633,28 @@ let host_command_entries =
             "workspace.layout.restore" "Restore workspace layout"
             "Replace this session only after validating every referenced local \
              file and view state.";
+        palette = true;
+      };
+      {
+        command = Set_project_root;
+        descriptor =
+          host_descriptor
+            ~parameters:
+              [
+                text_parameter ~name:"path"
+                  ~description:
+                    "Readable directory to canonicalize as the host-owned project root."
+                  ~required:true;
+              ]
+            "workspace.project.root.set" "Set project root"
+            "Validate and select the directory used by the local file picker.";
+        palette = true;
+      };
+      {
+        command = Open_file_picker;
+        descriptor =
+          host_descriptor "workspace.file-picker" "Open project file picker"
+            "Filter validated readable text files below the selected project root.";
         palette = true;
       };
       {
@@ -1641,6 +1668,7 @@ let create ~model ?language ?file_path ?(contents = "") ?trace ?profiler
                     saved_version = 0;
                     saved_contents = contents;
                     saved_snapshot;
+                    project_root = None;
                     layout = Layout.single 0;
                     focused_pane = 0;
                     pane_viewports = [ (0, Zenbu_view.Viewport.origin) ];
@@ -5843,6 +5871,132 @@ let restore_layout session ~path =
                                   quit_armed = false;
                                 }))))))
 
+let project_root_error message =
+  Error.Invalid_command_arguments ("project root: " ^ message)
+
+let project_root session =
+  Option.map Project_root.path session.project_root
+
+let set_project_root session ~path =
+  Project_root.select path
+  |> Result.map_error project_root_error
+  |> Result.map (fun root ->
+         {
+           session with
+           project_root = Some root;
+           interaction = Idle;
+           inspector = None;
+           message = Some ("project root selected: " ^ Project_root.path root);
+           quit_armed = false;
+         })
+
+let project_file_entries session ~query =
+  match session.project_root with
+  | None -> Error (project_root_error "select a root before opening the file picker")
+  | Some root -> Project_root.filter root ~query |> Result.map_error project_root_error
+
+let begin_file_picker session =
+  match project_file_entries session ~query:"" with
+  | Error error ->
+      {
+        session with
+        message = Some (Error.to_string error);
+        inspector = None;
+        quit_armed = false;
+      }
+  | Ok _ ->
+      {
+        session with
+        interaction = File_picker { query = ""; selected = 0 };
+        message = Some "project files: type to filter, Enter opens, Escape cancels";
+        inspector = None;
+        quit_armed = false;
+      }
+
+let file_picker_with_query session ~query ~selected =
+  match project_file_entries session ~query with
+  | Error error ->
+      {
+        session with
+        interaction = File_picker { query; selected = 0 };
+        message = Some (Error.to_string error);
+        inspector = None;
+        quit_armed = false;
+      }
+  | Ok entries ->
+      {
+        session with
+        interaction =
+          File_picker
+            {
+              query;
+              selected =
+                (if entries = [] then 0
+                 else min (List.length entries - 1) (max 0 selected));
+            };
+        quit_armed = false;
+      }
+
+let open_picked_file session (entry : Project_root.entry) =
+  match session.project_root with
+  | None ->
+      {
+        session with
+        interaction = Idle;
+        message = Some "project root: selection was cleared";
+        inspector = None;
+        quit_armed = false;
+      }
+  | Some root -> (
+      match Project_root.resolve root ~relative_path:entry.relative_path with
+      | Error error ->
+          {
+            session with
+            message = Some (Error.to_string (project_root_error error));
+            inspector = None;
+            quit_armed = false;
+          }
+      | Ok path -> open_buffer session path)
+
+let handle_file_picker_input session query selected input =
+  if event_is_named input Input_event.Escape then
+    {
+      session with
+      interaction = Idle;
+      message = Some "project file picker cancelled";
+      inspector = None;
+      quit_armed = false;
+    }
+  else if event_is_named input Input_event.Arrow_up then
+    file_picker_with_query session ~query ~selected:(selected - 1)
+  else if event_is_named input Input_event.Arrow_down then
+    file_picker_with_query session ~query ~selected:(selected + 1)
+  else if event_is_named input Input_event.Backspace then
+    file_picker_with_query session ~query:(drop_last_utf8 query) ~selected:0
+  else if event_is_named input Input_event.Enter then
+    match project_file_entries session ~query with
+    | Error error ->
+        {
+          session with
+          message = Some (Error.to_string error);
+          inspector = None;
+          quit_armed = false;
+        }
+    | Ok entries -> (
+        match List.nth_opt entries selected with
+        | None ->
+            {
+              session with
+              message = Some "project file picker has no matching file";
+              inspector = None;
+              quit_armed = false;
+            }
+        | Some entry -> open_picked_file session entry)
+  else
+    match event_text input with
+    | None -> session
+    | Some text -> file_picker_with_query session ~query:(query ^ text) ~selected:0
+
 let invoke_host_palette_command ?(arguments = []) session input = function
   | Save -> save session
   | Save_as -> (
@@ -5882,6 +6036,15 @@ let invoke_host_palette_command ?(arguments = []) session input = function
           | Error error ->
               { session with message = Some (Error.to_string error) }
           | Ok restored -> restored))
+  | Set_project_root -> (
+      match required_text_argument arguments "path" with
+      | Error error -> { session with message = Some (Error.to_string error) }
+      | Ok path -> (
+          match set_project_root session ~path with
+          | Error error ->
+              { session with message = Some (Error.to_string error) }
+          | Ok session -> session))
+  | Open_file_picker -> begin_file_picker session
   | Reload_config -> { (reload_config session) with interaction = Idle }
   | Start_search -> begin_search session
   | Start_regexp_search -> begin_search ~kind:Regexp session
