@@ -159,6 +159,17 @@ checksum, and runs that normal suite. `make extension-docs` refreshes the
 generated WIT source and every SDK/example snapshot; `make check` rejects
 snapshot drift without requiring Rust.
 
+## Signed portable packages on Linux
+
+The Linux-only signed bundle and install flow is documented in
+[Signed Component distribution](COMPONENT_DISTRIBUTION.md). It packages an
+already stage-checked `plugin.wasm` with its manifest, validates Ed25519
+provenance and explicit trust/revocation windows, stages upgrades with the full
+active package root, and atomically switches a package's active generation.
+It does not fetch packages, resolve dependencies, distribute Lua, or extend
+Component capabilities. macOS parity is intentionally pending separate
+validation.
+
 ## Semantic behavior and diagnostics
 
 Component commands, selectors, transformations, bindings, and hooks are

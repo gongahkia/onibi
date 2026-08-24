@@ -1,4 +1,4 @@
-.PHONY: bootstrap build test fmt check demo benchmark extension-docs wasm-component-sdk-check wasm-runtime wasm-runtime-ready lua-runtime-ready install release release-archive release-check
+.PHONY: bootstrap build test fmt check demo benchmark extension-docs wasm-component-sdk-check component-distribution-test wasm-runtime wasm-runtime-ready lua-runtime-ready install release release-archive release-check
 
 LOCAL_OPAM_BIN := $(CURDIR)/_opam/bin
 ifneq ($(wildcard $(LOCAL_OPAM_BIN)/dune),)
@@ -38,6 +38,7 @@ build: wasm-runtime-ready
 	$(PLATFORM_ENV) $(OPAM_ENV) dune build
 
 test: wasm-runtime-ready lua-runtime-ready
+	@$(MAKE) component-distribution-test
 	$(PLATFORM_ENV) $(OPAM_ENV) dune runtest
 
 fmt:
@@ -46,7 +47,15 @@ fmt:
 check: wasm-runtime-ready lua-runtime-ready wasm-component-sdk-check
 	$(PLATFORM_ENV) $(OPAM_ENV) dune build @fmt
 	$(PLATFORM_ENV) $(OPAM_ENV) dune build
+	@$(MAKE) component-distribution-test
 	$(PLATFORM_ENV) $(OPAM_ENV) dune runtest
+
+component-distribution-test: wasm-runtime-ready lua-runtime-ready
+	@if test "$$(uname -s)" = Linux; then \
+		./test/test_component_distribution.sh "$(CURDIR)"; \
+	else \
+		echo "component distribution integration test skipped: the current signed bundle format is Linux-only"; \
+	fi
 
 demo: wasm-runtime-ready lua-runtime-ready
 	$(PLATFORM_ENV) $(OPAM_ENV) dune exec bin/zenbu_headless.exe -- demo

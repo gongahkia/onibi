@@ -574,6 +574,64 @@ let plugin_check path =
           | None -> ()
           | Some error -> fail error))
 
+let plugin_root_check root =
+  if not (Sys.file_exists root && Sys.is_directory root) then
+    fail
+      (Error.Extension_error
+         {
+           code = Error.Invalid_plugin_package;
+           plugin_id = None;
+           provider = None;
+           operation = Some "plugin-root-check";
+           required = None;
+           granted = [];
+           message = "plugin root does not exist or is not a directory";
+         });
+  let host = plugin_host (Plugins.Directories [ root ]) in
+  Fun.protect
+    ~finally:(fun () -> Plugins.dispose host)
+    (fun () ->
+      match Plugins.views host with
+      | [] ->
+          fail
+            (Error.Extension_error
+               {
+                 code = Error.Invalid_plugin_package;
+                 plugin_id = None;
+                 provider = None;
+                 operation = Some "plugin-root-check";
+                 required = None;
+                 granted = [];
+                 message = "plugin root did not discover any packages";
+               })
+      | views -> (
+          List.iter print_plugin_view views;
+          match
+            List.find_opt
+              (fun view -> Option.is_some (Plugins.view_error view))
+              views
+          with
+          | None -> ()
+          | Some view -> Plugins.view_error view |> Option.get |> fail))
+
+let plugin_metadata path =
+  let manifest_path =
+    if String.equal (Filename.basename path) Zenbu_extension.Manifest.filename
+    then path
+    else Filename.concat path Zenbu_extension.Manifest.filename
+  in
+  match Zenbu_extension.Manifest.parse manifest_path with
+  | Error error -> fail error
+  | Ok manifest ->
+      Printf.printf "id=%s\nversion=%s\nruntime=%s\napi=%d\nentrypoint=%s\n"
+        (Zenbu_extension.Manifest.id manifest
+        |> Zenbu_extension.Plugin_id.to_string)
+        (Zenbu_extension.Manifest.version manifest
+        |> Zenbu_extension.Plugin_version.to_string)
+        (Zenbu_extension.Manifest.runtime manifest)
+        (Zenbu_extension.Manifest.api manifest)
+        (Zenbu_extension.Manifest.entrypoint manifest)
+
 let extension_api () = print_string (Zenbu_extension.Contract.markdown ())
 let extension_sdk () = print_string (Zenbu_extension.Contract.lua_stub ())
 let extension_wit () = print_string (Zenbu_extension.Contract.wit ())
@@ -1249,8 +1307,9 @@ let usage () =
      config-check <init.lua> | config-describe <init.lua> | script-session \
      <init.lua> <fixture.session> | script-jobs <init.lua> <fixture.session> | \
      plugin-session <PLUGIN-ROOT> <fixture.session> | plugins [DIR] | \
-     plugin-check <PLUGIN-DIR> | plugin-describe <PLUGIN-DIR> | extension-api \
-     | extension-sdk | extension-wit | benchmark";
+     plugin-check <PLUGIN-DIR> | plugin-describe <PLUGIN-DIR> | \
+     plugin-root-check <PLUGIN-ROOT> | plugin-metadata <PLUGIN-DIR> | \
+     extension-api | extension-sdk | extension-wit | benchmark";
   exit 2
 
 let () =
@@ -1278,6 +1337,8 @@ let () =
   | [ _; "plugins"; directory ] -> plugins (Plugins.Directories [ directory ])
   | [ _; "plugin-check"; path ] | [ _; "plugin-describe"; path ] ->
       plugin_check path
+  | [ _; "plugin-root-check"; root ] -> plugin_root_check root
+  | [ _; "plugin-metadata"; path ] -> plugin_metadata path
   | [ _; "plugin-session"; plugins; session ] -> plugin_session plugins session
   | [ _; "extension-api" ] -> extension_api ()
   | [ _; "extension-sdk" ] -> extension_sdk ()

@@ -216,6 +216,8 @@ registration order is preserved. Save, quit, and reload remain host controls.
 dune exec bin/zenbu_headless.exe -- plugins [DIRECTORY]
 dune exec bin/zenbu_headless.exe -- plugin-check PLUGIN-DIRECTORY
 dune exec bin/zenbu_headless.exe -- plugin-describe PLUGIN-DIRECTORY
+dune exec bin/zenbu_headless.exe -- plugin-root-check PLUGIN-ROOT
+dune exec bin/zenbu_headless.exe -- plugin-metadata PLUGIN-DIRECTORY
 dune exec bin/zenbu_headless.exe -- extension-api
 dune exec bin/zenbu_headless.exe -- extension-sdk
 dune exec bin/zenbu_headless.exe -- plugin-session examples/plugins test/fixtures/m8-surround.session
@@ -238,8 +240,10 @@ one package without introducing unrelated directory collisions.
 The first-party [Component guest SDK](../sdk/wasm-component) supplies a pinned
 WIT snapshot, Rust helper source, starter package, lockfile, and reproducible
 build/check tool. Its `build` command runs `plugin-check` after emitting the
-Component; its `check` command validates an already-built artifact. It has no
-dependency resolver, registry, signing format, or additional authority.
+Component; its `check` command validates an already-built artifact. The
+Linux-only [signed Component distribution format](COMPONENT_DISTRIBUTION.md)
+adds explicit local trust, archive verification, staging, cache, and rollback
+without a resolver, registry, or additional authority.
 
 `make extension-docs` deterministically regenerates the committed reference
 and SDK sources from `zenbu.extension.Contract`. The M8 test suite checks the
@@ -267,9 +271,11 @@ requires an API-version increment. Existing M7 configuration remains supported
 as experimental trusted local configuration, but it is not a plugin package
 and makes no stable-plugin compatibility claim.
 
-M9 still defers dependency resolution, signatures, permissions UI, per-plugin
-enablement persistence, cross-platform Wasmtime distribution, asynchronous
-services, hard wall-clock cancellation, language-grammar packages, marketplace
+M9 still defers dependency resolution, permissions UI, per-plugin enablement
+persistence, cross-platform signed-package validation, asynchronous services,
+hard wall-clock cancellation, language-grammar packages, marketplace
 distribution, and richer Component host imports. `lua-trusted` remains
-intentionally unsandboxed. See [roadmap](ROADMAP.md),
-[the M9 pressure test](M9_PRESSURE_TEST.md), and ADRs 0022-0028.
+intentionally unsandboxed. See [signed Component distribution](COMPONENT_DISTRIBUTION.md),
+[roadmap](ROADMAP.md),
+[the M9 pressure test](M9_PRESSURE_TEST.md), ADRs 0022-0028, and
+[ADR 0033](adr/0033-signed-component-package-distribution.md).

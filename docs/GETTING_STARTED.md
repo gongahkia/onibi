@@ -8,8 +8,10 @@ of changing a buffer directly.
 ## Install from a clone
 
 Linux x86_64 and Apple Silicon macOS are supported interactive platforms in
-M11. Linux needs `opam`, a C toolchain, `curl`, `tar`, `sha256sum`, and a Lua
-5.4 shared library (`lua-libs` on Fedora or `liblua5.4-0` on Debian/Ubuntu).
+M11. Linux needs `opam`, a C toolchain, `curl`, `tar`, `sha256sum`, OpenSSL,
+and a Lua 5.4 shared library (`lua-libs` on Fedora or `liblua5.4-0` on
+Debian/Ubuntu). The signed Component package test additionally uses GNU
+coreutils and GNU tar, which Fedora provides by default.
 macOS needs Xcode Command Line Tools, Homebrew, and Lua 5.4:
 
 ```sh

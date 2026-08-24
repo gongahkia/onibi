@@ -51,7 +51,7 @@ editing-model API. See [Language services](LANGUAGE_SERVICES.md).
 
 The following remain deliberately out of scope:
 
-- signatures, dependency resolution, remote download, or a plugin marketplace;
+- dependency resolution, remote download, or a plugin marketplace;
 - hard wall-clock cancellation, asynchronous/background extension execution,
   richer Component imports, or a sandbox claim for trusted Lua;
 - automatic external reload/merge, general cross-file workspace resource
@@ -86,10 +86,12 @@ detection without making buffers, providers, or language protocols visible to
 the kernel or model API, and should not bundle a marketplace or a Component
 distribution redesign.
 
-Portable Component distribution remains the next packaging concern after the
-first-party guest SDK: it needs a verified platform matrix and must preserve
-WIT capability projection plus fatal-runtime health/reload semantics without
-adding a resolver or marketplace.
+Signed Component package distribution is implemented and tested on Linux. It
+still needs a separately verified macOS port and platform matrix; resolver,
+remote download, and marketplace design remain separate follow-up work. The
+Linux format preserves WIT capability projection plus fatal-runtime
+health/reload semantics without adding any of those systems. See
+[signed Component distribution](COMPONENT_DISTRIBUTION.md).
 
 See [the architecture](ARCHITECTURE.md), [editor workload evaluation](EDITOR_WORKLOAD_EVALUATION.md), [Component authoring](WASM_COMPONENTS.md),
 [isolation policy](ISOLATION.md), [M11 pressure report](M11_PRESSURE_TEST.md),
