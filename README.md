@@ -65,7 +65,9 @@ and plugin examples live in [Getting Started](docs/GETTING_STARTED.md).
   buffer-line presentation profiles without affecting editing state.
   Its editor canvas also supports pane focus/caret placement, `Shift`-click
   extension, grapheme-safe primary dragging, and wheel scrolling through typed
-  host pointer events. It also has a bounded, session-wide named keyboard-macro
+  host pointer events. Pane-local, version-bound folding projects source lines
+  without changing source-byte editing state. It also has a bounded,
+  session-wide named keyboard-macro
   store and replayer that can be attached to adapter keymaps through Lua.
 - `zenbu.language` exposes model-neutral diagnostics, hover, definition,
   completion, rename, position conversion, and sync data. A private async LSP
@@ -256,7 +258,8 @@ The palette also exposes `workspace.split.vertical`,
 `workspace.buffer.previous`, `workspace.layout.save`, and
 `workspace.layout.restore`, `workspace.project.root.set`, and
 `workspace.file-picker`, and `workspace.project.search`, plus `view.scroll.up`, `view.scroll.down`,
-`view.page.up`, `view.page.down`, and `view.center`. Resize commands move the
+`view.page.up`, `view.page.down`, `view.center`, `view.fold.selection`,
+`view.fold.syntax`, and `view.fold.clear`. Resize commands move the
 focused pane's nearest matching divider by one terminal cell; balance restores
 equal proportions. A pane has an independent viewport and can show
 any open buffer. Each `(pane, buffer)` pairing also retains an ordered
@@ -287,12 +290,15 @@ text, editing-model internals, terminal/LSP/plugin handles, and project or
 cross-machine state are deliberately excluded. Restore validates every
 referenced file and selection before replacing the current session.
 
-The checked viewport commands never alter a document or a selection. Lua
+The checked viewport commands never alter a document or a selection. Fold
+commands are host-only, per-`(pane, buffer)` projections and invalidate after
+content edits; [Folding](docs/FOLDING.md) specifies their source, pointer,
+cursor, search, diagnostics, and viewport behavior. Lua
 adapters can bind them to non-reserved inputs; for example,
 [`examples/helix-adapter.lua`](examples/helix-adapter.lua) maps `PageUp`,
 `PageDown`, `Ctrl-U`, `Ctrl-D`, and `z z` in selection mode. Page size is the
-focused pane's current source-row height, so a hidden-status presentation uses
-one more source row than a status-bearing presentation.
+focused pane's current visible projected-row height, so a hidden-status
+presentation uses one more projected row than a status-bearing presentation.
 
 `editor.location.set` and `editor.location.jump` are also palette commands.
 They save a named ordered selection set in its current local buffer, rebase it

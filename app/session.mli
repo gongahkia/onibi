@@ -74,6 +74,9 @@ type host_command =
   | View_page_up
   | View_page_down
   | View_center
+  | View_fold_selection
+  | View_fold_syntax
+  | View_fold_clear
 
 type inspection =
   | Why

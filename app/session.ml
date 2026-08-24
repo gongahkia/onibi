@@ -91,6 +91,9 @@ type host_command =
   | View_page_up
   | View_page_down
   | View_center
+  | View_fold_selection
+  | View_fold_syntax
+  | View_fold_clear
 
 type inspection =
   | Why
@@ -228,6 +231,11 @@ type view_position = {
   stale : bool;
 }
 
+type fold_state = {
+  document_version : int;
+  ranges : Zenbu_view.Fold.range list;
+}
+
 type buffer = {
   id : int;
   active : active;
@@ -270,6 +278,7 @@ type t = {
   focused_pane : int;
   pane_viewports : (int * Zenbu_view.Viewport.t) list;
   pane_view_positions : ((int * int) * view_position) list;
+  pane_folds : ((int * int) * fold_state) list;
   next_pane_id : int;
   dimensions : Zenbu_view.Renderer.dimensions;
   presentation : Zenbu_view.Presentation.t;
@@ -1264,6 +1273,30 @@ let host_command_entries =
         palette = true;
       };
       {
+        command = View_fold_selection;
+        descriptor =
+          host_descriptor "view.fold.selection" "Fold selected source lines"
+            "Hide complete source lines covered by the primary selection in \
+             this pane without changing document state.";
+        palette = true;
+      };
+      {
+        command = View_fold_syntax;
+        descriptor =
+          host_descriptor "view.fold.syntax" "Fold current syntax node"
+            "Hide complete source lines covered by the error-free current \
+             syntax node in this pane.";
+        palette = true;
+      };
+      {
+        command = View_fold_clear;
+        descriptor =
+          host_descriptor "view.fold.clear" "Unfold current view"
+            "Remove every manual and syntax-derived fold from the focused pane \
+             and buffer.";
+        palette = true;
+      };
+      {
         command = Switch_model;
         descriptor =
           host_descriptor "editor.model.switch" "Switch editing model"
@@ -1913,6 +1946,7 @@ let create ~model ?language ?file_path ?(contents = "") ?trace ?profiler
                               stale = false;
                             } );
                         ];
+                      pane_folds = [];
                       next_pane_id = 1;
                       dimensions;
                       presentation;
@@ -1975,6 +2009,65 @@ let history_of_active = function
   | Direct_runtime runtime -> Direct_runtime.history runtime
   | Structural_runtime runtime -> Structural_runtime.history runtime
   | Script_runtime runtime -> Script_runtime.history runtime
+
+(* Selection-only transactions receive new document versions. A fold remains
+   source-valid across those history steps, but never across a text edit on
+   either branch between its origin and the current document. *)
+let fold_state_has_current_source active (state : fold_state) =
+  let history = history_of_active active in
+  let nodes = History.nodes history in
+  let find_version version =
+    List.find_opt
+      (fun node -> History.node_document_version node = version)
+      nodes
+  in
+  let parent node =
+    Option.bind (History.parent_id node) (fun parent_id ->
+        List.find_opt
+          (fun candidate -> History.node_id candidate = parent_id)
+          nodes)
+  in
+  let rec path node =
+    match parent node with
+    | None -> [ node ]
+    | Some parent -> node :: path parent
+  in
+  let rec has_text_edit_until common node =
+    if History.node_id node = common then false
+    else
+      let changed =
+        match History.node_change node with
+        | None -> false
+        | Some change -> Transaction.edits (History.transaction change) <> []
+      in
+      changed
+      ||
+      match parent node with
+      | None -> true
+      | Some parent -> has_text_edit_until common parent
+  in
+  let current_version =
+    Editor_context.document_version (context_of_active active)
+  in
+  match (find_version state.document_version, find_version current_version) with
+  | Some state_node, Some current_node -> (
+      let state_path = path state_node in
+      let current_path = path current_node in
+      let common =
+        List.find_opt
+          (fun current ->
+            List.exists
+              (fun state -> History.node_id state = History.node_id current)
+              state_path)
+          current_path
+      in
+      match common with
+      | None -> false
+      | Some common ->
+          not
+            (has_text_edit_until (History.node_id common) state_node
+            || has_text_edit_until (History.node_id common) current_node))
+  | None, _ | _, None -> false
 
 let rebase_view_position position history =
   if position.stale then position
@@ -2275,7 +2368,7 @@ let restore_active_view_position active position =
         (fun runtime -> Script_runtime runtime)
         runtime
 
-let same_view_position context position =
+let same_view_position context (position : view_position) =
   let selections = Editor_context.selections context in
   position.document_version = Editor_context.document_version context
   && position.primary = selections.primary_index
@@ -2391,6 +2484,63 @@ let set_pane_viewport session pane viewport =
         session.pane_viewports;
   }
 
+let fold_state_for_pane session pane =
+  let buffer_id = buffer_id_for_pane session pane in
+  match buffer_for_id session buffer_id with
+  | None -> None
+  | Some buffer -> (
+      match List.assoc_opt (pane, buffer_id) session.pane_folds with
+      | Some state when fold_state_has_current_source buffer.active state ->
+          Some state
+      | Some _ | None -> None)
+
+let fold_ranges_for_pane session pane =
+  Option.map
+    (fun (state : fold_state) -> state.ranges)
+    (fold_state_for_pane session pane)
+  |> Option.value ~default:[]
+
+let set_fold_ranges_for_pane session pane ranges =
+  let buffer_id = buffer_id_for_pane session pane in
+  let document_version = Editor_context.document_version (context session) in
+  {
+    session with
+    pane_folds =
+      ((pane, buffer_id), { document_version; ranges })
+      :: List.filter
+           (fun ((candidate_pane, candidate_buffer), _) ->
+             candidate_pane <> pane || candidate_buffer <> buffer_id)
+           session.pane_folds;
+  }
+
+let clear_fold_ranges_for_pane session pane =
+  let buffer_id = buffer_id_for_pane session pane in
+  {
+    session with
+    pane_folds =
+      List.filter
+        (fun ((candidate_pane, candidate_buffer), _) ->
+          candidate_pane <> pane || candidate_buffer <> buffer_id)
+        session.pane_folds;
+  }
+
+let invalidate_stale_pane_folds session =
+  {
+    session with
+    pane_folds =
+      List.filter
+        (fun ((pane, buffer_id), (state : fold_state)) ->
+          List.mem pane (pane_ids session)
+          &&
+          match buffer_for_id session buffer_id with
+          | None -> false
+          | Some buffer -> fold_state_has_current_source buffer.active state)
+        session.pane_folds;
+  }
+
+let projected_lines_for_pane session pane source_lines =
+  Zenbu_view.Fold.project (fold_ranges_for_pane session pane) source_lines
+
 let pane_rectangle session pane = layout_bounds session |> List.assoc_opt pane
 
 let focus_pane session pane =
@@ -2435,6 +2585,11 @@ let split_pane session orientation =
           |> Option.value
                ~default:(view_position_of_context ~buffer_id (context session))
         in
+        let copied_folds =
+          match fold_state_for_pane session session.focused_pane with
+          | None -> []
+          | Some state -> [ ((session.next_pane_id, buffer_id), state) ]
+        in
         {
           session with
           layout;
@@ -2445,6 +2600,7 @@ let split_pane session orientation =
           pane_view_positions =
             ((session.next_pane_id, buffer_id), position)
             :: session.pane_view_positions;
+          pane_folds = copied_folds @ session.pane_folds;
           pane_buffers =
             (session.next_pane_id, buffer_id) :: session.pane_buffers;
           next_pane_id = session.next_pane_id + 1;
@@ -2494,6 +2650,10 @@ let close_pane session =
             List.filter
               (fun ((pane, _), _) -> List.mem pane panes)
               session.pane_view_positions;
+          pane_folds =
+            List.filter
+              (fun ((pane, _), _) -> List.mem pane panes)
+              session.pane_folds;
           pane_buffers =
             List.filter
               (fun (pane, _) -> List.mem pane panes)
@@ -2516,6 +2676,10 @@ let only_pane session =
       List.filter
         (fun ((candidate_pane, _), _) -> candidate_pane = pane)
         session.pane_view_positions;
+    pane_folds =
+      List.filter
+        (fun ((candidate_pane, _), _) -> candidate_pane = pane)
+        session.pane_folds;
     pane_buffers = [ (pane, focused_buffer session) ];
     message = Some "workspace: kept current view";
     inspector = None;
@@ -2644,6 +2808,150 @@ let primary_offset session =
   let selections = Editor_context.selections (context session) in
   let primary = List.nth selections.selections selections.primary_index in
   primary.Editor_context.head_offset
+
+let primary_selection session =
+  let selections = Editor_context.selections (context session) in
+  List.nth selections.selections selections.primary_index
+
+let same_fold_range left right =
+  Zenbu_view.Fold.start_line left = Zenbu_view.Fold.start_line right
+  && Zenbu_view.Fold.stop_line left = Zenbu_view.Fold.stop_line right
+
+let fold_contains_line fold line =
+  Zenbu_view.Fold.start_line fold <= line
+  && line <= Zenbu_view.Fold.stop_line fold
+
+let settle_fold_change session message =
+  let pane = session.focused_pane in
+  {
+    (set_pane_viewport session pane
+       (Zenbu_view.Viewport.follow (pane_viewport session pane)))
+    with
+    interaction = Idle;
+    inspector = None;
+    message = Some message;
+    quit_armed = false;
+  }
+
+let add_or_remove_fold session ~source ~start_offset ~stop_offset =
+  let source_lines =
+    Zenbu_view.Display.source_lines (Editor_context.contents (context session))
+  in
+  match
+    Zenbu_view.Fold.create ~source source_lines ~start_offset ~stop_offset
+  with
+  | Error reason -> settle_fold_change session ("view fold rejected: " ^ reason)
+  | Ok range -> (
+      let ranges = fold_ranges_for_pane session session.focused_pane in
+      if List.exists (same_fold_range range) ranges then
+        let session =
+          set_fold_ranges_for_pane session session.focused_pane
+            (List.filter
+               (fun current -> not (same_fold_range range current))
+               ranges)
+        in
+        settle_fold_change session "view fold removed"
+      else
+        match Zenbu_view.Fold.validate (range :: ranges) with
+        | Error reason ->
+            settle_fold_change session ("view fold rejected: " ^ reason)
+        | Ok () ->
+            let session =
+              set_fold_ranges_for_pane session session.focused_pane
+                (range :: ranges)
+            in
+            settle_fold_change session "view fold added")
+
+let remove_innermost_fold_at_primary session =
+  let source_lines =
+    Zenbu_view.Display.source_lines (Editor_context.contents (context session))
+  in
+  let line =
+    Zenbu_view.Display.source_line_at source_lines (primary_offset session)
+  in
+  let ranges = fold_ranges_for_pane session session.focused_pane in
+  match
+    ranges
+    |> List.filter (fun fold -> fold_contains_line fold line.number)
+    |> List.sort (fun left right ->
+        match
+          Int.compare
+            (Zenbu_view.Fold.start_line right)
+            (Zenbu_view.Fold.start_line left)
+        with
+        | 0 ->
+            Int.compare
+              (Zenbu_view.Fold.stop_line left)
+              (Zenbu_view.Fold.stop_line right)
+        | result -> result)
+  with
+  | [] -> None
+  | fold :: _ ->
+      Some
+        (set_fold_ranges_for_pane session session.focused_pane
+           (List.filter
+              (fun current -> not (same_fold_range current fold))
+              ranges))
+
+let toggle_selection_fold session =
+  let selection = primary_selection session in
+  let source_lines =
+    Zenbu_view.Display.source_lines (Editor_context.contents (context session))
+  in
+  let start_line =
+    Zenbu_view.Display.source_line_at source_lines selection.anchor_offset
+  in
+  let stop_line =
+    Zenbu_view.Display.source_line_at source_lines selection.head_offset
+  in
+  if start_line.number = stop_line.number then
+    match remove_innermost_fold_at_primary session with
+    | Some session -> settle_fold_change session "view fold removed"
+    | None ->
+        settle_fold_change session
+          "view fold rejected: select at least two source lines"
+  else
+    add_or_remove_fold session ~source:Zenbu_view.Fold.Manual
+      ~start_offset:selection.anchor_offset ~stop_offset:selection.head_offset
+
+let toggle_syntax_fold session =
+  let context = context session in
+  match Editor_context.syntax context with
+  | None ->
+      settle_fold_change session "view fold rejected: syntax is unavailable"
+  | Some snapshot
+    when Syntax.Snapshot.document_id snapshot
+         <> Editor_context.document_id context
+         || Syntax.Snapshot.document_version snapshot
+            <> Editor_context.document_version context ->
+      settle_fold_change session "view fold rejected: syntax snapshot is stale"
+  | Some snapshot when Syntax.Snapshot.has_error snapshot ->
+      settle_fold_change session
+        "view fold rejected: syntax snapshot has errors"
+  | Some snapshot -> (
+      let selection = primary_selection session in
+      let start_offset =
+        min selection.Editor_context.anchor_offset selection.head_offset
+      in
+      let stop_offset = max selection.anchor_offset selection.head_offset in
+      match
+        Syntax.Snapshot.smallest_named_containing snapshot ~start_offset
+          ~stop_offset
+      with
+      | None ->
+          settle_fold_change session
+            "view fold rejected: no current named syntax node"
+      | Some node when Syntax.Snapshot.Node.has_error node ->
+          settle_fold_change session
+            "view fold rejected: current syntax node has errors"
+      | Some node ->
+          add_or_remove_fold session ~source:Zenbu_view.Fold.Syntax
+            ~start_offset:(Syntax.Snapshot.Node.start_offset node)
+            ~stop_offset:(Syntax.Snapshot.Node.stop_offset node))
+
+let clear_folds session =
+  let session = clear_fold_ranges_for_pane session session.focused_pane in
+  settle_fold_change session "view folds cleared"
 
 let language_status_lines session =
   match session.language_client with
@@ -3396,8 +3704,9 @@ let scroll_pane session pane ~lines =
       if source_rows = 0 then session
       else
         let contents = Editor_context.contents (context session) in
+        let source_lines = Zenbu_view.Display.source_lines contents in
         let line_count =
-          List.length (Zenbu_view.Display.source_lines contents)
+          List.length (projected_lines_for_pane session pane source_lines)
         in
         let maximum_top_line = max 0 (line_count - source_rows) in
         let lines = min maximum_top_line (max (-maximum_top_line) lines) in
@@ -3417,8 +3726,9 @@ let scroll_pane_pages session pane ~pages =
       if source_rows = 0 then session
       else
         let contents = Editor_context.contents (context session) in
+        let source_lines = Zenbu_view.Display.source_lines contents in
         let line_count =
-          List.length (Zenbu_view.Display.source_lines contents)
+          List.length (projected_lines_for_pane session pane source_lines)
         in
         let maximum_top_line = max 0 (line_count - source_rows) in
         let lines =
@@ -3445,18 +3755,20 @@ let center_pane_viewport session pane =
       else
         let contents = Editor_context.contents (context session) in
         let source_lines = Zenbu_view.Display.source_lines contents in
-        let line_count = List.length source_lines in
+        let projected_lines =
+          projected_lines_for_pane session pane source_lines
+        in
+        let line_count = List.length projected_lines in
         let maximum_top_line = max 0 (line_count - source_rows) in
-        let primary_line =
-          Zenbu_view.Display.source_line_at source_lines
+        let primary_index =
+          Zenbu_view.Fold.index_for_offset projected_lines source_lines
             (primary_offset session)
         in
         let viewport =
           {
             (pane_viewport session pane) with
             top_line =
-              min maximum_top_line
-                (max 0 (primary_line.number - (source_rows / 2)));
+              min maximum_top_line (max 0 (primary_index - (source_rows / 2)));
             follow_cursor = false;
           }
         in
@@ -5716,7 +6028,8 @@ let language_host_command = function
   | Balance_panes | New_buffer | Open_buffer | List_buffers | Switch_buffer
   | Rename_buffer | Close_buffer | Force_close_buffer | Next_buffer
   | Previous_buffer | View_scroll_up | View_scroll_down | View_page_up
-  | View_page_down | View_center ->
+  | View_page_down | View_center | View_fold_selection | View_fold_syntax
+  | View_fold_clear ->
       false
 
 let palette_items session =
@@ -7153,6 +7466,9 @@ let invoke_host_palette_command ?(arguments = []) session input = function
   | View_page_up -> scroll_pane_pages session session.focused_pane ~pages:(-1)
   | View_page_down -> scroll_pane_pages session session.focused_pane ~pages:1
   | View_center -> center_pane_viewport session session.focused_pane
+  | View_fold_selection -> toggle_selection_fold session
+  | View_fold_syntax -> toggle_syntax_fold session
+  | View_fold_clear -> clear_folds session
   | Switch_model ->
       let current =
         model_choices session
@@ -7852,10 +8168,17 @@ let pointer_target session ~column ~row =
               Editor_context.contents (context_of_active buffer.active)
             in
             let source_lines = Zenbu_view.Display.source_lines contents in
+            let projected_lines =
+              projected_lines_for_pane session pane source_lines
+            in
             let source_line =
-              List.nth_opt source_lines
+              List.nth_opt projected_lines
                 ((pane_viewport session pane).top_line + local_row)
-              |> Option.value ~default:(List.hd (List.rev source_lines))
+              |> Option.map Zenbu_view.Fold.source_line
+              |> Option.value
+                   ~default:
+                     (Zenbu_view.Fold.source_line
+                        (List.hd (List.rev projected_lines)))
             in
             let line = Zenbu_view.Display.layout contents source_line in
             let column =
@@ -8348,6 +8671,9 @@ let handle_host session = function
   | View_page_down ->
       Continue (scroll_pane_pages session session.focused_pane ~pages:1)
   | View_center -> Continue (center_pane_viewport session session.focused_pane)
+  | View_fold_selection -> Continue (toggle_selection_fold session)
+  | View_fold_syntax -> Continue (toggle_syntax_fold session)
+  | View_fold_clear -> Continue (clear_folds session)
   | Switch_model ->
       let current =
         model_choices session
@@ -8934,12 +9260,14 @@ let render_pane session pane rectangle =
         ~syntax_spans:presentation.syntax_spans
         ~search_ranges:(search_ranges display)
         ~diagnostic_ranges:(diagnostic_ranges display)
+        ~fold_ranges:(fold_ranges_for_pane session pane)
         ?diagnostic_summary:(diagnostic_summary display)
         ()
     in
     (set_pane_viewport session pane rendered.viewport, rendered.frame)
 
 let render session =
+  let session = invalidate_stale_pane_folds session in
   let presentation = presentation_cache session in
   let session, frames =
     layout_bounds session

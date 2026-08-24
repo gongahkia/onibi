@@ -102,25 +102,53 @@ let grapheme_style ~syntax_spans ~search_ranges ~diagnostic_ranges ~selections
               Option.value ~default:Frame.Plain
                 (syntax_style syntax_spans grapheme)))
 
-let row_for_line ~columns ~left_column ~syntax_spans ~search_ranges
+let row_for_line ?fold_marker ~columns ~left_column ~syntax_spans ~search_ranges
     ~diagnostic_ranges ~selections ~primary_index line =
   let right_column = left_column + columns in
+  let padding used cells =
+    let padding = columns - used in
+    List.rev
+      (if padding > 0 then Frame.cell ~width:padding (spaces padding) :: cells
+       else cells)
+  in
+  let marker_graphemes =
+    Option.map
+      (fun text ->
+        Display.layout text
+          {
+            Display.number = 0;
+            start_offset = 0;
+            stop_offset = String.length text;
+            end_offset = String.length text;
+          }
+        |> fun marker -> marker.Display.graphemes)
+      fold_marker
+    |> Option.value ~default:[]
+  in
+  let rec marker_loop used cells = function
+    | [] -> padding used cells
+    | grapheme :: rest ->
+        let column = line.Display.width + grapheme.Display.column in
+        let grapheme_end = column + grapheme.width in
+        if grapheme_end <= left_column then marker_loop used cells rest
+        else if column >= right_column then padding used cells
+        else
+          let visible_start = max left_column column in
+          let visible_end = min right_column grapheme_end in
+          let width = visible_end - visible_start in
+          let fully_visible =
+            visible_start = column && visible_end = grapheme_end
+          in
+          let text = if fully_visible then grapheme.text else spaces width in
+          let cell = Frame.cell ~style:Frame.Dim ~width text in
+          marker_loop (used + width) (cell :: cells) rest
+  in
   let rec loop used cells = function
-    | [] ->
-        let padding = columns - used in
-        List.rev
-          (if padding > 0 then
-             Frame.cell ~width:padding (spaces padding) :: cells
-           else cells)
+    | [] -> marker_loop used cells marker_graphemes
     | grapheme :: rest ->
         let grapheme_end = grapheme.Display.column + grapheme.width in
         if grapheme_end <= left_column then loop used cells rest
-        else if grapheme.column >= right_column then
-          let padding = columns - used in
-          List.rev
-            (if padding > 0 then
-               Frame.cell ~width:padding (spaces padding) :: cells
-             else cells)
+        else if grapheme.column >= right_column then padding used cells
         else
           let visible_start = max left_column grapheme.column in
           let visible_end = min right_column grapheme_end in
@@ -278,8 +306,8 @@ let blank_gutter width =
 
 let render_with_inspector ~inspector ?(presentation = Presentation.default)
     ?overlay ?source_lines ?(syntax_spans = []) ?(search_ranges = [])
-    ?(diagnostic_ranges = []) ?diagnostic_summary ~context ~status ~filename
-    ~dirty ~message ~viewport ~dimensions () =
+    ?(diagnostic_ranges = []) ?(fold_ranges = []) ?diagnostic_summary ~context
+    ~status ~filename ~dirty ~message ~viewport ~dimensions () =
   if
     dimensions.columns < 1
     || dimensions.rows < if has_status_line presentation then 2 else 1
@@ -308,6 +336,21 @@ let render_with_inspector ~inspector ?(presentation = Presentation.default)
             let primary_column =
               Display.column_at primary_line primary.head_offset
             in
+            let projected_lines = Fold.project fold_ranges source_lines in
+            let primary_projected_index =
+              Fold.index_for_offset projected_lines source_lines
+                primary.head_offset
+            in
+            let primary_projected_line =
+              List.nth projected_lines primary_projected_index
+            in
+            let cursor_source_line = Fold.source_line primary_projected_line in
+            let cursor_line = Display.layout contents cursor_source_line in
+            let cursor_column =
+              if cursor_source_line.number = primary_source_line.number then
+                primary_column
+              else cursor_line.width
+            in
             let gutter_columns =
               gutter_width presentation source_lines dimensions.columns
             in
@@ -315,27 +358,38 @@ let render_with_inspector ~inspector ?(presentation = Presentation.default)
             let content_rows =
               dimensions.rows - if has_status_line presentation then 1 else 0
             in
+            let maximum_top_line =
+              max 0 (List.length projected_lines - content_rows)
+            in
             let viewport =
-              Viewport.reconcile viewport ~line:primary_line.number
-                ~column:primary_column ~width:content_columns
+              Viewport.
+                {
+                  viewport with
+                  top_line = min maximum_top_line (max 0 viewport.top_line);
+                }
+            in
+            let viewport =
+              Viewport.reconcile viewport ~line:primary_projected_index
+                ~column:cursor_column ~width:content_columns
                 ~height:(content_rows + 1)
             in
             let first = viewport.top_line in
             let last = first + content_rows - 1 in
-            let visible_source_lines =
-              source_lines
-              |> List.filter (fun source_line ->
-                  source_line.Display.number >= first
-                  && source_line.number <= last)
+            let visible_projected_lines =
+              projected_lines
+              |> List.mapi (fun index line -> (index, line))
+              |> List.filter (fun (index, _) -> index >= first && index <= last)
             in
             let visible_start, visible_stop =
-              match visible_source_lines with
+              match visible_projected_lines with
               | [] -> (0, 0)
-              | first_line :: rest ->
+              | (_, first_line) :: rest ->
                   let last_line =
-                    List.fold_left (fun _ line -> line) first_line rest
+                    List.fold_left (fun _ (_, line) -> line) first_line rest
                   in
-                  (first_line.start_offset, last_line.end_offset)
+                  Fold.source_line first_line |> fun line ->
+                  ( line.start_offset,
+                    Fold.source_line last_line |> fun line -> line.end_offset )
             in
             let intersects start_offset stop_offset =
               start_offset < visible_stop && visible_start < stop_offset
@@ -360,9 +414,19 @@ let render_with_inspector ~inspector ?(presentation = Presentation.default)
             in
             let number_width = decimal_width (List.length source_lines) in
             let visible_rows =
-              visible_source_lines
-              |> List.map (fun source_line ->
+              visible_projected_lines
+              |> List.map (fun (_, projected_line) ->
+                  let source_line = Fold.source_line projected_line in
                   let line = Display.layout contents source_line in
+                  let fold_marker =
+                    match Fold.fold projected_line with
+                    | None -> None
+                    | Some _ ->
+                        let hidden = Fold.hidden_line_count projected_line in
+                        Some
+                          (Printf.sprintf "  … %d line%s folded" hidden
+                             (if hidden = 1 then "" else "s"))
+                  in
                   gutter_row ~presentation ~width:gutter_columns ~number_width
                     ~primary_line:primary_line.number source_line
                   @ row_for_line ~columns:content_columns
@@ -370,7 +434,7 @@ let render_with_inspector ~inspector ?(presentation = Presentation.default)
                       ~syntax_spans:visible_syntax_spans
                       ~search_ranges:visible_search_ranges
                       ~diagnostic_ranges:visible_diagnostic_ranges ~selections
-                      ~primary_index:selections.primary_index line)
+                      ~primary_index:selections.primary_index ?fold_marker line)
             in
             let missing_rows = content_rows - List.length visible_rows in
             let blank_row =
@@ -392,9 +456,9 @@ let render_with_inspector ~inspector ?(presentation = Presentation.default)
               else []
             in
             let cursor =
-              let row = primary_line.number - viewport.top_line in
+              let row = primary_projected_index - viewport.top_line in
               let column =
-                gutter_columns + primary_column - viewport.left_column
+                gutter_columns + cursor_column - viewport.left_column
               in
               if
                 row < 0 || row >= content_rows || column < 0

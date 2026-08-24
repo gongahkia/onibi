@@ -2,6 +2,7 @@ open Zenbu_kernel
 open Zenbu_model_api
 module App = Zenbu_app
 module Display = Zenbu_view.Display
+module Fold = Zenbu_view.Fold
 module Frame = Zenbu_view.Frame
 module Layout = Zenbu_view.Layout
 module Presentation = Zenbu_view.Presentation
@@ -1183,6 +1184,174 @@ let test_keyboard_viewport_commands () =
     ((App.Session.viewport bare).top_line = 3)
     "page navigation did not account for a presentation with no status row"
 
+let test_view_folding () =
+  let contents = "zero\none\ntwo\nthree\nfour\nfive\nsix\nseven" in
+  let source_lines = Display.source_lines contents in
+  let source_line = List.nth source_lines in
+  let outer =
+    Fold.create ~source:Fold.Manual source_lines
+      ~start_offset:(source_line 0).start_offset
+      ~stop_offset:(source_line 4).stop_offset
+    |> Result.get_ok
+  in
+  let nested =
+    Fold.create ~source:Fold.Syntax source_lines
+      ~start_offset:(source_line 1).start_offset
+      ~stop_offset:(source_line 3).stop_offset
+    |> Result.get_ok
+  in
+  let partial =
+    Fold.create ~source:Fold.Manual source_lines
+      ~start_offset:(source_line 2).start_offset
+      ~stop_offset:(source_line 5).stop_offset
+    |> Result.get_ok
+  in
+  expect
+    (Fold.validate [ outer; nested ] = Ok ())
+    "strictly nested fold ranges were rejected";
+  expect
+    (match Fold.validate [ outer; partial ] with
+    | Error _ -> true
+    | Ok () -> false)
+    "partially overlapping fold ranges were accepted";
+  let projection = Fold.project [ outer; nested ] source_lines in
+  expect
+    (List.length projection = 4
+    && Fold.hidden_line_count (List.hd projection) = 4
+    && Fold.source outer = Fold.Manual
+    && Fold.source nested = Fold.Syntax)
+    "the outer fold did not hide its nested source rows";
+  let dimensions = Renderer.{ columns = 64; rows = 5 } in
+  let session =
+    App.Session.create ~model:App.Session.Direct ~contents ~dimensions ()
+    |> must
+    |> fun session ->
+    App.Session.handle_pointer session
+      (pointer (Input_event.Press Input_event.Primary) ~column:0 ~row:0)
+    |> fun session ->
+    App.Session.handle_pointer session
+      (pointer Input_event.Drag ~column:0 ~row:3)
+    |> fun session ->
+    App.Session.handle_pointer session
+      (pointer Input_event.Release ~column:0 ~row:3)
+  in
+  let folded = host_session session App.Session.View_fold_selection in
+  expect
+    (App.Session.contents folded = contents)
+    "folding changed source contents";
+  let folded, frame = App.Session.render folded in
+  let screen =
+    Frame.rows frame |> List.map Frame.row_text |> String.concat "\n"
+  in
+  expect
+    (contains ~substring:"zero  … 3 lines folded" screen
+    && contains ~substring:"four" screen
+    && (not (contains ~substring:"\none\n" screen))
+    && (not (contains ~substring:"\ntwo\n" screen))
+    && not (contains ~substring:"\nthree\n" screen))
+    "the folded projection did not hide only the covered source rows";
+  expect
+    (Option.map (fun (cursor : Frame.cursor) -> cursor.row) (Frame.cursor frame)
+    = Some 0)
+    "a hidden primary selection did not project its cursor to the fold header";
+  let paged = host_session folded App.Session.View_page_down in
+  expect
+    ((App.Session.viewport paged).top_line = 1
+    && not (App.Session.viewport paged).follow_cursor)
+    "viewport paging used source rows instead of the folded projection";
+  let centered = host_session paged App.Session.View_center in
+  expect
+    ((App.Session.viewport centered).top_line = 0)
+    "centering did not map a hidden primary selection to its fold header";
+  let pointed =
+    App.Session.handle_pointer folded
+      (pointer (Input_event.Press Input_event.Primary) ~column:0 ~row:1)
+  in
+  expect
+    ((primary_selection pointed).head_offset = (source_line 4).start_offset)
+    "a pointer row after a fold did not map to its source line";
+  let pointed, frame = App.Session.render pointed in
+  let pointed_screen =
+    Frame.rows frame |> List.map Frame.row_text |> String.concat "\n"
+  in
+  expect
+    (contains ~substring:"lines folded" pointed_screen)
+    "a selection-only pointer event invalidated a source-stable fold";
+  let header =
+    App.Session.handle_pointer pointed
+      (pointer (Input_event.Press Input_event.Primary) ~column:0 ~row:0)
+  in
+  let edited = App.Session.handle_input header (text_input "X") in
+  let edited, frame = App.Session.render edited in
+  let screen =
+    Frame.rows frame |> List.map Frame.row_text |> String.concat "\n"
+  in
+  expect
+    ((not (contains ~substring:"lines folded" screen))
+    && App.Session.contents edited <> contents)
+    "an edit through a folded view retained a stale fold projection";
+  let cleared = host_session folded App.Session.View_fold_clear in
+  let _, frame = App.Session.render cleared in
+  let screen =
+    Frame.rows frame |> List.map Frame.row_text |> String.concat "\n"
+  in
+  expect
+    (not (contains ~substring:"lines folded" screen))
+    "the clear-folds host command retained a folded projection";
+  let split = host_session folded App.Session.Split_vertical in
+  let split = host_session split App.Session.View_fold_clear in
+  let split = host_session split App.Session.Focus_next_pane in
+  let _, frame = App.Session.render split in
+  let split_screen =
+    Frame.rows frame |> List.map Frame.row_text |> String.concat "\n"
+  in
+  expect
+    (contains ~substring:"lines folded" split_screen)
+    "clearing a split pane's folds changed the other pane's projection";
+  let tiny = App.Session.resize folded ~columns:1 ~rows:1 in
+  let _, frame = App.Session.render tiny in
+  expect
+    (Frame.width frame = 1 && Frame.height frame = 1)
+    "a folded view did not preserve the tiny-frame renderer boundary";
+  let syntax_session =
+    App.Session.create ~model:App.Session.Direct ~language:"ocaml"
+      ~contents:"let value =\n  1\n" ~dimensions ()
+    |> must
+    |> fun session ->
+    App.Session.handle_pointer session
+      (pointer (Input_event.Press Input_event.Primary) ~column:0 ~row:0)
+    |> fun session ->
+    App.Session.handle_pointer session
+      (pointer Input_event.Drag ~column:1 ~row:1)
+    |> fun session ->
+    App.Session.handle_pointer session
+      (pointer Input_event.Release ~column:1 ~row:1)
+  in
+  let syntax_folded =
+    host_session syntax_session App.Session.View_fold_syntax
+  in
+  let _, frame = App.Session.render syntax_folded in
+  let syntax_screen =
+    Frame.rows frame |> List.map Frame.row_text |> String.concat "\n"
+  in
+  expect
+    (contains ~substring:"line folded" syntax_screen)
+    "a current error-free syntax node did not create a syntax-derived fold";
+  let invalid_syntax =
+    App.Session.create ~model:App.Session.Direct ~language:"ocaml"
+      ~contents:"let value =\n  if\n" ~dimensions ()
+    |> must
+    |> fun session -> host_session session App.Session.View_fold_syntax
+  in
+  let _, frame = App.Session.render invalid_syntax in
+  let invalid_screen =
+    Frame.rows frame |> List.map Frame.row_text |> String.concat "\n"
+  in
+  expect
+    ((not (contains ~substring:"lines folded" invalid_screen))
+    && contains ~substring:"if" invalid_screen)
+    "an invalid syntax snapshot was used to create a fold"
+
 let test_workspace_view_positions () =
   let dimensions = Renderer.{ columns = 100; rows = 6 } in
   let session =
@@ -2048,6 +2217,7 @@ let () =
     ("session workspace views", test_session_workspace_views);
     ("pointer divider dragging", test_pointer_divider_dragging);
     ("keyboard viewport commands", test_keyboard_viewport_commands);
+    ("view folding", test_view_folding);
     ("workspace view positions", test_workspace_view_positions);
     ("session open-buffer prompt", test_session_open_buffer_prompt);
     ("session layout persistence", test_session_layout_persistence);

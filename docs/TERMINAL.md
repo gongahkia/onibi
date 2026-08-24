@@ -168,6 +168,13 @@ selection unless deliberately scrolled with the wheel; soft wrapping,
 multi-click/word selection, terminal capability probing, and exact emoji width
 remain out of scope.
 
+The focused pane can additionally hold version-bound manual or syntax-derived
+fold ranges. The view keeps a header source row and replaces later covered rows
+with a dim folded-line suffix; the renderer, viewport, and pointer path all
+use that same projection. This never alters source bytes, selections, history,
+or model state. [Folding](FOLDING.md) specifies validation, invalidation,
+cursor, pointer, search, and diagnostic behavior.
+
 System clipboard commands are deliberately deferred: platform-specific
 `wl-copy`, `xclip`, and `pbcopy` discovery does not belong in the semantic
 runtime. Zenbu's existing internal clipboard slots remain available to models.
