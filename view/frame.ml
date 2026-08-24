@@ -16,6 +16,8 @@ type style =
   | Syntax_comment
   | Syntax_type
   | Syntax_constructor
+  | Decoration_inline
+  | Decoration_virtual
   | Overlay
 
 type cell = { text : string; width : int; style : style }

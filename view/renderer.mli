@@ -52,6 +52,7 @@ val render_with_inspector :
   ?search_ranges:search_range list ->
   ?diagnostic_ranges:diagnostic_range list ->
   ?fold_ranges:Fold.range list ->
+  ?decorations:Decoration.response list ->
   ?diagnostic_summary:string ->
   context:Zenbu_model_api.Editor_context.t ->
   status:Zenbu_model_api.Model_status.t ->

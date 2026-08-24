@@ -46,6 +46,8 @@ let styles =
     Frame.Syntax_comment;
     Frame.Syntax_type;
     Frame.Syntax_constructor;
+    Frame.Decoration_inline;
+    Frame.Decoration_virtual;
     Frame.Overlay;
   ]
 
@@ -67,6 +69,8 @@ let style_name = function
   | Frame.Syntax_comment -> "syntax_comment"
   | Frame.Syntax_type -> "syntax_type"
   | Frame.Syntax_constructor -> "syntax_constructor"
+  | Frame.Decoration_inline -> "decoration_inline"
+  | Frame.Decoration_virtual -> "decoration_virtual"
   | Frame.Overlay -> "overlay"
 
 let plain = { foreground = Default; background = Default; decorations = [] }
@@ -102,6 +106,10 @@ let default_attribute = function
   | Frame.Syntax_type ->
       { plain with foreground = Ansi Blue; decorations = [ Bold ] }
   | Frame.Syntax_constructor -> { plain with foreground = Ansi Yellow }
+  | Frame.Decoration_inline ->
+      { plain with foreground = Ansi Light_black; decorations = [ Italic ] }
+  | Frame.Decoration_virtual ->
+      { plain with foreground = Ansi Cyan; decorations = [ Italic ] }
   | Frame.Overlay ->
       {
         foreground = Ansi White;
@@ -220,6 +228,18 @@ let dark =
           background = Rgb (20, 22, 27);
           decorations = [];
         } );
+      ( Frame.Decoration_inline,
+        {
+          foreground = Rgb (92, 99, 112);
+          background = Rgb (20, 22, 27);
+          decorations = [ Italic ];
+        } );
+      ( Frame.Decoration_virtual,
+        {
+          foreground = Rgb (86, 182, 194);
+          background = Rgb (20, 22, 27);
+          decorations = [ Italic ];
+        } );
       ( Frame.Overlay,
         {
           foreground = Rgb (220, 222, 226);
@@ -332,6 +352,18 @@ let light =
           foreground = Rgb (165, 105, 0);
           background = Rgb (250, 250, 250);
           decorations = [];
+        } );
+      ( Frame.Decoration_inline,
+        {
+          foreground = Rgb (120, 125, 135);
+          background = Rgb (250, 250, 250);
+          decorations = [ Italic ];
+        } );
+      ( Frame.Decoration_virtual,
+        {
+          foreground = Rgb (28, 126, 126);
+          background = Rgb (250, 250, 250);
+          decorations = [ Italic ];
         } );
       ( Frame.Overlay,
         {

@@ -19,6 +19,8 @@ type diagnostic_range = {
   kind : diagnostic_kind;
 }
 
+type trailing = { text : string; style : Frame.style }
+
 let spaces width = if width <= 0 then "" else String.make width ' '
 let decimal_width value = String.length (string_of_int (max 1 value))
 
@@ -102,8 +104,9 @@ let grapheme_style ~syntax_spans ~search_ranges ~diagnostic_ranges ~selections
               Option.value ~default:Frame.Plain
                 (syntax_style syntax_spans grapheme)))
 
-let row_for_line ?fold_marker ~columns ~left_column ~syntax_spans ~search_ranges
-    ~diagnostic_ranges ~selections ~primary_index line =
+let row_for_line ?(trailing = []) ?(content_style = None) ~columns ~left_column
+    ~syntax_spans ~search_ranges ~diagnostic_ranges ~selections ~primary_index
+    line =
   let right_column = left_column + columns in
   let padding used cells =
     let padding = columns - used in
@@ -111,23 +114,24 @@ let row_for_line ?fold_marker ~columns ~left_column ~syntax_spans ~search_ranges
       (if padding > 0 then Frame.cell ~width:padding (spaces padding) :: cells
        else cells)
   in
-  let marker_graphemes =
-    Option.map
-      (fun text ->
-        Display.layout text
-          {
-            Display.number = 0;
-            start_offset = 0;
-            stop_offset = String.length text;
-            end_offset = String.length text;
-          }
-        |> fun marker -> marker.Display.graphemes)
-      fold_marker
-    |> Option.value ~default:[]
+  let trailing_graphemes =
+    trailing
+    |> List.concat_map (fun trailing ->
+           let graphemes =
+             Display.layout trailing.text
+               {
+                 Display.number = 0;
+                 start_offset = 0;
+                 stop_offset = String.length trailing.text;
+                 end_offset = String.length trailing.text;
+               }
+             |> fun marker -> marker.Display.graphemes
+           in
+           List.map (fun grapheme -> (trailing.style, grapheme)) graphemes)
   in
   let rec marker_loop used cells = function
     | [] -> padding used cells
-    | grapheme :: rest ->
+    | (style, grapheme) :: rest ->
         let column = line.Display.width + grapheme.Display.column in
         let grapheme_end = column + grapheme.width in
         if grapheme_end <= left_column then marker_loop used cells rest
@@ -140,11 +144,11 @@ let row_for_line ?fold_marker ~columns ~left_column ~syntax_spans ~search_ranges
             visible_start = column && visible_end = grapheme_end
           in
           let text = if fully_visible then grapheme.text else spaces width in
-          let cell = Frame.cell ~style:Frame.Dim ~width text in
+          let cell = Frame.cell ~style ~width text in
           marker_loop (used + width) (cell :: cells) rest
   in
   let rec loop used cells = function
-    | [] -> marker_loop used cells marker_graphemes
+    | [] -> marker_loop used cells trailing_graphemes
     | grapheme :: rest ->
         let grapheme_end = grapheme.Display.column + grapheme.width in
         if grapheme_end <= left_column then loop used cells rest
@@ -160,8 +164,10 @@ let row_for_line ?fold_marker ~columns ~left_column ~syntax_spans ~search_ranges
           let cell =
             Frame.cell
               ~style:
-                (grapheme_style ~syntax_spans ~search_ranges ~diagnostic_ranges
-                   ~selections ~primary_index grapheme)
+                (Option.value ~default:
+                   (grapheme_style ~syntax_spans ~search_ranges
+                      ~diagnostic_ranges ~selections ~primary_index grapheme)
+                   content_style)
               ~width text
           in
           loop (used + width) (cell :: cells) rest
@@ -304,10 +310,17 @@ let blank_gutter width =
   if width = 0 then []
   else [ Frame.cell ~style:Frame.Dim ~width (spaces width) ]
 
+let decoration_text decoration =
+  let provider = Decoration.provider_id decoration in
+  match Decoration.item decoration with
+  | Decoration.Inline { text; _ } -> "  [" ^ provider ^ ": " ^ text ^ "]"
+  | Decoration.Virtual_line { text; _ } -> "[" ^ provider ^ "] " ^ text
+
 let render_with_inspector ~inspector ?(presentation = Presentation.default)
     ?overlay ?source_lines ?(syntax_spans = []) ?(search_ranges = [])
-    ?(diagnostic_ranges = []) ?(fold_ranges = []) ?diagnostic_summary ~context
-    ~status ~filename ~dirty ~message ~viewport ~dimensions () =
+    ?(diagnostic_ranges = []) ?(fold_ranges = []) ?(decorations = [])
+    ?diagnostic_summary ~context ~status ~filename ~dirty ~message ~viewport
+    ~dimensions () =
   if
     dimensions.columns < 1
     || dimensions.rows < if has_status_line presentation then 2 else 1
@@ -336,15 +349,22 @@ let render_with_inspector ~inspector ?(presentation = Presentation.default)
             let primary_column =
               Display.column_at primary_line primary.head_offset
             in
-            let projected_lines = Fold.project fold_ranges source_lines in
+            let projected_lines, _ =
+              Projection.project ~contents
+                ~document_id:(Editor_context.document_id context)
+                ~document_version:(Editor_context.document_version context)
+                ~folds:fold_ranges ~decorations source_lines
+            in
             let primary_projected_index =
-              Fold.index_for_offset projected_lines source_lines
+              Projection.index_for_offset projected_lines source_lines
                 primary.head_offset
             in
             let primary_projected_line =
               List.nth projected_lines primary_projected_index
             in
-            let cursor_source_line = Fold.source_line primary_projected_line in
+            let cursor_source_line =
+              Projection.row_anchor_line primary_projected_line
+            in
             let cursor_line = Display.layout contents cursor_source_line in
             let cursor_column =
               if cursor_source_line.number = primary_source_line.number then
@@ -387,9 +407,10 @@ let render_with_inspector ~inspector ?(presentation = Presentation.default)
                   let last_line =
                     List.fold_left (fun _ (_, line) -> line) first_line rest
                   in
-                  Fold.source_line first_line |> fun line ->
+                  Projection.row_anchor_line first_line |> fun line ->
                   ( line.start_offset,
-                    Fold.source_line last_line |> fun line -> line.end_offset )
+                    Projection.row_anchor_line last_line |> fun line ->
+                    line.end_offset )
             in
             let intersects start_offset stop_offset =
               start_offset < visible_stop && visible_start < stop_offset
@@ -416,25 +437,68 @@ let render_with_inspector ~inspector ?(presentation = Presentation.default)
             let visible_rows =
               visible_projected_lines
               |> List.map (fun (_, projected_line) ->
-                  let source_line = Fold.source_line projected_line in
-                  let line = Display.layout contents source_line in
-                  let fold_marker =
-                    match Fold.fold projected_line with
-                    | None -> None
-                    | Some _ ->
-                        let hidden = Fold.hidden_line_count projected_line in
-                        Some
-                          (Printf.sprintf "  … %d line%s folded" hidden
-                             (if hidden = 1 then "" else "s"))
-                  in
-                  gutter_row ~presentation ~width:gutter_columns ~number_width
-                    ~primary_line:primary_line.number source_line
-                  @ row_for_line ~columns:content_columns
-                      ~left_column:viewport.left_column
-                      ~syntax_spans:visible_syntax_spans
-                      ~search_ranges:visible_search_ranges
-                      ~diagnostic_ranges:visible_diagnostic_ranges ~selections
-                      ~primary_index:selections.primary_index ?fold_marker line)
+                     match projected_line with
+                     | Projection.Source source ->
+                         let source_line = Projection.source_line source in
+                         let line = Display.layout contents source_line in
+                         let fold_marker =
+                           match Projection.fold source with
+                           | None -> []
+                           | Some fold ->
+                               let hidden =
+                                 Fold.stop_line fold - Fold.start_line fold
+                               in
+                               [
+                                 {
+                                   text =
+                                     Printf.sprintf "  … %d line%s folded" hidden
+                                       (if hidden = 1 then "" else "s");
+                                   style = Frame.Dim;
+                                 };
+                               ]
+                         in
+                         let inline =
+                           Projection.inline source
+                           |> List.map (fun decoration ->
+                                  {
+                                    text = decoration_text decoration;
+                                    style = Frame.Decoration_inline;
+                                  })
+                         in
+                         gutter_row ~presentation ~width:gutter_columns
+                           ~number_width ~primary_line:primary_line.number
+                           source_line
+                         @ row_for_line ~trailing:(fold_marker @ inline)
+                             ~columns:content_columns
+                             ~left_column:viewport.left_column
+                             ~syntax_spans:visible_syntax_spans
+                             ~search_ranges:visible_search_ranges
+                             ~diagnostic_ranges:visible_diagnostic_ranges
+                             ~selections ~primary_index:selections.primary_index
+                             line
+                     | Projection.Virtual virtual_row ->
+                         let text =
+                           decoration_text
+                             (Projection.virtual_decoration virtual_row)
+                         in
+                         let line =
+                           Display.layout text
+                             {
+                               Display.number = 0;
+                               start_offset = 0;
+                               stop_offset = String.length text;
+                               end_offset = String.length text;
+                             }
+                         in
+                         blank_gutter gutter_columns
+                         @ row_for_line ~content_style:(Some Frame.Decoration_virtual)
+                             ~columns:content_columns
+                             ~left_column:viewport.left_column
+                             ~syntax_spans:[] ~search_ranges:[]
+                             ~diagnostic_ranges:[]
+                             ~selections:
+                               { Editor_context.selections = []; primary_index = 0 }
+                             ~primary_index:0 line)
             in
             let missing_rows = content_rows - List.length visible_rows in
             let blank_row =
