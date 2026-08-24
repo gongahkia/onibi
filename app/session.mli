@@ -32,6 +32,8 @@ type host_command =
   | Jump_forward
   | Open_palette
   | Switch_model
+  | Enable_binding_layer
+  | Disable_binding_layer
   | Help
   | Switch_presentation
   | Switch_theme
@@ -133,6 +135,8 @@ val handle_host : t -> host_command -> outcome
 val host_command_descriptors : unit -> Zenbu_model_api.Command_descriptor.t list
 val host_binding_lines : t -> string list
 val reload_config : t -> t
+val enable_binding_layer : t -> id:string -> t
+val disable_binding_layer : t -> id:string -> t
 val resize : t -> columns:int -> rows:int -> t
 val save_layout : t -> path:string -> (unit, Zenbu_kernel.Error.t) result
 val restore_layout : t -> path:string -> (t, Zenbu_kernel.Error.t) result
