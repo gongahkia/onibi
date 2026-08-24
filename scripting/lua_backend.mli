@@ -45,11 +45,19 @@ and mode_transition =
 
 type hook = { event : string; callback : callback }
 
+type state_persistence = {
+  schema : string;
+  version : int;
+  export : callback;
+  import : callback;
+}
+
 type model = {
   descriptor : descriptor;
   initial_state : Zenbu_model_api.Extension_value.t;
   initial_status : Zenbu_model_api.Extension_value.t;
   callback : callback;
+  persistence : state_persistence option;
 }
 
 type registration =

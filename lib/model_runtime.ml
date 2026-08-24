@@ -240,6 +240,14 @@ module Make (Model : Editing_model.S) = struct
             pending_interaction = None;
           }
 
+  let with_model_state runtime state =
+    {
+      runtime with
+      model_descriptor = Model.descriptor_of_state state;
+      state;
+      pending_interaction = None;
+    }
+
   let with_syntax_service runtime ~syntax_service =
     let shared = shared_state runtime in
     create_from_shared { shared with syntax_service }

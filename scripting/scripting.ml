@@ -34,9 +34,17 @@ type model = {
   descriptor : Editing_model.descriptor;
   initial_state : Extension_value.t;
   initial_status : Model_status.t;
+  persistence : state_persistence option;
   host : Host.t;
   invocation : Host.invocation;
   source : string;
+}
+
+and state_persistence = {
+  schema : string;
+  version : int;
+  export : Host.invocation;
+  import : Host.invocation;
 }
 
 type model_state = {
@@ -63,6 +71,7 @@ type t = {
 type config = Default | Explicit of string | Disabled
 
 let api_version = 1
+let maximum_state_schema_version = 1_000_000
 
 let trusted_capabilities =
   [
@@ -429,6 +438,66 @@ let model_state_status (state : model_state) = state.status
 let model_descriptor model = model.descriptor
 let model_state_descriptor (state : model_state) = model_descriptor state.model
 let model_state_model (state : model_state) = state.model
+
+let state_persistence_request invocation ~operation ~arguments : Host.request =
+  {
+    kind = Host.Model;
+    operation;
+    provider = Host.invocation_provider invocation;
+    granted = Host.invocation_granted invocation;
+    context = Extension_value.Record [];
+    arguments;
+  }
+
+let state_import_result source model = function
+  | Extension_value.Record _ as value -> (
+      match
+        (field value "state", field value "status", field value "effects")
+      with
+      | Some state, Some status, None ->
+          model_status_of_value source status
+          |> Result.map (fun status -> { model; value = state; status })
+      | _, _, Some _ ->
+          Error (model_error source "state import must not return effects")
+      | None, _, None ->
+          Error (model_error source "state import requires state")
+      | _, None, None ->
+          Error (model_error source "state import requires status"))
+  | _ -> Error (model_error source "state import must return a table")
+
+let migrate_model_state ~(previous : model_state) ~(replacement : model) =
+  match (previous.model.persistence, replacement.persistence) with
+  | Some prior, Some next ->
+      let export_request =
+        state_persistence_request prior.export ~operation:"model.state-export"
+          ~arguments:
+            (Extension_value.Record
+               [
+                 ("schema", Extension_value.Text prior.schema);
+                 ("version", Extension_value.Integer prior.version);
+                 ("state", previous.value);
+               ])
+      in
+      Result.bind (Host.invoke previous.model.host prior.export export_request)
+        (fun exported ->
+          let import_request =
+            state_persistence_request next.import
+              ~operation:"model.state-import"
+              ~arguments:
+                (Extension_value.Record
+                   [
+                     ("from_schema", Extension_value.Text prior.schema);
+                     ("from_version", Extension_value.Integer prior.version);
+                     ("state", exported);
+                     ("to_schema", Extension_value.Text next.schema);
+                     ("to_version", Extension_value.Integer next.version);
+                   ])
+          in
+          Result.bind
+            (Host.invoke replacement.host next.import import_request)
+            (state_import_result replacement.source replacement)
+          |> Result.map Option.some)
+  | None, _ | _, None -> Ok None
 
 let run_model (state : model_state) input context =
   let request =
@@ -855,6 +924,36 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
                         ])
           in
           let register_model (definition : Backend.model) =
+            let state_persistence () =
+              match definition.persistence with
+              | None -> Ok None
+              | Some persistence -> (
+                  match validate_id source persistence.schema with
+                  | Error error -> Error error
+                  | Ok _
+                    when persistence.version < 1
+                         || persistence.version > maximum_state_schema_version
+                    ->
+                      Error
+                        (script_error "registration" source
+                           (Printf.sprintf
+                              "state persistence version must be between 1 and \
+                               %d"
+                              maximum_state_schema_version))
+                  | Ok _ ->
+                      Ok
+                        (Some
+                           {
+                             schema = persistence.schema;
+                             version = persistence.version;
+                             export =
+                               invocation "model-state-export"
+                                 persistence.export;
+                             import =
+                               invocation "model-state-import"
+                                 persistence.import;
+                           }))
+            in
             match Provider.kind provider with
             | Provider.Plugin ->
                 fail
@@ -871,25 +970,29 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
                     match
                       ( validate_id source definition.descriptor.id,
                         model_status_of_value source definition.initial_status,
+                        state_persistence (),
                         Editing_model.descriptor ~id:definition.descriptor.id
                           ~title:definition.descriptor.title
                           ~description:definition.descriptor.description
                           ~provider () )
                     with
-                    | Ok _, Ok initial_status, Ok descriptor ->
+                    | Ok _, Ok initial_status, Ok persistence, Ok descriptor ->
                         declared_model :=
                           Some
                             {
                               descriptor;
                               initial_state = definition.initial_state;
                               initial_status;
+                              persistence;
                               host;
                               invocation =
                                 invocation "model" definition.callback;
                               source;
                             }
-                    | Error error, _, _ | _, Error error, _ | _, _, Error error
-                      ->
+                    | Error error, _, _, _
+                    | _, Error error, _, _
+                    | _, _, Error error, _
+                    | _, _, _, Error error ->
                         fail error))
             | Provider.Builtin | Provider.Editing_model | Provider.Syntax
             | Provider.Application ->

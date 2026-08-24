@@ -49,11 +49,19 @@ and mode_transition =
 
 type hook = { event : string; callback : callback }
 
+type state_persistence = {
+  schema : string;
+  version : int;
+  export : callback;
+  import : callback;
+}
+
 type model = {
   descriptor : descriptor;
   initial_state : Value.t;
   initial_status : Value.t;
   callback : callback;
+  persistence : state_persistence option;
 }
 
 type registration =
@@ -276,9 +284,20 @@ let pure_list_table state index length =
 
 let maximum_value_depth = 32
 let maximum_value_nodes = 4096
+let maximum_value_text_bytes = 1_048_576
 
 let value_at state index =
   let nodes = ref 0 in
+  let text_bytes = ref 0 in
+  let accept_text value =
+    let length = String.length value in
+    if length > maximum_value_text_bytes - !text_bytes then
+      Error
+        (error "conversion" "<lua>" "value exceeds maximum total string data")
+    else (
+      text_bytes := !text_bytes + length;
+      Ok value)
+  in
   let rec decode ancestors depth index =
     if depth > maximum_value_depth then
       Error (error "conversion" "<lua>" "value exceeds maximum nesting depth")
@@ -311,7 +330,8 @@ let value_at state index =
             else Ok (Value.Float value)
       | value_type when value_type = lua_string -> (
           match string_at state index with
-          | Some value -> Ok (Value.Text value)
+          | Some value ->
+              accept_text value |> Result.map (fun value -> Value.Text value)
           | None -> Error (error "conversion" "<lua>" "invalid string"))
       | value_type when value_type = lua_table ->
           let identity = raw_address_of_ptr (topointer state index) in
@@ -344,9 +364,14 @@ let value_at state index =
           if next state index = 0 then Value.record (List.rev values)
           else
             match (string_at state (-2), decode ancestors depth (-1)) with
-            | Some key, Ok value ->
-                pop state 1;
-                loop ((key, value) :: values)
+            | Some key, Ok value -> (
+                match accept_text key with
+                | Ok key ->
+                    pop state 1;
+                    loop ((key, value) :: values)
+                | Error error ->
+                    pop state 1;
+                    Error error)
             | None, _ ->
                 pop state 2;
                 Error (error "conversion" "<lua>" "table keys must be strings")
@@ -617,19 +642,55 @@ let binding_layer_definition state table =
   | _, _, _, Error error ->
       Error error
 
+let state_persistence_definition state table =
+  match
+    ( required_text state table "schema",
+      required_integer state table "version",
+      callback_field state table "export",
+      callback_field state table "import" )
+  with
+  | Ok schema, Ok version, Ok export, Ok import ->
+      Ok { schema; version; export; import }
+  | Error error, _, _, _
+  | _, Error error, _, _
+  | _, _, Error error, _
+  | _, _, _, Error error ->
+      Error error
+
+let optional_state_persistence state table =
+  ignore (get_field state table "persistence");
+  let persistence_table = abs_index state (-1) in
+  let result =
+    match value_type state (-1) with
+    | value_type when value_type = lua_nil -> Ok None
+    | value_type when value_type = lua_table ->
+        state_persistence_definition state persistence_table
+        |> Result.map Option.some
+    | _ ->
+        Error (error "registration" "<lua>" "field persistence must be a table")
+  in
+  pop state 1;
+  result
+
 let model_definition state table =
   match
     ( descriptor state table,
       required_value state table "initial_state",
       required_value state table "initial_status",
-      callback_field state table "run" )
+      callback_field state table "run",
+      optional_state_persistence state table )
   with
-  | Ok descriptor, Ok initial_state, Ok initial_status, Ok callback ->
-      Ok { descriptor; initial_state; initial_status; callback }
-  | Error error, _, _, _
-  | _, Error error, _, _
-  | _, _, Error error, _
-  | _, _, _, Error error ->
+  | ( Ok descriptor,
+      Ok initial_state,
+      Ok initial_status,
+      Ok callback,
+      Ok persistence ) ->
+      Ok { descriptor; initial_state; initial_status; callback; persistence }
+  | Error error, _, _, _, _
+  | _, Error error, _, _, _
+  | _, _, Error error, _, _
+  | _, _, _, Error error, _
+  | _, _, _, _, Error error ->
       Error error
 
 let callback_error backend state error =

@@ -22,6 +22,11 @@ module Make (Model : Editing_model.S) : sig
 
   val create_from_shared : shared_state -> (t, Zenbu_kernel.Error.t) result
 
+  val with_model_state : t -> model_state -> t
+  (** Replaces only the model-private state after the host has already validated
+      a generation transition. Shared document/history state remains unchanged.
+  *)
+
   val handle_input :
     t -> Input_event.t -> (t * step, Zenbu_kernel.Error.t) result
 

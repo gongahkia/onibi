@@ -3539,7 +3539,7 @@ let reload_config session =
             last_reload_error = Some error;
             quit_armed = false;
           }
-      | Ok configured_commands ->
+      | Ok configured_commands -> (
           let script_model = Option.bind generation Scripting.model in
           let script_runtime_required =
             script_runtime_active session.active
@@ -3563,168 +3563,219 @@ let reload_config session =
               quit_armed = false;
             })
           else
-            let configured_semantics =
-              session.base_semantics
-              @
-              match generation with
-              | None -> []
-              | Some generation -> Scripting.descriptors generation
+            let migrate_active active =
+              match (active, script_model) with
+              | Script_runtime runtime, Some replacement ->
+                  Scripting.migrate_model_state
+                    ~previous:(Script_runtime.model_state runtime)
+                    ~replacement
+              | Script_runtime _, None -> assert false
+              | ( ( Vim_runtime _ | Selection_runtime _ | Direct_runtime _
+                  | Structural_runtime _ ),
+                  _ ) ->
+                  Ok None
             in
-            let plugin_host =
-              Profiler.measure profiler Profiler.Extension_reload (fun () ->
-                  Plugins.reload session.plugins
-                    ~base_commands:configured_commands
-                    ~base_semantics:configured_semantics
-                    ?base_bindings:
-                      (match generation with
-                      | None -> None
-                      | Some generation -> Some (Scripting.bindings generation))
-                    ?base_binding_layers:
-                      (match generation with
-                      | None -> None
-                      | Some generation ->
-                          Some (Scripting.binding_layers generation))
-                    ())
-            in
-            trace_plugins trace ~execution_id ~phase:"reload" plugin_host;
-            trace_runtime_events trace profiler ~execution_id plugin_host;
-            let commands =
-              match commands_with_plugins configured_commands plugin_host with
-              | Ok commands -> commands
-              | Error error ->
-                  failwith
-                    ("plugin snapshot invariant violated: "
-                   ^ Error.to_string error)
-            in
-            let semantic_behaviors =
-              semantic_behaviors_with_plugins generation plugin_host
-            in
-            let refresh_active active =
-              match active with
-              | Script_runtime runtime -> (
-                  match script_model with
-                  | Some model ->
-                      Script_model.configure model;
-                      Script_runtime.create_from_shared
-                        (Script_runtime.shared_state runtime)
-                      |> Result.map (fun runtime -> Script_runtime runtime)
-                  | None -> assert false)
-              | active -> Ok active
-            in
-            let active =
-              match refresh_active session.active with
-              | Ok active ->
-                  active_with_extensions active ~commands ~semantic_behaviors
-              | Error error ->
-                  failwith
-                    ("script model reload invariant violated: "
-                   ^ Error.to_string error)
-            in
-            let inactive_buffers =
-              List.map
-                (fun (buffer : buffer) ->
-                  let active =
-                    match refresh_active buffer.active with
-                    | Ok active -> active
-                    | Error error ->
-                        failwith
-                          ("script model reload invariant violated: "
-                         ^ Error.to_string error)
+            let migration =
+              Result.bind (migrate_active session.active) (fun active_state ->
+                  let rec inactive states (buffers : buffer list) =
+                    match buffers with
+                    | [] -> Ok (active_state, List.rev states)
+                    | (buffer : buffer) :: rest ->
+                        Result.bind (migrate_active buffer.active) (fun state ->
+                            inactive (state :: states) rest)
                   in
-                  {
-                    buffer with
-                    active =
+                  inactive [] session.inactive_buffers)
+            in
+            match migration with
+            | Error error ->
+                Option.iter Scripting.dispose generation;
+                lifecycle trace ~execution_id ~phase:"reload" ?generation
+                  ~outcome:"failed" ~reason:(Error.to_string error) ();
+                {
+                  session with
+                  message =
+                    Some
+                      ("configuration reload failed: " ^ Error.to_string error);
+                  last_reload_error = Some error;
+                  quit_armed = false;
+                }
+            | Ok (active_state, inactive_states) ->
+                let configured_semantics =
+                  session.base_semantics
+                  @
+                  match generation with
+                  | None -> []
+                  | Some generation -> Scripting.descriptors generation
+                in
+                let plugin_host =
+                  Profiler.measure profiler Profiler.Extension_reload (fun () ->
+                      Plugins.reload session.plugins
+                        ~base_commands:configured_commands
+                        ~base_semantics:configured_semantics
+                        ?base_bindings:
+                          (match generation with
+                          | None -> None
+                          | Some generation ->
+                              Some (Scripting.bindings generation))
+                        ?base_binding_layers:
+                          (match generation with
+                          | None -> None
+                          | Some generation ->
+                              Some (Scripting.binding_layers generation))
+                        ())
+                in
+                trace_plugins trace ~execution_id ~phase:"reload" plugin_host;
+                trace_runtime_events trace profiler ~execution_id plugin_host;
+                let commands =
+                  match
+                    commands_with_plugins configured_commands plugin_host
+                  with
+                  | Ok commands -> commands
+                  | Error error ->
+                      failwith
+                        ("plugin snapshot invariant violated: "
+                       ^ Error.to_string error)
+                in
+                let semantic_behaviors =
+                  semantic_behaviors_with_plugins generation plugin_host
+                in
+                Option.iter Script_model.configure script_model;
+                let refresh_active active migrated_state =
+                  match active with
+                  | Script_runtime runtime -> (
+                      match script_model with
+                      | Some _ ->
+                          Script_runtime.create_from_shared
+                            (Script_runtime.shared_state runtime)
+                          |> Result.map (fun runtime ->
+                              Option.value ~default:runtime
+                                (Option.map
+                                   (Script_runtime.with_model_state runtime)
+                                   migrated_state)
+                              |> fun runtime -> Script_runtime runtime)
+                      | None -> assert false)
+                  | active -> Ok active
+                in
+                let active =
+                  match refresh_active session.active active_state with
+                  | Ok active ->
                       active_with_extensions active ~commands
-                        ~semantic_behaviors;
-                  })
-                session.inactive_buffers
-            in
-            Option.iter Scripting.dispose session.generation;
-            lifecycle trace ~execution_id ~phase:"reload" ?generation
-              ~outcome:"succeeded" ();
-            let valid_active_modes modes =
-              match generation with
-              | Some generation
-                when List.for_all
-                       (fun id ->
-                         List.exists
-                           (fun mode ->
-                             String.equal (Scripting.mode_id mode) id)
-                           (Scripting.modes generation))
-                       modes ->
-                  modes
-              | None | Some _ -> []
-            in
-            let active_modes = valid_active_modes session.active_modes in
-            let layer_catalog = binding_layer_catalog generation plugin_host in
-            let bindings = binding_catalog generation plugin_host in
-            let active_binding_layers, dropped_active_layers =
-              revalidate_active_binding_layers ~catalog:layer_catalog ~bindings
-                session.active_binding_layers
-            in
-            let inactive_binding_layer_drops = ref [] in
-            let inactive_buffers =
-              List.map
-                (fun (buffer : buffer) ->
-                  let active_binding_layers, dropped_layers =
-                    revalidate_active_binding_layers ~catalog:layer_catalog
-                      ~bindings buffer.active_binding_layers
+                        ~semantic_behaviors
+                  | Error error ->
+                      failwith
+                        ("script model reload invariant violated: "
+                       ^ Error.to_string error)
+                in
+                let inactive_buffers =
+                  List.map2
+                    (fun (buffer : buffer) migrated_state ->
+                      let active =
+                        match refresh_active buffer.active migrated_state with
+                        | Ok active -> active
+                        | Error error ->
+                            failwith
+                              ("script model reload invariant violated: "
+                             ^ Error.to_string error)
+                      in
+                      {
+                        buffer with
+                        active =
+                          active_with_extensions active ~commands
+                            ~semantic_behaviors;
+                      })
+                    session.inactive_buffers inactive_states
+                in
+                Option.iter Scripting.dispose session.generation;
+                lifecycle trace ~execution_id ~phase:"reload" ?generation
+                  ~outcome:"succeeded" ();
+                let valid_active_modes modes =
+                  match generation with
+                  | Some generation
+                    when List.for_all
+                           (fun id ->
+                             List.exists
+                               (fun mode ->
+                                 String.equal (Scripting.mode_id mode) id)
+                               (Scripting.modes generation))
+                           modes ->
+                      modes
+                  | None | Some _ -> []
+                in
+                let active_modes = valid_active_modes session.active_modes in
+                let layer_catalog =
+                  binding_layer_catalog generation plugin_host
+                in
+                let bindings = binding_catalog generation plugin_host in
+                let active_binding_layers, dropped_active_layers =
+                  revalidate_active_binding_layers ~catalog:layer_catalog
+                    ~bindings session.active_binding_layers
+                in
+                let inactive_binding_layer_drops = ref [] in
+                let inactive_buffers =
+                  List.map
+                    (fun (buffer : buffer) ->
+                      let active_binding_layers, dropped_layers =
+                        revalidate_active_binding_layers ~catalog:layer_catalog
+                          ~bindings buffer.active_binding_layers
+                      in
+                      inactive_binding_layer_drops :=
+                        dropped_layers @ !inactive_binding_layer_drops;
+                      {
+                        buffer with
+                        active_modes = valid_active_modes buffer.active_modes;
+                        active_binding_layers;
+                      })
+                    inactive_buffers
+                in
+                let message =
+                  let plugin_count =
+                    List.length (Plugins.providers plugin_host)
                   in
-                  inactive_binding_layer_drops :=
-                    dropped_layers @ !inactive_binding_layer_drops;
-                  {
-                    buffer with
-                    active_modes = valid_active_modes buffer.active_modes;
-                    active_binding_layers;
-                  })
-                inactive_buffers
-            in
-            let message =
-              let plugin_count = List.length (Plugins.providers plugin_host) in
-              match generation with
-              | None ->
-                  Printf.sprintf
-                    "configuration reloaded: no active script generation; %d \
-                     active plugins"
-                    plugin_count
-              | Some generation ->
-                  let commands, selectors, transformations, bindings, hooks =
-                    Scripting.counts generation
-                  in
-                  Printf.sprintf
-                    "configuration reloaded: %d commands, %d selectors, %d \
-                     transformations, %d bindings, %d hooks, %d modes"
-                    commands selectors transformations bindings hooks
-                    (List.length (Scripting.modes generation))
-                  ^ Printf.sprintf "; %d active plugins" plugin_count
-            in
-            let dropped_layer_count =
-              List.length dropped_active_layers
-              + List.length !inactive_binding_layer_drops
-            in
-            let message =
-              if dropped_layer_count = 0 then message
-              else
-                message
-                ^ Printf.sprintf
-                    "; disabled %d stale or conflicting binding layer%s"
-                    dropped_layer_count
-                    (if dropped_layer_count = 1 then "" else "s")
-            in
-            {
-              session with
-              active;
-              generation;
-              plugins = plugin_host;
-              next_generation_id = session.next_generation_id + 1;
-              last_reload_error = None;
-              inactive_buffers;
-              message = Some message;
-              quit_armed = false;
-              pending_binding = [];
-              active_modes;
-              active_binding_layers;
-            })
+                  match generation with
+                  | None ->
+                      Printf.sprintf
+                        "configuration reloaded: no active script generation; \
+                         %d active plugins"
+                        plugin_count
+                  | Some generation ->
+                      let commands, selectors, transformations, bindings, hooks
+                          =
+                        Scripting.counts generation
+                      in
+                      Printf.sprintf
+                        "configuration reloaded: %d commands, %d selectors, %d \
+                         transformations, %d bindings, %d hooks, %d modes"
+                        commands selectors transformations bindings hooks
+                        (List.length (Scripting.modes generation))
+                      ^ Printf.sprintf "; %d active plugins" plugin_count
+                in
+                let dropped_layer_count =
+                  List.length dropped_active_layers
+                  + List.length !inactive_binding_layer_drops
+                in
+                let message =
+                  if dropped_layer_count = 0 then message
+                  else
+                    message
+                    ^ Printf.sprintf
+                        "; disabled %d stale or conflicting binding layer%s"
+                        dropped_layer_count
+                        (if dropped_layer_count = 1 then "" else "s")
+                in
+                {
+                  session with
+                  active;
+                  generation;
+                  plugins = plugin_host;
+                  next_generation_id = session.next_generation_id + 1;
+                  last_reload_error = None;
+                  inactive_buffers;
+                  message = Some message;
+                  quit_armed = false;
+                  pending_binding = [];
+                  active_modes;
+                  active_binding_layers;
+                }))
 
 let model_descriptor = function
   | Vim_runtime runtime -> Vim_runtime.model_descriptor runtime

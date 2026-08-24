@@ -93,6 +93,13 @@ val model_state_descriptor :
 
 val model_state_model : model_state -> model
 
+val migrate_model_state :
+  previous:model_state ->
+  replacement:model ->
+  (model_state option, Zenbu_kernel.Error.t) result
+(** Applies the explicitly declared, data-only export/import contract when both
+    generations opt in. [None] preserves the existing reset behavior. *)
+
 val run_model :
   model_state ->
   Zenbu_model_api.Input_event.t ->
