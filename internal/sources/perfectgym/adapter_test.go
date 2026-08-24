@@ -64,6 +64,22 @@ func TestAdapterRejectsNonBadmintonFacilityType(t *testing.T) {
 	}
 }
 
+func TestAdapterExcludesSlotEndingAtRequestedStart(t *testing.T) {
+	location, err := time.LoadLocation(domain.SingaporeTimeZone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestedStart := time.Date(2026, time.September, 1, 8, 0, 0, 0, location)
+	adapter := testAdapter(t, &scannerStub{entries: []browser.PerfectGymAvailability{{Start: requestedStart.Add(-time.Hour), End: requestedStart, Status: "Bookable"}}})
+	snapshot, err := adapter.FetchSnapshot(context.Background(), source.AvailabilityRequest{StartDate: requestedStart.UTC(), EndDate: requestedStart.AddDate(0, 0, 1).UTC()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Slots) != 0 {
+		t.Fatalf("slots = %#v, want no slot ending at requested start", snapshot.Slots)
+	}
+}
+
 func testAdapter(t *testing.T, scanner browser.PerfectGymScanner) *Adapter {
 	t.Helper()
 	settings := config.Source{Enabled: true, RefreshMinutes: 60, PerfectGym: config.SourcePerfectGym{Enabled: true, AvailabilityURL: defaultAvailabilityURL, SessionStateBase64: "state"}}

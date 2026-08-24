@@ -155,5 +155,6 @@ Use a generic API reader when the report shows a stable approved JSON endpoint
 that can be mapped to Kaypoh's normalized slots shape. Use the generic browser
 reader when a page exposes an approved JSON script/element. Add a dedicated
 browser reader only when the page requires provider-specific UI interpretation,
-as ActiveSG does with venue links, date cards, ballot states, and visible hour
-labels. Add a sanitized fixture and tests before enabling a new reader.
+as ActiveSG does with venue links and date cards, or The Kallang does with its
+facility-type calendar response. Add a sanitized fixture and tests before
+enabling a new reader.

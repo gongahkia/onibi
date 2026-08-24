@@ -35,20 +35,21 @@ backoff and circuit degradation.
 
 The source audit is authoritative: an adapter without approved policy cannot
 fetch. SportSG data.gov.sg discovery and credentialed OneMap routing/geocoding
-remain available. Eight partner-authorized badminton readers are registered but
-disabled until their API credentials, approved browser credentials/session, or
-approved public reader configuration is supplied. Their state is visible in
-source health.
+remain available. Eight partner-authorized badminton readers are registered.
+Four have anonymous public readers; ActiveSG and The Kallang have dedicated
+imported-session readers, while the remaining readers require configured access.
+Their state is visible in source health.
 
 Partner readers prefer an API, then an authenticated Playwright Chromium page,
 then an approved public page. Imported browser state is base64 storage-state JSON
 decoded only in memory. Browser code can submit a configured login form but has
 no booking, payment, cancellation, or CAPTCHA/OTP path. A successful refresh
 persists a bounded snapshot and marks previously available slots absent from that
-source/date scope unavailable. ActiveSG can additionally enable its dedicated
-imported-session date-card reader after those generic modes; source health
-persists each failed access mode in attempt order even when a later mode
-succeeds.
+source/date scope unavailable. ActiveSG and The Kallang can additionally enable
+their dedicated imported-session readers after those generic modes. The Kallang
+reader selects only the badminton facility type and calendar week, then maps
+aggregate calendar results as venue-level slots. Source health persists each
+failed access mode in attempt order even when a later mode succeeds.
 
 ## Query, ranking and watches
 

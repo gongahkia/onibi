@@ -25,15 +25,17 @@ its public surface requires a separate read for every available hour; increase
 
 ActiveSG, onePA, The Kallang / OCBC Arena, and TruSmash remain disabled by
 default: this repository has no confirmed anonymous availability endpoint for
-them. ActiveSG has a dedicated badminton reader for an operator-imported
-Playwright session; it reads venue links, date cards, and visible instant hour
-labels only. It does not automate login or select a slot, open a ballot,
-checkout, or payment flow. The remaining partners can be configured with a
-partner API, approved browser session, or public JSON mapper, in that order.
+them. ActiveSG and The Kallang have dedicated, operator-imported Playwright
+session readers. The Kallang reader selects only the **Badminton Courts**
+facility type, advances the weekly calendar, and reads its JSON response. It
+does not automate login or select a facility, slot, ballot, cart, checkout, or
+payment flow. The remaining partners can be configured with a partner API,
+approved browser session, or public JSON mapper, in that order.
 A configured API/browser/public reader takes precedence over a built-in reader,
 so a provider can migrate to an official API without code changes. For
-ActiveSG, enabled generic API, browser, and public modes run in that order
-before the dedicated reader; source health records every failed mode in order.
+ActiveSG and The Kallang, enabled generic API, browser, and public modes run in
+that order before the dedicated reader; source health records every failed mode
+in order.
 
 SportSG's official facility dataset remains enabled for venue discovery. OneMap
 is used for optional geocoding/routing when its credentials are configured.
@@ -209,6 +211,33 @@ read as non-bookable results, but are not published as bookable slots:
 Kaypoh has no ballot-entry feature and its search results mean a concrete,
 bookable time. ActiveSG does not expose per-court identity on this surface, so
 these records are venue-level availability rather than court-specific claims.
+
+### The Kallang / OCBC Arena reader
+
+The Kallang reader is restricted to
+`https://thekallang.perfectgym.com/clientportal2/`, an imported Playwright
+storage-state value, and the **Badminton Courts** facility type. It reads the
+`GetWeeklySchedule` calendar response after loading the page, selecting that
+facility type when needed, and clicking `Next week`. It never selects a named
+facility, an individual slot, or any booking-related control.
+
+```toml
+[sources.the-kallang]
+enabled = true
+refresh_minutes = 60
+availability_max_days = 30
+
+[sources.the-kallang.perfectgym]
+enabled = true
+availability_url = "https://thekallang.perfectgym.com/clientportal2/"
+facility_type_name = "Badminton Courts"
+session_state_base64 = "env:KAYPOH_THE_KALLANG_SESSION_STATE_B64"
+```
+
+The observed calendar payload exposes `StartTime`, `EndTime`, and `Status`,
+but no stable per-court identity when using “Any facility”. Kaypoh therefore
+deduplicates identical bookable times and publishes them as venue-level slots;
+it does not claim a particular badminton court is free.
 
 ## HTTP API and MCP
 

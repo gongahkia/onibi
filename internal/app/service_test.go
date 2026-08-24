@@ -135,6 +135,34 @@ func TestOpenSelectsDedicatedPerfectGymReader(t *testing.T) {
 	}
 }
 
+func TestOpenChainsGenericAndDedicatedPerfectGymReaders(t *testing.T) {
+	cfg, err := config.Default()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.DatabasePath = filepath.Join(t.TempDir(), "kaypoh.db")
+	kallang := cfg.Sources[perfectgym.SourceID]
+	kallang.Enabled = true
+	kallang.Public = config.SourcePublic{Enabled: true, AvailabilityURL: "https://thekallang.perfectgym.com/availability", SlotJSONSelector: "script#kaypoh-slots"}
+	kallang.PerfectGym = config.SourcePerfectGym{
+		Enabled: true, AvailabilityURL: "https://thekallang.perfectgym.com/clientportal2/",
+		SessionStateBase64: base64.StdEncoding.EncodeToString([]byte(`{"cookies":[],"origins":[]}`)),
+	}
+	cfg.Sources[perfectgym.SourceID] = kallang
+	service, err := Open(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = service.Close() })
+	adapter, err := service.sources.Adapter(perfectgym.SourceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := adapter.(*fallback.Adapter); !ok {
+		t.Fatalf("the-kallang adapter = %T, want fallback chain", adapter)
+	}
+}
+
 func TestRouteFallsBackWithoutOptionalOneMapCredentials(t *testing.T) {
 	cfg, err := config.Default()
 	if err != nil {

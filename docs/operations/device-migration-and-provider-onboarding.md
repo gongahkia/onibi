@@ -16,22 +16,23 @@ Completed on 2026-08-23:
 - The local `daemon` service was started with the documented Compose command.
 - A dedicated ActiveSG reader exists for the verified **badminton** venue-list
   URL. It requires an imported browser session and is disabled by default.
+- A dedicated The Kallang reader exists for the PerfectGym **Badminton Courts**
+  calendar. It requires an imported browser session and is disabled by default.
 
 Not yet complete:
 
 - ActiveSG pickleball or other activities. The present reader deliberately
   accepts only the badminton activity URL; it is not a generic all-sport
   ActiveSG reader.
-- A live ActiveSG scan with a transferred session state.
-- onePA, The Kallang / OCBC Arena, and TruSmash. They remain disabled until a
-  provider-specific approved API, imported session, or public payload contract
-  is captured and implemented.
+- A live ActiveSG or The Kallang scan with a transferred session state.
+- onePA and TruSmash. They remain disabled until a provider-specific approved
+  API, imported session, or public payload contract is captured and implemented.
 - OneMap routing. It remains `credentials_required` until local credentials are
   supplied.
 
 ## 1. Preserve the Git handoff before deleting this device
 
-The working tree contains the ActiveSG implementation and its documentation.
+The working tree contains the provider-reader implementations and documentation.
 Deleting the local repositories before committing and pushing would lose that
 work. Review and publish the tracked changes first:
 
@@ -41,7 +42,7 @@ git diff --check
 git add README.md .env.example docker/config.toml.example docs internal
 git diff --cached --stat
 git diff --cached
-git commit -m "Add ActiveSG availability reader and provider handoff"
+git commit -m "Add provider availability readers and handoff"
 git push origin main
 git status --short
 ```

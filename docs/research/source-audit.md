@@ -15,16 +15,16 @@ availability window.
 The runtime selection order is partner API, approved authenticated Playwright
 browser session, then a partner-approved public page. Four verified public
 readers are enabled without credentials; configured API/browser/public access
-takes precedence over their built-in reader. ActiveSG can additionally enable
-its dedicated imported-session date-card reader after its enabled generic modes.
-Source health records each failed access mode in attempt order; an empty
-successful snapshot is distinct from a failed request.
+takes precedence over their built-in reader. ActiveSG and The Kallang can
+additionally enable dedicated imported-session readers after their enabled
+generic modes. Source health records each failed access mode in attempt order;
+an empty successful snapshot is distinct from a failed request.
 
 | Source ID | Operator / badminton surface | Read access | Horizon default |
 | --- | --- | --- | --- |
 | `myactivesg` | ActiveSG | dedicated imported-session badminton browser reader, or partner API/browser/public reader | 15 days |
 | `onepa` | People's Association / onePA | partner API or approved browser/public reader | 15 days |
-| `the-kallang` | The Kallang / OCBC Arena | PerfectGym/partner API or approved browser/public reader | 30 days |
+| `the-kallang` | The Kallang / OCBC Arena | dedicated imported-session PerfectGym badminton reader, or partner API/browser/public reader | 30 days |
 | `sba-stadium` | Singapore Badminton Association / KFF Badminton Arena @ Guillemard | built-in public anonymous reader; API/browser/public mapper override supported | 7 days |
 | `singapore-badminton-hall` | Singapore Badminton Hall | built-in Playtomic public reader for confirmed SBH/TSA locations; API/browser/public mapper override supported | 7 days |
 | `smash-arena` | Smash Arena | built-in public anonymous reader; API/browser/public mapper override supported | 1 day |
@@ -102,6 +102,30 @@ date with no visible hours are parsed as non-bookable results and do not become
 bookable records. A venue page that cannot be read fails the entire snapshot;
 Kaypoh does not persist a partial scan and accidentally reconcile unseen slots
 as unavailable.
+
+## The Kallang / OCBC Arena PerfectGym contract
+
+The dedicated `the-kallang` reader accepts only the PerfectGym client portal
+URL and a user- or partner-imported Playwright storage-state value. It is
+disabled by default and has no login, credential, booking, cart, checkout,
+payment, CAPTCHA, or OTP code.
+
+The August 2026 browser capture established this read-only interaction
+contract:
+
+1. Load `https://thekallang.perfectgym.com/clientportal2/`.
+2. Read the `GetWeeklySchedule` calendar response.
+3. Select the **Badminton Courts** facility type only when it is not selected.
+4. Click only `Next week` to cover the configured horizon, reading each
+   resulting calendar response.
+
+The response contains `StartTime`, `EndTime`, `Status`, and duration metadata.
+[Inference] The response is venue-level when “Any facility” is selected: the
+captured bookable entries have no stable court name or ID. The reader filters
+`Bookable` entries, deduplicates identical time ranges, and publishes
+venue-level availability only. A changed response shape, missing requested
+facility type, or failed week navigation fails the complete snapshot rather
+than reconciling incomplete data as unavailable.
 
 ## Operator hand-off checklist
 
