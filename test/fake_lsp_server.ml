@@ -25,6 +25,12 @@ let formatting_conflict = ref false
 let formatting_error = ref false
 let delay_symbols = ref false
 let invalid_symbols = ref false
+let delay_semantic_tokens = ref false
+let invalid_semantic_tokens = ref false
+let overlapping_semantic_tokens = ref false
+let too_many_semantic_tokens = ref false
+let unicode_semantic_tokens = ref false
+let unknown_semantic_class = ref false
 
 let options =
   [
@@ -89,6 +95,24 @@ let options =
     ( "--invalid-symbols",
       Arg.Set invalid_symbols,
       "return a symbol with an invalid range" );
+    ( "--delay-semantic-tokens",
+      Arg.Set delay_semantic_tokens,
+      "delay semantic-token responses to exercise stale snapshot handling" );
+    ( "--invalid-semantic-tokens",
+      Arg.Set invalid_semantic_tokens,
+      "return a semantic-token stream with an invalid modifier bit" );
+    ( "--overlapping-semantic-tokens",
+      Arg.Set overlapping_semantic_tokens,
+      "return overlapping semantic-token ranges" );
+    ( "--too-many-semantic-tokens",
+      Arg.Set too_many_semantic_tokens,
+      "return more semantic tokens than the client accepts" );
+    ( "--unicode-semantic-tokens",
+      Arg.Set unicode_semantic_tokens,
+      "return a UTF-16 semantic token beginning after an ASCII prefix" );
+    ( "--unknown-semantic-class",
+      Arg.Set unknown_semantic_class,
+      "return a declared semantic class with no Zenbu renderer role" );
   ]
 
 let () = Arg.parse options (fun _ -> ()) "fake_lsp_server"
@@ -279,6 +303,25 @@ let initialized_result () =
             ("documentRangeFormattingProvider", `Bool true);
             ("documentSymbolProvider", `Bool true);
             ("workspaceSymbolProvider", `Bool true);
+            ( "semanticTokensProvider",
+              `Assoc
+                [
+                  ( "legend",
+                    `Assoc
+                      [
+                        ( "tokenTypes",
+                          `List
+                            [
+                              `String "type";
+                              `String "function";
+                              `String "variable";
+                              `String "comment";
+                            ] );
+                        ( "tokenModifiers",
+                          `List [ `String "declaration"; `String "readonly" ] );
+                      ] );
+                  ("full", `Bool true);
+                ] );
             ("renameProvider", `Bool true);
           ] );
     ]
@@ -629,6 +672,25 @@ let () =
                      `Assoc [ ("uri", `String !uri); ("range", range 0 0 0 1) ]
                    );
                  ];
+             ])
+    | Some "textDocument/semanticTokens/full", Some id ->
+        if !delay_semantic_tokens then ignore (Unix.select [] [] [] 0.15);
+        let data =
+          if !invalid_semantic_tokens then [ 0; 0; 1; 0; 4 ]
+          else if !overlapping_semantic_tokens then
+            [ 0; 0; 2; 0; 0; 0; 1; 1; 1; 0 ]
+          else if !too_many_semantic_tokens then
+            List.init (4_097 * 5) (fun _ -> 0)
+          else if !unicode_semantic_tokens then [ 0; 1; 1; 0; 0 ]
+          else if !unknown_semantic_class then [ 0; 0; 1; 3; 0 ]
+          else if String.starts_with ~prefix:"z" !contents then
+            [ 0; 1; 1; 2; 0 ]
+          else [ 0; 0; 1; 0; 0; 0; 1; 1; 1; 1 ]
+        in
+        response id
+          (`Assoc
+             [
+               ("data", `List (List.map (fun value -> `Int value) data));
              ])
     | Some "textDocument/rename", Some id ->
         if !delay_rename then ignore (Unix.select [] [] [] 0.15);

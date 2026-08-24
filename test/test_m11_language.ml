@@ -50,6 +50,7 @@ let wait_for client predicate =
           | Code_action_result _ -> "code-action"
           | Formatting_result _ -> "formatting"
           | Symbol_result _ -> "symbols"
+          | Semantic_tokens_result _ -> "semantic-tokens"
           | Rename_result _ -> "rename"
           | Apply_edit _ -> "apply-edit"
           | Server_message _ -> "message"
@@ -249,6 +250,129 @@ let feature_test () =
            (List.exists (function
              | Lsp.Rename_result { edits = _ :: _; _ } -> true
              | _ -> false))))
+
+let semantic_tokens_test () =
+  let client = start [] "abc\n" in
+  Fun.protect
+    ~finally:(fun () -> Lsp.close client)
+    (fun () ->
+      wait_ready client;
+      ignore (Lsp.request_semantic_tokens client |> must);
+      let events =
+        wait_for client
+          (List.exists (function Lsp.Semantic_tokens_result _ -> true | _ -> false))
+      in
+      expect
+        (List.exists
+           (function
+             | Lsp.Semantic_tokens_result
+                 {
+                   document_version = 0;
+                   tokens =
+                     [
+                       { start_offset = 0; stop_offset = 1; class_ = Lsp.Type };
+                       {
+                         start_offset = 1;
+                         stop_offset = 2;
+                         class_ = Lsp.Function;
+                       };
+                     ];
+                   _;
+                 } ->
+                 true
+             | _ -> false)
+           events)
+        "semantic tokens were not decoded into the owned renderer classes")
+
+let semantic_tokens_unicode_test () =
+  let client = start [ "--unicode-semantic-tokens" ] "Aé\n" in
+  Fun.protect
+    ~finally:(fun () -> Lsp.close client)
+    (fun () ->
+      wait_ready client;
+      ignore (Lsp.request_semantic_tokens client |> must);
+      let events =
+        wait_for client
+          (List.exists (function Lsp.Semantic_tokens_result _ -> true | _ -> false))
+      in
+      expect
+        (List.exists
+           (function
+             | Lsp.Semantic_tokens_result
+                 {
+                   tokens =
+                     [ { start_offset = 1; stop_offset = 3; class_ = Lsp.Type } ];
+                   _;
+                 } ->
+                 true
+             | _ -> false)
+           events)
+        "semantic-token UTF-16 positions did not preserve UTF-8 boundaries")
+
+let semantic_tokens_unknown_class_test () =
+  let client = start [ "--unknown-semantic-class" ] "abc\n" in
+  Fun.protect
+    ~finally:(fun () -> Lsp.close client)
+    (fun () ->
+      wait_ready client;
+      ignore (Lsp.request_semantic_tokens client |> must);
+      let events =
+        wait_for client
+          (List.exists (function Lsp.Semantic_tokens_result _ -> true | _ -> false))
+      in
+      expect
+        (List.exists
+           (function Lsp.Semantic_tokens_result { tokens = []; _ } -> true | _ -> false)
+           events)
+        "a declared but unsupported semantic class was not dropped safely")
+
+let semantic_tokens_rejection_test argument =
+  let client = start [ argument ] "abc\n" in
+  Fun.protect
+    ~finally:(fun () -> Lsp.close client)
+    (fun () ->
+      wait_ready client;
+      ignore (Lsp.request_semantic_tokens client |> must);
+      let events =
+        wait_for client
+          (List.exists (function
+            | Lsp.Request_failed { kind = Lsp.Semantic_tokens; _ } -> true
+            | _ -> false))
+      in
+      expect
+        (not
+           (List.exists
+              (function Lsp.Semantic_tokens_result _ -> true | _ -> false)
+              events))
+        "an invalid semantic-token stream changed the token snapshot")
+
+let stale_semantic_tokens_test () =
+  let client = start [ "--delay-semantic-tokens" ] "old" in
+  Fun.protect
+    ~finally:(fun () -> Lsp.close client)
+    (fun () ->
+      wait_ready client;
+      ignore (Lsp.request_semantic_tokens client |> must);
+      Lsp.notify_change client ~source_contents:"old" ~contents:"new"
+        ~document_version:1
+        ~edits:
+          [
+            { Language.start_offset = 0; stop_offset = 3; replacement = "new" };
+          ];
+      let deadline = Unix.gettimeofday () +. 0.4 in
+      let rec collect values =
+        if Unix.gettimeofday () >= deadline then values
+        else (
+          ignore (Unix.select [ Lsp.wakeup_fd client ] [] [] 0.05);
+          collect (values @ Lsp.drain client))
+      in
+      let events = collect [] in
+      expect
+        (not
+           (List.exists
+              (function Lsp.Semantic_tokens_result _ -> true | _ -> false)
+              events))
+        "late semantic tokens were not discarded after a document edit")
 
 let stale_response_test () =
   let client = start [ "--delay-hover" ] "old" in
@@ -592,6 +716,39 @@ let wait_session session predicate =
       loop session)
   in
   loop session
+
+let frame_has_style frame style =
+  Zenbu_view.Frame.rows frame
+  |> List.concat
+  |> List.exists (fun cell -> cell.Zenbu_view.Frame.style = style)
+
+let semantic_tokens_session_test () =
+  let session = session [] "abc\n" in
+  Fun.protect
+    ~finally:(fun () -> Zenbu_app.Session.close session)
+    (fun () ->
+      let session =
+        wait_session session (fun session ->
+            Zenbu_app.Session.inspect session Zenbu_app.Session.Language
+            |> List.exists (String.equal "state: ready"))
+      in
+      let session =
+        wait_session session (fun session ->
+            let _, frame = Zenbu_app.Session.render session in
+            frame_has_style frame Zenbu_view.Frame.Semantic_function)
+      in
+      let session = Zenbu_app.Session.handle_input session (logical_key "i") in
+      let session = Zenbu_app.Session.handle_input session (text_input "z") in
+      let session = Zenbu_app.Session.handle_input session escape in
+      let session =
+        wait_session session (fun session ->
+            let _, frame = Zenbu_app.Session.render session in
+            frame_has_style frame Zenbu_view.Frame.Semantic_variable)
+      in
+      let _, frame = Zenbu_app.Session.render session in
+      expect
+        (frame_has_style frame Zenbu_view.Frame.Diagnostic_error)
+        "semantic tokens overrode the diagnostic style instead of refreshing below it")
 
 let session_integration_test () =
   let initial = "abc abc\n" in
@@ -1452,6 +1609,13 @@ let () =
   synchronization_test "full";
   synchronization_test "incremental";
   feature_test ();
+  semantic_tokens_test ();
+  semantic_tokens_unicode_test ();
+  semantic_tokens_unknown_class_test ();
+  semantic_tokens_rejection_test "--invalid-semantic-tokens";
+  semantic_tokens_rejection_test "--overlapping-semantic-tokens";
+  semantic_tokens_rejection_test "--too-many-semantic-tokens";
+  stale_semantic_tokens_test ();
   stale_response_test ();
   stale_code_action_response_test ();
   stale_formatting_response_test ();
@@ -1463,6 +1627,7 @@ let () =
   crash_restart_test ();
   malformed_server_test ();
   trace_attribution_test ();
+  semantic_tokens_session_test ();
   session_integration_test ();
   document_formatting_session_test ();
   range_formatting_session_test ();
