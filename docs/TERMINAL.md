@@ -175,6 +175,12 @@ use that same projection. This never alters source bytes, selections, history,
 or model state. [Folding](FOLDING.md) specifies validation, invalidation,
 cursor, pointer, search, and diagnostic behavior.
 
+Embedding hosts can supply another view-only projection: bounded
+snapshot-bound trailing annotations and virtual rows. A virtual row participates
+in scrolling but has no pointer target, and every visible annotation has a
+textual fallback in addition to its theme role. [Display decorations](DECORATIONS.md)
+defines the provider, stale-data, ordering, and limit contract.
+
 System clipboard commands are deliberately deferred: platform-specific
 `wl-copy`, `xclip`, and `pbcopy` discovery does not belong in the semantic
 runtime. Zenbu's existing internal clipboard slots remain available to models.

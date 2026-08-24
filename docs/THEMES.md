@@ -48,6 +48,7 @@ diagnostic_error       diagnostic_warning
 diagnostic_information diagnostic_hint
 syntax_keyword         syntax_string           syntax_number
 syntax_comment         syntax_type             syntax_constructor
+decoration_inline      decoration_virtual
 ```
 
 Each table may contain `foreground`, `background`, `bold`, `italic`, and

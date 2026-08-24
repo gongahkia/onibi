@@ -69,6 +69,9 @@ and plugin examples live in [Getting Started](docs/GETTING_STARTED.md).
   without changing source-byte editing state. It also has a bounded,
   session-wide named keyboard-macro
   store and replayer that can be attached to adapter keymaps through Lua.
+  Embedding hosts can additionally contribute version-bound, bounded trailing
+  annotations and virtual rows through a data-only decoration protocol; these
+  cannot take terminal or editing authority.
 - `zenbu.language` exposes model-neutral diagnostics, hover, definition,
   completion, rename, position conversion, and sync data. A private async LSP
   adapter starts `ocamllsp` by default for saved OCaml files; results become
@@ -299,6 +302,9 @@ adapters can bind them to non-reserved inputs; for example,
 `PageDown`, `Ctrl-U`, `Ctrl-D`, and `z z` in selection mode. Page size is the
 focused pane's current visible projected-row height, so a hidden-status
 presentation uses one more projected row than a status-bearing presentation.
+The separate [decoration protocol](docs/DECORATIONS.md) gives embedding hosts
+bounded snapshot-bound virtual rows and trailing annotations without a
+renderer callback or provider-owned input path.
 
 `editor.location.set` and `editor.location.jump` are also palette commands.
 They save a named ordered selection set in its current local buffer, rebase it

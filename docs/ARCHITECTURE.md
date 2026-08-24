@@ -175,7 +175,9 @@ only immutable frames and has no document mutation path. Session assigns stable
 local buffer ids to panes and retains each buffer's independent model runtime,
 history, language state, search state, and viewport. Session additionally owns
 version-bound fold ranges per `(pane, buffer)` and asks the pure view layer to
-project them; neither folds nor the projection are document state. It handles host-only save,
+project them; neither folds nor the projection are document state. A host
+embedding may likewise retain bounded version-bound decoration data, but no
+provider callback crosses into the renderer or terminal. It handles host-only save,
 quit, view-layout, and pointer policy; models receive logical keyboard/text
 input and return semantic effects. Typed terminal pointer events are consumed
 by Session, which turns selection gestures into ordinary checked semantic

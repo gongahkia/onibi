@@ -6,7 +6,11 @@ type placement = Before | After
 
 type item =
   | Inline of { anchor_offset : int; text : string }
-  | Virtual_line of { anchor_offset : int; placement : placement; text : string }
+  | Virtual_line of {
+      anchor_offset : int;
+      placement : placement;
+      text : string;
+    }
 
 type contribution
 type response = (contribution, string) result
@@ -35,5 +39,4 @@ val items : collection -> resolved list
 val rejections : collection -> string list
 val provider_id : resolved -> string
 val item : resolved -> item
-
 val inspection_lines : collection -> string list

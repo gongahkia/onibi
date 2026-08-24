@@ -116,6 +116,7 @@ type inspection =
   | Project_search
   | File_watches
   | Language
+  | Decorations
 
 type search = {
   kind : search_kind;
@@ -279,6 +280,7 @@ type t = {
   pane_viewports : (int * Zenbu_view.Viewport.t) list;
   pane_view_positions : ((int * int) * view_position) list;
   pane_folds : ((int * int) * fold_state) list;
+  view_decorations : Zenbu_view.Decoration.response list;
   next_pane_id : int;
   dimensions : Zenbu_view.Renderer.dimensions;
   presentation : Zenbu_view.Presentation.t;
@@ -1947,6 +1949,7 @@ let create ~model ?language ?file_path ?(contents = "") ?trace ?profiler
                             } );
                         ];
                       pane_folds = [];
+                      view_decorations = [];
                       next_pane_id = 1;
                       dimensions;
                       presentation;
@@ -2539,7 +2542,19 @@ let invalidate_stale_pane_folds session =
   }
 
 let projected_lines_for_pane session pane source_lines =
-  Zenbu_view.Fold.project (fold_ranges_for_pane session pane) source_lines
+  let buffer_id = buffer_id_for_pane session pane in
+  let context =
+    match buffer_for_id session buffer_id with
+    | Some buffer -> context_of_active buffer.active
+    | None -> context session
+  in
+  Zenbu_view.Projection.project
+    ~contents:(Editor_context.contents context)
+    ~document_id:(Editor_context.document_id context)
+    ~document_version:(Editor_context.document_version context)
+    ~folds:(fold_ranges_for_pane session pane)
+    ~decorations:session.view_decorations source_lines
+  |> fst
 
 let pane_rectangle session pane = layout_bounds session |> List.assoc_opt pane
 
@@ -3761,7 +3776,7 @@ let center_pane_viewport session pane =
         let line_count = List.length projected_lines in
         let maximum_top_line = max 0 (line_count - source_rows) in
         let primary_index =
-          Zenbu_view.Fold.index_for_offset projected_lines source_lines
+          Zenbu_view.Projection.index_for_offset projected_lines source_lines
             (primary_offset session)
         in
         let viewport =
@@ -8172,21 +8187,24 @@ let pointer_target session ~column ~row =
               projected_lines_for_pane session pane source_lines
             in
             let source_line =
-              List.nth_opt projected_lines
-                ((pane_viewport session pane).top_line + local_row)
-              |> Option.map Zenbu_view.Fold.source_line
-              |> Option.value
-                   ~default:
-                     (Zenbu_view.Fold.source_line
-                        (List.hd (List.rev projected_lines)))
+              match
+                List.nth_opt projected_lines
+                  ((pane_viewport session pane).top_line + local_row)
+              with
+              | Some row -> Zenbu_view.Projection.row_source_line row
+              | None -> Zenbu_view.Projection.last_source_line projected_lines
             in
-            let line = Zenbu_view.Display.layout contents source_line in
-            let column =
-              (pane_viewport session pane).left_column + column - rectangle.x
-              - Zenbu_view.Renderer.gutter_width session.presentation
-                  source_lines rectangle.width
-            in
-            Some (pane, Zenbu_view.Display.offset_at_column line column))
+            Option.map
+              (fun source_line ->
+                let line = Zenbu_view.Display.layout contents source_line in
+                let column =
+                  (pane_viewport session pane).left_column + column
+                  - rectangle.x
+                  - Zenbu_view.Renderer.gutter_width session.presentation
+                      source_lines rectangle.width
+                in
+                (pane, Zenbu_view.Display.offset_at_column line column))
+              source_line)
 
 let trace_pointer session =
   let execution_id =
@@ -9261,6 +9279,7 @@ let render_pane session pane rectangle =
         ~search_ranges:(search_ranges display)
         ~diagnostic_ranges:(diagnostic_ranges display)
         ~fold_ranges:(fold_ranges_for_pane session pane)
+        ~decorations:session.view_decorations
         ?diagnostic_summary:(diagnostic_summary display)
         ()
     in
@@ -9295,6 +9314,9 @@ let contents session = Editor_context.contents (context session)
 let file_path session = session.file_path
 let dimensions session = session.dimensions
 let viewport session = pane_viewport session session.focused_pane
+
+let set_view_decorations session view_decorations =
+  { session with view_decorations }
 
 let notice session message =
   { session with message = Some message; quit_armed = false; inspector = None }
@@ -9510,6 +9532,15 @@ let jump_lines session =
   @ List.mapi (location_line "backward") session.backward_jumps
   @ List.mapi (location_line "forward") session.forward_jumps
 
+let decoration_lines session =
+  let context = context session in
+  Zenbu_view.Decoration.collect
+    ~contents:(Editor_context.contents context)
+    ~document_id:(Editor_context.document_id context)
+    ~document_version:(Editor_context.document_version context)
+    session.view_decorations
+  |> Zenbu_view.Decoration.inspection_lines
+
 let inspect session inspection =
   let format ~last_execution ~trace ~model_descriptor ~model_status ~rules
       ~command_registry ~semantic_behaviors ~runtime_history ~runtime_context
@@ -9575,6 +9606,7 @@ let inspect session inspection =
     | Project -> project_root_lines session
     | Project_search -> project_search_lines session
     | File_watches -> file_watch_lines session
+    | Decorations -> decoration_lines session
     | Api ->
         "API"
         :: Inspector.format_api

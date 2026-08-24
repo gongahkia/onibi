@@ -117,17 +117,17 @@ let row_for_line ?(trailing = []) ?(content_style = None) ~columns ~left_column
   let trailing_graphemes =
     trailing
     |> List.concat_map (fun trailing ->
-           let graphemes =
-             Display.layout trailing.text
-               {
-                 Display.number = 0;
-                 start_offset = 0;
-                 stop_offset = String.length trailing.text;
-                 end_offset = String.length trailing.text;
-               }
-             |> fun marker -> marker.Display.graphemes
-           in
-           List.map (fun grapheme -> (trailing.style, grapheme)) graphemes)
+        let graphemes =
+          Display.layout trailing.text
+            {
+              Display.number = 0;
+              start_offset = 0;
+              stop_offset = String.length trailing.text;
+              end_offset = String.length trailing.text;
+            }
+          |> fun marker -> marker.Display.graphemes
+        in
+        List.map (fun grapheme -> (trailing.style, grapheme)) graphemes)
   in
   let rec marker_loop used cells = function
     | [] -> padding used cells
@@ -164,9 +164,10 @@ let row_for_line ?(trailing = []) ?(content_style = None) ~columns ~left_column
           let cell =
             Frame.cell
               ~style:
-                (Option.value ~default:
-                   (grapheme_style ~syntax_spans ~search_ranges
-                      ~diagnostic_ranges ~selections ~primary_index grapheme)
+                (Option.value
+                   ~default:
+                     (grapheme_style ~syntax_spans ~search_ranges
+                        ~diagnostic_ranges ~selections ~primary_index grapheme)
                    content_style)
               ~width text
           in
@@ -437,68 +438,71 @@ let render_with_inspector ~inspector ?(presentation = Presentation.default)
             let visible_rows =
               visible_projected_lines
               |> List.map (fun (_, projected_line) ->
-                     match projected_line with
-                     | Projection.Source source ->
-                         let source_line = Projection.source_line source in
-                         let line = Display.layout contents source_line in
-                         let fold_marker =
-                           match Projection.fold source with
-                           | None -> []
-                           | Some fold ->
-                               let hidden =
-                                 Fold.stop_line fold - Fold.start_line fold
-                               in
-                               [
-                                 {
-                                   text =
-                                     Printf.sprintf "  … %d line%s folded" hidden
-                                       (if hidden = 1 then "" else "s");
-                                   style = Frame.Dim;
-                                 };
-                               ]
-                         in
-                         let inline =
-                           Projection.inline source
-                           |> List.map (fun decoration ->
-                                  {
-                                    text = decoration_text decoration;
-                                    style = Frame.Decoration_inline;
-                                  })
-                         in
-                         gutter_row ~presentation ~width:gutter_columns
-                           ~number_width ~primary_line:primary_line.number
-                           source_line
-                         @ row_for_line ~trailing:(fold_marker @ inline)
-                             ~columns:content_columns
-                             ~left_column:viewport.left_column
-                             ~syntax_spans:visible_syntax_spans
-                             ~search_ranges:visible_search_ranges
-                             ~diagnostic_ranges:visible_diagnostic_ranges
-                             ~selections ~primary_index:selections.primary_index
-                             line
-                     | Projection.Virtual virtual_row ->
-                         let text =
-                           decoration_text
-                             (Projection.virtual_decoration virtual_row)
-                         in
-                         let line =
-                           Display.layout text
-                             {
-                               Display.number = 0;
-                               start_offset = 0;
-                               stop_offset = String.length text;
-                               end_offset = String.length text;
-                             }
-                         in
-                         blank_gutter gutter_columns
-                         @ row_for_line ~content_style:(Some Frame.Decoration_virtual)
-                             ~columns:content_columns
-                             ~left_column:viewport.left_column
-                             ~syntax_spans:[] ~search_ranges:[]
-                             ~diagnostic_ranges:[]
-                             ~selections:
-                               { Editor_context.selections = []; primary_index = 0 }
-                             ~primary_index:0 line)
+                  match projected_line with
+                  | Projection.Source source ->
+                      let source_line = Projection.source_line source in
+                      let line = Display.layout contents source_line in
+                      let fold_marker =
+                        match Projection.fold source with
+                        | None -> []
+                        | Some fold ->
+                            let hidden =
+                              Fold.stop_line fold - Fold.start_line fold
+                            in
+                            [
+                              {
+                                text =
+                                  Printf.sprintf "  … %d line%s folded" hidden
+                                    (if hidden = 1 then "" else "s");
+                                style = Frame.Dim;
+                              };
+                            ]
+                      in
+                      let inline =
+                        Projection.inline source
+                        |> List.map (fun decoration ->
+                            {
+                              text = decoration_text decoration;
+                              style = Frame.Decoration_inline;
+                            })
+                      in
+                      gutter_row ~presentation ~width:gutter_columns
+                        ~number_width ~primary_line:primary_line.number
+                        source_line
+                      @ row_for_line ~trailing:(fold_marker @ inline)
+                          ~columns:content_columns
+                          ~left_column:viewport.left_column
+                          ~syntax_spans:visible_syntax_spans
+                          ~search_ranges:visible_search_ranges
+                          ~diagnostic_ranges:visible_diagnostic_ranges
+                          ~selections ~primary_index:selections.primary_index
+                          line
+                  | Projection.Virtual virtual_row ->
+                      let text =
+                        decoration_text
+                          (Projection.virtual_decoration virtual_row)
+                      in
+                      let line =
+                        Display.layout text
+                          {
+                            Display.number = 0;
+                            start_offset = 0;
+                            stop_offset = String.length text;
+                            end_offset = String.length text;
+                          }
+                      in
+                      blank_gutter gutter_columns
+                      @ row_for_line
+                          ~content_style:(Some Frame.Decoration_virtual)
+                          ~columns:content_columns
+                          ~left_column:viewport.left_column ~syntax_spans:[]
+                          ~search_ranges:[] ~diagnostic_ranges:[]
+                          ~selections:
+                            {
+                              Editor_context.selections = [];
+                              primary_index = 0;
+                            }
+                          ~primary_index:0 line)
             in
             let missing_rows = content_rows - List.length visible_rows in
             let blank_row =

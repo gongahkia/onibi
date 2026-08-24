@@ -2,7 +2,11 @@ type placement = Before | After
 
 type item =
   | Inline of { anchor_offset : int; text : string }
-  | Virtual_line of { anchor_offset : int; placement : placement; text : string }
+  | Virtual_line of {
+      anchor_offset : int;
+      placement : placement;
+      text : string;
+    }
 
 type contribution = {
   provider_id : string;
@@ -13,12 +17,7 @@ type contribution = {
 }
 
 type response = (contribution, string) result
-
-type resolved = {
-  provider_id : string;
-  item : item;
-}
-
+type resolved = { provider_id : string; item : item }
 type collection = { items : resolved list; rejections : string list }
 
 let maximum_providers = 32
@@ -30,18 +29,19 @@ let maximum_provider_id_bytes = 96
 let maximum_priority = 1024
 
 let item_anchor = function
-  | Inline { anchor_offset; _ }
-  | Virtual_line { anchor_offset; _ } ->
+  | Inline { anchor_offset; _ } | Virtual_line { anchor_offset; _ } ->
       anchor_offset
 
-let item_text = function
-  | Inline { text; _ } | Virtual_line { text; _ } -> text
+let item_text = function Inline { text; _ } | Virtual_line { text; _ } -> text
 
 let valid_text text =
   String.length text > 0
   && String.length text <= maximum_text_bytes
   && String.is_valid_utf_8 text
-  && not (String.exists (fun character -> character = '\n' || character = '\r') text)
+  && not
+       (String.exists
+          (fun character -> character = '\n' || character = '\r')
+          text)
 
 let valid_provider_id value =
   String.length value > 0
@@ -62,6 +62,7 @@ let create ~provider_id ~priority ~document_id ~document_version ~items =
   else if document_version < 0 then Error "document version must be nonnegative"
   else if abs priority > maximum_priority then
     Error "provider priority exceeds the bounded range"
+  else if items = [] then Error "provider contribution must contain an item"
   else if List.length items > maximum_items_per_provider then
     Error "provider contribution exceeds the item limit"
   else if
@@ -72,7 +73,8 @@ let create ~provider_id ~priority ~document_id ~document_version ~items =
   else Ok { provider_id; priority; document_id; document_version; items }
 
 let utf8_boundary contents offset =
-  offset = 0 || offset = String.length contents
+  offset = 0
+  || offset = String.length contents
   ||
   let decoded = String.get_utf_8_uchar contents offset in
   Uchar.utf_decode_is_valid decoded
@@ -86,7 +88,8 @@ let collect ~contents ~document_id ~document_version responses =
   let accepted, rejections =
     List.fold_left
       (fun (accepted, rejections) -> function
-        | Error reason -> (accepted, ("provider failure: " ^ reason) :: rejections)
+        | Error reason ->
+            (accepted, ("provider failure: " ^ reason) :: rejections)
         | Ok contribution
           when contribution.document_id <> document_id
                || contribution.document_version <> document_version ->
@@ -101,14 +104,14 @@ let collect ~contents ~document_id ~document_version responses =
   let duplicate_ids =
     accepted
     |> List.filter_map (fun (contribution : contribution) ->
-           let same =
-             List.length
-               (List.filter
-                  (fun (candidate : contribution) ->
-                    String.equal candidate.provider_id contribution.provider_id)
-                  accepted)
-           in
-           if same > 1 then Some contribution.provider_id else None)
+        let same =
+          List.length
+            (List.filter
+               (fun (candidate : contribution) ->
+                 String.equal candidate.provider_id contribution.provider_id)
+               accepted)
+        in
+        if same > 1 then Some contribution.provider_id else None)
     |> List.sort_uniq String.compare
   in
   let accepted, rejections =
@@ -124,7 +127,9 @@ let collect ~contents ~document_id ~document_version responses =
   in
   let accepted = List.rev accepted in
   let accepted, rejections =
-    List.mapi (fun index (contribution : contribution) -> (index, contribution)) accepted
+    List.mapi
+      (fun index (contribution : contribution) -> (index, contribution))
+      accepted
     |> List.fold_left
          (fun (accepted, rejections) (index, (contribution : contribution)) ->
            if index >= maximum_providers then
@@ -145,7 +150,9 @@ let collect ~contents ~document_id ~document_version responses =
         |> List.fold_left
              (fun (resolved, rejections, item_count, text_bytes) item ->
                let next_item_count = item_count + 1 in
-               let next_text_bytes = text_bytes + String.length (item_text item) in
+               let next_text_bytes =
+                 text_bytes + String.length (item_text item)
+               in
                let anchor = item_anchor item in
                if next_item_count > maximum_items then
                  ( resolved,
@@ -162,7 +169,8 @@ let collect ~contents ~document_id ~document_version responses =
                    item_count,
                    text_bytes )
                else if
-                 anchor > String.length contents || not (utf8_boundary contents anchor)
+                 anchor > String.length contents
+                 || not (utf8_boundary contents anchor)
                then
                  ( resolved,
                    ("provider " ^ contribution.provider_id
@@ -171,9 +179,7 @@ let collect ~contents ~document_id ~document_version responses =
                    item_count,
                    text_bytes )
                else
-                 ( { provider_id = contribution.provider_id;
-                     item }
-                   :: resolved,
+                 ( { provider_id = contribution.provider_id; item } :: resolved,
                    rejections,
                    next_item_count,
                    next_text_bytes ))
@@ -189,8 +195,7 @@ let item value = value.item
 
 let inspection_lines value =
   let providers =
-    value.items
-    |> List.map provider_id |> List.sort_uniq String.compare
+    value.items |> List.map provider_id |> List.sort_uniq String.compare
   in
   [
     "Display decorations";

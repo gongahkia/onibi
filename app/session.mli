@@ -99,6 +99,7 @@ type inspection =
   | Project_search
   | File_watches
   | Language
+  | Decorations
 
 type t
 type outcome = Continue of t | Exit of t
@@ -148,6 +149,10 @@ val set_project_root : t -> path:string -> (t, Zenbu_kernel.Error.t) result
 val project_root : t -> string option
 val search_project : t -> query:string -> t
 val render : t -> t * Zenbu_view.Frame.t
+
+(* Replaces host-supplied, data-only display contributions. They are not
+   persisted in the session layout or exposed to editing models. *)
+val set_view_decorations : t -> Zenbu_view.Decoration.response list -> t
 val contents : t -> string
 val file_path : t -> string option
 val dimensions : t -> Zenbu_view.Renderer.dimensions

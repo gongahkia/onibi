@@ -11,3 +11,7 @@ italic = true
 
 [status]
 background = "default"
+
+[decoration_virtual]
+foreground = "#13579b"
+underline = true

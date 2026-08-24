@@ -1,6 +1,7 @@
 open Zenbu_kernel
 open Zenbu_model_api
 module App = Zenbu_app
+module Decoration = Zenbu_view.Decoration
 module Display = Zenbu_view.Display
 module Fold = Zenbu_view.Fold
 module Frame = Zenbu_view.Frame
@@ -277,6 +278,14 @@ let test_theme_contract () =
         decorations = [ Theme.Italic ];
       })
     "a custom theme did not preserve and override syntax decorations";
+  expect
+    (Theme.attribute custom Frame.Decoration_virtual
+    = {
+        Theme.foreground = Theme.Rgb (19, 87, 155);
+        background = Theme.Default;
+        decorations = [ Theme.Italic; Theme.Underline ];
+      })
+    "a custom theme did not validate a decoration role";
   let invalid = theme_fixture "m4_theme_invalid.toml" in
   expect
     (Result.is_error (Theme.load invalid))
@@ -555,6 +564,215 @@ let test_renderer_presentation_profiles () =
     && List.length (Frame.rows narrow.frame) = 2
     && Frame.cursor narrow.frame = None)
     "a gutter wider than the canvas did not degrade to a safe cursorless frame"
+
+let test_view_decorations () =
+  let contents = "a界\nbeta" in
+  let primary session =
+    let selections = Editor_context.selections (App.Session.context session) in
+    List.nth selections.selections selections.primary_index
+  in
+  let contribution ~provider_id ~priority ~items =
+    match
+      Decoration.create ~provider_id ~priority ~document_id:"m4-view"
+        ~document_version:0 ~items
+    with
+    | Ok contribution -> contribution
+    | Error reason -> failf "%s" reason
+  in
+  let alpha =
+    contribution ~provider_id:"alpha" ~priority:1
+      ~items:
+        [
+          Decoration.Virtual_line
+            {
+              anchor_offset = 0;
+              placement = Decoration.Before;
+              text = "before";
+            };
+          Decoration.Inline { anchor_offset = 1; text = "注" };
+          Decoration.Virtual_line
+            {
+              anchor_offset = 0;
+              placement = Decoration.After;
+              text = "after-a";
+            };
+        ]
+  in
+  let zeta =
+    contribution ~provider_id:"zeta" ~priority:3
+      ~items:
+        [
+          Decoration.Virtual_line
+            {
+              anchor_offset = 0;
+              placement = Decoration.After;
+              text = "after-z";
+            };
+        ]
+  in
+  let stale =
+    match
+      Decoration.create ~provider_id:"stale" ~priority:1 ~document_id:"m4-view"
+        ~document_version:1
+        ~items:
+          [
+            Decoration.Virtual_line
+              {
+                anchor_offset = 0;
+                placement = Decoration.Before;
+                text = "stale";
+              };
+          ]
+    with
+    | Ok contribution -> contribution
+    | Error reason -> failf "%s" reason
+  in
+  let invalid =
+    Decoration.create ~provider_id:"invalid" ~priority:1 ~document_id:"m4-view"
+      ~document_version:0
+      ~items:[ Decoration.Inline { anchor_offset = 0; text = "bad\ntext" } ]
+  in
+  let responses : Decoration.response list =
+    [ Ok zeta; Error "provider crashed"; Ok alpha; Ok stale; invalid ]
+  in
+  let collection =
+    Decoration.collect ~contents ~document_id:"m4-view" ~document_version:0
+      responses
+  in
+  expect
+    (List.length (Decoration.items collection) = 4
+    && List.length (Decoration.rejections collection) = 3)
+    "decoration collection did not fail closed for stale, failed, or invalid \
+     providers";
+  expect
+    (List.exists
+       (fun line -> contains ~substring:"rejections: 3" line)
+       (Decoration.inspection_lines collection))
+    "decoration rejections were not inspectable";
+  let too_many_items =
+    Decoration.create ~provider_id:"over-items" ~priority:1
+      ~document_id:"m4-view" ~document_version:0
+      ~items:
+        (List.init 65 (fun _ ->
+             Decoration.Inline { anchor_offset = 0; text = "x" }))
+  in
+  let too_many_providers =
+    List.init 33 (fun index ->
+        Ok
+          (contribution
+             ~provider_id:(Printf.sprintf "provider-%02d" index)
+             ~priority:index
+             ~items:[ Decoration.Inline { anchor_offset = 0; text = "x" } ]))
+  in
+  let provider_limited =
+    Decoration.collect ~contents ~document_id:"m4-view" ~document_version:0
+      too_many_providers
+  in
+  expect
+    (Result.is_error too_many_items
+    && List.length (Decoration.items provider_limited) = 32
+    && List.length (Decoration.rejections provider_limited) = 1)
+    "decoration contribution limits were not enforced";
+  let context = document_context ~selections:[ (0, 1) ] contents in
+  let rendered =
+    Renderer.render_with_inspector ~inspector:None
+      ~presentation:Presentation.bare ~decorations:responses
+      ~search_ranges:[ { Renderer.start_offset = 0; stop_offset = 1 } ]
+      ~context
+      ~status:(status Model_status.Key_commands)
+      ~filename:"decorated" ~dirty:false ~message:None
+      ~viewport:Zenbu_view.Viewport.origin
+      ~dimensions:{ columns = 40; rows = 5 } ()
+  in
+  let rows = Frame.rows rendered.frame |> List.map Frame.row_text in
+  expect
+    (List.map String.trim rows
+    = [
+        "[alpha] before";
+        "a界  [alpha: 注]";
+        "[alpha] after-a";
+        "[zeta] after-z";
+        "beta";
+      ])
+    "virtual and inline decorations were not ordered deterministically";
+  let cells = Frame.rows rendered.frame |> List.concat in
+  expect
+    (List.mem Frame.Primary_selection (styles rendered.frame)
+    && List.mem Frame.Decoration_inline (styles rendered.frame)
+    && List.mem Frame.Decoration_virtual (styles rendered.frame)
+    && List.exists
+         (fun (cell : Frame.cell) ->
+           cell.style = Frame.Decoration_inline
+           && String.equal cell.text "注"
+           && cell.width = 2)
+         cells)
+    "decoration roles, selection precedence, or Unicode width were not \
+     preserved";
+  expect
+    (Theme.style_name Frame.Decoration_inline = "decoration_inline"
+    && Theme.style_name Frame.Decoration_virtual = "decoration_virtual")
+    "decoration theme roles are not stable";
+  let below = document_context ~selections:[ (5, 5) ] contents in
+  let followed =
+    Renderer.render_with_inspector ~inspector:None
+      ~presentation:Presentation.bare ~decorations:responses ~context:below
+      ~status:(status Model_status.Key_commands)
+      ~filename:"decorated" ~dirty:false ~message:None
+      ~viewport:Zenbu_view.Viewport.origin
+      ~dimensions:{ columns = 20; rows = 3 } ()
+  in
+  expect
+    (followed.viewport.top_line > 0)
+    "virtual rows were excluded from viewport reconciliation";
+  let session_contents = "a\nb" in
+  let session =
+    App.Session.create ~model:App.Session.Direct ~presentation:Presentation.bare
+      ~contents:session_contents
+      ~dimensions:Renderer.{ columns = 20; rows = 4 }
+      ()
+    |> must
+  in
+  let session_context = App.Session.context session in
+  let session_decoration =
+    match
+      Decoration.create ~provider_id:"pointer" ~priority:1
+        ~document_id:(Editor_context.document_id session_context)
+        ~document_version:(Editor_context.document_version session_context)
+        ~items:
+          [
+            Decoration.Virtual_line
+              {
+                anchor_offset = 0;
+                placement = Decoration.Before;
+                text = "note";
+              };
+          ]
+    with
+    | Ok contribution -> contribution
+    | Error reason -> failf "%s" reason
+  in
+  let session =
+    App.Session.set_view_decorations session [ Ok session_decoration ]
+  in
+  let virtual_click =
+    App.Session.handle_pointer session
+      (pointer (Input_event.Press Input_event.Primary) ~column:0 ~row:0)
+  in
+  expect
+    ((primary virtual_click).head_offset = 0)
+    "a virtual row became a source pointer target";
+  let source_click =
+    App.Session.handle_pointer virtual_click
+      (pointer (Input_event.Press Input_event.Primary) ~column:0 ~row:2)
+  in
+  expect
+    ((primary source_click).head_offset = 2)
+    "a source row after a virtual line did not preserve pointer mapping";
+  expect
+    (List.exists
+       (fun line -> contains ~substring:"providers: 1" line)
+       (App.Session.inspect session App.Session.Decorations))
+    "the session decoration inspector did not expose active providers"
 
 let primary_selection session =
   let selections = Editor_context.selections (App.Session.context session) in
@@ -2210,6 +2428,7 @@ let () =
     ( "renderer selections viewport tiny",
       test_renderer_selection_viewport_and_tiny_terminal );
     ("renderer presentation profiles", test_renderer_presentation_profiles);
+    ("view decorations", test_view_decorations);
     ("session presentation profile", test_session_presentation_profile);
     ("session buffer-line presentation", test_session_buffer_line_presentation);
     ("pure pane layout composition", test_layout_composition);

@@ -18,10 +18,7 @@ val fold : source_row -> Fold.range option
 val inline : source_row -> Decoration.resolved list
 val virtual_anchor : virtual_row -> Display.source_line
 val virtual_decoration : virtual_row -> Decoration.resolved
-
 val row_source_line : row -> Display.source_line option
 val row_anchor_line : row -> Display.source_line
 val last_source_line : row list -> Display.source_line option
-
-val index_for_offset :
-  row list -> Display.source_line list -> int -> int
+val index_for_offset : row list -> Display.source_line list -> int -> int
