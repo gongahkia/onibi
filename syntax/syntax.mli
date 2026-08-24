@@ -135,6 +135,73 @@ module Snapshot : sig
     t -> start_offset:int -> stop_offset:int -> Node.t option
 end
 
+(** Bounded Tree-sitter pattern queries projected into Zenbu-owned capture
+    metadata and kernel selections. Compiled queries retain no public parser,
+    tree, node, cursor, or FFI value. *)
+module Query : sig
+  type t
+  type capture
+
+  type error =
+    | Query_too_large of { maximum_bytes : int; actual_bytes : int }
+    | Query_too_complex of {
+        maximum_patterns : int;
+        actual_patterns : int;
+        maximum_capture_names : int;
+        actual_capture_names : int;
+      }
+    | Invalid_query of string
+    | Snapshot_has_parse_error
+    | Stale_snapshot of {
+        expected_id : string;
+        expected_version : int;
+        actual_id : string;
+        actual_version : int;
+      }
+    | Wrong_language of {
+        expected_id : string;
+        expected_version : string;
+        actual_id : string;
+        actual_version : string;
+      }
+    | Result_limit_exceeded of { maximum_captures : int }
+    | Invalid_capture of string
+    | Backend_failure of string
+
+  val maximum_query_bytes : int
+  val maximum_patterns : int
+  val maximum_capture_names : int
+  val maximum_captures : int
+
+  val compile : Snapshot.t -> source:string -> (t, error) result
+  (** Compiles a UTF-8 query against an error-free snapshot's exact language
+      identity and document version. *)
+
+  val document_id : t -> string
+  val document_version : t -> int
+  val language_id : t -> string
+  val language_version : t -> string
+
+  val captures : t -> snapshot:Snapshot.t -> (capture list, error) result
+  (** Runs only against a snapshot matching the compiled query's document,
+      version, language variant, grammar version, ABI, and integrity token. A
+      result above [maximum_captures] is rejected rather than truncated. *)
+
+  val capture_name : capture -> string
+  val capture_range : capture -> Zenbu_kernel.Range.t
+
+  val selections :
+    t ->
+    snapshot:Snapshot.t ->
+    capture:string ->
+    (Zenbu_kernel.Selection_set.t, error) result
+  (** Converts one named capture's non-overlapping result ranges into a normal
+      kernel selection set. Every range is checked against the bound UTF-8
+      document before this conversion. *)
+
+  val error_to_string : error -> string
+end
+
 module Selector : sig
   type t =
     | Focus_primary

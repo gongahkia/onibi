@@ -24,6 +24,10 @@ let must_syntax = function
   | Ok value -> value
   | Error error -> failf "%s" (Syntax.Error.to_string error)
 
+let must_query = function
+  | Ok value -> value
+  | Error error -> failf "%s" (Syntax.Query.error_to_string error)
+
 let document ?(selections = []) id contents =
   Document.create
     ~id:(Document_id.of_string id |> must)
@@ -390,6 +394,237 @@ let test_syntax_source_limit () =
         (Syntax.Error.to_string error)
   | Ok _ -> failf "syntax parser accepted an oversized source"
 
+let capture_offsets captures =
+  List.map
+    (fun capture ->
+      let range = Syntax.Query.capture_range capture in
+      ( Syntax.Query.capture_name capture,
+        Anchor.byte_offset (Range.start range),
+        Anchor.byte_offset (Range.stop range) ))
+    captures
+
+let selection_offsets_of_set selections =
+  Selection_set.to_list selections
+  |> List.map (fun selection ->
+      ( Anchor.byte_offset (Selection.anchor selection),
+        Anchor.byte_offset (Selection.head selection) ))
+
+let query_source = "(value_name) @name"
+
+let test_bounded_syntax_queries () =
+  let source = "let café = 1\nlet beta = café\n" in
+  let query_document = document "syntax-query" source in
+  let snapshot = Document.snapshot query_document in
+  let syntax =
+    Syntax.Service.refresh (Syntax.Service.create (language ())) snapshot
+    |> must_syntax
+  in
+  let query = Syntax.Query.compile syntax ~source:query_source |> must_query in
+  expect
+    (Syntax.Query.document_id query = "syntax-query"
+    && Syntax.Query.document_version query = 0
+    && Syntax.Query.language_id query = "ocaml"
+    && Syntax.Query.language_version query = "0.1.0")
+    "syntax query did not retain explicit document and grammar bindings";
+  let captures = Syntax.Query.captures query ~snapshot:syntax |> must_query in
+  expect
+    (capture_offsets captures
+    = [ ("name", 4, 9); ("name", 18, 22); ("name", 25, 30) ])
+    "syntax query captures were not stable across Unicode source boundaries";
+  List.iter
+    (fun capture ->
+      Document_snapshot.validate_range snapshot
+        (Syntax.Query.capture_range capture)
+      |> must)
+    captures;
+  let selections =
+    Syntax.Query.selections query ~snapshot:syntax ~capture:"name" |> must_query
+  in
+  expect
+    (selection_offsets_of_set selections = [ (4, 9); (18, 22); (25, 30) ])
+    "query capture selections did not preserve validated byte ranges";
+  let context =
+    Editor_context.from_snapshot ~snapshot ~commands:[] ~syntax ()
+  in
+  let intent =
+    match
+      Syntax_commands.resolve_query context ~source:query_source ~capture:"name"
+    with
+    | Ok [ intent ] -> intent
+    | Ok _ -> failf "query command did not produce exactly one selection intent"
+    | Error error -> failf "%s" (Error.to_string error)
+  in
+  expect
+    (Model_intent.identity intent = "set-selections")
+    "query command bypassed the ordinary selection intent";
+  let query_command =
+    Syntax_commands.commands ()
+    |> List.find (fun command ->
+        String.equal
+          (Command.descriptor command |> Command_descriptor.id
+         |> Command_id.to_string)
+          "syntax.query.select")
+  in
+  let command_intents =
+    Command.execute query_command context
+      (Syntax_commands.query_invocation ~source:query_source ~capture:"name"
+      |> must)
+    |> must
+  in
+  expect
+    (List.map Model_intent.identity command_intents = [ "set-selections" ])
+    "registered syntax query command did not use the normal selection path";
+  let selection_transaction =
+    Intent.resolve ~source:Transaction.Test snapshot
+      (Model_intent.to_kernel intent)
+    |> must
+  in
+  let selected = Document.apply query_document selection_transaction |> must in
+  expect
+    (selection_offsets_of_set
+       (Document_snapshot.selections (Document.snapshot selected))
+    = [ (4, 9); (18, 22); (25, 30) ])
+    "query selection intent did not commit as a normal selection transaction";
+  let modified =
+    Document.apply query_document
+      (transaction snapshot [ edit snapshot 0 0 "(* newer *)\n" ])
+    |> must
+  in
+  expect
+    (Result.is_error (Document.apply modified selection_transaction))
+    "a query selection transaction applied after its source snapshot changed";
+  let initial_selection =
+    Selection_spec.make ~anchor_offset:0 ~head_offset:0 |> must
+  in
+  let replay =
+    Replay.create ~document_id:"syntax-query-replay" ~contents:source
+      ~initial_selections:
+        { Replay.selections = [ initial_selection ]; primary = 0 }
+      ~actions:[ Replay.Intent (Model_intent.to_kernel intent) ]
+    |> must
+  in
+  let replayed =
+    Replay.to_string replay |> Replay.of_string |> must |> Replay.run |> must
+  in
+  expect
+    (selection_offsets_of_set
+       (Document_snapshot.selections
+          (Document.snapshot (History.current replayed)))
+    = [ (4, 9); (18, 22); (25, 30) ])
+    "query selections did not replay as ordinary kernel intent data";
+  (match Syntax.Query.compile syntax ~source:"(" with
+  | Error (Syntax.Query.Invalid_query _) -> ()
+  | Error error ->
+      failf "unexpected invalid-query error: %s"
+        (Syntax.Query.error_to_string error)
+  | Ok _ -> failf "syntax query accepted malformed query text");
+  (match Syntax.Query.compile syntax ~source:"\255" with
+  | Error (Syntax.Query.Invalid_query _) -> ()
+  | Error error ->
+      failf "unexpected invalid-UTF-8 query error: %s"
+        (Syntax.Query.error_to_string error)
+  | Ok _ -> failf "syntax query accepted invalid UTF-8 text");
+  (match
+     Syntax.Query.compile syntax
+       ~source:(String.make (Syntax.Query.maximum_query_bytes + 1) 'x')
+   with
+  | Error (Syntax.Query.Query_too_large _) -> ()
+  | Error error ->
+      failf "unexpected oversized-query error: %s"
+        (Syntax.Query.error_to_string error)
+  | Ok _ -> failf "syntax query accepted oversized source text");
+  let too_many_patterns =
+    List.init (Syntax.Query.maximum_patterns + 1) (fun _ -> query_source)
+    |> String.concat "\n"
+  in
+  (match Syntax.Query.compile syntax ~source:too_many_patterns with
+  | Error (Syntax.Query.Query_too_complex _) -> ()
+  | Error error ->
+      failf "unexpected complex-query error: %s"
+        (Syntax.Query.error_to_string error)
+  | Ok _ -> failf "syntax query accepted too many patterns");
+  let error_document = document "syntax-query-error" "let alpha =" in
+  let error_snapshot = Document.snapshot error_document in
+  let error_syntax =
+    Syntax.Service.refresh (Syntax.Service.create (language ())) error_snapshot
+    |> must_syntax
+  in
+  expect
+    (Syntax.Snapshot.has_error error_syntax)
+    "invalid query fixture did not produce a parser error";
+  (match Syntax.Query.compile error_syntax ~source:query_source with
+  | Error Syntax.Query.Snapshot_has_parse_error -> ()
+  | Error error ->
+      failf "unexpected parse-error query rejection: %s"
+        (Syntax.Query.error_to_string error)
+  | Ok _ -> failf "syntax query accepted a parser-error snapshot");
+  let stale_document = document "syntax-query-stale" "let alpha = 1\n" in
+  let before = Document.snapshot stale_document in
+  let stale_service = Syntax.Service.create (language ()) in
+  let before_syntax =
+    Syntax.Service.refresh stale_service before |> must_syntax
+  in
+  let stale_query =
+    Syntax.Query.compile before_syntax ~source:query_source |> must_query
+  in
+  let after =
+    Document.apply stale_document
+      (transaction before [ edit before 0 0 "(* newer *)\n" ])
+    |> must |> Document.snapshot
+  in
+  let after_syntax =
+    Syntax.Service.refresh stale_service after |> must_syntax
+  in
+  (match Syntax.Query.captures stale_query ~snapshot:after_syntax with
+  | Error (Syntax.Query.Stale_snapshot _) -> ()
+  | Error error ->
+      failf "unexpected stale-query error: %s"
+        (Syntax.Query.error_to_string error)
+  | Ok _ -> failf "syntax query ran against a newer snapshot");
+  let language_document = document "syntax-query-language" "{}" in
+  let language_snapshot = Document.snapshot language_document in
+  let json_syntax =
+    Syntax.Service.refresh
+      (Syntax.Service.create (json_language ()))
+      language_snapshot
+    |> must_syntax
+  in
+  let ocaml_syntax =
+    Syntax.Service.refresh
+      (Syntax.Service.create (language ()))
+      language_snapshot
+    |> must_syntax
+  in
+  let language_query =
+    Syntax.Query.compile json_syntax ~source:"(_) @node" |> must_query
+  in
+  (match Syntax.Query.captures language_query ~snapshot:ocaml_syntax with
+  | Error (Syntax.Query.Wrong_language _) -> ()
+  | Error error ->
+      failf "unexpected language-bound query error: %s"
+        (Syntax.Query.error_to_string error)
+  | Ok _ -> failf "syntax query ran under a different language grammar");
+  let many_source =
+    List.init (Syntax.Query.maximum_captures + 1) (fun index ->
+        Printf.sprintf "let item_%d = %d\n" index index)
+    |> String.concat ""
+  in
+  let many_document = document "syntax-query-limit" many_source in
+  let many_snapshot = Document.snapshot many_document in
+  let many_syntax =
+    Syntax.Service.refresh (Syntax.Service.create (language ())) many_snapshot
+    |> must_syntax
+  in
+  let many_query =
+    Syntax.Query.compile many_syntax ~source:query_source |> must_query
+  in
+  match Syntax.Query.captures many_query ~snapshot:many_syntax with
+  | Error (Syntax.Query.Result_limit_exceeded _) -> ()
+  | Error error ->
+      failf "unexpected result-limit error: %s"
+        (Syntax.Query.error_to_string error)
+  | Ok _ -> failf "syntax query accepted an oversized capture result"
+
 let structural_runtime contents =
   let service = Syntax.Service.create (language ()) in
   let module Runtime = Model_runtime.Make (Structural_model) in
@@ -516,6 +751,7 @@ let test_syntax_commands_are_described () =
         "syntax.previous-sibling";
         "syntax.expand";
         "syntax.select-same-kind";
+        "syntax.query.select";
       ])
     "generic syntax command descriptors changed unexpectedly"
 
@@ -541,6 +777,7 @@ let () =
     ("registered JSON syntax", test_json_syntax);
     ("runtime grammar registry", test_runtime_grammar_registry);
     ("syntax source resource limit", test_syntax_source_limit);
+    ("bounded syntax queries", test_bounded_syntax_queries);
     ("structural model shared effects", test_structural_model_and_shared_effects);
     ("structural model without syntax", test_structural_model_without_syntax);
     ("syntax command descriptors", test_syntax_commands_are_described);

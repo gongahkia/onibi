@@ -2,6 +2,9 @@ type grammar = Ocaml | Ocaml_interface | Json
 type parser
 type tree
 type node
+type query
+type query_cursor
+type query_capture
 
 type edit = {
   start_byte : int;
@@ -37,3 +40,11 @@ val named_descendant_for_byte_range :
   node -> start:int -> stop:int -> node option
 
 val copy_tree : tree -> tree
+val compile_query : grammar -> source:string -> query
+val query_pattern_count : query -> int
+val query_capture_count : query -> int
+val create_query_cursor : unit -> query_cursor
+val execute_query : query_cursor -> query -> node -> unit
+val next_query_capture : query_cursor -> query -> query_capture option
+val query_capture_name : query_capture -> string option
+val query_capture_node : query_capture -> node

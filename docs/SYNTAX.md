@@ -18,9 +18,11 @@ editing model → ordinary semantic intents → transactions
 ```
 
 Tree-sitter is the current private backend, not this API's vocabulary. The
-public syntax library does not expose a Tree-sitter parser, tree, node, query,
-FFI address, or ownership rule. The backend can therefore be replaced without
-rewriting a syntax-aware model.
+public syntax library does not expose a Tree-sitter parser, tree, node, query
+cursor, FFI address, or ownership rule. `Syntax.Query` is a bounded facade that
+projects compiled-query results into Zenbu capture metadata and normal kernel
+selections; it does not expose a backend query value. The backend can therefore
+be replaced without rewriting a syntax-aware model.
 
 ## Languages and activation
 
@@ -105,6 +107,38 @@ result deterministic and non-overlapping for the normal selection set.
 They return ordinary `set-selections` intents. They do not encode structural
 model keybindings or language-specific commands.
 
+## Bounded queries and capture selections
+
+`Syntax.Query.compile snapshot ~source` accepts a non-empty UTF-8 Tree-sitter
+query no larger than 64 KiB, and only from an error-free snapshot. The opaque
+compiled value binds the document id/version, Tree-sitter language variant,
+grammar id/version, ABI, and integrity token. `captures` requires that exact
+binding again; a newer document, another language variant, a parser-error
+snapshot, or a registry-derived language mismatch is an error rather than a
+best-effort result.
+
+Compilation permits at most 256 patterns and 128 capture names. Execution
+returns at most 1,024 captures and rejects, rather than truncates, a larger
+result. Each returned value contains only a capture name and a kernel `Range`.
+Zenbu constructs that range through `Document_snapshot.range`, which checks
+the document identity/version, byte bounds, and UTF-8 code-point boundaries.
+`Syntax.Query.selections` filters one capture name and converts its results to
+a normal `Selection_set`; absent, duplicate, or overlapping captures fail the
+normal selection validation instead of creating ambiguous edits.
+
+`zenbu.model_api.Syntax_commands.resolve_query` and the generic
+`syntax.query.select` command provide the editing boundary. The command takes
+required text arguments `query` and `capture` (without `@`) and produces a
+regular `set-selections` intent. It has no structural-model keybinding and no
+rewrite operation. Once resolved, replay records the ordinary intent/selection
+transaction, not a parser, tree, query handle, or backend-dependent result.
+
+These are deterministic input/output bounds, not a CPU-time sandbox. The
+current binding exposes no query cancellation or match-limit callback, so
+Zenbu does not claim hard wall-clock or memory isolation for a pathological
+query. The query source, grammar catalog, parsed source, static query shape,
+and output count are the explicit limits.
+
 ## M10 presentation spans
 
 `Syntax.Highlight.spans` derives a small stable presentation projection from a
@@ -156,8 +190,8 @@ working with available named structure and never substitute byte heuristics.
 
 M10 adds bounded synchronous presentation spans. M11 adds a separate optional
 language-service layer; diagnostics and LSP edits are Zenbu-owned host data and
-never Tree-sitter values. Syntax still omits query strings as public semantics,
-async workers, embedded languages, arbitrary grammar downloads, and
+never Tree-sitter values. Syntax still omits unbounded or plugin-hosted query
+execution, async workers, embedded languages, arbitrary grammar downloads, and
 language-specific refactoring. A single source snapshot is capped at 8 MiB
 before parser invocation, and a registry has at most 32 grammars with at most
 16 extensions each. The current binding does not expose Tree-sitter's
@@ -185,11 +219,10 @@ M7 scripts can call `zenbu.syntax()` for the primary selection or
 `zenbu.syntax(start, stop)` for an explicit current-document byte range. The
 result is `nil` without a matching syntax snapshot, otherwise copied language,
 version, and error state plus a compact smallest-named-node summary and compact
-named relatives. It intentionally does not expose `Syntax.Snapshot.Node` or a
-Tree-sitter value; a callback can use returned offsets to make another
-data-only query. Script descriptor `requires_syntax` participates in generic
-discovery but does not cause a parser to be created for an unsupported buffer.
-See [scripting](SCRIPTING.md).
+named relatives. It intentionally does not expose `Syntax.Snapshot.Node`, a
+Tree-sitter value, or the OCaml-facing `Syntax.Query` facade. Script descriptor
+`requires_syntax` participates in generic discovery but does not cause a parser
+to be created for an unsupported buffer. See [scripting](SCRIPTING.md).
 
 ## M8 capability-scoped extension view
 

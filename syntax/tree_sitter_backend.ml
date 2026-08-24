@@ -2,6 +2,9 @@ type grammar = Ocaml | Ocaml_interface | Json
 type parser = Tree_sitter.Parser.t
 type tree = Tree_sitter.Tree.t
 type node = Tree_sitter.Node.t
+type query = Tree_sitter.Query.t
+type query_cursor = Tree_sitter.Query_cursor.t
+type query_capture = { name : string option; node : node }
 
 type edit = {
   start_byte : int;
@@ -52,3 +55,27 @@ let named_descendant_for_byte_range node ~start ~stop =
   Tree_sitter.Node.named_descendant_for_byte_range node ~start ~end_:stop
 
 let copy_tree = Tree_sitter.Tree.copy
+
+let compile_query grammar ~source =
+  Tree_sitter.Query.create (language grammar) ~source
+
+let query_pattern_count = Tree_sitter.Query.pattern_count
+let query_capture_count = Tree_sitter.Query.capture_count
+let create_query_cursor = Tree_sitter.Query_cursor.create
+
+let execute_query cursor query node =
+  Tree_sitter.Query_cursor.exec cursor query node
+
+let next_query_capture cursor query =
+  match Tree_sitter.Query_cursor.next_capture cursor query with
+  | None -> None
+  | Some capture ->
+      Some
+        {
+          name =
+            Tree_sitter.Query.capture_name_for_id query capture.capture_index;
+          node = capture.node;
+        }
+
+let query_capture_name value = value.name
+let query_capture_node value = value.node

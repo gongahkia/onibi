@@ -15,7 +15,18 @@ val resolve :
   operation ->
   (Model_intent.t list, Zenbu_kernel.Error.t) result
 
+val resolve_query :
+  Editor_context.t ->
+  source:string ->
+  capture:string ->
+  (Model_intent.t list, Zenbu_kernel.Error.t) result
+
 val commands : unit -> Command.t list
 
 val invocation :
   operation -> (Command_invocation.t, Zenbu_kernel.Error.t) result
+
+val query_invocation :
+  source:string ->
+  capture:string ->
+  (Command_invocation.t, Zenbu_kernel.Error.t) result

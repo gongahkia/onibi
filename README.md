@@ -54,8 +54,8 @@ and plugin examples live in [Getting Started](docs/GETTING_STARTED.md).
   private Tree-sitter backend. Its host-owned runtime registry validates
   statically linked bundle source, version, ABI, integrity attestation, and
   activation before changing language mappings; it never loads native grammar
-  paths. Its public `Syntax.Highlight` projection feeds terminal presentation
-  without exposing parser pointers or queries.
+  paths. Its public query and highlight projections return only validated
+  ranges, selections, and presentation data, without exposing parser state.
 - The terminal host has literal Unicode search plus an opt-in UTF-8-safe `Str`
   regexp search and palette-only literal/regexp replace-all, a provider-neutral
   searchable command palette with typed argument prompts, a bounded declarative
@@ -386,9 +386,9 @@ project-text search, a report-only local file watcher, and bounded cross-file
 LSP edits for already-open saved buffers, but no automatic external reload,
 general workspace resource operations, code-action command execution,
 command-line/Ex language, plugin
-marketplace, asynchronous extension execution, public Tree-sitter query API,
-grammar downloads or native grammar loading, refactoring engine, or system
-clipboard bridge.
+marketplace, asynchronous extension execution, unbounded or plugin-hosted
+Tree-sitter query execution, grammar downloads or native grammar loading,
+refactoring engine, or system clipboard bridge.
 Component runtime support is limited to Linux x86_64 and Apple Silicon macOS
 because of the pinned native C API.
 See the deferred work in

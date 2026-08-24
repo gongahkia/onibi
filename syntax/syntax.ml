@@ -768,6 +768,260 @@ module Snapshot = struct
     |> Option.map (fun node -> { Node.snapshot = value; node })
 end
 
+module Query = struct
+  type binding = {
+    document_id : string;
+    document_version : int;
+    language_id : string;
+    language_version : string;
+    language_abi : int;
+    language_integrity : string;
+    grammar : Tree_sitter_backend.grammar;
+  }
+
+  type t = { binding : binding; query : Tree_sitter_backend.query }
+  type capture = { name : string; range : Range.t }
+
+  type error =
+    | Query_too_large of { maximum_bytes : int; actual_bytes : int }
+    | Query_too_complex of {
+        maximum_patterns : int;
+        actual_patterns : int;
+        maximum_capture_names : int;
+        actual_capture_names : int;
+      }
+    | Invalid_query of string
+    | Snapshot_has_parse_error
+    | Stale_snapshot of {
+        expected_id : string;
+        expected_version : int;
+        actual_id : string;
+        actual_version : int;
+      }
+    | Wrong_language of {
+        expected_id : string;
+        expected_version : string;
+        actual_id : string;
+        actual_version : string;
+      }
+    | Result_limit_exceeded of { maximum_captures : int }
+    | Invalid_capture of string
+    | Backend_failure of string
+
+  let maximum_query_bytes = 64 * 1024
+  let maximum_patterns = 256
+  let maximum_capture_names = 128
+  let maximum_captures = 1_024
+
+  let binding snapshot =
+    let language = Snapshot.language snapshot in
+    {
+      document_id = Snapshot.document_id snapshot;
+      document_version = Snapshot.document_version snapshot;
+      language_id = Language.id language;
+      language_version = Grammar.version language;
+      language_abi = Grammar.abi language;
+      language_integrity = Grammar.integrity language;
+      grammar = language.Language.grammar;
+    }
+
+  let document_id value = value.binding.document_id
+  let document_version value = value.binding.document_version
+  let language_id value = value.binding.language_id
+  let language_version value = value.binding.language_version
+
+  let error_to_string = function
+    | Query_too_large { maximum_bytes; actual_bytes } ->
+        Printf.sprintf "syntax query is %d bytes; limit is %d" actual_bytes
+          maximum_bytes
+    | Query_too_complex
+        {
+          maximum_patterns;
+          actual_patterns;
+          maximum_capture_names;
+          actual_capture_names;
+        } ->
+        Printf.sprintf
+          "syntax query has %d patterns and %d capture names; limits are %d \
+           and %d"
+          actual_patterns actual_capture_names maximum_patterns
+          maximum_capture_names
+    | Invalid_query message -> "invalid syntax query: " ^ message
+    | Snapshot_has_parse_error ->
+        "syntax query requires an error-free syntax snapshot"
+    | Stale_snapshot
+        { expected_id; expected_version; actual_id; actual_version } ->
+        Printf.sprintf "stale syntax query snapshot: expected %s@%d, got %s@%d"
+          expected_id expected_version actual_id actual_version
+    | Wrong_language
+        { expected_id; expected_version; actual_id; actual_version } ->
+        Printf.sprintf
+          "syntax query language changed: expected %s@%s, got %s@%s" expected_id
+          expected_version actual_id actual_version
+    | Result_limit_exceeded { maximum_captures } ->
+        Printf.sprintf "syntax query exceeds the %d capture limit"
+          maximum_captures
+    | Invalid_capture message -> "invalid syntax query capture: " ^ message
+    | Backend_failure message -> "syntax query backend failure: " ^ message
+
+  let validate_query_source source =
+    let actual_bytes = String.length source in
+    if actual_bytes > maximum_query_bytes then
+      Error
+        (Query_too_large { maximum_bytes = maximum_query_bytes; actual_bytes })
+    else if String.length source = 0 then Error (Invalid_query "query is empty")
+    else
+      match Text_buffer.of_utf8 source with
+      | Ok _ -> Ok ()
+      | Error _ -> Error (Invalid_query "query is not valid UTF-8")
+
+  let validate_snapshot value snapshot =
+    let actual = binding snapshot in
+    if
+      not
+        (String.equal value.document_id actual.document_id
+        && value.document_version = actual.document_version)
+    then
+      Error
+        (Stale_snapshot
+           {
+             expected_id = value.document_id;
+             expected_version = value.document_version;
+             actual_id = actual.document_id;
+             actual_version = actual.document_version;
+           })
+    else if
+      not
+        (String.equal value.language_id actual.language_id
+        && String.equal value.language_version actual.language_version
+        && value.language_abi = actual.language_abi
+        && String.equal value.language_integrity actual.language_integrity
+        && value.grammar = actual.grammar)
+    then
+      Error
+        (Wrong_language
+           {
+             expected_id = value.language_id;
+             expected_version = value.language_version;
+             actual_id = actual.language_id;
+             actual_version = actual.language_version;
+           })
+    else if Snapshot.has_error snapshot then Error Snapshot_has_parse_error
+    else Ok ()
+
+  let compile snapshot ~source =
+    match validate_query_source source with
+    | Error _ as error -> error
+    | Ok () -> (
+        if Snapshot.has_error snapshot then Error Snapshot_has_parse_error
+        else
+          try
+            let language = Snapshot.language snapshot in
+            let query =
+              Tree_sitter_backend.compile_query language.Language.grammar
+                ~source
+            in
+            let actual_patterns =
+              Tree_sitter_backend.query_pattern_count query
+            in
+            let actual_capture_names =
+              Tree_sitter_backend.query_capture_count query
+            in
+            if
+              actual_patterns > maximum_patterns
+              || actual_capture_names > maximum_capture_names
+            then
+              Error
+                (Query_too_complex
+                   {
+                     maximum_patterns;
+                     actual_patterns;
+                     maximum_capture_names;
+                     actual_capture_names;
+                   })
+            else Ok { binding = binding snapshot; query }
+          with
+          | Failure message | Invalid_argument message ->
+              Error (Invalid_query message)
+          | exception_ ->
+              Error (Backend_failure (Printexc.to_string exception_)))
+
+  let capture_name value = value.name
+  let capture_range value = value.range
+
+  let capture_of_backend snapshot value =
+    match Tree_sitter_backend.query_capture_name value with
+    | None ->
+        Error
+          (Backend_failure
+             "Tree-sitter returned a capture without a declared capture name")
+    | Some name ->
+        let node = Tree_sitter_backend.query_capture_node value in
+        Document_snapshot.range snapshot.Snapshot.document
+          ~start_offset:(Tree_sitter_backend.start_byte node)
+          ~stop_offset:(Tree_sitter_backend.end_byte node)
+        |> Result.map_error (fun error ->
+            Invalid_capture (Zenbu_kernel.Error.to_string error))
+        |> Result.map (fun range -> { name; range })
+
+  let captures value ~snapshot =
+    match validate_snapshot value.binding snapshot with
+    | Error _ as error -> error
+    | Ok () -> (
+        try
+          let cursor = Tree_sitter_backend.create_query_cursor () in
+          Tree_sitter_backend.execute_query cursor value.query
+            (Tree_sitter_backend.root snapshot.Snapshot.tree);
+          let rec collect count values =
+            match Tree_sitter_backend.next_query_capture cursor value.query with
+            | None -> Ok (List.rev values)
+            | Some _ when count = maximum_captures ->
+                Error (Result_limit_exceeded { maximum_captures })
+            | Some capture -> (
+                match capture_of_backend snapshot capture with
+                | Error _ as error -> error
+                | Ok capture -> collect (count + 1) (capture :: values))
+          in
+          collect 0 []
+        with exception_ ->
+          Error (Backend_failure (Printexc.to_string exception_)))
+
+  let selections value ~snapshot ~capture =
+    if String.length capture = 0 then
+      Error (Invalid_capture "capture name must not be empty")
+    else
+      match captures value ~snapshot with
+      | Error _ as error -> error
+      | Ok captures -> (
+          let selected =
+            List.filter
+              (fun candidate -> String.equal candidate.name capture)
+              captures
+          in
+          if selected = [] then
+            Error (Invalid_capture ("query did not produce @" ^ capture))
+          else
+            let rec to_selections values = function
+              | [] -> Ok (List.rev values)
+              | capture :: rest -> (
+                  match
+                    Selection.make
+                      ~anchor:(Range.start capture.range)
+                      ~head:(Range.stop capture.range)
+                  with
+                  | Error error ->
+                      Error
+                        (Invalid_capture (Zenbu_kernel.Error.to_string error))
+                  | Ok selection -> to_selections (selection :: values) rest)
+            in
+            match to_selections [] selected with
+            | Error _ as error -> error
+            | Ok selections ->
+                Selection_set.create ~primary:0 selections
+                |> Result.map_error (fun error ->
+                    Invalid_capture (Zenbu_kernel.Error.to_string error)))
+end
+
 module Selector = struct
   type t =
     | Focus_primary

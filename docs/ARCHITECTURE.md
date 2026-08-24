@@ -123,12 +123,14 @@ zenbu.structural
 ```
 
 `zenbu.syntax` owns language identities, a host-owned staged grammar registry,
-synchronous services, version-bound syntax snapshots, opaque nodes, and generic
-structural selectors. The registry can select only reviewed statically linked
-bundles and never accepts a native path or pointer. The Tree-sitter parser,
-tree, node, query, and FFI lifetime rules are private implementation details.
-A snapshot holds an immutable kernel document snapshot and cannot match a
-different document id/version. One service owns one parser and a bounded
+synchronous services, version-bound syntax snapshots, opaque nodes, generic
+structural selectors, and bounded query capture projection. The registry can
+select only reviewed statically linked bundles and never accepts a native path
+or pointer. The Tree-sitter parser, tree, node, query cursor, and FFI lifetime
+rules are private implementation details; `Syntax.Query` exposes only
+version-bound capture ranges and normal kernel selections. A snapshot holds an
+immutable kernel document snapshot and cannot match a different document
+id/version. One service owns one parser and a bounded
 current snapshot cache. It copies the old backend tree before applying
 transaction-derived edits for incremental parsing, so a caller retaining an old
 Zenbu snapshot cannot observe a tree mutation.
