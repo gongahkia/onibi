@@ -91,6 +91,7 @@ type inspection =
   | Buffers
   | Project
   | Project_search
+  | File_watches
   | Language
 
 type t
@@ -109,6 +110,7 @@ val create :
   ?config:Zenbu_scripting.Scripting.config ->
   ?plugins:Zenbu_extension.Plugin_host.config ->
   ?language_registry:Zenbu_language.Language.Registry.t ->
+  ?file_watcher:File_watcher.t ->
   dimensions:Zenbu_view.Renderer.dimensions ->
   unit ->
   (t, Zenbu_kernel.Error.t) result

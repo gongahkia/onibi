@@ -108,6 +108,7 @@ type inspection =
   | Buffers
   | Project
   | Project_search
+  | File_watches
   | Language
 
 type search = {
@@ -256,6 +257,8 @@ type t = {
   saved_version : int;
   saved_contents : string;
   saved_snapshot : File_io.snapshot option;
+  file_watcher : File_watcher.t;
+  file_watch_notices : string list;
   project_root : Project_root.t option;
   project_search : Project_search.snapshot option;
   layout : Layout.t;
@@ -311,6 +314,7 @@ let default_macro_register = "@"
 let maximum_locations = 64
 let maximum_location_name_bytes = 64
 let maximum_jump_entries = 100
+let maximum_file_watch_notices = 128
 
 let synchronize_macro_context session =
   let register =
@@ -1592,7 +1596,8 @@ let create ~model ?language ?file_path ?(contents = "") ?trace ?profiler
     ?(presentation = Zenbu_view.Presentation.default)
     ?(theme = Zenbu_view.Theme.default) ?system_clipboard
     ?(config = Scripting.Default) ?(plugins = Plugins.Disabled)
-    ?(language_registry = Language.Registry.default ()) ~dimensions () =
+    ?(language_registry = Language.Registry.default ()) ?file_watcher
+    ~dimensions () =
   let saved_snapshot =
     Option.bind file_path (fun path ->
         Result.to_option (File_io.snapshot ~path ~contents))
@@ -1715,6 +1720,9 @@ let create ~model ?language ?file_path ?(contents = "") ?trace ?profiler
               in
               runtime
               |> Result.map (fun active ->
+                  let file_watcher =
+                    Option.value file_watcher ~default:(File_watcher.create ())
+                  in
                   let language_client =
                     Option.bind file_path (fun path ->
                         Language.Registry.find_for_path language_registry
@@ -1724,75 +1732,87 @@ let create ~model ?language ?file_path ?(contents = "") ?trace ?profiler
                               ~document_id:"terminal-buffer" ~document_version:0
                               ~file_path:path ~contents ~trace ~profiler))
                   in
-                  {
-                    active;
-                    base_commands;
-                    base_semantics;
-                    config;
-                    generation;
-                    plugins = plugin_host;
-                    plugins_config = plugins;
-                    next_generation_id = 2;
-                    last_reload_error = config_error;
-                    delivering_events = [];
-                    file_path;
-                    buffer_name = None;
-                    language_override = language;
-                    saved_version = 0;
-                    saved_contents = contents;
+                  let session =
+                    {
+                      active;
+                      base_commands;
+                      base_semantics;
+                      config;
+                      generation;
+                      plugins = plugin_host;
+                      plugins_config = plugins;
+                      next_generation_id = 2;
+                      last_reload_error = config_error;
+                      delivering_events = [];
+                      file_path;
+                      buffer_name = None;
+                      language_override = language;
+                      saved_version = 0;
+                      saved_contents = contents;
+                      saved_snapshot;
+                      file_watcher;
+                      file_watch_notices = [];
+                      project_root = None;
+                      project_search = None;
+                      layout = Layout.single 0;
+                      focused_pane = 0;
+                      pane_viewports = [ (0, Zenbu_view.Viewport.origin) ];
+                      pane_view_positions =
+                        [
+                          ( (0, 0),
+                            {
+                              buffer_id = 0;
+                              document_version = 0;
+                              selections = [ (0, 0) ];
+                              primary = 0;
+                              stale = false;
+                            } );
+                        ];
+                      next_pane_id = 1;
+                      dimensions;
+                      presentation;
+                      theme;
+                      message = config_message;
+                      quit_armed = false;
+                      inspector = None;
+                      presentation_cache = None;
+                      search = None;
+                      interaction = Idle;
+                      language_client;
+                      diagnostics = [];
+                      language_registry;
+                      current_buffer_id = 0;
+                      inactive_buffers = [];
+                      next_buffer_id = 1;
+                      pane_buffers = [ (0, 0) ];
+                      mouse_drag = None;
+                      pending_binding = [];
+                      active_modes =
+                        (match generation with
+                        | None -> []
+                        | Some generation -> Scripting.initial_modes generation);
+                      macro_recording = None;
+                      macros = [];
+                      last_macro_register = None;
+                      macro_replay_pending = None;
+                      macro_replaying = false;
+                      macro_control = false;
+                      kill_ring = [];
+                      system_clipboard;
+                      jobs = None;
+                      locations = [];
+                      backward_jumps = [];
+                      forward_jumps = [];
+                    }
+                  in
+                  Option.iter
+                    (fun snapshot ->
+                      Option.iter
+                        (fun path ->
+                          File_watcher.watch file_watcher ~path ~snapshot)
+                        file_path)
                     saved_snapshot;
-                    project_root = None;
-                    project_search = None;
-                    layout = Layout.single 0;
-                    focused_pane = 0;
-                    pane_viewports = [ (0, Zenbu_view.Viewport.origin) ];
-                    pane_view_positions =
-                      [
-                        ( (0, 0),
-                          {
-                            buffer_id = 0;
-                            document_version = 0;
-                            selections = [ (0, 0) ];
-                            primary = 0;
-                            stale = false;
-                          } );
-                      ];
-                    next_pane_id = 1;
-                    dimensions;
-                    presentation;
-                    theme;
-                    message = config_message;
-                    quit_armed = false;
-                    inspector = None;
-                    presentation_cache = None;
-                    search = None;
-                    interaction = Idle;
-                    language_client;
-                    diagnostics = [];
-                    language_registry;
-                    current_buffer_id = 0;
-                    inactive_buffers = [];
-                    next_buffer_id = 1;
-                    pane_buffers = [ (0, 0) ];
-                    mouse_drag = None;
-                    pending_binding = [];
-                    active_modes =
-                      (match generation with
-                      | None -> []
-                      | Some generation -> Scripting.initial_modes generation);
-                    macro_recording = None;
-                    macros = [];
-                    last_macro_register = None;
-                    macro_replay_pending = None;
-                    macro_replaying = false;
-                    macro_control = false;
-                    kill_ring = [];
-                    system_clipboard;
-                    jobs = None;
-                    locations = [];
-                    backward_jumps = [];
-                    forward_jumps = [];
-                  })))
+                  session)))
 
 let context_of_active = function
   | Vim_runtime runtime -> Vim_runtime.context runtime
@@ -2405,6 +2425,64 @@ let buffer_dirty (buffer : buffer) =
   Editor_context.document_version context <> buffer.saved_version
   && not (String.equal (Editor_context.contents context) buffer.saved_contents)
 
+let take_last maximum values =
+  let excess = List.length values - maximum in
+  if excess <= 0 then values
+  else
+    let rec drop remaining = function
+      | values when remaining <= 0 -> values
+      | [] -> []
+      | _ :: rest -> drop (remaining - 1) rest
+    in
+    drop excess values
+
+let file_watch_notice session (event : File_watcher.event) =
+  let path = Option.value ~default:"all watched paths" event.path in
+  let open_buffers = current_buffer session :: session.inactive_buffers in
+  let buffers =
+    match event.path with
+    | None -> open_buffers
+    | Some path ->
+        List.filter
+          (fun (buffer : buffer) -> buffer.file_path = Some path)
+          open_buffers
+  in
+  let buffer_state =
+    match buffers with
+    | [] -> "no open buffer retained"
+    | buffers when List.exists buffer_dirty buffers ->
+        "dirty buffer retained; no automatic reload"
+    | _ -> "clean buffer retained; no automatic reload"
+  in
+  Printf.sprintf "file watch: %s: %s; %s" path
+    (File_watcher.event_kind_name event.kind)
+    buffer_state
+
+let record_file_watch session event =
+  let notice = file_watch_notice session event in
+  {
+    session with
+    file_watch_notices =
+      take_last maximum_file_watch_notices
+        (session.file_watch_notices @ [ notice ]);
+    message = Some notice;
+    quit_armed = false;
+  }
+
+let poll_file_watcher session =
+  File_watcher.drain session.file_watcher
+  |> List.fold_left record_file_watch session
+
+let file_watch_lines session =
+  [
+    "File watches";
+    "policy: report only; no automatic reload, overwrite, or document mutation";
+    "retained-events: " ^ string_of_int (List.length session.file_watch_notices);
+  ]
+  @
+  if session.file_watch_notices = [] then [ "events: none" ]
+  else session.file_watch_notices
+
 let dirty session =
   current_dirty session || List.exists buffer_dirty session.inactive_buffers
 
@@ -2768,24 +2846,34 @@ let create_buffer session ~id ?file_path ?buffer_name ?language ?saved_snapshot
                           ~document_version:0 ~file_path:path ~contents ~trace
                           ~profiler))
               in
-              {
-                id;
-                active;
-                file_path;
-                buffer_name;
-                language_override = language;
-                saved_version = 0;
-                saved_contents = contents;
+              let buffer =
+                {
+                  id;
+                  active;
+                  file_path;
+                  buffer_name;
+                  language_override = language;
+                  saved_version = 0;
+                  saved_contents = contents;
+                  saved_snapshot;
+                  language_client;
+                  diagnostics = [];
+                  presentation_cache = None;
+                  search = None;
+                  active_modes =
+                    (match session.generation with
+                    | None -> []
+                    | Some generation -> Scripting.initial_modes generation);
+                }
+              in
+              Option.iter
+                (fun snapshot ->
+                  Option.iter
+                    (fun path ->
+                      File_watcher.watch session.file_watcher ~path ~snapshot)
+                    file_path)
                 saved_snapshot;
-                language_client;
-                diagnostics = [];
-                presentation_cache = None;
-                search = None;
-                active_modes =
-                  (match session.generation with
-                  | None -> []
-                  | Some generation -> Scripting.initial_modes generation);
-              })))
+              buffer)))
 
 let show_new_buffer session (buffer : buffer) =
   let session = capture_focused_view_position session in
@@ -2938,6 +3026,15 @@ let buffer_lines session =
 
 let finish_buffer_close session ~(closing : buffer) ~replacement_id ~message =
   Option.iter Lsp.close closing.language_client;
+  Option.iter
+    (fun path ->
+      let still_open =
+        current_buffer session :: session.inactive_buffers
+        |> List.exists (fun (buffer : buffer) ->
+            buffer.id <> closing.id && buffer.file_path = Some path)
+      in
+      if not still_open then File_watcher.unwatch session.file_watcher ~path)
+    closing.file_path;
   {
     session with
     inactive_buffers =
@@ -5352,6 +5449,7 @@ let switch_to_model session target =
 
 let save_to ?(overwrite = false) session path =
   let contents = Editor_context.contents (context session) in
+  let previous_path = session.file_path in
   let complete saved_snapshot =
     let saved =
       {
@@ -5365,6 +5463,17 @@ let save_to ?(overwrite = false) session path =
         quit_armed = false;
       }
     in
+    File_watcher.watch saved.file_watcher ~path ~snapshot:saved_snapshot;
+    Option.iter
+      (fun previous ->
+        let still_open =
+          current_buffer saved :: saved.inactive_buffers
+          |> List.exists (fun (buffer : buffer) ->
+              buffer.file_path = Some previous)
+        in
+        if (not (String.equal previous path)) && not still_open then
+          File_watcher.unwatch saved.file_watcher ~path:previous)
+      previous_path;
     let saved =
       match session.file_path with
       | Some previous when String.equal previous path -> saved
@@ -8613,6 +8722,7 @@ let inspect session inspection =
     | Buffers -> buffer_lines session
     | Project -> project_root_lines session
     | Project_search -> project_search_lines session
+    | File_watches -> file_watch_lines session
     | Api ->
         "API"
         :: Inspector.format_api
@@ -8746,10 +8856,11 @@ let background_job_wakeup_fd session =
 let wakeup_fds session =
   language_wakeup_fds session
   @ Option.to_list (background_job_wakeup_fd session)
+  @ [ File_watcher.wakeup_fd session.file_watcher ]
   |> List.sort_uniq compare
 
 let poll_background session =
-  let session = poll_language session in
+  let session = poll_language session |> poll_file_watcher in
   match session.jobs with
   | None -> session
   | Some jobs -> (
@@ -8763,6 +8874,7 @@ let poll_background session =
           { session with message = Some message; quit_armed = false })
 
 let close session =
+  File_watcher.close session.file_watcher;
   Option.iter Background_job.close session.jobs;
   current_buffer session :: session.inactive_buffers
   |> List.iter (fun (buffer : buffer) ->

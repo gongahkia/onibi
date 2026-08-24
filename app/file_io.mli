@@ -1,10 +1,19 @@
 type error
 type snapshot
 
+type watch_state =
+  | Current
+  | Changed
+  | Replaced
+  | Renamed
+  | Deleted
+  | Failure of string
+
 val to_string : error -> string
 val read : string -> (string, error) result
 val snapshot : path:string -> contents:string -> (snapshot, error) result
 val read_snapshot : string -> (string * snapshot, error) result
+val watch_state : snapshot -> path:string -> watch_state
 val check_snapshot : snapshot -> path:string -> (unit, error) result
 
 val save_atomic : path:string -> contents:string -> (unit, error) result

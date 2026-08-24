@@ -53,10 +53,11 @@ The following remain deliberately out of scope:
 - signatures, dependency resolution, remote download, or a plugin marketplace;
 - hard wall-clock cancellation, asynchronous/background extension execution,
   richer Component imports, or a sandbox claim for trusted Lua;
-- file watching, general cross-file workspace resource operations,
-  command-line/Ex compatibility, or broad Vim/Helix/Kakoune emulation; the
-  explicit-root picker and bounded literal project search are host-owned
-  navigation/search surfaces, not a general project workspace;
+- automatic external reload/merge, general cross-file workspace resource
+  operations, command-line/Ex compatibility, or broad Vim/Helix/Kakoune
+  emulation; the explicit-root picker, bounded literal project search, and
+  report-only local watcher are host-owned surfaces, not a general project
+  workspace;
 - LSP code actions, formatting, symbols, semantic tokens, user-authored server
   configuration, workspace folders, and a language-server trust/sandbox model;
 - public Tree-sitter query APIs, grammar downloads, embedded-language parsing,

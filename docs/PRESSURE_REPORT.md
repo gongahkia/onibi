@@ -57,11 +57,11 @@ line the only direct-Dune path. Explicit broken config/plugin arguments now
 also fail before terminal entry. Component authoring is viable for an example
 package but still requires the WIT/Rust guide rather than a scaffold.
 
-Zenbu remains short of a daily coding environment because it has no language
-diagnostics, completion, navigation, or rename; it also lacks project search,
-file watching, a system clipboard bridge, and a cross-platform Component
-runtime. Normal save refuses externally changed, replaced, and missing targets;
-synchronous first-frame highlighting of a large source is the measurable
-presentation cost. These observations support
+Zenbu remains short of a daily coding environment because it has no automatic
+external reload/merge, a system clipboard bridge, or a cross-platform Component
+runtime. It now has diagnostics, completion, navigation, rename, bounded
+project search, and report-only file watching. Normal save refuses externally
+changed, replaced, and missing targets; synchronous first-frame highlighting of
+a large source is the measurable presentation cost. These observations support
 M11 language intelligence as the next focused milestone; portable Component
 distribution remains a subsequent packaging milestone.

@@ -1857,6 +1857,166 @@ let test_project_text_search () =
          path";
       App.Session.close opened)
 
+let test_file_watcher_reconciliation () =
+  let path = Filename.temp_file "zenbu-watch-" ".txt" in
+  let renamed_path = path ^ ".renamed" in
+  Fun.protect
+    ~finally:(fun () ->
+      List.iter
+        (fun candidate ->
+          try Unix.unlink candidate with Unix.Unix_error _ -> ())
+        [ path; renamed_path ])
+    (fun () ->
+      save_file path "alpha";
+      let overflow_watcher, overflow_fake = App.File_watcher.fake () in
+      for _ = 1 to 257 do
+        App.File_watcher.push overflow_fake ~path:(Some path)
+          App.File_watcher.Modified
+      done;
+      let overflow_events = App.File_watcher.drain overflow_watcher in
+      expect
+        (List.length overflow_events = 256
+        && List.exists
+             (fun (event : App.File_watcher.event) ->
+               event.kind = App.File_watcher.Overflow)
+             overflow_events)
+        "file-watcher queue did not bound retained events with overflow";
+      App.File_watcher.close overflow_watcher;
+      let watcher, fake = App.File_watcher.fake () in
+      let session =
+        App.Session.create ~model:App.Session.Direct ~file_path:path
+          ~file_watcher:watcher ~contents:"alpha"
+          ~dimensions:Renderer.{ columns = 40; rows = 8 }
+          ()
+        |> must
+      in
+      expect
+        (List.mem
+           (App.File_watcher.wakeup_fd watcher)
+           (App.Session.wakeup_fds session))
+        "file-watcher wakeup fd was not exposed to the terminal host";
+      App.File_watcher.push fake ~path:(Some path) App.File_watcher.Modified;
+      let ready, _, _ =
+        Unix.select [ App.File_watcher.wakeup_fd watcher ] [] [] 0.
+      in
+      expect (ready <> []) "file-watcher event did not wake the terminal";
+      let clean = App.Session.poll_background session in
+      expect
+        (App.Session.contents clean = "alpha"
+        && List.exists
+             (fun line ->
+               contains ~substring:"modified; clean buffer retained" line)
+             (App.Session.inspect clean App.Session.File_watches))
+        "a clean watched-buffer event reloaded or failed to remain inspectable";
+      let dirty = App.Session.handle_input clean (text_input "!") in
+      expect
+        (App.Session.contents dirty = "!alpha")
+        "the direct model fixture did not create a dirty watched buffer";
+      List.iter
+        (fun kind -> App.File_watcher.push fake ~path:(Some path) kind)
+        [
+          App.File_watcher.Replaced;
+          App.File_watcher.Renamed;
+          App.File_watcher.Deleted;
+          App.File_watcher.Overflow;
+          App.File_watcher.Failure "simulated backend fault";
+        ];
+      let dirty = App.Session.poll_background dirty in
+      let notices = App.Session.inspect dirty App.Session.File_watches in
+      expect
+        (App.Session.contents dirty = "!alpha"
+        && List.exists
+             (fun line ->
+               contains ~substring:"replaced; dirty buffer retained" line)
+             notices
+        && List.exists (fun line -> contains ~substring:"renamed" line) notices
+        && List.exists (fun line -> contains ~substring:"deleted" line) notices
+        && List.exists (fun line -> contains ~substring:"overflow" line) notices
+        && List.exists
+             (fun line -> contains ~substring:"simulated backend fault" line)
+             notices)
+        "file-watcher events did not retain distinct dirty-buffer outcomes";
+      App.Session.close dirty;
+      save_file path "alpha";
+      let polling = App.File_watcher.create ~interval_seconds:0.01 () in
+      let session =
+        App.Session.create ~model:App.Session.Direct ~file_path:path
+          ~file_watcher:polling ~contents:"alpha"
+          ~dimensions:Renderer.{ columns = 40; rows = 8 }
+          ()
+        |> must
+      in
+      Unix.rename path renamed_path;
+      let rec await_rename attempts session =
+        let session = App.Session.poll_background session in
+        if
+          List.exists
+            (fun line ->
+              contains ~substring:"renamed; clean buffer retained" line)
+            (App.Session.inspect session App.Session.File_watches)
+        then session
+        else if attempts = 0 then
+          failf "polling watcher did not detect same-directory rename"
+        else (
+          Thread.delay 0.02;
+          await_rename (attempts - 1) session)
+      in
+      let session = await_rename 50 session in
+      expect
+        (App.Session.contents session = "alpha")
+        "the polling watcher automatically changed a renamed clean buffer";
+      Unix.unlink renamed_path;
+      let rec await_deletion attempts session =
+        let session = App.Session.poll_background session in
+        if
+          List.exists
+            (fun line ->
+              contains ~substring:"deleted; clean buffer retained" line)
+            (App.Session.inspect session App.Session.File_watches)
+        then session
+        else if attempts = 0 then
+          failf "polling watcher did not detect deletion"
+        else (
+          Thread.delay 0.02;
+          await_deletion (attempts - 1) session)
+      in
+      let session = await_deletion 50 session in
+      expect
+        (App.Session.contents session = "alpha")
+        "the polling watcher automatically changed a deleted clean buffer";
+      App.Session.close session;
+      save_file path "alpha";
+      let replacement_watcher =
+        App.File_watcher.create ~interval_seconds:0.01 ()
+      in
+      let session =
+        App.Session.create ~model:App.Session.Direct ~file_path:path
+          ~file_watcher:replacement_watcher ~contents:"alpha"
+          ~dimensions:Renderer.{ columns = 40; rows = 8 }
+          ()
+        |> must
+      in
+      save_file path "externally replaced";
+      let rec await_replacement attempts session =
+        let session = App.Session.poll_background session in
+        if
+          List.exists
+            (fun line ->
+              contains ~substring:"replaced; clean buffer retained" line)
+            (App.Session.inspect session App.Session.File_watches)
+        then session
+        else if attempts = 0 then
+          failf "polling watcher did not detect replacement"
+        else (
+          Thread.delay 0.02;
+          await_replacement (attempts - 1) session)
+      in
+      let session = await_replacement 50 session in
+      expect
+        (App.Session.contents session = "alpha")
+        "the polling watcher automatically changed a clean buffer";
+      App.Session.close session)
+
 let run name test =
   try
     test ();
@@ -1893,5 +2053,6 @@ let () =
     ("session layout persistence", test_session_layout_persistence);
     ("project root file picker", test_project_root_file_picker);
     ("project text search", test_project_text_search);
+    ("file watcher reconciliation", test_file_watcher_reconciliation);
   ]
   |> List.iter (fun (name, test) -> run name test)

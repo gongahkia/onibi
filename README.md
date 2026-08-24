@@ -276,7 +276,7 @@ result view without changing a document. The host caps a search at 512 files,
 256 results, 1 MiB per file, and 32 MiB total, and exposes the scan and limit
 state through the inspector. Dot-prefixed names are the only ignored-path
 policy; `.gitignore` is not read. It does not grant filesystem authority to models, scripts, or
-plugins, and it does not provide replacement, file watching, or shell search.
+plugins, and it does not provide shell search.
 
 Layout commands accept a JSON path through the palette. They save or restore
 only clean file-backed local buffers plus host-owned split/view state; unsaved
@@ -356,11 +356,11 @@ the M11 sanity numbers, and [release notes](docs/RELEASE.md) describe the gate.
 ## Deliberate limits
 
 Zenbu has a local multi-buffer split-view workspace, bounded explicit-root
-project-text search, and bounded cross-file LSP edits for already-open saved
-buffers, but no external-file watcher, general workspace resource operations,
-command-line/Ex language, plugin marketplace, asynchronous extension execution,
-public Tree-sitter query API, grammar downloads, refactoring engine, or system
-clipboard bridge.
+project-text search, a report-only local file watcher, and bounded cross-file
+LSP edits for already-open saved buffers, but no automatic external reload,
+general workspace resource operations, command-line/Ex language, plugin
+marketplace, asynchronous extension execution, public Tree-sitter query API,
+grammar downloads, refactoring engine, or system clipboard bridge.
 Component runtime support is limited to Linux x86_64 and Apple Silicon macOS
 because of the pinned native C API.
 See the deferred work in

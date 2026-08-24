@@ -5,6 +5,14 @@ type error =
 
 type snapshot = { contents : string; device : int; inode : int }
 
+type watch_state =
+  | Current
+  | Changed
+  | Replaced
+  | Renamed
+  | Deleted
+  | Failure of string
+
 let to_string = function
   | Read_error { path; message } ->
       Printf.sprintf "cannot read %s: %s" path message
@@ -43,19 +51,55 @@ let read_snapshot path =
         (fun snapshot -> (contents, snapshot))
         (snapshot ~path ~contents))
 
-let check_snapshot expected ~path =
+let moved_within_directory expected path =
+  let directory = Filename.dirname path in
+  try
+    Sys.readdir directory
+    |> Array.exists (fun name ->
+        let candidate = Filename.concat directory name in
+        if String.equal candidate path then false
+        else
+          try
+            let stats = Unix.stat candidate in
+            stats.Unix.st_dev = expected.device
+            && stats.Unix.st_ino = expected.inode
+          with Unix.Unix_error _ | Sys_error _ -> false)
+  with Sys_error _ | Unix.Unix_error _ -> false
+
+let watch_state expected ~path =
   match read_snapshot path with
-  | Error (Read_error { message; _ }) ->
+  | Error (Read_error { message; _ }) -> (
+      try
+        ignore (Unix.lstat path);
+        Failure message
+      with
+      | Unix.Unix_error (Unix.ENOENT, _, _) ->
+          if moved_within_directory expected path then Renamed else Deleted
+      | Unix.Unix_error _ | Sys_error _ -> Failure message)
+  | Error (Write_error _ | Save_conflict _) ->
+      Failure "unexpected file-read error"
+  | Ok (contents, actual) ->
+      if expected.device <> actual.device || expected.inode <> actual.inode then
+        Replaced
+      else if not (String.equal expected.contents contents) then Changed
+      else Current
+
+let check_snapshot expected ~path =
+  match watch_state expected ~path with
+  | Current -> Ok ()
+  | Changed ->
+      Error (Save_conflict { path; message = "the target contents changed" })
+  | Replaced ->
+      Error (Save_conflict { path; message = "the target was replaced" })
+  | Renamed ->
+      Error (Save_conflict { path; message = "the target was renamed" })
+  | Deleted ->
+      Error
+        (Save_conflict { path; message = "cannot verify the current target" })
+  | Failure message ->
       Error
         (Save_conflict
            { path; message = "cannot verify the current target: " ^ message })
-  | Error ((Write_error _ | Save_conflict _) as error) -> Error error
-  | Ok (contents, actual) ->
-      if expected.device <> actual.device || expected.inode <> actual.inode then
-        Error (Save_conflict { path; message = "the target was replaced" })
-      else if not (String.equal expected.contents contents) then
-        Error (Save_conflict { path; message = "the target contents changed" })
-      else Ok ()
 
 let open_temporary path =
   let directory = Filename.dirname path in

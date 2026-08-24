@@ -157,7 +157,23 @@ captured when it was opened or last saved; it refuses a changed, replaced, or
 missing target. Save-as intentionally replaces its destination after the same
 atomic write and establishes a new baseline; there is no interactive overwrite
 confirmation in M11. Success updates active path and saved version/contents.
-Zenbu does not fsync the parent directory or watch files.
+Zenbu does not fsync the parent directory.
+
+Every saved local buffer also registers with a host-owned polling watcher. Its
+worker compares the saved identity/content baseline in the background and
+writes only to a private wakeup pipe; Session drains events on the terminal
+thread and never forwards them to a model. A changed inode is `replaced`, a
+missing target is `deleted`, same-inode content divergence is `modified`, and
+backend `overflow`/`failure` events are retained verbatim in `Session.File_watches`.
+At most 256 undrained events are retained; exceeding that limit records one
+synthetic `overflow` event until the terminal drains the queue.
+The portable polling backend identifies a same-directory rename by the saved
+inode; a move outside that directory is reported as deletion. The event
+contract also carries `renamed` for native backends and the controllable test
+source.
+Both clean and dirty buffers are retained unchanged: a notice states the
+classification and whether the retained buffer is clean or dirty. There is no
+automatic reload, overwrite, merge, document transaction, or model callback.
 
 `workspace.layout.save` and `workspace.layout.restore` are palette commands
 with a required JSON-file `path`. Layout save writes schema version 2 and only

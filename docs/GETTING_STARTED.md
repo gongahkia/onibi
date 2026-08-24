@@ -247,6 +247,7 @@ and [WIT contract](wit/zenbu-plugin.wit) are the stable v1 references.
 M11 deliberately limits cross-file language edits to already-open saved
 buffers. The host provides an explicit-root file picker and bounded literal
 project-text search for local readable text files; it does not include grammar
-downloads, a marketplace, file watching, or a system clipboard bridge. Normal
-save does refuse externally changed, replaced, and missing targets. See [the
+downloads, a marketplace, automatic external reload, or a system clipboard
+bridge. Its local file watcher reports external changes without modifying a
+buffer. Normal save does refuse externally changed, replaced, and missing targets. See [the
 roadmap](ROADMAP.md) before designing around a missing feature.

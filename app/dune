@@ -5,6 +5,7 @@
   background_job
   external_filter
   file_io
+  file_watcher
   project_root
   project_search
   session_layout
