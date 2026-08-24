@@ -32,6 +32,8 @@ type host_command =
   | Start_regexp_search
   | Replace_all_literal
   | Replace_all_regexp
+  | Start_query_replace_literal
+  | Start_query_replace_regexp
   | Search_next
   | Search_previous
   | Toggle_macro_recording
@@ -117,6 +119,16 @@ type search = {
 
 and search_kind = Literal | Regexp
 
+type query_replace = {
+  kind : search_kind;
+  query : string;
+  replacement : string;
+  document_version : int;
+  pending : Zenbu_view.Renderer.search_range list;
+  replaced : int;
+  skipped : int;
+}
+
 type palette_action =
   | Invoke_command of Command_id.t
   | Invoke_host_command of host_command
@@ -163,6 +175,7 @@ type interaction =
       snapshot : Project_search.snapshot;
       selected : int;
     }
+  | Query_replace of query_replace
   | Model_picker of int
   | Help_view
   | Hover_view of Language.hover
