@@ -827,15 +827,15 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
           let register_binding_layer definition =
             match validate_id source definition.Backend.id with
             | Error error -> fail error
-            | Ok _
-              when definition.priority < 1 || definition.priority > 64 ->
+            | Ok _ when definition.priority < 1 || definition.priority > 64 ->
                 fail
                   (script_error "registration" source
                      "binding layer priority must be between 1 and 64")
             | Ok _
               when List.exists
                      (fun layer ->
-                       String.equal (Registration.binding_layer_id layer)
+                       String.equal
+                         (Registration.binding_layer_id layer)
                          definition.id)
                      !binding_layers ->
                 fail
@@ -848,8 +848,8 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
                     binding_layers :=
                       !binding_layers
                       @ [
-                          Registration.create_binding_layer
-                            ~id:definition.id ~title:definition.title
+                          Registration.create_binding_layer ~id:definition.id
+                            ~title:definition.title
                             ~description:definition.description
                             ~priority:definition.priority ~provider;
                         ])
@@ -1020,7 +1020,7 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
                       scope_of_string source definition.scope,
                       Command_id.of_string definition.command,
                       Ok (mode_transition_of_backend definition.mode_transition),
-                      (match definition.layer with
+                      match definition.layer with
                       | None -> Ok None
                       | Some id ->
                           Result.bind (validate_id source id) (fun _ ->
@@ -1036,8 +1036,7 @@ let load_from_source ?provider ?(capabilities = trusted_capabilities)
                                 Error
                                   (script_error "registration" source
                                      "binding layer must be declared by the \
-                                      same provider")))
-                    )
+                                      same provider")) )
                   with
                   | ( Ok (head :: tail),
                       Ok scope,

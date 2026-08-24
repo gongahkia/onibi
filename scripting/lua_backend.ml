@@ -409,12 +409,10 @@ let optional_text state table name =
 let required_integer state table name =
   ignore (get_field state table name);
   let value =
-    if value_type state (-1) = lua_number && is_integer state (-1) <> 0 then (
+    if value_type state (-1) = lua_number && is_integer state (-1) <> 0 then
       let accepted = allocate int 0 in
-      Ok (to_integer state (-1) accepted |> Int64.to_int))
-    else
-      Error
-        (error "registration" "<lua>" ("missing integer field " ^ name))
+      Ok (to_integer state (-1) accepted |> Int64.to_int)
+    else Error (error "registration" "<lua>" ("missing integer field " ^ name))
   in
   pop state 1;
   value
@@ -674,8 +672,7 @@ let register_binding_layer backend state =
   let result =
     if value_type state 1 <> lua_table then
       Error
-        (error "registration" backend.source
-           "binding_layer expects a table")
+        (error "registration" backend.source "binding_layer expects a table")
     else
       Result.map
         (fun definition -> add_registration backend (Binding_layer definition))
@@ -719,14 +716,7 @@ let register_binding backend state =
           Ok text_argument ) ->
           add_registration backend
             (Binding
-               {
-                 input;
-                 command;
-                 scope;
-                 layer;
-                 mode_transition;
-                 text_argument;
-               });
+               { input; command; scope; layer; mode_transition; text_argument });
           Ok ()
       | Error error, _, _, _, _, _
       | _, Error error, _, _, _, _
@@ -929,7 +919,8 @@ let create ~source =
              Transformation (descriptor, callback)));
       add_callback backend state "model" (register_model backend);
       add_callback backend state "mode" (register_mode backend);
-      add_callback backend state "binding_layer" (register_binding_layer backend);
+      add_callback backend state "binding_layer"
+        (register_binding_layer backend);
       add_callback backend state "bind" (register_binding backend);
       add_callback backend state "on" (register_hook backend);
       add_callback backend state "text" (text_callback backend);

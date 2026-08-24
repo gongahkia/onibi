@@ -992,6 +992,171 @@ zenbu.bind { input = "Ctrl-K", command = "user.invalid-apply" }
         (Zenbu_app.Session.contents invalid = "alpha")
         "invalid script transformation partially mutated the document")
 
+let binding_layer_config =
+  {|
+zenbu.command {
+  id = "user.global", run = function(_) return {{ kind = "insert", text = "G" }} end,
+}
+zenbu.command {
+  id = "user.major", run = function(_) return {{ kind = "insert", text = "A" }} end,
+}
+zenbu.command {
+  id = "user.high", run = function(_) return {{ kind = "insert", text = "B" }} end,
+}
+zenbu.command {
+  id = "user.conflict", run = function(_) return {{ kind = "insert", text = "C" }} end,
+}
+zenbu.binding_layer {
+  id = "user.major", title = "Major", description = "Primary map.", priority = 10,
+}
+zenbu.binding_layer {
+  id = "user.high", title = "High", description = "Higher-priority map.", priority = 20,
+}
+zenbu.binding_layer {
+  id = "user.conflict", title = "Conflict", description = "Equal-priority collision.", priority = 10,
+}
+zenbu.bind { input = "Ctrl-K", command = "user.global" }
+zenbu.bind { input = "Ctrl-K", command = "user.major", layer = "user.major" }
+zenbu.bind { input = "Ctrl-X", command = "user.major", layer = "user.major" }
+zenbu.bind { input = "Ctrl-K", command = "user.high", layer = "user.high" }
+zenbu.bind { input = "Ctrl-X Ctrl-K", command = "user.high", layer = "user.high" }
+zenbu.bind { input = "Ctrl-K", command = "user.conflict", layer = "user.conflict" }
+|}
+
+let binding_layer_reload_config =
+  {|
+zenbu.command {
+  id = "user.global", run = function(_) return {{ kind = "insert", text = "G" }} end,
+}
+zenbu.command {
+  id = "user.major", run = function(_) return {{ kind = "insert", text = "A" }} end,
+}
+zenbu.binding_layer {
+  id = "user.major", title = "Major", description = "Primary map.", priority = 10,
+}
+zenbu.bind { input = "Ctrl-K", command = "user.global" }
+zenbu.bind { input = "Ctrl-K", command = "user.major", layer = "user.major" }
+|}
+
+let test_dynamic_binding_layers () =
+  let path = Filename.temp_file "zenbu-m12-layers" ".lua" in
+  Fun.protect
+    ~finally:(fun () -> try Sys.remove path with Sys_error _ -> ())
+    (fun () ->
+      write path binding_layer_config;
+      let trace = Trace.enabled ~capacity:128 |> must in
+      let create () =
+        Zenbu_app.Session.create ~model:Zenbu_app.Session.Vim ~contents:"alpha"
+          ~trace ~config:(Zenbu_scripting.Scripting.Explicit path) ~dimensions
+          ()
+        |> must
+      in
+      let session = create () in
+      let session = Zenbu_app.Session.handle_input session (ctrl "K") in
+      expect
+        (Zenbu_app.Session.contents session = "Galpha")
+        "an inactive binding layer intercepted the base binding";
+      let session =
+        invoke_palette_text_argument session "keymap.layer.enable" "user.major"
+      in
+      let session = Zenbu_app.Session.handle_input session (ctrl "K") in
+      expect
+        (Zenbu_app.Session.contents session = "AGalpha")
+        "an enabled layer did not override the base binding";
+      let bindings =
+        Zenbu_app.Session.inspect session Zenbu_app.Session.Bindings
+        |> String.concat "\n"
+      in
+      expect
+        (contains bindings "binding layer: user.major (priority 10; enabled"
+        && contains bindings "layer user.high (disabled)")
+        "binding inspection did not expose lifecycle state: %s" bindings;
+      let session =
+        Zenbu_app.Session.enable_binding_layer session ~id:"user.high"
+      in
+      let session = Zenbu_app.Session.handle_input session (ctrl "K") in
+      expect
+        (Zenbu_app.Session.contents session = "BAGalpha")
+        "a higher-priority layer did not win deterministically";
+      let why =
+        Zenbu_app.Session.inspect session Zenbu_app.Session.Why
+        |> String.concat "\n"
+      in
+      expect
+        (contains why "layer=user.high")
+        "why inspection did not retain the resolved layer: %s" why;
+      let prefixed = Zenbu_app.Session.handle_input session (ctrl "X") in
+      let cancelled =
+        Zenbu_app.Session.handle_input prefixed
+          (Input_event.key_press (Input_event.named_key Input_event.Escape))
+      in
+      expect
+        (Zenbu_app.Session.contents cancelled = "BAGalpha")
+        "Escape did not cancel a higher-priority layer prefix";
+      let session =
+        Zenbu_app.Session.disable_binding_layer cancelled ~id:"user.high"
+      in
+      let session = Zenbu_app.Session.handle_input session (ctrl "X") in
+      expect
+        (Zenbu_app.Session.contents session = "ABAGalpha")
+        "disabling a layer did not restore the lower-priority complete binding";
+      let session =
+        Zenbu_app.Session.enable_binding_layer session ~id:"user.conflict"
+      in
+      let session = Zenbu_app.Session.handle_input session (ctrl "K") in
+      expect
+        (Zenbu_app.Session.contents session = "AABAGalpha")
+        "an equal-priority overlapping layer was not rejected atomically";
+      let bindings =
+        Zenbu_app.Session.inspect session Zenbu_app.Session.Bindings
+        |> String.concat "\n"
+      in
+      expect
+        (contains bindings "binding layer: user.conflict (priority 10; disabled")
+        "rejected layer activation became active: %s" bindings;
+      let fresh =
+        match
+          Zenbu_app.Session.handle_host session Zenbu_app.Session.New_buffer
+        with
+        | Zenbu_app.Session.Continue session -> session
+        | Zenbu_app.Session.Exit _ -> failf "new buffer unexpectedly exited"
+      in
+      let fresh = Zenbu_app.Session.handle_input fresh (ctrl "K") in
+      expect
+        (Zenbu_app.Session.contents fresh = "G")
+        "binding layers were not buffer-local";
+      let reload = create () in
+      let reload =
+        Zenbu_app.Session.enable_binding_layer reload ~id:"user.major"
+      in
+      let reload =
+        Zenbu_app.Session.enable_binding_layer reload ~id:"user.high"
+      in
+      write path binding_layer_reload_config;
+      let reload = Zenbu_app.Session.reload_config reload in
+      let reload = Zenbu_app.Session.handle_input reload (ctrl "K") in
+      expect
+        (Zenbu_app.Session.contents reload = "Aalpha")
+        "reload did not retain a valid layer while unloading a stale provider \
+         layer";
+      write path
+        {|
+zenbu.command { id = "user.one", run = function(_) return nil end }
+zenbu.binding_layer { id = "user.one", priority = 0 }
+|};
+      match
+        Zenbu_scripting.Scripting.check_file ~base_commands:(base_commands ())
+          ~base_semantics:(base_semantics ()) path
+      with
+      | Error (Error.Script_error { phase = "registration"; message; _ }) ->
+          expect
+            (contains message "priority")
+            "out-of-range binding-layer priority was accepted: %s" message
+      | Error error ->
+          failf "wrong binding-layer validation error: %s"
+            (Error.to_string error)
+      | Ok _ -> failf "out-of-range binding-layer priority was accepted")
+
 let test_syntax_api_and_reload_stress () =
   let path = Filename.temp_file "zenbu-m7-syntax" ".lua" in
   Fun.protect
@@ -1464,6 +1629,7 @@ let tests =
       test_errors_and_registration_conflicts );
     ("script binding sequences and scoped dispatch", test_binding_sequences);
     ("script scopes, atomicity, and undo", test_scopes_atomicity_and_undo);
+    ("dynamic binding layers", test_dynamic_binding_layers);
     ("script syntax API and reload stress", test_syntax_api_and_reload_stress);
     ( "script event delivery and recursion guard",
       test_event_delivery_and_recursion_guard );

@@ -331,18 +331,19 @@ let provider_identity provider =
 
 let binding_layer_catalog generation plugins =
   (match generation with
-  | None -> []
-  | Some generation -> Scripting.binding_layers generation)
+    | None -> []
+    | Some generation -> Scripting.binding_layers generation)
   @ Plugins.binding_layers plugins
 
 let binding_catalog generation plugins =
   (match generation with
-  | None -> []
-  | Some generation -> Scripting.bindings generation)
+    | None -> []
+    | Some generation -> Scripting.bindings generation)
   @ Plugins.bindings plugins
 
 let same_binding_layer left right =
-  String.equal (Scripting.binding_layer_id left)
+  String.equal
+    (Scripting.binding_layer_id left)
     (Scripting.binding_layer_id right)
   && String.equal
        (provider_identity (Scripting.binding_layer_provider left))
@@ -1268,7 +1269,8 @@ let host_command_entries =
               [
                 text_parameter ~name:"layer"
                   ~description:
-                    "Declared data-only binding layer to enable in the current buffer."
+                    "Declared data-only binding layer to enable in the current \
+                     buffer."
                   ~required:true;
               ]
             "keymap.layer.enable" "Enable binding layer"
@@ -1283,11 +1285,13 @@ let host_command_entries =
               [
                 text_parameter ~name:"layer"
                   ~description:
-                    "Declared data-only binding layer to disable in the current buffer."
+                    "Declared data-only binding layer to disable in the \
+                     current buffer."
                   ~required:true;
               ]
             "keymap.layer.disable" "Disable binding layer"
-            "Disable a binding layer in the current buffer without changing its document.";
+            "Disable a binding layer in the current buffer without changing \
+             its document.";
         palette = true;
       };
       {
@@ -3747,7 +3751,8 @@ let binding_rank session binding =
       | Scripting.Model candidate when String.equal candidate model ->
           Some (1, layer_priority)
       | Scripting.Model_status { model = candidate; status = candidate_status }
-        when String.equal candidate model && String.equal candidate_status status ->
+        when String.equal candidate model
+             && String.equal candidate_status status ->
           Some (2, layer_priority)
       | Scripting.Mode candidate ->
           let rec mode_rank rank = function
@@ -3780,8 +3785,7 @@ let binding_event_is_escape = function
   | Input_event.Key_press _ | Input_event.Text_input _ | Input_event.Mouse _ ->
       false
 
-let active_bindings session =
-  binding_catalog session.generation session.plugins
+let active_bindings session = binding_catalog session.generation session.plugins
 
 let pop_active_mode session =
   match session.active_modes with
@@ -3836,7 +3840,8 @@ let matching_binding session input =
   | _ -> (
       let highest_rank candidates =
         List.fold_left
-          (fun maximum (rank, _) -> if compare rank maximum > 0 then rank else maximum)
+          (fun maximum (rank, _) ->
+            if compare rank maximum > 0 then rank else maximum)
           (min_int, min_int) candidates
       in
       let completed =
@@ -3870,7 +3875,7 @@ let matching_binding session input =
 let find_binding_layer session id =
   binding_layer_catalog session.generation session.plugins
   |> List.find_opt (fun layer ->
-         String.equal (Scripting.binding_layer_id layer) id)
+      String.equal (Scripting.binding_layer_id layer) id)
 
 let enable_binding_layer session ~id =
   let id = String.trim id in
@@ -3909,8 +3914,7 @@ let enable_binding_layer session ~id =
             session with
             message =
               Some
-                (Printf.sprintf
-                   "binding layer limit reached (%d active layers)"
+                (Printf.sprintf "binding layer limit reached (%d active layers)"
                    maximum_active_binding_layers);
             inspector = None;
             quit_armed = false;
@@ -5637,14 +5641,14 @@ let language_host_command = function
   | System_clipboard_copy | System_clipboard_paste | Set_location
   | Jump_location | Push_jump | Jump_backward | Jump_forward | Open_palette
   | Switch_model | Enable_binding_layer | Disable_binding_layer | Help
-  | Switch_presentation | Switch_theme | Background_jobs
-  | Cancel_background_job | Open_background_job_output | Split_vertical
-  | Split_horizontal | Focus_next_pane | Close_pane | Only_pane
-  | Grow_pane_width | Shrink_pane_width | Grow_pane_height | Shrink_pane_height
-  | Balance_panes | New_buffer | Open_buffer | List_buffers | Switch_buffer
-  | Rename_buffer | Close_buffer | Force_close_buffer | Next_buffer
-  | Previous_buffer | View_scroll_up | View_scroll_down | View_page_up
-  | View_page_down | View_center ->
+  | Switch_presentation | Switch_theme | Background_jobs | Cancel_background_job
+  | Open_background_job_output | Split_vertical | Split_horizontal
+  | Focus_next_pane | Close_pane | Only_pane | Grow_pane_width
+  | Shrink_pane_width | Grow_pane_height | Shrink_pane_height | Balance_panes
+  | New_buffer | Open_buffer | List_buffers | Switch_buffer | Rename_buffer
+  | Close_buffer | Force_close_buffer | Next_buffer | Previous_buffer
+  | View_scroll_up | View_scroll_down | View_page_up | View_page_down
+  | View_center ->
       false
 
 let palette_items session =
@@ -8081,7 +8085,9 @@ let handle_host session = function
           session with
           interaction = Idle;
           message =
-            Some "binding-layer commands require a layer through the command palette";
+            Some
+              "binding-layer commands require a layer through the command \
+               palette";
           quit_armed = false;
           inspector = None;
         }
@@ -8793,38 +8799,39 @@ let script_binding_lines session =
   let layer_lines =
     layers
     |> List.map (fun layer ->
-           Printf.sprintf "binding layer: %s (priority %d; %s; provider %s)"
-             (Scripting.binding_layer_id layer)
-             (Scripting.binding_layer_priority layer)
-             (if
-                List.exists
-                  (fun active -> same_binding_layer active layer)
-                  session.active_binding_layers
-              then "enabled"
-              else "disabled")
-             (Provider.id (Scripting.binding_layer_provider layer)))
+        Printf.sprintf "binding layer: %s (priority %d; %s; provider %s)"
+          (Scripting.binding_layer_id layer)
+          (Scripting.binding_layer_priority layer)
+          (if
+             List.exists
+               (fun active -> same_binding_layer active layer)
+               session.active_binding_layers
+           then "enabled"
+           else "disabled")
+          (Provider.id (Scripting.binding_layer_provider layer)))
   in
   let binding_lines =
     bindings
     |> List.map (fun binding ->
-           let layer =
-             match Scripting.binding_layer binding with
-             | None -> "base"
-             | Some id ->
-                 let enabled =
-                   List.exists
-                     (fun layer -> binding_belongs_to_layer layer binding)
-                     session.active_binding_layers
-                 in
-                 Printf.sprintf "layer %s (%s)" id
-                   (if enabled then "enabled" else "disabled")
-           in
-           Printf.sprintf "binding: %s -> %s (%s; %s; provider %s)"
-             (Input_event.binding_pattern_sequence_to_string
-                (Scripting.binding_inputs binding))
-             (Scripting.binding_command binding)
-             (scope_to_string (Scripting.binding_scope binding)) layer
-             (Provider.id (Scripting.binding_provider binding)))
+        let layer =
+          match Scripting.binding_layer binding with
+          | None -> "base"
+          | Some id ->
+              let enabled =
+                List.exists
+                  (fun layer -> binding_belongs_to_layer layer binding)
+                  session.active_binding_layers
+              in
+              Printf.sprintf "layer %s (%s)" id
+                (if enabled then "enabled" else "disabled")
+        in
+        Printf.sprintf "binding: %s -> %s (%s; %s; provider %s)"
+          (Input_event.binding_pattern_sequence_to_string
+             (Scripting.binding_inputs binding))
+          (Scripting.binding_command binding)
+          (scope_to_string (Scripting.binding_scope binding))
+          layer
+          (Provider.id (Scripting.binding_provider binding)))
   in
   if layer_lines = [] && binding_lines = [] then [ "extension overlays: none" ]
   else layer_lines @ binding_lines

@@ -59,8 +59,8 @@ let binding_in_layer ~layer ~input ~command ~scope ~mode_transition
     provider;
   }
 
-let binding_sequence ~head ~tail ~command ~scope ~mode_transition
-    ~text_argument ~provider =
+let binding_sequence ~head ~tail ~command ~scope ~mode_transition ~text_argument
+    ~provider =
   {
     inputs = head :: tail;
     command;
@@ -109,8 +109,7 @@ let rec sequence_is_prefix prefix sequence =
       && sequence_is_prefix left_rest right_rest
 
 let bindings_conflict left right =
-  left.scope = right.scope
-  && left.layer = right.layer
+  left.scope = right.scope && left.layer = right.layer
   && (sequence_is_prefix left.inputs right.inputs
      || sequence_is_prefix right.inputs left.inputs)
 
