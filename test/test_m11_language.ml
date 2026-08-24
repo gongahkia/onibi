@@ -527,8 +527,8 @@ let code_action_session_test () =
       let session = host session Zenbu_app.Session.Language_code_action in
       let session =
         wait_session session (fun session ->
-            let _, frame = Zenbu_app.Session.render session in
-            frame_contains frame "Language code actions")
+            Zenbu_app.Session.inspect session Zenbu_app.Session.Code_actions
+            |> List.exists (String.equal "actions: 1"))
       in
       expect
         (Zenbu_app.Session.inspect session Zenbu_app.Session.Code_actions
@@ -538,9 +538,9 @@ let code_action_session_test () =
       expect
         (String.starts_with ~prefix:"action"
            (Zenbu_app.Session.contents session))
-        "a selected code action did not apply its checked workspace edit: %s"
-        (String.concat " | "
-           (Zenbu_app.Session.inspect session Zenbu_app.Session.Scripts)))
+        ("a selected code action did not apply its checked workspace edit: "
+        ^ String.concat " | "
+            (Zenbu_app.Session.inspect session Zenbu_app.Session.Scripts)))
 
 let code_action_cancellation_test () =
   let contents = "abc\n" in
