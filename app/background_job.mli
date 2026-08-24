@@ -1,8 +1,11 @@
-(** Bounded trusted-local background programs for the Session host.
+(** Bounded trusted-local streaming programs for the Session host.
 
-    Jobs receive no editor handle or shell. They run an absolute executable with
-    an argument vector and report a bounded, inspectable result through a wakeup
-    descriptor. *)
+    A job receives no editor handle, shell parser, stdin, inherited environment,
+    caller-selected working directory, or process handle. The host runs an
+    absolute executable plus argument vector in a new process session at [/]
+    with a fixed locale/path environment. Stdout and stderr are continuously
+    drained, retained as bounded UTF-8 snapshots, and wake the terminal while
+    running. Cancellation and [close] terminate the isolated process group. *)
 
 type t
 type completion

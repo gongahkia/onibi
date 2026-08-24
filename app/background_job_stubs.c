@@ -22,6 +22,15 @@ static void close_if_nonstandard(int descriptor) {
   if (descriptor > STDERR_FILENO) (void)close(descriptor);
 }
 
+static void close_inherited_descriptors(void) {
+  long maximum = sysconf(_SC_OPEN_MAX);
+  if (maximum < 0) maximum = 1024;
+  for (long descriptor = STDERR_FILENO + 1; descriptor < maximum;
+       descriptor++) {
+    (void)close((int)descriptor);
+  }
+}
+
 CAMLprim value zenbu_background_job_spawn(value program, value argv,
                                           value environment, value stdin_fd,
                                           value stdout_fd, value stderr_fd,
@@ -57,6 +66,7 @@ CAMLprim value zenbu_background_job_spawn(value program, value argv,
     close_if_nonstandard(input);
     close_if_nonstandard(output);
     close_if_nonstandard(error);
+    close_inherited_descriptors();
     execve(String_val(program), arguments, variables);
     _exit(127);
   }

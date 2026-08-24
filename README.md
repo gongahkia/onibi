@@ -77,8 +77,8 @@ and plugin examples live in [Getting Started](docs/GETTING_STARTED.md).
   explicit reload-state migration,
   declare buffer-local data-only binding layers with deterministic priorities,
   request bounded external selection filters, and start bounded inspectable
-  background programs through absolute executable paths and argument vectors;
-  it never receives a shell or process handle. Wasmtime
+  streaming background programs through absolute executable paths and argument
+  vectors; it never receives a shell parser or process handle. Wasmtime
   Components have bounded fuel/memory and become explicitly unavailable after
   a fatal callback until reload; the document and ordinary editing remain
   available.

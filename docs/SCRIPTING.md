@@ -647,18 +647,33 @@ Trusted Lua actions may also request a bounded noninteractive
 ```
 
 `process.background` is trusted-local authority. The request is an absolute
-executable plus an argument vector; Zenbu does not invoke a shell, perform a
-`PATH` lookup, provide stdin, or expose a process handle to the model. At most
-64 programs may run per session. Each has a five-second wall-clock limit;
-stdout is limited to 16 MiB and must be UTF-8, while stderr is retained only as
-a 4 KiB diagnostic. The registry retains at most 64 completed jobs and a
-16 KiB UTF-8-safe stdout preview per job. Completion wakes the terminal loop
-and updates the host message. Select `process.jobs` from `Ctrl-P`, or inspect
-`Jobs` headlessly, to view final status and bounded output. Closing the Session
-sends `SIGTERM` to running jobs. `process.job.cancel` is a typed host command
-in `Ctrl-P`: enter one retained job id to send `SIGTERM` followed by `SIGKILL`
-if it is still running. Cancellation is host-controlled; Lua receives no
-process handle or completion callback.
+executable plus an argument vector; Zenbu does not parse it as shell text,
+perform a `PATH` lookup, provide stdin, or expose a process handle to the
+model. At most
+64 programs may run per session. A child runs in a new process session with
+working directory `/` and exactly `PATH=/usr/bin:/bin`, `LANG=C`, `LC_ALL=C`,
+and `TERM=dumb`; Lua cannot add environment entries, choose a cwd, send input,
+or obtain a process group/handle.
+An explicitly selected executable may itself be a shell because trusted Lua is
+not sandboxed; Zenbu supplies no shell-string grammar or extra shell authority.
+
+The host continuously drains separate stdout/stderr pipes and wakes the
+terminal for each retained update, so `process.jobs` and headless `Jobs`
+inspection expose running output as well as final status. It retains at most
+64 KiB from each stream per job, annotates omitted bytes, and keeps at most 64
+completed jobs. A combined 16 MiB output budget and a five-second wall-clock
+budget terminate the entire job process group; draining continues until its
+pipes close, avoiding an unbounded pipe backlog. Stdout must be valid UTF-8 at
+completion; malformed stdout fails the job, while malformed stderr is rendered
+as a diagnostic instead of terminal text. `process.job.open-output` opens a
+static current snapshot for a running job or its final bounded report.
+
+`process.job.cancel` is a typed host command in `Ctrl-P`: enter one retained
+job id to send `SIGTERM`, then `SIGKILL` after 100 ms if the isolated process
+group remains alive. Session shutdown applies that cleanup to every still
+running group and waits for its reader workers; completed jobs are never
+signalled again. Cancellation is host-controlled; Lua receives no process
+handle or completion callback.
 
 The bundled modal fixture binds `j` to the portable `/usr/bin/printf` example:
 
@@ -667,16 +682,16 @@ dune exec bin/zenbu_headless.exe -- script-jobs \
   examples/script-modal-editor.lua examples/background-job.session
 ```
 
-Use the `process.jobs` palette command to inspect retained jobs. Once a job has
-finished, `process.job.open-output` accepts its positive `job-id` and opens its
-bounded final report as a normal `*job N output*` buffer in the focused pane.
-Successful jobs open their retained stdout preview; failed, timed-out, and
-cancelled jobs open a diagnostic report. The buffer is not backed by a file and
-starts clean, so it can be edited or saved through the ordinary workspace
-commands.
+Use the `process.jobs` palette command to inspect retained jobs.
+`process.job.open-output` accepts a positive `job-id` at any point and opens
+the latest bounded snapshot as a normal `*job N output*` buffer in the focused
+pane. It does not turn that buffer into a live terminal. The buffer is not
+backed by a file and starts clean, so it can be edited or saved through the
+ordinary workspace commands.
 
-There are intentionally no completion callbacks, streamed output, stdin,
-terminal/PTY allocation, process groups, or shell-language semantics. A
+There are intentionally no completion callbacks, stdin, terminal/PTY
+allocation, terminal emulation, or shell-language semantics. The explicit
+process group exists only for host cleanup, not as an API exposed to Lua. A
 trusted Lua file can still use Lua's ambient standard libraries outside this
 Zenbu action; this action is a checked host facility, not a Lua sandbox.
 

@@ -78,6 +78,13 @@ must use the palette's typed prompt. This is a generic declarative command-line
 adapter protocol, not a Vim Ex, Micro command-bar, or Kakoune command-language
 compatibility claim. `Escape` cancels the line.
 
+Background-job output is a host Jobs inspector and an explicitly opened static
+report buffer, not a terminal pane. The streaming job contract has no stdin,
+PTY, terminal emulation, terminal resize, or focused process input; its
+isolated process group exists only so the host can cancel and clean it up. An
+interactive PTY would require a separate terminal-buffer ownership and input
+contract, so it remains deferred rather than being implied by streaming output.
+
 The Vim compatibility model may request this same host interaction with `/`
 and `?`, then request next/previous results with `n` and `N`. The model selects
 only direction; the terminal retains prompt, query, rendering, and selection

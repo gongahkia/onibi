@@ -1379,7 +1379,8 @@ let host_command_entries =
                   ~required:true;
               ]
             "process.job.open-output" "Open background-job output"
-            "Open the bounded final job report in a named normal buffer.";
+            "Open the bounded current or final job report in a named normal \
+             buffer.";
         palette = true;
       };
       {

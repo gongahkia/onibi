@@ -509,7 +509,7 @@ let start t request =
         | Error error ->
             release_start ();
             Error error
-        | Ok (pid, stdout, stderr) -> (
+        | Ok (pid, stdout, stderr) ->
             let job =
               {
                 id;
@@ -536,27 +536,38 @@ let start t request =
               close_fd_noerr stdout;
               close_fd_noerr stderr;
               Error (error "job registry is closed"))
-            else
-              try
-                Mutex.lock t.lock;
-                let worker =
-                  Thread.create (fun () -> worker t job stdout stderr) ()
-                in
-                job.worker <- Some worker;
-                Mutex.unlock t.lock;
-                Ok id
-              with exception_ ->
-                Mutex.unlock t.lock;
-                terminate_before_worker pid;
-                close_fd_noerr stdout;
-                close_fd_noerr stderr;
-                Mutex.lock t.lock;
+            else (
+              Mutex.lock t.lock;
+              if t.closed then (
                 t.jobs <-
                   List.filter
                     (fun (candidate : job) -> candidate.id <> id)
                     t.jobs;
                 Mutex.unlock t.lock;
-                raise exception_))
+                terminate_before_worker pid;
+                close_fd_noerr stdout;
+                close_fd_noerr stderr;
+                Error (error "job registry is closed"))
+              else
+                try
+                  let worker =
+                    Thread.create (fun () -> worker t job stdout stderr) ()
+                  in
+                  job.worker <- Some worker;
+                  Mutex.unlock t.lock;
+                  Ok id
+                with exception_ ->
+                  Mutex.unlock t.lock;
+                  terminate_before_worker pid;
+                  close_fd_noerr stdout;
+                  close_fd_noerr stderr;
+                  Mutex.lock t.lock;
+                  t.jobs <-
+                    List.filter
+                      (fun (candidate : job) -> candidate.id <> id)
+                      t.jobs;
+                  Mutex.unlock t.lock;
+                  raise exception_))
 
 let cancel t ~id =
   Mutex.lock t.lock;
@@ -620,24 +631,26 @@ let completion_message { id; status } =
       Printf.sprintf "background job %d timed out after %.3fs" id duration
   | Cancelled -> Printf.sprintf "background job %d was cancelled" id
 
+let current_stream_sections (job : job) =
+  [
+    (match stream_text ~complete:false ~name:"stdout" job.stdout with
+    | Ok "" -> None
+    | Ok stdout -> Some ("stdout\n" ^ stdout)
+    | Error message -> Some message);
+    (match stream_text ~complete:false ~name:"stderr" job.stderr with
+    | Ok "" -> None
+    | Ok stderr -> Some ("stderr\n" ^ stderr)
+    | Error message -> Some message);
+  ]
+  |> List.filter_map Fun.id
+
 let output_report (job : job) =
   match job.status with
   | Running ->
-      let sections =
-        [
-          Some (Printf.sprintf "background job %d running" job.id);
-          (match stream_text ~complete:false ~name:"stdout" job.stdout with
-          | Ok "" -> None
-          | Ok stdout -> Some ("stdout\n" ^ stdout)
-          | Error message -> Some message);
-          (match stream_text ~complete:false ~name:"stderr" job.stderr with
-          | Ok "" -> None
-          | Ok stderr -> Some ("stderr\n" ^ stderr)
-          | Error message -> Some message);
-        ]
-        |> List.filter_map Fun.id
-      in
-      Ok (String.concat "\n\n" sections)
+      Ok
+        (String.concat "\n\n"
+           (Printf.sprintf "background job %d running" job.id
+           :: current_stream_sections job))
   | Succeeded { stdout; _ } -> Ok stdout
   | Failed { reason; stdout; stderr; _ } ->
       let sections =
@@ -651,9 +664,15 @@ let output_report (job : job) =
       Ok (String.concat "\n\n" sections)
   | Timed_out { duration } ->
       Ok
-        (Printf.sprintf "background job %d timed out after %.3fs" job.id
-           duration)
-  | Cancelled -> Ok (Printf.sprintf "background job %d was cancelled" job.id)
+        (String.concat "\n\n"
+           (Printf.sprintf "background job %d timed out after %.3fs" job.id
+              duration
+           :: current_stream_sections job))
+  | Cancelled ->
+      Ok
+        (String.concat "\n\n"
+           (Printf.sprintf "background job %d was cancelled" job.id
+           :: current_stream_sections job))
 
 let output t ~id =
   Mutex.lock t.lock;
@@ -706,7 +725,12 @@ let lines t =
                 else [ "  stderr: " ^ trim_for_display 2048 stderr ]
             | Timed_out { duration } ->
                 [ prefix ^ Printf.sprintf " timed out %.3fs" duration ]
-            | Cancelled -> [ prefix ^ " cancelled" ])
+                @ live_lines job.stdout "stdout"
+                @ live_lines job.stderr "stderr"
+            | Cancelled ->
+                [ prefix ^ " cancelled" ]
+                @ live_lines job.stdout "stdout"
+                @ live_lines job.stderr "stderr")
           jobs)
   in
   Mutex.unlock t.lock;
@@ -717,6 +741,11 @@ let close t =
   let should_close = not t.closed in
   t.closed <- true;
   let jobs = t.jobs in
+  let running =
+    List.filter
+      (fun (job : job) -> match job.status with Running -> true | _ -> false)
+      jobs
+  in
   List.iter
     (fun (job : job) ->
       match job.status with
@@ -727,7 +756,7 @@ let close t =
   if should_close then (
     List.iter
       (fun (job : job) -> request_termination t job (Some Cancellation))
-      jobs;
+      running;
     List.iter (fun (job : job) -> Option.iter Thread.join job.worker) jobs;
     close_fd_noerr t.wake_read;
     close_fd_noerr t.wake_write)

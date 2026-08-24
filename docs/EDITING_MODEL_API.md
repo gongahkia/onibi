@@ -203,14 +203,15 @@ trusted-local `Request_external_filter` and `Request_background_process`
 effects carry only an absolute program path and argument vector. `zenbu.app`
 executes a filter once per selected range under its UTF-8, size, and timeout
 policy, then turns output into an ordinary transaction. A background request
-starts a separately bounded, no-stdin program and exposes its final output
-preview through the host's Jobs view. The separate typed
-`process.job.open-output` command can turn a completed final report into a
-named ordinary buffer, but models neither receive the job id nor retain a
-process object. Neither effect admits a callback, shell command string, or
-`PATH` lookup to the model API. Components cannot request either process
-effect. See [scripting](SCRIPTING.md) for that deliberately narrow process
-contract. `process.job.cancel` is likewise host-owned.
+starts a separately bounded, no-stdin program and streams host-owned
+stdout/stderr snapshots through the Jobs view while it runs. The separate typed
+`process.job.open-output` command can turn a current or completed bounded report
+into a named ordinary buffer, but models neither receive the job id nor retain
+a process object. Neither effect admits a callback, shell command string,
+`PATH` lookup, caller-selected environment/cwd, or process group to the model
+API. Components cannot request either process effect. See
+[scripting](SCRIPTING.md) for that deliberately narrow process contract.
+`process.job.cancel` is likewise host-owned.
 
 ## Runtime behavior and traces
 

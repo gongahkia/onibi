@@ -64,6 +64,60 @@ let wait_for_background_job session expected =
   in
   wait session
 
+let wait_for_job_lines jobs expected =
+  let deadline = Unix.gettimeofday () +. 8.0 in
+  let rec wait () =
+    let lines = Zenbu_app.Background_job.lines jobs in
+    if List.exists (fun line -> contains line expected) lines then lines
+    else if Unix.gettimeofday () >= deadline then
+      failf "background job did not report %S: %s" expected
+        (String.concat " | " lines)
+    else (
+      ignore
+        (Unix.select [ Zenbu_app.Background_job.wakeup_fd jobs ] [] [] 0.05);
+      ignore (Zenbu_app.Background_job.drain jobs);
+      wait ())
+  in
+  wait ()
+
+let positive_integers text =
+  String.map
+    (fun character ->
+      if character >= '0' && character <= '9' then character else ' ')
+    text
+  |> String.split_on_char ' '
+  |> List.filter_map int_of_string_opt
+  |> List.filter (fun value -> value > 0)
+
+let wait_for_child_pid jobs ~job_id =
+  let deadline = Unix.gettimeofday () +. 2.0 in
+  let rec wait () =
+    let report = Zenbu_app.Background_job.output jobs ~id:job_id |> must in
+    match List.rev (positive_integers report) with
+    | child :: _ when child <> job_id -> child
+    | _ when Unix.gettimeofday () >= deadline ->
+        failf "background child PID was not reported: %s" report
+    | _ ->
+        ignore
+          (Unix.select [ Zenbu_app.Background_job.wakeup_fd jobs ] [] [] 0.05);
+        ignore (Zenbu_app.Background_job.drain jobs);
+        wait ()
+  in
+  wait ()
+
+let wait_for_process_exit pid =
+  let deadline = Unix.gettimeofday () +. 2.0 in
+  let rec wait () =
+    try
+      Unix.kill pid 0;
+      if Unix.gettimeofday () >= deadline then
+        failf "background child process %d survived cleanup" pid;
+      ignore (Unix.select [] [] [] 0.02);
+      wait ()
+    with Unix.Unix_error (Unix.ESRCH, _, _) -> ()
+  in
+  wait ()
+
 let invoke_palette_text_argument session command value =
   let session =
     match
@@ -1034,6 +1088,118 @@ zenbu.model {
         "opening background-job output is not discoverable through the host \
          palette")
 
+let test_streaming_background_job_lifecycle () =
+  let request program arguments = Model_effect.{ program; arguments } in
+  let jobs = Zenbu_app.Background_job.create () in
+  Fun.protect
+    ~finally:(fun () -> Zenbu_app.Background_job.close jobs)
+    (fun () ->
+      let streamed =
+        Zenbu_app.Background_job.start jobs
+          (request "/bin/sh" [ "-c"; "printf begin; sleep 1; printf end" ])
+        |> must
+      in
+      let live = wait_for_job_lines jobs "stdout: begin" in
+      expect
+        (List.exists (fun line -> contains line "running") live)
+        "streamed output was not inspectable before process completion";
+      let running_report =
+        Zenbu_app.Background_job.output jobs ~id:streamed |> must
+      in
+      expect
+        (contains running_report "background job 1 running"
+        && contains running_report "begin"
+        && not (contains running_report "end"))
+        "running output report was not a bounded live snapshot";
+      ignore (wait_for_job_lines jobs "succeeded");
+      expect
+        (Zenbu_app.Background_job.output jobs ~id:streamed |> must = "beginend")
+        "completed stream output was not retained";
+      let cwd =
+        Zenbu_app.Background_job.start jobs (request "/bin/pwd" []) |> must
+      in
+      ignore (wait_for_job_lines jobs "2: /bin/pwd succeeded");
+      expect
+        (String.trim (Zenbu_app.Background_job.output jobs ~id:cwd |> must)
+        = "/")
+        "background job did not use the host-owned cwd policy";
+      let environment =
+        Zenbu_app.Background_job.start jobs (request "/usr/bin/env" []) |> must
+      in
+      ignore (wait_for_job_lines jobs "3: /usr/bin/env succeeded");
+      let environment =
+        Zenbu_app.Background_job.output jobs ~id:environment |> must
+      in
+      expect
+        (contains environment "PATH=/usr/bin:/bin"
+        && contains environment "LANG=C"
+        && contains environment "LC_ALL=C"
+        && contains environment "TERM=dumb"
+        && not (contains environment "HOME="))
+        "background job inherited an uncontrolled environment";
+      let malformed =
+        Zenbu_app.Background_job.start jobs
+          (request "/usr/bin/printf" [ String.make 1 (Char.chr 0xFF) ])
+        |> must
+      in
+      ignore (wait_for_job_lines jobs "program wrote invalid UTF-8 to stdout");
+      expect
+        (contains
+           (Zenbu_app.Background_job.output jobs ~id:malformed |> must)
+           "invalid UTF-8")
+        "malformed UTF-8 output was exposed as text";
+      let unlimited =
+        Zenbu_app.Background_job.start jobs (request "/usr/bin/yes" []) |> must
+      in
+      ignore
+        (wait_for_job_lines jobs
+           "program output exceeded the 16777216-byte limit");
+      let limited =
+        Zenbu_app.Background_job.output jobs ~id:unlimited |> must
+      in
+      expect
+        (contains limited "stdout truncated"
+        && contains limited "bytes not retained")
+        "output backpressure did not retain and report a bounded snapshot";
+      let timed_out =
+        Zenbu_app.Background_job.start jobs (request "/bin/sleep" [ "6" ])
+        |> must
+      in
+      ignore (wait_for_job_lines jobs "timed out");
+      expect
+        (contains
+           (Zenbu_app.Background_job.output jobs ~id:timed_out |> must)
+           "timed out")
+        "runtime limit did not terminate the process";
+      let tree =
+        Zenbu_app.Background_job.start jobs
+          (request "/bin/sh"
+             [ "-c"; "sleep 30 & child=$!; printf '%s' \"$child\"; wait" ])
+        |> must
+      in
+      let child = wait_for_child_pid jobs ~job_id:tree in
+      Zenbu_app.Background_job.cancel jobs ~id:tree |> must;
+      expect
+        (contains
+           (Zenbu_app.Background_job.output jobs ~id:tree |> must)
+           (string_of_int child))
+        "cancellation discarded already captured streaming output";
+      wait_for_process_exit child;
+      ignore (wait_for_job_lines jobs "cancelled"));
+  let shutdown_jobs = Zenbu_app.Background_job.create () in
+  Fun.protect
+    ~finally:(fun () -> Zenbu_app.Background_job.close shutdown_jobs)
+    (fun () ->
+      let tree =
+        Zenbu_app.Background_job.start shutdown_jobs
+          (request "/bin/sh"
+             [ "-c"; "sleep 30 & child=$!; printf '%s' \"$child\"; wait" ])
+        |> must
+      in
+      let child = wait_for_child_pid shutdown_jobs ~job_id:tree in
+      Zenbu_app.Background_job.close shutdown_jobs;
+      wait_for_process_exit child)
+
 let test_errors_and_registration_conflicts () =
   let path = Filename.temp_file "zenbu-m7-errors" ".lua" in
   Fun.protect
@@ -1951,6 +2117,8 @@ let tests =
     ("script-model value conversion limits", test_script_model_value_limits);
     ("script external filter", test_script_external_filter);
     ("script background process", test_script_background_process);
+    ( "streaming background-job lifecycle",
+      test_streaming_background_job_lifecycle );
     ( "script errors and registration conflicts",
       test_errors_and_registration_conflicts );
     ("script binding sequences and scoped dispatch", test_binding_sequences);
