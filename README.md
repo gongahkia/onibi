@@ -55,7 +55,8 @@ and plugin examples live in [Getting Started](docs/GETTING_STARTED.md).
   terminal presentation without exposing parser pointers or queries.
 - The terminal host has literal Unicode search plus an opt-in UTF-8-safe `Str`
   regexp search and palette-only literal/regexp replace-all, a provider-neutral
-  searchable command palette with typed argument prompts and a moving result window,
+  searchable command palette with typed argument prompts, a bounded declarative
+  command-line adapter prompt, and a moving result window,
   save-as, bounded explicit-root project-text search, a live model picker,
   metadata-derived help, and bracketed paste aggregation. These remain host interactions; editing models can make
   declarative requests for reusable interactions such as literal search without

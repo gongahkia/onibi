@@ -61,6 +61,23 @@ or `replace:<text>`. The completed values become a normal
 `Command_invocation`; they are not parsed as an Ex command or applied through a
 special mutation path.
 
+`editor.command-line` is a separate, deliberately small protocol available in
+the palette and as a permitted trusted-adapter binding target. It opens a
+colon-prefixed text prompt that accepts `:exact.command-id argument ...`.
+Command IDs must match exactly one currently active palette descriptor; prefix
+abbreviations, aliases, product commands, and recursive `editor.command-line`
+dispatch are rejected. Each token is converted by the same declared parameter
+kind used by the palette before the normal command/host invocation path runs.
+Unknown IDs, missing required arguments, extra arguments, and invalid typed
+values leave the prompt open without an effect.
+
+The grammar is bounded to 4,096 bytes and splits only on ASCII spaces. Quoting,
+escaping, shell expansion, pipes, redirection, command history, and completion
+are intentionally deferred. Consequently a text argument that contains spaces
+must use the palette's typed prompt. This is a generic declarative command-line
+adapter protocol, not a Vim Ex, Micro command-bar, or Kakoune command-language
+compatibility claim. `Escape` cancels the line.
+
 The Vim compatibility model may request this same host interaction with `/`
 and `?`, then request next/previous results with `n` and `N`. The model selects
 only direction; the terminal retains prompt, query, rendering, and selection

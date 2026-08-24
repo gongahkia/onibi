@@ -307,7 +307,7 @@ and `Ctrl-O` as non-overridable controls; none may appear anywhere in a custom
 sequence. The explicit host targets permitted to a script binding are
 `config.reload`, `editor.macro.record`, `editor.macro.replay`,
 `editor.kill-ring.cut`, `editor.kill-ring.yank`, `editor.clipboard.copy`,
-`editor.clipboard.paste`, `editor.command-palette`, and the existing
+`editor.clipboard.paste`, `editor.command-palette`, `editor.command-line`, and the existing
 `search.start`, `search.regexp`,
 `workspace.split.vertical`, `workspace.split.horizontal`,
 `workspace.pane.next`, `workspace.pane.close`, `workspace.pane.only`,
