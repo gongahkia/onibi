@@ -160,6 +160,21 @@ zenbu.bind { input = %S, command = %S, scope = "global" }
 |}
     (id ^ ".insert") text input (id ^ ".insert")
 
+let layered_binding_source id =
+  let layer = id ^ ".shared-layer" in
+  Printf.sprintf
+    {|
+zenbu.command {
+  id = %S,
+  title = "Insert",
+  description = "Insert a plugin-owned marker.",
+  run = function(_) return {{ kind = "insert", text = "L" }} end,
+}
+zenbu.binding_layer { id = %S, priority = 10 }
+zenbu.bind { input = "Ctrl-K", command = %S, layer = %S, scope = "global" }
+|}
+    (id ^ ".insert") layer (id ^ ".insert") layer
+
 let document_read_source id input =
   Printf.sprintf
     {|
@@ -512,6 +527,52 @@ let test_multiple_plugin_order () =
         "plugin event delivery is not ordered by plugin ID: %s"
         (String.concat ", " event_providers))
 
+let test_cross_provider_binding_layer_collision () =
+  with_root (fun root ->
+      let id = "zenbu.m8layercollision" in
+      ignore
+        (create_plugin root "layer" ~id ~version:"1.0.0"
+           ~contributions:[ "commands"; "bindings" ]
+           ~capabilities:[ "document.edit" ]
+           (layered_binding_source id));
+      let config_path = Filename.temp_file "zenbu-m8-layer" ".lua" in
+      Fun.protect
+        ~finally:(fun () -> try Sys.remove config_path with Sys_error _ -> ())
+        (fun () ->
+          let layer = id ^ ".shared-layer" in
+          write config_path
+            (Printf.sprintf "zenbu.binding_layer { id = %S, priority = 10 }\n"
+               layer);
+          let generation =
+            Zenbu_scripting.Scripting.load ~generation_id:1
+              ~base_commands:(base_commands ())
+              ~base_semantics:(base_semantics ())
+              (Zenbu_scripting.Scripting.Explicit config_path)
+            |> must |> Option.get
+          in
+          Fun.protect
+            ~finally:(fun () -> Zenbu_scripting.Scripting.dispose generation)
+            (fun () ->
+              let host =
+                Plugins.load ~config:(Plugins.Directories [ root ])
+                  ~base_commands:(base_commands ())
+                  ~base_semantics:(base_semantics ())
+                  ~base_binding_layers:
+                    (Zenbu_scripting.Scripting.binding_layers generation)
+                  ()
+              in
+              Fun.protect
+                ~finally:(fun () -> Plugins.dispose host)
+                (fun () ->
+                  expect
+                    (Plugins.providers host = [])
+                    "a plugin layer with an existing provider's ID was \
+                     activated";
+                  let view = plugin_view host id in
+                  expect
+                    (Plugins.view_state view = Plugins.Failed)
+                    "cross-provider binding-layer collision was not rejected"))))
+
 let tests =
   [
     ("contract and manifest validation", test_contract_and_manifest_validation);
@@ -520,6 +581,8 @@ let tests =
     ( "validation atomicity, collision, and reload",
       test_validation_atomicity_collision_and_reload );
     ("multiple plugin deterministic order", test_multiple_plugin_order);
+    ( "cross-provider binding-layer collision",
+      test_cross_provider_binding_layer_collision );
   ]
 
 let () =

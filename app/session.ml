@@ -7004,11 +7004,11 @@ let invoke_host_palette_command ?(arguments = []) session input = function
       }
   | Enable_binding_layer -> (
       match required_text_argument arguments "layer" with
-      | Ok id -> enable_binding_layer session ~id
+      | Ok id -> { (enable_binding_layer session ~id) with interaction = Idle }
       | Error error -> { session with message = Some (Error.to_string error) })
   | Disable_binding_layer -> (
       match required_text_argument arguments "layer" with
-      | Ok id -> disable_binding_layer session ~id
+      | Ok id -> { (disable_binding_layer session ~id) with interaction = Idle }
       | Error error -> { session with message = Some (Error.to_string error) })
   | Split_vertical ->
       { (split_pane session Layout.Vertical) with interaction = Idle }

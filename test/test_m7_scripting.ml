@@ -1059,10 +1059,24 @@ let test_dynamic_binding_layers () =
       let session =
         invoke_palette_text_argument session "keymap.layer.enable" "user.major"
       in
+      let enabled_bindings =
+        Zenbu_app.Session.inspect session Zenbu_app.Session.Bindings
+        |> String.concat "\n"
+      in
+      expect
+        (contains enabled_bindings
+           "binding layer: user.major (priority 10; enabled")
+        "the palette did not enable the requested binding layer: %s"
+        enabled_bindings;
       let session = Zenbu_app.Session.handle_input session (ctrl "K") in
+      let why_after_enable =
+        Zenbu_app.Session.inspect session Zenbu_app.Session.Why
+        |> String.concat "\n"
+      in
       expect
         (Zenbu_app.Session.contents session = "AGalpha")
-        "an enabled layer did not override the base binding";
+        "an enabled layer did not override the base binding: %s\n%s"
+        enabled_bindings why_after_enable;
       let bindings =
         Zenbu_app.Session.inspect session Zenbu_app.Session.Bindings
         |> String.concat "\n"
