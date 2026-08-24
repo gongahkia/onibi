@@ -643,7 +643,8 @@ let host_command_entries =
               [
                 text_parameter ~name:"path"
                   ~description:
-                    "Readable directory to canonicalize as the host-owned project root."
+                    "Readable directory to canonicalize as the host-owned \
+                     project root."
                   ~required:true;
               ]
             "workspace.project.root.set" "Set project root"
@@ -654,7 +655,8 @@ let host_command_entries =
         command = Open_file_picker;
         descriptor =
           host_descriptor "workspace.file-picker" "Open project file picker"
-            "Filter validated readable text files below the selected project root.";
+            "Filter validated readable text files below the selected project \
+             root.";
         palette = true;
       };
       {
@@ -1837,6 +1839,12 @@ let status session =
   | Open_buffer_prompt _ ->
       host_status ~id:"host-open-buffer" ~label:"OPEN"
         ~description:"enter a path; Enter opens it in the focused view"
+        ~text_entry:true ()
+  | File_picker _ ->
+      host_status ~id:"host-file-picker" ~label:"FILES"
+        ~description:
+          "filter files under the selected project root; Enter opens and \
+           Escape cancels"
         ~text_entry:true ()
   | Model_picker _ ->
       host_status ~id:"host-model-picker" ~label:"MODEL"
@@ -4974,20 +4982,20 @@ let language_host_command = function
   | Language_complete | Language_rename | Language_diagnostic_next
   | Language_diagnostic_previous | Language_diagnostic_describe_current ->
       true
-  | Save | Save_as | Save_layout | Restore_layout | Quit | Force_quit
-  | Reload_config | Start_search | Start_regexp_search | Replace_all_literal
-  | Replace_all_regexp | Search_next | Search_previous | Toggle_macro_recording
-  | Replay_macro | Kill_ring_cut | Kill_ring_yank | System_clipboard_copy
-  | System_clipboard_paste | Set_location | Jump_location | Push_jump
-  | Jump_backward | Jump_forward | Open_palette | Switch_model | Help
-  | Switch_presentation | Switch_theme | Background_jobs | Cancel_background_job
-  | Open_background_job_output | Split_vertical | Split_horizontal
-  | Focus_next_pane | Close_pane | Only_pane | Grow_pane_width
-  | Shrink_pane_width | Grow_pane_height | Shrink_pane_height | Balance_panes
-  | New_buffer | Open_buffer | List_buffers | Switch_buffer | Rename_buffer
-  | Close_buffer | Force_close_buffer | Next_buffer | Previous_buffer
-  | View_scroll_up | View_scroll_down | View_page_up | View_page_down
-  | View_center ->
+  | Save | Save_as | Save_layout | Restore_layout | Set_project_root
+  | Open_file_picker | Quit | Force_quit | Reload_config | Start_search
+  | Start_regexp_search | Replace_all_literal | Replace_all_regexp | Search_next
+  | Search_previous | Toggle_macro_recording | Replay_macro | Kill_ring_cut
+  | Kill_ring_yank | System_clipboard_copy | System_clipboard_paste
+  | Set_location | Jump_location | Push_jump | Jump_backward | Jump_forward
+  | Open_palette | Switch_model | Help | Switch_presentation | Switch_theme
+  | Background_jobs | Cancel_background_job | Open_background_job_output
+  | Split_vertical | Split_horizontal | Focus_next_pane | Close_pane | Only_pane
+  | Grow_pane_width | Shrink_pane_width | Grow_pane_height | Shrink_pane_height
+  | Balance_panes | New_buffer | Open_buffer | List_buffers | Switch_buffer
+  | Rename_buffer | Close_buffer | Force_close_buffer | Next_buffer
+  | Previous_buffer | View_scroll_up | View_scroll_down | View_page_up
+  | View_page_down | View_center ->
       false
 
 let palette_items session =
@@ -5874,26 +5882,38 @@ let restore_layout session ~path =
 let project_root_error message =
   Error.Invalid_command_arguments ("project root: " ^ message)
 
-let project_root session =
-  Option.map Project_root.path session.project_root
+let project_root session = Option.map Project_root.path session.project_root
+
+let project_root_lines session =
+  match project_root session with
+  | None -> [ "Project"; "root: none" ]
+  | Some path ->
+      [
+        "Project";
+        "root: " ^ path;
+        "validation: canonical root; relative regular files without traversal";
+        "picker: hidden, binary, unreadable, and symlink entries are excluded";
+      ]
 
 let set_project_root session ~path =
   Project_root.select path
   |> Result.map_error project_root_error
   |> Result.map (fun root ->
-         {
-           session with
-           project_root = Some root;
-           interaction = Idle;
-           inspector = None;
-           message = Some ("project root selected: " ^ Project_root.path root);
-           quit_armed = false;
-         })
+      {
+        session with
+        project_root = Some root;
+        interaction = Idle;
+        inspector = None;
+        message = Some ("project root selected: " ^ Project_root.path root);
+        quit_armed = false;
+      })
 
 let project_file_entries session ~query =
   match session.project_root with
-  | None -> Error (project_root_error "select a root before opening the file picker")
-  | Some root -> Project_root.filter root ~query |> Result.map_error project_root_error
+  | None ->
+      Error (project_root_error "select a root before opening the file picker")
+  | Some root ->
+      Project_root.filter root ~query |> Result.map_error project_root_error
 
 let begin_file_picker session =
   match project_file_entries session ~query:"" with
@@ -5908,7 +5928,8 @@ let begin_file_picker session =
       {
         session with
         interaction = File_picker { query = ""; selected = 0 };
-        message = Some "project files: type to filter, Enter opens, Escape cancels";
+        message =
+          Some "project files: type to filter, Enter opens, Escape cancels";
         inspector = None;
         quit_armed = false;
       }
@@ -5995,7 +6016,8 @@ let handle_file_picker_input session query selected input =
   else
     match event_text input with
     | None -> session
-    | Some text -> file_picker_with_query session ~query:(query ^ text) ~selected:0
+    | Some text ->
+        file_picker_with_query session ~query:(query ^ text) ~selected:0
 
 let invoke_host_palette_command ?(arguments = []) session input = function
   | Save -> save session
@@ -6601,6 +6623,8 @@ let input_for_interaction session input =
         | None -> session
         | Some text ->
             { session with interaction = Open_buffer_prompt (path ^ text) })
+  | File_picker { query; selected } ->
+      handle_file_picker_input session query selected input
   | Model_picker selected -> (
       if event_is_named input Input_event.Escape then
         {
@@ -6866,8 +6890,8 @@ let handle_pointer session input =
   | Some _, _, _
   | ( None,
       ( Search_prompt _ | Palette _ | Command_prompt _ | Save_as_prompt _
-      | Open_buffer_prompt _ | Model_picker _ | Help_view | Hover_view _
-      | Completion_view _ | Rename_prompt _ ),
+      | Open_buffer_prompt _ | File_picker _ | Model_picker _ | Help_view
+      | Hover_view _ | Completion_view _ | Rename_prompt _ ),
       _ ) ->
       { session with mouse_drag = None }
   | None, Idle, None -> session
@@ -7098,6 +7122,19 @@ let handle_host session = function
           quit_armed = false;
           inspector = None;
         }
+  | Set_project_root ->
+      Continue
+        {
+          session with
+          interaction = Idle;
+          message =
+            Some
+              "project-root selection requires a path through the command \
+               palette";
+          quit_armed = false;
+          inspector = None;
+        }
+  | Open_file_picker -> Continue (begin_file_picker session)
   | Reload_config -> Continue (reload_config session)
   | Start_search -> Continue { (begin_search session) with quit_armed = false }
   | Start_regexp_search ->
@@ -7534,6 +7571,42 @@ let interaction_overlay session =
             "";
             "All active builtin, script, and plugin commands are searchable.";
           ])
+  | File_picker { query; selected } -> (
+      match project_file_entries session ~query with
+      | Error error ->
+          Some
+            [
+              "Project files";
+              "root: " ^ Option.value ~default:"none" (project_root session);
+              "filter: " ^ query;
+              "";
+              "  " ^ Error.to_string error;
+            ]
+      | Ok entries ->
+          let rec take remaining values =
+            match (remaining, values) with
+            | remaining, _ when remaining <= 0 -> []
+            | _, [] -> []
+            | remaining, value :: rest -> value :: take (remaining - 1) rest
+          in
+          let visible =
+            entries
+            |> List.mapi (fun index (entry : Project_root.entry) ->
+                Printf.sprintf "%s%s"
+                  (if index = selected then "> " else "  ")
+                  entry.relative_path)
+            |> take 16
+          in
+          Some
+            ([
+               "Project files";
+               "root: " ^ Option.value ~default:"none" (project_root session);
+               "filter: " ^ query;
+               "";
+             ]
+            @ (if visible = [] then [ "  no matching readable text files" ]
+               else visible)
+            @ [ ""; "Type to filter; Enter opens; Escape cancels." ]))
   | Hover_view hover ->
       Some
         ([ "Language hover"; "" ]
@@ -7581,6 +7654,7 @@ let interaction_message session =
   | Command_prompt { remaining = []; _ } -> session.message
   | Save_as_prompt path -> Some ("destination: " ^ path)
   | Open_buffer_prompt path -> Some ("open: " ^ path)
+  | File_picker { query; _ } -> Some ("files: " ^ query)
   | Rename_prompt name -> Some ("rename: " ^ name)
   | Completion_view { query; _ } -> Some ("completion: " ^ query)
   | Idle | Palette _ | Model_picker _ | Help_view | Hover_view _ ->
@@ -8006,8 +8080,9 @@ let inspect session inspection =
               (match session.interaction with
               | Search_prompt _ -> "prompt: open"
               | Idle | Palette _ | Command_prompt _ | Save_as_prompt _
-              | Open_buffer_prompt _ | Model_picker _ | Help_view | Hover_view _
-              | Completion_view _ | Rename_prompt _ ->
+              | Open_buffer_prompt _ | File_picker _ | Model_picker _
+              | Help_view | Hover_view _ | Completion_view _ | Rename_prompt _
+                ->
                   "prompt: closed");
             ])
     | Macros -> macro_lines session
@@ -8015,6 +8090,7 @@ let inspect session inspection =
     | Jumps -> jump_lines session
     | Jobs -> background_job_lines session
     | Buffers -> buffer_lines session
+    | Project -> project_root_lines session
     | Api ->
         "API"
         :: Inspector.format_api

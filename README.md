@@ -246,7 +246,8 @@ The palette also exposes `workspace.split.vertical`,
 `workspace.panes.balance`, followed by `workspace.buffer.new`,
 `workspace.buffer.open`, `workspace.buffer.next`, and
 `workspace.buffer.previous`, `workspace.layout.save`, and
-`workspace.layout.restore`, plus `view.scroll.up`, `view.scroll.down`,
+`workspace.layout.restore`, `workspace.project.root.set`, and
+`workspace.file-picker`, plus `view.scroll.up`, `view.scroll.down`,
 `view.page.up`, `view.page.down`, and `view.center`. Resize commands move the
 focused pane's nearest matching divider by one terminal cell; balance restores
 equal proportions. A pane has an independent viewport and can show
@@ -256,7 +257,15 @@ carets/selections, and inactive positions rebase through that buffer's current
 history lineage after edits. Definitions can open local targets, and rename or server
 `workspace/applyEdit` can update already-open saved buffers together; unopened
 targets and file resource operations are rejected. Project discovery remains
-outside the workspace host.
+outside the workspace host beyond this explicit-root picker.
+
+The project-root picker is a narrow host-owned exception: select a readable
+directory with `workspace.project.root.set`, then use
+`workspace.file-picker` to filter deterministic readable text files beneath it.
+It skips hidden, binary, unreadable, and symlink entries and revalidates the
+selected relative path before the existing buffer opener loads or reuses it.
+It does not grant filesystem authority to models, scripts, or plugins, and it
+is not project-wide search or file watching.
 
 Layout commands accept a JSON path through the palette. They save or restore
 only clean file-backed local buffers plus host-owned split/view state; unsaved

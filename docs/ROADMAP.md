@@ -50,15 +50,13 @@ editing-model API. See [Language services](LANGUAGE_SERVICES.md).
 The following remain deliberately out of scope:
 
 - a first-party Component guest SDK/package build tool;
-- signatures, dependency resolution, remote download, project discovery, or a
-  plugin marketplace;
+- signatures, dependency resolution, remote download, or a plugin marketplace;
 - hard wall-clock cancellation, asynchronous/background extension execution,
   richer Component imports, or a sandbox claim for trusted Lua;
 - project search, file watching, general cross-file workspace resource
   operations, command-line/Ex compatibility, or broad Vim/Helix/Kakoune
-  emulation; the M12 local
-  buffer table and split-view host are a tested workspace foundation, not a
-  project workspace;
+  emulation; the explicit-root local file picker is a tested navigation
+  boundary, not a project workspace;
 - LSP code actions, formatting, symbols, semantic tokens, user-authored server
   configuration, workspace folders, and a language-server trust/sandbox model;
 - public Tree-sitter query APIs, grammar downloads, embedded-language parsing,
@@ -69,20 +67,22 @@ The following remain deliberately out of scope:
 ## Next proposed milestone
 
 M12 has same-buffer split-view composition, a local buffer table, bounded
-cross-file language results, and versioned local layout persistence. Views have
-stable buffer ids and ordered selection snapshots per `(view, buffer)` pairing;
-focused input restores that view's selection and inactive positions rebase
-through forward local history. Layout restore remains deliberately local and
-host-owned: it rebuilds only clean file-backed buffers after preflight rather
-than storing text, model/plugin/LSP state, or project metadata. Buffers retain
-their own model runtime/history, and all open saved buffers participate in
-language wakeup polling. A definition target opens/reuses a local buffer.
-Rename and `workspace/applyEdit` stage and publish edits across already-open
-saved targets all-or-none, while retaining per-buffer history. File watching or
-target auto-open must build on normal-save conflict detection without making
-buffers, providers, or language protocols visible to the kernel or model API,
-and should not bundle project search, a marketplace, or a Component distribution
-redesign.
+cross-file language results, versioned local layout persistence, and an
+explicit-root file-picker boundary. Views have stable buffer ids and ordered
+selection snapshots per `(view, buffer)` pairing; focused input restores that
+view's selection and inactive positions rebase through forward local history.
+Layout restore remains deliberately local and host-owned: it rebuilds only
+clean file-backed buffers after preflight rather than storing text,
+model/plugin/LSP state, or project metadata. The picker likewise exposes only
+validated relative text-file candidates to the host and reuses normal buffer
+loading. Buffers retain their own model runtime/history, and all open saved
+buffers participate in language wakeup polling. A definition target
+opens/reuses a local buffer. Rename and `workspace/applyEdit` stage and publish
+edits across already-open saved targets all-or-none, while retaining per-buffer
+history. File watching or target auto-open must build on normal-save conflict
+detection without making buffers, providers, or language protocols visible to
+the kernel or model API, and should not bundle project search, a marketplace,
+or a Component distribution redesign.
 
 Portable Component distribution and a first-party guest authoring tool remain
 the next packaging concern after M11: they need a verified platform matrix and

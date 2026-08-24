@@ -77,6 +77,20 @@ The gesture changes neither document nor selection state. This is deliberately
 a small generic layout contract, not per-editor minimum-window policy, numeric
 prefixes, or product-specific window policy.
 
+`workspace.project.root.set` accepts one palette path and canonicalizes a
+readable directory as the host-owned project root. `workspace.file-picker` then
+provides a text-filtered, deterministic list of files below that root; it has no
+model effect or adapter binding, so models, Lua, and Components receive neither
+paths nor filesystem handles. Discovery skips dot-prefixed names, unreadable
+files/directories, files containing NUL in its first 8 KiB, and every symlink;
+the selected root itself may be a symlink because it is canonicalized first.
+The picker revalidates a selected non-empty relative path without `.` or `..`
+components, rejects a target outside the canonical root, then delegates to the
+normal buffer opener. Therefore an already-open picked file is reused and its
+read/snapshot policy remains the existing buffer-load policy. This is a bounded
+local navigation surface, not project search, file watching, remote-file
+access, or a product-specific picker.
+
 ## Backend and rendering
 
 `terminal/Backend` is the only Notty user. It owns raw alternate-screen mode,

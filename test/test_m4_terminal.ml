@@ -1482,6 +1482,159 @@ let test_session_layout_persistence () =
       App.Session.close unnamed;
       App.Session.close session)
 
+let temporary_directory () =
+  let path = Filename.temp_file "zenbu-project-" "" in
+  remove path;
+  Unix.mkdir path 0o700;
+  path
+
+let rec remove_tree path =
+  try
+    match (Unix.lstat path).Unix.st_kind with
+    | Unix.S_DIR ->
+        Sys.readdir path
+        |> Array.iter (fun name -> remove_tree (Filename.concat path name));
+        Unix.rmdir path
+    | Unix.S_REG | Unix.S_LNK | Unix.S_CHR | Unix.S_BLK | Unix.S_FIFO
+    | Unix.S_SOCK ->
+        Unix.unlink path
+  with Unix.Unix_error _ | Sys_error _ -> ()
+
+let project_must = function
+  | Ok value -> value
+  | Error error -> failf "%s" error
+
+let test_project_root_file_picker () =
+  let root_path = temporary_directory () in
+  let nested_path = Filename.concat root_path "nested" in
+  let alpha_path = Filename.concat root_path "alpha.txt" in
+  let bravo_path = Filename.concat nested_path "bravo.txt" in
+  let hidden_path = Filename.concat root_path ".hidden.txt" in
+  let binary_path = Filename.concat root_path "binary.bin" in
+  let unreadable_path = Filename.concat root_path "unreadable.txt" in
+  let link_path = Filename.concat root_path "linked.txt" in
+  Unix.mkdir nested_path 0o700;
+  Fun.protect
+    ~finally:(fun () ->
+      (try Unix.chmod unreadable_path 0o600 with Unix.Unix_error _ -> ());
+      remove_tree root_path)
+    (fun () ->
+      save_file alpha_path "alpha";
+      save_file bravo_path "bravo";
+      save_file hidden_path "hidden";
+      save_file binary_path "text\000binary";
+      save_file unreadable_path "unreadable";
+      Unix.chmod unreadable_path 0o000;
+      Unix.symlink alpha_path link_path;
+      let root = App.Project_root.select root_path |> project_must in
+      let entries =
+        App.Project_root.discover root
+        |> project_must
+        |> List.map (fun (entry : App.Project_root.entry) ->
+            entry.relative_path)
+      in
+      expect
+        (entries = [ "alpha.txt"; "nested/bravo.txt" ])
+        "project discovery did not deterministically exclude hidden, binary, \
+         unreadable, and symlink files";
+      let filtered =
+        App.Project_root.filter root ~query:"BRAV"
+        |> project_must
+        |> List.map (fun (entry : App.Project_root.entry) ->
+            entry.relative_path)
+      in
+      expect
+        (filtered = [ "nested/bravo.txt" ])
+        "project file filtering was not deterministic and case-insensitive";
+      expect
+        (match App.Project_root.resolve root ~relative_path:"../alpha.txt" with
+        | Error _ -> true
+        | Ok _ -> false)
+        "project-root resolution accepted a traversal component";
+      expect
+        (match App.Project_root.resolve root ~relative_path:link_path with
+        | Error _ -> true
+        | Ok _ -> false)
+        "project-root resolution accepted an absolute path";
+      expect
+        (match App.Project_root.resolve root ~relative_path:"linked.txt" with
+        | Error _ -> true
+        | Ok _ -> false)
+        "project-root resolution accepted a symlink";
+      expect
+        (match App.Project_root.resolve root ~relative_path:".hidden.txt" with
+        | Error _ -> true
+        | Ok _ -> false)
+        "project-root resolution accepted a hidden file";
+      expect
+        (match App.Project_root.resolve root ~relative_path:"binary.bin" with
+        | Error _ -> true
+        | Ok _ -> false)
+        "project-root resolution accepted a binary file";
+      let dimensions = Renderer.{ columns = 32; rows = 6 } in
+      let session =
+        App.Session.create ~model:App.Session.Direct ~file_path:alpha_path
+          ~contents:"alpha" ~dimensions ()
+        |> must
+      in
+      let session =
+        match App.Session.set_project_root session ~path:root_path with
+        | Ok session -> session
+        | Error error -> failf "%s" (Error.to_string error)
+      in
+      expect
+        (App.Session.project_root session = Some (Unix.realpath root_path)
+        && List.exists
+             (String.equal ("root: " ^ Unix.realpath root_path))
+             (App.Session.inspect session App.Session.Project))
+        "project-root selection was not retained and inspectable";
+      expect
+        (List.for_all
+           (fun id ->
+             List.exists
+               (fun descriptor ->
+                 Command_descriptor.id descriptor
+                 |> Command_id.to_string |> String.equal id)
+               (App.Session.host_command_descriptors ()))
+           [ "workspace.project.root.set"; "workspace.file-picker" ])
+        "project-root commands are not discoverable through the palette";
+      expect
+        (match App.Session.set_project_root session ~path:alpha_path with
+        | Error _ -> true
+        | Ok _ -> false)
+        "project-root selection accepted a regular file";
+      let cancelled = host_session session App.Session.Open_file_picker in
+      let cancelled =
+        App.Session.handle_input cancelled (named Input_event.Escape)
+      in
+      expect
+        (App.Session.contents cancelled = "alpha"
+        && App.Session.buffer_count cancelled = 1
+        && App.Session.project_root cancelled = Some (Unix.realpath root_path))
+        "cancelling the file picker changed the workspace";
+      let opened = host_session cancelled App.Session.Open_file_picker in
+      let opened =
+        App.Session.handle_input opened (text_input "brav") |> fun session ->
+        App.Session.handle_input session (named Input_event.Enter)
+      in
+      expect
+        (App.Session.contents opened = "bravo"
+        && App.Session.buffer_count opened = 2
+        && App.Session.file_path opened = Some bravo_path)
+        "the file picker did not open its filtered project file through the \
+         workspace buffer host";
+      let deduplicated = host_session opened App.Session.Open_file_picker in
+      let deduplicated =
+        App.Session.handle_input deduplicated (text_input "brav")
+        |> fun session ->
+        App.Session.handle_input session (named Input_event.Enter)
+      in
+      expect
+        (App.Session.buffer_count deduplicated = 2
+        && App.Session.file_path deduplicated = Some bravo_path)
+        "opening a picked buffer duplicated an existing local buffer";
+      App.Session.close deduplicated)
+
 let run name test =
   try
     test ();
@@ -1516,5 +1669,6 @@ let () =
     ("workspace view positions", test_workspace_view_positions);
     ("session open-buffer prompt", test_session_open_buffer_prompt);
     ("session layout persistence", test_session_layout_persistence);
+    ("project root file picker", test_project_root_file_picker);
   ]
   |> List.iter (fun (name, test) -> run name test)

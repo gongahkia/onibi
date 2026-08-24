@@ -32,6 +32,7 @@ let readable_regular path =
   try
     let stats = Unix.lstat path in
     if stats.Unix.st_kind <> Unix.S_REG then false
+    else if stats.Unix.st_perm land 0o444 = 0 then false
     else (
       Unix.access path [ Unix.R_OK ];
       true)
@@ -117,13 +118,17 @@ let relative_path_is_safe relative_path =
      |> List.for_all (fun component ->
          String.length component > 0
          && (not (String.equal component "."))
-         && not (String.equal component ".."))
+         && (not (String.equal component ".."))
+         && not (hidden component))
 
 let inside root path =
-  String.equal root.path path
-  ||
-  let prefix = root.path ^ Filename.dir_sep in
-  String.length path > String.length prefix && String.starts_with ~prefix path
+  if String.equal root.path Filename.dir_sep then
+    String.starts_with ~prefix:Filename.dir_sep path
+  else
+    String.equal root.path path
+    ||
+    let prefix = root.path ^ Filename.dir_sep in
+    String.length path > String.length prefix && String.starts_with ~prefix path
 
 let resolve root ~relative_path =
   if not (relative_path_is_safe relative_path) then
@@ -132,16 +137,17 @@ let resolve root ~relative_path =
   else
     let candidate = Filename.concat root.path relative_path in
     try
-      let stats = Unix.lstat candidate in
-      if stats.Unix.st_kind <> Unix.S_REG then
-        error "path rejected" relative_path "not a regular file"
-      else (
-        Unix.access candidate [ Unix.R_OK ];
+      if not (readable_regular candidate) then
+        error "path rejected" relative_path "not a readable regular file"
+      else if binary candidate then
+        error "path rejected" relative_path
+          "contains a NUL byte in its first probe"
+      else
         let canonical = Unix.realpath candidate in
         if not (inside root canonical) then
           error "path rejected" relative_path
             "resolves outside the selected root"
-        else Ok canonical)
+        else Ok canonical
     with
     | Unix.Unix_error (reason, _, _) ->
         error "path rejected" relative_path (Unix.error_message reason)
