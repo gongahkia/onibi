@@ -2049,6 +2049,7 @@ let current_buffer session =
     presentation_cache = session.presentation_cache;
     search = session.search;
     active_modes = session.active_modes;
+    active_binding_layers = session.active_binding_layers;
   }
 
 let buffer_ids session =
@@ -2233,6 +2234,7 @@ let load_buffer ?(reset_interaction = true) session (buffer : buffer) =
       presentation_cache = buffer.presentation_cache;
       search = buffer.search;
       active_modes = buffer.active_modes;
+      active_binding_layers = buffer.active_binding_layers;
       current_buffer_id = buffer.id;
       inactive_buffers =
         current_buffer session
@@ -2934,6 +2936,7 @@ let show_new_buffer session (buffer : buffer) =
       presentation_cache = buffer.presentation_cache;
       search = buffer.search;
       active_modes = buffer.active_modes;
+      active_binding_layers = buffer.active_binding_layers;
       current_buffer_id = buffer.id;
       inactive_buffers = current_buffer session :: session.inactive_buffers;
       next_buffer_id = buffer.id + 1;
@@ -4469,6 +4472,7 @@ let update_current_from_buffer session (buffer : buffer) =
     presentation_cache = buffer.presentation_cache;
     search = buffer.search;
     active_modes = buffer.active_modes;
+    active_binding_layers = buffer.active_binding_layers;
   }
 
 let workspace_edit_targets session edits =
@@ -8428,6 +8432,7 @@ let session_for_buffer session (buffer : buffer) =
       presentation_cache = buffer.presentation_cache;
       search = buffer.search;
       active_modes = buffer.active_modes;
+      active_binding_layers = buffer.active_binding_layers;
       inactive_buffers = [];
       interaction = Idle;
       inspector = None;
