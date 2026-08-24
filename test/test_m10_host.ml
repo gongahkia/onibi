@@ -95,6 +95,16 @@ let invoke_palette_text_arguments session command values =
       App.Session.handle_input session (named Input_event.Enter))
     session values
 
+let invoke_command_line session line =
+  let session =
+    App.Session.handle_host session App.Session.Open_command_line |> continue
+  in
+  expect
+    (Model_status.id (App.Session.status session) = "host-command-line")
+    "command line did not open its dedicated prompt";
+  let session = App.Session.handle_input session (text_input line) in
+  App.Session.handle_input session (named Input_event.Enter)
+
 let test_unicode_search_is_host_level_and_observable () =
   let trace = Trace.enabled ~capacity:64 |> must in
   let session = make_session ~trace "α beta α beta" in
