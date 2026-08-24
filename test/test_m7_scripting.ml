@@ -376,6 +376,239 @@ zenbu.model {
         (contains error_lines "model result requires status")
         "script-model response validation did not report its boundary failure")
 
+let counter_model_config ?(persistence = "") ?(extra = "") version =
+  Printf.sprintf
+    {|
+local function counter_status(state)
+  return {
+    id = "counter-" .. tostring(state.version),
+    label = "COUNTER " .. tostring(state.count),
+  }
+end
+
+zenbu.model {
+  id = "workload.counter",
+  title = "Reload counter",
+  initial_state = { version = %d, count = 0 },
+  initial_status = { id = "counter-%d", label = "COUNTER 0" },
+  %s
+  run = function(call)
+    local state = call.arguments.state
+    local input = call.arguments.input
+    if input.kind == "key" and input.key == "a" then
+      local next = { version = state.version, count = state.count + 1 }
+      return { state = next, status = counter_status(next) }
+    elseif input.kind == "key" and input.key == "x" then
+      return {
+        state = state,
+        status = counter_status(state),
+        effects = {{ kind = "insert", text = "v" .. tostring(state.version) .. ":" .. tostring(state.count) }},
+      }
+    end
+    return { state = state, status = counter_status(state) }
+  end,
+}
+%s
+|}
+    version version persistence extra
+
+let counter_persistence_v1 =
+  {|
+persistence = {
+  schema = "workload.counter",
+  version = 1,
+  export = function(call)
+    return { count = call.arguments.state.count }
+  end,
+  import = function(call)
+    local source = call.arguments
+    if source.from_schema ~= "workload.counter" or source.from_version ~= 2 then
+      error("counter v1 only imports schema version 2")
+    end
+    local state = { version = 1, count = source.state.count - 10 }
+    return { state = state, status = counter_status(state) }
+  end,
+},
+|}
+
+let counter_persistence_v2 =
+  {|
+persistence = {
+  schema = "workload.counter",
+  version = 2,
+  export = function(call)
+    return { count = call.arguments.state.count }
+  end,
+  import = function(call)
+    local source = call.arguments
+    if source.from_schema ~= "workload.counter" then
+      error("counter schema changed")
+    end
+    local count = source.state.count
+    if source.from_version == 1 then
+      count = count + 10
+    elseif source.from_version ~= 2 then
+      error("counter v2 only imports schema versions 1 or 2")
+    end
+    local state = { version = 2, count = count }
+    return { state = state, status = counter_status(state) }
+  end,
+},
+|}
+
+let counter_persistence_rejected =
+  {|
+persistence = {
+  schema = "workload.counter",
+  version = 2,
+  export = function(call)
+    return call.arguments.state
+  end,
+  import = function(_) error("counter migration rejected") end,
+},
+|}
+
+let counter_persistence_large_export =
+  {|
+persistence = {
+  schema = "workload.counter",
+  version = 1,
+  export = function(_) return { data = string.rep("x", 1048577) } end,
+  import = function(call)
+    return { state = call.arguments.state, status = counter_status(call.arguments.state) }
+  end,
+},
+|}
+
+let counter_persistence_invalid_version =
+  {|
+persistence = {
+  schema = "workload.counter",
+  version = 0,
+  export = function(call) return call.arguments.state end,
+  import = function(call)
+    return { state = call.arguments.state, status = counter_status(call.arguments.state) }
+  end,
+},
+|}
+
+let test_script_model_state_persistence_and_migration () =
+  let path = Filename.temp_file "zenbu-m9-model" ".lua" in
+  Fun.protect
+    ~finally:(fun () -> Sys.remove path)
+    (fun () ->
+      let create () =
+        Zenbu_app.Session.create ~model:Zenbu_app.Session.Script
+          ~contents:"alpha" ~config:(Zenbu_scripting.Scripting.Explicit path)
+          ~dimensions ()
+        |> must
+      in
+      write path (counter_model_config ~persistence:counter_persistence_v1 1);
+      let session =
+        create () |> fun session ->
+        Zenbu_app.Session.handle_input session (key "a")
+      in
+      expect
+        (Model_status.id (Zenbu_app.Session.status session) = "counter-1")
+        "counter v1 did not retain model state before reload";
+      write path (counter_model_config ~persistence:counter_persistence_v2 2);
+      let session = Zenbu_app.Session.reload_config session in
+      expect
+        (Model_status.id (Zenbu_app.Session.status session) = "counter-2")
+        "successful schema upgrade did not install migrated state";
+      let session = Zenbu_app.Session.reload_config session in
+      let session = Zenbu_app.Session.handle_input session (key "x") in
+      expect
+        (Zenbu_app.Session.contents session = "v2:11alpha")
+        "same-version reload lost a migrated script state";
+      write path (counter_model_config ~persistence:counter_persistence_v1 1);
+      let session = Zenbu_app.Session.reload_config session in
+      expect
+        (Model_status.id (Zenbu_app.Session.status session) = "counter-1")
+        "schema downgrade did not restore a v1 state";
+      let session = Zenbu_app.Session.handle_input session (key "x") in
+      expect
+        (Zenbu_app.Session.contents session = "v2:11v1:1alpha")
+        "downgraded state was not dispatched through the replacement callback";
+      let candidate_binding =
+        {|
+zenbu.command {
+  id = "user.migration-candidate",
+  run = function(_) return {{ kind = "insert", text = "candidate" }} end,
+}
+zenbu.bind { input = "Ctrl-K", command = "user.migration-candidate" }
+|}
+      in
+      write path
+        (counter_model_config ~persistence:counter_persistence_rejected
+           ~extra:candidate_binding 2);
+      let rejected = Zenbu_app.Session.reload_config session in
+      let errors =
+        Zenbu_app.Session.inspect rejected Zenbu_app.Session.Scripts
+        |> String.concat "\n"
+      in
+      expect
+        (Model_status.id (Zenbu_app.Session.status rejected) = "counter-1"
+        && contains errors "counter migration rejected")
+        "rejected migration did not retain an inspectable last-known-good \
+         state: %s"
+        errors;
+      let after_rejected_binding =
+        Zenbu_app.Session.handle_input rejected (ctrl "K")
+      in
+      expect
+        (Zenbu_app.Session.contents after_rejected_binding = "v2:11v1:1alpha")
+        "a failed migration half-installed the replacement binding";
+      let after_rejected_callback =
+        Zenbu_app.Session.handle_input after_rejected_binding (key "x")
+      in
+      expect
+        (Zenbu_app.Session.contents after_rejected_callback
+        = "v2:11v1:1v1:1alpha")
+        "a rejected migration disposed the last healthy callback";
+      write path (counter_model_config ~persistence:counter_persistence_v2 2);
+      let session = Zenbu_app.Session.reload_config after_rejected_callback in
+      let session = Zenbu_app.Session.handle_input session (key "x") in
+      expect
+        (Zenbu_app.Session.contents session = "v2:11v1:1v1:1v2:11alpha")
+        "a retry after a rejected migration did not recover atomically";
+      write path (counter_model_config 3);
+      let session = Zenbu_app.Session.reload_config session in
+      expect
+        (Model_status.id (Zenbu_app.Session.status session) = "counter-3")
+        "omitting persistence did not preserve the explicit reset behavior";
+      let session = Zenbu_app.Session.handle_input session (key "x") in
+      expect
+        (Zenbu_app.Session.contents session = "v2:11v1:1v1:1v2:11v3:0alpha")
+        "disabled persistence did not reset to the replacement initial state";
+      write path
+        (counter_model_config ~persistence:counter_persistence_large_export 1);
+      let bounded = create () in
+      write path (counter_model_config ~persistence:counter_persistence_v2 2);
+      let bounded = Zenbu_app.Session.reload_config bounded in
+      let bounded_errors =
+        Zenbu_app.Session.inspect bounded Zenbu_app.Session.Scripts
+        |> String.concat "\n"
+      in
+      expect
+        (Model_status.id (Zenbu_app.Session.status bounded) = "counter-1"
+        && contains bounded_errors "maximum total string data")
+        "oversized exported state was accepted or replaced the live generation";
+      write path
+        (counter_model_config ~persistence:counter_persistence_invalid_version 1);
+      match
+        Zenbu_scripting.Scripting.check_file ~base_commands:(base_commands ())
+          ~base_semantics:(base_semantics ()) path
+      with
+      | Error (Error.Script_error { phase = "registration"; message; _ }) ->
+          expect
+            (contains message "state persistence version")
+            "invalid persistence version was not rejected: %s" message
+      | Error error ->
+          failf "wrong persistence-version validation error: %s"
+            (Error.to_string error)
+      | Ok _ -> failf "invalid persistence version was accepted")
+
 let test_script_model_value_limits () =
   let path = Filename.temp_file "zenbu-m7-model-limit" ".lua" in
   Fun.protect
@@ -1636,6 +1869,8 @@ let tests =
     ("script config validation", test_config_validation);
     ( "script-owned model state and reload",
       test_script_owned_model_state_and_reload );
+    ( "script-model state persistence and migration",
+      test_script_model_state_persistence_and_migration );
     ("script-model value conversion limits", test_script_model_value_limits);
     ("script external filter", test_script_external_filter);
     ("script background process", test_script_background_process);
