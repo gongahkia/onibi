@@ -3,6 +3,7 @@ open Zenbu_model_api
 module Scripting = Zenbu_scripting.Scripting
 module Plugins = Zenbu_extension.Plugin_host
 module Syntax = Zenbu_syntax.Syntax
+module Language = Zenbu_language.Language
 
 type options = {
   model : Zenbu_app.Session.model;
@@ -13,6 +14,7 @@ type options = {
   theme : Zenbu_view.Theme.t;
   presentation : Zenbu_view.Presentation.t;
   config : Scripting.config;
+  language_config : Language.Config.t;
   plugins : Plugins.config;
 }
 
@@ -22,7 +24,8 @@ let usage =
   "usage: zenbu [--model vim|selection|direct|structural|script] [--language \
    ID] [--trace] [--profile] [--theme default|dark|light|PATH] [--presentation \
    default|numbered|relative|minimal|bare|buffered|PATH] [--config PATH | \
-   --no-config] [--plugin-dir PATH | --no-plugins] [FILE]"
+   --no-config] [--language-config PATH | --no-language-config] [--plugin-dir \
+   PATH | --no-plugins] [FILE]"
 
 let parse_arguments () =
   let model = ref Zenbu_app.Session.Vim in
@@ -33,9 +36,11 @@ let parse_arguments () =
   let theme = ref Zenbu_view.Theme.default in
   let presentation = ref Zenbu_view.Presentation.default in
   let config = ref Scripting.Default in
+  let language_config = ref Language.Config.Default in
   let plugin_dirs = ref [] in
   let plugins_disabled = ref false in
   let config_selected = ref false in
+  let language_config_selected = ref false in
   let set_config value =
     if !config_selected then
       raise (Arg.Bad "choose only one of --config and --no-config")
@@ -49,6 +54,22 @@ let parse_arguments () =
     else (
       config_selected := true;
       config := Scripting.Disabled)
+  in
+  let set_language_config value =
+    if !language_config_selected then
+      raise
+        (Arg.Bad "choose only one of --language-config and --no-language-config")
+    else (
+      language_config_selected := true;
+      language_config := Language.Config.Explicit value)
+  in
+  let disable_language_config () =
+    if !language_config_selected then
+      raise
+        (Arg.Bad "choose only one of --language-config and --no-language-config")
+    else (
+      language_config_selected := true;
+      language_config := Language.Config.Disabled)
   in
   let add_plugin_dir path =
     if !plugins_disabled then
@@ -116,6 +137,12 @@ let parse_arguments () =
       ( "--no-config",
         Arg.Unit disable_config,
         "disable Lua configuration loading" );
+      ( "--language-config",
+        Arg.String set_language_config,
+        "load this declarative TOML language-server configuration" );
+      ( "--no-language-config",
+        Arg.Unit disable_language_config,
+        "disable declarative language-server configuration loading" );
       ( "--plugin-dir",
         Arg.String add_plugin_dir,
         "discover local plugins under PATH" );
@@ -142,6 +169,7 @@ let parse_arguments () =
         theme = !theme;
         presentation = !presentation;
         config = !config;
+        language_config = !language_config;
         plugins =
           (if !plugins_disabled then Plugins.Disabled
            else if !plugin_dirs = [] then Plugins.Default
@@ -173,7 +201,8 @@ let create_session options contents =
           Zenbu_app.Session.create ~model:options.model
             ?language:options.language ?file_path:options.file_path ~contents
             ~trace ~profiler ~presentation:options.presentation
-            ~theme:options.theme ~config:options.config ~plugins:options.plugins
+            ~theme:options.theme ~config:options.config
+            ~language_config:options.language_config ~plugins:options.plugins
             ~dimensions:Zenbu_view.Renderer.{ columns = 80; rows = 24 }
             ()))
 

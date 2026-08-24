@@ -123,6 +123,7 @@ val create :
   ?system_clipboard:System_clipboard.t ->
   ?config:Zenbu_scripting.Scripting.config ->
   ?plugins:Zenbu_extension.Plugin_host.config ->
+  ?language_config:Zenbu_language.Language.Config.t ->
   ?language_registry:Zenbu_language.Language.Registry.t ->
   ?file_watcher:File_watcher.t ->
   dimensions:Zenbu_view.Renderer.dimensions ->

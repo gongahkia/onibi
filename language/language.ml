@@ -15,8 +15,10 @@ module Server_config = struct
     extensions : string list;
     executable : string;
     argv : string list;
+    cwd : string option;
     environment : (string * string) list;
     root_markers : string list;
+    workspace_folders : string list;
     initialization_options : Data.t option;
     settings : Data.t option;
   }
@@ -30,9 +32,9 @@ module Server_config = struct
     then Ok values
     else Error (field ^ " contains duplicates")
 
-  let create ~id ~language_ids ~extensions ~executable ?(argv = [])
-      ?(environment = []) ?(root_markers = []) ?initialization_options ?settings
-      () =
+  let create ~id ~language_ids ~extensions ~executable ?(argv = []) ?cwd
+      ?(environment = []) ?(root_markers = []) ?(workspace_folders = [])
+      ?initialization_options ?settings () =
     Result.bind (nonempty "server id" id) (fun id ->
         Result.bind (nonempty "server executable" executable) (fun executable ->
             Result.bind (unique "language ids" language_ids)
@@ -48,8 +50,10 @@ module Server_config = struct
                           extensions;
                           executable;
                           argv;
+                          cwd;
                           environment;
                           root_markers;
+                          workspace_folders;
                           initialization_options;
                           settings;
                         }))))
@@ -59,8 +63,10 @@ module Server_config = struct
   let extensions value = value.extensions
   let executable value = value.executable
   let argv value = value.argv
+  let cwd value = value.cwd
   let environment value = value.environment
   let root_markers value = value.root_markers
+  let workspace_folders value = value.workspace_folders
   let initialization_options value = value.initialization_options
   let settings value = value.settings
 end
@@ -108,6 +114,397 @@ module Registry = struct
       |> Result.get_ok
     in
     register empty ocaml |> Result.get_ok
+end
+
+module Config = struct
+  type t = Default | Explicit of string | Disabled
+
+  type loaded = {
+    registry : Registry.t;
+    source : string;
+    user_servers : Server_config.t list;
+  }
+
+  let maximum_file_bytes = 128 * 1024
+  let maximum_servers = 32
+  let maximum_arguments = 64
+  let maximum_environment = 32
+  let maximum_root_markers = 16
+  let maximum_workspace_folders = 16
+
+  let default_path () =
+    let root =
+      match Sys.getenv_opt "XDG_CONFIG_HOME" with
+      | Some path when String.length path > 0 -> path
+      | None | Some _ -> (
+          match Sys.getenv_opt "HOME" with
+          | Some path when String.length path > 0 ->
+              Filename.concat path ".config"
+          | None | Some _ -> ".config")
+    in
+    Filename.concat root "zenbu/language-servers.toml"
+
+  let table = function
+    | Otoml.TomlTable values | Otoml.TomlInlineTable values -> Some values
+    | _ -> None
+
+  let field fields name = List.assoc_opt name fields
+  let error path message = Error ("language config " ^ path ^ ": " ^ message)
+  let ( let* ) = Result.bind
+
+  let has_control_or_nul value =
+    String.exists
+      (fun character ->
+        let code = Char.code character in
+        code = 0 || code < 32 || code = 127)
+      value
+
+  let nonempty_text path value =
+    if String.length value = 0 then error path "must not be empty"
+    else if has_control_or_nul value then
+      error path "must not contain control bytes"
+    else Ok value
+
+  let unique path values =
+    if List.length values = List.length (List.sort_uniq String.compare values)
+    then Ok values
+    else error path "contains duplicates"
+
+  let required_text fields path name =
+    match field fields name with
+    | Some (Otoml.TomlString value) -> nonempty_text path value
+    | Some _ -> error path "must be a nonempty string"
+    | None -> error path "is required"
+
+  let optional_text fields path name =
+    match field fields name with
+    | None -> Ok None
+    | Some (Otoml.TomlString value) ->
+        Result.map Option.some (nonempty_text path value)
+    | Some _ -> error path "must be a nonempty string"
+
+  let strings fields path name ~required ~limit =
+    match field fields name with
+    | None when required -> error path "is required"
+    | None -> Ok []
+    | Some (Otoml.TomlArray values) ->
+        if List.length values > limit then
+          error path ("exceeds the " ^ string_of_int limit ^ " item limit")
+        else
+          let rec collect result = function
+            | [] -> Ok (List.rev result)
+            | Otoml.TomlString value :: rest ->
+                let* value = nonempty_text path value in
+                collect (value :: result) rest
+            | _ -> error path "must be an array of nonempty strings"
+          in
+          let* values = collect [] values in
+          unique path values
+    | Some _ -> error path "must be an array of nonempty strings"
+
+  let absolute_directory path value =
+    if Filename.is_relative value then error path "must be an absolute path"
+    else
+      try
+        let value = Unix.realpath value in
+        if Sys.is_directory value then Ok value
+        else error path "must name an existing directory"
+      with Unix.Unix_error _ | Sys_error _ ->
+        error path "must name an accessible existing directory"
+
+  let trusted_ancestor_directories path directory =
+    let rec validate directory =
+      try
+        let stat = Unix.stat directory in
+        if stat.Unix.st_kind <> Unix.S_DIR then
+          error path "has a non-directory ancestor"
+        else if stat.Unix.st_perm land 0o022 <> 0 then
+          error path "has a group- or world-writable ancestor directory"
+        else
+          let parent = Filename.dirname directory in
+          if String.equal parent directory then Ok () else validate parent
+      with Unix.Unix_error _ | Sys_error _ ->
+        error path "has an inaccessible ancestor directory"
+    in
+    validate directory
+
+  let trusted_executable path value =
+    if Filename.is_relative value then error path "must be an absolute path"
+    else
+      try
+        let value = Unix.realpath value in
+        let stat = Unix.stat value in
+        if stat.Unix.st_kind <> Unix.S_REG then
+          error path "must name a regular file"
+        else if stat.Unix.st_perm land 0o022 <> 0 then
+          error path "must not be group- or world-writable"
+        else
+          let* () =
+            trusted_ancestor_directories path (Filename.dirname value)
+          in
+          Unix.access value [ Unix.X_OK ];
+          Ok value
+      with Unix.Unix_error _ | Sys_error _ ->
+        error path "must name an executable regular file"
+
+  let valid_environment_name value =
+    String.length value > 0
+    &&
+    let first = value.[0] in
+    (match first with 'A' .. 'Z' | '_' -> true | _ -> false)
+    &&
+    let rec rest index =
+      if index = String.length value then true
+      else
+        match value.[index] with
+        | 'A' .. 'Z' | '0' .. '9' | '_' -> rest (index + 1)
+        | _ -> false
+    in
+    rest 1
+
+  let denied_environment_name value =
+    String.equal value "PATH"
+    || String.equal value "LD_PRELOAD"
+    || String.equal value "LD_LIBRARY_PATH"
+    || String.starts_with ~prefix:"DYLD_" value
+
+  let environment fields path =
+    match field fields "environment" with
+    | None -> Ok []
+    | Some value -> (
+        match table value with
+        | None -> error path "must be an inline table of string values"
+        | Some values ->
+            if List.length values > maximum_environment then
+              error path
+                ("exceeds the "
+                ^ string_of_int maximum_environment
+                ^ " item limit")
+            else
+              let rec collect result = function
+                | [] -> Ok (List.rev result)
+                | (name, Otoml.TomlString value) :: rest ->
+                    if not (valid_environment_name name) then
+                      error path "contains an invalid environment variable name"
+                    else if denied_environment_name name then
+                      error path ("may not override protected variable " ^ name)
+                    else if
+                      String.length value > 4_096 || has_control_or_nul value
+                    then error path "contains an invalid environment value"
+                    else collect ((name, value) :: result) rest
+                | _ -> error path "must be an inline table of string values"
+              in
+              collect [] values)
+
+  let root_markers fields path =
+    let* values =
+      strings fields path "root_markers" ~required:false
+        ~limit:maximum_root_markers
+    in
+    match
+      List.find_opt
+        (fun value ->
+          String.equal value "." || String.equal value ".."
+          || not (String.equal (Filename.basename value) value))
+        values
+    with
+    | None -> Ok values
+    | Some _ -> error path "must contain basename markers only"
+
+  let workspace_folders fields path =
+    let* values =
+      strings fields path "workspace_folders" ~required:false
+        ~limit:maximum_workspace_folders
+    in
+    let rec resolve result = function
+      | [] -> unique path (List.rev result)
+      | value :: rest ->
+          let* value = absolute_directory path value in
+          resolve (value :: result) rest
+    in
+    resolve [] values
+
+  let validate_server_fields path fields =
+    let allowed =
+      [
+        "id";
+        "language_ids";
+        "extensions";
+        "executable";
+        "args";
+        "cwd";
+        "environment";
+        "root_markers";
+        "workspace_folders";
+      ]
+    in
+    match
+      List.find_opt (fun (name, _) -> not (List.mem name allowed)) fields
+    with
+    | None -> Ok ()
+    | Some (name, _) -> error path ("contains unknown field " ^ name)
+
+  let parse_server index value =
+    let path = "server[" ^ string_of_int index ^ "]" in
+    let* fields =
+      match table value with
+      | Some fields -> Ok fields
+      | None -> error path "must be a TOML table"
+    in
+    let* () = validate_server_fields path fields in
+    let* id = required_text fields (path ^ ".id") "id" in
+    let* language_ids =
+      strings fields (path ^ ".language_ids") "language_ids" ~required:true
+        ~limit:16
+    in
+    let* extensions =
+      strings fields (path ^ ".extensions") "extensions" ~required:true
+        ~limit:32
+    in
+    let* () =
+      match
+        List.find_opt
+          (fun value -> not (String.starts_with ~prefix:"." value))
+          extensions
+      with
+      | None -> Ok ()
+      | Some _ -> error (path ^ ".extensions") "must start with a dot"
+    in
+    let* executable =
+      required_text fields (path ^ ".executable") "executable"
+    in
+    let* executable = trusted_executable (path ^ ".executable") executable in
+    let* argv =
+      strings fields (path ^ ".args") "args" ~required:false
+        ~limit:maximum_arguments
+    in
+    let* cwd = optional_text fields (path ^ ".cwd") "cwd" in
+    let* cwd =
+      match cwd with
+      | None -> Ok None
+      | Some cwd ->
+          Result.map Option.some (absolute_directory (path ^ ".cwd") cwd)
+    in
+    let* environment = environment fields (path ^ ".environment") in
+    let* root_markers = root_markers fields (path ^ ".root_markers") in
+    let* workspace_folders =
+      workspace_folders fields (path ^ ".workspace_folders")
+    in
+    Server_config.create ~id ~language_ids ~extensions ~executable ~argv ?cwd
+      ~environment ~root_markers ~workspace_folders ()
+    |> Result.map_error (fun message ->
+        "language config " ^ path ^ ": " ^ message)
+
+  let parse path =
+    let* () =
+      try
+        if (Unix.stat path).Unix.st_size > maximum_file_bytes then
+          error path
+            ("exceeds the " ^ string_of_int maximum_file_bytes ^ " byte limit")
+        else Ok ()
+      with Unix.Unix_error _ | Sys_error _ -> error path "cannot be inspected"
+    in
+    let* document =
+      Otoml.Parser.from_file_result path
+      |> Result.map_error (fun message ->
+          "language config " ^ path ^ ": " ^ message)
+    in
+    let* root =
+      match table document with
+      | Some root -> Ok root
+      | None -> error path "root must be a TOML table"
+    in
+    let* () =
+      match
+        List.find_opt
+          (fun (name, _) ->
+            not (String.equal name "version" || String.equal name "server"))
+          root
+      with
+      | None -> Ok ()
+      | Some (name, _) -> error path ("contains unknown field " ^ name)
+    in
+    let* () =
+      match field root "version" with
+      | Some (Otoml.TomlInteger 1) -> Ok ()
+      | Some (Otoml.TomlInteger _) -> error path "version must be 1"
+      | Some _ -> error path "version must be the integer 1"
+      | None -> error path "version is required"
+    in
+    let* servers =
+      match field root "server" with
+      | Some (Otoml.TomlTableArray values) ->
+          if values = [] then error path "must declare at least one [[server]]"
+          else if List.length values > maximum_servers then
+            error path
+              ("exceeds the " ^ string_of_int maximum_servers ^ " server limit")
+          else
+            let rec collect index result = function
+              | [] -> Ok (List.rev result)
+              | value :: rest ->
+                  let* server = parse_server index value in
+                  collect (index + 1) (server :: result) rest
+            in
+            collect 0 [] values
+      | Some _ -> error path "server must use [[server]] tables"
+      | None -> error path "must declare at least one [[server]]"
+    in
+    List.fold_left
+      (fun registry server ->
+        Result.bind registry (fun registry -> Registry.register registry server))
+      (Ok Registry.empty) servers
+    |> Result.map (fun _ -> servers)
+
+  let overlaps left right =
+    List.exists
+      (fun language -> List.mem language (Server_config.language_ids right))
+      (Server_config.language_ids left)
+    || List.exists
+         (fun extension -> List.mem extension (Server_config.extensions right))
+         (Server_config.extensions left)
+
+  let registry_with_user_servers user_servers =
+    let inherited =
+      Registry.default ()
+      |> List.filter (fun builtin ->
+          not (List.exists (fun user -> overlaps builtin user) user_servers))
+    in
+    List.fold_left
+      (fun registry server ->
+        Result.bind registry (fun registry -> Registry.register registry server))
+      (Ok inherited) user_servers
+
+  let loaded ~source user_servers =
+    registry_with_user_servers user_servers
+    |> Result.map (fun registry -> { registry; source; user_servers })
+
+  let load = function
+    | Disabled ->
+        loaded ~source:"built-in defaults (user configuration disabled)" []
+    | Default ->
+        let path = default_path () in
+        if Sys.file_exists path then
+          Result.bind (parse path) (loaded ~source:path)
+        else loaded ~source:"built-in defaults (no user configuration file)" []
+    | Explicit path -> Result.bind (parse path) (loaded ~source:path)
+
+  let registry value = value.registry
+
+  let inspect value =
+    [
+      "Language configuration";
+      "source: " ^ value.source;
+      "user servers: " ^ string_of_int (List.length value.user_servers);
+      "authority: host-loaded declarative configuration only";
+      "environment values and arguments: redacted";
+    ]
+    @ List.map
+        (fun server ->
+          Printf.sprintf "server: %s (%d environment values; cwd: %s)"
+            (Server_config.id server)
+            (List.length (Server_config.environment server))
+            (Option.value ~default:"inherited" (Server_config.cwd server)))
+        value.user_servers
 end
 
 module Position = struct

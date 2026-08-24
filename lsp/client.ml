@@ -1170,9 +1170,20 @@ let initialize_params t =
       (Option.map data_to_json
          (Language.Server_config.initialization_options t.config))
   in
+  let workspace_folders =
+    t.workspace_root :: Language.Server_config.workspace_folders t.config
+    |> List.sort_uniq String.compare
+    |> List.map (fun path ->
+        assoc
+          [
+            ("uri", `String (Language.Uri.file_of_path path));
+            ("name", `String (Filename.basename path));
+          ])
+  in
   [
     ("processId", `Int (Unix.getpid ()));
     ("rootUri", `String (Language.Uri.file_of_path t.workspace_root));
+    ("workspaceFolders", `List workspace_folders);
     ("capabilities", client_capabilities ());
     ("initializationOptions", config_options);
     ("clientInfo", assoc [ ("name", `String "Zenbu") ]);
@@ -1902,6 +1913,27 @@ let executable_path environment executable =
     |> List.find_opt (fun candidate -> Sys.file_exists candidate)
     |> Option.value ~default:executable
 
+let create_process ?cwd ~close_fds executable argv environment stdin_read
+    stdout_write stderr_write =
+  match cwd with
+  | None ->
+      Unix.create_process_env executable argv environment stdin_read
+        stdout_write stderr_write
+  | Some cwd -> (
+      match Unix.fork () with
+      | 0 -> (
+          try
+            Unix.chdir cwd;
+            Unix.dup2 stdin_read Unix.stdin;
+            Unix.dup2 stdout_write Unix.stdout;
+            Unix.dup2 stderr_write Unix.stderr;
+            List.iter
+              (fun fd -> try Unix.close fd with Unix.Unix_error _ -> ())
+              (stdin_read :: stdout_write :: stderr_write :: close_fds);
+            Unix.execve executable argv environment
+          with _ -> Unix._exit 127)
+      | pid -> pid)
+
 let spawn t =
   let environment =
     path_environment (Language.Server_config.environment t.config)
@@ -1917,8 +1949,10 @@ let spawn t =
       Array.of_list (executable :: Language.Server_config.argv t.config)
     in
     let pid =
-      Unix.create_process_env executable argv environment stdin_read
-        stdout_write stderr_write
+      create_process
+        ?cwd:(Language.Server_config.cwd t.config)
+        ~close_fds:[ stdin_write; stdout_read; stderr_read ]
+        executable argv environment stdin_read stdout_write stderr_write
     in
     Unix.close stdin_read;
     Unix.close stdout_write;

@@ -31,6 +31,8 @@ let overlapping_semantic_tokens = ref false
 let too_many_semantic_tokens = ref false
 let unicode_semantic_tokens = ref false
 let unknown_semantic_class = ref false
+let expected_cwd = ref None
+let expected_workspace_folder = ref None
 
 let options =
   [
@@ -113,6 +115,12 @@ let options =
     ( "--unknown-semantic-class",
       Arg.Set unknown_semantic_class,
       "return a declared semantic class with no Zenbu renderer role" );
+    ( "--expect-cwd",
+      Arg.String (fun path -> expected_cwd := Some path),
+      "reject initialize unless the process working directory is PATH" );
+    ( "--expect-workspace-folder",
+      Arg.String (fun uri -> expected_workspace_folder := Some uri),
+      "reject initialize unless workspaceFolders contains URI" );
   ]
 
 let () = Arg.parse options (fun _ -> ()) "fake_lsp_server"
@@ -329,6 +337,22 @@ let initialized_result () =
 let request_position params =
   field "position" params |> Option.value ~default:(position 0 0)
 
+let initialize_error params =
+  match !expected_cwd with
+  | Some path when not (String.equal (Sys.getcwd ()) path) ->
+      Some "configured working directory was not applied"
+  | None | Some _ -> (
+      match !expected_workspace_folder with
+      | None -> None
+      | Some expected ->
+          let folders =
+            match field "workspaceFolders" params with
+            | Some (`List values) -> List.filter_map (string_field "uri") values
+            | None | Some _ -> []
+          in
+          if List.mem expected folders then None
+          else Some "configured workspace folder was not sent")
+
 let () =
   let contents = ref "" in
   let uri = ref "file:///missing.ml" in
@@ -342,13 +366,16 @@ let () =
     let id = field "id" packet in
     (match (method_, id) with
     | Some "initialize", Some id -> (
-        response id (initialized_result ());
-        match !crash_marker with
-        | Some path when not (Sys.file_exists path) ->
-            let output = open_out_bin path in
-            close_out output;
-            exit 0
-        | Some _ | None -> ())
+        match initialize_error params with
+        | Some message -> response_error id message
+        | None -> (
+            response id (initialized_result ());
+            match !crash_marker with
+            | Some path when not (Sys.file_exists path) ->
+                let output = open_out_bin path in
+                close_out output;
+                exit 0
+            | Some _ | None -> ()))
     | Some "initialized", None ->
         initialized := true;
         if !malformed then (

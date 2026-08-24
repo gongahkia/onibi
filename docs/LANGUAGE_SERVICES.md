@@ -31,23 +31,73 @@ invalidate it during a session.
 An embedding host may construct `Language.Server_config` values and register
 them in `Language.Registry`. A configuration has an executable, argv vector,
 explicit environment overrides, filename extensions/language ids, root markers,
-and data-only initialization/options settings. Registry selection is
-deterministic by server id. M11 provides no end-user configuration-file grammar
-for arbitrary LSP servers.
+working directory, workspace folders, and data-only initialization/options
+settings. Registry selection is deterministic by server id.
+
+## Declarative user language-server configuration
+
+The terminal loads an optional TOML file at
+`$XDG_CONFIG_HOME/zenbu/language-servers.toml` (or
+`$HOME/.config/zenbu/language-servers.toml` when `XDG_CONFIG_HOME` is unset).
+`--language-config PATH` selects one explicitly; `--no-language-config` uses
+only built-in servers. The default path is optional: a missing file keeps the
+built-in registry, while a selected file that fails validation aborts startup.
+
+```toml
+version = 1
+
+[[server]]
+id = "ocaml.local"
+language_ids = ["ocaml"]
+extensions = [".ml", ".mli"]
+executable = "/usr/bin/ocamllsp"
+args = ["--stdio"]
+cwd = "/work/project"
+environment = { OCAMLPARAM = "_,warn-error=+A" }
+root_markers = ["dune-project", ".git"]
+workspace_folders = ["/work/project"]
+```
+
+This grammar is deliberately small. It accepts only the fields shown above;
+there are at most 32 servers, 64 arguments per server, 32 environment values,
+and 16 root markers or workspace folders. The executable must resolve to an
+absolute regular executable that is not group- or world-writable and whose
+ancestor directories are likewise not group- or world-writable. `cwd` and
+workspace folders must resolve to existing absolute directories. Root markers
+are basenames, not paths. Environment names are conventional upper-case names;
+`PATH`, dynamic-loader variables, and `DYLD_*` overrides are rejected. Values
+are inherited from the host only where they are not explicitly overridden.
+
+User declarations replace a built-in declaration when they overlap its language
+id or extension. They do not give Lua configuration, plugins, model code, or
+server responses a way to name a process: the TOML file is a separate host
+input and the LSP adapter always uses an argv vector/direct exec path, never a
+shell. This is validation of configuration shape and provenance, not a sandbox:
+an approved local executable still has the invoking user's authority.
+
+`config.reload` (`Alt-R`) first parses and validates a complete new language
+registry, then stages Lua configuration and plugins. A rejected candidate
+leaves the previous registry and every healthy language client in place. After
+a successful reload, Zenbu recreates clients for the active and inactive local
+buffers against the new registry. `Session.Language` records the configuration
+source and server identifiers but redacts every argument and environment value;
+lifecycle failures remain visible through the ordinary bounded language status
+and trace records.
 
 ## Lifecycle, coordinates, and synchronization
 
-The adapter spawns the configured executable directly with
-`Unix.create_process_env`, keeps its pipes private, and sends `initialize`,
-`initialized`, and `textDocument/didOpen`. Its reader and stderr-drainer
-threads only decode and enqueue bounded owned events. `Session.poll_language`,
-called from the terminal loop after any open buffer's wakeup fd becomes
-readable, is the only place that changes session state, selections, overlays,
-or documents. It drains the focused client for interactive replies, then
-drains inactive clients for diagnostics, server lifecycle, and accepted
-workspace edits. Interactive replies from an inactive buffer are discarded;
-they cannot open an overlay in the wrong pane. The terminal can therefore
-redraw on server output without busy polling.
+The adapter spawns the configured executable directly, applies an explicit
+working directory when configured, keeps its pipes private, and sends
+`initialize`, `initialized`, and `textDocument/didOpen`. `initialize` includes
+the discovered root plus configured workspace folders. Its reader and
+stderr-drainer threads only decode and enqueue bounded owned events.
+`Session.poll_language`, called from the terminal loop after any open buffer's
+wakeup fd becomes readable, is the only place that changes session state,
+selections, overlays, or documents. It drains the focused client for
+interactive replies, then drains inactive clients for diagnostics, server
+lifecycle, and accepted workspace edits. Interactive replies from an inactive
+buffer are discarded; they cannot open an overlay in the wrong pane. The
+terminal can therefore redraw on server output without busy polling.
 
 The client negotiates UTF-8, UTF-16, and UTF-32 position encodings,
 text-document synchronization, save text policy, hover, definition,
@@ -185,14 +235,16 @@ dune exec bin/zenbu_headless.exe -- language-fake-session \
   _build/default/test/fake_lsp_server.exe test/fixtures/lsp_ocaml/sample.ml
 ```
 
-The fake server covers initialize/negotiation, full and incremental sync,
-diagnostics, delayed stale hover, cancellation, completion additional edits,
-same- and cross-file definitions, checked code actions and command denial,
-document/range formatting and its fixed options, no-op/stale/malformed/error
-formatting replies, open-buffer cross-file rename and server apply-edit,
-unopened and stale workspace-edit rejection, all-or-none conflicting workspace
-edits, semantic-token Unicode/overlap/size/staleness validation, malformed
-frames, crash/restart, and shutdown.
+The fake server covers declarative configuration parsing/policy rejection,
+redaction, root discovery, configured working-directory/workspace-folder
+launch, successful and rejected reload across concurrent local buffers,
+initialize/negotiation, full and incremental sync, diagnostics, delayed stale
+hover, cancellation, completion additional edits, same- and cross-file
+definitions, checked code actions and command denial, document/range formatting and its fixed options,
+no-op/stale/malformed/error formatting replies, open-buffer cross-file rename
+and server apply-edit, unopened and stale workspace-edit rejection, all-or-none
+conflicting workspace edits, semantic-token Unicode/overlap/size/staleness
+validation, malformed frames, crash/restart, and shutdown.
 `test_m11_ocamllsp` opens a small Dune fixture with real `ocamllsp` and obtains
 a hover response.
 

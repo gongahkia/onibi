@@ -75,9 +75,11 @@ and plugin examples live in [Getting Started](docs/GETTING_STARTED.md).
 - `zenbu.language` exposes model-neutral diagnostics, hover, definition,
   completion, code actions, rename, position conversion, and sync data. A
   private async LSP adapter starts `ocamllsp` by default for saved OCaml files;
-  results become ordinary selections or validated transactions, never
-  protocol-driven edits. It also supports checked document/range formatting
-  with fixed two-space options. Code-action server commands are always denied.
+  a separate validated TOML configuration can add local servers without giving
+  Lua or plugins process authority. Results become ordinary selections or
+  validated transactions, never protocol-driven edits. It also supports checked
+  document/range formatting with fixed two-space options. Code-action server
+  commands are always denied.
 - Lua configuration and local plugins contribute commands, selectors,
   transformations, bindings, and events through host validation. One trusted
   Lua generation may also provide a serialisable editing model with optional
@@ -167,6 +169,7 @@ dune exec bin/zenbu.exe -- --model structural test/fixtures/syntax_sample.ml
 dune exec bin/zenbu.exe -- --model script --config examples/script-modal-editor.lua README.md
 dune exec bin/zenbu.exe -- --theme dark test/fixtures/syntax_sample.ml
 dune exec bin/zenbu.exe -- --theme dark --presentation relative test/fixtures/syntax_sample.ml
+dune exec bin/zenbu.exe -- --language-config language-servers.toml FILE
 dune exec bin/zenbu.exe -- --trace --profile --plugin-dir examples/plugins FILE
 ```
 

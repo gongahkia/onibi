@@ -2,4 +2,4 @@
  (name zenbu_language)
  (public_name zenbu.language)
  (modules language commands)
- (libraries zenbu_kernel zenbu_model_api unix threads))
+ (libraries zenbu_kernel zenbu_model_api otoml unix threads))

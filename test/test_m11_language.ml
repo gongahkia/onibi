@@ -1630,6 +1630,288 @@ let save_as_activation_test () =
         |> List.exists (String.starts_with ~prefix:"language: ocaml"))
         "save-as did not rebind syntax for the new path")
 
+let write path contents =
+  let output = open_out_bin path in
+  Fun.protect
+    ~finally:(fun () -> close_out_noerr output)
+    (fun () -> output_string output contents)
+
+let temporary_directory prefix =
+  let path = Filename.temp_file prefix "" in
+  Sys.remove path;
+  Unix.mkdir path 0o700;
+  path
+
+let remove_if_present path = try Sys.remove path with Sys_error _ -> ()
+
+let remove_directory_if_present path =
+  try Unix.rmdir path with Unix.Unix_error _ -> ()
+
+let toml_string value = Printf.sprintf "%S" value
+
+let toml_strings values =
+  values |> List.map toml_string |> String.concat ", " |> fun values ->
+  "[" ^ values ^ "]"
+
+let user_language_config ?(id = "test.user-config") ~executable ~cwd ~workspace
+    ~args () =
+  String.concat "\n"
+    [
+      "version = 1";
+      "";
+      "[[server]]";
+      "id = " ^ toml_string id;
+      "language_ids = [\"ocaml\"]";
+      "extensions = [\".ml\"]";
+      "executable = " ^ toml_string executable;
+      "args = " ^ toml_strings args;
+      "cwd = " ^ toml_string cwd;
+      "environment = { ZENBU_CONFIG_SECRET = \"visible-to-server\" }";
+      "root_markers = [\"dune-project\"]";
+      "workspace_folders = [" ^ toml_string workspace ^ "]";
+      "";
+    ]
+
+let language_config_load_and_launch_test () =
+  let root = temporary_directory "zenbu-m11-config" in
+  let nested = Filename.concat root "nested" in
+  let source = Filename.concat nested "sample.ml" in
+  let config_path = Filename.concat root "language-servers.toml" in
+  Unix.mkdir nested 0o700;
+  write (Filename.concat root "dune-project") "(lang dune 3.0)\n";
+  write source "let configured = true\n";
+  write config_path
+    (user_language_config ~executable:(fake_server ()) ~cwd:root ~workspace:root
+       ~args:
+         [
+           "--expect-cwd";
+           root;
+           "--expect-workspace-folder";
+           Language.Uri.file_of_path root;
+         ]
+       ());
+  Fun.protect
+    ~finally:(fun () ->
+      remove_if_present config_path;
+      remove_if_present source;
+      remove_if_present (Filename.concat root "dune-project");
+      remove_directory_if_present nested;
+      remove_directory_if_present root)
+    (fun () ->
+      let loaded =
+        Language.Config.load (Language.Config.Explicit config_path) |> must
+      in
+      let server =
+        match
+          Language.Registry.find_for_path
+            (Language.Config.registry loaded)
+            ~language_id:(Some "ocaml") source
+        with
+        | Some server -> server
+        | None -> fail "user language configuration did not register its server"
+      in
+      expect
+        (String.equal (Language.Server_config.id server) "test.user-config")
+        "user language configuration did not override the built-in OCaml server";
+      expect
+        (Language.Server_config.cwd server = Some (Unix.realpath root))
+        "user language configuration did not resolve cwd";
+      expect
+        (Language.Server_config.workspace_folders server
+        = [ Unix.realpath root ])
+        "user language configuration did not resolve workspace folders";
+      expect
+        (Language.Server_config.environment server
+        = [ ("ZENBU_CONFIG_SECRET", "visible-to-server") ])
+        "user language configuration did not preserve allowed environment input";
+      let inspection = Language.Config.inspect loaded |> String.concat "\n" in
+      expect
+        (contains inspection "environment values and arguments: redacted"
+        && (not (contains inspection "visible-to-server"))
+        && not (contains inspection "--expect-cwd"))
+        "language configuration inspection leaked arguments or environment \
+         values";
+      expect
+        (String.equal
+           (Language.Workspace.discover_root
+              ~markers:(Language.Server_config.root_markers server)
+              ~file_path:source)
+           (Unix.realpath root))
+        "configured root marker did not select the nearest workspace root";
+      let client =
+        Lsp.start ~config:server ~document_id:"configured-test"
+          ~document_version:0 ~file_path:source
+          ~contents:"let configured = true\n"
+          ~trace:(Zenbu_model_api.Trace.disabled ())
+          ~profiler:(Zenbu_model_api.Profiler.disabled ())
+      in
+      Fun.protect
+        ~finally:(fun () -> Lsp.close client)
+        (fun () -> wait_ready client))
+
+let language_config_policy_rejection_test () =
+  let root = temporary_directory "zenbu-m11-config-invalid" in
+  let config_path = Filename.concat root "language-servers.toml" in
+  let untrusted_executable = Filename.concat root "server" in
+  Fun.protect
+    ~finally:(fun () ->
+      remove_if_present config_path;
+      remove_if_present untrusted_executable;
+      remove_directory_if_present root)
+    (fun () ->
+      write config_path
+        (String.concat "\n"
+           [
+             "version = 1";
+             "[[server]]";
+             "id = \"test.invalid\"";
+             "language_ids = [\"ocaml\"]";
+             "extensions = [\".ml\"]";
+             "executable = " ^ toml_string (fake_server ());
+             "environment = { PATH = \"/untrusted/bin\" }";
+             "";
+           ]);
+      (match Language.Config.load (Language.Config.Explicit config_path) with
+      | Error reason ->
+          expect
+            (contains reason "protected variable PATH")
+            "configuration policy rejection did not identify the protected \
+             environment name"
+      | Ok _ -> fail "configuration accepted an override of PATH");
+      write untrusted_executable "#!/bin/sh\nexit 0\n";
+      Unix.chmod untrusted_executable 0o755;
+      write config_path
+        (String.concat "\n"
+           [
+             "version = 1";
+             "[[server]]";
+             "id = \"test.untrusted-ancestor\"";
+             "language_ids = [\"ocaml\"]";
+             "extensions = [\".ml\"]";
+             "executable = " ^ toml_string untrusted_executable;
+             "";
+           ]);
+      match Language.Config.load (Language.Config.Explicit config_path) with
+      | Error reason ->
+          expect
+            (contains reason "ancestor directory")
+            "configuration accepted an executable below a world-writable \
+             ancestor"
+      | Ok _ -> fail "configuration accepted an executable below /tmp")
+
+let language_config_reload_is_atomic_test () =
+  let root = temporary_directory "zenbu-m11-config-reload" in
+  let source = Filename.concat root "sample.ml" in
+  let target = Filename.concat root "second.ml" in
+  let config_path = Filename.concat root "language-servers.toml" in
+  write (Filename.concat root "dune-project") "(lang dune 3.0)\n";
+  write source "let before_reload = true\n";
+  write target "let second_buffer = true\n";
+  write config_path
+    (user_language_config ~executable:(fake_server ()) ~cwd:root ~workspace:root
+       ~args:[] ());
+  let session =
+    Zenbu_app.Session.create ~model:Zenbu_app.Session.Vim ~file_path:source
+      ~contents:"let before_reload = true\n"
+      ~language_config:(Language.Config.Explicit config_path)
+      ~config:Zenbu_scripting.Scripting.Disabled
+      ~dimensions:Zenbu_view.Renderer.{ columns = 80; rows = 12 }
+      ()
+    |> function
+    | Ok session -> session
+    | Error error -> fail (Zenbu_kernel.Error.to_string error)
+  in
+  let current = ref session in
+  Fun.protect
+    ~finally:(fun () ->
+      Zenbu_app.Session.close !current;
+      remove_if_present config_path;
+      remove_if_present source;
+      remove_if_present target;
+      remove_if_present (Filename.concat root "dune-project");
+      remove_directory_if_present root)
+    (fun () ->
+      let session =
+        wait_session session (fun session ->
+            Zenbu_app.Session.inspect session Zenbu_app.Session.Language
+            |> List.exists (String.equal "state: ready"))
+      in
+      let session = open_target_in_split session target in
+      current := session;
+      let session =
+        wait_session session (fun session ->
+            Zenbu_app.Session.inspect session Zenbu_app.Session.Language
+            |> List.exists (String.equal "state: ready"))
+      in
+      let session = host session Zenbu_app.Session.Focus_next_pane in
+      let session =
+        wait_session session (fun session ->
+            Zenbu_app.Session.inspect session Zenbu_app.Session.Language
+            |> List.exists (String.equal "state: ready"))
+      in
+      expect
+        (List.length (Zenbu_app.Session.language_wakeup_fds session) = 2)
+        "configured registry did not retain language clients for both local \
+         buffers";
+      write config_path
+        (user_language_config ~id:"test.user-reloaded"
+           ~executable:(fake_server ()) ~cwd:root ~workspace:root ~args:[] ());
+      let session = host session Zenbu_app.Session.Reload_config in
+      current := session;
+      let session =
+        wait_session session (fun session ->
+            Zenbu_app.Session.inspect session Zenbu_app.Session.Language
+            |> fun status ->
+            List.exists (String.equal "server: test.user-reloaded") status
+            && List.exists (String.equal "state: ready") status)
+      in
+      expect
+        (Zenbu_app.Session.inspect session Zenbu_app.Session.Language
+        |> List.exists (String.equal "state: ready"))
+        "accepted language configuration did not recreate a ready client";
+      let session = host session Zenbu_app.Session.Focus_next_pane in
+      let session =
+        wait_session session (fun session ->
+            Zenbu_app.Session.inspect session Zenbu_app.Session.Language
+            |> fun status ->
+            List.exists (String.equal "server: test.user-reloaded") status
+            && List.exists (String.equal "state: ready") status)
+      in
+      let session = host session Zenbu_app.Session.Focus_next_pane in
+      write config_path
+        (String.concat "\n"
+           [
+             "version = 1";
+             "[[server]]";
+             "id = \"test.invalid-after-reload\"";
+             "language_ids = [\"ocaml\"]";
+             "extensions = [\".ml\"]";
+             "executable = \"relative-language-server\"";
+             "";
+           ]);
+      let session = host session Zenbu_app.Session.Reload_config in
+      current := session;
+      let status =
+        Zenbu_app.Session.inspect session Zenbu_app.Session.Language
+      in
+      expect
+        (List.exists (String.equal "state: ready") status)
+        "rejected language configuration replaced the healthy active client";
+      expect
+        (List.exists (String.equal "server: test.user-reloaded") status)
+        "rejected language configuration replaced the active registry";
+      let session = host session Zenbu_app.Session.Focus_next_pane in
+      current := session;
+      expect
+        (Zenbu_app.Session.inspect session Zenbu_app.Session.Language
+        |> List.exists (String.equal "server: test.user-reloaded"))
+        "rejected language configuration replaced an inactive buffer registry";
+      expect
+        (Zenbu_app.Session.inspect session Zenbu_app.Session.Scripts
+        |> List.exists (String.starts_with ~prefix:"last-reload-error:"))
+        "rejected language configuration was not reported through reload \
+         lifecycle")
+
 let () =
   position_tests ();
   sync_tests ();
@@ -1679,4 +1961,7 @@ let () =
   cross_file_workspace_apply_edit_test ();
   apply_edit_session_test ();
   save_as_activation_test ();
+  language_config_load_and_launch_test ();
+  language_config_policy_rejection_test ();
+  language_config_reload_is_atomic_test ();
   print_endline "M11 language tests passed"

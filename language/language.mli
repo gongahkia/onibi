@@ -44,19 +44,6 @@ module Server_config : sig
   val settings : t -> Data.t option
 end
 
-module Config : sig
-  (** Declarative user-authored language-server configuration. This is a
-      separate host input; Lua configuration and plugins cannot construct or
-      reload it. *)
-  type t = Default | Explicit of string | Disabled
-  type loaded
-
-  val default_path : unit -> string
-  val load : t -> (loaded, string) result
-  val registry : loaded -> Registry.t
-  val inspect : loaded -> string list
-end
-
 module Registry : sig
   type t
 
@@ -68,6 +55,20 @@ module Registry : sig
     t -> language_id:string option -> string -> Server_config.t option
 
   val default : unit -> t
+end
+
+module Config : sig
+  (** Declarative user-authored language-server configuration. This is a
+      separate host input; Lua configuration and plugins cannot construct or
+      reload it. *)
+  type t = Default | Explicit of string | Disabled
+
+  type loaded
+
+  val default_path : unit -> string
+  val load : t -> (loaded, string) result
+  val registry : loaded -> Registry.t
+  val inspect : loaded -> string list
 end
 
 module Position : sig

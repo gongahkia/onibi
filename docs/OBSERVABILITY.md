@@ -114,10 +114,11 @@ lightweight local diagnosis, not telemetry or a metrics platform.
 session. The terminal uses `--profile`; its profile API is available through
 the same inspector values. No observation data leaves the process or machine.
 
-`Session.Language` and `zenbu-headless language-status FILE` project only the
-active server/language id, executable, workspace root, lifecycle state,
-negotiated encoding/sync policy, pending count, diagnostics count, and bounded
-last error. This is status inspection, not a protocol console. See
+`Session.Language` and `zenbu-headless language-status FILE` project the active
+server/language id, executable, workspace root, lifecycle state, negotiated
+encoding/sync policy, pending count, diagnostics count, bounded last error, and
+language-configuration source/authority. Arguments and environment values are
+redacted. This is status inspection, not a protocol console. See
 [Language services](LANGUAGE_SERVICES.md).
 
 ## Interactive inspector
