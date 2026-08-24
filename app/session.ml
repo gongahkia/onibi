@@ -3340,7 +3340,13 @@ let replace_language_client session path =
                   ~trace:(trace_of_active active)
                   ~profiler:(profiler_of_active active))
           in
-          { session with active; language_client; diagnostics = []; semantic_tokens = [] })
+          {
+            session with
+            active;
+            language_client;
+            diagnostics = [];
+            semantic_tokens = [];
+          })
 
 let observe_language_document_version session =
   Option.iter
@@ -4785,7 +4791,12 @@ let synchronize_language_after_change session ~fallback_contents =
         ~document_version:(Editor_context.document_version (context session))
         ~edits;
       ignore (Lsp.request_semantic_tokens client);
-      { session with diagnostics = []; semantic_tokens = []; presentation_cache = None }
+      {
+        session with
+        diagnostics = [];
+        semantic_tokens = [];
+        presentation_cache = None;
+      }
 
 let execute_active_effects ?augment_provenance session input effects =
   let result =
@@ -9587,13 +9598,13 @@ let handle_host session = function
                  (last_execution_of_active session.active));
           Lsp.restart client;
           Continue
-          {
-            session with
-            diagnostics = [];
-            semantic_tokens = [];
-            presentation_cache = None;
-            message = Some "language server restart requested";
-          })
+            {
+              session with
+              diagnostics = [];
+              semantic_tokens = [];
+              presentation_cache = None;
+              message = Some "language server restart requested";
+            })
   | Language_hover -> Continue (begin_hover session)
   | Language_definition -> Continue (begin_definition session)
   | Language_complete -> Continue (begin_completion session)
@@ -9640,34 +9651,36 @@ let syntax_spans session =
       Syntax.Highlight.spans snapshot
       |> List.map (fun span ->
           ({
-            Zenbu_view.Renderer.start_offset =
-              Syntax.Highlight.start_offset span;
-            stop_offset = Syntax.Highlight.stop_offset span;
-            class_ =
-              (match Syntax.Highlight.class_ span with
-              | Syntax.Highlight.Keyword -> Zenbu_view.Renderer.Keyword
-              | Syntax.Highlight.String -> Zenbu_view.Renderer.String
-              | Syntax.Highlight.Number -> Zenbu_view.Renderer.Number
-              | Syntax.Highlight.Comment -> Zenbu_view.Renderer.Comment
-              | Syntax.Highlight.Type -> Zenbu_view.Renderer.Type
-              | Syntax.Highlight.Constructor -> Zenbu_view.Renderer.Constructor);
-          } : Zenbu_view.Renderer.syntax_span))
+             Zenbu_view.Renderer.start_offset =
+               Syntax.Highlight.start_offset span;
+             stop_offset = Syntax.Highlight.stop_offset span;
+             class_ =
+               (match Syntax.Highlight.class_ span with
+               | Syntax.Highlight.Keyword -> Zenbu_view.Renderer.Keyword
+               | Syntax.Highlight.String -> Zenbu_view.Renderer.String
+               | Syntax.Highlight.Number -> Zenbu_view.Renderer.Number
+               | Syntax.Highlight.Comment -> Zenbu_view.Renderer.Comment
+               | Syntax.Highlight.Type -> Zenbu_view.Renderer.Type
+               | Syntax.Highlight.Constructor -> Zenbu_view.Renderer.Constructor);
+           }
+            : Zenbu_view.Renderer.syntax_span))
 
 let semantic_spans session =
   session.semantic_tokens
   |> List.map (fun (token : Lsp.semantic_token) ->
       ({
-        Zenbu_view.Renderer.start_offset = token.start_offset;
-        stop_offset = token.stop_offset;
-        class_ =
-          (match token.class_ with
-          | Lsp.Namespace -> Zenbu_view.Renderer.Namespace
-          | Lsp.Type -> Semantic_type
-          | Lsp.Function -> Semantic_function
-          | Lsp.Variable -> Semantic_variable
-          | Lsp.Property -> Semantic_property
-          | Lsp.Modifier -> Semantic_modifier);
-      } : Zenbu_view.Renderer.semantic_span))
+         Zenbu_view.Renderer.start_offset = token.start_offset;
+         stop_offset = token.stop_offset;
+         class_ =
+           (match token.class_ with
+           | Lsp.Namespace -> Zenbu_view.Renderer.Namespace
+           | Lsp.Type -> Semantic_type
+           | Lsp.Function -> Semantic_function
+           | Lsp.Variable -> Semantic_variable
+           | Lsp.Property -> Semantic_property
+           | Lsp.Modifier -> Semantic_modifier);
+       }
+        : Zenbu_view.Renderer.semantic_span))
 
 let presentation_cache session =
   let contents = Editor_context.contents (context session) in

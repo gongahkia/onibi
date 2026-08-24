@@ -51,8 +51,9 @@ redraw on server output without busy polling.
 
 The client negotiates UTF-8, UTF-16, and UTF-32 position encodings,
 text-document synchronization, save text policy, hover, definition,
-completion, code actions, rename, diagnostics, and workspace settings. It
-defaults to UTF-16 until the server chooses otherwise. `Language.Position`
+completion, code actions, rename, diagnostics, semantic tokens, and workspace
+settings. It defaults to UTF-16 until the server chooses otherwise.
+`Language.Position`
 converts only valid
 UTF-8 code-point boundaries and rejects offsets inside a multi-byte code point,
 a UTF-16 surrogate pair, or a CRLF pair. Lines are zero-based:
@@ -110,8 +111,18 @@ Backspace, Enter, or Escape.
 Completion accepts only plain text edits: snippets are rejected explicitly, and
 main plus additional edits use the one semantic transformation
 `language.apply-edits`. The view treats diagnostics as ranges and uses style
-precedence selection, search, diagnostic, syntax, then plain. The status row
-reports error/warning totals.
+precedence selection, search, diagnostic, semantic token, syntax, then plain.
+The status row reports error/warning totals.
+
+When a server advertises full semantic-token support, Zenbu automatically
+requests a fresh stream after initialization and each document change. A stream
+is decoded only against the request snapshot and negotiated position encoding;
+it is bounded to 4,096 tokens, requires valid UTF boundaries and non-empty
+ordered non-overlapping ranges, and may set only advertised modifier bits.
+Late, malformed, or unsupported results leave the existing frame unchanged.
+Zenbu maps only namespace, type, function, variable, property, and modifier to
+owned renderer roles; other declared server classes are safely omitted. The
+`default`, `dark`, and `light` themes each define those roles explicitly.
 
 The M12 workspace host retains language/syntax state with each local buffer.
 A definition target for another local file opens or reuses that buffer in the
@@ -162,7 +173,7 @@ open local buffer inside that root before selection. Duplicate labels remain
 separate entries by hierarchy/range; malformed or stale results are discarded.
 
 Zenbu does not coordinate external file changes, or provide project search,
-file watching, semantic tokens, or general workspace-edit resource operations.
+file watching, or general workspace-edit resource operations.
 
 ## Inspection, testing, and trust
 
@@ -180,7 +191,8 @@ same- and cross-file definitions, checked code actions and command denial,
 document/range formatting and its fixed options, no-op/stale/malformed/error
 formatting replies, open-buffer cross-file rename and server apply-edit,
 unopened and stale workspace-edit rejection, all-or-none conflicting workspace
-edits, malformed frames, crash/restart, and shutdown.
+edits, semantic-token Unicode/overlap/size/staleness validation, malformed
+frames, crash/restart, and shutdown.
 `test_m11_ocamllsp` opens a small Dune fixture with real `ocamllsp` and obtains
 a hover response.
 
@@ -188,8 +200,8 @@ a hover response.
 request, cancellation, response, decode, exit, and failure stages with server
 id, request id/document version where applicable, outcome, and bounded detail.
 The generic `why` view formats these events. The profiler adds language sync,
-hover, definition, completion, code-action, formatting, rename, and decode
-samples.
+hover, definition, completion, code-action, formatting, semantic-token,
+rename, and decode samples.
 Neither retains raw
 JSON-RPC packets, full source, protocol objects, or server secrets.
 

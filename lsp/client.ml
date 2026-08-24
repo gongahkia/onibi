@@ -915,14 +915,16 @@ let workspace_symbols_of_json ~contents ~encoding = function
   | _ -> Error "invalid workspace-symbol result: expected a list or null"
 
 let semantic_token_class token_type modifiers =
-  let declared = List.mem "declaration" modifiers || List.mem "readonly" modifiers in
+  let declared =
+    List.mem "declaration" modifiers || List.mem "readonly" modifiers
+  in
   match String.lowercase_ascii token_type with
   | "namespace" | "module" -> Some Namespace
   | "type" | "class" | "enum" | "interface" | "struct" | "typeparameter" ->
       Some Type
   | "function" | "method" | "macro" -> Some Function
   | "property" | "enummember" | "event" -> Some Property
-  | "variable" | "parameter" when declared -> Some Modifier
+  | ("variable" | "parameter") when declared -> Some Modifier
   | "variable" | "parameter" -> Some Variable
   | "keyword" | "modifier" | "decorator" -> Some Modifier
   | _ -> None
@@ -945,48 +947,71 @@ let semantic_tokens_of_json ~contents ~encoding ~types ~modifiers = function
               let length = data.(index + 2) in
               let type_index = data.(index + 3) in
               let modifier_bits = data.(index + 4) in
-              if delta_line < 0 || delta_start < 0 || length <= 0
-                 || type_index < 0 || modifier_bits < 0
-              then Error "semantic token stream contains a negative or empty field"
+              if
+                delta_line < 0 || delta_start < 0 || length <= 0
+                || type_index < 0 || modifier_bits < 0
+              then
+                Error "semantic token stream contains a negative or empty field"
               else
                 let line = line + delta_line in
-                let character = if delta_line = 0 then character + delta_start else delta_start in
+                let character =
+                  if delta_line = 0 then character + delta_start
+                  else delta_start
+                in
                 match List.nth_opt types type_index with
-                | None -> Error "semantic token stream references an unknown token type"
+                | None ->
+                    Error
+                      "semantic token stream references an unknown token type"
                 | Some token_type ->
                     let active_modifiers =
                       modifiers
                       |> List.mapi (fun bit modifier -> (bit, modifier))
                       |> List.filter_map (fun (bit, modifier) ->
-                             if bit < Sys.int_size - 1 && modifier_bits land (1 lsl bit) <> 0
-                             then Some modifier else None)
+                          if
+                            bit < Sys.int_size - 1
+                            && modifier_bits land (1 lsl bit) <> 0
+                          then Some modifier
+                          else None)
                     in
                     let valid_modifier_bits =
                       modifiers
                       |> List.mapi (fun bit _ -> bit)
-                      |> List.fold_left (fun mask bit ->
-                             if bit < Sys.int_size - 1 then mask lor (1 lsl bit) else mask) 0
+                      |> List.fold_left
+                           (fun mask bit ->
+                             if bit < Sys.int_size - 1 then mask lor (1 lsl bit)
+                             else mask)
+                           0
                     in
                     if modifier_bits land lnot valid_modifier_bits <> 0 then
-                      Error "semantic token stream references an unknown modifier"
+                      Error
+                        "semantic token stream references an unknown modifier"
                     else
                       Result.bind
-                        (Language.Position.position_to_offset ~contents ~encoding { line; character })
+                        (Language.Position.position_to_offset ~contents
+                           ~encoding { line; character })
                         (fun start_offset ->
                           Result.bind
-                            (Language.Position.position_to_offset ~contents ~encoding
+                            (Language.Position.position_to_offset ~contents
+                               ~encoding
                                { line; character = character + length })
                             (fun stop_offset ->
                               if start_offset < last_stop then
-                                Error "semantic token stream overlaps or is out of order"
+                                Error
+                                  "semantic token stream overlaps or is out of \
+                                   order"
                               else
                                 let values =
-                                  match semantic_token_class token_type active_modifiers with
+                                  match
+                                    semantic_token_class token_type
+                                      active_modifiers
+                                  with
                                   | None -> values
                                   | Some class_ ->
-                                      { start_offset; stop_offset; class_ } :: values
+                                      { start_offset; stop_offset; class_ }
+                                      :: values
                                 in
-                                decode (index + 5) line character stop_offset values))
+                                decode (index + 5) line character stop_offset
+                                  values))
           in
           decode 0 0 0 0 []
       with Jsonrpc.Json.Of_json (message, _) ->
@@ -1113,10 +1138,14 @@ let client_capabilities () =
                   ("dynamicRegistration", `Bool false);
                   ("requests", assoc [ ("full", `Bool true) ]);
                   ( "tokenTypes",
-                    `List (List.map (fun value -> `String value) semantic_token_client_types) );
+                    `List
+                      (List.map
+                         (fun value -> `String value)
+                         semantic_token_client_types) );
                   ( "tokenModifiers",
                     `List
-                      (List.map (fun value -> `String value)
+                      (List.map
+                         (fun value -> `String value)
                          semantic_token_client_modifiers) );
                   ("formats", `List [ `String "relative" ]);
                   ("overlappingTokenSupport", `Bool false);
@@ -1515,8 +1544,8 @@ let feature_response t pending result =
                               | Document_formatting -> Document
                               | Range_formatting -> Range
                               | Hover | Definition | Completion | Code_action
-                              | Document_symbols | Workspace_symbols | Semantic_tokens
-                              | Rename ->
+                              | Document_symbols | Workspace_symbols
+                              | Semantic_tokens | Rename ->
                                   assert false);
                             start_offset =
                               Option.value ~default:(-1) pending.byte_offset;
@@ -2302,7 +2331,8 @@ let request_semantic_tokens t =
   let supported = t.semantic_token_types <> [] in
   Mutex.unlock t.lock;
   if state <> Language.Ready then Error "language server is unavailable"
-  else if not supported then Error "language server does not advertise semantic tokens"
+  else if not supported then
+    Error "language server does not advertise semantic tokens"
   else
     send_request t (Feature Semantic_tokens) ~document_version ~contents
       ~params:[ ("textDocument", assoc [ ("uri", `String t.uri) ]) ]

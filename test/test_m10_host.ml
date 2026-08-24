@@ -520,6 +520,14 @@ let test_syntax_spans_and_render_precedence () =
             class_ = Renderer.Keyword;
           };
         ]
+      ~semantic_spans:
+        [
+          {
+            Renderer.start_offset = 0;
+            stop_offset = 3;
+            class_ = Renderer.Semantic_function;
+          };
+        ]
       ~search_ranges:[ { Renderer.start_offset = 0; stop_offset = 3 } ]
       ~context
       ~status:(Model_status.create ~id:"test" ~label:"TEST" () |> must)
@@ -551,6 +559,14 @@ let test_syntax_spans_and_render_precedence () =
             class_ = Renderer.Keyword;
           };
         ]
+      ~semantic_spans:
+        [
+          {
+            Renderer.start_offset = 0;
+            stop_offset = 3;
+            class_ = Renderer.Semantic_function;
+          };
+        ]
       ~search_ranges:[ { Renderer.start_offset = 0; stop_offset = 3 } ]
       ~context:unselected_context
       ~status:(Model_status.create ~id:"test" ~label:"TEST" () |> must)
@@ -561,7 +577,67 @@ let test_syntax_spans_and_render_precedence () =
   let first_cell = Frame.rows rendered.frame |> List.hd |> List.hd in
   expect
     (first_cell.Frame.style = Frame.Search_match)
-    "search did not take precedence over syntax highlighting"
+    "search did not take precedence over semantic and syntax highlighting";
+  let rendered =
+    Renderer.render_with_inspector ~inspector:None
+      ~syntax_spans:
+        [
+          {
+            Renderer.start_offset = 0;
+            stop_offset = 3;
+            class_ = Renderer.Keyword;
+          };
+        ]
+      ~semantic_spans:
+        [
+          {
+            Renderer.start_offset = 0;
+            stop_offset = 3;
+            class_ = Renderer.Semantic_function;
+          };
+        ]
+      ~context:unselected_context
+      ~status:(Model_status.create ~id:"test" ~label:"TEST" () |> must)
+      ~filename:"test.ml" ~dirty:false ~message:None
+      ~viewport:Zenbu_view.Viewport.origin
+      ~dimensions:{ columns = 20; rows = 3 } ()
+  in
+  let first_cell = Frame.rows rendered.frame |> List.hd |> List.hd in
+  expect
+    (first_cell.Frame.style = Frame.Semantic_function)
+    "semantic tokens did not take precedence over syntax highlighting";
+  let rendered =
+    Renderer.render_with_inspector ~inspector:None
+      ~syntax_spans:
+        [
+          {
+            Renderer.start_offset = 0;
+            stop_offset = 3;
+            class_ = Renderer.Keyword;
+          };
+        ]
+      ~semantic_spans:
+        [
+          {
+            Renderer.start_offset = 0;
+            stop_offset = 3;
+            class_ = Renderer.Semantic_function;
+          };
+        ]
+      ~diagnostic_ranges:
+        [
+          { Renderer.start_offset = 0; stop_offset = 3; kind = Renderer.Error };
+        ]
+      ~context:unselected_context
+      ~status:(Model_status.create ~id:"test" ~label:"TEST" () |> must)
+      ~filename:"test.ml" ~dirty:false ~message:None
+      ~viewport:Zenbu_view.Viewport.origin
+      ~dimensions:{ columns = 20; rows = 3 } ()
+  in
+  let first_cell = Frame.rows rendered.frame |> List.hd |> List.hd in
+  expect
+    (first_cell.Frame.style = Frame.Diagnostic_error)
+    "diagnostics did not take precedence over semantic highlighting"
 
 let write path contents =
   let channel = open_out_bin path in

@@ -688,10 +688,7 @@ let () =
           else [ 0; 0; 1; 0; 0; 0; 1; 1; 1; 1 ]
         in
         response id
-          (`Assoc
-             [
-               ("data", `List (List.map (fun value -> `Int value) data));
-             ])
+          (`Assoc [ ("data", `List (List.map (fun value -> `Int value) data)) ])
     | Some "textDocument/rename", Some id ->
         if !delay_rename then ignore (Unix.select [] [] [] 0.15);
         let new_name =

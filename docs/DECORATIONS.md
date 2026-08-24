@@ -36,9 +36,9 @@ placement. A virtual row is an ordinary display row for scrolling and paging;
 it has no source pointer target. A source row after virtual rows maps to its
 original byte coordinates. Inline text has no source bytes, so pointer columns
 in its trailing annotation map to the source line end. Cursor and selections
-remain source-based. Selection, search, diagnostic, and syntax precedence
-continues to apply only to source graphemes; decoration cells use their own
-semantic roles.
+remain source-based. Selection, search, diagnostic, semantic-token, and syntax
+precedence continues to apply only to source graphemes; decoration cells use
+their own semantic roles.
 
 Folding composes before decorations: entries attached to a hidden source line
 are omitted, while entries attached to a visible fold header remain visible.

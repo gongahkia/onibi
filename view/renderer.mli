@@ -9,8 +9,20 @@ type syntax_span = {
   stop_offset : int;
   class_ : syntax_class;
 }
-type semantic_class = Namespace | Semantic_type | Semantic_function | Semantic_variable | Semantic_property | Semantic_modifier
-type semantic_span = { start_offset : int; stop_offset : int; class_ : semantic_class }
+
+type semantic_class =
+  | Namespace
+  | Semantic_type
+  | Semantic_function
+  | Semantic_variable
+  | Semantic_property
+  | Semantic_modifier
+
+type semantic_span = {
+  start_offset : int;
+  stop_offset : int;
+  class_ : semantic_class;
+}
 
 type search_range = { start_offset : int; stop_offset : int }
 type diagnostic_kind = Error | Warning | Information | Hint

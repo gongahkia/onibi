@@ -119,7 +119,8 @@ let default_attribute = function
       { plain with foreground = Ansi Blue; decorations = [ Bold ] }
   | Frame.Syntax_constructor -> { plain with foreground = Ansi Yellow }
   | Frame.Semantic_namespace -> { plain with foreground = Ansi Cyan }
-  | Frame.Semantic_type -> { plain with foreground = Ansi Blue; decorations = [ Bold ] }
+  | Frame.Semantic_type ->
+      { plain with foreground = Ansi Blue; decorations = [ Bold ] }
   | Frame.Semantic_function -> { plain with foreground = Ansi Blue }
   | Frame.Semantic_variable -> plain
   | Frame.Semantic_property -> { plain with foreground = Ansi Yellow }
@@ -246,6 +247,42 @@ let dark =
           background = Rgb (20, 22, 27);
           decorations = [];
         } );
+      ( Frame.Semantic_namespace,
+        {
+          foreground = Rgb (86, 182, 194);
+          background = Rgb (20, 22, 27);
+          decorations = [];
+        } );
+      ( Frame.Semantic_type,
+        {
+          foreground = Rgb (97, 175, 239);
+          background = Rgb (20, 22, 27);
+          decorations = [ Bold ];
+        } );
+      ( Frame.Semantic_function,
+        {
+          foreground = Rgb (97, 175, 239);
+          background = Rgb (20, 22, 27);
+          decorations = [];
+        } );
+      ( Frame.Semantic_variable,
+        {
+          foreground = Rgb (220, 222, 226);
+          background = Rgb (20, 22, 27);
+          decorations = [];
+        } );
+      ( Frame.Semantic_property,
+        {
+          foreground = Rgb (229, 192, 123);
+          background = Rgb (20, 22, 27);
+          decorations = [];
+        } );
+      ( Frame.Semantic_modifier,
+        {
+          foreground = Rgb (220, 222, 226);
+          background = Rgb (20, 22, 27);
+          decorations = [ Bold ];
+        } );
       ( Frame.Decoration_inline,
         {
           foreground = Rgb (92, 99, 112);
@@ -370,6 +407,42 @@ let light =
           foreground = Rgb (165, 105, 0);
           background = Rgb (250, 250, 250);
           decorations = [];
+        } );
+      ( Frame.Semantic_namespace,
+        {
+          foreground = Rgb (28, 126, 126);
+          background = Rgb (250, 250, 250);
+          decorations = [];
+        } );
+      ( Frame.Semantic_type,
+        {
+          foreground = Rgb (41, 98, 168);
+          background = Rgb (250, 250, 250);
+          decorations = [ Bold ];
+        } );
+      ( Frame.Semantic_function,
+        {
+          foreground = Rgb (41, 98, 168);
+          background = Rgb (250, 250, 250);
+          decorations = [];
+        } );
+      ( Frame.Semantic_variable,
+        {
+          foreground = Rgb (56, 58, 66);
+          background = Rgb (250, 250, 250);
+          decorations = [];
+        } );
+      ( Frame.Semantic_property,
+        {
+          foreground = Rgb (165, 105, 0);
+          background = Rgb (250, 250, 250);
+          decorations = [];
+        } );
+      ( Frame.Semantic_modifier,
+        {
+          foreground = Rgb (56, 58, 66);
+          background = Rgb (250, 250, 250);
+          decorations = [ Bold ];
         } );
       ( Frame.Decoration_inline,
         {
