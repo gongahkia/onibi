@@ -13,6 +13,7 @@ import (
 	"github.com/gongahkia/kaypoh/internal/geo"
 	"github.com/gongahkia/kaypoh/internal/sources/activesg"
 	"github.com/gongahkia/kaypoh/internal/sources/fallback"
+	"github.com/gongahkia/kaypoh/internal/sources/perfectgym"
 )
 
 func TestOpenSeedsSourcePolicy(t *testing.T) {
@@ -104,6 +105,33 @@ func TestOpenChainsGenericAndDedicatedActiveSGReaders(t *testing.T) {
 	}
 	if _, ok := adapter.(*fallback.Adapter); !ok {
 		t.Fatalf("myactivesg adapter = %T, want fallback chain", adapter)
+	}
+}
+
+func TestOpenSelectsDedicatedPerfectGymReader(t *testing.T) {
+	cfg, err := config.Default()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.DatabasePath = filepath.Join(t.TempDir(), "kaypoh.db")
+	kallang := cfg.Sources[perfectgym.SourceID]
+	kallang.Enabled = true
+	kallang.PerfectGym = config.SourcePerfectGym{
+		Enabled: true, AvailabilityURL: "https://thekallang.perfectgym.com/clientportal2/",
+		SessionStateBase64: base64.StdEncoding.EncodeToString([]byte(`{"cookies":[],"origins":[]}`)),
+	}
+	cfg.Sources[perfectgym.SourceID] = kallang
+	service, err := Open(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = service.Close() })
+	adapter, err := service.sources.Adapter(perfectgym.SourceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := adapter.(*perfectgym.Adapter); !ok {
+		t.Fatalf("the-kallang adapter = %T, want dedicated PerfectGym reader", adapter)
 	}
 }
 

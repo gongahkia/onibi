@@ -23,6 +23,18 @@ scan_all = false
 # venue_names = ["Jurong East Sport Hall"]
 # session_state_base64 = "env:KAYPOH_ACTIVESG_SESSION_STATE_B64"
 
+# The Kallang PerfectGym reader reads weekly calendar responses through an
+# imported session. It changes only the facility type and displayed week.
+[sources.the-kallang]
+enabled = false
+refresh_minutes = 60
+
+[sources.the-kallang.perfectgym]
+enabled = false
+availability_url = "https://thekallang.perfectgym.com/clientportal2/"
+facility_type_name = "Badminton Courts"
+# session_state_base64 = "env:KAYPOH_THE_KALLANG_SESSION_STATE_B64"
+
 # These verified anonymous readers have no API key or login requirement. Their
 # windows are deliberately bounded to keep public booking reads modest.
 [sources.sba-stadium]

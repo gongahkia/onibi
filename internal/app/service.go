@@ -20,6 +20,7 @@ import (
 	"github.com/gongahkia/kaypoh/internal/sources/activesg"
 	"github.com/gongahkia/kaypoh/internal/sources/fallback"
 	"github.com/gongahkia/kaypoh/internal/sources/partner"
+	"github.com/gongahkia/kaypoh/internal/sources/perfectgym"
 	"github.com/gongahkia/kaypoh/internal/sources/publicavailability"
 	"github.com/gongahkia/kaypoh/internal/sources/sportsg"
 	"github.com/gongahkia/kaypoh/internal/store"
@@ -68,6 +69,8 @@ func Open(ctx context.Context, cfg config.Config) (*Service, error) {
 		var adapter source.Adapter
 		if spec.ID == activesg.SourceID && settings.ActiveSG.Enabled {
 			adapter, err = newActiveSGAdapter(info, spec, settings, transport, browserClient)
+		} else if spec.ID == perfectgym.SourceID && settings.PerfectGym.Enabled {
+			adapter, err = newPerfectGymAdapter(info, spec, settings, transport, browserClient)
 		} else if publicavailability.Supports(spec.ID) && !configuredPartnerAccess(settings) {
 			adapter, err = publicavailability.New(info, settings, transport)
 		} else {
@@ -135,6 +138,32 @@ func newActiveSGAdapter(info domain.SourceInfo, spec partner.Spec, settings conf
 	return fallback.New(info, attempts)
 }
 
+// newPerfectGymAdapter keeps generic partner modes and the dedicated Kallang
+// calendar reader as independent attempts. Generic API, browser, and public
+// access run first; the calendar reader is the final fallback.
+func newPerfectGymAdapter(info domain.SourceInfo, spec partner.Spec, settings config.Source, transport *source.HTTPClient, browserClient *browser.Playwright) (source.Adapter, error) {
+	dedicated, err := perfectgym.New(info, settings, browserClient)
+	if err != nil {
+		return nil, err
+	}
+	if !configuredPartnerAccess(settings) {
+		return dedicated, nil
+	}
+	generic, err := partner.New(info, spec, settings, transport, browserClient)
+	if err != nil {
+		return nil, err
+	}
+	attempts := make([]fallback.Attempt, 0, len(generic.Modes())+1)
+	for _, mode := range generic.Modes() {
+		mode := mode
+		attempts = append(attempts, fallback.Attempt{Mode: mode, Fetch: func(ctx context.Context, request source.AvailabilityRequest) (source.AvailabilitySnapshot, error) {
+			return generic.FetchMode(ctx, request, mode)
+		}})
+	}
+	attempts = append(attempts, fallback.Attempt{Mode: perfectgym.AccessMode, Fetch: dedicated.FetchSnapshot})
+	return fallback.New(info, attempts)
+}
+
 // configuredPartnerAccess gives an operator-supplied API, browser reader, or
 // generic public mapper precedence over a built-in anonymous reader. This lets
 // a provider migrate to an official API without removing the safe fallback.
@@ -184,6 +213,9 @@ func resolveSourceSettings(cfg config.Config, sourceID string) (config.Source, e
 		return config.Source{}, err
 	}
 	if settings.ActiveSG.SessionStateBase64, err = resolve("activesg.session_state_base64", settings.ActiveSG.SessionStateBase64); err != nil {
+		return config.Source{}, err
+	}
+	if settings.PerfectGym.SessionStateBase64, err = resolve("perfectgym.session_state_base64", settings.PerfectGym.SessionStateBase64); err != nil {
 		return config.Source{}, err
 	}
 	return settings, nil

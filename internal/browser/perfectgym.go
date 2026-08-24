@@ -20,12 +20,12 @@ const (
 // PerfectGymScanRequest scopes a read-only scan to a configured PerfectGym
 // facility calendar. It contains no booking, cart, checkout, or payment path.
 type PerfectGymScanRequest struct {
-	AvailabilityURL  string
-	FacilityTypeName string
+	AvailabilityURL    string
+	FacilityTypeName   string
 	SessionStateBase64 string
-	PermittedHosts   []string
-	Timeout          time.Duration
-	EndDate          time.Time
+	PermittedHosts     []string
+	Timeout            time.Duration
+	EndDate            time.Time
 }
 
 // PerfectGymAvailability is one calendar entry before provider-specific
