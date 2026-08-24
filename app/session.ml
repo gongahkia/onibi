@@ -204,6 +204,7 @@ type buffer = {
   language_override : string option;
   saved_version : int;
   saved_contents : string;
+  saved_snapshot : File_io.snapshot option;
   language_client : Lsp.t option;
   diagnostics : Language.diagnostic list;
   presentation_cache : presentation_cache option;
@@ -226,6 +227,7 @@ type t = {
   language_override : string option;
   saved_version : int;
   saved_contents : string;
+  saved_snapshot : File_io.snapshot option;
   layout : Layout.t;
   focused_pane : int;
   pane_viewports : (int * Zenbu_view.Viewport.t) list;
@@ -1453,6 +1455,10 @@ let create ~model ?language ?file_path ?(contents = "") ?trace ?profiler
     ?(theme = Zenbu_view.Theme.default) ?system_clipboard
     ?(config = Scripting.Default) ?(plugins = Plugins.Disabled)
     ?(language_registry = Language.Registry.default ()) ~dimensions () =
+  let saved_snapshot =
+    Option.bind file_path (fun path ->
+        Result.to_option (File_io.snapshot ~path ~contents))
+  in
   match document ~contents with
   | Error _ as error -> error
   | Ok document -> (
@@ -1595,6 +1601,7 @@ let create ~model ?language ?file_path ?(contents = "") ?trace ?profiler
                     language_override = language;
                     saved_version = 0;
                     saved_contents = contents;
+                    saved_snapshot;
                     layout = Layout.single 0;
                     focused_pane = 0;
                     pane_viewports = [ (0, Zenbu_view.Viewport.origin) ];
@@ -1819,6 +1826,7 @@ let current_buffer session =
     language_override = session.language_override;
     saved_version = session.saved_version;
     saved_contents = session.saved_contents;
+    saved_snapshot = session.saved_snapshot;
     language_client = session.language_client;
     diagnostics = session.diagnostics;
     presentation_cache = session.presentation_cache;
@@ -2002,6 +2010,7 @@ let load_buffer ?(reset_interaction = true) session (buffer : buffer) =
       language_override = buffer.language_override;
       saved_version = buffer.saved_version;
       saved_contents = buffer.saved_contents;
+      saved_snapshot = buffer.saved_snapshot;
       language_client = buffer.language_client;
       diagnostics = buffer.diagnostics;
       presentation_cache = buffer.presentation_cache;
@@ -2577,7 +2586,8 @@ let create_active ~model ~commands ~semantic_behaviors ?syntax_service ~trace
             ~trace ~profiler ~document ()
           |> Result.map (fun runtime -> Script_runtime runtime))
 
-let create_buffer session ~id ?file_path ?buffer_name ?language ~contents () =
+let create_buffer session ~id ?file_path ?buffer_name ?language ?saved_snapshot
+    ~contents () =
   let language = Option.value ~default:session.language_override language in
   Result.bind (document ~contents) (fun document ->
       Result.bind (syntax_service ?language file_path) (fun syntax_service ->
@@ -2610,6 +2620,7 @@ let create_buffer session ~id ?file_path ?buffer_name ?language ~contents () =
                 language_override = language;
                 saved_version = 0;
                 saved_contents = contents;
+                saved_snapshot;
                 language_client;
                 diagnostics = [];
                 presentation_cache = None;
@@ -2631,6 +2642,7 @@ let show_new_buffer session (buffer : buffer) =
       language_override = buffer.language_override;
       saved_version = buffer.saved_version;
       saved_contents = buffer.saved_contents;
+      saved_snapshot = buffer.saved_snapshot;
       language_client = buffer.language_client;
       diagnostics = buffer.diagnostics;
       presentation_cache = buffer.presentation_cache;
@@ -2848,17 +2860,17 @@ let open_buffer session path =
     with
     | Some buffer -> show_buffer_in_focused_pane session buffer.id
     | None -> (
-        match File_io.read path with
+        match File_io.read_snapshot path with
         | Error error ->
             {
               session with
               interaction = Idle;
               message = Some (File_io.to_string error);
             }
-        | Ok contents -> (
+        | Ok (contents, saved_snapshot) -> (
             match
               create_buffer session ~id:session.next_buffer_id ~file_path:path
-                ~contents ()
+                ~saved_snapshot ~contents ()
             with
             | Error error ->
                 {
@@ -4151,6 +4163,7 @@ let update_current_from_buffer session (buffer : buffer) =
     language_override = buffer.language_override;
     saved_version = buffer.saved_version;
     saved_contents = buffer.saved_contents;
+    saved_snapshot = buffer.saved_snapshot;
     language_client = buffer.language_client;
     diagnostics = buffer.diagnostics;
     presentation_cache = buffer.presentation_cache;
@@ -4991,53 +5004,77 @@ let switch_to_model session target =
           quit_armed = false;
         }
 
-let save_to session path =
+let save_to ?(overwrite = false) session path =
+  let contents = Editor_context.contents (context session) in
+  let complete saved_snapshot =
+    let saved =
+      {
+        session with
+        file_path = Some path;
+        saved_version = Editor_context.document_version (context session);
+        saved_contents = contents;
+        saved_snapshot = Some saved_snapshot;
+        interaction = Idle;
+        message = Some ("saved " ^ path);
+        quit_armed = false;
+      }
+    in
+    let saved =
+      match session.file_path with
+      | Some previous when String.equal previous path -> saved
+      | None | Some _ -> replace_language_client saved path
+    in
+    Option.iter
+      (fun client ->
+        Lsp.set_execution_id client
+          ~execution_id:
+            (Option.value ~default:0 (last_execution_of_active saved.active));
+        Lsp.notify_save client
+          ~contents:(Editor_context.contents (context saved))
+          ~document_version:(Editor_context.document_version (context saved)))
+      saved.language_client;
+    let input =
+      Input_event.logical_text "s"
+      |> Result.get_ok
+      |> Input_event.key_press ~modifiers:[ Input_event.Control ]
+    in
+    run_event_hooks saved Scripting.After_save input
+  in
   let completed =
-    match
-      File_io.save_atomic ~path
-        ~contents:(Editor_context.contents (context session))
-    with
-    | Error error ->
+    match (overwrite, session.saved_snapshot) with
+    | false, None ->
         {
           session with
           interaction = Idle;
-          message = Some (File_io.to_string error);
+          message =
+            Some
+              ("save conflict for " ^ path
+             ^ ": no on-disk baseline; use save as to replace the target");
           quit_armed = false;
         }
-    | Ok () ->
-        let saved =
-          {
-            session with
-            file_path = Some path;
-            saved_version = Editor_context.document_version (context session);
-            saved_contents = Editor_context.contents (context session);
-            interaction = Idle;
-            message = Some ("saved " ^ path);
-            quit_armed = false;
-          }
-        in
-        let saved =
-          match session.file_path with
-          | Some previous when String.equal previous path -> saved
-          | None | Some _ -> replace_language_client saved path
-        in
-        Option.iter
-          (fun client ->
-            Lsp.set_execution_id client
-              ~execution_id:
-                (Option.value ~default:0
-                   (last_execution_of_active saved.active));
-            Lsp.notify_save client
-              ~contents:(Editor_context.contents (context saved))
-              ~document_version:
-                (Editor_context.document_version (context saved)))
-          saved.language_client;
-        let input =
-          Input_event.logical_text "s"
-          |> Result.get_ok
-          |> Input_event.key_press ~modifiers:[ Input_event.Control ]
-        in
-        run_event_hooks saved Scripting.After_save input
+    | true, _ -> (
+        match File_io.save_atomic_snapshot ~path ~contents with
+        | Error error ->
+            {
+              session with
+              interaction = Idle;
+              message = Some (File_io.to_string error);
+              quit_armed = false;
+            }
+        | Ok saved_snapshot -> complete saved_snapshot)
+    | false, Some saved_snapshot -> (
+        match
+          Result.bind (File_io.check_snapshot saved_snapshot ~path) (fun () ->
+              File_io.save_atomic_snapshot ~path ~contents)
+        with
+        | Error error ->
+            {
+              session with
+              interaction = Idle;
+              message = Some (File_io.to_string error);
+              quit_armed = false;
+            }
+        | Ok saved_snapshot -> complete saved_snapshot)
   in
   let completed = synchronize_workspace_documents completed in
   let execution_id =
@@ -5390,7 +5427,7 @@ let invoke_host_palette_command ?(arguments = []) session input = function
         }
       else
         match required_text_argument arguments "path" with
-        | Ok path -> save_to session path
+        | Ok path -> save_to ~overwrite:true session path
         | Error error -> { session with message = Some (Error.to_string error) }
       )
   | Reload_config -> { (reload_config session) with interaction = Idle }
@@ -5925,7 +5962,7 @@ let input_for_interaction session input =
       else if event_is_named input Input_event.Enter then
         if String.length path = 0 then
           { session with message = Some "save-as: destination path is empty" }
-        else save_to session path
+        else save_to ~overwrite:true session path
       else if event_is_named input Input_event.Backspace then
         { session with interaction = Save_as_prompt (drop_last_utf8 path) }
       else
@@ -6951,6 +6988,7 @@ let session_for_buffer session (buffer : buffer) =
       language_override = buffer.language_override;
       saved_version = buffer.saved_version;
       saved_contents = buffer.saved_contents;
+      saved_snapshot = buffer.saved_snapshot;
       language_client = buffer.language_client;
       diagnostics = buffer.diagnostics;
       presentation_cache = buffer.presentation_cache;

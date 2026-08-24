@@ -1072,6 +1072,7 @@ zenbu.on {
   end,
 }
 |};
+      write file_path "alpha";
       let session =
         Zenbu_app.Session.create ~model:Zenbu_app.Session.Vim ~contents:"alpha"
           ~file_path ~config:(Zenbu_scripting.Scripting.Explicit config_path)

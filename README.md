@@ -13,9 +13,10 @@ complete editor distribution.
 
 ## Quick start
 
-On Linux x86_64, install `opam`, a C toolchain, `curl`, `tar`, and a SHA-256
-tool (`sha256sum` or `shasum`). On Apple Silicon macOS, install Xcode Command
-Line Tools, Homebrew, `opam`, and `lua@5.4`:
+On Linux x86_64, install `opam`, a C toolchain, `curl`, `tar`, a SHA-256 tool
+(`sha256sum` or `shasum`), and the Lua 5.4 shared library (`lua-libs` on
+Fedora). On Apple Silicon macOS, install Xcode Command Line Tools, Homebrew,
+`opam`, and `lua@5.4`:
 
 ```sh
 xcode-select --install
@@ -85,9 +86,9 @@ and plugin examples live in [Getting Started](docs/GETTING_STARTED.md).
 ## Bootstrap on Linux x86_64 and Apple Silicon macOS
 
 M9 pins official Wasmtime 47.0.3 C API archives for Linux x86_64 and Apple
-Silicon macOS. Fedora users need `opam`, a C toolchain, `curl`, `tar`, and
-`sha256sum`; macOS users need Xcode Command Line Tools and `brew install opam
-lua@5.4`.
+Silicon macOS. Fedora users need `opam`, a C toolchain, `curl`, `tar`,
+`sha256sum`, and `lua-libs`; macOS users need Xcode Command Line Tools and
+`brew install opam lua@5.4`.
 
 ```sh
 make bootstrap
@@ -125,8 +126,8 @@ Wasmtime library under `PREFIX/lib/zenbu/`; no `sudo` is involved.
 `.zenbu/release-build/default/bin/` after the release gate. They are dynamically linked and
 become portable only with their bundled runtime libraries. The tag-triggered
 release-candidate workflow produces archives for Linux x86_64 and Apple
-Silicon macOS. On macOS, the archive includes Wasmtime, Lua 5.4, and libffi;
-its `bin/` launchers select the bundled Lua library.
+Silicon macOS. Each archive includes Wasmtime, Lua 5.4, and libffi; its `bin/`
+launchers select the bundled Lua library.
 
 To produce the archive for the current supported host locally:
 

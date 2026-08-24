@@ -59,8 +59,8 @@ The following remain deliberately out of scope:
   configuration, workspace folders, and a language-server trust/sandbox model;
 - public Tree-sitter query APIs, grammar downloads, embedded-language parsing,
   refactoring, or asynchronous syntax workers;
-- external-modification conflict detection and parent-directory fsync after
-  save (M10's save-as uses the established adjacent-temp-file atomic write).
+- parent-directory fsync after save (normal save detects externally changed,
+  replaced, and missing targets; save-as intentionally replaces its target).
 
 ## Next proposed milestone
 
@@ -71,11 +71,11 @@ view's selection and inactive positions rebase through forward local history.
 Buffers retain their own model runtime/history, and all open saved buffers
 participate in language wakeup polling. A definition target opens/reuses a
 local buffer. Rename and `workspace/applyEdit` stage and publish edits across
-already-open saved targets all-or-none, while retaining per-buffer history. The
-next increment should define external-file-change and save coordination before
-adding file watching or target auto-open. It must not make buffers, providers,
-or language protocols visible to the kernel or model API, and should not bundle
-project search, a marketplace, or a Component distribution redesign.
+already-open saved targets all-or-none, while retaining per-buffer history.
+File watching or target auto-open must build on normal-save conflict detection
+without making buffers, providers, or language protocols visible to the kernel
+or model API, and should not bundle project search, a marketplace, or a
+Component distribution redesign.
 
 Portable Component distribution and a first-party guest authoring tool remain
 the next packaging concern after M11: they need a verified platform matrix and

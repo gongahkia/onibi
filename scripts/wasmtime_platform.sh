@@ -5,6 +5,26 @@ set -eu
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 repo_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
 
+find_linux_lua() {
+  for library in liblua-5.4.so liblua5.4.so.0 liblua5.4.so; do
+    if command -v ldconfig >/dev/null 2>&1; then
+      candidate=$(ldconfig -p 2>/dev/null | awk -v library="$library" '$1 == library { print $NF; exit }')
+      if test -n "$candidate" && test -f "$candidate"; then
+        printf '%s\n' "$candidate"
+        return 0
+      fi
+    fi
+    for directory in /lib64 /usr/lib64 /lib/x86_64-linux-gnu /usr/lib/x86_64-linux-gnu; do
+      candidate="$directory/$library"
+      if test -f "$candidate"; then
+        printf '%s\n' "$candidate"
+        return 0
+      fi
+    done
+  done
+  return 1
+}
+
 case "$(uname -s)-$(uname -m)" in
   Linux-x86_64)
     archive="wasmtime-v47.0.3-x86_64-linux-c-api.tar.xz"
@@ -12,7 +32,7 @@ case "$(uname -s)-$(uname -m)" in
     library="libwasmtime.so"
     build_rpath='$ORIGIN/../../../.zenbu/wasmtime-c-api/lib'
     install_rpath='$ORIGIN/../lib/zenbu'
-    lua_library=""
+    lua_library=$(find_linux_lua || true)
     ;;
   Darwin-arm64)
     archive="wasmtime-v47.0.3-aarch64-macos-c-api.tar.xz"

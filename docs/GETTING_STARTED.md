@@ -8,7 +8,8 @@ of changing a buffer directly.
 ## Install from a clone
 
 Linux x86_64 and Apple Silicon macOS are supported interactive platforms in
-M11. Linux needs `opam`, a C toolchain, `curl`, `tar`, and `sha256sum`.
+M11. Linux needs `opam`, a C toolchain, `curl`, `tar`, `sha256sum`, and a Lua
+5.4 shared library (`lua-libs` on Fedora or `liblua5.4-0` on Debian/Ubuntu).
 macOS needs Xcode Command Line Tools, Homebrew, and Lua 5.4:
 
 ```sh
@@ -47,9 +48,9 @@ copies its platform Wasmtime dynamic library to `PREFIX/lib/zenbu/`.
 ## Packaged releases
 
 Tagged builds produce source-validated `tar.gz` archives for Linux x86_64 and
-Apple Silicon macOS. The macOS archive bundles Wasmtime, Lua 5.4, and libffi;
-run its `bin/zenbu` or `bin/zenbu-headless` launchers after extraction. These
-macOS command-line archives are unsigned and not notarized.
+Apple Silicon macOS. Each archive bundles Wasmtime, Lua 5.4, and libffi; run
+its `bin/zenbu` or `bin/zenbu-headless` launchers after extraction. macOS
+command-line archives are unsigned and not notarized.
 
 ## First ten minutes
 
@@ -114,7 +115,7 @@ kill/yank synchronization are not implemented.
 
 | key | action |
 | --- | --- |
-| `Ctrl-S` | save; opens save-as for an unnamed buffer |
+| `Ctrl-S` | save; refuses an externally changed, replaced, or missing target, and opens save-as for an unnamed buffer |
 | `Ctrl-Shift-S` | save-as; an existing destination is atomically replaced |
 | `Ctrl-Q` | quit; press again to force-quit a dirty buffer |
 | `Ctrl-F` | start literal Unicode search; `Ctrl-P` → `search.regexp` starts the UTF-8-safe regexp variant |
@@ -245,6 +246,6 @@ and [WIT contract](wit/zenbu-plugin.wit) are the stable v1 references.
 
 M11 deliberately limits cross-file language edits to already-open saved
 buffers and does not include project/file search, a file picker, grammar
-downloads, a marketplace, external-file conflict detection, or a system
-clipboard bridge. See [the roadmap](ROADMAP.md) before designing around a
-missing feature.
+downloads, a marketplace, file watching, or a system clipboard bridge. Normal
+save does refuse externally changed, replaced, and missing targets. See [the
+roadmap](ROADMAP.md) before designing around a missing feature.

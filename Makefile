@@ -22,10 +22,8 @@ wasm-runtime-ready:
 		}
 
 lua-runtime-ready:
-	@$(PLATFORM_ENV) if test "$$(uname -s)-$$(uname -m)" = Darwin-arm64; then \
-		test -n "$$ZENBU_LUA_LIBRARY" && test -f "$$ZENBU_LUA_LIBRARY" \
-			|| { echo "macOS requires Homebrew Lua 5.4; run: brew install lua@5.4" >&2; exit 2; }; \
-	fi
+	@$(PLATFORM_ENV) test -n "$$ZENBU_LUA_LIBRARY" && test -f "$$ZENBU_LUA_LIBRARY" \
+		|| { echo "Lua 5.4 shared library is required; Fedora: sudo dnf install lua-libs; macOS: brew install lua@5.4" >&2; exit 2; }
 
 bootstrap:
 	@command -v opam >/dev/null 2>&1 || { echo "opam is required; install it before bootstrapping" >&2; exit 2; }

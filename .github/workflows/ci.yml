@@ -10,6 +10,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+      - name: install Lua 5.4 runtime
+        run: sudo apt-get update && sudo apt-get install -y liblua5.4-0
       - uses: ocaml/setup-ocaml@v3
         with:
           ocaml-compiler: ocaml-base-compiler.5.3.0

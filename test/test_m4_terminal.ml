@@ -640,6 +640,9 @@ let test_session_file_dirty_and_models () =
   Fun.protect
     ~finally:(fun () -> remove path)
     (fun () ->
+      (match App.File_io.save_atomic ~path ~contents:"abc" with
+      | Ok () -> ()
+      | Error error -> failf "%s" (App.File_io.to_string error));
       let dimensions = { Renderer.columns = 20; rows = 4 } in
       let session =
         App.Session.create ~model:App.Session.Vim ~file_path:path

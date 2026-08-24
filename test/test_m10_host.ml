@@ -495,6 +495,17 @@ let write path contents =
     ~finally:(fun () -> close_out_noerr channel)
     (fun () -> output_string channel contents)
 
+let vim_insert session text =
+  let session = App.Session.handle_input session (key "i") in
+  let session = App.Session.handle_input session (text_input text) in
+  App.Session.handle_input session (named Input_event.Escape)
+
+let session_for_file path contents =
+  write path contents;
+  App.Session.create ~model:App.Session.Vim ~file_path:path ~contents
+    ~dimensions ()
+  |> must
+
 let test_explicit_startup_failures_remain_inspectable () =
   let missing_config = Filename.temp_file "zenbu-m10-missing-config" ".lua" in
   Sys.remove missing_config;
@@ -1824,6 +1835,93 @@ let test_save_as_overwrite_and_write_failure () =
            "cannot save")
         "save-as write failure did not retain a concise diagnostic")
 
+let test_normal_save_refuses_external_changes () =
+  let path = Filename.temp_file "zenbu-m10-save-conflict" ".txt" in
+  let save_as_path = Filename.temp_file "zenbu-m10-save-as-conflict" ".txt" in
+  Sys.remove save_as_path;
+  Fun.protect
+    ~finally:(fun () ->
+      List.iter
+        (fun candidate ->
+          if Sys.file_exists candidate then Sys.remove candidate)
+        [ path; save_as_path ])
+    (fun () ->
+      let session = vim_insert (session_for_file path "alpha") "!" in
+      write path "external";
+      let session =
+        App.Session.handle_host session App.Session.Save |> continue
+      in
+      expect (App.Session.dirty session) "a conflicted save cleared dirty state";
+      expect
+        (App.File_io.read path |> Result.get_ok = "external")
+        "a conflicted save overwrote the external contents";
+      expect
+        (lines_contain
+           (App.Session.inspect session App.Session.Scripts)
+           "target contents changed")
+        "an in-place external change did not report a save conflict";
+      let session =
+        App.Session.handle_host session App.Session.Save_as |> continue
+      in
+      let session =
+        App.Session.handle_input session (text_input save_as_path)
+      in
+      let session =
+        App.Session.handle_input session (named Input_event.Enter)
+      in
+      expect
+        (App.File_io.read save_as_path |> Result.get_ok = "!alpha")
+        "save-as did not explicitly replace the externally changed target";
+      let session = vim_insert session "?" in
+      let session =
+        App.Session.handle_host session App.Session.Save |> continue
+      in
+      expect
+        ((not (App.Session.dirty session))
+        && App.File_io.read save_as_path |> Result.get_ok = "!?alpha")
+        "save-as did not establish a new normal-save baseline")
+
+let test_normal_save_refuses_replaced_or_missing_target () =
+  let replacement_path = Filename.temp_file "zenbu-m10-save-replaced" ".txt" in
+  let missing_path = Filename.temp_file "zenbu-m10-save-missing" ".txt" in
+  Fun.protect
+    ~finally:(fun () ->
+      List.iter
+        (fun candidate ->
+          if Sys.file_exists candidate then Sys.remove candidate)
+        [ replacement_path; missing_path ])
+    (fun () ->
+      let replaced =
+        vim_insert (session_for_file replacement_path "alpha") "!"
+      in
+      (match
+         App.File_io.save_atomic ~path:replacement_path ~contents:"alpha"
+       with
+      | Ok () -> ()
+      | Error error -> failf "%s" (App.File_io.to_string error));
+      let replaced =
+        App.Session.handle_host replaced App.Session.Save |> continue
+      in
+      expect
+        (App.Session.dirty replaced)
+        "a replaced target cleared dirty state";
+      expect
+        (lines_contain
+           (App.Session.inspect replaced App.Session.Scripts)
+           "target was replaced")
+        "an atomically replaced target did not report a save conflict";
+      let missing = vim_insert (session_for_file missing_path "alpha") "!" in
+      Sys.remove missing_path;
+      let missing =
+        App.Session.handle_host missing App.Session.Save |> continue
+      in
+      expect (App.Session.dirty missing) "a missing target cleared dirty state";
+      expect
+        (lines_contain
+           (App.Session.inspect missing App.Session.Scripts)
+           "cannot verify the current target")
+        "a deleted target did not report a save conflict")
+
 let switch session key_name =
   let session =
     App.Session.handle_host session App.Session.Switch_model |> continue
@@ -1947,6 +2045,10 @@ let tests =
     ( "save-as and model switch",
       test_save_as_and_model_switch_preserve_semantics );
     ("save-as overwrite and failure", test_save_as_overwrite_and_write_failure);
+    ( "normal save refuses external changes",
+      test_normal_save_refuses_external_changes );
+    ( "normal save refuses replaced or missing targets",
+      test_normal_save_refuses_replaced_or_missing_target );
     ( "live model switching preserves shared state",
       test_model_switches_preserve_shared_state_and_reset_grammar );
     ("bracketed paste decoding", test_bracketed_paste_decodes_as_one_text_input);

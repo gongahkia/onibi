@@ -125,6 +125,7 @@ let to_string =
 
 let raw_length = bind "lua_rawlen" (ptr void @-> int @-> returning size_t)
 let next = bind "lua_next" (ptr void @-> int @-> returning int)
+let topointer = bind "lua_topointer" (ptr void @-> int @-> returning (ptr void))
 let get_i = bind "lua_geti" (ptr void @-> int @-> int64_t @-> returning int)
 
 let get_field =
@@ -269,7 +270,7 @@ let maximum_value_nodes = 4096
 
 let value_at state index =
   let nodes = ref 0 in
-  let rec decode depth index =
+  let rec decode ancestors depth index =
     if depth > maximum_value_depth then
       Error (error "conversion" "<lua>" "value exceeds maximum nesting depth")
     else if !nodes >= maximum_value_nodes then
@@ -303,9 +304,14 @@ let value_at state index =
           match string_at state index with
           | Some value -> Ok (Value.Text value)
           | None -> Error (error "conversion" "<lua>" "invalid string"))
-      | value_type when value_type = lua_table -> table_value (depth + 1) index
+      | value_type when value_type = lua_table ->
+          let identity = raw_address_of_ptr (topointer state index) in
+          if List.mem identity ancestors then
+            Error
+              (error "conversion" "<lua>" "value exceeds maximum nesting depth")
+          else table_value (identity :: ancestors) (depth + 1) index
       | _ -> Error (error "conversion" "<lua>" "unsupported Lua value"))
-  and table_value depth index =
+  and table_value ancestors depth index =
     let index = abs_index state index in
     let length = raw_length state index |> Unsigned.Size_t.to_int in
     if length > 0 && pure_list_table state index length then
@@ -313,7 +319,7 @@ let value_at state index =
         if position > length then Ok (Value.List (List.rev values))
         else (
           ignore (get_i state index (Int64.of_int position));
-          match decode depth (-1) with
+          match decode ancestors depth (-1) with
           | Error _ as error ->
               pop state 1;
               error
@@ -328,7 +334,7 @@ let value_at state index =
         let rec loop values =
           if next state index = 0 then Value.record (List.rev values)
           else
-            match (string_at state (-2), decode depth (-1)) with
+            match (string_at state (-2), decode ancestors depth (-1)) with
             | Some key, Ok value ->
                 pop state 1;
                 loop ((key, value) :: values)
@@ -343,7 +349,7 @@ let value_at state index =
       in
       fields []
   in
-  decode 0 index
+  decode [] 0 index
 
 let rec push_value state = function
   | Value.Nil -> push_nil state

@@ -30,8 +30,8 @@ was not implemented.
 
 Undo or redo to saved source contents is clean, including through selection-only
 history changes. A dirty `Ctrl-Q` needs a second `Ctrl-Q`; clean quit exits
-immediately. The current save implementation does not fsync the containing
-directory, watch files, or resolve external modifications.
+immediately. At the time of this decision, the save implementation did not
+fsync the containing directory, watch files, or resolve external modifications.
 
 ## M10 update
 
@@ -39,3 +39,12 @@ M10 supersedes only the save-as deferral: the host prompts for a destination
 path and uses the same adjacent-temp-file atomic writer, then records the
 active path and saved contents/version. Parent-directory fsync and external
 modification detection remain deferred.
+
+## Current update
+
+Normal save now records an on-disk baseline containing the target identity and
+contents when a file is opened or successfully saved. Before replacement, it
+refuses a target whose identity or contents changed, or whose identity cannot
+be read because it was removed. Save-as remains the explicit overwrite path and
+records its destination as the new baseline. File watching and parent-directory
+fsync remain deferred.

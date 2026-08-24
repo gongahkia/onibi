@@ -1112,6 +1112,7 @@ let benchmark_component_callback () =
   let package = Filename.concat root "component" in
   Unix.mkdir package 0o700;
   let source = source_path "examples/wasm-component-conformance" in
+  let fixture = source_path "test/fixtures/m9_conformance_component.wasm.b64" in
   Fun.protect
     ~finally:(fun () ->
       List.iter
@@ -1126,9 +1127,9 @@ let benchmark_component_callback () =
       copy_file
         (Filename.concat source "zenbu-plugin.toml")
         (Filename.concat package "zenbu-plugin.toml");
-      copy_file
-        (Filename.concat source "plugin.wasm")
-        (Filename.concat package "plugin.wasm");
+      write_file
+        (Filename.concat package "plugin.wasm")
+        (read_file fixture |> decode_base64);
       let session =
         benchmark_session ~plugins:(Plugins.Directories [ root ]) "alpha"
       in

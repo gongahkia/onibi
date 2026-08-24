@@ -27,6 +27,7 @@ bundle_name="zenbu-${version}-${archive_platform}"
 archive_path="$output_dir/${bundle_name}.tar.gz"
 runtime_dir=$($platform selected-dir)
 runtime_library=$($platform library)
+eval "$("$script_dir/zenbu-env.sh")"
 
 for executable in zenbu.exe zenbu_headless.exe; do
   test -x "$release_build_dir/default/bin/$executable" || {
@@ -47,27 +48,38 @@ mkdir -p "$output_dir"
 temporary=$(mktemp -d "${TMPDIR:-/tmp}/zenbu-release.XXXXXX")
 trap 'rm -rf "$temporary"' EXIT HUP INT TERM
 bundle="$temporary/$bundle_name"
-mkdir -p "$bundle/bin" "$bundle/lib/zenbu"
+mkdir -p "$bundle/bin" "$bundle/lib/zenbu" "$bundle/libexec"
 install -m 755 "$runtime_dir/lib/$runtime_library" "$bundle/lib/zenbu/$runtime_library"
+
+test -n "${ZENBU_LUA_LIBRARY:-}" && test -f "$ZENBU_LUA_LIBRARY" || {
+  echo "release packaging requires a Lua 5.4 shared library" >&2
+  exit 2
+}
+lua_library_name=$(basename "$ZENBU_LUA_LIBRARY")
+cp -L "$ZENBU_LUA_LIBRARY" "$bundle/lib/zenbu/$lua_library_name"
 
 case "$archive_platform" in
   linux-x86_64)
-    install -m 755 "$release_build_dir/default/bin/zenbu.exe" "$bundle/bin/zenbu"
-    install -m 755 "$release_build_dir/default/bin/zenbu_headless.exe" \
-      "$bundle/bin/zenbu-headless"
-    ;;
-  darwin-arm64)
-    mkdir -p "$bundle/libexec"
     install -m 755 "$release_build_dir/default/bin/zenbu.exe" "$bundle/libexec/zenbu"
     install -m 755 "$release_build_dir/default/bin/zenbu_headless.exe" \
       "$bundle/libexec/zenbu-headless"
-    eval "$("$script_dir/zenbu-env.sh")"
-    test -n "${ZENBU_LUA_LIBRARY:-}" && test -f "$ZENBU_LUA_LIBRARY" || {
-      echo "macOS release packaging requires Homebrew Lua 5.4; run: brew install lua@5.4" >&2
-      exit 2
-    }
-    lua_library="$bundle/lib/zenbu/liblua.5.4.dylib"
-    cp -L "$ZENBU_LUA_LIBRARY" "$lua_library"
+
+    for executable in "$bundle/libexec/zenbu" "$bundle/libexec/zenbu-headless"; do
+      ffi_library=$(ldd "$executable" | awk '/libffi\.so\./ {print $3; exit}')
+      test -n "$ffi_library" && test -f "$ffi_library" || {
+        echo "could not resolve the libffi dependency for $executable" >&2
+        exit 2
+      }
+      ffi_name=$(basename "$ffi_library")
+      if test ! -f "$bundle/lib/zenbu/$ffi_name"; then
+        cp -L "$ffi_library" "$bundle/lib/zenbu/$ffi_name"
+      fi
+    done
+    ;;
+  darwin-arm64)
+    install -m 755 "$release_build_dir/default/bin/zenbu.exe" "$bundle/libexec/zenbu"
+    install -m 755 "$release_build_dir/default/bin/zenbu_headless.exe" \
+      "$bundle/libexec/zenbu-headless"
 
     for executable in "$bundle/libexec/zenbu" "$bundle/libexec/zenbu-headless"; do
       ffi_library=$(otool -L "$executable" | awk '/\/libffi\.[0-9][0-9.]*\.dylib/{print $1; exit}')
@@ -81,20 +93,19 @@ case "$archive_platform" in
       fi
       install_name_tool -change "$ffi_library" "@rpath/$ffi_name" "$executable"
     done
-
-    for launcher in zenbu zenbu-headless; do
-      cat > "$bundle/bin/$launcher" <<'EOF'
-#!/bin/sh
-set -eu
-bundle_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-export ZENBU_LUA_LIBRARY="$bundle_dir/lib/zenbu/liblua.5.4.dylib"
-exec "$bundle_dir/libexec/LAUNCH_TARGET" "$@"
-EOF
-      sed -i '' "s/LAUNCH_TARGET/$launcher/" "$bundle/bin/$launcher"
-      chmod 755 "$bundle/bin/$launcher"
-    done
     ;;
 esac
+
+for launcher in zenbu zenbu-headless; do
+  cat > "$bundle/bin/$launcher" <<EOF
+#!/bin/sh
+set -eu
+bundle_dir=\$(CDPATH= cd -- "\$(dirname -- "\$0")/.." && pwd)
+export ZENBU_LUA_LIBRARY="\$bundle_dir/lib/zenbu/$lua_library_name"
+exec "\$bundle_dir/libexec/$launcher" "\$@"
+EOF
+  chmod 755 "$bundle/bin/$launcher"
+done
 
 tar -C "$temporary" -czf "$archive_path" "$bundle_name"
 echo "packaged $archive_path"

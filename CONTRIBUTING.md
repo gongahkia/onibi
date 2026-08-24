@@ -9,17 +9,16 @@ boundaries.
 ## Local setup
 
 On Linux x86_64, install `opam`, an OCaml-capable C toolchain, `curl`, `tar`,
-and `sha256sum`, then run:
+`sha256sum`, and a Lua 5.4 shared library (`lua-libs` on Fedora), then run:
 
 ```sh
 make bootstrap
 ```
 
 The command owns an ignored `_opam` switch (using the system OCaml, which must
-be 5.3.0 or newer) and `.zenbu/` runtime cache. Do not
-commit either. The pinned Component runtime is currently Linux x86_64 only;
-macOS development can cover kernel/model/syntax code only after explicitly
-disabling or replacing that native runtime boundary.
+be 5.3.0 or newer) and `.zenbu/` runtime cache. Do not commit either. The
+pinned Component runtime supports Linux x86_64 and Apple Silicon macOS; macOS
+also requires Homebrew Lua 5.4.
 
 ## Before sending a change
 
@@ -68,4 +67,5 @@ Run `make benchmark` after a rendering, syntax, search, Lua, or Component
 change and compare it with [the recorded baseline](docs/PERFORMANCE.md). For a
 release-candidate build use `make release`; it produces dynamic Linux x86_64
 artifacts, while `make install` places the matching Wasmtime library in the
-active Opam prefix.
+active Opam prefix. Release archives on both supported platforms bundle
+Wasmtime, Lua 5.4, and libffi.

@@ -1,12 +1,17 @@
 type error =
   | Read_error of { path : string; message : string }
   | Write_error of { path : string; message : string }
+  | Save_conflict of { path : string; message : string }
+
+type snapshot = { contents : string; device : int; inode : int }
 
 let to_string = function
   | Read_error { path; message } ->
       Printf.sprintf "cannot read %s: %s" path message
   | Write_error { path; message } ->
       Printf.sprintf "cannot save %s: %s" path message
+  | Save_conflict { path; message } ->
+      Printf.sprintf "save conflict for %s: %s" path message
 
 let read path =
   try
@@ -20,6 +25,37 @@ let read path =
       Error (Read_error { path; message = Unix.error_message error })
   | exception_ ->
       Error (Read_error { path; message = Printexc.to_string exception_ })
+
+let snapshot ~path ~contents =
+  try
+    let stats = Unix.stat path in
+    Ok { contents; device = stats.Unix.st_dev; inode = stats.Unix.st_ino }
+  with
+  | Unix.Unix_error (error, _, _) ->
+      Error (Read_error { path; message = Unix.error_message error })
+  | Sys_error message -> Error (Read_error { path; message })
+  | exception_ ->
+      Error (Read_error { path; message = Printexc.to_string exception_ })
+
+let read_snapshot path =
+  Result.bind (read path) (fun contents ->
+      Result.map
+        (fun snapshot -> (contents, snapshot))
+        (snapshot ~path ~contents))
+
+let check_snapshot expected ~path =
+  match read_snapshot path with
+  | Error (Read_error { message; _ }) ->
+      Error
+        (Save_conflict
+           { path; message = "cannot verify the current target: " ^ message })
+  | Error ((Write_error _ | Save_conflict _) as error) -> Error error
+  | Ok (contents, actual) ->
+      if expected.device <> actual.device || expected.inode <> actual.inode then
+        Error (Save_conflict { path; message = "the target was replaced" })
+      else if not (String.equal expected.contents contents) then
+        Error (Save_conflict { path; message = "the target contents changed" })
+      else Ok ()
 
 let open_temporary path =
   let directory = Filename.dirname path in
@@ -89,3 +125,6 @@ let save_atomic ~path ~contents =
       | exception_ ->
           cleanup ();
           Error (Write_error { path; message = Printexc.to_string exception_ }))
+
+let save_atomic_snapshot ~path ~contents =
+  Result.bind (save_atomic ~path ~contents) (fun () -> snapshot ~path ~contents)

@@ -115,11 +115,13 @@ runtime. Zenbu's existing internal clipboard slots remain available to models.
 ## Persistence and extensions
 
 Save/save-as write and fsync an exclusive adjacent temporary file, preserve an
-existing target mode, close it, then rename it over the target. Save-as
-intentionally replaces an existing destination after the same atomic write;
-there is no interactive overwrite confirmation in M11. Success updates active
-path and saved version/contents. Zenbu does not fsync the parent directory or
-detect external modifications.
+existing target mode, close it, then rename it over the target. A normal save
+compares the current target's file identity and contents with the baseline
+captured when it was opened or last saved; it refuses a changed, replaced, or
+missing target. Save-as intentionally replaces its destination after the same
+atomic write and establishes a new baseline; there is no interactive overwrite
+confirmation in M11. Success updates active path and saved version/contents.
+Zenbu does not fsync the parent directory or watch files.
 
 M11 starts an optional language service for a saved path selected by the
 language registry (the default is `ocamllsp` for OCaml). The backend waits on
