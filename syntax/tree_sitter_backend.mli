@@ -13,6 +13,7 @@ type edit = {
 }
 
 val create_parser : grammar -> parser
+val language : grammar -> Tree_sitter.Language.t
 val reset : parser -> unit
 val parse : parser -> string -> tree
 val parse_incremental : parser -> old:tree -> edits:edit list -> string -> tree

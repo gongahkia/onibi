@@ -24,19 +24,51 @@ rewriting a syntax-aware model.
 
 ## Languages and activation
 
-`Syntax.Language` has a stable textual id, display name, and extensions. M5
-registers:
+`Syntax.Language` has a stable textual id, display name, and extensions. The
+default host registry activates these statically linked bundles:
 
-| id | extensions | grammar |
-| --- | --- | --- |
-| `ocaml` | `.ml`, `.mli` | OCaml implementation/interface grammar |
-| `json` | `.json` | JSON grammar |
+| id | extensions | source | Tree-sitter ABI |
+| --- | --- | --- | --- |
+| `ocaml` | `.ml`, `.mli` | `tree-sitter.ocaml@0.1.0` | 15 |
+| `json` | `.json` | `tree-sitter.json@0.1.0` | 15 |
 
 The session detects from a path extension, unless `zenbu --language ID` supplies
 an explicit registered id. An unknown extension creates no service; Zenbu stays
 an ordinary text editor. Parser initialization or parsing failure is also
 represented as absent syntax in model context rather than stale or invented
 structural ranges.
+
+### Host-owned runtime registry
+
+`Syntax.Grammar.Registry` is the only runtime registration surface. A host
+stages a *complete* candidate registry, then calls `reload`; validation and a
+parser-creation probe finish before the active registry pointer changes. A
+failed stage/reload therefore leaves the existing registry and every existing
+`Syntax.Service` parser untouched. Existing services intentionally retain their
+language snapshot; a host that wants an already-open buffer to use a newly
+activated grammar creates a new service at its normal host boundary.
+
+Every candidate declares a stable id, display name, extension map, source
+package/revision, artifact version, Tree-sitter ABI, and `sha256:` integrity
+attestation. Zenbu validates bounded counts, ids/extensions, duplicate ids,
+duplicate extensions, source/version/attestation agreement with the selected
+bundle, ABI range 13–15, and the linked grammar's name/symbol/field metadata.
+The latter catches accidental bundle/build mismatches before activation. The
+integrity token identifies the reviewed, statically linked bundle manifest; it
+is not a claim that Zenbu hashes a dynamically loaded native library.
+
+The selectable bundle catalog is closed to the compiled OCaml and JSON
+grammars. There is no path, URL, `dlopen`, plugin, Lua, Component, or parser
+pointer input. This is intentional: a Tree-sitter grammar is native code, so a
+future distribution mechanism must add a separately reviewed package and
+build-time link rather than turn a configuration file into code-loading
+authority. Grammar downloads, a marketplace, and a general native grammar
+loader remain out of scope.
+
+The registry sorts languages by id and rejects ambiguous extension ownership.
+Unknown files deterministically have no syntax language and receive plain-text
+rendering. `zenbu-headless syntax FILE` reports the selected source, version,
+ABI, and integrity attestation alongside the document tree.
 
 ## Snapshot and node contract
 
@@ -91,8 +123,9 @@ making a Tree-sitter node/query public.
 ## Parsing lifecycle, incrementality, and cache
 
 Each `Syntax.Service` owns one backend parser and at most one cached current
-syntax snapshot. There is no global parser registry or global mutable syntax
-state. The public operation is still snapshot oriented:
+syntax snapshot. The host-owned grammar registry is global only for *future*
+language selection; services do not share parsers or mutable trees. The public
+operation is still snapshot oriented:
 
 ```text
 old snapshot + committed transaction + resulting document snapshot
@@ -125,13 +158,17 @@ M10 adds bounded synchronous presentation spans. M11 adds a separate optional
 language-service layer; diagnostics and LSP edits are Zenbu-owned host data and
 never Tree-sitter values. Syntax still omits query strings as public semantics,
 async workers, embedded languages, arbitrary grammar downloads, and
-language-specific refactoring. Parsing is
-synchronous and adequate only for the tested small/moderate fixtures; profile
-real editor latency before introducing a background worker.
+language-specific refactoring. A single source snapshot is capped at 8 MiB
+before parser invocation, and a registry has at most 32 grammars with at most
+16 extensions each. The current binding does not expose Tree-sitter's
+progress-callback cancellation API, so Zenbu does not claim a CPU-time or hard
+memory sandbox; the source cap is the explicit deterministic parser resource
+limit. Parsing is synchronous and adequate only for the tested small/moderate
+fixtures; profile real editor latency before introducing a background worker.
 
 `zenbu-headless syntax FILE` is the supported inspection surface. It prints
-language/document identity, root error state, and stable named-node metadata,
-not backend handles.
+language provenance/version/ABI/integrity, document identity, root error state,
+and stable named-node metadata, not backend handles.
 
 ## M6 observability
 

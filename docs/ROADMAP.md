@@ -60,10 +60,9 @@ The following remain deliberately out of scope:
   emulation; the explicit-root picker, bounded literal project search, and
   report-only local watcher are host-owned surfaces, not a general project
   workspace;
-- LSP semantic tokens, user-authored server configuration, workspace folders,
-  code-action command execution, and a language-server trust/sandbox model;
-- public Tree-sitter query APIs, grammar downloads, embedded-language parsing,
-  refactoring, or asynchronous syntax workers;
+- LSP code-action command execution and a language-server sandbox model;
+- public Tree-sitter query APIs, grammar downloads/native grammar loading,
+  embedded-language parsing, refactoring, or asynchronous syntax workers;
 - parent-directory fsync after save (normal save detects externally changed,
   replaced, and missing targets; save-as intentionally replaces its target).
 

@@ -27,6 +27,71 @@ module Language : sig
   val detect_path : string -> t option
 end
 
+(** Host-owned grammar registration. Candidate manifests can select only the
+    statically linked bundles enumerated by [Bundle]; there is no native-path,
+    dynamic-library, or network loading entry point. *)
+module Grammar : sig
+  module Source : sig
+    type t = Built_in of { package : string; revision : string }
+
+    val package : t -> string
+    val revision : t -> string
+  end
+
+  module Bundle : sig
+    type t = Ocaml | Json
+
+    val id : t -> string
+    val source : t -> Source.t
+    val version : t -> string
+    val abi : t -> int
+    val integrity : t -> string
+  end
+
+  module Candidate : sig
+    type t
+
+    val create :
+      id:string ->
+      display_name:string ->
+      extensions:string list ->
+      source:Source.t ->
+      version:string ->
+      abi:int ->
+      integrity:string ->
+      bundle:Bundle.t ->
+      t
+  end
+
+  module Registry : sig
+    type t
+    type error
+
+    val builtins : unit -> t
+    val stage : Candidate.t list -> (t, error) result
+    val current : unit -> t
+
+    val reload : Candidate.t list -> (t, error) result
+    (** Validates and activates the complete replacement registry atomically. On
+        [Error], the current registry is retained. Existing services retain
+        their own parser and language snapshot. *)
+
+    val languages : t -> Language.t list
+    val find : t -> string -> Language.t option
+    val detect_path : t -> string -> Language.t option
+    val error_to_string : error -> string
+  end
+
+  val maximum_registered_grammars : int
+  val maximum_extensions_per_grammar : int
+  val minimum_tree_sitter_abi : int
+  val maximum_tree_sitter_abi : int
+  val source : Language.t -> Source.t
+  val version : Language.t -> string
+  val abi : Language.t -> int
+  val integrity : Language.t -> string
+end
+
 module Kind : sig
   type t
 
@@ -111,6 +176,7 @@ module Service : sig
   type strategy = Cached | Full_parse | Incremental_parse | Tree_copy
   type status
 
+  val maximum_source_bytes : int
   val create : Language.t -> t
   val language : t -> Language.t
 

@@ -51,8 +51,11 @@ and plugin examples live in [Getting Started](docs/GETTING_STARTED.md).
   Vim-style, selection-first, direct, structural, and a checked script-owned
   model all use it.
 - `zenbu.syntax` provides version-bound OCaml and JSON snapshots through a
-  private Tree-sitter backend. Its public `Syntax.Highlight` projection feeds
-  terminal presentation without exposing parser pointers or queries.
+  private Tree-sitter backend. Its host-owned runtime registry validates
+  statically linked bundle source, version, ABI, integrity attestation, and
+  activation before changing language mappings; it never loads native grammar
+  paths. Its public `Syntax.Highlight` projection feeds terminal presentation
+  without exposing parser pointers or queries.
 - The terminal host has literal Unicode search plus an opt-in UTF-8-safe `Str`
   regexp search and palette-only literal/regexp replace-all, a provider-neutral
   searchable command palette with typed argument prompts, a bounded declarative
@@ -384,7 +387,8 @@ LSP edits for already-open saved buffers, but no automatic external reload,
 general workspace resource operations, code-action command execution,
 command-line/Ex language, plugin
 marketplace, asynchronous extension execution, public Tree-sitter query API,
-grammar downloads, refactoring engine, or system clipboard bridge.
+grammar downloads or native grammar loading, refactoring engine, or system
+clipboard bridge.
 Component runtime support is limited to Linux x86_64 and Apple Silicon macOS
 because of the pinned native C API.
 See the deferred work in

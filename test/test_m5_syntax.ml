@@ -216,6 +216,180 @@ let test_json_syntax () =
     "registered JSON grammar did not parse a valid JSON fixture";
   assert_ranges snapshot (Syntax.Snapshot.root syntax)
 
+module Grammar = Syntax.Grammar
+
+let grammar_candidate ?source ?version ?abi ?integrity ~id ~display_name
+    ~extensions ~bundle () =
+  let source = Option.value source ~default:(Grammar.Bundle.source bundle) in
+  let version = Option.value version ~default:(Grammar.Bundle.version bundle) in
+  let abi = Option.value abi ~default:(Grammar.Bundle.abi bundle) in
+  let integrity =
+    Option.value integrity ~default:(Grammar.Bundle.integrity bundle)
+  in
+  Grammar.Candidate.create ~id ~display_name ~extensions ~source ~version ~abi
+    ~integrity ~bundle
+
+let builtin_grammar_candidates () =
+  [
+    grammar_candidate ~id:"ocaml" ~display_name:"OCaml"
+      ~extensions:[ ".ml"; ".mli" ] ~bundle:Grammar.Bundle.Ocaml ();
+    grammar_candidate ~id:"json" ~display_name:"JSON" ~extensions:[ ".json" ]
+      ~bundle:Grammar.Bundle.Json ();
+  ]
+
+let registry_error result fragment =
+  match result with
+  | Ok _ -> failf "grammar registry accepted an invalid candidate"
+  | Error error ->
+      let message = Grammar.Registry.error_to_string error in
+      expect
+        (String.contains message fragment.[0]
+        &&
+        let rec contains offset =
+          offset + String.length fragment <= String.length message
+          && (String.sub message offset (String.length fragment) = fragment
+             || contains (offset + 1))
+        in
+        contains 0)
+        "grammar registry error %S did not contain %S" message fragment
+
+let test_runtime_grammar_registry () =
+  let original = builtin_grammar_candidates () in
+  Fun.protect
+    ~finally:(fun () -> ignore (Grammar.Registry.reload original))
+    (fun () ->
+      expect
+        (String.equal
+           (Grammar.Bundle.integrity Grammar.Bundle.Ocaml)
+           "sha256:bb0e6d149a96a3815bf6e6a9b6e54e032cadd5575bc040efc48d741098024805"
+        && String.equal
+             (Grammar.Bundle.integrity Grammar.Bundle.Json)
+             "sha256:412cb7f25022ca6e0db57bbbe56754f6aa7e1d5dd0dab173b5bd38b17ff2180c"
+        )
+        "grammar manifest integrity attestations changed unexpectedly";
+      let registry =
+        Grammar.Registry.stage original |> function
+        | Ok registry -> registry
+        | Error error -> failf "%s" (Grammar.Registry.error_to_string error)
+      in
+      let languages =
+        Grammar.Registry.languages registry |> List.map Syntax.Language.id
+      in
+      expect
+        (languages = [ "json"; "ocaml" ])
+        "staged grammar registry did not sort language mappings \
+         deterministically";
+      expect
+        (Option.is_none (Grammar.Registry.detect_path registry "notes.unknown"))
+        "unknown extension did not retain plain-text fallback";
+      let ocaml =
+        match Grammar.Registry.find registry "ocaml" with
+        | Some language -> language
+        | None -> failf "staged OCaml grammar is missing"
+      in
+      (match Grammar.source ocaml with
+      | Grammar.Source.Built_in { package; revision } ->
+          expect
+            (String.equal package "tree-sitter.ocaml"
+            && String.equal revision "0.1.0"
+            && String.equal (Grammar.version ocaml) "0.1.0"
+            && Grammar.abi ocaml = 15
+            && String.starts_with ~prefix:"sha256:" (Grammar.integrity ocaml))
+            "grammar provenance, version, ABI, or integrity is not explicit");
+      let incompatible =
+        grammar_candidate ~id:"bad-abi" ~display_name:"Bad ABI"
+          ~extensions:[ ".badabi" ] ~abi:16 ~bundle:Grammar.Bundle.Json ()
+      in
+      registry_error (Grammar.Registry.stage [ incompatible ]) "incompatible";
+      let untrusted_source =
+        grammar_candidate ~id:"untrusted" ~display_name:"Untrusted"
+          ~extensions:[ ".untrusted" ]
+          ~source:
+            (Grammar.Source.Built_in
+               { package = "native-path:/tmp/grammar.so"; revision = "0" })
+          ~bundle:Grammar.Bundle.Json ()
+      in
+      registry_error (Grammar.Registry.stage [ untrusted_source ]) "source";
+      let malformed_integrity =
+        grammar_candidate ~id:"bad-integrity" ~display_name:"Bad integrity"
+          ~extensions:[ ".badintegrity" ]
+          ~integrity:("sha256:" ^ String.make 64 '0')
+          ~bundle:Grammar.Bundle.Json ()
+      in
+      registry_error
+        (Grammar.Registry.stage [ malformed_integrity ])
+        "integrity";
+      let duplicate_extensions =
+        [
+          grammar_candidate ~id:"json-one" ~display_name:"JSON one"
+            ~extensions:[ ".fixture" ] ~bundle:Grammar.Bundle.Json ();
+          grammar_candidate ~id:"json-two" ~display_name:"JSON two"
+            ~extensions:[ ".fixture" ] ~bundle:Grammar.Bundle.Json ();
+        ]
+      in
+      registry_error (Grammar.Registry.stage duplicate_extensions) "duplicate";
+      let too_many =
+        List.init (Grammar.maximum_registered_grammars + 1) (fun index ->
+            grammar_candidate
+              ~id:("json-" ^ string_of_int index)
+              ~display_name:("JSON " ^ string_of_int index)
+              ~extensions:[ ".unused" ^ string_of_int index ]
+              ~bundle:Grammar.Bundle.Json ())
+      in
+      registry_error (Grammar.Registry.stage too_many) "limit";
+      let old_service = Syntax.Service.create ocaml in
+      let old_document = document "registry-retention" "let old = true\n" in
+      ignore
+        (Syntax.Service.refresh old_service (Document.snapshot old_document)
+        |> must_syntax);
+      let replacement =
+        [
+          grammar_candidate ~id:"fixture-json" ~display_name:"Fixture JSON"
+            ~extensions:[ ".fixture" ] ~bundle:Grammar.Bundle.Json ();
+        ]
+      in
+      ignore
+        ( Grammar.Registry.reload replacement |> function
+          | Ok registry -> registry
+          | Error error -> failf "%s" (Grammar.Registry.error_to_string error)
+        );
+      expect
+        (Option.is_none (Syntax.Language.find "ocaml")
+        && Option.is_some (Syntax.Language.detect_path "sample.fixture"))
+        "accepted registry reload did not replace future language mapping";
+      ignore
+        (Syntax.Service.refresh old_service (Document.snapshot old_document)
+        |> must_syntax);
+      ignore
+        ( Grammar.Registry.reload original |> function
+          | Ok registry -> registry
+          | Error error -> failf "%s" (Grammar.Registry.error_to_string error)
+        );
+      registry_error
+        (Grammar.Registry.reload [ malformed_integrity ])
+        "integrity";
+      expect
+        (Option.is_some (Syntax.Language.find "ocaml")
+        && Option.is_none (Syntax.Language.detect_path "notes.unknown"))
+        "rejected registry reload replaced active language mappings";
+      ignore
+        (Syntax.Service.refresh old_service (Document.snapshot old_document)
+        |> must_syntax))
+
+let test_syntax_source_limit () =
+  let oversized = String.make (Syntax.Service.maximum_source_bytes + 1) 'x' in
+  let document = document "syntax-source-limit" oversized in
+  let service = Syntax.Service.create (language ()) in
+  match Syntax.Service.refresh service (Document.snapshot document) with
+  | Error (Syntax.Error.Backend_failure message) ->
+      expect
+        (String.starts_with ~prefix:"syntax source exceeds" message)
+        "source-size rejection did not preserve its resource-limit reason"
+  | Error error ->
+      failf "unexpected syntax source-limit error: %s"
+        (Syntax.Error.to_string error)
+  | Ok _ -> failf "syntax parser accepted an oversized source"
+
 let structural_runtime contents =
   let service = Syntax.Service.create (language ()) in
   let module Runtime = Model_runtime.Make (Structural_model) in
@@ -365,6 +539,8 @@ let () =
       test_repeated_incremental_edits_performance );
     ("invalid syntax and version safety", test_invalid_syntax_and_registry);
     ("registered JSON syntax", test_json_syntax);
+    ("runtime grammar registry", test_runtime_grammar_registry);
+    ("syntax source resource limit", test_syntax_source_limit);
     ("structural model shared effects", test_structural_model_and_shared_effects);
     ("structural model without syntax", test_structural_model_without_syntax);
     ("syntax command descriptors", test_syntax_commands_are_described);

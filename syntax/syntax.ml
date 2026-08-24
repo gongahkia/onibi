@@ -22,47 +22,649 @@ module Error = struct
     | Backend_failure message -> "syntax backend failure: " ^ message
 end
 
+type grammar_source = Built_in of { package : string; revision : string }
+type grammar_bundle = Ocaml_bundle | Json_bundle
+
+type grammar_candidate = {
+  candidate_id : string;
+  candidate_display_name : string;
+  candidate_extensions : string list;
+  candidate_source : grammar_source;
+  candidate_version : string;
+  candidate_abi : int;
+  candidate_integrity : string;
+  candidate_bundle : grammar_bundle;
+}
+
+type grammar_entry = {
+  entry_id : string;
+  entry_display_name : string;
+  entry_extensions : string list;
+  entry_source : grammar_source;
+  entry_version : string;
+  entry_abi : int;
+  entry_integrity : string;
+  entry_bundle : grammar_bundle;
+}
+
+type grammar_registry = { entries : grammar_entry list }
+
+type grammar_error =
+  | Empty_registry
+  | Too_many_grammars of int
+  | Invalid_identifier of string
+  | Invalid_display_name of string
+  | Invalid_extension of string
+  | Duplicate_language of string
+  | Duplicate_extension of string
+  | Manifest_mismatch of string
+  | Incompatible_abi of { grammar : string; actual : int }
+  | Integrity_mismatch of string
+  | Activation_failed of string
+
+module Sha256 = struct
+  let initial =
+    [|
+      0x6a09e667l;
+      0xbb67ae85l;
+      0x3c6ef372l;
+      0xa54ff53al;
+      0x510e527fl;
+      0x9b05688cl;
+      0x1f83d9abl;
+      0x5be0cd19l;
+    |]
+
+  let constants =
+    [|
+      0x428a2f98l;
+      0x71374491l;
+      0xb5c0fbcfl;
+      0xe9b5dba5l;
+      0x3956c25bl;
+      0x59f111f1l;
+      0x923f82a4l;
+      0xab1c5ed5l;
+      0xd807aa98l;
+      0x12835b01l;
+      0x243185bel;
+      0x550c7dc3l;
+      0x72be5d74l;
+      0x80deb1fel;
+      0x9bdc06a7l;
+      0xc19bf174l;
+      0xe49b69c1l;
+      0xefbe4786l;
+      0x0fc19dc6l;
+      0x240ca1ccl;
+      0x2de92c6fl;
+      0x4a7484aal;
+      0x5cb0a9dcl;
+      0x76f988dal;
+      0x983e5152l;
+      0xa831c66dl;
+      0xb00327c8l;
+      0xbf597fc7l;
+      0xc6e00bf3l;
+      0xd5a79147l;
+      0x06ca6351l;
+      0x14292967l;
+      0x27b70a85l;
+      0x2e1b2138l;
+      0x4d2c6dfcl;
+      0x53380d13l;
+      0x650a7354l;
+      0x766a0abbl;
+      0x81c2c92el;
+      0x92722c85l;
+      0xa2bfe8a1l;
+      0xa81a664bl;
+      0xc24b8b70l;
+      0xc76c51a3l;
+      0xd192e819l;
+      0xd6990624l;
+      0xf40e3585l;
+      0x106aa070l;
+      0x19a4c116l;
+      0x1e376c08l;
+      0x2748774cl;
+      0x34b0bcb5l;
+      0x391c0cb3l;
+      0x4ed8aa4al;
+      0x5b9cca4fl;
+      0x682e6ff3l;
+      0x748f82eel;
+      0x78a5636fl;
+      0x84c87814l;
+      0x8cc70208l;
+      0x90befffal;
+      0xa4506cebl;
+      0xbef9a3f7l;
+      0xc67178f2l;
+    |]
+
+  let rotate_right value amount =
+    Int32.logor
+      (Int32.shift_right_logical value amount)
+      (Int32.shift_left value (32 - amount))
+
+  let choice x y z =
+    Int32.logxor (Int32.logand x y) (Int32.logand (Int32.lognot x) z)
+
+  let majority x y z =
+    Int32.logxor
+      (Int32.logxor (Int32.logand x y) (Int32.logand x z))
+      (Int32.logand y z)
+
+  let big_sigma0 value =
+    Int32.logxor
+      (Int32.logxor (rotate_right value 2) (rotate_right value 13))
+      (rotate_right value 22)
+
+  let big_sigma1 value =
+    Int32.logxor
+      (Int32.logxor (rotate_right value 6) (rotate_right value 11))
+      (rotate_right value 25)
+
+  let small_sigma0 value =
+    Int32.logxor
+      (Int32.logxor (rotate_right value 7) (rotate_right value 18))
+      (Int32.shift_right_logical value 3)
+
+  let small_sigma1 value =
+    Int32.logxor
+      (Int32.logxor (rotate_right value 17) (rotate_right value 19))
+      (Int32.shift_right_logical value 10)
+
+  let word bytes offset =
+    let byte index = Int32.of_int (Char.code (Bytes.get bytes index)) in
+    Int32.logor
+      (Int32.shift_left (byte offset) 24)
+      (Int32.logor
+         (Int32.shift_left (byte (offset + 1)) 16)
+         (Int32.logor
+            (Int32.shift_left (byte (offset + 2)) 8)
+            (byte (offset + 3))))
+
+  let digest source =
+    let source_length = String.length source in
+    let bit_length = Int64.mul (Int64.of_int source_length) 8L in
+    let padding =
+      let remainder = (source_length + 1) mod 64 in
+      if remainder <= 56 then 56 - remainder else 120 - remainder
+    in
+    let bytes = Bytes.make (source_length + 1 + padding + 8) '\000' in
+    Bytes.blit_string source 0 bytes 0 source_length;
+    Bytes.set bytes source_length '\128';
+    for index = 0 to 7 do
+      let shift = 8 * (7 - index) in
+      let byte = Int64.shift_right_logical bit_length shift |> Int64.to_int in
+      Bytes.set bytes
+        (Bytes.length bytes - 8 + index)
+        (Char.chr (byte land 0xff))
+    done;
+    let hash = Array.copy initial in
+    for block = 0 to (Bytes.length bytes / 64) - 1 do
+      let schedule = Array.make 64 0l in
+      for index = 0 to 15 do
+        schedule.(index) <- word bytes ((block * 64) + (index * 4))
+      done;
+      for index = 16 to 63 do
+        schedule.(index) <-
+          Int32.add
+            (small_sigma1 schedule.(index - 2))
+            (Int32.add
+               schedule.(index - 7)
+               (Int32.add
+                  (small_sigma0 schedule.(index - 15))
+                  schedule.(index - 16)))
+      done;
+      let a = ref hash.(0) in
+      let b = ref hash.(1) in
+      let c = ref hash.(2) in
+      let d = ref hash.(3) in
+      let e = ref hash.(4) in
+      let f = ref hash.(5) in
+      let g = ref hash.(6) in
+      let h = ref hash.(7) in
+      for index = 0 to 63 do
+        let first =
+          Int32.add !h
+            (Int32.add (big_sigma1 !e)
+               (Int32.add (choice !e !f !g)
+                  (Int32.add constants.(index) schedule.(index))))
+        in
+        let second = Int32.add (big_sigma0 !a) (majority !a !b !c) in
+        h := !g;
+        g := !f;
+        f := !e;
+        e := Int32.add !d first;
+        d := !c;
+        c := !b;
+        b := !a;
+        a := Int32.add first second
+      done;
+      hash.(0) <- Int32.add hash.(0) !a;
+      hash.(1) <- Int32.add hash.(1) !b;
+      hash.(2) <- Int32.add hash.(2) !c;
+      hash.(3) <- Int32.add hash.(3) !d;
+      hash.(4) <- Int32.add hash.(4) !e;
+      hash.(5) <- Int32.add hash.(5) !f;
+      hash.(6) <- Int32.add hash.(6) !g;
+      hash.(7) <- Int32.add hash.(7) !h
+    done;
+    Array.to_list hash |> List.map (Printf.sprintf "%08lx") |> String.concat ""
+end
+
+type bundle_manifest = {
+  source : grammar_source;
+  version : string;
+  abi : int;
+  integrity : string;
+  probe_grammars : (Tree_sitter_backend.grammar * string * int * int) list;
+}
+
+let maximum_registered_grammars = 32
+let maximum_extensions_per_grammar = 16
+let minimum_tree_sitter_abi = 13
+let maximum_tree_sitter_abi = 15
+
+let source_equal left right =
+  match (left, right) with
+  | ( Built_in { package = left_package; revision = left_revision },
+      Built_in { package = right_package; revision = right_revision } ) ->
+      String.equal left_package right_package
+      && String.equal left_revision right_revision
+
+let integrity material = "sha256:" ^ Sha256.digest material
+
+let bundle_manifest = function
+  | Ocaml_bundle ->
+      {
+        source = Built_in { package = "tree-sitter.ocaml"; revision = "0.1.0" };
+        version = "0.1.0";
+        abi = 15;
+        integrity =
+          integrity
+            "tree-sitter.ocaml|0.1.0|ocaml|abi=15|symbols=456|fields=38|interface=ocaml_interface|interface-symbols=455|interface-fields=38";
+        probe_grammars =
+          [
+            (Tree_sitter_backend.Ocaml, "ocaml", 456, 38);
+            (Tree_sitter_backend.Ocaml_interface, "ocaml_interface", 455, 38);
+          ];
+      }
+  | Json_bundle ->
+      {
+        source = Built_in { package = "tree-sitter.json"; revision = "0.1.0" };
+        version = "0.1.0";
+        abi = 15;
+        integrity =
+          integrity "tree-sitter.json|0.1.0|json|abi=15|symbols=25|fields=2";
+        probe_grammars = [ (Tree_sitter_backend.Json, "json", 25, 2) ];
+      }
+
+let valid_identifier value =
+  let length = String.length value in
+  let valid_first = function 'a' .. 'z' | '0' .. '9' -> true | _ -> false in
+  let valid_rest = function
+    | 'a' .. 'z' | '0' .. '9' | '.' | '-' | '_' -> true
+    | _ -> false
+  in
+  length > 0 && length <= 64
+  && valid_first value.[0]
+  &&
+  let rec loop index =
+    index = length || (valid_rest value.[index] && loop (index + 1))
+  in
+  loop 1
+
+let has_control_character value =
+  String.exists
+    (fun character ->
+      let code = Char.code character in
+      code < 32 || code = 127)
+    value
+
+let valid_display_name value =
+  String.length value > 0
+  && String.length value <= 120
+  && not (has_control_character value)
+
+let valid_extension value =
+  let length = String.length value in
+  length > 1 && length <= 32
+  && value.[0] = '.'
+  && String.equal value (String.lowercase_ascii value)
+  &&
+  let rec loop index =
+    index = length
+    ||
+    match value.[index] with
+    | 'a' .. 'z' | '0' .. '9' | '_' | '-' -> loop (index + 1)
+    | _ -> false
+  in
+  loop 1
+
+let valid_integrity value =
+  let prefix = "sha256:" in
+  String.starts_with ~prefix value
+  && String.length value = String.length prefix + 64
+  &&
+  let rec loop index =
+    index = String.length value
+    ||
+    match value.[index] with
+    | '0' .. '9' | 'a' .. 'f' -> loop (index + 1)
+    | _ -> false
+  in
+  loop (String.length prefix)
+
+let extension_variant entry path =
+  match
+    (entry.entry_bundle, String.lowercase_ascii (Filename.extension path))
+  with
+  | Ocaml_bundle, ".mli" -> Tree_sitter_backend.Ocaml_interface
+  | Ocaml_bundle, _ -> Tree_sitter_backend.Ocaml
+  | Json_bundle, _ -> Tree_sitter_backend.Json
+
+let activation_error message = Error (Activation_failed message)
+
+let validate_runtime_manifest candidate manifest =
+  let rec validate = function
+    | [] -> Ok ()
+    | (grammar, expected_name, expected_symbols, expected_fields) :: rest -> (
+        try
+          let language = Tree_sitter_backend.language grammar in
+          let name = Tree_sitter.Language.name language in
+          let abi = Tree_sitter.Language.version language in
+          let symbols = Tree_sitter.Language.symbol_count language in
+          let fields = Tree_sitter.Language.field_count language in
+          if abi < minimum_tree_sitter_abi || abi > maximum_tree_sitter_abi then
+            Error
+              (Incompatible_abi
+                 { grammar = candidate.candidate_id; actual = abi })
+          else if abi <> manifest.abi then
+            Error
+              (Incompatible_abi
+                 { grammar = candidate.candidate_id; actual = abi })
+          else if
+            not
+              (String.equal name expected_name
+              && symbols = expected_symbols && fields = expected_fields)
+          then
+            Error
+              (Manifest_mismatch
+                 (Printf.sprintf
+                    "%s runtime metadata does not match its bundled manifest"
+                    candidate.candidate_id))
+          else
+            let parser = Tree_sitter_backend.create_parser grammar in
+            ignore (Tree_sitter_backend.parse parser "");
+            validate rest
+        with exception_ ->
+          activation_error
+            (Printf.sprintf "%s activation probe failed: %s"
+               candidate.candidate_id
+               (Printexc.to_string exception_)))
+  in
+  validate manifest.probe_grammars
+
+let validate_candidate candidate =
+  let manifest = bundle_manifest candidate.candidate_bundle in
+  if not (valid_identifier candidate.candidate_id) then
+    Error (Invalid_identifier candidate.candidate_id)
+  else if not (valid_display_name candidate.candidate_display_name) then
+    Error (Invalid_display_name candidate.candidate_id)
+  else if candidate.candidate_extensions = [] then
+    Error (Invalid_extension (candidate.candidate_id ^ " has no extensions"))
+  else if
+    List.length candidate.candidate_extensions > maximum_extensions_per_grammar
+  then
+    Error
+      (Invalid_extension (candidate.candidate_id ^ " has too many extensions"))
+  else if
+    List.exists
+      (fun extension -> not (valid_extension extension))
+      candidate.candidate_extensions
+  then Error (Invalid_extension candidate.candidate_id)
+  else if
+    List.length candidate.candidate_extensions
+    <> List.length
+         (List.sort_uniq String.compare candidate.candidate_extensions)
+  then Error (Duplicate_extension candidate.candidate_id)
+  else if not (source_equal candidate.candidate_source manifest.source) then
+    Error
+      (Manifest_mismatch (candidate.candidate_id ^ " source is not approved"))
+  else if not (String.equal candidate.candidate_version manifest.version) then
+    Error
+      (Manifest_mismatch (candidate.candidate_id ^ " version is not approved"))
+  else if candidate.candidate_abi <> manifest.abi then
+    Error
+      (Incompatible_abi
+         { grammar = candidate.candidate_id; actual = candidate.candidate_abi })
+  else if not (valid_integrity candidate.candidate_integrity) then
+    Error
+      (Integrity_mismatch (candidate.candidate_id ^ " has malformed integrity"))
+  else if not (String.equal candidate.candidate_integrity manifest.integrity)
+  then
+    Error
+      (Integrity_mismatch (candidate.candidate_id ^ " integrity does not match"))
+  else
+    Result.map
+      (fun () ->
+        {
+          entry_id = candidate.candidate_id;
+          entry_display_name = candidate.candidate_display_name;
+          entry_extensions = candidate.candidate_extensions;
+          entry_source = candidate.candidate_source;
+          entry_version = candidate.candidate_version;
+          entry_abi = candidate.candidate_abi;
+          entry_integrity = candidate.candidate_integrity;
+          entry_bundle = candidate.candidate_bundle;
+        })
+      (validate_runtime_manifest candidate manifest)
+
+let stage_grammar_registry candidates =
+  if candidates = [] then Error Empty_registry
+  else if List.length candidates > maximum_registered_grammars then
+    Error (Too_many_grammars (List.length candidates))
+  else
+    let rec validate entries = function
+      | [] ->
+          Ok
+            (List.sort
+               (fun left right -> String.compare left.entry_id right.entry_id)
+               entries)
+      | candidate :: rest ->
+          Result.bind (validate_candidate candidate) (fun entry ->
+              if
+                List.exists
+                  (fun known -> String.equal known.entry_id entry.entry_id)
+                  entries
+              then Error (Duplicate_language entry.entry_id)
+              else
+                match
+                  List.find_opt
+                    (fun known ->
+                      List.exists
+                        (fun extension ->
+                          List.mem extension known.entry_extensions)
+                        entry.entry_extensions)
+                    entries
+                with
+                | Some known ->
+                    let extension =
+                      List.find
+                        (fun extension ->
+                          List.mem extension known.entry_extensions)
+                        entry.entry_extensions
+                    in
+                    Error (Duplicate_extension extension)
+                | None -> validate (entry :: entries) rest)
+    in
+    Result.map (fun entries -> { entries }) (validate [] candidates)
+
+let bundled_candidate ~id ~display_name ~extensions bundle =
+  let manifest = bundle_manifest bundle in
+  {
+    candidate_id = id;
+    candidate_display_name = display_name;
+    candidate_extensions = extensions;
+    candidate_source = manifest.source;
+    candidate_version = manifest.version;
+    candidate_abi = manifest.abi;
+    candidate_integrity = manifest.integrity;
+    candidate_bundle = bundle;
+  }
+
+let builtin_grammar_registry () =
+  stage_grammar_registry
+    [
+      bundled_candidate ~id:"ocaml" ~display_name:"OCaml"
+        ~extensions:[ ".ml"; ".mli" ] Ocaml_bundle;
+      bundled_candidate ~id:"json" ~display_name:"JSON" ~extensions:[ ".json" ]
+        Json_bundle;
+    ]
+  |> Result.get_ok
+
+let grammar_registry_lock = Mutex.create ()
+let active_grammar_registry = ref (builtin_grammar_registry ())
+
+let current_grammar_registry () =
+  Mutex.lock grammar_registry_lock;
+  let registry = !active_grammar_registry in
+  Mutex.unlock grammar_registry_lock;
+  registry
+
+let reload_grammar_registry candidates =
+  Result.bind (stage_grammar_registry candidates) (fun staged ->
+      Mutex.lock grammar_registry_lock;
+      active_grammar_registry := staged;
+      Mutex.unlock grammar_registry_lock;
+      Ok staged)
+
 module Language = struct
   type t = {
     id : string;
     display_name : string;
     extensions : string list;
     grammar : Tree_sitter_backend.grammar;
+    entry : grammar_entry;
   }
 
-  let ocaml =
+  let of_entry ?path entry =
     {
-      id = "ocaml";
-      display_name = "OCaml";
-      extensions = [ ".ml"; ".mli" ];
-      grammar = Tree_sitter_backend.Ocaml;
+      id = entry.entry_id;
+      display_name = entry.entry_display_name;
+      extensions = entry.entry_extensions;
+      grammar =
+        (match path with
+        | None -> extension_variant entry ""
+        | Some path -> extension_variant entry path);
+      entry;
     }
 
-  let json =
-    {
-      id = "json";
-      display_name = "JSON";
-      extensions = [ ".json" ];
-      grammar = Tree_sitter_backend.Json;
-    }
-
-  let supported () = [ ocaml; json ]
+  let supported () = (current_grammar_registry ()).entries |> List.map of_entry
   let id value = value.id
   let display_name value = value.display_name
   let extensions value = value.extensions
 
   let find id =
-    List.find_opt (fun language -> String.equal language.id id) (supported ())
+    (current_grammar_registry ()).entries
+    |> List.find_opt (fun entry -> String.equal entry.entry_id id)
+    |> Option.map of_entry
 
   let detect_path path =
     let extension = String.lowercase_ascii (Filename.extension path) in
-    match extension with
-    | ".mli" ->
-        Some { ocaml with grammar = Tree_sitter_backend.Ocaml_interface }
-    | _ ->
-        List.find_opt
-          (fun language -> List.mem extension language.extensions)
-          (supported ())
+    (current_grammar_registry ()).entries
+    |> List.find_opt (fun entry -> List.mem extension entry.entry_extensions)
+    |> Option.map (of_entry ~path)
+end
+
+module Grammar = struct
+  let maximum_registered_grammars = maximum_registered_grammars
+  let maximum_extensions_per_grammar = maximum_extensions_per_grammar
+  let minimum_tree_sitter_abi = minimum_tree_sitter_abi
+  let maximum_tree_sitter_abi = maximum_tree_sitter_abi
+
+  module Source = struct
+    type t = grammar_source =
+      | Built_in of { package : string; revision : string }
+
+    let package = function Built_in value -> value.package
+    let revision = function Built_in value -> value.revision
+  end
+
+  module Bundle = struct
+    type t = Ocaml | Json
+
+    let internal = function Ocaml -> Ocaml_bundle | Json -> Json_bundle
+    let source value = (bundle_manifest (internal value)).source
+    let version value = (bundle_manifest (internal value)).version
+    let abi value = (bundle_manifest (internal value)).abi
+    let integrity value = (bundle_manifest (internal value)).integrity
+    let id = function Ocaml -> "ocaml" | Json -> "json"
+  end
+
+  module Candidate = struct
+    type t = grammar_candidate
+
+    let create ~id ~display_name ~extensions ~source ~version ~abi ~integrity
+        ~bundle =
+      {
+        candidate_id = id;
+        candidate_display_name = display_name;
+        candidate_extensions = extensions;
+        candidate_source = source;
+        candidate_version = version;
+        candidate_abi = abi;
+        candidate_integrity = integrity;
+        candidate_bundle = Bundle.internal bundle;
+      }
+  end
+
+  module Registry = struct
+    type t = grammar_registry
+    type error = grammar_error
+
+    let builtins () = builtin_grammar_registry ()
+    let stage candidates = stage_grammar_registry candidates
+    let current = current_grammar_registry
+    let reload candidates = reload_grammar_registry candidates
+    let languages value = value.entries |> List.map Language.of_entry
+
+    let find value id =
+      List.find_opt (fun entry -> String.equal entry.entry_id id) value.entries
+      |> Option.map Language.of_entry
+
+    let detect_path value path =
+      let extension = String.lowercase_ascii (Filename.extension path) in
+      List.find_opt
+        (fun entry -> List.mem extension entry.entry_extensions)
+        value.entries
+      |> Option.map (Language.of_entry ~path)
+
+    let error_to_string = function
+      | Empty_registry -> "grammar registry must contain at least one grammar"
+      | Too_many_grammars count ->
+          Printf.sprintf "grammar registry exceeds the %d grammar limit" count
+      | Invalid_identifier value -> "invalid grammar id: " ^ value
+      | Invalid_display_name value -> "invalid grammar display name: " ^ value
+      | Invalid_extension value -> "invalid grammar extension: " ^ value
+      | Duplicate_language value -> "duplicate grammar id: " ^ value
+      | Duplicate_extension value -> "duplicate grammar extension: " ^ value
+      | Manifest_mismatch value -> "grammar manifest mismatch: " ^ value
+      | Incompatible_abi { grammar; actual } ->
+          Printf.sprintf "grammar %s has incompatible Tree-sitter ABI %d"
+            grammar actual
+      | Integrity_mismatch value -> "grammar integrity mismatch: " ^ value
+      | Activation_failed value -> "grammar activation failed: " ^ value
+  end
+
+  let source language = language.Language.entry.entry_source
+  let version language = language.Language.entry.entry_version
+  let abi language = language.Language.entry.entry_abi
+  let integrity language = language.Language.entry.entry_integrity
 end
 
 module Kind = struct
@@ -387,6 +989,8 @@ end
 module Service = struct
   type strategy = Cached | Full_parse | Incremental_parse | Tree_copy
 
+  let maximum_source_bytes = 8 * 1024 * 1024
+
   type status = {
     status_language : Language.t;
     status_cached_version : int option;
@@ -436,17 +1040,27 @@ module Service = struct
     with exception_ ->
       Error (Error.Backend_failure (Printexc.to_string exception_))
 
+  let validate_source_size document =
+    let bytes = String.length (Document_snapshot.contents document) in
+    if bytes > maximum_source_bytes then
+      Error
+        (Error.Backend_failure
+           (Printf.sprintf "syntax source exceeds the %d byte limit"
+              maximum_source_bytes))
+    else Ok ()
+
   let parse_full service document =
-    Tree_sitter_backend.reset service.parser;
-    protect (fun () ->
-        let tree =
-          Tree_sitter_backend.parse service.parser
-            (Document_snapshot.contents document)
-        in
-        let snapshot = make_snapshot service document tree in
-        service.cached <- Some snapshot;
-        service.last_strategy <- Some Full_parse;
-        snapshot)
+    Result.bind (validate_source_size document) (fun () ->
+        Tree_sitter_backend.reset service.parser;
+        protect (fun () ->
+            let tree =
+              Tree_sitter_backend.parse service.parser
+                (Document_snapshot.contents document)
+            in
+            let snapshot = make_snapshot service document tree in
+            service.cached <- Some snapshot;
+            service.last_strategy <- Some Full_parse;
+            snapshot))
 
   let refresh service document =
     match service.cached with
@@ -543,32 +1157,36 @@ module Service = struct
     match validate_transaction before transaction after with
     | Error _ as error -> error
     | Ok () -> (
-        match service.cached with
-        | Some previous when Snapshot.matches_document previous before ->
-            let source = Document_snapshot.contents before in
-            let edits = Transaction.edits transaction in
-            let rec convert values = function
-              | [] -> Ok (List.rev values)
-              | edit :: rest -> (
-                  match edit_of_kernel source edit with
-                  | Error _ as error -> error
-                  | Ok edit -> convert (edit :: values) rest)
-            in
-            Result.bind (convert [] edits) (fun edits ->
-                let edits = List.rev edits in
-                protect (fun () ->
-                    let tree =
-                      if edits = [] then
-                        Tree_sitter_backend.copy_tree previous.Snapshot.tree
-                      else
-                        Tree_sitter_backend.parse_incremental service.parser
-                          ~old:previous.Snapshot.tree ~edits
-                          (Document_snapshot.contents after)
-                    in
-                    let snapshot = make_snapshot service after tree in
-                    service.cached <- Some snapshot;
-                    service.last_strategy <-
-                      Some (if edits = [] then Tree_copy else Incremental_parse);
-                    snapshot))
-        | _ -> parse_full service after)
+        match validate_source_size after with
+        | Error _ as error -> error
+        | Ok () -> (
+            match service.cached with
+            | Some previous when Snapshot.matches_document previous before ->
+                let source = Document_snapshot.contents before in
+                let edits = Transaction.edits transaction in
+                let rec convert values = function
+                  | [] -> Ok (List.rev values)
+                  | edit :: rest -> (
+                      match edit_of_kernel source edit with
+                      | Error _ as error -> error
+                      | Ok edit -> convert (edit :: values) rest)
+                in
+                Result.bind (convert [] edits) (fun edits ->
+                    let edits = List.rev edits in
+                    protect (fun () ->
+                        let tree =
+                          if edits = [] then
+                            Tree_sitter_backend.copy_tree previous.Snapshot.tree
+                          else
+                            Tree_sitter_backend.parse_incremental service.parser
+                              ~old:previous.Snapshot.tree ~edits
+                              (Document_snapshot.contents after)
+                        in
+                        let snapshot = make_snapshot service after tree in
+                        service.cached <- Some snapshot;
+                        service.last_strategy <-
+                          Some
+                            (if edits = [] then Tree_copy else Incremental_parse);
+                        snapshot))
+            | _ -> parse_full service after))
 end

@@ -972,8 +972,24 @@ let inspect_syntax path =
       | Error error ->
           fail (Error.Model_execution_failed (Syntax.Error.to_string error))
       | Ok snapshot ->
-          Printf.printf "language: %s\ndocument: %s@%d\nhas-error: %b\n"
+          let source =
+            match Syntax.Grammar.source language with
+            | Syntax.Grammar.Source.Built_in { package; revision } ->
+                package ^ "@" ^ revision
+          in
+          Printf.printf
+            "language: %s\n\
+             grammar-source: %s\n\
+             grammar-version: %s\n\
+             grammar-abi: %d\n\
+             grammar-integrity: %s\n\
+             document: %s@%d\n\
+             has-error: %b\n"
             (Syntax.Language.id (Syntax.Snapshot.language snapshot))
+            source
+            (Syntax.Grammar.version language)
+            (Syntax.Grammar.abi language)
+            (Syntax.Grammar.integrity language)
             (Syntax.Snapshot.document_id snapshot)
             (Syntax.Snapshot.document_version snapshot)
             (Syntax.Snapshot.has_error snapshot);

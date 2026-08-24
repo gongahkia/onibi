@@ -122,15 +122,16 @@ zenbu.model_api.Editor_context.syntax
 zenbu.structural
 ```
 
-`zenbu.syntax` owns language identities, a small registry, synchronous
-services, version-bound syntax snapshots, opaque nodes, and generic structural
-selectors. The Tree-sitter parser, tree, node, query, and FFI lifetime rules
-are private implementation details. A snapshot holds an immutable kernel
-document snapshot and cannot match a different document id/version. The service
-has no global state; one service owns one parser and a bounded current snapshot
-cache. It copies the old backend tree before applying transaction-derived edits
-for incremental parsing, so a caller retaining an old Zenbu snapshot cannot
-observe a tree mutation.
+`zenbu.syntax` owns language identities, a host-owned staged grammar registry,
+synchronous services, version-bound syntax snapshots, opaque nodes, and generic
+structural selectors. The registry can select only reviewed statically linked
+bundles and never accepts a native path or pointer. The Tree-sitter parser,
+tree, node, query, and FFI lifetime rules are private implementation details.
+A snapshot holds an immutable kernel document snapshot and cannot match a
+different document id/version. One service owns one parser and a bounded
+current snapshot cache. It copies the old backend tree before applying
+transaction-derived edits for incremental parsing, so a caller retaining an old
+Zenbu snapshot cannot observe a tree mutation.
 
 The runtime refreshes syntax before constructing a model context and updates a
 cached syntax snapshot after each committed transaction. Undo/redo can safely
