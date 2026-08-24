@@ -22,8 +22,10 @@ module Server_config : sig
     extensions:string list ->
     executable:string ->
     ?argv:string list ->
+    ?cwd:string ->
     ?environment:(string * string) list ->
     ?root_markers:string list ->
+    ?workspace_folders:string list ->
     ?initialization_options:Data.t ->
     ?settings:Data.t ->
     unit ->
@@ -34,10 +36,25 @@ module Server_config : sig
   val extensions : t -> string list
   val executable : t -> string
   val argv : t -> string list
+  val cwd : t -> string option
   val environment : t -> (string * string) list
   val root_markers : t -> string list
+  val workspace_folders : t -> string list
   val initialization_options : t -> Data.t option
   val settings : t -> Data.t option
+end
+
+module Config : sig
+  (** Declarative user-authored language-server configuration. This is a
+      separate host input; Lua configuration and plugins cannot construct or
+      reload it. *)
+  type t = Default | Explicit of string | Disabled
+  type loaded
+
+  val default_path : unit -> string
+  val load : t -> (loaded, string) result
+  val registry : loaded -> Registry.t
+  val inspect : loaded -> string list
 end
 
 module Registry : sig
