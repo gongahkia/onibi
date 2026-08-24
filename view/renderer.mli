@@ -9,6 +9,8 @@ type syntax_span = {
   stop_offset : int;
   class_ : syntax_class;
 }
+type semantic_class = Namespace | Semantic_type | Semantic_function | Semantic_variable | Semantic_property | Semantic_modifier
+type semantic_span = { start_offset : int; stop_offset : int; class_ : semantic_class }
 
 type search_range = { start_offset : int; stop_offset : int }
 type diagnostic_kind = Error | Warning | Information | Hint
@@ -49,6 +51,7 @@ val render_with_inspector :
   ?overlay:string list ->
   ?source_lines:Display.source_line list ->
   ?syntax_spans:syntax_span list ->
+  ?semantic_spans:semantic_span list ->
   ?search_ranges:search_range list ->
   ?diagnostic_ranges:diagnostic_range list ->
   ?fold_ranges:Fold.range list ->

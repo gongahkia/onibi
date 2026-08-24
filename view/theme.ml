@@ -46,6 +46,12 @@ let styles =
     Frame.Syntax_comment;
     Frame.Syntax_type;
     Frame.Syntax_constructor;
+    Frame.Semantic_namespace;
+    Frame.Semantic_type;
+    Frame.Semantic_function;
+    Frame.Semantic_variable;
+    Frame.Semantic_property;
+    Frame.Semantic_modifier;
     Frame.Decoration_inline;
     Frame.Decoration_virtual;
     Frame.Overlay;
@@ -69,6 +75,12 @@ let style_name = function
   | Frame.Syntax_comment -> "syntax_comment"
   | Frame.Syntax_type -> "syntax_type"
   | Frame.Syntax_constructor -> "syntax_constructor"
+  | Frame.Semantic_namespace -> "semantic_namespace"
+  | Frame.Semantic_type -> "semantic_type"
+  | Frame.Semantic_function -> "semantic_function"
+  | Frame.Semantic_variable -> "semantic_variable"
+  | Frame.Semantic_property -> "semantic_property"
+  | Frame.Semantic_modifier -> "semantic_modifier"
   | Frame.Decoration_inline -> "decoration_inline"
   | Frame.Decoration_virtual -> "decoration_virtual"
   | Frame.Overlay -> "overlay"
@@ -106,6 +118,12 @@ let default_attribute = function
   | Frame.Syntax_type ->
       { plain with foreground = Ansi Blue; decorations = [ Bold ] }
   | Frame.Syntax_constructor -> { plain with foreground = Ansi Yellow }
+  | Frame.Semantic_namespace -> { plain with foreground = Ansi Cyan }
+  | Frame.Semantic_type -> { plain with foreground = Ansi Blue; decorations = [ Bold ] }
+  | Frame.Semantic_function -> { plain with foreground = Ansi Blue }
+  | Frame.Semantic_variable -> plain
+  | Frame.Semantic_property -> { plain with foreground = Ansi Yellow }
+  | Frame.Semantic_modifier -> { plain with decorations = [ Bold ] }
   | Frame.Decoration_inline ->
       { plain with foreground = Ansi Light_black; decorations = [ Italic ] }
   | Frame.Decoration_virtual ->

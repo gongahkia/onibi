@@ -13,6 +13,7 @@ type request_kind =
   | Range_formatting
   | Document_symbols
   | Workspace_symbols
+  | Semantic_tokens
   | Rename
 
 type formatting_scope = Document | Range
@@ -39,6 +40,20 @@ type symbol = {
   start_offset : int;
   stop_offset : int;
   hierarchy : string list;
+}
+
+type semantic_token_class =
+  | Namespace
+  | Type
+  | Function
+  | Variable
+  | Property
+  | Modifier
+
+type semantic_token = {
+  start_offset : int;
+  stop_offset : int;
+  class_ : semantic_token_class;
 }
 
 type event =
@@ -86,6 +101,11 @@ type event =
       scope : symbol_scope;
       query : string;
       symbols : symbol list;
+    }
+  | Semantic_tokens_result of {
+      request_id : int;
+      document_version : int;
+      tokens : semantic_token list;
     }
   | Rename_result of {
       request_id : int;
@@ -154,6 +174,8 @@ type t = {
   mutable lsp_version : int;
   mutable lsp_versions : (int * int * string) list;
   mutable position_encoding : Language.Position.encoding;
+  mutable semantic_token_types : string list;
+  mutable semantic_token_modifiers : string list;
   mutable sync_kind : sync_kind;
   mutable save_includes_text : bool;
   mutable pending_save : bool;
@@ -174,6 +196,7 @@ let max_code_action_items = 128
 let max_symbol_items = 512
 let max_symbol_depth = 32
 let max_symbol_text = 256
+let max_semantic_tokens = 4_096
 let max_diagnostics = 1_024
 let max_stderr_bytes = 16 * 1024
 let max_message_bytes_for_ui = 2_048
@@ -193,6 +216,7 @@ let request_kind_name = function
   | Range_formatting -> "range-formatting"
   | Document_symbols -> "document-symbols"
   | Workspace_symbols -> "workspace-symbols"
+  | Semantic_tokens -> "semantic-tokens"
   | Rename -> "rename"
 
 let sync_name = function
@@ -844,6 +868,80 @@ let workspace_symbols_of_json ~contents ~encoding = function
       collect values []
   | _ -> Error "invalid workspace-symbol result: expected a list or null"
 
+let semantic_token_class token_type modifiers =
+  let declared = List.mem "declaration" modifiers || List.mem "readonly" modifiers in
+  match String.lowercase_ascii token_type with
+  | "namespace" | "module" -> Some Namespace
+  | "type" | "class" | "enum" | "interface" | "struct" | "typeparameter" ->
+      Some Type
+  | "function" | "method" | "macro" -> Some Function
+  | "property" | "enumMember" | "event" -> Some Property
+  | "variable" | "parameter" when declared -> Some Modifier
+  | "variable" | "parameter" -> Some Variable
+  | "keyword" | "modifier" | "decorator" -> Some Modifier
+  | _ -> None
+
+let semantic_tokens_of_json ~contents ~encoding ~types ~modifiers = function
+  | `Null -> Ok []
+  | json -> (
+      try
+        let data = (Lsp.Types.SemanticTokens.t_of_yojson json).data in
+        if Array.length data mod 5 <> 0 then
+          Error "semantic token stream length is not divisible by five"
+        else if Array.length data / 5 > max_semantic_tokens then
+          Error "semantic token stream exceeds the configured limit"
+        else
+          let rec decode index line character values =
+            if index = Array.length data then Ok (List.rev values)
+            else
+              let delta_line = data.(index) in
+              let delta_start = data.(index + 1) in
+              let length = data.(index + 2) in
+              let type_index = data.(index + 3) in
+              let modifier_bits = data.(index + 4) in
+              if delta_line < 0 || delta_start < 0 || length <= 0
+                 || type_index < 0 || modifier_bits < 0
+              then Error "semantic token stream contains a negative or empty field"
+              else
+                let line = line + delta_line in
+                let character = if delta_line = 0 then character + delta_start else delta_start in
+                match List.nth_opt types type_index with
+                | None -> Error "semantic token stream references an unknown token type"
+                | Some token_type ->
+                    let active_modifiers =
+                      modifiers
+                      |> List.mapi (fun bit modifier -> (bit, modifier))
+                      |> List.filter_map (fun (bit, modifier) ->
+                             if bit < Sys.int_size - 1 && modifier_bits land (1 lsl bit) <> 0
+                             then Some modifier else None)
+                    in
+                    let valid_modifier_bits =
+                      modifiers
+                      |> List.mapi (fun bit _ -> bit)
+                      |> List.fold_left (fun mask bit ->
+                             if bit < Sys.int_size - 1 then mask lor (1 lsl bit) else mask) 0
+                    in
+                    if modifier_bits land lnot valid_modifier_bits <> 0 then
+                      Error "semantic token stream references an unknown modifier"
+                    else
+                      Result.bind
+                        (Language.Position.position_to_offset ~contents ~encoding { line; character })
+                        (fun start_offset ->
+                          Result.bind
+                            (Language.Position.position_to_offset ~contents ~encoding
+                               { line; character = character + length })
+                            (fun stop_offset ->
+                              let values =
+                                match semantic_token_class token_type active_modifiers with
+                                | None -> values
+                                | Some class_ -> { start_offset; stop_offset; class_ } :: values
+                              in
+                              decode (index + 5) line character values))
+          in
+          decode 0 0 0 []
+      with Jsonrpc.Json.Of_json (message, _) ->
+        Error ("invalid semantic token response: " ^ message))
+
 let code_action_of_lsp ~current_uri ~contents ~workspace_documents ~encoding =
   function
   | `Command command ->
@@ -959,6 +1057,17 @@ let client_capabilities () =
                 ] );
             ( "documentSymbol",
               assoc [ ("hierarchicalDocumentSymbolSupport", `Bool true) ] );
+            ( "semanticTokens",
+              assoc
+                [
+                  ("dynamicRegistration", `Bool false);
+                  ("requests", assoc [ ("full", `Bool true) ]);
+                  ("tokenTypes", `List []);
+                  ("tokenModifiers", `List []);
+                  ("formats", `List [ `String "relative" ]);
+                  ("overlappingTokenSupport", `Bool false);
+                  ("multilineTokenSupport", `Bool false);
+                ] );
             ("formatting", assoc [ ("dynamicRegistration", `Bool false) ]);
             ("rangeFormatting", assoc [ ("dynamicRegistration", `Bool false) ]);
             ("publishDiagnostics", assoc [ ("relatedInformation", `Bool false) ]);
@@ -1094,6 +1203,7 @@ let send_request ?byte_offset ?stop_offset ?symbol_query t kind
         | Feature Range_formatting -> "textDocument/rangeFormatting"
         | Feature Document_symbols -> "textDocument/documentSymbol"
         | Feature Workspace_symbols -> "workspace/symbol"
+        | Feature Semantic_tokens -> "textDocument/semanticTokens/full"
         | Feature Rename -> "textDocument/rename"
       in
       match
@@ -1169,8 +1279,18 @@ let configure_from_initialize t result =
         (sync, save_includes_text)
     | None -> (No_sync, false)
   in
+  let semantic_token_types, semantic_token_modifiers =
+    match capabilities.semanticTokensProvider with
+    | Some (`SemanticTokensOptions options) ->
+        (options.legend.tokenTypes, options.legend.tokenModifiers)
+    | Some (`SemanticTokensRegistrationOptions options) ->
+        (options.legend.tokenTypes, options.legend.tokenModifiers)
+    | None -> ([], [])
+  in
   Mutex.lock t.lock;
   t.position_encoding <- encoding;
+  t.semantic_token_types <- semantic_token_types;
+  t.semantic_token_modifiers <- semantic_token_modifiers;
   t.sync_kind <- sync_kind;
   t.save_includes_text <- save_includes_text;
   Mutex.unlock t.lock;
@@ -1195,6 +1315,7 @@ let feature_stage = function
   | Code_action -> Profiler.Language_code_action
   | Document_formatting | Range_formatting -> Profiler.Language_formatting
   | Document_symbols | Workspace_symbols -> Profiler.Language_symbols
+  | Semantic_tokens -> Profiler.Language_semantic_tokens
   | Rename -> Profiler.Language_rename
 
 let feature_response t pending result =
@@ -1340,7 +1461,8 @@ let feature_response t pending result =
                               | Document_formatting -> Document
                               | Range_formatting -> Range
                               | Hover | Definition | Completion | Code_action
-                              | Document_symbols | Workspace_symbols | Rename ->
+                              | Document_symbols | Workspace_symbols | Semantic_tokens
+                              | Rename ->
                                   assert false);
                             start_offset =
                               Option.value ~default:(-1) pending.byte_offset;
@@ -1379,6 +1501,19 @@ let feature_response t pending result =
                           })
                       (workspace_symbols_of_json ~contents:pending.contents
                          ~encoding:t.position_encoding json)
+                | Semantic_tokens ->
+                    Result.map
+                      (fun tokens ->
+                        Semantic_tokens_result
+                          {
+                            request_id = pending.id;
+                            document_version = pending.document_version;
+                            tokens;
+                          })
+                      (semantic_tokens_of_json ~contents:pending.contents
+                         ~encoding:t.position_encoding
+                         ~types:t.semantic_token_types
+                         ~modifiers:t.semantic_token_modifiers json)
                 | Rename ->
                     Result.map
                       (fun edits ->
@@ -1797,6 +1932,8 @@ let start ~config ~document_id ~document_version ~file_path ~contents
       lsp_version = 1;
       lsp_versions = [];
       position_encoding = Language.Position.Utf16;
+      semantic_token_types = [];
+      semantic_token_modifiers = [];
       sync_kind = No_sync;
       save_includes_text = false;
       pending_save = false;
@@ -2064,7 +2201,7 @@ let request_formatting t kind ~start_offset ~stop_offset =
           | Document_formatting -> []
           | Range_formatting -> [ ("range", range_json range) ]
           | Hover | Definition | Completion | Code_action | Document_symbols
-          | Workspace_symbols | Rename ->
+          | Workspace_symbols | Semantic_tokens | Rename ->
               assert false
         in
         send_request ~byte_offset:start_offset ~stop_offset t (Feature kind)
@@ -2102,6 +2239,19 @@ let request_workspace_symbols t ~query =
     send_request ~symbol_query:query t (Feature Workspace_symbols)
       ~document_version ~contents
       ~params:[ ("query", `String query) ]
+
+let request_semantic_tokens t =
+  Mutex.lock t.lock;
+  let state = t.state in
+  let contents = t.current_contents in
+  let document_version = t.document_version in
+  let supported = t.semantic_token_types <> [] in
+  Mutex.unlock t.lock;
+  if state <> Language.Ready then Error "language server is unavailable"
+  else if not supported then Error "language server does not advertise semantic tokens"
+  else
+    send_request t (Feature Semantic_tokens) ~document_version ~contents
+      ~params:[ ("textDocument", assoc [ ("uri", `String t.uri) ]) ]
 
 let request_rename t ~byte_offset ~new_name =
   if String.length new_name = 0 then Error "rename target must not be empty"

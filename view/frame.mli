@@ -16,6 +16,12 @@ type style =
   | Syntax_comment
   | Syntax_type
   | Syntax_constructor
+  | Semantic_namespace
+  | Semantic_type
+  | Semantic_function
+  | Semantic_variable
+  | Semantic_property
+  | Semantic_modifier
   | Decoration_inline
   | Decoration_virtual
   | Overlay

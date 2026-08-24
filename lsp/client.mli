@@ -10,6 +10,7 @@ type request_kind =
   | Range_formatting
   | Document_symbols
   | Workspace_symbols
+  | Semantic_tokens
   | Rename
 
 type formatting_scope = Document | Range
@@ -37,6 +38,20 @@ type symbol = {
   start_offset : int;
   stop_offset : int;
   hierarchy : string list;
+}
+
+type semantic_token_class =
+  | Namespace
+  | Type
+  | Function
+  | Variable
+  | Property
+  | Modifier
+
+type semantic_token = {
+  start_offset : int;
+  stop_offset : int;
+  class_ : semantic_token_class;
 }
 
 type event =
@@ -84,6 +99,11 @@ type event =
       scope : symbol_scope;
       query : string;
       symbols : symbol list;
+    }
+  | Semantic_tokens_result of {
+      request_id : int;
+      document_version : int;
+      tokens : semantic_token list;
     }
   | Rename_result of {
       request_id : int;
@@ -144,6 +164,7 @@ val request_range_formatting :
 
 val request_document_symbols : t -> (int, string) result
 val request_workspace_symbols : t -> query:string -> (int, string) result
+val request_semantic_tokens : t -> (int, string) result
 
 val request_rename :
   t -> byte_offset:int -> new_name:string -> (int, string) result

@@ -27,6 +27,7 @@ type stage =
   | Language_code_action
   | Language_formatting
   | Language_symbols
+  | Language_semantic_tokens
   | Language_rename
   | Lsp_decode
 

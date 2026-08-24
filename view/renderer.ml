@@ -9,6 +9,8 @@ type syntax_span = {
   stop_offset : int;
   class_ : syntax_class;
 }
+type semantic_class = Namespace | Semantic_type | Semantic_function | Semantic_variable | Semantic_property | Semantic_modifier
+type semantic_span = { start_offset : int; stop_offset : int; class_ : semantic_class }
 
 type search_range = { start_offset : int; stop_offset : int }
 type diagnostic_kind = Error | Warning | Information | Hint
@@ -65,6 +67,15 @@ let syntax_style spans grapheme =
           | Constructor -> Frame.Syntax_constructor)
       else None)
 
+let semantic_style spans grapheme =
+  spans |> List.find_map (fun (span : semantic_span) ->
+      if overlaps ~start_offset:span.start_offset ~stop_offset:span.stop_offset grapheme then
+        Some (match span.class_ with
+        | Namespace -> Frame.Semantic_namespace | Semantic_type -> Frame.Semantic_type
+        | Semantic_function -> Frame.Semantic_function | Semantic_variable -> Frame.Semantic_variable
+        | Semantic_property -> Frame.Semantic_property | Semantic_modifier -> Frame.Semantic_modifier)
+      else None)
+
 let search_style ranges grapheme =
   if
     List.exists
@@ -90,7 +101,7 @@ let diagnostic_style ranges grapheme =
           | Hint -> Frame.Diagnostic_hint)
       else None)
 
-let grapheme_style ~syntax_spans ~search_ranges ~diagnostic_ranges ~selections
+let grapheme_style ~syntax_spans ~semantic_spans ~search_ranges ~diagnostic_ranges ~selections
     ~primary_index grapheme =
   match selection_style selections primary_index grapheme with
   | Some style -> style
@@ -101,11 +112,11 @@ let grapheme_style ~syntax_spans ~search_ranges ~diagnostic_ranges ~selections
           match diagnostic_style diagnostic_ranges grapheme with
           | Some style -> style
           | None ->
-              Option.value ~default:Frame.Plain
-                (syntax_style syntax_spans grapheme)))
+              Option.value ~default:(Option.value ~default:Frame.Plain (syntax_style syntax_spans grapheme))
+                (semantic_style semantic_spans grapheme)))
 
 let row_for_line ?(trailing = []) ?(content_style = None) ~columns ~left_column
-    ~syntax_spans ~search_ranges ~diagnostic_ranges ~selections ~primary_index
+    ~syntax_spans ~semantic_spans ~search_ranges ~diagnostic_ranges ~selections ~primary_index
     line =
   let right_column = left_column + columns in
   let padding used cells =
@@ -167,7 +178,7 @@ let row_for_line ?(trailing = []) ?(content_style = None) ~columns ~left_column
                 (Option.value
                    ~default:
                      (grapheme_style ~syntax_spans ~search_ranges
-                        ~diagnostic_ranges ~selections ~primary_index grapheme)
+                        ~semantic_spans ~diagnostic_ranges ~selections ~primary_index grapheme)
                    content_style)
               ~width text
           in
@@ -188,7 +199,7 @@ let clipped_text text columns =
         }
     in
     let cells =
-      row_for_line ~columns ~left_column:0 ~syntax_spans:[] ~search_ranges:[]
+      row_for_line ~columns ~left_column:0 ~syntax_spans:[] ~semantic_spans:[] ~search_ranges:[]
         ~diagnostic_ranges:[]
         ~selections:{ Editor_context.selections = []; primary_index = 0 }
         ~primary_index:0 line
@@ -318,7 +329,7 @@ let decoration_text decoration =
   | Decoration.Virtual_line { text; _ } -> "[" ^ provider ^ "] " ^ text
 
 let render_with_inspector ~inspector ?(presentation = Presentation.default)
-    ?overlay ?source_lines ?(syntax_spans = []) ?(search_ranges = [])
+    ?overlay ?source_lines ?(syntax_spans = []) ?(semantic_spans = []) ?(search_ranges = [])
     ?(diagnostic_ranges = []) ?(fold_ranges = []) ?(decorations = [])
     ?diagnostic_summary ?(scroll_margin = 0) ~context ~status ~filename ~dirty
     ~message ~viewport ~dimensions () =
@@ -427,6 +438,9 @@ let render_with_inspector ~inspector ?(presentation = Presentation.default)
                   intersects span.start_offset span.stop_offset)
                 syntax_spans
             in
+            let visible_semantic_spans =
+              List.filter (fun (span : semantic_span) -> intersects span.start_offset span.stop_offset) semantic_spans
+            in
             let visible_search_ranges =
               List.filter
                 (fun (range : search_range) ->
@@ -478,6 +492,7 @@ let render_with_inspector ~inspector ?(presentation = Presentation.default)
                           ~columns:content_columns
                           ~left_column:viewport.left_column
                           ~syntax_spans:visible_syntax_spans
+                          ~semantic_spans:visible_semantic_spans
                           ~search_ranges:visible_search_ranges
                           ~diagnostic_ranges:visible_diagnostic_ranges
                           ~selections ~primary_index:selections.primary_index
@@ -500,7 +515,7 @@ let render_with_inspector ~inspector ?(presentation = Presentation.default)
                       @ row_for_line
                           ~content_style:(Some Frame.Decoration_virtual)
                           ~columns:content_columns
-                          ~left_column:viewport.left_column ~syntax_spans:[]
+                          ~left_column:viewport.left_column ~syntax_spans:[] ~semantic_spans:[]
                           ~search_ranges:[] ~diagnostic_ranges:[]
                           ~selections:
                             {
