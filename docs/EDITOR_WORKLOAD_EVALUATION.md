@@ -396,6 +396,14 @@ minibuffer foundation, not Vim Ex, Kakoune command language, or Emacs minibuffer
 and completion parity. Component ABI v1 commands cannot yet declare parameter
 metadata, so their palette entries remain parameterless.
 
+The command-line comparison is intentionally narrower still. Vim's command
+line, Micro's command bar, and Kakoune's command language each carry
+product-level parsing and history behavior. The M10 command-line fixture only
+establishes that `:exact.command-id token ...` reaches a registered descriptor
+through its existing typed parameters, and that unknown, missing, or extra
+arguments are rejected before an effect runs. Quoting, completion, history,
+and all command-name compatibility remain deferred.
+
 The next shared Helix/Kakoune failure was selection-set algebra. Helix exposes
 regex select/split/filter, merging, orientation, and primary-selection
 operations in its [keymap](https://docs.helix-editor.com/master/keymap.html).
