@@ -1,7 +1,16 @@
 (** Private-process LSP adapter. Public values are deliberately Zenbu-owned;
     [Lsp] and [Jsonrpc] types do not escape this package. *)
 
-type request_kind = Hover | Definition | Completion | Code_action | Rename
+type request_kind =
+  | Hover
+  | Definition
+  | Completion
+  | Code_action
+  | Document_formatting
+  | Range_formatting
+  | Rename
+
+type formatting_scope = Document | Range
 
 type workspace_edit = {
   uri : string;
@@ -47,6 +56,14 @@ type event =
       start_offset : int;
       stop_offset : int;
       actions : code_action list;
+    }
+  | Formatting_result of {
+      request_id : int;
+      document_version : int;
+      scope : formatting_scope;
+      start_offset : int;
+      stop_offset : int;
+      edits : workspace_edit list;
     }
   | Rename_result of {
       request_id : int;
@@ -98,6 +115,11 @@ val request_definition : t -> byte_offset:int -> (int, string) result
 val request_completion : t -> byte_offset:int -> (int, string) result
 
 val request_code_actions :
+  t -> start_offset:int -> stop_offset:int -> (int, string) result
+
+val request_document_formatting : t -> (int, string) result
+
+val request_range_formatting :
   t -> start_offset:int -> stop_offset:int -> (int, string) result
 
 val request_rename :

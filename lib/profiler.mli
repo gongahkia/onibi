@@ -25,6 +25,7 @@ type stage =
   | Language_definition
   | Language_completion
   | Language_code_action
+  | Language_formatting
   | Language_rename
   | Lsp_decode
 

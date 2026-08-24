@@ -236,8 +236,9 @@ redraws when diagnostics or feature replies arrive. Hover, completion, and code
 actions are host overlays; diagnostic navigation and accepted language edits
 use normal selection effects/transactions. Definitions can open a local target
 buffer, and rename, checked code actions, or `workspace/applyEdit` can update
-every already-open saved target all-or-none. Code-action server commands are
-explicitly denied. `language.status` is available through the palette and
+every already-open saved target all-or-none. Document and range formatting use
+fixed two-space options and normal transactions. Code-action server commands
+are explicitly denied. `language.status` is available through the palette and
 inspector. See [Language services](LANGUAGE_SERVICES.md).
 
 Plugin inspection shows manifest, runtime, capabilities, contributions, limits,

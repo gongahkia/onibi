@@ -18,6 +18,11 @@ let delay_code_action = ref false
 let code_action_resource = ref false
 let code_action_command = ref false
 let code_action_error = ref false
+let delay_formatting = ref false
+let formatting_noop = ref false
+let formatting_malformed = ref false
+let formatting_conflict = ref false
+let formatting_error = ref false
 
 let options =
   [
@@ -61,6 +66,21 @@ let options =
     ( "--code-action-error",
       Arg.Set code_action_error,
       "return a code-action server error" );
+    ( "--delay-formatting",
+      Arg.Set delay_formatting,
+      "delay formatting responses to exercise cancellation and staleness" );
+    ( "--formatting-noop",
+      Arg.Set formatting_noop,
+      "return a no-op formatting result" );
+    ( "--formatting-malformed",
+      Arg.Set formatting_malformed,
+      "return a malformed formatting result" );
+    ( "--formatting-conflict",
+      Arg.Set formatting_conflict,
+      "return overlapping formatting edits" );
+    ( "--formatting-error",
+      Arg.Set formatting_error,
+      "return a formatting server error" );
   ]
 
 let () = Arg.parse options (fun _ -> ()) "fake_lsp_server"
@@ -90,6 +110,13 @@ let string_field name json =
 
 let int_field name json =
   match field name json with Some (`Int value) -> Some value | _ -> None
+
+let has_formatting_options params =
+  match field "options" params with
+  | Some options ->
+      int_field "tabSize" options = Some 2
+      && field "insertSpaces" options = Some (`Bool true)
+  | None -> false
 
 let input = stdin
 
@@ -240,6 +267,8 @@ let initialized_result () =
             ("definitionProvider", `Bool true);
             ("completionProvider", `Assoc []);
             ("codeActionProvider", `Bool true);
+            ("documentFormattingProvider", `Bool true);
+            ("documentRangeFormattingProvider", `Bool true);
             ("renameProvider", `Bool true);
           ] );
     ]
@@ -512,6 +541,43 @@ let () =
                      ("title", `String "apply fake code action"); ("edit", edit);
                    ];
                ])
+    | ( (Some "textDocument/formatting" | Some "textDocument/rangeFormatting"),
+        Some id ) ->
+        if !delay_formatting then ignore (Unix.select [] [] [] 0.15);
+        if !formatting_error then response_error id "fake formatting failure"
+        else if not (has_formatting_options params) then
+          response_error id "unexpected formatting options"
+        else if !formatting_malformed then
+          response id (`Assoc [ ("edits", `List []) ])
+        else if !formatting_noop then response id `Null
+        else
+          let range_formatting =
+            method_ = Some "textDocument/rangeFormatting"
+          in
+          let range =
+            match (range_formatting, field "range" params) with
+            | true, Some range -> range
+            | _ -> range 0 0 0 1
+          in
+          let edits =
+            [
+              `Assoc
+                [
+                  ("range", range);
+                  ( "newText",
+                    `String
+                      (if range_formatting then "range-formatted"
+                       else "formatted") );
+                ];
+            ]
+          in
+          let edits =
+            if !formatting_conflict then
+              edits
+              @ [ `Assoc [ ("range", range); ("newText", `String "conflict") ] ]
+            else edits
+          in
+          response id (`List edits)
     | Some "textDocument/rename", Some id ->
         if !delay_rename then ignore (Unix.select [] [] [] 0.15);
         let new_name =

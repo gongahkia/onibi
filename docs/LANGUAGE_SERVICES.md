@@ -76,7 +76,8 @@ A versioned diagnostic renders only for the current Zenbu version. Unversioned
 diagnostics are accepted only at the untouched original snapshot (version zero)
 and are dropped after an edit rather than displayed as possibly current. Hover,
 completion, definition, and rename retain document version plus source caret
-offset. Code actions retain document version and the exact primary-selection
+offset. Code actions and range formatting retain document version and the
+exact primary-selection range; document formatting retains the whole-document
 range. A later edit/caret move sends `$/cancelRequest` where possible, and late
 results are discarded before session mutation. Cancellation is a stale safety
 mechanism, not a promise that every server stops immediately.
@@ -96,8 +97,9 @@ and host dispatch as other providers:
 - `language.status` reports language/server id, executable, root, lifecycle,
   encoding, sync kind, pending request count, diagnostics count, and last error.
 - `language.restart`, `.hover`, `.definition`, `.complete`, `.code-action`,
-  and `.rename` start the corresponding async operation. Code actions use the
-  primary selection; rename opens a text prompt.
+  `.format`, `.format-selection`, and `.rename` start the corresponding async
+  operation. Code actions and selection formatting use the primary selection;
+  rename opens a text prompt.
 - `language.diagnostic.next`, `.previous`, and `.describe-current` navigate or
   describe current diagnostics with normal selection semantics.
 
@@ -140,9 +142,19 @@ path as rename. Every attached server command is shown as denied and is never
 executed; command-only, disabled, and edit-less actions are rejected. Zenbu
 does not auto-open action targets or allow code-action resource operations.
 
+`language.format` requests `textDocument/formatting`; `.format-selection`
+requests `textDocument/rangeFormatting` for the current primary selection.
+Both use the fixed, explicit `tabSize: 2` and `insertSpaces: true` policy, with
+no save-time trigger or product-specific option surface. Returned `TextEdit`s
+are decoded against the request snapshot, then staged through
+`language.apply-edits` only if the current document version and requested range
+are unchanged. Empty results report no change. Dirty buffers are formatted as
+their current in-memory snapshot; syntactic validity is left to the language
+server. Malformed, stale, or overlapping edits leave the buffer unchanged.
+
 Zenbu does not coordinate external file changes, or provide project search,
-file watching, formatting, symbols, semantic tokens, or general workspace-edit
-resource operations.
+file watching, symbols, semantic tokens, or general workspace-edit resource
+operations.
 
 ## Inspection, testing, and trust
 
@@ -157,9 +169,10 @@ dune exec bin/zenbu_headless.exe -- language-fake-session \
 The fake server covers initialize/negotiation, full and incremental sync,
 diagnostics, delayed stale hover, cancellation, completion additional edits,
 same- and cross-file definitions, checked code actions and command denial,
-open-buffer cross-file rename and server apply-edit, unopened and stale
-workspace-edit rejection, all-or-none conflicting workspace edits, malformed
-frames, crash/restart, and shutdown.
+document/range formatting and its fixed options, no-op/stale/malformed/error
+formatting replies, open-buffer cross-file rename and server apply-edit,
+unopened and stale workspace-edit rejection, all-or-none conflicting workspace
+edits, malformed frames, crash/restart, and shutdown.
 `test_m11_ocamllsp` opens a small Dune fixture with real `ocamllsp` and obtains
 a hover response.
 
@@ -167,7 +180,8 @@ a hover response.
 request, cancellation, response, decode, exit, and failure stages with server
 id, request id/document version where applicable, outcome, and bounded detail.
 The generic `why` view formats these events. The profiler adds language sync,
-hover, definition, completion, code-action, rename, and decode samples.
+hover, definition, completion, code-action, formatting, rename, and decode
+samples.
 Neither retains raw
 JSON-RPC packets, full source, protocol objects, or server secrets.
 

@@ -8,6 +8,16 @@ let fail message =
 let expect condition message = if not condition then fail message
 let must = function Ok value -> value | Error error -> fail error
 
+let contains text fragment =
+  let text_length = String.length text in
+  let fragment_length = String.length fragment in
+  let rec loop offset =
+    if offset + fragment_length > text_length then false
+    else if String.sub text offset fragment_length = fragment then true
+    else loop (offset + 1)
+  in
+  fragment_length = 0 || loop 0
+
 let fake_server () =
   let candidate =
     Filename.concat (Filename.dirname Sys.executable_name) "fake_lsp_server.exe"
@@ -38,6 +48,7 @@ let wait_for client predicate =
           | Definition_result _ -> "definition"
           | Completion_result _ -> "completion"
           | Code_action_result _ -> "code-action"
+          | Formatting_result _ -> "formatting"
           | Rename_result _ -> "rename"
           | Apply_edit _ -> "apply-edit"
           | Server_message _ -> "message"
@@ -197,6 +208,23 @@ let feature_test () =
            (List.exists (function
              | Lsp.Code_action_result { actions = _ :: _; _ } -> true
              | _ -> false)));
+      ignore (Lsp.request_document_formatting client |> must);
+      ignore
+        (wait_for client
+           (List.exists (function
+             | Lsp.Formatting_result { scope = Lsp.Document; edits = _ :: _; _ }
+               ->
+                 true
+             | _ -> false)));
+      ignore
+        (Lsp.request_range_formatting client ~start_offset:0 ~stop_offset:0
+        |> must);
+      ignore
+        (wait_for client
+           (List.exists (function
+             | Lsp.Formatting_result { scope = Lsp.Range; edits = _ :: _; _ } ->
+                 true
+             | _ -> false)));
       ignore
         (Lsp.request_rename client ~byte_offset:0 ~new_name:"renamed" |> must);
       ignore
@@ -261,6 +289,80 @@ let stale_code_action_response_test () =
               (function Lsp.Code_action_result _ -> true | _ -> false)
               events))
         "late code-action response was not discarded after a document edit")
+
+let stale_formatting_response_test () =
+  let client = start [ "--delay-formatting" ] "old" in
+  Fun.protect
+    ~finally:(fun () -> Lsp.close client)
+    (fun () ->
+      wait_ready client;
+      ignore (Lsp.request_document_formatting client |> must);
+      Lsp.notify_change client ~source_contents:"old" ~contents:"new"
+        ~document_version:1
+        ~edits:
+          [
+            { Language.start_offset = 0; stop_offset = 3; replacement = "new" };
+          ];
+      let deadline = Unix.gettimeofday () +. 0.4 in
+      let rec collect values =
+        if Unix.gettimeofday () >= deadline then values
+        else (
+          ignore (Unix.select [ Lsp.wakeup_fd client ] [] [] 0.05);
+          collect (values @ Lsp.drain client))
+      in
+      let events = collect [] in
+      expect
+        (not
+           (List.exists
+              (function Lsp.Formatting_result _ -> true | _ -> false)
+              events))
+        "late formatting response was not discarded after a document edit")
+
+let formatting_cancellation_test () =
+  let client = start [ "--delay-formatting" ] "old" in
+  Fun.protect
+    ~finally:(fun () -> Lsp.close client)
+    (fun () ->
+      wait_ready client;
+      ignore (Lsp.request_document_formatting client |> must);
+      Lsp.cancel client Lsp.Document_formatting;
+      let deadline = Unix.gettimeofday () +. 0.4 in
+      let rec collect values =
+        if Unix.gettimeofday () >= deadline then values
+        else (
+          ignore (Unix.select [ Lsp.wakeup_fd client ] [] [] 0.05);
+          collect (values @ Lsp.drain client))
+      in
+      let events = collect [] in
+      expect
+        (not
+           (List.exists
+              (function Lsp.Formatting_result _ -> true | _ -> false)
+              events))
+        "cancelled formatting response reached the client")
+
+let malformed_formatting_response_test () =
+  let client = start [ "--formatting-malformed" ] "abc" in
+  Fun.protect
+    ~finally:(fun () -> Lsp.close client)
+    (fun () ->
+      wait_ready client;
+      ignore (Lsp.request_document_formatting client |> must);
+      let events =
+        wait_for client
+          (List.exists (function
+            | Lsp.Request_failed { kind = Lsp.Document_formatting; _ } -> true
+            | _ -> false))
+      in
+      expect
+        (List.exists
+           (function
+             | Lsp.Request_failed { kind = Lsp.Document_formatting; reason; _ }
+               ->
+                 String.starts_with ~prefix:"invalid formatting result" reason
+             | _ -> false)
+           events)
+        "a malformed formatting response was accepted")
 
 let code_action_resource_rejection_test () =
   let client = start [ "--code-action-resource" ] "resource" in
@@ -354,10 +456,10 @@ let trace_attribution_test () =
 let registry arguments =
   Language.Registry.register Language.Registry.empty (config arguments) |> must
 
-let session arguments contents =
+let session ?trace arguments contents =
   Zenbu_app.Session.create ~model:Zenbu_app.Session.Vim
     ~file_path:(Filename.concat (Sys.getcwd ()) "test/fixtures/m11_language.ml")
-    ~contents ~language_registry:(registry arguments)
+    ~contents ?trace ~language_registry:(registry arguments)
     ~dimensions:Zenbu_view.Renderer.{ columns = 80; rows = 12 }
     ()
   |> function
@@ -513,6 +615,150 @@ let session_integration_test () =
       expect
         (String.starts_with ~prefix:"ren" (Zenbu_app.Session.contents session))
         "current-document rename was not applied atomically")
+
+let document_formatting_session_test () =
+  let trace =
+    Zenbu_model_api.Trace.enabled ~capacity:64 |> function
+    | Ok trace -> trace
+    | Error error -> fail (Zenbu_kernel.Error.to_string error)
+  in
+  let session = session ~trace [] "abc\n" in
+  Fun.protect
+    ~finally:(fun () -> Zenbu_app.Session.close session)
+    (fun () ->
+      let session =
+        wait_session session (fun session ->
+            Zenbu_app.Session.inspect session Zenbu_app.Session.Language
+            |> List.exists (String.equal "state: ready"))
+      in
+      let session = host session Zenbu_app.Session.Language_format_document in
+      let session =
+        wait_session session (fun session ->
+            String.starts_with ~prefix:"formatted"
+              (Zenbu_app.Session.contents session))
+      in
+      expect
+        (Zenbu_app.Session.inspect session Zenbu_app.Session.Scripts
+        |> List.exists (String.equal "message: language formatting applied"))
+        "document formatting did not publish a checked transaction";
+      expect
+        (Zenbu_app.Session.inspect session Zenbu_app.Session.Why
+        |> List.exists (fun line -> contains line "language.format"))
+        "formatting provenance was not visible through why")
+
+let range_formatting_session_test () =
+  let session = session [] "abc\n" in
+  Fun.protect
+    ~finally:(fun () -> Zenbu_app.Session.close session)
+    (fun () ->
+      let session =
+        wait_session session (fun session ->
+            Zenbu_app.Session.inspect session Zenbu_app.Session.Language
+            |> List.exists (String.equal "state: ready"))
+      in
+      let session = host session Zenbu_app.Session.Language_format_selection in
+      let session =
+        wait_session session (fun session ->
+            String.starts_with ~prefix:"range-formatted"
+              (Zenbu_app.Session.contents session))
+      in
+      expect
+        (Zenbu_app.Session.inspect session Zenbu_app.Session.Scripts
+        |> List.exists
+             (String.equal "message: language range formatting applied"))
+        "range formatting did not use the selected source range")
+
+let formatting_noop_session_test () =
+  let contents = "abc\n" in
+  let session = session [ "--formatting-noop" ] contents in
+  Fun.protect
+    ~finally:(fun () -> Zenbu_app.Session.close session)
+    (fun () ->
+      let session =
+        wait_session session (fun session ->
+            Zenbu_app.Session.inspect session Zenbu_app.Session.Language
+            |> List.exists (String.equal "state: ready"))
+      in
+      let session = host session Zenbu_app.Session.Language_format_document in
+      let session =
+        wait_session session (fun session ->
+            Zenbu_app.Session.inspect session Zenbu_app.Session.Scripts
+            |> List.exists
+                 (String.equal "message: language formatting made no changes"))
+      in
+      expect
+        (String.equal (Zenbu_app.Session.contents session) contents)
+        "a no-op formatting result changed the document")
+
+let formatting_dirty_invalid_syntax_test () =
+  let session = session [] "let =" in
+  Fun.protect
+    ~finally:(fun () -> Zenbu_app.Session.close session)
+    (fun () ->
+      let session =
+        wait_session session (fun session ->
+            Zenbu_app.Session.inspect session Zenbu_app.Session.Language
+            |> List.exists (String.equal "state: ready"))
+      in
+      let session = Zenbu_app.Session.handle_input session (logical_key "i") in
+      let session = Zenbu_app.Session.handle_input session (text_input "!") in
+      let session = Zenbu_app.Session.handle_input session escape in
+      let session = host session Zenbu_app.Session.Language_format_document in
+      let session =
+        wait_session session (fun session ->
+            String.starts_with ~prefix:"formatted"
+              (Zenbu_app.Session.contents session))
+      in
+      expect
+        (Zenbu_app.Session.contents session <> "let =")
+        "formatting did not define behavior for a dirty invalid-syntax buffer")
+
+let formatting_conflict_session_test () =
+  let contents = "abc\n" in
+  let session = session [ "--formatting-conflict" ] contents in
+  Fun.protect
+    ~finally:(fun () -> Zenbu_app.Session.close session)
+    (fun () ->
+      let session =
+        wait_session session (fun session ->
+            Zenbu_app.Session.inspect session Zenbu_app.Session.Language
+            |> List.exists (String.equal "state: ready"))
+      in
+      let session = host session Zenbu_app.Session.Language_format_document in
+      let session =
+        wait_session session (fun session ->
+            Zenbu_app.Session.inspect session Zenbu_app.Session.Scripts
+            |> List.exists
+                 (String.starts_with
+                    ~prefix:"message: language formatting rejected:"))
+      in
+      expect
+        (String.equal (Zenbu_app.Session.contents session) contents)
+        "overlapping formatting edits partially changed the document")
+
+let formatting_server_failure_test () =
+  let contents = "abc\n" in
+  let session = session [ "--formatting-error" ] contents in
+  Fun.protect
+    ~finally:(fun () -> Zenbu_app.Session.close session)
+    (fun () ->
+      let session =
+        wait_session session (fun session ->
+            Zenbu_app.Session.inspect session Zenbu_app.Session.Language
+            |> List.exists (String.equal "state: ready"))
+      in
+      let session = host session Zenbu_app.Session.Language_format_document in
+      let session =
+        wait_session session (fun session ->
+            Zenbu_app.Session.inspect session Zenbu_app.Session.Scripts
+            |> List.exists
+                 (String.equal
+                    "message: language formatting failed: fake formatting \
+                     failure"))
+      in
+      expect
+        (String.equal (Zenbu_app.Session.contents session) contents)
+        "a formatting server failure did not leave the document unchanged")
 
 let code_action_session_test () =
   let session = session [] "abc abc\n" in
@@ -1116,11 +1362,20 @@ let () =
   feature_test ();
   stale_response_test ();
   stale_code_action_response_test ();
+  stale_formatting_response_test ();
+  formatting_cancellation_test ();
+  malformed_formatting_response_test ();
   code_action_resource_rejection_test ();
   crash_restart_test ();
   malformed_server_test ();
   trace_attribution_test ();
   session_integration_test ();
+  document_formatting_session_test ();
+  range_formatting_session_test ();
+  formatting_noop_session_test ();
+  formatting_dirty_invalid_syntax_test ();
+  formatting_conflict_session_test ();
+  formatting_server_failure_test ();
   code_action_session_test ();
   code_action_cancellation_test ();
   code_action_command_denial_test ();

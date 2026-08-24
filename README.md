@@ -76,7 +76,8 @@ and plugin examples live in [Getting Started](docs/GETTING_STARTED.md).
   completion, code actions, rename, position conversion, and sync data. A
   private async LSP adapter starts `ocamllsp` by default for saved OCaml files;
   results become ordinary selections or validated transactions, never
-  protocol-driven edits. Code-action server commands are always denied.
+  protocol-driven edits. It also supports checked document/range formatting
+  with fixed two-space options. Code-action server commands are always denied.
 - Lua configuration and local plugins contribute commands, selectors,
   transformations, bindings, and events through host validation. One trusted
   Lua generation may also provide a serialisable editing model with optional

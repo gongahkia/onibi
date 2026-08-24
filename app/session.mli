@@ -47,6 +47,8 @@ type host_command =
   | Language_definition
   | Language_complete
   | Language_code_action
+  | Language_format_document
+  | Language_format_selection
   | Language_rename
   | Language_diagnostic_next
   | Language_diagnostic_previous

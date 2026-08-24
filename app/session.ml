@@ -64,6 +64,8 @@ type host_command =
   | Language_definition
   | Language_complete
   | Language_code_action
+  | Language_format_document
+  | Language_format_selection
   | Language_rename
   | Language_diagnostic_next
   | Language_diagnostic_previous
@@ -1473,6 +1475,21 @@ let host_command_entries =
           language_descriptor "language.code-action" "Request code actions"
             "Request version-bound language actions for the primary selection. \
              Only checked workspace edits may be applied.";
+        palette = true;
+      };
+      {
+        command = Language_format_document;
+        descriptor =
+          language_descriptor "language.format" "Format document"
+            "Request checked document formatting with fixed two-space options.";
+        palette = true;
+      };
+      {
+        command = Language_format_selection;
+        descriptor =
+          language_descriptor "language.format-selection" "Format selection"
+            "Request checked range formatting for the primary selection with \
+             fixed two-space options.";
         palette = true;
       };
       {
@@ -3136,6 +3153,16 @@ let begin_code_action session =
             inspector = None;
             quit_armed = false;
           })
+
+let begin_document_formatting session =
+  request_language session Lsp.request_document_formatting
+
+let begin_range_formatting session =
+  let selection = primary_selection session in
+  let start_offset = min selection.anchor_offset selection.head_offset in
+  let stop_offset = max selection.anchor_offset selection.head_offset in
+  request_language session (fun client ->
+      Lsp.request_range_formatting client ~start_offset ~stop_offset)
 
 let begin_rename session =
   match session.language_client with
@@ -5386,6 +5413,29 @@ let code_action_response_is_current session ~request_id ~document_version
   | Hover_view _ | Completion_view _ | Rename_prompt _ ->
       false
 
+let formatting_response_is_current session ~scope ~document_version
+    ~start_offset ~stop_offset =
+  if document_version <> Editor_context.document_version (context session) then
+    false
+  else
+    match scope with
+    | Lsp.Document ->
+        start_offset = 0
+        && stop_offset
+           = String.length (Editor_context.contents (context session))
+    | Lsp.Range ->
+        let selection = primary_selection session in
+        start_offset = min selection.anchor_offset selection.head_offset
+        && stop_offset = max selection.anchor_offset selection.head_offset
+
+let formatting_label = function
+  | Lsp.Document -> "formatting"
+  | Lsp.Range -> "range formatting"
+
+let formatting_effect_id = function
+  | Lsp.Document -> "language.format"
+  | Lsp.Range -> "language.format-selection"
+
 let clear_code_action_request session ~request_id =
   match session.interaction with
   | Code_action_view { request_id = expected_request_id; _ }
@@ -5490,6 +5540,41 @@ let poll_active_language ?(background = false) session =
           (clear_code_action_request session ~request_id) with
           message = Some "language: stale code actions discarded";
         }
+    | Lsp.Formatting_result
+        { scope; document_version; start_offset; stop_offset; edits; _ }
+      when formatting_response_is_current session ~scope ~document_version
+             ~start_offset ~stop_offset ->
+        let label = formatting_label scope in
+        if edits = [] then
+          {
+            session with
+            message = Some ("language " ^ label ^ " made no changes");
+          }
+        else
+          let input =
+            Input_event.key_press (Input_event.named_key Input_event.Enter)
+          in
+          begin match
+            apply_workspace_edits session input
+              ~effect_id:(formatting_effect_id scope)
+              edits
+          with
+          | Error reason ->
+              {
+                session with
+                message = Some ("language " ^ label ^ " rejected: " ^ reason);
+              }
+          | Ok (next, _) ->
+              { next with message = Some ("language " ^ label ^ " applied") }
+          end
+    | Lsp.Formatting_result { scope; _ } ->
+        {
+          session with
+          message =
+            Some
+              ("language " ^ formatting_label scope
+             ^ " stale response discarded");
+        }
     | Lsp.Rename_result { document_version; edits; _ }
       when document_version = current_version && not background -> (
         let input =
@@ -5547,6 +5632,8 @@ let poll_active_language ?(background = false) session =
           | Lsp.Definition -> "definition"
           | Lsp.Completion -> "completion"
           | Lsp.Code_action -> "code action"
+          | Lsp.Document_formatting -> "formatting"
+          | Lsp.Range_formatting -> "range formatting"
           | Lsp.Rename -> "rename"
         in
         {
@@ -6268,9 +6355,9 @@ let matching_completion_items items query =
 
 let language_host_command = function
   | Language_status | Language_restart | Language_hover | Language_definition
-  | Language_complete | Language_code_action | Language_rename
-  | Language_diagnostic_next | Language_diagnostic_previous
-  | Language_diagnostic_describe_current ->
+  | Language_complete | Language_code_action | Language_format_document
+  | Language_format_selection | Language_rename | Language_diagnostic_next
+  | Language_diagnostic_previous | Language_diagnostic_describe_current ->
       true
   | Save | Save_as | Save_layout | Restore_layout | Set_project_root
   | Open_file_picker | Search_project | Quit | Force_quit | Reload_config
@@ -7809,6 +7896,8 @@ let invoke_host_palette_command ?(arguments = []) session input = function
   | Language_definition -> begin_definition session
   | Language_complete -> begin_completion session
   | Language_code_action -> begin_code_action session
+  | Language_format_document -> begin_document_formatting session
+  | Language_format_selection -> begin_range_formatting session
   | Language_rename -> begin_rename session
   | Language_diagnostic_next -> move_to_diagnostic session input 1
   | Language_diagnostic_previous -> move_to_diagnostic session input (-1)
@@ -8549,7 +8638,14 @@ let cancel_language_for_pointer session =
         ~execution_id:
           (Option.value ~default:0 (last_execution_of_active session.active));
       List.iter (Lsp.cancel client)
-        [ Lsp.Hover; Lsp.Completion; Lsp.Definition; Lsp.Code_action ])
+        [
+          Lsp.Hover;
+          Lsp.Completion;
+          Lsp.Definition;
+          Lsp.Code_action;
+          Lsp.Document_formatting;
+          Lsp.Range_formatting;
+        ])
     session.language_client;
   session
 
@@ -8718,7 +8814,14 @@ let rec handle_input session input =
               (Option.value ~default:0
                  (last_execution_of_active completed.active));
           List.iter (Lsp.cancel client)
-            [ Lsp.Hover; Lsp.Completion; Lsp.Definition; Lsp.Code_action ])
+            [
+              Lsp.Hover;
+              Lsp.Completion;
+              Lsp.Definition;
+              Lsp.Code_action;
+              Lsp.Document_formatting;
+              Lsp.Range_formatting;
+            ])
         completed.language_client;
       completed)
   in
@@ -9120,6 +9223,8 @@ let handle_host session = function
   | Language_definition -> Continue (begin_definition session)
   | Language_complete -> Continue (begin_completion session)
   | Language_code_action -> Continue (begin_code_action session)
+  | Language_format_document -> Continue (begin_document_formatting session)
+  | Language_format_selection -> Continue (begin_range_formatting session)
   | Language_rename -> Continue (begin_rename session)
   | Language_diagnostic_next ->
       Continue

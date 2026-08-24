@@ -4,7 +4,16 @@ module Trace = Zenbu_model_api.Trace
 module Trace_event = Zenbu_model_api.Trace_event
 module Profiler = Zenbu_model_api.Profiler
 
-type request_kind = Hover | Definition | Completion | Code_action | Rename
+type request_kind =
+  | Hover
+  | Definition
+  | Completion
+  | Code_action
+  | Document_formatting
+  | Range_formatting
+  | Rename
+
+type formatting_scope = Document | Range
 
 type workspace_edit = {
   uri : string;
@@ -49,6 +58,14 @@ type event =
       start_offset : int;
       stop_offset : int;
       actions : code_action list;
+    }
+  | Formatting_result of {
+      request_id : int;
+      document_version : int;
+      scope : formatting_scope;
+      start_offset : int;
+      stop_offset : int;
+      edits : workspace_edit list;
     }
   | Rename_result of {
       request_id : int;
@@ -148,6 +165,8 @@ let request_kind_name = function
   | Definition -> "definition"
   | Completion -> "completion"
   | Code_action -> "code-action"
+  | Document_formatting -> "formatting"
+  | Range_formatting -> "range-formatting"
   | Rename -> "rename"
 
 let sync_name = function
@@ -645,6 +664,28 @@ let workspace_edits_of_json ~current_uri ~contents ~workspace_documents
   with Jsonrpc.Json.Of_json (message, _) ->
     Error ("invalid workspace edit: " ^ message)
 
+let formatting_edits_of_json ~current_uri ~contents ~encoding = function
+  | `Null -> Ok []
+  | `List values -> (
+      try
+        let values = List.map Lsp.Types.TextEdit.t_of_yojson values in
+        let rec collect values result =
+          match values with
+          | [] -> Ok (List.rev result)
+          | value :: rest ->
+              Result.bind (text_edit_of_lsp ~contents ~encoding value)
+                (fun value -> collect rest (value :: result))
+        in
+        Result.map
+          (function
+            | [] -> []
+            | edits ->
+                [ { uri = current_uri; source_contents = contents; edits } ])
+          (collect values [])
+      with Jsonrpc.Json.Of_json (message, _) ->
+        Error ("invalid formatting edit: " ^ message))
+  | _ -> Error "invalid formatting result: expected an edit list or null"
+
 let code_action_of_lsp ~current_uri ~contents ~workspace_documents ~encoding =
   function
   | `Command command ->
@@ -758,6 +799,8 @@ let client_capabilities () =
                   ("isPreferredSupport", `Bool false);
                   ("disabledSupport", `Bool true);
                 ] );
+            ("formatting", assoc [ ("dynamicRegistration", `Bool false) ]);
+            ("rangeFormatting", assoc [ ("dynamicRegistration", `Bool false) ]);
             ("publishDiagnostics", assoc [ ("relatedInformation", `Bool false) ]);
           ] );
       ( "workspace",
@@ -885,6 +928,8 @@ let send_request ?byte_offset ?stop_offset t kind ~document_version ~contents
         | Feature Definition -> "textDocument/definition"
         | Feature Completion -> "textDocument/completion"
         | Feature Code_action -> "textDocument/codeAction"
+        | Feature Document_formatting -> "textDocument/formatting"
+        | Feature Range_formatting -> "textDocument/rangeFormatting"
         | Feature Rename -> "textDocument/rename"
       in
       match
@@ -984,6 +1029,7 @@ let feature_stage = function
   | Definition -> Profiler.Language_definition
   | Completion -> Profiler.Language_completion
   | Code_action -> Profiler.Language_code_action
+  | Document_formatting | Range_formatting -> Profiler.Language_formatting
   | Rename -> Profiler.Language_rename
 
 let feature_response t pending result =
@@ -1116,6 +1162,29 @@ let feature_response t pending result =
                       (code_actions_of_json ~current_uri:t.uri
                          ~contents:pending.contents
                          ~workspace_documents:pending.workspace_documents
+                         ~encoding:t.position_encoding json)
+                | (Document_formatting | Range_formatting) as kind ->
+                    Result.map
+                      (fun edits ->
+                        Formatting_result
+                          {
+                            request_id = pending.id;
+                            document_version = pending.document_version;
+                            scope =
+                              (match kind with
+                              | Document_formatting -> Document
+                              | Range_formatting -> Range
+                              | Hover | Definition | Completion | Code_action
+                              | Rename ->
+                                  assert false);
+                            start_offset =
+                              Option.value ~default:(-1) pending.byte_offset;
+                            stop_offset =
+                              Option.value ~default:(-1) pending.stop_offset;
+                            edits;
+                          })
+                      (formatting_edits_of_json ~current_uri:t.uri
+                         ~contents:pending.contents
                          ~encoding:t.position_encoding json)
                 | Rename ->
                     Result.map
@@ -1775,6 +1844,46 @@ let request_code_actions t ~start_offset ~stop_offset =
         in
         send_request ~byte_offset:start_offset ~stop_offset t
           (Feature Code_action) ~document_version ~contents ~params)
+
+let formatting_options = [ ("tabSize", `Int 2); ("insertSpaces", `Bool true) ]
+
+let request_formatting t kind ~start_offset ~stop_offset =
+  Mutex.lock t.lock;
+  let state = t.state in
+  let contents = t.current_contents in
+  let document_version = t.document_version in
+  let encoding = t.position_encoding in
+  Mutex.unlock t.lock;
+  if state <> Language.Ready then Error "language server is unavailable"
+  else if start_offset < 0 || stop_offset < start_offset then
+    Error "formatting range is invalid"
+  else
+    Result.bind
+      (Language.Position.offsets_to_range ~contents ~encoding ~start_offset
+         ~stop_offset) (fun range ->
+        let params =
+          [
+            ("textDocument", assoc [ ("uri", `String t.uri) ]);
+            ("options", assoc formatting_options);
+          ]
+          @
+          match kind with
+          | Document_formatting -> []
+          | Range_formatting -> [ ("range", range_json range) ]
+          | Hover | Definition | Completion | Code_action | Rename ->
+              assert false
+        in
+        send_request ~byte_offset:start_offset ~stop_offset t (Feature kind)
+          ~document_version ~contents ~params)
+
+let request_document_formatting t =
+  Mutex.lock t.lock;
+  let stop_offset = String.length t.current_contents in
+  Mutex.unlock t.lock;
+  request_formatting t Document_formatting ~start_offset:0 ~stop_offset
+
+let request_range_formatting t ~start_offset ~stop_offset =
+  request_formatting t Range_formatting ~start_offset ~stop_offset
 
 let request_rename t ~byte_offset ~new_name =
   if String.length new_name = 0 then Error "rename target must not be empty"
