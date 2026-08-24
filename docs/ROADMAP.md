@@ -29,11 +29,14 @@ grant a host or renderer a private document mutation path.
 
 The split-view host additionally stores bounded per-split proportions. It can
 move the focused pane's nearest matching divider by one cell, drag an exact
-visible divider, or reset the tree to equal proportions. These are host-owned
-operations exposed through palette, model-effect, and trusted-binding surfaces
-without exposing pane identifiers or terminal geometry to a model. It
-intentionally omits product-specific minimum-size policy, numeric resize
-arguments, and persisted layouts.
+visible divider, reset the tree to equal proportions, and save/restore a
+versioned local JSON layout through palette commands. Layout files contain only
+validated clean file-backed buffer references and host-owned split/view state;
+restore validates all referenced files and selections before it replaces the
+current session. These operations do not expose pane identifiers or terminal
+geometry to a model. They intentionally omit product-specific minimum-size
+policy, numeric resize arguments, cross-machine sync, and product/process
+state serialization.
 
 M11 adds optional `zenbu.language` data and a private `zenbu.lsp` adapter. The
 default `.ml`/`.mli` path starts `ocamllsp`; diagnostics, hover, same- and
@@ -65,18 +68,21 @@ The following remain deliberately out of scope:
 
 ## Next proposed milestone
 
-M12 has same-buffer split-view composition, a local buffer table, and bounded
-cross-file language results. Views have stable buffer ids and versioned ordered
-selection snapshots per `(view, buffer)` pairing; focused input restores that
-view's selection and inactive positions rebase through forward local history.
-Buffers retain their own model runtime/history, and all open saved buffers
-participate in language wakeup polling. A definition target opens/reuses a
-local buffer. Rename and `workspace/applyEdit` stage and publish edits across
-already-open saved targets all-or-none, while retaining per-buffer history.
-File watching or target auto-open must build on normal-save conflict detection
-without making buffers, providers, or language protocols visible to the kernel
-or model API, and should not bundle project search, a marketplace, or a
-Component distribution redesign.
+M12 has same-buffer split-view composition, a local buffer table, bounded
+cross-file language results, and versioned local layout persistence. Views have
+stable buffer ids and ordered selection snapshots per `(view, buffer)` pairing;
+focused input restores that view's selection and inactive positions rebase
+through forward local history. Layout restore remains deliberately local and
+host-owned: it rebuilds only clean file-backed buffers after preflight rather
+than storing text, model/plugin/LSP state, or project metadata. Buffers retain
+their own model runtime/history, and all open saved buffers participate in
+language wakeup polling. A definition target opens/reuses a local buffer.
+Rename and `workspace/applyEdit` stage and publish edits across already-open
+saved targets all-or-none, while retaining per-buffer history. File watching or
+target auto-open must build on normal-save conflict detection without making
+buffers, providers, or language protocols visible to the kernel or model API,
+and should not bundle project search, a marketplace, or a Component distribution
+redesign.
 
 Portable Component distribution and a first-party guest authoring tool remain
 the next packaging concern after M11: they need a verified platform matrix and

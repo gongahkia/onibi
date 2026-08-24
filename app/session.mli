@@ -3,6 +3,8 @@ type model = Vim | Selection | Direct | Structural | Script
 type host_command =
   | Save
   | Save_as
+  | Save_layout
+  | Restore_layout
   | Quit
   | Force_quit
   | Reload_config
@@ -123,6 +125,8 @@ val host_command_descriptors : unit -> Zenbu_model_api.Command_descriptor.t list
 val host_binding_lines : t -> string list
 val reload_config : t -> t
 val resize : t -> columns:int -> rows:int -> t
+val save_layout : t -> path:string -> (unit, Zenbu_kernel.Error.t) result
+val restore_layout : t -> path:string -> (t, Zenbu_kernel.Error.t) result
 val render : t -> t * Zenbu_view.Frame.t
 val contents : t -> string
 val file_path : t -> string option

@@ -20,6 +20,8 @@ type model = Vim | Selection | Direct | Structural | Script
 type host_command =
   | Save
   | Save_as
+  | Save_layout
+  | Restore_layout
   | Quit
   | Force_quit
   | Reload_config
@@ -221,6 +223,7 @@ type t = {
   config : Scripting.config;
   generation : Scripting.t option;
   plugins : Plugins.t;
+  plugins_config : Plugins.config;
   next_generation_id : int;
   last_reload_error : Error.t option;
   delivering_events : Scripting.event list;
@@ -592,6 +595,39 @@ let host_command_entries =
               ]
             "editor.save-as" "Save buffer as"
             "Write the active buffer to a destination path atomically.";
+        palette = true;
+      };
+      {
+        command = Save_layout;
+        descriptor =
+          host_descriptor
+            ~parameters:
+              [
+                text_parameter ~name:"path"
+                  ~description:
+                    "Destination JSON file for clean, file-backed workspace \
+                     state."
+                  ~required:true;
+              ]
+            "workspace.layout.save" "Save workspace layout"
+            "Write the validated local buffer, split, viewport, and selection \
+             layout.";
+        palette = true;
+      };
+      {
+        command = Restore_layout;
+        descriptor =
+          host_descriptor
+            ~parameters:
+              [
+                text_parameter ~name:"path"
+                  ~description:
+                    "Validated workspace-layout JSON file to restore."
+                  ~required:true;
+              ]
+            "workspace.layout.restore" "Restore workspace layout"
+            "Replace this session only after validating every referenced local \
+             file and view state.";
         palette = true;
       };
       {
@@ -1595,6 +1631,7 @@ let create ~model ?language ?file_path ?(contents = "") ?trace ?profiler
                     config;
                     generation;
                     plugins = plugin_host;
+                    plugins_config = plugins;
                     next_generation_id = 2;
                     last_reload_error = config_error;
                     delivering_events = [];
@@ -2589,11 +2626,11 @@ let create_active ~model ~commands ~semantic_behaviors ?syntax_service ~trace
           |> Result.map (fun runtime -> Script_runtime runtime))
 
 let create_buffer session ~id ?file_path ?buffer_name ?language ?saved_snapshot
-    ~contents () =
+    ?editing_model ~contents () =
   let language = Option.value ~default:session.language_override language in
   Result.bind (document ~contents) (fun document ->
       Result.bind (syntax_service ?language file_path) (fun syntax_service ->
-          let model = model session in
+          let model = Option.value ~default:(model session) editing_model in
           let commands = active_commands session.active in
           let semantic_behaviors = active_semantic_behaviors session.active in
           let trace = trace_of_active session.active in
@@ -4909,19 +4946,20 @@ let language_host_command = function
   | Language_complete | Language_rename | Language_diagnostic_next
   | Language_diagnostic_previous | Language_diagnostic_describe_current ->
       true
-  | Save | Save_as | Quit | Force_quit | Reload_config | Start_search
-  | Start_regexp_search | Replace_all_literal | Replace_all_regexp | Search_next
-  | Search_previous | Toggle_macro_recording | Replay_macro | Kill_ring_cut
-  | Kill_ring_yank | System_clipboard_copy | System_clipboard_paste
-  | Set_location | Jump_location | Push_jump | Jump_backward | Jump_forward
-  | Open_palette | Switch_model | Help | Switch_presentation | Switch_theme
-  | Background_jobs | Cancel_background_job | Open_background_job_output
-  | Split_vertical | Split_horizontal | Focus_next_pane | Close_pane | Only_pane
-  | Grow_pane_width | Shrink_pane_width | Grow_pane_height | Shrink_pane_height
-  | Balance_panes | New_buffer | Open_buffer | List_buffers | Switch_buffer
-  | Rename_buffer | Close_buffer | Force_close_buffer | Next_buffer
-  | Previous_buffer | View_scroll_up | View_scroll_down | View_page_up
-  | View_page_down | View_center ->
+  | Save | Save_as | Save_layout | Restore_layout | Quit | Force_quit
+  | Reload_config | Start_search | Start_regexp_search | Replace_all_literal
+  | Replace_all_regexp | Search_next | Search_previous | Toggle_macro_recording
+  | Replay_macro | Kill_ring_cut | Kill_ring_yank | System_clipboard_copy
+  | System_clipboard_paste | Set_location | Jump_location | Push_jump
+  | Jump_backward | Jump_forward | Open_palette | Switch_model | Help
+  | Switch_presentation | Switch_theme | Background_jobs | Cancel_background_job
+  | Open_background_job_output | Split_vertical | Split_horizontal
+  | Focus_next_pane | Close_pane | Only_pane | Grow_pane_width
+  | Shrink_pane_width | Grow_pane_height | Shrink_pane_height | Balance_panes
+  | New_buffer | Open_buffer | List_buffers | Switch_buffer | Rename_buffer
+  | Close_buffer | Force_close_buffer | Next_buffer | Previous_buffer
+  | View_scroll_up | View_scroll_down | View_page_up | View_page_down
+  | View_center ->
       false
 
 let palette_items session =
@@ -5416,6 +5454,395 @@ let open_background_job_output session ~job_id =
                  "background job %d output opened in buffer *job %d output*"
                  job_id job_id))
 
+let release_session session =
+  Option.iter Background_job.close session.jobs;
+  current_buffer session :: session.inactive_buffers
+  |> List.iter (fun (buffer : buffer) ->
+      Option.iter Lsp.close buffer.language_client)
+
+let layout_error message =
+  Error.Invalid_command_arguments ("workspace layout: " ^ message)
+
+let layout_model_of_model = function
+  | Vim -> Ok Session_layout.Vim
+  | Selection -> Ok Session_layout.Selection
+  | Direct -> Ok Session_layout.Direct
+  | Structural -> Ok Session_layout.Structural
+  | Script ->
+      Error
+        (layout_error
+           "script editing models are not persisted because their internals \
+            are host-external")
+
+let model_of_layout_model = function
+  | Session_layout.Vim -> Vim
+  | Session_layout.Selection -> Selection
+  | Session_layout.Direct -> Direct
+  | Session_layout.Structural -> Structural
+
+let layout_position_of_view_position pane buffer (position : view_position) =
+  if position.stale then
+    Error
+      (layout_error
+         (Printf.sprintf
+            "view state for pane %d and buffer %d is stale and cannot be saved"
+            pane buffer))
+  else
+    Ok
+      Session_layout.
+        {
+          pane;
+          buffer;
+          selections =
+            List.map
+              (fun (anchor, head) -> { anchor; head })
+              position.selections;
+          primary = position.primary;
+        }
+
+let save_layout session ~path =
+  let session = capture_focused_view_position session in
+  let buffers = current_buffer session :: session.inactive_buffers in
+  let rec serialize_buffers values = function
+    | [] -> Ok (List.rev values)
+    | (buffer : buffer) :: rest -> (
+        match (buffer.file_path, buffer.saved_snapshot) with
+        | None, _ ->
+            Error
+              (layout_error
+                 (Printf.sprintf
+                    "buffer %d is unnamed; save it before saving the workspace \
+                     layout"
+                    buffer.id))
+        | Some _, None ->
+            Error
+              (layout_error
+                 (Printf.sprintf "buffer %d has no verified file baseline"
+                    buffer.id))
+        | Some file_path, Some saved_snapshot -> (
+            if buffer_dirty buffer then
+              Error
+                (layout_error
+                   (Printf.sprintf
+                      "buffer %d has unsaved changes; save it before saving \
+                       the workspace layout"
+                      buffer.id))
+            else
+              match File_io.check_snapshot saved_snapshot ~path:file_path with
+              | Error error -> Error (layout_error (File_io.to_string error))
+              | Ok () -> (
+                  match
+                    layout_model_of_model (model_of_active buffer.active)
+                  with
+                  | Error _ as error -> error
+                  | Ok model ->
+                      serialize_buffers
+                        (Session_layout.
+                           {
+                             id = buffer.id;
+                             path = file_path;
+                             name = buffer.buffer_name;
+                             language = buffer.language_override;
+                             model;
+                           }
+                        :: values)
+                        rest)))
+  in
+  match serialize_buffers [] buffers with
+  | Error _ as error -> error
+  | Ok buffers -> (
+      let rec serialize_positions values = function
+        | [] -> Ok (List.rev values)
+        | ((pane, buffer), position) :: rest -> (
+            match layout_position_of_view_position pane buffer position with
+            | Error _ as error -> error
+            | Ok position -> serialize_positions (position :: values) rest)
+      in
+      match serialize_positions [] session.pane_view_positions with
+      | Error _ as error -> error
+      | Ok view_positions ->
+          let layout =
+            Session_layout.
+              {
+                schema_version = Session_layout.current_schema_version;
+                buffers;
+                layout = Layout.to_persisted session.layout;
+                focused_pane = session.focused_pane;
+                pane_buffers =
+                  List.map
+                    (fun (pane, buffer) -> Session_layout.{ pane; buffer })
+                    session.pane_buffers;
+                viewports =
+                  List.map
+                    (fun (pane, (viewport : Zenbu_view.Viewport.t)) ->
+                      Session_layout.
+                        {
+                          pane;
+                          top_line = viewport.top_line;
+                          left_column = viewport.left_column;
+                          follow_cursor = viewport.follow_cursor;
+                        })
+                    session.pane_viewports;
+                view_positions;
+              }
+          in
+          File_io.save_atomic ~path ~contents:(Session_layout.encode layout)
+          |> Result.map_error (fun error ->
+              layout_error (File_io.to_string error)))
+
+type restored_layout_buffer = {
+  specification : Session_layout.buffer;
+  contents : string;
+  snapshot : File_io.snapshot;
+}
+
+let validate_layout_position ~contents (position : Session_layout.view_position)
+    =
+  match Text_buffer.of_utf8 contents with
+  | Error error -> Error (layout_error (Error.to_string error))
+  | Ok buffer ->
+      let byte_length = Text_buffer.byte_length buffer in
+      let validate_offset kind offset =
+        if offset > byte_length then
+          Error
+            (layout_error
+               (Printf.sprintf
+                  "invalid %s offset %d for pane %d and buffer %d: outside \
+                   %d-byte file"
+                  kind offset position.pane position.buffer byte_length))
+        else if not (Text_buffer.is_code_point_boundary buffer offset) then
+          Error
+            (layout_error
+               (Printf.sprintf
+                  "invalid %s offset %d for pane %d and buffer %d: splits a \
+                   UTF-8 code point"
+                  kind offset position.pane position.buffer))
+        else Ok ()
+      in
+      let rec validate = function
+        | [] -> Ok ()
+        | (selection : Session_layout.selection) :: rest -> (
+            match validate_offset "anchor" selection.anchor with
+            | Error _ as error -> error
+            | Ok () -> (
+                match validate_offset "head" selection.head with
+                | Error _ as error -> error
+                | Ok () -> validate rest))
+      in
+      validate position.selections
+
+let preflight_layout (layout : Session_layout.t) =
+  let rec read_buffers values = function
+    | [] -> Ok (List.rev values)
+    | (specification : Session_layout.buffer) :: rest -> (
+        match specification.name with
+        | Some name -> (
+            match valid_buffer_name name with
+            | Error error -> Error (layout_error (Error.to_string error))
+            | Ok _ -> read_buffer values specification rest)
+        | None -> read_buffer values specification rest)
+  and read_buffer values specification rest =
+    match
+      syntax_service ?language:specification.language (Some specification.path)
+    with
+    | Error error -> Error (layout_error (Error.to_string error))
+    | Ok _ -> (
+        match File_io.read_snapshot specification.path with
+        | Error error -> Error (layout_error (File_io.to_string error))
+        | Ok (contents, snapshot) ->
+            read_buffers ({ specification; contents; snapshot } :: values) rest)
+  in
+  match read_buffers [] layout.buffers with
+  | Error _ as error -> error
+  | Ok buffers ->
+      let buffer_for_id buffer_id =
+        List.find_opt
+          (fun (buffer : restored_layout_buffer) ->
+            buffer.specification.id = buffer_id)
+          buffers
+      in
+      let rec validate_positions = function
+        | [] -> Ok buffers
+        | (position : Session_layout.view_position) :: rest -> (
+            match buffer_for_id position.buffer with
+            | None ->
+                Error
+                  (layout_error
+                     (Printf.sprintf "selection references unknown buffer %d"
+                        position.buffer))
+            | Some buffer -> (
+                match
+                  validate_layout_position ~contents:buffer.contents position
+                with
+                | Error _ as error -> error
+                | Ok () -> validate_positions rest))
+      in
+      validate_positions layout.view_positions
+
+let restore_layout session ~path =
+  match File_io.read path with
+  | Error error -> Error (layout_error (File_io.to_string error))
+  | Ok contents -> (
+      match Session_layout.decode contents with
+      | Error error -> Error (layout_error error)
+      | Ok layout -> (
+          match preflight_layout layout with
+          | Error _ as error -> error
+          | Ok buffers -> (
+              match buffers with
+              | [] -> Error (layout_error "layout has no buffers")
+              | initial :: remaining -> (
+                  let create_initial () =
+                    create
+                      ~model:(model_of_layout_model initial.specification.model)
+                      ?language:initial.specification.language
+                      ~file_path:initial.specification.path
+                      ~contents:initial.contents
+                      ~trace:(trace_of_active session.active)
+                      ~profiler:(profiler_of_active session.active)
+                      ~presentation:session.presentation ~theme:session.theme
+                      ~system_clipboard:session.system_clipboard
+                      ~config:session.config ~plugins:session.plugins_config
+                      ~language_registry:session.language_registry
+                      ~dimensions:session.dimensions ()
+                    |> Result.map_error (fun error ->
+                        layout_error (Error.to_string error))
+                  in
+                  match create_initial () with
+                  | Error _ as error -> error
+                  | Ok initial_session -> (
+                      let initial_session =
+                        {
+                          initial_session with
+                          current_buffer_id = initial.specification.id;
+                          buffer_name = initial.specification.name;
+                          language_override = initial.specification.language;
+                          saved_contents = initial.contents;
+                          saved_snapshot = Some initial.snapshot;
+                        }
+                      in
+                      let rec add_buffers restored = function
+                        | [] -> Ok restored
+                        | buffer :: rest -> (
+                            match
+                              create_buffer restored ~id:buffer.specification.id
+                                ~editing_model:
+                                  (model_of_layout_model
+                                     buffer.specification.model)
+                                ~file_path:buffer.specification.path
+                                ?buffer_name:buffer.specification.name
+                                ~language:buffer.specification.language
+                                ~saved_snapshot:buffer.snapshot
+                                ~contents:buffer.contents ()
+                            with
+                            | Error error ->
+                                Error (layout_error (Error.to_string error))
+                            | Ok created ->
+                                add_buffers
+                                  {
+                                    restored with
+                                    inactive_buffers =
+                                      created :: restored.inactive_buffers;
+                                  }
+                                  rest)
+                      in
+                      match add_buffers initial_session remaining with
+                      | Error _ as error -> error
+                      | Ok restored -> (
+                          match Layout.of_persisted layout.layout with
+                          | Error error -> Error (layout_error error)
+                          | Ok restored_layout ->
+                              let pane_ids = Layout.panes restored_layout in
+                              let next_pane_id =
+                                List.fold_left max 0 pane_ids + 1
+                              in
+                              let next_buffer_id =
+                                List.fold_left
+                                  (fun maximum (buffer : restored_layout_buffer)
+                                     -> max maximum buffer.specification.id)
+                                  0 buffers
+                                + 1
+                              in
+                              let restored =
+                                {
+                                  restored with
+                                  layout = restored_layout;
+                                  focused_pane = layout.focused_pane;
+                                  pane_viewports =
+                                    List.map
+                                      (fun (viewport : Session_layout.viewport)
+                                         ->
+                                        ( viewport.pane,
+                                          Zenbu_view.Viewport.
+                                            {
+                                              top_line = viewport.top_line;
+                                              left_column = viewport.left_column;
+                                              follow_cursor =
+                                                viewport.follow_cursor;
+                                            } ))
+                                      layout.viewports;
+                                  pane_view_positions =
+                                    List.map
+                                      (fun (position :
+                                             Session_layout.view_position) ->
+                                        ( (position.pane, position.buffer),
+                                          {
+                                            buffer_id = position.buffer;
+                                            document_version = 0;
+                                            selections =
+                                              List.map
+                                                (fun (selection :
+                                                       Session_layout.selection)
+                                                   ->
+                                                  ( selection.anchor,
+                                                    selection.head ))
+                                                position.selections;
+                                            primary = position.primary;
+                                            stale = false;
+                                          } ))
+                                      layout.view_positions;
+                                  next_pane_id;
+                                  next_buffer_id;
+                                  pane_buffers =
+                                    List.map
+                                      (fun (mapping :
+                                             Session_layout.pane_buffer) ->
+                                        (mapping.pane, mapping.buffer))
+                                      layout.pane_buffers;
+                                  interaction = Idle;
+                                  inspector = None;
+                                  message = None;
+                                  mouse_drag = None;
+                                  pending_binding = [];
+                                  locations = [];
+                                  backward_jumps = [];
+                                  forward_jumps = [];
+                                }
+                                |> synchronize_workspace_documents
+                              in
+                              let target_buffer =
+                                List.assoc layout.focused_pane
+                                  restored.pane_buffers
+                              in
+                              let restored =
+                                activate_buffer restored target_buffer
+                              in
+                              let restored =
+                                restore_pane_view_position restored
+                                  layout.focused_pane
+                              in
+                              release_session session;
+                              Ok
+                                {
+                                  restored with
+                                  message =
+                                    Some
+                                      ("workspace layout restored from " ^ path);
+                                  interaction = Idle;
+                                  inspector = None;
+                                  quit_armed = false;
+                                }))))))
+
 let invoke_host_palette_command ?(arguments = []) session input = function
   | Save -> save session
   | Save_as -> (
@@ -5432,6 +5859,29 @@ let invoke_host_palette_command ?(arguments = []) session input = function
         | Ok path -> save_to ~overwrite:true session path
         | Error error -> { session with message = Some (Error.to_string error) }
       )
+  | Save_layout -> (
+      match required_text_argument arguments "path" with
+      | Error error -> { session with message = Some (Error.to_string error) }
+      | Ok path -> (
+          match save_layout session ~path with
+          | Error error ->
+              { session with message = Some (Error.to_string error) }
+          | Ok () ->
+              {
+                session with
+                interaction = Idle;
+                inspector = None;
+                message = Some ("workspace layout saved to " ^ path);
+                quit_armed = false;
+              }))
+  | Restore_layout -> (
+      match required_text_argument arguments "path" with
+      | Error error -> { session with message = Some (Error.to_string error) }
+      | Ok path -> (
+          match restore_layout session ~path with
+          | Error error ->
+              { session with message = Some (Error.to_string error) }
+          | Ok restored -> restored))
   | Reload_config -> { (reload_config session) with interaction = Idle }
   | Start_search -> begin_search session
   | Start_regexp_search -> begin_search ~kind:Regexp session
@@ -6470,6 +6920,18 @@ let handle_host session = function
           session with
           interaction = Save_as_prompt "";
           message = Some "save-as: enter a destination path";
+          quit_armed = false;
+          inspector = None;
+        }
+  | Save_layout | Restore_layout ->
+      Continue
+        {
+          session with
+          interaction = Idle;
+          message =
+            Some
+              "workspace layout commands require a path through the command \
+               palette";
           quit_armed = false;
           inspector = None;
         }

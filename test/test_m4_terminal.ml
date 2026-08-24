@@ -1273,6 +1273,215 @@ let test_session_open_buffer_prompt () =
         (App.Session.buffer_count session = 2)
         "opening an existing path duplicated its buffer")
 
+let save_file path contents =
+  match App.File_io.save_atomic ~path ~contents with
+  | Ok () -> ()
+  | Error error -> failf "%s" (App.File_io.to_string error)
+
+let expect_layout_restore_error session ~path ~description =
+  let contents = App.Session.contents session in
+  let panes = App.Session.pane_count session in
+  let focused_pane = App.Session.focused_pane session in
+  let focused_buffer = App.Session.focused_buffer session in
+  match App.Session.restore_layout session ~path with
+  | Ok restored ->
+      App.Session.close restored;
+      failf "%s unexpectedly restored" description
+  | Error _ ->
+      expect
+        (App.Session.contents session = contents
+        && App.Session.pane_count session = panes
+        && App.Session.focused_pane session = focused_pane
+        && App.Session.focused_buffer session = focused_buffer)
+        "%s changed the active session" description
+
+let single_pane_layout_json ~schema_version ~path ~positions =
+  let viewports =
+    if schema_version = 1 then ""
+    else
+      ",\"viewports\":[{\"pane\":0,\"top_line\":0,\"left_column\":0,\"follow_cursor\":true}]"
+  in
+  Printf.sprintf
+    "{\"schema_version\":%d,\"buffers\":[{\"id\":0,\"path\":\"%s\",\"name\":null,\"language\":null,\"model\":\"direct\"}],\"layout\":{\"kind\":\"pane\",\"pane\":0},\"focused_pane\":0,\"pane_buffers\":[{\"pane\":0,\"buffer\":0}]%s,\"view_positions\":%s}"
+    schema_version path viewports positions
+
+let test_session_layout_persistence () =
+  let first_path = temporary_file () in
+  let second_path = temporary_file () in
+  let target_path = temporary_file () in
+  let layout_path = temporary_file () in
+  let malformed_path = temporary_file () in
+  let invalid_ratio_path = temporary_file () in
+  let stale_schema_path = temporary_file () in
+  let invalid_selection_path = temporary_file () in
+  let v1_path = temporary_file () in
+  let missing_path = temporary_file () in
+  remove missing_path;
+  Fun.protect
+    ~finally:(fun () ->
+      [
+        first_path;
+        second_path;
+        target_path;
+        layout_path;
+        malformed_path;
+        invalid_ratio_path;
+        stale_schema_path;
+        invalid_selection_path;
+        v1_path;
+      ]
+      |> List.iter remove)
+    (fun () ->
+      save_file first_path "alpha\nbeta\ngamma\ndelta\nepsilon";
+      save_file second_path "zero\none\ntwo\nthree\nfour\nfive";
+      save_file target_path "target";
+      let dimensions = Renderer.{ columns = 30; rows = 5 } in
+      let session =
+        App.Session.create ~model:App.Session.Direct ~file_path:first_path
+          ~contents:"alpha\nbeta\ngamma\ndelta\nepsilon" ~dimensions ()
+        |> must
+        |> fun session ->
+        App.Session.handle_input session (named Input_event.Arrow_right)
+        |> fun session ->
+        App.Session.handle_input session (named Input_event.Arrow_right)
+        |> fun session ->
+        host_session session App.Session.Split_vertical |> fun session ->
+        App.Session.handle_input session (named Input_event.Arrow_right)
+        |> fun session ->
+        App.Session.handle_input session (named Input_event.Arrow_right)
+      in
+      let session =
+        host_session session App.Session.Open_buffer |> fun session ->
+        App.Session.handle_input session (text_input second_path)
+        |> fun session ->
+        App.Session.handle_input session (named Input_event.Enter)
+        |> fun session ->
+        App.Session.handle_input session (named Input_event.Arrow_right)
+        |> fun session ->
+        App.Session.handle_input session (named Input_event.Arrow_right)
+        |> fun session ->
+        App.Session.handle_input session (named Input_event.Arrow_right)
+        |> fun session -> host_session session App.Session.View_scroll_down
+      in
+      (match App.Session.save_layout session ~path:layout_path with
+      | Ok () -> ()
+      | Error error -> failf "%s" (Error.to_string error));
+      expect
+        (List.for_all
+           (fun id ->
+             List.exists
+               (fun descriptor ->
+                 Command_descriptor.id descriptor
+                 |> Command_id.to_string |> String.equal id)
+               (App.Session.host_command_descriptors ()))
+           [ "workspace.layout.save"; "workspace.layout.restore" ])
+        "workspace-layout commands are not discoverable through the palette";
+      let target =
+        App.Session.create ~model:App.Session.Direct ~file_path:target_path
+          ~contents:"target" ~dimensions ()
+        |> must
+      in
+      let restored =
+        match App.Session.restore_layout target ~path:layout_path with
+        | Ok restored -> restored
+        | Error error -> failf "%s" (Error.to_string error)
+      in
+      expect
+        (App.Session.pane_count restored = 2
+        && App.Session.buffer_count restored = 2
+        && App.Session.focused_pane restored = 1
+        && App.Session.focused_buffer restored = 1)
+        "round-trip did not restore the split, focused pane, and buffer routing";
+      expect_string ~expected:"zero\none\ntwo\nthree\nfour\nfive"
+        ~actual:(App.Session.contents restored);
+      expect
+        ((primary_selection restored).head_offset = 3
+        && (App.Session.viewport restored).top_line = 1)
+        "round-trip did not restore the focused pane's selection and viewport";
+      let restored = host_session restored App.Session.Focus_next_pane in
+      expect
+        (App.Session.focused_pane restored = 0
+        && App.Session.contents restored = "alpha\nbeta\ngamma\ndelta\nepsilon"
+        && (primary_selection restored).head_offset = 2)
+        "round-trip did not restore the first pane's saved buffer and selection";
+      let restored = host_session restored App.Session.Focus_next_pane in
+      let restored = host_session restored App.Session.Next_buffer in
+      expect
+        (App.Session.focused_pane restored = 1
+        && App.Session.focused_buffer restored = 0
+        && (primary_selection restored).head_offset = 4)
+        "restored pane-local selections leaked between pane and buffer pairs";
+      let restored = host_session restored App.Session.Focus_next_pane in
+      expect
+        ((primary_selection restored).head_offset = 2)
+        "switching panes changed another pane's restored selection";
+      App.Session.close restored;
+      let unchanged () =
+        App.Session.create ~model:App.Session.Direct ~file_path:target_path
+          ~contents:"target" ~dimensions ()
+        |> must
+      in
+      save_file malformed_path "{";
+      let malformed = unchanged () in
+      expect_layout_restore_error malformed ~path:malformed_path
+        ~description:"malformed JSON";
+      App.Session.close malformed;
+      save_file invalid_ratio_path
+        (Printf.sprintf
+           "{\"schema_version\":2,\"buffers\":[{\"id\":0,\"path\":\"%s\",\"name\":null,\"language\":null,\"model\":\"direct\"}],\"layout\":{\"kind\":\"split\",\"orientation\":\"vertical\",\"ratio\":0,\"first\":{\"kind\":\"pane\",\"pane\":0},\"second\":{\"kind\":\"pane\",\"pane\":1}},\"focused_pane\":0,\"pane_buffers\":[{\"pane\":0,\"buffer\":0},{\"pane\":1,\"buffer\":0}],\"viewports\":[{\"pane\":0,\"top_line\":0,\"left_column\":0,\"follow_cursor\":true},{\"pane\":1,\"top_line\":0,\"left_column\":0,\"follow_cursor\":true}],\"view_positions\":[]}"
+           first_path);
+      let invalid_ratio = unchanged () in
+      expect_layout_restore_error invalid_ratio ~path:invalid_ratio_path
+        ~description:"invalid split ratio";
+      App.Session.close invalid_ratio;
+      save_file stale_schema_path
+        (single_pane_layout_json ~schema_version:99 ~path:first_path
+           ~positions:"[]");
+      let stale_schema = unchanged () in
+      expect_layout_restore_error stale_schema ~path:stale_schema_path
+        ~description:"stale schema";
+      App.Session.close stale_schema;
+      save_file invalid_selection_path
+        (single_pane_layout_json ~schema_version:2 ~path:first_path
+           ~positions:
+             "[{\"pane\":0,\"buffer\":0,\"selections\":[{\"anchor\":999,\"head\":999}],\"primary\":0}]");
+      let invalid_selection = unchanged () in
+      expect_layout_restore_error invalid_selection ~path:invalid_selection_path
+        ~description:"invalid selection offset";
+      App.Session.close invalid_selection;
+      let missing = unchanged () in
+      expect_layout_restore_error missing ~path:missing_path
+        ~description:"missing layout file";
+      App.Session.close missing;
+      save_file v1_path
+        (single_pane_layout_json ~schema_version:1 ~path:first_path
+           ~positions:
+             "[{\"pane\":0,\"buffer\":0,\"selections\":[{\"anchor\":1,\"head\":1}],\"primary\":0}]");
+      let v1_target = unchanged () in
+      let v1_restored =
+        match App.Session.restore_layout v1_target ~path:v1_path with
+        | Ok restored -> restored
+        | Error error -> failf "%s" (Error.to_string error)
+      in
+      expect
+        (App.Session.pane_count v1_restored = 1
+        && (primary_selection v1_restored).head_offset = 1
+        && App.Session.viewport v1_restored = Zenbu_view.Viewport.origin)
+        "schema v1 layout did not restore with the version-2 viewport default";
+      App.Session.close v1_restored;
+      let unnamed =
+        App.Session.create ~model:App.Session.Direct ~contents:"unsaved"
+          ~dimensions ()
+        |> must
+      in
+      expect
+        (match App.Session.save_layout unnamed ~path:layout_path with
+        | Error _ -> true
+        | Ok () -> false)
+        "saving a layout accepted an unnamed buffer";
+      App.Session.close unnamed;
+      App.Session.close session)
+
 let run name test =
   try
     test ();
@@ -1306,5 +1515,6 @@ let () =
     ("keyboard viewport commands", test_keyboard_viewport_commands);
     ("workspace view positions", test_workspace_view_positions);
     ("session open-buffer prompt", test_session_open_buffer_prompt);
+    ("session layout persistence", test_session_layout_persistence);
   ]
   |> List.iter (fun (name, test) -> run name test)

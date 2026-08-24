@@ -75,7 +75,7 @@ press on an exact visible divider begins a host-owned drag of that original
 split; buffer lines, status rows, and document canvas cells are not targets.
 The gesture changes neither document nor selection state. This is deliberately
 a small generic layout contract, not per-editor minimum-window policy, numeric
-prefixes, or layout persistence.
+prefixes, or product-specific window policy.
 
 ## Backend and rendering
 
@@ -125,6 +125,23 @@ missing target. Save-as intentionally replaces its destination after the same
 atomic write and establishes a new baseline; there is no interactive overwrite
 confirmation in M11. Success updates active path and saved version/contents.
 Zenbu does not fsync the parent directory or watch files.
+
+`workspace.layout.save` and `workspace.layout.restore` are palette commands
+with a required JSON-file `path`. Layout save writes schema version 2 and only
+accepts clean, file-backed buffers whose saved file baseline still matches the
+filesystem. It records host-owned buffer identifiers/paths/display names,
+first-party model identifiers, split ratios, focused pane, viewports, and
+ordered selections per `(pane, buffer)` pair. It never serializes document
+contents, unsaved buffers, model internals, Lua/Component state, terminal
+handles, LSP objects, plugins, jobs, or history. Restore also accepts schema
+version 1, defaulting its absent viewports to origin/follow-cursor behavior.
+It validates the whole JSON shape, schema, split tree, ratios, file reads,
+language identifiers, UTF-8 selection boundaries, and pane/buffer references
+before replacing the current session. A missing file, stale schema, malformed
+layout, or invalid offset leaves the existing session unchanged and reports a
+structured error. Layout files are local-machine session convenience, not
+cross-machine synchronization, a project format, or a process/product-state
+format.
 
 M11 starts an optional language service for a saved path selected by the
 language registry (the default is `ocamllsp` for OCaml). The backend waits on

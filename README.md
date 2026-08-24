@@ -245,7 +245,8 @@ The palette also exposes `workspace.split.vertical`,
 `workspace.pane.grow-height`, `workspace.pane.shrink-height`, and
 `workspace.panes.balance`, followed by `workspace.buffer.new`,
 `workspace.buffer.open`, `workspace.buffer.next`, and
-`workspace.buffer.previous`, plus `view.scroll.up`, `view.scroll.down`,
+`workspace.buffer.previous`, `workspace.layout.save`, and
+`workspace.layout.restore`, plus `view.scroll.up`, `view.scroll.down`,
 `view.page.up`, `view.page.down`, and `view.center`. Resize commands move the
 focused pane's nearest matching divider by one terminal cell; balance restores
 equal proportions. A pane has an independent viewport and can show
@@ -256,6 +257,12 @@ history lineage after edits. Definitions can open local targets, and rename or s
 `workspace/applyEdit` can update already-open saved buffers together; unopened
 targets and file resource operations are rejected. Project discovery remains
 outside the workspace host.
+
+Layout commands accept a JSON path through the palette. They save or restore
+only clean file-backed local buffers plus host-owned split/view state; unsaved
+text, editing-model internals, terminal/LSP/plugin handles, and project or
+cross-machine state are deliberately excluded. Restore validates every
+referenced file and selection before replacing the current session.
 
 The checked viewport commands never alter a document or a selection. Lua
 adapters can bind them to non-reserved inputs; for example,

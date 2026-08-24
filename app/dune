@@ -5,6 +5,7 @@
   background_job
   external_filter
   file_io
+  session_layout
   system_clipboard
   script_model
   session)
@@ -19,5 +20,6 @@
   zenbu_language
   zenbu_lsp
   zenbu_view
+  yojson
   unix
   threads))

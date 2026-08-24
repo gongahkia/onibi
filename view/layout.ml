@@ -9,6 +9,15 @@ type rectangle = { x : int; y : int; width : int; height : int }
 type branch = First | Second
 type divider = { path : branch list; orientation : orientation }
 
+type persisted =
+  | Pane of int
+  | Persisted_split of {
+      orientation : orientation;
+      ratio : int;
+      first : persisted;
+      second : persisted;
+    }
+
 type error =
   | Unknown_pane of int
   | Cannot_close_last_pane
@@ -25,6 +34,38 @@ type error =
 let single pane = Leaf pane
 let equal_ratio = 500
 let ratio_scale = 1000
+
+let rec to_persisted = function
+  | Leaf pane -> Pane pane
+  | Split { orientation; ratio; first; second } ->
+      Persisted_split
+        {
+          orientation;
+          ratio;
+          first = to_persisted first;
+          second = to_persisted second;
+        }
+
+let of_persisted persisted =
+  let rec restore = function
+    | Pane pane when pane >= 0 -> Ok (Leaf pane, [ pane ])
+    | Pane pane -> Error ("pane id must not be negative: " ^ string_of_int pane)
+    | Persisted_split { orientation; ratio; first; second } ->
+        if ratio < 1 || ratio >= ratio_scale then
+          Error
+            ("split ratio must be between 1 and "
+            ^ string_of_int (ratio_scale - 1))
+        else
+          Result.bind (restore first) (fun (first, first_panes) ->
+              Result.bind (restore second) (fun (second, second_panes) ->
+                  let panes = first_panes @ second_panes in
+                  if
+                    List.length panes
+                    <> List.length (List.sort_uniq Int.compare panes)
+                  then Error "pane ids must be unique"
+                  else Ok (Split { orientation; ratio; first; second }, panes)))
+  in
+  restore persisted |> Result.map fst
 
 let rec panes = function
   | Leaf pane -> [ pane ]

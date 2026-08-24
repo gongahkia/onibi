@@ -4,6 +4,15 @@ type t
 type rectangle = { x : int; y : int; width : int; height : int }
 type divider
 
+type persisted =
+  | Pane of int
+  | Persisted_split of {
+      orientation : orientation;
+      ratio : int;
+      first : persisted;
+      second : persisted;
+    }
+
 type error =
   | Unknown_pane of int
   | Cannot_close_last_pane
@@ -21,6 +30,8 @@ val single : int -> t
 val panes : t -> int list
 val split : t -> pane:int -> new_pane:int -> orientation -> (t, error) result
 val close : t -> pane:int -> (t, error) result
+val to_persisted : t -> persisted
+val of_persisted : persisted -> (t, string) result
 
 val resize :
   t ->

@@ -16,7 +16,7 @@ An editor can vary independently along these layers:
 | commands and semantic operations | built-in commands, trusted-local Lua, or capability-limited Wasm Components can contribute commands, selectors, transformations, scoped one-to-sixteen-event bindings, and events; trusted Lua may request a bounded argument-vector selection filter or an inspectable background program | contributions cannot mutate documents outside a checked transaction; process actions cannot become a shell, terminal, or general job API |
 | language-aware editing | Tree-sitter-backed syntax context and the optional language-service host | only built-in OCaml/JSON syntax registration; cross-file edits require every target to be open and saved |
 | configuration | reloadable Lua configuration and local Wasm plugin discovery | Lua is trusted local code; Components use the declared capability boundary |
-| workspace/view host | `zenbu.view.Layout` plus host commands to create/open/cycle buffers; split, focus, close, retain, grow/shrink the nearest matching divider, drag an exact visible divider, or balance views; scroll by source line/page; and center the focused view; ordered selections are retained per `(pane, buffer)` and rebase through forward local history | local buffers have independent model/history, save, syntax, diagnostics, search, and viewport state; no project/workspace discovery, target auto-open, global history, arbitrary view widgets, or per-product layout policy |
+| workspace/view host | `zenbu.view.Layout` plus host commands to create/open/cycle buffers; split, focus, close, retain, grow/shrink the nearest matching divider, drag an exact visible divider, balance views, or save/restore validated local JSON layouts; scroll by source line/page; and center the focused view; ordered selections are retained per `(pane, buffer)` and rebase through forward local history | local buffers have independent model/history, save, syntax, diagnostics, search, and viewport state; layouts contain only clean file-backed host state, never document/model/plugin/LSP internals; no project/workspace discovery, target auto-open, global history, arbitrary view widgets, cross-machine sync, or per-product layout policy |
 | terminal presentation | renderer frame, semantic style classes, viewport, terminal backend, host-switchable built-in/custom TOML themes, pure line-number/status-row profiles, an optional bounded host buffer line, and typed canvas-selection plus exact-divider pointer gestures | no GUI or widget/layout API; the buffer line is intentionally noninteractive |
 
 This is already enough to build and compare distinct **editing grammars**:
@@ -127,8 +127,10 @@ for keyboard requests, retains one cell for each child, and stores the
 resulting proportion in the layout tree. `zenbu.direct` maps the four Emacs
 keys above; scripts can opt into the generic host command IDs. This is useful
 evidence for a reusable layout contract, not product parity: there are no
-numeric prefixes, configurable product minimum sizes, `C-x -` semantics,
-tab/frame layouts, or saved layout sessions.
+numeric prefixes, configurable product minimum sizes, `C-x -` semantics, or
+tab/frame layouts. The host can additionally save and restore a versioned local
+layout only after validating every clean file-backed buffer and view position;
+this does not serialize an Emacs session, model state, or product window state.
 
 This remains a generic test adapter, not Micro or Emacs parity: their
 product-specific workspace, process, extension, and presentation layers remain
@@ -520,7 +522,8 @@ Use `Ctrl-P` in the terminal host and select `workspace.split.vertical`,
 `workspace.panes.balance` to exercise the current workspace. Use
 `workspace.buffer.new`, `workspace.buffer.open`,
 `workspace.buffers`, `workspace.buffer.switch`, `workspace.buffer.rename`,
-`workspace.buffer.next`, and `workspace.buffer.previous` to exercise the
-buffer table. These commands are also available through the typed
+`workspace.buffer.next`, `workspace.buffer.previous`,
+`workspace.layout.save`, and `workspace.layout.restore` to exercise the
+buffer table and local layout format. These commands are also available through the typed
 `Session.handle_host` interface for headless tests and a future host binding
 layer.
