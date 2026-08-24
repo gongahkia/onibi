@@ -17,7 +17,7 @@ func Catalog() []domain.SourceInfo {
 		{ID: "onemap", Name: "OneMap", Operator: "Singapore Land Authority", Website: "https://www.onemap.gov.sg/apidocs/", Policy: domain.SourcePolicy{Status: domain.SourceEnabledOfficialAPI, PermittedHosts: []string{"www.onemap.gov.sg"}, Capabilities: domain.Capabilities{GeographicData: true}, AuthRequired: true, PollFloor: time.Minute, Concurrency: 2, Timeout: 15 * time.Second, TermsURL: "https://www.onemap.gov.sg/legal/apitermsofservice.html", EvidenceURLs: []string{"https://www.onemap.gov.sg/apidocs/routing"}, ReviewedAt: auditReviewedAt}},
 		activeSGSource(availability),
 		partnerSource("onepa", "onePA", "People's Association", "https://www.onepa.gov.sg/facilities/availability", []string{"www.onepa.gov.sg"}, 15, availability),
-		partnerSource("the-kallang", "The Kallang / OCBC Arena", "The Kallang Group", "https://thekallang.perfectgym.com/clientportal2/", []string{"thekallang.perfectgym.com", "change.sportshub.com.sg", "www.thekallang.com.sg"}, 30, availability),
+		perfectGymSource(availability),
 		publicAvailabilitySource("sba-stadium", "KFF Badminton Arena @ Guillemard", "Singapore Badminton Association", "https://booking.singaporebadminton.org.sg/", []string{"booking.singaporebadminton.org.sg", "singaporebadminton.org.sg"}, 7, availability),
 		publicAvailabilitySource("singapore-badminton-hall", "Singapore Badminton Hall", "Singapore Badminton Hall", "https://singaporebadmintonhall.com/book-now/", []string{"singaporebadmintonhall.com", "playtomic.com"}, 7, availability),
 		publicAvailabilitySource("smash-arena", "Smash Arena", "Smash Arena", "https://booking.smasharena.sg/", []string{"smasharena.sg", "booking.smasharena.sg"}, 1, availability),
@@ -33,6 +33,10 @@ func partnerSource(id, name, operator, website string, hosts []string, maximumDa
 func activeSGSource(capabilities domain.Capabilities) domain.SourceInfo {
 	venueList := "https://activesg.gov.sg/facility-bookings/activities/YLONatwvqJfikKOmB5N9U/venues"
 	return domain.SourceInfo{ID: "myactivesg", Name: "ActiveSG", Operator: "Sport Singapore", Website: venueList, Policy: domain.SourcePolicy{Status: domain.SourceExperimental, PermittedHosts: []string{"www.activesgcircle.gov.sg", "activesg.gov.sg"}, Capabilities: capabilities, PollFloor: time.Hour, AvailabilityMaxDays: 15, Concurrency: 1, Timeout: 25 * time.Second, EvidenceURLs: []string{"https://www.activesgcircle.gov.sg/facilities/badminton", venueList}, ReviewedAt: auditReviewedAt, Notes: "Partner-authorized, read-only ActiveSG badminton availability integration. The dedicated browser reader uses an imported session, clicks date cards only, and never opens a ballot, booking, checkout, payment, CAPTCHA, or OTP flow."}}
+}
+
+func perfectGymSource(capabilities domain.Capabilities) domain.SourceInfo {
+	return domain.SourceInfo{ID: "the-kallang", Name: "The Kallang / OCBC Arena", Operator: "The Kallang Group", Website: "https://thekallang.perfectgym.com/clientportal2/", Policy: domain.SourcePolicy{Status: domain.SourceExperimental, PermittedHosts: []string{"thekallang.perfectgym.com", "change.sportshub.com.sg", "www.thekallang.com.sg"}, Capabilities: capabilities, PollFloor: 30 * time.Minute, AvailabilityMaxDays: 30, Concurrency: 1, Timeout: 25 * time.Second, ReviewedAt: auditReviewedAt, Notes: "Partner-authorized, read-only Kallang badminton availability integration. The dedicated PerfectGym reader uses an imported session, selects Badminton Courts, advances the displayed week, and reads calendar JSON only. It never selects a facility, slot, cart, checkout, payment, CAPTCHA, or OTP flow. The observed calendar has no stable per-court identity, so results are venue-level."}}
 }
 
 func publicAvailabilitySource(id, name, operator, website string, hosts []string, maximumDays int, capabilities domain.Capabilities) domain.SourceInfo {

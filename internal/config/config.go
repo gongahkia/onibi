@@ -12,6 +12,10 @@ import (
 
 const CurrentVersion = 1
 
+// PerfectGymBadmintonFacilityType is the only Kallang facility type that the
+// badminton-only application may request.
+const PerfectGymBadmintonFacilityType = "Badminton Courts"
+
 type Config struct {
 	Version      int                `toml:"version"`
 	DataDir      string             `toml:"data_dir"`
@@ -256,6 +260,9 @@ func (config Config) Validate() error {
 			}
 			if strings.TrimSpace(source.PerfectGym.AvailabilityURL) == "" || strings.TrimSpace(source.PerfectGym.SessionStateBase64) == "" {
 				return fmt.Errorf("sources.%s.perfectgym needs availability_url and session_state_base64 when enabled", id)
+			}
+			if name := strings.TrimSpace(source.PerfectGym.FacilityTypeName); name != "" && !strings.EqualFold(name, PerfectGymBadmintonFacilityType) {
+				return fmt.Errorf("sources.%s.perfectgym facility_type_name must be %q", id, PerfectGymBadmintonFacilityType)
 			}
 		}
 		if !builtInPublicReader(id) && id != "sportsg-facilities" && id != "onemap" && !source.API.Enabled && !source.Browser.Enabled && !source.Public.Enabled && !source.ActiveSG.Enabled && !source.PerfectGym.Enabled {

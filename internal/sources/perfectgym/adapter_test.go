@@ -57,6 +57,13 @@ func TestAdapterRejectsOtherPerfectGymHost(t *testing.T) {
 	}
 }
 
+func TestAdapterRejectsNonBadmintonFacilityType(t *testing.T) {
+	settings := config.Source{Enabled: true, PerfectGym: config.SourcePerfectGym{Enabled: true, AvailabilityURL: defaultAvailabilityURL, FacilityTypeName: "Tennis Indoor Courts", SessionStateBase64: "state"}}
+	if _, err := New(testInfo(), settings, &scannerStub{}); err == nil {
+		t.Fatal("non-badminton facility type was accepted")
+	}
+}
+
 func testAdapter(t *testing.T, scanner browser.PerfectGymScanner) *Adapter {
 	t.Helper()
 	settings := config.Source{Enabled: true, RefreshMinutes: 60, PerfectGym: config.SourcePerfectGym{Enabled: true, AvailabilityURL: defaultAvailabilityURL, SessionStateBase64: "state"}}

@@ -69,8 +69,10 @@ func TestWriteExampleRefusesOverwrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(contents), "[sources.myactivesg.activesg]") {
-		t.Fatal("config example is missing the dedicated ActiveSG reader")
+	for _, section := range []string{"[sources.myactivesg.activesg]", "[sources.the-kallang.perfectgym]"} {
+		if !strings.Contains(string(contents), section) {
+			t.Fatalf("config example is missing %s", section)
+		}
 	}
 	if err := WriteExample(path); err == nil {
 		t.Fatal("expected overwrite refusal")
@@ -103,5 +105,28 @@ func TestValidateActiveSGReaderNeedsImportedSessionAndScope(t *testing.T) {
 	config.Sources["myactivesg"] = activeSG
 	if err := config.Validate(); err != nil {
 		t.Fatalf("valid ActiveSG reader configuration = %v", err)
+	}
+}
+
+func TestValidatePerfectGymReaderNeedsImportedSessionAndBadmintonType(t *testing.T) {
+	config, err := Default()
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.Sources["the-kallang"] = Source{Enabled: true, PerfectGym: SourcePerfectGym{Enabled: true, AvailabilityURL: "https://thekallang.perfectgym.com/clientportal2/"}}
+	if err := config.Validate(); err == nil {
+		t.Fatal("PerfectGym reader without imported session was accepted")
+	}
+	kallang := config.Sources["the-kallang"]
+	kallang.PerfectGym.SessionStateBase64 = "env:KAYPOH_THE_KALLANG_SESSION_STATE_B64"
+	kallang.PerfectGym.FacilityTypeName = "Tennis Indoor Courts"
+	config.Sources["the-kallang"] = kallang
+	if err := config.Validate(); err == nil {
+		t.Fatal("non-badminton PerfectGym facility type was accepted")
+	}
+	kallang.PerfectGym.FacilityTypeName = PerfectGymBadmintonFacilityType
+	config.Sources["the-kallang"] = kallang
+	if err := config.Validate(); err != nil {
+		t.Fatalf("valid PerfectGym reader configuration = %v", err)
 	}
 }

@@ -23,7 +23,7 @@ import (
 const (
 	SourceID               = "the-kallang"
 	AccessMode             = "perfectgym"
-	defaultFacilityType    = "Badminton Courts"
+	defaultFacilityType    = config.PerfectGymBadmintonFacilityType
 	defaultAvailabilityURL = "https://thekallang.perfectgym.com/clientportal2/"
 	adapterVersion         = "perfectgym-browser-v1"
 )
@@ -119,6 +119,9 @@ func validateSettings(settings config.SourcePerfectGym) error {
 	if strings.TrimSpace(settings.SessionStateBase64) == "" {
 		return errors.New("PerfectGym reader needs an imported session_state_base64")
 	}
+	if name := strings.TrimSpace(settings.FacilityTypeName); name != "" && !strings.EqualFold(name, defaultFacilityType) {
+		return fmt.Errorf("PerfectGym facility_type_name must be %q", defaultFacilityType)
+	}
 	return nil
 }
 
@@ -172,7 +175,7 @@ func (adapter *Adapter) setFailure(started time.Time, err error) {
 }
 
 func inRequestWindow(start, end time.Time, request source.AvailabilityRequest) bool {
-	if !request.StartDate.IsZero() && end.Before(request.StartDate) {
+	if !request.StartDate.IsZero() && !end.After(request.StartDate) {
 		return false
 	}
 	return request.EndDate.IsZero() || start.Before(request.EndDate)
