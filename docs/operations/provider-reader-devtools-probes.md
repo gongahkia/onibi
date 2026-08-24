@@ -25,7 +25,10 @@ until it is reloaded.
 
   const records = [];
   let provider = "unconfigured";
-  let pattern = /availability|appointment|booking|calendar|court|facility|resource|schedule|slot|timeslot|venue/i;
+  let pattern = new RegExp(
+    "availability|appointment|booking|calendar|court|facility|resource|schedule|slot|timeslot|venue",
+    "i"
+  );
   const endpoint = (value) => {
     const url = new URL(value, location.href);
     return `${url.origin}${url.pathname}`;
@@ -75,7 +78,7 @@ until it is reloaded.
     report: () => ({ provider, page: endpoint(location.href), records, dom: dom() }),
     copy() { const value = JSON.stringify(this.report(), null, 2); if (typeof copy === "function") copy(value); else console.log(value); return this.report(); },
   };
-  console.info("Kaypoh probe installed. Configure it, then use only the page's venue/date display controls and run __kaypohProbe.copy().");
+  console.info("Kaypoh probe active.");
 })();
 ```
 
