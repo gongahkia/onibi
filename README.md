@@ -23,11 +23,11 @@ The app is immediately usable as a local demo and persists its sample data to br
 
 This repository intentionally does not collect card numbers, passwords, PINs, or banking logins. A regulated/open-finance provider must host customer consent and return read-only, signed transaction data to the server.
 
-- Plaid production transaction coverage is documented for North America and Europe, not Singapore.
-- Salt Edge's current Singapore coverage page reports zero connections.
-- Brankas is a Southeast Asia Open Finance provider and is the configured provider boundary, but a live connection requires its commercial approval, confirmed bank coverage, credentials, consent callback specification, and webhook signing secret.
+- **Preferred in Singapore:** SGFinDex offers user-consented financial-data retrieval through Singpass. It needs GovTech approval, a registered redirect URI/JWKS endpoint, PKCE, DPoP, and server-side signed client assertions before production use.
+- Plaid production transaction coverage is documented for North America and Europe, not Singapore. Salt Edge's current Singapore coverage page reports zero connections.
+- Brankas remains the commercial Southeast Asia Open Finance alternative, but it also needs commercial approval, confirmed bank coverage, credentials, consent callback specification, and webhook signing secret.
 
-Until those prerequisites are available, use bank-statement CSV import; the app includes the normalized transaction and connection schema needed to turn the provider callback/webhook into deduplicated `source = 'bank'` ledger entries.
+Set `BANK_FEED_PROVIDER=sgfindex` or `brankas` and supply the matching server-only configuration. Until those prerequisites are available, use bank-statement CSV import; the app includes the normalized transaction and connection schema needed to turn a provider callback/webhook into deduplicated `source = 'bank'` ledger entries.
 
 ## Verification
 

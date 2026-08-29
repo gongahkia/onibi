@@ -1,4 +1,4 @@
-export type BankFeedProvider = "brankas" | "none";
+export type BankFeedProvider = "sgfindex" | "brankas" | "none";
 export type BankConnectionRequest = { householdId: string; redirectUri: string };
 export type BankFeedStatus =
   | { status: "ready"; provider: BankFeedProvider; message: string }
@@ -10,6 +10,12 @@ export type BankFeedStatus =
  */
 export function bankFeedStatus(): BankFeedStatus {
   const provider = (process.env.BANK_FEED_PROVIDER || "none") as BankFeedProvider;
+  if (provider === "sgfindex") {
+    if (!process.env.SGFINDEX_CLIENT_ID || !process.env.SGFINDEX_REDIRECT_URI || !process.env.SGFINDEX_JWKS_URL || !process.env.SGFINDEX_PRIVATE_SIGNING_KEY || !process.env.SGFINDEX_DPOP_PRIVATE_KEY) {
+      return { status: "unavailable", provider, message: "SGFinDex approval, client ID, registered redirect/JWKS endpoints, and server-side signing keys are required." };
+    }
+    return { status: "ready", provider, message: "SGFinDex configuration is present. Complete the approved OAuth, PKCE, DPoP, and signed-client-assertion flow before enabling connections." };
+  }
   if (provider !== "brankas") return { status: "unavailable", provider: "none", message: "No bank-feed provider has been configured." };
   if (!process.env.BRANKAS_API_BASE_URL || !process.env.BRANKAS_API_KEY) {
     return { status: "unavailable", provider, message: "Brankas production credentials and approved account-information access are required." };
