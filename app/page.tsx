@@ -1,14 +1,14 @@
 "use client";
 
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
-import { SFArrowDown, SFArrowLeft, SFArrowLeftArrowRight, SFArrowRight, SFArrowUp, SFBanknoteFill, SFCartFill, SFChartLineUptrendXyaxis, SFCheckmark, SFCreditcardFill, SFForkKnife, SFGearshapeFill, SFHeartFill, SFHouseFill, SFLightbulbFill, SFListBullet, SFPlus, SFReceipt, SFTarget, SFTramFill, SFWalletPassFill } from "sf-symbols-lib/dualtone";
+import { SFArrowDown, SFArrowLeft, SFArrowLeftArrowRight, SFArrowRight, SFArrowUp, SFArrowUpRight, SFBanknoteFill, SFCartFill, SFChartLineUptrendXyaxis, SFCheckmark, SFChevronDown, SFCloudFill, SFCreditcardFill, SFForkKnife, SFGearshapeFill, SFHeartFill, SFHouseFill, SFLightbulbFill, SFListBullet, SFPaperclip, SFPlus, SFReceipt, SFSquareAndArrowUp, SFTablecells, SFTarget, SFTramFill } from "sf-symbols-lib/dualtone";
 import { demoBankConnections, demoBudgets, demoGoals, demoTransactions } from "@/lib/demo-data";
 import { dateLabel, money, type BankConnection, type Budget, type Goal, type SplitMethod, type Transaction, type TransactionKind } from "@/lib/types";
 
 type View = "home" | "ledger" | "plans" | "insights" | "settings";
-type IconKey = "home" | "ledger" | "plans" | "insights" | "settings" | "plus" | "cart" | "dining" | "transport" | "utilities" | "salary" | "goals" | "transfer" | "bank" | "download" | "upload" | "check" | "back" | "forward";
+type IconKey = "home" | "ledger" | "plans" | "insights" | "settings" | "plus" | "cart" | "dining" | "transport" | "utilities" | "salary" | "goals" | "transfer" | "bank" | "download" | "upload" | "check" | "back" | "forward" | "upRight" | "chevronDown" | "cloud" | "attachment" | "receipt" | "table";
 type NavItem = { id: View; label: string; icon: IconKey; visible: boolean };
-const iconComponents = { home: SFHouseFill, ledger: SFListBullet, plans: SFTarget, insights: SFChartLineUptrendXyaxis, settings: SFGearshapeFill, plus: SFPlus, cart: SFCartFill, dining: SFForkKnife, transport: SFTramFill, utilities: SFLightbulbFill, salary: SFBanknoteFill, goals: SFHeartFill, transfer: SFArrowLeftArrowRight, bank: SFCreditcardFill, download: SFArrowDown, upload: SFArrowUp, check: SFCheckmark, back: SFArrowLeft, forward: SFArrowRight };
+const iconComponents = { home: SFHouseFill, ledger: SFListBullet, plans: SFTarget, insights: SFChartLineUptrendXyaxis, settings: SFGearshapeFill, plus: SFPlus, cart: SFCartFill, dining: SFForkKnife, transport: SFTramFill, utilities: SFLightbulbFill, salary: SFBanknoteFill, goals: SFHeartFill, transfer: SFArrowLeftArrowRight, bank: SFCreditcardFill, download: SFArrowDown, upload: SFArrowUp, check: SFCheckmark, back: SFArrowLeft, forward: SFArrowRight, upRight: SFArrowUpRight, chevronDown: SFChevronDown, cloud: SFCloudFill, attachment: SFPaperclip, receipt: SFReceipt, table: SFTablecells };
 function AppIcon({ name, size = "md" }: { name: IconKey; size?: "sm" | "md" | "lg" }) { const Icon = iconComponents[name]; return <Icon size={size} aria-hidden="true" />; }
 const members = ["Nadia", "Leo"];
 const categories = ["Groceries", "Dining", "Transport", "Utilities", "Rent", "Health", "Shopping", "Entertainment", "Salary", "Goals", "Other"];
