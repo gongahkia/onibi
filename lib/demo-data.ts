@@ -6,7 +6,8 @@ export const demoTransactions: Transaction[] = [
   { id: "t3", title: "Salary", amount: 4800, kind: "income", category: "Salary", date: "2026-08-27", paidBy: "Nadia", participants: ["Nadia"], splitMethod: "equal", currency: "SGD", source: "bank" },
   { id: "t4", title: "Internet", amount: 49.9, kind: "expense", category: "Utilities", date: "2026-08-26", paidBy: "Leo", participants: ["Nadia", "Leo"], splitMethod: "percent", recurring: "Monthly", currency: "SGD" },
   { id: "t5", title: "Dinner at Kura", amount: 62.5, kind: "expense", category: "Dining", date: "2026-08-24", paidBy: "Nadia", participants: ["Nadia", "Leo"], splitMethod: "amount", merchant: "Kura Sushi", currency: "SGD" },
-  { id: "t6", title: "Flight fund", amount: 200, kind: "transfer", category: "Goals", date: "2026-08-23", paidBy: "Leo", participants: ["Leo"], splitMethod: "equal", currency: "SGD" }
+  { id: "t6", title: "Transfer to Japan fund", amount: 200, kind: "transfer", category: "Goals", date: "2026-08-23", paidBy: "Leo", participants: ["Leo"], splitMethod: "equal", currency: "SGD", sheet: "Shared expenses", transferGroupId: "transfer-demo-1", transferDirection: "out" },
+  { id: "t7", title: "Transfer from Shared expenses", amount: 200, kind: "transfer", category: "Goals", date: "2026-08-23", paidBy: "Leo", participants: ["Leo"], splitMethod: "equal", currency: "SGD", sheet: "Japan fund", transferGroupId: "transfer-demo-1", transferDirection: "in" }
 ];
 
 export const demoBudgets: Budget[] = [

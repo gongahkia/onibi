@@ -37,7 +37,7 @@ create table public.transactions (
   title text not null, notes text not null default '', merchant text, category_id uuid references public.categories on delete set null,
   occurred_at timestamptz not null, local_timezone text not null, pending boolean not null default false, paid_by uuid references public.profiles on delete set null,
   source text not null default 'manual' check (source in ('manual','bank','import')), provider_name text, provider_transaction_id text,
-  recurring_rule jsonb, transfer_group_id uuid, version integer not null default 1, created_by uuid not null references public.profiles, created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
+  recurring_rule jsonb, transfer_group_id uuid, transfer_direction text check (transfer_direction in ('in','out')), version integer not null default 1, created_by uuid not null references public.profiles, created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
   unique nulls not distinct (provider_name, provider_transaction_id)
 );
 create table public.transaction_splits (

@@ -18,6 +18,9 @@ export type Transaction = {
   currency: string;
   merchant?: string;
   source?: "manual" | "bank";
+  sheet?: string;
+  transferGroupId?: string;
+  transferDirection?: "in" | "out";
 };
 
 export type Budget = { id: string; title: string; limit: number; spent: number; period: Period; category?: string; shared: boolean };
