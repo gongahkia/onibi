@@ -6,6 +6,7 @@ import { SFArrowDown, SFArrowLeft, SFArrowLeftArrowRight, SFArrowRight, SFArrowU
 import { demoBankConnections, demoBudgets, demoGoals, demoTransactions } from "@/lib/demo-data";
 import { migrateLegacyBudgetCache, requestPersistentStorage, saveBudgetCache } from "@/lib/budget-db";
 import { recognizeReceipt } from "@/lib/receipt-ocr";
+import { useTransactionSearch } from "@/lib/use-transaction-search";
 import { currentCloudUser, isCloudSyncConfigured, sendCloudMagicLink, syncIncrementalState } from "@/lib/cloud-sync";
 import { dateLabel, money, type AppPreferences, type BankConnection, type Budget, type Category, type CategoryKind, type Goal, type Sheet, type SheetSort, type SheetTotalPeriod, type SplitMethod, type Transaction, type TransactionKind } from "@/lib/types";
 
@@ -427,9 +428,10 @@ function SheetCard({ sheet, position, allSheets, items, sensitive, onOpen, onArc
 function SheetLedger({ sheet, items, search, sensitive, filters, ascending, onSearch, onBack, onAdd, onOpenFilters, onToggleMenu, showMenu, onShare, onOpenAction, onRangeChange, onToggleOrder, onSelectTransaction, onLongPressTransaction }: { sheet: Sheet; items: Transaction[]; search: string; sensitive: boolean; filters: LedgerFilters; ascending: boolean; onSearch: (value: string) => void; onBack: () => void; onAdd: () => void; onOpenFilters: () => void; onToggleMenu: () => void; showMenu: boolean; onShare: () => void; onOpenAction: (action: SheetAction) => void; onRangeChange: (period: SheetTotalPeriod) => void; onToggleOrder: () => void; onSelectTransaction?: (transactionId: string) => void; onLongPressTransaction?: (transactionId: string) => void }) {
   const sheetItems = useMemo(() => items.filter((item) => item.sheetId === sheet.id), [items, sheet.id]);
   const deferredSearch = useDeferredValue(search);
+  const matchingSearchIds = useTransactionSearch(items, deferredSearch);
   const [showRangeMenu, setShowRangeMenu] = useState(false);
   const totalItems = useMemo(() => filterLedgerPeriod(sheetItems, sheet.totalPeriod), [sheet.totalPeriod, sheetItems]);
-  const searchedItems = useMemo(() => deferredSearch.trim() ? searchTransactions(items, deferredSearch) : sheetItems, [deferredSearch, items, sheetItems]);
+  const searchedItems = useMemo(() => deferredSearch.trim() ? matchingSearchIds ? items.filter((item) => matchingSearchIds.has(item.id)) : searchTransactions(items, deferredSearch) : sheetItems, [deferredSearch, items, matchingSearchIds, sheetItems]);
   const visibleItems = useMemo(() => filterTransactions(searchedItems, filters), [searchedItems, filters]);
   const totals = useMemo(() => sheetTotals(totalItems), [totalItems]);
   const hasFilters = !isEmptyFilters(filters);

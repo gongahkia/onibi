@@ -37,9 +37,11 @@ create table public.transactions (
   title text not null, notes text not null default '', merchant text, category_id uuid references public.categories on delete set null,
   occurred_at timestamptz not null, local_timezone text not null, pending boolean not null default false, paid_by uuid references public.profiles on delete set null,
   source text not null default 'manual' check (source in ('manual','bank','import')), provider_name text, provider_transaction_id text,
-  recurring_rule jsonb, transfer_group_id uuid, transfer_direction text check (transfer_direction in ('in','out')), version integer not null default 1, created_by uuid not null references public.profiles, created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
+  recurring_rule jsonb, transfer_group_id uuid, transfer_direction text check (transfer_direction in ('in','out')), ocr_text text, deleted_at timestamptz, version integer not null default 1, created_by uuid not null references public.profiles, created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
   unique nulls not distinct (provider_name, provider_transaction_id)
 );
+create index transactions_sheet_occurred_at_idx on public.transactions (sheet_id, occurred_at desc) where deleted_at is null;
+create index transactions_updated_at_idx on public.transactions (updated_at desc);
 create table public.transaction_splits (
   id uuid primary key default gen_random_uuid(), transaction_id uuid not null references public.transactions on delete cascade,
   member_id uuid not null references public.profiles on delete cascade, amount numeric(20,8) not null check (amount >= 0), sort_order integer not null default 0,
