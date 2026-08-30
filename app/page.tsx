@@ -1,14 +1,14 @@
 "use client";
 
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
-import { SFArrowDown, SFArrowLeft, SFArrowLeftArrowRight, SFArrowRight, SFArrowUpRight, SFBanknoteFill, SFCalendar, SFCartFill, SFChartLineUptrendXyaxis, SFCheckmark, SFChevronDown, SFClock, SFCloudFill, SFCreditcardFill, SFForkKnife, SFGearshapeFill, SFHeartFill, SFHouseFill, SFLightbulbFill, SFListBullet, SFMagnifyingglass, SFPaperclip, SFPhoto, SFPlus, SFReceipt, SFSquareAndArrowUp, SFTablecells, SFTarget, SFTramFill, SFXmark } from "sf-symbols-lib/dualtone";
+import { SFArrowDown, SFArrowLeft, SFArrowLeftArrowRight, SFArrowRight, SFArrowUpArrowDown, SFArrowUpRight, SFBanknoteFill, SFCalendar, SFCartFill, SFChartLineUptrendXyaxis, SFChartPie, SFCheckmark, SFChevronDown, SFClock, SFCloudFill, SFCreditcardFill, SFDocumentBadgePlus, SFEllipsis, SFEyeSlash, SFForkKnife, SFGearshapeFill, SFHeartFill, SFHouseFill, SFInfoCircle, SFLightbulbFill, SFListBullet, SFLock, SFMagnifyingglass, SFPaintpalette, SFPaperclip, SFPaperplane, SFPencil, SFPersonBadgePlus, SFPhoto, SFPlus, SFPrinter, SFReceipt, SFRepeat, SFSliderHorizontal3, SFSquareAndArrowUp, SFTablecells, SFTarget, SFTramFill, SFTrash, SFXmark } from "sf-symbols-lib/dualtone";
 import { demoBankConnections, demoBudgets, demoGoals, demoTransactions } from "@/lib/demo-data";
 import { dateLabel, money, type BankConnection, type Budget, type Goal, type SplitMethod, type Transaction, type TransactionKind } from "@/lib/types";
 
 type View = "home" | "ledger" | "plans" | "insights" | "settings";
-type IconKey = "home" | "ledger" | "plans" | "insights" | "settings" | "plus" | "cart" | "dining" | "transport" | "utilities" | "salary" | "goals" | "transfer" | "bank" | "download" | "upload" | "check" | "back" | "forward" | "upRight" | "chevronDown" | "cloud" | "attachment" | "receipt" | "table" | "search" | "close" | "calendar" | "clock" | "photo";
+type IconKey = "home" | "ledger" | "plans" | "insights" | "settings" | "plus" | "cart" | "dining" | "transport" | "utilities" | "salary" | "goals" | "transfer" | "bank" | "download" | "upload" | "check" | "back" | "forward" | "upRight" | "chevronDown" | "cloud" | "attachment" | "receipt" | "table" | "search" | "close" | "calendar" | "clock" | "photo" | "more" | "personAdd" | "documentAdd" | "chartPie" | "sync" | "printer" | "repeat" | "sliders" | "trash" | "palette" | "paperplane" | "info" | "lock" | "eyeSlash" | "pencil";
 type NavItem = { id: View; label: string; icon: IconKey; visible: boolean };
-const iconComponents = { home: SFHouseFill, ledger: SFListBullet, plans: SFTarget, insights: SFChartLineUptrendXyaxis, settings: SFGearshapeFill, plus: SFPlus, cart: SFCartFill, dining: SFForkKnife, transport: SFTramFill, utilities: SFLightbulbFill, salary: SFBanknoteFill, goals: SFHeartFill, transfer: SFArrowLeftArrowRight, bank: SFCreditcardFill, download: SFArrowDown, upload: SFSquareAndArrowUp, check: SFCheckmark, back: SFArrowLeft, forward: SFArrowRight, upRight: SFArrowUpRight, chevronDown: SFChevronDown, cloud: SFCloudFill, attachment: SFPaperclip, receipt: SFReceipt, table: SFTablecells, search: SFMagnifyingglass, close: SFXmark, calendar: SFCalendar, clock: SFClock, photo: SFPhoto };
+const iconComponents = { home: SFHouseFill, ledger: SFListBullet, plans: SFTarget, insights: SFChartLineUptrendXyaxis, settings: SFGearshapeFill, plus: SFPlus, cart: SFCartFill, dining: SFForkKnife, transport: SFTramFill, utilities: SFLightbulbFill, salary: SFBanknoteFill, goals: SFHeartFill, transfer: SFArrowLeftArrowRight, bank: SFCreditcardFill, download: SFArrowDown, upload: SFSquareAndArrowUp, check: SFCheckmark, back: SFArrowLeft, forward: SFArrowRight, upRight: SFArrowUpRight, chevronDown: SFChevronDown, cloud: SFCloudFill, attachment: SFPaperclip, receipt: SFReceipt, table: SFTablecells, search: SFMagnifyingglass, close: SFXmark, calendar: SFCalendar, clock: SFClock, photo: SFPhoto, more: SFEllipsis, personAdd: SFPersonBadgePlus, documentAdd: SFDocumentBadgePlus, chartPie: SFChartPie, sync: SFArrowUpArrowDown, printer: SFPrinter, repeat: SFRepeat, sliders: SFSliderHorizontal3, trash: SFTrash, palette: SFPaintpalette, paperplane: SFPaperplane, info: SFInfoCircle, lock: SFLock, eyeSlash: SFEyeSlash, pencil: SFPencil };
 function AppIcon({ name, size = "md" }: { name: IconKey; size?: "xs" | "sm" | "md" | "lg" | "xl" }) { const Icon = iconComponents[name]; return <Icon size={size} aria-hidden="true" />; }
 const members = ["Nadia", "Leo"];
 const categories = ["Groceries", "Dining", "Transport", "Utilities", "Rent", "Health", "Shopping", "Entertainment", "Salary", "Goals", "Other"];
@@ -16,6 +16,10 @@ const expenseCategories = ["Groceries", "Dining", "Transport", "Utilities", "Ren
 const incomeCategories = ["Salary", "Freelance", "Interest", "Refund", "Other"];
 const defaultSheet = { id: "shared-expenses", name: "Shared expenses" };
 const sheets = [defaultSheet];
+type AmountMatch = "exactly" | "atLeast" | "atMost";
+type DateMatch = "all" | "today" | "custom";
+type LedgerFilters = { amount: string; amountMatch: AmountMatch; category: string; currency: string; date: string; dateMatch: DateMatch; hasAttachment: boolean; kind: "all" | TransactionKind; notes: string; recurring: boolean };
+const emptyLedgerFilters: LedgerFilters = { amount: "", amountMatch: "exactly", category: "all", currency: "all", date: "", dateMatch: "all", hasAttachment: false, kind: "all", notes: "", recurring: false };
 const defaultNavItems: NavItem[] = [
   { id: "home", label: "Home", icon: "home", visible: true },
   { id: "ledger", label: "Ledger", icon: "ledger", visible: true },
@@ -43,7 +47,13 @@ export default function BudgetApp() {
   const [transactions, setTransactions] = useState<Transaction[]>(() => initial.transactions.map((item) => ({ ...item, sheet: defaultSheet.name, time: item.time || "09:35" })));
   const [activeSheet, setActiveSheet] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
+  const [showMainMenu, setShowMainMenu] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [showSheetMenu, setShowSheetMenu] = useState(false);
   const [search, setSearch] = useState("");
+  const [sensitive, setSensitive] = useState(false);
+  const [filters, setFilters] = useState<LedgerFilters>(emptyLedgerFilters);
   const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => { localStorage.setItem("together-budget-demo", JSON.stringify({ ...initial, transactions })); }, [initial, transactions]);
@@ -51,7 +61,7 @@ export default function BudgetApp() {
 
   function createTransaction(draft: TransactionDraft) {
     if (!Number.isFinite(draft.amount) || draft.amount <= 0) { setNotice("Enter an amount greater than zero."); return; }
-    const base: Transaction = { id: uid("txn"), title: draft.title || draft.category, amount: draft.amount, kind: draft.kind, category: draft.category, date: draft.date, time: draft.time, paidBy: "Nadia", participants: ["Nadia"], splitMethod: "equal", notes: draft.notes, pending: draft.pending, recurring: draft.recurring, currency: "SGD", merchant: draft.merchant || undefined, source: "manual" };
+    const base: Transaction = { id: uid("txn"), title: draft.title || draft.category, amount: draft.amount, kind: draft.kind, category: draft.category, date: draft.date, time: draft.time, paidBy: "Nadia", participants: ["Nadia"], splitMethod: "equal", notes: draft.notes, pending: draft.pending, recurring: draft.recurring, currency: "SGD", hasAttachment: draft.hasAttachment, merchant: draft.merchant || undefined, source: "manual" };
     if (draft.kind === "transfer") {
       if (!draft.fromSheet || !draft.toSheet || draft.fromSheet === draft.toSheet) { setNotice("Choose two different sheets for a transfer."); return; }
       const transferGroupId = uid("transfer");
@@ -67,8 +77,10 @@ export default function BudgetApp() {
   }
 
   return <main className="sheets-app">
-    {activeSheet ? <SheetLedger sheetName={activeSheet} items={transactions} search={search} onSearch={setSearch} onBack={() => { setActiveSheet(null); setSearch(""); }} onAdd={() => setShowAdd(true)} /> : <SheetsHome items={transactions} search={search} onSearch={setSearch} onOpenSheet={setActiveSheet} onAdd={() => setShowAdd(true)} />}
+    {activeSheet ? <SheetLedger sheetName={activeSheet} items={transactions} search={search} sensitive={sensitive} filters={filters} onSearch={setSearch} onBack={() => { setActiveSheet(null); setSearch(""); setFilters(emptyLedgerFilters); }} onAdd={() => setShowAdd(true)} onOpenFilters={() => { setShowSheetMenu(false); setShowFilters(true); }} onToggleMenu={() => setShowSheetMenu((open) => !open)} showMenu={showSheetMenu} /> : <SheetsHome items={transactions} search={search} sensitive={sensitive} onSearch={setSearch} onOpenSheet={setActiveSheet} onAdd={() => setShowAdd(true)} onToggleMenu={() => setShowMainMenu((open) => !open)} showMenu={showMainMenu} onOpenSettings={() => { setShowMainMenu(false); setShowSettings(true); }} />}
     {showAdd && <SheetTransactionComposer sheets={sheets} defaultSheet={activeSheet || defaultSheet.name} onClose={() => setShowAdd(false)} onSave={createTransaction} />}
+    {showFilters && <LedgerFilterSheet items={transactions} filters={filters} onClose={() => setShowFilters(false)} onApply={(next) => { setFilters(next); setShowFilters(false); }} />}
+    {showSettings && <SettingsSheet sensitive={sensitive} onClose={() => setShowSettings(false)} onToggleSensitive={() => setSensitive((value) => !value)} />}
     {notice && <div className="toast sheets-toast" role="status">{notice}</div>}
   </main>;
 }
@@ -77,6 +89,7 @@ type TransactionDraft = {
   amount: number;
   category: string;
   date: string;
+  hasAttachment: boolean;
   fromSheet?: string;
   kind: TransactionKind;
   merchant: string;
@@ -89,7 +102,7 @@ type TransactionDraft = {
   toSheet?: string;
 };
 
-function SheetsHome({ items, search, onSearch, onOpenSheet, onAdd }: { items: Transaction[]; search: string; onSearch: (value: string) => void; onOpenSheet: (sheet: string) => void; onAdd: () => void }) {
+function SheetsHome({ items, search, sensitive, onSearch, onOpenSheet, onAdd, onToggleMenu, showMenu, onOpenSettings }: { items: Transaction[]; search: string; sensitive: boolean; onSearch: (value: string) => void; onOpenSheet: (sheet: string) => void; onAdd: () => void; onToggleMenu: () => void; showMenu: boolean; onOpenSettings: () => void }) {
   const query = search.trim();
   const matches = useMemo(() => query ? searchTransactions(items, query) : [], [items, query]);
   const sheetItems = items.filter((item) => item.sheet === defaultSheet.name);
@@ -97,36 +110,80 @@ function SheetsHome({ items, search, onSearch, onOpenSheet, onAdd }: { items: Tr
   const latest = sheetItems.reduce<Transaction | undefined>((recent, item) => !recent || transactionSortKey(item) > transactionSortKey(recent) ? item : recent, undefined);
 
   return <section className="sheets-screen">
-    <header className="sheets-heading"><h1>Sheets</h1><button type="button" className="heading-chevron" aria-label="Sheets menu"><AppIcon name="chevronDown" size="md" /></button></header>
-    {query ? <SearchResults items={matches} query={query} /> : <button type="button" className="sheet-card" onClick={() => onOpenSheet(defaultSheet.name)}>
-      <span className="sheet-card-main"><strong>{defaultSheet.name}</strong><small>{money(balance)}</small></span>
+    <header className="sheets-heading"><h1>Sheets</h1><div className="menu-anchor"><button type="button" className="heading-more" onClick={onToggleMenu} aria-expanded={showMenu} aria-label="Sheets menu"><AppIcon name="more" size="md" /></button>{showMenu && <MainOverflowMenu onOpenSettings={onOpenSettings} />}</div></header>
+    {query ? <SearchResults items={matches} query={query} sensitive={sensitive} /> : <button type="button" className="sheet-card" onClick={() => onOpenSheet(defaultSheet.name)}>
+      <span className="sheet-card-main"><strong>{defaultSheet.name}</strong><small>{sensitive ? "••••••" : money(balance)}</small></span>
       <span className="sheet-card-meta"><small>{latest ? latestActivity(latest) : "No entries yet"}</small><b>{sheetItems.length}</b><AppIcon name="forward" size="sm" /></span>
     </button>}
     <SearchField value={search} onChange={onSearch} onAdd={onAdd} />
   </section>;
 }
 
-function SheetLedger({ sheetName, items, search, onSearch, onBack, onAdd }: { sheetName: string; items: Transaction[]; search: string; onSearch: (value: string) => void; onBack: () => void; onAdd: () => void }) {
-  const visibleItems = useMemo(() => search.trim() ? searchTransactions(items, search) : items.filter((item) => item.sheet === sheetName), [items, search, sheetName]);
+function SheetLedger({ sheetName, items, search, sensitive, filters, onSearch, onBack, onAdd, onOpenFilters, onToggleMenu, showMenu }: { sheetName: string; items: Transaction[]; search: string; sensitive: boolean; filters: LedgerFilters; onSearch: (value: string) => void; onBack: () => void; onAdd: () => void; onOpenFilters: () => void; onToggleMenu: () => void; showMenu: boolean }) {
+  const sheetItems = useMemo(() => items.filter((item) => item.sheet === sheetName), [items, sheetName]);
+  const searchedItems = useMemo(() => search.trim() ? searchTransactions(items, search) : sheetItems, [items, search, sheetItems]);
+  const visibleItems = useMemo(() => filterTransactions(searchedItems, filters), [searchedItems, filters]);
+  const totals = useMemo(() => sheetTotals(sheetItems), [sheetItems]);
+  const hasFilters = !isEmptyFilters(filters);
   return <section className="sheets-screen ledger-screen">
-    <header className="sheet-ledger-heading"><button type="button" className="round-control" onClick={onBack} aria-label="Back to sheets"><AppIcon name="back" size="md" /></button><h1>{search.trim() ? "Search" : sheetName}</h1><span /></header>
-    <TransactionList items={visibleItems} showSheet={Boolean(search.trim())} emptyMessage={search.trim() ? "No transactions match this search." : "This sheet has no transactions yet."} />
-    <SearchField value={search} onChange={onSearch} onAdd={onAdd} />
+    <header className="sheet-ledger-heading"><button type="button" className="round-control" onClick={onBack} aria-label="Back to sheets"><AppIcon name="back" size="md" /></button><h1>{search.trim() ? "Search" : sheetName}</h1><div className="sheet-header-actions"><button type="button" className="round-control" aria-label="Add member"><AppIcon name="personAdd" size="md" /></button><div className="menu-anchor"><button type="button" className="round-control" onClick={onToggleMenu} aria-expanded={showMenu} aria-label="Sheet menu"><AppIcon name="more" size="md" /></button>{showMenu && <SheetOverflowMenu />}</div></div></header>
+    {!search.trim() && <SheetSummary totals={totals} sensitive={sensitive} />}
+    {!search.trim() && <div className="ledger-period-row"><button type="button" className="ledger-period"><AppIcon name="receipt" size="sm" /> As of Today <AppIcon name="chevronDown" size="xs" /></button><span className="ledger-transfer-count"><AppIcon name="transfer" size="sm" /> {sheetItems.filter((item) => item.kind === "transfer").length}</span></div>}
+    <TransactionList items={visibleItems} sensitive={sensitive} showDailyTotals={!search.trim()} showSheet={Boolean(search.trim())} emptyMessage={search.trim() || hasFilters ? "No transactions match this view." : "This sheet has no transactions yet."} />
+    <SearchField value={search} onChange={onSearch} onAdd={onAdd} onFilter={onOpenFilters} filtersActive={hasFilters} />
   </section>;
 }
 
-function SearchField({ value, onChange, onAdd }: { value: string; onChange: (value: string) => void; onAdd: () => void }) {
-  return <div className="sheet-search-dock"><label className="sheet-search"><AppIcon name="search" size="md" /><input value={value} onChange={(event) => onChange(event.target.value)} placeholder="Search" aria-label="Search transactions across sheets" />{value && <button type="button" onClick={() => onChange("")} aria-label="Clear search"><AppIcon name="close" size="sm" /></button>}</label><button type="button" className="search-add" onClick={onAdd} aria-label="Add transaction"><AppIcon name="plus" size="lg" /></button></div>;
+function SearchField({ value, onChange, onAdd, onFilter, filtersActive = false }: { value: string; onChange: (value: string) => void; onAdd: () => void; onFilter?: () => void; filtersActive?: boolean }) {
+  return <div className="sheet-search-dock">{onFilter && <button type="button" className={filtersActive ? "search-filter active" : "search-filter"} onClick={onFilter} aria-label="Filter transactions"><AppIcon name="sliders" size="md" /></button>}<label className="sheet-search"><AppIcon name="search" size="md" /><input value={value} onChange={(event) => onChange(event.target.value)} placeholder="Search" aria-label="Search transactions across sheets" />{value && <button type="button" onClick={() => onChange("")} aria-label="Clear search"><AppIcon name="close" size="sm" /></button>}</label><button type="button" className="search-add" onClick={onAdd} aria-label="Add transaction"><AppIcon name="plus" size="lg" /></button></div>;
 }
 
-function SearchResults({ items, query }: { items: Transaction[]; query: string }) {
-  return <section className="search-results" aria-live="polite"><p className="search-summary">{items.length ? `${items.length} result${items.length === 1 ? "" : "s"} for “${query}”` : `No results for “${query}”`}</p>{items.length > 0 && <TransactionList items={items} showSheet emptyMessage="" />}</section>;
+function MainOverflowMenu({ onOpenSettings }: { onOpenSettings: () => void }) {
+  return <div className="glass-menu main-overflow" role="menu"><button type="button" role="menuitem" aria-disabled="true"><AppIcon name="documentAdd" size="md" />New Sheet</button><button type="button" role="menuitem" onClick={onOpenSettings}><AppIcon name="settings" size="md" />Settings</button></div>;
 }
 
-function TransactionList({ items, showSheet = false, emptyMessage }: { items: Transaction[]; showSheet?: boolean; emptyMessage: string }) {
+function SheetOverflowMenu() {
+  const firstGroup: Array<[IconKey, string]> = [["chartPie", "Stats"], ["insights", "Trends"], ["bank", "Exchange Rate"]];
+  const secondGroup: Array<[IconKey, string]> = [["check", "Select"], ["printer", "Print"], ["upload", "Export"], ["download", "Import"]];
+  return <div className="glass-menu sheet-overflow" role="menu"><MenuGroup items={firstGroup} /><MenuGroup items={secondGroup} /><button type="button" role="menuitem" aria-disabled="true"><AppIcon name="pencil" size="md" />Edit Sheet</button></div>;
+}
+
+function MenuGroup({ items }: { items: Array<[IconKey, string]> }) {
+  return <div className="menu-group">{items.map(([icon, label]) => <button type="button" role="menuitem" aria-disabled="true" key={label}><AppIcon name={icon} size="md" />{label}</button>)}</div>;
+}
+
+function SheetSummary({ totals, sensitive }: { totals: { balance: number; expense: number; income: number }; sensitive: boolean }) {
+  const hidden = "••••••";
+  return <section className="sheet-summary"><div className="sheet-summary-top"><b>SGD</b><button type="button">As of Today <AppIcon name="chevronDown" size="sm" /></button></div><strong>{sensitive ? hidden : money(totals.balance)}</strong><div className="sheet-summary-columns"><span>Expense <b>{sensitive ? hidden : `−${money(totals.expense)}`}</b></span><span>Income <b>{sensitive ? hidden : money(totals.income)}</b></span></div></section>;
+}
+
+function SettingsSheet({ sensitive, onClose, onToggleSensitive }: { sensitive: boolean; onClose: () => void; onToggleSensitive: () => void }) {
+  return <div className="sheet-modal-backdrop"><section className="settings-sheet" aria-label="Settings"><header className="overlay-header"><button type="button" className="round-control" onClick={onClose} aria-label="Close settings"><AppIcon name="close" size="lg" /></button><h1>Settings</h1><span /></header><SettingsGroup><SettingsRow icon="printer" label="Print Settings" /><SettingsRow icon="bank" label="Preferred Currency" value="SGD" /></SettingsGroup><SettingsGroup><SettingsRow icon="lock" label="Privacy" /><button type="button" className="settings-row toggle-settings" onClick={onToggleSensitive} aria-pressed={sensitive}><span className="settings-icon neutral"><AppIcon name="eyeSlash" size="md" /></span><span><b>Sensitive Mode</b><small>Hide all sensitive data.</small></span><span className={sensitive ? "composer-switch on" : "composer-switch"}><i /></span></button></SettingsGroup><SettingsGroup><SettingsRow icon="paperplane" label="Send Feedback" external /><SettingsRow icon="goals" label="Rate the App" external /></SettingsGroup><SettingsGroup><SettingsRow icon="info" label="FAQ" external /><SettingsRow icon="info" label="About" /></SettingsGroup><SettingsGroup><SettingsRow icon="settings" label="App Settings" external /></SettingsGroup><SettingsGroup><SettingsRow icon="goals" label="Expenses Pro" /><SettingsRow icon="sync" label="Sync" /><SettingsRow icon="ledger" label="Categories" /><SettingsRow icon="upload" label="Export" /><SettingsRow icon="download" label="Import" /><SettingsRow icon="trash" label="Trash" /></SettingsGroup><SettingsGroup><SettingsRow icon="palette" label="Appearance" /><SettingsRow icon="table" label="App Icon" /><SettingsRow icon="sync" label="Sort Sheets By" /><SettingsRow icon="printer" label="Print Settings" /></SettingsGroup></section></div>;
+}
+
+function SettingsGroup({ children }: { children: React.ReactNode }) { return <section className="settings-card">{children}</section>; }
+
+function SettingsRow({ icon, label, value, external = false }: { icon: IconKey; label: string; value?: string; external?: boolean }) { return <button type="button" className="settings-row" aria-disabled="true"><span className={`settings-icon ${icon}`}><AppIcon name={icon} size="md" /></span><b>{label}</b><span className="settings-row-end">{value}{external ? "↗" : <AppIcon name="forward" size="sm" />}</span></button>; }
+
+function LedgerFilterSheet({ items, filters, onClose, onApply }: { items: Transaction[]; filters: LedgerFilters; onClose: () => void; onApply: (filters: LedgerFilters) => void }) {
+  const [draft, setDraft] = useState(filters);
+  const availableCategories = [...new Set(items.map((item) => item.category))].sort();
+  const update = <Key extends keyof LedgerFilters>(key: Key, value: LedgerFilters[Key]) => setDraft((current) => ({ ...current, [key]: value }));
+  return <div className="sheet-modal-backdrop"><section className="filter-sheet" aria-label="Filters"><header className="overlay-header"><button type="button" className="round-control" onClick={onClose} aria-label="Close filters"><AppIcon name="close" size="lg" /></button><h1>Filters</h1><button type="button" className="filter-apply" onClick={() => onApply(draft)} aria-label="Apply filters"><AppIcon name="check" size="lg" /></button></header><button type="button" className="filter-reset" onClick={() => onApply(emptyLedgerFilters)}>No filter <AppIcon name="check" size="sm" /></button><section className="filter-card"><FilterToggle icon="photo" label="Image" checked={draft.hasAttachment} onClick={() => update("hasAttachment", !draft.hasAttachment)} /><FilterToggle icon="repeat" label="Repeat" checked={draft.recurring} onClick={() => update("recurring", !draft.recurring)} /></section><section className="filter-card"><FilterSelect icon="sync" label="Type" value={draft.kind} onChange={(value) => update("kind", value as LedgerFilters["kind"])} options={[["all", "All"], ["expense", "Expense"], ["income", "Income"], ["transfer", "Transfer"]]} /><label className="filter-row"><span># <b>Amount</b></span><input value={draft.amount} onChange={(event) => update("amount", event.target.value)} inputMode="decimal" type="number" min="0" placeholder="Amount" /><select value={draft.amountMatch} onChange={(event) => update("amountMatch", event.target.value as AmountMatch)}><option value="exactly">Exactly</option><option value="atLeast">At least</option><option value="atMost">At most</option></select></label><FilterSelect icon="bank" label="Currency" value={draft.currency} onChange={(value) => update("currency", value)} options={[["all", "All"], ["SGD", "SGD"]]} /><label className="filter-row filter-notes"><span><AppIcon name="receipt" size="sm" /><b>Notes</b></span><input value={draft.notes} onChange={(event) => update("notes", event.target.value)} placeholder="Contains text" /></label><FilterSelect icon="ledger" label="Category" value={draft.category} onChange={(value) => update("category", value)} options={[["all", "All"], ...availableCategories.map((category) => [category, category])]} /><FilterSelect icon="calendar" label="Date" value={draft.dateMatch} onChange={(value) => update("dateMatch", value as DateMatch)} options={[["all", "All"], ["today", "Today"], ["custom", "Custom date"]]} />{draft.dateMatch === "custom" && <label className="filter-row"><span><AppIcon name="calendar" size="sm" /><b>On date</b></span><input type="date" value={draft.date} onChange={(event) => update("date", event.target.value)} /></label>}</section></section></div>;
+}
+
+function FilterToggle({ icon, label, checked, onClick }: { icon: IconKey; label: string; checked: boolean; onClick: () => void }) { return <button type="button" className={checked ? "filter-row filter-toggle selected" : "filter-row filter-toggle"} onClick={onClick} aria-pressed={checked}><span><AppIcon name={icon} size="sm" /><b>{label}</b></span>{checked && <AppIcon name="check" size="sm" />}</button>; }
+
+function FilterSelect({ icon, label, value, onChange, options }: { icon: IconKey; label: string; value: string; onChange: (value: string) => void; options: Array<string[]> }) { return <label className="filter-row"><span><AppIcon name={icon} size="sm" /><b>{label}</b></span><select value={value} onChange={(event) => onChange(event.target.value)}>{options.map(([optionValue, optionLabel]) => <option value={optionValue} key={optionValue}>{optionLabel}</option>)}</select></label>; }
+
+function SearchResults({ items, query, sensitive }: { items: Transaction[]; query: string; sensitive: boolean }) {
+  return <section className="search-results" aria-live="polite"><p className="search-summary">{items.length ? `${items.length} result${items.length === 1 ? "" : "s"} for “${query}”` : `No results for “${query}”`}</p>{items.length > 0 && <TransactionList items={items} sensitive={sensitive} showSheet emptyMessage="" />}</section>;
+}
+
+function TransactionList({ items, sensitive = false, showDailyTotals = false, showSheet = false, emptyMessage }: { items: Transaction[]; sensitive?: boolean; showDailyTotals?: boolean; showSheet?: boolean; emptyMessage: string }) {
   const grouped = useMemo(() => groupTransactions(items), [items]);
   if (!items.length) return <p className="sheet-empty">{emptyMessage}</p>;
-  return <div className="sheet-transaction-list">{grouped.map(([date, group]) => <section key={date}><h2>{transactionDateLabel(date)}</h2>{group.map((item) => <article className="sheet-transaction" key={item.id}><span className={`sheet-category-icon ${item.kind}`}><AppIcon name={iconFor(item.category)} size="sm" /></span><div><strong>{item.title}</strong><small>{item.notes || item.category}{showSheet && item.sheet ? ` · ${item.sheet}` : ""}</small></div><div className={item.kind === "income" || item.transferDirection === "in" ? "sheet-amount positive" : "sheet-amount"}>{item.kind === "income" || item.transferDirection === "in" ? "+" : "−"}{money(item.amount, item.currency)}<small>{item.time || ""}</small></div></article>)}</section>)}</div>;
+  return <div className="sheet-transaction-list">{grouped.map(([date, group]) => <section key={date}><div className="transaction-date-heading"><h2>{transactionDateLabel(date)}</h2>{showDailyTotals && <b className={dayNet(group) >= 0 ? "positive" : ""}>{sensitive ? "••••" : signedMoney(dayNet(group))}</b>}</div>{group.map((item) => <article className="sheet-transaction" key={item.id}><span className={`sheet-category-icon ${item.kind}`}><AppIcon name={iconFor(item.category)} size="sm" /></span><div><strong>{item.title}</strong><small>{item.notes || item.category}{showSheet && item.sheet ? ` · ${item.sheet}` : ""}</small></div><div className={item.kind === "income" || item.transferDirection === "in" ? "sheet-amount positive" : "sheet-amount"}>{sensitive ? "••••" : <>{item.kind === "income" || item.transferDirection === "in" ? "+" : "−"}{money(item.amount, item.currency)}</>}<small>{item.time || ""}</small></div></article>)}</section>)}</div>;
 }
 
 function SheetTransactionComposer({ sheets, defaultSheet: selectedSheet, onClose, onSave }: { sheets: { id: string; name: string }[]; defaultSheet: string; onClose: () => void; onSave: (draft: TransactionDraft) => void }) {
@@ -147,6 +204,7 @@ function SheetTransactionComposer({ sheets, defaultSheet: selectedSheet, onClose
   const [pending, setPending] = useState(false);
   const [recurring, setRecurring] = useState("");
   const [attachmentMessage, setAttachmentMessage] = useState("");
+  const [hasAttachment, setHasAttachment] = useState(false);
   const categoryOptions = kind === "income" ? incomeCategories : expenseCategories;
   const destinationSheets = sheets.filter((entry) => entry.name !== fromSheet);
 
@@ -157,6 +215,7 @@ function SheetTransactionComposer({ sheets, defaultSheet: selectedSheet, onClose
 
   async function scanReceipt(file?: File) {
     if (!file) return;
+    setHasAttachment(true);
     if (!file.type.startsWith("image/")) { setAttachmentMessage(`${file.name} attached. Choose an image for receipt suggestions.`); return; }
     if (file.size > 4_500_000) { setAttachmentMessage(`${file.name} attached. It is too large for receipt suggestions.`); return; }
     setAttachmentMessage("Reading receipt…");
@@ -173,7 +232,7 @@ function SheetTransactionComposer({ sheets, defaultSheet: selectedSheet, onClose
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    onSave({ amount: Number(amount), category, date, fromSheet, kind, merchant, notes, pending, recurring, sheet, time, title, toSheet });
+    onSave({ amount: Number(amount), category, date, fromSheet, hasAttachment, kind, merchant, notes, pending, recurring, sheet, time, title, toSheet });
   }
 
   return <div className="sheet-composer-backdrop" role="presentation"><form className="sheet-composer" onSubmit={submit} aria-label="New transaction"><header className="composer-header"><button type="button" className="round-control" onClick={onClose} aria-label="Discard transaction"><AppIcon name="close" size="lg" /></button><h1>New Item</h1><button className="composer-save" type="submit" aria-label="Save transaction"><AppIcon name="check" size="lg" /></button></header><div className="composer-segment" role="tablist" aria-label="Transaction type">{(["expense", "income", "transfer"] as TransactionKind[]).map((option) => <button key={option} type="button" role="tab" aria-selected={kind === option} className={kind === option ? "selected" : ""} onClick={() => chooseKind(option)}>{option[0].toUpperCase() + option.slice(1)}</button>)}</div><section className="composer-card amount-card"><label><span className="sr-only">Amount</span><input value={amount} onChange={(event) => setAmount(event.target.value)} type="number" inputMode="decimal" min="0.01" step="0.01" placeholder="Amount" autoFocus required /></label><div className="composer-row currency-row"><span>◉ <b>SGD</b></span><span>Singapore Dollar <AppIcon name="forward" size="sm" /></span></div></section><small className="amount-preview">{amount ? money(Number(amount) || 0) : "$0.00"}</small><label className="composer-note"><span className="sr-only">Notes</span><input value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Notes" /></label>{kind === "transfer" ? <section className="composer-card"><label className="composer-row"><span>↑ <b>From:</b></span><select value={fromSheet} onChange={(event) => { setFromSheet(event.target.value); if (event.target.value === toSheet) setToSheet(""); }}>{sheets.map((entry) => <option value={entry.name} key={entry.id}>{entry.name}</option>)}</select></label><label className="composer-row"><span>↓ <b>To:</b></span><select value={toSheet} onChange={(event) => setToSheet(event.target.value)} disabled={!destinationSheets.length}><option value="">{destinationSheets.length ? "Choose a sheet" : "No other sheets yet"}</option>{destinationSheets.map((entry) => <option value={entry.name} key={entry.id}>{entry.name}</option>)}</select></label>{!destinationSheets.length && <p className="composer-hint">Add another sheet before recording a transfer.</p>}</section> : <><section className="composer-card"><label className="composer-row"><span>⌂ <b>Merchant</b></span><input value={merchant} onChange={(event) => setMerchant(event.target.value)} placeholder="No merchant" /></label><div className="composer-row category-heading"><span><AppIcon name={iconFor(category)} size="sm" /><b>Category</b></span><span>{category}</span></div><div className="category-chips">{categoryOptions.map((option) => <button type="button" className={category === option ? "selected" : ""} onClick={() => setCategory(option)} key={option}><span className={`chip-icon ${option === "Salary" ? "income" : ""}`}><AppIcon name={iconFor(option)} size="sm" /></span>{option}</button>)}</div><label className="composer-row"><span><AppIcon name="table" size="sm" /><b>Sheet</b></span><select value={sheet} onChange={(event) => setSheet(event.target.value)}>{sheets.map((entry) => <option value={entry.name} key={entry.id}>{entry.name}</option>)}</select></label></section></>}<section className="composer-card"><label className="composer-row"><span><AppIcon name="calendar" size="sm" /><b>Date</b></span><input value={date} onChange={(event) => setDate(event.target.value)} type="date" required /></label><label className="composer-row"><span><AppIcon name="clock" size="sm" /><b>Time</b></span><input value={time} onChange={(event) => setTime(event.target.value)} type="time" required /></label></section><button type="button" className="composer-card composer-row toggle-row" onClick={() => setPending((value) => !value)} aria-pressed={pending}><span><AppIcon name="clock" size="sm" /><b>Pending</b></span><span className={pending ? "composer-switch on" : "composer-switch"}><i /></span></button><section className="composer-card"><label className="composer-row"><span><AppIcon name="transfer" size="sm" /><b>Repeat</b></span><select value={recurring} onChange={(event) => setRecurring(event.target.value)}><option value="">Never</option><option value="Weekly">Weekly</option><option value="Monthly">Monthly</option><option value="Yearly">Yearly</option></select></label></section><label className="composer-image"><AppIcon name="photo" size="sm" /><span>{attachmentMessage || "Add Image"}</span><input type="file" accept="image/*,.pdf" onChange={(event) => { void scanReceipt(event.target.files?.[0]); }} /></label><label className="sr-only">Transaction title<input value={title} onChange={(event) => setTitle(event.target.value)} /></label></form></div>;
@@ -284,6 +343,26 @@ function Toggle({ label, detail, checked, onChange }: { label: string; detail: s
 function transactionDate(value: string) { return new Date(`${value.slice(0, 10)}T12:00:00`); }
 function transactionSortKey(item: Transaction) { return `${item.date}T${item.time || "00:00"}`; }
 function sheetBalance(items: Transaction[]) { return items.filter((item) => !item.pending).reduce((balance, item) => balance + (item.kind === "income" || item.transferDirection === "in" ? item.amount : -item.amount), 0); }
+function sheetTotals(items: Transaction[]) { return items.filter((item) => !item.pending).reduce((totals, item) => { if (item.kind === "income") totals.income += item.amount; else if (item.kind === "expense") totals.expense += item.amount; return totals; }, { income: 0, expense: 0, balance: sheetBalance(items) }); }
+function dayNet(items: Transaction[]) { return sheetBalance(items); }
+function signedMoney(value: number) { return `${value >= 0 ? "+" : "−"}${money(Math.abs(value))}`; }
+function isEmptyFilters(filters: LedgerFilters) { return filters.amount === "" && filters.category === "all" && filters.currency === "all" && filters.dateMatch === "all" && !filters.hasAttachment && filters.kind === "all" && filters.notes === "" && !filters.recurring; }
+function filterTransactions(items: Transaction[], filters: LedgerFilters) {
+  const amount = Number(filters.amount);
+  const today = new Date().toISOString().slice(0, 10);
+  return items.filter((item) => {
+    if (filters.hasAttachment && !item.hasAttachment) return false;
+    if (filters.recurring && !item.recurring) return false;
+    if (filters.kind !== "all" && item.kind !== filters.kind) return false;
+    if (filters.currency !== "all" && item.currency !== filters.currency) return false;
+    if (filters.category !== "all" && item.category !== filters.category) return false;
+    if (filters.notes && !`${item.notes || ""} ${item.title} ${item.merchant || ""}`.toLocaleLowerCase().includes(filters.notes.toLocaleLowerCase())) return false;
+    if (filters.amount !== "" && Number.isFinite(amount)) { if (filters.amountMatch === "exactly" && item.amount !== amount) return false; if (filters.amountMatch === "atLeast" && item.amount < amount) return false; if (filters.amountMatch === "atMost" && item.amount > amount) return false; }
+    if (filters.dateMatch === "today" && item.date !== today) return false;
+    if (filters.dateMatch === "custom" && item.date !== filters.date) return false;
+    return true;
+  });
+}
 function latestActivity(item: Transaction) { return `${dateLabel(item.date)}${item.time ? ` · ${formatTime(item.time)}` : ""}`; }
 function formatTime(value: string) { const [hours, minutes] = value.split(":").map(Number); const suffix = hours >= 12 ? "PM" : "AM"; return `${hours % 12 || 12}:${String(minutes).padStart(2, "0")} ${suffix}`; }
 function searchTransactions(items: Transaction[], query: string) { const needle = query.trim().toLocaleLowerCase(); return items.filter((item) => [item.title, item.merchant, item.notes, item.category, item.sheet].filter(Boolean).some((value) => value?.toLocaleLowerCase().includes(needle))).sort((left, right) => transactionSortKey(right).localeCompare(transactionSortKey(left))); }

@@ -17,6 +17,7 @@ export type Transaction = {
   pending?: boolean;
   recurring?: string;
   currency: string;
+  hasAttachment?: boolean;
   merchant?: string;
   source?: "manual" | "bank";
   sheet?: string;
