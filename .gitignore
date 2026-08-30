@@ -6,3 +6,5 @@ node_modules
 AGENTS.md
 .playwright-cli
 .temp
+.vercel
+.env*
