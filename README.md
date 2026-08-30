@@ -10,7 +10,7 @@ npm install
 npm run dev
 ```
 
-The app is immediately usable as a local demo and persists its sample data to browser storage. Use the Settings screen to import a compatible CSV or export your current demo data.
+The app starts empty and stores your data in browser storage. Use the Settings screen to import a compatible CSV or export your current data.
 
 ## Deploy the real application
 

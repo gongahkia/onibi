@@ -18,6 +18,7 @@ type IconKey = "home" | "ledger" | "plans" | "insights" | "settings" | "plus" | 
 type NavItem = { id: View; label: string; icon: IconKey; visible: boolean };
 const iconComponents = { home: SFHouseFill, ledger: SFListBullet, plans: SFTarget, insights: SFChartLineUptrendXyaxis, settings: SFGearshapeFill, plus: SFPlus, cart: SFCartFill, dining: SFForkKnife, transport: SFTramFill, utilities: SFLightbulbFill, salary: SFBanknoteFill, goals: SFHeartFill, transfer: SFArrowLeftArrowRight, bank: SFCreditcardFill, download: SFArrowDown, upload: SFSquareAndArrowUp, check: SFCheckmark, back: SFArrowLeft, forward: SFArrowRight, upRight: SFArrowUpRight, chevronDown: SFChevronDown, cloud: SFCloudFill, attachment: SFPaperclip, receipt: SFReceipt, table: SFTablecells, search: SFMagnifyingglass, close: SFXmark, calendar: SFCalendar, clock: SFClock, photo: SFPhoto, more: SFEllipsis, personAdd: SFPersonBadgePlus, documentAdd: SFDocumentBadgePlus, chartPie: SFChartPie, sync: SFArrowUpArrowDown, printer: SFPrinter, repeat: SFRepeat, sliders: SFSliderHorizontal3, trash: SFTrash, palette: SFPaintpalette, paperplane: SFPaperplane, info: SFInfoCircle, lock: SFLock, eyeSlash: SFEyeSlash, pencil: SFPencil, airplane: SFAirplane, bag: SFBag, book: SFBook, building: SFBuildingColumns, bus: SFBus, camera: SFCamera, car: SFCar, dog: SFDog, dumbbell: SFDumbbell, game: SFGamecontroller, gift: SFGift, graduation: SFGraduationcap, health: SFHeartTextSquare, leaf: SFLeaf, music: SFMusicNote, phone: SFPhone, pill: SFPill, popcorn: SFPopcorn, stethoscope: SFStethoscope, tag: SFTag, theater: SFTheatermasks, train: SFTrainSideFrontCar, wifi: SFWifi };
 function AppIcon({ name, size = "md" }: { name: IconKey; size?: "xs" | "sm" | "md" | "lg" | "xl" }) { const Icon = iconComponents[name]; return <Icon size={size} aria-hidden="true" />; }
+const members: string[] = [];
 const defaultCategories: Category[] = [];
 const defaultPreferences: AppPreferences = { appearance: "automatic", preferredCurrency: "SGD", printFont: "inter", printFontSize: 100, sheetSort: "edited", syncEnabled: false, updatedAt: "2026-08-30T01:11:00.000Z" };
 const defaultSheet: Sheet = { id: "", name: "", currency: "SGD", archived: false, createdAt: "", updatedAt: "", showTotalBalance: true, totalPeriod: "asOfToday", input: { showCurrencySelection: true, showMerchant: true, showTime: true, showCategorySuggestions: true } };
@@ -36,14 +37,14 @@ const defaultNavItems: NavItem[] = [
 function uid(prefix: string) { return `${prefix}-${crypto.randomUUID?.() ?? Date.now().toString(36)}`; }
 function todayIso() { return new Date().toISOString().slice(0, 10); }
 function sheetDisplayName(sheet: Sheet, position: number, allSheets: Sheet[]) { return allSheets.filter((entry) => entry.name === sheet.name).length > 1 ? `${sheet.name} · ${position + 1}` : sheet.name; }
-type DemoState = { transactions: Transaction[]; budgets: Budget[]; goals: Goal[]; banks: BankConnection[]; sheets: Sheet[]; categories?: Category[]; preferences?: AppPreferences; navItems?: NavItem[]; showNavIcons?: boolean };
-function readDemoState(): DemoState {
-  const fallback: DemoState = { transactions: [], budgets: [], goals: [], banks: [], sheets: [], categories: defaultCategories, preferences: defaultPreferences, navItems: defaultNavItems, showNavIcons: true };
+type BootstrapState = { transactions: Transaction[]; budgets: Budget[]; goals: Goal[]; banks: BankConnection[]; sheets: Sheet[]; categories?: Category[]; preferences?: AppPreferences; navItems?: NavItem[]; showNavIcons?: boolean };
+function readBootstrapState(): BootstrapState {
+  const fallback: BootstrapState = { transactions: [], budgets: [], goals: [], banks: [], sheets: [], categories: defaultCategories, preferences: defaultPreferences, navItems: defaultNavItems, showNavIcons: true };
   if (typeof window === "undefined") return fallback;
   try {
     const raw = localStorage.getItem(legacyBudgetStorageKey);
     if (!raw) return fallback;
-    const parsed = JSON.parse(raw) as Partial<DemoState>;
+    const parsed = JSON.parse(raw) as Partial<BootstrapState>;
     const navItems = parsed.navItems?.map((item) => ({ ...defaultNavItems.find((entry) => entry.id === item.id), ...item, icon: item.icon || defaultNavItems.find((entry) => entry.id === item.id)?.icon || "home" })) || fallback.navItems;
     const parsedSheets = parsed.sheets?.length ? parsed.sheets.map((sheet) => { const legacyPeriod = sheet.totalPeriod as string; return { ...defaultSheet, ...sheet, totalPeriod: legacyPeriod === "today" || legacyPeriod === "all" ? "asOfToday" : sheet.totalPeriod, input: { ...defaultSheet.input, ...sheet.input } }; }) : fallback.sheets;
     return { transactions: parsed.transactions || fallback.transactions, budgets: parsed.budgets || fallback.budgets, goals: parsed.goals || fallback.goals, banks: parsed.banks || fallback.banks, sheets: parsedSheets, categories: parsed.categories?.length ? parsed.categories : fallback.categories, preferences: { ...defaultPreferences, ...parsed.preferences }, navItems, showNavIcons: parsed.showNavIcons ?? true };
@@ -59,7 +60,7 @@ type ImportFormat = "expenses" | "native";
 type ImportResult = { error: string; format?: ImportFormat; rows: ImportRow[]; sourceSheetCount: number };
 
 export default function BudgetApp() {
-  const [initial] = useState(readDemoState);
+  const [initial] = useState(readBootstrapState);
   const [sheets, setSheets] = useState<Sheet[]>(initial.sheets);
   const [categories, setCategories] = useState<Category[]>(initial.categories || defaultCategories);
   const [preferences, setPreferences] = useState<AppPreferences>(initial.preferences || defaultPreferences);
@@ -116,7 +117,7 @@ export default function BudgetApp() {
       void requestPersistentStorage();
     }).catch(() => { if (mounted) setCacheReady(true); });
     return () => { mounted = false; };
-  // The initial demo values are used only until IndexedDB has hydrated.
+  // IndexedDB replaces the empty bootstrap state after it has hydrated.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
@@ -1091,7 +1092,7 @@ function fallbackRatesFor(base: string): ExchangeRate[] {
     .map(([code, rate]) => ({ code, name: currencyName(code), rate: rate / baseRate }))
     .sort((left, right) => left.code.localeCompare(right.code));
 }
-const sampleCsv = "Date,Time,Type,Category,Amount,Currency,Merchant,Notes\n2026-08-30,12:00,expense,Food & Drink,8.00,SGD,luckin,coffee\n2026-08-30,12:00,income,Salary,2000.00,SGD,,August salary\n";
+const sampleCsv = "Date,Time,Type,Category,Amount,Currency,Merchant,Notes\n";
 
 function statsRangeLabel(range: StatsRange) { return ({ today: "As of Today", yearly: "Yearly", monthly: "Monthly", weekly: "Weekly", daily: "Daily" })[range]; }
 function statsRangeDateLabel(range: StatsRange) {
