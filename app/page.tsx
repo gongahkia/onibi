@@ -3,6 +3,7 @@
 import { ChangeEvent, FormEvent, useDeferredValue, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Image from "next/image";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { SFArchivebox } from "sf-symbols-lib/dualtone";
 import { SFAirplane, SFArrowDown, SFArrowLeft, SFArrowLeftArrowRight, SFArrowRight, SFArrowUpArrowDown, SFArrowUpRight, SFBag, SFBanknoteFill, SFBook, SFBuildingColumns, SFBus, SFCalendar, SFCamera, SFCar, SFCartFill, SFChartLineUptrendXyaxis, SFChartPie, SFCheckmark, SFChevronDown, SFClock, SFCloudFill, SFCreditcardFill, SFDocumentBadgePlus, SFDog, SFDumbbell, SFEllipsis, SFEyeSlash, SFForkKnife, SFGamecontroller, SFGearshapeFill, SFGift, SFGraduationcap, SFHeartFill, SFHeartTextSquare, SFHouseFill, SFInfoCircle, SFLeaf, SFLightbulbFill, SFListBullet, SFLock, SFMagnifyingglass, SFMusicNote, SFPaintpalette, SFPaperclip, SFPaperplane, SFPencil, SFPersonBadgePlus, SFPhone, SFPhoto, SFPill, SFPlus, SFPopcorn, SFPrinter, SFReceipt, SFRepeat, SFSliderHorizontal3, SFSquareAndArrowUp, SFStethoscope, SFTablecells, SFTag, SFTarget, SFTheatermasks, SFTrainSideFrontCar, SFTramFill, SFTrash, SFWifi, SFXmark } from "sf-symbols-lib/dualtone";
 import { legacyBudgetStorageKey, migrateLegacyBudgetCache, requestPersistentStorage, saveBudgetCache } from "@/lib/budget-db";
 import { recognizeReceipt } from "@/lib/receipt-ocr";
@@ -11,7 +12,7 @@ import { currentCloudUser, isCloudSyncConfigured, sendCloudMagicLink, syncIncrem
 import { dateLabel, money, type AppPreferences, type BankConnection, type Budget, type Category, type CategoryKind, type Goal, type Sheet, type SheetSort, type SheetTotalPeriod, type SplitMethod, type Transaction, type TransactionKind } from "@/lib/types";
 
 type View = "home" | "ledger" | "plans" | "insights" | "settings";
-type SheetAction = "stats" | "trends" | "exchange" | "select" | "print" | "export" | "import" | "edit";
+type SheetAction = "stats" | "trends" | "exchange" | "select" | "print" | "export" | "import" | "edit" | "archive" | "delete";
 type SettingsDestination = "home" | "sync" | "categories" | "trash" | "appearance" | "sort" | "print" | "currency" | "privacy" | "data";
 type StatsRange = "today" | "yearly" | "monthly" | "weekly" | "daily";
 type IconKey = "home" | "ledger" | "plans" | "insights" | "settings" | "plus" | "cart" | "dining" | "transport" | "utilities" | "salary" | "goals" | "transfer" | "bank" | "download" | "upload" | "check" | "back" | "forward" | "upRight" | "chevronDown" | "cloud" | "attachment" | "receipt" | "table" | "search" | "close" | "calendar" | "clock" | "photo" | "more" | "personAdd" | "documentAdd" | "chartPie" | "sync" | "printer" | "repeat" | "sliders" | "trash" | "palette" | "paperplane" | "info" | "lock" | "eyeSlash" | "pencil" | "airplane" | "bag" | "book" | "building" | "bus" | "camera" | "car" | "dog" | "dumbbell" | "game" | "gift" | "graduation" | "health" | "leaf" | "music" | "phone" | "pill" | "popcorn" | "stethoscope" | "tag" | "theater" | "train" | "wifi";
@@ -52,7 +53,7 @@ function readBootstrapState(): BootstrapState {
 }
 
 type TransactionDraft = { amount: number; category: string; date: string; fromSheetId?: string; kind: TransactionKind; merchant: string; notes: string; ocrText?: string; pending: boolean; recurring: string; sheetId: string; time: string; title: string; toSheetId?: string };
-type SheetDraft = Omit<Sheet, "id" | "archived">;
+type SheetDraft = Omit<Sheet, "id" | "archived"> & { archived?: boolean };
 type Confirmation = { description: string; label: string; onConfirm: () => void; title: string };
 type ComposerPreset = { category: string; sheetId: string };
 type ImportRow = { amount: number; category: string; currency: string; date: string; merchant: string; notes: string; time: string; kind: TransactionKind; sourceSheet?: string; transferDirection?: "in" | "out" };
@@ -450,16 +451,11 @@ function SheetsHome({ sheets, items, search, sensitive, sort, onSearch, onOpenSh
   </section>;
 }
 
-function SheetCard({ sheet, position, allSheets, items, sensitive, onOpen, onArchive, onDelete }: { sheet: Sheet; position: number; allSheets: Sheet[]; items: Transaction[]; sensitive: boolean; onOpen: () => void; onArchive: () => void; onDelete: () => void }) {
-  const [open, setOpen] = useState(false);
-  const startX = useRef<number | null>(null);
-  const suppressClick = useRef(false);
+function SheetCard({ sheet, position, allSheets, items, sensitive, onOpen }: { sheet: Sheet; position: number; allSheets: Sheet[]; items: Transaction[]; sensitive: boolean; onOpen: () => void; onArchive: () => void; onDelete: () => void }) {
   const sheetItems = items.filter((item) => item.sheetId === sheet.id);
   const balance = sheetBalance(sheetItems);
   const latest = sheetItems.reduce<Transaction | undefined>((recent, item) => !recent || transactionSortKey(item) > transactionSortKey(recent) ? item : recent, undefined);
-  function pointerDown(event: React.PointerEvent<HTMLDivElement>) { startX.current = event.clientX; }
-  function pointerUp(event: React.PointerEvent<HTMLDivElement>) { if (startX.current !== null && Math.abs(event.clientX - startX.current) > 36) { setOpen((value) => !value); suppressClick.current = true; window.setTimeout(() => { suppressClick.current = false; }, 0); } startX.current = null; }
-  return <div className={open ? "sheet-swipe open" : "sheet-swipe"} onPointerDown={pointerDown} onPointerUp={pointerUp} onPointerCancel={() => { startX.current = null; }}><button type="button" className={sheet.archived ? "sheet-card archived" : "sheet-card"} onClick={() => { if (!suppressClick.current) onOpen(); }}><span className="sheet-card-main"><strong>{sheetDisplayName(sheet, position, allSheets)}</strong><small>{sensitive ? "••••••" : money(balance, sheet.currency)}</small></span><span className="sheet-card-meta"><small>{latest ? latestActivity(latest) : "No entries yet"}</small><b>{sheetItems.length}</b><AppIcon name="forward" size="sm" /></span></button><div className="sheet-swipe-actions"><button type="button" className="sheet-archive" onClick={() => { onArchive(); setOpen(false); }} aria-label={sheet.archived ? "Unarchive sheet" : "Archive sheet"}><AppIcon name={sheet.archived ? "receipt" : "table"} size="md" /></button><button type="button" className="sheet-delete" onClick={onDelete} aria-label="Delete sheet"><AppIcon name="trash" size="md" /></button></div></div>;
+  return <button type="button" className={sheet.archived ? "sheet-card archived" : "sheet-card"} onClick={onOpen}><span className="sheet-card-main"><strong>{sheetDisplayName(sheet, position, allSheets)}</strong><small>{sensitive ? "••••••" : money(balance, sheet.currency)}</small></span><span className="sheet-card-meta"><small>{latest ? latestActivity(latest) : "No entries yet"}</small><b>{sheetItems.length}</b><AppIcon name="forward" size="sm" /></span></button>;
 }
 
 function SheetLedger({ sheet, items, search, sensitive, filters, ascending, onSearch, onBack, onAdd, onOpenFilters, onToggleMenu, onCloseMenu, showMenu, onShare, onOpenAction, onRangeChange, onToggleOrder, onSelectTransaction, onLongPressTransaction }: { sheet: Sheet; items: Transaction[]; search: string; sensitive: boolean; filters: LedgerFilters; ascending: boolean; onSearch: (value: string) => void; onBack: () => void; onAdd: () => void; onOpenFilters: () => void; onToggleMenu: () => void; onCloseMenu: () => void; showMenu: boolean; onShare: () => void; onOpenAction: (action: SheetAction) => void; onRangeChange: (period: SheetTotalPeriod) => void; onToggleOrder: () => void; onSelectTransaction?: (transactionId: string) => void; onLongPressTransaction?: (transactionId: string) => void }) {
@@ -494,7 +490,7 @@ function SheetOverflowMenu({ onSelect }: { onSelect: (action: SheetAction) => vo
   const firstGroup: Array<[IconKey, string]> = [["chartPie", "Stats"], ["insights", "Trends"], ["bank", "Exchange Rate"]];
   const secondGroup: Array<[IconKey, string]> = [["check", "Select"], ["printer", "Print"], ["upload", "Export"], ["download", "Import"]];
   const toAction = (label: string): SheetAction => ({ Stats: "stats", Trends: "trends", "Exchange Rate": "exchange", Select: "select", Print: "print", Export: "export", Import: "import" })[label] as SheetAction;
-  return <div className="glass-menu sheet-overflow" role="menu"><div className="menu-group">{firstGroup.map(([icon, label]) => <button type="button" role="menuitem" onClick={() => onSelect(toAction(label))} key={label}><AppIcon name={icon} size="md" />{label}</button>)}</div><div className="menu-group">{secondGroup.map(([icon, label]) => <button type="button" role="menuitem" onClick={() => onSelect(toAction(label))} key={label}><AppIcon name={icon} size="md" />{label}</button>)}</div><button type="button" role="menuitem" onClick={() => onSelect("edit")}><AppIcon name="pencil" size="md" />Edit Sheet</button></div>;
+  return <div className="glass-menu sheet-overflow" role="menu"><div className="menu-group">{firstGroup.map(([icon, label]) => <button type="button" role="menuitem" onClick={() => onSelect(toAction(label))} key={label}><AppIcon name={icon} size="md" />{label}</button>)}</div><div className="menu-group">{secondGroup.map(([icon, label]) => <button type="button" role="menuitem" onClick={() => onSelect(toAction(label))} key={label}><AppIcon name={icon} size="md" />{label}</button>)}</div><div className="menu-group"><button type="button" role="menuitem" onClick={() => onSelect("edit")}><AppIcon name="pencil" size="md" />Edit Sheet</button><button type="button" role="menuitem" onClick={() => onSelect("archive")}><SFArchivebox size="md" aria-hidden="true" />Archive Sheet</button></div><button type="button" role="menuitem" className="sheet-menu-delete" onClick={() => onSelect("delete")}><AppIcon name="trash" size="md" />Delete Sheet</button></div>;
 }
 
 function SheetSummary({ sheet, totals, sensitive, onToggleRange, rangeExpanded, rangeMenu }: { sheet: Sheet; totals: { balance: number; expense: number; income: number }; sensitive: boolean; onToggleRange?: () => void; rangeExpanded?: boolean; rangeMenu?: React.ReactNode }) {
@@ -518,7 +514,7 @@ function SettingsSheet({ destination, preferences, categories, sheets, transacti
 }
 
 function SettingsHome({ preferences, sensitive, onOpen, onToggleSensitive }: { preferences: AppPreferences; sensitive: boolean; onOpen: (destination: SettingsDestination) => void; onToggleSensitive: () => void }) {
-  return <><SettingsGroup><SettingsRow icon="bank" label="Preferred Currency" value={preferences.preferredCurrency} onClick={() => onOpen("currency")} /><SettingsRow icon="printer" label="Print Settings" onClick={() => onOpen("print")} /></SettingsGroup><SettingsGroup><SettingsRow icon="lock" label="Privacy" onClick={() => onOpen("privacy")} /><button type="button" className="settings-row toggle-settings" onClick={onToggleSensitive} aria-pressed={sensitive}><span className="settings-icon neutral"><AppIcon name="eyeSlash" size="md" /></span><span><b>Sensitive Mode</b><small>Hide monetary values in this browser.</small></span><span className={sensitive ? "composer-switch on" : "composer-switch"}><i /></span></button></SettingsGroup><SettingsGroup><SettingsRow icon="sync" label="Sync" value={preferences.lastSyncedAt ? "Connected" : "Not connected"} onClick={() => onOpen("sync")} /><SettingsRow icon="ledger" label="Categories" onClick={() => onOpen("categories")} /><SettingsRow icon="upload" label="Import & Export" onClick={() => onOpen("data")} /><SettingsRow icon="trash" label="Trash" onClick={() => onOpen("trash")} /></SettingsGroup><SettingsGroup><SettingsRow icon="palette" label="Appearance" value={preferences.appearance[0].toLocaleUpperCase() + preferences.appearance.slice(1)} onClick={() => onOpen("appearance")} /><SettingsRow icon="sync" label="Sort Sheets By" onClick={() => onOpen("sort")} /></SettingsGroup></>;
+  return <><SettingsGroup><SettingsRow icon="bank" label="Preferred Currency" value={preferences.preferredCurrency} onClick={() => onOpen("currency")} /><SettingsRow icon="printer" label="Print Settings" onClick={() => onOpen("print")} /></SettingsGroup><SettingsGroup><button type="button" className="settings-row toggle-settings" onClick={onToggleSensitive} aria-pressed={sensitive}><span className="settings-icon neutral"><AppIcon name="eyeSlash" size="md" /></span><span><b>Sensitive Mode</b><small>Hide monetary values in this browser.</small></span><span className={sensitive ? "composer-switch on" : "composer-switch"}><i /></span></button></SettingsGroup><SettingsGroup><SettingsRow icon="sync" label="Sync" value={preferences.lastSyncedAt ? "Connected" : "Not connected"} onClick={() => onOpen("sync")} /><SettingsRow icon="ledger" label="Categories" onClick={() => onOpen("categories")} /><SettingsRow icon="upload" label="Import & Export" onClick={() => onOpen("data")} /><SettingsRow icon="trash" label="Trash" onClick={() => onOpen("trash")} /></SettingsGroup><SettingsGroup><SettingsRow icon="palette" label="Appearance" value={preferences.appearance[0].toLocaleUpperCase() + preferences.appearance.slice(1)} onClick={() => onOpen("appearance")} /><SettingsRow icon="sync" label="Sort Sheets By" onClick={() => onOpen("sort")} /></SettingsGroup></>;
 }
 
 function SettingsGroup({ children }: { children: React.ReactNode }) { return <section className="settings-card">{children}</section>; }
@@ -724,6 +720,8 @@ function ActionHeader({ title, onClose, end }: { title: string; onClose: () => v
 }
 
 function SheetActionView({ action, sheet, sheets, items, sensitive, onClose, onOpenAction, onUpdateSheet, onDeleteSheet, onImport }: { action: Exclude<SheetAction, "select">; sheet: Sheet; sheets: Sheet[]; items: Transaction[]; sensitive: boolean; onClose: () => void; onOpenAction: (action: SheetAction) => void; onUpdateSheet: (sheetId: string, draft: SheetDraft) => boolean; onDeleteSheet: () => void; onImport: (sheetId: string, rows: ImportRow[], preserveSourceSheets?: boolean) => void }) {
+  if (action === "archive") return <PerformSheetAction onPerform={() => { onUpdateSheet(sheet.id, { name: sheet.name, currency: sheet.currency, createdAt: sheet.createdAt, updatedAt: sheet.updatedAt, showTotalBalance: sheet.showTotalBalance, totalPeriod: sheet.totalPeriod, input: sheet.input, archived: true }); onClose(); }} />;
+  if (action === "delete") return <PerformSheetAction onPerform={() => { onDeleteSheet(); onClose(); }} />;
   if (action === "stats") return <SheetStats sheet={sheet} sheets={sheets} items={items} sensitive={sensitive} onClose={onClose} onPrint={() => onOpenAction("print")} />;
   if (action === "trends") return <SheetTrends sheet={sheet} items={items} onClose={onClose} />;
   if (action === "exchange") return <ExchangeRateSheet sheet={sheet} onClose={onClose} />;
@@ -731,6 +729,16 @@ function SheetActionView({ action, sheet, sheets, items, sensitive, onClose, onO
   if (action === "export") return <ExportSheet sheet={sheet} sheets={sheets} items={items} onClose={onClose} />;
   if (action === "import") return <ImportSheet sheet={sheet} sheets={sheets} onClose={onClose} onImport={onImport} />;
   return <EditSheet sheet={sheet} onClose={onClose} onSave={onUpdateSheet} onDelete={onDeleteSheet} />;
+}
+
+function PerformSheetAction({ onPerform }: { onPerform: () => void }) {
+  const performed = useRef(false);
+  useEffect(() => {
+    if (performed.current) return;
+    performed.current = true;
+    onPerform();
+  }, [onPerform]);
+  return null;
 }
 
 function SheetStats({ sheet, sheets, items, sensitive, onClose, onPrint }: { sheet: Sheet; sheets: Sheet[]; items: Transaction[]; sensitive: boolean; onClose: () => void; onPrint: () => void }) {
@@ -759,8 +767,17 @@ function CategoryDonut({ values }: { values: Array<[string, number]> }) {
 
 function SheetTrends({ sheet, items, onClose }: { sheet: Sheet; items: Transaction[]; onClose: () => void }) {
   const [kind, setKind] = useState<"expense" | "income">("expense");
-  const relevant = items.filter((item) => item.sheetId === sheet.id && item.kind === kind && !item.pending);
-  return <section className="sheet-modal-backdrop"><section className="action-sheet trends-screen" aria-label="Trends"><ActionHeader title="Trends" onClose={onClose} end={<button type="button" className="round-control" aria-label="Trend filters"><AppIcon name="sliders" size="md" /></button>} /><div className="composer-segment two-way"><button type="button" className={kind === "expense" ? "selected" : ""} onClick={() => setKind("expense")}>Expense</button><button type="button" className={kind === "income" ? "selected" : ""} onClick={() => setKind("income")}>Income</button></div>{(["Daily", "Weekly", "Monthly", "Yearly"] as const).map((label) => <TrendChart key={label} title={label} items={relevant} />)}</section></section>;
+  const [category, setCategory] = useState("all");
+  const [showFilters, setShowFilters] = useState(false);
+  const categories = useMemo(() => [...new Set(items.filter((item) => item.sheetId === sheet.id && item.kind === kind && !item.pending).map((item) => item.category))].sort(), [items, kind, sheet.id]);
+  const relevant = items.filter((item) => item.sheetId === sheet.id && item.kind === kind && !item.pending && (category === "all" || item.category === category));
+  function chooseKind(nextKind: "expense" | "income") { setKind(nextKind); setCategory("all"); }
+  return <section className="sheet-modal-backdrop"><section className="action-sheet trends-screen" aria-label="Trends"><ActionHeader title="Trends" onClose={onClose} end={<button type="button" className={showFilters ? "round-control active" : "round-control"} onClick={() => setShowFilters((open) => !open)} aria-label="Trend filters" aria-expanded={showFilters}><AppIcon name="sliders" size="md" /></button>} /><div className="composer-segment two-way"><button type="button" className={kind === "expense" ? "selected" : ""} onClick={() => chooseKind("expense")}>Expense</button><button type="button" className={kind === "income" ? "selected" : ""} onClick={() => chooseKind("income")}>Income</button></div>{(["Daily", "Weekly", "Monthly", "Yearly"] as const).map((label) => <TrendChart key={label} title={label} items={relevant} />)}{showFilters && <TrendFilterSheet categories={categories} value={category} onClose={() => setShowFilters(false)} onApply={(value) => { setCategory(value); setShowFilters(false); }} />}</section></section>;
+}
+
+function TrendFilterSheet({ categories, value, onClose, onApply }: { categories: string[]; value: string; onClose: () => void; onApply: (value: string) => void }) {
+  const [draft, setDraft] = useState(value);
+  return <div className="nested-sheet-backdrop"><section className="filter-sheet" aria-label="Trend filters"><ActionHeader title="Filters" onClose={onClose} end={<button type="button" className="filter-apply" onClick={() => onApply(draft)} aria-label="Apply trend filters"><AppIcon name="check" size="lg" /></button>} /><button type="button" className="filter-reset" onClick={() => onApply("all")}>All categories <AppIcon name="check" size="sm" /></button><section className="filter-card"><FilterSelect icon="ledger" label="Category" value={draft} onChange={setDraft} options={[["all", "All categories"], ...categories.map((category) => [category, category])]} /></section></section></div>;
 }
 
 function TrendChart({ title, items }: { title: "Daily" | "Weekly" | "Monthly" | "Yearly"; items: Transaction[] }) {

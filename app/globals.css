@@ -42,3 +42,28 @@ html.budget-dark .exchange-rates div:last-child small,html.budget-dark .exchange
 .summary-range-anchor{position:relative}
 .summary-range-anchor .ledger-range-menu{right:0;left:auto}
 .import-source-note{margin:18px 24px 0;color:var(--sheet-muted);font-size:14px;line-height:1.45}
+
+/* interaction refinements */
+.composer-save,.filter-apply{background:var(--sheet-purple)}
+.composer-save:not(:disabled),.filter-apply:not(:disabled){box-shadow:0 10px 22px rgba(99,76,244,.28);transition:transform .18s ease,box-shadow .18s ease,background-color .18s ease}
+.composer-save:not(:disabled):active,.filter-apply:not(:disabled):active{transform:scale(.94);box-shadow:0 4px 10px rgba(99,76,244,.24)}
+.currency-row>span:first-child{gap:0;font-size:0}
+.currency-row>span:first-child b{font-size:18px}
+.composer-segment.two-way{grid-template-columns:repeat(2,minmax(0,1fr));max-width:340px;margin:0 auto 30px}
+.composer-segment button{transition:background-color .2s ease,box-shadow .2s ease,transform .2s ease}
+.composer-segment button:active{transform:scale(.97)}
+.sheet-composer:has(.composer-segment button:nth-child(1)[aria-selected="true"]) :is(.composer-note,.composer-card:not(.amount-card),.composer-image){animation:transaction-kind-expense .24s cubic-bezier(.2,.75,.25,1) both}
+.sheet-composer:has(.composer-segment button:nth-child(2)[aria-selected="true"]) :is(.composer-note,.composer-card:not(.amount-card),.composer-image){animation:transaction-kind-income .24s cubic-bezier(.2,.75,.25,1) both}
+.sheet-composer:has(.composer-segment button:nth-child(3)[aria-selected="true"]) :is(.composer-note,.composer-card:not(.amount-card),.composer-image){animation:transaction-kind-transfer .24s cubic-bezier(.2,.75,.25,1) both}
+@keyframes transaction-kind-expense{from{opacity:0;transform:translate3d(-8px,4px,0)}to{opacity:1;transform:translate3d(0,0,0)}}
+@keyframes transaction-kind-income{from{opacity:0;transform:translate3d(0,7px,0)}to{opacity:1;transform:translate3d(0,0,0)}}
+@keyframes transaction-kind-transfer{from{opacity:0;transform:translate3d(8px,4px,0)}to{opacity:1;transform:translate3d(0,0,0)}}
+.nested-sheet-backdrop{position:fixed;z-index:40;inset:0;overflow:auto;background:rgba(27,24,35,.28);backdrop-filter:blur(3px)}
+.nested-sheet-backdrop .filter-sheet,.nested-sheet-backdrop .move-sheet{min-height:100dvh}
+.round-control.active{background:#ebe7ff;color:var(--sheet-purple)}
+.sheet-overflow .menu-group+.menu-group{border-top:1px solid #dedde2}
+.sheet-overflow .sheet-menu-delete{border-top:1px solid #dedde2;color:#ed404b}
+.sheet-overflow .sheet-menu-delete svg{color:currentColor}
+html.budget-dark .sheet-overflow .menu-group+.menu-group,html.budget-dark .sheet-overflow .sheet-menu-delete{border-color:var(--sheet-line)}
+html.budget-dark .nested-sheet-backdrop{background:rgba(4,3,8,.52)}
+@media (prefers-reduced-motion:reduce){.composer-save:not(:disabled),.filter-apply:not(:disabled),.composer-segment button{transition:none}.sheet-composer :is(.composer-note,.composer-card,.composer-image){animation:none!important}}
