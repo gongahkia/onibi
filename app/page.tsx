@@ -230,7 +230,7 @@ export default function BudgetApp() {
   function toggleTransactionSelection(transactionId: string) {
     const transaction = transactions.find((item) => item.id === transactionId);
     const linkedIds = transaction?.transferGroupId ? transactions.filter((item) => item.transferGroupId === transaction.transferGroupId).map((item) => item.id) : [transactionId];
-    setSelectedTransactionIds((ids) => linkedIds.every((id) => ids.includes(id)) ? ids.filter((id) => !linkedIds.includes(id)) : [...new Set([...ids, ...linkedIds)]);
+    setSelectedTransactionIds((ids) => linkedIds.every((id) => ids.includes(id)) ? ids.filter((id) => !linkedIds.includes(id)) : [...new Set([...ids, ...linkedIds])]);
   }
 
   function archiveSheet(sheetId: string, archived: boolean) {
@@ -728,6 +728,89 @@ function trendValues(items: Transaction[], range: "daily" | "weekly" | "monthly"
   });
   const maximum = Math.max(...values.map((value) => value.amount), 1);
   return values.map((value) => ({ ...value, height: value.amount ? Math.max(8, value.amount / maximum * 100) : 4 }));
+}
+const fallbackRateDate = "2026-08-28";
+const fallbackRates = [
+  { code: "AED", name: "United Arab Emirates Dirham", rate: 0.347114 }, { code: "AFN", name: "Afghan Afghani", rate: 0.019548 }, { code: "ALL", name: "Albanian Lek", rate: 0.015998 }, { code: "AMD", name: "Armenian Dram", rate: 0.003499 }, { code: "ANG", name: "Netherlands Antillean Guilder", rate: 0.71226 }, { code: "AOA", name: "Angolan Kwanza", rate: 0.001373 }, { code: "ARS", name: "Argentine Peso", rate: 0.000843 }, { code: "AUD", name: "Australian Dollar", rate: 0.913307 }, { code: "AWG", name: "Aruban Florin", rate: 0.71226 }
+];
+const sampleCsv = "Date,Time,Type,Category,Amount,Currency,Merchant,Notes\n2026-08-30,12:00,expense,Food & Drink,8.00,SGD,luckin,coffee\n2026-08-30,12:00,income,Salary,2000.00,SGD,,August salary\n";
+
+function statsRangeLabel(range: StatsRange) { return ({ today: "As of Today", yearly: "Yearly", monthly: "Monthly", weekly: "Weekly", daily: "Daily" })[range]; }
+function statsRangeDateLabel(range: StatsRange) {
+  const now = new Date();
+  if (range === "today") return `- ${now.toLocaleDateString("en-GB")}`;
+  if (range === "yearly") return now.getFullYear().toString();
+  if (range === "monthly") return now.toLocaleDateString("en-SG", { month: "long", year: "numeric" });
+  if (range === "weekly") { const start = new Date(now); start.setDate(now.getDate() - 6); return `${start.toLocaleDateString("en-SG", { day: "numeric", month: "short" })} – ${now.toLocaleDateString("en-SG", { day: "numeric", month: "short" })}`; }
+  return now.toLocaleDateString("en-SG", { day: "numeric", month: "long", year: "numeric" });
+}
+function filterStatsRange(items: Transaction[], range: StatsRange) {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (range === "today") return items.filter((item) => item.date <= todayIso());
+  if (range === "yearly") return items.filter((item) => transactionDate(item.date).getFullYear() === now.getFullYear());
+  if (range === "monthly") return items.filter((item) => isInMonth(item.date, now));
+  if (range === "weekly") { start.setDate(start.getDate() - 6); return items.filter((item) => transactionDate(item.date) >= start && transactionDate(item.date) <= now); }
+  return items.filter((item) => item.date === todayIso());
+}
+function categoryTotals(items: Transaction[], kind: "expense" | "income") { return Object.entries(items.filter((item) => item.kind === kind && !item.pending).reduce<Record<string, number>>((totals, item) => ({ ...totals, [item.category]: (totals[item.category] || 0) + item.amount }), {})).sort(([, left], [, right]) => right - left); }
+function trendRangeDescription(title: "Daily" | "Weekly" | "Monthly" | "Yearly") {
+  const now = new Date();
+  if (title === "Daily") { const start = new Date(now); start.setDate(now.getDate() - 14); return `${start.toLocaleDateString("en-SG", { day: "numeric", month: "short" })} – ${now.toLocaleDateString("en-SG", { day: "numeric", month: "short" })}`; }
+  if (title === "Weekly") return "10 weeks ago – This Week";
+  if (title === "Monthly") return `${new Date(now.getFullYear() - 1, now.getMonth()).toLocaleDateString("en-SG", { month: "long", year: "numeric" })} – ${now.toLocaleDateString("en-SG", { month: "long", year: "numeric" })}`;
+  return `${now.getFullYear() - 10} – ${now.getFullYear()}`;
+}
+function trendSeries(items: Transaction[], range: "daily" | "weekly" | "monthly" | "yearly") {
+  const now = new Date();
+  const count = range === "daily" ? 15 : range === "weekly" ? 10 : range === "monthly" ? 13 : 11;
+  const starts = Array.from({ length: count }, (_, index) => {
+    if (range === "daily") return new Date(now.getFullYear(), now.getMonth(), now.getDate() - (count - 1 - index));
+    if (range === "weekly") return new Date(now.getFullYear(), now.getMonth(), now.getDate() - (count - 1 - index) * 7);
+    if (range === "monthly") return new Date(now.getFullYear(), now.getMonth() - (count - 1 - index), 1);
+    return new Date(now.getFullYear() - (count - 1 - index), 0, 1);
+  });
+  return starts.map((start) => {
+    const end = range === "daily" ? new Date(start.getFullYear(), start.getMonth(), start.getDate() + 1) : range === "weekly" ? new Date(start.getFullYear(), start.getMonth(), start.getDate() + 7) : range === "monthly" ? new Date(start.getFullYear(), start.getMonth() + 1, 1) : new Date(start.getFullYear() + 1, 0, 1);
+    const amount = items.reduce((sum, item) => { const date = transactionDate(item.date); return date >= start && date < end ? sum + item.amount : sum; }, 0);
+    const label = range === "daily" ? start.getDate().toString() : range === "weekly" ? `-${Math.round((now.getTime() - start.getTime()) / 604800000)}` : range === "monthly" ? start.toLocaleDateString("en-SG", { month: "short" }) : start.getFullYear().toString();
+    return { amount, label };
+  });
+}
+function formatSheetTimestamp(value?: string) { return value ? new Date(value).toLocaleString("en-SG", { day: "numeric", month: "long", year: "numeric", hour: "numeric", minute: "2-digit" }) : "Not recorded"; }
+function csvContent(items: Transaction[]) {
+  const header = ["Date", "Time", "Type", "Category", "Amount", "Currency", "Merchant", "Notes", "Pending", "Repeat", "Attachment Files"];
+  return [header, ...items.map((item) => [item.date, item.time || "", item.kind, item.category, item.amount.toString(), item.currency, item.merchant || "", item.notes || "", item.pending ? "true" : "false", item.recurring || "", (item.attachments || []).map((attachment) => attachment.filename).join("|")])].map((row) => row.map(csv).join(",")).join("\n");
+}
+async function exportTransactionsCsv(sheet: Sheet, items: Transaction[], includeImages: boolean) {
+  const content = csvContent(items);
+  const stem = safeDownloadName(sheet.name);
+  if (!includeImages) { downloadBlob(new Blob([content], { type: "text/csv;charset=utf-8" }), `${stem}.csv`); return; }
+  const zip = new JSZip();
+  zip.file(`${stem}.csv`, content);
+  const known = new Set<string>();
+  for (const attachment of items.flatMap((item) => item.attachments || [])) {
+    if (known.has(attachment.storagePath)) continue;
+    known.add(attachment.storagePath);
+    const file = await readAttachment(attachment);
+    if (file) zip.file(`attachments/${safeDownloadName(attachment.filename)}`, file);
+  }
+  const archive = await zip.generateAsync({ type: "blob" });
+  downloadBlob(archive, `${stem}-export.zip`);
+}
+function downloadBlob(blob: Blob, filename: string) { const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); anchor.href = url; anchor.download = filename; document.body.append(anchor); anchor.click(); anchor.remove(); window.setTimeout(() => URL.revokeObjectURL(url), 0); }
+function safeDownloadName(value: string) { return value.trim().replace(/[^a-zA-Z0-9._-]+/g, "-") || "sheet"; }
+function parseCsv(text: string) {
+  const rows: string[][] = []; let row: string[] = []; let cell = ""; let quoted = false;
+  for (let index = 0; index < text.length; index += 1) { const character = text[index]; if (character === '"') { if (quoted && text[index + 1] === '"') { cell += '"'; index += 1; } else quoted = !quoted; } else if (character === "," && !quoted) { row.push(cell); cell = ""; } else if ((character === "\n" || character === "\r") && !quoted) { if (character === "\r" && text[index + 1] === "\n") index += 1; row.push(cell); if (row.some((value) => value.trim())) rows.push(row); row = []; cell = ""; } else cell += character; }
+  row.push(cell); if (row.some((value) => value.trim())) rows.push(row); return rows;
+}
+function parseImportCsv(text: string): { rows: ImportRow[]; error: string } {
+  const [header, ...records] = parseCsv(text); if (!header) return { rows: [], error: "Choose a CSV file with a header row." };
+  const columns = Object.fromEntries(header.map((value, index) => [value.trim().toLocaleLowerCase(), index]));
+  const required = ["date", "type", "category", "amount"]; if (required.some((key) => columns[key] === undefined)) return { rows: [], error: "CSV needs Date, Type, Category, and Amount columns." };
+  const rows = records.flatMap((record) => { const kind = record[columns.type]?.trim().toLocaleLowerCase(); const amount = Number(record[columns.amount]); const date = record[columns.date]?.trim(); if ((kind !== "expense" && kind !== "income") || !Number.isFinite(amount) || amount <= 0 || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return []; return [{ kind, amount, date, category: record[columns.category]?.trim() || "Other", currency: record[columns.currency] ? record[columns.currency].trim().toUpperCase() : "SGD", merchant: columns.merchant === undefined ? "" : record[columns.merchant]?.trim() || "", notes: columns.notes === undefined ? "" : record[columns.notes]?.trim() || "", time: columns.time === undefined ? "" : record[columns.time]?.trim() || "" } satisfies ImportRow]; });
+  return rows.length ? { rows, error: "" } : { rows: [], error: "No valid expense or income rows were found." };
 }
 function iconFor(category: string): IconKey { return ({ Groceries: "cart", Dining: "dining", Transport: "transport", Utilities: "utilities", Rent: "home", Health: "goals", Shopping: "cart", Entertainment: "insights", Salary: "salary", Goals: "goals", Transfer: "transfer" } as Record<string, IconKey>)[category] || "plans"; }
 function csv(value: string) { return `"${value.replaceAll('"', '""')}"`; }
