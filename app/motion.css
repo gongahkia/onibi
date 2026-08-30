@@ -8,6 +8,7 @@
 button, input, select, textarea { -webkit-tap-highlight-color: transparent; }
 button:active:not(:disabled) { transform: scale(.985); opacity: .9; }
 .sheets-screen, .action-sheet, .settings-sheet, .filter-sheet { animation: screen-in var(--motion-standard) var(--motion-ease) both; }
+.sheets-screen { view-transition-name: budget-screen; }
 .sheet-composer, .transaction-actions, .confirmation-dialog { animation: sheet-in var(--motion-sheet) var(--motion-ease) both; }
 .sheet-modal-backdrop, .sheet-composer-backdrop, .action-backdrop, .nested-sheet-backdrop { animation: backdrop-in var(--motion-fast) linear both; }
 .glass-menu, .ledger-range-menu, .stats-range-menu, .batch-menu { transform-origin: top right; animation: menu-in var(--motion-fast) var(--motion-ease) both; }
@@ -28,6 +29,9 @@ button:active:not(:disabled) { transform: scale(.985); opacity: .9; }
 @keyframes sheet-in { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes backdrop-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes menu-in { from { opacity: 0; transform: translateY(-4px) scale(.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+::view-transition-old(budget-screen) { animation: screen-out var(--motion-fast) ease both; }
+::view-transition-new(budget-screen) { animation: screen-in var(--motion-standard) var(--motion-ease) both; }
+@keyframes screen-out { to { opacity: 0; transform: translateY(-3px); } }
 
 @media (max-height: 700px) { .virtual-ledger { max-height: calc(100dvh - 355px); } }
 @media (min-width: 700px) { .virtual-ledger { max-height: min(62dvh, 760px); } }

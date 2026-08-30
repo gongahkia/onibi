@@ -15,7 +15,7 @@ The app is immediately usable as a local demo and persists its sample data to br
 ## Deploy the real application
 
 1. Create a Supabase project, run [`supabase/schema.sql`](supabase/schema.sql), enable magic-link email auth, and create a private `attachments` storage bucket.
-2. Add `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and server-only secrets to Vercel. Never expose `SUPABASE_SERVICE_ROLE_KEY`, `OPENAI_API_KEY`, Google secrets, or a bank provider secret in the browser.
+2. Add `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and server-only Google or bank-provider secrets to Vercel. Never expose service-role, Google, or bank-provider secrets in the browser.
 3. Configure Google OAuth only for the household-owner one-way Sheets export. Configure VAPID keys and a scheduled job for recurring entries, rate refresh, and notification reminders.
 4. Receipt OCR runs locally in a lazily loaded WebAssembly worker. Receipt images are discarded after text extraction; only the reviewed transaction values and extracted text are saved.
 
