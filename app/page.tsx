@@ -59,7 +59,9 @@ type TransactionDraft = { amount: number; category: string; date: string; fromSh
 type SheetDraft = Omit<Sheet, "id" | "archived">;
 type Confirmation = { description: string; label: string; onConfirm: () => void; title: string };
 type ComposerPreset = { category: string; sheetId: string };
-type ImportRow = { amount: number; category: string; currency: string; date: string; merchant: string; notes: string; time: string; kind: "expense" | "income" };
+type ImportRow = { amount: number; category: string; currency: string; date: string; merchant: string; notes: string; time: string; kind: TransactionKind; sourceSheet?: string; transferDirection?: "in" | "out" };
+type ImportFormat = "expenses" | "together";
+type ImportResult = { error: string; format?: ImportFormat; rows: ImportRow[]; sourceSheetCount: number };
 
 export default function BudgetApp() {
   const [initial] = useState(readDemoState);
@@ -260,10 +262,42 @@ export default function BudgetApp() {
     setNotice("Selected transactions moved.");
   }
 
-  function importTransactions(sheetId: string, rows: ImportRow[]) {
-    const imported = rows.map((row) => ({ id: uid("txn"), title: row.category, amount: row.amount, kind: row.kind, category: row.category, date: row.date, time: row.time || "12:00", paidBy: "Nadia", participants: ["Nadia"], splitMethod: "equal" as SplitMethod, notes: row.notes, pending: false, recurring: "", currency: row.currency || "SGD", merchant: row.merchant || undefined, source: "manual" as const, sheetId, sheet: nameForSheet(sheetId) }));
+  function importTransactions(sheetId: string, rows: ImportRow[], preserveSourceSheets = false) {
+    if (!rows.length) return;
+    const importedAt = new Date().toISOString();
+    const targetSheet = sheets.find((sheet) => sheet.id === sheetId) || defaultSheet;
+    const generatedSheets: Sheet[] = [];
+    const destinationsBySource = new Map<string, Sheet>();
+    const destinationFor = (row: ImportRow) => {
+      const sourceName = preserveSourceSheets ? row.sourceSheet?.trim() : "";
+      if (!sourceName) return targetSheet;
+      const key = sourceName.toLocaleLowerCase();
+      const existing = destinationsBySource.get(key);
+      if (existing) return existing;
+      const matchingSheet = sheets.find((sheet) => !sheet.deletedAt && sheet.name.trim().toLocaleLowerCase() === key);
+      const destination = matchingSheet || { ...defaultSheet, id: uid("sheet"), name: sourceName, currency: row.currency || "SGD", archived: false, createdAt: importedAt, updatedAt: importedAt };
+      if (!matchingSheet) generatedSheets.push(destination);
+      destinationsBySource.set(key, destination);
+      return destination;
+    };
+    const imported = rows.map((row) => {
+      const destination = destinationFor(row);
+      return { id: uid("txn"), title: row.category, amount: row.amount, kind: row.kind, category: row.category, date: row.date, time: row.time || "12:00", paidBy: "Nadia", participants: ["Nadia"], splitMethod: "equal" as SplitMethod, notes: row.notes || row.merchant, pending: false, recurring: "", currency: row.currency || destination.currency, merchant: row.merchant || undefined, source: "manual" as const, sheetId: destination.id, sheet: destination.name, transferDirection: row.transferDirection } satisfies Transaction;
+    });
+    const knownCategories = new Set(categories.filter((category) => !category.deletedAt).map((category) => `${category.kind}:${category.name.trim().toLocaleLowerCase()}`));
+    const importedCategories: Category[] = [];
+    rows.forEach((row) => {
+      if (row.kind !== "expense" && row.kind !== "income") return;
+      const name = row.category.trim() || "Other";
+      const key = `${row.kind}:${name.toLocaleLowerCase()}`;
+      if (knownCategories.has(key)) return;
+      knownCategories.add(key);
+      importedCategories.push({ id: uid("category"), name, kind: row.kind, icon: iconFor(name), color: categoryColors[(categories.length + importedCategories.length) % categoryColors.length], sortOrder: categories.filter((category) => category.kind === row.kind).length + importedCategories.filter((category) => category.kind === row.kind).length - 1, updatedAt: importedAt });
+    });
+    if (generatedSheets.length) setSheets((items) => [...items, ...generatedSheets]);
+    if (importedCategories.length) setCategories((items) => [...items, ...importedCategories]);
     setTransactions((items) => [...imported, ...items]);
-    setNotice(`${imported.length} transaction${imported.length === 1 ? "" : "s"} imported.`);
+    setNotice(`${imported.length} transaction${imported.length === 1 ? "" : "s"} imported${generatedSheets.length ? ` into ${generatedSheets.length} new sheet${generatedSheets.length === 1 ? "" : "s"}` : ""}.`);
   }
 
   function toggleTransactionSelection(transactionId: string) {
@@ -445,7 +479,7 @@ function SheetLedger({ sheet, items, search, sensitive, filters, ascending, onSe
   return <section className="sheets-screen ledger-screen">
     <header className="sheet-ledger-heading"><button type="button" className="round-control" onClick={onBack} aria-label="Back to sheets"><AppIcon name="back" size="md" /></button><h1>{search.trim() ? "Search" : sheet.name}</h1><div className="sheet-header-actions"><button type="button" className="round-control" onClick={onShare} aria-label="Share sheet"><AppIcon name="personAdd" size="md" /></button><div className="menu-anchor"><button type="button" className="round-control" onClick={() => { setShowRangeMenu(false); onToggleMenu(); }} aria-expanded={showMenu} aria-label="Sheet menu"><AppIcon name="more" size="md" /></button>{showMenu && <SheetOverflowMenu onSelect={onOpenAction} />}</div></div></header>
     {sheet.archived && <p className="archived-notice">Archived sheet · read-only</p>}
-    {!search.trim() && <SheetSummary sheet={sheet} totals={totals} sensitive={sensitive} rangeExpanded={showRangeMenu} onToggleRange={() => setShowRangeMenu((value) => { const next = !value; if (next) onCloseMenu(); return next; })} rangeMenu={showRangeMenu && <div className="ledger-range-menu">{(["asOfToday", "year", "month", "week", "day"] as SheetTotalPeriod[]).map((period) => <button type="button" className={period === sheet.totalPeriod ? "selected" : ""} key={period} onClick={() => { onRangeChange(period); setShowRangeMenu(false); }}>{period === sheet.totalPeriod ? "✓" : ""} {periodLabel(period)}</button>)}</div>} />}
+    {!search.trim() && <SheetSummary sheet={sheet} totals={totals} sensitive={sensitive} rangeExpanded={showRangeMenu} onToggleRange={() => { if (!showRangeMenu) onCloseMenu(); setShowRangeMenu((value) => !value); }} rangeMenu={showRangeMenu && <div className="ledger-range-menu">{(["asOfToday", "year", "month", "week", "day"] as SheetTotalPeriod[]).map((period) => <button type="button" className={period === sheet.totalPeriod ? "selected" : ""} key={period} onClick={() => { onRangeChange(period); setShowRangeMenu(false); }}>{period === sheet.totalPeriod ? "✓" : ""} {periodLabel(period)}</button>)}</div>} />}
     {!search.trim() && <div className="ledger-period-row"><button type="button" className="ledger-period" onClick={onToggleOrder}><AppIcon name="receipt" size="sm" /> {periodLabel(sheet.totalPeriod)} <AppIcon name={ascending ? "back" : "forward"} size="xs" /></button><span className="ledger-transfer-count"><AppIcon name="transfer" size="sm" /> {totalItems.filter((item) => item.kind === "transfer").length}</span></div>}
     <VirtualTransactionList items={search.trim() ? visibleItems : filterTransactions(filterLedgerPeriod(visibleItems, sheet.totalPeriod), filters)} ascending={ascending} sensitive={sensitive} showDailyTotals={!search.trim()} showSheet={Boolean(search.trim())} emptyMessage={search.trim() || hasFilters ? "No transactions match this view." : "This sheet has no transactions yet."} onSelect={onSelectTransaction} onLongPress={onLongPressTransaction} />
     <SearchField value={search} onChange={onSearch} onAdd={onAdd} onFilter={onOpenFilters} filtersActive={hasFilters} disabled={sheet.archived} />
@@ -472,7 +506,7 @@ function SheetSummary({ sheet, totals, sensitive, onToggleRange, rangeExpanded, 
   return <section className="sheet-summary"><div className="sheet-summary-top"><b>{sheet.currency}</b>{onToggleRange ? <div className="summary-range-anchor"><button type="button" onClick={onToggleRange} aria-expanded={rangeExpanded}>{periodLabel(sheet.totalPeriod)} <AppIcon name="chevronDown" size="sm" /></button>{rangeMenu}</div> : <span>{periodLabel(sheet.totalPeriod)} <AppIcon name="chevronDown" size="sm" /></span>}</div>{sheet.showTotalBalance && <strong>{sensitive ? hidden : money(totals.balance, sheet.currency)}</strong>}<div className="sheet-summary-columns"><span>Expense <b>{sensitive ? hidden : `−${money(totals.expense, sheet.currency)}`}</b></span><span>Income <b>{sensitive ? hidden : money(totals.income, sheet.currency)}</b></span></div></section>;
 }
 
-function SettingsSheet({ destination, preferences, categories, sheets, transactions, sensitive, onClose, onBack, onOpen, onToggleSensitive, onUpdatePreferences, onSaveCategory, onDeleteCategory, onRestoreCategory, onRestoreSheet, onEmptyTrash, onSync, onSendMagicLink, onGoogleBackup, onImport }: { destination: SettingsDestination; preferences: AppPreferences; categories: Category[]; sheets: Sheet[]; transactions: Transaction[]; sensitive: boolean; onClose: () => void; onBack: () => void; onOpen: (destination: SettingsDestination) => void; onToggleSensitive: () => void; onUpdatePreferences: (updates: Partial<AppPreferences>) => void; onSaveCategory: (draft: Omit<Category, "id" | "sortOrder" | "updatedAt" | "deletedAt">, categoryId?: string) => boolean; onDeleteCategory: (category: Category, replacement: string) => void; onRestoreCategory: (categoryId: string) => void; onRestoreSheet: (sheetId: string) => void; onEmptyTrash: () => void; onSync: () => void; onSendMagicLink: (email: string) => void; onGoogleBackup: () => void; onImport: (sheetId: string, rows: ImportRow[]) => void }) {
+function SettingsSheet({ destination, preferences, categories, sheets, transactions, sensitive, onClose, onBack, onOpen, onToggleSensitive, onUpdatePreferences, onSaveCategory, onDeleteCategory, onRestoreCategory, onRestoreSheet, onEmptyTrash, onSync, onSendMagicLink, onGoogleBackup, onImport }: { destination: SettingsDestination; preferences: AppPreferences; categories: Category[]; sheets: Sheet[]; transactions: Transaction[]; sensitive: boolean; onClose: () => void; onBack: () => void; onOpen: (destination: SettingsDestination) => void; onToggleSensitive: () => void; onUpdatePreferences: (updates: Partial<AppPreferences>) => void; onSaveCategory: (draft: Omit<Category, "id" | "sortOrder" | "updatedAt" | "deletedAt">, categoryId?: string) => boolean; onDeleteCategory: (category: Category, replacement: string) => void; onRestoreCategory: (categoryId: string) => void; onRestoreSheet: (sheetId: string) => void; onEmptyTrash: () => void; onSync: () => void; onSendMagicLink: (email: string) => void; onGoogleBackup: () => void; onImport: (sheetId: string, rows: ImportRow[], preserveSourceSheets?: boolean) => void }) {
   const content = destination === "home" ? <SettingsHome preferences={preferences} sensitive={sensitive} onOpen={onOpen} onToggleSensitive={onToggleSensitive} />
     : destination === "sync" ? <SyncSettings preferences={preferences} onSync={onSync} onSendMagicLink={onSendMagicLink} onGoogleBackup={onGoogleBackup} />
       : destination === "categories" ? <CategoriesSettings categories={categories} transactions={transactions} onSave={onSaveCategory} onDelete={onDeleteCategory} />
@@ -566,7 +600,19 @@ function PreferredCurrencySettings({ value, onChange }: { value: string; onChang
 
 function PrivacySettings({ sensitive, onToggle }: { sensitive: boolean; onToggle: () => void }) { return <SettingsGroup><button type="button" className="settings-row toggle-settings" onClick={onToggle} aria-pressed={sensitive}><span className="settings-icon neutral"><AppIcon name="eyeSlash" size="md" /></span><span><b>Sensitive Mode</b><small>Hide monetary values while this browser session is open.</small></span><span className={sensitive ? "composer-switch on" : "composer-switch"}><i /></span></button></SettingsGroup>; }
 
-function DataTransferSettings({ sheets, transactions, onImport }: { sheets: Sheet[]; transactions: Transaction[]; onImport: (sheetId: string, rows: ImportRow[]) => void }) { const [sheetId, setSheetId] = useState(sheets.find((sheet) => !sheet.deletedAt)?.id || ""); const [status, setStatus] = useState(""); return <><SettingsGroup><div className="settings-copy"><b>Export</b><p>Download all non-deleted transactions as a CSV suitable for spreadsheets and backup.</p></div><button type="button" className="settings-primary-button" onClick={() => downloadBlob(new Blob([csvContent(transactions.filter((item) => !sheets.find((sheet) => sheet.id === item.sheetId)?.deletedAt))], { type: "text/csv;charset=utf-8" }), "together-budget-export.csv")}>Export all transactions</button></SettingsGroup><SettingsGroup><div className="settings-copy"><b>Import CSV</b><p>Choose the destination sheet, then select a CSV with Date, Type, Category, and Amount columns.</p></div><select className="settings-select" value={sheetId} onChange={(event) => setSheetId(event.target.value)}>{sheets.filter((sheet) => !sheet.deletedAt && !sheet.archived).map((sheet) => <option key={sheet.id} value={sheet.id}>{sheet.name}</option>)}</select><label className="settings-primary-button file-button">Select CSV<input type="file" accept=".csv,text/csv" onChange={async (event) => { const file = event.target.files?.[0]; if (!file || !sheetId) return; const result = parseImportCsv(await file.text()); if (result.error) { setStatus(result.error); return; } onImport(sheetId, result.rows); setStatus(`${result.rows.length} transaction${result.rows.length === 1 ? "" : "s"} imported.`); event.currentTarget.value = ""; }} /></label>{status && <small className="settings-status">{status}</small>}</SettingsGroup></>; }
+function DataTransferSettings({ sheets, transactions, onImport }: { sheets: Sheet[]; transactions: Transaction[]; onImport: (sheetId: string, rows: ImportRow[], preserveSourceSheets?: boolean) => void }) {
+  const [sheetId, setSheetId] = useState(sheets.find((sheet) => !sheet.deletedAt)?.id || "");
+  const [status, setStatus] = useState("");
+  async function importFiles(files: File[]) {
+    if (!files.length || !sheetId) return;
+    const result = await parseImportFiles(files);
+    if (result.error) { setStatus(result.error); return; }
+    const preserveSourceSheets = result.format === "expenses" && result.sourceSheetCount > 1;
+    onImport(sheetId, result.rows, preserveSourceSheets);
+    setStatus(`${result.rows.length} transaction${result.rows.length === 1 ? "" : "s"} imported${preserveSourceSheets ? ` across ${result.sourceSheetCount} Expenses sheets` : ""}.`);
+  }
+  return <><SettingsGroup><div className="settings-copy"><b>Export</b><p>Download all non-deleted transactions as a CSV suitable for spreadsheets and backup.</p></div><button type="button" className="settings-primary-button" onClick={() => downloadBlob(new Blob([csvContent(transactions.filter((item) => !sheets.find((sheet) => sheet.id === item.sheetId)?.deletedAt))], { type: "text/csv;charset=utf-8" }), "together-budget-export.csv")}>Export all transactions</button></SettingsGroup><SettingsGroup><div className="settings-copy"><b>Import CSV</b><p>Choose a standard CSV or select one or more CSV files from an Expenses all-sheets export.</p></div><select className="settings-select" value={sheetId} onChange={(event) => setSheetId(event.target.value)}>{sheets.filter((sheet) => !sheet.deletedAt && !sheet.archived).map((sheet) => <option key={sheet.id} value={sheet.id}>{sheet.name}</option>)}</select><label className="settings-primary-button file-button">Select CSV file(s)<input type="file" accept=".csv,text/csv" multiple onChange={(event) => { const files = Array.from(event.currentTarget.files || []); event.currentTarget.value = ""; void importFiles(files); }} /></label>{status && <small className="settings-status">{status}</small>}</SettingsGroup></>;
+}
 
 function LedgerFilterSheet({ items, filters, onClose, onApply }: { items: Transaction[]; filters: LedgerFilters; onClose: () => void; onApply: (filters: LedgerFilters) => void }) {
   const [draft, setDraft] = useState(filters);
@@ -679,7 +725,7 @@ function ActionHeader({ title, onClose, end }: { title: string; onClose: () => v
   return <header className="overlay-header action-header"><button type="button" className="round-control" onClick={onClose} aria-label={`Close ${title}`}><AppIcon name="close" size="lg" /></button><h1>{title}</h1>{end || <span />}</header>;
 }
 
-function SheetActionView({ action, sheet, sheets, items, sensitive, onClose, onOpenAction, onUpdateSheet, onDeleteSheet, onImport }: { action: Exclude<SheetAction, "select">; sheet: Sheet; sheets: Sheet[]; items: Transaction[]; sensitive: boolean; onClose: () => void; onOpenAction: (action: SheetAction) => void; onUpdateSheet: (sheetId: string, draft: SheetDraft) => boolean; onDeleteSheet: () => void; onImport: (sheetId: string, rows: ImportRow[]) => void }) {
+function SheetActionView({ action, sheet, sheets, items, sensitive, onClose, onOpenAction, onUpdateSheet, onDeleteSheet, onImport }: { action: Exclude<SheetAction, "select">; sheet: Sheet; sheets: Sheet[]; items: Transaction[]; sensitive: boolean; onClose: () => void; onOpenAction: (action: SheetAction) => void; onUpdateSheet: (sheetId: string, draft: SheetDraft) => boolean; onDeleteSheet: () => void; onImport: (sheetId: string, rows: ImportRow[], preserveSourceSheets?: boolean) => void }) {
   if (action === "stats") return <SheetStats sheet={sheet} sheets={sheets} items={items} sensitive={sensitive} onClose={onClose} onPrint={() => onOpenAction("print")} />;
   if (action === "trends") return <SheetTrends sheet={sheet} items={items} onClose={onClose} />;
   if (action === "exchange") return <ExchangeRateSheet sheet={sheet} onClose={onClose} />;
@@ -803,13 +849,26 @@ function ExportSheet({ sheet, sheets, items, onClose }: { sheet: Sheet; sheets: 
   return <section className="sheet-modal-backdrop"><section className="action-sheet export-sheet" aria-label="Export"><ActionHeader title="Export" onClose={onClose} /><section className="composer-card"><label className="composer-row"><span><b>Sheets</b></span><select value={sheetId} onChange={(event) => setSheetId(event.target.value)}>{sheets.map((candidate) => <option value={candidate.id} key={candidate.id}>{candidate.name}</option>)}</select></label></section><section className="composer-card"><PreferenceToggle label="All Time" checked={allTime} onClick={() => setAllTime((value) => !value)} /></section><button type="button" className="export-button" disabled={exporting} onClick={() => { void exportData(); }}>{exporting ? "Preparing export…" : "Export"}</button></section></section>;
 }
 
-function ImportSheet({ sheet, sheets, onClose, onImport }: { sheet: Sheet; sheets: Sheet[]; onClose: () => void; onImport: (sheetId: string, rows: ImportRow[]) => void }) {
+function ImportSheet({ sheet, sheets, onClose, onImport }: { sheet: Sheet; sheets: Sheet[]; onClose: () => void; onImport: (sheetId: string, rows: ImportRow[], preserveSourceSheets?: boolean) => void }) {
   const [sheetId, setSheetId] = useState(sheet.id);
   const [rows, setRows] = useState<ImportRow[]>([]);
   const [error, setError] = useState("");
+  const [format, setFormat] = useState<ImportFormat>();
+  const [sourceSheetCount, setSourceSheetCount] = useState(0);
+  const folderInput = useRef<HTMLInputElement>(null);
   const expenses = rows.filter((row) => row.kind === "expense").length;
   const income = rows.filter((row) => row.kind === "income").length;
-  return <section className="sheet-modal-backdrop"><section className="action-sheet import-sheet" aria-label="Import"><ActionHeader title="Import" onClose={onClose} /><section className="composer-card"><label className="composer-row"><span><b>Sheet</b></span><select value={sheetId} onChange={(event) => setSheetId(event.target.value)}>{sheets.map((candidate) => <option value={candidate.id} key={candidate.id}>{candidate.name}</option>)}</select></label></section><label className="file-import-button">Select CSV file<input type="file" accept=".csv,text/csv" onChange={(event) => { const file = event.target.files?.[0]; if (!file) return; void file.text().then((text) => { const result = parseImportCsv(text); setRows(result.rows); setError(result.error); }); }} /></label><h2 className="composer-section-title">Help</h2><button type="button" className="composer-card composer-row" onClick={() => downloadBlob(new Blob([sampleCsv], { type: "text/csv;charset=utf-8" }), "expenses-csv-template.csv")}><span><AppIcon name="info" size="sm" /><b>CSV Data</b></span><AppIcon name="upRight" size="sm" /></button>{error && <p className="import-error">{error}</p>}<section className="composer-card import-counts"><div className="composer-row"><span><b>Expense</b></span><span>{expenses}</span></div><div className="composer-row"><span><b>Income</b></span><span>{income}</span></div></section><button type="button" className="export-button" disabled={!rows.length} onClick={() => { onImport(sheetId, rows); onClose(); }}>Import</button></section></section>;
+  const transfers = rows.filter((row) => row.kind === "transfer").length;
+  const preserveSourceSheets = format === "expenses" && sourceSheetCount > 1;
+  useEffect(() => { if (folderInput.current) folderInput.current.webkitdirectory = true; }, []);
+  async function selectFiles(files: File[]) {
+    const result = await parseImportFiles(files);
+    setRows(result.rows);
+    setError(result.error);
+    setFormat(result.format);
+    setSourceSheetCount(result.sourceSheetCount);
+  }
+  return <section className="sheet-modal-backdrop"><section className="action-sheet import-sheet" aria-label="Import"><ActionHeader title="Import" onClose={onClose} /><section className="composer-card"><label className="composer-row"><span><b>Sheet</b></span><select value={sheetId} onChange={(event) => setSheetId(event.target.value)} disabled={preserveSourceSheets}>{sheets.map((candidate) => <option value={candidate.id} key={candidate.id}>{candidate.name}</option>)}</select></label></section><label className="file-import-button">Select CSV file(s)<input type="file" accept=".csv,text/csv" multiple onChange={(event) => { const files = Array.from(event.currentTarget.files || []); event.currentTarget.value = ""; void selectFiles(files); }} /></label><label className="file-import-button">Select Expenses export folder<input ref={folderInput} type="file" accept=".csv,text/csv" multiple onChange={(event) => { const files = Array.from(event.currentTarget.files || []); event.currentTarget.value = ""; void selectFiles(files); }} /></label>{format === "expenses" && <p className="import-source-note">Expenses export detected. {preserveSourceSheets ? `${sourceSheetCount} source sheets will be created or matched by name.` : "This file will import into the selected sheet."} Transfers retain their incoming or outgoing direction; the export does not include links to their counterpart.</p>}<h2 className="composer-section-title">Help</h2><button type="button" className="composer-card composer-row" onClick={() => downloadBlob(new Blob([sampleCsv], { type: "text/csv;charset=utf-8" }), "expenses-csv-template.csv")}><span><AppIcon name="info" size="sm" /><b>CSV Data</b></span><AppIcon name="upRight" size="sm" /></button>{error && <p className="import-error">{error}</p>}<section className="composer-card import-counts"><div className="composer-row"><span><b>Expense</b></span><span>{expenses}</span></div><div className="composer-row"><span><b>Income</b></span><span>{income}</span></div><div className="composer-row"><span><b>Transfer</b></span><span>{transfers}</span></div></section><button type="button" className="export-button" disabled={!rows.length} onClick={() => { onImport(sheetId, rows, preserveSourceSheets); onClose(); }}>Import</button></section></section>;
 }
 
 function EditSheet({ sheet, onClose, onSave, onDelete }: { sheet: Sheet; onClose: () => void; onSave: (sheetId: string, draft: SheetDraft) => boolean; onDelete: () => void }) {
@@ -881,7 +940,7 @@ function InsightsView({ items, sensitive }: { items: Transaction[]; sensitive: b
   const rangeLabels = { month: "This month", previousMonth: "Last month", all: "All time" } as const;
   const trendLabels = { daily: "Daily", weekly: "Weekly", monthly: "Monthly" } as const;
   const heading = range === "all" ? "All time" : monthLabel(range === "previousMonth" ? previousMonth(reference) : reference);
-  return <section className="screen"><div className="screen-title"><div><p className="eyebrow">{heading}</p><h2>Insights</h2></div><div className="control"><button className="period" aria-expanded={showRangeMenu} onClick={() => setShowRangeMenu((open) => !open)}>{rangeLabels[range]} <AppIcon name="chevronDown" size="xs" /></button>{showRangeMenu && <div className="control-menu" role="menu">{(Object.keys(rangeLabels) as Array<keyof typeof rangeLabels>).map((option) => <button key={option} className={range === option ? "selected" : ""} onClick={() => { setRange(option); setShowRangeMenu(false); }}>{rangeLabels[option]}</button>)}</div>}</div></div><article className="insight-card"><div><span>Total spent</span><strong>{sensitive ? "••••••" : money(totalSpent)}</strong><small>{expenses.length ? <><AppIcon name="upRight" size="xs" /> {expenses.length} expense{expenses.length === 1 ? "" : "s"}</> : "No spending in this period"}</small></div><div className="donut"><b>{sensitive ? "••" : `${Math.round(totalSpent ? (grouped[0]?.[1] || 0) / totalSpent * 100 : 0)}%`}</b><small>{grouped[0]?.[0] || "planned"}</small></div></article><section className="section-heading"><h3>Spending trend</h3><div className="control"><button aria-expanded={showTrendMenu} onClick={() => setShowTrendMenu((open) => !open)}>{trendLabels[trendRange]} <AppIcon name="chevronDown" size="xs" /></button>{showTrendMenu && <div className="control-menu" role="menu">{(Object.keys(trendLabels) as Array<keyof typeof trendLabels>).map((option) => <button key={option} className={trendRange === option ? "selected" : ""} onClick={() => { setTrendRange(option); setShowTrendMenu(false); }}>{trendLabels[option]}</button>)}</div>}</div></section><div className="chart" aria-label={`${trendLabels[trendRange]} spending chart`}>{trend.map((value, index) => <i key={index} style={{ height: `${value.height}%` }} title={`${value.label}: ${money(value.amount)}`} />)}</div><section className="section-heading"><h3>By category</h3><button onClick={() => setShowDetails((visible) => !visible)}>{showDetails ? "Hide details" : "Details"}</button></section><div className="category-totals">{displayGroups.length ? displayGroups.map(([category, amount]) => <div key={category}><span><AppIcon name={iconFor(category)} size="sm" /> {category}{showDetails && <small>{Math.round(amount / totalSpent * 100)}% of spending</small>}</span><b>{sensitive ? "••••" : money(amount)}</b></div>) : <p className="empty-state">No spending recorded for this period.</p>}</div></section>;
+  return <section className="screen"><div className="screen-title"><div><p className="eyebrow">{heading}</p><h2>Insights</h2></div><div className="control"><button className="period" aria-expanded={showRangeMenu} onClick={() => { setShowTrendMenu(false); setShowRangeMenu((open) => !open); }}>{rangeLabels[range]} <AppIcon name="chevronDown" size="xs" /></button>{showRangeMenu && <div className="control-menu" role="menu">{(Object.keys(rangeLabels) as Array<keyof typeof rangeLabels>).map((option) => <button key={option} className={range === option ? "selected" : ""} onClick={() => { setRange(option); setShowRangeMenu(false); }}>{rangeLabels[option]}</button>)}</div>}</div></div><article className="insight-card"><div><span>Total spent</span><strong>{sensitive ? "••••••" : money(totalSpent)}</strong><small>{expenses.length ? <><AppIcon name="upRight" size="xs" /> {expenses.length} expense{expenses.length === 1 ? "" : "s"}</> : "No spending in this period"}</small></div><div className="donut"><b>{sensitive ? "••" : `${Math.round(totalSpent ? (grouped[0]?.[1] || 0) / totalSpent * 100 : 0)}%`}</b><small>{grouped[0]?.[0] || "planned"}</small></div></article><section className="section-heading"><h3>Spending trend</h3><div className="control"><button aria-expanded={showTrendMenu} onClick={() => { setShowRangeMenu(false); setShowTrendMenu((open) => !open); }}>{trendLabels[trendRange]} <AppIcon name="chevronDown" size="xs" /></button>{showTrendMenu && <div className="control-menu" role="menu">{(Object.keys(trendLabels) as Array<keyof typeof trendLabels>).map((option) => <button key={option} className={trendRange === option ? "selected" : ""} onClick={() => { setTrendRange(option); setShowTrendMenu(false); }}>{trendLabels[option]}</button>)}</div>}</div></section><div className="chart" aria-label={`${trendLabels[trendRange]} spending chart`}>{trend.map((value, index) => <i key={index} style={{ height: `${value.height}%` }} title={`${value.label}: ${money(value.amount)}`} />)}</div><section className="section-heading"><h3>By category</h3><button onClick={() => setShowDetails((visible) => !visible)}>{showDetails ? "Hide details" : "Details"}</button></section><div className="category-totals">{displayGroups.length ? displayGroups.map(([category, amount]) => <div key={category}><span><AppIcon name={iconFor(category)} size="sm" /> {category}{showDetails && <small>{Math.round(amount / totalSpent * 100)}% of spending</small>}</span><b>{sensitive ? "••••" : money(amount)}</b></div>) : <p className="empty-state">No spending recorded for this period.</p>}</div></section>;
 }
 
 function SettingsView({ online, dark, sensitive, banks, onDark, onSensitive, onBank, onImport, onExport, onCustomizeNav }: { online: boolean; dark: boolean; sensitive: boolean; banks: BankConnection[]; onDark: () => void; onSensitive: () => void; onBank: () => void; onImport: () => void; onExport: () => void; onCustomizeNav: () => void }) {
@@ -1095,12 +1154,37 @@ function parseCsv(text: string) {
   for (let index = 0; index < text.length; index += 1) { const character = text[index]; if (character === '"') { if (quoted && text[index + 1] === '"') { cell += '"'; index += 1; } else quoted = !quoted; } else if (character === "," && !quoted) { row.push(cell); cell = ""; } else if ((character === "\n" || character === "\r") && !quoted) { if (character === "\r" && text[index + 1] === "\n") index += 1; row.push(cell); if (row.some((value) => value.trim())) rows.push(row); row = []; cell = ""; } else cell += character; }
   row.push(cell); if (row.some((value) => value.trim())) rows.push(row); return rows;
 }
-function parseImportCsv(text: string): { rows: ImportRow[]; error: string } {
-  const [header, ...records] = parseCsv(text); if (!header) return { rows: [], error: "Choose a CSV file with a header row." };
-  const columns = Object.fromEntries(header.map((value, index) => [value.trim().toLocaleLowerCase(), index]));
-  const required = ["date", "type", "category", "amount"]; if (required.some((key) => columns[key] === undefined)) return { rows: [], error: "CSV needs Date, Type, Category, and Amount columns." };
-  const rows = records.flatMap((record) => { const kind = record[columns.type]?.trim().toLocaleLowerCase(); const amount = Number(record[columns.amount]); const date = record[columns.date]?.trim(); if ((kind !== "expense" && kind !== "income") || !Number.isFinite(amount) || amount <= 0 || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return []; return [{ kind, amount, date, category: record[columns.category]?.trim() || "Other", currency: record[columns.currency] ? record[columns.currency].trim().toUpperCase() : "SGD", merchant: columns.merchant === undefined ? "" : record[columns.merchant]?.trim() || "", notes: columns.notes === undefined ? "" : record[columns.notes]?.trim() || "", time: columns.time === undefined ? "" : record[columns.time]?.trim() || "" } satisfies ImportRow]; });
-  return rows.length ? { rows, error: "" } : { rows: [], error: "No valid expense or income rows were found." };
+async function parseImportFiles(files: File[]): Promise<ImportResult> {
+  if (!files.length) return { rows: [], sourceSheetCount: 0, error: "Choose at least one CSV file." };
+  const results = await Promise.all(files.map(async (file) => parseImportCsv(await file.text(), sourceSheetName(file))));
+  const rows = results.flatMap((result) => result.rows);
+  const sourceSheetCount = new Set(rows.map((row) => row.sourceSheet).filter(Boolean)).size;
+  if (!rows.length) return { rows: [], sourceSheetCount: 0, error: results.find((result) => result.error)?.error || "No valid transactions were found." };
+  return { rows, sourceSheetCount, format: results.some((result) => result.format === "expenses") ? "expenses" : "together", error: "" };
 }
+function parseImportCsv(text: string, sourceSheet: string): ImportResult {
+  const [header, ...records] = parseCsv(text); if (!header) return { rows: [], sourceSheetCount: 0, error: "Choose a CSV file with a header row." };
+  const columns = Object.fromEntries(header.map((value, index) => [value.trim().toLocaleLowerCase(), index]));
+  if (["date", "category", "price"].every((key) => columns[key] !== undefined)) {
+    const rows = records.flatMap((record) => {
+      const datetime = record[columns.date]?.trim() || "";
+      const match = /^(\d{4}-\d{2}-\d{2})(?:[T\s]+(\d{2}:\d{2})(?::\d{2})?)?$/.exec(datetime);
+      const price = Number((record[columns.price] || "").replaceAll(",", "").trim());
+      if (!match || !Number.isFinite(price) || price === 0) return [];
+      const category = record[columns.category]?.trim() || "No Category";
+      const transfer = category.toLocaleLowerCase() === "transfer";
+      const rate = columns.rate === undefined ? "" : record[columns.rate]?.trim() || "";
+      const rateType = columns["rate type"] === undefined ? "" : record[columns["rate type"]]?.trim() || "";
+      const notes = [columns.notes === undefined ? "" : record[columns.notes]?.trim() || "", rate ? `${rateType ? `${rateType} ` : ""}rate ${rate}` : ""].filter(Boolean).join(" · ");
+      return [{ kind: transfer ? "transfer" : price < 0 ? "expense" : "income", transferDirection: transfer ? price < 0 ? "out" : "in" : undefined, amount: Math.abs(price), date: match[1], time: match[2] || "12:00", category: transfer ? "Transfer" : category, currency: importCurrency(columns.currency === undefined ? "" : record[columns.currency]), merchant: columns.merchant === undefined ? "" : record[columns.merchant]?.trim() || "", notes, sourceSheet } satisfies ImportRow];
+    });
+    return rows.length ? { rows, sourceSheetCount: 1, format: "expenses", error: "" } : { rows: [], sourceSheetCount: 0, format: "expenses", error: "No valid Expenses transactions were found." };
+  }
+  const required = ["date", "type", "category", "amount"]; if (required.some((key) => columns[key] === undefined)) return { rows: [], sourceSheetCount: 0, error: "CSV needs Date, Type, Category, and Amount columns, or the Expenses Date, Category, and Price columns." };
+  const rows = records.flatMap((record) => { const kind = record[columns.type]?.trim().toLocaleLowerCase() as TransactionKind; const amount = Number(record[columns.amount]); const date = record[columns.date]?.trim(); if (!(["expense", "income", "transfer", "settlement"] as TransactionKind[]).includes(kind) || !Number.isFinite(amount) || amount <= 0 || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return []; return [{ kind, amount, date, category: record[columns.category]?.trim() || "Other", currency: importCurrency(columns.currency === undefined ? "" : record[columns.currency]), merchant: columns.merchant === undefined ? "" : record[columns.merchant]?.trim() || "", notes: columns.notes === undefined ? "" : record[columns.notes]?.trim() || "", time: columns.time === undefined ? "" : record[columns.time]?.trim() || "" } satisfies ImportRow]; });
+  return rows.length ? { rows, sourceSheetCount: 0, format: "together", error: "" } : { rows: [], sourceSheetCount: 0, format: "together", error: "No valid transactions were found." };
+}
+function sourceSheetName(file: File) { const relative = file.webkitRelativePath.split("/").filter(Boolean); return (relative.length > 1 ? relative[relative.length - 2] : file.name.replace(/\.csv$/i, ""))?.trim() || "Imported sheet"; }
+function importCurrency(value: string | undefined) { const code = value?.trim().toUpperCase() || "SGD"; return /^[A-Z]{3}$/.test(code) ? code : "SGD"; }
 function iconFor(category: string): IconKey { return ({ Groceries: "cart", Dining: "dining", Transport: "transport", Utilities: "utilities", Rent: "home", Health: "goals", Shopping: "cart", Entertainment: "insights", Salary: "salary", Goals: "goals", Transfer: "transfer" } as Record<string, IconKey>)[category] || "plans"; }
 function csv(value: string) { return `"${value.replaceAll('"', '""')}"`; }

@@ -38,3 +38,7 @@ html.budget-dark .exchange-amount input{background:#1f1d25;border-color:var(--sh
 html.budget-dark .exchange-rates article{border-color:var(--sheet-line)}
 html.budget-dark .exchange-rates b{color:var(--sheet-ink)}
 html.budget-dark .exchange-rates div:last-child small,html.budget-dark .exchange-count,html.budget-dark .rate-source{color:var(--sheet-muted)}
+
+.summary-range-anchor{position:relative}
+.summary-range-anchor .ledger-range-menu{right:0;left:auto}
+.import-source-note{margin:18px 24px 0;color:var(--sheet-muted);font-size:14px;line-height:1.45}
