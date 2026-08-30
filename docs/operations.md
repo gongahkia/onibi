@@ -8,7 +8,7 @@
 | Vercel | `angryapplegravy-gmailcoms-projects/old-pants` | <https://vercel.com/angryapplegravy-gmailcoms-projects/old-pants> |
 | Supabase | `old-pants` (`ovrdwkcruxnthtcjbzxk`), Singapore (`ap-southeast-1`) | <https://supabase.com/dashboard/project/ovrdwkcruxnthtcjbzxk> |
 
-The public production URL is recorded here after the first production deployment. Do not put database passwords, Supabase access tokens, service-role keys, or provider credentials in this repository.
+Public production URL: <https://old-pants.vercel.app>. Do not put database passwords, Supabase access tokens, service-role keys, or provider credentials in this repository.
 
 ## Runtime configuration
 
@@ -21,7 +21,7 @@ The app uses Supabase Auth and the RLS-protected `public.app_sync_records` table
 
 Before sending magic links, set Supabase Auth URL Configuration as follows:
 
-- Site URL: the Vercel production URL.
+- Site URL: `https://old-pants.vercel.app`.
 - Additional redirect URLs: `http://localhost:3000/**` and `https://*-angryapplegravy-gmailcoms-projects.vercel.app/**`.
 
 ## Deploy and verify
