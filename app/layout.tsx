@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { Inter, Lora, Nunito } from "next/font/google";
 import "./globals.css";
 import "./actions.css";
 
@@ -12,6 +13,10 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = { themeColor: "#6546e8", width: "device-width", initialScale: 1 };
 
+const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
+const nunito = Nunito({ subsets: ["latin"], variable: "--font-nunito", display: "swap" });
+const lora = Lora({ subsets: ["latin"], variable: "--font-lora", display: "swap" });
+
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="en"><body>{children}</body></html>;
+  return <html lang="en" className={`${inter.variable} ${nunito.variable} ${lora.variable}`}><body>{children}</body></html>;
 }
