@@ -494,12 +494,26 @@ function SettingsGroup({ children }: { children: React.ReactNode }) { return <se
 
 function SettingsRow({ icon, label, value, onClick }: { icon: IconKey; label: string; value?: string; onClick: () => void }) { return <button type="button" className="settings-row" onClick={onClick}><span className={`settings-icon ${icon}`}><AppIcon name={icon} size="md" /></span><b>{label}</b><span className="settings-row-end">{value}<AppIcon name="forward" size="sm" /></span></button>; }
 
+function IntegrationMark({ provider }: { provider: "supabase" | "google-sheets" }) { return <span className={`integration-mark ${provider}`}><img src={`/integrations/${provider}.svg`} alt="" width="38" height="38" /></span>; }
+
 function SyncSettings({ preferences, onSync, onSendMagicLink, onGoogleBackup }: { preferences: AppPreferences; onSync: () => void; onSendMagicLink: (email: string) => void; onGoogleBackup: () => void }) {
   const [email, setEmail] = useState("");
   const [userEmail, setUserEmail] = useState<string | null>(null);
   useEffect(() => { void currentCloudUser().then((user) => setUserEmail(user?.email || null)); }, []);
   const configured = isCloudSyncConfigured();
-  return <><SettingsGroup><div className="settings-copy"><b>Supabase sync</b><p>{configured ? userEmail ? `Signed in as ${userEmail}.` : "Sign in with an email link, then sync your encrypted-in-transit app snapshot." : "Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to enable account sync."}</p></div>{!userEmail && configured && <form className="settings-inline-form" onSubmit={(event) => { event.preventDefault(); onSendMagicLink(email); }}><input required type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" /><button type="submit">Send magic link</button></form>}<button type="button" className="settings-primary-button" disabled={!configured || !userEmail} onClick={onSync}>Sync now</button><small className="settings-status">{preferences.lastSyncedAt ? `Last synced ${formatSheetTimestamp(preferences.lastSyncedAt)}` : "No cloud sync yet."}</small></SettingsGroup><SettingsGroup><div className="settings-copy"><b>Google Sheets backup</b><p>Download a spreadsheet-ready CSV. Opening it in Google Sheets is an explicit one-way backup; this app does not ask for your Google account access.</p></div><button type="button" className="settings-primary-button" onClick={onGoogleBackup}>Download CSV backup</button><small className="settings-status">{preferences.lastGoogleBackupAt ? `Last downloaded ${formatSheetTimestamp(preferences.lastGoogleBackupAt)}` : "No backup downloaded yet."}</small></SettingsGroup></>;
+  return <>
+    <SettingsGroup>
+      <div className="integration-copy"><IntegrationMark provider="supabase" /><div className="settings-copy"><b>Supabase sync</b><p>{configured ? userEmail ? `Signed in as ${userEmail}.` : "Sign in with an email link, then sync per-record changes across your devices." : "Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to enable account sync."}</p></div></div>
+      {!userEmail && configured && <form className="settings-inline-form" onSubmit={(event) => { event.preventDefault(); onSendMagicLink(email); }}><input required type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" /><button type="submit">Send magic link</button></form>}
+      <button type="button" className="settings-primary-button" disabled={!configured || !userEmail} onClick={onSync}>Sync now</button>
+      <small className="settings-status">{preferences.lastSyncedAt ? `Last synced ${formatSheetTimestamp(preferences.lastSyncedAt)}` : "No cloud sync yet."}</small>
+    </SettingsGroup>
+    <SettingsGroup>
+      <div className="integration-copy"><IntegrationMark provider="google-sheets" /><div className="settings-copy"><b>Google Sheets backup</b><p>Download a spreadsheet-ready CSV. Opening it in Google Sheets is an explicit one-way backup; this app does not ask for your Google account access.</p></div></div>
+      <button type="button" className="settings-primary-button" onClick={onGoogleBackup}>Download CSV backup</button>
+      <small className="settings-status">{preferences.lastGoogleBackupAt ? `Last downloaded ${formatSheetTimestamp(preferences.lastGoogleBackupAt)}` : "No backup downloaded yet."}</small>
+    </SettingsGroup>
+  </>;
 }
 
 const categoryIcons: IconKey[] = ["cart", "dining", "transport", "utilities", "home", "goals", "salary", "bank", "receipt", "plans", "insights", "ledger"];
