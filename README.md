@@ -1,4 +1,4 @@
-# Together Budget
+# old-pants
 
 An original, mobile-first budgeting PWA for a couple: shared and personal ledgers, budgets, savings goals, multi-currency tracking, custom splits/settlements, on-device receipt OCR, CSV migration, and optional bank feeds.
 

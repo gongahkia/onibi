@@ -11,6 +11,9 @@ export type BudgetCacheState = {
 };
 
 type MetaRecord = { key: string; value: unknown };
+export const legacyBudgetStorageKey = "together-budget-demo";
+const databaseName = "old-pants";
+const legacyDatabaseName = "together-budget";
 
 class BudgetDatabase extends Dexie {
   transactions!: Table<Transaction, string>;
@@ -18,8 +21,8 @@ class BudgetDatabase extends Dexie {
   categories!: Table<Category, string>;
   meta!: Table<MetaRecord, string>;
 
-  constructor() {
-    super("together-budget");
+  constructor(name: string) {
+    super(name);
     this.version(1).stores({
       transactions: "id, sheetId, date, [sheetId+date], updatedAt, deletedAt, category",
       sheets: "id, updatedAt, deletedAt",
@@ -29,7 +32,8 @@ class BudgetDatabase extends Dexie {
   }
 }
 
-const database = new BudgetDatabase();
+const database = new BudgetDatabase(databaseName);
+const legacyDatabase = new BudgetDatabase(legacyDatabaseName);
 let lastSaved: BudgetCacheState | null = null;
 
 function withoutReceiptFiles(transaction: Transaction): Transaction {
@@ -46,12 +50,12 @@ async function writeChanged<T extends { id: string }>(table: Table<T, string>, p
   if (removed.length) await table.bulkDelete(removed);
 }
 
-export async function readBudgetCache(): Promise<BudgetCacheState | null> {
+async function readBudgetCacheFrom(source: BudgetDatabase): Promise<BudgetCacheState | null> {
   const [transactions, sheets, categories, preferences] = await Promise.all([
-    database.transactions.toArray(),
-    database.sheets.toArray(),
-    database.categories.toArray(),
-    database.meta.get("preferences")
+    source.transactions.toArray(),
+    source.sheets.toArray(),
+    source.categories.toArray(),
+    source.meta.get("preferences")
   ]);
   if (!sheets.length || !preferences) return null;
   return {
@@ -62,22 +66,25 @@ export async function readBudgetCache(): Promise<BudgetCacheState | null> {
   };
 }
 
+export async function readBudgetCache(): Promise<BudgetCacheState | null> { return readBudgetCacheFrom(database); }
+
 export async function migrateLegacyBudgetCache(fallback: BudgetCacheState) {
   const cached = await readBudgetCache();
   if (cached) return cached;
+  const legacyCache = await readBudgetCacheFrom(legacyDatabase);
   let legacy: Partial<BudgetCacheState> | null = null;
   try {
-    const raw = window.localStorage.getItem("together-budget-demo");
+    const raw = window.localStorage.getItem(legacyBudgetStorageKey);
     legacy = raw ? JSON.parse(raw) as Partial<BudgetCacheState> : null;
   } catch { /* Invalid legacy data should not prevent an empty install. */ }
   const state: BudgetCacheState = {
-    transactions: (legacy?.transactions || fallback.transactions).map(withoutReceiptFiles),
-    sheets: legacy?.sheets || fallback.sheets,
-    categories: legacy?.categories || fallback.categories,
-    preferences: { ...fallback.preferences, ...legacy?.preferences }
+    transactions: (legacyCache?.transactions || legacy?.transactions || fallback.transactions).map(withoutReceiptFiles),
+    sheets: legacyCache?.sheets || legacy?.sheets || fallback.sheets,
+    categories: legacyCache?.categories || legacy?.categories || fallback.categories,
+    preferences: { ...fallback.preferences, ...legacy?.preferences, ...legacyCache?.preferences }
   };
   await saveBudgetCache(state, true);
-  window.localStorage.removeItem("together-budget-demo");
+  window.localStorage.removeItem(legacyBudgetStorageKey);
   return state;
 }
 

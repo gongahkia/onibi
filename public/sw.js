@@ -1,12 +1,12 @@
-const VERSION = "together-static-v2";
-const STATIC = ["/", "/manifest.webmanifest", "/icon.svg", "/icon-maskable.svg"];
+const VERSION = "old-pants-static-v1";
+const STATIC = ["/", "/manifest.webmanifest", "/icon.svg", "/icon-maskable.svg", "/icon-192.png", "/icon-512.png", "/icon-maskable-512.png", "/apple-touch-icon.png"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(VERSION).then((cache) => cache.addAll(STATIC)));
 });
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((key) => key.startsWith("together-") && key !== VERSION).map((key) => caches.delete(key)))).then(() => self.clients.claim()));
+  event.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((key) => (key.startsWith("together-") || key.startsWith("old-pants-")) && key !== VERSION).map((key) => caches.delete(key)))).then(() => self.clients.claim()));
 });
 
 self.addEventListener("message", (event) => {

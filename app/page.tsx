@@ -5,7 +5,7 @@ import Image from "next/image";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { SFAirplane, SFArrowDown, SFArrowLeft, SFArrowLeftArrowRight, SFArrowRight, SFArrowUpArrowDown, SFArrowUpRight, SFBag, SFBanknoteFill, SFBook, SFBuildingColumns, SFBus, SFCalendar, SFCamera, SFCar, SFCartFill, SFChartLineUptrendXyaxis, SFChartPie, SFCheckmark, SFChevronDown, SFClock, SFCloudFill, SFCreditcardFill, SFDocumentBadgePlus, SFDog, SFDumbbell, SFEllipsis, SFEyeSlash, SFForkKnife, SFGamecontroller, SFGearshapeFill, SFGift, SFGraduationcap, SFHeartFill, SFHeartTextSquare, SFHouseFill, SFInfoCircle, SFLeaf, SFLightbulbFill, SFListBullet, SFLock, SFMagnifyingglass, SFMusicNote, SFPaintpalette, SFPaperclip, SFPaperplane, SFPencil, SFPersonBadgePlus, SFPhone, SFPhoto, SFPill, SFPlus, SFPopcorn, SFPrinter, SFReceipt, SFRepeat, SFSliderHorizontal3, SFSquareAndArrowUp, SFStethoscope, SFTablecells, SFTag, SFTarget, SFTheatermasks, SFTrainSideFrontCar, SFTramFill, SFTrash, SFWifi, SFXmark } from "sf-symbols-lib/dualtone";
 import { demoBankConnections, demoBudgets, demoGoals, demoTransactions } from "@/lib/demo-data";
-import { migrateLegacyBudgetCache, requestPersistentStorage, saveBudgetCache } from "@/lib/budget-db";
+import { legacyBudgetStorageKey, migrateLegacyBudgetCache, requestPersistentStorage, saveBudgetCache } from "@/lib/budget-db";
 import { recognizeReceipt } from "@/lib/receipt-ocr";
 import { useTransactionSearch } from "@/lib/use-transaction-search";
 import { currentCloudUser, isCloudSyncConfigured, sendCloudMagicLink, syncIncrementalState } from "@/lib/cloud-sync";
@@ -46,7 +46,7 @@ function readDemoState(): DemoState {
   const fallback: DemoState = { transactions: demoTransactions, budgets: demoBudgets, goals: demoGoals, banks: demoBankConnections, sheets: [defaultSheet], categories: defaultCategories, preferences: defaultPreferences, navItems: defaultNavItems, showNavIcons: true };
   if (typeof window === "undefined") return fallback;
   try {
-    const raw = localStorage.getItem("together-budget-demo");
+    const raw = localStorage.getItem(legacyBudgetStorageKey);
     if (!raw) return fallback;
     const parsed = JSON.parse(raw) as Partial<DemoState>;
     const navItems = parsed.navItems?.map((item) => ({ ...defaultNavItems.find((entry) => entry.id === item.id), ...item, icon: item.icon || defaultNavItems.find((entry) => entry.id === item.id)?.icon || "home" })) || fallback.navItems;
@@ -60,7 +60,7 @@ type SheetDraft = Omit<Sheet, "id" | "archived">;
 type Confirmation = { description: string; label: string; onConfirm: () => void; title: string };
 type ComposerPreset = { category: string; sheetId: string };
 type ImportRow = { amount: number; category: string; currency: string; date: string; merchant: string; notes: string; time: string; kind: TransactionKind; sourceSheet?: string; transferDirection?: "in" | "out" };
-type ImportFormat = "expenses" | "together";
+type ImportFormat = "expenses" | "native";
 type ImportResult = { error: string; format?: ImportFormat; rows: ImportRow[]; sourceSheetCount: number };
 
 export default function BudgetApp() {
@@ -378,7 +378,7 @@ export default function BudgetApp() {
 
   async function exportGoogleSheetsBackup() {
     const rows = transactions.filter((item) => !sheets.find((sheet) => sheet.id === item.sheetId)?.deletedAt);
-    downloadBlob(new Blob([csvContent(rows)], { type: "text/csv;charset=utf-8" }), "together-budget-google-sheets-backup.csv");
+    downloadBlob(new Blob([csvContent(rows)], { type: "text/csv;charset=utf-8" }), "old-pants-google-sheets-backup.csv");
     setPreferences((current) => ({ ...current, lastGoogleBackupAt: new Date().toISOString(), updatedAt: new Date().toISOString() }));
     setNotice("CSV downloaded. Open it directly with Google Sheets.");
   }
@@ -603,6 +603,8 @@ function PrivacySettings({ sensitive, onToggle }: { sensitive: boolean; onToggle
 function DataTransferSettings({ sheets, transactions, onImport }: { sheets: Sheet[]; transactions: Transaction[]; onImport: (sheetId: string, rows: ImportRow[], preserveSourceSheets?: boolean) => void }) {
   const [sheetId, setSheetId] = useState(sheets.find((sheet) => !sheet.deletedAt)?.id || "");
   const [status, setStatus] = useState("");
+  const folderInput = useRef<HTMLInputElement>(null);
+  useEffect(() => { if (folderInput.current) folderInput.current.webkitdirectory = true; }, []);
   async function importFiles(files: File[]) {
     if (!files.length || !sheetId) return;
     const result = await parseImportFiles(files);
@@ -611,7 +613,7 @@ function DataTransferSettings({ sheets, transactions, onImport }: { sheets: Shee
     onImport(sheetId, result.rows, preserveSourceSheets);
     setStatus(`${result.rows.length} transaction${result.rows.length === 1 ? "" : "s"} imported${preserveSourceSheets ? ` across ${result.sourceSheetCount} Expenses sheets` : ""}.`);
   }
-  return <><SettingsGroup><div className="settings-copy"><b>Export</b><p>Download all non-deleted transactions as a CSV suitable for spreadsheets and backup.</p></div><button type="button" className="settings-primary-button" onClick={() => downloadBlob(new Blob([csvContent(transactions.filter((item) => !sheets.find((sheet) => sheet.id === item.sheetId)?.deletedAt))], { type: "text/csv;charset=utf-8" }), "together-budget-export.csv")}>Export all transactions</button></SettingsGroup><SettingsGroup><div className="settings-copy"><b>Import CSV</b><p>Choose a standard CSV or select one or more CSV files from an Expenses all-sheets export.</p></div><select className="settings-select" value={sheetId} onChange={(event) => setSheetId(event.target.value)}>{sheets.filter((sheet) => !sheet.deletedAt && !sheet.archived).map((sheet) => <option key={sheet.id} value={sheet.id}>{sheet.name}</option>)}</select><label className="settings-primary-button file-button">Select CSV file(s)<input type="file" accept=".csv,text/csv" multiple onChange={(event) => { const files = Array.from(event.currentTarget.files || []); event.currentTarget.value = ""; void importFiles(files); }} /></label>{status && <small className="settings-status">{status}</small>}</SettingsGroup></>;
+  return <><SettingsGroup><div className="settings-copy"><b>Export</b><p>Download all non-deleted transactions as a CSV suitable for spreadsheets and backup.</p></div><button type="button" className="settings-primary-button" onClick={() => downloadBlob(new Blob([csvContent(transactions.filter((item) => !sheets.find((sheet) => sheet.id === item.sheetId)?.deletedAt))], { type: "text/csv;charset=utf-8" }), "old-pants-export.csv")}>Export all transactions</button></SettingsGroup><SettingsGroup><div className="settings-copy"><b>Import CSV</b><p>Choose a standard CSV or select one or more CSV files from an Expenses all-sheets export.</p></div><select className="settings-select" value={sheetId} onChange={(event) => setSheetId(event.target.value)}>{sheets.filter((sheet) => !sheet.deletedAt && !sheet.archived).map((sheet) => <option key={sheet.id} value={sheet.id}>{sheet.name}</option>)}</select><label className="settings-primary-button file-button">Select CSV file(s)<input type="file" accept=".csv,text/csv" multiple onChange={(event) => { const files = Array.from(event.currentTarget.files || []); event.currentTarget.value = ""; void importFiles(files); }} /></label><label className="settings-primary-button file-button">Select Expenses export folder<input ref={folderInput} type="file" accept=".csv,text/csv" multiple onChange={(event) => { const files = Array.from(event.currentTarget.files || []); event.currentTarget.value = ""; void importFiles(files); }} /></label>{status && <small className="settings-status">{status}</small>}</SettingsGroup></>;
 }
 
 function LedgerFilterSheet({ items, filters, onClose, onApply }: { items: Transaction[]; filters: LedgerFilters; onClose: () => void; onApply: (filters: LedgerFilters) => void }) {
@@ -1160,7 +1162,7 @@ async function parseImportFiles(files: File[]): Promise<ImportResult> {
   const rows = results.flatMap((result) => result.rows);
   const sourceSheetCount = new Set(rows.map((row) => row.sourceSheet).filter(Boolean)).size;
   if (!rows.length) return { rows: [], sourceSheetCount: 0, error: results.find((result) => result.error)?.error || "No valid transactions were found." };
-  return { rows, sourceSheetCount, format: results.some((result) => result.format === "expenses") ? "expenses" : "together", error: "" };
+  return { rows, sourceSheetCount, format: results.some((result) => result.format === "expenses") ? "expenses" : "native", error: "" };
 }
 function parseImportCsv(text: string, sourceSheet: string): ImportResult {
   const [header, ...records] = parseCsv(text); if (!header) return { rows: [], sourceSheetCount: 0, error: "Choose a CSV file with a header row." };
@@ -1182,7 +1184,7 @@ function parseImportCsv(text: string, sourceSheet: string): ImportResult {
   }
   const required = ["date", "type", "category", "amount"]; if (required.some((key) => columns[key] === undefined)) return { rows: [], sourceSheetCount: 0, error: "CSV needs Date, Type, Category, and Amount columns, or the Expenses Date, Category, and Price columns." };
   const rows = records.flatMap((record) => { const kind = record[columns.type]?.trim().toLocaleLowerCase() as TransactionKind; const amount = Number(record[columns.amount]); const date = record[columns.date]?.trim(); if (!(["expense", "income", "transfer", "settlement"] as TransactionKind[]).includes(kind) || !Number.isFinite(amount) || amount <= 0 || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return []; return [{ kind, amount, date, category: record[columns.category]?.trim() || "Other", currency: importCurrency(columns.currency === undefined ? "" : record[columns.currency]), merchant: columns.merchant === undefined ? "" : record[columns.merchant]?.trim() || "", notes: columns.notes === undefined ? "" : record[columns.notes]?.trim() || "", time: columns.time === undefined ? "" : record[columns.time]?.trim() || "" } satisfies ImportRow]; });
-  return rows.length ? { rows, sourceSheetCount: 0, format: "together", error: "" } : { rows: [], sourceSheetCount: 0, format: "together", error: "No valid transactions were found." };
+  return rows.length ? { rows, sourceSheetCount: 0, format: "native", error: "" } : { rows: [], sourceSheetCount: 0, format: "native", error: "No valid transactions were found." };
 }
 function sourceSheetName(file: File) { const relative = file.webkitRelativePath.split("/").filter(Boolean); return (relative.length > 1 ? relative[relative.length - 2] : file.name.replace(/\.csv$/i, ""))?.trim() || "Imported sheet"; }
 function importCurrency(value: string | undefined) { const code = value?.trim().toUpperCase() || "SGD"; return /^[A-Z]{3}$/.test(code) ? code : "SGD"; }
