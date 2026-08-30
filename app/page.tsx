@@ -511,12 +511,45 @@ function TrendChart({ title, items }: { title: "Daily" | "Weekly" | "Monthly" | 
 
 function ExchangeRateSheet({ sheet, onClose }: { sheet: Sheet; onClose: () => void }) {
   const [amount, setAmount] = useState("1");
-  const [rates, setRates] = useState(fallbackRates);
+  const [rates, setRates] = useState(() => fallbackRatesFor(sheet.currency));
   const [sourceDate, setSourceDate] = useState(fallbackRateDate);
   const [usingFallback, setUsingFallback] = useState(false);
-  useEffect(() => { let cancelled = false; void fetch("https://api.frankfurter.dev/v2/rates?base=SGD").then((response) => response.ok ? response.json() : Promise.reject(new Error("Rate request failed"))).then((data: Array<{ date: string; quote: string; rate: number }>) => { if (cancelled) return; const live = fallbackRates.map((entry) => { const row = data.find((candidate) => candidate.quote === entry.code); return row ? { ...entry, rate: 1 / row.rate } : entry; }); setRates(live); setSourceDate(data[0]?.date || fallbackRateDate); }).catch(() => { if (!cancelled) setUsingFallback(true); }); return () => { cancelled = true; }; }, []);
+  useEffect(() => {
+    let cancelled = false;
+    const base = encodeURIComponent(sheet.currency);
+    void Promise.all([
+      fetch(`https://api.frankfurter.dev/v2/rates?base=${base}`),
+      fetch("https://api.frankfurter.dev/v2/currencies")
+    ]).then(async ([ratesResponse, currenciesResponse]) => {
+      if (!ratesResponse.ok || !currenciesResponse.ok) throw new Error("Rate request failed");
+      const [rateRows, currencies] = await Promise.all([
+        ratesResponse.json() as Promise<FrankfurterRate[]>,
+        currenciesResponse.json() as Promise<FrankfurterCurrency[]>
+      ]);
+      if (!rateRows.length) throw new Error("No rate data returned");
+      return { currencies, rateRows };
+    }).then(({ currencies, rateRows }) => {
+      if (cancelled) return;
+      const names = new Map(currencies.map((currency) => [currency.iso_code, currency.name]));
+      const liveRates = rateRows
+        .filter((row) => Number.isFinite(row.rate) && row.rate > 0)
+        .map((row) => ({ code: row.quote, name: names.get(row.quote) || currencyName(row.quote), rate: 1 / row.rate }))
+        .sort((left, right) => left.code.localeCompare(right.code));
+      if (!liveRates.length) throw new Error("No usable rate data returned");
+      setRates(liveRates);
+      setSourceDate(rateRows.reduce((latest, row) => row.date > latest ? row.date : latest, fallbackRateDate));
+      setUsingFallback(false);
+    }).catch(() => {
+      if (!cancelled) {
+        setRates(fallbackRatesFor(sheet.currency));
+        setSourceDate(fallbackRateDate);
+        setUsingFallback(true);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [sheet.currency]);
   const numericAmount = Number(amount) || 0;
-  return <section className="sheet-modal-backdrop"><section className="action-sheet exchange-screen" aria-label="Exchange Rate"><ActionHeader title="Exchange Rate" onClose={onClose} /><h2 className="composer-section-title">Amount</h2><label className="exchange-amount"><input type="number" min="0" inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} /></label><section className="exchange-rates">{rates.map((entry) => <article key={entry.code}><div><b>1 {entry.code}</b><small>{entry.name} - {entry.code}</small></div><div><b>{money(numericAmount * entry.rate, sheet.currency)}</b><small>{entry.rate.toFixed(6)}</small></div></article>)}</section><p className="rate-source">{usingFallback ? `Offline fallback · ${sourceDate}` : `Live reference rate · ${sourceDate}`}</p></section></section>;
+  return <section className="sheet-modal-backdrop"><section className="action-sheet exchange-screen" aria-label="Exchange Rate"><ActionHeader title="Exchange Rate" onClose={onClose} /><h2 className="composer-section-title">Amount</h2><label className="exchange-amount"><input type="number" min="0" inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} /></label><p className="exchange-count">{rates.length} currencies · value in {sheet.currency}</p><section className="exchange-rates" aria-label="All available exchange rates">{rates.map((entry) => <article key={entry.code}><div><b>{numericAmount} {entry.code}</b><small>{entry.name} - {entry.code}</small></div><div><b>{money(numericAmount * entry.rate, sheet.currency)}</b><small>1 {entry.code} = {entry.rate.toFixed(6)} {sheet.currency}</small></div></article>)}</section><p className="rate-source">{usingFallback ? `Offline snapshot · ${sourceDate}` : `Live rates · latest update ${sourceDate}`}</p></section></section>;
 }
 
 function SheetSelectionView({ sheet, items, sensitive, selectedIds, showMenu, onClose, onToggle, onToggleMenu, onMove, onMerchant, onCategory, onDelete, sheets }: { sheet: Sheet; items: Transaction[]; sensitive: boolean; selectedIds: string[]; showMenu: boolean; onClose: () => void; onToggle: (id: string) => void; onToggleMenu: () => void; onMove: (sheetId: string) => void; onMerchant: (value: string) => void; onCategory: (value: string) => void; onDelete: () => void; sheets: Sheet[] }) {
@@ -729,10 +762,51 @@ function trendValues(items: Transaction[], range: "daily" | "weekly" | "monthly"
   const maximum = Math.max(...values.map((value) => value.amount), 1);
   return values.map((value) => ({ ...value, height: value.amount ? Math.max(8, value.amount / maximum * 100) : 4 }));
 }
-const fallbackRateDate = "2026-08-28";
-const fallbackRates = [
-  { code: "AED", name: "United Arab Emirates Dirham", rate: 0.347114 }, { code: "AFN", name: "Afghan Afghani", rate: 0.019548 }, { code: "ALL", name: "Albanian Lek", rate: 0.015998 }, { code: "AMD", name: "Armenian Dram", rate: 0.003499 }, { code: "ANG", name: "Netherlands Antillean Guilder", rate: 0.71226 }, { code: "AOA", name: "Angolan Kwanza", rate: 0.001373 }, { code: "ARS", name: "Argentine Peso", rate: 0.000843 }, { code: "AUD", name: "Australian Dollar", rate: 0.913307 }, { code: "AWG", name: "Aruban Florin", rate: 0.71226 }
-];
+type FrankfurterCurrency = { iso_code: string; name: string };
+type FrankfurterRate = { date: string; quote: string; rate: number };
+type ExchangeRate = { code: string; name: string; rate: number };
+
+const fallbackRateDate = "2026-08-30";
+const fallbackRateSnapshot: Record<string, number> = {
+  AED: 0.34615251479802, AFN: 0.019638263192003298, ALL: 0.016050333846944015, AMD: 0.003489792357354737, ANG: 0.710176834031674, AOA: 0.0013810056483131016, ARS: 0.0008394684485783601, AUD: 0.9132420091324202, AWG: 0.7079144839303412, AZN: 0.7476076555023924,
+  BAM: 0.7572889057175313, BBD: 0.6234413965087281, BDT: 0.010323113451016826, BHD: 3.3808912029210902, BIF: 0.00042372522266760453, BMD: 1.2712295332045154, BND: 1, BOB: 0.10792958673761238, BRL: 0.24616596509366617, BSD: 1.2550358312729828, BTN: 0.01331416094157746, BWP: 0.09613073780341264, BYN: 0.42133647931237883, BZD: 0.6237135907191418,
+  CAD: 0.9170105456212746, CDF: 0.0005547727096208684, CHF: 1.5792798483891346, CLP: 0.0013725705501262766, CNH: 0.18931147416844935, CNY: 0.18924340486734037, COP: 0.0004028408335582528, CRC: 0.002808199943836001, CUP: 0.052968065553277925, CVE: 0.013433998764072114, CZK: 0.06131959774343881,
+  DJF: 0.007148473800843521, DKK: 0.1980668673744256, DOP: 0.021404109589041095, DZD: 0.0095428953144384,
+  EGP: 0.025287646984448096, ERN: 0.08309167504507724, ETB: 0.007879599716334411, EUR: 1.4811523365178108,
+  FJD: 0.5763024435223605, FKP: 1.7271753773878198,
+  GBP: 1.7270262335284872, GEL: 0.4868312156175454, GGP: 1.7270262335284872, GHS: 0.11252391133115787, GIP: 1.7058733218471196, GMD: 0.017307326191176725, GNF: 0.00014423770373575654, GTQ: 0.1658209796703479, GYD: 0.00598551505357036,
+  HKD: 0.16201940992530905, HNL: 0.04712979545668772, HTG: 0.009689922480620155, HUF: 0.0040632237617325585,
+  IDR: 0.00007183908045977011, ILS: 0.42771599657827203, IMP: 1.7270262335284872, INR: 0.013314870046868342, IQD: 0.0009695559433779328, IRR: 0.0000009271655806467165, ISK: 0.010529640939243972,
+  JEP: 1.7270262335284872, JMD: 0.008077544426494346, JOD: 1.7929822674053755, JPY: 0.007966857871255577,
+  KES: 0.009826078412105728, KGS: 0.014524539208993595, KHR: 0.00031322923681696447, KMF: 0.0029942809234362365, KPW: 0.009778994719342852, KRW: 0.0009230627221119675, KWD: 4.131889926452359, KYD: 1.5184414716734744, KZT: 0.0027461965178228157,
+  LAK: 0.000056763353578929446, LBP: 0.000014129682223446795, LKR: 0.0038671255655671143, LRD: 0.007001330252748021, LSL: 0.07931786634939521, LYD: 0.20025231792057996,
+  MAD: 0.1371986774047498, MDL: 0.07375011984394475, MGA: 0.00029533372711163615, MKD: 0.024015946588534787, MMK: 0.0006053342050145885, MNT: 0.00035303504225829454, MOP: 0.1572994824847026, MRO: 0.03212644970604299, MRU: 0.03159358018450651, MUR: 0.027013885136960396, MVR: 0.08244974687927707, MWK: 0.0007302841535641518, MXN: 0.07488561222732276, MYR: 0.3156366391010668, MZN: 0.019909610368925083,
+  NAD: 0.07936318976532304, NGN: 0.000947238798901203, NIO: 0.03449227373068432, NOK: 0.1361804118095653, NPR: 0.008309098462816784, NZD: 0.7562008469449486,
+  OMR: 3.3062223103881503,
+  PAB: 1.2671380420182974, PEN: 0.37937706286277934, PGK: 0.28885037550548814, PHP: 0.020486345850490646, PKR: 0.004565793078257693, PLN: 0.341705108491372, PYG: 0.00021395225441490478,
+  QAR: 0.34923517496682266,
+  RON: 0.2815156804233996, RSD: 0.012612249016244578, RUB: 0.014839437288538017, RWF: 0.0008623886440663349,
+  SAR: 0.3389945421878708, SBD: 0.1586571260848181, SCR: 0.08949346697691068, SDG: 0.0021112635912593687, SEK: 0.1334739258685816, SGD: 1, SHP: 1.7271753773878198, SLE: 0.051609174046778554, SOS: 0.00221390776860236, SRD: 0.03332555736994701, SSP: 0.00022553203005890897, STN: 0.059890639691922556, SVC: 0.14455462719361648, SYP: 0.010393929944912172, SZL: 0.07924935015532873,
+  THB: 0.03862942789817283, TJS: 0.13762351710660317, TMT: 0.3632137149498765, TND: 0.4368910830529949, TOP: 0.539548937088594, TRY: 0.026385920472835694, TTD: 0.18774759213713085, TWD: 0.04015580452154359, TZS: 0.00048048740642507766,
+  UAH: 0.02853229856197215, UGX: 0.0003382938488029472, USD: 1.2712295332045154, UYU: 0.03155967935365777, UZS: 0.00010758472296933836,
+  VES: 0.001607406931138687, VND: 0.00004877335024142808, VUV: 0.010803802938634399,
+  WST: 0.4715424152402509,
+  XAF: 0.002258253918070548, XAG: 87.1839581517001, XAU: 5882.35294117647, XCD: 0.4626844954425577, XCG: 0.7043741635556808, XDR: 1.74431788449127, XOF: 0.002258253918070548, XPD: 1694.915254237288, XPF: 0.01235941169200346, XPT: 2325.5813953488373,
+  YER: 0.0053513137475250175,
+  ZAR: 0.07953677780605752, ZMW: 0.06673740831948533, ZWG: 0.04771220000954244
+};
+
+function currencyName(code: string) {
+  try { return new Intl.DisplayNames(["en"], { type: "currency" }).of(code) || code; } catch { return code; }
+}
+
+function fallbackRatesFor(base: string): ExchangeRate[] {
+  const baseRate = fallbackRateSnapshot[base];
+  if (!baseRate) return [];
+  return Object.entries(fallbackRateSnapshot)
+    .map(([code, rate]) => ({ code, name: currencyName(code), rate: rate / baseRate }))
+    .sort((left, right) => left.code.localeCompare(right.code));
+}
 const sampleCsv = "Date,Time,Type,Category,Amount,Currency,Merchant,Notes\n2026-08-30,12:00,expense,Food & Drink,8.00,SGD,luckin,coffee\n2026-08-30,12:00,income,Salary,2000.00,SGD,,August salary\n";
 
 function statsRangeLabel(range: StatsRange) { return ({ today: "As of Today", yearly: "Yearly", monthly: "Monthly", weekly: "Weekly", daily: "Daily" })[range]; }
