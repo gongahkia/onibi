@@ -79,6 +79,10 @@ export type Transaction = {
   sheet?: string;
   transferGroupId?: string;
   transferDirection?: "in" | "out";
+  /** OCR text is retained after the source image has been discarded. */
+  ocrText?: string;
+  updatedAt?: string;
+  deletedAt?: string;
 };
 
 export type Budget = { id: string; title: string; limit: number; spent: number; period: Period; category?: string; shared: boolean };

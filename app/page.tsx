@@ -1,12 +1,13 @@
 "use client";
 
-import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import JSZip from "jszip";
+import { ChangeEvent, FormEvent, useDeferredValue, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { SFArrowDown, SFArrowLeft, SFArrowLeftArrowRight, SFArrowRight, SFArrowUpArrowDown, SFArrowUpRight, SFBanknoteFill, SFCalendar, SFCartFill, SFChartLineUptrendXyaxis, SFChartPie, SFCheckmark, SFChevronDown, SFClock, SFCloudFill, SFCreditcardFill, SFDocumentBadgePlus, SFEllipsis, SFEyeSlash, SFForkKnife, SFGearshapeFill, SFHeartFill, SFHouseFill, SFInfoCircle, SFLightbulbFill, SFListBullet, SFLock, SFMagnifyingglass, SFPaintpalette, SFPaperclip, SFPaperplane, SFPencil, SFPersonBadgePlus, SFPhoto, SFPlus, SFPrinter, SFReceipt, SFRepeat, SFSliderHorizontal3, SFSquareAndArrowUp, SFTablecells, SFTarget, SFTramFill, SFTrash, SFXmark } from "sf-symbols-lib/dualtone";
 import { demoBankConnections, demoBudgets, demoGoals, demoTransactions } from "@/lib/demo-data";
-import { readAttachment, storeAttachment } from "@/lib/attachments";
-import { currentCloudUser, isCloudSyncConfigured, pullCloudSnapshot, pushCloudSnapshot, sendCloudMagicLink } from "@/lib/cloud-sync";
-import { dateLabel, money, type AppPreferences, type Attachment, type BankConnection, type Budget, type Category, type CategoryKind, type Goal, type Sheet, type SheetSort, type SheetTotalPeriod, type SplitMethod, type Transaction, type TransactionKind } from "@/lib/types";
+import { migrateLegacyBudgetCache, requestPersistentStorage, saveBudgetCache } from "@/lib/budget-db";
+import { recognizeReceipt } from "@/lib/receipt-ocr";
+import { currentCloudUser, isCloudSyncConfigured, sendCloudMagicLink, syncIncrementalState } from "@/lib/cloud-sync";
+import { dateLabel, money, type AppPreferences, type BankConnection, type Budget, type Category, type CategoryKind, type Goal, type Sheet, type SheetSort, type SheetTotalPeriod, type SplitMethod, type Transaction, type TransactionKind } from "@/lib/types";
 
 type View = "home" | "ledger" | "plans" | "insights" | "settings";
 type SheetAction = "stats" | "trends" | "exchange" | "select" | "print" | "export" | "import" | "edit";
@@ -52,7 +53,7 @@ function readDemoState(): DemoState {
   } catch { return fallback; }
 }
 
-type TransactionDraft = { amount: number; attachments: File[]; category: string; date: string; hasAttachment: boolean; fromSheetId?: string; kind: TransactionKind; merchant: string; notes: string; pending: boolean; recurring: string; sheetId: string; time: string; title: string; toSheetId?: string };
+type TransactionDraft = { amount: number; category: string; date: string; fromSheetId?: string; kind: TransactionKind; merchant: string; notes: string; ocrText?: string; pending: boolean; recurring: string; sheetId: string; time: string; title: string; toSheetId?: string };
 type SheetDraft = Omit<Sheet, "id" | "archived">;
 type Confirmation = { description: string; label: string; onConfirm: () => void; title: string };
 type ComposerPreset = { category: string; sheetId: string };
@@ -90,13 +91,36 @@ export default function BudgetApp() {
   const [filters, setFilters] = useState<LedgerFilters>(emptyLedgerFilters);
   const [ledgerAscending, setLedgerAscending] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [cacheReady, setCacheReady] = useState(false);
+  const [isSearchPending, startSearchTransition] = useTransition();
   const activeSheet = sheets.find((sheet) => sheet.id === activeSheetId) || null;
   const editingTransaction = transactions.find((item) => item.id === editingTransactionId) || null;
   const actionTransaction = transactions.find((item) => item.id === actionTransactionId) || null;
   const movingTransaction = transactions.find((item) => item.id === moveTransactionId) || null;
   const activeSheets = sheets.filter((sheet) => !sheet.archived && !sheet.deletedAt);
 
-  useEffect(() => { localStorage.setItem("together-budget-demo", JSON.stringify({ ...initial, sheets, transactions, categories, preferences })); }, [initial, sheets, transactions, categories, preferences]);
+  useEffect(() => {
+    let mounted = true;
+    void migrateLegacyBudgetCache({ transactions, sheets, categories, preferences }).then((cached) => {
+      if (!mounted) return;
+      setSheets(cached.sheets);
+      setTransactions(cached.transactions.map((item) => ({ ...item, time: item.time || "09:35" })));
+      setCategories(cached.categories);
+      setPreferences(cached.preferences);
+      setCacheReady(true);
+      void requestPersistentStorage();
+    }).catch(() => { if (mounted) setCacheReady(true); });
+    return () => { mounted = false; };
+  // The initial demo values are used only until IndexedDB has hydrated.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => {
+    if (!cacheReady) return;
+    const id = window.setTimeout(() => {
+      void saveBudgetCache({ transactions, sheets, categories, preferences }).catch(() => setNotice("Changes could not be cached on this device."));
+    }, 250);
+    return () => window.clearTimeout(id);
+  }, [cacheReady, categories, preferences, sheets, transactions]);
   useEffect(() => {
     const root = document.documentElement;
     root.style.setProperty("--print-font-size", `${preferences.printFontSize}%`);
@@ -112,8 +136,8 @@ export default function BudgetApp() {
   useEffect(() => { if (!notice) return; const id = window.setTimeout(() => setNotice(null), 3200); return () => window.clearTimeout(id); }, [notice]);
 
   function nameForSheet(sheetId: string) { return sheets.find((sheet) => sheet.id === sheetId)?.name || "Untitled sheet"; }
-  function buildBaseTransaction(id: string, draft: TransactionDraft, attachments: Attachment[] = []): Transaction {
-    return { id, title: draft.title.trim() || draft.category, amount: draft.amount, kind: draft.kind, category: draft.category, date: draft.date, time: draft.time, paidBy: "Nadia", participants: ["Nadia"], splitMethod: "equal", notes: draft.notes, pending: draft.pending, recurring: draft.recurring, currency: "SGD", hasAttachment: draft.hasAttachment || attachments.length > 0, attachments, merchant: draft.merchant || undefined, source: "manual", sheetId: draft.sheetId, sheet: nameForSheet(draft.sheetId) };
+  function buildBaseTransaction(id: string, draft: TransactionDraft): Transaction {
+    return { id, title: draft.title.trim() || draft.category, amount: draft.amount, kind: draft.kind, category: draft.category, date: draft.date, time: draft.time, paidBy: "Nadia", participants: ["Nadia"], splitMethod: "equal", notes: draft.notes, ocrText: draft.ocrText, pending: draft.pending, recurring: draft.recurring, currency: "SGD", merchant: draft.merchant || undefined, source: "manual", sheetId: draft.sheetId, sheet: nameForSheet(draft.sheetId), updatedAt: new Date().toISOString() };
   }
   function transferRecords(base: Transaction, draft: TransactionDraft, transferGroupId: string, ids = { outgoing: uid("txn"), incoming: uid("txn") }) {
     const outgoing: Transaction = { ...base, id: ids.outgoing, title: `Transfer to ${nameForSheet(draft.toSheetId || "")}`, category: "Transfer", sheetId: draft.fromSheetId, sheet: nameForSheet(draft.fromSheetId || ""), transferGroupId, transferDirection: "out" };
@@ -129,11 +153,9 @@ export default function BudgetApp() {
       const transferGroupId = uid("transfer");
       const records = transferRecords(base, draft, transferGroupId, { outgoing: base.id, incoming: uid("txn") });
       setTransactions((items) => [...records, ...items]);
-      void persistAttachments(records.map((item) => item.id), draft.attachments);
       setNotice("Linked transfer created in both sheets.");
     } else {
       setTransactions((items) => [{ ...base, sheet: nameForSheet(draft.sheetId) }, ...items]);
-      void persistAttachments([base.id], draft.attachments);
       setNotice(draft.pending ? "Pending transaction saved." : "Transaction added.");
     }
     setShowAdd(false);
@@ -143,7 +165,7 @@ export default function BudgetApp() {
   function updateTransaction(draft: TransactionDraft) {
     if (!editingTransaction || !Number.isFinite(draft.amount) || draft.amount <= 0) { setNotice("Enter an amount greater than zero."); return; }
     const original = editingTransaction;
-    const base = buildBaseTransaction(original.id, draft, original.attachments || []);
+    const base = buildBaseTransaction(original.id, draft);
     if (draft.kind === "transfer") {
       if (!draft.fromSheetId || !draft.toSheetId || draft.fromSheetId === draft.toSheetId) { setNotice("Choose two different sheets for a transfer."); return; }
       const group = original.transferGroupId;
@@ -153,11 +175,9 @@ export default function BudgetApp() {
       const groupId = group || uid("transfer");
       const records = transferRecords(base, draft, groupId, { outgoing: outgoingId, incoming: incomingId });
       setTransactions((items) => [...records, ...items.filter((item) => group ? item.transferGroupId !== group : item.id !== original.id)]);
-      void persistAttachments(records.map((item) => item.id), draft.attachments);
     } else {
       const standalone: Transaction = { ...base, kind: draft.kind, sheetId: draft.sheetId, sheet: nameForSheet(draft.sheetId), transferGroupId: undefined, transferDirection: undefined };
       setTransactions((items) => [standalone, ...items.filter((item) => original.transferGroupId ? item.transferGroupId !== original.transferGroupId : item.id !== original.id)]);
-      void persistAttachments([standalone.id], draft.attachments);
     }
     setEditingTransactionId(null);
     setNotice("Transaction updated.");
@@ -181,15 +201,6 @@ export default function BudgetApp() {
     setSheets((items) => items.map((sheet) => sheet.id === sheetId ? { ...sheet, ...draft, name, updatedAt: new Date().toISOString() } : sheet));
     setNotice("Sheet updated.");
     return true;
-  }
-
-  async function persistAttachments(transactionIds: string[], files: File[]) {
-    if (!files.length) return;
-    try {
-      const stored = await Promise.all(files.map((file) => storeAttachment(transactionIds[0], file)));
-      setTransactions((items) => items.map((item) => transactionIds.includes(item.id) ? { ...item, hasAttachment: true, attachments: [...(item.attachments || []), ...stored] } : item));
-      setNotice(`${stored.length} attachment${stored.length === 1 ? "" : "s"} saved.`);
-    } catch { setNotice("The transaction was saved, but its attachment could not be stored."); }
   }
 
   async function shareSheet(sheet: Sheet) {
@@ -307,18 +318,14 @@ export default function BudgetApp() {
   }
 
   async function syncNow() {
-    const snapshot = { ...initial, sheets, transactions, categories, preferences };
     try {
-      const remote = await pullCloudSnapshot();
-      if (!preferences.lastSyncedAt && remote?.payload) {
-        const cloud = remote.payload as Partial<DemoState>;
-        if (cloud.sheets && cloud.transactions && cloud.categories && cloud.preferences) {
-          setSheets(cloud.sheets); setTransactions(cloud.transactions); setCategories(cloud.categories); setPreferences({ ...defaultPreferences, ...cloud.preferences, lastSyncedAt: new Date().toISOString() }); setNotice("Changes pulled from Supabase."); return;
-        }
-      }
-      await pushCloudSnapshot(snapshot);
-      setPreferences((current) => ({ ...current, syncEnabled: true, lastSyncedAt: new Date().toISOString(), updatedAt: new Date().toISOString() }));
-      setNotice("Changes synced to Supabase.");
+      const result = await syncIncrementalState({ sheets, transactions, categories, preferences }, preferences.lastSyncedAt);
+      const syncedAt = result.cursor || new Date().toISOString();
+      setSheets(result.state.sheets);
+      setTransactions(result.state.transactions);
+      setCategories(result.state.categories);
+      setPreferences({ ...defaultPreferences, ...result.state.preferences, syncEnabled: true, lastSyncedAt: syncedAt, updatedAt: new Date().toISOString() });
+      setNotice(result.pulled ? "Changes pulled from Supabase." : "Changes synced to Supabase.");
     } catch (error) { setNotice(error instanceof Error ? error.message : "Sync failed."); }
   }
 
@@ -377,8 +384,8 @@ export default function BudgetApp() {
     }
   }
 
-  return <main className="sheets-app">
-    {activeSheet ? sheetAction === "select" ? <SheetSelectionView sheet={activeSheet} items={transactions.filter((item) => item.sheetId === activeSheet.id)} sensitive={sensitive} selectedIds={selectedTransactionIds} showMenu={showBatchMenu} onClose={() => { setSheetAction(null); setSelectedTransactionIds([]); setShowBatchMenu(false); }} onToggle={toggleTransactionSelection} onToggleMenu={() => setShowBatchMenu((value) => !value)} onMove={moveSelectedTransactions} onMerchant={(merchant) => applyBatchField("merchant", merchant)} onCategory={(category) => applyBatchField("category", category)} onDelete={() => setConfirmation({ title: "Delete selected transactions?", description: "Selected transactions and both sides of linked transfers will be permanently deleted.", label: "Delete", onConfirm: deleteSelectedTransactions })} sheets={activeSheets} categories={categories} /> : sheetAction ? <SheetActionView action={sheetAction} sheet={activeSheet} sheets={activeSheets} items={transactions} sensitive={sensitive} onClose={() => setSheetAction(null)} onOpenAction={setSheetAction} onUpdateSheet={updateSheet} onDeleteSheet={() => setConfirmation({ title: "Move sheet to Trash?", description: `“${activeSheet.name}” will be recoverable from Trash until it is emptied.`, label: "Move to Trash", onConfirm: () => { deleteSheet(activeSheet.id); setSheetAction(null); } })} onImport={importTransactions} /> : <SheetLedger sheet={activeSheet} items={transactions} search={search} sensitive={sensitive} filters={filters} ascending={ledgerAscending} onSearch={setSearch} onBack={() => { setActiveSheetId(null); setSearch(""); setFilters(emptyLedgerFilters); }} onAdd={() => setShowAdd(true)} onOpenFilters={() => { setShowSheetMenu(false); setShowFilters(true); }} onToggleMenu={() => setShowSheetMenu((open) => !open)} showMenu={showSheetMenu} onShare={() => { void shareSheet(activeSheet); }} onOpenAction={(action) => { setShowSheetMenu(false); setSheetAction(action); }} onRangeChange={(period) => updateSheet(activeSheet.id, { ...activeSheet, totalPeriod: period })} onToggleOrder={() => setLedgerAscending((value) => !value)} onSelectTransaction={activeSheet.archived ? undefined : (transactionId) => { setEditingFocus(undefined); setEditingTransactionId(transactionId); }} onLongPressTransaction={activeSheet.archived ? undefined : setActionTransactionId} /> : <SheetsHome sheets={sheets} items={transactions} search={search} sensitive={sensitive} sort={preferences.sheetSort} onSearch={setSearch} onOpenSheet={setActiveSheetId} onAdd={() => activeSheets.length ? setShowAdd(true) : setShowNewSheet(true)} onToggleMenu={() => setShowMainMenu((open) => !open)} showMenu={showMainMenu} onOpenSettings={() => { setShowMainMenu(false); setSettingsDestination("home"); setShowSettings(true); }} onNewSheet={() => { setShowMainMenu(false); setShowNewSheet(true); }} onArchive={archiveSheet} onDelete={(sheet) => setConfirmation({ title: "Move sheet to Trash?", description: `“${sheet.name}” will remain recoverable until Trash is emptied.`, label: "Move to Trash", onConfirm: () => deleteSheet(sheet.id) })} />}
+  return <main className={isSearchPending ? "sheets-app search-pending" : "sheets-app"}>
+  {activeSheet ? sheetAction === "select" ? <SheetSelectionView sheet={activeSheet} items={transactions.filter((item) => item.sheetId === activeSheet.id)} sensitive={sensitive} selectedIds={selectedTransactionIds} showMenu={showBatchMenu} onClose={() => { setSheetAction(null); setSelectedTransactionIds([]); setShowBatchMenu(false); }} onToggle={toggleTransactionSelection} onToggleMenu={() => setShowBatchMenu((value) => !value)} onMove={moveSelectedTransactions} onMerchant={(merchant) => applyBatchField("merchant", merchant)} onCategory={(category) => applyBatchField("category", category)} onDelete={() => setConfirmation({ title: "Delete selected transactions?", description: "Selected transactions and both sides of linked transfers will be permanently deleted.", label: "Delete", onConfirm: deleteSelectedTransactions })} sheets={activeSheets} categories={categories} /> : sheetAction ? <SheetActionView action={sheetAction} sheet={activeSheet} sheets={activeSheets} items={transactions} sensitive={sensitive} onClose={() => setSheetAction(null)} onOpenAction={setSheetAction} onUpdateSheet={updateSheet} onDeleteSheet={() => setConfirmation({ title: "Move sheet to Trash?", description: `“${activeSheet.name}” will be recoverable from Trash until it is emptied.`, label: "Move to Trash", onConfirm: () => { deleteSheet(activeSheet.id); setSheetAction(null); } })} onImport={importTransactions} /> : <SheetLedger sheet={activeSheet} items={transactions} search={search} sensitive={sensitive} filters={filters} ascending={ledgerAscending} onSearch={(value) => startSearchTransition(() => setSearch(value))} onBack={() => { setActiveSheetId(null); setSearch(""); setFilters(emptyLedgerFilters); }} onAdd={() => setShowAdd(true)} onOpenFilters={() => { setShowSheetMenu(false); setShowFilters(true); }} onToggleMenu={() => setShowSheetMenu((open) => !open)} showMenu={showSheetMenu} onShare={() => { void shareSheet(activeSheet); }} onOpenAction={(action) => { setShowSheetMenu(false); setSheetAction(action); }} onRangeChange={(period) => updateSheet(activeSheet.id, { ...activeSheet, totalPeriod: period })} onToggleOrder={() => setLedgerAscending((value) => !value)} onSelectTransaction={activeSheet.archived ? undefined : (transactionId) => { setEditingFocus(undefined); setEditingTransactionId(transactionId); }} onLongPressTransaction={activeSheet.archived ? undefined : setActionTransactionId} /> : <SheetsHome sheets={sheets} items={transactions} search={search} sensitive={sensitive} sort={preferences.sheetSort} onSearch={(value) => startSearchTransition(() => setSearch(value))} onOpenSheet={setActiveSheetId} onAdd={() => activeSheets.length ? setShowAdd(true) : setShowNewSheet(true)} onToggleMenu={() => setShowMainMenu((open) => !open)} showMenu={showMainMenu} onOpenSettings={() => { setShowMainMenu(false); setSettingsDestination("home"); setShowSettings(true); }} onNewSheet={() => { setShowMainMenu(false); setShowNewSheet(true); }} onArchive={archiveSheet} onDelete={(sheet) => setConfirmation({ title: "Move sheet to Trash?", description: `“${sheet.name}” will remain recoverable until Trash is emptied.`, label: "Move to Trash", onConfirm: () => deleteSheet(sheet.id) })} />}
     {showAdd && <SheetTransactionComposer sheets={activeSheets} categories={categories} defaultSheetId={preset?.sheetId || activeSheetId || activeSheets[0]?.id || ""} preset={preset || undefined} onClose={() => { setShowAdd(false); setPreset(null); }} onSave={createTransaction} />}
     {showNewSheet && <NewSheetComposer onClose={() => setShowNewSheet(false)} onSave={createSheet} />}
     {editingTransaction && <SheetTransactionComposer sheets={activeSheets} categories={categories} defaultSheetId={editingTransaction.sheetId || ""} transaction={editingTransaction} transferPartner={editingTransaction.transferGroupId ? transactions.find((item) => item.transferGroupId === editingTransaction.transferGroupId && item.id !== editingTransaction.id) : undefined} focusField={editingFocus} onClose={() => { setEditingFocus(undefined); setEditingTransactionId(null); }} onSave={updateTransaction} />}
@@ -419,9 +426,10 @@ function SheetCard({ sheet, position, allSheets, items, sensitive, onOpen, onArc
 
 function SheetLedger({ sheet, items, search, sensitive, filters, ascending, onSearch, onBack, onAdd, onOpenFilters, onToggleMenu, showMenu, onShare, onOpenAction, onRangeChange, onToggleOrder, onSelectTransaction, onLongPressTransaction }: { sheet: Sheet; items: Transaction[]; search: string; sensitive: boolean; filters: LedgerFilters; ascending: boolean; onSearch: (value: string) => void; onBack: () => void; onAdd: () => void; onOpenFilters: () => void; onToggleMenu: () => void; showMenu: boolean; onShare: () => void; onOpenAction: (action: SheetAction) => void; onRangeChange: (period: SheetTotalPeriod) => void; onToggleOrder: () => void; onSelectTransaction?: (transactionId: string) => void; onLongPressTransaction?: (transactionId: string) => void }) {
   const sheetItems = useMemo(() => items.filter((item) => item.sheetId === sheet.id), [items, sheet.id]);
+  const deferredSearch = useDeferredValue(search);
   const [showRangeMenu, setShowRangeMenu] = useState(false);
   const totalItems = useMemo(() => filterLedgerPeriod(sheetItems, sheet.totalPeriod), [sheet.totalPeriod, sheetItems]);
-  const searchedItems = useMemo(() => search.trim() ? searchTransactions(items, search) : sheetItems, [items, search, sheetItems]);
+  const searchedItems = useMemo(() => deferredSearch.trim() ? searchTransactions(items, deferredSearch) : sheetItems, [deferredSearch, items, sheetItems]);
   const visibleItems = useMemo(() => filterTransactions(searchedItems, filters), [searchedItems, filters]);
   const totals = useMemo(() => sheetTotals(totalItems), [totalItems]);
   const hasFilters = !isEmptyFilters(filters);
@@ -430,7 +438,7 @@ function SheetLedger({ sheet, items, search, sensitive, filters, ascending, onSe
     {sheet.archived && <p className="archived-notice">Archived sheet · read-only</p>}
     {!search.trim() && <SheetSummary sheet={sheet} totals={totals} sensitive={sensitive} onToggleRange={() => setShowRangeMenu((value) => !value)} />}
     {!search.trim() && <div className="ledger-period-row"><div className="menu-anchor"><button type="button" className="ledger-period" onClick={onToggleOrder}><AppIcon name="receipt" size="sm" /> {periodLabel(sheet.totalPeriod)} <AppIcon name={ascending ? "back" : "forward"} size="xs" /></button>{showRangeMenu && <div className="ledger-range-menu">{(["asOfToday", "year", "month", "week", "day"] as SheetTotalPeriod[]).map((period) => <button type="button" className={period === sheet.totalPeriod ? "selected" : ""} key={period} onClick={() => { onRangeChange(period); setShowRangeMenu(false); }}>{period === sheet.totalPeriod ? "✓" : ""} {periodLabel(period)}</button>)}</div>}</div><span className="ledger-transfer-count"><AppIcon name="transfer" size="sm" /> {totalItems.filter((item) => item.kind === "transfer").length}</span></div>}
-    <TransactionList items={search.trim() ? visibleItems : filterTransactions(filterLedgerPeriod(visibleItems, sheet.totalPeriod), filters)} ascending={ascending} sensitive={sensitive} showDailyTotals={!search.trim()} showSheet={Boolean(search.trim())} emptyMessage={search.trim() || hasFilters ? "No transactions match this view." : "This sheet has no transactions yet."} onSelect={onSelectTransaction} onLongPress={onLongPressTransaction} />
+    <VirtualTransactionList items={search.trim() ? visibleItems : filterTransactions(filterLedgerPeriod(visibleItems, sheet.totalPeriod), filters)} ascending={ascending} sensitive={sensitive} showDailyTotals={!search.trim()} showSheet={Boolean(search.trim())} emptyMessage={search.trim() || hasFilters ? "No transactions match this view." : "This sheet has no transactions yet."} onSelect={onSelectTransaction} onLongPress={onLongPressTransaction} />
     <SearchField value={search} onChange={onSearch} onAdd={onAdd} onFilter={onOpenFilters} filtersActive={hasFilters} disabled={sheet.archived} />
   </section>;
 }
@@ -547,6 +555,27 @@ function TransactionList({ items, ascending = false, sensitive = false, showDail
   return <div className="sheet-transaction-list">{grouped.map(([date, group]) => <section key={date}><div className="transaction-date-heading"><h2>{transactionDateLabel(date)}</h2>{showDailyTotals && <b className={dayNet(group) >= 0 ? "positive" : ""}>{sensitive ? "••••" : signedMoney(dayNet(group))}</b>}</div>{group.map((item) => <article className={onSelect ? "sheet-transaction interactive" : "sheet-transaction"} key={item.id} role={onSelect ? "button" : undefined} tabIndex={onSelect ? 0 : undefined} onPointerDown={() => { if (!onLongPress) return; held.current = false; pressTimer.current = window.setTimeout(() => { held.current = true; onLongPress(item.id); }, 460); }} onPointerUp={clearPress} onPointerLeave={clearPress} onPointerCancel={clearPress} onContextMenu={(event) => { if (!onLongPress) return; event.preventDefault(); onLongPress(item.id); }} onClick={() => { if (held.current) { held.current = false; return; } onSelect?.(item.id); }} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect?.(item.id); } }}><span className={`sheet-category-icon ${item.kind}`}><AppIcon name={iconFor(item.category)} size="sm" /></span><div><strong>{item.title}</strong><small>{item.notes || item.category}{showSheet && item.sheet ? ` · ${item.sheet}` : ""}</small></div><div className={item.kind === "income" || item.transferDirection === "in" ? "sheet-amount positive" : "sheet-amount"}>{sensitive ? "••••" : <>{item.kind === "income" || item.transferDirection === "in" ? "+" : "−"}{money(item.amount, item.currency)}</>}<small>{item.time || ""}</small></div></article>)}</section>)}</div>;
 }
 
+type VirtualLedgerRow = { id: string; kind: "date"; date: string; items: Transaction[] } | { id: string; kind: "transaction"; item: Transaction; date: string };
+
+function VirtualTransactionList({ items, ascending = false, sensitive = false, showDailyTotals = false, showSheet = false, emptyMessage, onSelect, onLongPress }: { items: Transaction[]; ascending?: boolean; sensitive?: boolean; showDailyTotals?: boolean; showSheet?: boolean; emptyMessage: string; onSelect?: (transactionId: string) => void; onLongPress?: (transactionId: string) => void }) {
+  const grouped = useMemo(() => groupTransactions(items, ascending), [items, ascending]);
+  const rows = useMemo<VirtualLedgerRow[]>(() => grouped.flatMap(([date, group]) => [{ id: `date-${date}`, kind: "date" as const, date, items: group }, ...group.map((item) => ({ id: item.id, kind: "transaction" as const, item, date }))]), [grouped]);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const pressTimer = useRef<number | null>(null);
+  const held = useRef(false);
+  // TanStack Virtual owns mutable scroll measurements by design.
+  // eslint-disable-next-line react-hooks/incompatible-library
+  const virtualizer = useVirtualizer({ count: rows.length, getScrollElement: () => scrollRef.current, estimateSize: (index) => rows[index]?.kind === "date" ? 54 : 78, overscan: 8 });
+  function clearPress() { if (pressTimer.current !== null) window.clearTimeout(pressTimer.current); pressTimer.current = null; }
+  if (!rows.length) return <p className="sheet-empty">{emptyMessage}</p>;
+  return <div className="virtual-ledger" ref={scrollRef}><div className="virtual-ledger-inner" style={{ height: virtualizer.getTotalSize() }}>{virtualizer.getVirtualItems().map((virtualRow) => {
+    const row = rows[virtualRow.index];
+    return <div className="virtual-ledger-row" key={row.id} ref={virtualizer.measureElement} data-index={virtualRow.index} style={{ transform: `translateY(${virtualRow.start}px)` }}>{row.kind === "date"
+      ? <div className="transaction-date-heading"><h2>{transactionDateLabel(row.date)}</h2>{showDailyTotals && <b className={dayNet(row.items) >= 0 ? "positive" : ""}>{sensitive ? "••••" : signedMoney(dayNet(row.items))}</b>}</div>
+      : <article className={onSelect ? "sheet-transaction interactive" : "sheet-transaction"} role={onSelect ? "button" : undefined} tabIndex={onSelect ? 0 : undefined} onPointerDown={() => { if (!onLongPress) return; held.current = false; pressTimer.current = window.setTimeout(() => { held.current = true; onLongPress(row.item.id); }, 460); }} onPointerUp={clearPress} onPointerLeave={clearPress} onPointerCancel={clearPress} onContextMenu={(event) => { if (!onLongPress) return; event.preventDefault(); onLongPress(row.item.id); }} onClick={() => { if (held.current) { held.current = false; return; } onSelect?.(row.item.id); }} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect?.(row.item.id); } }}><span className={`sheet-category-icon ${row.item.kind}`}><AppIcon name={iconFor(row.item.category)} size="sm" /></span><div><strong>{row.item.title}</strong><small>{row.item.notes || row.item.category}{showSheet && row.item.sheet ? ` · ${row.item.sheet}` : ""}</small></div><div className={row.item.kind === "income" || row.item.transferDirection === "in" ? "sheet-amount positive" : "sheet-amount"}>{sensitive ? "••••" : <>{row.item.kind === "income" || row.item.transferDirection === "in" ? "+" : "−"}{money(row.item.amount, row.item.currency)}</>}<small>{row.item.time || ""}</small></div></article>}</div>;
+  })}</div></div>;
+}
+
 function SheetTransactionComposer({ sheets, categories, defaultSheetId, transaction, transferPartner, preset, focusField, onClose, onSave }: { sheets: Sheet[]; categories: Category[]; defaultSheetId: string; transaction?: Transaction; transferPartner?: Transaction; preset?: ComposerPreset; focusField?: "merchant" | "category"; onClose: () => void; onSave: (draft: TransactionDraft) => void }) {
   const now = new Date();
   const initialKind = transaction?.kind === "income" ? "income" : transaction?.kind === "transfer" ? "transfer" : "expense";
@@ -568,9 +597,12 @@ function SheetTransactionComposer({ sheets, categories, defaultSheetId, transact
   const [time, setTime] = useState(transaction?.time || now.toTimeString().slice(0, 5));
   const [pending, setPending] = useState(Boolean(transaction?.pending));
   const [recurring, setRecurring] = useState(transaction?.recurring || "");
-  const [attachmentMessage, setAttachmentMessage] = useState("");
-  const [hasAttachment, setHasAttachment] = useState(Boolean(transaction?.hasAttachment));
-  const [attachmentFiles, setAttachmentFiles] = useState<File[]>([]);
+  const [ocrMessage, setOcrMessage] = useState("");
+  const [ocrText, setOcrText] = useState(transaction?.ocrText || "");
+  // Kept as aliases until the legacy composer markup is split into smaller fields.
+  // Files are intentionally never retained; the selected image only reaches OCR.
+  const attachmentMessage = ocrMessage || "Scan receipt text";
+  const attachmentFiles: File[] = [];
   const selectedSheet = sheets.find((sheet) => sheet.id === (kind === "transfer" ? fromSheetId : sheetId));
   const input = selectedSheet?.input || defaultSheet.input;
   const categoryOptions = kind === "income" ? incomeCategories : expenseCategories;
@@ -580,18 +612,16 @@ function SheetTransactionComposer({ sheets, categories, defaultSheetId, transact
   function chooseKind(next: "expense" | "income" | "transfer") { setKind(next); if (next !== kind) setCategory(next === "income" ? incomeCategories[0] || "Other" : next === "expense" ? expenseCategories[0] || "Other" : "Transfer"); }
   async function scanReceipt(file?: File) {
     if (!file) return;
-    setAttachmentFiles((files) => [...files, file]);
-    setHasAttachment(true);
-    if (!file.type.startsWith("image/")) { setAttachmentMessage(`${file.name} attached. Choose an image for receipt suggestions.`); return; }
-    if (file.size > 4_500_000) { setAttachmentMessage(`${file.name} attached. It is too large for receipt suggestions.`); return; }
-    setAttachmentMessage("Reading receipt…");
-    const imageDataUrl = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = reject; reader.readAsDataURL(file); }).catch(() => "");
-    if (!imageDataUrl) { setAttachmentMessage("The image could not be read; it is still attached."); return; }
-    const response = await fetch("/api/receipt", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ imageDataUrl }) }).catch(() => null);
-    const body = response ? await response.json().catch(() => ({})) : {};
-    if (body.suggestion) { const suggestion = body.suggestion; const details = [suggestion.merchant, suggestion.amount && `${suggestion.currency || "SGD"} ${suggestion.amount}`, suggestion.date, suggestion.category].filter(Boolean); setAttachmentMessage(details.length ? `Suggestion: ${details.join(" · ")}. Review before saving.` : "Receipt attached. Review its details before saving."); } else setAttachmentMessage(body.error || "Receipt attached. Suggestions are unavailable.");
+    setOcrMessage("Reading receipt on this device…");
+    try {
+      const result = await recognizeReceipt(file, (progress) => setOcrMessage(`Reading receipt… ${Math.round(progress * 100)}%`));
+      setOcrText(result.text);
+      if (result.amount && !amount) setAmount(String(result.amount));
+      if (result.date) setDate(result.date);
+      setOcrMessage(result.text ? "Text extracted. Review the amount and date before saving." : "No readable text was found.");
+    } catch (error) { setOcrMessage(error instanceof Error ? error.message : "Receipt text could not be read."); }
   }
-  function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); onSave({ amount: Number(amount), attachments: attachmentFiles, category, date, fromSheetId, hasAttachment, kind, merchant, notes, pending, recurring, sheetId, time, title, toSheetId }); }
+  function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); onSave({ amount: Number(amount), category, date, fromSheetId, kind, merchant, notes, ocrText, pending, recurring, sheetId, time, title, toSheetId }); }
   function labelForSheet(sheet: Sheet) { return sheetDisplayName(sheet, sheets.indexOf(sheet), sheets); }
 
   return <div className="sheet-composer-backdrop" role="presentation"><form className="sheet-composer" onSubmit={submit} aria-label={transaction ? "Transaction details" : "New transaction"}><header className="composer-header"><button type="button" className="round-control" onClick={onClose} aria-label={transaction ? "Close transaction details" : "Discard transaction"}><AppIcon name="close" size="lg" /></button><h1>{transaction ? "Details" : "New Item"}</h1><button className="composer-save" type="submit" aria-label={transaction ? "Save transaction details" : "Save transaction"}><AppIcon name="check" size="lg" /></button></header><div className="composer-segment" role="tablist" aria-label="Transaction type">{modeOptions.map((option) => <button key={option} type="button" role="tab" aria-selected={kind === option} className={kind === option ? "selected" : ""} onClick={() => chooseKind(option)}>{option[0].toUpperCase() + option.slice(1)}</button>)}</div><section className="composer-card amount-card"><label><span className="sr-only">Amount</span><input value={amount} onChange={(event) => setAmount(event.target.value)} type="number" inputMode="decimal" min="0.01" step="0.01" placeholder="Amount" autoFocus={!focusField} required /></label>{input.showCurrencySelection && <div className="composer-row currency-row"><span>◉ <b>SGD</b></span><span>Singapore Dollar <AppIcon name="forward" size="sm" /></span></div>}</section><small className="amount-preview">{amount ? money(Number(amount) || 0) : "$0.00"}</small><label className="composer-note"><span className="sr-only">Notes</span><input value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Notes" /></label>{kind === "transfer" ? <section className="composer-card"><label className="composer-row"><span>↑ <b>From:</b></span><select value={fromSheetId} onChange={(event) => { setFromSheetId(event.target.value); if (event.target.value === toSheetId) setToSheetId(""); }}>{sheets.map((sheet) => <option value={sheet.id} key={sheet.id}>{labelForSheet(sheet)}</option>)}</select></label><label className="composer-row"><span>↓ <b>To:</b></span><select value={toSheetId} onChange={(event) => setToSheetId(event.target.value)} disabled={!destinationSheets.length}><option value="">{destinationSheets.length ? "Choose a sheet" : "No other sheets yet"}</option>{destinationSheets.map((sheet) => <option value={sheet.id} key={sheet.id}>{labelForSheet(sheet)}</option>)}</select></label>{!destinationSheets.length && <p className="composer-hint">Add another sheet before recording a transfer.</p>}</section> : <><section className="composer-card">{input.showMerchant && <label className="composer-row"><span>⌂ <b>Merchant</b></span><input value={merchant} onChange={(event) => setMerchant(event.target.value)} placeholder="No merchant" autoFocus={focusField === "merchant"} /></label>}<label className="composer-row category-heading"><span><AppIcon name={iconFor(category)} size="sm" /><b>Category</b></span><select value={category} onChange={(event) => setCategory(event.target.value)} autoFocus={focusField === "category"}>{categoryOptions.map((option) => <option value={option} key={option}>{option}</option>)}</select></label>{input.showCategorySuggestions && <div className="category-chips">{categoryOptions.map((option) => <button type="button" className={category === option ? "selected" : ""} onClick={() => setCategory(option)} key={option}><span className={`chip-icon ${option === "Salary" ? "income" : ""}`}><AppIcon name={iconFor(option)} size="sm" /></span>{option}</button>)}</div>}<label className="composer-row"><span><AppIcon name="table" size="sm" /><b>Sheet</b></span><select value={sheetId} onChange={(event) => setSheetId(event.target.value)}>{sheets.map((sheet) => <option value={sheet.id} key={sheet.id}>{labelForSheet(sheet)}</option>)}</select></label></section></>}<section className="composer-card"><label className="composer-row"><span><AppIcon name="calendar" size="sm" /><b>Date</b></span><input value={date} onChange={(event) => setDate(event.target.value)} type="date" required /></label>{input.showTime && <label className="composer-row"><span><AppIcon name="clock" size="sm" /><b>Time</b></span><input value={time} onChange={(event) => setTime(event.target.value)} type="time" required /></label>}</section><button type="button" className="composer-card composer-row toggle-row" onClick={() => setPending((value) => !value)} aria-pressed={pending}><span><AppIcon name="clock" size="sm" /><b>Pending</b></span><span className={pending ? "composer-switch on" : "composer-switch"}><i /></span></button><section className="composer-card"><label className="composer-row"><span><AppIcon name="transfer" size="sm" /><b>Repeat</b></span><select value={recurring} onChange={(event) => setRecurring(event.target.value)}><option value="">Never</option><option value="Weekly">Weekly</option><option value="Monthly">Monthly</option><option value="Yearly">Yearly</option></select></label></section><label className="composer-image"><AppIcon name="photo" size="sm" /><span>{attachmentMessage || (attachmentFiles.length ? `${attachmentFiles.length} new attachment${attachmentFiles.length === 1 ? "" : "s"}` : transaction?.attachments?.length ? `${transaction.attachments.length} attachment${transaction.attachments.length === 1 ? "" : "s"}` : "Add Image")}</span><input type="file" accept="image/*,.pdf" multiple onChange={(event) => { Array.from(event.target.files || []).forEach((file) => { void scanReceipt(file); }); }} /></label><label className="sr-only">Transaction title<input value={title} onChange={(event) => setTitle(event.target.value)} /></label></form></div>;
@@ -882,7 +912,7 @@ function filterTransactions(items: Transaction[], filters: LedgerFilters) {
   const amount = Number(filters.amount);
   const today = new Date().toISOString().slice(0, 10);
   return items.filter((item) => {
-    if (filters.hasAttachment && !item.hasAttachment) return false;
+    if (filters.hasAttachment && !item.ocrText) return false;
     if (filters.recurring && !item.recurring) return false;
     if (filters.kind !== "all" && item.kind !== filters.kind) return false;
     if (filters.currency !== "all" && item.currency !== filters.currency) return false;
@@ -1019,24 +1049,12 @@ function trendSeries(items: Transaction[], range: "daily" | "weekly" | "monthly"
 }
 function formatSheetTimestamp(value?: string) { return value ? new Date(value).toLocaleString("en-SG", { day: "numeric", month: "long", year: "numeric", hour: "numeric", minute: "2-digit" }) : "Not recorded"; }
 function csvContent(items: Transaction[]) {
-  const header = ["Date", "Time", "Type", "Category", "Amount", "Currency", "Merchant", "Notes", "Pending", "Repeat", "Attachment Files"];
-  return [header, ...items.map((item) => [item.date, item.time || "", item.kind, item.category, item.amount.toString(), item.currency, item.merchant || "", item.notes || "", item.pending ? "true" : "false", item.recurring || "", (item.attachments || []).map((attachment) => attachment.filename).join("|")])].map((row) => row.map(csv).join(",")).join("\n");
+  const header = ["Date", "Time", "Type", "Category", "Amount", "Currency", "Merchant", "Notes", "Pending", "Repeat", "OCR Text"];
+  return [header, ...items.map((item) => [item.date, item.time || "", item.kind, item.category, item.amount.toString(), item.currency, item.merchant || "", item.notes || "", item.pending ? "true" : "false", item.recurring || "", item.ocrText || ""])].map((row) => row.map(csv).join(",")).join("\n");
 }
-async function exportTransactionsCsv(sheet: Sheet, items: Transaction[], includeImages: boolean) {
+async function exportTransactionsCsv(sheet: Sheet, items: Transaction[], _includeImages = false) {
   const content = csvContent(items);
-  const stem = safeDownloadName(sheet.name);
-  if (!includeImages) { downloadBlob(new Blob([content], { type: "text/csv;charset=utf-8" }), `${stem}.csv`); return; }
-  const zip = new JSZip();
-  zip.file(`${stem}.csv`, content);
-  const known = new Set<string>();
-  for (const attachment of items.flatMap((item) => item.attachments || [])) {
-    if (known.has(attachment.storagePath)) continue;
-    known.add(attachment.storagePath);
-    const file = await readAttachment(attachment);
-    if (file) zip.file(`attachments/${safeDownloadName(attachment.filename)}`, file);
-  }
-  const archive = await zip.generateAsync({ type: "blob" });
-  downloadBlob(archive, `${stem}-export.zip`);
+  downloadBlob(new Blob([content], { type: "text/csv;charset=utf-8" }), `${safeDownloadName(sheet.name)}.csv`);
 }
 function downloadBlob(blob: Blob, filename: string) { const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); anchor.href = url; anchor.download = filename; document.body.append(anchor); anchor.click(); anchor.remove(); window.setTimeout(() => URL.revokeObjectURL(url), 0); }
 function safeDownloadName(value: string) { return value.trim().replace(/[^a-zA-Z0-9._-]+/g, "-") || "sheet"; }

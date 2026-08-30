@@ -1,24 +1,34 @@
-const CACHE = "together-shell-v1";
-const APP_SHELL = ["/", "/manifest.webmanifest", "/icon.svg"];
+const VERSION = "together-static-v2";
+const STATIC = ["/", "/manifest.webmanifest", "/icon.svg", "/icon-maskable.svg"];
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(APP_SHELL)));
-  self.skipWaiting();
+  event.waitUntil(caches.open(VERSION).then((cache) => cache.addAll(STATIC)));
 });
 
-self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));
+self.addEventListener("activate", (event) => {
+  event.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((key) => key.startsWith("together-") && key !== VERSION).map((key) => caches.delete(key)))).then(() => self.clients.claim()));
+});
+
+self.addEventListener("message", (event) => {
+  if (event.data?.type === "SKIP_WAITING") self.skipWaiting();
+});
 
 self.addEventListener("fetch", (event) => {
-  if (event.request.method !== "GET") return;
-  event.respondWith(caches.match(event.request).then((cached) => cached || fetch(event.request)));
-});
-
-self.addEventListener("push", (event) => {
-  const message = event.data?.json() || { title: "Together", body: "You have a budget update." };
-  event.waitUntil(self.registration.showNotification(message.title, { body: message.body, icon: "/icon.svg", data: message.url || "/" }));
-});
-
-self.addEventListener("notificationclick", (event) => {
-  event.notification.close();
-  event.waitUntil(clients.openWindow(event.notification.data || "/"));
+  const request = event.request;
+  const url = new URL(request.url);
+  if (request.method !== "GET" || url.origin !== self.location.origin || url.pathname.startsWith("/api/")) return;
+  if (request.mode === "navigate") {
+    event.respondWith(fetch(request).then((response) => {
+      const copy = response.clone();
+      void caches.open(VERSION).then((cache) => cache.put("/", copy));
+      return response;
+    }).catch(() => caches.match("/").then((cached) => cached || Response.error())));
+    return;
+  }
+  if (url.pathname.startsWith("/_next/static/") || STATIC.includes(url.pathname)) {
+    event.respondWith(caches.match(request).then((cached) => cached || fetch(request).then((response) => {
+      if (response.ok) void caches.open(VERSION).then((cache) => cache.put(request, response.clone()));
+      return response;
+    })));
+  }
 });

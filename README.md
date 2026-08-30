@@ -1,6 +1,6 @@
 # Together Budget
 
-An original, mobile-first budgeting PWA for a couple: shared and personal ledgers, budgets, savings goals, multi-currency tracking, custom splits/settlements, receipt attachments, CSV migration, and optional bank feeds.
+An original, mobile-first budgeting PWA for a couple: shared and personal ledgers, budgets, savings goals, multi-currency tracking, custom splits/settlements, on-device receipt OCR, CSV migration, and optional bank feeds.
 
 ## Run locally
 
@@ -17,7 +17,7 @@ The app is immediately usable as a local demo and persists its sample data to br
 1. Create a Supabase project, run [`supabase/schema.sql`](supabase/schema.sql), enable magic-link email auth, and create a private `attachments` storage bucket.
 2. Add `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and server-only secrets to Vercel. Never expose `SUPABASE_SERVICE_ROLE_KEY`, `OPENAI_API_KEY`, Google secrets, or a bank provider secret in the browser.
 3. Configure Google OAuth only for the household-owner one-way Sheets export. Configure VAPID keys and a scheduled job for recurring entries, rate refresh, and notification reminders.
-4. Configure `OPENAI_API_KEY` only if receipt suggestions are desired. The endpoint uses the Responses API with `store: false`; attachments still work if it is unset.
+4. Receipt OCR runs locally in a lazily loaded WebAssembly worker. Receipt images are discarded after text extraction; only the reviewed transaction values and extracted text are saved.
 
 ## Bank and card transactions
 
@@ -35,4 +35,4 @@ Set `BANK_FEED_PROVIDER=sgfindex` or `brankas` and supply the matching server-on
 npm run build
 ```
 
-Production acceptance must additionally test magic-link authentication, RLS policies, two-account sharing, offline reconciliation, iPhone Home Screen install, push permissions, CSV migration fixtures, receipt analysis with and without credentials, and a provider sandbox webhook before enabling live bank data.
+Production acceptance must additionally test magic-link authentication, RLS policies, two-account sharing, offline reconciliation, iPhone Home Screen install, reduced-motion behavior, CSV migration fixtures, on-device receipt OCR, and a provider sandbox webhook before enabling live bank data.
