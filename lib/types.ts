@@ -9,6 +9,7 @@ export type Transaction = {
   kind: TransactionKind;
   category: string;
   date: string;
+  time?: string;
   paidBy: string;
   participants: string[];
   splitMethod: SplitMethod;

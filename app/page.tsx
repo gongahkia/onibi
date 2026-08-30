@@ -1,17 +1,21 @@
 "use client";
 
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
-import { SFArrowDown, SFArrowLeft, SFArrowLeftArrowRight, SFArrowRight, SFArrowUpRight, SFBanknoteFill, SFCartFill, SFChartLineUptrendXyaxis, SFCheckmark, SFChevronDown, SFCloudFill, SFCreditcardFill, SFForkKnife, SFGearshapeFill, SFHeartFill, SFHouseFill, SFLightbulbFill, SFListBullet, SFPaperclip, SFPlus, SFReceipt, SFSquareAndArrowUp, SFTablecells, SFTarget, SFTramFill } from "sf-symbols-lib/dualtone";
+import { SFArrowDown, SFArrowLeft, SFArrowLeftArrowRight, SFArrowRight, SFArrowUpRight, SFBanknoteFill, SFCalendar, SFCartFill, SFChartLineUptrendXyaxis, SFCheckmark, SFChevronDown, SFClock, SFCloudFill, SFCreditcardFill, SFForkKnife, SFGearshapeFill, SFHeartFill, SFHouseFill, SFLightbulbFill, SFListBullet, SFMagnifyingglass, SFPaperclip, SFPhoto, SFPlus, SFReceipt, SFSquareAndArrowUp, SFTablecells, SFTarget, SFTramFill, SFXmark } from "sf-symbols-lib/dualtone";
 import { demoBankConnections, demoBudgets, demoGoals, demoTransactions } from "@/lib/demo-data";
 import { dateLabel, money, type BankConnection, type Budget, type Goal, type SplitMethod, type Transaction, type TransactionKind } from "@/lib/types";
 
 type View = "home" | "ledger" | "plans" | "insights" | "settings";
-type IconKey = "home" | "ledger" | "plans" | "insights" | "settings" | "plus" | "cart" | "dining" | "transport" | "utilities" | "salary" | "goals" | "transfer" | "bank" | "download" | "upload" | "check" | "back" | "forward" | "upRight" | "chevronDown" | "cloud" | "attachment" | "receipt" | "table";
+type IconKey = "home" | "ledger" | "plans" | "insights" | "settings" | "plus" | "cart" | "dining" | "transport" | "utilities" | "salary" | "goals" | "transfer" | "bank" | "download" | "upload" | "check" | "back" | "forward" | "upRight" | "chevronDown" | "cloud" | "attachment" | "receipt" | "table" | "search" | "close" | "calendar" | "clock" | "photo";
 type NavItem = { id: View; label: string; icon: IconKey; visible: boolean };
-const iconComponents = { home: SFHouseFill, ledger: SFListBullet, plans: SFTarget, insights: SFChartLineUptrendXyaxis, settings: SFGearshapeFill, plus: SFPlus, cart: SFCartFill, dining: SFForkKnife, transport: SFTramFill, utilities: SFLightbulbFill, salary: SFBanknoteFill, goals: SFHeartFill, transfer: SFArrowLeftArrowRight, bank: SFCreditcardFill, download: SFArrowDown, upload: SFSquareAndArrowUp, check: SFCheckmark, back: SFArrowLeft, forward: SFArrowRight, upRight: SFArrowUpRight, chevronDown: SFChevronDown, cloud: SFCloudFill, attachment: SFPaperclip, receipt: SFReceipt, table: SFTablecells };
+const iconComponents = { home: SFHouseFill, ledger: SFListBullet, plans: SFTarget, insights: SFChartLineUptrendXyaxis, settings: SFGearshapeFill, plus: SFPlus, cart: SFCartFill, dining: SFForkKnife, transport: SFTramFill, utilities: SFLightbulbFill, salary: SFBanknoteFill, goals: SFHeartFill, transfer: SFArrowLeftArrowRight, bank: SFCreditcardFill, download: SFArrowDown, upload: SFSquareAndArrowUp, check: SFCheckmark, back: SFArrowLeft, forward: SFArrowRight, upRight: SFArrowUpRight, chevronDown: SFChevronDown, cloud: SFCloudFill, attachment: SFPaperclip, receipt: SFReceipt, table: SFTablecells, search: SFMagnifyingglass, close: SFXmark, calendar: SFCalendar, clock: SFClock, photo: SFPhoto };
 function AppIcon({ name, size = "md" }: { name: IconKey; size?: "xs" | "sm" | "md" | "lg" | "xl" }) { const Icon = iconComponents[name]; return <Icon size={size} aria-hidden="true" />; }
 const members = ["Nadia", "Leo"];
 const categories = ["Groceries", "Dining", "Transport", "Utilities", "Rent", "Health", "Shopping", "Entertainment", "Salary", "Goals", "Other"];
+const expenseCategories = ["Groceries", "Dining", "Transport", "Utilities", "Rent", "Health", "Shopping", "Entertainment", "Other"];
+const incomeCategories = ["Salary", "Freelance", "Interest", "Refund", "Other"];
+const defaultSheet = { id: "shared-expenses", name: "Shared expenses" };
+const sheets = [defaultSheet];
 const defaultNavItems: NavItem[] = [
   { id: "home", label: "Home", icon: "home", visible: true },
   { id: "ledger", label: "Ledger", icon: "ledger", visible: true },
@@ -36,115 +40,143 @@ function readDemoState(): DemoState {
 
 export default function BudgetApp() {
   const [initial] = useState(readDemoState);
-  const [view, setView] = useState<View>("home");
-  const [transactions, setTransactions] = useState<Transaction[]>(initial.transactions);
-  const [budgets, setBudgets] = useState<Budget[]>(initial.budgets);
-  const [goals, setGoals] = useState<Goal[]>(initial.goals);
-  const [banks, setBanks] = useState<BankConnection[]>(initial.banks);
-  const [navItems, setNavItems] = useState<NavItem[]>(initial.navItems || defaultNavItems);
-  const [showNavIcons, setShowNavIcons] = useState(initial.showNavIcons ?? true);
+  const [transactions, setTransactions] = useState<Transaction[]>(() => initial.transactions.map((item) => ({ ...item, sheet: defaultSheet.name, time: item.time || "09:35" })));
+  const [activeSheet, setActiveSheet] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
-  const [showBank, setShowBank] = useState(false);
-  const [showImport, setShowImport] = useState(false);
-  const [showNavEditor, setShowNavEditor] = useState(false);
-  const [dark, setDark] = useState(false);
-  const [sensitive, setSensitive] = useState(false);
-  // Keep the first server and client renders identical. Browser connectivity is
-  // read after hydration, then maintained by online/offline events.
-  const [online, setOnline] = useState(true);
+  const [search, setSearch] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
 
-  useEffect(() => {
-    const updateOnline = () => setOnline(navigator.onLine);
-    const initialCheck = window.requestAnimationFrame(updateOnline);
-    window.addEventListener("online", updateOnline);
-    window.addEventListener("offline", updateOnline);
-    if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => undefined);
-    return () => { window.cancelAnimationFrame(initialCheck); window.removeEventListener("online", updateOnline); window.removeEventListener("offline", updateOnline); };
-  }, []);
-
-  useEffect(() => { localStorage.setItem("together-budget-demo", JSON.stringify({ transactions, budgets, goals, banks, navItems, showNavIcons })); }, [transactions, budgets, goals, banks, navItems, showNavIcons]);
+  useEffect(() => { localStorage.setItem("together-budget-demo", JSON.stringify({ ...initial, transactions })); }, [initial, transactions]);
   useEffect(() => { if (!notice) return; const id = window.setTimeout(() => setNotice(null), 3200); return () => window.clearTimeout(id); }, [notice]);
 
-  const totals = useMemo(() => transactions.filter((item) => !item.pending).reduce((acc, item) => {
-    if (item.kind === "income") acc.income += item.amount;
-    if (item.kind === "expense") acc.expense += item.amount;
-    if (item.kind === "transfer" && item.transferDirection !== "in") acc.goals += item.amount;
-    return acc;
-  }, { income: 0, expense: 0, goals: 0 }), [transactions]);
-  const sharedBalance = useMemo(() => {
-    const shared = transactions.filter((item) => item.kind === "expense" && item.participants.length > 1);
-    return shared.reduce((balance, item) => balance + (item.paidBy === "Nadia" ? item.amount : 0) - item.amount / item.participants.length, 0);
-  }, [transactions]);
-
-  function addTransaction(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    const kind = form.get("kind") as TransactionKind;
-    const amount = Number(form.get("amount"));
-    if (!amount || amount < 0) { setNotice("Enter an amount greater than zero."); return; }
-    const shared = form.get("scope") === "shared";
-    const item: Transaction = {
-      id: uid("txn"), title: String(form.get("title") || "Untitled entry"), amount, kind,
-      category: String(form.get("category")), date: String(form.get("date")), paidBy: String(form.get("paidBy")),
-      participants: shared ? members : [String(form.get("paidBy"))], splitMethod: String(form.get("split") || "equal") as SplitMethod,
-      notes: String(form.get("notes") || ""), pending: form.get("pending") === "on", recurring: String(form.get("recurring") || ""), currency: "SGD", source: "manual"
-    };
-    if (kind === "transfer") {
-      const destination = String(form.get("transferTo") || "Japan fund");
+  function createTransaction(draft: TransactionDraft) {
+    if (!Number.isFinite(draft.amount) || draft.amount <= 0) { setNotice("Enter an amount greater than zero."); return; }
+    const base: Transaction = { id: uid("txn"), title: draft.title || draft.category, amount: draft.amount, kind: draft.kind, category: draft.category, date: draft.date, time: draft.time, paidBy: "Nadia", participants: ["Nadia"], splitMethod: "equal", notes: draft.notes, pending: draft.pending, recurring: draft.recurring, currency: "SGD", merchant: draft.merchant || undefined, source: "manual" };
+    if (draft.kind === "transfer") {
+      if (!draft.fromSheet || !draft.toSheet || draft.fromSheet === draft.toSheet) { setNotice("Choose two different sheets for a transfer."); return; }
       const transferGroupId = uid("transfer");
-      const outgoing: Transaction = { ...item, title: `Transfer to ${destination}`, category: "Transfer", sheet: "Shared expenses", transferGroupId, transferDirection: "out" };
-      const incoming: Transaction = { ...item, id: uid("txn"), title: "Transfer from Shared expenses", category: "Transfer", sheet: destination, participants: [item.paidBy], transferGroupId, transferDirection: "in" };
+      const outgoing: Transaction = { ...base, title: `Transfer to ${draft.toSheet}`, category: "Transfer", sheet: draft.fromSheet, transferGroupId, transferDirection: "out" };
+      const incoming: Transaction = { ...base, id: uid("txn"), title: `Transfer from ${draft.fromSheet}`, category: "Transfer", sheet: draft.toSheet, transferGroupId, transferDirection: "in" };
       setTransactions((items) => [outgoing, incoming, ...items]);
-    } else setTransactions((items) => [item, ...items]);
+      setNotice("Linked transfer created in both sheets.");
+    } else {
+      setTransactions((items) => [{ ...base, sheet: draft.sheet }, ...items]);
+      setNotice(draft.pending ? "Pending transaction saved." : "Transaction added.");
+    }
     setShowAdd(false);
-    setNotice(kind === "transfer" ? "Linked transfer created in both sheets." : item.pending ? "Pending transaction saved." : "Transaction added.");
   }
 
-  async function importCsv(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    const [header, ...rows] = (await file.text()).trim().split(/\r?\n/);
-    const columns = header.split(",").map((column) => column.trim().toLowerCase());
-    const required = ["date", "category", "price", "notes"];
-    if (!required.every((column) => columns.includes(column))) { setNotice("CSV needs Date, Category, Price, and Notes headers."); return; }
-    const imported = rows.flatMap((row) => {
-      const cells = row.split(","); const get = (name: string) => cells[columns.indexOf(name)]?.trim() || "";
-      const price = Number(get("price"));
-      if (!Number.isFinite(price)) return [];
-      return [{ id: uid("import"), title: get("notes") || get("merchant") || "Imported transaction", amount: Math.abs(price), kind: price > 0 ? "income" as const : "expense" as const, category: get("category") || "Other", date: get("date").slice(0, 10) || new Date().toISOString().slice(0, 10), paidBy: "Nadia", participants: ["Nadia"], splitMethod: "equal" as const, notes: get("notes"), currency: get("currency") || "SGD", merchant: get("merchant"), source: "manual" as const }];
-    });
-    setTransactions((items) => [...imported, ...items]); setShowImport(false); setNotice(`${imported.length} transaction${imported.length === 1 ? "" : "s"} imported for review.`);
-  }
-
-  function exportCsv() {
-    const heading = "Date,Category,Price,Currency,Notes,Merchant,Paid By\n";
-    const rows = transactions.map((item) => [item.date, item.category, item.kind === "income" ? item.amount : -item.amount, item.currency, csv(item.notes || item.title), csv(item.merchant || ""), item.paidBy].join(","));
-    const blob = new Blob([[heading, ...rows].join("\n")], { type: "text/csv" });
-    const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.download = "together-budget.csv"; link.click(); URL.revokeObjectURL(link.href);
-  }
-
-  function connectDemoBank() {
-    setBanks((items) => [{ id: uid("bank"), label: "Connected account", institution: "Provider sandbox", status: "connected", lastSynced: "just now", accountMask: "•••• 4821" }, ...items]);
-    setShowBank(false); setNotice("Sandbox connection added. Add provider credentials to enable a real bank feed.");
-  }
-
-  return <main className={dark ? "app dark" : "app"}>
-    {view === "home" && <HomeView totals={totals} budgets={budgets} goals={goals} balance={sharedBalance} sensitive={sensitive} onAdd={() => setShowAdd(true)} onView={(next) => setView(next)} />}
-    {view === "ledger" && <LedgerView items={transactions} sensitive={sensitive} onAdd={() => setShowAdd(true)} />}
-    {view === "plans" && <PlansView budgets={budgets} goals={goals} sensitive={sensitive} onAddGoal={(goal) => { setGoals((items) => [goal, ...items]); setNotice("Goal created."); }} onAddBudget={(budget) => { setBudgets((items) => [budget, ...items]); setNotice("Budget created."); }} />}
-    {view === "insights" && <InsightsView items={transactions} sensitive={sensitive} />}
-    {view === "settings" && <SettingsView online={online} dark={dark} sensitive={sensitive} banks={banks} onDark={() => setDark((value) => !value)} onSensitive={() => setSensitive((value) => !value)} onBank={() => setShowBank(true)} onImport={() => setShowImport(true)} onExport={exportCsv} onCustomizeNav={() => setShowNavEditor(true)} />}
-
-    <nav className="tabbar" aria-label="Primary navigation">
-      {navItems.filter((item) => item.visible).map((item) => <button key={item.id} onClick={() => setView(item.id)} className={view === item.id ? "active" : ""}>{showNavIcons && <span><AppIcon name={item.icon} /></span>}{item.label}</button>)}
-    </nav>
-    {showAdd && <TransactionModal onClose={() => setShowAdd(false)} onSubmit={addTransaction} />}
-    {showBank && <BankModal onClose={() => setShowBank(false)} onConnect={connectDemoBank} />}
-    {showImport && <ImportModal onClose={() => setShowImport(false)} onFile={importCsv} />}
-    {showNavEditor && <NavEditor items={navItems} showIcons={showNavIcons} onClose={() => setShowNavEditor(false)} onChange={(items, icons) => { setNavItems(items); setShowNavIcons(icons); if (!items.some((item) => item.id === view && item.visible)) setView(items.find((item) => item.visible)?.id || "home"); }} />}
-    {notice && <div className="toast" role="status">{notice}</div>}
+  return <main className="sheets-app">
+    {activeSheet ? <SheetLedger sheetName={activeSheet} items={transactions} search={search} onSearch={setSearch} onBack={() => { setActiveSheet(null); setSearch(""); }} onAdd={() => setShowAdd(true)} /> : <SheetsHome items={transactions} search={search} onSearch={setSearch} onOpenSheet={setActiveSheet} onAdd={() => setShowAdd(true)} />}
+    {showAdd && <SheetTransactionComposer sheets={sheets} defaultSheet={activeSheet || defaultSheet.name} onClose={() => setShowAdd(false)} onSave={createTransaction} />}
+    {notice && <div className="toast sheets-toast" role="status">{notice}</div>}
   </main>;
+}
+
+type TransactionDraft = {
+  amount: number;
+  category: string;
+  date: string;
+  fromSheet?: string;
+  kind: TransactionKind;
+  merchant: string;
+  notes: string;
+  pending: boolean;
+  recurring: string;
+  sheet: string;
+  time: string;
+  title: string;
+  toSheet?: string;
+};
+
+function SheetsHome({ items, search, onSearch, onOpenSheet, onAdd }: { items: Transaction[]; search: string; onSearch: (value: string) => void; onOpenSheet: (sheet: string) => void; onAdd: () => void }) {
+  const query = search.trim();
+  const matches = useMemo(() => query ? searchTransactions(items, query) : [], [items, query]);
+  const sheetItems = items.filter((item) => item.sheet === defaultSheet.name);
+  const balance = sheetBalance(sheetItems);
+  const latest = sheetItems.reduce<Transaction | undefined>((recent, item) => !recent || transactionSortKey(item) > transactionSortKey(recent) ? item : recent, undefined);
+
+  return <section className="sheets-screen">
+    <header className="sheets-heading"><h1>Sheets</h1><button type="button" className="heading-chevron" aria-label="Sheets menu"><AppIcon name="chevronDown" size="md" /></button></header>
+    {query ? <SearchResults items={matches} query={query} /> : <button type="button" className="sheet-card" onClick={() => onOpenSheet(defaultSheet.name)}>
+      <span className="sheet-card-main"><strong>{defaultSheet.name}</strong><small>{money(balance)}</small></span>
+      <span className="sheet-card-meta"><small>{latest ? latestActivity(latest) : "No entries yet"}</small><b>{sheetItems.length}</b><AppIcon name="forward" size="sm" /></span>
+    </button>}
+    <SearchField value={search} onChange={onSearch} onAdd={onAdd} />
+  </section>;
+}
+
+function SheetLedger({ sheetName, items, search, onSearch, onBack, onAdd }: { sheetName: string; items: Transaction[]; search: string; onSearch: (value: string) => void; onBack: () => void; onAdd: () => void }) {
+  const visibleItems = useMemo(() => search.trim() ? searchTransactions(items, search) : items.filter((item) => item.sheet === sheetName), [items, search, sheetName]);
+  return <section className="sheets-screen ledger-screen">
+    <header className="sheet-ledger-heading"><button type="button" className="round-control" onClick={onBack} aria-label="Back to sheets"><AppIcon name="back" size="md" /></button><h1>{search.trim() ? "Search" : sheetName}</h1><span /></header>
+    <TransactionList items={visibleItems} showSheet={Boolean(search.trim())} emptyMessage={search.trim() ? "No transactions match this search." : "This sheet has no transactions yet."} />
+    <SearchField value={search} onChange={onSearch} onAdd={onAdd} />
+  </section>;
+}
+
+function SearchField({ value, onChange, onAdd }: { value: string; onChange: (value: string) => void; onAdd: () => void }) {
+  return <div className="sheet-search-dock"><label className="sheet-search"><AppIcon name="search" size="md" /><input value={value} onChange={(event) => onChange(event.target.value)} placeholder="Search" aria-label="Search transactions across sheets" />{value && <button type="button" onClick={() => onChange("")} aria-label="Clear search"><AppIcon name="close" size="sm" /></button>}</label><button type="button" className="search-add" onClick={onAdd} aria-label="Add transaction"><AppIcon name="plus" size="lg" /></button></div>;
+}
+
+function SearchResults({ items, query }: { items: Transaction[]; query: string }) {
+  return <section className="search-results" aria-live="polite"><p className="search-summary">{items.length ? `${items.length} result${items.length === 1 ? "" : "s"} for “${query}”` : `No results for “${query}”`}</p>{items.length > 0 && <TransactionList items={items} showSheet emptyMessage="" />}</section>;
+}
+
+function TransactionList({ items, showSheet = false, emptyMessage }: { items: Transaction[]; showSheet?: boolean; emptyMessage: string }) {
+  const grouped = useMemo(() => groupTransactions(items), [items]);
+  if (!items.length) return <p className="sheet-empty">{emptyMessage}</p>;
+  return <div className="sheet-transaction-list">{grouped.map(([date, group]) => <section key={date}><h2>{transactionDateLabel(date)}</h2>{group.map((item) => <article className="sheet-transaction" key={item.id}><span className={`sheet-category-icon ${item.kind}`}><AppIcon name={iconFor(item.category)} size="sm" /></span><div><strong>{item.title}</strong><small>{item.notes || item.category}{showSheet && item.sheet ? ` · ${item.sheet}` : ""}</small></div><div className={item.kind === "income" || item.transferDirection === "in" ? "sheet-amount positive" : "sheet-amount"}>{item.kind === "income" || item.transferDirection === "in" ? "+" : "−"}{money(item.amount, item.currency)}<small>{item.time || ""}</small></div></article>)}</section>)}</div>;
+}
+
+function SheetTransactionComposer({ sheets, defaultSheet: selectedSheet, onClose, onSave }: { sheets: { id: string; name: string }[]; defaultSheet: string; onClose: () => void; onSave: (draft: TransactionDraft) => void }) {
+  const now = new Date();
+  const initialDate = now.toISOString().slice(0, 10);
+  const initialTime = now.toTimeString().slice(0, 5);
+  const [kind, setKind] = useState<TransactionKind>("expense");
+  const [amount, setAmount] = useState("");
+  const [title, setTitle] = useState("");
+  const [merchant, setMerchant] = useState("");
+  const [notes, setNotes] = useState("");
+  const [category, setCategory] = useState(expenseCategories[0]);
+  const [sheet, setSheet] = useState(selectedSheet);
+  const [fromSheet, setFromSheet] = useState(selectedSheet);
+  const [toSheet, setToSheet] = useState("");
+  const [date, setDate] = useState(initialDate);
+  const [time, setTime] = useState(initialTime);
+  const [pending, setPending] = useState(false);
+  const [recurring, setRecurring] = useState("");
+  const [attachmentMessage, setAttachmentMessage] = useState("");
+  const categoryOptions = kind === "income" ? incomeCategories : expenseCategories;
+  const destinationSheets = sheets.filter((entry) => entry.name !== fromSheet);
+
+  function chooseKind(next: TransactionKind) {
+    setKind(next);
+    setCategory(next === "income" ? incomeCategories[0] : next === "expense" ? expenseCategories[0] : "Transfer");
+  }
+
+  async function scanReceipt(file?: File) {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) { setAttachmentMessage(`${file.name} attached. Choose an image for receipt suggestions.`); return; }
+    if (file.size > 4_500_000) { setAttachmentMessage(`${file.name} attached. It is too large for receipt suggestions.`); return; }
+    setAttachmentMessage("Reading receipt…");
+    const imageDataUrl = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = reject; reader.readAsDataURL(file); }).catch(() => "");
+    if (!imageDataUrl) { setAttachmentMessage("The image could not be read; it is still attached."); return; }
+    const response = await fetch("/api/receipt", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ imageDataUrl }) }).catch(() => null);
+    const body = response ? await response.json().catch(() => ({})) : {};
+    if (body.suggestion) {
+      const suggestion = body.suggestion;
+      const details = [suggestion.merchant, suggestion.amount && `${suggestion.currency || "SGD"} ${suggestion.amount}`, suggestion.date, suggestion.category].filter(Boolean);
+      setAttachmentMessage(details.length ? `Suggestion: ${details.join(" · ")}. Review before saving.` : "Receipt attached. Review its details before saving.");
+    } else setAttachmentMessage(body.error || "Receipt attached. Suggestions are unavailable.");
+  }
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    onSave({ amount: Number(amount), category, date, fromSheet, kind, merchant, notes, pending, recurring, sheet, time, title, toSheet });
+  }
+
+  return <div className="sheet-composer-backdrop" role="presentation"><form className="sheet-composer" onSubmit={submit} aria-label="New transaction"><header className="composer-header"><button type="button" className="round-control" onClick={onClose} aria-label="Discard transaction"><AppIcon name="close" size="lg" /></button><h1>New Item</h1><button className="composer-save" type="submit" aria-label="Save transaction"><AppIcon name="check" size="lg" /></button></header><div className="composer-segment" role="tablist" aria-label="Transaction type">{(["expense", "income", "transfer"] as TransactionKind[]).map((option) => <button key={option} type="button" role="tab" aria-selected={kind === option} className={kind === option ? "selected" : ""} onClick={() => chooseKind(option)}>{option[0].toUpperCase() + option.slice(1)}</button>)}</div><section className="composer-card amount-card"><label><span className="sr-only">Amount</span><input value={amount} onChange={(event) => setAmount(event.target.value)} type="number" inputMode="decimal" min="0.01" step="0.01" placeholder="Amount" autoFocus required /></label><div className="composer-row currency-row"><span>◉ <b>SGD</b></span><span>Singapore Dollar <AppIcon name="forward" size="sm" /></span></div></section><small className="amount-preview">{amount ? money(Number(amount) || 0) : "$0.00"}</small><label className="composer-note"><span className="sr-only">Notes</span><input value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Notes" /></label>{kind === "transfer" ? <section className="composer-card"><label className="composer-row"><span>↑ <b>From:</b></span><select value={fromSheet} onChange={(event) => { setFromSheet(event.target.value); if (event.target.value === toSheet) setToSheet(""); }}>{sheets.map((entry) => <option value={entry.name} key={entry.id}>{entry.name}</option>)}</select></label><label className="composer-row"><span>↓ <b>To:</b></span><select value={toSheet} onChange={(event) => setToSheet(event.target.value)} disabled={!destinationSheets.length}><option value="">{destinationSheets.length ? "Choose a sheet" : "No other sheets yet"}</option>{destinationSheets.map((entry) => <option value={entry.name} key={entry.id}>{entry.name}</option>)}</select></label>{!destinationSheets.length && <p className="composer-hint">Add another sheet before recording a transfer.</p>}</section> : <><section className="composer-card"><label className="composer-row"><span>⌂ <b>Merchant</b></span><input value={merchant} onChange={(event) => setMerchant(event.target.value)} placeholder="No merchant" /></label><div className="composer-row category-heading"><span><AppIcon name={iconFor(category)} size="sm" /><b>Category</b></span><span>{category}</span></div><div className="category-chips">{categoryOptions.map((option) => <button type="button" className={category === option ? "selected" : ""} onClick={() => setCategory(option)} key={option}><span className={`chip-icon ${option === "Salary" ? "income" : ""}`}><AppIcon name={iconFor(option)} size="sm" /></span>{option}</button>)}</div><label className="composer-row"><span><AppIcon name="table" size="sm" /><b>Sheet</b></span><select value={sheet} onChange={(event) => setSheet(event.target.value)}>{sheets.map((entry) => <option value={entry.name} key={entry.id}>{entry.name}</option>)}</select></label></section></>}<section className="composer-card"><label className="composer-row"><span><AppIcon name="calendar" size="sm" /><b>Date</b></span><input value={date} onChange={(event) => setDate(event.target.value)} type="date" required /></label><label className="composer-row"><span><AppIcon name="clock" size="sm" /><b>Time</b></span><input value={time} onChange={(event) => setTime(event.target.value)} type="time" required /></label></section><button type="button" className="composer-card composer-row toggle-row" onClick={() => setPending((value) => !value)} aria-pressed={pending}><span><AppIcon name="clock" size="sm" /><b>Pending</b></span><span className={pending ? "composer-switch on" : "composer-switch"}><i /></span></button><section className="composer-card"><label className="composer-row"><span><AppIcon name="transfer" size="sm" /><b>Repeat</b></span><select value={recurring} onChange={(event) => setRecurring(event.target.value)}><option value="">Never</option><option value="Weekly">Weekly</option><option value="Monthly">Monthly</option><option value="Yearly">Yearly</option></select></label></section><label className="composer-image"><AppIcon name="photo" size="sm" /><span>{attachmentMessage || "Add Image"}</span><input type="file" accept="image/*,.pdf" onChange={(event) => { void scanReceipt(event.target.files?.[0]); }} /></label><label className="sr-only">Transaction title<input value={title} onChange={(event) => setTitle(event.target.value)} /></label></form></div>;
 }
 
 function HomeView({ totals, budgets, goals, balance, sensitive, onAdd, onView }: { totals: { income: number; expense: number; goals: number }; budgets: Budget[]; goals: Goal[]; balance: number; sensitive: boolean; onAdd: () => void; onView: (view: View) => void }) {
@@ -250,6 +282,13 @@ function NavEditor({ items, showIcons, onClose, onChange }: { items: NavItem[]; 
 
 function Toggle({ label, detail, checked, onChange }: { label: string; detail: string; checked: boolean; onChange: () => void }) { return <button className="setting-row toggle" onClick={onChange}><div><strong>{label}</strong><small>{detail}</small></div><span className={checked ? "switch on" : "switch"}><i /></span></button>; }
 function transactionDate(value: string) { return new Date(`${value.slice(0, 10)}T12:00:00`); }
+function transactionSortKey(item: Transaction) { return `${item.date}T${item.time || "00:00"}`; }
+function sheetBalance(items: Transaction[]) { return items.filter((item) => !item.pending).reduce((balance, item) => balance + (item.kind === "income" || item.transferDirection === "in" ? item.amount : -item.amount), 0); }
+function latestActivity(item: Transaction) { return `${dateLabel(item.date)}${item.time ? ` · ${formatTime(item.time)}` : ""}`; }
+function formatTime(value: string) { const [hours, minutes] = value.split(":").map(Number); const suffix = hours >= 12 ? "PM" : "AM"; return `${hours % 12 || 12}:${String(minutes).padStart(2, "0")} ${suffix}`; }
+function searchTransactions(items: Transaction[], query: string) { const needle = query.trim().toLocaleLowerCase(); return items.filter((item) => [item.title, item.merchant, item.notes, item.category, item.sheet].filter(Boolean).some((value) => value?.toLocaleLowerCase().includes(needle))).sort((left, right) => transactionSortKey(right).localeCompare(transactionSortKey(left))); }
+function groupTransactions(items: Transaction[]) { const sorted = [...items].sort((left, right) => transactionSortKey(right).localeCompare(transactionSortKey(left))); return Object.entries(sorted.reduce<Record<string, Transaction[]>>((groups, item) => { (groups[item.date] ||= []).push(item); return groups; }, {})); }
+function transactionDateLabel(value: string) { return transactionDate(value).toLocaleDateString("en-SG", { day: "numeric", month: "short" }); }
 function latestTransactionDate(items: Transaction[]) { const latest = items.reduce((value, item) => item.date > value ? item.date : value, ""); return latest ? transactionDate(latest) : new Date(); }
 function previousMonth(date: Date) { return new Date(date.getFullYear(), date.getMonth() - 1, 1); }
 function isInMonth(value: string, reference: Date) { const date = transactionDate(value); return date.getFullYear() === reference.getFullYear() && date.getMonth() === reference.getMonth(); }
