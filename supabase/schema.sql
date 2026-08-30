@@ -75,11 +75,17 @@ create table public.google_sheet_connections (
 create table public.push_subscriptions (
   id uuid primary key default gen_random_uuid(), user_id uuid not null references public.profiles on delete cascade, endpoint text not null unique, subscription jsonb not null, created_at timestamptz not null default now()
 );
+create table public.app_state_snapshots (
+  user_id uuid primary key references auth.users on delete cascade,
+  payload jsonb not null,
+  updated_at timestamptz not null default now()
+);
 
 create or replace function public.can_read_sheet(requested_sheet_id uuid) returns boolean language sql stable security definer set search_path = public as $$
   select exists (select 1 from public.sheets s where s.id = requested_sheet_id and (s.owner_id = auth.uid() or exists (select 1 from public.household_members hm where hm.household_id = s.household_id and hm.user_id = auth.uid())))
 $$;
 alter table public.profiles enable row level security; alter table public.households enable row level security; alter table public.household_members enable row level security; alter table public.sheets enable row level security; alter table public.categories enable row level security; alter table public.transactions enable row level security; alter table public.transaction_splits enable row level security; alter table public.attachments enable row level security; alter table public.budgets enable row level security; alter table public.goals enable row level security; alter table public.goal_contributions enable row level security; alter table public.bank_connections enable row level security; alter table public.google_sheet_connections enable row level security; alter table public.push_subscriptions enable row level security;
+alter table public.app_state_snapshots enable row level security;
 create policy "read own profile" on public.profiles for select using (id = auth.uid()); create policy "update own profile" on public.profiles for update using (id = auth.uid());
 create policy "read household membership" on public.household_members for select using (user_id = auth.uid() or exists (select 1 from public.household_members self where self.household_id = household_members.household_id and self.user_id = auth.uid()));
 create policy "read available sheets" on public.sheets for select using (public.can_read_sheet(id)); create policy "manage available sheets" on public.sheets for all using (public.can_read_sheet(id));
@@ -88,3 +94,6 @@ create policy "read sheet transactions" on public.transactions for select using 
 create policy "read transaction splits" on public.transaction_splits for select using (exists (select 1 from public.transactions t where t.id = transaction_id and public.can_read_sheet(t.sheet_id))); create policy "manage transaction splits" on public.transaction_splits for all using (exists (select 1 from public.transactions t where t.id = transaction_id and public.can_read_sheet(t.sheet_id)));
 create policy "read sheet attachments" on public.attachments for select using (exists (select 1 from public.transactions t where t.id = transaction_id and public.can_read_sheet(t.sheet_id))); create policy "read sheet budgets" on public.budgets for select using (public.can_read_sheet(sheet_id)); create policy "manage sheet budgets" on public.budgets for all using (public.can_read_sheet(sheet_id)); create policy "read available goals" on public.goals for select using (sheet_id is null and owner_id = auth.uid() or public.can_read_sheet(sheet_id)); create policy "manage available goals" on public.goals for all using (owner_id = auth.uid() or public.can_read_sheet(sheet_id));
 create policy "read own bank connections" on public.bank_connections for select using (user_id = auth.uid()); create policy "manage own bank connections" on public.bank_connections for all using (user_id = auth.uid()); create policy "read own push subscriptions" on public.push_subscriptions for all using (user_id = auth.uid());
+create policy "read own app snapshot" on public.app_state_snapshots for select using (user_id = auth.uid());
+create policy "insert own app snapshot" on public.app_state_snapshots for insert with check (user_id = auth.uid());
+create policy "update own app snapshot" on public.app_state_snapshots for update using (user_id = auth.uid()) with check (user_id = auth.uid());

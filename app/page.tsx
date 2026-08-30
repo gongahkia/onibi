@@ -5,7 +5,7 @@ import JSZip from "jszip";
 import { SFArrowDown, SFArrowLeft, SFArrowLeftArrowRight, SFArrowRight, SFArrowUpArrowDown, SFArrowUpRight, SFBanknoteFill, SFCalendar, SFCartFill, SFChartLineUptrendXyaxis, SFChartPie, SFCheckmark, SFChevronDown, SFClock, SFCloudFill, SFCreditcardFill, SFDocumentBadgePlus, SFEllipsis, SFEyeSlash, SFForkKnife, SFGearshapeFill, SFHeartFill, SFHouseFill, SFInfoCircle, SFLightbulbFill, SFListBullet, SFLock, SFMagnifyingglass, SFPaintpalette, SFPaperclip, SFPaperplane, SFPencil, SFPersonBadgePlus, SFPhoto, SFPlus, SFPrinter, SFReceipt, SFRepeat, SFSliderHorizontal3, SFSquareAndArrowUp, SFTablecells, SFTarget, SFTramFill, SFTrash, SFXmark } from "sf-symbols-lib/dualtone";
 import { demoBankConnections, demoBudgets, demoGoals, demoTransactions } from "@/lib/demo-data";
 import { readAttachment, storeAttachment } from "@/lib/attachments";
-import { dateLabel, money, type Attachment, type BankConnection, type Budget, type Goal, type Sheet, type SheetTotalPeriod, type SplitMethod, type Transaction, type TransactionKind } from "@/lib/types";
+import { dateLabel, money, type AppPreferences, type Attachment, type BankConnection, type Budget, type Category, type CategoryKind, type Goal, type Sheet, type SheetSort, type SheetTotalPeriod, type SplitMethod, type Transaction, type TransactionKind } from "@/lib/types";
 
 type View = "home" | "ledger" | "plans" | "insights" | "settings";
 type SheetAction = "stats" | "trends" | "exchange" | "select" | "print" | "export" | "import" | "edit";
@@ -15,10 +15,12 @@ type NavItem = { id: View; label: string; icon: IconKey; visible: boolean };
 const iconComponents = { home: SFHouseFill, ledger: SFListBullet, plans: SFTarget, insights: SFChartLineUptrendXyaxis, settings: SFGearshapeFill, plus: SFPlus, cart: SFCartFill, dining: SFForkKnife, transport: SFTramFill, utilities: SFLightbulbFill, salary: SFBanknoteFill, goals: SFHeartFill, transfer: SFArrowLeftArrowRight, bank: SFCreditcardFill, download: SFArrowDown, upload: SFSquareAndArrowUp, check: SFCheckmark, back: SFArrowLeft, forward: SFArrowRight, upRight: SFArrowUpRight, chevronDown: SFChevronDown, cloud: SFCloudFill, attachment: SFPaperclip, receipt: SFReceipt, table: SFTablecells, search: SFMagnifyingglass, close: SFXmark, calendar: SFCalendar, clock: SFClock, photo: SFPhoto, more: SFEllipsis, personAdd: SFPersonBadgePlus, documentAdd: SFDocumentBadgePlus, chartPie: SFChartPie, sync: SFArrowUpArrowDown, printer: SFPrinter, repeat: SFRepeat, sliders: SFSliderHorizontal3, trash: SFTrash, palette: SFPaintpalette, paperplane: SFPaperplane, info: SFInfoCircle, lock: SFLock, eyeSlash: SFEyeSlash, pencil: SFPencil };
 function AppIcon({ name, size = "md" }: { name: IconKey; size?: "xs" | "sm" | "md" | "lg" | "xl" }) { const Icon = iconComponents[name]; return <Icon size={size} aria-hidden="true" />; }
 const members = ["Nadia", "Leo"];
-const categories = ["Groceries", "Dining", "Transport", "Utilities", "Rent", "Health", "Shopping", "Entertainment", "Salary", "Goals", "Other"];
-const expenseCategories = ["Groceries", "Dining", "Transport", "Utilities", "Rent", "Health", "Shopping", "Entertainment", "Other"];
-const incomeCategories = ["Salary", "Freelance", "Interest", "Refund", "Other"];
-const defaultSheet: Sheet = { id: "shared-expenses", name: "Shared expenses", currency: "SGD", archived: false, createdAt: "2026-02-08T13:16:00.000Z", updatedAt: "2026-08-30T01:11:00.000Z", showTotalBalance: true, totalPeriod: "today", input: { showCurrencySelection: true, showMerchant: true, showTime: true, showCategorySuggestions: true } };
+const defaultCategories: Category[] = [
+  ["Groceries", "expense", "cart", "#ff3b45"], ["Dining", "expense", "dining", "#634cf4"], ["Transport", "expense", "transport", "#168df0"], ["Utilities", "expense", "utilities", "#ff9e23"], ["Rent", "expense", "home", "#9b7b50"], ["Health", "expense", "goals", "#ef426d"], ["Shopping", "expense", "cart", "#ff3b45"], ["Entertainment", "expense", "insights", "#bf37d9"], ["Other", "expense", "ledger", "#9c9ba2"],
+  ["Salary", "income", "salary", "#12bbb7"], ["Freelance", "income", "bank", "#32c766"], ["Interest", "income", "goals", "#c6d900"], ["Refund", "income", "receipt", "#218df0"], ["Other", "income", "ledger", "#9c9ba2"]
+].map(([name, kind, icon, color], sortOrder) => ({ id: `category-${kind}-${name.toLocaleLowerCase()}`, name, kind: kind as CategoryKind, icon, color, sortOrder, updatedAt: "2026-08-30T01:11:00.000Z" }));
+const defaultPreferences: AppPreferences = { appearance: "automatic", preferredCurrency: "SGD", printFont: "inter", printFontSize: 100, sheetSort: "edited", syncEnabled: false, updatedAt: "2026-08-30T01:11:00.000Z" };
+const defaultSheet: Sheet = { id: "shared-expenses", name: "Shared expenses", currency: "SGD", archived: false, createdAt: "2026-02-08T13:16:00.000Z", updatedAt: "2026-08-30T01:11:00.000Z", showTotalBalance: true, totalPeriod: "asOfToday", input: { showCurrencySelection: true, showMerchant: true, showTime: true, showCategorySuggestions: true } };
 type AmountMatch = "exactly" | "atLeast" | "atMost";
 type DateMatch = "all" | "today" | "custom";
 type LedgerFilters = { amount: string; amountMatch: AmountMatch; category: string; currency: string; date: string; dateMatch: DateMatch; hasAttachment: boolean; kind: "all" | TransactionKind; notes: string; recurring: boolean };
@@ -34,17 +36,17 @@ const defaultNavItems: NavItem[] = [
 function uid(prefix: string) { return `${prefix}-${crypto.randomUUID?.() ?? Date.now().toString(36)}`; }
 function todayIso() { return new Date().toISOString().slice(0, 10); }
 function sheetDisplayName(sheet: Sheet, position: number, allSheets: Sheet[]) { return allSheets.filter((entry) => entry.name === sheet.name).length > 1 ? `${sheet.name} · ${position + 1}` : sheet.name; }
-type DemoState = { transactions: Transaction[]; budgets: Budget[]; goals: Goal[]; banks: BankConnection[]; sheets: Sheet[]; navItems?: NavItem[]; showNavIcons?: boolean };
+type DemoState = { transactions: Transaction[]; budgets: Budget[]; goals: Goal[]; banks: BankConnection[]; sheets: Sheet[]; categories?: Category[]; preferences?: AppPreferences; navItems?: NavItem[]; showNavIcons?: boolean };
 function readDemoState(): DemoState {
-  const fallback: DemoState = { transactions: demoTransactions, budgets: demoBudgets, goals: demoGoals, banks: demoBankConnections, sheets: [defaultSheet], navItems: defaultNavItems, showNavIcons: true };
+  const fallback: DemoState = { transactions: demoTransactions, budgets: demoBudgets, goals: demoGoals, banks: demoBankConnections, sheets: [defaultSheet], categories: defaultCategories, preferences: defaultPreferences, navItems: defaultNavItems, showNavIcons: true };
   if (typeof window === "undefined") return fallback;
   try {
     const raw = localStorage.getItem("together-budget-demo");
     if (!raw) return fallback;
     const parsed = JSON.parse(raw) as Partial<DemoState>;
     const navItems = parsed.navItems?.map((item) => ({ ...defaultNavItems.find((entry) => entry.id === item.id), ...item, icon: item.icon || defaultNavItems.find((entry) => entry.id === item.id)?.icon || "home" })) || fallback.navItems;
-    const parsedSheets = parsed.sheets?.length ? parsed.sheets.map((sheet) => ({ ...defaultSheet, ...sheet, input: { ...defaultSheet.input, ...sheet.input } })) : fallback.sheets;
-    return { transactions: parsed.transactions || fallback.transactions, budgets: parsed.budgets || fallback.budgets, goals: parsed.goals || fallback.goals, banks: parsed.banks || fallback.banks, sheets: parsedSheets, navItems, showNavIcons: parsed.showNavIcons ?? true };
+    const parsedSheets = parsed.sheets?.length ? parsed.sheets.map((sheet) => ({ ...defaultSheet, ...sheet, totalPeriod: sheet.totalPeriod === "today" || sheet.totalPeriod === "all" ? "asOfToday" : sheet.totalPeriod, input: { ...defaultSheet.input, ...sheet.input } })) : fallback.sheets;
+    return { transactions: parsed.transactions || fallback.transactions, budgets: parsed.budgets || fallback.budgets, goals: parsed.goals || fallback.goals, banks: parsed.banks || fallback.banks, sheets: parsedSheets, categories: parsed.categories?.length ? parsed.categories : fallback.categories, preferences: { ...defaultPreferences, ...parsed.preferences }, navItems, showNavIcons: parsed.showNavIcons ?? true };
   } catch { return fallback; }
 }
 

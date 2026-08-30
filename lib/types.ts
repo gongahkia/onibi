@@ -1,13 +1,18 @@
 export type TransactionKind = "expense" | "income" | "transfer" | "settlement";
 export type SplitMethod = "equal" | "amount" | "percent" | "shares";
 export type Period = "week" | "month" | "year" | "custom";
-export type SheetTotalPeriod = "today" | "all";
+export type SheetTotalPeriod = "asOfToday" | "year" | "month" | "week" | "day";
+export type CategoryKind = "expense" | "income";
+export type AppearancePreference = "automatic" | "dark" | "light";
+export type SheetSort = "edited" | "created" | "nameAsc" | "nameDesc";
+export type PrintFont = "inter" | "nunito" | "lora";
 
 export type Sheet = {
   id: string;
   name: string;
   currency: string;
   archived: boolean;
+  deletedAt?: string;
   createdAt?: string;
   updatedAt?: string;
   showTotalBalance: boolean;
@@ -18,6 +23,29 @@ export type Sheet = {
     showTime: boolean;
     showCategorySuggestions: boolean;
   };
+};
+
+export type Category = {
+  id: string;
+  name: string;
+  kind: CategoryKind;
+  icon: string;
+  color: string;
+  sortOrder: number;
+  deletedAt?: string;
+  updatedAt: string;
+};
+
+export type AppPreferences = {
+  appearance: AppearancePreference;
+  preferredCurrency: string;
+  printFont: PrintFont;
+  printFontSize: number;
+  sheetSort: SheetSort;
+  syncEnabled: boolean;
+  lastSyncedAt?: string;
+  lastGoogleBackupAt?: string;
+  updatedAt: string;
 };
 
 export type Attachment = {
