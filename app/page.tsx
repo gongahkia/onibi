@@ -1,11 +1,15 @@
 "use client";
 
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import JSZip from "jszip";
 import { SFArrowDown, SFArrowLeft, SFArrowLeftArrowRight, SFArrowRight, SFArrowUpArrowDown, SFArrowUpRight, SFBanknoteFill, SFCalendar, SFCartFill, SFChartLineUptrendXyaxis, SFChartPie, SFCheckmark, SFChevronDown, SFClock, SFCloudFill, SFCreditcardFill, SFDocumentBadgePlus, SFEllipsis, SFEyeSlash, SFForkKnife, SFGearshapeFill, SFHeartFill, SFHouseFill, SFInfoCircle, SFLightbulbFill, SFListBullet, SFLock, SFMagnifyingglass, SFPaintpalette, SFPaperclip, SFPaperplane, SFPencil, SFPersonBadgePlus, SFPhoto, SFPlus, SFPrinter, SFReceipt, SFRepeat, SFSliderHorizontal3, SFSquareAndArrowUp, SFTablecells, SFTarget, SFTramFill, SFTrash, SFXmark } from "sf-symbols-lib/dualtone";
 import { demoBankConnections, demoBudgets, demoGoals, demoTransactions } from "@/lib/demo-data";
-import { dateLabel, money, type BankConnection, type Budget, type Goal, type Sheet, type SheetTotalPeriod, type SplitMethod, type Transaction, type TransactionKind } from "@/lib/types";
+import { readAttachment, storeAttachment } from "@/lib/attachments";
+import { dateLabel, money, type Attachment, type BankConnection, type Budget, type Goal, type Sheet, type SheetTotalPeriod, type SplitMethod, type Transaction, type TransactionKind } from "@/lib/types";
 
 type View = "home" | "ledger" | "plans" | "insights" | "settings";
+type SheetAction = "stats" | "trends" | "exchange" | "select" | "print" | "export" | "import" | "edit";
+type StatsRange = "today" | "yearly" | "monthly" | "weekly" | "daily";
 type IconKey = "home" | "ledger" | "plans" | "insights" | "settings" | "plus" | "cart" | "dining" | "transport" | "utilities" | "salary" | "goals" | "transfer" | "bank" | "download" | "upload" | "check" | "back" | "forward" | "upRight" | "chevronDown" | "cloud" | "attachment" | "receipt" | "table" | "search" | "close" | "calendar" | "clock" | "photo" | "more" | "personAdd" | "documentAdd" | "chartPie" | "sync" | "printer" | "repeat" | "sliders" | "trash" | "palette" | "paperplane" | "info" | "lock" | "eyeSlash" | "pencil";
 type NavItem = { id: View; label: string; icon: IconKey; visible: boolean };
 const iconComponents = { home: SFHouseFill, ledger: SFListBullet, plans: SFTarget, insights: SFChartLineUptrendXyaxis, settings: SFGearshapeFill, plus: SFPlus, cart: SFCartFill, dining: SFForkKnife, transport: SFTramFill, utilities: SFLightbulbFill, salary: SFBanknoteFill, goals: SFHeartFill, transfer: SFArrowLeftArrowRight, bank: SFCreditcardFill, download: SFArrowDown, upload: SFSquareAndArrowUp, check: SFCheckmark, back: SFArrowLeft, forward: SFArrowRight, upRight: SFArrowUpRight, chevronDown: SFChevronDown, cloud: SFCloudFill, attachment: SFPaperclip, receipt: SFReceipt, table: SFTablecells, search: SFMagnifyingglass, close: SFXmark, calendar: SFCalendar, clock: SFClock, photo: SFPhoto, more: SFEllipsis, personAdd: SFPersonBadgePlus, documentAdd: SFDocumentBadgePlus, chartPie: SFChartPie, sync: SFArrowUpArrowDown, printer: SFPrinter, repeat: SFRepeat, sliders: SFSliderHorizontal3, trash: SFTrash, palette: SFPaintpalette, paperplane: SFPaperplane, info: SFInfoCircle, lock: SFLock, eyeSlash: SFEyeSlash, pencil: SFPencil };
@@ -44,10 +48,11 @@ function readDemoState(): DemoState {
   } catch { return fallback; }
 }
 
-type TransactionDraft = { amount: number; category: string; date: string; hasAttachment: boolean; fromSheetId?: string; kind: TransactionKind; merchant: string; notes: string; pending: boolean; recurring: string; sheetId: string; time: string; title: string; toSheetId?: string };
+type TransactionDraft = { amount: number; attachments: File[]; category: string; date: string; hasAttachment: boolean; fromSheetId?: string; kind: TransactionKind; merchant: string; notes: string; pending: boolean; recurring: string; sheetId: string; time: string; title: string; toSheetId?: string };
 type SheetDraft = Omit<Sheet, "id" | "archived">;
 type Confirmation = { description: string; label: string; onConfirm: () => void; title: string };
 type ComposerPreset = { category: string; sheetId: string };
+type ImportRow = { amount: number; category: string; currency: string; date: string; merchant: string; notes: string; time: string; kind: "expense" | "income" };
 
 export default function BudgetApp() {
   const [initial] = useState(readDemoState);
@@ -64,6 +69,9 @@ export default function BudgetApp() {
   const [showMainMenu, setShowMainMenu] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showSheetMenu, setShowSheetMenu] = useState(false);
+  const [sheetAction, setSheetAction] = useState<SheetAction | null>(null);
+  const [selectedTransactionIds, setSelectedTransactionIds] = useState<string[]>([]);
+  const [showBatchMenu, setShowBatchMenu] = useState(false);
   const [editingTransactionId, setEditingTransactionId] = useState<string | null>(null);
   const [editingFocus, setEditingFocus] = useState<"merchant" | "category" | undefined>();
   const [actionTransactionId, setActionTransactionId] = useState<string | null>(null);
@@ -84,8 +92,8 @@ export default function BudgetApp() {
   useEffect(() => { if (!notice) return; const id = window.setTimeout(() => setNotice(null), 3200); return () => window.clearTimeout(id); }, [notice]);
 
   function nameForSheet(sheetId: string) { return sheets.find((sheet) => sheet.id === sheetId)?.name || "Untitled sheet"; }
-  function buildBaseTransaction(id: string, draft: TransactionDraft): Transaction {
-    return { id, title: draft.title.trim() || draft.category, amount: draft.amount, kind: draft.kind, category: draft.category, date: draft.date, time: draft.time, paidBy: "Nadia", participants: ["Nadia"], splitMethod: "equal", notes: draft.notes, pending: draft.pending, recurring: draft.recurring, currency: "SGD", hasAttachment: draft.hasAttachment, merchant: draft.merchant || undefined, source: "manual", sheetId: draft.sheetId, sheet: nameForSheet(draft.sheetId) };
+  function buildBaseTransaction(id: string, draft: TransactionDraft, attachments: Attachment[] = []): Transaction {
+    return { id, title: draft.title.trim() || draft.category, amount: draft.amount, kind: draft.kind, category: draft.category, date: draft.date, time: draft.time, paidBy: "Nadia", participants: ["Nadia"], splitMethod: "equal", notes: draft.notes, pending: draft.pending, recurring: draft.recurring, currency: "SGD", hasAttachment: draft.hasAttachment || attachments.length > 0, attachments, merchant: draft.merchant || undefined, source: "manual", sheetId: draft.sheetId, sheet: nameForSheet(draft.sheetId) };
   }
   function transferRecords(base: Transaction, draft: TransactionDraft, transferGroupId: string, ids = { outgoing: uid("txn"), incoming: uid("txn") }) {
     const outgoing: Transaction = { ...base, id: ids.outgoing, title: `Transfer to ${nameForSheet(draft.toSheetId || "")}`, category: "Transfer", sheetId: draft.fromSheetId, sheet: nameForSheet(draft.fromSheetId || ""), transferGroupId, transferDirection: "out" };
@@ -99,10 +107,13 @@ export default function BudgetApp() {
     if (draft.kind === "transfer") {
       if (!draft.fromSheetId || !draft.toSheetId || draft.fromSheetId === draft.toSheetId) { setNotice("Choose two different sheets for a transfer."); return; }
       const transferGroupId = uid("transfer");
-      setTransactions((items) => [...transferRecords(base, draft, transferGroupId, { outgoing: base.id, incoming: uid("txn") }), ...items]);
+      const records = transferRecords(base, draft, transferGroupId, { outgoing: base.id, incoming: uid("txn") });
+      setTransactions((items) => [...records, ...items]);
+      void persistAttachments(records.map((item) => item.id), draft.attachments);
       setNotice("Linked transfer created in both sheets.");
     } else {
       setTransactions((items) => [{ ...base, sheet: nameForSheet(draft.sheetId) }, ...items]);
+      void persistAttachments([base.id], draft.attachments);
       setNotice(draft.pending ? "Pending transaction saved." : "Transaction added.");
     }
     setShowAdd(false);
@@ -112,7 +123,7 @@ export default function BudgetApp() {
   function updateTransaction(draft: TransactionDraft) {
     if (!editingTransaction || !Number.isFinite(draft.amount) || draft.amount <= 0) { setNotice("Enter an amount greater than zero."); return; }
     const original = editingTransaction;
-    const base = buildBaseTransaction(original.id, draft);
+    const base = buildBaseTransaction(original.id, draft, original.attachments || []);
     if (draft.kind === "transfer") {
       if (!draft.fromSheetId || !draft.toSheetId || draft.fromSheetId === draft.toSheetId) { setNotice("Choose two different sheets for a transfer."); return; }
       const group = original.transferGroupId;
@@ -120,10 +131,13 @@ export default function BudgetApp() {
       const outgoingId = original.transferDirection === "out" ? original.id : counterpart?.id || original.id;
       const incomingId = original.transferDirection === "in" ? original.id : counterpart?.id || uid("txn");
       const groupId = group || uid("transfer");
-      setTransactions((items) => [...transferRecords(base, draft, groupId, { outgoing: outgoingId, incoming: incomingId }), ...items.filter((item) => group ? item.transferGroupId !== group : item.id !== original.id)]);
+      const records = transferRecords(base, draft, groupId, { outgoing: outgoingId, incoming: incomingId });
+      setTransactions((items) => [...records, ...items.filter((item) => group ? item.transferGroupId !== group : item.id !== original.id)]);
+      void persistAttachments(records.map((item) => item.id), draft.attachments);
     } else {
       const standalone: Transaction = { ...base, kind: draft.kind, sheetId: draft.sheetId, sheet: nameForSheet(draft.sheetId), transferGroupId: undefined, transferDirection: undefined };
       setTransactions((items) => [standalone, ...items.filter((item) => original.transferGroupId ? item.transferGroupId !== original.transferGroupId : item.id !== original.id)]);
+      void persistAttachments([standalone.id], draft.attachments);
     }
     setEditingTransactionId(null);
     setNotice("Transaction updated.");
@@ -132,12 +146,91 @@ export default function BudgetApp() {
   function createSheet(draft: SheetDraft) {
     const name = draft.name.trim();
     if (!name) { setNotice("Enter a sheet name."); return false; }
-    const sheet: Sheet = { ...draft, id: uid("sheet"), name, archived: false };
+    const createdAt = new Date().toISOString();
+    const sheet: Sheet = { ...draft, id: uid("sheet"), name, archived: false, createdAt, updatedAt: createdAt };
     setSheets((items) => [...items, sheet]);
     setActiveSheetId(sheet.id);
     setShowNewSheet(false);
     setNotice("Sheet created.");
     return true;
+  }
+
+  function updateSheet(sheetId: string, draft: SheetDraft) {
+    const name = draft.name.trim();
+    if (!name) { setNotice("Enter a sheet name."); return false; }
+    setSheets((items) => items.map((sheet) => sheet.id === sheetId ? { ...sheet, ...draft, name, updatedAt: new Date().toISOString() } : sheet));
+    setNotice("Sheet updated.");
+    return true;
+  }
+
+  async function persistAttachments(transactionIds: string[], files: File[]) {
+    if (!files.length) return;
+    try {
+      const stored = await Promise.all(files.map((file) => storeAttachment(transactionIds[0], file)));
+      setTransactions((items) => items.map((item) => transactionIds.includes(item.id) ? { ...item, hasAttachment: true, attachments: [...(item.attachments || []), ...stored] } : item));
+      setNotice(`${stored.length} attachment${stored.length === 1 ? "" : "s"} saved.`);
+    } catch { setNotice("The transaction was saved, but its attachment could not be stored."); }
+  }
+
+  async function shareSheet(sheet: Sheet) {
+    const shareData = { title: sheet.name, text: `View the ${sheet.name} budget sheet.`, url: window.location.href };
+    try {
+      if (navigator.share) { await navigator.share(shareData); return; }
+      await navigator.clipboard.writeText(`${shareData.text} ${shareData.url}`);
+      setNotice("Sheet link copied.");
+    } catch (error) {
+      if ((error as DOMException).name !== "AbortError") setNotice("Sharing is unavailable on this device.");
+    }
+  }
+
+  function selectedWithTransferPairs(ids = selectedTransactionIds) {
+    const expanded = new Set(ids);
+    transactions.forEach((item) => { if (expanded.has(item.id) && item.transferGroupId) transactions.filter((candidate) => candidate.transferGroupId === item.transferGroupId).forEach((candidate) => expanded.add(candidate.id)); });
+    return expanded;
+  }
+
+  function applyBatchField(field: "merchant" | "category", value: string) {
+    const selected = selectedWithTransferPairs();
+    if (!selected.size || !value.trim()) return;
+    setTransactions((items) => items.map((item) => selected.has(item.id) ? { ...item, [field]: value.trim() } : item));
+    setShowBatchMenu(false);
+    setNotice(`${selected.size} transaction${selected.size === 1 ? "" : "s"} updated.`);
+  }
+
+  function deleteSelectedTransactions() {
+    const selected = selectedWithTransferPairs();
+    setTransactions((items) => items.filter((item) => !selected.has(item.id)));
+    setSelectedTransactionIds([]);
+    setShowBatchMenu(false);
+    setNotice(`${selected.size} transaction${selected.size === 1 ? "" : "s"} deleted.`);
+  }
+
+  function moveSelectedTransactions(sheetId: string) {
+    const selected = selectedWithTransferPairs();
+    const transferGroups = new Set(transactions.filter((item) => selected.has(item.id) && item.transferGroupId).map((item) => item.transferGroupId));
+    setTransactions((items) => items.map((item) => {
+      if (item.transferGroupId && transferGroups.has(item.transferGroupId)) {
+        const movingSide = items.find((candidate) => candidate.transferGroupId === item.transferGroupId && candidate.sheetId === activeSheetId) || items.find((candidate) => candidate.transferGroupId === item.transferGroupId && selected.has(candidate.id));
+        if (item.id !== movingSide?.id) return item;
+        return { ...item, sheetId, sheet: nameForSheet(sheetId), title: item.transferDirection === "out" ? `Transfer to ${nameForSheet(items.find((candidate) => candidate.transferGroupId === item.transferGroupId && candidate.id !== item.id)?.sheetId || "")}` : `Transfer from ${nameForSheet(items.find((candidate) => candidate.transferGroupId === item.transferGroupId && candidate.id !== item.id)?.sheetId || "")}` };
+      }
+      return selected.has(item.id) ? { ...item, sheetId, sheet: nameForSheet(sheetId) } : item;
+    }));
+    setShowBatchMenu(false);
+    setSelectedTransactionIds([]);
+    setNotice("Selected transactions moved.");
+  }
+
+  function importTransactions(sheetId: string, rows: ImportRow[]) {
+    const imported = rows.map((row) => ({ id: uid("txn"), title: row.category, amount: row.amount, kind: row.kind, category: row.category, date: row.date, time: row.time || "12:00", paidBy: "Nadia", participants: ["Nadia"], splitMethod: "equal" as SplitMethod, notes: row.notes, pending: false, recurring: "", currency: row.currency || "SGD", merchant: row.merchant || undefined, source: "manual" as const, sheetId, sheet: nameForSheet(sheetId) }));
+    setTransactions((items) => [...imported, ...items]);
+    setNotice(`${imported.length} transaction${imported.length === 1 ? "" : "s"} imported.`);
+  }
+
+  function toggleTransactionSelection(transactionId: string) {
+    const transaction = transactions.find((item) => item.id === transactionId);
+    const linkedIds = transaction?.transferGroupId ? transactions.filter((item) => item.transferGroupId === transaction.transferGroupId).map((item) => item.id) : [transactionId];
+    setSelectedTransactionIds((ids) => linkedIds.every((id) => ids.includes(id)) ? ids.filter((id) => !linkedIds.includes(id)) : [...new Set([...ids, ...linkedIds)]);
   }
 
   function archiveSheet(sheetId: string, archived: boolean) {
@@ -197,7 +290,7 @@ export default function BudgetApp() {
   }
 
   return <main className="sheets-app">
-    {activeSheet ? <SheetLedger sheet={activeSheet} items={transactions} search={search} sensitive={sensitive} filters={filters} onSearch={setSearch} onBack={() => { setActiveSheetId(null); setSearch(""); setFilters(emptyLedgerFilters); }} onAdd={() => setShowAdd(true)} onOpenFilters={() => { setShowSheetMenu(false); setShowFilters(true); }} onToggleMenu={() => setShowSheetMenu((open) => !open)} showMenu={showSheetMenu} onSelectTransaction={activeSheet.archived ? undefined : (transactionId) => { setEditingFocus(undefined); setEditingTransactionId(transactionId); }} onLongPressTransaction={activeSheet.archived ? undefined : setActionTransactionId} /> : <SheetsHome sheets={sheets} items={transactions} search={search} sensitive={sensitive} onSearch={setSearch} onOpenSheet={setActiveSheetId} onAdd={() => activeSheets.length ? setShowAdd(true) : setShowNewSheet(true)} onToggleMenu={() => setShowMainMenu((open) => !open)} showMenu={showMainMenu} onOpenSettings={() => { setShowMainMenu(false); setShowSettings(true); }} onNewSheet={() => { setShowMainMenu(false); setShowNewSheet(true); }} onArchive={archiveSheet} onDelete={(sheet) => setConfirmation({ title: "Delete sheet?", description: `“${sheet.name}” and all of its transactions will be permanently deleted.`, label: "Delete sheet", onConfirm: () => deleteSheet(sheet.id) })} />}
+    {activeSheet ? sheetAction === "select" ? <SheetSelectionView sheet={activeSheet} items={transactions.filter((item) => item.sheetId === activeSheet.id)} sensitive={sensitive} selectedIds={selectedTransactionIds} showMenu={showBatchMenu} onClose={() => { setSheetAction(null); setSelectedTransactionIds([]); setShowBatchMenu(false); }} onToggle={toggleTransactionSelection} onToggleMenu={() => setShowBatchMenu((value) => !value)} onMove={moveSelectedTransactions} onMerchant={(merchant) => applyBatchField("merchant", merchant)} onCategory={(category) => applyBatchField("category", category)} onDelete={() => setConfirmation({ title: "Delete selected transactions?", description: "Selected transactions and both sides of linked transfers will be permanently deleted.", label: "Delete", onConfirm: deleteSelectedTransactions })} sheets={activeSheets} /> : sheetAction ? <SheetActionView action={sheetAction} sheet={activeSheet} sheets={activeSheets} items={transactions} sensitive={sensitive} onClose={() => setSheetAction(null)} onOpenAction={setSheetAction} onUpdateSheet={updateSheet} onDeleteSheet={() => setConfirmation({ title: "Delete sheet?", description: `“${activeSheet.name}” and all of its transactions will be permanently deleted.`, label: "Move to Trash", onConfirm: () => { deleteSheet(activeSheet.id); setSheetAction(null); } })} onImport={importTransactions} /> : <SheetLedger sheet={activeSheet} items={transactions} search={search} sensitive={sensitive} filters={filters} onSearch={setSearch} onBack={() => { setActiveSheetId(null); setSearch(""); setFilters(emptyLedgerFilters); }} onAdd={() => setShowAdd(true)} onOpenFilters={() => { setShowSheetMenu(false); setShowFilters(true); }} onToggleMenu={() => setShowSheetMenu((open) => !open)} showMenu={showSheetMenu} onShare={() => { void shareSheet(activeSheet); }} onOpenAction={(action) => { setShowSheetMenu(false); setSheetAction(action); }} onSelectTransaction={activeSheet.archived ? undefined : (transactionId) => { setEditingFocus(undefined); setEditingTransactionId(transactionId); }} onLongPressTransaction={activeSheet.archived ? undefined : setActionTransactionId} /> : <SheetsHome sheets={sheets} items={transactions} search={search} sensitive={sensitive} onSearch={setSearch} onOpenSheet={setActiveSheetId} onAdd={() => activeSheets.length ? setShowAdd(true) : setShowNewSheet(true)} onToggleMenu={() => setShowMainMenu((open) => !open)} showMenu={showMainMenu} onOpenSettings={() => { setShowMainMenu(false); setShowSettings(true); }} onNewSheet={() => { setShowMainMenu(false); setShowNewSheet(true); }} onArchive={archiveSheet} onDelete={(sheet) => setConfirmation({ title: "Delete sheet?", description: `“${sheet.name}” and all of its transactions will be permanently deleted.`, label: "Delete sheet", onConfirm: () => deleteSheet(sheet.id) })} />}
     {showAdd && <SheetTransactionComposer sheets={activeSheets} defaultSheetId={preset?.sheetId || activeSheetId || activeSheets[0]?.id || ""} preset={preset || undefined} onClose={() => { setShowAdd(false); setPreset(null); }} onSave={createTransaction} />}
     {showNewSheet && <NewSheetComposer onClose={() => setShowNewSheet(false)} onSave={createSheet} />}
     {editingTransaction && <SheetTransactionComposer sheets={activeSheets} defaultSheetId={editingTransaction.sheetId || ""} transaction={editingTransaction} transferPartner={editingTransaction.transferGroupId ? transactions.find((item) => item.transferGroupId === editingTransaction.transferGroupId && item.id !== editingTransaction.id) : undefined} focusField={editingFocus} onClose={() => { setEditingFocus(undefined); setEditingTransactionId(null); }} onSave={updateTransaction} />}
@@ -235,7 +328,7 @@ function SheetCard({ sheet, position, allSheets, items, sensitive, onOpen, onArc
   return <div className={open ? "sheet-swipe open" : "sheet-swipe"} onPointerDown={pointerDown} onPointerUp={pointerUp} onPointerCancel={() => { startX.current = null; }}><button type="button" className={sheet.archived ? "sheet-card archived" : "sheet-card"} onClick={() => { if (!suppressClick.current) onOpen(); }}><span className="sheet-card-main"><strong>{sheetDisplayName(sheet, position, allSheets)}</strong><small>{sensitive ? "••••••" : money(balance, sheet.currency)}</small></span><span className="sheet-card-meta"><small>{latest ? latestActivity(latest) : "No entries yet"}</small><b>{sheetItems.length}</b><AppIcon name="forward" size="sm" /></span></button><div className="sheet-swipe-actions"><button type="button" className="sheet-archive" onClick={() => { onArchive(); setOpen(false); }} aria-label={sheet.archived ? "Unarchive sheet" : "Archive sheet"}><AppIcon name={sheet.archived ? "receipt" : "table"} size="md" /></button><button type="button" className="sheet-delete" onClick={onDelete} aria-label="Delete sheet"><AppIcon name="trash" size="md" /></button></div></div>;
 }
 
-function SheetLedger({ sheet, items, search, sensitive, filters, onSearch, onBack, onAdd, onOpenFilters, onToggleMenu, showMenu, onSelectTransaction, onLongPressTransaction }: { sheet: Sheet; items: Transaction[]; search: string; sensitive: boolean; filters: LedgerFilters; onSearch: (value: string) => void; onBack: () => void; onAdd: () => void; onOpenFilters: () => void; onToggleMenu: () => void; showMenu: boolean; onSelectTransaction?: (transactionId: string) => void; onLongPressTransaction?: (transactionId: string) => void }) {
+function SheetLedger({ sheet, items, search, sensitive, filters, onSearch, onBack, onAdd, onOpenFilters, onToggleMenu, showMenu, onShare, onOpenAction, onSelectTransaction, onLongPressTransaction }: { sheet: Sheet; items: Transaction[]; search: string; sensitive: boolean; filters: LedgerFilters; onSearch: (value: string) => void; onBack: () => void; onAdd: () => void; onOpenFilters: () => void; onToggleMenu: () => void; showMenu: boolean; onShare: () => void; onOpenAction: (action: SheetAction) => void; onSelectTransaction?: (transactionId: string) => void; onLongPressTransaction?: (transactionId: string) => void }) {
   const sheetItems = useMemo(() => items.filter((item) => item.sheetId === sheet.id), [items, sheet.id]);
   const totalItems = useMemo(() => sheet.totalPeriod === "today" ? sheetItems.filter((item) => item.date <= todayIso()) : sheetItems, [sheet.totalPeriod, sheetItems]);
   const searchedItems = useMemo(() => search.trim() ? searchTransactions(items, search) : sheetItems, [items, search, sheetItems]);
@@ -243,7 +336,7 @@ function SheetLedger({ sheet, items, search, sensitive, filters, onSearch, onBac
   const totals = useMemo(() => sheetTotals(totalItems), [totalItems]);
   const hasFilters = !isEmptyFilters(filters);
   return <section className="sheets-screen ledger-screen">
-    <header className="sheet-ledger-heading"><button type="button" className="round-control" onClick={onBack} aria-label="Back to sheets"><AppIcon name="back" size="md" /></button><h1>{search.trim() ? "Search" : sheet.name}</h1><div className="sheet-header-actions"><button type="button" className="round-control" aria-label="Add member"><AppIcon name="personAdd" size="md" /></button><div className="menu-anchor"><button type="button" className="round-control" onClick={onToggleMenu} aria-expanded={showMenu} aria-label="Sheet menu"><AppIcon name="more" size="md" /></button>{showMenu && <SheetOverflowMenu />}</div></div></header>
+    <header className="sheet-ledger-heading"><button type="button" className="round-control" onClick={onBack} aria-label="Back to sheets"><AppIcon name="back" size="md" /></button><h1>{search.trim() ? "Search" : sheet.name}</h1><div className="sheet-header-actions"><button type="button" className="round-control" onClick={onShare} aria-label="Share sheet"><AppIcon name="personAdd" size="md" /></button><div className="menu-anchor"><button type="button" className="round-control" onClick={onToggleMenu} aria-expanded={showMenu} aria-label="Sheet menu"><AppIcon name="more" size="md" /></button>{showMenu && <SheetOverflowMenu onSelect={onOpenAction} />}</div></div></header>
     {sheet.archived && <p className="archived-notice">Archived sheet · read-only</p>}
     {!search.trim() && <SheetSummary sheet={sheet} totals={totals} sensitive={sensitive} />}
     {!search.trim() && <div className="ledger-period-row"><span className="ledger-period"><AppIcon name="receipt" size="sm" /> {sheet.totalPeriod === "today" ? "As of Today" : "All Time"}</span><span className="ledger-transfer-count"><AppIcon name="transfer" size="sm" /> {sheetItems.filter((item) => item.kind === "transfer").length}</span></div>}
@@ -260,14 +353,11 @@ function MainOverflowMenu({ onNewSheet, onOpenSettings }: { onNewSheet: () => vo
   return <div className="glass-menu main-overflow" role="menu"><button type="button" role="menuitem" onClick={onNewSheet}><AppIcon name="documentAdd" size="md" />New Sheet</button><button type="button" role="menuitem" onClick={onOpenSettings}><AppIcon name="settings" size="md" />Settings</button></div>;
 }
 
-function SheetOverflowMenu() {
+function SheetOverflowMenu({ onSelect }: { onSelect: (action: SheetAction) => void }) {
   const firstGroup: Array<[IconKey, string]> = [["chartPie", "Stats"], ["insights", "Trends"], ["bank", "Exchange Rate"]];
   const secondGroup: Array<[IconKey, string]> = [["check", "Select"], ["printer", "Print"], ["upload", "Export"], ["download", "Import"]];
-  return <div className="glass-menu sheet-overflow" role="menu"><MenuGroup items={firstGroup} /><MenuGroup items={secondGroup} /><button type="button" role="menuitem" aria-disabled="true"><AppIcon name="pencil" size="md" />Edit Sheet</button></div>;
-}
-
-function MenuGroup({ items }: { items: Array<[IconKey, string]> }) {
-  return <div className="menu-group">{items.map(([icon, label]) => <button type="button" role="menuitem" aria-disabled="true" key={label}><AppIcon name={icon} size="md" />{label}</button>)}</div>;
+  const toAction = (label: string): SheetAction => ({ Stats: "stats", Trends: "trends", "Exchange Rate": "exchange", Select: "select", Print: "print", Export: "export", Import: "import" })[label] as SheetAction;
+  return <div className="glass-menu sheet-overflow" role="menu"><div className="menu-group">{firstGroup.map(([icon, label]) => <button type="button" role="menuitem" onClick={() => onSelect(toAction(label))} key={label}><AppIcon name={icon} size="md" />{label}</button>)}</div><div className="menu-group">{secondGroup.map(([icon, label]) => <button type="button" role="menuitem" onClick={() => onSelect(toAction(label))} key={label}><AppIcon name={icon} size="md" />{label}</button>)}</div><button type="button" role="menuitem" onClick={() => onSelect("edit")}><AppIcon name="pencil" size="md" />Edit Sheet</button></div>;
 }
 
 function SheetSummary({ sheet, totals, sensitive }: { sheet: Sheet; totals: { balance: number; expense: number; income: number }; sensitive: boolean }) {
@@ -276,7 +366,7 @@ function SheetSummary({ sheet, totals, sensitive }: { sheet: Sheet; totals: { ba
 }
 
 function SettingsSheet({ sensitive, onClose, onToggleSensitive }: { sensitive: boolean; onClose: () => void; onToggleSensitive: () => void }) {
-  return <div className="sheet-modal-backdrop"><section className="settings-sheet" aria-label="Settings"><header className="overlay-header"><button type="button" className="round-control" onClick={onClose} aria-label="Close settings"><AppIcon name="close" size="lg" /></button><h1>Settings</h1><span /></header><SettingsGroup><SettingsRow icon="printer" label="Print Settings" /><SettingsRow icon="bank" label="Preferred Currency" value="SGD" /></SettingsGroup><SettingsGroup><SettingsRow icon="lock" label="Privacy" /><button type="button" className="settings-row toggle-settings" onClick={onToggleSensitive} aria-pressed={sensitive}><span className="settings-icon neutral"><AppIcon name="eyeSlash" size="md" /></span><span><b>Sensitive Mode</b><small>Hide all sensitive data.</small></span><span className={sensitive ? "composer-switch on" : "composer-switch"}><i /></span></button></SettingsGroup><SettingsGroup><SettingsRow icon="paperplane" label="Send Feedback" external /><SettingsRow icon="goals" label="Rate the App" external /></SettingsGroup><SettingsGroup><SettingsRow icon="info" label="FAQ" external /><SettingsRow icon="info" label="About" /></SettingsGroup><SettingsGroup><SettingsRow icon="settings" label="App Settings" external /></SettingsGroup><SettingsGroup><SettingsRow icon="goals" label="Expenses Pro" /><SettingsRow icon="sync" label="Sync" /><SettingsRow icon="ledger" label="Categories" /><SettingsRow icon="upload" label="Export" /><SettingsRow icon="download" label="Import" /><SettingsRow icon="trash" label="Trash" /></SettingsGroup><SettingsGroup><SettingsRow icon="palette" label="Appearance" /><SettingsRow icon="table" label="App Icon" /><SettingsRow icon="sync" label="Sort Sheets By" /><SettingsRow icon="printer" label="Print Settings" /></SettingsGroup></section></div>;
+  return <div className="sheet-modal-backdrop"><section className="settings-sheet" aria-label="Settings"><header className="overlay-header"><button type="button" className="round-control" onClick={onClose} aria-label="Close settings"><AppIcon name="close" size="lg" /></button><h1>Settings</h1><span /></header><SettingsGroup><SettingsRow icon="printer" label="Print Settings" /><SettingsRow icon="bank" label="Preferred Currency" value="SGD" /></SettingsGroup><SettingsGroup><SettingsRow icon="lock" label="Privacy" /><button type="button" className="settings-row toggle-settings" onClick={onToggleSensitive} aria-pressed={sensitive}><span className="settings-icon neutral"><AppIcon name="eyeSlash" size="md" /></span><span><b>Sensitive Mode</b><small>Hide all sensitive data.</small></span><span className={sensitive ? "composer-switch on" : "composer-switch"}><i /></span></button></SettingsGroup><SettingsGroup><SettingsRow icon="settings" label="App Settings" external /></SettingsGroup><SettingsGroup><SettingsRow icon="goals" label="Expenses Pro" /><SettingsRow icon="sync" label="Sync" /><SettingsRow icon="ledger" label="Categories" /><SettingsRow icon="upload" label="Export" /><SettingsRow icon="download" label="Import" /><SettingsRow icon="trash" label="Trash" /></SettingsGroup><SettingsGroup><SettingsRow icon="palette" label="Appearance" /><SettingsRow icon="table" label="App Icon" /><SettingsRow icon="sync" label="Sort Sheets By" /><SettingsRow icon="printer" label="Print Settings" /></SettingsGroup></section></div>;
 }
 
 function SettingsGroup({ children }: { children: React.ReactNode }) { return <section className="settings-card">{children}</section>; }
@@ -328,6 +418,7 @@ function SheetTransactionComposer({ sheets, defaultSheetId, transaction, transfe
   const [recurring, setRecurring] = useState(transaction?.recurring || "");
   const [attachmentMessage, setAttachmentMessage] = useState("");
   const [hasAttachment, setHasAttachment] = useState(Boolean(transaction?.hasAttachment));
+  const [attachmentFiles, setAttachmentFiles] = useState<File[]>([]);
   const selectedSheet = sheets.find((sheet) => sheet.id === (kind === "transfer" ? fromSheetId : sheetId));
   const input = selectedSheet?.input || defaultSheet.input;
   const categoryOptions = kind === "income" ? incomeCategories : expenseCategories;
@@ -337,6 +428,7 @@ function SheetTransactionComposer({ sheets, defaultSheetId, transaction, transfe
   function chooseKind(next: "expense" | "income" | "transfer") { setKind(next); if (next !== kind) setCategory(next === "income" ? incomeCategories[0] : next === "expense" ? expenseCategories[0] : "Transfer"); }
   async function scanReceipt(file?: File) {
     if (!file) return;
+    setAttachmentFiles((files) => [...files, file]);
     setHasAttachment(true);
     if (!file.type.startsWith("image/")) { setAttachmentMessage(`${file.name} attached. Choose an image for receipt suggestions.`); return; }
     if (file.size > 4_500_000) { setAttachmentMessage(`${file.name} attached. It is too large for receipt suggestions.`); return; }
@@ -347,10 +439,10 @@ function SheetTransactionComposer({ sheets, defaultSheetId, transaction, transfe
     const body = response ? await response.json().catch(() => ({})) : {};
     if (body.suggestion) { const suggestion = body.suggestion; const details = [suggestion.merchant, suggestion.amount && `${suggestion.currency || "SGD"} ${suggestion.amount}`, suggestion.date, suggestion.category].filter(Boolean); setAttachmentMessage(details.length ? `Suggestion: ${details.join(" · ")}. Review before saving.` : "Receipt attached. Review its details before saving."); } else setAttachmentMessage(body.error || "Receipt attached. Suggestions are unavailable.");
   }
-  function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); onSave({ amount: Number(amount), category, date, fromSheetId, hasAttachment, kind, merchant, notes, pending, recurring, sheetId, time, title, toSheetId }); }
+  function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); onSave({ amount: Number(amount), attachments: attachmentFiles, category, date, fromSheetId, hasAttachment, kind, merchant, notes, pending, recurring, sheetId, time, title, toSheetId }); }
   function labelForSheet(sheet: Sheet) { return sheetDisplayName(sheet, sheets.indexOf(sheet), sheets); }
 
-  return <div className="sheet-composer-backdrop" role="presentation"><form className="sheet-composer" onSubmit={submit} aria-label={transaction ? "Transaction details" : "New transaction"}><header className="composer-header"><button type="button" className="round-control" onClick={onClose} aria-label={transaction ? "Close transaction details" : "Discard transaction"}><AppIcon name="close" size="lg" /></button><h1>{transaction ? "Details" : "New Item"}</h1><button className="composer-save" type="submit" aria-label={transaction ? "Save transaction details" : "Save transaction"}><AppIcon name="check" size="lg" /></button></header><div className="composer-segment" role="tablist" aria-label="Transaction type">{modeOptions.map((option) => <button key={option} type="button" role="tab" aria-selected={kind === option} className={kind === option ? "selected" : ""} onClick={() => chooseKind(option)}>{option[0].toUpperCase() + option.slice(1)}</button>)}</div><section className="composer-card amount-card"><label><span className="sr-only">Amount</span><input value={amount} onChange={(event) => setAmount(event.target.value)} type="number" inputMode="decimal" min="0.01" step="0.01" placeholder="Amount" autoFocus={!focusField} required /></label>{input.showCurrencySelection && <div className="composer-row currency-row"><span>◉ <b>SGD</b></span><span>Singapore Dollar <AppIcon name="forward" size="sm" /></span></div>}</section><small className="amount-preview">{amount ? money(Number(amount) || 0) : "$0.00"}</small><label className="composer-note"><span className="sr-only">Notes</span><input value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Notes" /></label>{kind === "transfer" ? <section className="composer-card"><label className="composer-row"><span>↑ <b>From:</b></span><select value={fromSheetId} onChange={(event) => { setFromSheetId(event.target.value); if (event.target.value === toSheetId) setToSheetId(""); }}>{sheets.map((sheet) => <option value={sheet.id} key={sheet.id}>{labelForSheet(sheet)}</option>)}</select></label><label className="composer-row"><span>↓ <b>To:</b></span><select value={toSheetId} onChange={(event) => setToSheetId(event.target.value)} disabled={!destinationSheets.length}><option value="">{destinationSheets.length ? "Choose a sheet" : "No other sheets yet"}</option>{destinationSheets.map((sheet) => <option value={sheet.id} key={sheet.id}>{labelForSheet(sheet)}</option>)}</select></label>{!destinationSheets.length && <p className="composer-hint">Add another sheet before recording a transfer.</p>}</section> : <><section className="composer-card">{input.showMerchant && <label className="composer-row"><span>⌂ <b>Merchant</b></span><input value={merchant} onChange={(event) => setMerchant(event.target.value)} placeholder="No merchant" autoFocus={focusField === "merchant"} /></label>}<label className="composer-row category-heading"><span><AppIcon name={iconFor(category)} size="sm" /><b>Category</b></span><select value={category} onChange={(event) => setCategory(event.target.value)} autoFocus={focusField === "category"}>{categoryOptions.map((option) => <option value={option} key={option}>{option}</option>)}</select></label>{input.showCategorySuggestions && <div className="category-chips">{categoryOptions.map((option) => <button type="button" className={category === option ? "selected" : ""} onClick={() => setCategory(option)} key={option}><span className={`chip-icon ${option === "Salary" ? "income" : ""}`}><AppIcon name={iconFor(option)} size="sm" /></span>{option}</button>)}</div>}<label className="composer-row"><span><AppIcon name="table" size="sm" /><b>Sheet</b></span><select value={sheetId} onChange={(event) => setSheetId(event.target.value)}>{sheets.map((sheet) => <option value={sheet.id} key={sheet.id}>{labelForSheet(sheet)}</option>)}</select></label></section></>}<section className="composer-card"><label className="composer-row"><span><AppIcon name="calendar" size="sm" /><b>Date</b></span><input value={date} onChange={(event) => setDate(event.target.value)} type="date" required /></label>{input.showTime && <label className="composer-row"><span><AppIcon name="clock" size="sm" /><b>Time</b></span><input value={time} onChange={(event) => setTime(event.target.value)} type="time" required /></label>}</section><button type="button" className="composer-card composer-row toggle-row" onClick={() => setPending((value) => !value)} aria-pressed={pending}><span><AppIcon name="clock" size="sm" /><b>Pending</b></span><span className={pending ? "composer-switch on" : "composer-switch"}><i /></span></button><section className="composer-card"><label className="composer-row"><span><AppIcon name="transfer" size="sm" /><b>Repeat</b></span><select value={recurring} onChange={(event) => setRecurring(event.target.value)}><option value="">Never</option><option value="Weekly">Weekly</option><option value="Monthly">Monthly</option><option value="Yearly">Yearly</option></select></label></section><label className="composer-image"><AppIcon name="photo" size="sm" /><span>{attachmentMessage || "Add Image"}</span><input type="file" accept="image/*,.pdf" onChange={(event) => { void scanReceipt(event.target.files?.[0]); }} /></label><label className="sr-only">Transaction title<input value={title} onChange={(event) => setTitle(event.target.value)} /></label></form></div>;
+  return <div className="sheet-composer-backdrop" role="presentation"><form className="sheet-composer" onSubmit={submit} aria-label={transaction ? "Transaction details" : "New transaction"}><header className="composer-header"><button type="button" className="round-control" onClick={onClose} aria-label={transaction ? "Close transaction details" : "Discard transaction"}><AppIcon name="close" size="lg" /></button><h1>{transaction ? "Details" : "New Item"}</h1><button className="composer-save" type="submit" aria-label={transaction ? "Save transaction details" : "Save transaction"}><AppIcon name="check" size="lg" /></button></header><div className="composer-segment" role="tablist" aria-label="Transaction type">{modeOptions.map((option) => <button key={option} type="button" role="tab" aria-selected={kind === option} className={kind === option ? "selected" : ""} onClick={() => chooseKind(option)}>{option[0].toUpperCase() + option.slice(1)}</button>)}</div><section className="composer-card amount-card"><label><span className="sr-only">Amount</span><input value={amount} onChange={(event) => setAmount(event.target.value)} type="number" inputMode="decimal" min="0.01" step="0.01" placeholder="Amount" autoFocus={!focusField} required /></label>{input.showCurrencySelection && <div className="composer-row currency-row"><span>◉ <b>SGD</b></span><span>Singapore Dollar <AppIcon name="forward" size="sm" /></span></div>}</section><small className="amount-preview">{amount ? money(Number(amount) || 0) : "$0.00"}</small><label className="composer-note"><span className="sr-only">Notes</span><input value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Notes" /></label>{kind === "transfer" ? <section className="composer-card"><label className="composer-row"><span>↑ <b>From:</b></span><select value={fromSheetId} onChange={(event) => { setFromSheetId(event.target.value); if (event.target.value === toSheetId) setToSheetId(""); }}>{sheets.map((sheet) => <option value={sheet.id} key={sheet.id}>{labelForSheet(sheet)}</option>)}</select></label><label className="composer-row"><span>↓ <b>To:</b></span><select value={toSheetId} onChange={(event) => setToSheetId(event.target.value)} disabled={!destinationSheets.length}><option value="">{destinationSheets.length ? "Choose a sheet" : "No other sheets yet"}</option>{destinationSheets.map((sheet) => <option value={sheet.id} key={sheet.id}>{labelForSheet(sheet)}</option>)}</select></label>{!destinationSheets.length && <p className="composer-hint">Add another sheet before recording a transfer.</p>}</section> : <><section className="composer-card">{input.showMerchant && <label className="composer-row"><span>⌂ <b>Merchant</b></span><input value={merchant} onChange={(event) => setMerchant(event.target.value)} placeholder="No merchant" autoFocus={focusField === "merchant"} /></label>}<label className="composer-row category-heading"><span><AppIcon name={iconFor(category)} size="sm" /><b>Category</b></span><select value={category} onChange={(event) => setCategory(event.target.value)} autoFocus={focusField === "category"}>{categoryOptions.map((option) => <option value={option} key={option}>{option}</option>)}</select></label>{input.showCategorySuggestions && <div className="category-chips">{categoryOptions.map((option) => <button type="button" className={category === option ? "selected" : ""} onClick={() => setCategory(option)} key={option}><span className={`chip-icon ${option === "Salary" ? "income" : ""}`}><AppIcon name={iconFor(option)} size="sm" /></span>{option}</button>)}</div>}<label className="composer-row"><span><AppIcon name="table" size="sm" /><b>Sheet</b></span><select value={sheetId} onChange={(event) => setSheetId(event.target.value)}>{sheets.map((sheet) => <option value={sheet.id} key={sheet.id}>{labelForSheet(sheet)}</option>)}</select></label></section></>}<section className="composer-card"><label className="composer-row"><span><AppIcon name="calendar" size="sm" /><b>Date</b></span><input value={date} onChange={(event) => setDate(event.target.value)} type="date" required /></label>{input.showTime && <label className="composer-row"><span><AppIcon name="clock" size="sm" /><b>Time</b></span><input value={time} onChange={(event) => setTime(event.target.value)} type="time" required /></label>}</section><button type="button" className="composer-card composer-row toggle-row" onClick={() => setPending((value) => !value)} aria-pressed={pending}><span><AppIcon name="clock" size="sm" /><b>Pending</b></span><span className={pending ? "composer-switch on" : "composer-switch"}><i /></span></button><section className="composer-card"><label className="composer-row"><span><AppIcon name="transfer" size="sm" /><b>Repeat</b></span><select value={recurring} onChange={(event) => setRecurring(event.target.value)}><option value="">Never</option><option value="Weekly">Weekly</option><option value="Monthly">Monthly</option><option value="Yearly">Yearly</option></select></label></section><label className="composer-image"><AppIcon name="photo" size="sm" /><span>{attachmentMessage || (attachmentFiles.length ? `${attachmentFiles.length} new attachment${attachmentFiles.length === 1 ? "" : "s"}` : transaction?.attachments?.length ? `${transaction.attachments.length} attachment${transaction.attachments.length === 1 ? "" : "s"}` : "Add Image")}</span><input type="file" accept="image/*,.pdf" multiple onChange={(event) => { Array.from(event.target.files || []).forEach((file) => { void scanReceipt(file); }); }} /></label><label className="sr-only">Transaction title<input value={title} onChange={(event) => setTitle(event.target.value)} /></label></form></div>;
 }
 
 function NewSheetComposer({ onClose, onSave }: { onClose: () => void; onSave: (draft: SheetDraft) => boolean }) {
@@ -364,6 +456,120 @@ function NewSheetComposer({ onClose, onSave }: { onClose: () => void; onSave: (d
 }
 
 function PreferenceToggle({ label, checked, onClick }: { label: string; checked: boolean; onClick: () => void }) { return <button type="button" className="composer-row toggle-row" onClick={onClick} aria-pressed={checked}><span><b>{label}</b></span><span className={checked ? "composer-switch on" : "composer-switch"}><i /></span></button>; }
+
+function ActionHeader({ title, onClose, end }: { title: string; onClose: () => void; end?: React.ReactNode }) {
+  return <header className="overlay-header action-header"><button type="button" className="round-control" onClick={onClose} aria-label={`Close ${title}`}><AppIcon name="close" size="lg" /></button><h1>{title}</h1>{end || <span />}</header>;
+}
+
+function SheetActionView({ action, sheet, sheets, items, sensitive, onClose, onOpenAction, onUpdateSheet, onDeleteSheet, onImport }: { action: Exclude<SheetAction, "select">; sheet: Sheet; sheets: Sheet[]; items: Transaction[]; sensitive: boolean; onClose: () => void; onOpenAction: (action: SheetAction) => void; onUpdateSheet: (sheetId: string, draft: SheetDraft) => boolean; onDeleteSheet: () => void; onImport: (sheetId: string, rows: ImportRow[]) => void }) {
+  if (action === "stats") return <SheetStats sheet={sheet} sheets={sheets} items={items} sensitive={sensitive} onClose={onClose} onPrint={() => onOpenAction("print")} />;
+  if (action === "trends") return <SheetTrends sheet={sheet} items={items} onClose={onClose} />;
+  if (action === "exchange") return <ExchangeRateSheet sheet={sheet} onClose={onClose} />;
+  if (action === "print") return <PrintOptions sheet={sheet} items={items.filter((item) => item.sheetId === sheet.id)} onClose={onClose} />;
+  if (action === "export") return <ExportSheet sheet={sheet} sheets={sheets} items={items} onClose={onClose} />;
+  if (action === "import") return <ImportSheet sheet={sheet} sheets={sheets} onClose={onClose} onImport={onImport} />;
+  return <EditSheet sheet={sheet} onClose={onClose} onSave={onUpdateSheet} onDelete={onDeleteSheet} />;
+}
+
+function SheetStats({ sheet, sheets, items, sensitive, onClose, onPrint }: { sheet: Sheet; sheets: Sheet[]; items: Transaction[]; sensitive: boolean; onClose: () => void; onPrint: () => void }) {
+  const [range, setRange] = useState<StatsRange>("today");
+  const [kind, setKind] = useState<"expense" | "income">("expense");
+  const [filterSheetId, setFilterSheetId] = useState(sheet.id);
+  const [showFilters, setShowFilters] = useState(false);
+  const [showRangeMenu, setShowRangeMenu] = useState(false);
+  const scoped = useMemo(() => filterStatsRange(items.filter((item) => item.sheetId === filterSheetId), range), [filterSheetId, items, range]);
+  const totals = useMemo(() => sheetTotals(scoped), [scoped]);
+  const categories = useMemo(() => categoryTotals(scoped, kind), [kind, scoped]);
+  const selectedSheet = sheets.find((candidate) => candidate.id === filterSheetId) || sheet;
+  return <section className="sheet-modal-backdrop"><section className="action-sheet stats-screen" aria-label="Stats"><ActionHeader title="Stats" onClose={onClose} end={<div className="action-header-buttons"><button type="button" className="round-control" onClick={() => setShowFilters(true)} aria-label="Stats filters"><AppIcon name="sliders" size="md" /></button><button type="button" className="round-control" onClick={() => setShowRangeMenu((value) => !value)} aria-label="Stats options"><AppIcon name="more" size="md" /></button>{showRangeMenu && <div className="stats-range-menu"><small>Range</small>{(["today", "yearly", "monthly", "weekly", "daily"] as StatsRange[]).map((option) => <button type="button" key={option} onClick={() => { setRange(option); setShowRangeMenu(false); }}><span>{range === option ? "✓" : ""}</span>{statsRangeLabel(option)}</button>)}<button type="button" className="print-option" onClick={onPrint}><AppIcon name="printer" size="md" />Print</button></div>}</div>} /><p className="stats-subtitle">{statsRangeLabel(range)}</p><p className="stats-date-chip">{statsRangeDateLabel(range)}</p><SheetSummary sheet={{ ...selectedSheet, totalPeriod: "all" }} totals={totals} sensitive={sensitive} /><CategoryDonut values={categories} /><div className="composer-segment two-way"><button type="button" className={kind === "expense" ? "selected" : ""} onClick={() => setKind("expense")}>Expense</button><button type="button" className={kind === "income" ? "selected" : ""} onClick={() => setKind("income")}>Income</button></div><section className="stats-category-list"><button type="button" className="stats-category-row"><span>Show All</span><AppIcon name="forward" size="sm" /></button>{categories.length ? categories.map(([category, amount]) => <article className="stats-category-row" key={category}><span className={`sheet-category-icon ${kind}`}><AppIcon name={iconFor(category)} size="sm" /></span><div><b>{category}</b><small>{sensitive ? "••••" : `${kind === "expense" ? "−" : "+"}${money(amount, sheet.currency)}`}</small><i><em style={{ width: `${Math.max(4, Math.round(amount / (categories[0]?.[1] || 1) * 100))}%` }} /></i></div><span className="category-percent">{Math.round(amount / categories.reduce((sum, [, value]) => sum + value, 0) * 100)}%</span><AppIcon name="forward" size="sm" /></article>) : <p className="sheet-empty">No {kind} transactions in this range.</p>}</section>{showFilters && <StatsFilterSheet sheet={sheet} sheets={sheets} selectedSheetId={filterSheetId} onClose={() => setShowFilters(false)} onSelect={(id) => { setFilterSheetId(id); setShowFilters(false); }} />}</section></section>;
+}
+
+function StatsFilterSheet({ sheet, sheets, selectedSheetId, onClose, onSelect }: { sheet: Sheet; sheets: Sheet[]; selectedSheetId: string; onClose: () => void; onSelect: (sheetId: string) => void }) {
+  return <div className="nested-sheet-backdrop"><section className="filter-sheet stats-filter-sheet"><ActionHeader title="Filters" onClose={onClose} end={<button type="button" className="filter-apply" onClick={onClose} aria-label="Apply stats filters"><AppIcon name="check" size="lg" /></button>} /><button type="button" className="filter-reset" onClick={() => onSelect(sheet.id)}>No filter <AppIcon name="check" size="sm" /></button><section className="filter-card"><label className="filter-row"><span><AppIcon name="table" size="sm" /><b>Sheets</b></span><select value={selectedSheetId} onChange={(event) => onSelect(event.target.value)}>{sheets.map((candidate) => <option value={candidate.id} key={candidate.id}>{candidate.name}</option>)}</select></label></section></section></div>;
+}
+
+function CategoryDonut({ values }: { values: Array<[string, number]> }) {
+  const total = values.reduce((sum, [, amount]) => sum + amount, 0);
+  let offset = 0;
+  const colors = ["#6350f4", "#ff4149", "#98979e", "#168ee8", "#ffd01e"];
+  return <svg className="category-donut" viewBox="0 0 180 180" role="img" aria-label="Category distribution">{total ? values.map(([, amount], index) => { const portion = amount / total; const dash = `${Math.max(0, portion * 100 - 1.5)} ${100 - Math.max(0, portion * 100 - 1.5)}`; const circle = <circle key={index} cx="90" cy="90" r="59" fill="none" stroke={colors[index % colors.length]} strokeWidth="28" strokeDasharray={dash} strokeDashoffset={-offset} pathLength="100" />; offset += portion * 100; return circle; }) : <circle cx="90" cy="90" r="59" fill="none" stroke="#e6e4e9" strokeWidth="28" />}</svg>;
+}
+
+function SheetTrends({ sheet, items, onClose }: { sheet: Sheet; items: Transaction[]; onClose: () => void }) {
+  const [kind, setKind] = useState<"expense" | "income">("expense");
+  const relevant = items.filter((item) => item.sheetId === sheet.id && item.kind === kind && !item.pending);
+  return <section className="sheet-modal-backdrop"><section className="action-sheet trends-screen" aria-label="Trends"><ActionHeader title="Trends" onClose={onClose} end={<button type="button" className="round-control" aria-label="Trend filters"><AppIcon name="sliders" size="md" /></button>} /><div className="composer-segment two-way"><button type="button" className={kind === "expense" ? "selected" : ""} onClick={() => setKind("expense")}>Expense</button><button type="button" className={kind === "income" ? "selected" : ""} onClick={() => setKind("income")}>Income</button></div>{(["Daily", "Weekly", "Monthly", "Yearly"] as const).map((label) => <TrendChart key={label} title={label} items={relevant} />)}</section></section>;
+}
+
+function TrendChart({ title, items }: { title: "Daily" | "Weekly" | "Monthly" | "Yearly"; items: Transaction[] }) {
+  const data = useMemo(() => trendSeries(items, title.toLowerCase() as "daily" | "weekly" | "monthly" | "yearly"), [items, title]);
+  const max = Math.max(...data.map((entry) => entry.amount), 1);
+  const points = data.map((entry, index) => `${index / Math.max(data.length - 1, 1) * 100},${88 - entry.amount / max * 68}`).join(" ");
+  const area = `0,100 ${points} 100,100`;
+  return <section className="trend-chart"><h2>{title} <small>{trendRangeDescription(title)}</small></h2><svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label={`${title} trend`}><defs><linearGradient id={`trend-${title}`} x1="0" x2="0" y1="0" y2="1"><stop stopColor="#6250f5" stopOpacity=".55" /><stop offset="1" stopColor="#6250f5" stopOpacity=".03" /></linearGradient></defs>{data.map((_, index) => <line x1={index / Math.max(data.length - 1, 1) * 100} x2={index / Math.max(data.length - 1, 1) * 100} y1="8" y2="88" stroke="#dedde2" strokeWidth=".25" key={index} />)}<polygon points={area} fill={`url(#trend-${title})`} /><polyline points={points} fill="none" stroke="#6350f4" strokeWidth="1.2" vectorEffect="non-scaling-stroke" />{data.map((entry, index) => <circle key={index} cx={index / Math.max(data.length - 1, 1) * 100} cy={88 - entry.amount / max * 68} r="1.4" fill="#fff" stroke="#6350f4" strokeWidth=".8" vectorEffect="non-scaling-stroke"><title>{`${entry.label}: ${money(entry.amount)}`}</title></circle>)}</svg><div>{data.map((entry) => <small key={entry.label}>{entry.label}</small>)}</div></section>;
+}
+
+function ExchangeRateSheet({ sheet, onClose }: { sheet: Sheet; onClose: () => void }) {
+  const [amount, setAmount] = useState("1");
+  const [rates, setRates] = useState(fallbackRates);
+  const [sourceDate, setSourceDate] = useState(fallbackRateDate);
+  const [usingFallback, setUsingFallback] = useState(false);
+  useEffect(() => { let cancelled = false; void fetch("https://api.frankfurter.dev/v2/rates?base=SGD").then((response) => response.ok ? response.json() : Promise.reject(new Error("Rate request failed"))).then((data: Array<{ date: string; quote: string; rate: number }>) => { if (cancelled) return; const live = fallbackRates.map((entry) => { const row = data.find((candidate) => candidate.quote === entry.code); return row ? { ...entry, rate: 1 / row.rate } : entry; }); setRates(live); setSourceDate(data[0]?.date || fallbackRateDate); }).catch(() => { if (!cancelled) setUsingFallback(true); }); return () => { cancelled = true; }; }, []);
+  const numericAmount = Number(amount) || 0;
+  return <section className="sheet-modal-backdrop"><section className="action-sheet exchange-screen" aria-label="Exchange Rate"><ActionHeader title="Exchange Rate" onClose={onClose} /><h2 className="composer-section-title">Amount</h2><label className="exchange-amount"><input type="number" min="0" inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} /></label><section className="exchange-rates">{rates.map((entry) => <article key={entry.code}><div><b>1 {entry.code}</b><small>{entry.name} - {entry.code}</small></div><div><b>{money(numericAmount * entry.rate, sheet.currency)}</b><small>{entry.rate.toFixed(6)}</small></div></article>)}</section><p className="rate-source">{usingFallback ? `Offline fallback · ${sourceDate}` : `Live reference rate · ${sourceDate}`}</p></section></section>;
+}
+
+function SheetSelectionView({ sheet, items, sensitive, selectedIds, showMenu, onClose, onToggle, onToggleMenu, onMove, onMerchant, onCategory, onDelete, sheets }: { sheet: Sheet; items: Transaction[]; sensitive: boolean; selectedIds: string[]; showMenu: boolean; onClose: () => void; onToggle: (id: string) => void; onToggleMenu: () => void; onMove: (sheetId: string) => void; onMerchant: (value: string) => void; onCategory: (value: string) => void; onDelete: () => void; sheets: Sheet[] }) {
+  const [editor, setEditor] = useState<"move" | "merchant" | "category" | null>(null);
+  const [value, setValue] = useState("");
+  const selected = new Set(selectedIds);
+  return <section className="sheets-screen selection-screen"><header className="sheet-ledger-heading"><span /><h1>{selected.size} Selected</h1><button type="button" className="composer-save active" onClick={onClose} aria-label="Finish selection"><AppIcon name="check" size="lg" /></button></header><SheetSummary sheet={sheet} totals={sheetTotals(items)} sensitive={sensitive} /><div className="ledger-period-row"><span className="ledger-period"><AppIcon name="receipt" size="sm" />As of Today</span><span className="ledger-transfer-count"><AppIcon name="transfer" size="sm" />{items.filter((item) => item.kind === "transfer").length}</span></div><SelectionTransactionList items={items} selected={selected} sensitive={sensitive} onToggle={onToggle} /><div className="selection-actions"><button type="button" className="search-filter" onClick={onToggleMenu} aria-expanded={showMenu} aria-label="Selected item actions"><AppIcon name="more" size="md" /></button><button type="button" className="selection-delete" onClick={onDelete}>Delete</button></div>{showMenu && <div className="batch-menu"><button type="button" onClick={() => setEditor("move")}><AppIcon name="table" size="md" />Move</button><button type="button" onClick={() => setEditor("merchant")}><AppIcon name="receipt" size="md" />Change Merchant</button><button type="button" onClick={() => setEditor("category")}><AppIcon name="ledger" size="md" />Change Category</button></div>}{editor && <div className="nested-sheet-backdrop"><section className="move-sheet"><ActionHeader title={editor === "move" ? "Move" : editor === "merchant" ? "Change Merchant" : "Change Category"} onClose={() => setEditor(null)} />{editor === "move" ? <div className="move-sheet-list">{sheets.map((candidate) => <button type="button" key={candidate.id} onClick={() => { onMove(candidate.id); setEditor(null); }} disabled={candidate.id === sheet.id}><span><AppIcon name="table" size="sm" />{candidate.name}</span><AppIcon name="forward" size="sm" /></button>)}</div> : <form className="batch-editor" onSubmit={(event) => { event.preventDefault(); if (editor === "merchant") onMerchant(value); else onCategory(value); setEditor(null); }}><input value={value} onChange={(event) => setValue(event.target.value)} placeholder={editor === "merchant" ? "Merchant" : "Category"} autoFocus required />{editor === "category" && <div className="category-chips">{expenseCategories.map((category) => <button type="button" key={category} onClick={() => setValue(category)}>{category}</button>)}</div>}<button type="submit" className="primary">Apply</button></form>}</section></div>}</section>;
+}
+
+function SelectionTransactionList({ items, selected, sensitive, onToggle }: { items: Transaction[]; selected: Set<string>; sensitive: boolean; onToggle: (id: string) => void }) {
+  const grouped = groupTransactions(items);
+  return <div className="sheet-transaction-list selection-list">{grouped.map(([date, group]) => <section key={date}><div className="transaction-date-heading"><h2>{transactionDateLabel(date)}</h2><b>{sensitive ? "••••" : signedMoney(dayNet(group))}</b></div>{group.map((item) => { const incoming = item.kind === "income" || item.transferDirection === "in"; const isSelected = selected.has(item.id); return <button type="button" className={isSelected ? "sheet-transaction selected" : "sheet-transaction"} key={item.id} onClick={() => onToggle(item.id)}><span className={isSelected ? "selection-check selected" : "selection-check"}>{isSelected && <AppIcon name="check" size="sm" />}</span><span className={`sheet-category-icon ${item.kind}`}><AppIcon name={iconFor(item.category)} size="sm" /></span><div><strong>{item.title}</strong><small>{item.notes || item.category}</small></div><b className={incoming ? "sheet-amount positive" : "sheet-amount"}>{sensitive ? "••••" : `${incoming ? "+" : "−"}${money(item.amount, item.currency)}`}</b></button>; })}</section>)}</div>;
+}
+
+function PrintOptions({ sheet, items, onClose }: { sheet: Sheet; items: Transaction[]; onClose: () => void }) {
+  const [copies, setCopies] = useState(1);
+  const [scaling, setScaling] = useState(100);
+  const [orientation, setOrientation] = useState<"portrait" | "landscape">("portrait");
+  const share = async () => { try { await navigator.share?.({ title: `${sheet.name} ledger`, text: `Print-ready ledger for ${sheet.name}.` }); } catch { /* cancelling share needs no message */ } };
+  return <section className="sheet-modal-backdrop"><section className="action-sheet print-options" aria-label="Print options"><ActionHeader title="Options" onClose={onClose} end={<div className="action-header-buttons"><button type="button" className="round-control" onClick={() => { void share(); }} aria-label="Share print preview"><AppIcon name="upload" size="md" /></button><button type="button" className="round-control" onClick={() => window.print()} aria-label="Print"><AppIcon name="printer" size="md" /></button></div>} /><section className="composer-card"><label className="composer-row"><span><b>Printer</b></span><span>No Printer Selected <AppIcon name="forward" size="sm" /></span></label></section><section className="composer-card print-controls"><Stepper label="Copies" value={copies} onChange={setCopies} min={1} max={99} /><label className="composer-row"><span><b>Range</b></span><span>All {Math.max(1, Math.ceil(items.length / 20))} pages <AppIcon name="forward" size="sm" /></span></label><label className="composer-row"><span><b>Paper Size</b></span><span>A4 <AppIcon name="forward" size="sm" /></span></label><div className="composer-row"><span><b>Orientation</b></span><div className="orientation-buttons"><button type="button" className={orientation === "portrait" ? "selected" : ""} onClick={() => setOrientation("portrait")}>Portrait</button><button type="button" className={orientation === "landscape" ? "selected" : ""} onClick={() => setOrientation("landscape")}>Landscape</button></div></div><Stepper label="Scaling" value={scaling} onChange={setScaling} min={50} max={150} suffix="%" /></section><section className="print-previews"><article>✓ Page 1 of {Math.max(1, Math.ceil(items.length / 20))}</article><article>✓ Page 2</article></section><PrintLedgerDocument sheet={sheet} items={items} copies={copies} scaling={scaling} orientation={orientation} /></section></section>;
+}
+
+function Stepper({ label, value, onChange, min, max, suffix = "" }: { label: string; value: number; onChange: (value: number) => void; min: number; max: number; suffix?: string }) { return <div className="composer-row"><span><b>{label}</b></span><div className="stepper"><button type="button" onClick={() => onChange(Math.max(min, value - 1))}>−</button><output>{value}{suffix}</output><button type="button" onClick={() => onChange(Math.min(max, value + 1))}>+</button></div></div>; }
+
+function PrintLedgerDocument({ sheet, items, copies, scaling, orientation }: { sheet: Sheet; items: Transaction[]; copies: number; scaling: number; orientation: "portrait" | "landscape" }) { return <section className={`print-document ${orientation}`} style={{ fontSize: `${scaling}%` }}><h1>{sheet.name}</h1><p>{sheet.currency} · {copies} cop{copies === 1 ? "y" : "ies"}</p>{items.map((item) => <p key={item.id}>{item.date} · {item.category} · {item.title} <b>{item.kind === "income" || item.transferDirection === "in" ? "+" : "−"}{money(item.amount, item.currency)}</b></p>)}</section>; }
+
+function ExportSheet({ sheet, sheets, items, onClose }: { sheet: Sheet; sheets: Sheet[]; items: Transaction[]; onClose: () => void }) {
+  const [sheetId, setSheetId] = useState(sheet.id);
+  const [includeImages, setIncludeImages] = useState(true);
+  const [allTime, setAllTime] = useState(true);
+  const [exporting, setExporting] = useState(false);
+  async function exportData() { setExporting(true); try { const target = sheets.find((candidate) => candidate.id === sheetId) || sheet; const source = items.filter((item) => item.sheetId === target.id && (allTime || item.date <= todayIso())); await exportTransactionsCsv(target, source, includeImages); } finally { setExporting(false); } }
+  return <section className="sheet-modal-backdrop"><section className="action-sheet export-sheet" aria-label="Export"><ActionHeader title="Export" onClose={onClose} /><section className="composer-card"><label className="composer-row"><span><b>Sheets</b></span><select value={sheetId} onChange={(event) => setSheetId(event.target.value)}>{sheets.map((candidate) => <option value={candidate.id} key={candidate.id}>{candidate.name}</option>)}</select></label></section><section className="composer-card"><PreferenceToggle label="Export all images" checked={includeImages} onClick={() => setIncludeImages((value) => !value)} /></section><section className="composer-card"><PreferenceToggle label="All Time" checked={allTime} onClick={() => setAllTime((value) => !value)} /></section><button type="button" className="export-button" disabled={exporting} onClick={() => { void exportData(); }}>{exporting ? "Preparing export…" : "Export"}</button></section></section>;
+}
+
+function ImportSheet({ sheet, sheets, onClose, onImport }: { sheet: Sheet; sheets: Sheet[]; onClose: () => void; onImport: (sheetId: string, rows: ImportRow[]) => void }) {
+  const [sheetId, setSheetId] = useState(sheet.id);
+  const [rows, setRows] = useState<ImportRow[]>([]);
+  const [error, setError] = useState("");
+  const expenses = rows.filter((row) => row.kind === "expense").length;
+  const income = rows.filter((row) => row.kind === "income").length;
+  return <section className="sheet-modal-backdrop"><section className="action-sheet import-sheet" aria-label="Import"><ActionHeader title="Import" onClose={onClose} /><section className="composer-card"><label className="composer-row"><span><b>Sheet</b></span><select value={sheetId} onChange={(event) => setSheetId(event.target.value)}>{sheets.map((candidate) => <option value={candidate.id} key={candidate.id}>{candidate.name}</option>)}</select></label></section><label className="file-import-button">Select CSV file<input type="file" accept=".csv,text/csv" onChange={(event) => { const file = event.target.files?.[0]; if (!file) return; void file.text().then((text) => { const result = parseImportCsv(text); setRows(result.rows); setError(result.error); }); }} /></label><h2 className="composer-section-title">Help</h2><button type="button" className="composer-card composer-row" onClick={() => downloadBlob(new Blob([sampleCsv], { type: "text/csv;charset=utf-8" }), "expenses-csv-template.csv")}><span><AppIcon name="info" size="sm" /><b>CSV Data</b></span><AppIcon name="upRight" size="sm" /></button>{error && <p className="import-error">{error}</p>}<section className="composer-card import-counts"><div className="composer-row"><span><b>Expense</b></span><span>{expenses}</span></div><div className="composer-row"><span><b>Income</b></span><span>{income}</span></div></section><button type="button" className="export-button" disabled={!rows.length} onClick={() => { onImport(sheetId, rows); onClose(); }}>Import</button></section></section>;
+}
+
+function EditSheet({ sheet, onClose, onSave, onDelete }: { sheet: Sheet; onClose: () => void; onSave: (sheetId: string, draft: SheetDraft) => boolean; onDelete: () => void }) {
+  const [name, setName] = useState(sheet.name);
+  const [showTotalBalance, setShowTotalBalance] = useState(sheet.showTotalBalance);
+  const [totalPeriod, setTotalPeriod] = useState<SheetTotalPeriod>(sheet.totalPeriod);
+  const [input, setInput] = useState(sheet.input);
+  function toggle(key: keyof Sheet["input"]) { setInput((current) => ({ ...current, [key]: !current[key] })); }
+  function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); if (onSave(sheet.id, { name, currency: sheet.currency, showTotalBalance, totalPeriod, input })) onClose(); }
+  return <section className="sheet-composer-backdrop"><form className="sheet-composer edit-sheet" onSubmit={submit} aria-label="Edit Sheet"><header className="composer-header"><button type="button" className="round-control" onClick={onClose} aria-label="Close sheet details"><AppIcon name="close" size="lg" /></button><h1>Details</h1><button type="submit" className="composer-save active" aria-label="Save sheet details"><AppIcon name="check" size="lg" /></button></header><label className="new-sheet-name"><span className="sr-only">Sheet name</span><input value={name} onChange={(event) => setName(event.target.value)} /></label><section className="composer-card"><div className="composer-row currency-row"><span>◉ <b>{sheet.currency}</b></span><span>Singapore Dollar <AppIcon name="forward" size="sm" /></span></div></section><section className="composer-card new-sheet-options"><button type="button" className="composer-row toggle-row" onClick={() => setShowTotalBalance((value) => !value)}><span><b>Total Balance</b></span><span className={showTotalBalance ? "composer-switch on" : "composer-switch"}><i /></span></button><label className="composer-row"><span><b>Total Period</b></span><select value={totalPeriod} onChange={(event) => setTotalPeriod(event.target.value as SheetTotalPeriod)}><option value="today">As of Today</option><option value="all">All Time</option></select></label></section><h2 className="composer-section-title">Input</h2><section className="composer-card new-sheet-options"><PreferenceToggle label="Show Currency Selection" checked={input.showCurrencySelection} onClick={() => toggle("showCurrencySelection")} /><PreferenceToggle label="Show Merchant" checked={input.showMerchant} onClick={() => toggle("showMerchant")} /><PreferenceToggle label="Show Time" checked={input.showTime} onClick={() => toggle("showTime")} /><PreferenceToggle label="Show category suggestions" checked={input.showCategorySuggestions} onClick={() => toggle("showCategorySuggestions")} /></section><button type="button" className="trash-sheet-button" onClick={onDelete}>Move to Trash</button><p className="sheet-metadata">Created: {formatSheetTimestamp(sheet.createdAt)}<br />Edited: {formatSheetTimestamp(sheet.updatedAt || sheet.createdAt)}</p></form></section>;
+}
 
 function TransactionActionSheet({ transaction, onClose, onNewExpense, onEdit, onMove, onDuplicate, onCopy, onDelete }: { transaction: Transaction; onClose: () => void; onNewExpense: () => void; onEdit: (field: "merchant" | "category" | undefined) => void; onMove: () => void; onDuplicate: (today: boolean) => void; onCopy: () => void; onDelete: () => void }) {
   const [duplicateOpen, setDuplicateOpen] = useState(false);

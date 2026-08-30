@@ -8,6 +8,8 @@ export type Sheet = {
   name: string;
   currency: string;
   archived: boolean;
+  createdAt?: string;
+  updatedAt?: string;
   showTotalBalance: boolean;
   totalPeriod: SheetTotalPeriod;
   input: {
@@ -16,6 +18,14 @@ export type Sheet = {
     showTime: boolean;
     showCategorySuggestions: boolean;
   };
+};
+
+export type Attachment = {
+  filename: string;
+  mimeType: string;
+  size: number;
+  storage: "supabase" | "indexeddb";
+  storagePath: string;
 };
 
 export type Transaction = {
@@ -34,6 +44,7 @@ export type Transaction = {
   recurring?: string;
   currency: string;
   hasAttachment?: boolean;
+  attachments?: Attachment[];
   merchant?: string;
   source?: "manual" | "bank";
   sheetId?: string;
