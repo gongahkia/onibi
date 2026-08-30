@@ -32,6 +32,7 @@ Run these commands from the repository root after authenticating with both CLIs:
 npx vercel deploy
 npx vercel deploy --prod
 npx vercel logs --environment production --level error --since 5m
+npx supabase config push --project-ref ovrdwkcruxnthtcjbzxk
 npx supabase migration list --linked
 ```
 
