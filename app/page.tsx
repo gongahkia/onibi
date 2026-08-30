@@ -516,8 +516,8 @@ function SyncSettings({ preferences, onSync, onSendMagicLink, onGoogleBackup }: 
   </>;
 }
 
-const categoryIcons: IconKey[] = ["cart", "dining", "transport", "utilities", "home", "goals", "salary", "bank", "receipt", "plans", "insights", "ledger"];
-const categoryColors = ["#ff3b45", "#ff5a15", "#ff9925", "#ffca12", "#c7dc00", "#32c766", "#12aabd", "#12bbb7", "#168df0", "#634cf4", "#ef426d", "#bf37d9", "#9b7b50", "#9c9ba2"];
+const categoryIcons: IconKey[] = ["cart", "bag", "dining", "popcorn", "transport", "airplane", "car", "bus", "train", "utilities", "home", "building", "bank", "salary", "goals", "health", "stethoscope", "pill", "dumbbell", "game", "theater", "music", "camera", "phone", "wifi", "book", "graduation", "gift", "dog", "leaf", "tag", "receipt", "plans", "insights", "ledger"];
+const categoryColors = ["#ff3b45", "#ff5a15", "#ff7a45", "#ff9925", "#ffb347", "#ffca12", "#ffd166", "#e5e941", "#c7dc00", "#8bc34a", "#32c766", "#22b573", "#12aabd", "#12bbb7", "#20b8d4", "#168df0", "#4b7bec", "#634cf4", "#7e57c2", "#9c27b0", "#bf37d9", "#e66bbf", "#ef426d", "#ff7f96", "#9b7b50", "#c79073", "#9c9ba2", "#6d6d78", "#3f4856", "#ffffff"];
 
 function CategoriesSettings({ categories, transactions, onSave, onDelete }: { categories: Category[]; transactions: Transaction[]; onSave: (draft: Omit<Category, "id" | "sortOrder" | "updatedAt" | "deletedAt">, categoryId?: string) => boolean; onDelete: (category: Category, replacement: string) => void }) {
   const [kind, setKind] = useState<CategoryKind>("expense");
