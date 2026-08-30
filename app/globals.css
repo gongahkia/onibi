@@ -123,3 +123,11 @@ html.budget-dark .desktop-rail-link.current,html.budget-dark .desktop-active-she
   .sheets-home-screen,.ledger-screen{grid-template-columns:320px minmax(0,1fr);column-gap:76px}
   .desktop-sheet-rail{padding:24px}
 }
+
+/* Keep every desktop canvas section on the same edge-to-edge content boundary. */
+@media (min-width:900px){
+  .desktop-home-canvas,.desktop-ledger-canvas{padding-right:0;padding-left:0}
+  .sheets-home-screen .sheets-stack{grid-template-columns:minmax(0,1fr);width:100%}
+  .sheets-home-screen .sheet-card{width:100%}
+  .ledger-screen .sheet-summary,.ledger-screen .sheet-transaction-list,.ledger-screen .sheet-ledger-heading{max-width:none;width:100%}
+}
