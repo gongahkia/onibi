@@ -1,6 +1,22 @@
 export type TransactionKind = "expense" | "income" | "transfer" | "settlement";
 export type SplitMethod = "equal" | "amount" | "percent" | "shares";
 export type Period = "week" | "month" | "year" | "custom";
+export type SheetTotalPeriod = "today" | "all";
+
+export type Sheet = {
+  id: string;
+  name: string;
+  currency: string;
+  archived: boolean;
+  showTotalBalance: boolean;
+  totalPeriod: SheetTotalPeriod;
+  input: {
+    showCurrencySelection: boolean;
+    showMerchant: boolean;
+    showTime: boolean;
+    showCategorySuggestions: boolean;
+  };
+};
 
 export type Transaction = {
   id: string;
@@ -20,6 +36,7 @@ export type Transaction = {
   hasAttachment?: boolean;
   merchant?: string;
   source?: "manual" | "bank";
+  sheetId?: string;
   sheet?: string;
   transferGroupId?: string;
   transferDirection?: "in" | "out";
