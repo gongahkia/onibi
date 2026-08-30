@@ -1,6 +1,7 @@
 "use client";
 
 import { ChangeEvent, FormEvent, useDeferredValue, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import Image from "next/image";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { SFAirplane, SFArrowDown, SFArrowLeft, SFArrowLeftArrowRight, SFArrowRight, SFArrowUpArrowDown, SFArrowUpRight, SFBag, SFBanknoteFill, SFBook, SFBuildingColumns, SFBus, SFCalendar, SFCamera, SFCar, SFCartFill, SFChartLineUptrendXyaxis, SFChartPie, SFCheckmark, SFChevronDown, SFClock, SFCloudFill, SFCreditcardFill, SFDocumentBadgePlus, SFDog, SFDumbbell, SFEllipsis, SFEyeSlash, SFForkKnife, SFGamecontroller, SFGearshapeFill, SFGift, SFGraduationcap, SFHeartFill, SFHeartTextSquare, SFHouseFill, SFInfoCircle, SFLeaf, SFLightbulbFill, SFListBullet, SFLock, SFMagnifyingglass, SFMusicNote, SFPaintpalette, SFPaperclip, SFPaperplane, SFPencil, SFPersonBadgePlus, SFPhone, SFPhoto, SFPill, SFPlus, SFPopcorn, SFPrinter, SFReceipt, SFRepeat, SFSliderHorizontal3, SFSquareAndArrowUp, SFStethoscope, SFTablecells, SFTag, SFTarget, SFTheatermasks, SFTrainSideFrontCar, SFTramFill, SFTrash, SFWifi, SFXmark } from "sf-symbols-lib/dualtone";
 import { demoBankConnections, demoBudgets, demoGoals, demoTransactions } from "@/lib/demo-data";
@@ -494,7 +495,7 @@ function SettingsGroup({ children }: { children: React.ReactNode }) { return <se
 
 function SettingsRow({ icon, label, value, onClick }: { icon: IconKey; label: string; value?: string; onClick: () => void }) { return <button type="button" className="settings-row" onClick={onClick}><span className={`settings-icon ${icon}`}><AppIcon name={icon} size="md" /></span><b>{label}</b><span className="settings-row-end">{value}<AppIcon name="forward" size="sm" /></span></button>; }
 
-function IntegrationMark({ provider }: { provider: "supabase" | "google-sheets" }) { return <span className={`integration-mark ${provider}`}><img src={`/integrations/${provider}.svg`} alt="" width="38" height="38" /></span>; }
+function IntegrationMark({ provider }: { provider: "supabase" | "google-sheets" }) { return <span className={`integration-mark ${provider}`}><Image src={`/integrations/${provider}.svg`} alt="" width={38} height={38} unoptimized /></span>; }
 
 function SyncSettings({ preferences, onSync, onSendMagicLink, onGoogleBackup }: { preferences: AppPreferences; onSync: () => void; onSendMagicLink: (email: string) => void; onGoogleBackup: () => void }) {
   const [email, setEmail] = useState("");
