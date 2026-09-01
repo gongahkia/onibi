@@ -6,6 +6,8 @@ export type CategoryKind = "expense" | "income";
 export type AppearancePreference = "automatic" | "dark" | "light";
 export type SheetSort = "edited" | "created" | "nameAsc" | "nameDesc";
 export type PrintFont = "inter" | "nunito" | "lora";
+export type SyncRecordType = "sheet" | "category" | "transaction";
+export type SyncTombstone = { recordType: SyncRecordType; recordId: string; deletedAt: string };
 
 export type Sheet = {
   id: string;
@@ -45,6 +47,7 @@ export type AppPreferences = {
   syncEnabled: boolean;
   lastSyncedAt?: string;
   lastGoogleBackupAt?: string;
+  syncTombstones?: SyncTombstone[];
   updatedAt: string;
 };
 
