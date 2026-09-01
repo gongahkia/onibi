@@ -40,7 +40,15 @@ npx supabase db push
 
 For a new empty Supabase project, execute `supabase/schema.sql` first, then apply and mark `20260830_incremental_sync.sql` as applied before relying on `supabase db push`. This avoids applying the incremental migration before its parent tables exist. Apply `20260902_harden_sync_rls.sql` to every existing project before allowing cloud sync: it explicitly denies the anonymous database role and permits each signed-in user to read and write only that user's sync records.
 
-After a production URL exists, update Supabase Auth’s Site URL and allowed redirect URLs before testing email sign-in. Test with two separate email accounts. Sync currently remains private to each authenticated user; household sharing is not implemented in the client sync flow.
+After a production URL exists, update Supabase Auth’s Site URL and allowed redirect URLs before testing email sign-in. Use two separate email accounts to verify account isolation. Use the same email account on two devices to test cross-device sync. Sync currently remains private to each authenticated user; household sharing is not implemented in the client sync flow.
+
+## Sync security and data ownership
+
+The Vercel URL may be public without exposing another user's cloud data. The browser uses the public Supabase anonymous key only to reach Supabase; an authenticated Supabase session and the `app_sync_records` RLS policy are both required to read or write cloud records. The policy limits every record to its `user_id` and the anonymous database role has no access to this table.
+
+Local data remains in the browser's IndexedDB when a user is not signed in. Anyone with access to that browser profile or an unlocked device can read it; Sensitive Mode only hides values in the interface and is not encryption.
+
+The app does not implement household sharing or account-session administration. A device list would not add protection by itself. Cross-device testing therefore requires signing into the same test account on both devices. Supporting two different accounts with shared sheets, or listing and revoking devices, needs a separate server-side account-management feature.
 
 ## Pause or remove services separately
 
