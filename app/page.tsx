@@ -347,7 +347,8 @@ export default function BudgetApp() {
     const category = categories.find((item) => item.id === categoryId);
     const hasTransactions = Boolean(category && transactions.some((item) => item.category === category.name && item.kind === category.kind));
     if (!category || replacement === category.name || (hasTransactions && !replacement)) { setNotice("Choose another category for existing transactions."); return; }
-    if (replacement) setTransactions((items) => items.map((item) => item.category === category.name && ((category.kind === "expense" && item.kind === "expense") || (category.kind === "income" && item.kind === "income")) ? { ...item, category: replacement } : item));
+    const updatedAt = new Date().toISOString();
+    if (replacement) setTransactions((items) => items.map((item) => item.category === category.name && ((category.kind === "expense" && item.kind === "expense") || (category.kind === "income" && item.kind === "income")) ? { ...item, category: replacement, updatedAt } : item));
     setCategories((items) => items.map((item) => item.id === categoryId ? { ...item, deletedAt: new Date().toISOString(), updatedAt: new Date().toISOString() } : item));
     setNotice("Category moved to Trash and transactions reassigned.");
   }
@@ -413,12 +414,14 @@ export default function BudgetApp() {
   function duplicateTransaction(transaction: Transaction, useToday: boolean) {
     const group = transaction.transferGroupId ? transactions.filter((item) => item.transferGroupId === transaction.transferGroupId) : [transaction];
     const transferGroupId = transaction.transferGroupId ? uid("transfer") : undefined;
-    const copies = group.map((item) => ({ ...item, id: uid("txn"), date: useToday ? todayIso() : item.date, transferGroupId }));
+    const updatedAt = new Date().toISOString();
+    const copies = group.map((item) => ({ ...item, id: uid("txn"), date: useToday ? todayIso() : item.date, transferGroupId, updatedAt }));
     setTransactions((items) => [...copies, ...items]);
     setNotice(useToday ? "Transaction duplicated to today." : "Transaction duplicated.");
   }
 
   function moveTransaction(transaction: Transaction, sheetId: string) {
+    const updatedAt = new Date().toISOString();
     if (transaction.transferGroupId) {
       const counterpart = transactions.find((item) => item.transferGroupId === transaction.transferGroupId && item.id !== transaction.id);
       if (counterpart?.sheetId === sheetId) { setNotice("A transfer needs two different sheets."); return; }
@@ -426,9 +429,9 @@ export default function BudgetApp() {
         if (item.transferGroupId !== transaction.transferGroupId) return item;
         const nextSheetId = item.id === transaction.id ? sheetId : item.sheetId;
         const otherSheetId = item.id === transaction.id ? counterpart?.sheetId || "" : sheetId;
-        return { ...item, sheetId: nextSheetId, sheet: nameForSheet(nextSheetId || ""), title: item.transferDirection === "out" ? `Transfer to ${nameForSheet(otherSheetId)}` : `Transfer from ${nameForSheet(otherSheetId)}` };
+        return { ...item, sheetId: nextSheetId, sheet: nameForSheet(nextSheetId || ""), title: item.transferDirection === "out" ? `Transfer to ${nameForSheet(otherSheetId)}` : `Transfer from ${nameForSheet(otherSheetId)}`, updatedAt };
       }));
-    } else setTransactions((items) => items.map((item) => item.id === transaction.id ? { ...item, sheetId, sheet: nameForSheet(sheetId) } : item));
+    } else setTransactions((items) => items.map((item) => item.id === transaction.id ? { ...item, sheetId, sheet: nameForSheet(sheetId), updatedAt } : item));
     setMoveTransactionId(null);
     setNotice("Transaction moved.");
   }
