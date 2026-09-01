@@ -9,7 +9,7 @@ import { legacyBudgetStorageKey, migrateLegacyBudgetCache, requestPersistentStor
 import { recognizeReceipt } from "@/lib/receipt-ocr";
 import { useTransactionSearch } from "@/lib/use-transaction-search";
 import { currentCloudUser, isCloudSyncConfigured, sendCloudMagicLink, syncIncrementalState } from "@/lib/cloud-sync";
-import { dateLabel, money, type AppPreferences, type BankConnection, type Budget, type Category, type CategoryKind, type Goal, type Sheet, type SheetSort, type SheetTotalPeriod, type SplitMethod, type Transaction, type TransactionKind } from "@/lib/types";
+import { dateLabel, money, type AppPreferences, type BankConnection, type Budget, type Category, type CategoryKind, type Goal, type Sheet, type SheetSort, type SheetTotalPeriod, type SplitMethod, type SyncRecordType, type Transaction, type TransactionKind } from "@/lib/types";
 
 type View = "home" | "ledger" | "plans" | "insights" | "settings";
 type SheetAction = "stats" | "trends" | "exchange" | "select" | "print" | "export" | "import" | "edit" | "archive" | "delete";
@@ -100,6 +100,15 @@ export default function BudgetApp() {
   const movingTransaction = transactions.find((item) => item.id === moveTransactionId) || null;
   const activeSheets = sheets.filter((sheet) => !sheet.archived && !sheet.deletedAt);
 
+  function rememberSyncTombstones(records: Array<{ recordType: SyncRecordType; recordId: string; deletedAt: string }>) {
+    if (!records.length) return;
+    setPreferences((current) => {
+      const tombstones = new Map((current.syncTombstones || []).map((tombstone) => [`${tombstone.recordType}:${tombstone.recordId}`, tombstone]));
+      records.forEach((record) => tombstones.set(`${record.recordType}:${record.recordId}`, record));
+      return { ...current, syncTombstones: [...tombstones.values()] };
+    });
+  }
+
   function updateView(update: () => void) {
     const documentWithTransition = document as Document & { startViewTransition?: (callback: () => void) => unknown };
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches || !documentWithTransition.startViewTransition) { update(); return; }
@@ -183,6 +192,8 @@ export default function BudgetApp() {
       const records = transferRecords(base, draft, groupId, { outgoing: outgoingId, incoming: incomingId });
       setTransactions((items) => [...records, ...items.filter((item) => group ? item.transferGroupId !== group : item.id !== original.id)]);
     } else {
+      const counterpart = original.transferGroupId ? transactions.find((item) => item.transferGroupId === original.transferGroupId && item.id !== original.id) : undefined;
+      if (counterpart) rememberSyncTombstones([{ recordType: "transaction", recordId: counterpart.id, deletedAt: new Date().toISOString() }]);
       const standalone: Transaction = { ...base, kind: draft.kind, sheetId: draft.sheetId, sheet: nameForSheet(draft.sheetId), transferGroupId: undefined, transferDirection: undefined };
       setTransactions((items) => [standalone, ...items.filter((item) => original.transferGroupId ? item.transferGroupId !== original.transferGroupId : item.id !== original.id)]);
     }
@@ -230,13 +241,16 @@ export default function BudgetApp() {
   function applyBatchField(field: "merchant" | "category", value: string) {
     const selected = selectedWithTransferPairs();
     if (!selected.size || !value.trim()) return;
-    setTransactions((items) => items.map((item) => selected.has(item.id) ? { ...item, [field]: value.trim() } : item));
+    const updatedAt = new Date().toISOString();
+    setTransactions((items) => items.map((item) => selected.has(item.id) ? { ...item, [field]: value.trim(), updatedAt } : item));
     setShowBatchMenu(false);
     setNotice(`${selected.size} transaction${selected.size === 1 ? "" : "s"} updated.`);
   }
 
   function deleteSelectedTransactions() {
     const selected = selectedWithTransferPairs();
+    const deletedAt = new Date().toISOString();
+    rememberSyncTombstones([...selected].map((recordId) => ({ recordType: "transaction", recordId, deletedAt })));
     setTransactions((items) => items.filter((item) => !selected.has(item.id)));
     setSelectedTransactionIds([]);
     setShowBatchMenu(false);
@@ -246,13 +260,14 @@ export default function BudgetApp() {
   function moveSelectedTransactions(sheetId: string) {
     const selected = selectedWithTransferPairs();
     const transferGroups = new Set(transactions.filter((item) => selected.has(item.id) && item.transferGroupId).map((item) => item.transferGroupId));
+    const updatedAt = new Date().toISOString();
     setTransactions((items) => items.map((item) => {
       if (item.transferGroupId && transferGroups.has(item.transferGroupId)) {
         const movingSide = items.find((candidate) => candidate.transferGroupId === item.transferGroupId && candidate.sheetId === activeSheetId) || items.find((candidate) => candidate.transferGroupId === item.transferGroupId && selected.has(candidate.id));
         if (item.id !== movingSide?.id) return item;
-        return { ...item, sheetId, sheet: nameForSheet(sheetId), title: item.transferDirection === "out" ? `Transfer to ${nameForSheet(items.find((candidate) => candidate.transferGroupId === item.transferGroupId && candidate.id !== item.id)?.sheetId || "")}` : `Transfer from ${nameForSheet(items.find((candidate) => candidate.transferGroupId === item.transferGroupId && candidate.id !== item.id)?.sheetId || "")}` };
+        return { ...item, sheetId, sheet: nameForSheet(sheetId), title: item.transferDirection === "out" ? `Transfer to ${nameForSheet(items.find((candidate) => candidate.transferGroupId === item.transferGroupId && candidate.id !== item.id)?.sheetId || "")}` : `Transfer from ${nameForSheet(items.find((candidate) => candidate.transferGroupId === item.transferGroupId && candidate.id !== item.id)?.sheetId || "")}`, updatedAt };
       }
-      return selected.has(item.id) ? { ...item, sheetId, sheet: nameForSheet(sheetId) } : item;
+      return selected.has(item.id) ? { ...item, sheetId, sheet: nameForSheet(sheetId), updatedAt } : item;
     }));
     setShowBatchMenu(false);
     setSelectedTransactionIds([]);
@@ -279,7 +294,7 @@ export default function BudgetApp() {
     };
     const imported = rows.map((row) => {
       const destination = destinationFor(row);
-      return { id: uid("txn"), title: row.category, amount: row.amount, kind: row.kind, category: row.category, date: row.date, time: row.time || "12:00", paidBy: "", participants: [], splitMethod: "equal" as SplitMethod, notes: row.notes || row.merchant, pending: false, recurring: "", currency: row.currency || destination.currency, merchant: row.merchant || undefined, source: "manual" as const, sheetId: destination.id, sheet: destination.name, transferDirection: row.transferDirection } satisfies Transaction;
+      return { id: uid("txn"), title: row.category, amount: row.amount, kind: row.kind, category: row.category, date: row.date, time: row.time || "12:00", paidBy: "", participants: [], splitMethod: "equal" as SplitMethod, notes: row.notes || row.merchant, pending: false, recurring: "", currency: row.currency || destination.currency, merchant: row.merchant || undefined, source: "manual" as const, sheetId: destination.id, sheet: destination.name, transferDirection: row.transferDirection, updatedAt: importedAt } satisfies Transaction;
     });
     const knownCategories = new Set(categories.filter((category) => !category.deletedAt).map((category) => `${category.kind}:${category.name.trim().toLocaleLowerCase()}`));
     const importedCategories: Category[] = [];
@@ -304,13 +319,14 @@ export default function BudgetApp() {
   }
 
   function archiveSheet(sheetId: string, archived: boolean) {
-    setSheets((items) => items.map((sheet) => sheet.id === sheetId ? { ...sheet, archived } : sheet));
+    setSheets((items) => items.map((sheet) => sheet.id === sheetId ? { ...sheet, archived, updatedAt: new Date().toISOString() } : sheet));
     if (archived && activeSheetId === sheetId) setActiveSheetId(null);
     setNotice(archived ? "Sheet archived." : "Sheet restored.");
   }
 
   function deleteSheet(sheetId: string) {
-    setSheets((items) => items.map((sheet) => sheet.id === sheetId ? { ...sheet, archived: false, deletedAt: new Date().toISOString() } : sheet));
+    const deletedAt = new Date().toISOString();
+    setSheets((items) => items.map((sheet) => sheet.id === sheetId ? { ...sheet, archived: false, deletedAt, updatedAt: deletedAt } : sheet));
     if (activeSheetId === sheetId) setActiveSheetId(null);
     setNotice("Sheet moved to Trash.");
   }
@@ -350,6 +366,12 @@ export default function BudgetApp() {
 
   function emptyTrash() {
     const removedSheetIds = new Set(sheets.filter((sheet) => sheet.deletedAt).map((sheet) => sheet.id));
+    const deletedAt = new Date().toISOString();
+    rememberSyncTombstones([
+      ...sheets.filter((sheet) => sheet.deletedAt).map((sheet) => ({ recordType: "sheet" as const, recordId: sheet.id, deletedAt: sheet.deletedAt || deletedAt })),
+      ...categories.filter((category) => category.deletedAt).map((category) => ({ recordType: "category" as const, recordId: category.id, deletedAt: category.deletedAt || deletedAt })),
+      ...transactions.filter((transaction) => removedSheetIds.has(transaction.sheetId || "")).map((transaction) => ({ recordType: "transaction" as const, recordId: transaction.id, deletedAt }))
+    ]);
     setSheets((items) => items.filter((sheet) => !sheet.deletedAt));
     setCategories((items) => items.filter((category) => !category.deletedAt));
     setTransactions((items) => items.filter((item) => !removedSheetIds.has(item.sheetId || "")));
@@ -363,8 +385,8 @@ export default function BudgetApp() {
       setSheets(result.state.sheets);
       setTransactions(result.state.transactions);
       setCategories(result.state.categories);
-      setPreferences({ ...defaultPreferences, ...result.state.preferences, syncEnabled: true, lastSyncedAt: syncedAt, updatedAt: new Date().toISOString() });
-      setNotice(result.pulled ? "Changes pulled from Supabase." : "Changes synced to Supabase.");
+      setPreferences((current) => ({ ...current, ...result.state.preferences, syncEnabled: true, lastSyncedAt: syncedAt, syncTombstones: (current.syncTombstones || []).filter((tombstone) => !result.settledTombstones.includes(`${tombstone.recordType}:${tombstone.recordId}`)) }));
+      setNotice("Cloud sync complete.");
     } catch (error) { setNotice(error instanceof Error ? error.message : "Sync failed."); }
   }
 
@@ -381,6 +403,9 @@ export default function BudgetApp() {
   }
 
   function deleteTransaction(transaction: Transaction) {
+    const deletedAt = new Date().toISOString();
+    const records = transactions.filter((item) => transaction.transferGroupId ? item.transferGroupId === transaction.transferGroupId : item.id === transaction.id);
+    rememberSyncTombstones(records.map((record) => ({ recordType: "transaction", recordId: record.id, deletedAt })));
     setTransactions((items) => items.filter((item) => transaction.transferGroupId ? item.transferGroupId !== transaction.transferGroupId : item.id !== transaction.id));
     setNotice(transaction.transferGroupId ? "Linked transfer deleted." : "Transaction deleted.");
   }
