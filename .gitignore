@@ -7,4 +7,3 @@ node_modules
 .temp
 .vercel
 .env*
-AGENTS.md
