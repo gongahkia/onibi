@@ -104,7 +104,7 @@ export default function BudgetApp() {
   const canAddToActiveSheet = !activeSheet?.sharedOwnerId || activeSheet.accessLevel !== "read";
   const canEditActiveSheet = !activeSheet?.sharedOwnerId || activeSheet.accessLevel === "edit";
 
-  function rememberSyncTombstones(records: Array<{ recordType: SyncRecordType; recordId: string; deletedAt: string }>) {
+  function rememberSyncTombstones(records: Array<{ recordType: SyncRecordType; recordId: string; deletedAt: string; sheetId?: string; sharedOwnerId?: string }>) {
     if (!records.length) return;
     setPreferences((current) => {
       const tombstones = new Map((current.syncTombstones || []).map((tombstone) => [`${tombstone.recordType}:${tombstone.recordId}`, tombstone]));
@@ -149,7 +149,7 @@ export default function BudgetApp() {
   useEffect(() => {
     const scale = Math.min(1.15, Math.max(.9, preferences.uiScale || 1));
     document.documentElement.style.setProperty("--ui-scale", `${scale}`);
-    return () => document.documentElement.style.removeProperty("--ui-scale");
+    return () => { document.documentElement.style.removeProperty("--ui-scale"); };
   }, [preferences.uiScale]);
   useEffect(() => {
     const media = window.matchMedia("(prefers-color-scheme: dark)");
@@ -588,7 +588,7 @@ function SyncSettings({ preferences, onSync, onSendMagicLink, onGoogleBackup }: 
   const configured = isCloudSyncConfigured();
   return <>
     <SettingsGroup>
-      <div className="integration-copy"><IntegrationMark provider="supabase" /><div className="settings-copy"><b>Supabase sync</b><p>{configured ? userEmail ? `Signed in as ${userEmail}.` : "Sign in with an email link, then sync per-record changes across your devices." : "Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to enable account sync."}</p></div></div>
+      <div className="integration-copy"><IntegrationMark provider="supabase" /><div className="settings-copy"><b>Supabase sync</b><p>{configured ? userEmail ? `Signed in as ${userEmail}.` : "Sign in with an email link, then sync per-record changes across your devices." : "Add your Supabase project URL and anonymous key to enable account sync."}</p></div></div>
       {!userEmail && configured && <form className="settings-inline-form" onSubmit={(event) => { event.preventDefault(); onSendMagicLink(email); }}><input required type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" /><button type="submit">Send magic link</button></form>}
       <button type="button" className="settings-primary-button" disabled={!configured || !userEmail} onClick={onSync}>Sync now</button>
       <small className="settings-status">{preferences.lastSyncedAt ? `Last synced ${formatSheetTimestamp(preferences.lastSyncedAt)}` : "No cloud sync yet."}</small>
