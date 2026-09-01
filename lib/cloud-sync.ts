@@ -10,6 +10,7 @@ type SyncResult = { state: IncrementalCloudState; cursor?: string; pulled: boole
 
 const localPreferenceKeys = new Set(["syncEnabled", "lastSyncedAt", "lastGoogleBackupAt", "syncTombstones", "syncReconciliationVersion"]);
 const earliestSyncTimestamp = new Date(0).toISOString();
+const syncPageSize = 500;
 
 function client() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -106,6 +107,25 @@ function recordsToPush(localRecords: SyncRecord[], remoteRecords: SyncRecord[], 
   });
 }
 
+async function pullRemoteRecords(supabase: NonNullable<ReturnType<typeof client>>, userId: string, cursor?: string) {
+  const records: SyncRecord[] = [];
+  for (let from = 0; ; from += syncPageSize) {
+    const query = supabase.from("app_sync_records").select("record_type, record_id, payload, updated_at, deleted_at").eq("user_id", userId).order("updated_at", { ascending: true }).order("record_type", { ascending: true }).order("record_id", { ascending: true }).range(from, from + syncPageSize - 1);
+    const { data, error } = cursor ? await query.gt("updated_at", cursor) : await query;
+    if (error) throw error;
+    const page = (data || []) as SyncRecord[];
+    records.push(...page);
+    if (page.length < syncPageSize) return records;
+  }
+}
+
+async function pushRecords(supabase: NonNullable<ReturnType<typeof client>>, userId: string, records: SyncRecord[]) {
+  for (let from = 0; from < records.length; from += syncPageSize) {
+    const { error } = await supabase.from("app_sync_records").upsert(records.slice(from, from + syncPageSize).map((record) => ({ ...record, user_id: userId })), { onConflict: "user_id,record_type,record_id" });
+    if (error) throw error;
+  }
+}
+
 /**
  * Reconciles changed remote records with the complete local state. Records use a
  * last-write-wins timestamp, so an incremental pull cannot replace untouched
@@ -116,17 +136,11 @@ export async function syncIncrementalState(state: IncrementalCloudState, cursor?
   if (!supabase) throw new Error("Supabase is not configured for this deployment.");
   const user = await currentCloudUser();
   if (!user) throw new Error("Sign in before syncing.");
-  const remoteRequest = supabase.from("app_sync_records").select("record_type, record_id, payload, updated_at, deleted_at").eq("user_id", user.id).order("updated_at", { ascending: true });
-  const { data: remote, error: pullError } = cursor ? await remoteRequest.gt("updated_at", cursor) : await remoteRequest;
-  if (pullError) throw pullError;
-  const remoteRecords = (remote || []) as SyncRecord[];
+  const remoteRecords = await pullRemoteRecords(supabase, user.id, cursor);
   const localRecords = recordsFor(state);
   const merged = mergeRecords(localRecords, remoteRecords);
   const recordsToUpload = recordsToPush(localRecords, remoteRecords, cursor, state.preferences.syncTombstones || []);
-  if (recordsToUpload.length) {
-    const { error: pushError } = await supabase.from("app_sync_records").upsert(recordsToUpload.map((record) => ({ ...record, user_id: user.id })), { onConflict: "user_id,record_type,record_id" });
-    if (pushError) throw pushError;
-  }
+  if (recordsToUpload.length) await pushRecords(supabase, user.id, recordsToUpload);
   const { data: latest, error: latestError } = await supabase.from("app_sync_records").select("updated_at").eq("user_id", user.id).order("updated_at", { ascending: false }).limit(1).maybeSingle();
   if (latestError) throw latestError;
   const uploadedKeys = new Set(recordsToUpload.map(recordKey));
