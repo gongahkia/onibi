@@ -7,7 +7,8 @@ export type AppearancePreference = "automatic" | "dark" | "light";
 export type SheetSort = "edited" | "created" | "nameAsc" | "nameDesc";
 export type PrintFont = "inter" | "nunito" | "lora";
 export type SyncRecordType = "sheet" | "category" | "transaction";
-export type SyncTombstone = { recordType: SyncRecordType; recordId: string; deletedAt: string };
+export type SheetAccessLevel = "read" | "contribute" | "edit";
+export type SyncTombstone = { recordType: SyncRecordType; recordId: string; deletedAt: string; sheetId?: string; sharedOwnerId?: string };
 
 export type Sheet = {
   id: string;
@@ -19,6 +20,9 @@ export type Sheet = {
   updatedAt?: string;
   showTotalBalance: boolean;
   totalPeriod: SheetTotalPeriod;
+  /** Local sync metadata for a sheet another account has shared with this user. */
+  sharedOwnerId?: string;
+  accessLevel?: SheetAccessLevel;
   input: {
     showCurrencySelection: boolean;
     showMerchant: boolean;
@@ -48,6 +52,10 @@ export type AppPreferences = {
   lastSyncedAt?: string;
   lastGoogleBackupAt?: string;
   syncTombstones?: SyncTombstone[];
+  /** Local cursors for sheets shared from other accounts. */
+  sharedSyncCursors?: Record<string, string>;
+  /** Mobile interface scale, stored as a multiplier (for example 1 is default). */
+  uiScale?: number;
   /** Local marker that makes an upgrade run one safe full reconciliation. */
   syncReconciliationVersion?: number;
   updatedAt: string;
@@ -84,6 +92,8 @@ export type Transaction = {
   sheet?: string;
   transferGroupId?: string;
   transferDirection?: "in" | "out";
+  /** Local sync metadata for a transaction in a shared sheet. */
+  sharedOwnerId?: string;
   /** OCR text is retained after the source image has been discarded. */
   ocrText?: string;
   updatedAt?: string;
