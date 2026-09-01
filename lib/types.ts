@@ -48,6 +48,8 @@ export type AppPreferences = {
   lastSyncedAt?: string;
   lastGoogleBackupAt?: string;
   syncTombstones?: SyncTombstone[];
+  /** Local marker that makes an upgrade run one safe full reconciliation. */
+  syncReconciliationVersion?: number;
   updatedAt: string;
 };
 

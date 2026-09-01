@@ -8,7 +8,8 @@ type SyncRecord = { record_type: CloudRecordType; record_id: string; payload: un
 export type IncrementalCloudState = { sheets: Sheet[]; categories: Category[]; transactions: Transaction[]; preferences: AppPreferences };
 type SyncResult = { state: IncrementalCloudState; cursor?: string; pulled: boolean; settledTombstones: string[] };
 
-const localPreferenceKeys = new Set(["syncEnabled", "lastSyncedAt", "lastGoogleBackupAt", "syncTombstones"]);
+const localPreferenceKeys = new Set(["syncEnabled", "lastSyncedAt", "lastGoogleBackupAt", "syncTombstones", "syncReconciliationVersion"]);
+const earliestSyncTimestamp = new Date(0).toISOString();
 
 function client() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -47,16 +48,15 @@ function addNewest(records: Map<string, SyncRecord>, record: SyncRecord) {
 }
 
 function recordsFor(state: IncrementalCloudState): SyncRecord[] {
-  const now = new Date().toISOString();
   const records = new Map<string, SyncRecord>();
   const add = <T extends { id: string; updatedAt?: string; deletedAt?: string }>(recordType: SyncRecordType, payload: T) => {
-    const updatedAt = payload.deletedAt && (!payload.updatedAt || compareTimestamps(payload.deletedAt, payload.updatedAt) > 0) ? payload.deletedAt : payload.updatedAt || now;
+    const updatedAt = payload.deletedAt && (!payload.updatedAt || compareTimestamps(payload.deletedAt, payload.updatedAt) > 0) ? payload.deletedAt : payload.updatedAt || earliestSyncTimestamp;
     addNewest(records, { record_type: recordType, record_id: payload.id, payload, updated_at: updatedAt, deleted_at: payload.deletedAt || null });
   };
   state.sheets.forEach((sheet) => add("sheet", sheet));
   state.categories.forEach((category) => add("category", category));
   state.transactions.forEach((transaction) => add("transaction", transaction));
-  addNewest(records, { record_type: "preferences", record_id: "preferences", payload: cloudPreferences(state.preferences), updated_at: state.preferences.updatedAt || now, deleted_at: null });
+  addNewest(records, { record_type: "preferences", record_id: "preferences", payload: cloudPreferences(state.preferences), updated_at: state.preferences.updatedAt || earliestSyncTimestamp, deleted_at: null });
   (state.preferences.syncTombstones || []).forEach((tombstone) => addNewest(records, { record_type: tombstone.recordType, record_id: tombstone.recordId, payload: { id: tombstone.recordId }, updated_at: tombstone.deletedAt, deleted_at: tombstone.deletedAt }));
   return [...records.values()];
 }

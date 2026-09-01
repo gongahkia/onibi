@@ -381,12 +381,13 @@ export default function BudgetApp() {
 
   async function syncNow() {
     try {
-      const result = await syncIncrementalState({ sheets, transactions, categories, preferences }, preferences.lastSyncedAt);
+      const cursor = preferences.syncReconciliationVersion === 1 ? preferences.lastSyncedAt : undefined;
+      const result = await syncIncrementalState({ sheets, transactions, categories, preferences }, cursor);
       const syncedAt = result.cursor || new Date().toISOString();
       setSheets(result.state.sheets);
       setTransactions(result.state.transactions);
       setCategories(result.state.categories);
-      setPreferences((current) => ({ ...current, ...result.state.preferences, syncEnabled: true, lastSyncedAt: syncedAt, syncTombstones: (current.syncTombstones || []).filter((tombstone) => !result.settledTombstones.includes(`${tombstone.recordType}:${tombstone.recordId}`)) }));
+      setPreferences((current) => ({ ...current, ...result.state.preferences, syncEnabled: true, lastSyncedAt: syncedAt, syncReconciliationVersion: 1, syncTombstones: (current.syncTombstones || []).filter((tombstone) => !result.settledTombstones.includes(`${tombstone.recordType}:${tombstone.recordId}`)) }));
       setNotice("Cloud sync complete.");
     } catch (error) { setNotice(error instanceof Error ? error.message : "Sync failed."); }
   }

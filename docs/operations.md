@@ -17,7 +17,7 @@ Vercel Preview and Production contain only these public client variables:
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 
-The app uses Supabase Auth and the RLS-protected `public.app_sync_records` table. It does not require a service-role key. The checked-in `supabase/schema.sql` creates the full schema; `supabase/migrations/20260830_incremental_sync.sql` records the subsequent sync migration.
+The app uses Supabase Auth and the RLS-protected `public.app_sync_records` table. It does not require a service-role key. The checked-in `supabase/schema.sql` creates the full schema; the subsequent migrations are `20260830_incremental_sync.sql` and `20260902_harden_sync_rls.sql`.
 
 Before sending magic links, set Supabase Auth URL Configuration as follows:
 
@@ -34,9 +34,11 @@ npx vercel deploy --prod
 npx vercel logs --environment production --level error --since 5m
 npx supabase config push --project-ref ovrdwkcruxnthtcjbzxk
 npx supabase migration list --linked
+npx supabase db push --dry-run
+npx supabase db push
 ```
 
-For a new empty Supabase project, execute `supabase/schema.sql` first, then apply and mark `20260830_incremental_sync.sql` as applied before relying on `supabase db push`. This avoids applying the incremental migration before its parent tables exist.
+For a new empty Supabase project, execute `supabase/schema.sql` first, then apply and mark `20260830_incremental_sync.sql` as applied before relying on `supabase db push`. This avoids applying the incremental migration before its parent tables exist. Apply `20260902_harden_sync_rls.sql` to every existing project before allowing cloud sync: it explicitly denies the anonymous database role and permits each signed-in user to read and write only that user's sync records.
 
 After a production URL exists, update Supabase Auth’s Site URL and allowed redirect URLs before testing email sign-in. Test with two separate email accounts. Sync currently remains private to each authenticated user; household sharing is not implemented in the client sync flow.
 
