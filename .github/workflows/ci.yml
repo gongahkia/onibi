@@ -1,212 +1,37 @@
 name: CI
 
 on:
-  pull_request:
   push:
-    branches:
-      - main
-  schedule:
-    - cron: "17 3 * * *"
+    branches: [main]
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: read
 
 jobs:
-  verify:
-    name: Verify (${{ matrix.os }}, Node ${{ matrix.node }})
+  test:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: ubuntu-latest
-            node: 20
-
+        os: [macos-latest, ubuntu-latest]
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Node
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
         with:
-          node-version: ${{ matrix.node }}
+          go-version: "1.26.4"
+          cache: true
+      - run: go vet ./...
+      - run: go test -race -count=1 ./...
+      - run: go build ./cmd/onibi ./clients/onibi-notify
 
-      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Get pnpm store path
-        id: pnpm-store
-        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache pnpm store
-        uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-store.outputs.path }}
-          key: ${{ runner.os }}-node-${{ matrix.node }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-node-${{ matrix.node }}-pnpm-
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Build
-        run: pnpm -r build
-
-      - name: Test
-        run: pnpm -r test
-
-      - name: Replay Pi audit bundle
-        run: pnpm test:pi-bundle-replay
-
-      - name: Compare Zig Pi bundle contract
-        run: pnpm test:pi-bundle-equivalence
-
-      - name: Upload AppSec audit bundle
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: appsec-audit-bundle
-          path: .kelpclaw/appsec/**/audit-bundle
-          if-no-files-found: warn
-
-  pi:
-    name: Pi Agent (${{ matrix.target }})
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: aarch64-unknown-linux-gnu
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install Rust
-        run: |
-          rustup toolchain install stable --profile minimal --component clippy
-          rustup default stable
-
-      - name: Cache cargo registry
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin
-            ~/.cargo/registry
-            ~/.cargo/git
-            packages/pi-agent/target
-          key: ${{ runner.os }}-cargo-pi-${{ matrix.target }}-${{ hashFiles('packages/pi-agent/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-pi-${{ matrix.target }}-
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-        with:
-          platforms: arm64
-
-      - name: Install cross
-        run: |
-          if ! command -v cross >/dev/null 2>&1; then
-            cargo install cross --locked
-          fi
-
-      - name: Build Pi agent
-        run: cross build --manifest-path packages/pi-agent/Cargo.toml --target ${{ matrix.target }}
-
-      - name: Verify Pi systemd units
-        run: |
-          sudo install -m 0755 packages/pi-agent/target/${{ matrix.target }}/debug/kelp-pi-agent /usr/local/bin/kelp-pi-agent
-          sudo install -d /opt/kelp-pi/bin
-          sudo install -m 0755 packages/pi-agent/target/${{ matrix.target }}/debug/kelp-pi-agent /opt/kelp-pi/bin/kelp-pi
-          sudo useradd --system --home-dir /var/lib/kelp-pi --shell /usr/sbin/nologin kelp-pi
-          sudo mkdir -p /etc/kelp-pi /var/lib/kelp-pi/{corpus,evidence,bundles,index,audit,keys,policy,scope}
-          for unit in packages/pi-agent/systemd/kelp-pi-agent.service packages/pi-agent/systemd/kelp-pi.service; do
-            echo "systemd unit syntax: ${unit}"
-            sudo systemd-analyze verify "${unit}"
-            echo "systemd security threshold <3.0: ${unit}"
-            systemd-analyze security --offline=yes --threshold=2.99 --no-pager "${unit}"
-          done
-
-      - name: Install ARM64 binutils
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y binutils-aarch64-linux-gnu
-
-      - name: Check Pi agent stripped size
-        run: |
-          binary="packages/pi-agent/target/${{ matrix.target }}/debug/kelp-pi-agent"
-          stripped="${RUNNER_TEMP}/kelp-pi-agent-stripped"
-          max_bytes=$((20 * 1024 * 1024))
-          aarch64-linux-gnu-objcopy --strip-all "$binary" "$stripped"
-          size_bytes=$(stat -c%s "$stripped")
-          echo "stripped_size_bytes=${size_bytes}"
-          test "$size_bytes" -le "$max_bytes"
-
-      - name: Clippy Pi agent
-        run: cross clippy --manifest-path packages/pi-agent/Cargo.toml --target ${{ matrix.target }} -- -D warnings
-
-      - name: Test Pi agent
-        run: cross test --manifest-path packages/pi-agent/Cargo.toml --target ${{ matrix.target }}
-
-  pi-chunk-determinism:
-    name: Pi Chunk IDs (${{ matrix.name }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: linux-host
-            os: ubuntu-latest
-            mode: cargo
-          - name: macos-host
-            os: macos-latest
-            mode: cargo
-          - name: arm64-qemu
-            os: ubuntu-latest
-            mode: cross
-            target: aarch64-unknown-linux-gnu
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install Rust
-        run: |
-          rustup toolchain install stable --profile minimal
-          rustup default stable
-
-      - name: Set up QEMU
-        if: matrix.mode == 'cross'
-        uses: docker/setup-qemu-action@v3
-        with:
-          platforms: arm64
-
-      - name: Install cross
-        if: matrix.mode == 'cross'
-        run: |
-          if ! command -v cross >/dev/null 2>&1; then
-            cargo install cross --locked
-          fi
-
-      - name: Diff regenerated chunk IDs
-        shell: bash
-        run: |
-          if [ "${{ matrix.mode }}" = "cross" ]; then
-            cross run --manifest-path packages/pi-agent/Cargo.toml --target ${{ matrix.target }} -- eval chunk-ids > "${RUNNER_TEMP}/chunk-ids.txt"
-          else
-            cargo run --manifest-path packages/pi-agent/Cargo.toml -- eval chunk-ids > "${RUNNER_TEMP}/chunk-ids.txt"
-          fi
-          diff -u packages/pi-agent/fixtures/gold/chunk-ids.txt "${RUNNER_TEMP}/chunk-ids.txt"
-
-  pi-synthesis-eval:
-    name: Pi Synthesis Eval
+  vulnerability-check:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install Rust
-        run: |
-          rustup toolchain install stable --profile minimal
-          rustup default stable
-
-      - name: Run synthesis eval
-        run: cargo run --manifest-path packages/pi-agent/Cargo.toml -- eval synthesis
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.4"
+          cache: true
+      - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...

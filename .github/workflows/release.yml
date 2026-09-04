@@ -2,70 +2,23 @@ name: Release
 
 on:
   push:
-    tags:
-      - "v*"
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: Release tag to create or update.
-        required: true
+    tags: ["v*"]
 
 permissions:
   contents: write
 
 jobs:
-  pi:
-    name: Kelp Pi release asset
-    runs-on: ubuntu-latest
-    env:
-      ASSET: kelp-pi-aarch64
+  release:
+    runs-on: macos-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.tag || github.ref }}
-
-      - name: Set up Node
-        uses: actions/setup-node@v4
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
         with:
-          node-version: 20
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+          go-version: "1.26.4"
+          cache: true
+      - uses: goreleaser/goreleaser-action@v7
         with:
-          platforms: arm64
-
-      - name: Build release package
-        run: |
-          scripts/build-kelp-pi-aarch64.sh
-          scripts/package-kelp-pi-aarch64.sh
-
-      - name: Package release assets
-        run: |
-          mkdir -p dist
-          package_dir="${KELP_PI_PACKAGE_DIR:-.kelp-pi/dist/kelp-pi-linux-aarch64}"
-          tar -C "$package_dir" -czf "dist/$ASSET" .
-          (cd dist && sha256sum "$ASSET" > "$ASSET.sha256")
-          tar -tzf "dist/$ASSET" | sort | sed -n '1,40p'
-          cat "dist/$ASSET.sha256"
-
-      - name: Create or update GitHub release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
-        run: |
-          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release upload "$RELEASE_TAG" "dist/$ASSET" "dist/$ASSET.sha256" --clobber
-          else
-            gh release create "$RELEASE_TAG" "dist/$ASSET" "dist/$ASSET.sha256" \
-              --title "$RELEASE_TAG" \
-              --notes "Kelp Pi ARM64 release asset."
-          fi
-
-      - name: Verify published Pi release assets
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          KELP_PI_RELEASE_REPO: ${{ github.repository }}
-          KELP_PI_RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
-          KELP_PI_RELEASE_ASSET: ${{ env.ASSET }}
-        run: node scripts/verify-pi-release-assets.mjs
+          version: "~> v2"
+          args: release --clean

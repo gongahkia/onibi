@@ -1,8 +1,0 @@
-services:
-  kelp:
-    image: ghcr.io/gongahkia/kelp-claw:latest
-    build:
-      context: .
-      dockerfile: Dockerfile.kelp
-    command:
-      - help

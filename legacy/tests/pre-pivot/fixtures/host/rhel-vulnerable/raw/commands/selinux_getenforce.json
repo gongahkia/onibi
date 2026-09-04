@@ -1,5 +1,0 @@
-{
-  "command": ["getenforce"],
-  "stdout": "Permissive\n",
-  "stderr": ""
-}

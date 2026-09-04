@@ -1,7 +1,0 @@
-{
-  "name": "nestjs-app",
-  "version": "1.0.0",
-  "dependencies": {
-    "@nestjs/core": "^11.0.0"
-  }
-}

@@ -1,123 +1,102 @@
-# KelpClaw
+# Onibi
 
-KelpClaw is a local-only AppSec triage chat agent for Raspberry Pi 5. The target runtime is one Pi-resident `kelp-pi` binary that uses local GGUF weights through `llama.cpp`, gates tool actions through policy, and emits signed reproducible evidence bundles.
+Onibi is a Telegram-native remote command center for one developer's persistent local terminal sessions.
 
-## Status
+It runs named `tmux` sessions on your machine. From Telegram you can select a session, send literal input, inspect bounded output or a rendered terminal screen, send navigation/modifier keys, resize a tmux window, or use a guarded kill. Codex uses the local App Server for structured progress, approvals, and questions; Pi and Claude Code use local hooks for remote approvals and completion updates.
 
-- Active pivot: Zig `kelp-pi` implementation in `app/main.zig`.
-- Legacy reference code: TypeScript packages and Rust `packages/pi-agent` stay in tree until Zig parity.
-- Runtime target: no cloud APIs, no laptop control plane, no provider SDKs, no Ollama daemon.
-- Current blocker: real Pi acceptance still depends on a Raspberry Pi plus `.kelp-pi/acceptance.env`.
+## Scope
 
-## Quickstart
+Included: Telegram owner pairing, named durable sessions, generic `tmux` control, screenshots, audit/recovery, Codex semantic decisions, Pi approval extension, and Claude Code approval/completion hooks.
 
-```console
-$ corepack enable
-$ pnpm install --frozen-lockfile
-$ pnpm zig:test
-$ pnpm zig:build
-$ ./zig-out/bin/kelp-pi doctor --data-dir .kelp-pi
+Not included: browser/PWA UI, QR pairing, Ghostty handover, LAN/relay transports, team collaboration, arbitrary terminal-prompt inference, snapshots, or generic agent-hook catalogues.
+
+## Start
+
+Prerequisites: `tmux`, a Telegram bot token from BotFather, and Go 1.26.4+ when building from source. Codex sessions require a local authenticated `codex` CLI; Claude Code sessions require a local authenticated `claude` CLI.
+
+```sh
+make build
+./bin/onibi telegram setup --token "$ONIBI_TELEGRAM_TOKEN"
+./bin/onibi start
 ```
 
-Build and smoke-test the native `llama.cpp` path:
+The first start prints a pairing command. Send it from the one Telegram account that should control Onibi. The bot then accepts:
 
-```console
-$ pnpm llama:build
-$ pnpm zig:build:llama
-$ pnpm llama:smoke
-$ pnpm pi:package
+```text
+/new shell --name work --cwd /path/to/repo
+/new codex --cwd /path/to/repo
+/new claude --cwd /path/to/repo
+/sessions
+/tail 120
+/screen
+/font
+/keys
+/key ctrl-d
+/size large
+/paste
+/interrupt
+/kill
 ```
 
-Build the Pi-ready Linux/aarch64 package before live Pi testing:
+Plain messages go to the selected session and append Enter. Unknown slash commands go to that session too; prefix a conflicting Onibi command with `//` (for example, `//help`). `/paste` makes the next message literal, with no implicit Enter, and expires after five minutes. `/keys` exposes arrows, Tab, Shift-Tab, Backspace, Delete, Home, End, PgUp, PgDn, Esc, Ctrl-C, Ctrl-D, Ctrl-Z, Ctrl-L, Ctrl-R, Enter, and tmux size presets; `/key <name>` accepts the same keys plus `ctrl-a` through `ctrl-z`, `meta-a` through `meta-z`, and `f1` through `f12`.
 
-```console
-$ pnpm llama:build:aarch64
-$ pnpm zig:build:aarch64
-$ pnpm pi:package:aarch64
-$ pnpm pi:preflight:aarch64
+Codex sessions are semantic, not tmux windows: after `/new codex`, send a normal message to start a turn. A later normal message steers the active turn. Claude Code runs in tmux; Onibi attaches an owned settings file with permission, structured `AskUserQuestion`, and completion hooks. Claude question cards support sequential single-select, multi-select, and free-text answers; their default expiry is three minutes and is configurable with `daemon.claude_question_timeout` (30s–10m). `/font` selects the terminal-screen font remotely; JetBrainsMono Nerd Font Mono, Caskaydia Cove Nerd Font Mono, and Go Mono Nerd Font Mono are embedded. To use a locally installed BigBlueTerminal Nerd Font Mono, set `screen.font_path` then `screen.font=custom` locally.
+
+## Local CLI
+
+```sh
+./bin/onibi session new shell --name work
+./bin/onibi session list
+./bin/onibi telegram status --check
+./bin/onibi system status
+./bin/onibi system logs --tail 100
+./bin/onibi system config set screen.font caskaydia-cove-nerd
+./bin/onibi system service install
 ```
 
-The default Docker builder targets Raspberry Pi OS Bookworm 64-bit / glibc 2.36.
+`onibi session new` needs a running daemon. `onibi system service install` starts `onibi start` in the per-user service manager.
 
-Run the local policy gate:
+`onibi system status` reports actual daemon socket and service liveness. If `daemon_running=false`, start the daemon or install/restart the service before using Telegram.
 
-```console
-$ ./zig-out/bin/kelp-pi policy check --tool Bash --command 'sqlmap -u http://target'
-$ ./zig-out/bin/kelp-pi policy check --tool Bash --command 'nuclei -u http://target'
-```
+## Delivery and uploads
 
-Exercise the Pi-local flow without running scanners:
+Onibi persists Telegram update claims before executing an input. If it restarts mid-update, it marks that input uncertain and asks you to inspect/resend rather than executing it again. Screens, final tails, and session-ended notices are queued as durable intents and retried; terminal text and PNGs are held only in memory around delivery and never stored in that queue. Automatic generic-input screens are debounced for 500ms, deduplicated by rendered terminal state, and share one capture between the status tail and PNG. `/status` reports poll freshness, delivery failures, queue depth, and tmux health for each live session; it alerts after three consecutive poll failures, on permanent delivery failures, and once on recovery.
 
-```console
-$ ./zig-out/bin/kelp-pi keygen --data-dir .kelp-pi --label dev-pi
-$ ./zig-out/bin/kelp-pi scope set --data-dir .kelp-pi --host http://fixture.local --until 2026-12-31T00:00:00Z
-$ token="$(./zig-out/bin/kelp-pi approval-request --data-dir .kelp-pi --scope-id default --command 'nuclei http://fixture.local' | node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>process.stdout.write(JSON.parse(s).token))')"
-$ ./zig-out/bin/kelp-pi approve --data-dir .kelp-pi "$token"
-$ ./zig-out/bin/kelp-pi scan nuclei --data-dir .kelp-pi --target http://fixture.local --approval-token <token> --dry-run
-```
+The daemon checks managed tmux sessions every five seconds. A locally ended tmux session becomes unavailable immediately on the next check and sends one ended notice. Change the cadence with `daemon.liveness_interval` (1s–5m).
 
-Create and verify a minimal bundle:
+Send a Telegram document to stage it privately for the selected live tmux session. Onibi downloads it to `state/uploads/<session-id>/`, reports its local path, and does not insert or execute it. Defaults: 20 MiB, seven-day retention; configure `daemon.upload_max_bytes` (1–100 MiB) and `daemon.upload_ttl` (1h–30d).
 
-```console
-$ ./zig-out/bin/kelp-pi bundle assemble --run-id local --workspace . --output .kelp-pi/bundles/local
-$ ./zig-out/bin/kelp-pi verify-bundle .kelp-pi/bundles/local
-```
+## Decisions and safety
 
-Open the chat shell:
+Telegram callback payloads are opaque local tokens. Decisions are persisted before agent resumption and are idempotent. High-risk Pi approvals require a second confirmation. Codex App Server approvals and user-input questions become native inline cards; Claude `AskUserQuestion` calls receive the same structured interaction; `thread/shellCommand` is intentionally never exposed. Claude `--bare`, `--settings`, permission-bypass, and `dontAsk` modes are rejected at session creation.
 
-```console
-$ ./zig-out/bin/kelp-pi chat --data-dir .kelp-pi
-```
+Telegram is not end-to-end encrypted for bots. Treat every message, screenshot, and approval payload as terminal-access-sensitive; do not send secrets through this bot. The local OS account remains trusted.
 
-## Product Contract
-
-- Fully local AppSec triage chat on Raspberry Pi 5.
-- One model surface: local GGUF through `llama.cpp`.
-- One operator surface: `kelp-pi` on the Pi over SSH or direct TTY.
-- Input: chat turns, scanner imports, scope declarations, and policy approvals.
-- Output: signed transcript, normalized findings, citations, policy decisions, and audit bundle.
-- Default posture: no exploit execution, no credential exfiltration, no persistence, no lateral movement, no scanning outside declared scope.
-
-## Architecture
-
-```mermaid
-flowchart LR
-  operator["operator SSH/TTY"] --> repl["kelp-pi chat"]
-  repl --> architect["triage architect"]
-  architect --> editor["scanner editor"]
-  editor --> policy["policy evaluator"]
-  policy --> approvals["approval tokens"]
-  policy --> scanners["scoped scanners"]
-  scanners --> evidence["evidence workspace"]
-  evidence --> index["SQLite FTS5 target"]
-  index --> architect
-  evidence --> bundle["signed audit bundle target"]
-  repl --> transcript["append-only transcript"]
-  transcript --> bundle
-  model["llama.cpp + GGUF"] --> architect
-```
-
-## Repository Layout
-
-- `app/`: Zig `kelp-pi` source.
-- `build.zig`: Zig build and test entrypoint.
-- `policies/`: TOML policy packs ported from TypeScript rules.
-- `models/manifest.toml`: pinned GGUF URLs and SHA-256 slots.
-- `docs/pi.md`: pivot design.
-- `docs/pi-todo.md`: active implementation checklist.
-- `packages/`: legacy TypeScript and Rust references until cutover.
+See [Telegram operation details](docs/telegram.md), [threat model](THREAT-MODEL.md), and the implementation boundary in [REWRITE.md](REWRITE.md).
 
 ## Verification
 
-```console
-$ pnpm verify
-$ zig build test
-$ zig build
-$ pnpm llama:smoke
-$ pnpm pi:preflight:aarch64
-$ pnpm accept:pi
+```sh
+make vet
+make test
+make build
 ```
+
+`go test ./...` is hermetic. `make test` also runs the mandatory live production-Telegram E2E against a dedicated test account and bot; it creates shell, Codex, and Claude sessions, sends agent prompts, verifies a daemon restart, and attempts cleanup of its temporary state and managed sessions. It fails before execution unless all required credentials are set:
+
+```sh
+export ONIBI_E2E_API_ID=...
+export ONIBI_E2E_API_HASH=...
+export ONIBI_E2E_SESSION_FILE=/secure/path/to/authorized-gotd.session
+export ONIBI_E2E_BOT_USERNAME=your_dedicated_test_bot
+export ONIBI_E2E_BOT_TOKEN=...
+make test
+```
+
+The MTProto account must already be authorized in the supplied `gotd` session file and must be the dedicated bot's private-chat owner. Keep this bot separate from normal Onibi use: the test launches a real daemon and real Codex and Claude turns.
 
 ## License
 
-MIT. See [`LICENSE`](LICENSE).
+Apache-2.0.
+
+Bundled screenshot fonts and their licenses are listed in [third-party notices](THIRD_PARTY_NOTICES.md).

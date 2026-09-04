@@ -1,1 +1,0 @@
-system("convert #{params[:file]}")

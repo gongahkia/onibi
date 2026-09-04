@@ -1,5 +1,0 @@
-DataDirectory /var/lib/tor
-SocksPort 0
-HiddenServiceDir /var/lib/tor/hidden_service
-HiddenServiceVersion 3
-HiddenServicePort 443 relay:50051

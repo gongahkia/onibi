@@ -1,4 +1,0 @@
-[
-  {"name": "redis", "version": "6.2.7", "release": "1.el9", "arch": "x86_64"},
-  {"name": "openssl", "version": "3.0.7", "release": "20.el9", "arch": "x86_64"}
-]

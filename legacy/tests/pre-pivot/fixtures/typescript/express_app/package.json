@@ -1,7 +1,0 @@
-{
-  "name": "piranesi-fixture-app",
-  "private": true,
-  "dependencies": {
-    "express": "^4.19.0"
-  }
-}

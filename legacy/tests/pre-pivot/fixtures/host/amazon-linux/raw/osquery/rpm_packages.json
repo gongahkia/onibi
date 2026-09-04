@@ -1,4 +1,0 @@
-[
-  {"name": "ssm-agent", "version": "3.2.2222", "release": "1.amzn2023", "arch": "x86_64"},
-  {"name": "openssl", "version": "3.0.8", "release": "1.amzn2023", "arch": "x86_64"}
-]
