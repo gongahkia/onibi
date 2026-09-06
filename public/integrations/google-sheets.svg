@@ -1,6 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 64" role="img" aria-label="Google Sheets">
-  <path fill="#0F9D58" d="M7 1h23l11 11v45a6 6 0 0 1-6 6H7a6 6 0 0 1-6-6V7a6 6 0 0 1 6-6Z"/>
-  <path fill="#87CEAC" d="M30 1v11h11z"/>
-  <path fill="#fff" d="M10 27h22v21H10z" opacity=".96"/>
-  <path fill="#0F9D58" d="M16 27h3v21h-3zm7 0h3v21h-3zM10 34h22v3H10zm0 7h22v3H10z"/>
-</svg>
