@@ -25,8 +25,9 @@ its public surface requires a separate read for every available hour; increase
 
 ActiveSG, onePA, The Kallang / OCBC Arena, and TruSmash remain disabled by
 default: this repository has no confirmed anonymous availability endpoint for
-them. ActiveSG and The Kallang have dedicated, operator-imported Playwright
-session readers. The Kallang reader selects only the **Badminton Courts**
+them. ActiveSG has a typed JSON reader authenticated by operator-imported
+Playwright storage state. The Kallang has a dedicated browser reader that
+selects only the **Badminton Courts**
 facility type, advances the weekly calendar, and reads its JSON response. It
 does not automate login or select a facility, slot, ballot, cart, checkout, or
 payment flow. The remaining partners can be configured with a partner API,
@@ -44,6 +45,7 @@ is used for optional geocoding/routing when its credentials are configured.
 
 ```sh
 go build -o bin/kaypoh ./cmd/kaypoh
+npm ci --ignore-scripts
 go run github.com/mxschmitt/playwright-go/cmd/playwright@v0.6201.1 install chromium
 ./bin/kaypoh config init
 ./bin/kaypoh
@@ -66,8 +68,9 @@ half-open interval `[start, end)`.
 
 ## Docker
 
-The Docker image includes the matching Playwright driver, headless Chromium,
-and its Linux dependencies. Runtime data lives in the named `kaypoh-data`
+The Docker image includes Node.js, the pinned ActiveSG request transport,
+the matching Go Playwright driver, headless Chromium, and its Linux dependencies.
+Runtime data lives in the named `kaypoh-data`
 volume; the local configuration and all secrets remain outside the image.
 
 ```sh
@@ -191,10 +194,10 @@ attempt to solve or bypass interactive challenges.
 
 ### ActiveSG badminton reader
 
-The ActiveSG reader is a separate, dedicated path because the booking page
-renders hourly availability after a date-card click rather than exposing the
-generic JSON contract above. It accepts only the verified badminton venue-list
-URL and an imported session. It does not accept credentials or login selectors.
+The ActiveSG reader is a separate, dedicated path because its typed tRPC JSON
+contract differs from the generic contract above. It accepts only the verified
+badminton venue-list URL and an imported session. It does not accept credentials
+or login selectors and does not launch Chromium during a refresh.
 
 ```toml
 [sources.myactivesg]
@@ -212,12 +215,12 @@ session_state_base64 = "env:KAYPOH_ACTIVESG_SESSION_STATE_B64"
 
 Set `scan_all = true` and omit `venue_names` only when a sequential scan of
 every venue on the current list is intended. Name matching is case-insensitive
-substring matching. The reader maps visible **instant** hourly starts to
-bookable one-hour slots. Ballot-only, already-balloted, and empty dates are
-read as non-bookable results, but are not published as bookable slots:
+substring matching; `Sports` is normalized to ActiveSG's official singular
+`Sport`. The reader maps typed **instant** start/end ranges to bookable slots.
+Ballot-only and empty dates are read as non-bookable results, but are not published as bookable slots:
 Kaypoh has no ballot-entry feature and its search results mean a concrete,
-bookable time. ActiveSG does not expose per-court identity on this surface, so
-these records are venue-level availability rather than court-specific claims.
+bookable time. The schedule response exposes available subvenue IDs but not
+human-readable court names, so these records remain venue-level availability.
 
 ### The Kallang / OCBC Arena reader
 

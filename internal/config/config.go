@@ -79,7 +79,7 @@ type SourcePublic struct {
 }
 
 // SourceActiveSG configures the dedicated, read-only ActiveSG badminton
-// reader. It uses only an imported browser session and does not automate
+// schedule API reader. It uses only an imported browser session and does not automate
 // login, booking, ballot review, payment, confirmation, CAPTCHA, or OTP.
 type SourceActiveSG struct {
 	Enabled            bool     `toml:"enabled"`

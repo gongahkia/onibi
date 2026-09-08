@@ -13,15 +13,24 @@ RUN playwright_version="$(go list -m -f '{{.Version}}' github.com/mxschmitt/play
     && go install github.com/mxschmitt/playwright-go/cmd/playwright@"${playwright_version}" \
     && CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/kaypoh ./cmd/kaypoh
 
+FROM node:24-bookworm-slim AS node-deps
+WORKDIR /app
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts
+
 FROM ubuntu:24.04 AS runtime
 ARG DEBIAN_FRONTEND=noninteractive
 ENV PLAYWRIGHT_DRIVER_PATH=/opt/playwright/driver \
     PLAYWRIGHT_BROWSERS_PATH=/opt/playwright/browsers \
+    NODE_PATH=/opt/kaypoh/node_modules \
     TZ=Asia/Singapore \
     XDG_CONFIG_HOME=/etc \
     XDG_DATA_HOME=/var/lib
 
 COPY --from=build /go/bin/playwright /usr/local/bin/playwright
+COPY --from=node-deps /usr/local/bin/node /usr/local/bin/node
+COPY --from=node-deps /app/node_modules /opt/kaypoh/node_modules
 
 # The Playwright CLI downloads the driver, Chromium, and the Linux libraries
 # required by browser-backed partner readers at image-build time.

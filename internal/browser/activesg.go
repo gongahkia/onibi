@@ -2,39 +2,35 @@ package browser
 
 import (
 	"context"
+	_ "embed"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
-	"regexp"
+	"os/exec"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
-
-	"github.com/mxschmitt/playwright-go"
 )
 
 const (
-	ActiveSGInstant          = "instant"
-	ActiveSGBallot           = "ballot"
-	ActiveSGSlotsVisible     = "slots_visible"
-	ActiveSGBallotAvailable  = "ballot_available"
-	ActiveSGAlreadyBalloted  = "already_balloted"
-	ActiveSGNoHourlySlots    = "no_hourly_slots_visible"
-	activeSGDateButtonSelect = `button[aria-label^="View timeslots for "]`
-	activeSGVenueLinkSelect  = `a[href*="/venues/"][href$="/timeslots"]`
+	ActiveSGInstant         = "instant"
+	ActiveSGBallot          = "ballot"
+	ActiveSGSlotsVisible    = "slots_visible"
+	ActiveSGBallotAvailable = "ballot_available"
+	ActiveSGAlreadyBalloted = "already_balloted"
+	ActiveSGNoHourlySlots   = "no_hourly_slots_visible"
+
+	activeSGVenueProcedure    = "venue.listByActivity"
+	activeSGScheduleProcedure = "schedule.listAvailable"
 )
 
-var (
-	activeSGDateLabelPattern = regexp.MustCompile(`^View timeslots for (Mon|Tue|Wed|Thu|Fri|Sat|Sun), (\d{1,2}) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)$`)
-	activeSGTimePattern      = regexp.MustCompile(`(?i)\b(1[0-2]|0?[1-9]):([0-5][0-9])\s*(am|pm)\b`)
-	activeSGWeekdayPattern   = regexp.MustCompile(`^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)$`)
-	activeSGMonthDayPattern  = regexp.MustCompile(`^\d{1,2} (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)$`)
-)
+//go:embed activesg_transport.js
+var activeSGTransportScript string
 
-// ActiveSGScanRequest scopes a read-only browser scan to a venue-list page.
-// The imported session is used in memory only; this path contains no login or
-// booking action.
+// ActiveSGScanRequest scopes a read-only API scan to one badminton activity.
+// The imported Playwright storage state is used in memory only.
 type ActiveSGScanRequest struct {
 	VenueListURL       string
 	VenueNames         []string
@@ -44,29 +40,71 @@ type ActiveSGScanRequest struct {
 	Timeout            time.Duration
 }
 
-// ActiveSGAvailability is the observed venue-level date result before it is
-// mapped into Kaypoh's bookable-slot model. ActiveSG does not expose court IDs
-// on this surface, so SlotStartTimes are aggregate venue-level starts.
+// ActiveSGSlot is one aggregate time returned by schedule.listAvailable. The
+// subvenue IDs identify the facilities available at that time, but the endpoint
+// does not include stable human-readable court names.
+type ActiveSGSlot struct {
+	Start       time.Time
+	End         time.Time
+	SubvenueIDs []string
+}
+
+// ActiveSGAvailability is one typed schedule result for a venue and date.
 type ActiveSGAvailability struct {
 	VenueID            string
 	VenueName          string
 	VenueURL           string
+	VenueAddress       string
+	VenuePostalCode    string
+	VenueLatitude      float64
+	VenueLongitude     float64
 	Date               time.Time
 	DateLabel          string
 	AvailabilityType   string
 	AvailabilityStatus string
-	SlotStartTimes     []string
+	Slots              []ActiveSGSlot
 }
 
-// ActiveSGScanner keeps the provider adapter testable without launching
-// Chromium. It has no method capable of booking or reviewing a ballot.
+// ActiveSGScanner keeps the provider adapter testable without starting the
+// Playwright request driver.
 type ActiveSGScanner interface {
 	ScanActiveSG(context.Context, ActiveSGScanRequest) ([]ActiveSGAvailability, error)
 }
 
-// ScanActiveSG reads the currently listed ActiveSG venues sequentially. It
-// opens venue pages and clicks date cards only; it never selects a slot or
-// follows a Continue, Review ballot, checkout, or payment control.
+type activeSGVenue struct {
+	ID         string  `json:"id"`
+	Name       string  `json:"name"`
+	Address    string  `json:"address"`
+	Status     string  `json:"status"`
+	Latitude   float64 `json:"latitude"`
+	Longitude  float64 `json:"longitude"`
+	PostalCode string  `json:"postalCode"`
+}
+
+type activeSGScheduleDay struct {
+	Type      string                 `json:"type"`
+	Timeslots []activeSGScheduleSlot `json:"timeslots"`
+}
+
+type activeSGScheduleSlot struct {
+	Start     int64 `json:"start"`
+	End       int64 `json:"end"`
+	Subvenues []struct {
+		ID string `json:"id"`
+	} `json:"subvenues"`
+}
+
+type activeSGEnvelope[T any] struct {
+	Result struct {
+		Data struct {
+			JSON T `json:"json"`
+		} `json:"data"`
+	} `json:"result"`
+	Error json.RawMessage `json:"error"`
+}
+
+// ScanActiveSG calls the same read-only tRPC endpoints used by the venue and
+// schedule pages. It does not render the page or touch booking/ballot controls.
 func (client *Playwright) ScanActiveSG(ctx context.Context, request ActiveSGScanRequest) ([]ActiveSGAvailability, error) {
 	if err := validateActiveSGRequest(request); err != nil {
 		return nil, err
@@ -75,41 +113,48 @@ func (client *Playwright) ScanActiveSG(ctx context.Context, request ActiveSGScan
 		return nil, err
 	}
 	defer func() { <-client.sem }()
-	if err := client.start(); err != nil {
-		return nil, err
-	}
-
-	options, err := contextOptions(request.SessionStateBase64)
+	state, err := activeSGStorageState(request.SessionStateBase64)
 	if err != nil {
 		return nil, err
-	}
-	options.TimezoneId = playwright.String("Asia/Singapore")
-	context, err := client.browser.NewContext(options)
-	if err != nil {
-		return nil, fmt.Errorf("create ActiveSG browser context: %w", err)
-	}
-	defer context.Close()
-	page, err := context.NewPage()
-	if err != nil {
-		return nil, fmt.Errorf("open ActiveSG venue list: %w", err)
 	}
 	timeout := request.Timeout
 	if timeout <= 0 {
 		timeout = 25 * time.Second
 	}
-	page.SetDefaultTimeout(float64(timeout.Milliseconds()))
-	page.SetDefaultNavigationTimeout(float64(timeout.Milliseconds()))
-
-	venues, err := activeSGVenueLinks(ctx, page, request)
+	activityID, err := activeSGActivityID(request.VenueListURL)
 	if err != nil {
 		return nil, err
 	}
-	results := make([]ActiveSGAvailability, 0, len(venues)*4)
+	venueEndpoint, err := activeSGVenueEndpoint(request, activityID)
+	if err != nil {
+		return nil, err
+	}
+	venueBodies, err := activeSGNodeRequests(ctx, state, []string{venueEndpoint}, timeout)
+	if err != nil {
+		return nil, fmt.Errorf("read ActiveSG venue list: %w", err)
+	}
+	venues, err := activeSGVenueList(venueBodies[0], request)
+	if err != nil {
+		return nil, err
+	}
+	scheduleEndpoints := make([]string, 0, len(venues))
 	for _, venue := range venues {
+		endpoint, err := activeSGScheduleEndpoint(request, activityID, venue.ID)
+		if err != nil {
+			return nil, err
+		}
+		scheduleEndpoints = append(scheduleEndpoints, endpoint)
+	}
+	scheduleBodies, err := activeSGNodeRequests(ctx, state, scheduleEndpoints, timeout)
+	if err != nil {
+		return nil, fmt.Errorf("read ActiveSG schedules: %w", err)
+	}
+	results := make([]ActiveSGAvailability, 0, len(venues)*4)
+	for index, venue := range venues {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		rows, err := activeSGVenueDates(ctx, page, venue)
+		rows, err := activeSGVenueSchedule(scheduleBodies[index], request, activityID, venue)
 		if err != nil {
 			return nil, err
 		}
@@ -118,19 +163,247 @@ func (client *Playwright) ScanActiveSG(ctx context.Context, request ActiveSGScan
 	return results, nil
 }
 
-type activeSGVenueLink struct {
-	ID   string
-	Name string
-	URL  string
+func activeSGVenueEndpoint(request ActiveSGScanRequest, activityID string) (string, error) {
+	input := map[string]any{
+		"json": map[string]any{"activityId": activityID, "postalCode": nil},
+		"meta": map[string]any{"values": map[string]any{"postalCode": []string{"undefined"}}},
+	}
+	return activeSGProcedureURL(request.VenueListURL, activeSGVenueProcedure, input, request.PermittedHosts)
+}
+
+func activeSGVenueList(body json.RawMessage, request ActiveSGScanRequest) ([]activeSGVenue, error) {
+	var envelope activeSGEnvelope[[]activeSGVenue]
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return nil, fmt.Errorf("decode ActiveSG venue list: %w", err)
+	}
+	if len(envelope.Error) > 0 && string(envelope.Error) != "null" {
+		return nil, errors.New("ActiveSG venue list returned a tRPC error")
+	}
+	venues := make([]activeSGVenue, 0, len(envelope.Result.Data.JSON))
+	for _, venue := range envelope.Result.Data.JSON {
+		if strings.TrimSpace(venue.ID) == "" || strings.TrimSpace(venue.Name) == "" {
+			return nil, errors.New("ActiveSG venue list contains a venue without an ID or name")
+		}
+		if venue.Status != "" && venue.Status != "ACTIVE" {
+			continue
+		}
+		if matchesActiveSGVenue(venue.Name, request.VenueNames, request.ScanAll) {
+			venues = append(venues, venue)
+		}
+	}
+	if len(venues) == 0 {
+		return nil, errors.New("ActiveSG venue list did not match any requested venue")
+	}
+	sort.Slice(venues, func(i, j int) bool { return venues[i].ID < venues[j].ID })
+	return venues, nil
+}
+
+func activeSGScheduleEndpoint(request ActiveSGScanRequest, activityID, venueID string) (string, error) {
+	input := map[string]any{"json": map[string]any{"venueId": venueID, "activityId": activityID}}
+	return activeSGProcedureURL(request.VenueListURL, activeSGScheduleProcedure, input, request.PermittedHosts)
+}
+
+func activeSGVenueSchedule(body json.RawMessage, request ActiveSGScanRequest, activityID string, venue activeSGVenue) ([]ActiveSGAvailability, error) {
+	var envelope activeSGEnvelope[[]json.RawMessage]
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return nil, fmt.Errorf("decode ActiveSG schedule at %q: %w", venue.Name, err)
+	}
+	if len(envelope.Error) > 0 && string(envelope.Error) != "null" {
+		return nil, fmt.Errorf("ActiveSG schedule at %q returned a tRPC error", venue.Name)
+	}
+	return decodeActiveSGSchedule(envelope.Result.Data.JSON, request.VenueListURL, activityID, venue)
+}
+
+func decodeActiveSGSchedule(rawRows []json.RawMessage, venueListURL, activityID string, venue activeSGVenue) ([]ActiveSGAvailability, error) {
+	location, err := time.LoadLocation("Asia/Singapore")
+	if err != nil {
+		location = time.FixedZone("SGT", 8*60*60)
+	}
+	rows := make([]ActiveSGAvailability, 0, len(rawRows))
+	for index, raw := range rawRows {
+		var tuple []json.RawMessage
+		if err := json.Unmarshal(raw, &tuple); err != nil || len(tuple) != 2 {
+			return nil, fmt.Errorf("decode schedule row %d: expected [date, availability]", index+1)
+		}
+		var dateValue string
+		var day activeSGScheduleDay
+		if err := json.Unmarshal(tuple[0], &dateValue); err != nil {
+			return nil, fmt.Errorf("decode schedule row %d date: %w", index+1, err)
+		}
+		date, err := time.ParseInLocation("2006-01-02", dateValue, location)
+		if err != nil {
+			return nil, fmt.Errorf("decode schedule row %d date: %w", index+1, err)
+		}
+		if err := json.Unmarshal(tuple[1], &day); err != nil {
+			return nil, fmt.Errorf("decode schedule row %d availability: %w", index+1, err)
+		}
+		if day.Type != ActiveSGInstant && day.Type != ActiveSGBallot {
+			return nil, fmt.Errorf("decode schedule row %d: unknown availability type %q", index+1, day.Type)
+		}
+		slots := make([]ActiveSGSlot, 0, len(day.Timeslots))
+		for slotIndex, rawSlot := range day.Timeslots {
+			start := time.UnixMilli(rawSlot.Start)
+			end := time.UnixMilli(rawSlot.End)
+			if rawSlot.Start <= 0 || !end.After(start) || start.In(location).Format("2006-01-02") != dateValue {
+				return nil, fmt.Errorf("decode schedule row %d slot %d: invalid time range", index+1, slotIndex+1)
+			}
+			subvenueIDs := make([]string, 0, len(rawSlot.Subvenues))
+			seen := make(map[string]struct{}, len(rawSlot.Subvenues))
+			for _, subvenue := range rawSlot.Subvenues {
+				id := strings.TrimSpace(subvenue.ID)
+				if id == "" {
+					return nil, fmt.Errorf("decode schedule row %d slot %d: empty subvenue ID", index+1, slotIndex+1)
+				}
+				if _, ok := seen[id]; !ok {
+					seen[id] = struct{}{}
+					subvenueIDs = append(subvenueIDs, id)
+				}
+			}
+			sort.Strings(subvenueIDs)
+			slots = append(slots, ActiveSGSlot{Start: start, End: end, SubvenueIDs: subvenueIDs})
+		}
+		status := ActiveSGNoHourlySlots
+		if day.Type == ActiveSGBallot {
+			status = ActiveSGBallotAvailable
+		} else if len(slots) > 0 {
+			status = ActiveSGSlotsVisible
+		}
+		venueURL, err := activeSGTimeslotURL(venueListURL, activityID, venue.ID)
+		if err != nil {
+			return nil, err
+		}
+		rows = append(rows, ActiveSGAvailability{
+			VenueID: venue.ID, VenueName: venue.Name, VenueURL: venueURL,
+			VenueAddress: venue.Address, VenuePostalCode: venue.PostalCode,
+			VenueLatitude: venue.Latitude, VenueLongitude: venue.Longitude,
+			Date: date, DateLabel: date.Format("Mon, 2 Jan"), AvailabilityType: day.Type,
+			AvailabilityStatus: status, Slots: slots,
+		})
+	}
+	return rows, nil
+}
+
+func activeSGStorageState(encoded string) (json.RawMessage, error) {
+	decoded, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return nil, errors.New("decode imported browser session: invalid base64")
+	}
+	var state struct {
+		Cookies []json.RawMessage `json:"cookies"`
+		Origins []json.RawMessage `json:"origins"`
+	}
+	if err := json.Unmarshal(decoded, &state); err != nil {
+		return nil, errors.New("decode imported browser session: invalid storage-state JSON")
+	}
+	if state.Cookies == nil || state.Origins == nil {
+		return nil, errors.New("decode imported browser session: missing cookies storage-state fields")
+	}
+	return json.RawMessage(decoded), nil
+}
+
+type activeSGNodeRequest struct {
+	StorageState        json.RawMessage `json:"storageState"`
+	URLs                []string        `json:"urls"`
+	TimeoutMilliseconds float64         `json:"timeoutMilliseconds"`
+}
+
+type activeSGNodeResponse struct {
+	Status     int    `json:"status"`
+	StatusText string `json:"statusText"`
+	Body       string `json:"body"`
+}
+
+func activeSGNodeRequests(ctx context.Context, state json.RawMessage, endpoints []string, timeout time.Duration) ([]json.RawMessage, error) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		return nil, errors.New("ActiveSG API reader needs Node.js 20 or newer in PATH")
+	}
+	request := activeSGNodeRequest{StorageState: state, URLs: endpoints, TimeoutMilliseconds: float64(timeout.Milliseconds())}
+	input, err := json.Marshal(request)
+	if err != nil {
+		return nil, fmt.Errorf("encode ActiveSG transport request: %w", err)
+	}
+	command := exec.CommandContext(ctx, node, "-e", activeSGTransportScript)
+	command.Stdin = strings.NewReader(string(input))
+	output, err := command.Output()
+	if err != nil {
+		if exitError, ok := err.(*exec.ExitError); ok {
+			detail := strings.TrimSpace(string(exitError.Stderr))
+			if detail != "" {
+				return nil, fmt.Errorf("ActiveSG API transport: %s", detail)
+			}
+		}
+		return nil, fmt.Errorf("ActiveSG API transport: %w", err)
+	}
+	var responses []activeSGNodeResponse
+	if err := json.Unmarshal(output, &responses); err != nil {
+		return nil, fmt.Errorf("decode ActiveSG transport response: %w", err)
+	}
+	if len(responses) != len(endpoints) {
+		return nil, fmt.Errorf("ActiveSG transport returned %d responses for %d requests", len(responses), len(endpoints))
+	}
+	bodies := make([]json.RawMessage, 0, len(responses))
+	for index, response := range responses {
+		if response.Status < 200 || response.Status > 299 {
+			return nil, fmt.Errorf("request %d: HTTP %d %s", index+1, response.Status, response.StatusText)
+		}
+		body := json.RawMessage(response.Body)
+		if !json.Valid(body) {
+			return nil, fmt.Errorf("request %d: response is not JSON", index+1)
+		}
+		bodies = append(bodies, body)
+	}
+	return bodies, nil
+}
+
+func activeSGProcedureURL(baseURL, procedure string, input any, permittedHosts []string) (string, error) {
+	parsed, err := url.Parse(baseURL)
+	if err != nil {
+		return "", fmt.Errorf("parse ActiveSG URL: %w", err)
+	}
+	payload, err := json.Marshal(input)
+	if err != nil {
+		return "", fmt.Errorf("encode ActiveSG request: %w", err)
+	}
+	parsed.Path = "/api/trpc/" + procedure
+	parsed.RawPath = ""
+	parsed.RawQuery = url.Values{"input": []string{string(payload)}}.Encode()
+	parsed.Fragment = ""
+	if err := validateURL(parsed.String(), permittedHosts); err != nil {
+		return "", fmt.Errorf("ActiveSG API URL: %w", err)
+	}
+	return parsed.String(), nil
+}
+
+func activeSGActivityID(rawURL string) (string, error) {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return "", fmt.Errorf("parse ActiveSG venue list URL: %w", err)
+	}
+	segments := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+	if len(segments) != 4 || segments[0] != "facility-bookings" || segments[1] != "activities" || segments[2] == "" || segments[3] != "venues" {
+		return "", errors.New("ActiveSG venue list URL must be a facility-bookings activity venue list")
+	}
+	return segments[2], nil
+}
+
+func activeSGTimeslotURL(baseURL, activityID, venueID string) (string, error) {
+	parsed, err := url.Parse(baseURL)
+	if err != nil {
+		return "", fmt.Errorf("parse ActiveSG venue list URL: %w", err)
+	}
+	parsed.Path = "/facility-bookings/activities/" + url.PathEscape(activityID) + "/venues/" + url.PathEscape(venueID) + "/timeslots"
+	parsed.RawQuery = ""
+	parsed.Fragment = ""
+	return parsed.String(), nil
 }
 
 func validateActiveSGRequest(request ActiveSGScanRequest) error {
 	if err := validateURL(request.VenueListURL, request.PermittedHosts); err != nil {
 		return fmt.Errorf("ActiveSG venue list URL: %w", err)
 	}
-	parsed, _ := url.Parse(request.VenueListURL)
-	if !strings.HasPrefix(parsed.Path, "/facility-bookings/activities/") || !strings.HasSuffix(parsed.Path, "/venues") {
-		return errors.New("ActiveSG venue list URL must be a facility-bookings activity venue list")
+	if _, err := activeSGActivityID(request.VenueListURL); err != nil {
+		return err
 	}
 	if strings.TrimSpace(request.SessionStateBase64) == "" {
 		return errors.New("ActiveSG scan needs an imported browser session")
@@ -141,266 +414,35 @@ func validateActiveSGRequest(request ActiveSGScanRequest) error {
 	return nil
 }
 
-func activeSGVenueLinks(ctx context.Context, page playwright.Page, request ActiveSGScanRequest) ([]activeSGVenueLink, error) {
-	if _, err := page.Goto(request.VenueListURL); err != nil {
-		return nil, fmt.Errorf("open ActiveSG venue list: %w", err)
-	}
-	if _, err := page.WaitForSelector(activeSGVenueLinkSelect); err != nil {
-		return nil, fmt.Errorf("wait for ActiveSG venue list: %w", err)
-	}
-	links, err := page.Locator(activeSGVenueLinkSelect).All()
-	if err != nil {
-		return nil, fmt.Errorf("read ActiveSG venue list: %w", err)
-	}
-	venues := make([]activeSGVenueLink, 0, len(links))
-	seen := make(map[string]struct{}, len(links))
-	for _, link := range links {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		href, err := link.GetAttribute("href")
-		if err != nil || strings.TrimSpace(href) == "" {
-			return nil, fmt.Errorf("read ActiveSG venue link: %w", err)
-		}
-		name, err := link.InnerText()
-		if err != nil {
-			return nil, fmt.Errorf("read ActiveSG venue name: %w", err)
-		}
-		name = firstActiveSGLine(name)
-		venueURL, venueID, err := activeSGTimeslotURL(request.VenueListURL, href, request.PermittedHosts)
-		if err != nil {
-			return nil, err
-		}
-		if name == "" || !matchesActiveSGVenue(name, request.VenueNames, request.ScanAll) {
-			continue
-		}
-		if _, ok := seen[venueID]; ok {
-			continue
-		}
-		seen[venueID] = struct{}{}
-		venues = append(venues, activeSGVenueLink{ID: venueID, Name: name, URL: venueURL})
-	}
-	if len(venues) == 0 {
-		return nil, errors.New("ActiveSG venue list did not match any requested venue")
-	}
-	return venues, nil
-}
-
-func activeSGTimeslotURL(baseURL, href string, permittedHosts []string) (string, string, error) {
-	base, err := url.Parse(baseURL)
-	if err != nil {
-		return "", "", fmt.Errorf("parse ActiveSG venue list URL: %w", err)
-	}
-	reference, err := url.Parse(href)
-	if err != nil {
-		return "", "", fmt.Errorf("parse ActiveSG venue link: %w", err)
-	}
-	resolved := base.ResolveReference(reference)
-	if err := validateURL(resolved.String(), permittedHosts); err != nil {
-		return "", "", fmt.Errorf("ActiveSG venue link: %w", err)
-	}
-	segments := strings.Split(strings.Trim(resolved.Path, "/"), "/")
-	venueID := ""
-	for index, segment := range segments {
-		if segment == "venues" && index+2 < len(segments) && segments[index+2] == "timeslots" {
-			venueID = segments[index+1]
-			break
-		}
-	}
-	if venueID == "" {
-		return "", "", errors.New("ActiveSG venue link is not a timeslots page")
-	}
-	return resolved.String(), venueID, nil
-}
-
-func activeSGVenueDates(ctx context.Context, page playwright.Page, venue activeSGVenueLink) ([]ActiveSGAvailability, error) {
-	if _, err := page.Goto(venue.URL); err != nil {
-		return nil, fmt.Errorf("open ActiveSG venue %q: %w", venue.Name, err)
-	}
-	if _, err := page.WaitForSelector(activeSGDateButtonSelect); err != nil {
-		return nil, fmt.Errorf("wait for ActiveSG dates at %q: %w", venue.Name, err)
-	}
-	before, err := page.Locator("body").InnerText()
-	if err != nil {
-		return nil, fmt.Errorf("read ActiveSG dates at %q: %w", venue.Name, err)
-	}
-	types := activeSGDateTypes(before)
-	buttons, err := page.Locator(activeSGDateButtonSelect).All()
-	if err != nil {
-		return nil, fmt.Errorf("read ActiveSG date controls at %q: %w", venue.Name, err)
-	}
-	results := make([]ActiveSGAvailability, 0, len(buttons))
-	seenDates := make(map[string]struct{}, len(buttons))
-	for _, button := range buttons {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		label, err := button.GetAttribute("aria-label")
-		if err != nil {
-			return nil, fmt.Errorf("read ActiveSG date label at %q: %w", venue.Name, err)
-		}
-		date, err := parseActiveSGDate(label, time.Now())
-		if err != nil {
-			return nil, fmt.Errorf("parse ActiveSG date at %q: %w", venue.Name, err)
-		}
-		key := date.Format("2006-01-02")
-		if _, ok := seenDates[key]; ok {
-			continue
-		}
-		seenDates[key] = struct{}{}
-		if err := button.Click(); err != nil {
-			return nil, fmt.Errorf("select ActiveSG date %q at %q: %w", label, venue.Name, err)
-		}
-		page.WaitForTimeout(250)
-		body, err := page.Locator("body").InnerText()
-		if err != nil {
-			return nil, fmt.Errorf("read ActiveSG date %q at %q: %w", label, venue.Name, err)
-		}
-		availabilityType := types[label]
-		status, times := activeSGDateAvailability(body, availabilityType)
-		if availabilityType == "" {
-			availabilityType = activeSGTypeFromStatus(status, times)
-		}
-		results = append(results, ActiveSGAvailability{
-			VenueID: venue.ID, VenueName: venue.Name, VenueURL: venue.URL, Date: date, DateLabel: strings.TrimPrefix(label, "View timeslots for "),
-			AvailabilityType: availabilityType, AvailabilityStatus: status, SlotStartTimes: times,
-		})
-	}
-	return results, nil
-}
-
-func activeSGDateTypes(body string) map[string]string {
-	result := make(map[string]string)
-	lines := activeSGLines(body)
-	availabilityType := ""
-	for index := 0; index+1 < len(lines); index++ {
-		switch strings.ToLower(lines[index]) {
-		case ActiveSGInstant:
-			availabilityType = ActiveSGInstant
-			continue
-		case ActiveSGBallot:
-			availabilityType = ActiveSGBallot
-			continue
-		}
-		if availabilityType == "" || !activeSGWeekdayPattern.MatchString(lines[index]) || !activeSGMonthDayPattern.MatchString(lines[index+1]) {
-			continue
-		}
-		result["View timeslots for "+lines[index]+", "+lines[index+1]] = availabilityType
-	}
-	return result
-}
-
-func activeSGDateAvailability(body, availabilityType string) (string, []string) {
-	lower := strings.ToLower(strings.ReplaceAll(body, "’", "'"))
-	if strings.Contains(lower, "you've already balloted") {
-		return ActiveSGAlreadyBalloted, nil
-	}
-	if availabilityType == ActiveSGBallot || strings.Contains(lower, "review ballot") {
-		return ActiveSGBallotAvailable, nil
-	}
-	times := activeSGSlotStartTimes(body)
-	if len(times) > 0 {
-		return ActiveSGSlotsVisible, times
-	}
-	return ActiveSGNoHourlySlots, nil
-}
-
-func activeSGTypeFromStatus(status string, times []string) string {
-	if status == ActiveSGBallotAvailable || status == ActiveSGAlreadyBalloted {
-		return ActiveSGBallot
-	}
-	if len(times) > 0 {
-		return ActiveSGInstant
-	}
-	return ""
-}
-
-func activeSGSlotStartTimes(body string) []string {
-	seen := make(map[string]struct{})
-	for _, line := range activeSGLines(body) {
-		matches := activeSGTimePattern.FindAllStringSubmatch(strings.ToLower(line), -1)
-		for index, match := range matches {
-			if len(matches) > 1 && strings.Contains(line, "-") && index > 0 {
-				break
-			}
-			hour, _ := strconv.Atoi(match[1])
-			minute, _ := strconv.Atoi(match[2])
-			if match[3] == "am" && hour == 12 {
-				hour = 0
-			}
-			if match[3] == "pm" && hour != 12 {
-				hour += 12
-			}
-			seen[fmt.Sprintf("%02d:%02d", hour, minute)] = struct{}{}
-		}
-	}
-	times := make([]string, 0, len(seen))
-	for value := range seen {
-		times = append(times, value)
-	}
-	sort.Strings(times)
-	return times
-}
-
-func parseActiveSGDate(label string, now time.Time) (time.Time, error) {
-	matches := activeSGDateLabelPattern.FindStringSubmatch(strings.TrimSpace(label))
-	if matches == nil {
-		return time.Time{}, fmt.Errorf("unexpected date label %q", label)
-	}
-	location, err := time.LoadLocation("Asia/Singapore")
-	if err != nil {
-		location = time.FixedZone("SGT", 8*60*60)
-	}
-	localNow := now.In(location)
-	day, _ := strconv.Atoi(matches[2])
-	parsed, err := time.ParseInLocation("2 Jan 2006", fmt.Sprintf("%d %s %d", day, matches[3], localNow.Year()), location)
-	if err != nil {
-		return time.Time{}, err
-	}
-	today := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, location)
-	if parsed.Before(today.AddDate(0, 0, -1)) {
-		parsed = parsed.AddDate(1, 0, 0)
-	}
-	return parsed, nil
-}
-
-func activeSGLines(body string) []string {
-	parts := strings.Split(strings.ReplaceAll(body, "\r\n", "\n"), "\n")
-	lines := make([]string, 0, len(parts))
-	for _, part := range parts {
-		if part = strings.TrimSpace(part); part != "" {
-			lines = append(lines, part)
-		}
-	}
-	return lines
-}
-
 func normalizedActiveSGNames(values []string) []string {
 	result := make([]string, 0, len(values))
 	for _, value := range values {
-		if value = strings.ToLower(strings.TrimSpace(value)); value != "" {
+		if value = canonicalActiveSGName(value); value != "" {
 			result = append(result, value)
 		}
 	}
 	return result
 }
 
+func canonicalActiveSGName(value string) string {
+	words := strings.Fields(strings.ToLower(strings.TrimSpace(value)))
+	for index, word := range words {
+		if word == "sports" {
+			words[index] = "sport"
+		}
+	}
+	return strings.Join(words, " ")
+}
+
 func matchesActiveSGVenue(name string, requested []string, scanAll bool) bool {
 	if scanAll {
 		return true
 	}
-	name = strings.ToLower(strings.TrimSpace(name))
+	name = canonicalActiveSGName(name)
 	for _, value := range normalizedActiveSGNames(requested) {
 		if strings.Contains(name, value) {
 			return true
 		}
 	}
 	return false
-}
-
-func firstActiveSGLine(value string) string {
-	for _, line := range activeSGLines(value) {
-		return line
-	}
-	return ""
 }

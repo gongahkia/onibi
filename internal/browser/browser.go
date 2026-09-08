@@ -125,36 +125,17 @@ func (client *Playwright) start() error {
 	if client.browser != nil {
 		return nil
 	}
-	if client.pw == nil {
-		pw, err := playwright.Run()
-		if err != nil {
-			return fmt.Errorf("start Playwright (run 'playwright install chromium'): %w", err)
-		}
-		client.pw = pw
-	}
-	browser, err := client.pw.Chromium.Launch(playwright.BrowserTypeLaunchOptions{Headless: playwright.Bool(true)})
-	if err != nil {
-		_ = client.pw.Stop()
-		client.pw = nil
-		return fmt.Errorf("launch bundled Chromium (run 'playwright install chromium'): %w", err)
-	}
-	client.browser = browser
-	return nil
-}
-
-// startDriver starts Playwright's protocol driver without launching a browser.
-// API-only readers use this path so they do not require Chromium at runtime.
-func (client *Playwright) startDriver() error {
-	client.mu.Lock()
-	defer client.mu.Unlock()
-	if client.pw != nil {
-		return nil
-	}
 	pw, err := playwright.Run()
 	if err != nil {
-		return fmt.Errorf("start Playwright request driver: %w", err)
+		return fmt.Errorf("start Playwright (run 'playwright install chromium'): %w", err)
+	}
+	browser, err := pw.Chromium.Launch(playwright.BrowserTypeLaunchOptions{Headless: playwright.Bool(true)})
+	if err != nil {
+		_ = pw.Stop()
+		return fmt.Errorf("launch bundled Chromium (run 'playwright install chromium'): %w", err)
 	}
 	client.pw = pw
+	client.browser = browser
 	return nil
 }
 

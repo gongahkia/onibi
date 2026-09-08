@@ -184,12 +184,12 @@ The current ActiveSG reader has a narrow, tested contract:
 
 - The only accepted activity URL is badminton:
   `https://activesg.gov.sg/facility-bookings/activities/YLONatwvqJfikKOmB5N9U/venues`.
-- It reads venue links, clicks date cards labelled `View timeslots for …`, and
-  normalizes visible instant hourly starts as one-hour slots.
-- Ballot-only, already-balloted, and empty dates are retained as non-bookable
+- It reads `venue.listByActivity` and `schedule.listAvailable` JSON and preserves
+  the provider's explicit start/end ranges.
+- Ballot-only and empty dates are retained as non-bookable
   observations; no ballot or booking action is attempted.
-- It is venue-level because the observed date-card surface has no stable court
-  identity.
+- It remains venue-level because the response exposes subvenue IDs but no
+  human-readable court names.
 
 For pickleball or another sport, first complete the contract capture in step 4
 for that activity. Then refactor the reader so the allowed activity is an

@@ -1,5 +1,7 @@
 {
+  "name": "kaypoh",
+  "private": true,
   "dependencies": {
-    "@playwright/test": "^1.63.0"
+    "playwright-core": "1.63.0"
   }
 }

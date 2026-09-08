@@ -1,4 +1,4 @@
-// Package activesg maps the read-only ActiveSG badminton browser surface into
+// Package activesg maps the read-only ActiveSG badminton schedule API into
 // Kaypoh's normalized, bookable slot model.
 package activesg
 
@@ -24,11 +24,11 @@ const (
 	SourceID              = "myactivesg"
 	AccessMode            = "activesg"
 	BadmintonVenueListURL = "https://activesg.gov.sg/facility-bookings/activities/YLONatwvqJfikKOmB5N9U/venues"
-	adapterVersion        = "activesg-browser-v1"
+	adapterVersion        = "activesg-trpc-v2"
 )
 
-// Adapter keeps ActiveSG-specific UI interpretation isolated from generic
-// partner API and JSON readers. Only instant, hourly slots enter Kaypoh's
+// Adapter keeps ActiveSG's typed tRPC contract isolated from generic partner
+// API and JSON readers. Only instant slots enter Kaypoh's
 // bookable search model; ballot-state rows remain observed but are not slots.
 type Adapter struct {
 	info           domain.SourceInfo
@@ -45,7 +45,7 @@ func New(info domain.SourceInfo, settings config.Source, scanner browser.ActiveS
 		return nil, fmt.Errorf("ActiveSG adapter source ID mismatch %q", info.ID)
 	}
 	if scanner == nil {
-		return nil, errors.New("ActiveSG browser scanner is required")
+		return nil, errors.New("ActiveSG schedule scanner is required")
 	}
 	if err := validateSettings(settings.ActiveSG); err != nil {
 		return nil, err
@@ -75,12 +75,12 @@ func (adapter *Adapter) FetchSnapshot(ctx context.Context, request source.Availa
 		SessionStateBase64: adapter.settings.SessionStateBase64, PermittedHosts: adapter.info.Policy.PermittedHosts, Timeout: adapter.info.Policy.Timeout,
 	})
 	if err != nil {
-		adapter.setFailure(started, err, domain.HealthDegraded, "browser_scan_failed")
+		adapter.setFailure(started, err, domain.HealthDegraded, "trpc_scan_failed")
 		return source.AvailabilitySnapshot{}, err
 	}
 	snapshot, err := adapter.normalize(rows, request, now)
 	if err != nil {
-		adapter.setFailure(started, err, domain.HealthDegraded, "invalid_browser_scan")
+		adapter.setFailure(started, err, domain.HealthDegraded, "invalid_trpc_scan")
 		return source.AvailabilitySnapshot{}, err
 	}
 	adapter.setSuccess(started, len(snapshot.Slots))
@@ -122,15 +122,11 @@ func (adapter *Adapter) normalize(rows []browser.ActiveSGAvailability, request s
 		if row.AvailabilityType != browser.ActiveSGInstant || row.AvailabilityStatus != browser.ActiveSGSlotsVisible {
 			continue
 		}
-		for _, value := range row.SlotStartTimes {
-			start, err := activeSGStart(row.Date, value)
-			if err != nil {
-				return source.AvailabilitySnapshot{}, fmt.Errorf("normalize ActiveSG row %d slot %q: %w", index+1, value, err)
-			}
-			if !inRequestWindow(start, request) {
+		for _, observed := range row.Slots {
+			if !inRequestWindow(observed.Start, request) {
 				continue
 			}
-			slot := adapter.slot(venue, row, start, fetchedAt)
+			slot := adapter.slot(venue, row, observed, fetchedAt)
 			slots[slot.ID] = slot
 		}
 	}
@@ -161,8 +157,13 @@ func validateRow(row browser.ActiveSGAvailability) error {
 	default:
 		return fmt.Errorf("unknown availability status %q", row.AvailabilityStatus)
 	}
-	if row.AvailabilityStatus == browser.ActiveSGSlotsVisible && len(row.SlotStartTimes) == 0 {
-		return errors.New("visible slots need slot start times")
+	if row.AvailabilityStatus == browser.ActiveSGSlotsVisible && len(row.Slots) == 0 {
+		return errors.New("visible slots need time ranges")
+	}
+	for _, slot := range row.Slots {
+		if slot.Start.IsZero() || !slot.End.After(slot.Start) {
+			return errors.New("slot needs a valid start and end")
+		}
 	}
 	return nil
 }
@@ -170,21 +171,23 @@ func validateRow(row browser.ActiveSGAvailability) error {
 func (adapter *Adapter) venue(row browser.ActiveSGAvailability, fetchedAt time.Time) domain.Venue {
 	return domain.Venue{
 		ID: adapter.info.ID + ":venue:" + row.VenueID, SourceIDs: []string{adapter.info.ID}, Name: row.VenueName,
+		Address: row.VenueAddress, PostalCode: row.VenuePostalCode,
+		Coordinates: domain.Coordinates{Latitude: row.VenueLatitude, Longitude: row.VenueLongitude},
 		BookingURLs: []string{row.VenueURL}, Provenance: adapter.provenance(row.VenueID, fetchedAt),
 	}
 }
 
-func (adapter *Adapter) slot(venue domain.Venue, row browser.ActiveSGAvailability, start, fetchedAt time.Time) domain.AvailabilitySlot {
-	reference := strings.Join([]string{row.VenueID, start.UTC().Format(time.RFC3339), row.VenueURL}, "\x00")
+func (adapter *Adapter) slot(venue domain.Venue, row browser.ActiveSGAvailability, observed browser.ActiveSGSlot, fetchedAt time.Time) domain.AvailabilitySlot {
+	reference := strings.Join([]string{row.VenueID, observed.Start.UTC().Format(time.RFC3339), observed.End.UTC().Format(time.RFC3339), strings.Join(observed.SubvenueIDs, ","), row.VenueURL}, "\x00")
 	return domain.AvailabilitySlot{
 		ID: adapter.info.ID + ":slot:" + stableID(reference), VenueID: venue.ID, SourceID: adapter.info.ID,
-		Start: start.UTC(), End: start.Add(time.Hour).UTC(), Status: domain.AvailabilityAvailable, BookingURL: row.VenueURL,
+		Start: observed.Start.UTC(), End: observed.End.UTC(), Status: domain.AvailabilityAvailable, BookingURL: row.VenueURL,
 		ObservedAt: fetchedAt, FetchedAt: fetchedAt, StaleAfter: adapter.staleAfter(fetchedAt), Provenance: adapter.provenance(reference, fetchedAt),
 	}
 }
 
 func (adapter *Adapter) provenance(reference string, fetchedAt time.Time) domain.Provenance {
-	return domain.Provenance{SourceID: adapter.info.ID, SourceReference: reference, ObservedAt: fetchedAt, FetchedAt: fetchedAt, AdapterVersion: adapterVersion, Confidence: 0.75}
+	return domain.Provenance{SourceID: adapter.info.ID, SourceReference: reference, ObservedAt: fetchedAt, FetchedAt: fetchedAt, AdapterVersion: adapterVersion, Confidence: 0.9}
 }
 
 func (adapter *Adapter) staleAfter(now time.Time) time.Time {
@@ -199,7 +202,7 @@ func (adapter *Adapter) setSuccess(started time.Time, records int) {
 	adapter.mu.Lock()
 	defer adapter.mu.Unlock()
 	now := time.Now().UTC()
-	adapter.health = domain.SourceHealth{SourceID: adapter.info.ID, State: domain.HealthHealthy, LastAttempt: &now, LastSuccess: &now, LastCategory: "activesg_browser", LatencyMilliseconds: time.Since(started).Milliseconds(), RecordsParsed: records}
+	adapter.health = domain.SourceHealth{SourceID: adapter.info.ID, State: domain.HealthHealthy, LastAttempt: &now, LastSuccess: &now, LastCategory: "activesg_trpc", LatencyMilliseconds: time.Since(started).Milliseconds(), RecordsParsed: records}
 }
 
 func (adapter *Adapter) setFailure(started time.Time, err error, state domain.HealthState, category string) {
@@ -207,19 +210,6 @@ func (adapter *Adapter) setFailure(started time.Time, err error, state domain.He
 	defer adapter.mu.Unlock()
 	now := time.Now().UTC()
 	adapter.health = domain.SourceHealth{SourceID: adapter.info.ID, State: state, LastAttempt: &now, LastCategory: category, AccessFailures: []domain.AccessFailure{{Mode: AccessMode, Error: err.Error()}}, LatencyMilliseconds: time.Since(started).Milliseconds(), ConsecutiveFailures: adapter.health.ConsecutiveFailures + 1, LastError: err.Error()}
-}
-
-func activeSGStart(date time.Time, value string) (time.Time, error) {
-	location, err := time.LoadLocation(domain.SingaporeTimeZone)
-	if err != nil {
-		location = time.FixedZone("SGT", 8*60*60)
-	}
-	clock, err := time.Parse("15:04", value)
-	if err != nil {
-		return time.Time{}, errors.New("time must use HH:mm")
-	}
-	localDate := date.In(location)
-	return time.Date(localDate.Year(), localDate.Month(), localDate.Day(), clock.Hour(), clock.Minute(), 0, 0, location), nil
 }
 
 func inRequestWindow(value time.Time, request source.AvailabilityRequest) bool {

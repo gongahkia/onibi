@@ -29,7 +29,10 @@ func TestAdapterNormalizesOnlyInstantHourlySlots(t *testing.T) {
 	}
 	date := time.Date(2026, time.August, 25, 0, 0, 0, 0, location)
 	stub := &scannerStub{rows: []browser.ActiveSGAvailability{
-		{VenueID: "venue-1", VenueName: "Jurong East Sport Hall", VenueURL: "https://activesg.gov.sg/facility-bookings/activities/YLONatwvqJfikKOmB5N9U/venues/venue-1/timeslots", Date: date, DateLabel: "Tue, 25 Aug", AvailabilityType: browser.ActiveSGInstant, AvailabilityStatus: browser.ActiveSGSlotsVisible, SlotStartTimes: []string{"07:00", "12:00"}},
+		{VenueID: "venue-1", VenueName: "Jurong East Sport Hall", VenueURL: "https://activesg.gov.sg/facility-bookings/activities/YLONatwvqJfikKOmB5N9U/venues/venue-1/timeslots", VenueAddress: "21 Jurong East Street 31", VenuePostalCode: "609517", VenueLatitude: 1.3469, VenueLongitude: 103.7297, Date: date, DateLabel: "Tue, 25 Aug", AvailabilityType: browser.ActiveSGInstant, AvailabilityStatus: browser.ActiveSGSlotsVisible, Slots: []browser.ActiveSGSlot{
+			{Start: date.Add(7 * time.Hour), End: date.Add(8 * time.Hour), SubvenueIDs: []string{"court-1"}},
+			{Start: date.Add(12 * time.Hour), End: date.Add(13*time.Hour + 30*time.Minute), SubvenueIDs: []string{"court-1", "court-2"}},
+		}},
 		{VenueID: "venue-1", VenueName: "Jurong East Sport Hall", VenueURL: "https://activesg.gov.sg/facility-bookings/activities/YLONatwvqJfikKOmB5N9U/venues/venue-1/timeslots", Date: date.AddDate(0, 0, 1), DateLabel: "Wed, 26 Aug", AvailabilityType: browser.ActiveSGBallot, AvailabilityStatus: browser.ActiveSGBallotAvailable},
 	}}
 	adapter := testAdapter(t, stub)
@@ -44,7 +47,7 @@ func TestAdapterNormalizesOnlyInstantHourlySlots(t *testing.T) {
 	if snapshot.Venues[0].ID != "myactivesg:venue:venue-1" || snapshot.Venues[0].Name != "Jurong East Sport Hall" {
 		t.Fatalf("venue = %#v", snapshot.Venues[0])
 	}
-	if snapshot.Slots[0].Status != domain.AvailabilityAvailable || snapshot.Slots[0].CourtName != "" || snapshot.Slots[0].End.Sub(snapshot.Slots[0].Start) != time.Hour {
+	if snapshot.Slots[0].Status != domain.AvailabilityAvailable || snapshot.Slots[0].CourtName != "" || snapshot.Slots[1].End.Sub(snapshot.Slots[1].Start) != 90*time.Minute {
 		t.Fatalf("slot = %#v", snapshot.Slots[0])
 	}
 	if stub.request.VenueListURL != BadmintonVenueListURL || stub.request.ScanAll || len(stub.request.VenueNames) != 1 {

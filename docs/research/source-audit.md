@@ -81,26 +81,24 @@ SportSG's [data.gov.sg facility dataset](https://data.gov.sg/datasets/d_9b87bab5
 is separately used for venue discovery. OneMap is separately used for optional
 geocoding and routing when configured.
 
-## ActiveSG browser-reader contract
+## ActiveSG typed-reader contract
 
 The dedicated `myactivesg` reader is restricted to the verified **badminton**
 venue-list URL above. It requires a user- or partner-imported Playwright
 storage-state value and is disabled by default. The reader has no login,
 credential, booking, ballot-review, checkout, payment, CAPTCHA, or OTP code.
 
-The August 2026 browser audit established this read-only interaction contract:
+The September 2026 live capture established this read-only interaction contract:
 
-1. Read venue cards from their `.../venues/<venue-id>/timeslots` links.
-2. Visit selected cards, or every current card only when `scan_all = true`.
-3. Click each `View timeslots for <weekday>, <day> <month>` date card.
-4. Read visible hour labels and normalize instant starts to `HH:mm`.
+1. Read typed venue records from `venue.listByActivity`.
+2. Select configured venue names, or every current venue only when `scan_all = true`.
+3. Read typed date and time ranges from `schedule.listAvailable`.
+4. Publish only entries whose provider type is `instant`; retain ballot dates as non-bookable observations.
 
-The observed pages state that each instant slot is one hour long, so the mapper
-creates the half-open interval `[start, start + 1 hour)`. [Inference] The
-surface is venue-level: it does not expose a stable per-court identity in the
-date-card read path. Therefore only visible instant hourly slots reach
-Kaypoh's bookable-slot table. Ballot availability, an existing ballot, and a
-date with no visible hours are parsed as non-bookable results and do not become
+The mapper preserves the endpoint's explicit epoch-millisecond start and end;
+it does not infer durations from page text. The endpoint supplies subvenue IDs
+but not court names, so the current normalized records remain venue-level.
+Ballot availability and dates with no instant ranges are parsed as non-bookable results and do not become
 bookable records. A venue page that cannot be read fails the entire snapshot;
 Kaypoh does not persist a partial scan and accidentally reconcile unseen slots
 as unavailable.
