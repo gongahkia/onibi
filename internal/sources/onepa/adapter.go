@@ -21,12 +21,14 @@ import (
 )
 
 const (
-	SourceID          = "onepa"
-	AccessMode        = "onepa"
-	availabilityURL   = "https://www.onepa.gov.sg/facilities/availability"
-	facilitySlotsURL  = "https://www.onepa.gov.sg/-api/Facility/GetFacilitySlots"
-	adapterVersion    = "onepa-api-v3"
-	defaultStaleAfter = 30 * time.Minute
+	SourceID            = "onepa"
+	AccessMode          = "onepa"
+	availabilityURL     = "https://www.onepa.gov.sg/facilities/availability"
+	facilityMetadataURL = "https://www.onepa.gov.sg/-api/Facility/GetXMCFacility?facility=badmintoncourts"
+	facilitySlotsURL    = "https://www.onepa.gov.sg/-api/Facility/GetFacilitySlots"
+	adapterVersion      = "onepa-api-v3"
+	defaultStaleAfter   = 30 * time.Minute
+	onePARequestPace    = 2 * time.Second
 )
 
 // Adapter opens the public availability page once per refresh to establish an
@@ -82,17 +84,36 @@ func (adapter *Adapter) FetchSnapshot(ctx context.Context, request source.Availa
 		adapter.setFailure(started, err)
 		return source.AvailabilitySnapshot{}, err
 	}
+	metadata, err := session.Fetch(ctx, source.HTTPRequest{SourceID: SourceID, URL: facilityMetadataURL})
+	if err != nil {
+		err = fmt.Errorf("open onePA badminton facility metadata: %w", err)
+		adapter.setFailure(started, err)
+		return source.AvailabilitySnapshot{}, err
+	}
+	if err := onePAResponseContentError(metadata.Header.Get("Content-Type"), metadata.Body); err != nil {
+		err = fmt.Errorf("open onePA badminton facility metadata: %w", err)
+		adapter.setFailure(started, err)
+		return source.AvailabilitySnapshot{}, err
+	}
 
 	venues := make(map[string]domain.Venue)
 	slots := make(map[string]domain.AvailabilitySlot)
+	requestsSent := 0
 	for _, facilityID := range facilityIDs(adapter.settings) {
 		for _, date := range requestedDates(request) {
+			if requestsSent > 0 {
+				if err := waitForOnePARequest(ctx); err != nil {
+					adapter.setFailure(started, err)
+					return source.AvailabilitySnapshot{}, err
+				}
+			}
 			payload, err := json.Marshal(facilitySlotsRequest{SelectedFacility: facilityID, SelectedDate: date.Format("2006-01-02")})
 			if err != nil {
 				adapter.setFailure(started, err)
 				return source.AvailabilitySnapshot{}, err
 			}
 			response, err := session.Fetch(ctx, source.HTTPRequest{SourceID: SourceID, Method: http.MethodPost, URL: facilitySlotsURL, Headers: onePAHeaders(), Body: payload})
+			requestsSent++
 			if err != nil {
 				err = fmt.Errorf("fetch onePA facility %q on %s: %w", facilityID, date.Format("2006-01-02"), err)
 				adapter.setFailure(started, err)
@@ -201,6 +222,17 @@ func onePAResponseContentError(contentType string, body []byte) error {
 		return errors.New("availability endpoint was blocked by the provider's Incapsula web-application firewall")
 	}
 	return fmt.Errorf("expected JSON response, got %q", boundedMessage(contentType))
+}
+
+func waitForOnePARequest(ctx context.Context) error {
+	timer := time.NewTimer(onePARequestPace)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 type facilitySlotsRequest struct {
