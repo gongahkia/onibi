@@ -168,7 +168,6 @@ func Default() (Config, error) {
 			"singapore-badminton-hall": {Enabled: true, RefreshMinutes: 60, AvailabilityMaxDays: 7},
 			"smash-arena":              {Enabled: true, RefreshMinutes: 60, AvailabilityMaxDays: 1},
 			"wyse-active":              {Enabled: true, RefreshMinutes: 60, AvailabilityMaxDays: 7},
-			"trusmash":                 {Enabled: false, RefreshMinutes: 30},
 		},
 		Routing:  Routing{Provider: "onemap"},
 		Webhooks: map[string]Webhook{},

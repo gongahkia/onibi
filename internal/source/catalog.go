@@ -22,16 +22,11 @@ func Catalog() []domain.SourceInfo {
 		publicAvailabilitySource("singapore-badminton-hall", "Singapore Badminton Hall", "Singapore Badminton Hall", "https://singaporebadmintonhall.com/book-now/", []string{"singaporebadmintonhall.com", "playtomic.com"}, 7, availability),
 		publicAvailabilitySource("smash-arena", "Smash Arena", "Smash Arena", "https://booking.smasharena.sg/", []string{"smasharena.sg", "booking.smasharena.sg"}, 1, availability),
 		publicAvailabilitySource("wyse-active", "Wyse Active Hub", "Wyse Active Hub / Rezerv", "https://wyseactivehub.rezerv.co/", []string{"www.wyseactivehub.com", "wyseactivehub.rezerv.co", "customer-api.rezerv.co"}, 7, availability),
-		partnerSource("trusmash", "TruSmash", "Viva Capital / AFA", "https://book.afa-sports.com/scheduler", []string{"trusmash.com.sg", "book.afa-sports.com"}, 14, availability),
 	}
 }
 
 func onePASource(capabilities domain.Capabilities) domain.SourceInfo {
 	return domain.SourceInfo{ID: "onepa", Name: "onePA", Operator: "People's Association", Website: "https://www.onepa.gov.sg/facilities/availability", Policy: domain.SourcePolicy{Status: domain.SourceExperimental, PermittedHosts: []string{"www.onepa.gov.sg"}, Capabilities: capabilities, PollFloor: 30 * time.Minute, AvailabilityMaxDays: 10, Concurrency: 1, Timeout: 25 * time.Second, EvidenceURLs: []string{"https://www.onepa.gov.sg/facilities/availability"}, ReviewedAt: auditReviewedAt, Notes: "Partner-authorized, read-only onePA badminton availability integration. The dedicated reader follows the observed browser sequence: availability page, badminton metadata, then one configured date at a time with two-second pacing. It never logs in, selects a slot, or opens booking, checkout, payment, CAPTCHA, or OTP flows."}}
-}
-
-func partnerSource(id, name, operator, website string, hosts []string, maximumDays int, capabilities domain.Capabilities) domain.SourceInfo {
-	return domain.SourceInfo{ID: id, Name: name, Operator: operator, Website: website, Policy: domain.SourcePolicy{Status: domain.SourceExperimental, PermittedHosts: hosts, Capabilities: capabilities, PollFloor: 30 * time.Minute, AvailabilityMaxDays: maximumDays, Concurrency: 1, Timeout: 25 * time.Second, ReviewedAt: auditReviewedAt, Notes: "Partner-authorized, read-only availability integration. API is preferred; browser access is limited to approved credentials or an imported session."}}
 }
 
 func activeSGSource(capabilities domain.Capabilities) domain.SourceInfo {

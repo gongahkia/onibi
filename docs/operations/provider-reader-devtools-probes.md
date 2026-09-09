@@ -130,18 +130,6 @@ After the page loads and the probe is installed:
 __kaypohProbe.configure("the-kallang", /availability|facility|perfectgym|slot|timeslot|venue|calendar|schedule/i)
 ```
 
-### TruSmash / AFA
-
-```js
-location.assign("https://book.afa-sports.com/scheduler")
-```
-
-After the page loads and the probe is installed:
-
-```js
-__kaypohProbe.configure("trusmash", /availability|court|facility|slot|timeslot|venue|calendar|schedule/i)
-```
-
 ## Existing custom public readers
 
 onePA, SBA, Singapore Badminton Hall, Smash Arena, and Wyse Active Hub already

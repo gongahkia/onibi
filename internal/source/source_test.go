@@ -29,8 +29,8 @@ func TestCatalogIsStableAndUnique(t *testing.T) {
 		t.Fatal(err)
 	}
 	infos := registry.List()
-	if len(infos) < 11 {
-		t.Fatalf("source count = %d, want badminton provider corpus", len(infos))
+	if len(infos) != 10 {
+		t.Fatalf("source count = %d, want 10 configured sources", len(infos))
 	}
 	if infos[0].ID != "local-manual" {
 		t.Fatalf("catalog list should be stable, got first %q", infos[0].ID)

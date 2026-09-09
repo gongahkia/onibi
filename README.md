@@ -23,11 +23,11 @@ have a one-hour poll floor. Smash Arena is intentionally one day by default:
 its public surface requires a separate read for every available hour; increase
 `availability_max_days` only if that extra upstream load is appropriate.
 
-ActiveSG, onePA, The Kallang / OCBC Arena, and TruSmash remain disabled by
-default: this repository has no confirmed anonymous availability endpoint for
-them. ActiveSG has a typed JSON reader authenticated by operator-imported
-Playwright storage state. The Kallang has a dedicated browser reader that
-selects only the **Badminton Courts**
+ActiveSG and The Kallang / OCBC Arena remain disabled by default because they
+require operator-imported Playwright storage state. onePA remains disabled until
+its public facility IDs are configured. ActiveSG has a typed JSON reader
+authenticated by operator-imported Playwright storage state. The Kallang has a
+dedicated browser reader that selects only the **Badminton Courts**
 facility type, advances the weekly calendar, and reads its JSON response. It
 does not automate login or select a facility, slot, ballot, cart, checkout, or
 payment flow. The remaining partners can be configured with a partner API,

@@ -38,8 +38,6 @@ Not yet complete:
 - ActiveSG pickleball or other activities. The present reader deliberately
   accepts only the badminton activity URL; it is not a generic all-sport
   ActiveSG reader.
-- TruSmash. It remains disabled until a provider-specific approved API,
-  imported session, or public payload contract is captured and implemented.
 - OneMap routing. It remains `credentials_required` until local credentials are
   supplied.
 

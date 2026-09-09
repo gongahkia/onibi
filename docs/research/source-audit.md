@@ -32,7 +32,6 @@ snapshot is distinct from a failed request.
 | `singapore-badminton-hall` | Singapore Badminton Hall | built-in Playtomic public reader for confirmed SBH/TSA locations; API/browser/public mapper override supported | 7 days |
 | `smash-arena` | Smash Arena | built-in public anonymous reader; API/browser/public mapper override supported | 1 day |
 | `wyse-active` | Wyse Active Hub / Rezerv | built-in public anonymous reader; API/browser/public mapper override supported | 7 days |
-| `trusmash` | TruSmash / AFA | partner API or approved browser/public reader | 14 days |
 
 The horizon is an operator-configurable maximum; set
 `availability_max_days` to a positive value to choose a different bound.
@@ -58,8 +57,8 @@ availability records, Singapore Badminton Hall 2,553, Smash Arena 7, Wyse
 Active 1,304, and SportSG discovered 45 venues. Those counts are point-in-time
 observations rather than a coverage guarantee. OneMap correctly reported
 `credentials_required`; it was not treated as a reader failure. `myactivesg`,
-onePA, The Kallang, and TruSmash were disabled and were therefore intentionally
-outside this live audit.
+onePA, and The Kallang were disabled and were therefore intentionally outside
+this live audit.
 
 Use `refresh --json` as the live contract check. `sources doctor` reports the
 last persisted health and does not send a new upstream request. See the
@@ -92,7 +91,6 @@ disabled by default only until the operator configures the desired public IDs.
 - [Singapore Badminton Hall](https://singaporebadmintonhall.com/book-now/)
 - [Smash Arena](https://booking.smasharena.sg/)
 - [Wyse Active Hub](https://www.wyseactivehub.com/)
-- [TruSmash](https://trusmash.com.sg/)
 
 SportSG's [data.gov.sg facility dataset](https://data.gov.sg/datasets/d_9b87bab59d036a60fad2a91530e10773/view)
 is separately used for venue discovery. OneMap is separately used for optional

@@ -13,15 +13,14 @@ partner API -> approved browser credentials/imported session -> approved public 
              -> normalized venue/court/slot snapshot -> SQLite -> search/watches
 ```
 
-Eight partner source profiles are registered: ActiveSG, onePA, The Kallang,
-KFF Badminton Arena, Singapore Badminton Hall, Smash Arena, Wyse Active Hub,
-and TruSmash. SBA, Singapore Badminton Hall, Smash Arena, and Wyse Active Hub
-have verified anonymous public readers. ActiveSG and The Kallang have dedicated
+Seven partner source profiles are registered: ActiveSG, onePA, The Kallang,
+KFF Badminton Arena, Singapore Badminton Hall, Smash Arena, and Wyse Active
+Hub. SBA, Singapore Badminton Hall, Smash Arena, and Wyse Active Hub have
+verified anonymous public readers. ActiveSG and The Kallang have dedicated
 imported-session readers after the generic API/browser/public fallback chain;
 onePA has a dedicated anonymous reader after those generic modes, configured
-with explicit public facility IDs. TruSmash still requires source-specific API
-configuration or approved browser/public JSON selectors. See the [source
-audit](source-audit.md) and the root [README](../../README.md).
+with explicit public facility IDs. See the [source audit](source-audit.md) and
+the root [README](../../README.md).
 
 Each successful refresh records a minimal slot-identity digest, upserts the
 current snapshot, and marks absent previously available slots unavailable within

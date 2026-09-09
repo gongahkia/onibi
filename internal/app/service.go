@@ -209,7 +209,6 @@ func partnerSpecs() []partner.Spec {
 		{ID: "singapore-badminton-hall"},
 		{ID: "smash-arena"},
 		{ID: "wyse-active"},
-		{ID: "trusmash"},
 	}
 }
 
