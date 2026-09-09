@@ -26,7 +26,7 @@ const (
 	availabilityURL     = "https://www.onepa.gov.sg/facilities/availability"
 	facilityMetadataURL = "https://www.onepa.gov.sg/-api/Facility/GetXMCFacility?facility=badmintoncourts"
 	facilitySlotsURL    = "https://www.onepa.gov.sg/-api/Facility/GetFacilitySlots"
-	adapterVersion      = "onepa-api-v3"
+	adapterVersion      = "onepa-api-v4"
 	defaultStaleAfter   = 30 * time.Minute
 	onePARequestPace    = 2 * time.Second
 )

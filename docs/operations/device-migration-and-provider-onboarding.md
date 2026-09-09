@@ -28,19 +28,18 @@ Completed on 2026-09-09:
   bootstrap calendar response, and passed a live scoped scan with an imported
   session (one venue, 52 venue-level bookable intervals). It remains disabled
   by default.
-- A dedicated onePA reader exists for configured public facility IDs. It maps
-  named courts and covers every configured date, but a live multi-centre scan
-  received the provider's Incapsula WAF page. It remains disabled by default.
+- A dedicated onePA reader exists for configured public facility IDs. It follows
+  the public browser's badminton-metadata setup, reads one date at a time with
+  two-second pacing, maps named courts, and passed live one- and two-centre
+  scans. It remains disabled by default until IDs are configured.
 
 Not yet complete:
 
 - ActiveSG pickleball or other activities. The present reader deliberately
   accepts only the badminton activity URL; it is not a generic all-sport
   ActiveSG reader.
-- A sanctioned onePA API/rate contract or approved browser access for reliable
-  multi-centre polling, and TruSmash. TruSmash remains disabled until a
-  provider-specific approved API, imported session, or public payload contract
-  is captured and implemented.
+- TruSmash. It remains disabled until a provider-specific approved API,
+  imported session, or public payload contract is captured and implemented.
 - OneMap routing. It remains `credentials_required` until local credentials are
   supplied.
 
