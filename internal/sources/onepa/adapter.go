@@ -25,9 +25,8 @@ const (
 	AccessMode        = "onepa"
 	availabilityURL   = "https://www.onepa.gov.sg/facilities/availability"
 	facilitySlotsURL  = "https://www.onepa.gov.sg/-api/Facility/GetFacilitySlots"
-	adapterVersion    = "onepa-api-v2"
+	adapterVersion    = "onepa-api-v3"
 	defaultStaleAfter = 30 * time.Minute
-	calendarDays      = 3
 )
 
 // Adapter opens the public availability page once per refresh to establish an
@@ -99,8 +98,8 @@ func (adapter *Adapter) FetchSnapshot(ctx context.Context, request source.Availa
 				adapter.setFailure(started, err)
 				return source.AvailabilitySnapshot{}, err
 			}
-			if contentType := strings.ToLower(response.Header.Get("Content-Type")); !strings.Contains(contentType, "application/json") {
-				err = fmt.Errorf("fetch onePA facility %q on %s: expected JSON response, got %q", facilityID, date.Format("2006-01-02"), boundedMessage(contentType))
+			if err = onePAResponseContentError(response.Header.Get("Content-Type"), response.Body); err != nil {
+				err = fmt.Errorf("fetch onePA facility %q on %s: %w", facilityID, date.Format("2006-01-02"), err)
 				adapter.setFailure(started, err)
 				return source.AvailabilitySnapshot{}, err
 			}
@@ -176,7 +175,11 @@ func requestedDates(request source.AvailabilityRequest) []time.Time {
 		end = start.AddDate(0, 0, 1)
 	}
 	result := []time.Time{}
-	for date := start; date.Before(end); date = date.AddDate(0, 0, calendarDays) {
+	// The public endpoint returns slots for the one selected date. The website
+	// groups three dates in its calendar UI, but its response is not a three-day
+	// window, so querying every day is necessary to avoid silently omitting two
+	// days out of three.
+	for date := start; date.Before(end); date = date.AddDate(0, 0, 1) {
 		result = append(result, date)
 	}
 	return result
@@ -188,6 +191,16 @@ func onePAHeaders() http.Header {
 	headers.Set("Origin", "https://www.onepa.gov.sg")
 	headers.Set("Referer", availabilityURL)
 	return headers
+}
+
+func onePAResponseContentError(contentType string, body []byte) error {
+	if strings.Contains(strings.ToLower(contentType), "application/json") {
+		return nil
+	}
+	if strings.Contains(strings.ToLower(string(body)), "incapsula") {
+		return errors.New("availability endpoint was blocked by the provider's Incapsula web-application firewall")
+	}
+	return fmt.Errorf("expected JSON response, got %q", boundedMessage(contentType))
 }
 
 type facilitySlotsRequest struct {

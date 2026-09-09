@@ -1,6 +1,6 @@
 # Badminton availability source audit
 
-Last reviewed: 2026-08-22 (Asia/Singapore)
+Last reviewed: 2026-09-09 (Asia/Singapore)
 
 ## Runtime decision
 
@@ -15,8 +15,9 @@ availability window.
 The runtime selection order is partner API, approved authenticated Playwright
 browser session, then a partner-approved public page, followed by a dedicated
 reader when configured. Four verified public readers are enabled without
-credentials. onePA's verified anonymous reader requires explicit public facility
-IDs and is disabled by default. Configured API/browser/public access takes
+credentials. onePA's dedicated anonymous reader requires explicit public
+facility IDs and is disabled by default because its web-application firewall
+can reject broad scans. Configured API/browser/public access takes
 precedence over each built-in reader. ActiveSG, onePA, and The Kallang can
 additionally enable dedicated readers after their enabled generic modes. Source
 health records each failed access mode in attempt order; an empty successful
@@ -25,7 +26,7 @@ snapshot is distinct from a failed request.
 | Source ID | Operator / badminton surface | Read access | Horizon default |
 | --- | --- | --- | --- |
 | `myactivesg` | ActiveSG | dedicated imported-session typed badminton reader, or partner API/browser/public reader | 15 days |
-| `onepa` | People's Association / onePA | dedicated anonymous reader for configured public facility IDs, or partner API/browser/public reader | 10 days |
+| `onepa` | People's Association / onePA | dedicated anonymous reader for configured public facility IDs; WAF-safe multi-centre contract still needed, or partner API/browser/public reader | 10 days (not yet certified) |
 | `the-kallang` | The Kallang / OCBC Arena | dedicated imported-session PerfectGym badminton reader, or partner API/browser/public reader | 30 days |
 | `sba-stadium` | Singapore Badminton Association / KFF Badminton Arena @ Guillemard | built-in public anonymous reader; API/browser/public mapper override supported | 7 days |
 | `singapore-badminton-hall` | Singapore Badminton Hall | built-in Playtomic public reader for confirmed SBH/TSA locations; API/browser/public mapper override supported | 7 days |
@@ -64,6 +65,21 @@ Use `refresh --json` as the live contract check. `sources doctor` reports the
 last persisted health and does not send a new upstream request. See the
 [device migration and provider onboarding runbook](../operations/device-migration-and-provider-onboarding.md)
 for the repeatable audit procedure and next-provider handoff.
+
+## Targeted onePA check: 2026-09-09 (Asia/Singapore)
+
+The anonymous `GetFacilitySlots` endpoint accepted the documented
+`WoodlandsCC_BADMINTONCOURTS` ID and returned the actual Woodlands Community
+Club venue, two named badminton resources, and single-day slot records. There
+were no bookable Woodlands intervals in the observed window, which is a valid
+empty result. The reader now requests every configured Singapore calendar day;
+the endpoint does not return the three days shown together in the website UI.
+
+A representative multi-centre scan then received a 200 `text/html` Incapsula
+rejection after several requests. This is a provider WAF response, not an
+availability payload or a facility-ID schema difference. The source therefore
+remains experimental and disabled: do not enable multi-centre polling until PA
+provides a sanctioned API/rate contract or approved browser access.
 
 ## Supporting official surfaces
 

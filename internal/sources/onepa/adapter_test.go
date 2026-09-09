@@ -1,6 +1,7 @@
 package onepa
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -123,6 +124,16 @@ func TestParseResponseRejectsMissingPayload(t *testing.T) {
 	}
 }
 
+func TestOnePAResponseContentErrorClassifiesWAFPage(t *testing.T) {
+	err := onePAResponseContentError("text/html", []byte("<html>Request unsuccessful. Incapsula incident ID</html>"))
+	if err == nil || !strings.Contains(err.Error(), "Incapsula") {
+		t.Fatalf("WAF error = %v", err)
+	}
+	if err := onePAResponseContentError("application/json; charset=utf-8", []byte(`{"hasError":false}`)); err != nil {
+		t.Fatalf("JSON response error = %v", err)
+	}
+}
+
 func TestAdapterRequiresConfiguredFacilityIDs(t *testing.T) {
 	if err := validateSettings(config.SourceOnePA{Enabled: true}); err == nil {
 		t.Fatal("unscoped onePA reader was accepted")
@@ -133,14 +144,14 @@ func TestAdapterRequiresConfiguredFacilityIDs(t *testing.T) {
 	}
 }
 
-func TestRequestedDatesUsesSingaporeThreeDayCalendarWindows(t *testing.T) {
+func TestRequestedDatesCoversEverySingaporeCalendarDay(t *testing.T) {
 	location, err := time.LoadLocation(domain.SingaporeTimeZone)
 	if err != nil {
 		t.Fatal(err)
 	}
 	start := time.Date(2026, time.August, 31, 0, 0, 0, 0, location)
 	dates := requestedDates(source.AvailabilityRequest{StartDate: start.UTC(), EndDate: start.AddDate(0, 0, 7).UTC()})
-	if len(dates) != 3 || dates[0].Format("2006-01-02") != "2026-08-31" || dates[1].Format("2006-01-02") != "2026-09-03" || dates[2].Format("2006-01-02") != "2026-09-06" {
+	if len(dates) != 7 || dates[0].Format("2006-01-02") != "2026-08-31" || dates[1].Format("2006-01-02") != "2026-09-01" || dates[6].Format("2006-01-02") != "2026-09-06" {
 		t.Fatalf("dates = %#v", dates)
 	}
 }
