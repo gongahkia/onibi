@@ -117,7 +117,14 @@ contract:
 2. Read the `GetWeeklySchedule` calendar response.
 3. Select the **Badminton Courts** facility type only when it is not selected.
 4. Click only `Next week` to cover the configured horizon, reading each
-   resulting calendar response.
+resulting calendar response.
+
+A scoped live scan with an imported session on 2026-09-09 confirmed that the
+current page presents its facility-type selector as a visible custom combobox,
+while its native `<select>` is hidden. The calendar makes an empty bootstrap
+POST before the facility-scoped `GetWeeklySchedule` POST. The reader uses the
+visible control and accepts only the response carrying `zoneTypeId`; that scan
+produced one venue and 52 bookable venue-level intervals.
 
 The response contains `StartTime`, `EndTime`, `Status`, and duration metadata.
 [Inference] The response is venue-level when “Any facility” is selected: the

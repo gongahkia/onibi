@@ -50,3 +50,24 @@ func TestPerfectGymRequestNeedsSessionAndFacilityType(t *testing.T) {
 		t.Fatalf("valid request = %v", err)
 	}
 }
+
+func TestPerfectGymScheduleResponseMatchesFacilityScopedPOST(t *testing.T) {
+	url := "https://thekallang.perfectgym.com/clientportal2/FacilityBookings/FacilityCalendar/GetWeeklySchedule"
+	for _, test := range []struct {
+		name         string
+		status       int
+		method, body string
+		want         bool
+	}{
+		{name: "facility scoped response", status: 200, method: "POST", body: `{"clubId":1,"zoneTypeId":31,"daysInWeek":6}`, want: true},
+		{name: "empty bootstrap response", status: 200, method: "POST", body: `{"clubId":1,"daysInWeek":6}`, want: false},
+		{name: "wrong status", status: 500, method: "POST", body: `{"zoneTypeId":31}`, want: false},
+		{name: "wrong method", status: 200, method: "GET", body: `{"zoneTypeId":31}`, want: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := perfectGymScheduleResponseMatches(url, test.status, test.method, test.body); got != test.want {
+				t.Fatalf("perfectGymScheduleResponseMatches() = %t, want %t", got, test.want)
+			}
+		})
+	}
+}

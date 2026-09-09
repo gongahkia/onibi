@@ -25,7 +25,7 @@ const (
 	AccessMode        = "onepa"
 	availabilityURL   = "https://www.onepa.gov.sg/facilities/availability"
 	facilitySlotsURL  = "https://www.onepa.gov.sg/-api/Facility/GetFacilitySlots"
-	adapterVersion    = "onepa-api-v1"
+	adapterVersion    = "onepa-api-v2"
 	defaultStaleAfter = 30 * time.Minute
 	calendarDays      = 3
 )
@@ -292,7 +292,7 @@ func (adapter *Adapter) venue(facilityID, outletName string, fetchedAt time.Time
 		name = facilityID
 	}
 	reference := "venue\x00" + facilityID
-	return domain.Venue{ID: SourceID + ":venue:" + stableID(facilityID), SourceIDs: []string{SourceID}, Name: name, BookingURLs: []string{availabilityURL + "?facilityId=" + facilityID}, Provenance: adapter.provenance(reference, fetchedAt)}
+	return domain.Venue{ID: SourceID + ":venue:" + stableID(facilityID), SourceIDs: []string{facilityID}, Name: name, BookingURLs: []string{availabilityURL + "?facilityId=" + facilityID}, Provenance: adapter.provenance(reference, fetchedAt)}
 }
 
 func (adapter *Adapter) slot(venue domain.Venue, facilityID, resourceID, resourceName, timeRangeID string, start, end, fetchedAt time.Time) domain.AvailabilitySlot {

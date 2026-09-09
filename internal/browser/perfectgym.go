@@ -12,9 +12,11 @@ import (
 )
 
 const (
-	perfectGymFacilityTypeSelector = `select[aria-label="Facility Type"]`
-	perfectGymNextWeekSelector     = `i[aria-label="Next week"]`
-	perfectGymSchedulePath         = "FacilityBookings/FacilityCalendar/GetWeeklySchedule"
+	perfectGymFacilityTypeControlSelector  = `div[role="combobox"][aria-label="Facility Type"]`
+	perfectGymFacilityTypeSelectedSelector = perfectGymFacilityTypeControlSelector + ` .baf-combobox-selected-item`
+	perfectGymFacilityTypeOptionSelector   = `div.baf-dropdown.is-active div.baf-combobox-item`
+	perfectGymNextWeekSelector             = `i[aria-label="Next week"]`
+	perfectGymSchedulePath                 = "FacilityBookings/FacilityCalendar/GetWeeklySchedule"
 )
 
 // PerfectGymScanRequest scopes a read-only scan to a configured PerfectGym
@@ -85,18 +87,20 @@ func (client *Playwright) ScanPerfectGym(ctx context.Context, request PerfectGym
 	if err != nil {
 		return nil, fmt.Errorf("open PerfectGym calendar: %w", err)
 	}
-	if _, err := page.WaitForSelector(perfectGymFacilityTypeSelector); err != nil {
+	if _, err := page.WaitForSelector(perfectGymFacilityTypeControlSelector); err != nil {
 		return nil, fmt.Errorf("wait for PerfectGym facility type: %w", err)
 	}
-	selected, err := page.Locator(perfectGymFacilityTypeSelector + " option:checked").TextContent()
+	facilityTypeControl := page.Locator(perfectGymFacilityTypeControlSelector)
+	selected, err := page.Locator(perfectGymFacilityTypeSelectedSelector).TextContent()
 	if err != nil {
 		return nil, fmt.Errorf("read PerfectGym facility type: %w", err)
 	}
 	if !strings.EqualFold(strings.TrimSpace(selected), request.FacilityTypeName) {
-		labels := []string{request.FacilityTypeName}
 		response, err = expectPerfectGymSchedule(page, func() error {
-			_, err := page.Locator(perfectGymFacilityTypeSelector).SelectOption(playwright.SelectOptionValues{Labels: &labels})
-			return err
+			if err := facilityTypeControl.Click(); err != nil {
+				return err
+			}
+			return page.Locator(perfectGymFacilityTypeOptionSelector, playwright.PageLocatorOptions{HasText: request.FacilityTypeName}).Click()
 		}, timeout)
 		if err != nil {
 			return nil, fmt.Errorf("select PerfectGym facility type %q: %w", request.FacilityTypeName, err)
@@ -141,8 +145,16 @@ func validatePerfectGymRequest(request PerfectGymScanRequest) error {
 
 func expectPerfectGymSchedule(page playwright.Page, action func() error, timeout time.Duration) (playwright.Response, error) {
 	return page.ExpectResponse(func(response playwright.Response) bool {
-		return response.Status() == 200 && strings.Contains(response.URL(), perfectGymSchedulePath)
+		request := response.Request()
+		body, err := request.PostData()
+		return err == nil && perfectGymScheduleResponseMatches(response.URL(), response.Status(), request.Method(), body)
 	}, action, playwright.PageExpectResponseOptions{Timeout: playwright.Float(float64(timeout.Milliseconds()))})
+}
+
+// perfectGymScheduleResponseMatches excludes the empty bootstrap calendar call
+// and accepts only the facility-scoped calendar response that carries slots.
+func perfectGymScheduleResponseMatches(url string, status int, method, body string) bool {
+	return status == 200 && method == "POST" && strings.Contains(url, perfectGymSchedulePath) && strings.Contains(body, `"zoneTypeId"`)
 }
 
 func perfectGymMaxPages(request PerfectGymScanRequest) int {

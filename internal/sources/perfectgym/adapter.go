@@ -25,7 +25,7 @@ const (
 	AccessMode             = "perfectgym"
 	defaultFacilityType    = config.PerfectGymBadmintonFacilityType
 	defaultAvailabilityURL = "https://thekallang.perfectgym.com/clientportal2/"
-	adapterVersion         = "perfectgym-browser-v1"
+	adapterVersion         = "perfectgym-browser-v2"
 )
 
 // Adapter keeps the provider-specific calendar interaction out of the generic

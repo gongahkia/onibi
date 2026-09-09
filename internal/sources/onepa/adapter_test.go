@@ -71,6 +71,9 @@ func TestNormalizeMapsAvailableNamedCourts(t *testing.T) {
 	if len(snapshot.Venues) != 1 || snapshot.Venues[0].Name != "Woodlands CC" {
 		t.Fatalf("venues = %#v", snapshot.Venues)
 	}
+	if got := snapshot.Venues[0].SourceIDs; len(got) != 1 || got[0] != "WoodlandsCC_BADMINTONCOURTS" {
+		t.Fatalf("venue source IDs = %#v", got)
+	}
 	if len(snapshot.Slots) != 2 {
 		t.Fatalf("slots = %#v", snapshot.Slots)
 	}
