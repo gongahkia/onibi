@@ -8,14 +8,21 @@ automation.
 
 ## Handoff status
 
-Completed on 2026-08-24:
+Completed on 2026-09-09:
 
-- The Docker image builds with its matching Playwright driver and Chromium.
+- The Docker image built locally with Node 24, the pinned ActiveSG request
+  transport, its matching Playwright driver, and Chromium. The `linux/arm64`
+  base stages resolve; run the full build once on the target 64-bit Raspberry
+  Pi OS or Ubuntu host before treating that architecture as verified. 32-bit
+  ARM is unsupported.
 - The enabled anonymous providers passed a live Docker refresh: SBA, Singapore
   Badminton Hall, Smash Arena, Wyse Active, and SportSG facilities.
 - The local `daemon` service was started with the documented Compose command.
-- A dedicated ActiveSG reader exists for the verified **badminton** venue-list
-  URL. It requires an imported browser session and is disabled by default.
+- A dedicated ActiveSG typed reader exists for the verified **badminton**
+  venue-list URL. It uses imported Playwright storage state, preserves the
+  provider's typed start/end ranges, and passed a live scoped refresh for
+  Woodlands Sport Hall (one venue, nine instant slots). It remains disabled by
+  default.
 - A dedicated The Kallang reader exists for the PerfectGym **Badminton Courts**
   calendar. It requires an imported browser session and is disabled by default.
 - A dedicated onePA reader exists for configured public facility IDs. It uses
@@ -27,7 +34,7 @@ Not yet complete:
 - ActiveSG pickleball or other activities. The present reader deliberately
   accepts only the badminton activity URL; it is not a generic all-sport
   ActiveSG reader.
-- A live ActiveSG or The Kallang scan with a transferred session state.
+- A live The Kallang scan with a transferred session state.
 - A live onePA refresh with an enabled configured facility ID, and TruSmash.
   TruSmash remains disabled until a provider-specific approved API, imported
   session, or public payload contract is captured and implemented.

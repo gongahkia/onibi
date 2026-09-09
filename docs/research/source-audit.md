@@ -24,7 +24,7 @@ snapshot is distinct from a failed request.
 
 | Source ID | Operator / badminton surface | Read access | Horizon default |
 | --- | --- | --- | --- |
-| `myactivesg` | ActiveSG | dedicated imported-session badminton browser reader, or partner API/browser/public reader | 15 days |
+| `myactivesg` | ActiveSG | dedicated imported-session typed badminton reader, or partner API/browser/public reader | 15 days |
 | `onepa` | People's Association / onePA | dedicated anonymous reader for configured public facility IDs, or partner API/browser/public reader | 10 days |
 | `the-kallang` | The Kallang / OCBC Arena | dedicated imported-session PerfectGym badminton reader, or partner API/browser/public reader | 30 days |
 | `sba-stadium` | Singapore Badminton Association / KFF Badminton Arena @ Guillemard | built-in public anonymous reader; API/browser/public mapper override supported | 7 days |
