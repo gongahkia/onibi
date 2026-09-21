@@ -3,6 +3,7 @@
  (libraries
   zenbu_kernel
   zenbu_model_api
+  zenbu_model_dsl
   zenbu_syntax
   zenbu_proof_models
   zenbu_structural_model
@@ -19,6 +20,7 @@
  (libraries
   zenbu_kernel
   zenbu_model_api
+  zenbu_model_dsl
   zenbu_view
   zenbu_terminal
   zenbu_app

@@ -1,0 +1,32 @@
+zenbu-model 1
+
+model "zenbu.example.modal" {
+  title "Minimal modal"
+  initial normal
+
+  state normal {
+    status {
+      label "NORMAL"
+      input keys
+    }
+
+    on "i" -> insert
+
+    on "d w" -> normal {
+      apply selector "current-word" transform "delete"
+    }
+  }
+
+  state insert {
+    status {
+      label "INSERT"
+      input text
+    }
+
+    on "Escape" -> normal
+
+    on "<text>" as text -> insert {
+      insert $text
+    }
+  }
+}

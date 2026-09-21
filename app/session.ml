@@ -6,6 +6,7 @@ open Zenbu_structural_model
 module Scripting = Zenbu_scripting.Scripting
 module Plugins = Zenbu_extension.Plugin_host
 module Language = Zenbu_language.Language
+module Dsl_model = Zenbu_model_dsl.Runtime.Adapter
 module Language_commands = Zenbu_language.Commands
 module Lsp = Zenbu_lsp.Client
 module Layout = Zenbu_view.Layout
@@ -14,8 +15,17 @@ module Selection_runtime = Model_runtime.Make (Selection_model)
 module Direct_runtime = Model_runtime.Make (Direct_model)
 module Structural_runtime = Model_runtime.Make (Structural_model)
 module Script_runtime = Model_runtime.Make (Script_model)
+module Dsl_runtime = Model_runtime.Make (Dsl_model)
 
-type model = Vim | Selection | Direct | Structural | Script
+let with_configured_dsl grammar run =
+  Dsl_model.configure grammar;
+  Fun.protect ~finally:Dsl_model.clear run
+
+let with_configured_dsl_runtime runtime run =
+  Dsl_runtime.model_state runtime |> Dsl_model.grammar
+  |> fun grammar -> with_configured_dsl grammar run
+
+type model = Vim | Selection | Direct | Structural | Script | Dsl
 
 type host_command =
   | Save
@@ -241,6 +251,7 @@ type active =
   | Direct_runtime of Direct_runtime.t
   | Structural_runtime of Structural_runtime.t
   | Script_runtime of Script_runtime.t
+  | Dsl_runtime of Dsl_runtime.t
 
 type macro_recording = { register : string; inputs_rev : Input_event.t list }
 
@@ -483,6 +494,9 @@ let synchronize_macro_context session =
     | Script_runtime runtime ->
         Script_runtime.with_macro_recording_register runtime register
         |> fun runtime -> Script_runtime runtime
+    | Dsl_runtime runtime ->
+        Dsl_runtime.with_macro_recording_register runtime register
+        |> fun runtime -> Dsl_runtime runtime
   in
   { session with active }
 
@@ -503,6 +517,9 @@ let active_with_kill_ring active kill_ring =
   | Script_runtime runtime ->
       Script_runtime.with_kill_ring runtime kill_ring |> fun runtime ->
       Script_runtime runtime
+  | Dsl_runtime runtime ->
+      Dsl_runtime.with_kill_ring runtime kill_ring |> fun runtime ->
+      Dsl_runtime runtime
 
 let kill_ring_of_active = function
   | Vim_runtime runtime -> Vim_runtime.kill_ring runtime
@@ -510,6 +527,7 @@ let kill_ring_of_active = function
   | Direct_runtime runtime -> Direct_runtime.kill_ring runtime
   | Structural_runtime runtime -> Structural_runtime.kill_ring runtime
   | Script_runtime runtime -> Script_runtime.kill_ring runtime
+  | Dsl_runtime runtime -> Dsl_runtime.kill_ring runtime
 
 let synchronize_kill_ring_from_active session =
   let kill_ring = kill_ring_of_active session.active in
@@ -1704,6 +1722,7 @@ let trace_of_active = function
   | Direct_runtime runtime -> Direct_runtime.trace runtime
   | Structural_runtime runtime -> Structural_runtime.trace runtime
   | Script_runtime runtime -> Script_runtime.trace runtime
+  | Dsl_runtime runtime -> Dsl_runtime.trace runtime
 
 let profiler_of_active = function
   | Vim_runtime runtime -> Vim_runtime.profiler runtime
@@ -1711,6 +1730,7 @@ let profiler_of_active = function
   | Direct_runtime runtime -> Direct_runtime.profiler runtime
   | Structural_runtime runtime -> Structural_runtime.profiler runtime
   | Script_runtime runtime -> Script_runtime.profiler runtime
+  | Dsl_runtime runtime -> Dsl_runtime.profiler runtime
 
 let active_with_syntax_service active syntax_service =
   match active with
@@ -1730,6 +1750,10 @@ let active_with_syntax_service active syntax_service =
       Script_model.configure_state (Script_runtime.model_state runtime);
       Script_runtime.with_syntax_service runtime ~syntax_service
       |> Result.map (fun runtime -> Script_runtime runtime)
+  | Dsl_runtime runtime ->
+      with_configured_dsl_runtime runtime (fun () ->
+          Dsl_runtime.with_syntax_service runtime ~syntax_service)
+      |> Result.map (fun runtime -> Dsl_runtime runtime)
 
 let last_execution_of_active = function
   | Vim_runtime runtime -> Vim_runtime.last_execution runtime
@@ -1737,6 +1761,7 @@ let last_execution_of_active = function
   | Direct_runtime runtime -> Direct_runtime.last_execution runtime
   | Structural_runtime runtime -> Structural_runtime.last_execution runtime
   | Script_runtime runtime -> Script_runtime.last_execution runtime
+  | Dsl_runtime runtime -> Dsl_runtime.last_execution runtime
 
 let lifecycle trace ~execution_id ~phase ?generation ?provider ~outcome ?reason
     () =
@@ -1844,7 +1869,7 @@ let trace_runtime_events trace profiler ~execution_id plugins =
         (wasm_profile_stage event.stage)
         ~seconds:event.duration_seconds)
 
-let create_loaded ~model ?language ?file_path ?(contents = "") ?trace ?profiler
+let create_loaded ~model ?dsl_model ?language ?file_path ?(contents = "") ?trace ?profiler
     ?(presentation = Zenbu_view.Presentation.default)
     ?(theme = Zenbu_view.Theme.default) ?system_clipboard
     ?(config = Scripting.Default) ?(plugins = Plugins.Disabled) ~language_config
@@ -1974,6 +1999,17 @@ let create_loaded ~model ?language ?file_path ?(contents = "") ?trace ?profiler
                         Script_runtime.create ~commands ~semantic_behaviors
                           ?syntax_service ~trace ~profiler ~document ()
                         |> Result.map (fun runtime -> Script_runtime runtime))
+                | Dsl -> (
+                    match dsl_model with
+                    | None ->
+                        Error
+                          (Error.Invalid_command_arguments
+                             "--model-dsl requires a validated .zenmodel grammar")
+                    | Some grammar ->
+                        with_configured_dsl grammar (fun () ->
+                            Dsl_runtime.create ~commands ~semantic_behaviors
+                              ?syntax_service ~trace ~profiler ~document ())
+                        |> Result.map (fun runtime -> Dsl_runtime runtime))
               in
               runtime
               |> Result.map (fun active ->
@@ -2080,7 +2116,7 @@ let create_loaded ~model ?language ?file_path ?(contents = "") ?trace ?profiler
                     saved_snapshot;
                   session)))
 
-let create ~model ?language ?file_path ?(contents = "") ?trace ?profiler
+let create ~model ?dsl_model ?language ?file_path ?(contents = "") ?trace ?profiler
     ?(presentation = Zenbu_view.Presentation.default)
     ?(theme = Zenbu_view.Theme.default) ?system_clipboard
     ?(config = Scripting.Default) ?(plugins = Plugins.Disabled)
@@ -2113,7 +2149,7 @@ let create ~model ?language ?file_path ?(contents = "") ?trace ?profiler
         language_config_reloadable,
         language_registry,
         language_config_inspection ) ->
-      create_loaded ~model ?language ?file_path ~contents ?trace ?profiler
+      create_loaded ~model ?dsl_model ?language ?file_path ~contents ?trace ?profiler
         ~presentation ~theme ?system_clipboard ~config ~plugins ~language_config
         ~language_config_reloadable ~language_config_inspection
         ~language_registry ?file_watcher ~dimensions ()
@@ -2124,6 +2160,7 @@ let context_of_active = function
   | Direct_runtime runtime -> Direct_runtime.context runtime
   | Structural_runtime runtime -> Structural_runtime.context runtime
   | Script_runtime runtime -> Script_runtime.context runtime
+  | Dsl_runtime runtime -> Dsl_runtime.context runtime
 
 let extension_owner_of_active = function
   | Vim_runtime runtime -> Vim_runtime.extension_owner runtime
@@ -2131,6 +2168,7 @@ let extension_owner_of_active = function
   | Direct_runtime runtime -> Direct_runtime.extension_owner runtime
   | Structural_runtime runtime -> Structural_runtime.extension_owner runtime
   | Script_runtime runtime -> Script_runtime.extension_owner runtime
+  | Dsl_runtime runtime -> Dsl_runtime.extension_owner runtime
 
 let context session = context_of_active session.active
 
@@ -2180,6 +2218,7 @@ let history_of_active = function
   | Direct_runtime runtime -> Direct_runtime.history runtime
   | Structural_runtime runtime -> Structural_runtime.history runtime
   | Script_runtime runtime -> Script_runtime.history runtime
+  | Dsl_runtime runtime -> Dsl_runtime.history runtime
 
 (* Selection-only transactions receive new document versions. A fold remains
    source-valid across those history steps, but never across a text edit on
@@ -2286,6 +2325,7 @@ let active_status = function
   | Direct_runtime runtime -> Direct_runtime.status runtime
   | Structural_runtime runtime -> Structural_runtime.status runtime
   | Script_runtime runtime -> Script_runtime.status runtime
+  | Dsl_runtime runtime -> Dsl_runtime.status runtime
 
 let host_status ~id ~label ~description ?(text_entry = false) () =
   Model_status.create ~id ~label ~description
@@ -2398,6 +2438,7 @@ let model_of_active = function
   | Direct_runtime _ -> Direct
   | Structural_runtime _ -> Structural
   | Script_runtime _ -> Script
+  | Dsl_runtime _ -> Dsl
 
 let script_runtime_active = function Script_runtime _ -> true | _ -> false
 let model session = model_of_active session.active
@@ -2553,6 +2594,10 @@ let restore_active_view_position active position =
   | Script_runtime runtime ->
       restore Script_runtime.restore_selections
         (fun runtime -> Script_runtime runtime)
+        runtime
+  | Dsl_runtime runtime ->
+      restore Dsl_runtime.restore_selections
+        (fun runtime -> Dsl_runtime runtime)
         runtime
 
 let same_view_position context (position : view_position) =
@@ -3574,6 +3619,25 @@ let handle_model_input session input =
                 inspector = None;
               },
               Script_runtime.effects step ))
+    | Dsl_runtime runtime -> (
+        match Dsl_runtime.handle_input runtime input with
+        | Error error ->
+            ( {
+                session with
+                message = Some (Error.to_string error);
+                quit_armed = false;
+                inspector = None;
+              },
+              [] )
+        | Ok (runtime, step) ->
+            ( {
+                session with
+                active = Dsl_runtime runtime;
+                message = last_message (Dsl_runtime.messages step);
+                quit_armed = false;
+                inspector = None;
+              },
+              Dsl_runtime.effects step ))
   in
   next
 
@@ -3594,6 +3658,9 @@ let active_with_extensions active ~commands ~semantic_behaviors =
   | Script_runtime runtime ->
       Script_runtime.with_extensions runtime ~commands ~semantic_behaviors
       |> fun runtime -> Script_runtime runtime
+  | Dsl_runtime runtime ->
+      Dsl_runtime.with_extensions runtime ~commands ~semantic_behaviors
+      |> fun runtime -> Dsl_runtime runtime
 
 let active_commands = function
   | Vim_runtime runtime -> Vim_runtime.commands runtime
@@ -3601,6 +3668,7 @@ let active_commands = function
   | Direct_runtime runtime -> Direct_runtime.commands runtime
   | Structural_runtime runtime -> Structural_runtime.commands runtime
   | Script_runtime runtime -> Script_runtime.commands runtime
+  | Dsl_runtime runtime -> Dsl_runtime.commands runtime
 
 let active_semantic_behaviors = function
   | Vim_runtime runtime -> Vim_runtime.semantic_behaviors runtime
@@ -3608,6 +3676,7 @@ let active_semantic_behaviors = function
   | Direct_runtime runtime -> Direct_runtime.semantic_behaviors runtime
   | Structural_runtime runtime -> Structural_runtime.semantic_behaviors runtime
   | Script_runtime runtime -> Script_runtime.semantic_behaviors runtime
+  | Dsl_runtime runtime -> Dsl_runtime.semantic_behaviors runtime
 
 let shared_state = function
   | Vim_runtime runtime -> Vim_runtime.shared_state runtime
@@ -3615,8 +3684,9 @@ let shared_state = function
   | Direct_runtime runtime -> Direct_runtime.shared_state runtime
   | Structural_runtime runtime -> Structural_runtime.shared_state runtime
   | Script_runtime runtime -> Script_runtime.shared_state runtime
+  | Dsl_runtime runtime -> Dsl_runtime.shared_state runtime
 
-let active_from_shared ?script_model model shared =
+let active_from_shared ?script_model ?dsl_model model shared =
   match model with
   | Vim ->
       Vim_runtime.create_from_shared shared
@@ -3640,9 +3710,19 @@ let active_from_shared ?script_model model shared =
           Script_model.configure model;
           Script_runtime.create_from_shared shared
           |> Result.map (fun value -> Script_runtime value))
+  | Dsl -> (
+      match dsl_model with
+      | None ->
+          Error
+            (Error.Invalid_command_arguments
+               "DSL model is unavailable because no compiled grammar is attached")
+      | Some grammar ->
+          with_configured_dsl grammar (fun () ->
+              Dsl_runtime.create_from_shared shared)
+          |> Result.map (fun value -> Dsl_runtime value))
 
 let create_active ~model ~commands ~semantic_behaviors ?syntax_service ~trace
-    ~profiler ?script_model ~document () =
+    ~profiler ?script_model ?dsl_model ~document () =
   match model with
   | Vim ->
       Vim_runtime.create ~commands ~semantic_behaviors ?syntax_service ~trace
@@ -3671,6 +3751,17 @@ let create_active ~model ~commands ~semantic_behaviors ?syntax_service ~trace
           Script_runtime.create ~commands ~semantic_behaviors ?syntax_service
             ~trace ~profiler ~document ()
           |> Result.map (fun runtime -> Script_runtime runtime))
+  | Dsl -> (
+      match dsl_model with
+      | None ->
+          Error
+            (Error.Invalid_command_arguments
+               "DSL model is unavailable because no compiled grammar is attached")
+      | Some grammar ->
+          with_configured_dsl grammar (fun () ->
+              Dsl_runtime.create ~commands ~semantic_behaviors ?syntax_service
+                ~trace ~profiler ~document ())
+          |> Result.map (fun runtime -> Dsl_runtime runtime))
 
 let create_buffer session ~id ?file_path ?buffer_name ?language ?saved_snapshot
     ?editing_model ~contents () =
@@ -3682,9 +3773,18 @@ let create_buffer session ~id ?file_path ?buffer_name ?language ?saved_snapshot
           let semantic_behaviors = active_semantic_behaviors session.active in
           let trace = trace_of_active session.active in
           let profiler = profiler_of_active session.active in
+          let dsl_model =
+            match session.active with
+            | Dsl_runtime runtime ->
+                Some (Dsl_runtime.model_state runtime |> Dsl_model.grammar)
+            | Vim_runtime _ | Selection_runtime _ | Direct_runtime _
+            | Structural_runtime _ | Script_runtime _ ->
+                None
+          in
           create_active ~model ~commands ~semantic_behaviors ?syntax_service
             ~trace ~profiler
             ?script_model:(Option.bind session.generation Scripting.model)
+            ?dsl_model
             ~document ()
           |> Result.map (fun active ->
               let active = active_with_kill_ring active session.kill_ring in
@@ -4317,7 +4417,7 @@ let reload_config session =
                         ~replacement
                   | Script_runtime _, None -> assert false
                   | ( ( Vim_runtime _ | Selection_runtime _ | Direct_runtime _
-                      | Structural_runtime _ ),
+                      | Structural_runtime _ | Dsl_runtime _ ),
                       _ ) ->
                       Ok None
                 in
@@ -4558,6 +4658,7 @@ let model_descriptor = function
   | Direct_runtime runtime -> Direct_runtime.model_descriptor runtime
   | Structural_runtime runtime -> Structural_runtime.model_descriptor runtime
   | Script_runtime runtime -> Script_runtime.model_descriptor runtime
+  | Dsl_runtime runtime -> Dsl_runtime.model_descriptor runtime
 
 let binding_rank session binding =
   let model = model_descriptor session.active |> Editing_model.id in
@@ -5072,6 +5173,26 @@ let execute_active_effects ?augment_provenance session input effects =
                 inspector = None;
               },
               Script_runtime.change_ids step <> [] ))
+    | Dsl_runtime runtime -> (
+        match
+          Dsl_runtime.execute_effects runtime ?augment_provenance ~input effects
+        with
+        | Error error ->
+            ( {
+                session with
+                message = Some (Error.to_string error);
+                quit_armed = false;
+              },
+              false )
+        | Ok (runtime, step) ->
+            ( {
+                session with
+                active = Dsl_runtime runtime;
+                message = last_message (Dsl_runtime.messages step);
+                quit_armed = false;
+                inspector = None;
+              },
+              Dsl_runtime.change_ids step <> [] ))
   in
   let next, changed = result in
   (observe_language_document_version next, changed)
@@ -5490,6 +5611,12 @@ let execute_effects_in_active ?augment_provenance active input effects =
           ( Script_runtime runtime,
             Script_runtime.change_ids step <> [],
             last_message (Script_runtime.messages step) ))
+  | Dsl_runtime runtime ->
+      Dsl_runtime.execute_effects runtime ?augment_provenance ~input effects
+      |> Result.map (fun (runtime, step) ->
+          ( Dsl_runtime runtime,
+            Dsl_runtime.change_ids step <> [],
+            last_message (Dsl_runtime.messages step) ))
 
 let synchronize_buffer_after_change (buffer : buffer) ~fallback_contents =
   match buffer.language_client with
@@ -6887,9 +7014,18 @@ let switch_to_model session target =
       inspector = None;
     }
   else
+    let dsl_model =
+      match session.active with
+      | Dsl_runtime runtime ->
+          Some (Dsl_runtime.model_state runtime |> Dsl_model.grammar)
+      | Vim_runtime _ | Selection_runtime _ | Direct_runtime _ | Structural_runtime _
+      | Script_runtime _ ->
+          None
+    in
     match
       active_from_shared
         ?script_model:(Option.bind session.generation Scripting.model)
+        ?dsl_model
         target
         (shared_state session.active)
     with
@@ -6908,6 +7044,7 @@ let switch_to_model session target =
           | Direct_runtime _ -> "Direct editing model"
           | Structural_runtime _ -> "Structural editing model"
           | Script_runtime _ -> "Script editing model"
+          | Dsl_runtime _ -> "DSL editing model"
         in
         {
           session with
@@ -7359,6 +7496,10 @@ let layout_model_of_model = function
         (layout_error
            "script editing models are not persisted because their internals \
             are host-external")
+  | Dsl ->
+      Error
+        (layout_error
+           "DSL editing models are not persisted; start Zenbu with --model-dsl PATH")
 
 let model_of_layout_model = function
   | Session_layout.Vim -> Vim
@@ -9913,6 +10054,7 @@ let active_input_rules = function
   | Direct_runtime runtime -> Direct_runtime.input_rules runtime
   | Structural_runtime runtime -> Structural_runtime.input_rules runtime
   | Script_runtime runtime -> Script_runtime.input_rules runtime
+  | Dsl_runtime runtime -> Dsl_runtime.input_rules runtime
 
 let help_lines session =
   let model_status = active_status session.active in
@@ -9950,6 +10092,7 @@ let model_choice_name = function
   | Direct -> "Direct"
   | Structural -> "Structural"
   | Script -> "Script"
+  | Dsl -> "DSL"
 
 let interaction_overlay session =
   match session.interaction with
@@ -10901,6 +11044,18 @@ let inspect session inspection =
         ~runtime_history:(Script_runtime.history runtime)
         ~runtime_context:(Script_runtime.context runtime)
         ~profiler:(Script_runtime.profiler runtime)
+  | Dsl_runtime runtime ->
+      format
+        ~last_execution:(Dsl_runtime.last_execution runtime)
+        ~trace:(Dsl_runtime.trace runtime)
+        ~model_descriptor:(Dsl_runtime.model_descriptor runtime)
+        ~model_status:(Dsl_runtime.status runtime)
+        ~rules:(Dsl_runtime.input_rules runtime)
+        ~command_registry:(Dsl_runtime.commands runtime)
+        ~semantic_behaviors:(Dsl_runtime.semantic_behaviors runtime)
+        ~runtime_history:(Dsl_runtime.history runtime)
+        ~runtime_context:(Dsl_runtime.context runtime)
+        ~profiler:(Dsl_runtime.profiler runtime)
 
 let toggle_inspector session =
   match session.inspector with

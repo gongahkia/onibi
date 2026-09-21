@@ -1,4 +1,4 @@
-type model = Vim | Selection | Direct | Structural | Script
+type model = Vim | Selection | Direct | Structural | Script | Dsl
 
 type host_command =
   | Save
@@ -113,6 +113,7 @@ type outcome = Continue of t | Exit of t
 
 val create :
   model:model ->
+  ?dsl_model:Zenbu_model_dsl.Compile.t ->
   ?language:string ->
   ?file_path:string ->
   ?contents:string ->

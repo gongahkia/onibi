@@ -4,9 +4,11 @@ module Scripting = Zenbu_scripting.Scripting
 module Plugins = Zenbu_extension.Plugin_host
 module Syntax = Zenbu_syntax.Syntax
 module Language = Zenbu_language.Language
+module Model_dsl = Zenbu_model_dsl
 
 type options = {
   model : Zenbu_app.Session.model;
+  dsl_model_path : string option;
   language : string option;
   file_path : string option;
   trace : bool;
@@ -21,7 +23,8 @@ type options = {
 type run_result = Exited | Unsaved_end
 
 let usage =
-  "usage: zenbu [--model vim|selection|direct|structural|script] [--language \
+  "usage: zenbu [--model vim|selection|direct|structural|script | --model-dsl \
+   PATH] [--language \
    ID] [--trace] [--profile] [--theme default|dark|light|PATH] [--presentation \
    default|numbered|relative|minimal|bare|buffered|PATH] [--config PATH | \
    --no-config] [--language-config PATH | --no-language-config] [--plugin-dir \
@@ -29,6 +32,8 @@ let usage =
 
 let parse_arguments () =
   let model = ref Zenbu_app.Session.Vim in
+  let model_explicit = ref false in
+  let dsl_model_path = ref None in
   let language = ref None in
   let file_path = ref None in
   let trace = ref false in
@@ -82,12 +87,31 @@ let parse_arguments () =
     else plugins_disabled := true
   in
   let set_model = function
-    | "vim" -> model := Zenbu_app.Session.Vim
-    | "selection" -> model := Zenbu_app.Session.Selection
-    | "direct" -> model := Zenbu_app.Session.Direct
-    | "structural" -> model := Zenbu_app.Session.Structural
-    | "script" -> model := Zenbu_app.Session.Script
+    | "vim" when Option.is_none !dsl_model_path ->
+        model_explicit := true;
+        model := Zenbu_app.Session.Vim
+    | "selection" when Option.is_none !dsl_model_path ->
+        model_explicit := true;
+        model := Zenbu_app.Session.Selection
+    | "direct" when Option.is_none !dsl_model_path ->
+        model_explicit := true;
+        model := Zenbu_app.Session.Direct
+    | "structural" when Option.is_none !dsl_model_path ->
+        model_explicit := true;
+        model := Zenbu_app.Session.Structural
+    | "script" when Option.is_none !dsl_model_path ->
+        model_explicit := true;
+        model := Zenbu_app.Session.Script
+    | ("vim" | "selection" | "direct" | "structural" | "script") ->
+        raise (Arg.Bad "choose only one of --model and --model-dsl")
     | value -> raise (Arg.Bad ("unknown model: " ^ value))
+  in
+  let set_dsl_model path =
+    if !model_explicit || Option.is_some !dsl_model_path then
+      raise (Arg.Bad "choose only one of --model and --model-dsl")
+    else (
+      dsl_model_path := Some path;
+      model := Zenbu_app.Session.Dsl)
   in
   let set_language value =
     match Syntax.Language.find value with
@@ -121,6 +145,9 @@ let parse_arguments () =
         Arg.String set_model,
         "vim, selection, direct, structural, or script (default: vim; script \
          requires zenbu.model)" );
+      ( "--model-dsl",
+        Arg.String set_dsl_model,
+        "load the validated .zenmodel grammar at PATH" );
       ( "--language",
         Arg.String set_language,
         "syntax language ID (ocaml or json)" );
@@ -162,6 +189,7 @@ let parse_arguments () =
     Ok
       {
         model = !model;
+        dsl_model_path = !dsl_model_path;
         language = !language;
         file_path = !file_path;
         trace = !trace;
@@ -187,7 +215,26 @@ let load_contents = function
       Zenbu_app.File_io.read path
       |> Result.map_error Zenbu_app.File_io.to_string
 
-let create_session options contents =
+let load_dsl_model = function
+  | None -> Ok None
+  | Some path ->
+      Zenbu_app.File_io.read path
+      |> Result.map_error Zenbu_app.File_io.to_string
+      |> Result.bind (fun source ->
+             match Model_dsl.Compile.compile ~source_name:path ~source with
+             | Ok (grammar, warnings) ->
+                 List.iter
+                   (fun diagnostic ->
+                     prerr_endline (Model_dsl.Diagnostic.format diagnostic))
+                   warnings;
+                 Ok (Some grammar)
+             | Error diagnostics ->
+                 Error
+                   (diagnostics
+                   |> List.map Model_dsl.Diagnostic.format
+                   |> String.concat "\n"))
+
+let create_session ?dsl_model options contents =
   let trace =
     if options.trace then Zenbu_model_api.Trace.enabled ~capacity:1024
     else Ok (Zenbu_model_api.Trace.disabled ())
@@ -199,6 +246,7 @@ let create_session options contents =
   Result.bind trace (fun trace ->
       Result.bind profiler (fun profiler ->
           Zenbu_app.Session.create ~model:options.model
+            ?dsl_model
             ?language:options.language ?file_path:options.file_path ~contents
             ~trace ~profiler ~presentation:options.presentation
             ~theme:options.theme ~config:options.config
@@ -381,27 +429,30 @@ let () =
   match parse_arguments () with
   | Error message -> fail message
   | Ok options -> (
-      match load_contents options.file_path with
+      match load_dsl_model options.dsl_model_path with
       | Error message -> fail message
-      | Ok contents -> (
-          match create_session options contents with
-          | Error error -> fail (Error.to_string error)
-          | Ok initial -> (
-              match explicit_startup_error options initial with
-              | Some message -> fail message
-              | None -> (
-                  match
-                    Zenbu_terminal.Backend.with_terminal (fun backend ->
-                        let columns, rows =
-                          Zenbu_terminal.Backend.size backend
-                        in
-                        run backend
-                          (Zenbu_app.Session.resize initial ~columns ~rows))
-                  with
-                  | Error message -> fail message
-                  | Ok Exited -> ()
-                  | Ok Unsaved_end ->
-                      prerr_endline
-                        "zenbu: input ended with unsaved changes; the file was \
-                         not saved";
-                      exit 1))))
+      | Ok dsl_model -> (
+          match load_contents options.file_path with
+          | Error message -> fail message
+          | Ok contents -> (
+              match create_session ?dsl_model options contents with
+              | Error error -> fail (Error.to_string error)
+              | Ok initial -> (
+                  match explicit_startup_error options initial with
+                  | Some message -> fail message
+                  | None -> (
+                      match
+                        Zenbu_terminal.Backend.with_terminal (fun backend ->
+                            let columns, rows =
+                              Zenbu_terminal.Backend.size backend
+                            in
+                            run backend
+                              (Zenbu_app.Session.resize initial ~columns ~rows))
+                      with
+                      | Error message -> fail message
+                      | Ok Exited -> ()
+                      | Ok Unsaved_end ->
+                          prerr_endline
+                            "zenbu: input ended with unsaved changes; the file was \
+                             not saved";
+                          exit 1)))))

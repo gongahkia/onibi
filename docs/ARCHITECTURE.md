@@ -63,8 +63,8 @@ zenbu.kernel
       ↑
 zenbu.model_api
       ↑
- ┌────┴───────────────┐
-zenbu.vim-style   zenbu.selection-first
+ ┌────┬──────────────────────────────────────┐
+zenbu.vim-style   zenbu.selection-first   zenbu.model_dsl
 ```
 
 `zenbu.kernel` owns documents, snapshots, selectors, transformations, intents,
@@ -85,6 +85,14 @@ semantic intents. Dune's separate library dependencies enforce this direct
 dependency boundary. OCaml does not make public libraries a security sandbox;
 M9 therefore places isolated third-party Components behind a private runtime
 rather than treating library visibility as a security boundary.
+
+`zenbu.model_dsl` is an optional compiler/interpreter above `zenbu.model_api`.
+It turns a checked `.zenmodel` finite grammar into an ordinary
+`Editing_model.S` implementation and returns only existing `Model_effect`
+values. The headless host can validate and describe grammars; the terminal host
+can load one explicitly at startup before entering terminal mode. It does not
+alter the semantic kernel, model runtime, transaction path, Lua authority, or
+Component capability contract. See [the editing-model DSL](EDITING_MODEL_DSL.md).
 
 ## Extension boundary
 

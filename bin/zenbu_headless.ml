@@ -6,6 +6,7 @@ open Zenbu_structural_model
 module Scripting = Zenbu_scripting.Scripting
 module Plugins = Zenbu_extension.Plugin_host
 module Language = Zenbu_language.Language
+module Model_dsl = Zenbu_model_dsl
 
 let fail error =
   prerr_endline (Error.to_string error);
@@ -67,6 +68,32 @@ let read_file path =
   Fun.protect
     ~finally:(fun () -> close_in_noerr channel)
     (fun () -> really_input_string channel (in_channel_length channel))
+
+let print_diagnostics diagnostics =
+  List.iter (fun diagnostic -> prerr_endline (Model_dsl.Diagnostic.format diagnostic)) diagnostics
+
+let compile_model path =
+  let source =
+    try read_file path
+    with Sys_error message ->
+      fail
+        (Error.Invalid_command_arguments
+           ("cannot read model `" ^ path ^ "`: " ^ message))
+  in
+  match Model_dsl.Compile.compile ~source_name:path ~source with
+  | Ok compiled -> compiled
+  | Error diagnostics ->
+      print_diagnostics diagnostics;
+      exit 1
+
+let model_check path =
+  let _compiled, warnings = compile_model path in
+  print_diagnostics warnings;
+  Printf.printf "model-check: ok: %s\n" path
+
+let model_describe path =
+  let compiled, warnings = compile_model path in
+  print_string (Model_dsl.Describe.render ~warnings compiled)
 
 let write_file path contents =
   let channel = open_out_bin path in
@@ -1309,6 +1336,7 @@ let usage () =
      plugin-session <PLUGIN-ROOT> <fixture.session> | plugins [DIR] | \
      plugin-check <PLUGIN-DIR> | plugin-describe <PLUGIN-DIR> | \
      plugin-root-check <PLUGIN-ROOT> | plugin-metadata <PLUGIN-DIR> | \
+     model-check <MODEL.zenmodel> | model-describe <MODEL.zenmodel> | \
      extension-api | extension-sdk | extension-wit | benchmark";
   exit 2
 
@@ -1331,6 +1359,8 @@ let () =
   | [ _; "api" ] -> inspect_api ()
   | [ _; "config-check"; path ] -> check_config path
   | [ _; "config-describe"; path ] -> describe_config path
+  | [ _; "model-check"; path ] -> model_check path
+  | [ _; "model-describe"; path ] -> model_describe path
   | [ _; "script-session"; config; session ] -> script_session config session
   | [ _; "script-jobs"; config; session ] -> script_jobs config session
   | [ _; "plugins" ] -> plugins Plugins.Default

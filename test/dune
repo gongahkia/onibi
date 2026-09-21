@@ -54,6 +54,45 @@
  (libraries zenbu_kernel zenbu_model_api zenbu_proof_models))
 
 (test
+ (name test_model_dsl)
+ (libraries zenbu_kernel zenbu_model_api zenbu_model_dsl))
+
+(test
+ (name test_model_dsl_session)
+ (libraries
+  zenbu_kernel
+  zenbu_model_api
+  zenbu_model_dsl
+  zenbu_scripting
+  zenbu_view
+  zenbu_app
+  unix))
+
+(rule
+ (alias runtest)
+ (deps
+  test_model_dsl_cli.sh
+  fixtures/model_dsl/modal.zenmodel
+  fixtures/model_dsl/invalid.zenmodel)
+ (action
+  (run /bin/sh %{dep:test_model_dsl_cli.sh}
+   %{exe:../bin/zenbu_headless.exe}
+   %{dep:fixtures/model_dsl/modal.zenmodel}
+   %{dep:fixtures/model_dsl/invalid.zenmodel})))
+
+(rule
+ (alias runtest)
+ (deps
+  test_model_dsl_interactive_cli.sh
+  fixtures/model_dsl/modal.zenmodel
+  fixtures/model_dsl/invalid.zenmodel)
+ (action
+  (run /bin/sh %{dep:test_model_dsl_interactive_cli.sh}
+   %{exe:../bin/zenbu.exe}
+   %{dep:fixtures/model_dsl/modal.zenmodel}
+   %{dep:fixtures/model_dsl/invalid.zenmodel})))
+
+(test
  (name test_m3_models)
  (libraries zenbu_kernel zenbu_model_api zenbu_proof_models))
 

@@ -1,0 +1,11 @@
+zenbu-model 1
+
+model "broken" {
+  title "Broken"
+  initial normal
+
+  state normal {
+    status { label "NORMAL" input keys }
+    on "g" -> missing
+  }
+}

@@ -50,6 +50,11 @@ and plugin examples live in [Getting Started](docs/GETTING_STARTED.md).
   merge, primary/content rotation, and orientation operations—and the supplied
   Vim-style, selection-first, direct, structural, and a checked script-owned
   model all use it.
+- `zenbu.model_dsl` is a declarative finite-grammar compiler above that API.
+  Checked `.zenmodel` files return the same existing model effects and do not
+  create a second semantic runtime. They can be selected interactively with an
+  explicit grammar path. See
+  [the DSL guide](docs/EDITING_MODEL_DSL.md).
 - `zenbu.syntax` provides version-bound OCaml and JSON snapshots through a
   private Tree-sitter backend. Its host-owned runtime registry validates
   statically linked bundle source, version, ABI, integrity attestation, and
@@ -171,6 +176,7 @@ dune exec bin/zenbu.exe -- --model selection test/fixtures/syntax_sample.ml
 dune exec bin/zenbu.exe -- --model direct test/fixtures/syntax_sample.ml
 dune exec bin/zenbu.exe -- --model structural test/fixtures/syntax_sample.ml
 dune exec bin/zenbu.exe -- --model script --config examples/script-modal-editor.lua README.md
+dune exec bin/zenbu.exe -- --model-dsl examples/script-modal-editor.zenmodel README.md
 dune exec bin/zenbu.exe -- --theme dark test/fixtures/syntax_sample.ml
 dune exec bin/zenbu.exe -- --theme dark --presentation relative test/fixtures/syntax_sample.ml
 dune exec bin/zenbu.exe -- --language-config language-servers.toml FILE
@@ -180,6 +186,13 @@ dune exec bin/zenbu.exe -- --trace --profile --plugin-dir examples/plugins FILE
 The initial model is Vim-style. Syntax is detected from `.ml`, `.mli`, and
 `.json`, or selected with `--language ocaml|json`; unknown paths deliberately
 receive no syntax service and render as plain text.
+
+`--model-dsl PATH` validates and compiles the named `.zenmodel` grammar before
+the terminal opens, then runs it through the normal model runtime and semantic
+transaction path. It is mutually exclusive with `--model`, grants no extra
+filesystem/process/terminal authority to the grammar, and does not hot-reload
+or persist the grammar path in workspace layouts. Use `zenbu-headless
+model-check PATH` while authoring.
 
 The Vim model is a compatibility stress test for Zenbu's model API. It supports
 normal/insert/replace states, operator motions, find, characterwise/linewise
@@ -339,6 +352,8 @@ dune exec bin/zenbu_headless.exe -- language-status test/fixtures/syntax_sample.
 dune exec bin/zenbu_headless.exe -- lsp-position utf-16 0 test/fixtures/syntax_sample.ml
 dune exec bin/zenbu_headless.exe -- why test/fixtures/sessions/observability-vim.session
 dune exec bin/zenbu_headless.exe -- search-session path/to/session
+dune exec bin/zenbu_headless.exe -- model-check examples/script-modal-editor.zenmodel
+dune exec bin/zenbu_headless.exe -- model-describe examples/script-modal-editor.zenmodel
 dune exec bin/zenbu_headless.exe -- extension-api
 dune exec bin/zenbu_headless.exe -- benchmark
 ```
@@ -353,8 +368,9 @@ testable without a TTY.
 zenbu.kernel                 documents, transactions, history, replay
         ↑
 zenbu.model_api              public model/command/inspection vocabulary
-   ↗         ↖
-zenbu.proof_models     zenbu.structural_model ── zenbu.syntax (private Tree-sitter)
+        ↑
+ ┌──────┴────────────────────────────────────────────────────────────┐
+zenbu.proof_models  zenbu.structural_model ── zenbu.syntax (private Tree-sitter)  zenbu.model_dsl
         ↑                         ↑
 zenbu.language ── zenbu.lsp (private LSP/JSON-RPC process adapter)
         ↑

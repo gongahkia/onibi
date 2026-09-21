@@ -1,0 +1,15 @@
+(library
+ (name zenbu_model_dsl)
+ (public_name zenbu.model_dsl)
+ (modules
+  source_span
+  diagnostic
+  ast
+  lexer
+  parser
+  ir
+  validate
+  compile
+  runtime
+  describe)
+ (libraries zenbu_model_api))
