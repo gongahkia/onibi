@@ -13,8 +13,8 @@
 
 `Zenbu` ships in 2 parts.
 
-1. A declarative [DSL](https://en.wikipedia.org/wiki/Domain-specific_language) comprised of `.zenmodel` files that define the editor's input model.
-2. An OCaml text editor written in `.zenmodel` as a proof of `Zenbu`'s capabilities.
+1. A declarative [DSL](https://en.wikipedia.org/wiki/Domain-specific_language) comprised of `.zenmodel` files that [define the editor's input model](#the-zenbu-dsl).
+2. An [OCaml](https://ocaml.org/) text editor written in `.zenmodel` as a proof of `Zenbu`'s capabilities.
 
 ## Current features
 
