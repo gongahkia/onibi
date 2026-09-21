@@ -9,21 +9,14 @@
   <a href="https://github.com/gongahkia/Zenbu/actions/workflows/ci.yml"><img src="https://github.com/gongahkia/zenbu/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
 </p>
 
-
 ## What is Zenbu?
 
-`Zenbu` is an OCaml text editor built around a simple boundary: no particular
-editing grammar owns the document. Vim-like, selection-first, direct,
-structural, trusted-Lua, and declarative `.zenmodel` models all turn logical
-input into the same inspectable model effects. The ordinary runtime then
-validates and applies those effects through semantic intents, transactions,
-history, syntax updates, provenance, and replay.
+`Zenbu` ships in 2 parts.
 
-That makes input grammars replaceable without creating a second mutation path.
-An editing model cannot directly mutate a document, selection, history, or
-syntax tree.
+1. A declarative [DSL](https://en.wikipedia.org/wiki/Domain-specific_language) comprised of `.zenmodel` files that define the editor's input model.
+2. An OCaml text editor written in `.zenmodel` as a proof of `Zenbu`'s capabilities.
 
-## Current capabilities
+## Current features
 
 | Area | Capability |
 | --- | --- |
