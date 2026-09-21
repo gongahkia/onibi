@@ -28,15 +28,15 @@
 | Customisation | Trusted local Lua configuration and separately capability-constrained Wasm Component extensions |
 | Tooling | Headless replay, model/session execution, grammar validation/description, configuration checks, inspection, and extension-contract generation |
 
-Zenbu is currently **0.11.0-dev (M11)**. It is an actively developed source
-release, not a finished editor distribution.
+## The Zenbu DSL
 
-## The Zenbu editing-model DSL
+> [!NOTE]  
+> For more details, see the [language reference](docs/EDITING_MODEL_DSL.md) for `.zenmodel`.
 
-`.zenmodel` is Zenbu's declarative surface for finite, deterministic,
-inspectable editing grammars. It compiles to `Editing_model.S` and returns the
-same existing `Model_effect` values as every other editing model; it is not a
-second editor runtime or a Lua substitute.
+`.zenmodel` is Zenbu's declarative surface for specifying a finite, deterministic,
+inspectable editing grammars. It compiles to `Editing_model.S` and returns the same existing `Model_effect` values as every other editing model.
+
+Below is an example of `.zenmodel` in action.
 
 ```text
 zenbu-model 1
@@ -62,12 +62,6 @@ model "example.modal" {
   }
 }
 ```
-
-Use `.zenmodel` when the behavior is naturally a finite input/state grammar.
-Use trusted Lua or OCaml when it needs arbitrary programming, dynamic
-algorithms, complex mutable state, counts, registers, macros, or host
-automation. See the [language reference](docs/EDITING_MODEL_DSL.md) for the
-complete syntax, validation, inspection, replay, and authority rules.
 
 ## Installation
 
