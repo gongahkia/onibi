@@ -24,6 +24,5 @@ module Adapter : sig
       the slot. Hosts must serialize configure/initialize pairs. *)
 
   val grammar : state -> Compile.t
-  val configure_state : state -> unit
   val clear : unit -> unit
 end

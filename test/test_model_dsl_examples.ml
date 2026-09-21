@@ -67,16 +67,8 @@ let contains text fragment =
   in
   fragment_length = 0 || loop 0
 
-let transition_count (grammar : Dsl.Compile.t) =
-  List.fold_left
-    (fun total (state : Dsl.Compile.compiled_state) ->
-      total + List.length state.ir.transitions)
-    0 grammar.states
-
-let prefix_count (grammar : Dsl.Compile.t) =
-  List.fold_left
-    (fun total state -> total + List.length (Dsl.Compile.prefixes state))
-    0 grammar.states
+let transition_count = Dsl.Compile.transition_count
+let prefix_count = Dsl.Compile.prefix_count
 
 module Runtime = Model_runtime.Make (Dsl.Runtime.Adapter)
 
@@ -110,7 +102,7 @@ let test_modal_operator (grammar : Dsl.Compile.t) =
     (prefix_count grammar = 3)
     "modal example should generate d, c, and v prefix nodes";
   expect
-    (List.length grammar.ir.actions = 2)
+    (Dsl.Compile.action_count grammar = 2)
     "modal example did not retain its compile-time actions";
   let description = Dsl.Describe.render ~warnings:[] grammar in
   expect_string ~expected:description

@@ -159,7 +159,7 @@ let test_valid_model_and_description () =
   expect_string ~expected:"zenbu.example.modal"
     ~actual:(Editing_model.id compiled.descriptor);
   expect
-    (List.length compiled.states = 2)
+    (Dsl.Compile.state_count compiled = 2)
     "valid model did not retain both states";
   let description = Dsl.Describe.render ~warnings:[] compiled in
   expect (String.contains description 'd') "description omitted transitions";

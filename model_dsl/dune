@@ -9,7 +9,9 @@
   parser
   ir
   validate
+  compile_internal
   compile
   runtime
   describe)
+ (private_modules ast lexer parser ir validate compile_internal)
  (libraries zenbu_model_api))

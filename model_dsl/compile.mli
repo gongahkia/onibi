@@ -1,24 +1,4 @@
-type node
-
-type edge = {
-  pattern : Zenbu_model_api.Input_event.binding_pattern;
-  token : string;
-  next : node;
-}
-
-type node_view = { edges : edge list; complete : Ir.transition option }
-
-val view_node : node -> node_view
-
-type compiled_state = { ir : Ir.state; root : node }
-
-type t = {
-  ir : Ir.t;
-  source : string;
-  source_fingerprint : string;
-  descriptor : Zenbu_model_api.Editing_model.descriptor;
-  states : compiled_state list;
-}
+type t = Compile_internal.t
 
 val compile :
   ?commands:Zenbu_model_api.Command_registry.t ->
@@ -27,6 +7,13 @@ val compile :
   unit ->
   (t * Diagnostic.t list, Diagnostic.t list) result
 
-val state : t -> int -> compiled_state
-val prefixes : compiled_state -> string list
-val effect_description : Ir.action -> string
+val descriptor : t -> Zenbu_model_api.Editing_model.descriptor
+val model_id : t -> string
+val title : t -> string
+val language_version : t -> int
+val source_name : t -> string
+val source_fingerprint : t -> string
+val state_count : t -> int
+val transition_count : t -> int
+val prefix_count : t -> int
+val action_count : t -> int

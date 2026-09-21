@@ -161,7 +161,7 @@ module Runtime = Model_runtime.Make (Dsl.Runtime.Adapter)
 let test_actions () =
   let grammar = compile action_source in
   expect
-    (List.length grammar.ir.actions = 2)
+    (Dsl.Compile.action_count grammar = 2)
     "actions were not retained for inspection";
   let state, effects =
     Dsl.Runtime.handle_input

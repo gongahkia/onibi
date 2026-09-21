@@ -14,7 +14,8 @@ let guard_name = function
   | Ir.Else -> Some "else"
 
 let add_action lines indent action =
-  lines := (indent ^ "effect: " ^ Compile.effect_description action) :: !lines
+  lines :=
+    (indent ^ "effect: " ^ Compile_internal.effect_description action) :: !lines
 
 let add_transition (compiled : Compile.t) (lines : string list ref)
     (transition : Ir.transition) =
@@ -24,7 +25,8 @@ let add_transition (compiled : Compile.t) (lines : string list ref)
   in
   let line =
     Printf.sprintf "  transition: %S [%s] @ %s" transition.pattern immediate
-      (location compiled.ir.source_name compiled.source transition.span)
+      (location compiled.Compile_internal.ir.source_name
+         compiled.Compile_internal.source transition.span)
   in
   lines := line :: !lines;
   List.iter
@@ -44,11 +46,15 @@ let render ~warnings (compiled : Compile.t) =
   let lines = ref [] in
   let add line = lines := line :: !lines in
   add "Zenbu editing-model DSL";
-  add ("language version: " ^ string_of_int compiled.ir.version);
-  add ("source: " ^ compiled.ir.source_name);
-  add ("source fingerprint (MD5; non-security): " ^ compiled.source_fingerprint);
-  add ("model: " ^ compiled.ir.model_id);
-  add ("title: " ^ compiled.ir.title);
+  add
+    ("language version: "
+    ^ string_of_int compiled.Compile_internal.ir.version);
+  add ("source: " ^ compiled.Compile_internal.ir.source_name);
+  add
+    ("source fingerprint (MD5; non-security): "
+    ^ compiled.Compile_internal.source_fingerprint);
+  add ("model: " ^ compiled.Compile_internal.ir.model_id);
+  add ("title: " ^ compiled.Compile_internal.ir.title);
   List.iter
     (fun (declaration : Ir.action_declaration) ->
       add ("action: " ^ declaration.Ir.name);
@@ -57,14 +63,16 @@ let render ~warnings (compiled : Compile.t) =
       | effects ->
           List.iter
             (fun action ->
-              add ("  effect: " ^ Compile.effect_description action))
+              add ("  effect: " ^ Compile_internal.effect_description action))
             effects)
-    compiled.ir.actions;
-  let initial = Compile.state compiled compiled.ir.initial in
+    compiled.Compile_internal.ir.actions;
+  let initial =
+    Compile_internal.state compiled compiled.Compile_internal.ir.initial
+  in
   add ("initial state: " ^ initial.ir.name);
   List.iter
-    (fun (state : Compile.compiled_state) ->
-      add ("state: " ^ state.Compile.ir.name);
+    (fun (state : Compile_internal.compiled_state) ->
+      add ("state: " ^ state.ir.name);
       add
         (Printf.sprintf "  status: %s (%s)" state.ir.status_label
            (input_mode state.ir.input_mode));
@@ -73,8 +81,8 @@ let render ~warnings (compiled : Compile.t) =
       List.rev !transition_lines |> List.iter add;
       List.iter
         (fun prefix -> add ("  prefix: " ^ prefix))
-        (Compile.prefixes state))
-    compiled.states;
+        (Compile_internal.prefixes state))
+    compiled.Compile_internal.states;
   (match warnings with
   | [] -> add "warnings: none"
   | warnings ->
