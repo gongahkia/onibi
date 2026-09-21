@@ -108,6 +108,20 @@ $ dune exec bin/zenbu_headless.exe -- model-check examples/modal-operator.zenmod
 $ dune exec bin/zenbu_headless.exe -- model-describe examples/modal-operator.zenmodel
 ```
 
+5. `Zenbu` also exposes some deterministic headless tooling for CI and model authors.
+
+```console
+$ dune exec bin/zenbu_headless.exe -- demo
+$ dune exec bin/zenbu_headless.exe -- replay test/fixtures/unicode.replay
+$ dune exec bin/zenbu_headless.exe -- session test/fixtures/sessions/vim-edit.session
+$ dune exec bin/zenbu_headless.exe -- bindings direct
+$ dune exec bin/zenbu_headless.exe -- syntax test/fixtures/syntax_sample.ml
+$ dune exec bin/zenbu_headless.exe -- why test/fixtures/sessions/observability-vim.session
+$ dune exec bin/zenbu_headless.exe -- model-check examples/script-modal-editor.zenmodel
+$ dune exec bin/zenbu_headless.exe -- model-describe examples/script-modal-editor.zenmodel
+$ dune exec bin/zenbu_headless.exe -- extension-api
+```
+
 ## Model surfaces and authority
 
 | Surface | Best for | Authority model |
@@ -121,63 +135,12 @@ $ dune exec bin/zenbu_headless.exe -- model-describe examples/modal-operator.zen
 Wasm authority. Trusted Lua remains trusted local code. Wasm Components remain
 separately isolated under their existing capability contract.
 
-## Headless tooling
+## Other documents
 
-Zenbu exposes deterministic tooling for CI and model authors:
-
-```sh
-dune exec bin/zenbu_headless.exe -- demo
-dune exec bin/zenbu_headless.exe -- replay test/fixtures/unicode.replay
-dune exec bin/zenbu_headless.exe -- session test/fixtures/sessions/vim-edit.session
-dune exec bin/zenbu_headless.exe -- bindings direct
-dune exec bin/zenbu_headless.exe -- syntax test/fixtures/syntax_sample.ml
-dune exec bin/zenbu_headless.exe -- why test/fixtures/sessions/observability-vim.session
-dune exec bin/zenbu_headless.exe -- model-check examples/script-modal-editor.zenmodel
-dune exec bin/zenbu_headless.exe -- model-describe examples/script-modal-editor.zenmodel
-dune exec bin/zenbu_headless.exe -- extension-api
-```
-
-## Documentation
-
-- [Getting started](docs/GETTING_STARTED.md): guided workflow, controls, configuration, and plugins.
-- [Editing-model DSL](docs/EDITING_MODEL_DSL.md): `.zenmodel` syntax, static checks, runtime behavior, compatibility, and authority boundary.
-- [Architecture](docs/ARCHITECTURE.md): package, semantic-kernel, model, syntax, and extension boundaries.
-- [Editing model API](docs/EDITING_MODEL_API.md) and [editing protocol](docs/EDITING_PROTOCOL.md): public model/effect contract.
-- [Scripting](docs/SCRIPTING.md), [extensions](docs/EXTENSIONS.md), and [isolation](docs/ISOLATION.md): distinct Lua and Wasm authority models.
-- [Terminal](docs/TERMINAL.md), [syntax](docs/SYNTAX.md), [presentation](docs/PRESENTATION.md), [themes](docs/THEMES.md), and [language services](docs/LANGUAGE_SERVICES.md): host behavior.
-- [Observability](docs/OBSERVABILITY.md), [performance](docs/PERFORMANCE.md), [roadmap](docs/ROADMAP.md), and [release process](docs/RELEASE.md): engineering references.
-
-## Development and release checks
-
-```sh
-make fmt
-make build
-dune runtest
-make test
-make check
-git diff --check
-```
-
-`make check` runs formatting verification, the full build, Component SDK and
-distribution checks, and the complete test suite. `make install` installs the
-active Opam package plus its required Wasmtime library; `make release` builds
-release-profile binaries, and `make release-archive` makes a local unsigned
-platform archive.
-
-## Deliberate limits
-
-Zenbu does not claim full Vim, Emacs, Helix, Kakoune, or Micro compatibility.
-It has no Ex/command-line language, plugin marketplace, general workspace
-resource API, automatic external-file reload, code-action command execution,
-or native grammar loading. The `.zenmodel` language deliberately excludes
-general expressions, variables, counts, registers, macros, loops, callbacks,
-command arguments, filesystem/process effects, and host UI control.
-
-Those limits keep the semantic core model-neutral and the declarative language
-finite, deterministic, inspectable, replay-friendly, and authority-constrained.
-
-## Contributing
-
-Read [Contributing](CONTRIBUTING.md) for the expected local workflow. The
-[architecture](docs/ARCHITECTURE.md) and [invariants](docs/INVARIANTS.md) are
-the best starting points before changing kernel or model behavior.
+* [Getting started](docs/GETTING_STARTED.md): guided workflow, controls, configuration, and plugins.
+* [Editing-model DSL](docs/EDITING_MODEL_DSL.md): `.zenmodel` syntax, static checks, runtime behavior, compatibility, and authority boundary.
+* [Architecture](docs/ARCHITECTURE.md): package, semantic*kernel, model, syntax, and extension boundaries.
+* [Editing model API](docs/EDITING_MODEL_API.md) and [editing protocol](docs/EDITING_PROTOCOL.md): public model/effect contract.
+* [Scripting](docs/SCRIPTING.md), [extensions](docs/EXTENSIONS.md), and [isolation](docs/ISOLATION.md): distinct Lua and Wasm authority models.
+* [Terminal](docs/TERMINAL.md), [syntax](docs/SYNTAX.md), [presentation](docs/PRESENTATION.md), [themes](docs/THEMES.md), and [language services](docs/LANGUAGE_SERVICES.md): host behavior.
+* [Observability](docs/OBSERVABILITY.md), [performance](docs/PERFORMANCE.md), [roadmap](docs/ROADMAP.md), and [release process](docs/RELEASE.md): engineering references.
