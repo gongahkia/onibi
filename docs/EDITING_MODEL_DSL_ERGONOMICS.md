@@ -172,9 +172,9 @@ selection-first, or structural models. The evidence supports a small v1.1
 focused on reusable actions, pure built-in guards, and carefully validated
 existing command reach—not a second general-purpose scripting language.
 
-## Follow-up: v1.1 implementation result
+## Resulting version-1 additions
 
-The evidence-backed v1.1 subset was implemented without changing the language
+The evidence-backed additions were implemented without changing the language
 header: these are optional constructs and existing `zenbu-model 1` files keep
 their semantics. This is a follow-up to the experiment, not a rewrite of its
 historical observations.

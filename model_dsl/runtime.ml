@@ -92,7 +92,9 @@ let handle_input state input (context : Editor_context.t) =
             [] ))
 
 let status state =
-  let compiled_state = Compile_internal.state state.grammar state.stable_state in
+  let compiled_state =
+    Compile_internal.state state.grammar state.stable_state
+  in
   let pending_input =
     match state.pending_input with
     | [] -> None
@@ -123,7 +125,9 @@ let summary transition =
   | _ -> "guarded transition"
 
 let input_rules state =
-  let compiled_state = Compile_internal.state state.grammar state.stable_state in
+  let compiled_state =
+    Compile_internal.state state.grammar state.stable_state
+  in
   let node = Compile_internal.view_node state.cursor in
   node.edges
   |> List.mapi (fun index (edge : Compile_internal.edge) ->
@@ -152,7 +156,8 @@ let input_rules state =
       in
       Input_rule.create
         ~id:
-          (Printf.sprintf "%s.%s.%d" (Compile.model_id state.grammar)
+          (Printf.sprintf "%s.%s.%d"
+             (Compile.model_id state.grammar)
              compiled_state.ir.name index)
         ~pattern:(input_pattern edge) ~kind ~summary ?next_status ?selector_id
         ?transformation_id ()
@@ -174,7 +179,8 @@ module Adapter = struct
     | None -> failwith "no validated .zenmodel grammar is configured"
 
   let descriptor =
-    Editing_model.descriptor ~id:"zenbu.model-dsl" ~title:"Zenbu model DSL"
+    Editing_model.descriptor ~id:"zenbu.model-dsl"
+      ~title:"Zenbu editing-model DSL"
       ~description:"Configured declarative .zenmodel grammar" ()
     |> Result.get_ok
 

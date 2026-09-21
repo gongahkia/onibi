@@ -23,7 +23,8 @@ let registry () =
       Result.bind registry (fun registry ->
           Command_registry.register registry command))
     (Ok Command_registry.empty)
-    (Semantic_commands.apply_command :: Semantic_commands.selection_commands)
+    (Semantic_commands.apply_command
+    :: (Semantic_commands.selection_commands @ Syntax_commands.commands ()))
   |> must
 
 let compile ?(commands = registry ()) source =
@@ -314,6 +315,10 @@ model "x" { title "X" initial a state a { status { label "A" input keys } on "x"
   expect_diagnostic
     {|zenbu-model 1
 model "x" { title "X" initial a state a { status { label "A" input keys } on "x" -> a { command "editor.apply" } } }|}
+    "not eligible for .zenmodel";
+  expect_diagnostic
+    {|zenbu-model 1
+model "x" { title "X" initial a state a { status { label "A" input keys } on "x" -> a { command "syntax.focus" } } }|}
     "not eligible for .zenmodel";
   expect_diagnostic_without_commands command_source
     "requires a host command registry"

@@ -94,6 +94,27 @@ can load one explicitly at startup before entering terminal mode. It does not
 alter the semantic kernel, model runtime, transaction path, Lua authority, or
 Component capability contract. See [the editing-model DSL](EDITING_MODEL_DSL.md).
 
+Its runtime path is deliberately the same path used by every editing model:
+
+```text
+.zenmodel source
+      ↓
+zenbu.model_dsl
+      ↓
+Editing_model.S
+      ↓
+Model_effect
+      ↓
+Model_runtime
+      ↓
+validated semantic intent / transaction / history path
+```
+
+Built-in OCaml models, trusted Lua model adapters, and `.zenmodel` grammars are
+parallel producers of `Editing_model.S`; they are not kernel extensions. In
+particular, `zenbu.kernel` does not depend on `zenbu.model_dsl`, and the DSL
+does not create another transaction or history path.
+
 ## Extension boundary
 
 > First-party editing models and first-party plugins must eventually use only

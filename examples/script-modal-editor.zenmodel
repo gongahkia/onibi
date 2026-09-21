@@ -1,5 +1,7 @@
 zenbu-model 1
 
+# Minimal normal/insert model: prefixes, semantic apply, and committed text.
+
 model "zenbu.example.modal" {
   title "Minimal modal grammar"
   initial normal

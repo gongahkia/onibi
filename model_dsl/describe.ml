@@ -46,13 +46,11 @@ let render ~warnings (compiled : Compile.t) =
   let lines = ref [] in
   let add line = lines := line :: !lines in
   add "Zenbu editing-model DSL";
-  add
-    ("language version: "
-    ^ string_of_int compiled.Compile_internal.ir.version);
+  add ("language version: " ^ string_of_int compiled.Compile_internal.ir.version);
   add ("source: " ^ compiled.Compile_internal.ir.source_name);
   add
     ("source fingerprint (MD5; non-security): "
-    ^ compiled.Compile_internal.source_fingerprint);
+   ^ compiled.Compile_internal.source_fingerprint);
   add ("model: " ^ compiled.Compile_internal.ir.model_id);
   add ("title: " ^ compiled.Compile_internal.ir.title);
   List.iter

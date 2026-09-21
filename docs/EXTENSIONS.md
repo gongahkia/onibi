@@ -8,6 +8,11 @@ The authoritative machine-readable contract is the public
 
 ## Scope and trust boundary
 
+`.zenmodel` is a separate inert declarative editing-grammar format, not an
+extension runtime or package format. It returns existing model effects and has
+no plugin, filesystem, process, terminal, or general host authority; see the
+[editing-model DSL reference](EDITING_MODEL_DSL.md).
+
 An extension is a local package discovered from a configured directory. It is
 not configuration: `$XDG_CONFIG_HOME/zenbu/init.lua` remains a trusted user
 overlay, while plugins are separate package directories under

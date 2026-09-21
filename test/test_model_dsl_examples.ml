@@ -276,17 +276,45 @@ let test_direct (grammar : Dsl.Compile.t) =
     "direct Enter did not use the existing literal replacement transformation";
   expect_string ~expected:"\nalpha" ~actual:(contents runtime)
 
+let test_release_conformance grammars =
+  List.iteri
+    (fun index (name, grammar) ->
+      expect
+        (Dsl.Compile.state_count grammar > 0)
+        "%s has no initializable states" name;
+      let description = Dsl.Describe.render ~warnings:[] grammar in
+      expect_string ~expected:description
+        ~actual:(Dsl.Describe.render ~warnings:[] grammar);
+      let runtime =
+        make_runtime grammar ~id:(Printf.sprintf "dsl-release-%d" index) "alpha"
+      in
+      expect
+        (String.length (Model_status.id (Runtime.status runtime)) > 0)
+        "%s did not initialize through the DSL adapter" name)
+    grammars
+
 let () =
-  if Array.length Sys.argv <> 4 then
-    failwith "expected modal, selection-first, and direct example paths";
-  let modal = compile Sys.argv.(1) in
-  let selection = compile Sys.argv.(2) in
-  let direct = compile Sys.argv.(3) in
+  if Array.length Sys.argv <> 5 then
+    failwith
+      "expected minimal, modal, selection-first, and direct example paths";
+  let minimal = compile Sys.argv.(1) in
+  let modal = compile Sys.argv.(2) in
+  let selection = compile Sys.argv.(3) in
+  let direct = compile Sys.argv.(4) in
   let tests =
     [
       ("modal operator example", fun () -> test_modal_operator modal);
       ("selection-first example", fun () -> test_selection_first selection);
       ("direct example", fun () -> test_direct direct);
+      ( "shipped grammar conformance",
+        fun () ->
+          test_release_conformance
+            [
+              ("minimal", minimal);
+              ("modal", modal);
+              ("selection-first", selection);
+              ("direct", direct);
+            ] );
     ]
   in
   let failures =

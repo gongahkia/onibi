@@ -1,5 +1,7 @@
 zenbu-model 1
 
+# Direct text entry with selection-aware delete and fallback behavior.
+
 model "zenbu.example.direct" {
   title "Direct text-entry grammar"
   initial direct

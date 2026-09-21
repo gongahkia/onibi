@@ -69,12 +69,14 @@
  (alias runtest)
  (deps
   test_model_dsl_examples.exe
+  ../examples/script-modal-editor.zenmodel
   ../examples/modal-operator.zenmodel
   ../examples/selection-first.zenmodel
   ../examples/direct.zenmodel)
  (action
   (run
    %{exe:test_model_dsl_examples.exe}
+   %{dep:../examples/script-modal-editor.zenmodel}
    %{dep:../examples/modal-operator.zenmodel}
    %{dep:../examples/selection-first.zenmodel}
    %{dep:../examples/direct.zenmodel})))

@@ -43,6 +43,11 @@ script-generation view, and history.
 
 ## Trust and authority
 
+For a finite declarative editing grammar, use
+[`.zenmodel`](EDITING_MODEL_DSL.md) instead. `.zenmodel` is not Lua and does
+not receive Lua's general-purpose authority. This document covers trusted local
+Lua specifically.
+
 Configuration executes with Lua's standard libraries and a local module search
 path beginning at the configuration file's directory (`require "name"` finds
 `name.lua` there). Treat the file and adjacent Lua modules as fully trusted

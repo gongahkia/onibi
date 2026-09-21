@@ -1,5 +1,7 @@
 zenbu-model 1
 
+# Selection-first grammar using eligible model-neutral selection commands.
+
 model "zenbu.example.selection-first" {
   title "Selection-first finite grammar"
   initial select

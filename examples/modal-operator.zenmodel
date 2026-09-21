@@ -1,5 +1,7 @@
 zenbu-model 1
 
+# Operator-like modal grammar with shared prefixes and compile-time actions.
+
 model "zenbu.example.modal-operator" {
   title "Finite operator-pending modal grammar"
   initial normal

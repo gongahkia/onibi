@@ -1,5 +1,10 @@
 # M9 Component isolation and threat model
 
+This Component threat model is distinct from the
+[`.zenmodel` editing-model DSL](EDITING_MODEL_DSL.md). `.zenmodel` is inert
+declarative grammar with no general-purpose execution environment; it is not a
+Wasm sandbox and does not share the Component capability contract.
+
 `wasm-component` is Zenbu's isolated Extension API v1 runtime. It protects the
 semantic editor host from a Component that is buggy or malicious at the
 extension-contract level. It is not a claim that a Wasm runtime or the host
