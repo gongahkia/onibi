@@ -1,4 +1,4 @@
-name: CI
+name: Zenbu CI/CD on Push
 
 on:
   push:
