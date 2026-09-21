@@ -1,0 +1,83 @@
+zenbu-model 1
+
+model "zenbu.example.direct" {
+  title "Direct text-entry grammar"
+  initial direct
+
+  state direct {
+    status {
+      label "DIRECT"
+      input text
+    }
+
+    on "ArrowLeft" -> direct {
+      apply selector "previous-text-unit" transform "collapse-to-start"
+    }
+
+    on "ArrowRight" -> direct {
+      apply selector "next-text-unit" transform "collapse-to-end"
+    }
+
+    on "ArrowUp" -> direct {
+      apply selector "previous-line" transform "collapse-to-start"
+    }
+
+    on "ArrowDown" -> direct {
+      apply selector "next-line" transform "collapse-to-end"
+    }
+
+    on "Shift-ArrowLeft" -> direct {
+      apply selector "previous-text-unit" transform "select"
+    }
+
+    on "Shift-ArrowRight" -> direct {
+      apply selector "next-text-unit" transform "select"
+    }
+
+    on "Shift-ArrowUp" -> direct {
+      apply selector "previous-line" transform "select"
+    }
+
+    on "Shift-ArrowDown" -> direct {
+      apply selector "next-line" transform "select"
+    }
+
+    on "Home" -> direct {
+      apply selector "line-start" transform "collapse-to-start"
+    }
+
+    on "End" -> direct {
+      apply selector "line-end" transform "collapse-to-end"
+    }
+
+    on "Ctrl-b" -> direct {
+      apply selector "previous-text-unit" transform "collapse-to-start"
+    }
+
+    on "Ctrl-f" -> direct {
+      apply selector "next-text-unit" transform "collapse-to-end"
+    }
+
+    on "Ctrl-p" -> direct {
+      apply selector "previous-line" transform "collapse-to-start"
+    }
+
+    on "Ctrl-n" -> direct {
+      apply selector "next-line" transform "collapse-to-end"
+    }
+
+    on "Backspace" -> direct {
+      apply selector "previous-text-unit" transform "delete"
+    }
+
+    on "Delete" -> direct {
+      apply selector "next-text-unit" transform "delete"
+    }
+
+    on "Escape" -> direct
+
+    on "<text>" as text -> direct {
+      insert $text
+    }
+  }
+}

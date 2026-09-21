@@ -1,0 +1,92 @@
+zenbu-model 1
+
+model "zenbu.example.selection-first" {
+  title "Selection-first finite grammar"
+  initial select
+
+  state select {
+    status {
+      label "SELECT"
+      input keys
+    }
+
+    on "h" -> select {
+      apply selector "previous-text-unit" transform "select"
+    }
+
+    on "l" -> select {
+      apply selector "next-text-unit" transform "select"
+    }
+
+    on "w" -> select {
+      apply selector "next-word" transform "select"
+    }
+
+    on "b" -> select {
+      apply selector "previous-word" transform "select"
+    }
+
+    on "e" -> select {
+      apply selector "word-end" transform "select"
+    }
+
+    on "W" -> select {
+      apply selector "current-word" transform "select"
+    }
+
+    on "a" -> select {
+      apply selector "around-word" transform "select"
+    }
+
+    on "0" -> select {
+      apply selector "line-start" transform "select"
+    }
+
+    on "$" -> select {
+      apply selector "line-end" transform "select"
+    }
+
+    on "L" -> select {
+      apply selector "current-line" transform "select"
+    }
+
+    on "*" -> select {
+      apply selector "all-occurrences" transform "select"
+    }
+
+    on "d" -> select {
+      apply selector "current-selections" transform "delete"
+    }
+
+    on "c" -> insert {
+      apply selector "current-selections" transform "delete"
+    }
+
+    on "i" -> insert
+
+    on "Escape" -> select {
+      apply selector "current-selections" transform "collapse-to-end"
+    }
+
+    on "g g" -> select {
+      apply selector "document-start" transform "select"
+    }
+
+    on "G" -> select {
+      apply selector "document-end" transform "select"
+    }
+  }
+
+  state insert {
+    status {
+      label "INSERT"
+      input text
+    }
+
+    on "Escape" -> select
+
+    on "<text>" as text -> insert {
+      insert $text
+    }
+  }
+}

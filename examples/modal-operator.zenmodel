@@ -1,0 +1,94 @@
+zenbu-model 1
+
+model "zenbu.example.modal-operator" {
+  title "Finite operator-pending modal grammar"
+  initial normal
+
+  state normal {
+    status {
+      label "NORMAL"
+      input keys
+    }
+
+    on "i" -> insert
+
+    on "h" -> normal {
+      apply selector "previous-text-unit" transform "collapse-to-start"
+    }
+
+    on "l" -> normal {
+      apply selector "next-text-unit" transform "collapse-to-end"
+    }
+
+    on "w" -> normal {
+      apply selector "next-word" transform "collapse-to-end"
+    }
+
+    on "b" -> normal {
+      apply selector "previous-word" transform "collapse-to-start"
+    }
+
+    on "0" -> normal {
+      apply selector "line-start" transform "collapse-to-start"
+    }
+
+    on "$" -> normal {
+      apply selector "line-end" transform "collapse-to-end"
+    }
+
+    on "x" -> normal {
+      apply selector "next-text-unit" transform "delete"
+    }
+
+    on "X" -> normal {
+      apply selector "previous-text-unit" transform "delete"
+    }
+
+    on "D" -> normal {
+      apply selector "line-end" transform "delete"
+    }
+
+    on "d w" -> normal {
+      apply selector "current-word" transform "delete"
+    }
+
+    on "d a" -> normal {
+      apply selector "around-word" transform "delete"
+    }
+
+    on "d l" -> normal {
+      apply selector "current-line" transform "delete"
+    }
+
+    on "c w" -> insert {
+      apply selector "current-word" transform "delete"
+    }
+
+    on "c l" -> insert {
+      apply selector "current-line" transform "delete"
+    }
+
+    on "v w" -> normal {
+      apply selector "current-word" transform "select"
+    }
+
+    on "v l" -> normal {
+      apply selector "current-line" transform "select"
+    }
+
+    on "Escape" -> normal
+  }
+
+  state insert {
+    status {
+      label "INSERT"
+      input text
+    }
+
+    on "Escape" -> normal
+
+    on "<text>" as text -> insert {
+      insert $text
+    }
+  }
+}
