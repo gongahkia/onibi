@@ -1,7 +1,7 @@
 type input_mode = Keys | Text
 type status = { label : string; input_mode : input_mode; span : Source_span.t }
 
-type effect =
+type action =
   | Apply of {
       selector : string;
       selector_span : Source_span.t;
@@ -21,7 +21,7 @@ type transition = {
   capture : (string * Source_span.t) option;
   target : string;
   target_span : Source_span.t;
-  effects : effect list;
+  effects : action list;
   span : Source_span.t;
 }
 

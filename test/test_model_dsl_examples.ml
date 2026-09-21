@@ -54,13 +54,13 @@ let contains text fragment =
   in
   fragment_length = 0 || loop 0
 
-let transition_count grammar =
+let transition_count (grammar : Dsl.Compile.t) =
   List.fold_left
     (fun total (state : Dsl.Compile.compiled_state) ->
       total + List.length state.ir.transitions)
     0 grammar.states
 
-let prefix_count grammar =
+let prefix_count (grammar : Dsl.Compile.t) =
   List.fold_left
     (fun total state -> total + List.length (Dsl.Compile.prefixes state))
     0 grammar.states
@@ -86,7 +86,7 @@ let input_rule_exists rules pattern kind =
       Input_rule.pattern rule = pattern && Input_rule.kind rule = kind)
     rules
 
-let test_modal_operator grammar =
+let test_modal_operator (grammar : Dsl.Compile.t) =
   expect
     (List.length grammar.states = 2)
     "modal example did not retain two declared states";
@@ -150,7 +150,7 @@ let test_modal_operator grammar =
     (Model_status.pending_input (Runtime.status runtime) = None)
     "modal prefix mismatch did not clear its pending input"
 
-let test_selection_first grammar =
+let test_selection_first (grammar : Dsl.Compile.t) =
   expect
     (List.length grammar.states = 2)
     "selection-first example did not retain two declared states";
@@ -198,7 +198,7 @@ let test_selection_first grammar =
   let runtime, _ = Runtime.handle_input runtime (text "X") |> must in
   expect_string ~expected:"Xbeta" ~actual:(contents runtime)
 
-let test_direct grammar =
+let test_direct (grammar : Dsl.Compile.t) =
   expect
     (List.length grammar.states = 1)
     "direct example should have one user-declared state";
@@ -223,7 +223,7 @@ let test_direct grammar =
   let runtime, _ = Runtime.handle_input runtime (text "界") |> must in
   expect_string ~expected:"界alpha" ~actual:(contents runtime);
   let runtime = make_runtime grammar ~id:"dsl-direct-select" "alpha" in
-  let runtime, select_step =
+  let _runtime, select_step =
     Runtime.handle_input runtime (shift_named Input_event.Arrow_right) |> must
   in
   expect

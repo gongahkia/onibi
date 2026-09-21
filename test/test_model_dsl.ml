@@ -135,6 +135,14 @@ let key text = Input_event.key_press (Input_event.logical_text text |> must)
 let named value = Input_event.key_press (Input_event.named_key value)
 let committed text = Input_event.text_input text |> must
 
+let expect_insert_text ~expected = function
+  | Model_effect.Execute_intent intent
+  | Model_effect.Execute_intent_with { intent; _ } -> (
+      match Model_intent.to_kernel intent with
+      | Intent.Insert_text actual -> expect_string ~expected ~actual
+      | _ -> failf "text rule emitted the wrong semantic intent")
+  | _ -> failf "text rule emitted the wrong effect variant"
+
 let context () =
   let document =
     Document.create
@@ -287,7 +295,7 @@ let test_diagnostics () =
     (Dsl.Diagnostic.column crlf = 1)
     "CRLF source diagnostic has the wrong column";
   expect
-    (Source_span.start_offset (Dsl.Diagnostic.span crlf)
+    (Dsl.Source_span.start_offset (Dsl.Diagnostic.span crlf)
     = String.length "zenbu-model 1\r\nmodel \"é\" {\r\n")
     "UTF-8 source diagnostic did not retain byte offsets";
   let carriage_return_source =
@@ -309,12 +317,7 @@ let test_runtime () =
   expect (List.length effects = 1) "committed text did not produce one effect";
   expect_string ~expected:"execute insert-text"
     ~actual:(Model_effect.identity (List.hd effects));
-  (match List.hd effects with
-  | Model_effect.Execute_intent intent -> (
-      match Model_intent.to_kernel intent with
-      | Intent.Insert_text text -> expect_string ~expected:"界" ~actual:text
-      | _ -> failf "text rule emitted the wrong semantic intent")
-  | _ -> failf "text rule emitted the wrong effect variant");
+  expect_insert_text ~expected:"界" (List.hd effects);
   let state, effects =
     Dsl.Runtime.handle_input state (named Input_event.Escape) context
   in
@@ -482,10 +485,7 @@ let test_text_capture_preserves_utf8 () =
           (committed value) context
       in
       match effects with
-      | [ Model_effect.Execute_intent intent ] -> (
-          match Model_intent.to_kernel intent with
-          | Intent.Insert_text actual -> expect_string ~expected:value ~actual
-          | _ -> failf "committed text emitted a non-insert intent")
+      | [ action ] -> expect_insert_text ~expected:value action
       | _ -> failf "committed text did not emit exactly one intent")
     [ "a"; "é"; "你"; "🙂"; "á" ];
   let state, effects =

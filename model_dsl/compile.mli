@@ -27,4 +27,4 @@ val compile :
 
 val state : t -> int -> compiled_state
 val prefixes : compiled_state -> string list
-val effect_description : Ir.effect -> string
+val effect_description : Ir.action -> string

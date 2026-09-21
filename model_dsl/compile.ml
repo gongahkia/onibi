@@ -12,7 +12,8 @@ and edge = {
 
 type node_view = { edges : edge list; complete : Ir.transition option }
 
-let view_node node = { edges = node.edges; complete = node.complete }
+let view_node (node : node) : node_view =
+  { edges = node.edges; complete = node.complete }
 
 type compiled_state = { ir : Ir.state; root : node }
 
@@ -24,26 +25,26 @@ type t = {
   states : compiled_state list;
 }
 
-let empty_node = { edges = []; complete = None }
+let empty_node : node = { edges = []; complete = None }
 
 let same_pattern left right =
   String.equal
     (Input_event.binding_pattern_to_string left)
     (Input_event.binding_pattern_to_string right)
 
-let rec insert node patterns tokens transition =
+let rec insert (node : node) patterns tokens transition =
   match (patterns, tokens) with
   | [], [] -> { node with complete = Some transition }
   | pattern :: remaining_patterns, token :: remaining_tokens ->
-      let rec replace found edges =
+      let rec replace found (edges : edge list) =
         match edges with
         | [] ->
-            let next =
+            let next : node =
               insert empty_node remaining_patterns remaining_tokens transition
             in
             (false, List.rev_append found [ { pattern; token; next } ])
         | edge :: remaining when same_pattern edge.pattern pattern ->
-            let next =
+            let next : node =
               insert edge.next remaining_patterns remaining_tokens transition
             in
             (true, List.rev_append found ({ edge with next } :: remaining))
@@ -53,8 +54,8 @@ let rec insert node patterns tokens transition =
       { node with edges }
   | _ -> invalid_arg "validated input pattern has inconsistent token count"
 
-let compile_state ir =
-  let root =
+let compile_state (ir : Ir.state) : compiled_state =
+  let root : node =
     List.fold_left
       (fun root transition ->
         insert root transition.Ir.patterns
@@ -94,15 +95,17 @@ let compile ~source_name ~source =
                   },
                   warnings )))
 
-let state compiled state_id =
+let state (compiled : t) state_id =
   match
-    List.find_opt (fun state -> state.ir.Ir.id = state_id) compiled.states
+    List.find_opt
+      (fun (state : compiled_state) -> state.ir.Ir.id = state_id)
+      compiled.states
   with
   | Some state -> state
   | None -> invalid_arg "compiled DSL model references an unknown state"
 
-let prefixes state =
-  let rec walk prefix node values =
+let prefixes (state : compiled_state) =
+  let rec walk prefix (node : node) values =
     List.fold_left
       (fun values edge ->
         let prefix = prefix @ [ edge.token ] in

@@ -47,19 +47,19 @@ let lex ~source_name ~source =
       let rec string_value start index buffer =
         if index >= length then
           Error
-            (diagnostic ~source_name ~source ~start_offset ~stop_offset:length
-               "unterminated string literal")
+            (diagnostic ~source_name ~source ~start_offset:start
+               ~stop_offset:length "unterminated string literal")
         else
           match source.[index] with
           | '"' -> Ok (Buffer.contents buffer, index + 1)
           | '\n' | '\r' ->
               Error
-                (diagnostic ~source_name ~source ~start_offset
+                (diagnostic ~source_name ~source ~start_offset:start
                    ~stop_offset:(index + 1)
                    "string literals may not contain an unescaped newline")
           | '\\' when index + 1 >= length ->
               Error
-                (diagnostic ~source_name ~source ~start_offset
+                (diagnostic ~source_name ~source ~start_offset:start
                    ~stop_offset:(index + 1) "unterminated escape sequence")
           | '\\' -> (
               let escaped =

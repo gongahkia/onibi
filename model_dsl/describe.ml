@@ -8,7 +8,8 @@ let input_mode = function
   | Zenbu_model_api.Model_status.Key_commands -> "keys"
   | Zenbu_model_api.Model_status.Text_entry -> "text"
 
-let add_transition compiled lines transition =
+let add_transition (compiled : Compile.t) (lines : string list ref)
+    (transition : Ir.transition) =
   let immediate =
     if List.length transition.Ir.patterns = 1 then "immediate"
     else "multi-event"
@@ -23,12 +24,12 @@ let add_transition compiled lines transition =
     | [] -> [ "    effects: none" ]
     | effects ->
         List.map
-          (fun effect -> "    effect: " ^ Compile.effect_description effect)
+          (fun action -> "    effect: " ^ Compile.effect_description action)
           effects
   in
   lines := List.rev_append effects (line :: !lines)
 
-let render ~warnings compiled =
+let render ~warnings (compiled : Compile.t) =
   let lines = ref [] in
   let add line = lines := line :: !lines in
   add "Zenbu editing-model DSL";
@@ -40,7 +41,7 @@ let render ~warnings compiled =
   let initial = Compile.state compiled compiled.ir.initial in
   add ("initial state: " ^ initial.ir.name);
   List.iter
-    (fun state ->
+    (fun (state : Compile.compiled_state) ->
       add ("state: " ^ state.Compile.ir.name);
       add
         (Printf.sprintf "  status: %s (%s)" state.ir.status_label

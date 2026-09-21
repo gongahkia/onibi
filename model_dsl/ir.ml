@@ -1,4 +1,4 @@
-type effect =
+type action =
   | Apply of {
       selector : Zenbu_model_api.Model_intent.selector;
       selector_id : string;
@@ -14,7 +14,7 @@ type transition = {
   capture : string option;
   target : int;
   target_name : string;
-  effects : effect list;
+  effects : action list;
   span : Source_span.t;
   pattern_span : Source_span.t;
 }

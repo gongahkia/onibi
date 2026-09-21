@@ -105,8 +105,8 @@ let validate ~source_name ~source ast =
             None)
     | None -> None
   in
-  let validate_effect transition effect =
-    match effect with
+  let validate_effect (transition : Ast.transition) (action : Ast.action) =
+    match action with
     | Ast.Apply
         { selector; selector_span; transformation; transformation_span; _ } -> (
         let selector =
@@ -132,12 +132,12 @@ let validate ~source_name ~source ast =
                  {
                    selector;
                    selector_id =
-                     (match effect with
+                     (match action with
                      | Ast.Apply value -> value.selector
                      | _ -> assert false);
                    transformation;
                    transformation_id =
-                     (match effect with
+                     (match action with
                      | Ast.Apply value -> value.transformation
                      | _ -> assert false);
                  })
@@ -153,7 +153,7 @@ let validate ~source_name ~source ast =
   in
   let compiled_states =
     List.mapi
-      (fun state_id state ->
+      (fun state_id (state : Ast.state) ->
         let status =
           match state.Ast.statuses with
           | [ status ] -> Some status
@@ -169,7 +169,7 @@ let validate ~source_name ~source ast =
         in
         let transitions =
           List.mapi
-            (fun transition_id transition ->
+            (fun transition_id (transition : Ast.transition) ->
               let patterns =
                 match
                   Input_event.binding_pattern_sequence_of_string
@@ -248,16 +248,16 @@ let validate ~source_name ~source ast =
       ast.model.states
   in
   List.iter
-    (fun state ->
+    (fun (state : Ast.state) ->
       let transitions = state.Ast.transitions in
       let rec compare = function
         | [] -> ()
-        | transition :: rest ->
+        | (transition : Ast.transition) :: rest ->
             let left =
               Input_event.binding_pattern_sequence_of_string transition.pattern
             in
             List.iter
-              (fun other ->
+              (fun (other : Ast.transition) ->
                 match
                   ( left,
                     Input_event.binding_pattern_sequence_of_string other.pattern

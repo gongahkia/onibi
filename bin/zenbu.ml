@@ -218,9 +218,10 @@ let load_contents = function
 let load_dsl_model = function
   | None -> Ok None
   | Some path ->
-      Zenbu_app.File_io.read path
-      |> Result.map_error Zenbu_app.File_io.to_string
-      |> Result.bind (fun source ->
+      Result.bind
+        (Zenbu_app.File_io.read path
+        |> Result.map_error Zenbu_app.File_io.to_string)
+        (fun source ->
           match Model_dsl.Compile.compile ~source_name:path ~source with
           | Ok (grammar, warnings) ->
               List.iter

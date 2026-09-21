@@ -13,7 +13,7 @@ type state = {
   pending_input : string list;
 }
 
-let stable compiled state_id =
+let stable (compiled : Compile.t) state_id =
   let compiled_state = Compile.state compiled state_id in
   {
     grammar = compiled;
@@ -39,10 +39,11 @@ let effect_of_transition transition input = function
             ("compiled `<text>` transition matched a non-text input: "
            ^ transition.Ir.pattern))
 
-let matching_edge node input =
+let matching_edge (node : Compile.node) input =
   Compile.view_node node |> fun view ->
   List.find_opt
-    (fun edge -> Input_event.binding_pattern_matches edge.pattern input)
+    (fun (edge : Compile.edge) ->
+      Input_event.binding_pattern_matches edge.pattern input)
     view.edges
 
 let handle_input state input (_context : Editor_context.t) =
@@ -90,13 +91,13 @@ let effect_metadata transition =
 let summary transition =
   match transition.Ir.effects with
   | [] -> "transition to " ^ transition.target_name
-  | effect :: _ -> Compile.effect_description effect
+  | action :: _ -> Compile.effect_description action
 
 let input_rules state =
   let compiled_state = Compile.state state.grammar state.stable_state in
   let node = Compile.view_node state.cursor in
   node.edges
-  |> List.mapi (fun index edge ->
+  |> List.mapi (fun index (edge : Compile.edge) ->
       let next = Compile.view_node edge.next in
       let kind =
         match (edge.pattern, next.edges) with

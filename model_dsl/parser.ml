@@ -11,10 +11,10 @@ let diagnostic parser span message =
   Diagnostic.make ~severity:Diagnostic.Error ~message
     ~source_name:parser.source_name ~source:parser.source span
 
-let current parser =
+let current (parser : state) : Lexer.token =
   parser.tokens.(min parser.index (Array.length parser.tokens - 1))
 
-let advance parser =
+let advance (parser : state) : Lexer.token =
   let token = current parser in
   parser.index <- parser.index + 1;
   token
@@ -26,7 +26,7 @@ let unexpected parser expected =
        (diagnostic parser token.span
           ("expected " ^ expected ^ " before this token")))
 
-let unexpected_at parser token expected =
+let unexpected_at parser (token : Lexer.token) expected =
   raise
     (Parse_error
        (diagnostic parser token.span
