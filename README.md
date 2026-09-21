@@ -1,29 +1,18 @@
 <h1 align="center"><code>Zenbu</code></h1>
 
-<p align="center"><img src="./assets/logo/zenbu-logo-transparent.png" width="40%" height="40%" alt="zenbu mascot"></p>
+<p align="center"><img src="./asset/logo/zenbu-logo-transparent.png" width="40%" height="40%" alt="zenbu mascot"></p>
 
-<p align="center"><em>A Research Language for modelling & evaluating Singapore Criminal Law </em></p>
+<p align="center"><em>A programmable framework for building text editors in the terminal</em></p>
 
 <p align="center">
   <a href="https://github.com/gongahkia/Zenbu/releases/tag/1.0.0"><img src="https://img.shields.io/badge/zenbu_1.0.0-passing-light_green"></a>
   <a href="https://github.com/gongahkia/Zenbu/actions/workflows/ci.yml"><img src="https://github.com/gongahkia/zenbu/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
 </p>
 
-## What is Zenbu?
-
-`Zenbu`
-
-# `Zenbu`
-
-[![CI](https://github.com/gongahkia/zenbu/actions/workflows/ci.yml/badge.svg)](https://github.com/gongahkia/zenbu/actions/workflows/ci.yml)
-
-A terminal-first text editor with programmable, model-neutral editing.
-
-[Getting started](docs/GETTING_STARTED.md) · [Editing-model DSL](docs/EDITING_MODEL_DSL.md) · [Architecture](docs/ARCHITECTURE.md) · [Extension API](docs/generated/EXTENSION_API.md)
 
 ## What is Zenbu?
 
-Zenbu is an OCaml text editor built around a simple boundary: no particular
+`Zenbu` is an OCaml text editor built around a simple boundary: no particular
 editing grammar owns the document. Vim-like, selection-first, direct,
 structural, trusted-Lua, and declarative `.zenmodel` models all turn logical
 input into the same inspectable model effects. The ordinary runtime then
