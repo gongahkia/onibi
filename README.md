@@ -13,10 +13,10 @@ complete editor distribution.
 
 ## Quick start
 
-On Linux x86_64, install `opam`, a C toolchain, `curl`, `tar`, a SHA-256 tool
-(`sha256sum` or `shasum`), and the Lua 5.4 shared library (`lua-libs` on
-Fedora). On Apple Silicon macOS, install Xcode Command Line Tools, Homebrew,
-`opam`, and `lua@5.4`:
+On Linux x86_64, install `opam`, a C toolchain, `libffi-devel` (or the
+platform equivalent), `curl`, `tar`, a SHA-256 tool (`sha256sum` or `shasum`),
+and the Lua 5.4 shared library (`lua-libs` on Fedora). On Apple Silicon macOS,
+install Xcode Command Line Tools, Homebrew, `opam`, and `lua@5.4`:
 
 ```sh
 xcode-select --install
@@ -28,6 +28,7 @@ Then follow this complete clone-to-editor path on either supported platform:
 ```sh
 git clone https://github.com/gongahkia/zenbu.git
 cd zenbu
+opam init --bare --yes # needed once on a fresh Opam installation
 make bootstrap
 make build
 eval "$(opam env --switch="$PWD" --set-switch)"
