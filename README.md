@@ -122,19 +122,6 @@ $ dune exec bin/zenbu_headless.exe -- model-describe examples/script-modal-edito
 $ dune exec bin/zenbu_headless.exe -- extension-api
 ```
 
-## Model surfaces and authority
-
-| Surface | Best for | Authority model |
-| --- | --- | --- |
-| Built-in OCaml models | First-party, specialised behavior | Compiled against the public model API; return ordinary effects |
-| `.zenmodel` | Finite, shareable, statically validated editing grammar | Inert grammar; only fixed effect forms and eligible no-argument selection commands |
-| Trusted Lua | Local programmable models and automation | Trusted local code; **not** a sandbox |
-| Wasm Components | Third-party executable extensions | Separate capability-constrained Extension API v1 runtime |
-
-`.zenmodel` has no filesystem, process, terminal, renderer, plugin, Lua, or
-Wasm authority. Trusted Lua remains trusted local code. Wasm Components remain
-separately isolated under their existing capability contract.
-
 ## Other documents
 
 * [Getting started](docs/GETTING_STARTED.md): guided workflow, controls, configuration, and plugins.
