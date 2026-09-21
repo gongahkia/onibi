@@ -1,5 +1,6 @@
 open Zenbu_kernel
 open Zenbu_model_api
+open Zenbu_proof_models
 module Dsl = Zenbu_model_dsl
 
 exception Test_failure of string
@@ -25,8 +26,20 @@ let read_file path =
     ~finally:(fun () -> close_in_noerr channel)
     (fun () -> really_input_string channel (in_channel_length channel))
 
+let command_registry () =
+  List.fold_left
+    (fun registry command ->
+      Result.bind registry (fun registry ->
+          Command_registry.register registry command))
+    (Ok Command_registry.empty)
+    (Semantic_commands.apply_command :: Semantic_commands.selection_commands)
+  |> must
+
 let compile path =
-  match Dsl.Compile.compile ~source_name:path ~source:(read_file path) with
+  match
+    Dsl.Compile.compile ~commands:(command_registry ()) ~source_name:path
+      ~source:(read_file path) ()
+  with
   | Ok (grammar, warnings) ->
       expect (warnings = []) "%s unexpectedly produced warnings" path;
       grammar
@@ -78,7 +91,7 @@ let make_runtime grammar ~id contents =
   Dsl.Runtime.Adapter.clear ();
   Dsl.Runtime.Adapter.configure grammar;
   Fun.protect ~finally:Dsl.Runtime.Adapter.clear (fun () ->
-      Runtime.create ~commands:Command_registry.empty ~document () |> must)
+      Runtime.create ~commands:(command_registry ()) ~document () |> must)
 
 let input_rule_exists rules pattern kind =
   List.exists
@@ -96,6 +109,9 @@ let test_modal_operator (grammar : Dsl.Compile.t) =
   expect
     (prefix_count grammar = 3)
     "modal example should generate d, c, and v prefix nodes";
+  expect
+    (List.length grammar.ir.actions = 2)
+    "modal example did not retain its compile-time actions";
   let description = Dsl.Describe.render ~warnings:[] grammar in
   expect_string ~expected:description
     ~actual:(Dsl.Describe.render ~warnings:[] grammar);
@@ -155,7 +171,7 @@ let test_selection_first (grammar : Dsl.Compile.t) =
     (List.length grammar.states = 2)
     "selection-first example did not retain two declared states";
   expect
-    (transition_count grammar = 19)
+    (transition_count grammar = 24)
     "selection-first example transition count changed unexpectedly";
   expect
     (prefix_count grammar = 1)
@@ -168,6 +184,11 @@ let test_selection_first (grammar : Dsl.Compile.t) =
     (List.map Model_effect.identity (Runtime.effects select_step)
     = [ "execute apply:next-word:select" ])
     "selection-first w did not create a visible selection";
+  let runtime, merge_step = Runtime.handle_input runtime (key "m") |> must in
+  expect
+    (List.map Model_effect.identity (Runtime.effects merge_step)
+    = [ "invoke editor.selection.merge-consecutive" ])
+    "selection-first m did not invoke the registered selection command";
   expect_string ~expected:"alpha beta" ~actual:(contents runtime);
   let runtime, delete_step = Runtime.handle_input runtime (key "d") |> must in
   expect
@@ -238,6 +259,20 @@ let test_direct (grammar : Dsl.Compile.t) =
     (List.map Model_effect.identity (Runtime.effects delete_step)
     = [ "execute apply:next-text-unit:delete" ])
     "direct Delete did not request an immediate semantic edit";
+  expect_string ~expected:"lpha" ~actual:(contents runtime);
+  let runtime =
+    make_runtime grammar ~id:"dsl-direct-delete-selection" "alpha"
+  in
+  let runtime, _ =
+    Runtime.handle_input runtime (shift_named Input_event.Arrow_right) |> must
+  in
+  let runtime, delete_selection_step =
+    Runtime.handle_input runtime (named Input_event.Delete) |> must
+  in
+  expect
+    (List.map Model_effect.identity (Runtime.effects delete_selection_step)
+    = [ "execute apply:current-selections:delete" ])
+    "direct Delete did not select the non-empty-selection guard arm";
   expect_string ~expected:"lpha" ~actual:(contents runtime);
   let runtime = make_runtime grammar ~id:"dsl-direct-enter" "alpha" in
   let runtime, enter_step =

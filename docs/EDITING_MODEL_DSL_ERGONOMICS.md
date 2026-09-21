@@ -171,3 +171,30 @@ semantics. It is not a replacement for the first-party Vim, direct,
 selection-first, or structural models. The evidence supports a small v1.1
 focused on reusable actions, pure built-in guards, and carefully validated
 existing command reach—not a second general-purpose scripting language.
+
+## Follow-up: v1.1 implementation result
+
+The evidence-backed v1.1 subset was implemented without changing the language
+header: these are optional constructs and existing `zenbu-model 1` files keep
+their semantics. This is a follow-up to the experiment, not a rewrite of its
+historical observations.
+
+| Model | States | Compiled input transitions | Source arms | Prefix nodes | Actions / `do` uses | Guard groups | Commands |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Modal operator | 2 | 20 | 20 | 3 | 2 / 4 | 0 | 0 |
+| Selection first | 2 | 24 | 24 | 1 | 0 / 0 | 0 | 5 |
+| Direct | 1 | 19 | 21 | 0 | 0 / 0 | 2 | 0 |
+
+The modal grammar removes four repeated inline delete bodies using two
+compile-time actions. Selection-first now reaches five existing model-neutral
+selection commands: merge consecutive selections, rotate the primary forward
+or backward, flip orientation, and ensure forward orientation. Direct now
+expresses the previously impossible delete/backspace choice with two guarded
+groups; its source has 21 arms, but its trie still has the same 19 complete
+input transitions because each guarded pair is one input binding.
+
+This resolves the observed A, B, and C issues without responding to D with
+variables or a general expression language. Fragments remain unsupported: the
+two repeated Escape bindings alone remain insufficient evidence. Typed command
+arguments, counts, registers, macros, dynamic targets, structural stacks,
+loops, callbacks, and arbitrary mutable model state remain OCaml/Lua work.

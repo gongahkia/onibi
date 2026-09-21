@@ -75,14 +75,14 @@ let make_descriptor ir =
     ~description:"Declarative .zenmodel editing grammar" ~provider ()
   |> Result.get_ok
 
-let compile ~source_name ~source =
+let compile ?commands ~source_name ~source () =
   match Lexer.lex ~source_name ~source with
   | Error diagnostics -> Error diagnostics
   | Ok tokens -> (
       match Parser.parse ~source_name ~source tokens with
       | Error diagnostics -> Error diagnostics
       | Ok ast -> (
-          match Validate.validate ~source_name ~source ast with
+          match Validate.validate ?commands ~source_name ~source ast with
           | Error diagnostics -> Error diagnostics
           | Ok (ir, warnings) ->
               Ok
@@ -123,3 +123,5 @@ let effect_description = function
       Printf.sprintf "apply selector %S transform %S" selector_id
         transformation_id
   | Ir.Insert_capture name -> "insert $" ^ name
+  | Ir.Invoke_command { command_id; _ } ->
+      "command " ^ Printf.sprintf "%S" command_id

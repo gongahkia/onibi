@@ -1,4 +1,5 @@
 val validate :
+  ?commands:Zenbu_model_api.Command_registry.t ->
   source_name:string ->
   source:string ->
   Ast.file ->

@@ -36,7 +36,9 @@ Every file starts with the required compatibility header:
 zenbu-model 1
 ```
 
-Version 1 accepts one model declaration. For example:
+Version 1 accepts one model declaration. Additive syntax in this document is
+also version 1: existing version-1 files retain their previous meaning. For
+example:
 
 ```text
 zenbu-model 1
@@ -76,6 +78,27 @@ exactly one `status` block with a visible `label` and either `input keys` or
 `input text`. States are flat; the model has exactly one declared `initial`
 state.
 
+## Compile-time actions
+
+An action is a named, compile-time-only reusable list of ordinary DSL effects:
+
+```text
+action delete_word {
+  apply selector "current-word" transform "delete"
+}
+
+state normal {
+  status { label "NORMAL" input keys }
+  on "d w" -> normal { do delete_word }
+}
+```
+
+Actions have no parameters, closure, dispatch, local state, or runtime call
+stack. `do NAME` is expanded and type-checked before a grammar can activate;
+the runtime IR contains only the resulting ordinary effect templates. Action
+names are unique, unknown names and direct or indirect recursion are errors,
+and an action cannot reference a transition capture such as `$text`.
+
 Input strings use the existing `Input_event` binding spelling, including named
 keys and modifiers. A sequence uses one ASCII space between tokens and retains
 Zenbu's maximum sequence length of sixteen events. The DSL does not define a
@@ -106,13 +129,41 @@ preserves the committed text exactly. Forms such as `"a <text>"` and
 remains deterministic. A singleton text rule is exposed as an
 `Input_rule.Catch_all`.
 
+## Guards
+
+The only v1 guard predicate is the read-only deterministic predicate
+`selection.any_nonempty`. It uses Zenbu's actual selection anchor/head offsets:
+it is true when at least one current selection is non-empty. It has no
+callbacks, I/O, plugin dispatch, or expression language.
+
+```text
+on "Backspace" when selection.any_nonempty -> direct {
+  apply selector "current-selections" transform "delete"
+}
+on "Backspace" else -> direct {
+  apply selector "previous-text-unit" transform "delete"
+}
+```
+
+Arms for one complete input sequence form one ordered group: one or more
+`when selection.any_nonempty` arms, followed optionally by one final `else`.
+Duplicate predicates, duplicate `else` arms, an `else` before another arm, and
+mixing an unguarded binding with guarded arms are errors. The input sequence is
+matched first; a guard is evaluated only after the complete sequence matches,
+never while its prefix is pending. If no `when` succeeds and no `else` exists,
+the completed input is consumed as a stable-state no-op with no effect.
+
+There are deliberately no boolean operators, negation syntax, comparisons,
+user predicates, or arbitrary expressions.
+
 ## Effects
 
-Only two effect forms are available in v1:
+The v1 grammar has three effect statements:
 
 ```text
 apply selector "current-word" transform "delete"
 insert $text
+command "editor.selection.merge-consecutive"
 ```
 
 Selector IDs resolve via `Model_intent.selector_of_string`; transformation IDs
@@ -123,6 +174,18 @@ becomes `Model_effect.execute (Model_intent.insert_text text)` at transition
 time. Unknown IDs, missing captures, and unsupported syntax are diagnostics;
 there is no direct mutation form.
 
+`command` invokes a pre-existing registered command through the ordinary
+`Model_effect.Invoke_command` and `Model_runtime` path. The host supplies its
+read-only registry while compiling the grammar; the initialized grammar keeps
+the validated invocation and never performs registry lookup during input
+handling. A command must exist, have no required parameters, and be eligible
+for the DSL. In this release eligibility is deliberately narrow: only commands
+in the `selection` category provided by an `Editing_model` provider qualify.
+That admits model-neutral selection algebra such as merge, primary rotation,
+flip, and forward orientation while excluding application/UI, filesystem,
+process, terminal, syntax, script, plugin, and extension commands. Optional
+parameters are not supplied by the DSL; there is no command-argument syntax.
+
 ## Validation and diagnostics
 
 The compiler validates source UTF-8 using the kernel text-buffer validator and
@@ -130,7 +193,9 @@ retains byte offsets. Diagnostics include the source name, byte-derived line
 and column, severity, and a focused message. Validation covers the language
 version, model title/initial state, duplicate states, state targets, input
 syntax and length, ambiguity, text capture restrictions, and selector and
-transformation names.
+transformation names. It also validates action expansion, guarded-arm grouping,
+and command existence, parameter requirements, and eligibility before
+activation.
 
 The grammar is fully parsed and validated before it is configured as a model.
 The v1 compiler has no warnings today, but its structured diagnostic result
@@ -148,7 +213,8 @@ dune exec bin/zenbu_headless.exe -- model-describe examples/script-modal-editor.
 `model-check` prints structured diagnostics and returns nonzero for an invalid
 grammar. `model-describe` prints a deterministic view of the language version,
 model metadata, states and status modes, transitions, direct effects, generated
-prefix nodes, transition source locations, and a non-security MD5 source
+prefix nodes, action declarations, guarded arms, command IDs, transition source
+locations, and a non-security MD5 source
 fingerprint.
 
 ## Interactive use
@@ -173,6 +239,8 @@ interactive edits still follow the ordinary semantic validation,
 transaction/history, syntax, replay, trace, and inspection paths. The generic
 status and bindings inspector exposes state labels, pending prefixes, and
 `Input_rule` values; `model-describe` remains the richer static grammar view.
+Generic input rules show the binding itself but not a guard explanation; use
+`model-describe` for the source-level arm grouping.
 
 Because `Editing_model.S` has a static `initialize` signature, the adapter has
 a narrow process-local configuration slot used only around the synchronous
@@ -189,9 +257,9 @@ authoring and CI workflows.
 
 ## Explicit v1 omissions
 
-V1 deliberately omits guards, variables, counts, registers, arbitrary
-expressions, actions, fragments, imports, command calls/arguments, general
-semantic-operation calls, hierarchy, entry/exit actions, timers, async work,
-callbacks, Lua/Wasm interop, and hot reload. Complex, programmable models
-remain an OCaml or trusted-Lua concern; capability-limited extension behavior
-remains the Wasm Component concern.
+Version 1 deliberately omits variables, counts, registers, arbitrary
+expressions, additional guards, fragments, imports, action parameters, command
+arguments, general semantic-operation calls, hierarchy, entry/exit actions,
+timers, async work, callbacks, Lua/Wasm interop, and hot reload. Complex,
+programmable models remain an OCaml or trusted-Lua concern; capability-limited
+extension behavior remains the Wasm Component concern.

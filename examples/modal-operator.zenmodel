@@ -4,6 +4,14 @@ model "zenbu.example.modal-operator" {
   title "Finite operator-pending modal grammar"
   initial normal
 
+  action delete_word {
+    apply selector "current-word" transform "delete"
+  }
+
+  action delete_line {
+    apply selector "current-line" transform "delete"
+  }
+
   state normal {
     status {
       label "NORMAL"
@@ -49,7 +57,7 @@ model "zenbu.example.modal-operator" {
     }
 
     on "d w" -> normal {
-      apply selector "current-word" transform "delete"
+      do delete_word
     }
 
     on "d a" -> normal {
@@ -57,15 +65,15 @@ model "zenbu.example.modal-operator" {
     }
 
     on "d l" -> normal {
-      apply selector "current-line" transform "delete"
+      do delete_line
     }
 
     on "c w" -> insert {
-      apply selector "current-word" transform "delete"
+      do delete_word
     }
 
     on "c l" -> insert {
-      apply selector "current-line" transform "delete"
+      do delete_line
     }
 
     on "v w" -> normal {

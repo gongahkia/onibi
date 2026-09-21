@@ -14,6 +14,20 @@ type action =
       name_span : Source_span.t;
       span : Source_span.t;
     }
+  | Do of { name : string; name_span : Source_span.t; span : Source_span.t }
+  | Command of { id : string; id_span : Source_span.t; span : Source_span.t }
+
+type guard =
+  | Always
+  | When_selection_any_nonempty of Source_span.t
+  | Else of Source_span.t
+
+type action_decl = {
+  name : string;
+  name_span : Source_span.t;
+  effects : action list;
+  span : Source_span.t;
+}
 
 type transition = {
   pattern : string;
@@ -21,6 +35,7 @@ type transition = {
   capture : (string * Source_span.t) option;
   target : string;
   target_span : Source_span.t;
+  guard : guard;
   effects : action list;
   span : Source_span.t;
 }
@@ -38,6 +53,7 @@ type model = {
   id_span : Source_span.t;
   titles : (string * Source_span.t) list;
   initials : (string * Source_span.t) list;
+  actions : action_decl list;
   states : state list;
   span : Source_span.t;
 }

@@ -143,13 +143,33 @@ let parse_effect parser =
       expect_kind parser Lexer.Dollar "`$` before a capture name" |> ignore;
       let name, name_span = expect_identifier parser "a capture name" in
       Ast.Insert_capture { name; name_span; span = join start name_span }
+  | Lexer.Ident "do" ->
+      let start = (advance parser).span in
+      let name, name_span = expect_identifier parser "an action name" in
+      Ast.Do { name; name_span; span = join start name_span }
+  | Lexer.Ident "command" ->
+      let start = (advance parser).span in
+      let id, id_span = expect_string parser "a command ID string" in
+      Ast.Command { id; id_span; span = join start id_span }
   | Lexer.Ident name ->
       let token = current parser in
       raise
         (Parse_error
            (diagnostic parser token.span
-              ("unsupported transition effect `" ^ name ^ "` in DSL v1")))
-  | _ -> unexpected parser "a supported transition effect"
+              ("unsupported action `" ^ name ^ "` in zenbu-model 1")))
+  | _ -> unexpected parser "a supported action"
+
+let parse_effects parser closing_message =
+  expect_kind parser Lexer.Lbrace "`{` before actions" |> ignore;
+  let rec effects values =
+    match (current parser).kind with
+    | Lexer.Rbrace ->
+        let end_span = (advance parser).span in
+        (List.rev values, end_span)
+    | Lexer.Eof -> unexpected parser closing_message
+    | _ -> effects (parse_effect parser :: values)
+  in
+  effects []
 
 let parse_transition parser =
   let start = (advance parser).span in
@@ -160,21 +180,28 @@ let parse_transition parser =
       Some (expect_identifier parser "a capture name"))
     else None
   in
+  let guard =
+    if is_ident parser "when" then
+      let start = (advance parser).span in
+      let predicate, predicate_span =
+        expect_identifier parser "a built-in guard predicate"
+      in
+      match predicate with
+      | "selection.any_nonempty" ->
+          Ast.When_selection_any_nonempty (join start predicate_span)
+      | _ ->
+          raise
+            (Parse_error
+               (diagnostic parser predicate_span
+                  ("unknown built-in guard predicate `" ^ predicate ^ "`")))
+    else if is_ident parser "else" then Ast.Else (advance parser).span
+    else Ast.Always
+  in
   expect_kind parser Lexer.Arrow "`->` after an input pattern" |> ignore;
   let target, target_span = expect_identifier parser "a target state" in
   let effects, end_span =
     match (current parser).kind with
-    | Lexer.Lbrace ->
-        advance parser |> ignore;
-        let rec effects values =
-          match (current parser).kind with
-          | Lexer.Rbrace ->
-              let end_span = (advance parser).span in
-              (List.rev values, end_span)
-          | Lexer.Eof -> unexpected parser "`}` closing transition effects"
-          | _ -> effects (parse_effect parser :: values)
-        in
-        effects []
+    | Lexer.Lbrace -> parse_effects parser "`}` closing transition actions"
     | _ -> ([], target_span)
   in
   {
@@ -183,6 +210,7 @@ let parse_transition parser =
     capture;
     target;
     target_span;
+    guard;
     effects;
     span = join start end_span;
   }
@@ -211,6 +239,12 @@ let parse_state parser =
     | _ -> unexpected parser "`status` or `on` in state"
   in
   declarations [] []
+
+let parse_action_decl parser =
+  let start = (advance parser).span in
+  let name, name_span = expect_identifier parser "an action name" in
+  let effects, end_span = parse_effects parser "`}` closing action" in
+  { Ast.name; name_span; effects; span = join start end_span }
 
 let parse ~source_name ~source tokens =
   let first_line_stop =
@@ -260,7 +294,7 @@ let parse ~source_name ~source tokens =
       expect_ident parser "model";
       let id, id_span = expect_string parser "a model ID string" in
       expect_kind parser Lexer.Lbrace "`{` after model ID" |> ignore;
-      let rec declarations titles initials states =
+      let rec declarations titles initials actions states =
         match (current parser).kind with
         | Lexer.Rbrace -> (
             let end_span = (advance parser).span in
@@ -276,6 +310,7 @@ let parse ~source_name ~source tokens =
                         id_span;
                         titles = List.rev titles;
                         initials = List.rev initials;
+                        actions = List.rev actions;
                         states = List.rev states;
                         span = join id_span end_span;
                       };
@@ -284,15 +319,21 @@ let parse ~source_name ~source tokens =
         | Lexer.Ident "title" ->
             advance parser |> ignore;
             let value = expect_string parser "a title string" in
-            declarations (value :: titles) initials states
+            declarations (value :: titles) initials actions states
         | Lexer.Ident "initial" ->
             advance parser |> ignore;
             let value = expect_identifier parser "an initial state name" in
-            declarations titles (value :: initials) states
+            declarations titles (value :: initials) actions states
+        | Lexer.Ident "action" ->
+            declarations titles initials
+              (parse_action_decl parser :: actions)
+              states
         | Lexer.Ident "state" ->
-            declarations titles initials (parse_state parser :: states)
+            declarations titles initials actions (parse_state parser :: states)
         | Lexer.Eof -> unexpected parser "`}` closing model"
-        | _ -> unexpected parser "`title`, `initial`, or `state` in model"
+        | _ ->
+            unexpected parser
+              "`title`, `initial`, `action`, or `state` in model"
       in
-      declarations [] [] []
+      declarations [] [] [] []
     with Parse_error diagnostic -> Error [ diagnostic ]

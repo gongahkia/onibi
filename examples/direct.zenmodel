@@ -66,11 +66,19 @@ model "zenbu.example.direct" {
       apply selector "next-line" transform "collapse-to-end"
     }
 
-    on "Backspace" -> direct {
+    on "Backspace" when selection.any_nonempty -> direct {
+      apply selector "current-selections" transform "delete"
+    }
+
+    on "Backspace" else -> direct {
       apply selector "previous-text-unit" transform "delete"
     }
 
-    on "Delete" -> direct {
+    on "Delete" when selection.any_nonempty -> direct {
+      apply selector "current-selections" transform "delete"
+    }
+
+    on "Delete" else -> direct {
       apply selector "next-text-unit" transform "delete"
     }
 

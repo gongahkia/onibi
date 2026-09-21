@@ -21,8 +21,10 @@ type t = {
 }
 
 val compile :
+  ?commands:Zenbu_model_api.Command_registry.t ->
   source_name:string ->
   source:string ->
+  unit ->
   (t * Diagnostic.t list, Diagnostic.t list) result
 
 val state : t -> int -> compiled_state

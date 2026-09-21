@@ -58,7 +58,7 @@ let semantic_registry () =
               | Ok registry -> Ok registry
               | Error error -> Error error))
         (Ok registry)
-        (Syntax_commands.commands ())
+        (Semantic_commands.selection_commands @ Syntax_commands.commands ())
       |> function
       | Ok registry -> registry
       | Error error -> fail error)
@@ -82,7 +82,10 @@ let compile_model path =
         (Error.Invalid_command_arguments
            ("cannot read model `" ^ path ^ "`: " ^ message))
   in
-  match Model_dsl.Compile.compile ~source_name:path ~source with
+  match
+    Model_dsl.Compile.compile ~commands:(semantic_registry ()) ~source_name:path
+      ~source ()
+  with
   | Ok compiled -> compiled
   | Error diagnostics ->
       print_diagnostics diagnostics;

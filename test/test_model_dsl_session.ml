@@ -41,7 +41,7 @@ model "zenbu.example.modal" {
 |}
 
 let compile () =
-  match Dsl.Compile.compile ~source_name:"session.zenmodel" ~source with
+  match Dsl.Compile.compile ~source_name:"session.zenmodel" ~source () with
   | Ok (grammar, warnings) ->
       expect (warnings = [])
         "the session grammar unexpectedly produced warnings";

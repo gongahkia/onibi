@@ -27,7 +27,7 @@ let grammar state = state.grammar
 let reset state = stable state.grammar state.stable_state
 let descriptor_of_state state = state.grammar.descriptor
 
-let effect_of_transition transition input = function
+let effect_of_action transition input = function
   | Ir.Apply { selector; selector_id; transformation; transformation_id } ->
       Model_effect.execute ~selector_id ~transformation_id
         (Model_intent.apply ~selector ~transformation)
@@ -38,6 +38,29 @@ let effect_of_transition transition input = function
           invalid_arg
             ("compiled `<text>` transition matched a non-text input: "
            ^ transition.Ir.pattern))
+  | Ir.Invoke_command { invocation; _ } ->
+      Model_effect.Invoke_command invocation
+
+let selection_any_nonempty context =
+  Editor_context.selections context |> fun selections ->
+  List.exists
+    (fun selection ->
+      selection.Editor_context.anchor_offset
+      <> selection.Editor_context.head_offset)
+    selections.Editor_context.selections
+
+let choose_arm arms context =
+  let rec choose else_arm = function
+    | [] -> else_arm
+    | arm :: rest -> (
+        match arm.Ir.guard with
+        | Ir.Always -> Some arm
+        | Ir.When_selection_any_nonempty ->
+            if selection_any_nonempty context then Some arm
+            else choose else_arm rest
+        | Ir.Else -> choose (Some arm) rest)
+  in
+  choose None arms
 
 let matching_edge (node : Compile.node) input =
   Compile.view_node node |> fun view ->
@@ -46,17 +69,20 @@ let matching_edge (node : Compile.node) input =
       Input_event.binding_pattern_matches edge.pattern input)
     view.edges
 
-let handle_input state input (_context : Editor_context.t) =
+let handle_input state input (context : Editor_context.t) =
   match matching_edge state.cursor input with
   | None -> if state.pending_input = [] then (state, []) else (reset state, [])
   | Some edge -> (
       match (Compile.view_node edge.next).complete with
-      | Some transition ->
-          let next_state = stable state.grammar transition.target in
-          let effects =
-            List.map (effect_of_transition transition input) transition.effects
-          in
-          (next_state, effects)
+      | Some transition -> (
+          match choose_arm transition.arms context with
+          | None -> (stable state.grammar state.stable_state, [])
+          | Some arm ->
+              let next_state = stable state.grammar arm.target in
+              let effects =
+                List.map (effect_of_action transition input) arm.effects
+              in
+              (next_state, effects))
       | None ->
           ( {
               state with
@@ -83,15 +109,17 @@ let input_pattern edge =
   | Input_event.Exact_event _ -> Input_rule.Exact edge.token
 
 let effect_metadata transition =
-  match transition.Ir.effects with
-  | Ir.Apply { selector_id; transformation_id; _ } :: _ ->
+  match transition.Ir.arms with
+  | [ { Ir.effects = Ir.Apply { selector_id; transformation_id; _ } :: _; _ } ]
+    ->
       (Some selector_id, Some transformation_id)
   | _ -> (None, None)
 
 let summary transition =
-  match transition.Ir.effects with
-  | [] -> "transition to " ^ transition.target_name
-  | action :: _ -> Compile.effect_description action
+  match transition.Ir.arms with
+  | [ { Ir.effects = []; target_name; _ } ] -> "transition to " ^ target_name
+  | [ { Ir.effects = action :: _; _ } ] -> Compile.effect_description action
+  | _ -> "guarded transition"
 
 let input_rules state =
   let compiled_state = Compile.state state.grammar state.stable_state in
@@ -112,7 +140,9 @@ let input_rules state =
         | None -> "continue " ^ edge.token
       in
       let next_status =
-        Option.map (fun transition -> transition.Ir.target_name) transition
+        match transition with
+        | Some { Ir.arms = [ arm ]; _ } -> Some arm.target_name
+        | _ -> None
       in
       let selector_id, transformation_id =
         match transition with

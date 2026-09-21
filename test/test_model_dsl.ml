@@ -99,7 +99,7 @@ model "zenbu.example.text" {
 |}
 
 let compile ?(source_name = "test.zenmodel") value =
-  match Dsl.Compile.compile ~source_name ~source:value with
+  match Dsl.Compile.compile ~source_name ~source:value () with
   | Ok (compiled, warnings) ->
       expect (warnings = []) "the base grammar unexpectedly produced warnings";
       compiled
@@ -109,7 +109,7 @@ let compile ?(source_name = "test.zenmodel") value =
       |> String.concat "\n" |> failf "%s"
 
 let diagnostics value =
-  match Dsl.Compile.compile ~source_name:"broken.zenmodel" ~source:value with
+  match Dsl.Compile.compile ~source_name:"broken.zenmodel" ~source:value () with
   | Ok _ -> failf "expected invalid grammar to fail"
   | Error diagnostics -> diagnostics
 
@@ -274,7 +274,7 @@ let test_diagnostics () =
     "zenbu-model 1\n\
      model \"x\" { title \"X\" initial a state a { status { label \"A\" input \
      keys } on \"x\" -> a { command } } }"
-    "unsupported transition effect `command`"
+    "expected a command ID string"
   |> ignore;
   diagnostic_contains
     "zenbu-model 999999999999999999999999999999999999999999999999\n"

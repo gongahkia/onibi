@@ -54,6 +54,26 @@ model "zenbu.example.selection-first" {
       apply selector "all-occurrences" transform "select"
     }
 
+    on "m" -> select {
+      command "editor.selection.merge-consecutive"
+    }
+
+    on "]" -> select {
+      command "editor.selection.rotate-primary-forward"
+    }
+
+    on "[" -> select {
+      command "editor.selection.rotate-primary-backward"
+    }
+
+    on "f" -> select {
+      command "editor.selection.flip"
+    }
+
+    on "F" -> select {
+      command "editor.selection.ensure-forward"
+    }
+
     on "d" -> select {
       apply selector "current-selections" transform "delete"
     }

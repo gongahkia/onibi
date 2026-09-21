@@ -1,5 +1,8 @@
 type model = Vim | Selection | Direct | Structural | Script | Dsl
 
+val dsl_command_registry :
+  unit -> (Zenbu_model_api.Command_registry.t, Zenbu_kernel.Error.t) result
+
 type host_command =
   | Save
   | Save_as

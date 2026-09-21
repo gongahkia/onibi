@@ -57,9 +57,13 @@
  (name test_model_dsl)
  (libraries zenbu_kernel zenbu_model_api zenbu_model_dsl))
 
+(test
+ (name test_model_dsl_v11)
+ (libraries zenbu_kernel zenbu_model_api zenbu_model_dsl zenbu_proof_models))
+
 (executable
  (name test_model_dsl_examples)
- (libraries zenbu_kernel zenbu_model_api zenbu_model_dsl))
+ (libraries zenbu_kernel zenbu_model_api zenbu_model_dsl zenbu_proof_models))
 
 (rule
  (alias runtest)

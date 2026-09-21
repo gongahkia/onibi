@@ -1665,6 +1665,8 @@ let commands () =
     ((Semantic_commands.apply_command :: Semantic_commands.selection_commands)
     @ Syntax_commands.commands ())
 
+let dsl_command_registry () = commands ()
+
 let base_semantics () =
   (Inspector.semantic_registry () |> Semantic_registry.descriptors)
   @ Language_commands.descriptors ()

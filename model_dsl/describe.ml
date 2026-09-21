@@ -8,6 +8,14 @@ let input_mode = function
   | Zenbu_model_api.Model_status.Key_commands -> "keys"
   | Zenbu_model_api.Model_status.Text_entry -> "text"
 
+let guard_name = function
+  | Ir.Always -> None
+  | Ir.When_selection_any_nonempty -> Some "when selection.any_nonempty"
+  | Ir.Else -> Some "else"
+
+let add_action lines indent action =
+  lines := (indent ^ "effect: " ^ Compile.effect_description action) :: !lines
+
 let add_transition (compiled : Compile.t) (lines : string list ref)
     (transition : Ir.transition) =
   let immediate =
@@ -15,19 +23,22 @@ let add_transition (compiled : Compile.t) (lines : string list ref)
     else "multi-event"
   in
   let line =
-    Printf.sprintf "  transition: %S -> %s [%s] @ %s" transition.pattern
-      transition.target_name immediate
+    Printf.sprintf "  transition: %S [%s] @ %s" transition.pattern immediate
       (location compiled.ir.source_name compiled.source transition.span)
   in
-  let effects =
-    match transition.effects with
-    | [] -> [ "    effects: none" ]
-    | effects ->
-        List.map
-          (fun action -> "    effect: " ^ Compile.effect_description action)
-          effects
-  in
-  lines := List.rev_append effects (line :: !lines)
+  lines := line :: !lines;
+  List.iter
+    (fun arm ->
+      let arm_line =
+        match guard_name arm.Ir.guard with
+        | None -> Printf.sprintf "    -> %s" arm.target_name
+        | Some guard -> Printf.sprintf "    %s -> %s" guard arm.target_name
+      in
+      lines := arm_line :: !lines;
+      match arm.effects with
+      | [] -> lines := "      effects: none" :: !lines
+      | effects -> List.iter (add_action lines "      ") effects)
+    transition.arms
 
 let render ~warnings (compiled : Compile.t) =
   let lines = ref [] in
@@ -38,6 +49,17 @@ let render ~warnings (compiled : Compile.t) =
   add ("source fingerprint (MD5; non-security): " ^ compiled.source_fingerprint);
   add ("model: " ^ compiled.ir.model_id);
   add ("title: " ^ compiled.ir.title);
+  List.iter
+    (fun (declaration : Ir.action_declaration) ->
+      add ("action: " ^ declaration.Ir.name);
+      match declaration.effects with
+      | [] -> add "  effects: none"
+      | effects ->
+          List.iter
+            (fun action ->
+              add ("  effect: " ^ Compile.effect_description action))
+            effects)
+    compiled.ir.actions;
   let initial = Compile.state compiled compiled.ir.initial in
   add ("initial state: " ^ initial.ir.name);
   List.iter
