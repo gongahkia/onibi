@@ -14,11 +14,25 @@ if "$executable" --model-dsl "$missing" </dev/null >"$workspace/missing.out" 2>&
 fi
 grep -F "cannot read $missing:" "$workspace/missing.out" >/dev/null
 
+if "$executable" --model-dsl "$workspace" </dev/null >"$workspace/directory.out" 2>&1; then
+  echo "directory --model-dsl path unexpectedly succeeded" >&2
+  exit 1
+fi
+grep -F "cannot read $workspace:" "$workspace/directory.out" >/dev/null
+
 if "$executable" --model-dsl "$invalid" </dev/null >"$workspace/invalid.out" 2>&1; then
   echo "invalid --model-dsl grammar unexpectedly succeeded" >&2
   exit 1
 fi
 grep -F "$invalid:9:15: error: unknown state \`missing\`" "$workspace/invalid.out" >/dev/null
+
+invalid_utf8="$workspace/invalid-utf8.zenmodel"
+printf 'zenbu-model 1\n\377' >"$invalid_utf8"
+if "$executable" --model-dsl "$invalid_utf8" </dev/null >"$workspace/invalid-utf8.out" 2>&1; then
+  echo "invalid UTF-8 --model-dsl grammar unexpectedly succeeded" >&2
+  exit 1
+fi
+grep -F "$invalid_utf8:1:1: error: source is not valid UTF-8" "$workspace/invalid-utf8.out" >/dev/null
 
 if "$executable" --model vim --model-dsl "$valid" </dev/null >"$workspace/conflict.out" 2>&1; then
   echo "contradictory model selection unexpectedly succeeded" >&2
@@ -26,8 +40,17 @@ if "$executable" --model vim --model-dsl "$valid" </dev/null >"$workspace/confli
 fi
 grep -F "choose only one of --model and --model-dsl" "$workspace/conflict.out" >/dev/null
 
+if "$executable" --model-dsl "$valid" --model-dsl "$valid" </dev/null >"$workspace/repeated.out" 2>&1; then
+  echo "repeated --model-dsl unexpectedly succeeded" >&2
+  exit 1
+fi
+grep -F "choose only one of --model and --model-dsl" "$workspace/repeated.out" >/dev/null
+
 if "$executable" --model dsl </dev/null >"$workspace/unknown.out" 2>&1; then
   echo "--model dsl unexpectedly succeeded" >&2
   exit 1
 fi
 grep -F "unknown model: dsl" "$workspace/unknown.out" >/dev/null
+
+"$executable" --help >"$workspace/help.out"
+grep -F -- "--model-dsl PATH" "$workspace/help.out" >/dev/null

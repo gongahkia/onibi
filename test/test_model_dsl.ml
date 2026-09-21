@@ -159,6 +159,9 @@ let test_diagnostics () =
   diagnostic_contains invalid_utf8 "source is not valid UTF-8" |> ignore;
   diagnostic_contains "zenbu-model 2\nmodel \"x\" { title \"X\" initial a state a { status { label \"A\" input keys } } }"
     "unsupported zenbu-model version" |> ignore;
+  diagnostic_contains
+    "zenbu-model 1model \"x\" { title \"X\" initial a state a { status { label \"A\" input keys } } }"
+    "must start with `zenbu-model 1`" |> ignore;
   diagnostic_contains "zenbu-model 1\nmodel \"x\" { title \"X\" initial a state a { status { label \"A\" input keys } } state a { status { label \"A\" input keys } } }"
     "duplicate state `a`" |> ignore;
   diagnostic_contains "zenbu-model 1\nmodel \"x\" { title \"X\" state a { status { label \"A\" input keys } } }"
@@ -204,7 +207,12 @@ let test_diagnostics () =
   expect
     (Source_span.start_offset (Dsl.Diagnostic.span crlf)
     = String.length "zenbu-model 1\r\nmodel \"é\" {\r\n")
-    "UTF-8 source diagnostic did not retain byte offsets"
+    "UTF-8 source diagnostic did not retain byte offsets";
+  let carriage_return_source =
+    "zenbu-model 1\r# a CR-delimited comment\rmodel \"x\" { title \"X\" initial a state a { status { label \"A\" input keys } } }"
+  in
+  let compiled = compile carriage_return_source in
+  expect_string ~expected:"x" ~actual:(Editing_model.id compiled.descriptor)
 
 let test_runtime () =
   let compiled = compile source in

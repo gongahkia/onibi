@@ -136,6 +136,38 @@ let test_prefix_execution_and_mismatch () =
   expect (Model_status.pending_input (App.Session.status session) = None)
     "d w did not clear the interactive pending prefix"
 
+let test_layout_save_rejects_dsl_without_writing () =
+  let document_path = Filename.temp_file "zenbu-dsl-layout-document" ".txt" in
+  let layout_path = Filename.temp_file "zenbu-dsl-layout" ".layout" in
+  let remove_if_present path =
+    if Sys.file_exists path then Sys.remove path
+  in
+  Fun.protect
+    ~finally:(fun () ->
+      remove_if_present document_path;
+      remove_if_present layout_path)
+    (fun () ->
+      remove_if_present layout_path;
+      (match App.File_io.save_atomic ~path:document_path ~contents:"alpha beta" with
+      | Ok () -> ()
+      | Error error -> failf "%s" (App.File_io.to_string error));
+      let session =
+        App.Session.create ~model:App.Session.Dsl ~dsl_model:(compile ())
+          ~file_path:document_path ~contents:"alpha beta"
+          ~config:Zenbu_scripting.Scripting.Disabled ~dimensions ()
+        |> must
+      in
+      match App.Session.save_layout session ~path:layout_path with
+      | Error (Error.Invalid_command_arguments message) ->
+          expect (contains message "--model-dsl PATH")
+            "DSL layout rejection did not explain how to restore the model: %s"
+            message;
+          expect (not (Sys.file_exists layout_path))
+            "a rejected DSL layout save left a partial layout file"
+      | Error error ->
+          failf "DSL layout save returned the wrong error: %s" (Error.to_string error)
+      | Ok () -> failf "DSL layout save unexpectedly persisted a grammar path")
+
 let test_builtin_model_creation_is_unchanged () =
   let session =
     App.Session.create ~model:App.Session.Vim ~contents:"alpha"
@@ -150,6 +182,8 @@ let tests =
     ("DSL session requires a compiled grammar", test_requires_a_compiled_grammar);
     ("DSL session status, inspection, and text editing", test_status_bindings_and_text_edit);
     ("DSL session prefix execution and mismatch", test_prefix_execution_and_mismatch);
+    ( "DSL layout save rejects persistence without writing",
+      test_layout_save_rejects_dsl_without_writing );
     ("built-in session selection remains unchanged", test_builtin_model_creation_is_unchanged);
   ]
 

@@ -204,11 +204,31 @@ let parse_state parser =
   declarations [] []
 
 let parse ~source_name ~source tokens =
-  let required_prefix = "zenbu-model " in
-  if
-    String.length source < String.length required_prefix
-    || not (String.starts_with ~prefix:required_prefix source)
-  then
+  let first_line_stop =
+    let rec loop offset =
+      if offset >= String.length source then offset
+      else
+        match source.[offset] with
+        | '\n' | '\r' -> offset
+        | _ -> loop (offset + 1)
+    in
+    loop 0
+  in
+  let first_line = String.sub source 0 first_line_stop in
+  let valid_header =
+    let prefix = "zenbu-model " in
+    if not (String.starts_with ~prefix (String.trim first_line)) then false
+    else
+      let version =
+        String.trim first_line
+        |> fun line ->
+        String.sub line (String.length prefix)
+          (String.length line - String.length prefix)
+      in
+      String.length version > 0
+      && String.for_all (function '0' .. '9' -> true | _ -> false) version
+  in
+  if not valid_header then
     Error
       [
         Diagnostic.make ~severity:Diagnostic.Error

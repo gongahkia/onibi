@@ -40,7 +40,8 @@ let lex ~source_name ~source =
         { kind; span = Source_span.make ~start_offset ~stop_offset }
       in
       let rec skip_comment index =
-        if index >= length || source.[index] = '\n' then index
+        if index >= length || source.[index] = '\n' || source.[index] = '\r' then
+          index
         else skip_comment (index + 1)
       in
       let rec string_value start index buffer =

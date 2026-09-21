@@ -176,14 +176,16 @@ status and bindings inspector exposes state labels, pending prefixes, and
 
 Because `Editing_model.S` has a static `initialize` signature, the adapter has
 a narrow process-local configuration slot used only around the synchronous
-configure/initialize pair. Zenbu serializes that pair and clears the slot
-immediately afterward. It is never read during input handling; every active
-state, including states in inactive buffers, retains its own immutable grammar.
+configure/initialize pair. Adapter initialization consumes and clears that slot,
+and Zenbu also clears it with protected cleanup around the pair. It is never
+read during input handling; every active state, including states in inactive
+buffers, retains its own immutable grammar.
 
 There is no hot reload. Supply `--model-dsl PATH` on each startup. DSL model
 selection is deliberately not stored in saved layouts, so raw grammar paths
-are not serialized into workspace state. Run `model-check` before interactive
-use in authoring and CI workflows.
+are not serialized into workspace state; a DSL-backed layout save is rejected
+before a layout file is written. Run `model-check` before interactive use in
+authoring and CI workflows.
 
 ## Explicit v1 omissions
 
