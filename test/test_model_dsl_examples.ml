@@ -1,7 +1,7 @@
 open Zenbu_kernel
 open Zenbu_model_api
 open Zenbu_proof_models
-module Dsl = Zenbu_model_dsl
+module Dsl = Zenbu_dsl
 
 exception Test_failure of string
 

@@ -116,7 +116,7 @@ type outcome = Continue of t | Exit of t
 
 val create :
   model:model ->
-  ?dsl_model:Zenbu_model_dsl.Compile.t ->
+  ?dsl_model:Zenbu_dsl.Compile.t ->
   ?language:string ->
   ?file_path:string ->
   ?contents:string ->

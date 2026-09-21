@@ -64,7 +64,7 @@ zenbu.kernel
 zenbu.model_api
       ↑
  ┌────┬──────────────────────────────────────┐
-zenbu.vim-style   zenbu.selection-first   zenbu.model_dsl
+zenbu.vim-style   zenbu.selection-first   zenbu.dsl
 ```
 
 `zenbu.kernel` owns documents, snapshots, selectors, transformations, intents,
@@ -86,7 +86,7 @@ dependency boundary. OCaml does not make public libraries a security sandbox;
 M9 therefore places isolated third-party Components behind a private runtime
 rather than treating library visibility as a security boundary.
 
-`zenbu.model_dsl` is an optional compiler/interpreter above `zenbu.model_api`.
+`zenbu.dsl` is an optional compiler/interpreter above `zenbu.model_api`.
 It turns a checked `.zenmodel` finite grammar into an ordinary
 `Editing_model.S` implementation and returns only existing `Model_effect`
 values. The headless host can validate and describe grammars; the terminal host
@@ -99,7 +99,7 @@ Its runtime path is deliberately the same path used by every editing model:
 ```text
 .zenmodel source
       ↓
-zenbu.model_dsl
+zenbu.dsl
       ↓
 Editing_model.S
       ↓
@@ -112,7 +112,7 @@ validated semantic intent / transaction / history path
 
 Built-in OCaml models, trusted Lua model adapters, and `.zenmodel` grammars are
 parallel producers of `Editing_model.S`; they are not kernel extensions. In
-particular, `zenbu.kernel` does not depend on `zenbu.model_dsl`, and the DSL
+particular, `zenbu.kernel` does not depend on `zenbu.dsl`, and the DSL
 does not create another transaction or history path.
 
 ## Extension boundary

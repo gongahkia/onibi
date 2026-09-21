@@ -6,7 +6,7 @@ open Zenbu_structural_model
 module Scripting = Zenbu_scripting.Scripting
 module Plugins = Zenbu_extension.Plugin_host
 module Language = Zenbu_language.Language
-module Model_dsl = Zenbu_model_dsl
+module Dsl = Zenbu_dsl
 
 let fail error =
   prerr_endline (Error.to_string error);
@@ -71,7 +71,7 @@ let read_file path =
 
 let print_diagnostics diagnostics =
   List.iter
-    (fun diagnostic -> prerr_endline (Model_dsl.Diagnostic.format diagnostic))
+    (fun diagnostic -> prerr_endline (Dsl.Diagnostic.format diagnostic))
     diagnostics
 
 let compile_model path =
@@ -83,7 +83,7 @@ let compile_model path =
            ("cannot read model `" ^ path ^ "`: " ^ message))
   in
   match
-    Model_dsl.Compile.compile ~commands:(semantic_registry ()) ~source_name:path
+    Dsl.Compile.compile ~commands:(semantic_registry ()) ~source_name:path
       ~source ()
   with
   | Ok compiled -> compiled
@@ -98,7 +98,7 @@ let model_check path =
 
 let model_describe path =
   let compiled, warnings = compile_model path in
-  print_string (Model_dsl.Describe.render ~warnings compiled)
+  print_string (Dsl.Describe.render ~warnings compiled)
 
 let write_file path contents =
   let channel = open_out_bin path in

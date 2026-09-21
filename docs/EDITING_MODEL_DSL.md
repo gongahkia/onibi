@@ -281,7 +281,7 @@ unchanged.
 
 ## Headless and interactive use
 
-The host, not `zenbu.model_dsl`, reads files:
+The host, not `zenbu.dsl`, reads files:
 
 ```sh
 zenbu-headless model-check MODEL.zenmodel
@@ -310,7 +310,7 @@ standard-library authority and is explicitly not sandboxed. Wasm Components
 are different again: executable extensions isolated and capability-constrained
 by the existing Component/Extension API. Neither boundary is weakened by DSL.
 
-`zenbu.kernel` does not depend on `zenbu.model_dsl`; the DSL library depends
+`zenbu.kernel` does not depend on `zenbu.dsl`; the DSL library depends
 downward on `zenbu.model_api` only.
 
 ## Supported and deferred capabilities

@@ -6,7 +6,7 @@ open Zenbu_structural_model
 module Scripting = Zenbu_scripting.Scripting
 module Plugins = Zenbu_extension.Plugin_host
 module Language = Zenbu_language.Language
-module Dsl_model = Zenbu_model_dsl.Runtime.Adapter
+module Dsl_model = Zenbu_dsl.Runtime.Adapter
 module Language_commands = Zenbu_language.Commands
 module Lsp = Zenbu_lsp.Client
 module Layout = Zenbu_view.Layout

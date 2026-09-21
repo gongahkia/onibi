@@ -4,7 +4,7 @@ module Scripting = Zenbu_scripting.Scripting
 module Plugins = Zenbu_extension.Plugin_host
 module Syntax = Zenbu_syntax.Syntax
 module Language = Zenbu_language.Language
-module Model_dsl = Zenbu_model_dsl
+module Dsl = Zenbu_dsl
 
 type options = {
   model : Zenbu_app.Session.model;
@@ -226,18 +226,18 @@ let load_dsl_model = function
           | Error error -> Error (Zenbu_kernel.Error.to_string error)
           | Ok commands -> (
               match
-                Model_dsl.Compile.compile ~commands ~source_name:path ~source ()
+                Dsl.Compile.compile ~commands ~source_name:path ~source ()
               with
               | Ok (grammar, warnings) ->
                   List.iter
                     (fun diagnostic ->
-                      prerr_endline (Model_dsl.Diagnostic.format diagnostic))
+                      prerr_endline (Dsl.Diagnostic.format diagnostic))
                     warnings;
                   Ok (Some grammar)
               | Error diagnostics ->
                   Error
                     (diagnostics
-                    |> List.map Model_dsl.Diagnostic.format
+                    |> List.map Dsl.Diagnostic.format
                     |> String.concat "\n")))
 
 let create_session ?dsl_model options contents =

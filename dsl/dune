@@ -1,6 +1,6 @@
 (library
- (name zenbu_model_dsl)
- (public_name zenbu.model_dsl)
+ (name zenbu_dsl)
+ (public_name zenbu.dsl)
  (modules
   source_span
   diagnostic
