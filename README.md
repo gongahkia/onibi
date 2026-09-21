@@ -34,9 +34,9 @@
 > For more details, see the [language reference](docs/EDITING_MODEL_DSL.md) for `.zenmodel`.
 
 `.zenmodel` is Zenbu's declarative surface for specifying a finite, deterministic,
-inspectable editing grammars. It compiles to `Editing_model.S` and returns the same existing `Model_effect` values as every other editing model.
+inspectable editing grammars. It compiles to the intermediary format `Editing_model.S` and returns existing `Model_effect` values *(the same as every other editing model)*.
 
-Below is an example of `.zenmodel` in action.
+Below is a snippet of `.zenmodel` in action.
 
 ```text
 zenbu-model 1
@@ -63,63 +63,50 @@ model "example.modal" {
 }
 ```
 
-## Installation
-
-Zenbu supports Linux x86_64 and Apple Silicon macOS. It needs `opam`, a C
-toolchain, `curl`, `tar`, a SHA-256 tool, and a Lua 5.4 shared library. Fedora
-users should install `lua-libs`; on macOS install Xcode Command Line Tools,
-Homebrew, `opam`, and `lua@5.4`:
-
-```sh
-xcode-select --install
-brew install opam lua@5.4
-```
-
-Then bootstrap a checkout:
-
-```sh
-git clone https://github.com/gongahkia/zenbu.git
-cd zenbu
-opam init --bare --yes # once on a new Opam installation
-make bootstrap
-make build
-```
-
-`make bootstrap` is idempotent. It creates only ignored local `_opam` and
-`.zenbu/` directories, prepares OCaml 5.3.0 and test dependencies, fetches the
-pinned Wasmtime C API, and runs the normal validation gate. For an already
-prepared switch, use `make build`, `make test`, or `make check`.
-
 ## Usage
 
-Activate the local switch before invoking Dune directly:
+> [!IMPORTANT]  
+> Zenbu requires `opam` *(a C toolchain)*, `curl`, `tar` *(a SHA-256 tool)* and a Lua 5.4 shared library to run.
+> 
+> 
+> * Linux users should therefore install `lua-libs`
+> * MacOS users should install Xcode Command Line Tools, Homebrew, `opam`, and `lua@5.4`
 
-```sh
-eval "$(opam env --switch="$PWD" --set-switch)"
-eval "$(./scripts/zenbu-env.sh)"
+The below instructions are for getting started with `Zenbu` on your local machine.
+
+1. First run the below to get `Zenbu` installed locally.
+
+```console
+$ git clone https://github.com/gongahkia/zenbu.git && cd zenbu
+$ opam init --bare --yes # once on a new Opam installation
+$ make bootstrap
+$ make build
 ```
 
-Run the editor with a built-in, Lua, or declarative model:
+2. Next, execute the below to activate a local switch before invoking Dune directly.
 
-```sh
-dune exec bin/zenbu.exe -- README.md
-dune exec bin/zenbu.exe -- --model selection README.md
-dune exec bin/zenbu.exe -- --model direct README.md
-dune exec bin/zenbu.exe -- --model structural README.md
-dune exec bin/zenbu.exe -- --model script --config examples/script-modal-editor.lua README.md
-dune exec bin/zenbu.exe -- --model-dsl examples/script-modal-editor.zenmodel README.md
+```console
+$ eval "$(opam env --switch="$PWD" --set-switch)"
+$ eval "$(./scripts/zenbu-env.sh)"
 ```
 
-Validate and inspect a grammar without entering terminal mode:
+3. Finally, run the editor with a built-in, Lua, or declarative model.
 
-```sh
-dune exec bin/zenbu_headless.exe -- model-check examples/modal-operator.zenmodel
-dune exec bin/zenbu_headless.exe -- model-describe examples/modal-operator.zenmodel
+```console
+$ dune exec bin/zenbu.exe -- README.md
+$ dune exec bin/zenbu.exe -- --model selection README.md
+$ dune exec bin/zenbu.exe -- --model direct README.md
+$ dune exec bin/zenbu.exe -- --model structural README.md
+$ dune exec bin/zenbu.exe -- --model script --config examples/script-modal-editor.lua README.md
+$ dune exec bin/zenbu.exe -- --model-dsl examples/script-modal-editor.zenmodel README.md
 ```
 
-`--model-dsl PATH` reads, validates, and compiles the grammar before terminal
-raw mode begins. It is mutually exclusive with `--model`; there is no hot
-reload, and layouts deliberately do not persist external grammar paths.
+4. Optionally run any of the other below commands to interact with `Zenbu`'s functionality.
+
+```console
+$ dune exec bin/zenbu_headless.exe -- model-check examples/modal-operator.zenmodel
+$ dune exec bin/zenbu_headless.exe -- model-describe examples/modal-operator.zenmodel
+```
 
 ## Model surfaces and authority
 
