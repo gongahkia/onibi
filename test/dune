@@ -57,6 +57,23 @@
  (name test_model_dsl)
  (libraries zenbu_kernel zenbu_model_api zenbu_model_dsl))
 
+(executable
+ (name test_model_dsl_examples)
+ (libraries zenbu_kernel zenbu_model_api zenbu_model_dsl))
+
+(rule
+ (alias runtest)
+ (deps
+  test_model_dsl_examples.exe
+  ../examples/modal-operator.zenmodel
+  ../examples/selection-first.zenmodel
+  ../examples/direct.zenmodel)
+ (action
+  (run %{exe:test_model_dsl_examples.exe}
+   %{dep:../examples/modal-operator.zenmodel}
+   %{dep:../examples/selection-first.zenmodel}
+   %{dep:../examples/direct.zenmodel})))
+
 (test
  (name test_model_dsl_session)
  (libraries

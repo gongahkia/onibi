@@ -74,6 +74,10 @@ model "zenbu.example.direct" {
       apply selector "next-text-unit" transform "delete"
     }
 
+    on "Enter" -> direct {
+      apply selector "current-selections" transform "replace:\n"
+    }
+
     on "Escape" -> direct
 
     on "<text>" as text -> direct {
