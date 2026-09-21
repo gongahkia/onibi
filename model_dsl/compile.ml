@@ -4,7 +4,11 @@ module Provider = Zenbu_kernel.Provider
 
 type node = { edges : edge list; complete : Ir.transition option }
 
-and edge = { pattern : Input_event.binding_pattern; token : string; next : node }
+and edge = {
+  pattern : Input_event.binding_pattern;
+  token : string;
+  next : node;
+}
 
 type node_view = { edges : edge list; complete : Ir.transition option }
 
@@ -23,7 +27,8 @@ type t = {
 let empty_node = { edges = []; complete = None }
 
 let same_pattern left right =
-  String.equal (Input_event.binding_pattern_to_string left)
+  String.equal
+    (Input_event.binding_pattern_to_string left)
     (Input_event.binding_pattern_to_string right)
 
 let rec insert node patterns tokens transition =
@@ -61,8 +66,8 @@ let compile_state ir =
 
 let make_descriptor ir =
   let provider =
-    Provider.create_with_source ~id:"zenbu.model-dsl" ~kind:Provider.Editing_model
-      ~source:ir.Ir.source_name
+    Provider.create_with_source ~id:"zenbu.model-dsl"
+      ~kind:Provider.Editing_model ~source:ir.Ir.source_name
     |> Result.get_ok
   in
   Editing_model.descriptor ~id:ir.model_id ~title:ir.title
@@ -90,7 +95,9 @@ let compile ~source_name ~source =
                   warnings )))
 
 let state compiled state_id =
-  match List.find_opt (fun state -> state.ir.Ir.id = state_id) compiled.states with
+  match
+    List.find_opt (fun state -> state.ir.Ir.id = state_id) compiled.states
+  with
   | Some state -> state
   | None -> invalid_arg "compiled DSL model references an unknown state"
 
@@ -99,7 +106,10 @@ let prefixes state =
     List.fold_left
       (fun values edge ->
         let prefix = prefix @ [ edge.token ] in
-        let values = if edge.next.edges = [] then values else String.concat " " prefix :: values in
+        let values =
+          if edge.next.edges = [] then values
+          else String.concat " " prefix :: values
+        in
         walk prefix edge.next values)
       values node.edges
   in
@@ -107,5 +117,6 @@ let prefixes state =
 
 let effect_description = function
   | Ir.Apply { selector_id; transformation_id; _ } ->
-      Printf.sprintf "apply selector %S transform %S" selector_id transformation_id
+      Printf.sprintf "apply selector %S transform %S" selector_id
+        transformation_id
   | Ir.Insert_capture name -> "insert $" ^ name

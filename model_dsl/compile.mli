@@ -6,10 +6,7 @@ type edge = {
   next : node;
 }
 
-type node_view = {
-  edges : edge list;
-  complete : Ir.transition option;
-}
+type node_view = { edges : edge list; complete : Ir.transition option }
 
 val view_node : node -> node_view
 
@@ -24,7 +21,9 @@ type t = {
 }
 
 val compile :
-  source_name:string -> source:string -> (t * Diagnostic.t list, Diagnostic.t list) result
+  source_name:string ->
+  source:string ->
+  (t * Diagnostic.t list, Diagnostic.t list) result
 
 val state : t -> int -> compiled_state
 val prefixes : compiled_state -> string list

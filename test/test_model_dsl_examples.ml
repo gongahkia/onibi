@@ -1,11 +1,11 @@
 open Zenbu_kernel
 open Zenbu_model_api
-
 module Dsl = Zenbu_model_dsl
 
 exception Test_failure of string
 
-let failf format = Printf.ksprintf (fun message -> raise (Test_failure message)) format
+let failf format =
+  Printf.ksprintf (fun message -> raise (Test_failure message)) format
 
 let expect condition format =
   Printf.ksprintf
@@ -31,13 +31,17 @@ let compile path =
       expect (warnings = []) "%s unexpectedly produced warnings" path;
       grammar
   | Error diagnostics ->
-      diagnostics |> List.map Dsl.Diagnostic.format |> String.concat "\n" |> failf "%s"
+      diagnostics
+      |> List.map Dsl.Diagnostic.format
+      |> String.concat "\n" |> failf "%s"
 
 let key text = Input_event.key_press (Input_event.logical_text text |> must)
 let named value = Input_event.key_press (Input_event.named_key value)
+
 let shift_named value =
   Input_event.key_press ~modifiers:[ Input_event.Shift ]
     (Input_event.named_key value)
+
 let text value = Input_event.text_input value |> must
 
 let contains text fragment =
@@ -78,36 +82,47 @@ let make_runtime grammar ~id contents =
 
 let input_rule_exists rules pattern kind =
   List.exists
-    (fun rule -> Input_rule.pattern rule = pattern && Input_rule.kind rule = kind)
+    (fun rule ->
+      Input_rule.pattern rule = pattern && Input_rule.kind rule = kind)
     rules
 
 let test_modal_operator grammar =
-  expect (List.length grammar.states = 2)
+  expect
+    (List.length grammar.states = 2)
     "modal example did not retain two declared states";
-  expect (transition_count grammar = 20)
+  expect
+    (transition_count grammar = 20)
     "modal example transition count changed unexpectedly";
-  expect (prefix_count grammar = 3)
+  expect
+    (prefix_count grammar = 3)
     "modal example should generate d, c, and v prefix nodes";
   let description = Dsl.Describe.render ~warnings:[] grammar in
   expect_string ~expected:description
     ~actual:(Dsl.Describe.render ~warnings:[] grammar);
-  expect (contains description "prefix: d")
+  expect
+    (contains description "prefix: d")
     "modal description omitted the delete prefix";
   let runtime = make_runtime grammar ~id:"dsl-modal-insert" "alpha beta" in
   let runtime, _ = Runtime.handle_input runtime (key "i") |> must in
-  expect_string ~expected:"insert" ~actual:(Model_status.id (Runtime.status runtime));
+  expect_string ~expected:"insert"
+    ~actual:(Model_status.id (Runtime.status runtime));
   let runtime, _ = Runtime.handle_input runtime (text "界") |> must in
   expect_string ~expected:"界alpha beta" ~actual:(contents runtime);
-  let runtime, _ = Runtime.handle_input runtime (named Input_event.Escape) |> must in
-  expect_string ~expected:"normal" ~actual:(Model_status.id (Runtime.status runtime));
+  let runtime, _ =
+    Runtime.handle_input runtime (named Input_event.Escape) |> must
+  in
+  expect_string ~expected:"normal"
+    ~actual:(Model_status.id (Runtime.status runtime));
   let runtime = make_runtime grammar ~id:"dsl-modal-delete" "alpha beta" in
   let runtime, prefix_step = Runtime.handle_input runtime (key "d") |> must in
   expect (Runtime.effects prefix_step = []) "modal d prefix emitted an effect";
-  expect (Model_status.pending_input (Runtime.status runtime) = Some "d")
+  expect
+    (Model_status.pending_input (Runtime.status runtime) = Some "d")
     "modal d prefix was not visible through status";
   expect
-    (input_rule_exists (Runtime.input_rules runtime) (Input_rule.Exact "w")
-       Input_rule.Binding)
+    (input_rule_exists
+       (Runtime.input_rules runtime)
+       (Input_rule.Exact "w") Input_rule.Binding)
     "modal pending input rules omitted d w continuation";
   let runtime, delete_step = Runtime.handle_input runtime (key "w") |> must in
   expect
@@ -115,7 +130,9 @@ let test_modal_operator grammar =
     = [ "execute apply:current-word:delete" ])
     "modal d w emitted the wrong semantic operation";
   expect_string ~expected:" beta" ~actual:(contents runtime);
-  let runtime = make_runtime grammar ~id:"dsl-modal-shared-prefix" "alpha beta" in
+  let runtime =
+    make_runtime grammar ~id:"dsl-modal-shared-prefix" "alpha beta"
+  in
   let runtime, _ = Runtime.handle_input runtime (key "d") |> must in
   let _runtime, line_step = Runtime.handle_input runtime (key "l") |> must in
   expect
@@ -125,20 +142,27 @@ let test_modal_operator grammar =
   let runtime = make_runtime grammar ~id:"dsl-modal-mismatch" "alpha beta" in
   let runtime, _ = Runtime.handle_input runtime (key "d") |> must in
   let runtime, mismatch = Runtime.handle_input runtime (key "x") |> must in
-  expect (Runtime.effects mismatch = []) "modal prefix mismatch emitted an effect";
+  expect
+    (Runtime.effects mismatch = [])
+    "modal prefix mismatch emitted an effect";
   expect_string ~expected:"alpha beta" ~actual:(contents runtime);
-  expect (Model_status.pending_input (Runtime.status runtime) = None)
+  expect
+    (Model_status.pending_input (Runtime.status runtime) = None)
     "modal prefix mismatch did not clear its pending input"
 
 let test_selection_first grammar =
-  expect (List.length grammar.states = 2)
+  expect
+    (List.length grammar.states = 2)
     "selection-first example did not retain two declared states";
-  expect (transition_count grammar = 19)
+  expect
+    (transition_count grammar = 19)
     "selection-first example transition count changed unexpectedly";
-  expect (prefix_count grammar = 1)
+  expect
+    (prefix_count grammar = 1)
     "selection-first example should generate only the g prefix node";
   let runtime = make_runtime grammar ~id:"dsl-selection-first" "alpha beta" in
-  expect_string ~expected:"select" ~actual:(Model_status.id (Runtime.status runtime));
+  expect_string ~expected:"select"
+    ~actual:(Model_status.id (Runtime.status runtime));
   let runtime, select_step = Runtime.handle_input runtime (key "w") |> must in
   expect
     (List.map Model_effect.identity (Runtime.effects select_step)
@@ -153,37 +177,48 @@ let test_selection_first grammar =
   expect_string ~expected:"beta" ~actual:(contents runtime);
   let runtime = make_runtime grammar ~id:"dsl-selection-prefix" "alpha beta" in
   let runtime, prefix_step = Runtime.handle_input runtime (key "g") |> must in
-  expect (Runtime.effects prefix_step = []) "selection-first g emitted an effect";
-  expect (Model_status.pending_input (Runtime.status runtime) = Some "g")
+  expect
+    (Runtime.effects prefix_step = [])
+    "selection-first g emitted an effect";
+  expect
+    (Model_status.pending_input (Runtime.status runtime) = Some "g")
     "selection-first g prefix was not inspectable";
   let runtime, start_step = Runtime.handle_input runtime (key "g") |> must in
   expect
     (List.map Model_effect.identity (Runtime.effects start_step)
     = [ "execute apply:document-start:select" ])
     "selection-first g g emitted the wrong semantic operation";
-  expect_string ~expected:"select" ~actual:(Model_status.id (Runtime.status runtime));
+  expect_string ~expected:"select"
+    ~actual:(Model_status.id (Runtime.status runtime));
   let runtime = make_runtime grammar ~id:"dsl-selection-change" "alpha beta" in
   let runtime, _ = Runtime.handle_input runtime (key "w") |> must in
   let runtime, _ = Runtime.handle_input runtime (key "c") |> must in
-  expect_string ~expected:"insert" ~actual:(Model_status.id (Runtime.status runtime));
+  expect_string ~expected:"insert"
+    ~actual:(Model_status.id (Runtime.status runtime));
   let runtime, _ = Runtime.handle_input runtime (text "X") |> must in
   expect_string ~expected:"Xbeta" ~actual:(contents runtime)
 
 let test_direct grammar =
-  expect (List.length grammar.states = 1)
+  expect
+    (List.length grammar.states = 1)
     "direct example should have one user-declared state";
-  expect (transition_count grammar = 19)
+  expect
+    (transition_count grammar = 19)
     "direct example transition count changed unexpectedly";
-  expect (prefix_count grammar = 0)
+  expect
+    (prefix_count grammar = 0)
     "direct example should not create prefix nodes";
   let description = Dsl.Describe.render ~warnings:[] grammar in
-  expect (contains description "state: direct")
+  expect
+    (contains description "state: direct")
     "direct description omitted its only state";
   let runtime = make_runtime grammar ~id:"dsl-direct-text" "alpha" in
-  expect_string ~expected:"direct" ~actual:(Model_status.id (Runtime.status runtime));
+  expect_string ~expected:"direct"
+    ~actual:(Model_status.id (Runtime.status runtime));
   expect
-    (input_rule_exists (Runtime.input_rules runtime) Input_rule.Text_input
-       Input_rule.Catch_all)
+    (input_rule_exists
+       (Runtime.input_rules runtime)
+       Input_rule.Text_input Input_rule.Catch_all)
     "direct grammar did not expose committed text as a catch-all rule";
   let runtime, _ = Runtime.handle_input runtime (text "界") |> must in
   expect_string ~expected:"界alpha" ~actual:(contents runtime);
@@ -196,14 +231,18 @@ let test_direct grammar =
     = [ "execute apply:next-text-unit:select" ])
     "direct Shift-ArrowRight did not select the next text unit";
   let runtime = make_runtime grammar ~id:"dsl-direct-delete" "alpha" in
-  let runtime, delete_step = Runtime.handle_input runtime (named Input_event.Delete) |> must in
+  let runtime, delete_step =
+    Runtime.handle_input runtime (named Input_event.Delete) |> must
+  in
   expect
     (List.map Model_effect.identity (Runtime.effects delete_step)
     = [ "execute apply:next-text-unit:delete" ])
     "direct Delete did not request an immediate semantic edit";
   expect_string ~expected:"lpha" ~actual:(contents runtime);
   let runtime = make_runtime grammar ~id:"dsl-direct-enter" "alpha" in
-  let runtime, enter_step = Runtime.handle_input runtime (named Input_event.Enter) |> must in
+  let runtime, enter_step =
+    Runtime.handle_input runtime (named Input_event.Enter) |> must
+  in
   expect
     (List.map Model_effect.identity (Runtime.effects enter_step)
     = [ "execute apply:current-selections:replace-text" ])

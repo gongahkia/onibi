@@ -35,9 +35,9 @@ let source_name value = value.source_name
 let span value = value.span
 let line value = value.line
 let column value = value.column
-
 let severity_name = function Error -> "error" | Warning -> "warning"
 
 let format value =
-  Printf.sprintf "%s:%d:%d: %s: %s" value.source_name value.line
-    value.column (severity_name value.severity) value.message
+  Printf.sprintf "%s:%d:%d: %s: %s" value.source_name value.line value.column
+    (severity_name value.severity)
+    value.message

@@ -11,7 +11,8 @@ let diagnostic parser span message =
   Diagnostic.make ~severity:Diagnostic.Error ~message
     ~source_name:parser.source_name ~source:parser.source span
 
-let current parser = parser.tokens.(min parser.index (Array.length parser.tokens - 1))
+let current parser =
+  parser.tokens.(min parser.index (Array.length parser.tokens - 1))
 
 let advance parser =
   let token = current parser in
@@ -73,20 +74,26 @@ let parse_status parser start_span =
           match !label with
           | Some value -> value
           | None ->
-              raise (Parse_error (diagnostic parser end_span "status requires a `label`"))
+              raise
+                (Parse_error
+                   (diagnostic parser end_span "status requires a `label`"))
         in
         let input_mode =
           match !input_mode with
           | Some value -> value
           | None ->
-              raise (Parse_error (diagnostic parser end_span "status requires an `input`"))
+              raise
+                (Parse_error
+                   (diagnostic parser end_span "status requires an `input`"))
         in
-        { Ast.label = label; input_mode; span = join start_span end_span }
+        { Ast.label; input_mode; span = join start_span end_span }
     | Lexer.Ident "label" ->
         let keyword = advance parser in
         let value, _span = expect_string parser "a status label string" in
         if Option.is_some !label then
-          raise (Parse_error (diagnostic parser keyword.span "duplicate status label"));
+          raise
+            (Parse_error
+               (diagnostic parser keyword.span "duplicate status label"));
         label := Some value;
         loop ()
     | Lexer.Ident "input" ->
@@ -103,7 +110,9 @@ let parse_status parser start_span =
                       "status input must be `keys` or `text`"))
         in
         if Option.is_some !input_mode then
-          raise (Parse_error (diagnostic parser keyword.span "duplicate status input"));
+          raise
+            (Parse_error
+               (diagnostic parser keyword.span "duplicate status input"));
         input_mode := Some value;
         loop ()
     | Lexer.Eof -> unexpected parser "`}` closing status"
@@ -169,7 +178,7 @@ let parse_transition parser =
     | _ -> ([], target_span)
   in
   {
-    Ast.pattern = pattern;
+    Ast.pattern;
     pattern_span;
     capture;
     target;
@@ -187,7 +196,7 @@ let parse_state parser =
     | Lexer.Rbrace ->
         let end_span = (advance parser).span in
         {
-          Ast.name = name;
+          Ast.name;
           name_span;
           statuses = List.rev statuses;
           transitions = List.rev transitions;
@@ -220,8 +229,7 @@ let parse ~source_name ~source tokens =
     if not (String.starts_with ~prefix (String.trim first_line)) then false
     else
       let version =
-        String.trim first_line
-        |> fun line ->
+        String.trim first_line |> fun line ->
         String.sub line (String.length prefix)
           (String.length line - String.length prefix)
       in
@@ -238,51 +246,53 @@ let parse ~source_name ~source tokens =
              ~stop_offset:(min 1 (String.length source)));
       ]
   else
-    let parser = { source_name; source; tokens = Array.of_list tokens; index = 0 } in
+    let parser =
+      { source_name; source; tokens = Array.of_list tokens; index = 0 }
+    in
     try
       expect_ident parser "zenbu-model";
-    let version_token = advance parser in
-    let version =
-      match version_token.kind with
-      | Lexer.Integer version -> version
-      | _ -> unexpected parser "a language version number"
-    in
-    expect_ident parser "model";
-    let id, id_span = expect_string parser "a model ID string" in
-    expect_kind parser Lexer.Lbrace "`{` after model ID" |> ignore;
-    let rec declarations titles initials states =
-      match (current parser).kind with
-      | Lexer.Rbrace ->
-          let end_span = (advance parser).span in
-          (match (current parser).kind with
-          | Lexer.Eof ->
-              Ok
-                {
-                  Ast.version = version;
-                  version_span = version_token.span;
-                  model =
-                    {
-                      id;
-                      id_span;
-                      titles = List.rev titles;
-                      initials = List.rev initials;
-                      states = List.rev states;
-                      span = join id_span end_span;
-                    };
-                }
-          | _ -> unexpected parser "end of file after the model declaration")
-      | Lexer.Ident "title" ->
-          advance parser |> ignore;
-          let value = expect_string parser "a title string" in
-          declarations (value :: titles) initials states
-      | Lexer.Ident "initial" ->
-          advance parser |> ignore;
-          let value = expect_identifier parser "an initial state name" in
-          declarations titles (value :: initials) states
-      | Lexer.Ident "state" ->
-          declarations titles initials (parse_state parser :: states)
-      | Lexer.Eof -> unexpected parser "`}` closing model"
-      | _ -> unexpected parser "`title`, `initial`, or `state` in model"
-    in
+      let version_token = advance parser in
+      let version =
+        match version_token.kind with
+        | Lexer.Integer version -> version
+        | _ -> unexpected parser "a language version number"
+      in
+      expect_ident parser "model";
+      let id, id_span = expect_string parser "a model ID string" in
+      expect_kind parser Lexer.Lbrace "`{` after model ID" |> ignore;
+      let rec declarations titles initials states =
+        match (current parser).kind with
+        | Lexer.Rbrace -> (
+            let end_span = (advance parser).span in
+            match (current parser).kind with
+            | Lexer.Eof ->
+                Ok
+                  {
+                    Ast.version;
+                    version_span = version_token.span;
+                    model =
+                      {
+                        id;
+                        id_span;
+                        titles = List.rev titles;
+                        initials = List.rev initials;
+                        states = List.rev states;
+                        span = join id_span end_span;
+                      };
+                  }
+            | _ -> unexpected parser "end of file after the model declaration")
+        | Lexer.Ident "title" ->
+            advance parser |> ignore;
+            let value = expect_string parser "a title string" in
+            declarations (value :: titles) initials states
+        | Lexer.Ident "initial" ->
+            advance parser |> ignore;
+            let value = expect_identifier parser "an initial state name" in
+            declarations titles (value :: initials) states
+        | Lexer.Ident "state" ->
+            declarations titles initials (parse_state parser :: states)
+        | Lexer.Eof -> unexpected parser "`}` closing model"
+        | _ -> unexpected parser "`title`, `initial`, or `state` in model"
+      in
       declarations [] [] []
     with Parse_error diagnostic -> Error [ diagnostic ]

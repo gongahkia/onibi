@@ -22,8 +22,8 @@ let with_configured_dsl grammar run =
   Fun.protect ~finally:Dsl_model.clear run
 
 let with_configured_dsl_runtime runtime run =
-  Dsl_runtime.model_state runtime |> Dsl_model.grammar
-  |> fun grammar -> with_configured_dsl grammar run
+  Dsl_runtime.model_state runtime |> Dsl_model.grammar |> fun grammar ->
+  with_configured_dsl grammar run
 
 type model = Vim | Selection | Direct | Structural | Script | Dsl
 
@@ -1869,8 +1869,8 @@ let trace_runtime_events trace profiler ~execution_id plugins =
         (wasm_profile_stage event.stage)
         ~seconds:event.duration_seconds)
 
-let create_loaded ~model ?dsl_model ?language ?file_path ?(contents = "") ?trace ?profiler
-    ?(presentation = Zenbu_view.Presentation.default)
+let create_loaded ~model ?dsl_model ?language ?file_path ?(contents = "") ?trace
+    ?profiler ?(presentation = Zenbu_view.Presentation.default)
     ?(theme = Zenbu_view.Theme.default) ?system_clipboard
     ?(config = Scripting.Default) ?(plugins = Plugins.Disabled) ~language_config
     ~language_config_reloadable ~language_config_inspection ~language_registry
@@ -2004,7 +2004,8 @@ let create_loaded ~model ?dsl_model ?language ?file_path ?(contents = "") ?trace
                     | None ->
                         Error
                           (Error.Invalid_command_arguments
-                             "--model-dsl requires a validated .zenmodel grammar")
+                             "--model-dsl requires a validated .zenmodel \
+                              grammar")
                     | Some grammar ->
                         with_configured_dsl grammar (fun () ->
                             Dsl_runtime.create ~commands ~semantic_behaviors
@@ -2116,8 +2117,8 @@ let create_loaded ~model ?dsl_model ?language ?file_path ?(contents = "") ?trace
                     saved_snapshot;
                   session)))
 
-let create ~model ?dsl_model ?language ?file_path ?(contents = "") ?trace ?profiler
-    ?(presentation = Zenbu_view.Presentation.default)
+let create ~model ?dsl_model ?language ?file_path ?(contents = "") ?trace
+    ?profiler ?(presentation = Zenbu_view.Presentation.default)
     ?(theme = Zenbu_view.Theme.default) ?system_clipboard
     ?(config = Scripting.Default) ?(plugins = Plugins.Disabled)
     ?(language_config = Language.Config.Disabled) ?language_registry
@@ -2149,9 +2150,9 @@ let create ~model ?dsl_model ?language ?file_path ?(contents = "") ?trace ?profi
         language_config_reloadable,
         language_registry,
         language_config_inspection ) ->
-      create_loaded ~model ?dsl_model ?language ?file_path ~contents ?trace ?profiler
-        ~presentation ~theme ?system_clipboard ~config ~plugins ~language_config
-        ~language_config_reloadable ~language_config_inspection
+      create_loaded ~model ?dsl_model ?language ?file_path ~contents ?trace
+        ?profiler ~presentation ~theme ?system_clipboard ~config ~plugins
+        ~language_config ~language_config_reloadable ~language_config_inspection
         ~language_registry ?file_watcher ~dimensions ()
 
 let context_of_active = function
@@ -3715,7 +3716,8 @@ let active_from_shared ?script_model ?dsl_model model shared =
       | None ->
           Error
             (Error.Invalid_command_arguments
-               "DSL model is unavailable because no compiled grammar is attached")
+               "DSL model is unavailable because no compiled grammar is \
+                attached")
       | Some grammar ->
           with_configured_dsl grammar (fun () ->
               Dsl_runtime.create_from_shared shared)
@@ -3756,7 +3758,8 @@ let create_active ~model ~commands ~semantic_behaviors ?syntax_service ~trace
       | None ->
           Error
             (Error.Invalid_command_arguments
-               "DSL model is unavailable because no compiled grammar is attached")
+               "DSL model is unavailable because no compiled grammar is \
+                attached")
       | Some grammar ->
           with_configured_dsl grammar (fun () ->
               Dsl_runtime.create ~commands ~semantic_behaviors ?syntax_service
@@ -3784,8 +3787,7 @@ let create_buffer session ~id ?file_path ?buffer_name ?language ?saved_snapshot
           create_active ~model ~commands ~semantic_behaviors ?syntax_service
             ~trace ~profiler
             ?script_model:(Option.bind session.generation Scripting.model)
-            ?dsl_model
-            ~document ()
+            ?dsl_model ~document ()
           |> Result.map (fun active ->
               let active = active_with_kill_ring active session.kill_ring in
               let language_client =
@@ -7018,15 +7020,14 @@ let switch_to_model session target =
       match session.active with
       | Dsl_runtime runtime ->
           Some (Dsl_runtime.model_state runtime |> Dsl_model.grammar)
-      | Vim_runtime _ | Selection_runtime _ | Direct_runtime _ | Structural_runtime _
-      | Script_runtime _ ->
+      | Vim_runtime _ | Selection_runtime _ | Direct_runtime _
+      | Structural_runtime _ | Script_runtime _ ->
           None
     in
     match
       active_from_shared
         ?script_model:(Option.bind session.generation Scripting.model)
-        ?dsl_model
-        target
+        ?dsl_model target
         (shared_state session.active)
     with
     | Error error ->
@@ -7499,7 +7500,8 @@ let layout_model_of_model = function
   | Dsl ->
       Error
         (layout_error
-           "DSL editing models are not persisted; start Zenbu with --model-dsl PATH")
+           "DSL editing models are not persisted; start Zenbu with --model-dsl \
+            PATH")
 
 let model_of_layout_model = function
   | Session_layout.Vim -> Vim

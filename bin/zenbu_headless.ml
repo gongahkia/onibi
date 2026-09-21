@@ -70,7 +70,9 @@ let read_file path =
     (fun () -> really_input_string channel (in_channel_length channel))
 
 let print_diagnostics diagnostics =
-  List.iter (fun diagnostic -> prerr_endline (Model_dsl.Diagnostic.format diagnostic)) diagnostics
+  List.iter
+    (fun diagnostic -> prerr_endline (Model_dsl.Diagnostic.format diagnostic))
+    diagnostics
 
 let compile_model path =
   let source =

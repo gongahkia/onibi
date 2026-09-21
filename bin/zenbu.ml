@@ -24,8 +24,8 @@ type run_result = Exited | Unsaved_end
 
 let usage =
   "usage: zenbu [--model vim|selection|direct|structural|script | --model-dsl \
-   PATH] [--language \
-   ID] [--trace] [--profile] [--theme default|dark|light|PATH] [--presentation \
+   PATH] [--language ID] [--trace] [--profile] [--theme \
+   default|dark|light|PATH] [--presentation \
    default|numbered|relative|minimal|bare|buffered|PATH] [--config PATH | \
    --no-config] [--language-config PATH | --no-language-config] [--plugin-dir \
    PATH | --no-plugins] [FILE]"
@@ -102,7 +102,7 @@ let parse_arguments () =
     | "script" when Option.is_none !dsl_model_path ->
         model_explicit := true;
         model := Zenbu_app.Session.Script
-    | ("vim" | "selection" | "direct" | "structural" | "script") ->
+    | "vim" | "selection" | "direct" | "structural" | "script" ->
         raise (Arg.Bad "choose only one of --model and --model-dsl")
     | value -> raise (Arg.Bad ("unknown model: " ^ value))
   in
@@ -221,18 +221,18 @@ let load_dsl_model = function
       Zenbu_app.File_io.read path
       |> Result.map_error Zenbu_app.File_io.to_string
       |> Result.bind (fun source ->
-             match Model_dsl.Compile.compile ~source_name:path ~source with
-             | Ok (grammar, warnings) ->
-                 List.iter
-                   (fun diagnostic ->
-                     prerr_endline (Model_dsl.Diagnostic.format diagnostic))
-                   warnings;
-                 Ok (Some grammar)
-             | Error diagnostics ->
-                 Error
-                   (diagnostics
-                   |> List.map Model_dsl.Diagnostic.format
-                   |> String.concat "\n"))
+          match Model_dsl.Compile.compile ~source_name:path ~source with
+          | Ok (grammar, warnings) ->
+              List.iter
+                (fun diagnostic ->
+                  prerr_endline (Model_dsl.Diagnostic.format diagnostic))
+                warnings;
+              Ok (Some grammar)
+          | Error diagnostics ->
+              Error
+                (diagnostics
+                |> List.map Model_dsl.Diagnostic.format
+                |> String.concat "\n"))
 
 let create_session ?dsl_model options contents =
   let trace =
@@ -245,8 +245,7 @@ let create_session ?dsl_model options contents =
   in
   Result.bind trace (fun trace ->
       Result.bind profiler (fun profiler ->
-          Zenbu_app.Session.create ~model:options.model
-            ?dsl_model
+          Zenbu_app.Session.create ~model:options.model ?dsl_model
             ?language:options.language ?file_path:options.file_path ~contents
             ~trace ~profiler ~presentation:options.presentation
             ~theme:options.theme ~config:options.config
@@ -453,6 +452,6 @@ let () =
                       | Ok Exited -> ()
                       | Ok Unsaved_end ->
                           prerr_endline
-                            "zenbu: input ended with unsaved changes; the file was \
-                             not saved";
+                            "zenbu: input ended with unsaved changes; the file \
+                             was not saved";
                           exit 1)))))

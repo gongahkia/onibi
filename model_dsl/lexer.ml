@@ -40,8 +40,8 @@ let lex ~source_name ~source =
         { kind; span = Source_span.make ~start_offset ~stop_offset }
       in
       let rec skip_comment index =
-        if index >= length || source.[index] = '\n' || source.[index] = '\r' then
-          index
+        if index >= length || source.[index] = '\n' || source.[index] = '\r'
+        then index
         else skip_comment (index + 1)
       in
       let rec string_value start index buffer =
@@ -91,7 +91,9 @@ let lex ~source_name ~source =
       in
       let rec integer_end index =
         if index < length then
-          match source.[index] with '0' .. '9' -> integer_end (index + 1) | _ -> index
+          match source.[index] with
+          | '0' .. '9' -> integer_end (index + 1)
+          | _ -> index
         else index
       in
       let rec loop index tokens =
@@ -109,11 +111,12 @@ let lex ~source_name ~source =
               match string_value index (index + 1) (Buffer.create 16) with
               | Error error -> Error [ error ]
               | Ok (value, stop_offset) ->
-                  loop stop_offset (token (String value) index stop_offset :: tokens))
-          | ('0' .. '9') ->
+                  loop stop_offset
+                    (token (String value) index stop_offset :: tokens))
+          | '0' .. '9' -> (
               let stop_offset = integer_end index in
               let text = String.sub source index (stop_offset - index) in
-              (match int_of_string_opt text with
+              match int_of_string_opt text with
               | Some value ->
                   loop stop_offset
                     (token (Integer value) index stop_offset :: tokens)

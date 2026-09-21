@@ -69,7 +69,8 @@
   ../examples/selection-first.zenmodel
   ../examples/direct.zenmodel)
  (action
-  (run %{exe:test_model_dsl_examples.exe}
+  (run
+   %{exe:test_model_dsl_examples.exe}
    %{dep:../examples/modal-operator.zenmodel}
    %{dep:../examples/selection-first.zenmodel}
    %{dep:../examples/direct.zenmodel})))
@@ -92,7 +93,9 @@
   fixtures/model_dsl/modal.zenmodel
   fixtures/model_dsl/invalid.zenmodel)
  (action
-  (run /bin/sh %{dep:test_model_dsl_cli.sh}
+  (run
+   /bin/sh
+   %{dep:test_model_dsl_cli.sh}
    %{exe:../bin/zenbu_headless.exe}
    %{dep:fixtures/model_dsl/modal.zenmodel}
    %{dep:fixtures/model_dsl/invalid.zenmodel})))
@@ -104,7 +107,9 @@
   fixtures/model_dsl/modal.zenmodel
   fixtures/model_dsl/invalid.zenmodel)
  (action
-  (run /bin/sh %{dep:test_model_dsl_interactive_cli.sh}
+  (run
+   /bin/sh
+   %{dep:test_model_dsl_interactive_cli.sh}
    %{exe:../bin/zenbu.exe}
    %{dep:fixtures/model_dsl/modal.zenmodel}
    %{dep:fixtures/model_dsl/invalid.zenmodel})))

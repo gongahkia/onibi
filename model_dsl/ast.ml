@@ -1,10 +1,5 @@
 type input_mode = Keys | Text
-
-type status = {
-  label : string;
-  input_mode : input_mode;
-  span : Source_span.t;
-}
+type status = { label : string; input_mode : input_mode; span : Source_span.t }
 
 type effect =
   | Apply of {
@@ -14,7 +9,11 @@ type effect =
       transformation_span : Source_span.t;
       span : Source_span.t;
     }
-  | Insert_capture of { name : string; name_span : Source_span.t; span : Source_span.t }
+  | Insert_capture of {
+      name : string;
+      name_span : Source_span.t;
+      span : Source_span.t;
+    }
 
 type transition = {
   pattern : string;

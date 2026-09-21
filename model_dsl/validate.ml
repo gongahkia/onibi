@@ -11,15 +11,20 @@ let add_error errors ~source_name ~source span message =
 let find_index name states =
   let rec find index = function
     | [] -> None
-    | state :: rest -> if String.equal state.Ast.name name then Some index else find (index + 1) rest
+    | state :: rest ->
+        if String.equal state.Ast.name name then Some index
+        else find (index + 1) rest
   in
   find 0 states
 
-let is_text_pattern = function [ Input_event.Any_text_input ] -> true | _ -> false
+let is_text_pattern = function
+  | [ Input_event.Any_text_input ] -> true
+  | _ -> false
 
 let has_text_pattern patterns =
   List.exists
-    (function Input_event.Any_text_input -> true | Input_event.Exact_event _ -> false)
+    (function
+      | Input_event.Any_text_input -> true | Input_event.Exact_event _ -> false)
     patterns
 
 let patterns_overlap left right =
@@ -32,7 +37,8 @@ let is_prefix prefix complete =
     | [], _ -> true
     | _, [] -> false
     | left :: rest_left, right :: rest_right ->
-        Input_event.binding_patterns_overlap left right && loop rest_left rest_right
+        Input_event.binding_patterns_overlap left right
+        && loop rest_left rest_right
   in
   List.length prefix < List.length complete && loop prefix complete
 
@@ -44,20 +50,25 @@ let validate ~source_name ~source ast =
   let errors = ref [] in
   if ast.Ast.version <> 1 then
     add_error errors ~source_name ~source ast.version_span
-      (Printf.sprintf "unsupported zenbu-model version %d (expected 1)" ast.version);
+      (Printf.sprintf "unsupported zenbu-model version %d (expected 1)"
+         ast.version);
   if String.length ast.model.id = 0 then
-    add_error errors ~source_name ~source ast.model.id_span "model ID must not be empty";
+    add_error errors ~source_name ~source ast.model.id_span
+      "model ID must not be empty";
   let title =
     match ast.model.titles with
     | [ (title, _) ] when String.length title > 0 -> Some title
     | [] ->
-        add_error errors ~source_name ~source ast.model.span "model requires exactly one `title`";
+        add_error errors ~source_name ~source ast.model.span
+          "model requires exactly one `title`";
         None
     | [ (_, span) ] ->
-        add_error errors ~source_name ~source span "model title must not be empty";
+        add_error errors ~source_name ~source span
+          "model title must not be empty";
         None
     | (_, span) :: _ ->
-        add_error errors ~source_name ~source span "model has more than one `title`";
+        add_error errors ~source_name ~source span
+          "model has more than one `title`";
         None
   in
   let seen_states = Hashtbl.create (List.length ast.model.states) in
@@ -69,15 +80,18 @@ let validate ~source_name ~source ast =
       else Hashtbl.add seen_states state.name state)
     ast.model.states;
   if ast.model.states = [] then
-    add_error errors ~source_name ~source ast.model.span "model requires at least one state";
+    add_error errors ~source_name ~source ast.model.span
+      "model requires at least one state";
   let initial_name =
     match ast.model.initials with
     | [ (name, span) ] -> Some (name, span)
     | [] ->
-        add_error errors ~source_name ~source ast.model.span "model requires exactly one `initial` state";
+        add_error errors ~source_name ~source ast.model.span
+          "model requires exactly one `initial` state";
         None
     | (_, span) :: _ ->
-        add_error errors ~source_name ~source span "model has more than one `initial` state";
+        add_error errors ~source_name ~source span
+          "model has more than one `initial` state";
         None
   in
   let initial =
@@ -93,7 +107,8 @@ let validate ~source_name ~source ast =
   in
   let validate_effect transition effect =
     match effect with
-    | Ast.Apply { selector; selector_span; transformation; transformation_span; _ } ->
+    | Ast.Apply
+        { selector; selector_span; transformation; transformation_span; _ } -> (
         let selector =
           match Model_intent.selector_of_string selector with
           | Ok selector -> Some selector
@@ -110,22 +125,27 @@ let validate ~source_name ~source ast =
                 ("unknown transformation `" ^ transformation ^ "`");
               None
         in
-        (match (selector, transformation) with
+        match (selector, transformation) with
         | Some selector, Some transformation ->
             Some
               (Ir.Apply
                  {
                    selector;
                    selector_id =
-                     (match effect with Ast.Apply value -> value.selector | _ -> assert false);
+                     (match effect with
+                     | Ast.Apply value -> value.selector
+                     | _ -> assert false);
                    transformation;
                    transformation_id =
-                     (match effect with Ast.Apply value -> value.transformation | _ -> assert false);
+                     (match effect with
+                     | Ast.Apply value -> value.transformation
+                     | _ -> assert false);
                  })
         | _ -> None)
     | Ast.Insert_capture { name; name_span; _ } -> (
         match transition.Ast.capture with
-        | Some (capture, _) when String.equal capture name -> Some (Ir.Insert_capture name)
+        | Some (capture, _) when String.equal capture name ->
+            Some (Ir.Insert_capture name)
         | _ ->
             add_error errors ~source_name ~source name_span
               ("undefined text capture `$" ^ name ^ "`");
@@ -139,7 +159,8 @@ let validate ~source_name ~source ast =
           | [ status ] -> Some status
           | [] ->
               add_error errors ~source_name ~source state.span
-                ("state `" ^ state.name ^ "` requires exactly one `status` block");
+                ("state `" ^ state.name
+               ^ "` requires exactly one `status` block");
               None
           | _ :: duplicate :: _ ->
               add_error errors ~source_name ~source duplicate.span
@@ -150,12 +171,16 @@ let validate ~source_name ~source ast =
           List.mapi
             (fun transition_id transition ->
               let patterns =
-                match Input_event.binding_pattern_sequence_of_string transition.pattern with
+                match
+                  Input_event.binding_pattern_sequence_of_string
+                    transition.pattern
+                with
                 | Ok patterns -> Some patterns
                 | Error error ->
-                    add_error errors ~source_name ~source transition.pattern_span
+                    add_error errors ~source_name ~source
+                      transition.pattern_span
                       ("invalid input sequence `" ^ transition.pattern ^ "`: "
-                     ^ Zenbu_kernel.Error.to_string error);
+                      ^ Zenbu_kernel.Error.to_string error);
                     None
               in
               let target =
@@ -172,14 +197,17 @@ let validate ~source_name ~source ast =
                   add_error errors ~source_name ~source transition.pattern_span
                     "`<text>` is only valid in a state with `input text`"
               | Some { Ast.input_mode = Ast.Text; _ }, Some patterns
-                when has_text_pattern patterns && not (is_text_pattern patterns) ->
+                when has_text_pattern patterns && not (is_text_pattern patterns)
+                ->
                   add_error errors ~source_name ~source transition.pattern_span
                     "`<text>` must be the entire input sequence in DSL v1"
               | _ -> ());
               (match (transition.capture, patterns) with
-              | Some (_, capture_span), Some patterns when not (is_text_pattern patterns) ->
+              | Some (_, capture_span), Some patterns
+                when not (is_text_pattern patterns) ->
                   add_error errors ~source_name ~source capture_span
-                    "`as` captures are only valid for a singleton `<text>` transition"
+                    "`as` captures are only valid for a singleton `<text>` \
+                     transition"
               | _ -> ());
               let effects =
                 List.filter_map (validate_effect transition) transition.effects
@@ -202,7 +230,7 @@ let validate ~source_name ~source ast =
             state.transitions
           |> List.filter_map Fun.id
         in
-        (match status with
+        match status with
         | Some status ->
             if String.length status.label = 0 then
               add_error errors ~source_name ~source status.span
@@ -216,7 +244,7 @@ let validate ~source_name ~source ast =
                 transitions;
                 span = state.span;
               }
-        | None -> None))
+        | None -> None)
       ast.model.states
   in
   List.iter
@@ -225,16 +253,23 @@ let validate ~source_name ~source ast =
       let rec compare = function
         | [] -> ()
         | transition :: rest ->
-            let left = Input_event.binding_pattern_sequence_of_string transition.pattern in
+            let left =
+              Input_event.binding_pattern_sequence_of_string transition.pattern
+            in
             List.iter
               (fun other ->
-                match (left, Input_event.binding_pattern_sequence_of_string other.pattern) with
+                match
+                  ( left,
+                    Input_event.binding_pattern_sequence_of_string other.pattern
+                  )
+                with
                 | Ok left, Ok right when patterns_overlap left right ->
                     add_error errors ~source_name ~source other.pattern_span
-                      ("duplicate or overlapping input sequence `" ^ other.pattern
-                     ^ "` in state `" ^ state.name ^ "`")
+                      ("duplicate or overlapping input sequence `"
+                     ^ other.pattern ^ "` in state `" ^ state.name ^ "`")
                 | Ok left, Ok right when is_prefix left right ->
-                    add_error errors ~source_name ~source transition.pattern_span
+                    add_error errors ~source_name ~source
+                      transition.pattern_span
                       ("input sequence `" ^ transition.pattern
                      ^ "` conflicts with longer sequence `" ^ other.pattern
                      ^ "`; use an explicit intermediate state")
