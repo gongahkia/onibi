@@ -1,0 +1,392 @@
+package approval
+
+import (
+	"context"
+	"errors"
+	"path/filepath"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/gongahkia/onibi/internal/store"
+)
+
+func openDB(t *testing.T) *store.DB {
+	t.Helper()
+	db, err := store.Open(filepath.Join(t.TempDir(), "a.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	return db
+}
+
+func TestRequestAndDecideApprove(t *testing.T) {
+	q := New(openDB(t), DefaultTTL)
+	ctx := context.Background()
+
+	id, ch, err := q.Request(ctx, "sess1", "pi", "Bash", `{"command":"ls"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id == "" {
+		t.Fatal("empty id")
+	}
+	if err := q.Decide(ctx, id, VerdictApprove, "", 1234); err != nil {
+		t.Fatalf("decide: %v", err)
+	}
+	select {
+	case d := <-ch:
+		if d.Verdict != VerdictApprove {
+			t.Fatalf("verdict = %s", d.Verdict)
+		}
+		if d.DecidedBy != 1234 {
+			t.Fatalf("decided_by = %d", d.DecidedBy)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("decision not delivered")
+	}
+	a, _ := q.Get(ctx, id)
+	if a.State != StateApproved {
+		t.Fatalf("state = %s", a.State)
+	}
+}
+
+func TestDecideOnlyOnceWins(t *testing.T) {
+	q := New(openDB(t), DefaultTTL)
+	ctx := context.Background()
+	id, ch, _ := q.Request(ctx, "s", "pi", "Bash", "{}")
+
+	var wins, races atomic.Int32
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			err := q.Decide(ctx, id, VerdictApprove, "", 1)
+			switch {
+			case err == nil:
+				wins.Add(1)
+			case errors.Is(err, ErrAlreadyDecided):
+				races.Add(1)
+			default:
+				t.Errorf("unexpected err: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+	if wins.Load() != 1 {
+		t.Fatalf("expected exactly 1 winner, got %d", wins.Load())
+	}
+	if races.Load() != 19 {
+		t.Fatalf("expected 19 race-losers, got %d", races.Load())
+	}
+	d := <-ch
+	if d.Verdict != VerdictApprove {
+		t.Fatalf("verdict = %s", d.Verdict)
+	}
+}
+
+func TestDecideIdempotentlyReplaysOnlySameDecision(t *testing.T) {
+	q := New(openDB(t), DefaultTTL)
+	ctx := context.Background()
+	events, unsubscribe, err := q.Subscribe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unsubscribe()
+	id, ch, err := q.Request(ctx, "s", "pi", "Bash", "{}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-events
+
+	results := make(chan DecisionResult, 20)
+	errs := make(chan error, 20)
+	var wg sync.WaitGroup
+	for range cap(results) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			res, err := q.DecideIdempotently(ctx, id, VerdictApprove, "", 1)
+			if err != nil {
+				errs <- err
+				return
+			}
+			results <- res
+		}()
+	}
+	wg.Wait()
+	close(results)
+	close(errs)
+	for err := range errs {
+		t.Fatal(err)
+	}
+	var delivered, replayed int
+	for res := range results {
+		if res.Delivered {
+			delivered++
+		}
+		if res.Replayed {
+			replayed++
+		}
+		if res.Decision.Verdict != VerdictApprove {
+			t.Fatalf("decision = %#v", res.Decision)
+		}
+	}
+	if delivered != 1 || replayed != 19 {
+		t.Fatalf("delivered=%d replayed=%d", delivered, replayed)
+	}
+	if got := <-ch; got.Verdict != VerdictApprove {
+		t.Fatalf("waiter decision = %#v", got)
+	}
+	if ev := <-events; ev.Type != EventDecided || ev.Decision.Verdict != VerdictApprove {
+		t.Fatalf("event = %#v", ev)
+	}
+	select {
+	case ev := <-events:
+		t.Fatalf("duplicate event = %#v", ev)
+	case <-time.After(50 * time.Millisecond):
+	}
+	if _, err := q.DecideIdempotently(ctx, id, VerdictDeny, "", 1); !errors.Is(err, ErrAlreadyDecided) {
+		t.Fatalf("conflicting replay err = %v", err)
+	}
+	n, err := q.db.AuditCount(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("audit count = %d", n)
+	}
+}
+
+func TestDecideRejectsUnknown(t *testing.T) {
+	q := New(openDB(t), DefaultTTL)
+	err := q.Decide(context.Background(), "deadbeef", VerdictApprove, "", 1)
+	if !errors.Is(err, ErrUnknownApproval) {
+		t.Fatalf("expected ErrUnknownApproval, got %v", err)
+	}
+}
+
+func TestExpireOverdueDelivers(t *testing.T) {
+	q := New(openDB(t), DefaultTTL)
+	ctx := context.Background()
+	id, ch, _ := q.Request(ctx, "s", "pi", "Bash", "{}")
+
+	// force expiry by rewriting expires_at to the past
+	_, err := q.db.SQL().ExecContext(ctx,
+		`UPDATE approvals SET expires_at = ? WHERE id = ?`,
+		time.Now().Add(-time.Minute).Unix(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := q.ExpireOverdue(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("expected 1 expired, got %d", n)
+	}
+	d := <-ch
+	if d.Verdict != VerdictExpire {
+		t.Fatalf("verdict = %s", d.Verdict)
+	}
+	a, _ := q.Get(ctx, id)
+	if a.State != StateExpired {
+		t.Fatalf("state = %s", a.State)
+	}
+}
+
+func TestLateUserDecisionExpiresInsteadOfApproving(t *testing.T) {
+	db := openDB(t)
+	q := New(db, DefaultTTL)
+	ctx := context.Background()
+	id, ch, _ := q.Request(ctx, "s", "pi", "Bash", "{}")
+
+	_, err := q.db.SQL().ExecContext(ctx,
+		`UPDATE approvals SET expires_at = ? WHERE id = ?`,
+		time.Now().Add(-time.Minute).Unix(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = q.DecideWithResult(ctx, id, VerdictApprove, "", 1)
+	if !errors.Is(err, ErrExpired) {
+		t.Fatalf("expected ErrExpired, got %v", err)
+	}
+	d := <-ch
+	if d.Verdict != VerdictExpire {
+		t.Fatalf("verdict = %s", d.Verdict)
+	}
+	a, _ := q.Get(ctx, id)
+	if a.State != StateExpired {
+		t.Fatalf("state = %s", a.State)
+	}
+	n, err := db.AuditCount(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("audit count = %d", n)
+	}
+}
+
+func TestPendingReturnsOnlyUnexpiredPending(t *testing.T) {
+	q := New(openDB(t), DefaultTTL)
+	ctx := context.Background()
+	keep, _, _ := q.Request(ctx, "s1", "pi", "Bash", "{}")
+	expired, _, _ := q.Request(ctx, "s2", "pi", "Bash", "{}")
+	decided, _, _ := q.Request(ctx, "s3", "pi", "Bash", "{}")
+	_, err := q.db.SQL().ExecContext(ctx,
+		`UPDATE approvals SET expires_at = ? WHERE id = ?`,
+		time.Now().Add(-time.Minute).Unix(), expired)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := q.Decide(ctx, decided, VerdictDeny, "no", 1); err != nil {
+		t.Fatal(err)
+	}
+	got, err := q.Pending(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != keep {
+		t.Fatalf("pending = %+v", got)
+	}
+}
+
+func TestCancelDeliversCancelled(t *testing.T) {
+	q := New(openDB(t), DefaultTTL)
+	ctx := context.Background()
+	id, ch, _ := q.Request(ctx, "s", "pi", "Bash", "{}")
+	if err := q.Cancel(ctx, id, "shutting down"); err != nil {
+		t.Fatal(err)
+	}
+	d := <-ch
+	if d.Verdict != VerdictCancel {
+		t.Fatalf("verdict = %s", d.Verdict)
+	}
+	if d.Reason != "shutting down" {
+		t.Fatalf("reason = %q", d.Reason)
+	}
+	a, _ := q.Get(ctx, id)
+	if a.Reason != "shutting down" {
+		t.Fatalf("stored reason = %q", a.Reason)
+	}
+}
+
+func TestCancelPendingFailsClosed(t *testing.T) {
+	q := New(openDB(t), DefaultTTL)
+	ctx := context.Background()
+	id, ch, err := q.Request(ctx, "s", "pi", "Bash", `{}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := q.CancelPending(ctx, "daemon restarted")
+	if err != nil || n != 1 {
+		t.Fatalf("cancelled=%d err=%v", n, err)
+	}
+	if got := <-ch; got.Verdict != VerdictCancel || got.Reason != "daemon restarted" {
+		t.Fatalf("decision=%#v", got)
+	}
+	if err := q.Decide(ctx, id, VerdictApprove, "", 1); !errors.Is(err, ErrAlreadyDecided) {
+		t.Fatalf("late decision=%v", err)
+	}
+}
+
+func TestDenyPersistsReasonAndDecider(t *testing.T) {
+	q := New(openDB(t), DefaultTTL)
+	ctx := context.Background()
+	id, ch, _ := q.Request(ctx, "s", "pi", "Bash", "{}")
+	if err := q.Decide(ctx, id, VerdictDeny, "too risky", 42); err != nil {
+		t.Fatal(err)
+	}
+	d := <-ch
+	if d.Reason != "too risky" || d.DecidedBy != 42 {
+		t.Fatalf("decision = %#v", d)
+	}
+	a, _ := q.Get(ctx, id)
+	if a.Reason != "too risky" || a.DecidedBy != 42 {
+		t.Fatalf("approval = %#v", a)
+	}
+}
+
+func TestSubscribeReceivesQueueTransitions(t *testing.T) {
+	q := New(openDB(t), DefaultTTL)
+	events, unsub, err := q.Subscribe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unsub()
+	ctx := context.Background()
+	id, _, err := q.Request(ctx, "s", "pi", "Bash", `{"command":"ls"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ev := readApprovalEvent(t, events)
+	if ev.Type != EventRequested || ev.Approval.ID != id || ev.Approval.State != StatePending {
+		t.Fatalf("request event = %#v", ev)
+	}
+	if err := q.Decide(ctx, id, VerdictDeny, "no", 1); err != nil {
+		t.Fatal(err)
+	}
+	ev = readApprovalEvent(t, events)
+	if ev.Type != EventDecided || ev.Approval.State != StateDenied || ev.Decision.Verdict != VerdictDeny {
+		t.Fatalf("decision event = %#v", ev)
+	}
+	expID, _, err := q.Request(ctx, "s", "pi", "Bash", `{}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = readApprovalEvent(t, events)
+	_, err = q.db.SQL().ExecContext(ctx, `UPDATE approvals SET expires_at = ? WHERE id = ?`, time.Now().Add(-time.Minute).Unix(), expID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := q.ExpireOverdue(ctx); err != nil {
+		t.Fatal(err)
+	}
+	ev = readApprovalEvent(t, events)
+	if ev.Type != EventExpired || ev.Approval.State != StateExpired || ev.Decision.Verdict != VerdictExpire {
+		t.Fatalf("expiry event = %#v", ev)
+	}
+}
+
+func TestSubscribeRejectsWhenFullAndUnsubscribeReleasesSlot(t *testing.T) {
+	q := New(openDB(t), DefaultTTL)
+	q.MaxSubscribers = 2
+	_, unsub1, err := q.Subscribe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unsub1()
+	_, unsub2, err := q.Subscribe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unsub2()
+	ch, _, err := q.Subscribe()
+	if !errors.Is(err, ErrSubscribersFull) {
+		t.Fatalf("err = %v want ErrSubscribersFull", err)
+	}
+	if _, ok := <-ch; ok {
+		t.Fatal("rejected subscriber channel left open")
+	}
+	unsub1()
+	_, unsub3, err := q.Subscribe()
+	if err != nil {
+		t.Fatalf("subscribe after unsubscribe: %v", err)
+	}
+	defer unsub3()
+}
+
+func readApprovalEvent(t *testing.T, events <-chan Event) Event {
+	t.Helper()
+	select {
+	case ev := <-events:
+		return ev
+	case <-time.After(time.Second):
+		t.Fatal("event not delivered")
+		return Event{}
+	}
+}

@@ -1,271 +1,102 @@
-# kaypoh
+# Onibi
 
-`kaypoh` is a local-first, badminton-only Singapore court-availability tool.
-It reads approved provider data into SQLite, searches fresh slots, ranks courts,
-and runs local watches and notifications. It never books, pays, cancels, enters
-ballots, or bypasses CAPTCHA/OTP challenges.
+Onibi is a Telegram-native remote command center for one developer's persistent local terminal sessions.
 
-## Live-reader status
+It runs named `tmux` sessions on your machine. From Telegram you can select a session, send literal input, inspect bounded output or a rendered terminal screen, send navigation/modifier keys, resize a tmux window, or use a guarded kill. Codex uses the local App Server for structured progress, approvals, and questions; Pi and Claude Code use local hooks for remote approvals and completion updates.
 
-Four anonymous, read-only availability readers are enabled by default and need
-no API key, account, or browser configuration:
+## Scope
 
-| Source | Coverage | Default window |
-| --- | --- | --- |
-| KFF Badminton Arena @ Guillemard (SBA) | Premium Courts 1–9 | 7 days |
-| Singapore Badminton Hall | SBH @ Sims, SBH East Coast @ EXPO, TSA @ EXPO | 7 days |
-| Smash Arena | public court calendar | 1 day |
-| Wyse Active Hub | Ace and Premier Courts | 7 days |
+Included: Telegram owner pairing, named durable sessions, generic `tmux` control, screenshots, audit/recovery, Codex semantic decisions, Pi approval extension, and Claude Code approval/completion hooks.
 
-They use the provider's public booking availability requests, but never submit
-a booking, payment, confirmation, login, CAPTCHA, or OTP action. The readers
-have a one-hour poll floor. Smash Arena is intentionally one day by default:
-its public surface requires a separate read for every available hour; increase
-`availability_max_days` only if that extra upstream load is appropriate.
+Not included: browser/PWA UI, QR pairing, Ghostty handover, LAN/relay transports, team collaboration, arbitrary terminal-prompt inference, snapshots, or generic agent-hook catalogues.
 
-ActiveSG and The Kallang / OCBC Arena remain disabled by default because they
-require operator-imported Playwright storage state. onePA remains disabled until
-its public facility IDs are configured. ActiveSG has a typed JSON reader
-authenticated by operator-imported Playwright storage state. The Kallang has a
-dedicated browser reader that selects only the **Badminton Courts**
-facility type, advances the weekly calendar, and reads its JSON response. It
-does not automate login or select a facility, slot, ballot, cart, checkout, or
-payment flow. The remaining partners can be configured with a partner API,
-approved browser session, or public JSON mapper, in that order.
-A configured API/browser/public reader takes precedence over a built-in reader,
-so a provider can migrate to an official API without code changes. For
-ActiveSG and The Kallang, enabled generic API, browser, and public modes run in
-that order before the dedicated reader; source health records every failed mode
-in order.
+## Start
 
-SportSG's official facility dataset remains enabled for venue discovery. OneMap
-is used for optional geocoding/routing when its credentials are configured.
-
-## Build and start
+Prerequisites: `tmux`, a Telegram bot token from BotFather, and Go 1.26.4+ when building from source. Codex sessions require a local authenticated `codex` CLI; Claude Code sessions require a local authenticated `claude` CLI.
 
 ```sh
-go build -o bin/kaypoh ./cmd/kaypoh
-npm ci --ignore-scripts
-go run github.com/mxschmitt/playwright-go/cmd/playwright@v0.6201.1 install chromium
-./bin/kaypoh config init
-./bin/kaypoh
+make build
+./bin/onibi telegram setup --token "$ONIBI_TELEGRAM_TOKEN"
+./bin/onibi start
 ```
 
-The default daemon refresh is 30 minutes; the public readers enforce their
-one-hour source poll floor. Each source can request a longer interval.
-`availability_max_days = 0` means that source's configured booking horizon.
+The first start prints a pairing command. Send it from the one Telegram account that should control Onibi. The bot then accepts:
+
+```text
+/new shell --name work --cwd /path/to/repo
+/new codex --cwd /path/to/repo
+/new claude --cwd /path/to/repo
+/sessions
+/tail 120
+/screen
+/font
+/keys
+/key ctrl-d
+/size large
+/paste
+/interrupt
+/kill
+```
+
+Plain messages go to the selected session and append Enter. Unknown slash commands go to that session too; prefix a conflicting Onibi command with `//` (for example, `//help`). `/paste` makes the next message literal, with no implicit Enter, and expires after five minutes. `/keys` exposes arrows, Tab, Shift-Tab, Backspace, Delete, Home, End, PgUp, PgDn, Esc, Ctrl-C, Ctrl-D, Ctrl-Z, Ctrl-L, Ctrl-R, Enter, and tmux size presets; `/key <name>` accepts the same keys plus `ctrl-a` through `ctrl-z`, `meta-a` through `meta-z`, and `f1` through `f12`.
+
+Codex sessions are semantic, not tmux windows: after `/new codex`, send a normal message to start a turn. A later normal message steers the active turn. Claude Code runs in tmux; Onibi attaches an owned settings file with permission, structured `AskUserQuestion`, and completion hooks. Claude question cards support sequential single-select, multi-select, and free-text answers; their default expiry is three minutes and is configurable with `daemon.claude_question_timeout` (30s–10m). `/font` selects the terminal-screen font remotely; JetBrainsMono Nerd Font Mono, Caskaydia Cove Nerd Font Mono, and Go Mono Nerd Font Mono are embedded. To use a locally installed BigBlueTerminal Nerd Font Mono, set `screen.font_path` then `screen.font=custom` locally.
+
+## Local CLI
 
 ```sh
-kaypoh refresh sba-stadium singapore-badminton-hall smash-arena wyse-active
-kaypoh venue list --search "guillemard"
-kaypoh search --date 2026-08-23 --duration 1h --rank cheap --explain
-kaypoh watch add "Wednesday badminton" --date 2026-08-23 --one-shot
-kaypoh watch evaluate
+./bin/onibi session new shell --name work
+./bin/onibi session list
+./bin/onibi telegram status --check
+./bin/onibi system status
+./bin/onibi system logs --tail 100
+./bin/onibi system config set screen.font caskaydia-cove-nerd
+./bin/onibi system service install
 ```
 
-Times without an offset are interpreted in `Asia/Singapore`; slots use the
-half-open interval `[start, end)`.
+`onibi session new` needs a running daemon. `onibi system service install` starts `onibi start` in the per-user service manager.
 
-## Docker
+`onibi system status` reports actual daemon socket and service liveness. If `daemon_running=false`, start the daemon or install/restart the service before using Telegram.
 
-The Docker image includes Node.js, the pinned ActiveSG request transport,
-the matching Go Playwright driver, headless Chromium, and its Linux dependencies.
-Runtime data lives in the named `kaypoh-data`
-volume; the local configuration and all secrets remain outside the image.
+## Delivery and uploads
 
-```sh
-cp docker/config.toml.example docker/config.toml
-cp .env.example .env
-# No source secret is needed for the built-in public readers. Edit the files
-# only to configure optional sources, OneMap, notifications, or the API.
+Onibi persists Telegram update claims before executing an input. If it restarts mid-update, it marks that input uncertain and asks you to inspect/resend rather than executing it again. Screens, final tails, and session-ended notices are queued as durable intents and retried; terminal text and PNGs are held only in memory around delivery and never stored in that queue. Automatic generic-input screens are debounced for 500ms, deduplicated by rendered terminal state, and share one capture between the status tail and PNG. `/status` reports poll freshness, delivery failures, queue depth, and tmux health for each live session; it alerts after three consecutive poll failures, on permanent delivery failures, and once on recovery.
 
-docker compose build
-docker compose run --rm daemon config validate
-docker compose up -d daemon
-```
+The daemon checks managed tmux sessions every five seconds. A locally ended tmux session becomes unavailable immediately on the next check and sends one ended notice. Change the cadence with `daemon.liveness_interval` (1s–5m).
 
-The default Compose service runs the refresh daemon. Run ad-hoc commands
-against the same persisted SQLite database with:
+Send a Telegram document to stage it privately for the selected live tmux session. Onibi downloads it to `state/uploads/<session-id>/`, reports its local path, and does not insert or execute it. Defaults: 20 MiB, seven-day retention; configure `daemon.upload_max_bytes` (1–100 MiB) and `daemon.upload_ttl` (1h–30d).
 
-```sh
-docker compose run --rm daemon sources list
-docker compose run --rm daemon refresh sba-stadium singapore-badminton-hall smash-arena wyse-active
-docker compose run --rm daemon sources doctor
-docker compose run --rm daemon search --date 2026-08-23 --duration 1h
-```
+## Decisions and safety
 
-To start the optional HTTP API, set a strong `KAYPOH_API_TOKEN` in `.env` and
-then start its Compose profile. The published port is restricted to the Docker
-host's loopback interface (`127.0.0.1:8373`).
+Telegram callback payloads are opaque local tokens. Decisions are persisted before agent resumption and are idempotent. High-risk Pi approvals require a second confirmation. Codex App Server approvals and user-input questions become native inline cards; Claude `AskUserQuestion` calls receive the same structured interaction; `thread/shellCommand` is intentionally never exposed. Claude `--bare`, `--settings`, permission-bypass, and `dontAsk` modes are rejected at session creation.
 
-```sh
-docker compose --profile api up -d api
-curl -sS http://127.0.0.1:8373/v1/health \
-  -H "Authorization: Bearer $KAYPOH_API_TOKEN"
-```
+Telegram is not end-to-end encrypted for bots. Treat every message, screenshot, and approval payload as terminal-access-sensitive; do not send secrets through this bot. The local OS account remains trusted.
 
-Kaypoh runs as an unprivileged `kaypoh` user; its entrypoint first gives that
-user access to the dedicated data volume. Do not mount the generated `.env` or
-`docker/config.toml` into another image, and keep the latter out of version
-control. To stop services without deleting saved availability data, use
-`docker compose down`. Removing `kaypoh-data` deletes the local SQLite database
-and watch history.
-
-For a device change, repeatable provider audit, or the next provider onboarding
-pass, follow the [device migration and provider onboarding runbook](docs/operations/device-migration-and-provider-onboarding.md).
-
-## Optional partner source configuration
-
-The config file is written with mode `0600`. Use `env:NAME` references for
-every secret. Browser state is base64-encoded Playwright storage-state JSON;
-it is decoded only in memory and is never written by kaypoh.
-
-```toml
-[sources.onepa]
-enabled = true
-refresh_minutes = 30
-availability_max_days = 0
-
-# Use this first when the partner supplies an API contract.
-[sources.onepa.api]
-enabled = true
-base_url = "https://partner-api.example"
-availability_path = "/v1/badminton/availability"
-bearer_token = "env:KAYPOH_ONEPA_API_TOKEN"
-
-# Use this if no API is available. Login selectors are required only when no
-# imported session is supplied. The reader submits only the login form and then
-# opens the availability URL; it contains no booking interaction.
-[sources.onepa.browser]
-enabled = false
-availability_url = "https://partner.example/availability?from={start_date}&to={end_date}"
-login_url = "https://partner.example/login"
-username = "env:KAYPOH_ONEPA_USERNAME"
-password = "env:KAYPOH_ONEPA_PASSWORD"
-username_selector = "input[name=email]"
-password_selector = "input[name=password]"
-submit_selector = "button[type=submit]"
-ready_selector = "[data-availability-ready]"
-slot_json_selector = "script#kaypoh-slots"
-# session_state_base64 = "env:KAYPOH_ONEPA_SESSION_STATE_B64"
-
-# Use this final path only for an approved public reader.
-[sources.onepa.public]
-enabled = false
-availability_url = "https://partner.example/availability?from={start_date}&to={end_date}"
-slot_json_selector = "script#kaypoh-slots"
-
-# Final fallback: the built-in anonymous onePA reader. Use the exact public
-# facilityId selected in onePA's availability page. It reads named courts and
-# available slots only; it never starts a booking.
-[sources.onepa.onepa]
-enabled = true
-facility_ids = ["WoodlandsCC_BADMINTONCOURTS"]
-```
-
-The configured API response, or the JSON text selected from a browser/public
-page, must contain `slots` (or `availability`) and may contain `venues`:
-
-```json
-{
-  "slots": [{
-    "id": "provider-slot-id",
-    "venue_id": "provider-venue-id",
-    "venue_name": "KFF Badminton Arena",
-    "court_id": "court-3",
-    "court_name": "Court 3",
-    "start_at": "2026-08-23T19:00:00+08:00",
-    "end_at": "2026-08-23T20:00:00+08:00",
-    "status": "available",
-    "price_cents": 1400,
-    "currency": "SGD",
-    "booking_url": "https://partner.example/book"
-  }]
-}
-```
-
-`venue_id`, start, and end are required. `status` defaults to `available`.
-Partner API contracts that differ from this shape need a small provider payload
-mapper before they can be enabled.
-
-If a source requires CAPTCHA, OTP, or another interactive challenge, provide a
-partner-generated session state or leave the source disabled. Kaypoh does not
-attempt to solve or bypass interactive challenges.
-
-### ActiveSG badminton reader
-
-The ActiveSG reader is a separate, dedicated path because its typed tRPC JSON
-contract differs from the generic contract above. It accepts only the verified
-badminton venue-list URL and an imported session. It does not accept credentials
-or login selectors and does not launch Chromium during a refresh.
-
-```toml
-[sources.myactivesg]
-enabled = true
-refresh_minutes = 60
-availability_max_days = 15
-
-[sources.myactivesg.activesg]
-enabled = true
-venue_list_url = "https://activesg.gov.sg/facility-bookings/activities/YLONatwvqJfikKOmB5N9U/venues"
-venue_names = ["Jurong East Sport Hall", "Bukit Gombak Sport Hall"]
-scan_all = false
-session_state_base64 = "env:KAYPOH_ACTIVESG_SESSION_STATE_B64"
-```
-
-Set `scan_all = true` and omit `venue_names` only when a sequential scan of
-every venue on the current list is intended. Name matching is case-insensitive
-substring matching; `Sports` is normalized to ActiveSG's official singular
-`Sport`. The reader maps typed **instant** start/end ranges to bookable slots.
-Ballot-only and empty dates are read as non-bookable results, but are not published as bookable slots:
-Kaypoh has no ballot-entry feature and its search results mean a concrete,
-bookable time. The schedule response exposes available subvenue IDs but not
-human-readable court names, so these records remain venue-level availability.
-
-### The Kallang / OCBC Arena reader
-
-The Kallang reader is restricted to
-`https://thekallang.perfectgym.com/clientportal2/`, an imported Playwright
-storage-state value, and the **Badminton Courts** facility type. It reads the
-`GetWeeklySchedule` calendar response after loading the page, selecting that
-facility type when needed, and clicking `Next week`. It never selects a named
-facility, an individual slot, or any booking-related control.
-
-```toml
-[sources.the-kallang]
-enabled = true
-refresh_minutes = 60
-availability_max_days = 30
-
-[sources.the-kallang.perfectgym]
-enabled = true
-availability_url = "https://thekallang.perfectgym.com/clientportal2/"
-facility_type_name = "Badminton Courts"
-session_state_base64 = "env:KAYPOH_THE_KALLANG_SESSION_STATE_B64"
-```
-
-The observed calendar payload exposes `StartTime`, `EndTime`, and `Status`,
-but no stable per-court identity when using “Any facility”. Kaypoh therefore
-deduplicates identical bookable times and publishes them as venue-level slots;
-it does not claim a particular badminton court is free.
-
-## HTTP API and MCP
-
-The local HTTP API and MCP server query already-normalized badminton slots; they
-never refresh an upstream source or expose credentials. See [API documentation](docs/api.md)
-and [MCP setup](docs/mcp.md).
+See [Telegram operation details](docs/telegram.md), [threat model](THREAT-MODEL.md), and the implementation boundary in [REWRITE.md](REWRITE.md).
 
 ## Verification
 
 ```sh
-go test ./...
-go vet ./...
-go build ./cmd/kaypoh
+make vet
+make test
+make build
 ```
 
-Fixture tests cover source-payload normalization, public-response parsing,
-cookie-session isolation, freshness/reconciliation, query/ranking, API, MCP,
-and local watches. The public readers depend on external booking surfaces, so
-run `kaypoh refresh …` to exercise their current contracts. `sources doctor`
-reports the most recently persisted source health; it does not make another
-upstream request.
+`go test ./...` is hermetic. `make test` also runs the mandatory live production-Telegram E2E against a dedicated test account and bot; it creates shell, Codex, and Claude sessions, sends agent prompts, verifies a daemon restart, and attempts cleanup of its temporary state and managed sessions. It fails before execution unless all required credentials are set:
+
+```sh
+export ONIBI_E2E_API_ID=...
+export ONIBI_E2E_API_HASH=...
+export ONIBI_E2E_SESSION_FILE=/secure/path/to/authorized-gotd.session
+export ONIBI_E2E_BOT_USERNAME=your_dedicated_test_bot
+export ONIBI_E2E_BOT_TOKEN=...
+make test
+```
+
+The MTProto account must already be authorized in the supplied `gotd` session file and must be the dedicated bot's private-chat owner. Keep this bot separate from normal Onibi use: the test launches a real daemon and real Codex and Claude turns.
+
+## License
+
+Apache-2.0.
+
+Bundled screenshot fonts and their licenses are listed in [third-party notices](THIRD_PARTY_NOTICES.md).

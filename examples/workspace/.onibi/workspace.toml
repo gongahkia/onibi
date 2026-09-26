@@ -1,0 +1,22 @@
+schema_version = 1
+name = "example"
+default_agent = "claude"
+
+[trust]
+policy_file = "trust.toml"
+
+[budget.global]
+max_tokens_per_day = 100000
+
+[budget.session]
+max_tokens = 25000
+on_overrun = "interrupt"
+
+[transports]
+default = "tailscale"
+web = ["lan", "tailscale"]
+chat = ["telegram"]
+notify = ["pushover"]
+
+[hooks]
+auto_install = ["claude", "codex", "shell:zsh"]

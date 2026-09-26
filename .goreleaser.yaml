@@ -1,0 +1,39 @@
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+    - go test ./...
+
+builds:
+  - id: onibi
+    main: ./cmd/onibi
+    binary: onibi
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    goos: [darwin, linux]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w
+      - -X github.com/gongahkia/onibi/internal/buildinfo.Version={{.Version}}
+      - -X github.com/gongahkia/onibi/internal/buildinfo.Commit={{.Commit}}
+      - -X github.com/gongahkia/onibi/internal/buildinfo.Date={{.Date}}
+  - id: onibi-notify
+    main: ./clients/onibi-notify
+    binary: onibi-notify
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    goos: [darwin, linux]
+    goarch: [amd64, arm64]
+    ldflags: [-s -w]
+
+archives:
+  - formats: [tar.gz]
+    files: [LICENSE, README.md, SECURITY.md, THREAT-MODEL.md, docs/telegram.md]
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+snapshot:
+  version_template: 0.1.0-dev
