@@ -1735,7 +1735,8 @@ let language_config_load_and_launch_test () =
         (String.equal
            (Language.Workspace.discover_root
               ~markers:(Language.Server_config.root_markers server)
-              ~file_path:source)
+              ~file_path:source
+           |> Unix.realpath)
            (Unix.realpath root))
         "configured root marker did not select the nearest workspace root";
       let client =
