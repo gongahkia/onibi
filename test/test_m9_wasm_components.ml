@@ -180,8 +180,9 @@ let await_component session predicate =
       failf "Component callback did not complete before its host deadline"
     else (
       ignore
-        (Unix.select (Zenbu_app.Session.wakeup_fds session) [] []
-           async_poll_interval_seconds);
+        (Unix.select
+           (Zenbu_app.Session.wakeup_fds session)
+           [] [] async_poll_interval_seconds);
       Zenbu_app.Session.poll_background session |> loop (remaining - 1))
   in
   loop async_poll_attempts session
@@ -441,8 +442,9 @@ let await_deferred_completion ~owner =
       failf "deferred Component call did not complete before its host deadline"
     else (
       ignore
-        (Unix.select (Extension_async.wakeup_fds ~owners:[ owner ]) [] []
-           async_poll_interval_seconds);
+        (Unix.select
+           (Extension_async.wakeup_fds ~owners:[ owner ])
+           [] [] async_poll_interval_seconds);
       match Extension_async.drain ~owners:[ owner ] with
       | [ completion ] -> completion
       | [] -> loop (remaining - 1)
