@@ -2104,6 +2104,7 @@ let test_project_root_file_picker () =
     (fun () ->
       save_file alpha_path "alpha";
       save_file bravo_path "bravo";
+      let canonical_bravo_path = Unix.realpath bravo_path in
       save_file hidden_path "hidden";
       save_file binary_path "text\000binary";
       save_file unreadable_path "unreadable";
@@ -2203,7 +2204,7 @@ let test_project_root_file_picker () =
       expect
         (App.Session.contents opened = "bravo"
         && App.Session.buffer_count opened = 2
-        && App.Session.file_path opened = Some bravo_path)
+        && App.Session.file_path opened = Some canonical_bravo_path)
         "the file picker did not open its filtered project file through the \
          workspace buffer host";
       let deduplicated = host_session opened App.Session.Open_file_picker in
@@ -2214,7 +2215,7 @@ let test_project_root_file_picker () =
       in
       expect
         (App.Session.buffer_count deduplicated = 2
-        && App.Session.file_path deduplicated = Some bravo_path)
+        && App.Session.file_path deduplicated = Some canonical_bravo_path)
         "opening a picked buffer duplicated an existing local buffer";
       App.Session.close deduplicated)
 

@@ -170,16 +170,21 @@ let session root ?language ?(trace = Trace.disabled ())
     ~plugins:(Plugins.Directories [ root ]) ~dimensions ()
   |> must
 
+let async_poll_interval_seconds = 0.1
+let async_poll_attempts = 300
+
 let await_component session predicate =
   let rec loop remaining session =
     if predicate session then session
     else if remaining = 0 then
       failf "Component callback did not complete before its host deadline"
     else (
-      ignore (Unix.select (Zenbu_app.Session.wakeup_fds session) [] [] 0.1);
+      ignore
+        (Unix.select (Zenbu_app.Session.wakeup_fds session) [] []
+           async_poll_interval_seconds);
       Zenbu_app.Session.poll_background session |> loop (remaining - 1))
   in
-  loop 100 session
+  loop async_poll_attempts session
 
 let scripts value =
   Zenbu_app.Session.inspect value Zenbu_app.Session.Scripts
@@ -436,13 +441,14 @@ let await_deferred_completion ~owner =
       failf "deferred Component call did not complete before its host deadline"
     else (
       ignore
-        (Unix.select (Extension_async.wakeup_fds ~owners:[ owner ]) [] [] 0.1);
+        (Unix.select (Extension_async.wakeup_fds ~owners:[ owner ]) [] []
+           async_poll_interval_seconds);
       match Extension_async.drain ~owners:[ owner ] with
       | [ completion ] -> completion
       | [] -> loop (remaining - 1)
       | _ -> failf "expected one deferred Component completion")
   in
-  loop 100
+  loop async_poll_attempts
 
 let resolve_component_command runtime id =
   let started, _ = invoke_component_command runtime id |> must in
