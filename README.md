@@ -27,9 +27,15 @@ terminal sessions you create, so do not use it with sensitive production
 output. The Makefile provides the full foreground workflow:
 
 ```sh
-export ONIBI_TELEGRAM_TOKEN='your-token-from-BotFather'
-make setup       # builds, validates/stores the token, then checks readiness
+make setup       # prompts with hidden input, then checks readiness
 make dogfood     # checks readiness and starts the daemon in the foreground
+```
+
+For non-interactive setup, such as CI, provide the token through the
+environment instead:
+
+```sh
+ONIBI_TELEGRAM_TOKEN='your-token-from-BotFather' make setup
 ```
 
 `make dogfood` stops with `Ctrl-C`. Run `make doctor` at any time for a

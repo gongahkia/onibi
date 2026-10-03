@@ -19,11 +19,21 @@ install: build
 	install -m 0755 $(BUILD_DIR)/$(BINARY) $(INSTALL_DIR)/$(BINARY)
 	install -m 0755 $(BUILD_DIR)/$(NOTIFY_BINARY) $(INSTALL_DIR)/$(NOTIFY_BINARY)
 
-# First-time setup stores and validates a BotFather token. Use a dedicated
-# dogfooding bot rather than one that receives sensitive production output.
+# First-time setup stores and validates a BotFather token. It prompts with
+# hidden input when ONIBI_TELEGRAM_TOKEN is not already set, so CI can still
+# provide the token non-interactively. Use a dedicated dogfooding bot.
 setup: build
-	@test -n "$$ONIBI_TELEGRAM_TOKEN" || (echo "Set ONIBI_TELEGRAM_TOKEN to a BotFather token."; exit 1)
-	$(BUILD_DIR)/$(BINARY) telegram setup --token "$$ONIBI_TELEGRAM_TOKEN"
+	@onibi_setup_token="$$ONIBI_TELEGRAM_TOKEN"; \
+	if test -z "$$onibi_setup_token"; then \
+		if test ! -t 0; then echo "Set ONIBI_TELEGRAM_TOKEN when setup is non-interactive." >&2; exit 1; fi; \
+		printf "BotFather token: " >&2; \
+		stty -echo; trap 'stty echo; printf "\\n" >&2; exit 130' HUP INT TERM; \
+		IFS= read -r onibi_setup_token; onibi_setup_read_status=$$?; \
+		trap - HUP INT TERM; stty echo; printf "\\n" >&2; \
+		test "$$onibi_setup_read_status" -eq 0 || exit "$$onibi_setup_read_status"; \
+	fi; \
+	test -n "$$onibi_setup_token" || (echo "A BotFather token is required." >&2; exit 1); \
+	$(BUILD_DIR)/$(BINARY) telegram setup --token "$$onibi_setup_token"
 	$(BUILD_DIR)/$(BINARY) doctor
 
 doctor: build
