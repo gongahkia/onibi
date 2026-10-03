@@ -38,6 +38,10 @@ environment instead:
 ONIBI_TELEGRAM_TOKEN='your-token-from-BotFather' make setup
 ```
 
+The Makefile shows a short installation-oriented progress report by default.
+Use `VERBOSE=1 make setup` (or another Make target) to print its underlying
+commands for troubleshooting.
+
 `make dogfood` stops with `Ctrl-C`. Run `make doctor` at any time for a
 read-only readiness report; add `./bin/onibi doctor --check-telegram` to also
 verify the stored token against the Telegram API. Once the foreground flow is
