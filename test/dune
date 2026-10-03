@@ -192,6 +192,9 @@
 
 (test
  (name test_m9_wasm_components)
+ ; The Component worker, deadline, and cancellation path is supported on Linux
+ ; x86_64; macOS baseline support does not yet cover this conformance suite.
+ (enabled_if (and (= %{system} linux) (= %{architecture} x86_64)))
  (libraries
   zenbu_kernel
   zenbu_model_api
