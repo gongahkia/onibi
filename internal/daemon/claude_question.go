@@ -78,7 +78,7 @@ func (d *Daemon) handleClaudeQuestion(ctx context.Context, ev intake.Event) (int
 		return intake.Response{Decision: "cancelled", Reason: "state unavailable"}, nil
 	}
 	s, err := d.sessionByID(ev.Session)
-	if err != nil || s.Agent != "claude" || s.Transport != "tmux" || strings.ToLower(strings.TrimSpace(ev.Agent)) != "claude" {
+	if err != nil || s.Agent != "claude" || !isTerminalSession(s) || strings.ToLower(strings.TrimSpace(ev.Agent)) != "claude" {
 		return intake.Response{Decision: "cancelled", Reason: "unknown Claude session"}, nil
 	}
 	input, canonical, err := parseClaudeQuestionInput([]byte(ev.InputJSON))

@@ -25,6 +25,7 @@ func (execRunner) Run(ctx context.Context, name string, args ...string) ([]byte,
 type Controller struct {
 	Runner Runner
 	Bin    string
+	Config string
 }
 
 type Session struct{ Name string }
@@ -39,6 +40,12 @@ type StartOptions struct {
 
 func New() *Controller                   { return &Controller{Runner: execRunner{}, Bin: DefaultBin()} }
 func NewWithRunner(r Runner) *Controller { return &Controller{Runner: r, Bin: "tmux"} }
+func NewWithOptions(bin, configPath string) *Controller {
+	if strings.TrimSpace(bin) == "" {
+		bin = DefaultBin()
+	}
+	return &Controller{Runner: execRunner{}, Bin: bin, Config: strings.TrimSpace(configPath)}
+}
 
 func DefaultBin() string {
 	if v := strings.TrimSpace(os.Getenv("ONIBI_TMUX_BIN")); v != "" {
@@ -175,8 +182,38 @@ func (c *Controller) SendKey(ctx context.Context, target, key string) error {
 	if strings.TrimSpace(target) == "" || strings.TrimSpace(key) == "" {
 		return errors.New("tmux target and key required")
 	}
+	key = normalizeKey(key)
 	_, err := c.run(ctx, "send-keys", "-t", target, key)
 	return err
+}
+
+func normalizeKey(key string) string {
+	key = strings.TrimSpace(key)
+	// Keep the historic tmux spellings accepted by the public controller API.
+	// The daemon now uses backend-neutral spellings (for example, "ctrl-c"),
+	// but callers that already use tmux's "C-c" / "M-x" notation should not
+	// have their modifier prefix lower-cased.
+	if strings.HasPrefix(key, "C-") || strings.HasPrefix(key, "M-") {
+		return key
+	}
+	key = strings.ToLower(key)
+	if value, ok := map[string]string{
+		"up": "Up", "down": "Down", "left": "Left", "right": "Right", "tab": "Tab", "shift-tab": "BTab",
+		"backspace": "BSpace", "delete": "DC", "home": "Home", "end": "End", "pgup": "PPage", "pgdn": "NPage",
+		"esc": "Escape", "enter": "Enter", "ctrl-c": "C-c", "ctrl-d": "C-d", "ctrl-z": "C-z", "ctrl-l": "C-l", "ctrl-r": "C-r", "meta-enter": "M-Enter",
+	}[key]; ok {
+		return value
+	}
+	if len(key) == 6 && strings.HasPrefix(key, "ctrl-") {
+		return "C-" + key[5:]
+	}
+	if len(key) == 6 && strings.HasPrefix(key, "meta-") {
+		return "M-" + key[5:]
+	}
+	if len(key) >= 2 && key[0] == 'f' {
+		return strings.ToUpper(key)
+	}
+	return key
 }
 
 func (c *Controller) KillSession(ctx context.Context, target string) error {
@@ -206,6 +243,9 @@ func (c *Controller) run(ctx context.Context, args ...string) ([]byte, error) {
 	bin := c.Bin
 	if bin == "" {
 		bin = "tmux"
+	}
+	if configPath := strings.TrimSpace(c.Config); configPath != "" {
+		args = append([]string{"-f", configPath}, args...)
 	}
 	out, err := r.Run(ctx, bin, args...)
 	if err == nil {

@@ -10,13 +10,34 @@ import (
 	"time"
 
 	"github.com/gongahkia/onibi/internal/config"
+	"github.com/gongahkia/onibi/internal/mux"
 	"github.com/gongahkia/onibi/internal/store"
 	"github.com/gongahkia/onibi/internal/tmux"
 )
 
+type fakeMuxController struct {
+	started mux.StartOptions
+}
+
+func (f *fakeMuxController) Kind() string { return "zellij" }
+func (f *fakeMuxController) Start(_ context.Context, _ string, opts mux.StartOptions) (mux.Target, error) {
+	f.started = opts
+	return mux.Target{Session: "onibi-test", Pane: "terminal_0"}, nil
+}
+func (f *fakeMuxController) Has(context.Context, mux.Target) (bool, error) { return true, nil }
+func (f *fakeMuxController) Capture(context.Context, mux.Target, int) (string, error) {
+	return "ready", nil
+}
+func (f *fakeMuxController) Resize(context.Context, mux.Target, int, int) error { return nil }
+func (f *fakeMuxController) SendText(context.Context, mux.Target, string, bool) error {
+	return nil
+}
+func (f *fakeMuxController) SendKey(context.Context, mux.Target, string) error { return nil }
+func (f *fakeMuxController) Kill(context.Context, mux.Target) error            { return nil }
+
 func TestTerminalKeySupportsNavigationAndModifiers(t *testing.T) {
 	for input, want := range map[string]string{
-		"up": "Up", "shift-tab": "BTab", "pgdn": "NPage", "ctrl-d": "C-d", "meta-q": "M-q", "f12": "F12",
+		"up": "up", "shift-tab": "shift-tab", "pgdn": "pgdn", "ctrl-d": "ctrl-d", "meta-q": "meta-q", "f12": "f12",
 	} {
 		got, err := terminalKey(input)
 		if err != nil || got != want {
@@ -25,6 +46,30 @@ func TestTerminalKeySupportsNavigationAndModifiers(t *testing.T) {
 	}
 	if _, err := terminalKey("ctrl-delete"); err == nil {
 		t.Fatal("accepted unsupported key")
+	}
+}
+
+func TestStartTerminalSessionPersistsSelectedMultiplexer(t *testing.T) {
+	state, cwd := t.TempDir(), t.TempDir()
+	d := New(Options{Paths: config.Paths{StateDir: state}})
+	ctrl := &fakeMuxController{}
+	oldChoose := chooseMultiplexer
+	chooseMultiplexer = func(requested string, _ config.Multiplexer, gotCWD string) (mux.Controller, string, error) {
+		if requested != "zellij" || gotCWD != cwd {
+			t.Fatalf("requested=%q cwd=%q", requested, gotCWD)
+		}
+		return ctrl, "zellij", nil
+	}
+	defer func() { chooseMultiplexer = oldChoose }()
+	s, err := d.StartTerminalSession(t.Context(), "", "shell", "/bin/sh", []string{"-i"}, cwd, "zellij")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Transport != "zellij" || s.TmuxTarget != "onibi-test|terminal_0" {
+		t.Fatalf("session=%#v", s)
+	}
+	if ctrl.started.CWD != cwd || ctrl.started.Command != "/bin/sh" {
+		t.Fatalf("start options=%#v", ctrl.started)
 	}
 }
 

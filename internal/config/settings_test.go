@@ -71,3 +71,41 @@ func TestScreenFontConfig(t *testing.T) {
 		t.Fatal("accepted unknown font")
 	}
 }
+
+func TestResolveForCWDUsesLocalMultiplexerOverride(t *testing.T) {
+	state := t.TempDir()
+	project := t.TempDir()
+	tmuxConfig := filepath.Join(project, "tmux.local.conf")
+	if err := os.WriteFile(tmuxConfig, []byte("set -g status off\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(project, LocalConfigName), []byte("multiplexer:\n  default: zellij\n  tmux:\n    config: tmux.local.conf\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	paths := Paths{StateDir: state, Config: filepath.Join(state, "config.yaml")}
+	resolved, err := ResolveForCWD(paths, project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := resolved.Config.Multiplexer.Default, "zellij"; got != want {
+		t.Fatalf("default=%q want=%q", got, want)
+	}
+	if got, want := resolved.Config.Multiplexer.Tmux.Config, tmuxConfig; got != want {
+		t.Fatalf("tmux config=%q want=%q", got, want)
+	}
+	if !resolved.Local.Exists || resolved.Local.Path != filepath.Join(project, LocalConfigName) {
+		t.Fatalf("local meta=%#v", resolved.Local)
+	}
+}
+
+func TestResolveTmuxConfigPrefersProject(t *testing.T) {
+	project := t.TempDir()
+	path := filepath.Join(project, ".tmux.conf")
+	if err := os.WriteFile(path, []byte("set -g mouse on\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ResolveTmuxConfig(project, "auto")
+	if err != nil || got != path {
+		t.Fatalf("config=%q err=%v", got, err)
+	}
+}

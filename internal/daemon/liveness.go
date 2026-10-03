@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/gongahkia/onibi/internal/mux"
 	"github.com/gongahkia/onibi/internal/tmux"
 )
 
@@ -24,18 +25,29 @@ func (d *Daemon) watchTmuxSessions(ctx context.Context) {
 func (d *Daemon) checkTmuxSessions(ctx context.Context) {
 	ctrl := newTmuxController()
 	for _, s := range d.liveSessions() {
-		if s.Transport != "tmux" || s.TmuxTarget == "" {
+		if s.Transport == "codex" || s.TmuxTarget == "" {
 			continue
 		}
-		live, err := ctrl.HasSession(ctx, s.TmuxTarget)
+		var live bool
+		var err error
+		if s.Transport == "tmux" {
+			live, err = ctrl.HasSession(ctx, s.TmuxTarget)
+		} else {
+			muxCtrl, controllerErr := d.controllerForSession(s)
+			if controllerErr != nil {
+				err = controllerErr
+			} else {
+				live, err = muxCtrl.Has(ctx, mux.ParseTarget(s.TmuxTarget))
+			}
+		}
 		if err != nil {
-			d.Log.Warn("tmux liveness", "session", s.ID, "err", err)
+			d.Log.Warn("multiplexer liveness", "session", s.ID, "transport", s.Transport, "err", err)
 			d.queueHealthEvent(ctx, d.health.tmuxResult(ctx, s, false, err))
 			continue
 		}
 		d.queueHealthEvent(ctx, d.health.tmuxResult(ctx, s, live, nil))
 		if !live {
-			d.markSessionEndedReason(ctx, s, "tmux session exited")
+			d.markSessionEndedReason(ctx, s, s.Transport+" session exited")
 		}
 	}
 }

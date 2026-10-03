@@ -34,7 +34,7 @@ func (d *Daemon) handleAgentLifecycle(ctx context.Context, ev intake.Event) (int
 		return intake.Response{}, errors.New("unsupported agent lifecycle")
 	}
 	s, err := d.sessionByID(ev.Session)
-	if err != nil || s.Agent != agent || s.Transport != "tmux" {
+	if err != nil || s.Agent != agent || !isTerminalSession(s) {
 		return intake.Response{}, errors.New("unknown agent session")
 	}
 	d.touchSession(ctx, s)

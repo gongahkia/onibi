@@ -37,7 +37,7 @@ func (d *Daemon) handleRPCRequest(ctx context.Context, ev intake.Event) (intake.
 		if err != nil {
 			return intake.Response{}, fmt.Errorf("%s not found in PATH", bin)
 		}
-		s, err := d.StartTmuxSession(ctx, ev.Name, name, path, args, ev.CWD)
+		s, err := d.StartTerminalSession(ctx, ev.Name, name, path, args, ev.CWD, ev.Mux)
 		if err != nil {
 			return intake.Response{}, err
 		}

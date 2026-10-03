@@ -252,9 +252,9 @@ func (b *telegramBridge) handleCommand(ctx context.Context, chatID int64, text s
 	case "/interrupt":
 		b.control(ctx, chatID, b.target(ctx, chatID), "interrupt", 0)
 	case "/esc":
-		b.key(ctx, chatID, b.target(ctx, chatID), "Escape", 0)
+		b.key(ctx, chatID, b.target(ctx, chatID), "esc", 0)
 	case "/enter":
-		b.key(ctx, chatID, b.target(ctx, chatID), "Enter", 0)
+		b.key(ctx, chatID, b.target(ctx, chatID), "enter", 0)
 	case "/kill":
 		b.handleKill(ctx, chatID)
 	default:
@@ -299,7 +299,7 @@ func (b *telegramBridge) handleInput(ctx context.Context, m *telegram.Message) {
 		} else if b.edit(ctx, m.Chat.ID, status.MessageID, "Input failed: "+err.Error(), nil) != nil {
 			b.enqueueOutbox(ctx, "notice", m.Chat.ID, "", "Input failed in "+s.Name+". Inspect the session with /tail or /screen.", 0, "input-failed:"+strconv.FormatInt(m.Chat.ID, 10)+":"+s.ID)
 		}
-		if s.Transport == "tmux" {
+		if isTerminalSession(s) {
 			b.sendScreen(ctx, m.Chat.ID, s.ID, "Failed · "+s.Name)
 		}
 		return
@@ -389,16 +389,16 @@ func (b *telegramBridge) handleDocument(ctx context.Context, m *telegram.Message
 func (b *telegramBridge) handleNew(ctx context.Context, chatID int64, arg string) {
 	agent, name, args, err := parseNewSession(arg)
 	if err != nil {
-		b.send(ctx, chatID, "Usage: /new [shell|codex|pi|claude] [--name name] [--cwd path] [agent args…]", nil)
+		b.send(ctx, chatID, "Usage: /new [shell|codex|pi|claude] [--name name] [--cwd path] [--mux auto|tmux|zellij|screen] [agent args…]", nil)
 		return
 	}
-	cwd, args, err := extractNewCWD(args)
+	cwd, requestedMux, args, err := extractNewSessionOptions(args)
 	if err != nil {
 		b.send(ctx, chatID, "New session failed: "+err.Error(), nil)
 		return
 	}
 	if agent == "codex" {
-		if len(args) > 0 {
+		if len(args) > 0 || requestedMux != "" {
 			b.send(ctx, chatID, "Codex accepts only /new codex [--name name] [--cwd path].", nil)
 			return
 		}
@@ -421,7 +421,7 @@ func (b *telegramBridge) handleNew(ctx context.Context, chatID int64, arg string
 		b.send(ctx, chatID, bin+" not found in PATH.", nil)
 		return
 	}
-	s, err := b.d.StartTmuxSession(ctx, name, agent, path, args, cwd)
+	s, err := b.d.StartTerminalSession(ctx, name, agent, path, args, cwd, requestedMux)
 	if err != nil {
 		b.send(ctx, chatID, "Start failed: "+err.Error(), nil)
 		return
@@ -666,11 +666,11 @@ func (b *telegramBridge) sessionControls(ctx context.Context, sessionID string) 
 	}
 	rows := make([][]telegram.InlineKeyboardButton, 0, 6)
 	for _, values := range [][][3]string{
-		{{"↑", "key", "Up"}, {"↓", "key", "Down"}, {"←", "key", "Left"}, {"→", "key", "Right"}},
-		{{"Tab", "key", "Tab"}, {"⇧Tab", "key", "BTab"}, {"⌫", "key", "BSpace"}, {"Del", "key", "DC"}},
-		{{"Home", "key", "Home"}, {"End", "key", "End"}, {"PgUp", "key", "PPage"}, {"PgDn", "key", "NPage"}},
-		{{"Esc", "key", "Escape"}, {"Ctrl-C", "control", "interrupt"}, {"Ctrl-D", "key", "C-d"}, {"Ctrl-Z", "key", "C-z"}},
-		{{"Ctrl-L", "key", "C-l"}, {"Ctrl-R", "key", "C-r"}, {"Enter", "key", "Enter"}, {"Screen", "screen", ""}},
+		{{"↑", "key", "up"}, {"↓", "key", "down"}, {"←", "key", "left"}, {"→", "key", "right"}},
+		{{"Tab", "key", "tab"}, {"⇧Tab", "key", "shift-tab"}, {"⌫", "key", "backspace"}, {"Del", "key", "delete"}},
+		{{"Home", "key", "home"}, {"End", "key", "end"}, {"PgUp", "key", "pgup"}, {"PgDn", "key", "pgdn"}},
+		{{"Esc", "key", "esc"}, {"Ctrl-C", "control", "interrupt"}, {"Ctrl-D", "key", "ctrl-d"}, {"Ctrl-Z", "key", "ctrl-z"}},
+		{{"Ctrl-L", "key", "ctrl-l"}, {"Ctrl-R", "key", "ctrl-r"}, {"Enter", "key", "enter"}, {"Screen", "screen", ""}},
 		{{"80×24", "resize", "small"}, {"100×30", "resize", "medium"}, {"120×40", "resize", "large"}},
 	} {
 		items, err := row(values...)
@@ -2008,21 +2008,38 @@ func splitTelegramArgs(input string) ([]string, error) {
 	return fields, nil
 }
 func extractNewCWD(args []string) (cwd string, rest []string, err error) {
+	cwd, _, rest, err = extractNewSessionOptions(args)
+	return cwd, rest, err
+}
+
+func extractNewSessionOptions(args []string) (cwd, requestedMux string, rest []string, err error) {
 	for i := 0; i < len(args); i++ {
-		if args[i] != "--cwd" {
+		switch args[i] {
+		case "--cwd":
+			if cwd != "" || i+1 >= len(args) || strings.TrimSpace(args[i+1]) == "" {
+				return "", "", nil, fmt.Errorf("--cwd requires one path")
+			}
+			cwd = args[i+1]
+			i++
+		case "--mux":
+			if requestedMux != "" || i+1 >= len(args) {
+				return "", "", nil, fmt.Errorf("--mux requires auto, tmux, zellij, or screen")
+			}
+			requestedMux = strings.ToLower(strings.TrimSpace(args[i+1]))
+			switch requestedMux {
+			case "auto", "tmux", "zellij", "screen":
+			default:
+				return "", "", nil, fmt.Errorf("--mux requires auto, tmux, zellij, or screen")
+			}
+			i++
+		default:
 			rest = append(rest, args[i])
-			continue
 		}
-		if cwd != "" || i+1 >= len(args) || strings.TrimSpace(args[i+1]) == "" {
-			return "", nil, fmt.Errorf("--cwd requires one path")
-		}
-		cwd = args[i+1]
-		i++
 	}
-	return cwd, rest, nil
+	return cwd, requestedMux, rest, nil
 }
 func telegramHelp() string {
-	return "Onibi\n\n/new shell|codex|pi|claude [--name name] [--cwd path]\n/sessions\n/target <id|name>\n/tail [lines]\n/screen\n/font\n/paste\n/keys\n/key <name>\n/size small|medium|large\n/interrupt\n/esc\n/enter\n/kill\n\nNormal text sends literal input followed by Enter. Documents are privately staged for the selected session. Unknown /commands go to the selected session; // forces a command through when it conflicts with Onibi. /paste makes exactly the next message literal without Enter."
+	return "Onibi\n\n/new shell|codex|pi|claude [--name name] [--cwd path] [--mux auto|tmux|zellij|screen]\n/sessions\n/target <id|name>\n/tail [lines]\n/screen\n/font\n/paste\n/keys\n/key <name>\n/size small|medium|large\n/interrupt\n/esc\n/enter\n/kill\n\nNormal text sends literal input followed by Enter. Documents are privately staged for the selected session. Unknown /commands go to the selected session; // forces a command through when it conflicts with Onibi. /paste makes exactly the next message literal without Enter."
 }
 func formatApproval(item *approval.Approval, sessionName string) string {
 	if item == nil {

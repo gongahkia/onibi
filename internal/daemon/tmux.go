@@ -7,7 +7,9 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/gongahkia/onibi/internal/mux"
 	"github.com/gongahkia/onibi/internal/render"
+	"github.com/gongahkia/onibi/internal/store"
 	"github.com/gongahkia/onibi/internal/tmux"
 )
 
@@ -100,6 +102,38 @@ func (d *Daemon) restoreSessions(ctx context.Context) {
 			d.audit(ctx, "session.restore", s.ID, "", 0, "target="+s.TmuxTarget)
 		}
 	}
+	d.restoreOtherMuxSessions(ctx, rows)
+}
+
+func (d *Daemon) restoreOtherMuxSessions(ctx context.Context, rows []store.SessionEntry) {
+	for _, row := range rows {
+		if row.Transport == "tmux" || row.Transport == "codex" || row.TmuxTarget == "" {
+			continue
+		}
+		s := newSessionAt(row.ID, row.Name, row.Agent, d.bufferSize(), row.StartedAt, row.LastActivity)
+		s.Transport, s.TmuxTarget, s.Cmd, s.CWD = row.Transport, row.TmuxTarget, row.Command, row.CWD
+		ctrl, err := d.controllerForSession(s)
+		if err != nil {
+			d.Log.Warn("restore multiplexer", "session", row.ID, "transport", row.Transport, "err", err)
+			continue
+		}
+		live, err := ctrl.Has(ctx, mux.ParseTarget(s.TmuxTarget))
+		if err != nil {
+			d.Log.Warn("multiplexer discovery", "session", row.ID, "transport", row.Transport, "err", err)
+			continue
+		}
+		if !live {
+			_ = d.DB.SessionMarkEnded(ctx, row.ID, row.LastActivity)
+			d.queueSessionEndedNotice(ctx, row.ID, row.Name, row.Agent)
+			continue
+		}
+		if out, err := ctrl.Capture(ctx, mux.ParseTarget(s.TmuxTarget), 80); err == nil {
+			_, _ = s.Buf.Write([]byte(out))
+		}
+		if err := d.Registry.Add(s); err == nil {
+			d.audit(ctx, "session.restore", s.ID, "", 0, "target="+s.TmuxTarget)
+		}
+	}
 }
 
 func (d *Daemon) CaptureSessionTail(ctx context.Context, id string, lines int) (string, error) {
@@ -107,7 +141,7 @@ func (d *Daemon) CaptureSessionTail(ctx context.Context, id string, lines int) (
 	if err != nil {
 		return "", err
 	}
-	if s.Transport != "tmux" {
+	if s.Transport == "codex" {
 		return render.TextTailBody(s.Buf.Snapshot(), render.Options{MaxLines: lines, MaxChars: 3500}), nil
 	}
 	if lines < 1 {
@@ -115,6 +149,20 @@ func (d *Daemon) CaptureSessionTail(ctx context.Context, id string, lines int) (
 	}
 	if lines > 400 {
 		lines = 400
+	}
+	if s.Transport != "tmux" {
+		ctrl, err := d.controllerForSession(s)
+		if err != nil {
+			return "", err
+		}
+		out, err := ctrl.Capture(ctx, mux.ParseTarget(s.TmuxTarget), lines)
+		if err != nil {
+			return "", d.muxSessionError(ctx, s, err)
+		}
+		s.Buf.Reset()
+		_, _ = s.Buf.Write([]byte(out))
+		d.touchSession(ctx, s)
+		return render.TextTailBody([]byte(out), render.Options{MaxLines: lines, MaxChars: 3500}), nil
 	}
 	out, err := newTmuxController().Capture(ctx, s.TmuxTarget, lines)
 	if err != nil {
@@ -146,6 +194,17 @@ func (d *Daemon) SendSessionText(ctx context.Context, id, text string, enter boo
 	}
 	if s.Transport == "codex" {
 		return errors.New("Codex sessions require a submitted turn")
+	}
+	if s.Transport != "tmux" {
+		ctrl, err := d.controllerForSession(s)
+		if err != nil {
+			return err
+		}
+		if err := ctrl.SendText(ctx, mux.ParseTarget(s.TmuxTarget), text, enter); err != nil {
+			return d.muxSessionError(ctx, s, err)
+		}
+		d.touchSession(ctx, s)
+		return nil
 	}
 	if err := newTmuxController().SendText(ctx, s.TmuxTarget, text, enter); err != nil {
 		return d.tmuxSessionError(ctx, s, err)

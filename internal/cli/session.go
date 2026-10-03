@@ -14,6 +14,7 @@ func sessionCmd() *cobra.Command {
 	newCmd := &cobra.Command{Use: "new <shell|codex|pi|claude> [args...]", Short: "Create a persistent session", Args: cobra.MinimumNArgs(1), RunE: runSessionNew}
 	newCmd.Flags().String("name", "", "session name")
 	newCmd.Flags().String("cwd", "", "working directory")
+	newCmd.Flags().String("mux", "", "terminal multiplexer (auto, tmux, zellij, screen)")
 	list := &cobra.Command{Use: "list", Short: "List active and recent sessions", RunE: runSessionList}
 	list.Flags().Bool("all", false, "include ended sessions")
 	cmd.AddCommand(newCmd, list)
@@ -27,7 +28,8 @@ func runSessionNew(cmd *cobra.Command, args []string) error {
 	defer db.Close()
 	name, _ := cmd.Flags().GetString("name")
 	cwd, _ := cmd.Flags().GetString("cwd")
-	response, err := intake.Request(paths.Socket, intake.Event{Type: intake.TypeSessionNew, Agent: strings.ToLower(args[0]), Args: args[1:], Name: name, CWD: cwd}, 5*time.Second)
+	mux, _ := cmd.Flags().GetString("mux")
+	response, err := intake.Request(paths.Socket, intake.Event{Type: intake.TypeSessionNew, Agent: strings.ToLower(args[0]), Args: args[1:], Name: name, CWD: cwd, Mux: mux}, 5*time.Second)
 	if err != nil {
 		return fmt.Errorf("daemon unavailable: %w", err)
 	}

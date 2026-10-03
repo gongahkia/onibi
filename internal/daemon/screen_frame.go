@@ -9,6 +9,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/gongahkia/onibi/internal/mux"
 	"github.com/gongahkia/onibi/internal/render"
 )
 
@@ -40,6 +41,20 @@ func (d *Daemon) CaptureSessionFrame(ctx context.Context, id string) (terminalFr
 		s.Buf.Reset()
 		_, _ = s.Buf.Write(raw)
 		d.touchSession(ctx, s)
+	} else if s.Transport != "codex" {
+		ctrl, err := d.controllerForSession(s)
+		if err != nil {
+			return terminalFrame{}, err
+		}
+		out, err := ctrl.Capture(ctx, mux.ParseTarget(s.TmuxTarget), 160)
+		if err != nil {
+			return terminalFrame{}, d.muxSessionError(ctx, s, err)
+		}
+		raw = []byte(out)
+		s.Buf.Reset()
+		_, _ = s.Buf.Write(raw)
+		d.touchSession(ctx, s)
+		rows, cols = outputScreenDimensions(raw)
 	} else {
 		raw = s.Buf.Snapshot()
 		rows, cols = outputScreenDimensions(raw)

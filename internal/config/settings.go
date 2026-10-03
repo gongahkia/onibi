@@ -33,9 +33,10 @@ func (d *Duration) UnmarshalYAML(n *yaml.Node) error {
 }
 
 type Config struct {
-	Daemon Daemon `yaml:"daemon" json:"daemon"`
-	Shell  Shell  `yaml:"shell" json:"shell"`
-	Screen Screen `yaml:"screen" json:"screen"`
+	Daemon      Daemon      `yaml:"daemon" json:"daemon"`
+	Shell       Shell       `yaml:"shell" json:"shell"`
+	Screen      Screen      `yaml:"screen" json:"screen"`
+	Multiplexer Multiplexer `yaml:"multiplexer" json:"multiplexer"`
 }
 
 type Daemon struct {
@@ -59,6 +60,21 @@ type Screen struct {
 	FontPath string `yaml:"font_path" json:"font_path"`
 }
 
+// Multiplexer selects the backend used for terminal-backed sessions. A project
+// may override these values in <cwd>/.onibi.yaml without changing the daemon's
+// global configuration.
+type Multiplexer struct {
+	Default string     `yaml:"default" json:"default"`
+	Tmux    MuxBackend `yaml:"tmux" json:"tmux"`
+	Zellij  MuxBackend `yaml:"zellij" json:"zellij"`
+	Screen  MuxBackend `yaml:"screen" json:"screen"`
+}
+
+type MuxBackend struct {
+	Bin    string `yaml:"bin" json:"bin"`
+	Config string `yaml:"config" json:"config"`
+}
+
 type LoadMeta struct {
 	Path     string
 	Exists   bool
@@ -78,6 +94,12 @@ func Default() Config {
 		Daemon: Daemon{ApprovalTimeout: Duration(5 * time.Minute), ClaudeQuestionTimeout: Duration(3 * time.Minute), ApprovalSweepInterval: Duration(15 * time.Second), OutputBufferBytes: 64 * 1024, MaxSubscribers: 32, LivenessInterval: Duration(5 * time.Second), UploadTTL: Duration(7 * 24 * time.Hour), UploadMaxBytes: 20 << 20},
 		Shell:  Shell{Default: "auto", Login: true},
 		Screen: Screen{Font: "jetbrains-mono-nerd"},
+		Multiplexer: Multiplexer{
+			Default: "auto",
+			Tmux:    MuxBackend{Config: "auto"},
+			Zellij:  MuxBackend{Config: "auto"},
+			Screen:  MuxBackend{Config: "auto"},
+		},
 	}
 }
 
@@ -119,6 +141,21 @@ func loadBytes(path string, b []byte, cfg Config, meta LoadMeta) (Config, LoadMe
 			Font     *string `yaml:"font"`
 			FontPath *string `yaml:"font_path"`
 		} `yaml:"screen"`
+		Multiplexer struct {
+			Default *string `yaml:"default"`
+			Tmux    struct {
+				Bin    *string `yaml:"bin"`
+				Config *string `yaml:"config"`
+			} `yaml:"tmux"`
+			Zellij struct {
+				Bin    *string `yaml:"bin"`
+				Config *string `yaml:"config"`
+			} `yaml:"zellij"`
+			Screen struct {
+				Bin    *string `yaml:"bin"`
+				Config *string `yaml:"config"`
+			} `yaml:"screen"`
+		} `yaml:"multiplexer"`
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(b))
 	if err := dec.Decode(&raw); err != nil {
@@ -171,6 +208,34 @@ func loadBytes(path string, b []byte, cfg Config, meta LoadMeta) (Config, LoadMe
 	if raw.Screen.FontPath != nil {
 		cfg.Screen.FontPath = strings.TrimSpace(*raw.Screen.FontPath)
 		meta.Explicit["screen.font_path"] = true
+	}
+	if raw.Multiplexer.Default != nil {
+		cfg.Multiplexer.Default = strings.ToLower(strings.TrimSpace(*raw.Multiplexer.Default))
+		meta.Explicit["multiplexer.default"] = true
+	}
+	if raw.Multiplexer.Tmux.Bin != nil {
+		cfg.Multiplexer.Tmux.Bin = strings.TrimSpace(*raw.Multiplexer.Tmux.Bin)
+		meta.Explicit["multiplexer.tmux.bin"] = true
+	}
+	if raw.Multiplexer.Tmux.Config != nil {
+		cfg.Multiplexer.Tmux.Config = strings.TrimSpace(*raw.Multiplexer.Tmux.Config)
+		meta.Explicit["multiplexer.tmux.config"] = true
+	}
+	if raw.Multiplexer.Zellij.Bin != nil {
+		cfg.Multiplexer.Zellij.Bin = strings.TrimSpace(*raw.Multiplexer.Zellij.Bin)
+		meta.Explicit["multiplexer.zellij.bin"] = true
+	}
+	if raw.Multiplexer.Zellij.Config != nil {
+		cfg.Multiplexer.Zellij.Config = strings.TrimSpace(*raw.Multiplexer.Zellij.Config)
+		meta.Explicit["multiplexer.zellij.config"] = true
+	}
+	if raw.Multiplexer.Screen.Bin != nil {
+		cfg.Multiplexer.Screen.Bin = strings.TrimSpace(*raw.Multiplexer.Screen.Bin)
+		meta.Explicit["multiplexer.screen.bin"] = true
+	}
+	if raw.Multiplexer.Screen.Config != nil {
+		cfg.Multiplexer.Screen.Config = strings.TrimSpace(*raw.Multiplexer.Screen.Config)
+		meta.Explicit["multiplexer.screen.config"] = true
 	}
 	if err := cfg.Validate(); err != nil {
 		return cfg, meta, fmt.Errorf("validate %s: %w", path, err)
@@ -239,6 +304,11 @@ func (c Config) Validate() error {
 		}
 	default:
 		return errors.New("screen.font must be jetbrains-mono-nerd, caskaydia-cove-nerd, go-mono-nerd, or custom")
+	}
+	switch strings.ToLower(strings.TrimSpace(c.Multiplexer.Default)) {
+	case "auto", "tmux", "zellij", "screen":
+	default:
+		return errors.New("multiplexer.default must be auto, tmux, zellij, or screen")
 	}
 	return nil
 }
@@ -320,6 +390,20 @@ func Set(cfg *Config, key, value string) error {
 		cfg.Screen.Font = strings.TrimSpace(value)
 	case "screen.font_path":
 		cfg.Screen.FontPath = strings.TrimSpace(value)
+	case "multiplexer.default":
+		cfg.Multiplexer.Default = strings.ToLower(strings.TrimSpace(value))
+	case "multiplexer.tmux.bin":
+		cfg.Multiplexer.Tmux.Bin = strings.TrimSpace(value)
+	case "multiplexer.tmux.config":
+		cfg.Multiplexer.Tmux.Config = strings.TrimSpace(value)
+	case "multiplexer.zellij.bin":
+		cfg.Multiplexer.Zellij.Bin = strings.TrimSpace(value)
+	case "multiplexer.zellij.config":
+		cfg.Multiplexer.Zellij.Config = strings.TrimSpace(value)
+	case "multiplexer.screen.bin":
+		cfg.Multiplexer.Screen.Bin = strings.TrimSpace(value)
+	case "multiplexer.screen.config":
+		cfg.Multiplexer.Screen.Config = strings.TrimSpace(value)
 	default:
 		return fmt.Errorf("unknown config key %q", key)
 	}
@@ -352,6 +436,20 @@ func Get(cfg Config, key string) (string, error) {
 		return cfg.Screen.Font, nil
 	case "screen.font_path":
 		return cfg.Screen.FontPath, nil
+	case "multiplexer.default":
+		return cfg.Multiplexer.Default, nil
+	case "multiplexer.tmux.bin":
+		return cfg.Multiplexer.Tmux.Bin, nil
+	case "multiplexer.tmux.config":
+		return cfg.Multiplexer.Tmux.Config, nil
+	case "multiplexer.zellij.bin":
+		return cfg.Multiplexer.Zellij.Bin, nil
+	case "multiplexer.zellij.config":
+		return cfg.Multiplexer.Zellij.Config, nil
+	case "multiplexer.screen.bin":
+		return cfg.Multiplexer.Screen.Bin, nil
+	case "multiplexer.screen.config":
+		return cfg.Multiplexer.Screen.Config, nil
 	default:
 		return "", fmt.Errorf("unknown config key %q", key)
 	}
@@ -372,5 +470,12 @@ func Keys(cfg Config, meta LoadMeta) []KeyInfo {
 		{"shell.login", strconv.FormatBool(def.Shell.Login), strconv.FormatBool(cfg.Shell.Login), meta.Explicit["shell.login"], "run default shell as a login shell"},
 		{"screen.font", def.Screen.Font, cfg.Screen.Font, meta.Explicit["screen.font"], "font used for rendered terminal screens"},
 		{"screen.font_path", def.Screen.FontPath, cfg.Screen.FontPath, meta.Explicit["screen.font_path"], "external TTF/OTF path when screen.font=custom"},
+		{"multiplexer.default", def.Multiplexer.Default, cfg.Multiplexer.Default, meta.Explicit["multiplexer.default"], "terminal multiplexer selected for new sessions (auto, tmux, zellij, screen)"},
+		{"multiplexer.tmux.bin", def.Multiplexer.Tmux.Bin, cfg.Multiplexer.Tmux.Bin, meta.Explicit["multiplexer.tmux.bin"], "tmux executable override"},
+		{"multiplexer.tmux.config", def.Multiplexer.Tmux.Config, cfg.Multiplexer.Tmux.Config, meta.Explicit["multiplexer.tmux.config"], "tmux config path, or auto to resolve project and user configs"},
+		{"multiplexer.zellij.bin", def.Multiplexer.Zellij.Bin, cfg.Multiplexer.Zellij.Bin, meta.Explicit["multiplexer.zellij.bin"], "Zellij executable override"},
+		{"multiplexer.zellij.config", def.Multiplexer.Zellij.Config, cfg.Multiplexer.Zellij.Config, meta.Explicit["multiplexer.zellij.config"], "Zellij config path override"},
+		{"multiplexer.screen.bin", def.Multiplexer.Screen.Bin, cfg.Multiplexer.Screen.Bin, meta.Explicit["multiplexer.screen.bin"], "GNU Screen executable override"},
+		{"multiplexer.screen.config", def.Multiplexer.Screen.Config, cfg.Multiplexer.Screen.Config, meta.Explicit["multiplexer.screen.config"], "GNU Screen config path override"},
 	}
 }

@@ -25,6 +25,7 @@ type Event struct {
 	Lifecycle string   `json:"lifecycle,omitempty"`
 	RunID     string   `json:"run_id,omitempty"`
 	Name      string   `json:"name,omitempty"`
+	Mux       string   `json:"mux,omitempty"`
 	Args      []string `json:"args,omitempty"`
 
 	Tool      string            `json:"tool,omitempty"`

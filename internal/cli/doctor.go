@@ -88,12 +88,6 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 		report.add(doctorFail, "platform", fmt.Sprintf("%s is unsupported; use Linux or macOS", runtime.GOOS))
 	}
 
-	if path, err := exec.LookPath("tmux"); err == nil {
-		report.add(doctorOK, "tmux", path)
-	} else {
-		report.add(doctorFail, "tmux", "not found in PATH; install tmux")
-	}
-
 	if path, err := os.Executable(); err == nil {
 		report.add(doctorOK, "executable", path)
 	} else {
@@ -118,6 +112,7 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 	} else {
 		report.add(doctorOK, "config", "defaults ("+paths.Config+" will be created when configured)")
 	}
+	doctorCheckMultiplexer(&report, cfg)
 
 	token, tokenErr := doctorTelegramToken(ctx, paths)
 	if tokenErr != nil {
@@ -222,6 +217,42 @@ func doctorCheckProgram(report *doctorReport, program, missingDetail string) {
 		return
 	}
 	report.add(doctorInfo, program, "available at "+path)
+}
+
+func doctorCheckMultiplexer(report *doctorReport, cfg config.Config) {
+	available := map[string]string{}
+	for _, kind := range []string{"tmux", "zellij", "screen"} {
+		backend, _ := cfg.Multiplexer.Backend(kind)
+		bin := strings.TrimSpace(backend.Bin)
+		if bin == "" {
+			bin = strings.TrimSpace(os.Getenv("ONIBI_" + strings.ToUpper(kind) + "_BIN"))
+		}
+		if bin == "" {
+			bin = kind
+		}
+		if path, err := exec.LookPath(bin); err == nil {
+			available[kind] = path
+			report.add(doctorInfo, kind, "available at "+path)
+		} else {
+			report.add(doctorInfo, kind, "not found")
+		}
+	}
+	selected := strings.ToLower(strings.TrimSpace(cfg.Multiplexer.Default))
+	if selected == "auto" {
+		for _, kind := range []string{"tmux", "zellij", "screen"} {
+			if path := available[kind]; path != "" {
+				report.add(doctorOK, "multiplexer", "auto will use "+kind+" ("+path+")")
+				return
+			}
+		}
+		report.add(doctorFail, "multiplexer", "none found; install tmux, zellij, or screen")
+		return
+	}
+	if path := available[selected]; path != "" {
+		report.add(doctorOK, "multiplexer", selected+" ("+path+")")
+		return
+	}
+	report.add(doctorFail, "multiplexer", selected+" not found; install it or change multiplexer.default")
 }
 
 func doctorCheckDaemon(report *doctorReport, paths config.Paths) {

@@ -18,7 +18,9 @@ func systemCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "system", Short: "Inspect local Onibi state"}
 	status := &cobra.Command{Use: "status", Short: "Show daemon and Telegram state", RunE: runSystemStatus}
 	configCmd := &cobra.Command{Use: "config", Short: "Read or write configuration"}
-	configCmd.AddCommand(&cobra.Command{Use: "get <key>", Args: cobra.ExactArgs(1), RunE: runConfigGet}, &cobra.Command{Use: "set <key> <value>", Args: cobra.ExactArgs(2), RunE: runConfigSet}, &cobra.Command{Use: "list", RunE: runConfigList})
+	resolve := &cobra.Command{Use: "resolve", Short: "Show the multiplexer configuration resolved for a working directory", RunE: runConfigResolve}
+	resolve.Flags().String("cwd", "", "project working directory")
+	configCmd.AddCommand(&cobra.Command{Use: "get <key>", Args: cobra.ExactArgs(1), RunE: runConfigGet}, &cobra.Command{Use: "set <key> <value>", Args: cobra.ExactArgs(2), RunE: runConfigSet}, &cobra.Command{Use: "list", RunE: runConfigList}, resolve)
 	serviceCmd := &cobra.Command{Use: "service", Short: "Manage background Onibi service"}
 	serviceCmd.AddCommand(&cobra.Command{Use: "install", RunE: runServiceInstall}, &cobra.Command{Use: "remove", RunE: runServiceRemove}, &cobra.Command{Use: "status", RunE: runServiceStatus})
 	logs := &cobra.Command{Use: "logs", Short: "Show recent daemon logs", RunE: runSystemLogs}
@@ -126,6 +128,28 @@ func runConfigList(cmd *cobra.Command, _ []string) error {
 	}
 	for _, key := range config.Keys(cfg, meta) {
 		fmt.Fprintf(cmd.OutOrStdout(), "%s=%s\n", key.Key, key.Current)
+	}
+	return nil
+}
+func runConfigResolve(cmd *cobra.Command, _ []string) error {
+	paths, err := config.DefaultPaths()
+	if err != nil {
+		return err
+	}
+	cwd, _ := cmd.Flags().GetString("cwd")
+	if strings.TrimSpace(cwd) == "" {
+		cwd, err = os.Getwd()
+		if err != nil {
+			return err
+		}
+	}
+	resolved, err := config.ResolveForCWD(paths, cwd)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "global=%s\nglobal_exists=%t\nlocal=%s\nlocal_exists=%t\nmultiplexer.default=%s\nmultiplexer.tmux.bin=%s\nmultiplexer.tmux.config=%s\nmultiplexer.zellij.bin=%s\nmultiplexer.zellij.config=%s\nmultiplexer.screen.bin=%s\nmultiplexer.screen.config=%s\n", resolved.Global.Path, resolved.Global.Exists, resolved.Local.Path, resolved.Local.Exists, resolved.Config.Multiplexer.Default, resolved.Config.Multiplexer.Tmux.Bin, resolved.Config.Multiplexer.Tmux.Config, resolved.Config.Multiplexer.Zellij.Bin, resolved.Config.Multiplexer.Zellij.Config, resolved.Config.Multiplexer.Screen.Bin, resolved.Config.Multiplexer.Screen.Config)
+	if path, err := config.ResolveTmuxConfig(resolved.CWD, resolved.Config.Multiplexer.Tmux.Config); err == nil {
+		fmt.Fprintf(cmd.OutOrStdout(), "tmux.config_resolved=%s\n", path)
 	}
 	return nil
 }

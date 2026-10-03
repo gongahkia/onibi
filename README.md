@@ -2,17 +2,17 @@
 
 Onibi is a Telegram-native remote command center for one developer's persistent local terminal sessions.
 
-It runs named `tmux` sessions on your machine. From Telegram you can select a session, send literal input, inspect bounded output or a rendered terminal screen, send navigation/modifier keys, resize a tmux window, or use a guarded kill. Codex uses the local App Server for structured progress, approvals, and questions; Pi and Claude Code use local hooks for remote approvals and completion updates.
+It runs named terminal sessions on your machine through `tmux`, Zellij, or GNU Screen. From Telegram you can select a session, send literal input, inspect bounded output or a rendered terminal screen, send navigation/modifier keys, resize a supported terminal window, or use a guarded kill. Codex uses the local App Server for structured progress, approvals, and questions; Pi and Claude Code use local hooks for remote approvals and completion updates.
 
 ## Scope
 
-Included: Telegram owner pairing, named durable sessions, generic `tmux` control, screenshots, audit/recovery, Codex semantic decisions, Pi approval extension, and Claude Code approval/completion hooks.
+Included: Telegram owner pairing, named durable sessions, generic multiplexer control, screenshots, audit/recovery, Codex semantic decisions, Pi approval extension, and Claude Code approval/completion hooks.
 
 Not included: browser/PWA UI, QR pairing, Ghostty handover, LAN/relay transports, team collaboration, arbitrary terminal-prompt inference, snapshots, or generic agent-hook catalogues.
 
 ## Start
 
-Prerequisites: `tmux`, a Telegram bot token from BotFather, and Go 1.26.4+ when building from source. Codex sessions require a local authenticated `codex` CLI; Claude Code sessions require a local authenticated `claude` CLI.
+Prerequisites: one of `tmux`, Zellij, or GNU Screen, a Telegram bot token from BotFather, and Go 1.26.4+ when building from source. Codex sessions require a local authenticated `codex` CLI; Claude Code sessions require a local authenticated `claude` CLI.
 
 ```sh
 make build
@@ -85,14 +85,15 @@ The first start prints a pairing command. Send it from the one Telegram account 
 /kill
 ```
 
-Plain messages go to the selected session and append Enter. Unknown slash commands go to that session too; prefix a conflicting Onibi command with `//` (for example, `//help`). `/paste` makes the next message literal, with no implicit Enter, and expires after five minutes. `/keys` exposes arrows, Tab, Shift-Tab, Backspace, Delete, Home, End, PgUp, PgDn, Esc, Ctrl-C, Ctrl-D, Ctrl-Z, Ctrl-L, Ctrl-R, Enter, and tmux size presets; `/key <name>` accepts the same keys plus `ctrl-a` through `ctrl-z`, `meta-a` through `meta-z`, and `f1` through `f12`.
+Plain messages go to the selected session and append Enter. Unknown slash commands go to that session too; prefix a conflicting Onibi command with `//` (for example, `//help`). `/paste` makes the next message literal, with no implicit Enter, and expires after five minutes. `/keys` exposes arrows, Tab, Shift-Tab, Backspace, Delete, Home, End, PgUp, PgDn, Esc, Ctrl-C, Ctrl-D, Ctrl-Z, Ctrl-L, Ctrl-R, Enter, and supported-backend size presets; `/key <name>` accepts the same keys plus `ctrl-a` through `ctrl-z`, `meta-a` through `meta-z`, and `f1` through `f12`.
 
-Codex sessions are semantic, not tmux windows: after `/new codex`, send a normal message to start a turn. A later normal message steers the active turn. Claude Code runs in tmux; Onibi attaches an owned settings file with permission, structured `AskUserQuestion`, and completion hooks. Claude question cards support sequential single-select, multi-select, and free-text answers; their default expiry is three minutes and is configurable with `daemon.claude_question_timeout` (30s–10m). `/font` selects the terminal-screen font remotely; JetBrainsMono Nerd Font Mono, Caskaydia Cove Nerd Font Mono, and Go Mono Nerd Font Mono are embedded. To use a locally installed BigBlueTerminal Nerd Font Mono, set `screen.font_path` then `screen.font=custom` locally.
+Codex sessions are semantic, not terminal-multiplexer windows: after `/new codex`, send a normal message to start a turn. A later normal message steers the active turn. Claude Code runs in the selected terminal backend; Onibi attaches an owned settings file with permission, structured `AskUserQuestion`, and completion hooks. Claude question cards support sequential single-select, multi-select, and free-text answers; their default expiry is three minutes and is configurable with `daemon.claude_question_timeout` (30s–10m). `/font` selects the terminal-screen font remotely; JetBrainsMono Nerd Font Mono, Caskaydia Cove Nerd Font Mono, and Go Mono Nerd Font Mono are embedded. To use a locally installed BigBlueTerminal Nerd Font Mono, set `screen.font_path` then `screen.font=custom` locally.
 
 ## Local CLI
 
 ```sh
 ./bin/onibi session new shell --name work
+./bin/onibi session new shell --name work --mux zellij --cwd /path/to/repo
 ./bin/onibi session list
 ./bin/onibi telegram status --check
 ./bin/onibi system status
@@ -101,17 +102,54 @@ Codex sessions are semantic, not tmux windows: after `/new codex`, send a normal
 ./bin/onibi system service install
 ```
 
+## Terminal multiplexers and project configuration
+
+Onibi supports `tmux`, Zellij, and GNU Screen for shell, Pi, and Claude Code
+sessions. The default `multiplexer.default=auto` chooses the first available
+backend in this order: tmux, Zellij, GNU Screen. Override it for one session
+with `--mux` locally or from Telegram:
+
+```text
+/new shell --cwd /path/to/repo --mux zellij
+```
+
+Global multiplexer settings live in Onibi's normal `config.yaml`. A project may
+contain a `.onibi.yaml` with only a `multiplexer` section; it overrides the
+backend choice for sessions started in that project:
+
+```yaml
+multiplexer:
+  default: zellij
+  tmux:
+    config: .tmux/onibi.conf
+```
+
+`multiplexer.tmux.config=auto` resolves a project `.tmux.conf` first, followed
+by `~/.config/tmux/tmux.conf` and `~/.tmux.conf`. GNU Screen similarly resolves
+`.screenrc`, and Zellij accepts an explicit KDL file through
+`multiplexer.zellij.config`. Inspect the effective layers without starting a
+session:
+
+```sh
+./bin/onibi system config resolve --cwd /path/to/repo
+```
+
+Zellij runs headlessly and Onibi targets its created pane directly. Its CLI
+does not offer an exact terminal viewport-size API, so `/size` reports that
+limitation instead of claiming success. tmux and GNU Screen support Onibi's
+size presets.
+
 `onibi session new` needs a running daemon. `onibi system service install` starts `onibi start` in the per-user service manager.
 
 `onibi system status` reports actual daemon socket and service liveness. If `daemon_running=false`, start the daemon or install/restart the service before using Telegram.
 
 ## Delivery and uploads
 
-Onibi persists Telegram update claims before executing an input. If it restarts mid-update, it marks that input uncertain and asks you to inspect/resend rather than executing it again. Screens, final tails, and session-ended notices are queued as durable intents and retried; terminal text and PNGs are held only in memory around delivery and never stored in that queue. Automatic generic-input screens are debounced for 500ms, deduplicated by rendered terminal state, and share one capture between the status tail and PNG. `/status` reports poll freshness, delivery failures, queue depth, and tmux health for each live session; it alerts after three consecutive poll failures, on permanent delivery failures, and once on recovery.
+Onibi persists Telegram update claims before executing an input. If it restarts mid-update, it marks that input uncertain and asks you to inspect/resend rather than executing it again. Screens, final tails, and session-ended notices are queued as durable intents and retried; terminal text and PNGs are held only in memory around delivery and never stored in that queue. Automatic generic-input screens are debounced for 500ms, deduplicated by rendered terminal state, and share one capture between the status tail and PNG. `/status` reports poll freshness, delivery failures, queue depth, and multiplexer health for each live session; it alerts after three consecutive poll failures, on permanent delivery failures, and once on recovery.
 
-The daemon checks managed tmux sessions every five seconds. A locally ended tmux session becomes unavailable immediately on the next check and sends one ended notice. Change the cadence with `daemon.liveness_interval` (1s–5m).
+The daemon checks managed terminal-multiplexer sessions every five seconds. A locally ended session becomes unavailable immediately on the next check and sends one ended notice. Change the cadence with `daemon.liveness_interval` (1s–5m).
 
-Send a Telegram document to stage it privately for the selected live tmux session. Onibi downloads it to `state/uploads/<session-id>/`, reports its local path, and does not insert or execute it. Defaults: 20 MiB, seven-day retention; configure `daemon.upload_max_bytes` (1–100 MiB) and `daemon.upload_ttl` (1h–30d).
+Send a Telegram document to stage it privately for the selected live terminal session. Onibi downloads it to `state/uploads/<session-id>/`, reports its local path, and does not insert or execute it. Defaults: 20 MiB, seven-day retention; configure `daemon.upload_max_bytes` (1–100 MiB) and `daemon.upload_ttl` (1h–30d).
 
 ## Decisions and safety
 
