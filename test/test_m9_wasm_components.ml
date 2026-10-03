@@ -336,6 +336,12 @@ let assert_runtime_neutral_conformance ~runtime root =
   let profiler = Profiler.enabled ~capacity:512 |> must in
   let value = session root ~trace ~profiler () in
   let value =
+    await_component value (fun value ->
+        Zenbu_app.Session.inspect value Zenbu_app.Session.Plugins
+        |> String.concat "\n"
+        |> contains (conformance_id ^ " 1.0.0 active " ^ runtime))
+  in
+  let value =
     await_component
       (Zenbu_app.Session.handle_input value (ctrl "K"))
       (fun value -> Zenbu_app.Session.contents value = "!alpha")

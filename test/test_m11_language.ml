@@ -1673,7 +1673,7 @@ let user_language_config ?(id = "test.user-config") ~executable ~cwd ~workspace
     ]
 
 let language_config_load_and_launch_test () =
-  let root = temporary_directory "zenbu-m11-config" in
+  let root = temporary_directory "zenbu-m11-config" |> Unix.realpath in
   let nested = Filename.concat root "nested" in
   let source = Filename.concat nested "sample.ml" in
   let config_path = Filename.concat root "language-servers.toml" in

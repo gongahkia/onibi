@@ -2237,6 +2237,8 @@ let test_project_text_search () =
       save_file capped_path ("needle" ^ String.make 64 'x');
       save_file bravo_path "bravo\nspecial needle\n";
       save_file unicode_path "prefix\n界needle界\n";
+      let canonical_bravo_path = Unix.realpath bravo_path in
+      let canonical_unicode_path = Unix.realpath unicode_path in
       save_file hidden_path "needle";
       save_file binary_path "needle\000binary";
       let root = App.Project_root.select root_path |> project_must in
@@ -2276,7 +2278,7 @@ let test_project_text_search () =
            App.Project_search.validate_result root ~query:"needle"
              unicode_result
          with
-        | Ok path -> String.equal path unicode_path
+        | Ok path -> String.equal path canonical_unicode_path
         | Error _ -> false)
         "project search rejected a current UTF-8 result";
       let file_limited =
@@ -2435,7 +2437,7 @@ let test_project_text_search () =
       expect
         (App.Session.contents opened = "bravo\nspecial needle\n"
         && App.Session.buffer_count opened = 2
-        && App.Session.file_path opened = Some bravo_path
+        && App.Session.file_path opened = Some canonical_bravo_path
         && (primary_selection opened).head_offset = String.length "bravo\n")
         "project-search activation did not use the normal buffer and selection \
          path";
