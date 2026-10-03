@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
-	"strings"
 
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/mux"
@@ -95,16 +94,3 @@ func (d *Daemon) muxSessionError(ctx context.Context, s *Session, err error) err
 }
 
 func isTerminalSession(s *Session) bool { return s != nil && s.Transport != "codex" }
-
-func muxKindLabel(kind string) string {
-	switch strings.ToLower(kind) {
-	case mux.Tmux:
-		return "tmux"
-	case mux.Zellij:
-		return "Zellij"
-	case mux.Screen:
-		return "GNU Screen"
-	default:
-		return kind
-	}
-}

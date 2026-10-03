@@ -14,6 +14,7 @@ import (
 	"github.com/gongahkia/onibi/internal/intake"
 	"github.com/gongahkia/onibi/internal/render"
 	"github.com/gongahkia/onibi/internal/telegram"
+	"github.com/gongahkia/onibi/internal/tmux"
 	"github.com/spf13/cobra"
 )
 
@@ -228,7 +229,11 @@ func doctorCheckMultiplexer(report *doctorReport, cfg config.Config) {
 			bin = strings.TrimSpace(os.Getenv("ONIBI_" + strings.ToUpper(kind) + "_BIN"))
 		}
 		if bin == "" {
-			bin = kind
+			if kind == "tmux" {
+				bin = tmux.DefaultBin()
+			} else {
+				bin = kind
+			}
 		}
 		if path, err := exec.LookPath(bin); err == nil {
 			available[kind] = path

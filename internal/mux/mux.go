@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/gongahkia/onibi/internal/config"
+	internalTmux "github.com/gongahkia/onibi/internal/tmux"
 )
 
 const (
@@ -154,6 +155,12 @@ func defaultBin(kind, configured string) string {
 	}
 	if value := strings.TrimSpace(os.Getenv("ONIBI_" + strings.ToUpper(kind) + "_BIN")); value != "" {
 		return value
+	}
+	// Preserve tmux's established Homebrew, MacPorts, Nix, and local-bin
+	// discovery rather than requiring every supported installation to be on
+	// PATH just because it now sits behind the generic backend interface.
+	if kind == Tmux {
+		return internalTmux.DefaultBin()
 	}
 	if path, err := exec.LookPath(kind); err == nil {
 		return path
