@@ -1753,7 +1753,9 @@ let language_config_load_and_launch_test () =
 let language_config_policy_rejection_test () =
   let root = temporary_directory "zenbu-m11-config-invalid" in
   let config_path = Filename.concat root "language-servers.toml" in
-  let untrusted_executable = Filename.concat root "server" in
+  let untrusted_executable =
+    Filename.temp_file ~temp_dir:"/tmp" "zenbu-m11-untrusted-" ""
+  in
   Fun.protect
     ~finally:(fun () ->
       remove_if_present config_path;

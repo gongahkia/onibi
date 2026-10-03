@@ -125,10 +125,11 @@ let unauthorized_import_fixture =
 let toml_array values =
   values |> List.map (Printf.sprintf "%S") |> String.concat ", "
 
-let manifest ?(entrypoint = "plugin.wasm") ~id ~version ~contributions
-    ~capabilities () =
-  Printf.sprintf
-    {|
+let manifest ?(entrypoint = "plugin.wasm") ?wasm_limits ~id ~version
+    ~contributions ~capabilities () =
+  let text =
+    Printf.sprintf
+      {|
 manifest_version = 1
 
 [plugin]
@@ -141,7 +142,15 @@ entrypoint = %S
 contributions = [%s]
 capabilities = [%s]
 |}
-    id version entrypoint (toml_array contributions) (toml_array capabilities)
+      id version entrypoint (toml_array contributions) (toml_array capabilities)
+  in
+  match wasm_limits with
+  | None -> text
+  | Some (fuel, memory_bytes, deadline_ms) ->
+      text
+      ^ Printf.sprintf
+          "\n[wasm]\nfuel = %d\nmemory_bytes = %d\ndeadline_ms = %d\n" fuel
+          memory_bytes deadline_ms
 
 let create_package root ?(directory = "fixture") ?(entrypoint = "plugin.wasm")
     ?(binary = component_fixture) ~id ~version ~contributions ~capabilities () =
@@ -150,7 +159,9 @@ let create_package root ?(directory = "fixture") ?(entrypoint = "plugin.wasm")
   write (Filename.concat package entrypoint) (Lazy.force binary);
   write
     (Filename.concat package "zenbu-plugin.toml")
-    (manifest ~entrypoint ~id ~version ~contributions ~capabilities ());
+    (manifest ~entrypoint
+       ~wasm_limits:(5_000_000, 16_777_216, 10_000)
+       ~id ~version ~contributions ~capabilities ());
   package
 
 let ctrl text =
