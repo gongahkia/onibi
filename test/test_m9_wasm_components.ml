@@ -337,9 +337,11 @@ let assert_runtime_neutral_conformance ~runtime root =
   let value = session root ~trace ~profiler () in
   let value =
     await_component value (fun value ->
-        Zenbu_app.Session.inspect value Zenbu_app.Session.Plugins
-        |> String.concat "\n"
-        |> contains (conformance_id ^ " 1.0.0 active " ^ runtime))
+        let plugins =
+          Zenbu_app.Session.inspect value Zenbu_app.Session.Plugins
+          |> String.concat "\n"
+        in
+        contains plugins (conformance_id ^ " 1.0.0 active " ^ runtime))
   in
   let value =
     await_component
