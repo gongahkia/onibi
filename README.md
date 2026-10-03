@@ -39,8 +39,10 @@ ONIBI_TELEGRAM_TOKEN='your-token-from-BotFather' make setup
 ```
 
 The Makefile shows a short installation-oriented progress report by default.
-Use `VERBOSE=1 make setup` (or another Make target) to print its underlying
-commands for troubleshooting.
+On an interactive terminal, builds, tests, linting, and module tidying use a
+small ghost loader; successful command output stays out of the way, while
+failed-command output is replayed. Use `VERBOSE=1 make setup` (or another Make
+target) to disable the loader and print underlying commands for troubleshooting.
 
 `make dogfood` stops with `Ctrl-C`. Run `make doctor` at any time for a
 read-only readiness report; add `./bin/onibi doctor --check-telegram` to also
