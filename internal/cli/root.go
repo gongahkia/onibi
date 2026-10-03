@@ -8,7 +8,7 @@ import (
 func Root() *cobra.Command {
 	root := &cobra.Command{Use: "onibi", Short: "Telegram command center for local tmux and coding sessions", SilenceUsage: true}
 	root.PersistentFlags().Bool("debug", false, "print debug errors")
-	root.AddCommand(startCmd(), telegramCmd(), sessionCmd(), piCmd(), systemCmd(), versionCmd(), completionCmd())
+	root.AddCommand(startCmd(), telegramCmd(), sessionCmd(), piCmd(), systemCmd(), doctorCmd(), versionCmd(), completionCmd())
 	return root
 }
 func DebugEnabled(root *cobra.Command) bool { v, _ := root.Flags().GetBool("debug"); return v }

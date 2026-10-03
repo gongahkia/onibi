@@ -20,6 +20,41 @@ make build
 ./bin/onibi start
 ```
 
+### Dogfooding
+
+Use a dedicated BotFather bot while evaluating Onibi. It has access to the
+terminal sessions you create, so do not use it with sensitive production
+output. The Makefile provides the full foreground workflow:
+
+```sh
+export ONIBI_TELEGRAM_TOKEN='your-token-from-BotFather'
+make setup       # builds, validates/stores the token, then checks readiness
+make dogfood     # checks readiness and starts the daemon in the foreground
+```
+
+`make dogfood` stops with `Ctrl-C`. Run `make doctor` at any time for a
+read-only readiness report; add `./bin/onibi doctor --check-telegram` to also
+verify the stored token against the Telegram API. Once the foreground flow is
+working, install the binaries and the per-user background service:
+
+```sh
+make install
+~/.local/bin/onibi system service install
+```
+
+To stop the installed service and remove the installed binaries while retaining
+logs, sessions, configuration, and credentials, run `make uninstall`. To also
+revoke the bot token and owner pairing first, run:
+
+```sh
+~/.local/bin/onibi telegram disable
+make uninstall
+```
+
+The retained state directory is `~/.local/share/onibi` on Linux by default
+(or `$XDG_DATA_HOME/onibi`) and `~/Library/Application Support/onibi` on macOS.
+Move it aside if you want a recoverable clean slate.
+
 The first start prints a pairing command. Send it from the one Telegram account that should control Onibi. The bot then accepts:
 
 ```text
