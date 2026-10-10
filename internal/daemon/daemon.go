@@ -187,6 +187,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 		d.Log.Info("cancelled pending Claude questions", "count", n)
 	}
 	wg.Wait()
+	if errors.Is(runErr, errTelegramDisabled) {
+		return nil
+	}
 	if runErr != nil {
 		return runErr
 	}
@@ -219,14 +222,27 @@ func (d *Daemon) liveSessions() []*Session {
 }
 func (d *Daemon) sessionByID(id string) (*Session, error) {
 	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil, ErrUnknownSession
+	}
 	var name []*Session
+	var prefix []*Session
 	for _, s := range d.liveSessions() {
-		if s.ID == id || strings.HasPrefix(s.ID, id) {
+		if s.ID == id {
 			return s, nil
+		}
+		if strings.HasPrefix(s.ID, id) {
+			prefix = append(prefix, s)
 		}
 		if s.Name == id {
 			name = append(name, s)
 		}
+	}
+	if len(prefix) == 1 {
+		return prefix[0], nil
+	}
+	if len(prefix) > 1 {
+		return nil, errors.New("ambiguous session id")
 	}
 	if len(name) == 1 {
 		return name[0], nil

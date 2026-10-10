@@ -31,6 +31,7 @@ const (
 
 var codexStatusDelay = time.Second
 var screenAutoDelay = 500 * time.Millisecond
+var errTelegramDisabled = errors.New("Telegram disabled")
 
 type telegramCard struct {
 	Kind       string              `json:"kind"`
@@ -91,11 +92,30 @@ type telegramBridge struct {
 func newSessionHelp() string { return "/new shell, /new codex, /new pi, or /new claude" }
 
 func (d *Daemon) runTelegramBridge(ctx context.Context) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	c := telegram.NewClient(d.TelegramToken)
 	if err := c.DeleteWebhook(ctx); err != nil {
 		d.Log.Warn("Telegram delete webhook", "err", err)
 	}
 	b := &telegramBridge{d: d, client: c, ownerID: d.TelegramOwnerID, ownerUserID: d.TelegramOwnerUserID, seen: map[string]bool{}, sending: map[string]bool{}, killArmed: map[int64]time.Time{}, cards: map[string]telegramCard{}, statuses: map[string]codexStatus{}, agentStatuses: map[string]agentStatus{}, autoScreens: map[string]*scheduledScreen{}, lastScreens: map[string]string{}, outboxWake: make(chan struct{}, 1)}
+	disabled := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(250 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if !b.telegramEnabled(ctx) {
+					close(disabled)
+					cancel()
+					return
+				}
+			}
+		}
+	}()
 	if err := d.DB.TelegramOutboxRecover(ctx); err != nil {
 		d.Log.Warn("recover Telegram outbox", "err", err)
 	}
@@ -117,10 +137,23 @@ func (d *Daemon) runTelegramBridge(ctx context.Context) error {
 	failures := 0
 	for {
 		if ctx.Err() != nil {
+			select {
+			case <-disabled:
+				return errTelegramDisabled
+			default:
+			}
 			return ctx.Err()
+		}
+		if !b.telegramEnabled(ctx) {
+			return errTelegramDisabled
 		}
 		updates, err := c.GetUpdates(ctx, offset, 25)
 		if err != nil {
+			select {
+			case <-disabled:
+				return errTelegramDisabled
+			default:
+			}
 			failures++
 			d.queueHealthEvent(ctx, d.health.pollResult(ctx, err))
 			delay := telegram.ReconnectBackoff(failures)
@@ -137,6 +170,9 @@ func (d *Daemon) runTelegramBridge(ctx context.Context) error {
 		failures = 0
 		d.queueHealthEvent(ctx, d.health.pollResult(ctx, nil))
 		for _, update := range updates {
+			if !b.telegramEnabled(ctx) {
+				return errTelegramDisabled
+			}
 			claimed, err := d.DB.TelegramClaimUpdate(ctx, update.UpdateID)
 			if err != nil {
 				d.Log.Warn("claim Telegram update", "update", update.UpdateID, "err", err)
@@ -157,6 +193,9 @@ func (d *Daemon) runTelegramBridge(ctx context.Context) error {
 }
 
 func (b *telegramBridge) handleUpdate(ctx context.Context, update telegram.Update) {
+	if !b.telegramEnabled(ctx) {
+		return
+	}
 	if update.CallbackQuery != nil {
 		b.handleCallback(ctx, update.CallbackQuery)
 		return
@@ -218,6 +257,18 @@ func (b *telegramBridge) handleCommand(ctx context.Context, chatID int64, text s
 		}
 		b.setTarget(ctx, chatID, s.ID)
 		b.send(ctx, chatID, "Target: "+s.Name+" ("+shortID(s.ID)+").", b.sessionControls(ctx, s.ID))
+	case "/to":
+		parts := strings.SplitN(strings.TrimSpace(arg), " ", 2)
+		if len(parts) != 2 || strings.TrimSpace(parts[1]) == "" {
+			b.send(ctx, chatID, "Usage: /to <session-name-or-id> <text>", nil)
+			return true
+		}
+		s, err := b.d.sessionByID(parts[0])
+		if err != nil {
+			b.send(ctx, chatID, "Target failed: "+err.Error(), nil)
+			return true
+		}
+		b.handleInputForSession(ctx, &telegram.Message{Chat: telegram.Chat{ID: chatID, Type: "private"}, Text: parts[1]}, s.ID)
 	case "/new":
 		b.handleNew(ctx, chatID, arg)
 	case "/tail", "/peek", "/text":
@@ -264,10 +315,13 @@ func (b *telegramBridge) handleCommand(ctx context.Context, chatID int64, text s
 }
 
 func (b *telegramBridge) handleInput(ctx context.Context, m *telegram.Message) {
-	s, err := b.d.sessionForRPCTarget(b.target(ctx, m.Chat.ID))
+	b.handleInputForSession(ctx, m, b.target(ctx, m.Chat.ID))
+}
+func (b *telegramBridge) handleInputForSession(ctx context.Context, m *telegram.Message, sessionID string) {
+	s, err := b.d.sessionForRPCTarget(sessionID)
 	if err != nil {
-		if errors.Is(err, ErrSessionEnded) || b.isSessionEnded(ctx, b.target(ctx, m.Chat.ID)) {
-			b.send(ctx, m.Chat.ID, b.sessionEndedText(ctx, m.Chat.ID, b.target(ctx, m.Chat.ID)), nil)
+		if errors.Is(err, ErrSessionEnded) || b.isSessionEnded(ctx, sessionID) {
+			b.send(ctx, m.Chat.ID, b.sessionEndedText(ctx, m.Chat.ID, sessionID), nil)
 			return
 		}
 		b.send(ctx, m.Chat.ID, "Select a session with /sessions or create one with "+newSessionHelp()+".", nil)
@@ -536,12 +590,23 @@ func (b *telegramBridge) handleCallback(ctx context.Context, q *telegram.Callbac
 		_ = b.client.AnswerCallbackQuery(ctx, q.ID, "expired control")
 		return
 	}
-	card, ok := b.takeCard(ctx, strings.TrimPrefix(q.Data, "c:"))
+	token := strings.TrimPrefix(q.Data, "c:")
+	card, ok := b.peekCard(ctx, token)
 	if !ok {
 		_ = b.client.AnswerCallbackQuery(ctx, q.ID, "expired control")
 		return
 	}
 	b.d.audit(ctx, "telegram.card", card.SessionID, q.Data, q.Message.Chat.ID, "kind="+card.Kind)
+	// Codex's response can fail transiently. Keep this persisted button live
+	// until the App Server has accepted the decision.
+	if card.Kind == "codex_approval" {
+		if b.resolveCodexApproval(ctx, q.Message.Chat.ID, q.Message.MessageID, card) {
+			b.deleteCard(ctx, token)
+		}
+		_ = b.client.AnswerCallbackQuery(ctx, q.ID, "ok")
+		return
+	}
+	b.deleteCard(ctx, token)
 	switch card.Kind {
 	case "target":
 		s, err := b.d.sessionByID(card.SessionID)
@@ -563,8 +628,6 @@ func (b *telegramBridge) handleCallback(ctx context.Context, q *telegram.Callbac
 		b.setFont(ctx, q.Message.Chat.ID, q.Message.MessageID, card.Decision)
 	case "approval":
 		b.resolveApproval(ctx, q.Message.Chat.ID, q.Message.MessageID, card)
-	case "codex_approval":
-		b.resolveCodexApproval(ctx, q.Message.Chat.ID, q.Message.MessageID, card)
 	case "codex_input":
 		b.resolveCodexInput(ctx, q.Message.Chat.ID, q.Message.MessageID, card)
 	case "claude_question":
@@ -907,7 +970,19 @@ func (b *telegramBridge) queueScreen(ctx context.Context, chatID int64, sessionI
 	if b.d.DB == nil || chatID == 0 {
 		return
 	}
-	item := store.TelegramOutboxIntent{ID: NewID(), DedupeKey: "screen:" + strconv.FormatInt(chatID, 10) + ":" + sessionID, Kind: "screen", ChatID: chatID, SessionID: sessionID, Title: title, ForceScreen: force, NextAttempt: at}
+	fallback := ""
+	if frame, ok := b.d.CachedSessionFrame(sessionID); ok {
+		fallback = boundedText(terminalCard(title, frame.Tail))
+	} else if deliver {
+		if frame, err := b.d.CaptureSessionFrame(ctx, sessionID); err == nil {
+			fallback = boundedText(terminalCard(title, frame.Tail))
+		}
+	} else if s, err := b.d.Registry.Get(sessionID); err == nil {
+		if tail := strings.TrimSpace(string(s.Buf.Snapshot())); tail != "" {
+			fallback = boundedText(terminalCard(title, tail))
+		}
+	}
+	item := store.TelegramOutboxIntent{ID: NewID(), DedupeKey: "screen:" + strconv.FormatInt(chatID, 10) + ":" + sessionID, Kind: "screen", ChatID: chatID, SessionID: sessionID, Title: title, ForceScreen: force, FallbackText: fallback, NextAttempt: at}
 	if err := b.d.DB.TelegramOutboxUpsert(ctx, item); err != nil {
 		b.d.Log.Warn("queue Telegram screen", "err", err)
 		return
@@ -961,6 +1036,9 @@ func (b *telegramBridge) flushAutoScreen(ctx context.Context, key string) {
 		b.wakeOutbox()
 		return
 	}
+	if err := b.d.DB.TelegramOutboxSetFallback(ctx, "screen:"+strconv.FormatInt(state.ChatID, 10)+":"+state.SessionID, boundedText(terminalCard(state.Title, frame.Tail))); err != nil {
+		b.d.Log.Warn("save screen fallback", "err", err)
+	}
 	for _, statusID := range state.Statuses {
 		if b.edit(ctx, state.ChatID, statusID, terminalCard(state.Title, frame.Tail), b.sessionControls(ctx, state.SessionID)) != nil {
 			b.enqueueTail(ctx, state.ChatID, state.SessionID, state.Title)
@@ -971,6 +1049,18 @@ func (b *telegramBridge) flushAutoScreen(ctx context.Context, key string) {
 }
 
 func (b *telegramBridge) enqueueTail(ctx context.Context, chatID int64, sessionID, title string) {
+	// Capture while the session still exists. Retrying a live-tail intent after
+	// the process exits would otherwise discard its final output.
+	if tail, err := b.d.CaptureSessionTail(ctx, sessionID, 80); err == nil {
+		b.enqueueOutbox(ctx, "notice", chatID, sessionID, boundedText(terminalCard(title, tail)), 0, "tail:"+strconv.FormatInt(chatID, 10)+":"+sessionID)
+		return
+	}
+	if s, err := b.d.Registry.Get(sessionID); err == nil {
+		if tail := strings.TrimSpace(string(s.Buf.Snapshot())); tail != "" {
+			b.enqueueOutbox(ctx, "notice", chatID, sessionID, boundedText(terminalCard(title, tail)), 0, "tail:"+strconv.FormatInt(chatID, 10)+":"+sessionID)
+			return
+		}
+	}
 	b.enqueueOutbox(ctx, "tail", chatID, sessionID, title, 80, "tail:"+strconv.FormatInt(chatID, 10)+":"+sessionID)
 }
 
@@ -990,6 +1080,9 @@ func (b *telegramBridge) runOutbox(ctx context.Context) {
 
 func (b *telegramBridge) deliverOutbox(ctx context.Context) {
 	for range 8 {
+		if !b.telegramEnabled(ctx) {
+			return
+		}
 		item, err := b.d.DB.TelegramOutboxClaim(ctx)
 		if err != nil {
 			b.d.Log.Warn("claim Telegram outbox", "err", err)
@@ -1014,6 +1107,20 @@ func (b *telegramBridge) deliverOutbox(ctx context.Context) {
 	}
 }
 
+func (b *telegramBridge) telegramEnabled(ctx context.Context) bool {
+	if b.d.DB == nil {
+		return false
+	}
+	value, set, err := b.d.DB.KVGetString(ctx, TelegramKVEnabled)
+	if err != nil {
+		b.d.Log.Warn("check Telegram enabled", "err", err)
+		return false
+	}
+	// Older installations predate the kill switch and remain enabled until
+	// setup or disable writes an explicit state.
+	return !set || value == "1"
+}
+
 func (b *telegramBridge) dispatchOutbox(ctx context.Context, item store.TelegramOutboxIntent) error {
 	switch item.Kind {
 	case "notice":
@@ -1029,6 +1136,10 @@ func (b *telegramBridge) dispatchOutbox(ctx context.Context, item store.Telegram
 			var err error
 			frame, err = b.d.CaptureSessionFrame(ctx, item.SessionID)
 			if errors.Is(err, ErrSessionEnded) {
+				if item.FallbackText != "" {
+					_, sendErr := b.client.SendMessage(ctx, item.ChatID, boundedText(item.FallbackText+"\n\nSession ended before the screen could be delivered."), nil)
+					return sendErr
+				}
 				b.enqueueOutbox(ctx, "ended", item.ChatID, item.SessionID, "", 0, "ended:"+item.SessionID)
 				return nil
 			}
@@ -1190,6 +1301,9 @@ func (b *telegramBridge) updateCodexStatus(ctx context.Context, event CodexEvent
 	}
 	b.mu.Lock()
 	state := b.statuses[event.SessionID]
+	if event.Kind == "delta" {
+		state.Text = appendCodexDelta(state.Text, event.Text)
+	}
 	if event.Kind == "progress" {
 		state.Text = appendCodexStatus(state.Text, event.Text)
 	}
@@ -1214,6 +1328,13 @@ func appendCodexStatus(current, next string) string {
 		return joined
 	}
 	return "…\n" + joined[len(joined)-3598:]
+}
+func appendCodexDelta(current, next string) string {
+	joined := current + next
+	if len(joined) <= 3600 {
+		return joined
+	}
+	return "…" + joined[len(joined)-3599:]
 }
 
 func (b *telegramBridge) flushCodexStatus(ctx context.Context, sessionID string) {
@@ -1350,11 +1471,11 @@ func formatCodexApproval(method string, s *Session, p map[string]any) string {
 	}
 	return boundedText(strings.TrimSpace(out.String()))
 }
-func (b *telegramBridge) resolveCodexApproval(ctx context.Context, chatID, messageID int64, card telegramCard) {
+func (b *telegramBridge) resolveCodexApproval(ctx context.Context, chatID, messageID int64, card telegramCard) bool {
 	var result any
 	if len(card.Payload) == 0 {
 		b.edit(ctx, chatID, messageID, "Codex request expired.", nil)
-		return
+		return false
 	}
 	if isPermissionsRequest(card.Payload) {
 		var params map[string]any
@@ -1374,10 +1495,15 @@ func (b *telegramBridge) resolveCodexApproval(ctx context.Context, chatID, messa
 		result = map[string]any{"decision": card.Decision}
 	}
 	if err := b.d.RespondCodexRequest(ctx, card.SessionID, card.RequestID, result); err != nil {
-		b.edit(ctx, chatID, messageID, "Codex decision failed: "+err.Error(), nil)
-		return
+		if errors.Is(err, ErrCodexRequestAlreadyAnswered) || errors.Is(err, ErrCodexRequestNotPending) {
+			b.edit(ctx, chatID, messageID, "Codex request already answered or expired.", nil)
+			return true
+		}
+		b.send(ctx, chatID, "Codex decision failed: "+err.Error()+". Retry using the original button.", nil)
+		return false
 	}
 	b.edit(ctx, chatID, messageID, "Codex decision: "+card.Decision+".", nil)
+	return true
 }
 func isPermissionsRequest(raw json.RawMessage) bool {
 	var p map[string]any
@@ -1764,9 +1890,15 @@ func (b *telegramBridge) newCard(ctx context.Context, card telegramCard) (string
 	return "", fmt.Errorf("generate callback token")
 }
 func (b *telegramBridge) takeCard(ctx context.Context, token string) (telegramCard, bool) {
+	card, ok := b.peekCard(ctx, token)
+	if ok {
+		b.deleteCard(ctx, token)
+	}
+	return card, ok
+}
+func (b *telegramBridge) peekCard(ctx context.Context, token string) (telegramCard, bool) {
 	b.mu.Lock()
 	card, ok := b.cards[token]
-	delete(b.cards, token)
 	b.mu.Unlock()
 	if !ok && b.d.DB != nil {
 		payload, found, err := b.d.DB.KVGet(ctx, telegramCardPrefix+token)
@@ -1775,13 +1907,20 @@ func (b *telegramBridge) takeCard(ctx context.Context, token string) (telegramCa
 		}
 		ok = true
 	}
-	if b.d.DB != nil {
-		_ = b.d.DB.KVDel(ctx, telegramCardPrefix+token)
-	}
 	if !ok || (card.ExpiresAt > 0 && card.ExpiresAt <= time.Now().Unix()) {
 		return telegramCard{}, false
 	}
 	return card, ok
+}
+func (b *telegramBridge) deleteCard(ctx context.Context, token string) {
+	b.mu.Lock()
+	delete(b.cards, token)
+	b.mu.Unlock()
+	if b.d.DB != nil {
+		if err := b.d.DB.KVDel(ctx, telegramCardPrefix+token); err != nil {
+			b.d.Log.Warn("delete Telegram card", "err", err)
+		}
+	}
 }
 func (b *telegramBridge) owner() int64     { b.mu.Lock(); defer b.mu.Unlock(); return b.ownerID }
 func (b *telegramBridge) ownerUser() int64 { b.mu.Lock(); defer b.mu.Unlock(); return b.ownerUserID }
@@ -2039,7 +2178,7 @@ func extractNewSessionOptions(args []string) (cwd, requestedMux string, rest []s
 	return cwd, requestedMux, rest, nil
 }
 func telegramHelp() string {
-	return "Onibi\n\n/new shell|codex|pi|claude [--name name] [--cwd path] [--mux auto|tmux|zellij|screen]\n/sessions\n/target <id|name>\n/tail [lines]\n/screen\n/font\n/paste\n/keys\n/key <name>\n/size small|medium|large\n/interrupt\n/esc\n/enter\n/kill\n\nNormal text sends literal input followed by Enter. Documents are privately staged for the selected session. Unknown /commands go to the selected session; // forces a command through when it conflicts with Onibi. /paste makes exactly the next message literal without Enter."
+	return "Onibi\n\n/new shell|codex|pi|claude [--name name] [--cwd path] [--mux auto|tmux|zellij|screen]\n/sessions\n/target <id|name>\n/to <id|name> <text>\n/tail [lines]\n/screen\n/font\n/paste\n/keys\n/key <name>\n/size small|medium|large\n/interrupt\n/esc\n/enter\n/kill\n\nNormal text sends literal input followed by Enter. /to sends text to another session without changing the selected target. Documents are privately staged for the selected session. Unknown /commands go to the selected session; // forces a command through when it conflicts with Onibi. /paste makes exactly the next message literal without Enter."
 }
 func formatApproval(item *approval.Approval, sessionName string) string {
 	if item == nil {

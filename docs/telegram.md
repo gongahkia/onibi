@@ -6,6 +6,7 @@ Onibi long-polls one Telegram bot and accepts one paired private chat. Configure
 
 - `/new shell|codex|pi|claude [--name name] [--cwd path] [--mux auto|tmux|zellij|screen]`: create a session. The working directory must exist locally; names use letters, digits, `.`, `_`, and `-`. `--mux` is unavailable for Codex App Server sessions.
 - `/sessions`: select an active session.
+- `/to <name-or-id> <text>`: send text to another live session without changing the selected target.
 - Plain text: literal input plus Enter.
 - `/paste`: next text is literal input with no Enter; the armed state expires after five minutes.
 - Unknown `/commands` go to the selected session. Prefix a conflicting Onibi command with `//`, such as `//help`.
@@ -22,7 +23,7 @@ Screens use the selected backend's resolved terminal size and screen capture, so
 
 ## Decision cards
 
-Telegram inline keyboards, not polls, carry decisions. Callback data is a short opaque token whose complete state lives locally with a 24-hour expiry and is consumed after one use. Onibi records an audit event, applies the decision atomically, resumes/denies the agent, and edits the card to its terminal state.
+Telegram inline keyboards, not polls, carry decisions. Callback data is a short opaque token whose complete state lives locally with a 24-hour expiry. Codex approval buttons remain retryable if the App Server rejects or fails to receive the response; they are consumed only after a successful response. Onibi records an audit event, applies the decision, resumes/denies the agent, and edits the card to its terminal state.
 
 Codex uses the local [App Server](https://learn.chatgpt.com/docs/app-server) for structured approvals and questions. Its command, file, permission, and input requests map to inline buttons; free-form choices wait for the next message. Onibi never exposes the App Server shell-command endpoint.
 
@@ -37,7 +38,7 @@ Codex App Server sessions do not have a tmux screen. `/new codex` creates a read
 
 ## Reliability and files
 
-Onibi writes the Telegram update claim and next polling offset before it performs an input side effect. On restart, a claimed but incomplete update is reported as uncertain and is not replayed. It persists outbound screen, final-tail, and session-ended intents, then retries delivery with exponential backoff. The queue contains intent metadata only; it captures terminal output and PNGs when delivering, not when enqueueing.
+Onibi writes the Telegram update claim and next polling offset before it performs an input side effect. On restart, a claimed but incomplete update is reported as uncertain and is not replayed. It persists outbound screen, final-tail, and session-ended intents, then retries delivery with exponential backoff. Failed final-tail delivery and queued screens retain bounded text fallbacks for up to 24 hours. Screen intents still capture PNGs at delivery time; if the session exits first, Onibi sends available fallback text instead of the image.
 
 The daemon checks every managed terminal-multiplexer target every five seconds by default. If a target exits locally, Onibi marks it ended, clears it as the selected target when the notice is delivered, and rejects its input, screen, and controls. Configure `daemon.liveness_interval` from 1s to 5m.
 
@@ -45,4 +46,4 @@ Telegram documents are accepted only for the selected live session. Onibi verifi
 
 ## Security
 
-Telegram bots do not use end-to-end encryption. Do not send credentials, recovery phrases, or sensitive production output through the bot. Revoke access with `onibi telegram disable` and rotate the BotFather token if the paired account or token is compromised.
+Telegram bots do not use end-to-end encryption. Do not send credentials, recovery phrases, or sensitive production output through the bot. `onibi telegram disable` blocks a running Onibi daemon and removes its local token and pairing. It cannot revoke the bot token at Telegram; rotate the token through BotFather if the paired account or token is compromised.

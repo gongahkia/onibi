@@ -52,19 +52,22 @@ func TestTelegramOutboxRetriesAndDoesNotStoreTerminalPayload(t *testing.T) {
 	}
 	defer db.Close()
 	ctx := context.Background()
-	item := TelegramOutboxIntent{ID: "out-1", DedupeKey: "screen:42:s1", Kind: "screen", ChatID: 42, SessionID: "s1", Title: "Updated · work", Lines: 80, ForceScreen: true}
+	item := TelegramOutboxIntent{ID: "out-1", DedupeKey: "screen:42:s1", Kind: "screen", ChatID: 42, SessionID: "s1", Title: "Updated · work", Lines: 80, ForceScreen: true, FallbackText: "last visible output"}
 	if err := db.TelegramOutboxUpsert(ctx, item); err != nil {
 		t.Fatal(err)
 	}
 	claimed, err := db.TelegramOutboxClaim(ctx)
-	if err != nil || claimed == nil || claimed.State != OutboxRunning || claimed.Title != item.Title || !claimed.ForceScreen {
+	if err != nil || claimed == nil || claimed.State != OutboxRunning || claimed.Title != item.Title || !claimed.ForceScreen || claimed.FallbackText != item.FallbackText {
 		t.Fatalf("claimed=%#v err=%v", claimed, err)
 	}
 	if err := db.TelegramOutboxRetry(ctx, claimed.ID, "temporary failure", time.Now().Add(-time.Second)); err != nil {
 		t.Fatal(err)
 	}
+	if err := db.TelegramOutboxSetFallback(ctx, item.DedupeKey, "new final output"); err != nil {
+		t.Fatal(err)
+	}
 	claimed, err = db.TelegramOutboxClaim(ctx)
-	if err != nil || claimed == nil || claimed.Attempts != 1 {
+	if err != nil || claimed == nil || claimed.Attempts != 1 || claimed.FallbackText != "new final output" {
 		t.Fatalf("retried=%#v err=%v", claimed, err)
 	}
 	if err := db.TelegramOutboxDelivered(ctx, claimed.ID); err != nil {

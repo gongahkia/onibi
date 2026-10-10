@@ -42,12 +42,18 @@ func (d *Daemon) StartTmuxSession(ctx context.Context, name, agent, bin string, 
 	if initial, err := ctrl.Capture(ctx, target, 80); err == nil {
 		_, _ = s.Buf.Write([]byte(initial))
 	}
+	if d.DB != nil {
+		if err := d.DB.SessionUpsertStart(ctx, s.ID, s.Name, s.Agent, s.CWD, s.Cmd, "tmux", s.TmuxTarget, s.StartedAt()); err != nil {
+			_ = ctrl.KillSession(context.Background(), target)
+			return nil, fmt.Errorf("persist session: %w", err)
+		}
+	}
 	if err := d.Registry.Add(s); err != nil {
 		_ = ctrl.KillSession(context.Background(), target)
+		if d.DB != nil {
+			_ = d.DB.SessionMarkEnded(context.Background(), s.ID, s.StartedAt())
+		}
 		return nil, err
-	}
-	if d.DB != nil {
-		_ = d.DB.SessionUpsertStart(ctx, s.ID, s.Name, s.Agent, s.CWD, s.Cmd, "tmux", s.TmuxTarget, s.StartedAt())
 	}
 	d.audit(ctx, "session.start", s.ID, "", 0, "agent="+agent+" target="+target)
 	d.Log.Info("session started", "session", s.ID, "name", s.Name, "agent", agent, "transport", "tmux")

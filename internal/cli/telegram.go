@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/gongahkia/onibi/internal/daemon"
@@ -53,6 +52,9 @@ func runTelegramSetup(cmd *cobra.Command, _ []string) error {
 	if err := secretsStore.Set(daemon.TelegramSecretBotToken, token); err != nil {
 		return err
 	}
+	if err := db.KVSetString(cmd.Context(), daemon.TelegramKVEnabled, "1"); err != nil {
+		return fmt.Errorf("enable Telegram: %w", err)
+	}
 	chat, user := telegramBinding(cmd.Context(), db)
 	if chat == 0 || user == 0 {
 		code, err := ensurePairCode(cmd.Context(), db)
@@ -79,7 +81,12 @@ func runTelegramStatus(cmd *cobra.Command, _ []string) error {
 	}
 	chat, user := telegramBinding(cmd.Context(), db)
 	check, _ := cmd.Flags().GetBool("check")
-	report := map[string]any{"token": token != "", "owner_paired": chat != 0 && user != 0, "owner_chat_id": chat, "owner_user_id": user, "e2e_encrypted": false, "surface": "Telegram only"}
+	enabled, set, err := db.KVGetString(cmd.Context(), daemon.TelegramKVEnabled)
+	if err != nil {
+		return err
+	}
+	active := token != "" && (!set || enabled == "1")
+	report := map[string]any{"token": token != "", "enabled": active, "owner_paired": chat != 0 && user != 0, "owner_chat_id": chat, "owner_user_id": user, "e2e_encrypted": false, "surface": "Telegram only"}
 	if check && token != "" {
 		bot, err := telegram.NewClient(token).GetMe(cmd.Context())
 		report["token_valid"] = err == nil
@@ -93,7 +100,7 @@ func runTelegramStatus(cmd *cobra.Command, _ []string) error {
 	if asJSON {
 		return json.NewEncoder(cmd.OutOrStdout()).Encode(report)
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "token=%t\nowner_paired=%t\n", token != "", chat != 0 && user != 0)
+	fmt.Fprintf(cmd.OutOrStdout(), "token=%t\nenabled=%t\nowner_paired=%t\n", token != "", active, chat != 0 && user != 0)
 	if chat == 0 || user == 0 {
 		fmt.Fprintln(cmd.OutOrStdout(), "next=onibi telegram setup; onibi start")
 	}
@@ -109,12 +116,19 @@ func runTelegramDisable(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	_ = secretsStore.Delete(daemon.TelegramSecretBotToken)
-	for _, key := range []string{daemon.TelegramKVOwnerChatID, daemon.TelegramKVOwnerUserID, daemon.TelegramKVPairCode} {
-		_ = db.KVDel(cmd.Context(), key)
+	// Persist the kill switch first. A running daemon checks this state before
+	// processing updates or delivering queued output.
+	if err := db.KVSetString(cmd.Context(), daemon.TelegramKVEnabled, "0"); err != nil {
+		return fmt.Errorf("disable Telegram: %w", err)
 	}
-	fmt.Fprintln(cmd.OutOrStdout(), "Telegram disabled.")
+	if err := secretsStore.Delete(daemon.TelegramSecretBotToken); err != nil {
+		return fmt.Errorf("remove Telegram token (access is disabled): %w", err)
+	}
+	for _, key := range []string{daemon.TelegramKVOwnerChatID, daemon.TelegramKVOwnerUserID, daemon.TelegramKVPairCode} {
+		if err := db.KVDel(cmd.Context(), key); err != nil {
+			return fmt.Errorf("remove Telegram pairing (access is disabled): %w", err)
+		}
+	}
+	fmt.Fprintln(cmd.OutOrStdout(), "Telegram disabled locally. Rotate the bot token with BotFather if it was exposed.")
 	return nil
 }
-
-var _ = strconv.IntSize

@@ -74,6 +74,7 @@ The first start prints a pairing command. Send it from the one Telegram account 
 /new codex --cwd /path/to/repo
 /new claude --cwd /path/to/repo
 /sessions
+/to work make test
 /tail 120
 /screen
 /font
@@ -86,6 +87,7 @@ The first start prints a pairing command. Send it from the one Telegram account 
 ```
 
 Plain messages go to the selected session and append Enter. Unknown slash commands go to that session too; prefix a conflicting Onibi command with `//` (for example, `//help`). `/paste` makes the next message literal, with no implicit Enter, and expires after five minutes. `/keys` exposes arrows, Tab, Shift-Tab, Backspace, Delete, Home, End, PgUp, PgDn, Esc, Ctrl-C, Ctrl-D, Ctrl-Z, Ctrl-L, Ctrl-R, Enter, and supported-backend size presets; `/key <name>` accepts the same keys plus `ctrl-a` through `ctrl-z`, `meta-a` through `meta-z`, and `f1` through `f12`.
+`/to <name-or-id> <text>` sends a one-off message to another live session without changing the selected target.
 
 Codex sessions are semantic, not terminal-multiplexer windows: after `/new codex`, send a normal message to start a turn. A later normal message steers the active turn. Claude Code runs in the selected terminal backend; Onibi attaches an owned settings file with permission, structured `AskUserQuestion`, and completion hooks. Claude question cards support sequential single-select, multi-select, and free-text answers; their default expiry is three minutes and is configurable with `daemon.claude_question_timeout` (30s–10m). `/font` selects the terminal-screen font remotely; JetBrainsMono Nerd Font Mono, Caskaydia Cove Nerd Font Mono, and Go Mono Nerd Font Mono are embedded. To use a locally installed BigBlueTerminal Nerd Font Mono, set `screen.font_path` then `screen.font=custom` locally.
 
@@ -94,6 +96,8 @@ Codex sessions are semantic, not terminal-multiplexer windows: after `/new codex
 ```sh
 ./bin/onibi session new shell --name work
 ./bin/onibi session new shell --name work --mux zellij --cwd /path/to/repo
+./bin/onibi session adopt tmux existing-session --name work
+./bin/onibi session adopt zellij 'existing-session|pane-id' --cwd /path/to/repo
 ./bin/onibi session list
 ./bin/onibi telegram status --check
 ./bin/onibi system status
@@ -140,12 +144,13 @@ limitation instead of claiming success. tmux and GNU Screen support Onibi's
 size presets.
 
 `onibi session new` needs a running daemon. `onibi system service install` starts `onibi start` in the per-user service manager.
+`onibi session adopt` also needs a running daemon. It takes control of an existing tmux, Zellij, or GNU Screen target without restarting it. Supply `--cwd` when its project has mux configuration; for Zellij, obtain the pane ID with `zellij --session <name> action list-panes --json`. Adoption grants Onibi full control, including `/kill`, over that target. It does not add Pi/Claude hooks or Codex App Server semantics to a previously running process.
 
 `onibi system status` reports actual daemon socket and service liveness. If `daemon_running=false`, start the daemon or install/restart the service before using Telegram.
 
 ## Delivery and uploads
 
-Onibi persists Telegram update claims before executing an input. If it restarts mid-update, it marks that input uncertain and asks you to inspect/resend rather than executing it again. Screens, final tails, and session-ended notices are queued as durable intents and retried; terminal text and PNGs are held only in memory around delivery and never stored in that queue. Automatic generic-input screens are debounced for 500ms, deduplicated by rendered terminal state, and share one capture between the status tail and PNG. `/status` reports poll freshness, delivery failures, queue depth, and multiplexer health for each live session; it alerts after three consecutive poll failures, on permanent delivery failures, and once on recovery.
+Onibi persists Telegram update claims before executing an input. If it restarts mid-update, it marks that input uncertain and asks you to inspect/resend rather than executing it again. Screens and session-ended notices are queued as durable intents and retried. Failed final-tail delivery and queued screens retain a bounded text fallback so output can still be sent after a session exit; PNGs are never stored in the queue. Delivered/expired outbox entries are purged after 24 hours. Automatic generic-input screens are debounced for 500ms, deduplicated by rendered terminal state, and share one capture between the status tail and PNG. `/status` reports poll freshness, delivery failures, queue depth, and multiplexer health for each live session; it alerts after three consecutive poll failures, on permanent delivery failures, and once on recovery.
 
 The daemon checks managed terminal-multiplexer sessions every five seconds. A locally ended session becomes unavailable immediately on the next check and sends one ended notice. Change the cadence with `daemon.liveness_interval` (1s–5m).
 
@@ -157,7 +162,9 @@ Telegram callback payloads are opaque local tokens. Decisions are persisted befo
 
 Telegram is not end-to-end encrypted for bots. Treat every message, screenshot, and approval payload as terminal-access-sensitive; do not send secrets through this bot. The local OS account remains trusted.
 
-See [Telegram operation details](docs/telegram.md), [threat model](THREAT-MODEL.md), and the implementation boundary in [REWRITE.md](REWRITE.md).
+`onibi telegram disable` writes a live kill switch, clears local token/pairing, and lets a running daemon stop cleanly. It does not invalidate the token at Telegram: rotate it through BotFather if it or your Telegram account may be compromised. Resolved approval and Claude question bodies are scrubbed from local SQLite after 24 hours; pending requests remain until decided or cancelled.
+
+See [Telegram operation details](docs/telegram.md), [threat model](THREAT-MODEL.md), and [security reporting](SECURITY.md).
 
 ## Verification
 

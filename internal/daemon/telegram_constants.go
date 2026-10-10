@@ -11,6 +11,7 @@ const (
 	TelegramKVOwnerChatID  = "telegram.owner_chat_id"
 	TelegramKVOwnerUserID  = "telegram.owner_user_id"
 	TelegramKVPairCode     = "telegram.pair_code"
+	TelegramKVEnabled      = "telegram.enabled"
 )
 
 func NewTelegramPairCode() (string, error) {

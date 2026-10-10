@@ -15,6 +15,9 @@ import (
 
 const codexThreadPrefix = "codex.thread."
 
+var ErrCodexRequestAlreadyAnswered = errors.New("Codex request already answered")
+var ErrCodexRequestNotPending = errors.New("Codex request is no longer pending")
+
 type CodexEvent struct {
 	SessionID string
 	Kind      string
@@ -26,7 +29,7 @@ type codexRuntime struct {
 	threadID  string
 	turnID    string
 	mu        sync.Mutex
-	responded map[string]bool
+	responded map[string]string
 	pending   map[string]bool
 }
 
@@ -62,22 +65,33 @@ func (d *Daemon) StartCodexSession(ctx context.Context, name, cwd string) (*Sess
 	s.Transport = "codex"
 	s.Cmd = "codex app-server"
 	s.CWD = cwd
+	if d.DB != nil {
+		if err := d.DB.SessionUpsertStart(ctx, s.ID, s.Name, s.Agent, s.CWD, s.Cmd, s.Transport, "", s.StartedAt()); err != nil {
+			_ = client.Close()
+			return nil, fmt.Errorf("persist Codex session: %w", err)
+		}
+		if err := d.DB.KVSetString(ctx, codexThreadPrefix+s.ID, threadID); err != nil {
+			_ = d.DB.SessionMarkEnded(context.Background(), s.ID, s.StartedAt())
+			_ = client.Close()
+			return nil, fmt.Errorf("persist Codex thread: %w", err)
+		}
+	}
 	if err := d.Registry.Add(s); err != nil {
 		_ = client.Close()
+		if d.DB != nil {
+			_ = d.DB.SessionMarkEnded(context.Background(), s.ID, s.StartedAt())
+			_ = d.DB.KVDel(context.Background(), codexThreadPrefix+s.ID)
+		}
 		return nil, err
 	}
 	d.addCodexRuntime(ctx, s, client, threadID)
-	if d.DB != nil {
-		_ = d.DB.SessionUpsertStart(ctx, s.ID, s.Name, s.Agent, s.CWD, s.Cmd, s.Transport, "", s.StartedAt())
-		_ = d.DB.KVSetString(ctx, codexThreadPrefix+s.ID, threadID)
-	}
 	d.audit(ctx, "session.start", s.ID, "", 0, "agent=codex transport=app-server")
 	d.Log.Info("session started", "session", s.ID, "name", s.Name, "agent", "codex", "transport", "app-server")
 	return s, nil
 }
 
 func (d *Daemon) addCodexRuntime(ctx context.Context, s *Session, client *codexapp.Client, threadID string) {
-	runtime := &codexRuntime{client: client, threadID: threadID, responded: map[string]bool{}, pending: map[string]bool{}}
+	runtime := &codexRuntime{client: client, threadID: threadID, responded: map[string]string{}, pending: map[string]bool{}}
 	d.codexMu.Lock()
 	d.codex[s.ID] = runtime
 	d.codexMu.Unlock()
@@ -148,7 +162,11 @@ func (d *Daemon) forwardCodexNotifications(ctx context.Context, s *Session, r *c
 		if text == "" {
 			continue
 		}
-		_, _ = s.Buf.Write([]byte(text + "\n"))
+		if kind == "delta" {
+			_, _ = s.Buf.Write([]byte(text))
+		} else {
+			_, _ = s.Buf.Write([]byte(text + "\n"))
+		}
 		d.touchSession(context.Background(), s)
 		select {
 		case <-ctx.Done():
@@ -165,7 +183,7 @@ func classifyCodexNotification(n codexapp.Notification) (string, string, string)
 	turnID := findJSONText(payload, "turnId")
 	switch n.Method {
 	case "item/agentMessage/delta":
-		return "progress", findJSONText(payload, "delta"), turnID
+		return "delta", findJSONText(payload, "delta"), turnID
 	case "turn/started":
 		return "progress", "Codex is working…", firstNonEmpty(turnID, findJSONText(payload, "id"))
 	case "turn/completed":
@@ -226,16 +244,23 @@ func (d *Daemon) RespondCodexRequest(ctx context.Context, sessionID string, id j
 		return err
 	}
 	key := string(id)
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return err
+	}
 	r.mu.Lock()
-	if r.responded[key] {
+	if previous, answered := r.responded[key]; answered {
 		r.mu.Unlock()
-		return nil
+		if previous == string(encoded) {
+			return nil
+		}
+		return ErrCodexRequestAlreadyAnswered
 	}
 	if !r.pending[key] {
 		r.mu.Unlock()
-		return errors.New("Codex request is no longer pending")
+		return ErrCodexRequestNotPending
 	}
-	r.responded[key] = true
+	r.responded[key] = string(encoded)
 	delete(r.pending, key)
 	r.mu.Unlock()
 	if err := r.client.Respond(id, result); err != nil {

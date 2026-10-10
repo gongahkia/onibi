@@ -43,6 +43,11 @@ func runStart(cmd *cobra.Command, _ []string) error {
 	if token == "" {
 		return errors.New("Telegram bot token missing; run onibi telegram setup")
 	}
+	if enabled, ok, err := db.KVGetString(cmd.Context(), daemon.TelegramKVEnabled); err != nil {
+		return err
+	} else if ok && enabled != "1" {
+		return errors.New("Telegram disabled; run onibi telegram setup to re-enable it")
+	}
 	ownerChat, ownerUser := telegramBinding(cmd.Context(), db)
 	pair := ""
 	if ownerChat == 0 || ownerUser == 0 {

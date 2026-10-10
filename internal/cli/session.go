@@ -17,8 +17,26 @@ func sessionCmd() *cobra.Command {
 	newCmd.Flags().String("mux", "", "terminal multiplexer (auto, tmux, zellij, screen)")
 	list := &cobra.Command{Use: "list", Short: "List active and recent sessions", RunE: runSessionList}
 	list.Flags().Bool("all", false, "include ended sessions")
-	cmd.AddCommand(newCmd, list)
+	adopt := &cobra.Command{Use: "adopt <tmux|zellij|screen> <target>", Short: "Control an existing multiplexer session", Args: cobra.ExactArgs(2), RunE: runSessionAdopt}
+	adopt.Flags().String("name", "", "session name")
+	adopt.Flags().String("cwd", "", "working directory used for mux configuration")
+	cmd.AddCommand(newCmd, adopt, list)
 	return cmd
+}
+func runSessionAdopt(cmd *cobra.Command, args []string) error {
+	paths, db, err := pathsAndStore()
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	name, _ := cmd.Flags().GetString("name")
+	cwd, _ := cmd.Flags().GetString("cwd")
+	response, err := intake.Request(paths.Socket, intake.Event{Type: intake.TypeSessionAdopt, Name: name, CWD: cwd, Mux: strings.ToLower(args[0]), Text: args[1]}, 5*time.Second)
+	if err != nil {
+		return fmt.Errorf("daemon unavailable: %w", err)
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "%s (%s)\n", response.Text, response.SessionID)
+	return nil
 }
 func runSessionNew(cmd *cobra.Command, args []string) error {
 	paths, db, err := pathsAndStore()

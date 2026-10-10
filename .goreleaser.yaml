@@ -29,7 +29,7 @@ builds:
 
 archives:
   - formats: [tar.gz]
-    files: [LICENSE, README.md, SECURITY.md, THREAT-MODEL.md, docs/telegram.md]
+    files: [LICENSE, README.md, SECURITY.md, THREAT-MODEL.md, THIRD_PARTY_NOTICES.md, docs/telegram.md]
 
 checksum:
   name_template: checksums.txt

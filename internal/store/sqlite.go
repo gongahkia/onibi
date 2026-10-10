@@ -74,7 +74,7 @@ CREATE TABLE IF NOT EXISTS telegram_updates (
 );
 CREATE INDEX IF NOT EXISTS idx_telegram_updates_state ON telegram_updates(state,received_at);
 CREATE TABLE IF NOT EXISTS telegram_outbox (
- id TEXT PRIMARY KEY,dedupe_key TEXT NOT NULL UNIQUE,kind TEXT NOT NULL,chat_id INTEGER NOT NULL,session_id TEXT,title TEXT NOT NULL,lines INTEGER NOT NULL DEFAULT 80,force_screen INTEGER NOT NULL DEFAULT 0,state TEXT NOT NULL,attempts INTEGER NOT NULL DEFAULT 0,next_attempt INTEGER NOT NULL,created_at INTEGER NOT NULL,expires_at INTEGER NOT NULL,last_error TEXT
+ id TEXT PRIMARY KEY,dedupe_key TEXT NOT NULL UNIQUE,kind TEXT NOT NULL,chat_id INTEGER NOT NULL,session_id TEXT,title TEXT NOT NULL,lines INTEGER NOT NULL DEFAULT 80,force_screen INTEGER NOT NULL DEFAULT 0,fallback_text TEXT,state TEXT NOT NULL,attempts INTEGER NOT NULL DEFAULT 0,next_attempt INTEGER NOT NULL,created_at INTEGER NOT NULL,expires_at INTEGER NOT NULL,last_error TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_telegram_outbox_ready ON telegram_outbox(state,next_attempt,created_at);
 `
@@ -85,7 +85,7 @@ func (d *DB) migrate() error {
 	if _, err := d.sql.ExecContext(ctx, schema); err != nil {
 		return fmt.Errorf("apply schema: %w", err)
 	}
-	for _, migration := range []string{"ALTER TABLE approvals ADD COLUMN reason TEXT", "ALTER TABLE approvals ADD COLUMN decided_by INTEGER", "ALTER TABLE sessions ADD COLUMN cmd TEXT", "ALTER TABLE sessions ADD COLUMN last_activity INTEGER", "ALTER TABLE telegram_outbox ADD COLUMN force_screen INTEGER NOT NULL DEFAULT 0"} {
+	for _, migration := range []string{"ALTER TABLE approvals ADD COLUMN reason TEXT", "ALTER TABLE approvals ADD COLUMN decided_by INTEGER", "ALTER TABLE sessions ADD COLUMN cmd TEXT", "ALTER TABLE sessions ADD COLUMN last_activity INTEGER", "ALTER TABLE telegram_outbox ADD COLUMN force_screen INTEGER NOT NULL DEFAULT 0", "ALTER TABLE telegram_outbox ADD COLUMN fallback_text TEXT"} {
 		_, _ = d.sql.ExecContext(ctx, migration)
 	}
 	_, err := d.sql.ExecContext(ctx, "INSERT OR IGNORE INTO schema_version(version) VALUES (1)")
@@ -127,6 +127,17 @@ func (d *DB) KVDel(ctx context.Context, key string) error {
 }
 func (d *DB) KVPurgeExpired(ctx context.Context) error {
 	_, err := d.sql.ExecContext(ctx, `DELETE FROM kv WHERE expire>0 AND expire<=?`, time.Now().Unix())
+	return err
+}
+
+// SensitivePayloadsPurge removes retained tool/question bodies once their
+// decisions no longer need to be replayed. Audit hashes and decision metadata
+// remain available without keeping raw prompts indefinitely.
+func (d *DB) SensitivePayloadsPurge(ctx context.Context, before time.Time) error {
+	if _, err := d.sql.ExecContext(ctx, `UPDATE approvals SET input_json='{}' WHERE state!='pending' AND decided_at<? AND input_json!='{}'`, before.Unix()); err != nil {
+		return err
+	}
+	_, err := d.sql.ExecContext(ctx, `UPDATE claude_questions SET input_json='{}',answers_json=NULL WHERE state!='pending' AND decided_at<? AND (input_json!='{}' OR answers_json IS NOT NULL)`, before.Unix())
 	return err
 }
 func (d *DB) KVKeysWithPrefix(ctx context.Context, prefix string) ([]string, error) {

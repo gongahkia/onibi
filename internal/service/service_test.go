@@ -91,7 +91,7 @@ func TestInstallSystemdWritesUnitAndEnables(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := string(b)
-	for _, want := range []string{"ExecStart=\"/usr/local/bin/onibi\" start", "Restart=on-abnormal", "WantedBy=default.target"} {
+	for _, want := range []string{"ExecStart=\"/usr/local/bin/onibi\" start", "Restart=on-failure", "WantedBy=default.target"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("unit missing %q:\n%s", want, body)
 		}

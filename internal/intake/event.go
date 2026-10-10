@@ -8,6 +8,7 @@ const (
 	TypeSessionInput    = "session_input"
 	TypeSessionPeek     = "session_peek"
 	TypeSessionNew      = "session_new"
+	TypeSessionAdopt    = "session_adopt"
 	TypeSessionControl  = "session_control"
 	TypeAgentLifecycle  = "agent_lifecycle"
 	TypePing            = "ping"

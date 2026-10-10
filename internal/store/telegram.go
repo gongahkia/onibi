@@ -18,20 +18,21 @@ const (
 )
 
 type TelegramOutboxIntent struct {
-	ID          string
-	DedupeKey   string
-	Kind        string
-	ChatID      int64
-	SessionID   string
-	Title       string
-	Lines       int
-	ForceScreen bool
-	State       string
-	Attempts    int
-	NextAttempt time.Time
-	CreatedAt   time.Time
-	ExpiresAt   time.Time
-	LastError   string
+	ID           string
+	DedupeKey    string
+	Kind         string
+	ChatID       int64
+	SessionID    string
+	Title        string
+	Lines        int
+	ForceScreen  bool
+	FallbackText string
+	State        string
+	Attempts     int
+	NextAttempt  time.Time
+	CreatedAt    time.Time
+	ExpiresAt    time.Time
+	LastError    string
 }
 
 type TelegramOutboxStats struct {
@@ -157,10 +158,15 @@ func (d *DB) TelegramOutboxUpsert(ctx context.Context, item TelegramOutboxIntent
 			return err
 		}
 	}
-	_, err := d.sql.ExecContext(ctx, `INSERT INTO telegram_outbox(id,dedupe_key,kind,chat_id,session_id,title,lines,force_screen,state,attempts,next_attempt,created_at,expires_at)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
-		ON CONFLICT(dedupe_key) DO UPDATE SET kind=excluded.kind,chat_id=excluded.chat_id,session_id=excluded.session_id,title=excluded.title,lines=excluded.lines,force_screen=excluded.force_screen,state=?,attempts=0,next_attempt=excluded.next_attempt,created_at=excluded.created_at,expires_at=excluded.expires_at,last_error=NULL`,
-		item.ID, item.DedupeKey, item.Kind, item.ChatID, nullIfEmpty(item.SessionID), item.Title, item.Lines, boolInt(item.ForceScreen), OutboxPending, 0, item.NextAttempt.Unix(), item.CreatedAt.Unix(), item.ExpiresAt.Unix(), OutboxPending)
+	_, err := d.sql.ExecContext(ctx, `INSERT INTO telegram_outbox(id,dedupe_key,kind,chat_id,session_id,title,lines,force_screen,fallback_text,state,attempts,next_attempt,created_at,expires_at)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+		ON CONFLICT(dedupe_key) DO UPDATE SET kind=excluded.kind,chat_id=excluded.chat_id,session_id=excluded.session_id,title=excluded.title,lines=excluded.lines,force_screen=excluded.force_screen,fallback_text=excluded.fallback_text,state=?,attempts=0,next_attempt=excluded.next_attempt,created_at=excluded.created_at,expires_at=excluded.expires_at,last_error=NULL`,
+		item.ID, item.DedupeKey, item.Kind, item.ChatID, nullIfEmpty(item.SessionID), item.Title, item.Lines, boolInt(item.ForceScreen), nullIfEmpty(item.FallbackText), OutboxPending, 0, item.NextAttempt.Unix(), item.CreatedAt.Unix(), item.ExpiresAt.Unix(), OutboxPending)
+	return err
+}
+
+func (d *DB) TelegramOutboxSetFallback(ctx context.Context, dedupeKey, text string) error {
+	_, err := d.sql.ExecContext(ctx, `UPDATE telegram_outbox SET fallback_text=? WHERE dedupe_key=? AND state IN (?,?)`, nullIfEmpty(text), dedupeKey, OutboxPending, OutboxRunning)
 	return err
 }
 
@@ -179,7 +185,7 @@ func (d *DB) TelegramOutboxClaim(ctx context.Context) (*TelegramOutboxIntent, er
 	if _, err := tx.ExecContext(ctx, `UPDATE telegram_outbox SET state=? WHERE state IN (?,?) AND expires_at<=?`, OutboxExpired, OutboxPending, OutboxRunning, now); err != nil {
 		return nil, err
 	}
-	row := tx.QueryRowContext(ctx, `SELECT id,dedupe_key,kind,chat_id,COALESCE(session_id,''),title,lines,force_screen,state,attempts,next_attempt,created_at,expires_at,COALESCE(last_error,'') FROM telegram_outbox WHERE state=? AND next_attempt<=? ORDER BY created_at LIMIT 1`, OutboxPending, now)
+	row := tx.QueryRowContext(ctx, `SELECT id,dedupe_key,kind,chat_id,COALESCE(session_id,''),title,lines,force_screen,COALESCE(fallback_text,''),state,attempts,next_attempt,created_at,expires_at,COALESCE(last_error,'') FROM telegram_outbox WHERE state=? AND next_attempt<=? ORDER BY created_at LIMIT 1`, OutboxPending, now)
 	item, err := scanTelegramOutbox(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, tx.Commit()
@@ -213,7 +219,7 @@ func scanTelegramOutbox(row telegramOutboxRow) (TelegramOutboxIntent, error) {
 	var item TelegramOutboxIntent
 	var next, created, expires int64
 	var force int
-	err := row.Scan(&item.ID, &item.DedupeKey, &item.Kind, &item.ChatID, &item.SessionID, &item.Title, &item.Lines, &force, &item.State, &item.Attempts, &next, &created, &expires, &item.LastError)
+	err := row.Scan(&item.ID, &item.DedupeKey, &item.Kind, &item.ChatID, &item.SessionID, &item.Title, &item.Lines, &force, &item.FallbackText, &item.State, &item.Attempts, &next, &created, &expires, &item.LastError)
 	if err != nil {
 		return TelegramOutboxIntent{}, err
 	}

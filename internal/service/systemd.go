@@ -80,7 +80,7 @@ After=network-online.target
 Type=simple
 ExecStart=` + systemdQuote(m.Executable) + ` start
 WorkingDirectory=` + systemdQuote(m.Paths.StateDir) + `
-Restart=on-abnormal
+Restart=on-failure
 RestartSec=5
 Environment=ONIBI_SERVICE=1
 

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/gongahkia/onibi/internal/approval"
+	"github.com/gongahkia/onibi/internal/codexapp"
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/store"
 	"github.com/gongahkia/onibi/internal/telegram"
@@ -141,6 +142,91 @@ func TestTelegramDoubleSlashForcesKnownCommandToSelectedSession(t *testing.T) {
 	}
 }
 
+func TestTelegramDisableRejectsUpdatesAndOutbox(t *testing.T) {
+	b, runner, cleanup := testTelegramBridge(t)
+	defer cleanup()
+	s := NewSession("session-disabled", "work", "shell", 4096)
+	s.TmuxTarget = "onibi-session-disabled"
+	if err := b.d.Registry.Add(s); err != nil {
+		t.Fatal(err)
+	}
+	b.setTarget(t.Context(), 42, s.ID)
+	if err := b.d.DB.KVSetString(t.Context(), TelegramKVEnabled, "0"); err != nil {
+		t.Fatal(err)
+	}
+	b.handleUpdate(t.Context(), telegram.Update{Message: &telegram.Message{Chat: telegram.Chat{ID: 42, Type: "private"}, From: &telegram.User{ID: 7}, Text: "echo blocked"}})
+	if calls := runner.snapshot(); len(calls) != 0 {
+		t.Fatalf("disabled update reached terminal: %#v", calls)
+	}
+	b.enqueueOutbox(t.Context(), "notice", 42, "", "blocked notice", 0, "disabled-notice")
+	b.deliverOutbox(t.Context())
+	item, err := b.d.DB.TelegramOutboxClaim(t.Context())
+	if err != nil || item == nil || item.Title != "blocked notice" {
+		t.Fatalf("disabled outbox was delivered: item=%#v err=%v", item, err)
+	}
+}
+
+func TestTelegramToSendsWithoutChangingSelectedSession(t *testing.T) {
+	b, runner, cleanup := testTelegramBridge(t)
+	defer cleanup()
+	for _, s := range []*Session{NewSession("one", "work", "shell", 4096), NewSession("two", "other", "shell", 4096)} {
+		s.TmuxTarget = "onibi-" + s.ID
+		if err := b.d.Registry.Add(s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	b.setTarget(t.Context(), 42, "two")
+	b.handleUpdate(t.Context(), telegram.Update{Message: &telegram.Message{Chat: telegram.Chat{ID: 42, Type: "private"}, From: &telegram.User{ID: 7}, Text: "/to work echo hi"}})
+	calls := runner.snapshot()
+	if len(calls) < 2 || !strings.Contains(strings.Join(calls[0], " "), "onibi-one") || !strings.Contains(strings.Join(calls[1], " "), "onibi-one") {
+		t.Fatalf("/to calls=%#v", calls)
+	}
+	if got := b.target(t.Context(), 42); got != "two" {
+		t.Fatalf("selected target changed to %q", got)
+	}
+}
+
+func TestCodexApprovalCardSurvivesResponseFailure(t *testing.T) {
+	b, _, cleanup := testTelegramBridge(t)
+	defer cleanup()
+	token, err := b.newCard(t.Context(), telegramCard{Kind: "codex_approval", SessionID: "missing", RequestID: json.RawMessage(`1`), Decision: "decline", Payload: json.RawMessage(`{}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.handleCallback(t.Context(), &telegram.CallbackQuery{ID: "callback", From: telegram.User{ID: 7}, Message: &telegram.Message{MessageID: 1, Chat: telegram.Chat{ID: 42, Type: "private"}}, Data: "c:" + token})
+	if _, ok := b.peekCard(t.Context(), token); !ok {
+		t.Fatal("failed Codex decision consumed retry button")
+	}
+}
+
+func TestCodexDeltasJoinWithoutInsertedNewlines(t *testing.T) {
+	if got := appendCodexDelta(appendCodexDelta("", "Hel"), "lo"); got != "Hello" {
+		t.Fatalf("joined delta=%q", got)
+	}
+	if kind, text, _ := classifyCodexNotification(codexapp.Notification{Method: "item/agentMessage/delta", Params: json.RawMessage(`{"delta":"lo"}`)}); kind != "delta" || text != "lo" {
+		t.Fatalf("kind=%q text=%q", kind, text)
+	}
+}
+
+func TestQueuedScreenSendsTextFallbackAfterSessionEnds(t *testing.T) {
+	b, _, cleanup := testTelegramBridge(t)
+	defer cleanup()
+	s := NewSession("ended-screen", "work", "shell", 4096)
+	s.TmuxTarget = "onibi-ended-screen"
+	s.MarkEnded()
+	if err := b.d.Registry.Add(s); err != nil {
+		t.Fatal(err)
+	}
+	item := store.TelegramOutboxIntent{Kind: "screen", ChatID: 42, SessionID: s.ID, Title: "Updated · work", FallbackText: "last visible output"}
+	if err := b.dispatchOutbox(t.Context(), item); err != nil {
+		t.Fatal(err)
+	}
+	queued, err := b.d.DB.TelegramOutboxClaim(t.Context())
+	if err != nil || queued != nil {
+		t.Fatalf("unexpected replacement notice: item=%#v err=%v", queued, err)
+	}
+}
+
 func TestTelegramScreenMarksExitedSessionAndClearsTarget(t *testing.T) {
 	b, runner, cleanup := testTelegramBridge(t)
 	defer cleanup()
@@ -170,13 +256,25 @@ func TestPiFinalScreenWaitsForAgentEnd(t *testing.T) {
 	}
 	b.setTarget(t.Context(), 42, s.ID)
 	b.handleInput(t.Context(), &telegram.Message{Chat: telegram.Chat{ID: 42, Type: "private"}, From: &telegram.User{ID: 7}, Text: "summarize"})
-	if calls := runner.snapshot(); len(calls) != 2 {
-		t.Fatalf("premature Pi completion=%#v", calls)
+	var piCalls int
+	for _, call := range runner.snapshot() {
+		if strings.Contains(strings.Join(call, " "), "onibi-pi-1") {
+			piCalls++
+		}
+	}
+	if piCalls != 2 {
+		t.Fatalf("premature Pi completion=%#v", runner.snapshot())
 	}
 	b.updateAgentStatus(t.Context(), AgentEvent{SessionID: s.ID, Agent: "pi", Kind: "agent_start", RunID: "run-1"})
 	b.updateAgentStatus(t.Context(), AgentEvent{SessionID: s.ID, Agent: "pi", Kind: "agent_end", RunID: "run-1"})
-	if calls := runner.snapshot(); len(calls) != 4 || calls[2][1] != "display-message" || calls[3][len(calls[3])-1] != "-160" {
-		t.Fatalf("Pi final capture=%#v", calls)
+	var finalCapture bool
+	for _, call := range runner.snapshot() {
+		if len(call) > 1 && call[1] == "capture-pane" && call[len(call)-1] == "-160" && strings.Contains(strings.Join(call, " "), "onibi-pi-1") {
+			finalCapture = true
+		}
+	}
+	if !finalCapture {
+		t.Fatalf("Pi final capture=%#v", runner.snapshot())
 	}
 }
 

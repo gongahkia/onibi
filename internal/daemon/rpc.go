@@ -42,6 +42,12 @@ func (d *Daemon) handleRPCRequest(ctx context.Context, ev intake.Event) (intake.
 			return intake.Response{}, err
 		}
 		return intake.Response{SessionID: s.ID, Text: "started " + s.Name}, nil
+	case intake.TypeSessionAdopt:
+		s, err := d.AdoptTerminalSession(ctx, ev.Name, ev.Mux, ev.Text, ev.CWD)
+		if err != nil {
+			return intake.Response{}, err
+		}
+		return intake.Response{SessionID: s.ID, Text: "adopted " + s.Name}, nil
 	case intake.TypeSessionControl:
 		return intake.Response{SessionID: ev.Session, Text: ev.Action}, d.ControlSession(ctx, ev.Session, ev.Action)
 	case intake.TypeAgentLifecycle:

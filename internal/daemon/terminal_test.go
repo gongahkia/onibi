@@ -17,6 +17,7 @@ import (
 
 type fakeMuxController struct {
 	started mux.StartOptions
+	killed  bool
 }
 
 func (f *fakeMuxController) Kind() string { return "zellij" }
@@ -33,7 +34,10 @@ func (f *fakeMuxController) SendText(context.Context, mux.Target, string, bool) 
 	return nil
 }
 func (f *fakeMuxController) SendKey(context.Context, mux.Target, string) error { return nil }
-func (f *fakeMuxController) Kill(context.Context, mux.Target) error            { return nil }
+func (f *fakeMuxController) Kill(context.Context, mux.Target) error {
+	f.killed = true
+	return nil
+}
 
 func TestTerminalKeySupportsNavigationAndModifiers(t *testing.T) {
 	for input, want := range map[string]string{
@@ -70,6 +74,62 @@ func TestStartTerminalSessionPersistsSelectedMultiplexer(t *testing.T) {
 	}
 	if ctrl.started.CWD != cwd || ctrl.started.Command != "/bin/sh" {
 		t.Fatalf("start options=%#v", ctrl.started)
+	}
+}
+
+func TestAdoptTerminalSessionPersistsExistingTarget(t *testing.T) {
+	state, cwd := t.TempDir(), t.TempDir()
+	db, err := store.Open(filepath.Join(state, "onibi.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	d := New(Options{DB: db, Paths: config.Paths{StateDir: state}})
+	oldOpen := openMultiplexer
+	openMultiplexer = func(kind string, _ config.MuxBackend, gotCWD string) (mux.Controller, error) {
+		if kind != "zellij" || gotCWD != cwd {
+			t.Fatalf("kind=%q cwd=%q", kind, gotCWD)
+		}
+		return &fakeMuxController{}, nil
+	}
+	defer func() { openMultiplexer = oldOpen }()
+	s, err := d.AdoptTerminalSession(t.Context(), "existing", "zellij", "onibi-test|terminal_0", cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.TmuxTarget != "onibi-test|terminal_0" || s.Transport != "zellij" || s.Agent != "shell" {
+		t.Fatalf("adopted session=%#v", s)
+	}
+	entry, found, err := db.Session(t.Context(), s.ID)
+	if err != nil || !found || entry.TmuxTarget != s.TmuxTarget {
+		t.Fatalf("persisted session=%#v found=%t err=%v", entry, found, err)
+	}
+	if _, err := d.AdoptTerminalSession(t.Context(), "other", "zellij", s.TmuxTarget, cwd); err == nil {
+		t.Fatal("duplicate target was accepted")
+	}
+}
+
+func TestStartTerminalSessionFailsClosedWhenPersistenceFails(t *testing.T) {
+	state, cwd := t.TempDir(), t.TempDir()
+	db, err := store.Open(filepath.Join(state, "onibi.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	d := New(Options{DB: db, Paths: config.Paths{StateDir: state}})
+	ctrl := &fakeMuxController{}
+	oldChoose := chooseMultiplexer
+	chooseMultiplexer = func(string, config.Multiplexer, string) (mux.Controller, string, error) {
+		return ctrl, "zellij", nil
+	}
+	defer func() { chooseMultiplexer = oldChoose }()
+	if _, err := d.StartTerminalSession(t.Context(), "", "shell", "/bin/sh", nil, cwd, "zellij"); err == nil {
+		t.Fatal("started session without durable state")
+	}
+	if !ctrl.killed || len(d.Registry.List()) != 0 {
+		t.Fatalf("cleanup failed: killed=%t registry=%#v", ctrl.killed, d.Registry.List())
 	}
 }
 
