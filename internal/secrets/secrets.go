@@ -158,7 +158,10 @@ func (s *Store) Delete(key string) error {
 // ----------------------------------------------------------------------------
 
 func setDotenv(path, key, value string) error {
-	entries, _ := readDotenv(path) // ok if missing
+	entries, err := readDotenv(path)
+	if err != nil {
+		return err
+	}
 	entries[key] = value
 	return writeDotenv(path, entries)
 }
@@ -223,11 +226,12 @@ func writeDotenv(path string, entries map[string]string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	f, err := os.CreateTemp(filepath.Dir(path), ".onibi-secrets-*")
 	if err != nil {
 		return err
 	}
+	tmp := f.Name()
+	defer os.Remove(tmp)
 	w := bufio.NewWriter(f)
 	_, _ = io.WriteString(w, "# onibi secrets — do not commit; 0600 enforced\n")
 	for k, v := range entries {
