@@ -80,6 +80,14 @@ function run() {
         if(req.operation==='focus') {
             attempted=true;
             app.focus(terminal);
+            // Ghostty queues focus on its main thread. A successful Apple
+            // event alone does not establish that the requested pane won.
+            var focused=false;
+            for(var attempt=0; attempt<20; attempt++) {
+                if(app.frontWindow().selectedTab().focusedTerminal().id()===req.targetId) { focused=true; break; }
+                delay(0.05);
+            }
+            if(!focused) return failure('action_failed');
         } else if(req.operation==='input') {
             attempted=true;
             app.inputText(req.text, {'to':terminal});
