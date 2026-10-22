@@ -72,6 +72,10 @@ type scheduledScreen struct {
 	Statuses  []int64
 	Timer     *time.Timer
 }
+type killConfirmation struct {
+	SessionID string
+	ExpiresAt time.Time
+}
 type telegramBridge struct {
 	d             *Daemon
 	client        *telegram.Client
@@ -80,7 +84,7 @@ type telegramBridge struct {
 	ownerUserID   int64
 	seen          map[string]bool
 	sending       map[string]bool
-	killArmed     map[int64]time.Time
+	killArmed     map[int64]killConfirmation
 	cards         map[string]telegramCard
 	statuses      map[string]codexStatus
 	agentStatuses map[string]agentStatus
@@ -98,7 +102,7 @@ func (d *Daemon) runTelegramBridge(ctx context.Context) error {
 	if err := c.DeleteWebhook(ctx); err != nil {
 		d.Log.Warn("Telegram delete webhook", "err", err)
 	}
-	b := &telegramBridge{d: d, client: c, ownerID: d.TelegramOwnerID, ownerUserID: d.TelegramOwnerUserID, seen: map[string]bool{}, sending: map[string]bool{}, killArmed: map[int64]time.Time{}, cards: map[string]telegramCard{}, statuses: map[string]codexStatus{}, agentStatuses: map[string]agentStatus{}, autoScreens: map[string]*scheduledScreen{}, lastScreens: map[string]string{}, outboxWake: make(chan struct{}, 1)}
+	b := &telegramBridge{d: d, client: c, ownerID: d.TelegramOwnerID, ownerUserID: d.TelegramOwnerUserID, seen: map[string]bool{}, sending: map[string]bool{}, killArmed: map[int64]killConfirmation{}, cards: map[string]telegramCard{}, statuses: map[string]codexStatus{}, agentStatuses: map[string]agentStatus{}, autoScreens: map[string]*scheduledScreen{}, lastScreens: map[string]string{}, outboxWake: make(chan struct{}, 1)}
 	disabled := make(chan struct{})
 	go func() {
 		ticker := time.NewTicker(250 * time.Millisecond)
@@ -201,7 +205,7 @@ func (b *telegramBridge) handleUpdate(ctx context.Context, update telegram.Updat
 		return
 	}
 	m := update.Message
-	if m == nil || (strings.TrimSpace(m.Text) == "" && m.Document == nil) || !b.authorizedOrPair(ctx, m) {
+	if m == nil || (m.Text == "" && m.Document == nil) || !b.authorizedOrPair(ctx, m) {
 		return
 	}
 	if m.Document != nil {
@@ -210,6 +214,15 @@ func (b *telegramBridge) handleUpdate(ctx context.Context, update telegram.Updat
 	}
 	if b.hasReply(ctx, m.Chat.ID) {
 		b.handleReply(ctx, m)
+		return
+	}
+	paste, err := b.hasPaste(ctx, m.Chat.ID)
+	if err != nil {
+		b.send(ctx, m.Chat.ID, "Input not sent: paste mode could not be checked. Inspect /status and retry.", nil)
+		return
+	}
+	if paste {
+		b.handleInput(ctx, m)
 		return
 	}
 	if strings.HasPrefix(m.Text, "//") {
@@ -228,9 +241,17 @@ func (b *telegramBridge) authorizedOrPair(ctx context.Context, m *telegram.Messa
 	if b.isOwner(m) {
 		return true
 	}
+	// A pairing code bootstraps one owner; it cannot replace an existing one.
+	if b.owner() != 0 && b.ownerUser() != 0 {
+		return false
+	}
 	fields := strings.Fields(strings.TrimSpace(m.Text))
 	if m.Chat.Type == "private" && m.From != nil && len(fields) == 2 && strings.EqualFold(fields[0], "/start") && fields[1] == strings.TrimSpace(b.d.TelegramPair) {
-		b.setOwner(ctx, m.Chat.ID, m.From.ID)
+		if err := b.setOwner(ctx, m.Chat.ID, m.From.ID); err != nil {
+			b.d.Log.Warn("persist Telegram pairing", "err", err)
+			b.send(ctx, m.Chat.ID, "Pairing failed: owner could not be saved. Retry the pairing command.", nil)
+			return false
+		}
 		b.send(ctx, m.Chat.ID, "Paired. Use "+newSessionHelp()+".", nil)
 		return true
 	}
@@ -278,7 +299,10 @@ func (b *telegramBridge) handleCommand(ctx context.Context, chatID int64, text s
 	case "/font":
 		b.sendFonts(ctx, chatID)
 	case "/paste":
-		b.setPaste(ctx, chatID)
+		if err := b.setPaste(ctx, chatID); err != nil {
+			b.send(ctx, chatID, "Paste mode could not be armed. Inspect /status and retry /paste before sending input.", nil)
+			return true
+		}
 		b.send(ctx, chatID, "Paste mode armed. Your next message is sent literally without Enter.", nil)
 	case "/keys":
 		s, err := b.d.sessionForRPCTarget(b.target(ctx, chatID))
@@ -327,7 +351,11 @@ func (b *telegramBridge) handleInputForSession(ctx context.Context, m *telegram.
 		b.send(ctx, m.Chat.ID, "Select a session with /sessions or create one with "+newSessionHelp()+".", nil)
 		return
 	}
-	paste := b.consumePaste(ctx, m.Chat.ID)
+	paste, err := b.consumePaste(ctx, m.Chat.ID)
+	if err != nil {
+		b.send(ctx, m.Chat.ID, "Input not sent: paste mode could not be consumed. Inspect /status and retry.", nil)
+		return
+	}
 	b.d.audit(ctx, "telegram.input", s.ID, m.Text, m.Chat.ID, fmt.Sprintf("enter=%t", !paste))
 	b.d.Log.Info("Telegram input", "session", s.ID, "paste", paste)
 	status, err := b.client.SendMessage(ctx, m.Chat.ID, "Running in "+s.Name+"…", nil)
@@ -515,17 +543,24 @@ func (b *telegramBridge) handleTail(ctx context.Context, chatID int64, arg strin
 	b.send(ctx, chatID, terminalCard("Tail · "+s.Name, out), b.sessionControls(ctx, s.ID))
 }
 func (b *telegramBridge) handleKill(ctx context.Context, chatID int64) {
-	b.mu.Lock()
-	armed := b.killArmed[chatID]
-	if time.Since(armed) > 2*time.Second {
-		b.killArmed[chatID] = time.Now()
-		b.mu.Unlock()
-		b.send(ctx, chatID, "Send /kill again within 2s to end the selected session.", nil)
+	s, err := b.d.sessionForRPCTarget(b.target(ctx, chatID))
+	if err != nil {
+		b.send(ctx, chatID, "Kill failed: "+err.Error()+". Select a session with /sessions.", nil)
 		return
 	}
+	b.mu.Lock()
+	armed := b.killArmed[chatID]
 	delete(b.killArmed, chatID)
 	b.mu.Unlock()
-	b.control(ctx, chatID, b.target(ctx, chatID), "kill", 0)
+	if armed.SessionID != s.ID || !time.Now().Before(armed.ExpiresAt) {
+		if _, err := b.send(ctx, chatID, "Send /kill again within 2s to end "+s.Name+" ("+shortID(s.ID)+").", nil); err == nil {
+			b.mu.Lock()
+			b.killArmed[chatID] = killConfirmation{SessionID: s.ID, ExpiresAt: time.Now().Add(2 * time.Second)}
+			b.mu.Unlock()
+		}
+		return
+	}
+	b.control(ctx, chatID, s.ID, "kill", 0)
 }
 
 func (b *telegramBridge) sendFonts(ctx context.Context, chatID int64) {
@@ -1080,7 +1115,7 @@ func (b *telegramBridge) runOutbox(ctx context.Context) {
 
 func (b *telegramBridge) deliverOutbox(ctx context.Context) {
 	for range 8 {
-		if !b.telegramEnabled(ctx) {
+		if !b.telegramEnabled(ctx) || b.owner() == 0 {
 			return
 		}
 		item, err := b.d.DB.TelegramOutboxClaim(ctx)
@@ -1090,6 +1125,12 @@ func (b *telegramBridge) deliverOutbox(ctx context.Context) {
 		}
 		if item == nil {
 			return
+		}
+		if item.ChatID != b.owner() {
+			if err := b.d.DB.TelegramOutboxExpire(ctx, item.ID); err != nil {
+				b.d.Log.Warn("expire Telegram output for previous owner", "err", err)
+			}
+			continue
 		}
 		if err := b.dispatchOutbox(ctx, *item); err != nil {
 			permanent := outboxPermanent(err)
@@ -1927,17 +1968,20 @@ func (b *telegramBridge) ownerUser() int64 { b.mu.Lock(); defer b.mu.Unlock(); r
 func (b *telegramBridge) isOwner(m *telegram.Message) bool {
 	return m != nil && m.Chat.Type == "private" && m.From != nil && m.Chat.ID == b.owner() && m.From.ID == b.ownerUser()
 }
-func (b *telegramBridge) setOwner(ctx context.Context, chat, user int64) {
+func (b *telegramBridge) setOwner(ctx context.Context, chat, user int64) error {
+	if b.d.DB == nil {
+		return errors.New("pairing storage unavailable")
+	}
+	if err := b.d.DB.TelegramPairOwner(ctx, chat, user, b.d.TelegramPair); err != nil {
+		return err
+	}
 	b.mu.Lock()
 	b.ownerID, b.ownerUserID = chat, user
 	b.mu.Unlock()
 	b.d.TelegramOwnerID, b.d.TelegramOwnerUserID = chat, user
-	if b.d.DB != nil {
-		_ = b.d.DB.KVSetString(ctx, TelegramKVOwnerChatID, strconv.FormatInt(chat, 10))
-		_ = b.d.DB.KVSetString(ctx, TelegramKVOwnerUserID, strconv.FormatInt(user, 10))
-		_ = b.d.DB.KVDel(ctx, TelegramKVPairCode)
-	}
+	b.d.TelegramPair = ""
 	go b.replayPendingApprovals(ctx)
+	return nil
 }
 func (b *telegramBridge) target(ctx context.Context, chat int64) string {
 	if b.d.DB == nil {
@@ -1954,21 +1998,34 @@ func (b *telegramBridge) setTarget(ctx context.Context, chat int64, id string) {
 		_ = b.d.DB.KVSetString(ctx, telegramTargetPrefix+strconv.FormatInt(chat, 10), id)
 	}
 }
-func (b *telegramBridge) setPaste(ctx context.Context, chat int64) {
-	if b.d.DB != nil {
-		_ = b.d.DB.KVSet(ctx, telegramPastePrefix+strconv.FormatInt(chat, 10), []byte("1"), time.Now().Add(telegramPasteTTL).Unix())
-	}
-}
-func (b *telegramBridge) consumePaste(ctx context.Context, chat int64) bool {
+func (b *telegramBridge) setPaste(ctx context.Context, chat int64) error {
 	if b.d.DB == nil {
-		return false
+		return errors.New("paste storage unavailable")
+	}
+	return b.d.DB.KVSet(ctx, telegramPastePrefix+strconv.FormatInt(chat, 10), []byte("1"), time.Now().Add(telegramPasteTTL).Unix())
+}
+func (b *telegramBridge) hasPaste(ctx context.Context, chat int64) (bool, error) {
+	if b.d.DB == nil {
+		return false, errors.New("paste storage unavailable")
+	}
+	_, ok, err := b.d.DB.KVGetString(ctx, telegramPastePrefix+strconv.FormatInt(chat, 10))
+	return ok, err
+}
+func (b *telegramBridge) consumePaste(ctx context.Context, chat int64) (bool, error) {
+	if b.d.DB == nil {
+		return false, errors.New("paste storage unavailable")
 	}
 	key := telegramPastePrefix + strconv.FormatInt(chat, 10)
-	_, ok, _ := b.d.DB.KVGetString(ctx, key)
-	if ok {
-		_ = b.d.DB.KVDel(ctx, key)
+	_, ok, err := b.d.DB.KVGetString(ctx, key)
+	if err != nil {
+		return false, err
 	}
-	return ok
+	if ok {
+		if err := b.d.DB.KVDel(ctx, key); err != nil {
+			return false, err
+		}
+	}
+	return ok, nil
 }
 func (b *telegramBridge) setReply(ctx context.Context, chat int64, state telegramReply) {
 	if b.d.DB == nil {
@@ -2049,13 +2106,13 @@ func boundedText(text string) string {
 	if len(text) <= 3800 {
 		return text
 	}
-	return text[:3760] + "\n…\nUse /tail or /screen for more."
+	return telegram.TextPrefix(text, 3760) + "\n…\nUse /tail or /screen for more."
 }
 func boundedButton(text string) string {
 	if len(text) <= 56 {
 		return text
 	}
-	return text[:53] + "…"
+	return telegram.TextPrefix(text, 53) + "…"
 }
 func shortID(id string) string {
 	if len(id) > 8 {

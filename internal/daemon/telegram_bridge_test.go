@@ -54,6 +54,12 @@ func testTelegramBridge(t *testing.T) (*telegramBridge, *bridgeRunner, func()) {
 		t.Fatal(err)
 	}
 	d := New(Options{DB: db, Paths: config.Paths{StateDir: state, Socket: filepath.Join(state, "onibi.sock"), Config: filepath.Join(state, "config.yaml")}, OutputBufferSize: 4096})
+	// Use an explicit empty path so mock calls cannot load the host's tmux config.
+	cfg := config.Default()
+	cfg.Multiplexer.Tmux.Config = ""
+	if err := config.Save(d.Paths.Config, cfg); err != nil {
+		t.Fatal(err)
+	}
 	runner := &bridgeRunner{}
 	oldController := newTmuxController
 	newTmuxController = func() *tmux.Controller { return tmux.NewWithRunner(runner) }
@@ -76,7 +82,7 @@ func testTelegramBridge(t *testing.T) (*telegramBridge, *bridgeRunner, func()) {
 	client := telegram.NewClient("123456:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi")
 	client.BaseURL = server.URL
 	client.RetrySleep = func(context.Context, time.Duration) error { return nil }
-	b := &telegramBridge{d: d, client: client, ownerID: 42, ownerUserID: 7, seen: map[string]bool{}, sending: map[string]bool{}, killArmed: map[int64]time.Time{}, cards: map[string]telegramCard{}, statuses: map[string]codexStatus{}, agentStatuses: map[string]agentStatus{}}
+	b := &telegramBridge{d: d, client: client, ownerID: 42, ownerUserID: 7, seen: map[string]bool{}, sending: map[string]bool{}, killArmed: map[int64]killConfirmation{}, cards: map[string]telegramCard{}, statuses: map[string]codexStatus{}, agentStatuses: map[string]agentStatus{}}
 	cleanup := func() { newTmuxController = oldController; server.Close(); _ = db.Close() }
 	return b, runner, cleanup
 }
@@ -163,6 +169,35 @@ func TestTelegramDisableRejectsUpdatesAndOutbox(t *testing.T) {
 	item, err := b.d.DB.TelegramOutboxClaim(t.Context())
 	if err != nil || item == nil || item.Title != "blocked notice" {
 		t.Fatalf("disabled outbox was delivered: item=%#v err=%v", item, err)
+	}
+}
+
+func TestTelegramOutboxRequiresCurrentPairedOwner(t *testing.T) {
+	b, _, cleanup := testTelegramBridge(t)
+	defer cleanup()
+	ctx := t.Context()
+	if err := b.d.DB.TelegramOutboxUpsert(ctx, store.TelegramOutboxIntent{ID: "old-owner", DedupeKey: "old-owner", Kind: "notice", ChatID: 42, Title: "private terminal output"}); err != nil {
+		t.Fatal(err)
+	}
+	b.ownerID, b.ownerUserID = 0, 0
+	b.deliverOutbox(ctx)
+	stats, err := b.d.DB.TelegramOutboxStats(ctx)
+	if err != nil || stats.Pending != 1 || stats.Delivered != 0 {
+		t.Fatalf("unpaired bridge delivered old output: stats=%#v err=%v", stats, err)
+	}
+	b.ownerID, b.ownerUserID = 99, 99
+	b.deliverOutbox(ctx)
+	stats, err = b.d.DB.TelegramOutboxStats(ctx)
+	if err != nil || stats.Expired != 1 || stats.Delivered != 0 {
+		t.Fatalf("revoked owner's output was not expired: stats=%#v err=%v", stats, err)
+	}
+	if err := b.d.DB.TelegramOutboxUpsert(ctx, store.TelegramOutboxIntent{ID: "new-owner", DedupeKey: "new-owner", Kind: "notice", ChatID: 99, Title: "current output"}); err != nil {
+		t.Fatal(err)
+	}
+	b.deliverOutbox(ctx)
+	stats, err = b.d.DB.TelegramOutboxStats(ctx)
+	if err != nil || stats.Delivered != 1 || stats.Expired != 1 {
+		t.Fatalf("current owner delivery failed: stats=%#v err=%v", stats, err)
 	}
 }
 
@@ -403,6 +438,150 @@ func TestTelegramCardsExpireInMemory(t *testing.T) {
 	b.mu.Unlock()
 	if _, ok := b.takeCard(t.Context(), token); ok {
 		t.Fatal("expired card accepted")
+	}
+}
+
+func TestTelegramPairCodeCannotReplaceOwner(t *testing.T) {
+	b, runner, cleanup := testTelegramBridge(t)
+	defer cleanup()
+	b.d.TelegramPair = "123456"
+	m := &telegram.Message{Chat: telegram.Chat{ID: 99, Type: "private"}, From: &telegram.User{ID: 99}, Text: "/start 123456"}
+	b.handleUpdate(t.Context(), telegram.Update{Message: m})
+	if b.owner() != 42 || b.ownerUser() != 7 {
+		t.Fatalf("pairing code replaced owner: chat=%d user=%d", b.owner(), b.ownerUser())
+	}
+	if len(runner.snapshot()) != 0 {
+		t.Fatal("unpaired input reached a terminal")
+	}
+}
+
+func TestTelegramPairingFailsClosedWhenOwnerCannotBeSaved(t *testing.T) {
+	b, _, cleanup := testTelegramBridge(t)
+	defer cleanup()
+	b.ownerID, b.ownerUserID = 0, 0
+	b.d.TelegramPair = "123456"
+	if err := b.d.DB.Close(); err != nil {
+		t.Fatal(err)
+	}
+	m := &telegram.Message{Chat: telegram.Chat{ID: 42, Type: "private"}, From: &telegram.User{ID: 7}, Text: "/start 123456"}
+	if b.authorizedOrPair(t.Context(), m) {
+		t.Fatal("failed persistence authorized the caller")
+	}
+	if b.owner() != 0 || b.ownerUser() != 0 || b.d.TelegramOwnerID != 0 || b.d.TelegramOwnerUserID != 0 || b.d.TelegramPair != "123456" {
+		t.Fatal("failed persistence changed the in-memory owner or consumed its code")
+	}
+}
+
+func TestTelegramUnauthorizedCallbackDoesNotConsumeControl(t *testing.T) {
+	b, runner, cleanup := testTelegramBridge(t)
+	defer cleanup()
+	token, err := b.newCard(t.Context(), telegramCard{Kind: "key", SessionID: "s-private", Decision: "enter"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []*telegram.CallbackQuery{
+		{ID: "wrong-user", From: telegram.User{ID: 99}, Message: &telegram.Message{Chat: telegram.Chat{ID: 42, Type: "private"}}},
+		{ID: "wrong-chat", From: telegram.User{ID: 7}, Message: &telegram.Message{Chat: telegram.Chat{ID: 99, Type: "private"}}},
+		{ID: "group", From: telegram.User{ID: 7}, Message: &telegram.Message{Chat: telegram.Chat{ID: 42, Type: "group"}}},
+	} {
+		q.Data = "c:" + token
+		b.handleCallback(t.Context(), q)
+		if _, ok := b.peekCard(t.Context(), token); !ok {
+			t.Fatalf("%s consumed an authorized control", q.ID)
+		}
+	}
+	if len(runner.snapshot()) != 0 {
+		t.Fatal("unauthorized callback reached a terminal")
+	}
+}
+
+func TestTelegramPasteTreatsNextTextLiterally(t *testing.T) {
+	for _, text := range []string{"/help", "/kill", "//help", "  \n\t"} {
+		t.Run(text, func(t *testing.T) {
+			b, runner, cleanup := testTelegramBridge(t)
+			defer cleanup()
+			s := NewSession("paste-session", "work", "shell", 4096)
+			s.TmuxTarget = "onibi-paste-session"
+			if err := b.d.Registry.Add(s); err != nil {
+				t.Fatal(err)
+			}
+			b.setTarget(t.Context(), 42, s.ID)
+			b.handleUpdate(t.Context(), telegram.Update{Message: &telegram.Message{Chat: telegram.Chat{ID: 42, Type: "private"}, From: &telegram.User{ID: 7}, Text: "/paste"}})
+			b.handleUpdate(t.Context(), telegram.Update{Message: &telegram.Message{Chat: telegram.Chat{ID: 42, Type: "private"}, From: &telegram.User{ID: 7}, Text: text}})
+			want := [][]string{{"tmux", "send-keys", "-t", s.TmuxTarget, "-l", "--", text}}
+			if got := runner.snapshot(); !reflect.DeepEqual(got, want) {
+				t.Fatalf("literal input=%#v, want %#v", got, want)
+			}
+			if armed, err := b.hasPaste(t.Context(), 42); err != nil || armed {
+				t.Fatalf("paste mode remained armed=%t err=%v", armed, err)
+			}
+			b.handleUpdate(t.Context(), telegram.Update{Message: &telegram.Message{Chat: telegram.Chat{ID: 42, Type: "private"}, From: &telegram.User{ID: 7}, Text: "/enter"}})
+			if calls := runner.snapshot(); len(calls) != 2 || calls[1][len(calls[1])-1] != "Enter" {
+				t.Fatalf("command routing did not resume: %#v", calls)
+			}
+		})
+	}
+}
+
+func TestTelegramKillConfirmationBindsResolvedSession(t *testing.T) {
+	b, runner, cleanup := testTelegramBridge(t)
+	defer cleanup()
+	first := NewSession("kill-first", "first", "shell", 4096)
+	second := NewSession("kill-second", "second", "shell", 4096)
+	first.TmuxTarget, second.TmuxTarget = "onibi-first", "onibi-second"
+	for _, s := range []*Session{first, second} {
+		if err := b.d.Registry.Add(s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	b.setTarget(t.Context(), 42, first.ID)
+	b.handleKill(t.Context(), 42)
+	b.setTarget(t.Context(), 42, second.ID)
+	b.handleKill(t.Context(), 42)
+	if len(runner.snapshot()) != 0 || first.Ended() || second.Ended() {
+		t.Fatal("changing the target reused a kill confirmation")
+	}
+	b.handleKill(t.Context(), 42)
+	if first.Ended() || !second.Ended() {
+		t.Fatalf("confirmed target: first ended=%t second ended=%t", first.Ended(), second.Ended())
+	}
+	if calls := runner.snapshot(); !reflect.DeepEqual(calls, [][]string{{"tmux", "kill-session", "-t", second.TmuxTarget}}) {
+		t.Fatalf("kill calls=%#v", calls)
+	}
+}
+
+func TestTelegramPasteStorageFailureDoesNotExecuteInput(t *testing.T) {
+	b, runner, cleanup := testTelegramBridge(t)
+	defer cleanup()
+	s := NewSession("paste-storage", "work", "shell", 4096)
+	s.TmuxTarget = "onibi-paste-storage"
+	if err := b.d.Registry.Add(s); err != nil {
+		t.Fatal(err)
+	}
+	b.setTarget(t.Context(), 42, s.ID)
+	if err := b.setPaste(t.Context(), 42); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.d.DB.SQL().ExecContext(t.Context(), `CREATE TRIGGER fail_paste BEFORE DELETE ON kv WHEN OLD.key='telegram.paste.42' BEGIN SELECT RAISE(ABORT,'disk failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	m := &telegram.Message{Chat: telegram.Chat{ID: 42, Type: "private"}, From: &telegram.User{ID: 7}, Text: "dangerous command"}
+	b.handleUpdate(t.Context(), telegram.Update{Message: m})
+	if len(runner.snapshot()) != 0 {
+		t.Fatal("paste consumption failure executed input")
+	}
+	if err := b.d.DB.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.hasPaste(t.Context(), 42); err == nil {
+		t.Fatal("paste read failure was hidden")
+	}
+	if err := b.setPaste(t.Context(), 42); err == nil {
+		t.Fatal("paste arming failure was hidden")
+	}
+	b.handleInputForSession(t.Context(), m, s.ID)
+	if len(runner.snapshot()) != 0 {
+		t.Fatal("paste read failure executed input")
 	}
 }
 
