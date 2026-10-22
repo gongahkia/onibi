@@ -389,7 +389,7 @@ func (d *Daemon) handleApprovalRequest(ctx context.Context, ev intake.Event) (in
 			return intake.Response{Decision: "deny", Reason: decision.Reason}, nil
 		}
 	case <-ctx.Done():
-		_ = d.Queue.Cancel(context.Background(), id, "daemon shutdown")
-		return intake.Response{Decision: "cancelled", Reason: "daemon shutdown"}, nil
+		_ = d.Queue.Cancel(context.Background(), id, "approval request cancelled")
+		return intake.Response{Decision: "cancelled", Reason: "approval request cancelled"}, nil
 	}
 }

@@ -2,10 +2,56 @@ package intake
 
 import (
 	"context"
+	"encoding/json"
+	"net"
 	"path/filepath"
 	"testing"
 	"time"
 )
+
+func TestDisconnectedDecisionClientCancelsHandler(t *testing.T) {
+	for _, typ := range []string{TypeApprovalRequest, TypeClaudeQuestion} {
+		t.Run(typ, func(t *testing.T) {
+			sock := testSocket(t)
+			srv := New(sock, nil)
+			started, cancelled := make(chan struct{}), make(chan struct{})
+			handler := func(ctx context.Context, _ Event) (Response, error) {
+				close(started)
+				<-ctx.Done()
+				close(cancelled)
+				return Response{Decision: "cancelled"}, nil
+			}
+			srv.SetApprovalHandler(handler)
+			srv.SetQuestionHandler(handler)
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			go func() { _ = srv.Serve(ctx) }()
+			waitSocket(t, sock)
+			conn, err := net.Dial("unix", sock)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer conn.Close()
+			if err := json.NewEncoder(conn).Encode(Event{Type: typ}); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-started:
+			case <-time.After(time.Second):
+				t.Fatal("decision handler did not start")
+			}
+			_ = conn.Close()
+			select {
+			case <-cancelled:
+			case <-time.After(time.Second):
+				t.Fatal("disconnected hook left its decision handler running")
+			}
+			if ctx.Err() != nil {
+				t.Fatal("disconnect cancelled the server context")
+			}
+		})
+	}
+}
 
 func TestApprovalRPCRoundtrip(t *testing.T) {
 	dir := t.TempDir()

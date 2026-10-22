@@ -141,6 +141,20 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 		ev.TS = time.Now().Unix()
 	}
 
+	if ev.Type == TypeApprovalRequest || ev.Type == TypeClaudeQuestion {
+		// A decision is useful only while the hook is still waiting for it.
+		// These requests have one payload and one response, so any subsequent
+		// read is solely a liveness check on the requesting connection.
+		_ = c.SetReadDeadline(time.Time{})
+		requestCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		go func() {
+			_, _ = io.Copy(io.Discard, c)
+			cancel()
+		}()
+		ctx = requestCtx
+	}
+
 	if ev.Type == TypeApprovalRequest {
 		s.handleApproval(ctx, c, ev)
 		return
