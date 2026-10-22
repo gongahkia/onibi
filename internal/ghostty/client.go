@@ -228,7 +228,7 @@ func (c *Client) Execute(ctx context.Context, action Action) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	result := Result{TargetID: action.TargetID, Message: map[string]string{"input": "Input sent", "key": "Key sent", "focus": "Terminal focused", "new_tab": "Tab created", "close_tab": "Tab closed"}[action.Kind]}
+	result := Result{TargetID: action.TargetID, Message: map[string]string{"input": "Input sent", "key": "Key sent", "focus": "Terminal focused", "new_tab": "Tab created", "close_tab": "Tab close requested; refresh to confirm"}[action.Kind]}
 	if action.Kind == "new_tab" {
 		if r.TargetID == "" {
 			return Result{}, errors.New("Ghostty created a tab but did not return its terminal; refresh the terminal list")
