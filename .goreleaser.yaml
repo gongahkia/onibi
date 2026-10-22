@@ -6,12 +6,24 @@ before:
     - go test ./...
 
 builds:
-  - id: onibi
+  - id: onibi-darwin
+    main: ./cmd/onibi
+    binary: onibi
+    env: [CGO_ENABLED=1]
+    flags: [-trimpath]
+    goos: [darwin]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w
+      - -X github.com/gongahkia/onibi/internal/buildinfo.Version={{.Version}}
+      - -X github.com/gongahkia/onibi/internal/buildinfo.Commit={{.Commit}}
+      - -X github.com/gongahkia/onibi/internal/buildinfo.Date={{.Date}}
+  - id: onibi-linux
     main: ./cmd/onibi
     binary: onibi
     env: [CGO_ENABLED=0]
     flags: [-trimpath]
-    goos: [darwin, linux]
+    goos: [linux]
     goarch: [amd64, arm64]
     ldflags:
       - -s -w
