@@ -30,6 +30,22 @@ jobs:
       - run: go test -race -count=1 ./...
       - run: go build ./cmd/onibi ./clients/onibi-notify
 
+  browser:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web-tests
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web-tests/package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm test
+
   release-snapshot:
     runs-on: macos-latest
     steps:
