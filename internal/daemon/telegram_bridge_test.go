@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -22,16 +23,20 @@ import (
 )
 
 type bridgeRunner struct {
-	mu    sync.Mutex
-	calls [][]string
-	err   error
+	mu      sync.Mutex
+	calls   [][]string
+	err     error
+	capture func(context.Context) ([]byte, error)
 }
 
-func (r *bridgeRunner) Run(_ context.Context, name string, args ...string) ([]byte, error) {
+func (r *bridgeRunner) Run(ctx context.Context, name string, args ...string) ([]byte, error) {
 	r.mu.Lock()
 	r.calls = append(r.calls, append([]string{name}, args...))
 	r.mu.Unlock()
 	if len(args) > 0 && args[0] == "capture-pane" {
+		if r.capture != nil {
+			return r.capture(ctx)
+		}
 		return []byte("ready\n"), r.err
 	}
 	return nil, r.err
@@ -63,7 +68,7 @@ func testTelegramBridge(t *testing.T) (*telegramBridge, *bridgeRunner, func()) {
 	runner := &bridgeRunner{}
 	oldController := newTmuxController
 	newTmuxController = func() *tmux.Controller { return tmux.NewWithRunner(runner) }
-	var nextID int64
+	var nextID atomic.Int64
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/sendPhoto") {
 			_ = r.ParseMultipartForm(1 << 20)
@@ -73,18 +78,46 @@ func testTelegramBridge(t *testing.T) (*telegramBridge, *bridgeRunner, func()) {
 		if !strings.HasSuffix(r.URL.Path, "/answerCallbackQuery") {
 			var body map[string]any
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-				t.Fatal(err)
+				t.Error(err)
+				http.Error(w, "invalid JSON", http.StatusBadRequest)
+				return
 			}
 		}
-		nextID++
-		writeBridgeTelegram(w, telegram.Message{MessageID: nextID, Chat: telegram.Chat{ID: 42, Type: "private"}})
+		writeBridgeTelegram(w, telegram.Message{MessageID: nextID.Add(1), Chat: telegram.Chat{ID: 42, Type: "private"}})
 	}))
 	client := telegram.NewClient("123456:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi")
 	client.BaseURL = server.URL
 	client.RetrySleep = func(context.Context, time.Duration) error { return nil }
 	b := &telegramBridge{d: d, client: client, ownerID: 42, ownerUserID: 7, seen: map[string]bool{}, sending: map[string]bool{}, killArmed: map[int64]killConfirmation{}, cards: map[string]telegramCard{}, statuses: map[string]codexStatus{}, agentStatuses: map[string]agentStatus{}}
-	cleanup := func() { newTmuxController = oldController; server.Close(); _ = db.Close() }
+	// Unrelated input assertions do not need an automatic capture. Tests of the
+	// debounce explicitly shorten this delay and wait for the resulting work.
+	b.screenDelay = time.Hour
+	var once sync.Once
+	cleanup := func() {
+		once.Do(func() {
+			b.stopAsync()
+			newTmuxController = oldController
+			server.Close()
+			_ = db.Close()
+		})
+	}
+	t.Cleanup(cleanup)
 	return b, runner, cleanup
+}
+
+func waitForBridge(t *testing.T, condition func() bool, description string) {
+	t.Helper()
+	timeout := time.NewTimer(5 * time.Second)
+	defer timeout.Stop()
+	tick := time.NewTicker(time.Millisecond)
+	defer tick.Stop()
+	for !condition() {
+		select {
+		case <-timeout.C:
+			t.Fatalf("timed out waiting for %s", description)
+		case <-tick.C:
+		}
+	}
 }
 
 func writeBridgeTelegram(w http.ResponseWriter, result any) {
@@ -95,9 +128,7 @@ func writeBridgeTelegram(w http.ResponseWriter, result any) {
 func TestTelegramInputUsesLiteralTextEnterAndScreen(t *testing.T) {
 	b, runner, cleanup := testTelegramBridge(t)
 	defer cleanup()
-	oldDelay := screenAutoDelay
-	screenAutoDelay = time.Millisecond
-	defer func() { screenAutoDelay = oldDelay }()
+	b.screenDelay = time.Millisecond
 	s := NewSession("session-1", "work", "shell", 4096)
 	s.TmuxTarget = "onibi-session-1"
 	if err := b.d.Registry.Add(s); err != nil {
@@ -109,12 +140,113 @@ func TestTelegramInputUsesLiteralTextEnterAndScreen(t *testing.T) {
 		{"tmux", "send-keys", "-t", "onibi-session-1", "-l", "--", "printf ok"},
 		{"tmux", "send-keys", "-t", "onibi-session-1", "Enter"},
 	}
-	if calls := runner.snapshot(); !reflect.DeepEqual(calls, want) {
+	if calls := runner.snapshot(); len(calls) < len(want) || !reflect.DeepEqual(calls[:len(want)], want) {
 		t.Fatalf("calls=%#v", calls)
 	}
-	<-time.After(20 * time.Millisecond)
+	waitForBridge(t, func() bool { return len(runner.snapshot()) >= 4 }, "automatic screen capture")
 	if calls := runner.snapshot(); len(calls) != 4 || calls[2][1] != "display-message" || calls[3][1] != "capture-pane" || calls[3][len(calls[3])-1] != "-160" {
 		t.Fatalf("screen calls=%#v", calls)
+	}
+}
+
+func TestTelegramShutdownCancelsPendingScreen(t *testing.T) {
+	b, runner, cleanup := testTelegramBridge(t)
+	defer cleanup()
+	s := NewSession("screen-pending", "work", "shell", 4096)
+	s.TmuxTarget = "onibi-screen-pending"
+	if err := b.d.Registry.Add(s); err != nil {
+		t.Fatal(err)
+	}
+	b.scheduleAutoScreen(t.Context(), 42, s.ID, "work", 0)
+	b.stopAsync()
+	if calls := runner.snapshot(); len(calls) != 0 {
+		t.Fatalf("shutdown captured a pending screen: %#v", calls)
+	}
+	b.mu.Lock()
+	pending := len(b.autoScreens)
+	b.mu.Unlock()
+	if pending != 0 {
+		t.Fatalf("shutdown retained %d screen workers", pending)
+	}
+	if b.startAsync(t.Context(), func(context.Context) { t.Error("work started after shutdown") }) {
+		t.Fatal("shutdown accepted a new worker")
+	}
+}
+
+func TestTelegramShutdownWaitsForRunningCapture(t *testing.T) {
+	b, runner, cleanup := testTelegramBridge(t)
+	defer cleanup()
+	b.screenDelay = time.Millisecond
+	started := make(chan struct{})
+	cancelled := make(chan struct{})
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	defer releaseOnce.Do(func() { close(release) })
+	runner.capture = func(ctx context.Context) ([]byte, error) {
+		close(started)
+		<-ctx.Done()
+		close(cancelled)
+		<-release
+		return nil, ctx.Err()
+	}
+	s := NewSession("screen-running", "work", "shell", 4096)
+	s.TmuxTarget = "onibi-screen-running"
+	if err := b.d.Registry.Add(s); err != nil {
+		t.Fatal(err)
+	}
+	b.scheduleAutoScreen(t.Context(), 42, s.ID, "work", 0)
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("capture did not start")
+	}
+	stopped := make(chan struct{})
+	go func() {
+		b.stopAsync()
+		close(stopped)
+	}()
+	select {
+	case <-cancelled:
+	case <-time.After(5 * time.Second):
+		t.Fatal("shutdown did not cancel capture")
+	}
+	select {
+	case <-stopped:
+		t.Fatal("shutdown returned before the running capture exited")
+	default:
+	}
+	releaseOnce.Do(func() { close(release) })
+	select {
+	case <-stopped:
+	case <-time.After(5 * time.Second):
+		t.Fatal("shutdown did not join capture")
+	}
+}
+
+func TestTelegramReplacedScreenCannotFlushLatestSchedule(t *testing.T) {
+	b, runner, cleanup := testTelegramBridge(t)
+	defer cleanup()
+	s := NewSession("screen-replaced", "work", "shell", 4096)
+	s.TmuxTarget = "onibi-screen-replaced"
+	if err := b.d.Registry.Add(s); err != nil {
+		t.Fatal(err)
+	}
+	key := "42:" + s.ID
+	b.scheduleAutoScreen(t.Context(), 42, s.ID, "first", 10)
+	b.mu.Lock()
+	previous := b.autoScreens[key]
+	b.mu.Unlock()
+	b.scheduleAutoScreen(t.Context(), 42, s.ID, "second", 11)
+	// Simulate an old timer that fired just as the second input arrived.
+	b.flushAutoScreen(t.Context(), key, previous)
+	if calls := runner.snapshot(); len(calls) != 0 {
+		t.Fatalf("superseded timer captured output: %#v", calls)
+	}
+	b.mu.Lock()
+	latest := b.autoScreens[key]
+	b.mu.Unlock()
+	if latest == nil || latest == previous || latest.Title != "second" || !reflect.DeepEqual(latest.Statuses, []int64{10, 11}) {
+		t.Fatalf("superseded timer consumed latest schedule: %#v", latest)
 	}
 }
 
@@ -341,11 +473,9 @@ func TestCodexEndedStatusClearsTarget(t *testing.T) {
 		t.Fatal("could not end Codex session")
 	}
 	b.setTarget(t.Context(), 42, s.ID)
-	oldDelay := codexStatusDelay
-	codexStatusDelay = time.Millisecond
-	defer func() { codexStatusDelay = oldDelay }()
+	b.statusDelay = time.Millisecond
 	b.updateCodexStatus(t.Context(), CodexEvent{SessionID: s.ID, Kind: "failed", Text: "Codex App Server stopped."})
-	<-time.After(20 * time.Millisecond)
+	waitForBridge(t, func() bool { return b.target(t.Context(), 42) == "" }, "ended session target to clear")
 	if got := b.target(t.Context(), 42); got != "" {
 		t.Fatalf("target=%q", got)
 	}
@@ -593,25 +723,21 @@ func TestCodexStatusCoalescesProgress(t *testing.T) {
 	if err := b.d.Registry.Add(s); err != nil {
 		t.Fatal(err)
 	}
-	oldDelay := codexStatusDelay
-	codexStatusDelay = time.Millisecond
-	defer func() { codexStatusDelay = oldDelay }()
+	b.statusDelay = time.Millisecond
 	b.updateCodexStatus(t.Context(), CodexEvent{SessionID: s.ID, Kind: "progress", Text: "one"})
 	b.updateCodexStatus(t.Context(), CodexEvent{SessionID: s.ID, Kind: "progress", Text: "two"})
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
+	waitForBridge(t, func() bool {
 		b.mu.Lock()
 		state := b.statuses[s.ID]
 		b.mu.Unlock()
-		if state.MessageID != 0 {
-			if !strings.Contains(state.Text, "one") || !strings.Contains(state.Text, "two") {
-				t.Fatalf("text=%q", state.Text)
-			}
-			return
-		}
-		time.Sleep(time.Millisecond)
+		return state.MessageID != 0 && strings.Contains(state.Text, "one") && strings.Contains(state.Text, "two")
+	}, "coalesced Codex status")
+	b.mu.Lock()
+	state := b.statuses[s.ID]
+	b.mu.Unlock()
+	if !strings.Contains(state.Text, "one") || !strings.Contains(state.Text, "two") {
+		t.Fatalf("text=%q", state.Text)
 	}
-	t.Fatal("coalesced status was not sent")
 }
 
 func TestNewSessionSyntaxAndCodexApprovalRedaction(t *testing.T) {

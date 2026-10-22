@@ -68,6 +68,7 @@ The web and Telegram paths currently share a repository and local state infrastr
 | High | Cancelling pending Claude questions could block on SQLite's single connection | Read cursor closes before resolving questions; cancellation test covers multiple waiters. |
 | High | Codex process exit could close channels while the reader still sent to them | Reader owns completion ordering; final-response, queue saturation and oversized-frame tests. |
 | High | In-flight delivery could consume a newer coalesced outbox message | Replacement intents receive new IDs; older completion/retry cannot update them. |
+| High | Telegram background work could outlive shutdown, and stale debounce callbacks could consume newer screens | Bridge workers are cancelled and joined before resource cleanup; screen callbacks must still own their scheduled request. Regression tests wait for observed completion and cover replacement and shutdown. |
 | Medium | Configured tmux executable/config was discarded after creation | All input, capture, liveness and recovery paths resolve the session's configuration. |
 | Medium | Zellij plugins could masquerade as live terminal panes | Plugin entries excluded; typed pane IDs and literal input/key handling corrected. |
 | Medium | Loaded but exited launchd jobs were reported running | Status requires a process ID; loaded/stopped fixture added. |

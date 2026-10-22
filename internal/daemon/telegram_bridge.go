@@ -29,8 +29,9 @@ const (
 	telegramPasteTTL     = 5 * time.Minute
 )
 
-var codexStatusDelay = time.Second
-var screenAutoDelay = 500 * time.Millisecond
+const codexStatusDelay = time.Second
+const screenAutoDelay = 500 * time.Millisecond
+
 var errTelegramDisabled = errors.New("Telegram disabled")
 
 type telegramCard struct {
@@ -70,7 +71,7 @@ type scheduledScreen struct {
 	SessionID string
 	Title     string
 	Statuses  []int64
-	Timer     *time.Timer
+	Cancel    context.CancelFunc
 }
 type killConfirmation struct {
 	SessionID string
@@ -91,9 +92,62 @@ type telegramBridge struct {
 	autoScreens   map[string]*scheduledScreen
 	lastScreens   map[string]string
 	outboxWake    chan struct{}
+	asyncCtx      context.Context
+	asyncCancel   context.CancelFunc
+	asyncWG       sync.WaitGroup
+	closing       bool
+	statusDelay   time.Duration
+	screenDelay   time.Duration
 }
 
 func newSessionHelp() string { return "/new shell, /new codex, /new pi, or /new claude" }
+
+// beginAsyncLocked registers work before it can race with shutdown. The caller
+// holds b.mu and must call finish even when work is cancelled before starting.
+func (b *telegramBridge) beginAsyncLocked(parent context.Context) (ctx context.Context, cancel context.CancelFunc, finish func(), ok bool) {
+	if b.closing || parent.Err() != nil {
+		return nil, nil, nil, false
+	}
+	if b.asyncCtx == nil {
+		b.asyncCtx, b.asyncCancel = context.WithCancel(parent)
+	}
+	// Retries belong to the bridge lifetime, so completing one worker must not
+	// cancel another worker it scheduled before returning.
+	ctx, cancel = context.WithCancel(b.asyncCtx)
+	b.asyncWG.Add(1)
+	return ctx, cancel, func() {
+		cancel()
+		b.asyncWG.Done()
+	}, true
+}
+
+func (b *telegramBridge) startAsync(parent context.Context, work func(context.Context)) bool {
+	b.mu.Lock()
+	ctx, _, finish, ok := b.beginAsyncLocked(parent)
+	b.mu.Unlock()
+	if !ok {
+		return false
+	}
+	go func() {
+		defer finish()
+		if ctx.Err() == nil {
+			work(ctx)
+		}
+	}()
+	return true
+}
+
+func (b *telegramBridge) stopAsync() {
+	b.mu.Lock()
+	b.closing = true
+	if b.asyncCancel != nil {
+		b.asyncCancel()
+	}
+	b.mu.Unlock()
+	// A stopped timer may already be running. Wait for every registered worker,
+	// including capture and delivery, before the daemon releases its resources.
+	b.asyncWG.Wait()
+}
 
 func (d *Daemon) runTelegramBridge(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
@@ -103,8 +157,9 @@ func (d *Daemon) runTelegramBridge(ctx context.Context) error {
 		d.Log.Warn("Telegram delete webhook", "err", err)
 	}
 	b := &telegramBridge{d: d, client: c, ownerID: d.TelegramOwnerID, ownerUserID: d.TelegramOwnerUserID, seen: map[string]bool{}, sending: map[string]bool{}, killArmed: map[int64]killConfirmation{}, cards: map[string]telegramCard{}, statuses: map[string]codexStatus{}, agentStatuses: map[string]agentStatus{}, autoScreens: map[string]*scheduledScreen{}, lastScreens: map[string]string{}, outboxWake: make(chan struct{}, 1)}
+	defer b.stopAsync()
 	disabled := make(chan struct{})
-	go func() {
+	b.startAsync(ctx, func(ctx context.Context) {
 		ticker := time.NewTicker(250 * time.Millisecond)
 		defer ticker.Stop()
 		for {
@@ -119,7 +174,7 @@ func (d *Daemon) runTelegramBridge(ctx context.Context) error {
 				}
 			}
 		}
-	}()
+	})
 	if err := d.DB.TelegramOutboxRecover(ctx); err != nil {
 		d.Log.Warn("recover Telegram outbox", "err", err)
 	}
@@ -128,12 +183,12 @@ func (d *Daemon) runTelegramBridge(ctx context.Context) error {
 	} else if n > 0 && b.owner() != 0 {
 		b.enqueueOutbox(ctx, "notice", b.owner(), "", "Onibi restarted before "+strconv.FormatInt(n, 10)+" inbound update(s) completed. No command was replayed; inspect the session and resend if needed.", 0, "inbound-recovery")
 	}
-	go b.forwardApprovals(ctx)
-	go b.forwardCodexEvents(ctx)
-	go b.forwardAgentEvents(ctx)
-	go b.forwardClaudeQuestions(ctx)
-	go b.forwardSessionEvents(ctx)
-	go b.runOutbox(ctx)
+	b.startAsync(ctx, b.forwardApprovals)
+	b.startAsync(ctx, b.forwardCodexEvents)
+	b.startAsync(ctx, b.forwardAgentEvents)
+	b.startAsync(ctx, b.forwardClaudeQuestions)
+	b.startAsync(ctx, b.forwardSessionEvents)
+	b.startAsync(ctx, b.runOutbox)
 	offset, err := d.DB.TelegramNextOffset(ctx)
 	if err != nil {
 		return err
@@ -873,7 +928,7 @@ func (b *telegramBridge) sendApproval(ctx context.Context, item *approval.Approv
 }
 
 func (b *telegramBridge) retryApproval(ctx context.Context, item *approval.Approval) {
-	go func() {
+	b.startAsync(ctx, func(ctx context.Context) {
 		timer := time.NewTimer(5 * time.Second)
 		defer timer.Stop()
 		select {
@@ -881,7 +936,7 @@ func (b *telegramBridge) retryApproval(ctx context.Context, item *approval.Appro
 		case <-timer.C:
 			b.sendApproval(ctx, item)
 		}
-	}()
+	})
 }
 func (b *telegramBridge) resolveApproval(ctx context.Context, chatID, messageID int64, card telegramCard) {
 	if card.Decision == "confirm" {
@@ -1033,34 +1088,59 @@ func (b *telegramBridge) queueScreen(ctx context.Context, chatID int64, sessionI
 
 func (b *telegramBridge) scheduleAutoScreen(ctx context.Context, chatID int64, sessionID, title string, statusID int64) {
 	key := strconv.FormatInt(chatID, 10) + ":" + sessionID
-	at := time.Now().Add(screenAutoDelay)
+	delay := b.screenDelay
+	if delay <= 0 {
+		delay = screenAutoDelay
+	}
+	at := time.Now().Add(delay)
 	b.queueScreen(ctx, chatID, sessionID, "Updated · "+title, false, at, false)
 	b.mu.Lock()
+	ctx, cancel, finish, ok := b.beginAsyncLocked(ctx)
+	if !ok {
+		b.mu.Unlock()
+		return
+	}
 	if b.autoScreens == nil {
 		b.autoScreens = map[string]*scheduledScreen{}
 	}
-	state := b.autoScreens[key]
-	if state == nil {
-		state = &scheduledScreen{ChatID: chatID, SessionID: sessionID}
-		b.autoScreens[key] = state
+	state := &scheduledScreen{ChatID: chatID, SessionID: sessionID, Title: title, Cancel: cancel}
+	if previous := b.autoScreens[key]; previous != nil {
+		previous.Cancel()
+		state.Statuses = append(state.Statuses, previous.Statuses...)
 	}
-	if state.Timer != nil {
-		state.Timer.Stop()
-	}
-	state.Title = title
 	if statusID != 0 {
 		state.Statuses = append(state.Statuses, statusID)
 	}
-	state.Timer = time.AfterFunc(screenAutoDelay, func() { b.flushAutoScreen(ctx, key) })
+	b.autoScreens[key] = state
 	b.mu.Unlock()
+	go func() {
+		defer finish()
+		defer func() {
+			b.mu.Lock()
+			if b.autoScreens[key] == state {
+				delete(b.autoScreens, key)
+			}
+			b.mu.Unlock()
+		}()
+		timer := time.NewTimer(delay)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+		case <-timer.C:
+			b.flushAutoScreen(ctx, key, state)
+		}
+	}()
 }
 
-func (b *telegramBridge) flushAutoScreen(ctx context.Context, key string) {
+func (b *telegramBridge) flushAutoScreen(ctx context.Context, key string, state *scheduledScreen) {
 	if ctx.Err() != nil {
 		return
 	}
 	b.mu.Lock()
-	state := b.autoScreens[key]
+	if b.autoScreens[key] != state {
+		b.mu.Unlock()
+		return
+	}
 	delete(b.autoScreens, key)
 	b.mu.Unlock()
 	if state == nil {
@@ -1363,7 +1443,11 @@ func (b *telegramBridge) updateCodexStatus(ctx context.Context, event CodexEvent
 	state.Pending = true
 	b.statuses[event.SessionID] = state
 	b.mu.Unlock()
-	go b.flushCodexStatus(ctx, event.SessionID)
+	delay := b.statusDelay
+	if delay <= 0 {
+		delay = codexStatusDelay
+	}
+	b.startAsync(ctx, func(ctx context.Context) { b.flushCodexStatus(ctx, event.SessionID, delay) })
 }
 
 func appendCodexStatus(current, next string) string {
@@ -1381,8 +1465,8 @@ func appendCodexDelta(current, next string) string {
 	return "…" + joined[len(joined)-3599:]
 }
 
-func (b *telegramBridge) flushCodexStatus(ctx context.Context, sessionID string) {
-	timer := time.NewTimer(codexStatusDelay)
+func (b *telegramBridge) flushCodexStatus(ctx context.Context, sessionID string, delay time.Duration) {
+	timer := time.NewTimer(delay)
 	defer timer.Stop()
 	select {
 	case <-ctx.Done():
@@ -1983,7 +2067,7 @@ func (b *telegramBridge) setOwner(ctx context.Context, chat, user int64) error {
 	b.mu.Unlock()
 	b.d.TelegramOwnerID, b.d.TelegramOwnerUserID = chat, user
 	b.d.TelegramPair = ""
-	go b.replayPendingApprovals(ctx)
+	b.startAsync(ctx, b.replayPendingApprovals)
 	return nil
 }
 func (b *telegramBridge) target(ctx context.Context, chat int64) string {
