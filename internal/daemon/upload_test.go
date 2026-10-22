@@ -52,3 +52,26 @@ func TestStageUploadIsPrivateBoundedAndExpires(t *testing.T) {
 		t.Fatalf("expired upload remains: %v", err)
 	}
 }
+
+func TestStageUploadRejectsIncompleteOrMismatchedDownloads(t *testing.T) {
+	b, _, cleanup := testTelegramBridge(t)
+	defer cleanup()
+	s := NewSession("upload-integrity", "work", "shell", 4096)
+	if err := b.d.Registry.Add(s); err != nil {
+		t.Fatal(err)
+	}
+	for _, body := range []string{"short", "too much data"} {
+		if _, _, err := b.d.StageUpload(t.Context(), s.ID, "document.txt", 10, strings.NewReader(body)); err == nil || !strings.Contains(err.Error(), "size mismatch") {
+			t.Fatalf("body=%q err=%v", body, err)
+		}
+		files, err := os.ReadDir(filepath.Join(b.d.Paths.StateDir, "uploads", s.ID))
+		if err != nil || len(files) != 0 {
+			t.Fatalf("mismatched upload left staged bytes: files=%v err=%v", files, err)
+		}
+	}
+	// Telegram may omit file_size, so an unknown size remains bounded by
+	// UploadMaxBytes and is accepted after a complete read.
+	if _, _, err := b.d.StageUpload(t.Context(), s.ID, "unknown.txt", 0, strings.NewReader("complete")); err != nil {
+		t.Fatal(err)
+	}
+}

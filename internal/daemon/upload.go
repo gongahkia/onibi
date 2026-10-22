@@ -45,6 +45,10 @@ func (d *Daemon) StageUpload(ctx context.Context, sessionID, name string, expect
 		}
 		return "", time.Time{}, closeErr
 	}
+	if expectedSize > 0 && n != expectedSize {
+		_ = os.Remove(tmp)
+		return "", time.Time{}, fmt.Errorf("upload size mismatch: received %d bytes, expected %d", n, expectedSize)
+	}
 	if err := os.Rename(tmp, path); err != nil {
 		_ = os.Remove(tmp)
 		return "", time.Time{}, err
