@@ -8,6 +8,19 @@ Audit date: 2026-10-23. Baseline: `928fb1b8`. This review covered the Go CLI, da
 
 The original README described a narrower Telegram-only product and explicitly excluded Ghostty and browser access. The code matched that narrower description reasonably well, so the largest gap was a product-direction mismatch, not a missing decorative UI. The agreed first expansion is a Mac-served mobile web interface over private Tailscale HTTPS, including existing-pane selection, bounded output, literal input, keys, tab creation, and confirmed tab closure. Telegram remains available for its existing managed sessions and agent interactions.
 
+## Why a web interface first
+
+This is a product assessment against the clarified requirement, rather than a claim that one transport is universally best:
+
+| Delivery format | Fit for this project |
+| --- | --- |
+| Private mobile web interface | Best first primary surface: persistent destination selection, a visible snapshot, a separate composer and named tab controls fit one screen. The Mac owns native control; Tailscale supplies the private route. |
+| Telegram | Useful optional surface for asynchronous output, notifications and agent decisions. Chat commands and transient keyboards make a hierarchy of existing windows/tabs/panes harder to navigate. Existing Telegram targets still belong to the managed-session backend. |
+| Native iPhone app | Could improve keyboard integration and device lifecycle later, but requires another client and distribution path while retaining the same Ghostty/Mac capability limits. Validate the first phone workflow before adding this maintenance cost. |
+| SSH or a shared multiplexer client | Useful for durable command-line work, but does not by itself control arbitrary Ghostty tabs already open on the Mac. It serves a different target model. |
+
+The key separation is between **transport** and **terminal identity**. A new messenger or iPhone client should reuse a capability-aware control boundary instead of inventing another mapping from window titles to terminal processes. The current native adapter and HTTP backend boundary begin that separation; unifying the existing Telegram catalog remains future work.
+
 ## Principles mapped to implementation
 
 | Principle | Baseline implementation | Gap and action in this pass |
