@@ -54,9 +54,42 @@ func TestStatusReportsQueueAndTmuxHealth(t *testing.T) {
 		t.Fatal(err)
 	}
 	status := d.pingText(context.Background())
-	for _, want := range []string{"poll=never", "outbox=pending:1", "tmux:", "work=healthy"} {
+	for _, want := range []string{"poll=never", "outbox=pending:1", "multiplexers:", "work (tmux)=healthy"} {
 		if !strings.Contains(status, want) {
 			t.Fatalf("status missing %q: %s", want, status)
 		}
+	}
+}
+
+func TestHealthNamesActualMultiplexerAndExcludesCodex(t *testing.T) {
+	d := New(Options{Paths: config.Paths{StateDir: t.TempDir()}})
+	ctx := t.Context()
+	for _, backend := range []string{"tmux", "zellij", "screen", "codex"} {
+		s := NewSession("health-"+backend, "work-"+backend, "shell", 4096)
+		s.Transport = backend
+		if err := d.Registry.Add(s); err != nil {
+			t.Fatal(err)
+		}
+		if backend == "codex" {
+			continue
+		}
+		d.health.tmuxResult(ctx, s, true, nil)
+		event := d.health.tmuxResult(ctx, s, false, errors.New("backend unavailable"))
+		if event == nil || !strings.Contains(event.Text, backend+" health check failed") {
+			t.Fatalf("%s failure alert=%#v", backend, event)
+		}
+		event = d.health.tmuxResult(ctx, s, true, nil)
+		if event == nil || !strings.Contains(event.Text, backend+" session work-"+backend+" recovered") {
+			t.Fatalf("%s recovery alert=%#v", backend, event)
+		}
+	}
+	status := d.pingText(ctx)
+	for _, want := range []string{"codex_sessions=1", "work-tmux (tmux)=healthy", "work-zellij (zellij)=healthy", "work-screen (screen)=healthy"} {
+		if !strings.Contains(status, want) {
+			t.Fatalf("status missing %q: %s", want, status)
+		}
+	}
+	if strings.Contains(status, "work-codex") {
+		t.Fatalf("Codex was incorrectly listed as a multiplexer: %s", status)
 	}
 }

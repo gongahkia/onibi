@@ -164,9 +164,9 @@ func (h *healthTracker) tmuxResult(ctx context.Context, s *Session, live bool, e
 	}
 	switch {
 	case status == "healthy":
-		return &healthEvent{Dedupe: "health:tmux:" + s.ID + ":recovered", Text: "Onibi alert: tmux session " + s.Name + " recovered."}
+		return &healthEvent{Dedupe: "health:tmux:" + s.ID + ":recovered", Text: "Onibi alert: " + s.Transport + " session " + s.Name + " recovered."}
 	case status == "unavailable":
-		return &healthEvent{Dedupe: "health:tmux:" + s.ID + ":unavailable", Text: "Onibi alert: tmux health check failed for " + s.Name + "."}
+		return &healthEvent{Dedupe: "health:tmux:" + s.ID + ":unavailable", Text: "Onibi alert: " + s.Transport + " health check failed for " + s.Name + "."}
 	}
 	return nil
 }
@@ -245,15 +245,18 @@ func (d *Daemon) pingText(ctx context.Context) string {
 	}
 	var out strings.Builder
 	fmt.Fprintf(&out, "onibi\nuptime=%s\nsessions=%d\ncodex_sessions=%d\npoll=%s failures=%d\ndelivery=%s failures=%d\noutbox=pending:%d running:%d expired:%d", time.Since(d.started).Truncate(time.Second), len(sessions), codexSessions, healthAge(now, state.PollSuccess), state.PollFailures, healthAge(now, state.DeliverySuccess), state.DeliveryFailures, stats.Pending, stats.Running, stats.Expired)
-	if len(sessions) > 0 {
-		out.WriteString("\ntmux:")
+	if len(sessions) > codexSessions {
+		out.WriteString("\nmultiplexers:")
 		for _, s := range sessions {
+			if s.Transport == "codex" {
+				continue
+			}
 			health := state.Sessions[s.ID]
 			status := health.Status
 			if status == "" {
 				status = "unknown"
 			}
-			fmt.Fprintf(&out, "\n- %s=%s", s.Name, status)
+			fmt.Fprintf(&out, "\n- %s (%s)=%s", s.Name, s.Transport, status)
 		}
 	}
 	return out.String()
