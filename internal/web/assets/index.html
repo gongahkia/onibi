@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#171817" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="referrer" content="no-referrer" />
+    <title>Onibi · Your Ghostty, within reach</title>
+    <link rel="icon" href="icon.svg" type="image/svg+xml" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="stylesheet" href="style.css" />
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to terminal</a>
+    <header class="site-header">
+      <a class="brand" href="./" aria-label="Onibi home"
+        ><img src="icon.svg" width="34" height="34" alt="" /><span
+          >onibi<span class="brand-dot">.</span></span
+        ></a
+      >
+      <p class="tagline">Control Ghostty wherever text renders</p>
+      <div class="header-actions" id="session-controls" hidden>
+        <span class="connection" id="connection"
+          ><span class="status-dot"></span
+          ><span id="connection-label">Connecting</span></span
+        >
+        <button class="quiet" id="logout" type="button">Disconnect</button>
+      </div>
+    </header>
+
+    <main id="main" tabindex="-1">
+      <section class="pair-view" id="pair-view" aria-labelledby="pair-heading">
+        <div class="pair-intro">
+          <span class="eyebrow"
+            ><span class="tiny-line"></span> A window into your Mac</span
+          >
+          <h1 id="pair-heading">
+            Pick up where<br />you left off<span class="brand-dot">.</span>
+          </h1>
+          <p>
+            Your Ghostty terminals, a little closer.<br />Read output, send
+            input, and keep moving.
+          </p>
+        </div>
+        <form class="pair-card" id="pair-form">
+          <span class="card-kicker">PRIVATE ACCESS</span>
+          <h2>Connect to your Mac</h2>
+          <p id="pair-description">
+            Open a fresh Onibi pairing link from your Mac, or paste its one-time
+            token below.
+          </p>
+          <label for="pair-token">Pairing token</label>
+          <input
+            id="pair-token"
+            type="password"
+            autocomplete="off"
+            autocapitalize="off"
+            spellcheck="false"
+            required
+            placeholder="Paste your one-time token"
+            aria-describedby="pair-description pair-message"
+          />
+          <button class="primary full" id="pair-submit" type="submit">
+            Connect <span aria-hidden="true">↗</span>
+          </button>
+          <p
+            class="form-message"
+            id="pair-message"
+            role="status"
+            aria-live="polite"
+          >
+            Checking this browser’s connection…
+          </p>
+          <div class="pair-footnote">
+            <span aria-hidden="true">◈</span
+            ><span
+              >Served by your Mac.<br />Your terminals stay on your
+              machine.</span
+            >
+          </div>
+        </form>
+      </section>
+
+      <section
+        class="workspace"
+        id="workspace"
+        hidden
+        aria-label="Ghostty remote control"
+      >
+        <aside class="destinations" aria-label="Available terminals">
+          <div class="section-heading">
+            <div>
+              <span class="eyebrow">ON YOUR MAC</span>
+              <h2>Terminals</h2>
+            </div>
+            <button
+              class="icon-button"
+              id="refresh-targets"
+              type="button"
+              aria-label="Refresh terminals"
+            >
+              ↻
+            </button>
+          </div>
+          <div id="target-list" class="target-list"></div>
+          <p class="sidebar-note">
+            Choose an exact pane.<br />Input goes only to that destination.
+          </p>
+        </aside>
+
+        <div class="terminal-workspace">
+          <div class="workspace-heading">
+            <div class="workspace-title">
+              <span class="eyebrow">YOUR DESTINATION</span>
+              <h1 id="destination-title">Choose a terminal</h1>
+              <p id="destination-detail">
+                An existing Ghostty pane on your Mac
+              </p>
+            </div>
+            <button
+              id="open-picker"
+              class="secondary picker-button"
+              type="button"
+            >
+              Terminals <span aria-hidden="true">⌄</span>
+            </button>
+          </div>
+          <div
+            class="banner"
+            id="workspace-message"
+            role="status"
+            aria-live="polite"
+            hidden
+          ></div>
+
+          <section class="output-card" aria-labelledby="output-heading">
+            <div class="output-toolbar">
+              <div class="output-label">
+                <span class="terminal-glyph" aria-hidden="true">›_</span>
+                <h2 id="output-heading">Terminal output</h2>
+              </div>
+              <div class="output-actions">
+                <button id="focus-terminal" class="quiet" type="button" hidden>
+                  Focus &amp; read</button
+                ><button id="read-output" class="quiet" type="button" disabled>
+                  Read again <span aria-hidden="true">↻</span>
+                </button>
+              </div>
+            </div>
+            <div class="output-empty" id="output-empty">
+              <span class="empty-glyph" aria-hidden="true">⌁</span>
+              <h3 id="output-empty-title">Your next move starts here</h3>
+              <p id="output-empty-description">
+                Select a Ghostty pane to read its output and send input.
+              </p>
+              <button class="secondary" id="choose-terminal" type="button">
+                Choose a terminal <span aria-hidden="true">↗</span>
+              </button>
+            </div>
+            <pre
+              class="terminal-output"
+              id="terminal-output"
+              tabindex="0"
+              aria-label="Captured terminal output"
+              hidden
+            ></pre>
+            <div class="output-footer">
+              <span id="snapshot-state">No terminal selected</span
+              ><time id="snapshot-time"></time
+              ><span class="snapshot-kind">Text snapshot</span>
+            </div>
+          </section>
+
+          <section
+            class="action-notice"
+            id="action-notice"
+            hidden
+            aria-live="polite"
+          >
+            <div>
+              <strong id="action-title"></strong>
+              <p id="action-detail"></p>
+            </div>
+            <div class="notice-actions">
+              <button class="secondary" id="check-receipt" type="button" hidden>
+                Check status</button
+              ><button
+                class="quiet"
+                id="acknowledge-action"
+                type="button"
+                hidden
+              >
+                I’ve checked · continue
+              </button>
+            </div>
+          </section>
+
+          <section class="compose-card" aria-labelledby="compose-label">
+            <div class="compose-heading">
+              <label id="compose-label" for="compose"
+                >Send to selected pane</label
+              ><span class="destination-badge" id="compose-destination"
+                >No destination</span
+              >
+            </div>
+            <textarea
+              id="compose"
+              rows="3"
+              placeholder="Type a command or a message…"
+              autocapitalize="off"
+              autocorrect="off"
+              spellcheck="false"
+              aria-describedby="compose-help"
+              disabled
+            ></textarea>
+            <div class="compose-actions">
+              <p id="compose-help">
+                Send adds Enter.<br />Paste adds no Enter.
+              </p>
+              <div>
+                <button
+                  class="secondary"
+                  id="paste-input"
+                  type="button"
+                  disabled
+                >
+                  Paste only</button
+                ><button class="primary" id="send-input" type="button" disabled>
+                  Send <span aria-hidden="true">↵</span>
+                </button>
+              </div>
+            </div>
+          </section>
+
+          <div class="key-strip" role="group" aria-label="Terminal keys">
+            <button type="button" data-key="esc" disabled>Esc</button
+            ><button type="button" data-key="tab" disabled>Tab</button
+            ><button type="button" data-key="up" aria-label="Up arrow" disabled>
+              ↑</button
+            ><button
+              type="button"
+              data-key="down"
+              aria-label="Down arrow"
+              disabled
+            >
+              ↓</button
+            ><button
+              type="button"
+              data-key="left"
+              aria-label="Left arrow"
+              disabled
+            >
+              ←</button
+            ><button
+              type="button"
+              data-key="right"
+              aria-label="Right arrow"
+              disabled
+            >
+              →</button
+            ><button type="button" data-key="ctrl-c" disabled>Ctrl C</button
+            ><button type="button" data-key="enter" disabled>Enter ↵</button>
+          </div>
+          <div class="tab-actions">
+            <button class="quiet" id="new-tab" type="button" disabled>
+              <span aria-hidden="true">＋</span> New tab in this window</button
+            ><button
+              class="quiet danger-text"
+              id="close-tab"
+              type="button"
+              disabled
+            >
+              Close this tab
+            </button>
+          </div>
+        </div>
+      </section>
+    </main>
+    <footer class="site-footer">
+      <span>ONIBI</span
+      ><span>Same Mac. Same session. A little more freedom.</span>
+    </footer>
+
+    <dialog
+      class="picker-dialog"
+      id="target-picker"
+      aria-labelledby="picker-title"
+    >
+      <div class="dialog-heading">
+        <div>
+          <span class="eyebrow">ON YOUR MAC</span>
+          <h2 id="picker-title">Choose a terminal</h2>
+        </div>
+        <button
+          class="icon-button"
+          id="close-picker"
+          type="button"
+          aria-label="Close terminal picker"
+        >
+          ×
+        </button>
+      </div>
+      <div id="picker-list" class="target-list"></div>
+      <button class="secondary full" id="refresh-picker" type="button">
+        Refresh terminals
+      </button>
+    </dialog>
+    <dialog
+      class="confirm-dialog"
+      id="close-confirmation"
+      aria-labelledby="close-title"
+      aria-describedby="close-description"
+    >
+      <span class="dialog-warning" aria-hidden="true">×</span>
+      <h2 id="close-title">Close this tab?</h2>
+      <p id="close-description"></p>
+      <ul id="close-pane-list"></ul>
+      <p class="muted">
+        Processes in every pane of this tab may stop. This cannot be undone.
+      </p>
+      <div class="dialog-actions">
+        <button class="secondary" id="cancel-close" type="button">
+          Keep tab open</button
+        ><button class="danger" id="confirm-close" type="button">
+          Close tab
+        </button>
+      </div>
+    </dialog>
+  </body>
+</html>

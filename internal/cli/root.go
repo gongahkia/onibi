@@ -6,9 +6,9 @@ import (
 )
 
 func Root() *cobra.Command {
-	root := &cobra.Command{Use: "onibi", Short: "Telegram command center for local terminal and coding sessions", SilenceUsage: true, SilenceErrors: true}
+	root := &cobra.Command{Use: "onibi", Short: "Control Ghostty wherever text renders", SilenceUsage: true, SilenceErrors: true}
 	root.PersistentFlags().Bool("debug", false, "print debug errors")
-	root.AddCommand(startCmd(), telegramCmd(), sessionCmd(), piCmd(), systemCmd(), doctorCmd(), versionCmd(), completionCmd())
+	root.AddCommand(webCmd(), startCmd(), telegramCmd(), sessionCmd(), piCmd(), systemCmd(), doctorCmd(), versionCmd(), completionCmd())
 	return root
 }
 func DebugEnabled(root *cobra.Command) bool { v, _ := root.Flags().GetBool("debug"); return v }
