@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -55,6 +56,10 @@ func TestTerminalKeySupportsNavigationAndModifiers(t *testing.T) {
 
 func TestStartTerminalSessionPersistsSelectedMultiplexer(t *testing.T) {
 	state, cwd := t.TempDir(), t.TempDir()
+	cwd, err := normalizeSessionCWD(cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
 	d := New(Options{Paths: config.Paths{StateDir: state}})
 	ctrl := &fakeMuxController{}
 	oldChoose := chooseMultiplexer
@@ -79,6 +84,10 @@ func TestStartTerminalSessionPersistsSelectedMultiplexer(t *testing.T) {
 
 func TestAdoptTerminalSessionPersistsExistingTarget(t *testing.T) {
 	state, cwd := t.TempDir(), t.TempDir()
+	cwd, err := normalizeSessionCWD(cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
 	db, err := store.Open(filepath.Join(state, "onibi.sqlite"))
 	if err != nil {
 		t.Fatal(err)
@@ -215,5 +224,69 @@ func TestRestoreMarksTmuxSessionsEndedWhenServerIsGone(t *testing.T) {
 	item, err := db.TelegramOutboxClaim(ctx)
 	if err != nil || item == nil || item.SessionID != "restore-dead" {
 		t.Fatalf("item=%#v err=%v", item, err)
+	}
+}
+
+func TestTmuxControlAndRestoreUseProjectConfiguration(t *testing.T) {
+	state, cwd := t.TempDir(), t.TempDir()
+	configPath := filepath.Join(cwd, "tmux.conf")
+	if err := os.WriteFile(configPath, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cwd, config.LocalConfigName), []byte("multiplexer:\n  tmux:\n    bin: /configured/tmux\n    config: tmux.conf\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	db, err := store.Open(filepath.Join(state, "onibi.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ctx := t.Context()
+	if err := db.SessionUpsertStart(ctx, "configured", "work", "shell", cwd, "sh", "tmux", "onibi-configured", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	runner := &bridgeRunner{}
+	oldController := newTmuxController
+	newTmuxController = func() *tmux.Controller { return tmux.NewWithRunner(runner) }
+	t.Cleanup(func() { newTmuxController = oldController })
+	d := New(Options{DB: db, Paths: config.Paths{StateDir: state}})
+	d.restoreSessions(ctx)
+	s, err := d.Registry.Get("configured")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.checkTmuxSessions(ctx)
+	if err := d.SendSessionText(ctx, s.ID, "echo ready", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.SendSessionKey(ctx, s.ID, "up"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := d.ResizeSession(ctx, s.ID, "large"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.CaptureSessionTail(ctx, s.ID, 80); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.CaptureSessionFrame(ctx, s.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.ControlSession(ctx, s.ID, "interrupt"); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.ControlSession(ctx, s.ID, "kill"); err != nil {
+		t.Fatal(err)
+	}
+	if !s.Ended() {
+		t.Fatal("killed session remains live")
+	}
+	calls := runner.snapshot()
+	if len(calls) < 10 {
+		t.Fatalf("missing lifecycle calls: %#v", calls)
+	}
+	for _, call := range calls {
+		if len(call) < 4 || call[0] != "/configured/tmux" || call[1] != "-f" || call[2] != configPath {
+			t.Fatalf("control lost project configuration: %#v", call)
+		}
 	}
 }

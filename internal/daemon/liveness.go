@@ -23,7 +23,6 @@ func (d *Daemon) watchTmuxSessions(ctx context.Context) {
 }
 
 func (d *Daemon) checkTmuxSessions(ctx context.Context) {
-	ctrl := newTmuxController()
 	for _, s := range d.liveSessions() {
 		if s.Transport == "codex" || s.TmuxTarget == "" {
 			continue
@@ -31,7 +30,12 @@ func (d *Daemon) checkTmuxSessions(ctx context.Context) {
 		var live bool
 		var err error
 		if s.Transport == "tmux" {
-			live, err = ctrl.HasSession(ctx, s.TmuxTarget)
+			ctrl, controllerErr := d.tmuxControllerForCWD(s.CWD)
+			if controllerErr != nil {
+				err = controllerErr
+			} else {
+				live, err = ctrl.HasSession(ctx, s.TmuxTarget)
+			}
 		} else {
 			muxCtrl, controllerErr := d.controllerForSession(s)
 			if controllerErr != nil {

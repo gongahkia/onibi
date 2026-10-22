@@ -69,7 +69,11 @@ func (d *Daemon) ResizeSession(ctx context.Context, id, size string) (int, int, 
 		d.touchSession(ctx, s)
 		return dimensions[0], dimensions[1], nil
 	}
-	if err := newTmuxController().ResizeWindow(ctx, s.TmuxTarget, dimensions[0], dimensions[1]); err != nil {
+	ctrl, err := d.tmuxControllerForCWD(s.CWD)
+	if err != nil {
+		return 0, 0, err
+	}
+	if err := ctrl.ResizeWindow(ctx, s.TmuxTarget, dimensions[0], dimensions[1]); err != nil {
 		return 0, 0, d.tmuxSessionError(ctx, s, err)
 	}
 	d.touchSession(ctx, s)

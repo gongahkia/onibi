@@ -33,7 +33,10 @@ func (d *Daemon) StartTmuxSession(ctx context.Context, name, agent, bin string, 
 		return nil, err
 	}
 	target := "onibi-" + id
-	ctrl := newTmuxController()
+	ctrl, err := d.tmuxControllerForCWD(cwd)
+	if err != nil {
+		return nil, err
+	}
 	if err := ctrl.StartSession(ctx, target, tmux.StartOptions{WindowName: name, CWD: cwd, Env: []string{"ONIBI_SESSION_ID=" + id, "ONIBI_SOCK=" + d.Paths.Socket}, Command: bin, Args: args}); err != nil {
 		return nil, err
 	}
@@ -69,18 +72,6 @@ func (d *Daemon) restoreSessions(ctx context.Context) {
 		d.Log.Warn("restore sessions", "err", err)
 		return
 	}
-	ctrl := newTmuxController()
-	live, err := ctrl.ListSessions(ctx)
-	tmuxMissing := err != nil && tmuxSessionGone(err)
-	if err != nil {
-		d.Log.Warn("tmux discovery", "err", err)
-	}
-	present := map[string]bool{}
-	if err == nil {
-		for _, s := range live {
-			present[s.Name] = true
-		}
-	}
 	for _, row := range rows {
 		if row.Transport == "codex" {
 			if err := d.restoreCodexSession(ctx, row); err != nil {
@@ -91,10 +82,17 @@ func (d *Daemon) restoreSessions(ctx context.Context) {
 		if row.Transport != "tmux" {
 			continue
 		}
-		if err != nil && !tmuxMissing {
+		ctrl, err := d.tmuxControllerForCWD(row.CWD)
+		if err != nil {
+			d.Log.Warn("restore tmux configuration", "session", row.ID, "err", err)
 			continue
 		}
-		if !present[row.TmuxTarget] {
+		live, err := ctrl.HasSession(ctx, row.TmuxTarget)
+		if err != nil {
+			d.Log.Warn("tmux discovery", "session", row.ID, "err", err)
+			continue
+		}
+		if !live {
 			_ = d.DB.SessionMarkEnded(ctx, row.ID, row.LastActivity)
 			d.queueSessionEndedNotice(ctx, row.ID, row.Name, row.Agent)
 			continue
@@ -170,7 +168,11 @@ func (d *Daemon) CaptureSessionTail(ctx context.Context, id string, lines int) (
 		d.touchSession(ctx, s)
 		return render.TextTailBody([]byte(out), render.Options{MaxLines: lines, MaxChars: 3500}), nil
 	}
-	out, err := newTmuxController().Capture(ctx, s.TmuxTarget, lines)
+	ctrl, err := d.tmuxControllerForCWD(s.CWD)
+	if err != nil {
+		return "", err
+	}
+	out, err := ctrl.Capture(ctx, s.TmuxTarget, lines)
 	if err != nil {
 		return "", d.tmuxSessionError(ctx, s, err)
 	}
@@ -195,7 +197,7 @@ func (d *Daemon) SendSessionText(ctx context.Context, id, text string, enter boo
 	if err != nil {
 		return err
 	}
-	if strings.TrimSpace(text) == "" {
+	if text == "" {
 		return errors.New("text required")
 	}
 	if s.Transport == "codex" {
@@ -212,7 +214,11 @@ func (d *Daemon) SendSessionText(ctx context.Context, id, text string, enter boo
 		d.touchSession(ctx, s)
 		return nil
 	}
-	if err := newTmuxController().SendText(ctx, s.TmuxTarget, text, enter); err != nil {
+	ctrl, err := d.tmuxControllerForCWD(s.CWD)
+	if err != nil {
+		return err
+	}
+	if err := ctrl.SendText(ctx, s.TmuxTarget, text, enter); err != nil {
 		return d.tmuxSessionError(ctx, s, err)
 	}
 	d.touchSession(ctx, s)
@@ -223,7 +229,7 @@ func (d *Daemon) SendSessionTextAndCapture(ctx context.Context, id, text string,
 	if err != nil {
 		return "", err
 	}
-	if strings.TrimSpace(text) == "" {
+	if text == "" {
 		return "", errors.New("text required")
 	}
 	if s.Transport == "codex" {

@@ -10,6 +10,7 @@ import (
 
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/mux"
+	"github.com/gongahkia/onibi/internal/tmux"
 )
 
 var chooseMultiplexer = mux.Choose
@@ -166,7 +167,28 @@ func (d *Daemon) controllerForSession(s *Session) (mux.Controller, error) {
 	if err != nil {
 		return nil, err
 	}
-	return mux.Open(s.Transport, backend, s.CWD)
+	return openMultiplexer(s.Transport, backend, s.CWD)
+}
+
+// tmuxControllerForCWD applies the same configuration used at creation to
+// subsequent control and recovery. Keep the tmux-specific controller for its
+// pane-size API, which other multiplexers do not expose.
+func (d *Daemon) tmuxControllerForCWD(cwd string) (*tmux.Controller, error) {
+	resolved, err := config.ResolveForCWD(d.Paths, cwd)
+	if err != nil {
+		return nil, err
+	}
+	backend := resolved.Config.Multiplexer.Tmux
+	configPath, err := config.ResolveTmuxConfig(cwd, backend.Config)
+	if err != nil {
+		return nil, err
+	}
+	ctrl := *newTmuxController()
+	if backend.Bin != "" {
+		ctrl.Bin = backend.Bin
+	}
+	ctrl.Config = configPath
+	return &ctrl, nil
 }
 
 func (d *Daemon) muxSessionError(ctx context.Context, s *Session, err error) error {

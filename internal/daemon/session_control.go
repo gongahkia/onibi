@@ -22,7 +22,11 @@ func (d *Daemon) SendSessionKey(ctx context.Context, id, key string) error {
 		}
 		return d.muxSessionError(ctx, s, ctrl.SendKey(ctx, mux.ParseTarget(s.TmuxTarget), key))
 	}
-	return d.tmuxSessionError(ctx, s, newTmuxController().SendKey(ctx, s.TmuxTarget, key))
+	ctrl, err := d.tmuxControllerForCWD(s.CWD)
+	if err != nil {
+		return err
+	}
+	return d.tmuxSessionError(ctx, s, ctrl.SendKey(ctx, s.TmuxTarget, key))
 }
 func (d *Daemon) ControlSession(ctx context.Context, id, action string) error {
 	s, err := d.sessionForRPCTarget(id)
@@ -47,7 +51,11 @@ func (d *Daemon) ControlSession(ctx context.Context, id, action string) error {
 			}
 			return d.muxSessionError(ctx, s, ctrl.SendKey(ctx, mux.ParseTarget(s.TmuxTarget), "ctrl-c"))
 		}
-		return d.tmuxSessionError(ctx, s, newTmuxController().SendKey(ctx, s.TmuxTarget, "C-c"))
+		ctrl, err := d.tmuxControllerForCWD(s.CWD)
+		if err != nil {
+			return err
+		}
+		return d.tmuxSessionError(ctx, s, ctrl.SendKey(ctx, s.TmuxTarget, "C-c"))
 	case "kill":
 		if s.Transport != "tmux" {
 			ctrl, err := d.controllerForSession(s)
@@ -60,7 +68,11 @@ func (d *Daemon) ControlSession(ctx context.Context, id, action string) error {
 			d.markSessionEndedReason(ctx, s, "ended by /kill")
 			return nil
 		}
-		if err := newTmuxController().KillSession(ctx, s.TmuxTarget); err != nil {
+		ctrl, err := d.tmuxControllerForCWD(s.CWD)
+		if err != nil {
+			return err
+		}
+		if err := ctrl.KillSession(ctx, s.TmuxTarget); err != nil {
 			return d.tmuxSessionError(ctx, s, err)
 		}
 		d.markSessionEndedReason(ctx, s, "ended by /kill")

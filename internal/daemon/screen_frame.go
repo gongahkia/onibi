@@ -31,7 +31,10 @@ func (d *Daemon) CaptureSessionFrame(ctx context.Context, id string) (terminalFr
 	rows, cols := 26, 100
 	var raw []byte
 	if s.Transport == "tmux" {
-		ctrl := newTmuxController()
+		ctrl, err := d.tmuxControllerForCWD(s.CWD)
+		if err != nil {
+			return terminalFrame{}, err
+		}
 		cols, rows = tmuxScreenDimensions(ctx, ctrl, s.TmuxTarget)
 		out, err := ctrl.Capture(ctx, s.TmuxTarget, maxInt(rows*3, 160))
 		if err != nil {
