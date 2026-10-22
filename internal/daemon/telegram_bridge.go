@@ -771,6 +771,9 @@ func (b *telegramBridge) sessionControls(ctx context.Context, sessionID string) 
 		{{"Ctrl-L", "key", "ctrl-l"}, {"Ctrl-R", "key", "ctrl-r"}, {"Enter", "key", "enter"}, {"Screen", "screen", ""}},
 		{{"80×24", "resize", "small"}, {"100×30", "resize", "medium"}, {"120×40", "resize", "large"}},
 	} {
+		if s.Transport == "zellij" && values[0][1] == "resize" {
+			continue
+		}
 		items, err := row(values...)
 		if err != nil {
 			return nil
