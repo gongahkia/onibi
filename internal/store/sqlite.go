@@ -88,6 +88,11 @@ func (d *DB) migrate() error {
 	for _, migration := range []string{"ALTER TABLE approvals ADD COLUMN reason TEXT", "ALTER TABLE approvals ADD COLUMN decided_by INTEGER", "ALTER TABLE sessions ADD COLUMN cmd TEXT", "ALTER TABLE sessions ADD COLUMN last_activity INTEGER", "ALTER TABLE telegram_outbox ADD COLUMN force_screen INTEGER NOT NULL DEFAULT 0", "ALTER TABLE telegram_outbox ADD COLUMN fallback_text TEXT"} {
 		_, _ = d.sql.ExecContext(ctx, migration)
 	}
+	// Preserve old retry schedules while allowing the 500ms screen debounce
+	// to survive persistence without rounding down to the current second.
+	if _, err := d.sql.ExecContext(ctx, `UPDATE telegram_outbox SET next_attempt=next_attempt*1000 WHERE next_attempt>0 AND next_attempt<100000000000`); err != nil {
+		return fmt.Errorf("migrate Telegram outbox timing: %w", err)
+	}
 	_, err := d.sql.ExecContext(ctx, "INSERT OR IGNORE INTO schema_version(version) VALUES (1)")
 	return err
 }

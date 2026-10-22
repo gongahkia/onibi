@@ -149,3 +149,113 @@ func TestTelegramPurgeRetainsCursor(t *testing.T) {
 		t.Fatalf("updates=%d err=%v", count, err)
 	}
 }
+
+func TestTelegramOutboxReplacementSurvivesOlderDelivery(t *testing.T) {
+	for _, completion := range []string{"delivered", "retry"} {
+		t.Run(completion, func(t *testing.T) {
+			db, err := Open(filepath.Join(t.TempDir(), "onibi.sqlite"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			ctx := t.Context()
+			item := TelegramOutboxIntent{ID: "old", DedupeKey: "screen:42:s1", Kind: "screen", ChatID: 42, SessionID: "s1", Title: "old frame"}
+			if err := db.TelegramOutboxUpsert(ctx, item); err != nil {
+				t.Fatal(err)
+			}
+			old, err := db.TelegramOutboxClaim(ctx)
+			if err != nil || old == nil {
+				t.Fatalf("old=%#v err=%v", old, err)
+			}
+			item.ID, item.Title = "new", "new frame"
+			if err := db.TelegramOutboxUpsert(ctx, item); err != nil {
+				t.Fatal(err)
+			}
+			if completion == "delivered" {
+				err = db.TelegramOutboxDelivered(ctx, old.ID)
+			} else {
+				err = db.TelegramOutboxRetry(ctx, old.ID, "old failure", time.Now().Add(time.Hour))
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			latest, err := db.TelegramOutboxClaim(ctx)
+			if err != nil || latest == nil || latest.ID != "new" || latest.Title != "new frame" || latest.Attempts != 0 {
+				t.Fatalf("new intent lost to older %s: latest=%#v err=%v", completion, latest, err)
+			}
+		})
+	}
+}
+
+func TestTelegramEndedNoticeCannotBeRequeuedWhileSending(t *testing.T) {
+	db, err := Open(filepath.Join(t.TempDir(), "onibi.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ctx := t.Context()
+	item := TelegramOutboxIntent{ID: "ended-first", DedupeKey: "ended:s1", Kind: "ended", ChatID: 42, SessionID: "s1"}
+	if err := db.TelegramOutboxUpsert(ctx, item); err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := db.TelegramOutboxClaim(ctx)
+	if err != nil || claimed == nil {
+		t.Fatalf("claimed=%#v err=%v", claimed, err)
+	}
+	item.ID = "ended-second"
+	if err := db.TelegramOutboxUpsert(ctx, item); err != nil {
+		t.Fatal(err)
+	}
+	if duplicate, err := db.TelegramOutboxClaim(ctx); err != nil || duplicate != nil {
+		t.Fatalf("duplicate ended delivery=%#v err=%v", duplicate, err)
+	}
+	if err := db.TelegramOutboxDelivered(ctx, claimed.ID); err != nil {
+		t.Fatal(err)
+	}
+	stats, err := db.TelegramOutboxStats(ctx)
+	if err != nil || stats.Delivered != 1 || stats.Pending != 0 {
+		t.Fatalf("stats=%#v err=%v", stats, err)
+	}
+}
+
+func TestTelegramOutboxRetainsMillisecondScheduleAndMigratesSeconds(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "onibi.sqlite")
+	db, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := t.Context()
+	at := time.Now().Add(time.Hour).Truncate(time.Second).Add(123 * time.Millisecond)
+	item := TelegramOutboxIntent{ID: "scheduled", DedupeKey: "scheduled", Kind: "screen", ChatID: 42, Title: "frame", NextAttempt: at}
+	if err := db.TelegramOutboxUpsert(ctx, item); err != nil {
+		t.Fatal(err)
+	}
+	var stored int64
+	if err := db.SQL().QueryRowContext(ctx, `SELECT next_attempt FROM telegram_outbox WHERE id=?`, item.ID).Scan(&stored); err != nil || stored != at.UnixMilli() {
+		t.Fatalf("lost subsecond schedule: stored=%d want=%d err=%v", stored, at.UnixMilli(), err)
+	}
+	if early, err := db.TelegramOutboxClaim(ctx); err != nil || early != nil {
+		t.Fatalf("claimed before debounce: %#v err=%v", early, err)
+	}
+	// Simulate a persisted intent written by the prior seconds-based format.
+	if _, err := db.SQL().ExecContext(ctx, `UPDATE telegram_outbox SET next_attempt=?`, at.Unix()); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	db, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.SQL().QueryRowContext(ctx, `SELECT next_attempt FROM telegram_outbox WHERE id=?`, item.ID).Scan(&stored); err != nil || stored != at.Unix()*1000 {
+		t.Fatalf("legacy retry schedule was not preserved: stored=%d err=%v", stored, err)
+	}
+	if err := db.migrate(); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SQL().QueryRowContext(ctx, `SELECT next_attempt FROM telegram_outbox WHERE id=?`, item.ID).Scan(&stored); err != nil || stored != at.Unix()*1000 {
+		t.Fatalf("migration changed an existing millisecond schedule: stored=%d err=%v", stored, err)
+	}
+}
