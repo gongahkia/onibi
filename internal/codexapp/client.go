@@ -50,6 +50,7 @@ type wireMessage struct {
 
 type Client struct {
 	cmd           *exec.Cmd
+	cancel        context.CancelFunc
 	stdin         io.WriteCloser
 	writeMu       sync.Mutex
 	nextID        atomic.Int64
@@ -84,6 +85,13 @@ func (b *tailBuffer) String() string {
 }
 
 func Start(ctx context.Context, opts Options) (*Client, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	started := false
+	defer func() {
+		if !started {
+			cancel()
+		}
+	}()
 	command := opts.Command
 	if command == "" {
 		command = "codex"
@@ -102,15 +110,26 @@ func Start(ctx context.Context, opts Options) (*Client, error) {
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
+		_ = stdin.Close()
 		return nil, err
 	}
 	if err := cmd.Start(); err != nil {
+		_ = stdin.Close()
+		_ = stdout.Close()
 		return nil, err
 	}
-	c := &Client{cmd: cmd, stdin: stdin, pending: map[int64]chan response{}, Requests: make(chan ServerRequest, 64), Notifications: make(chan Notification, 256), Done: make(chan error, 1), stderr: stderr}
-	go c.read(stdout)
+	c := &Client{cmd: cmd, cancel: cancel, stdin: stdin, pending: map[int64]chan response{}, Requests: make(chan ServerRequest, 64), Notifications: make(chan Notification, 256), Done: make(chan error, 1), stderr: stderr}
 	go func() {
-		err := cmd.Wait()
+		// Wait must follow the stdout reader: it closes StdoutPipe, and
+		// neither event channel may close while that reader can still send.
+		err := c.read(ctx, stdout)
+		if err != nil {
+			cancel()
+		}
+		if waitErr := cmd.Wait(); err == nil {
+			err = waitErr
+		}
+		cancel()
 		c.failPending(err)
 		c.Done <- err
 		close(c.Done)
@@ -133,6 +152,7 @@ func Start(ctx context.Context, opts Options) (*Client, error) {
 		_ = c.Close()
 		return nil, err
 	}
+	started = true
 	return c, nil
 }
 
@@ -236,6 +256,9 @@ func (c *Client) Close() error {
 	if c == nil {
 		return nil
 	}
+	if c.cancel != nil {
+		c.cancel()
+	}
 	if c.stdin != nil {
 		_ = c.stdin.Close()
 	}
@@ -253,7 +276,7 @@ func (c *Client) StderrTail() string {
 	}
 	return strings.TrimSpace(c.stderr.String())
 }
-func (c *Client) read(stdout io.Reader) {
+func (c *Client) read(ctx context.Context, stdout io.Reader) error {
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 64*1024), 8*1024*1024)
 	for scanner.Scan() {
@@ -262,11 +285,19 @@ func (c *Client) read(stdout io.Reader) {
 			continue
 		}
 		if message.Method != "" && len(message.ID) > 0 {
-			c.Requests <- ServerRequest{ID: message.ID, Method: message.Method, Params: message.Params}
+			select {
+			case c.Requests <- ServerRequest{ID: message.ID, Method: message.Method, Params: message.Params}:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
 			continue
 		}
 		if message.Method != "" {
-			c.Notifications <- Notification{Method: message.Method, Params: message.Params}
+			select {
+			case c.Notifications <- Notification{Method: message.Method, Params: message.Params}:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
 			continue
 		}
 		var id int64
@@ -281,6 +312,10 @@ func (c *Client) read(stdout io.Reader) {
 			ch <- response{Result: message.Result, Error: message.Error}
 		}
 	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("read app-server output: %w", err)
+	}
+	return nil
 }
 func (c *Client) write(message wireMessage) error {
 	if c == nil || c.stdin == nil {
