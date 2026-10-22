@@ -74,7 +74,7 @@ func (c *zellijController) Has(ctx context.Context, target Target) (bool, error)
 		return false, err
 	}
 	for _, pane := range panes {
-		if pane.ID == target.Pane && !pane.Exited {
+		if pane.ID == target.Pane && !pane.Exited && !pane.Plugin {
 			return true, nil
 		}
 	}
@@ -103,7 +103,7 @@ func (c *zellijController) SendText(ctx context.Context, target Target, text str
 	if target.Session == "" || target.Pane == "" {
 		return errors.New("Zellij session and pane target required")
 	}
-	if _, err := c.run(ctx, c.sessionArgs(target.Session, "action", "paste", "--pane-id", target.Pane, text)...); err != nil {
+	if _, err := c.run(ctx, c.sessionArgs(target.Session, "action", "paste", "--pane-id", target.Pane, "--", text)...); err != nil {
 		return gone(err)
 	}
 	if !enter {
@@ -198,9 +198,9 @@ func (c *zellijController) run(ctx context.Context, args ...string) ([]byte, err
 		return nil, fmt.Errorf("Zellij executable not found (%s); set multiplexer.zellij.bin or install zellij: %w", bin, err)
 	}
 	if out = bytes.TrimSpace(out); len(out) > 0 {
-		return nil, fmt.Errorf("zellij %s: %w: %s", strings.Join(args, " "), err, out)
+		return nil, fmt.Errorf("zellij command: %w: %s", err, out)
 	}
-	return nil, fmt.Errorf("zellij %s: %w", strings.Join(args, " "), err)
+	return nil, fmt.Errorf("zellij command: %w", err)
 }
 
 func zellijKey(key string) string {
@@ -213,10 +213,10 @@ func zellijKey(key string) string {
 		return value
 	}
 	if len(key) == 6 && strings.HasPrefix(key, "ctrl-") {
-		return "Ctrl " + strings.ToUpper(key[5:])
+		return "Ctrl " + key[5:]
 	}
 	if len(key) == 6 && strings.HasPrefix(key, "meta-") {
-		return "Alt " + strings.ToUpper(key[5:])
+		return "Alt " + key[5:]
 	}
 	if len(key) >= 2 && key[0] == 'f' {
 		return strings.ToUpper(key)

@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/gongahkia/onibi/internal/config"
@@ -51,7 +52,11 @@ func (t Target) String() string {
 func ParseTarget(raw string) Target {
 	parts := strings.SplitN(strings.TrimSpace(raw), "|", 2)
 	if len(parts) == 2 {
-		return Target{Session: parts[0], Pane: parts[1]}
+		pane := parts[1]
+		if id, err := strconv.Atoi(pane); err == nil && id >= 0 {
+			pane = "terminal_" + strconv.Itoa(id)
+		}
+		return Target{Session: parts[0], Pane: pane}
 	}
 	return Target{Session: strings.TrimSpace(raw)}
 }
@@ -217,7 +222,7 @@ func gone(err error) error {
 		return nil
 	}
 	text := strings.ToLower(err.Error())
-	for _, phrase := range []string{"no server running", "can't find session", "no such session", "no screen session found", "no screen to be resumed", "session not found", "not found", "no active session", "pane does not exist"} {
+	for _, phrase := range []string{"no server running", "can't find session", "no such session", "no screen session found", "no screen to be resumed", "session not found", "no active session", "pane does not exist"} {
 		if strings.Contains(text, phrase) {
 			return fmt.Errorf("%w: %v", ErrSessionGone, err)
 		}

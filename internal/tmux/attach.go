@@ -244,6 +244,10 @@ func (c *Controller) run(ctx context.Context, args ...string) ([]byte, error) {
 	if bin == "" {
 		bin = "tmux"
 	}
+	operation := "command"
+	if len(args) > 0 {
+		operation = args[0]
+	}
 	if configPath := strings.TrimSpace(c.Config); configPath != "" {
 		args = append([]string{"-f", configPath}, args...)
 	}
@@ -255,7 +259,7 @@ func (c *Controller) run(ctx context.Context, args ...string) ([]byte, error) {
 		return nil, fmt.Errorf("tmux executable not found (%s); set ONIBI_TMUX_BIN or install tmux: %w", bin, err)
 	}
 	if out = bytes.TrimSpace(out); len(out) > 0 {
-		return nil, fmt.Errorf("tmux %s: %w: %s", strings.Join(args, " "), err, out)
+		return nil, fmt.Errorf("tmux %s: %w: %s", operation, err, out)
 	}
-	return nil, fmt.Errorf("tmux %s: %w", strings.Join(args, " "), err)
+	return nil, fmt.Errorf("tmux %s: %w", operation, err)
 }

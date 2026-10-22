@@ -144,9 +144,9 @@ func (c *screenController) run(ctx context.Context, args ...string) ([]byte, err
 		return nil, fmt.Errorf("GNU Screen executable not found (%s); set multiplexer.screen.bin or install screen: %w", bin, err)
 	}
 	if out = bytes.TrimSpace(out); len(out) > 0 {
-		return nil, fmt.Errorf("screen %s: %w: %s", strings.Join(args, " "), err, out)
+		return nil, fmt.Errorf("screen command: %w: %s", err, out)
 	}
-	return nil, fmt.Errorf("screen %s: %w", strings.Join(args, " "), err)
+	return nil, fmt.Errorf("screen command: %w", err)
 }
 
 func screenKey(key string) string {

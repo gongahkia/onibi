@@ -2,7 +2,10 @@ package mux
 
 import (
 	"context"
+	"errors"
+	"os/exec"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -60,7 +63,7 @@ func TestZellijSendsTextAndCanonicalKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := [][]string{
-		{"--session", "onibi-1", "action", "paste", "--pane-id", "terminal_2", "echo hi"},
+		{"--session", "onibi-1", "action", "paste", "--pane-id", "terminal_2", "--", "echo hi"},
 		{"--session", "onibi-1", "action", "send-keys", "--pane-id", "terminal_2", "Enter"},
 		{"--session", "onibi-1", "action", "send-keys", "--pane-id", "terminal_2", "Ctrl c"},
 	}
@@ -100,5 +103,65 @@ func TestTargetRoundTrip(t *testing.T) {
 	}
 	if got := ParseTarget("onibi-1"); got != (Target{Session: "onibi-1"}) {
 		t.Fatalf("target=%#v", got)
+	}
+}
+
+func TestNumericZellijTargetUsesCanonicalPaneID(t *testing.T) {
+	if got := ParseTarget("work|0"); got.String() != "work|terminal_0" {
+		t.Fatalf("target=%#v", got)
+	}
+}
+
+func TestZellijLivenessIgnoresPluginWithSameNumericID(t *testing.T) {
+	for _, exited := range []string{
+		`[{"id":0,"is_plugin":true,"exited":false},{"id":0,"is_plugin":false,"exited":true}]`,
+		`[{"id":0,"is_plugin":true,"exited":false}]`,
+	} {
+		ctrl := newZellijWithRunner("zellij", "", &scriptedRunner{outputs: [][]byte{[]byte(exited)}})
+		live, err := ctrl.Has(t.Context(), Target{Session: "work", Pane: "terminal_0"})
+		if err != nil || live {
+			t.Fatalf("live=%t err=%v for %s", live, err, exited)
+		}
+	}
+}
+
+func TestZellijLiteralInputAndModifierLetters(t *testing.T) {
+	runner := &scriptedRunner{}
+	ctrl := newZellijWithRunner("zellij", "", runner)
+	target := Target{Session: "work", Pane: "terminal_0"}
+	if err := ctrl.SendText(t.Context(), target, "--help", false); err != nil {
+		t.Fatal(err)
+	}
+	args := runner.calls[0].args
+	if !reflect.DeepEqual(args[len(args)-2:], []string{"--", "--help"}) {
+		t.Fatalf("literal text parsed as an option: %#v", args)
+	}
+	for input, want := range map[string]string{"ctrl-a": "Ctrl a", "meta-q": "Alt q"} {
+		if got := zellijKey(input); got != want {
+			t.Fatalf("%s = %q, want %q", input, got, want)
+		}
+	}
+}
+
+func TestMissingExecutableOrConfigDoesNotEndSession(t *testing.T) {
+	for _, factory := range []func(string, string, Runner) Controller{newScreenWithRunner, newZellijWithRunner} {
+		for _, failure := range []error{exec.ErrNotFound, errors.New("configuration file not found")} {
+			ctrl := factory("missing", "", &scriptedRunner{errors: []error{failure}})
+			_, err := ctrl.Has(t.Context(), Target{Session: "work", Pane: "terminal_0"})
+			if err == nil || IsSessionGone(err) {
+				t.Fatalf("%s misclassified infrastructure failure: %v", ctrl.Kind(), err)
+			}
+		}
+	}
+}
+
+func TestFailedInputDoesNotExposeArguments(t *testing.T) {
+	for _, factory := range []func(string, string, Runner) Controller{newTmuxWithRunner, newScreenWithRunner, newZellijWithRunner} {
+		runner := &scriptedRunner{errors: []error{errors.New("exit status 1")}, outputs: [][]byte{[]byte("permission denied")}}
+		ctrl := factory("mux", "", runner)
+		err := ctrl.SendText(t.Context(), Target{Session: "work", Pane: "terminal_0"}, "SECRET_INPUT_123", true)
+		if err == nil || strings.Contains(err.Error(), "SECRET_INPUT_123") || !strings.Contains(err.Error(), "permission denied") {
+			t.Fatalf("%s returned unsafe or unhelpful error: %v", ctrl.Kind(), err)
+		}
 	}
 }
