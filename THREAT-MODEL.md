@@ -1,9 +1,15 @@
 # Threat model
 
-Onibi grants a single paired Telegram private chat remote control over terminal sessions running as the local OS user. That account and its processes, the configured multiplexer, the bot token, and Telegram's transport are trusted dependencies. A paired Telegram account is effectively a remote keyboard for the selected session, not a read-only viewer.
+Onibi grants a paired browser control over existing Ghostty terminals, and optionally grants a single paired Telegram private chat control over managed terminal sessions. Both surfaces act with the local OS user's authority. The Mac, Ghostty, the configured multiplexer, and their processes are trusted. A paired client can execute commands and terminate work.
+
+The web server binds only to loopback. For remote use, Tailscale Serve terminates private HTTPS and forwards to the local listener. Tailscale, the tailnet access policy, the browser, and the Mac's local network stack are trusted parts of that route. Telegram has its own independent credentials and pairing.
 
 ## Protections
 
+- Browser pairing uses a random, single-use secret that expires after ten minutes. Sessions expire after twelve hours, are revoked by logout, and do not survive a server restart. Remote cookies are Secure, HttpOnly and SameSite Strict. Secrets are removed from the URL fragment immediately.
+- Web requests require the configured Host/Origin and state-changing requests require a session CSRF token. Loopback proxy hosts are explicitly configured; forwarded headers do not establish trust. There is no public listener or CORS API.
+- Web actions claim a durable receipt before execution. Replays return that receipt; crashes leave uncertain actions for inspection. Input text is not persisted in receipts. Restart recovery requires an exclusive state-directory lock.
+- Native actions use Ghostty process and surface identities rather than terminal titles or positions. Output capture checks the focused pane before and after reading bounded Accessibility text. Tab closure requires a named confirmation in the interface and affects all panes in the selected tab.
 - Incoming messages and callbacks require the paired private chat and user ID. Unpaired users cannot select sessions or issue commands.
 - `onibi telegram disable` sets a persisted kill switch before removing the local token and pairing. The running daemon checks it before processing updates and delivering queued output, then exits after its current long poll. BotFather token rotation is a separate Telegram-side action.
 - Local state and uploaded files use restrictive filesystem permissions. The intake socket is same-user only. Callback data contains opaque tokens rather than command or approval bodies.
@@ -12,6 +18,9 @@ Onibi grants a single paired Telegram private chat remote control over terminal 
 
 ## Residual risks
 
+- A leaked unused browser pairing link or browser session grants terminal control. Stop and restart `onibi web` to revoke browser access. `onibi telegram disable` only revokes the Telegram surface.
+- Focus and output capture span separate operating-system calls; they cannot form one atomic Ghostty transaction. The adapter discards detected focus changes, but cannot prove no focus change occurred and reversed between checks. Output is visible plaintext, not full terminal history.
+- Closing a Ghostty tab may terminate its processes. An already executing action can finish during logout or shutdown; revocation cannot undo input already sent.
 - Telegram bot chats are not end-to-end encrypted. Telegram and anyone with access to the bot account or paired account can see messages and output.
 - Local processes running as the same OS user may read Onibi state or control the multiplexer directly. Onibi does not sandbox commands or protect against a compromised host.
 - A leaked bot token can operate the bot outside Onibi. Disabling Onibi does not revoke that token; rotate it with BotFather.

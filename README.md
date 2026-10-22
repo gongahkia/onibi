@@ -1,22 +1,43 @@
 # Onibi
 
-Onibi is a Telegram-native remote command center for one developer's persistent local terminal sessions.
+**Control Ghostty wherever text renders.**
 
-It runs named terminal sessions on your machine through `tmux`, Zellij, or GNU Screen. From Telegram you can select a session, send literal input, inspect bounded output or a rendered terminal screen, send navigation/modifier keys, resize a supported terminal window, or use a guarded kill. Codex uses the local App Server for structured progress, approvals, and questions; Pi and Claude Code use local hooks for remote approvals and completion updates.
+Onibi's first web preview is designed to control your Mac's existing Ghostty windows, tabs, and panes from an iPhone-friendly interface. The server runs on your Mac; private HTTPS through Tailscale connects your devices. Select a specific pane, inspect its visible text, send literal input or keys, and create or close tabs. Native end-to-end and physical iPhone validation remain outstanding; see the [verification limits](docs/web.md#verification-boundaries).
+
+The optional Telegram interface manages named terminal sessions through `tmux`, Zellij, or GNU Screen, with screenshots and agent approval cards. Codex uses the local App Server for structured progress, approvals, and questions; Pi and Claude Code use local hooks. These managed sessions are separate from the web interface's existing Ghostty panes.
 
 ## Scope
 
-Included: Telegram owner pairing, named durable sessions, generic multiplexer control, screenshots, audit/recovery, Codex semantic decisions, Pi approval extension, and Claude Code approval/completion hooks.
+Included: explicit Ghostty targeting, browser pairing, mobile controls, bounded visible text, tab creation and confirmed closure; plus Telegram owner pairing, named durable sessions, generic multiplexer control, screenshots, audit/recovery, Codex semantic decisions, Pi approval extension, and Claude Code approval/completion hooks.
 
-Not included: browser/PWA UI, QR pairing, Ghostty handover, LAN/relay transports, team collaboration, arbitrary terminal-prompt inference, snapshots, or generic agent-hook catalogues.
+Not included: a hosted relay, team collaboration, full terminal emulation in the browser, arbitrary terminal-prompt inference, or agent hooks retrofitted into already running Ghostty processes. The web interface is macOS-only; the Telegram backend also supports Linux.
 
-## Start
+See the [product and engineering audit](docs/product-audit.md) for the principles, implementation map, fixes, and remaining limits.
 
-Prerequisites: one of `tmux`, Zellij, or GNU Screen, a Telegram bot token from BotFather, and Go 1.26.4+ when building from source. Codex sessions require a local authenticated `codex` CLI; Claude Code sessions require a local authenticated `claude` CLI.
+## Ghostty from your iPhone
+
+Use Ghostty 1.3 or later on macOS. Source builds need a patched Go toolchain (the module selects Go 1.27.3) and the macOS command-line developer tools for Accessibility support. Release archives include native capture support.
+
+1. Install and sign into Tailscale on your Mac and iPhone, then enable private HTTPS with `tailscale serve --bg 8787`. Note the HTTPS address it prints.
+2. Start Onibi on your Mac, replacing the example origin with that address:
+
+   ```sh
+   make build
+   ./bin/onibi web --origin https://your-mac.your-tailnet.ts.net
+   ```
+
+3. Open the printed pairing link on your iPhone within ten minutes. It can pair one browser once. Allow macOS Automation and Accessibility access for the process launching Onibi when needed.
+4. Select a Ghostty pane. Use **Focus & read** to bring it forward on the Mac and read its visible text. Send text with Enter, paste without Enter, or use the key controls. Closing a tab requires confirmation and affects every pane in that tab.
+
+No Telegram token is needed for `onibi web`. For a local preview on the Mac, run `./bin/onibi web` and open its printed link. The listener remains on loopback; Tailscale Serve provides the private HTTPS route. Stop with `Ctrl-C`; restarting revokes browser sessions and prints a fresh pairing link. See [web operation](docs/web.md) for setup, recovery, and capture limitations.
+
+## Telegram setup
+
+Prerequisites: one of `tmux`, Zellij, or GNU Screen, a Telegram bot token from BotFather, and a patched Go toolchain (Go 1.26.10 or 1.27.3+) when building from source. The module selects Go 1.27.3 automatically. Codex sessions require a local authenticated `codex` CLI; Claude Code sessions require a local authenticated `claude` CLI.
 
 ```sh
 make build
-./bin/onibi telegram setup --token "$ONIBI_TELEGRAM_TOKEN"
+./bin/onibi telegram setup # reads ONIBI_TELEGRAM_TOKEN
 ./bin/onibi start
 ```
 
