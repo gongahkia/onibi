@@ -118,7 +118,7 @@ func (d *Daemon) waitClaudeQuestion(ctx context.Context, id string, expiry time.
 	case <-timer.C:
 		_, _, _ = d.resolveClaudeQuestion(context.Background(), id, store.ClaudeQuestionExpired, nil, "timed out", 0)
 	case <-ctx.Done():
-		_, _, _ = d.resolveClaudeQuestion(context.Background(), id, store.ClaudeQuestionCancelled, nil, "daemon stopped", 0)
+		_, _, _ = d.resolveClaudeQuestion(context.Background(), id, store.ClaudeQuestionCancelled, nil, "question request cancelled", 0)
 	}
 	item, found, err := d.DB.ClaudeQuestion(context.Background(), id)
 	d.unregisterClaudeQuestion(id)
@@ -190,10 +190,12 @@ func validateClaudeAnswers(raw []byte, answers map[string]string) error {
 		for _, option := range q.Options {
 			labels[option.Label] = true
 		}
-		values := strings.Split(answer, ",")
-		if !q.MultiSelect && len(values) != 1 {
-			return fmt.Errorf("%s accepts one answer", q.Header)
+		// A single answer may be a free-text sentence or an option label
+		// containing commas. Only multi-select answers use comma separators.
+		if !q.MultiSelect || labels[answer] {
+			continue
 		}
+		values := strings.Split(answer, ",")
 		seen := map[string]bool{}
 		for _, value := range values {
 			value = strings.TrimSpace(value)
@@ -225,8 +227,8 @@ func (d *Daemon) unregisterClaudeQuestion(id string) {
 }
 func (d *Daemon) closeClaudeQuestionWaiter(id string) {
 	d.claudeQuestionMu.Lock()
+	defer d.claudeQuestionMu.Unlock()
 	waiter := d.claudeQuestions[id]
-	d.claudeQuestionMu.Unlock()
 	if waiter != nil {
 		select {
 		case <-waiter:
@@ -243,11 +245,17 @@ func (d *Daemon) cancelClaudeQuestionsForSession(ctx context.Context, sessionID,
 	if err != nil {
 		return
 	}
-	defer rows.Close()
+	var ids []string
 	for rows.Next() {
 		var id string
 		if rows.Scan(&id) == nil {
-			_, _, _ = d.resolveClaudeQuestion(ctx, id, store.ClaudeQuestionCancelled, nil, reason, 0)
+			ids = append(ids, id)
 		}
+	}
+	_ = rows.Close()
+	// SQLite uses a single connection. Release the read cursor before
+	// resolving any questions, or the first UPDATE waits on its own query.
+	for _, id := range ids {
+		_, _, _ = d.resolveClaudeQuestion(ctx, id, store.ClaudeQuestionCancelled, nil, reason, 0)
 	}
 }

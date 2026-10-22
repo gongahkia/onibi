@@ -23,7 +23,8 @@ func (d *Daemon) claudeArgs(args []string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return append(args, "--settings", path), nil
+	// Place owned options before a possible -- prompt terminator.
+	return append([]string{"--settings", path}, args...), nil
 }
 
 func onibiNotifyPath() (string, error) {

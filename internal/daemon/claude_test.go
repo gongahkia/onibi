@@ -53,3 +53,19 @@ func TestClaudeArgsAllowsPromptTextAfterTerminator(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestClaudeArgsKeepHooksBeforePromptTerminator(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "onibi-notify"), []byte("#!/bin/sh\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+	d := New(Options{Paths: config.Paths{StateDir: t.TempDir()}})
+	args, err := d.claudeArgs([]string{"--", "--settings is prompt text"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(args) != 4 || args[0] != "--settings" || args[2] != "--" || args[3] != "--settings is prompt text" {
+		t.Fatalf("owned hooks must precede prompt terminator: %#v", args)
+	}
+}

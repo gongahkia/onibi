@@ -20,8 +20,50 @@ func TestClaudeQuestionInputAndAnswers(t *testing.T) {
 	if err := validateClaudeAnswers(canonical, map[string]string{"Choose mode": "Safe", "Choose flags": "A,B"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := validateClaudeAnswers(canonical, map[string]string{"Choose mode": "Safe,Fast", "Choose flags": "A"}); err == nil {
-		t.Fatal("accepted multiple single-select answers")
+	if err := validateClaudeAnswers(canonical, map[string]string{"Choose mode": "Safe, after running tests", "Choose flags": "A"}); err != nil {
+		t.Fatalf("rejected free text containing commas: %v", err)
+	}
+	if err := validateClaudeAnswers(canonical, map[string]string{"Choose mode": "Safe", "Choose flags": "A,A"}); err == nil {
+		t.Fatal("accepted duplicate multi-select answers")
+	}
+}
+
+func TestClaudeQuestionOptionLabelMayContainComma(t *testing.T) {
+	raw := []byte(`{"questions":[{"header":"Mode","question":"Choose mode","options":[{"label":"Safe, with tests"}]}]}`)
+	if err := validateClaudeAnswers(raw, map[string]string{"Choose mode": "Safe, with tests"}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCancelClaudeQuestionsForSessionReleasesWaiters(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "onibi.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	d := New(Options{DB: db})
+	for _, id := range []string{"q1", "q2"} {
+		if err := db.ClaudeQuestionCreate(t.Context(), store.ClaudeQuestion{ID: id, SessionID: "session", InputJSON: json.RawMessage(`{}`), ExpiresAt: time.Now().Add(time.Minute)}); err != nil {
+			t.Fatal(err)
+		}
+		d.claudeQuestions[id] = make(chan struct{})
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	d.cancelClaudeQuestionsForSession(ctx, "session", "session ended")
+	if ctx.Err() != nil {
+		t.Fatal("session cancellation blocked on the database")
+	}
+	for id, waiter := range d.claudeQuestions {
+		item, found, err := db.ClaudeQuestion(t.Context(), id)
+		if err != nil || !found || item.State != store.ClaudeQuestionCancelled {
+			t.Fatalf("question %s: item=%#v found=%t err=%v", id, item, found, err)
+		}
+		select {
+		case <-waiter:
+		default:
+			t.Fatalf("question %s waiter was not released", id)
+		}
 	}
 }
 
