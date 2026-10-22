@@ -47,7 +47,7 @@ setup: build
 		test "$$onibi_setup_read_status" -eq 0 || exit "$$onibi_setup_read_status"; \
 	fi; \
 	if test -z "$$onibi_setup_token"; then echo "A BotFather token is required." >&2; exit 1; fi; \
-	$(BUILD_DIR)/$(BINARY) telegram setup --token "$$onibi_setup_token"
+	ONIBI_TELEGRAM_TOKEN="$$onibi_setup_token" $(BUILD_DIR)/$(BINARY) telegram setup
 	$(Q)printf '%s\n' '==> 👻 Checking readiness'
 	$(Q)$(BUILD_DIR)/$(BINARY) doctor
 

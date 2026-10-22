@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/gongahkia/onibi/internal/daemon"
@@ -14,7 +15,7 @@ import (
 func telegramCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "telegram", Short: "Configure the Telegram command center", RunE: runTelegramStatus}
 	setup := &cobra.Command{Use: "setup", Short: "Store and validate a BotFather token", RunE: runTelegramSetup}
-	setup.Flags().String("token", "", "BotFather token")
+	setup.Flags().String("token", "", "BotFather token (defaults to ONIBI_TELEGRAM_TOKEN)")
 	setup.Flags().Bool("no-check", false, "skip Telegram getMe validation")
 	status := &cobra.Command{Use: "status", Short: "Show Telegram setup state", RunE: runTelegramStatus}
 	status.Flags().Bool("check", false, "validate token with Telegram")
@@ -24,20 +25,23 @@ func telegramCmd() *cobra.Command {
 	return cmd
 }
 func runTelegramSetup(cmd *cobra.Command, _ []string) error {
+	token, _ := cmd.Flags().GetString("token")
+	if !cmd.Flags().Changed("token") {
+		token = os.Getenv("ONIBI_TELEGRAM_TOKEN")
+	}
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return errors.New("set ONIBI_TELEGRAM_TOKEN or pass --token")
+	}
+	if !telegram.ValidBotToken(token) {
+		return errors.New("token does not look like a BotFather token")
+	}
 	paths, db, err := pathsAndStore()
 	if err != nil {
 		return err
 	}
 	defer db.Close()
-	token, _ := cmd.Flags().GetString("token")
-	token = strings.TrimSpace(token)
-	if token == "" {
-		return errors.New("--token required")
-	}
 	skip, _ := cmd.Flags().GetBool("no-check")
-	if !telegram.ValidBotToken(token) {
-		return errors.New("token does not look like a BotFather token")
-	}
 	var bot telegram.User
 	if !skip {
 		bot, err = telegram.NewClient(token).GetMe(cmd.Context())
@@ -66,6 +70,8 @@ func runTelegramSetup(cmd *cobra.Command, _ []string) error {
 		} else {
 			fmt.Fprintf(cmd.OutOrStdout(), "Bot @%s stored. Pair: send /start %s while onibi start is running.\n", bot.Username, code)
 		}
+	} else {
+		fmt.Fprintln(cmd.OutOrStdout(), "Telegram token stored. Restart Onibi to use it.")
 	}
 	return nil
 }
@@ -87,21 +93,39 @@ func runTelegramStatus(cmd *cobra.Command, _ []string) error {
 	}
 	active := token != "" && (!set || enabled == "1")
 	report := map[string]any{"token": token != "", "enabled": active, "owner_paired": chat != 0 && user != 0, "owner_chat_id": chat, "owner_user_id": user, "e2e_encrypted": false, "surface": "Telegram only"}
-	if check && token != "" {
-		bot, err := telegram.NewClient(token).GetMe(cmd.Context())
-		report["token_valid"] = err == nil
-		if err != nil {
-			report["check_error"] = err.Error()
+	var checkErr error
+	if check {
+		var bot telegram.User
+		if token == "" {
+			checkErr = errors.New("Telegram bot token missing; run onibi telegram setup")
+		} else {
+			bot, checkErr = telegram.NewClient(token).GetMe(cmd.Context())
+		}
+		report["token_valid"] = checkErr == nil
+		if checkErr != nil {
+			report["check_error"] = checkErr.Error()
 		} else {
 			report["bot"] = "@" + bot.Username
 		}
 	}
+	if err := writeTelegramStatus(cmd, report); err != nil {
+		return err
+	}
+	return checkErr
+}
+
+func writeTelegramStatus(cmd *cobra.Command, report map[string]any) error {
 	asJSON, _ := cmd.Flags().GetBool("json")
 	if asJSON {
 		return json.NewEncoder(cmd.OutOrStdout()).Encode(report)
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "token=%t\nenabled=%t\nowner_paired=%t\n", token != "", active, chat != 0 && user != 0)
-	if chat == 0 || user == 0 {
+	fmt.Fprintf(cmd.OutOrStdout(), "token=%t\nenabled=%t\nowner_paired=%t\n", report["token"], report["enabled"], report["owner_paired"])
+	for _, key := range []string{"token_valid", "bot", "check_error"} {
+		if value, ok := report[key]; ok {
+			fmt.Fprintf(cmd.OutOrStdout(), "%s=%v\n", key, value)
+		}
+	}
+	if report["owner_paired"] != true {
 		fmt.Fprintln(cmd.OutOrStdout(), "next=onibi telegram setup; onibi start")
 	}
 	return nil

@@ -15,7 +15,7 @@ func main() {
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		if cli.DebugEnabled(root) {
-			fmt.Fprintf(os.Stderr, "debug: args=%q err_type=%T\n", os.Args[1:], err)
+			fmt.Fprintf(os.Stderr, "debug: err_type=%T\n", err)
 		}
 		os.Exit(1)
 	}

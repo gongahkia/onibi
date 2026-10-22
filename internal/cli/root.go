@@ -6,7 +6,7 @@ import (
 )
 
 func Root() *cobra.Command {
-	root := &cobra.Command{Use: "onibi", Short: "Telegram command center for local tmux and coding sessions", SilenceUsage: true}
+	root := &cobra.Command{Use: "onibi", Short: "Telegram command center for local terminal and coding sessions", SilenceUsage: true, SilenceErrors: true}
 	root.PersistentFlags().Bool("debug", false, "print debug errors")
 	root.AddCommand(startCmd(), telegramCmd(), sessionCmd(), piCmd(), systemCmd(), doctorCmd(), versionCmd(), completionCmd())
 	return root
@@ -16,7 +16,7 @@ func versionCmd() *cobra.Command {
 	return &cobra.Command{Use: "version", Short: "Print version", Run: func(cmd *cobra.Command, _ []string) { cmd.Println(buildinfo.Version) }}
 }
 func completionCmd() *cobra.Command {
-	return &cobra.Command{Use: "completion [bash|zsh|fish]", Short: "Generate shell completion", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	return &cobra.Command{Use: "completion [bash|zsh|fish]", Short: "Generate shell completion", ValidArgs: []string{"bash", "zsh", "fish"}, Args: cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs), RunE: func(cmd *cobra.Command, args []string) error {
 		switch args[0] {
 		case "bash":
 			return cmd.Root().GenBashCompletion(cmd.OutOrStdout())
