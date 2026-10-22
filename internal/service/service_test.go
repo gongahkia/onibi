@@ -174,3 +174,22 @@ func TestSystemdPIDParsesMainPID(t *testing.T) {
 		t.Fatalf("pid=%d ok=%v", pid, ok)
 	}
 }
+
+func TestLaunchdStatusDistinguishesLoadedAndRunning(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		output  string
+		running bool
+	}{
+		{"running", "state = running\n\tpid = 12345\n", true},
+		{"exited", "state = not running\nlast exit code = 0\n", false},
+		{"waiting", "state = waiting\npid = 0\n", false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			m := &Manager{Paths: testPaths(t), Executable: "/usr/local/bin/onibi", Runner: &fakeRunner{out: []byte(tt.output)}, GOOS: "darwin", Home: t.TempDir(), UID: 501}
+			if got := m.Status(t.Context()); got.Running != tt.running {
+				t.Fatalf("running=%t want=%t detail=%q", got.Running, tt.running, got.Detail)
+			}
+		})
+	}
+}

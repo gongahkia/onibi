@@ -53,14 +53,19 @@ func (m *Manager) launchdPID(ctx context.Context) (int, bool, error) {
 	if err != nil {
 		return 0, false, fmt.Errorf("launchctl print: %w: %s", err, strings.TrimSpace(string(out)))
 	}
+	pid, ok := launchdOutputPID(out)
+	return pid, ok, nil
+}
+
+func launchdOutputPID(out []byte) (int, bool) {
 	for _, line := range strings.Split(string(out), "\n") {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "pid = ") {
 			pid, ok := parsePID(strings.TrimPrefix(line, "pid = "))
-			return pid, ok, nil
+			return pid, ok
 		}
 	}
-	return 0, false, nil
+	return 0, false
 }
 
 func (m *Manager) launchdStatus(ctx context.Context) Status {
@@ -76,7 +81,9 @@ func (m *Manager) launchdStatus(ctx context.Context) Status {
 	}
 	out, err := m.Runner.Run(ctx, "launchctl", "print", fmt.Sprintf("gui/%d/%s", m.UID, Label))
 	if err == nil {
-		st.Running = true
+		// A loaded launchd job remains printable after its process exits.
+		// Only a live process ID indicates a running service.
+		_, st.Running = launchdOutputPID(out)
 		st.Detail = firstLine(out)
 	} else if len(out) > 0 {
 		st.Detail = strings.TrimSpace(string(out))
