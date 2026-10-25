@@ -29,6 +29,7 @@ function bridge(request, options = {}) {
     selectedTab: () => tab,
   };
   const app = {
+    version: () => options.version || "1.3.1",
     windows: () => (options.empty ? [] : [win]),
     terminals: () => [terminal],
     frontWindow: () => ({
@@ -164,4 +165,11 @@ test("native rejection remains uncertain after an action attempt", () => {
   );
   assert.equal(result.status, "uncertain");
   assert.equal(calls.length, 1);
+});
+
+test("older Ghostty rejects title changes before dispatch", () => {
+  const { result, calls } = bridge({ ...scope, operation: "rename_pane", nativeAction: "set_surface_title:review" }, { version: "1.3.0" });
+  assert.equal(result.status, "rejected");
+  assert.equal(result.code, "unsupported_action");
+  assert.deepEqual(calls, []);
 });

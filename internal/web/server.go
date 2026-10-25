@@ -48,6 +48,7 @@ type Options struct {
 	DB           *store.DB
 	PublicOrigin string
 	Assets       fs.FS
+	Diagnostics  func(context.Context) ghostty.Diagnostics
 	// ProxyHosts are explicit loopback upstream authorities used by a local
 	// HTTPS proxy. They are accepted only from a loopback peer. Forwarded
 	// headers never determine the trusted public origin or cookie security.
@@ -60,22 +61,31 @@ type browserSession struct {
 }
 
 type Server struct {
-	backend     Backend
-	db          *store.DB
-	origin      string
-	host        string
-	proxyHosts  map[string]bool
-	secure      bool
-	cookieName  string
-	assets      http.Handler
-	execution   chan struct{}
-	mu          sync.Mutex
-	pairHash    [sha256.Size]byte
-	pairExpires time.Time
-	pairUsed    bool
-	pairURL     string
-	sessions    map[[sha256.Size]byte]browserSession
-	now         func() time.Time
+	backend              Backend
+	db                   *store.DB
+	origin               string
+	host                 string
+	proxyHosts           map[string]bool
+	secure               bool
+	cookieName           string
+	assets               http.Handler
+	execution            chan struct{}
+	mu                   sync.Mutex
+	pairHash             [sha256.Size]byte
+	pairExpires          time.Time
+	pairUsed             bool
+	pairURL              string
+	sessions             map[[sha256.Size]byte]browserSession
+	now                  func() time.Time
+	diagnostics          func(context.Context) ghostty.Diagnostics
+	inventoryObservation Observation
+	captureObservation   Observation
+	inventoryStarted     time.Time
+	captureStarted       time.Time
+	inventoryFlight      *inventoryFlight
+	inventoryFailures    int
+	inventoryRetryAt     time.Time
+	inventoryErr         error
 }
 
 // New creates a server. The caller must hold an exclusive process lock for the
@@ -93,7 +103,7 @@ func New(opts Options) (*Server, error) {
 		return nil, err
 	}
 	s := &Server{
-		backend: opts.Backend, db: opts.DB, origin: origin.String(), host: origin.Host,
+		backend: opts.Backend, db: opts.DB, diagnostics: opts.Diagnostics, origin: origin.String(), host: origin.Host,
 		secure: origin.Scheme == "https", cookieName: "onibi_local_session",
 		proxyHosts: map[string]bool{}, sessions: map[[sha256.Size]byte]browserSession{},
 		execution: make(chan struct{}, 1), now: time.Now,
@@ -215,6 +225,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	switch r.URL.Path {
+	case "/api/health":
+		if requireMethod(w, r, http.MethodGet) {
+			s.health(w, r)
+		}
 	case "/api/session":
 		if requireMethod(w, r, http.MethodGet) {
 			writeJSON(w, http.StatusOK, session)
@@ -328,15 +342,16 @@ func (s *Server) setCookie(w http.ResponseWriter, token string, expiry time.Time
 func (s *Server) targets(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
-	targets, err := s.backend.Targets(ctx)
+	targets, err := s.observedTargets(ctx)
 	if err != nil {
-		writeError(w, http.StatusServiceUnavailable, "ghostty_unavailable", backendMessage(err, "Ghostty is unavailable. Check that it is running, supports Automation, and permits Onibi to control it."))
+		s.writeRetryAfter(w)
+		writeError(w, http.StatusServiceUnavailable, ghostty.ErrorCode(err), backendMessage(err, "Ghostty is unavailable. Check that it is running, supports Automation, and permits Onibi to control it."))
 		return
 	}
 	if targets == nil {
 		targets = []ghostty.Target{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"targets": targets, "controls": ghostty.Controls(), "outputMode": "focused-text"})
+	writeJSON(w, http.StatusOK, map[string]any{"targets": targets, "controls": ghostty.Controls(), "outputMode": "focused-text", "capabilities": s.capabilities()})
 }
 
 func (s *Server) snapshot(w http.ResponseWriter, r *http.Request) {
@@ -348,17 +363,24 @@ func (s *Server) snapshot(w http.ResponseWriter, r *http.Request) {
 	// Capture brackets the Accessibility read with two native identity checks.
 	ctx, cancel := context.WithTimeout(r.Context(), 35*time.Second)
 	defer cancel()
+	started := s.now()
 	snapshot, err := s.backend.Snapshot(ctx, id)
+	if err == nil && snapshot.TargetID != id {
+		s.recordCapture(started, id, ghostty.ErrStaleTarget)
+		writeError(w, http.StatusConflict, "target_changed", "The target changed during capture. Refresh the target list.")
+		return
+	}
+	s.recordCapture(started, id, err)
 	if errors.Is(err, ghostty.ErrFocusRequired) {
 		writeError(w, http.StatusConflict, "focus_required", "Focus this exact terminal to read its visible output.")
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusServiceUnavailable, "snapshot_unavailable", backendMessage(err, "This terminal could not be read. Refresh the target list and check Ghostty permissions."))
-		return
-	}
-	if snapshot.TargetID != id {
-		writeError(w, http.StatusConflict, "target_changed", "The target changed during capture. Refresh the target list.")
+		code := ghostty.ErrorCode(err)
+		if code == "ghostty_unavailable" {
+			code = "snapshot_unavailable"
+		}
+		writeError(w, http.StatusServiceUnavailable, code, backendMessage(err, "This terminal could not be read. Refresh the target list and check Ghostty permissions."))
 		return
 	}
 	if len(snapshot.Text) > maxSnapshotBytes {
@@ -440,9 +462,15 @@ func (s *Server) action(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) validateTarget(ctx context.Context, action ghostty.Action) error {
+	started := s.now()
 	targets, err := s.backend.Targets(ctx)
+	s.recordInventory(started, err)
 	if err != nil {
 		return errors.New("Ghostty could not be checked before execution. No input was sent.")
+	}
+	capabilities := s.capabilities()
+	if capabilities.Known && (!capabilities.Control || ((action.Kind == "rename_tab" || action.Kind == "rename_pane") && !capabilities.Rename)) {
+		return ghostty.ErrUnsupportedAction
 	}
 	if action.Kind == "new_window" {
 		return nil

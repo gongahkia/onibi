@@ -83,7 +83,7 @@ func runWeb(cmd *cobra.Command, _ []string) error {
 	if origin == "" {
 		origin = "http://" + listener.Addr().String()
 	}
-	app, err := web.New(web.Options{Backend: ghostty.New(), DB: db, PublicOrigin: origin, ProxyHosts: []string{listener.Addr().String()}, Assets: web.Assets()})
+	app, err := web.New(web.Options{Backend: ghostty.New(), Diagnostics: ghostty.Inspect, DB: db, PublicOrigin: origin, ProxyHosts: []string{listener.Addr().String()}, Assets: web.Assets()})
 	if err != nil {
 		return err
 	}

@@ -90,6 +90,7 @@ type nativeResponse struct {
 	Started  string   `json:"started"`
 	Targets  []Target `json:"targets"`
 	TargetID string   `json:"targetId"`
+	Version  string   `json:"version"`
 }
 
 type runner func(context.Context, nativeRequest) (nativeResponse, error)
@@ -100,6 +101,8 @@ type Client struct {
 	gate     chan struct{}
 	run      runner
 	capture  capturer
+	metaMu   sync.RWMutex
+	version  string
 }
 
 func New() *Client { return &Client{run: runNative, capture: captureNative} }
@@ -153,6 +156,9 @@ func (c *Client) call(ctx context.Context, req nativeRequest) (nativeResponse, e
 		return nativeResponse{}, err
 	}
 	if response.Status == "ok" {
+		c.metaMu.Lock()
+		c.version = response.Version
+		c.metaMu.Unlock()
 		return response, nil
 	}
 	message := map[string]string{
@@ -370,4 +376,10 @@ func boundedText(s string) string {
 		s = strings.Join(lines[len(lines)-400:], "\n")
 	}
 	return s
+}
+
+func (c *Client) Capabilities() Capabilities {
+	c.metaMu.RLock()
+	defer c.metaMu.RUnlock()
+	return CapabilitiesForVersion(c.version)
 }

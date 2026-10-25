@@ -19,10 +19,11 @@ function run() {
         // Force a read before considering any mutation; this surfaces disabled
         // scripting and Automation denial without an uncertain input attempt.
         var windows = app.windows();
+        var version=''; try { version=String(app.version()).slice(0,64); } catch (_) {}
         var focusedID = '';
         try { focusedID = app.frontWindow().selectedTab().focusedTerminal().id(); } catch (_) {}
         function success(extra) {
-            var value = {status:'ok', pid:pid, started:started};
+            var value = {status:'ok', pid:pid, started:started, version:version};
             Object.keys(extra || {}).forEach(function(k) { value[k] = extra[k]; });
             return JSON.stringify(value);
         }
@@ -100,6 +101,7 @@ function run() {
             return success();
         }
         if(req.operation==='control' || req.operation==='rename_tab' || req.operation==='rename_pane') {
+            if((req.operation==='rename_tab' || req.operation==='rename_pane') && /^1\.3\.0$/.test(version)) return failure('unsupported_action');
             // Several AppKit layout/title actions address the focused surface.
             // Never silently focus another pane or apply them to a stale selection.
             if(focusedTarget()!==req.targetId) return failure('focus_required');
