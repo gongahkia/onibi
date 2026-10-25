@@ -1,48 +1,17 @@
-name: Zenbu CI/CD on Push
-
-on:
-  push:
-    branches: [main]
-  pull_request:
-
+name: Shack CI
+on: [push, pull_request]
+permissions:
+  contents: read
 jobs:
-  linux:
-    runs-on: ubuntu-24.04
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-24.04, macos-14]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - name: install Lua 5.4 runtime
-        run: sudo apt-get update && sudo apt-get install -y liblua5.4-0 openssl
-      - uses: ocaml/setup-ocaml@v3
+      - uses: actions/setup-go@v5
         with:
-          ocaml-compiler: ocaml-base-compiler.5.3.0
-      - name: bootstrap the documented local environment
-        run: make bootstrap OCAML_COMPILER=ocaml-base-compiler.5.3.0
-      - name: exercise headless demo
-        run: make demo
-      - uses: dtolnay/rust-toolchain@1.97.1
-        with:
-          targets: wasm32-unknown-unknown,wasm32-wasip1
-          components: rustfmt
-      - name: install the pinned Component packager
-        run: cargo install cargo-component --version 0.21.1 --locked
-      - name: build and stage first-party Component guests
-        run: |
-          cargo fmt --manifest-path examples/wasm-component-hello/Cargo.toml --check
-          cargo fmt --manifest-path examples/wasm-component-conformance/Cargo.toml --check
-          make -C examples/wasm-component-hello component
-          make -C examples/wasm-component-conformance fixture
-      - name: run the Component conformance suite against the rebuilt fixture
-        run: make test
-  macos-arm64:
-    runs-on: macos-14
-    steps:
-      - uses: actions/checkout@v4
-      - name: install Lua 5.4
-        run: brew install lua@5.4
-      - uses: ocaml/setup-ocaml@v3
-        with:
-          ocaml-compiler: ocaml-base-compiler.5.3.0
-      - name: bootstrap the documented local environment
-        run: make bootstrap OCAML_COMPILER=ocaml-base-compiler.5.3.0
-      - name: exercise headless demo
-        run: make demo
+          go-version-file: go.mod
+      - run: make check
+      - run: make build
