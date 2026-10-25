@@ -66,6 +66,7 @@ type preview struct {
 	Index                 int
 }
 type App struct {
+	taskOutput                          string
 	fileCheckBusy                       bool
 	languageSequence                    uint64
 	RestoreOnStart                      bool

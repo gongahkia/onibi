@@ -107,11 +107,13 @@ func (a *App) startTask(name string, argv []string) {
 	b := a.Current()
 	a.taskBuffer = b
 	a.taskRoot = root
+	a.taskOutput = ""
 	update := func(body string, finished bool, err error) {
 		a.post(func() {
 			if seq != a.taskSeq {
 				return
 			}
+			a.taskOutput = stripANSI(body)
 			tail := ""
 			if finished {
 				tail = "\n[completed successfully]\n"
@@ -120,7 +122,7 @@ func (a *App) startTask(name string, argv []string) {
 				}
 				a.taskCancel = nil
 				cancel()
-				a.Status = name + strings.TrimSpace(tail)
+				a.Status = name + " · " + strings.TrimSpace(tail)
 			}
 			found := false
 			for _, open := range a.Buffers {
@@ -160,7 +162,7 @@ func (a *App) outputLocations() {
 		return
 	}
 	items := []choice{}
-	for _, line := range strings.Split(b.Doc.Text.String(), "\n") {
+	for _, line := range strings.Split(a.taskOutput, "\n") {
 		m := outputLocation.FindStringSubmatch(line)
 		if m == nil {
 			continue
@@ -168,6 +170,9 @@ func (a *App) outputLocations() {
 		path := m[1]
 		if !filepath.IsAbs(path) {
 			path = filepath.Join(a.taskRoot, path)
+		}
+		if info, e := os.Stat(path); e != nil || !info.Mode().IsRegular() {
+			continue
 		}
 		lineNo, _ := strconv.Atoi(m[2])
 		col, _ := strconv.Atoi(m[3])
