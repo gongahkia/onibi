@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added passive `onibi web doctor` diagnostics, explicit native probes, typed availability errors, and Ghostty version capabilities.
+- Added a Mac readiness sheet and distinct phone states for connection, native inventory, focused capture, permissions, and session expiry. Recovery targets the failed capability and preserves pane drafts.
+- Coalesced concurrent inventory polls, added bounded failure backoff, retained fresh mutation preconditions, and reduced redundant post-input observation. Rejected actions immediately reconcile readiness; lost connections stop Follow.
+- Added Chromium/WebKit integration tests against the real Go HTTPS handler, embedded UI, and SQLite receipts, including crash recovery, restart revocation, and session expiry. Release archives now use the current documentation files.
+
 - Expanded the Ghostty cockpit with native window creation, four-direction splits, named pane/tab/window closure, pane/tab titles, and allowlisted layout, scrollback, font, and fullscreen controls.
 - Redesigned the phone interface with a searchable window/tab/pane navigator, amber/mint surfaces, control and key drawers, Ctrl/Alt letters and function keys, per-pane memory-only drafts, output freshness, and opt-in bounded Follow.
 - Made native request queuing cancellable and prevented canceled output reads from replacing another pane's view. Added native-script fixtures, Chromium/WebKit browser regressions, and automated accessibility checks.

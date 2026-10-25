@@ -2,6 +2,8 @@
 
 Review date: 2026-10-25. Baseline: `030128cf`. Product: **Control Ghostty wherever text renders.** This pass stays within the existing Mac-served web interface, native Ghostty adapter, and private Tailscale connection. Telegram remains an optional, separate managed-session surface.
 
+Follow-up: the [readiness and recovery review](readiness-review.md) covers passive Mac diagnostics, capability/version checks, failure backoff, independent phone status, and browser integration against the real Go HTTPS server. The findings below describe the original cockpit pass.
+
 ## Most useful next step
 
 Make the existing Ghostty hierarchy usable from the phone: choose the right pane, understand the last observed output, send an exact input or key, and organize the native workspace. This benefits an agent, a shell, an editor, a REPL, and a log viewer without requiring a separate integration for each program.
