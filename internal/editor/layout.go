@@ -149,7 +149,8 @@ func (n *splitNode) arrange(r rectangle, out *[maxPanes]rectangle, dividers *[]d
 }
 func (a *App) workspaceRect() rectangle {
 	w, h := a.Screen.Size()
-	return rectangle{0, 1, w, max(0, h-3)}
+	left, right := a.sidebarWidth(), a.minimapWidth()
+	return rectangle{left, 1, max(0, w-left-right), max(0, h-3)}
 }
 func (a *App) rect(i int) rectangle {
 	area := a.workspaceRect()

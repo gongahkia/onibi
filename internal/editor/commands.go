@@ -143,6 +143,7 @@ func (a *App) indexFiles() {
 		files, mode, err := project.Files(a.ctx, root)
 		a.post(func() {
 			a.Files = files
+			a.rebuildTree()
 			a.indexMode = mode
 			if err != nil {
 				a.Status = "File index: " + err.Error()

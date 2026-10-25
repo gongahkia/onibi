@@ -112,6 +112,8 @@ func (a *App) draw() {
 	for i := range a.panes {
 		a.drawPane(i, p)
 	}
+	a.drawTree(p)
+	a.drawMinimap(p)
 	pos := d.Selections[0].Head
 	line := d.Text.LineAt(pos)
 	column := columnAt(d.Text, pos, a.Config.TabSize)
@@ -141,6 +143,9 @@ func (a *App) draw() {
 	}
 	if a.Preview != nil {
 		a.drawPreview(p)
+	}
+	if a.Menu != nil {
+		a.drawContext(p)
 	}
 	a.Screen.Show()
 }
@@ -359,7 +364,7 @@ func (a *App) drawPreview(p palette) {
 				a.put(x+half+2, y+2+row, half, value[cut:], p.accent)
 			}
 		}
-		a.put(x+1, y+h-1, w-2, "↑↓ scroll · ←→ pan · Tab list · Enter apply · Esc cancel", p.dim)
+		a.previewFooter(x, y+h-1, w, p, true)
 		a.Screen.HideCursor()
 		return
 	}
@@ -383,6 +388,6 @@ func (a *App) drawPreview(p palette) {
 		a.put(x+2, row+1, w-4, "− "+displayExcerpt(v.documentAt(i).Text.Slice(e.Start, min(e.End, e.Start+200))), p.warning)
 		a.put(x+2, row+2, w-4, "+ "+displayExcerpt(e.Text), p.accent)
 	}
-	a.put(x+1, y+h-1, w-2, "Space toggle · Tab inspect · Enter apply · Esc cancel", p.dim)
+	a.previewFooter(x, y+h-1, w, p, false)
 	a.Screen.HideCursor()
 }

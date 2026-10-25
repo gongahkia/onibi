@@ -13,6 +13,9 @@ type Server struct {
 	Language string   `json:"language"`
 }
 type Config struct {
+	FileTree         string              `json:"file_tree"`
+	TreeWidth        int                 `json:"tree_width"`
+	Minimap          bool                `json:"minimap"`
 	Session          bool                `json:"session"`
 	AutoComplete     bool                `json:"auto_complete"`
 	Tasks            map[string][]string `json:"tasks"`
@@ -33,7 +36,7 @@ type Config struct {
 }
 
 func Default() Config {
-	return Config{Session: true, AutoComplete: true, Tasks: map[string][]string{}, Recovery: true, RecoveryMaxBytes: 8 << 20, Keybindings: map[string]string{}, TabSize: 4, InsertSpaces: true, AutoIndent: true, Mouse: true, Syntax: true, LSP: true, Theme: "dark", ServiceMaxBytes: 1 << 20, MaxFileMiB: 256, Servers: map[string]Server{}}
+	return Config{FileTree: "auto", TreeWidth: 26, Session: true, AutoComplete: true, Tasks: map[string][]string{}, Recovery: true, RecoveryMaxBytes: 8 << 20, Keybindings: map[string]string{}, TabSize: 4, InsertSpaces: true, AutoIndent: true, Mouse: true, Syntax: true, LSP: true, Theme: "dark", ServiceMaxBytes: 1 << 20, MaxFileMiB: 256, Servers: map[string]Server{}}
 }
 func Path() string {
 	base := os.Getenv("XDG_CONFIG_HOME")
@@ -72,6 +75,12 @@ func Load(path string, explicit bool) (Config, error) {
 		if name == "" || len(args) == 0 || len(args) > 64 || args[0] == "" {
 			return c, fmt.Errorf("task %q needs 1–64 command arguments", name)
 		}
+	}
+	if c.FileTree != "auto" && c.FileTree != "on" && c.FileTree != "off" {
+		return c, fmt.Errorf("file_tree must be auto, on or off")
+	}
+	if c.TreeWidth < 18 || c.TreeWidth > 60 {
+		return c, fmt.Errorf("tree_width must be 18–60")
 	}
 	if c.Theme != "dark" && c.Theme != "light" {
 		return c, fmt.Errorf("config: theme must be dark or light")

@@ -67,6 +67,19 @@ type preview struct {
 	Index                 int
 }
 type App struct {
+	tree                                                       *fileTree
+	treeVisible, treeFocus, treeDrag, minimapVisible, miniDrag bool
+	treeWidth                                                  int
+	miniWanted                                                 miniJob
+	miniCache                                                  *miniImage
+	miniJobs                                                   chan miniJob
+	miniTimer                                                  *time.Timer
+	miniC                                                      <-chan time.Time
+	Menu                                                       *contextMenu
+	mouseButtons                                               tcell.ButtonMask
+	mouseClickX, mouseClickY, mouseClicks                      int
+	mouseClickTime                                             time.Time
+
 	layout                              *splitNode
 	dividerDrag                         *divider
 	taskOutput                          string
@@ -161,11 +174,15 @@ func New(screen tcell.Screen, cfg config.Config, paths []string, readonly bool) 
 	if len(a.Buffers) == 0 {
 		a.NewBuffer()
 	}
+	a.treeVisible = cfg.FileTree == "on" || (cfg.FileTree == "auto" && explicitRoot)
+	a.treeWidth = cfg.TreeWidth
+	a.minimapVisible = cfg.Minimap
 	a.wrap = cfg.SoftWrap
 	a.registerCommands()
 	a.languageCommands()
 	a.intelligenceCommands()
 	a.paneCommands()
+	a.treeCommands()
 	a.workspaceCommands()
 	a.editingCommands()
 	a.developmentCommands()
@@ -265,6 +282,8 @@ func (a *App) Run() error {
 			a.Handle(ev)
 		case update := <-a.updates:
 			update()
+		case <-a.miniC:
+			a.runMinimap()
 		case <-a.serviceC:
 			a.serviceC = nil
 			a.services()
@@ -350,10 +369,12 @@ func (a *App) insert(s string) {
 	}
 }
 func (a *App) prompt(title, input string, accept func(string)) {
+	a.Menu = nil
 	a.Dialog = &dialog{Title: title, Input: input, Cursor: len([]rune(input)), Accept: accept}
 	a.Preview = nil
 }
 func (a *App) list(title string, items []choice) {
+	a.Menu = nil
 	a.Dialog = &dialog{Title: title, Items: items}
 	a.Preview = nil
 }

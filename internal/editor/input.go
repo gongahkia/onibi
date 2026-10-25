@@ -63,6 +63,10 @@ func (a *App) Handle(event tcell.Event) {
 			return
 		}
 		defer a.reveal()
+		if a.Menu != nil {
+			a.contextKey(ev)
+			return
+		}
 		if a.Preview != nil {
 			a.previewKey(ev)
 			return
@@ -76,6 +80,9 @@ func (a *App) Handle(event tcell.Event) {
 				a.dialogKey(ev)
 				return
 			}
+		}
+		if a.treeKey(ev) {
+			return
 		}
 		a.key(ev)
 	}
@@ -171,6 +178,16 @@ func (a *App) key(ev *tcell.EventKey) {
 		return
 	}
 	switch ev.Key() {
+	case tcell.KeyCtrlB:
+		a.treeVisible = !a.treeVisible
+		a.treeFocus = false
+		if a.treeVisible && a.tree == nil {
+			a.rebuildTree()
+		}
+	case tcell.KeyF10:
+		if shift {
+			a.openContextAtCaret()
+		}
 	case tcell.KeyCtrlQ:
 		a.requestQuit()
 	case tcell.KeyCtrlS:
@@ -619,81 +636,6 @@ func (a *App) previewKey(ev *tcell.EventKey) {
 		a.Preview = nil
 	}
 }
-func (a *App) mouse(ev *tcell.EventMouse) {
-	a.snippet = nil
-	if a.Dialog != nil && a.Dialog.Inline {
-		a.Dialog = nil
-	}
-	if a.Dialog != nil || a.Preview != nil {
-		return
-	}
-	a.ensurePanes()
-	x, y := ev.Position()
-	buttons := ev.Buttons()
-	if y == 0 && buttons&tcell.Button1 != 0 {
-		position := 0
-		for i, b := range a.Buffers {
-			name := " " + bufferName(b)
-			if b.Doc.Dirty() {
-				name += " *"
-			}
-			name += " "
-			width := uniseg.StringWidth(name)
-			if x >= position && x < position+width {
-				a.Active = i
-				a.Matches = nil
-				a.schedule()
-				return
-			}
-			position += width
-		}
-		return
-	}
-	target := -1
-	for i := range a.panes {
-		r := a.rect(i)
-		if x >= r.X && x < r.X+r.W && y >= r.Y && y < r.Y+r.H {
-			target = i
-			break
-		}
-	}
-	if target < 0 {
-		return
-	}
-	if target != a.focus {
-		a.focusPane(target)
-		a.dragging = false
-	}
-	if buttons&tcell.WheelUp != 0 {
-		a.scrollRows(-3)
-		return
-	}
-	if buttons&tcell.WheelDown != 0 {
-		a.scrollRows(3)
-		return
-	}
-	if buttons&tcell.Button1 == 0 {
-		a.dragging = false
-		return
-	}
-	r := a.rect(target)
-	rows := a.panes[target].Rows
-	row := y - r.Y
-	if row < 0 || row >= len(rows) {
-		return
-	}
-	projected := rows[row]
-	b := a.Current()
-	column := max(0, x-r.X-a.gutter()) + projected.Column
-	offset := min(projected.End, lineOffset(b.Doc.Text, projected.Line, column, a.Config.TabSize))
-	if !a.dragging {
-		b.Doc.Selections = []text.Selection{{Anchor: offset, Head: offset}}
-		a.dragging = true
-	} else {
-		b.Doc.Selections[0].Head = offset
-	}
-}
-
 func (a *App) indent(outdent bool) {
 	b := a.Current()
 	d := b.Doc

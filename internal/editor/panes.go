@@ -42,6 +42,7 @@ func (a *App) savePane() {
 	p.Selections = append([]text.Selection(nil), b.Doc.Selections...)
 }
 func (a *App) focusPane(index int) {
+	a.treeFocus = false
 	a.ensurePanes()
 	a.savePane()
 	a.focus = (index + len(a.panes)) % len(a.panes)
