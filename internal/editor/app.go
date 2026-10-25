@@ -63,6 +63,10 @@ type preview struct {
 	Index                 int
 }
 type App struct {
+	taskCancel                  context.CancelFunc
+	taskSeq                     uint64
+	taskBuffer                  *Buffer
+	taskRoot                    string
 	bindings                    map[string]func()
 	indexMode                   string
 	workspaceSeq                uint64
@@ -144,6 +148,7 @@ func New(screen tcell.Screen, cfg config.Config, paths []string, readonly bool) 
 	a.paneCommands()
 	a.workspaceCommands()
 	a.editingCommands()
+	a.developmentCommands()
 	a.Commands = append(a.Commands, command{"Recover unsaved buffers", "", a.recoveryPicker})
 	if err := a.configureKeys(); err != nil {
 		cancel()

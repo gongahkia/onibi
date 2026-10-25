@@ -13,24 +13,25 @@ type Server struct {
 	Language string   `json:"language"`
 }
 type Config struct {
-	Recovery         bool              `json:"recovery"`
-	RecoveryMaxBytes int               `json:"recovery_max_bytes"`
-	SoftWrap         bool              `json:"soft_wrap"`
-	Keybindings      map[string]string `json:"keybindings"`
-	TabSize          int               `json:"tab_size"`
-	InsertSpaces     bool              `json:"insert_spaces"`
-	AutoIndent       bool              `json:"auto_indent"`
-	Mouse            bool              `json:"mouse"`
-	Syntax           bool              `json:"syntax"`
-	LSP              bool              `json:"lsp"`
-	Theme            string            `json:"theme"`
-	ServiceMaxBytes  int               `json:"service_max_bytes"`
-	MaxFileMiB       int               `json:"max_file_mib"`
-	Servers          map[string]Server `json:"servers"`
+	Tasks            map[string][]string `json:"tasks"`
+	Recovery         bool                `json:"recovery"`
+	RecoveryMaxBytes int                 `json:"recovery_max_bytes"`
+	SoftWrap         bool                `json:"soft_wrap"`
+	Keybindings      map[string]string   `json:"keybindings"`
+	TabSize          int                 `json:"tab_size"`
+	InsertSpaces     bool                `json:"insert_spaces"`
+	AutoIndent       bool                `json:"auto_indent"`
+	Mouse            bool                `json:"mouse"`
+	Syntax           bool                `json:"syntax"`
+	LSP              bool                `json:"lsp"`
+	Theme            string              `json:"theme"`
+	ServiceMaxBytes  int                 `json:"service_max_bytes"`
+	MaxFileMiB       int                 `json:"max_file_mib"`
+	Servers          map[string]Server   `json:"servers"`
 }
 
 func Default() Config {
-	return Config{Recovery: true, RecoveryMaxBytes: 8 << 20, Keybindings: map[string]string{}, TabSize: 4, InsertSpaces: true, AutoIndent: true, Mouse: true, Syntax: true, LSP: true, Theme: "dark", ServiceMaxBytes: 1 << 20, MaxFileMiB: 256, Servers: map[string]Server{}}
+	return Config{Tasks: map[string][]string{}, Recovery: true, RecoveryMaxBytes: 8 << 20, Keybindings: map[string]string{}, TabSize: 4, InsertSpaces: true, AutoIndent: true, Mouse: true, Syntax: true, LSP: true, Theme: "dark", ServiceMaxBytes: 1 << 20, MaxFileMiB: 256, Servers: map[string]Server{}}
 }
 func Path() string {
 	base := os.Getenv("XDG_CONFIG_HOME")
@@ -64,6 +65,11 @@ func Load(path string, explicit bool) (Config, error) {
 	}
 	if c.TabSize < 1 || c.TabSize > 16 || c.ServiceMaxBytes < 0 || c.ServiceMaxBytes > 16<<20 || c.MaxFileMiB < 1 || c.MaxFileMiB > 1024 {
 		return c, fmt.Errorf("config: tab_size must be 1–16, service_max_bytes 0–16777216, max_file_mib 1–1024")
+	}
+	for name, args := range c.Tasks {
+		if name == "" || len(args) == 0 || len(args) > 64 || args[0] == "" {
+			return c, fmt.Errorf("task %q needs 1–64 command arguments", name)
+		}
 	}
 	if c.Theme != "dark" && c.Theme != "light" {
 		return c, fmt.Errorf("config: theme must be dark or light")
