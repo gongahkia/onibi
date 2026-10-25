@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"github.com/gongahkia/onibi/internal/ghostty"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -228,4 +229,32 @@ func TestLocalRevokeAllInvalidatesRememberedTemporaryAndUnusedGrant(t *testing.T
 		t.Fatal("devices retained", err)
 	}
 	pairDevice(t, s, false) // Explicit new local grant restores enrollment.
+}
+
+func TestRevocationDuringSlowPreflightPreventsDispatch(t *testing.T) {
+	s, backend := testServer(t, testOrigin)
+	b, _, d := pairDevice(t, s, true)
+	started, release := make(chan struct{}), make(chan struct{})
+	s.backend = &observingBackend{fakeBackend: backend, list: func(ctx context.Context) ([]ghostty.Target, error) {
+		close(started)
+		select {
+		case <-release:
+			return backend.targets, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}}
+	done := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		done <- request(s, b, "POST", "/api/actions", inputRequest("revoked-during-preflight", "never"))
+	}()
+	<-started
+	if err := s.RevokeDevice(context.Background(), d.ID); err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	response := <-done
+	if !strings.Contains(response.Body.String(), `"state":"rejected"`) || len(backend.calls) != 0 {
+		t.Fatalf("revoked preflight reached dispatch: %s", response.Body)
+	}
 }

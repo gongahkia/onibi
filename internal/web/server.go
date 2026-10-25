@@ -427,6 +427,13 @@ func (s *Server) action(w http.ResponseWriter, r *http.Request) {
 		s.finishAction(w, receipt)
 		return
 	}
+	// Native validation can take seconds. Recheck the grant again after it,
+	// immediately before dispatch, so revocation during a slow inventory wins.
+	if _, _, ok := s.authenticate(r.WithContext(ctx)); !ok {
+		receipt.State, receipt.Error = "rejected", "Browser access ended during target validation. No input was sent."
+		s.finishAction(w, receipt)
+		return
+	}
 	result, err := s.backend.Execute(ctx, request.Action)
 	if err != nil {
 		if ghostty.IsRejected(err) {
