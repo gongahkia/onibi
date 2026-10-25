@@ -20,6 +20,8 @@ import (
 )
 
 type Buffer struct {
+	DiskConflict                            bool
+	LanguageEpoch                           uint64
 	Title                                   string
 	WrapTop                                 int
 	Transient                               bool
@@ -64,6 +66,8 @@ type preview struct {
 	Index                 int
 }
 type App struct {
+	fileCheckBusy                       bool
+	languageSequence                    uint64
 	RestoreOnStart                      bool
 	wantCompletion, completionAutomatic bool
 	snippet                             *snippetState
@@ -141,6 +145,9 @@ func New(screen tcell.Screen, cfg config.Config, paths []string, readonly bool) 
 			cancel()
 			return nil, err
 		}
+	}
+	if canonical, e := filepath.EvalSymlinks(a.Root); e == nil {
+		a.Root = canonical
 	}
 	if len(a.Buffers) == 0 {
 		a.NewBuffer()
@@ -223,6 +230,7 @@ func (a *App) Run() error {
 		a.Screen.EnableMouse(tcell.MouseButtonEvents, tcell.MouseDragEvents)
 	}
 	a.Screen.EnablePaste()
+	a.Screen.EnableFocus()
 	a.Screen.SetCursorStyle(tcell.CursorStyleSteadyBar)
 	events := make(chan tcell.Event, 64)
 	done := make(chan struct{})
@@ -377,6 +385,7 @@ func (a *App) Save() {
 	if err := b.File.Save(b.Doc); err != nil {
 		a.Status = err.Error()
 	} else {
+		b.DiskConflict = false
 		a.Status = "Saved " + filepath.Base(b.File.Path)
 		a.scheduleRecovery()
 	}
@@ -401,6 +410,10 @@ func (a *App) saveAsThen(done func()) {
 		if err = f.Save(b.Doc); err != nil {
 			a.Status = err.Error()
 			return
+		}
+		if b.File.Path != f.Path {
+			a.forgetLanguage(b)
+			b.LanguageEpoch = 0
 		}
 		b.File = f
 		b.Transient = false
@@ -435,6 +448,7 @@ func (a *App) closeBuffer() {
 }
 func (a *App) discardBuffer() {
 	closed := a.Current()
+	a.forgetLanguage(closed)
 	a.Buffers = append(a.Buffers[:a.Active], a.Buffers[a.Active+1:]...)
 	if len(a.Buffers) == 0 {
 		a.NewBuffer()

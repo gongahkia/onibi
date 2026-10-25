@@ -75,6 +75,10 @@ func (a *App) languageClient(b *Buffer) *lsp.Client {
 	}
 	root := lsp.Root(b.File.Path)
 	key := root + "\x00" + strings.Join(server.Command, "\x00")
+	if b.LanguageEpoch == 0 {
+		a.languageSequence++
+		b.LanguageEpoch = a.languageSequence
+	}
 	b.LanguageKey = key
 	b.LanguageID = server.Language
 	if a.languages == nil {
@@ -137,8 +141,9 @@ func (a *App) syncLanguage() {
 	version := b.Doc.Version
 	uri := lsp.URI(b.File.Path)
 	language := b.LanguageID
+	epoch := b.LanguageEpoch
 	go func() {
-		err := syncWithTimeout(a.ctx, client, uri, language, snapshot.String(), version)
+		err := syncWithTimeout(a.ctx, client, uri, language, snapshot.String(), version, epoch)
 		a.post(func() {
 			b.Syncing = false
 			if lsp.URI(b.File.Path) != uri {
@@ -156,11 +161,11 @@ func (a *App) syncLanguage() {
 		})
 	}()
 }
-func syncWithTimeout(parent context.Context, c *lsp.Client, uri, language, source string, version uint64) error {
+func syncWithTimeout(parent context.Context, c *lsp.Client, uri, language, source string, version uint64, epoch ...uint64) error {
 	ctx, cancel := context.WithTimeout(parent, 3*time.Second)
 	defer cancel()
 	done := make(chan error, 1)
-	go func() { done <- c.Sync(uri, language, source, version) }()
+	go func() { done <- c.Sync(uri, language, source, version, epoch...) }()
 	select {
 	case err := <-done:
 		return err
@@ -243,13 +248,20 @@ func (a *App) languageRequestWith(kind string, extra map[string]any) {
 	versions := map[*Buffer]uint64{}
 	type syncItem struct {
 		uri, language, source string
-		version               uint64
+		version, epoch        uint64
 	}
 	pending := []syncItem{}
+	syncBytes := b.Doc.Text.Len()
 	for _, other := range a.Buffers {
 		versions[other] = other.Doc.Version
 		if other != b && other.LanguageKey == b.LanguageKey && other.File.Path != "" && other.Doc.Text.Len() <= a.Config.ServiceMaxBytes {
-			pending = append(pending, syncItem{lsp.URI(other.File.Path), other.LanguageID, other.Doc.Text.String(), other.Doc.Version})
+			syncBytes += other.Doc.Text.Len()
+			if syncBytes > workspaceBytes {
+				a.languageBusy = false
+				a.Status = "Language request exceeds 8 MiB of open workspace text"
+				return
+			}
+			pending = append(pending, syncItem{lsp.URI(other.File.Path), other.LanguageID, other.Doc.Text.String(), other.Doc.Version, other.LanguageEpoch})
 		}
 	}
 	snapshot := b.Doc.Text
@@ -257,19 +269,20 @@ func (a *App) languageRequestWith(kind string, extra map[string]any) {
 	caret := b.Doc.Selections[0].Head
 	uri := lsp.URI(b.File.Path)
 	language := b.LanguageID
+	epoch := b.LanguageEpoch
 	tabSize, spaces := a.Config.TabSize, a.Config.InsertSpaces
 	if !automatic {
 		a.Status = "Requesting " + kind + "…"
 	}
 	go func() {
 		source := snapshot.String()
-		err := syncWithTimeout(a.ctx, client, uri, language, source, version)
+		err := syncWithTimeout(a.ctx, client, uri, language, source, version, epoch)
 		var result json.RawMessage
 		for _, item := range pending {
 			if err != nil {
 				break
 			}
-			err = syncWithTimeout(a.ctx, client, item.uri, item.language, item.source, item.version)
+			err = syncWithTimeout(a.ctx, client, item.uri, item.language, item.source, item.version, item.epoch)
 		}
 		if err == nil {
 			params := map[string]any{"textDocument": map[string]string{"uri": uri}}
@@ -490,4 +503,23 @@ func (a *App) languageKey(key tcell.Key) bool {
 		return true
 	}
 	return false
+}
+
+func (a *App) forgetLanguage(b *Buffer) {
+	state := a.languages[b.LanguageKey]
+	if state == nil || state.Client == nil || b.File.Path == "" {
+		return
+	}
+	client, uri, epoch := state.Client, lsp.URI(b.File.Path), b.LanguageEpoch
+	go func() {
+		done := make(chan struct{})
+		go func() { client.Forget(uri, epoch); close(done) }()
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+			client.Close()
+		case <-a.ctx.Done():
+			client.Close()
+		}
+	}()
 }

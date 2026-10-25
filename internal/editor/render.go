@@ -105,7 +105,10 @@ func (a *App) draw() {
 	if len(b.Diagnostics) > 0 {
 		state += fmt.Sprintf("  %d diagnostics", len(b.Diagnostics))
 	}
-	if a.Readonly {
+	if b.DiskConflict {
+		state += "  DISK CHANGED"
+	}
+	if a.Readonly || b.Transient {
 		state += "  READ ONLY"
 	}
 	if d.Text.Len() > a.Config.ServiceMaxBytes {
@@ -149,7 +152,7 @@ func (a *App) drawPane(index int, p palette) {
 		if active {
 			style = p.accent
 		}
-		a.put(r.X, r.Y-1, r.W, bufferName(b), style)
+		a.put(r.X, r.Y-1, r.W, fmt.Sprintf("%d · %s", index+1, bufferName(b)), style)
 	}
 	gutter := len(strconv.Itoa(d.Text.Lines())) + 2
 	width := max(1, r.W-gutter)

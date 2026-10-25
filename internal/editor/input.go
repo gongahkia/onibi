@@ -13,6 +13,8 @@ import (
 
 func (a *App) Handle(event tcell.Event) {
 	switch ev := event.(type) {
+	case *tcell.EventFocus:
+		a.focusEvent(ev)
 	case *tcell.EventResize:
 		a.Screen.Sync()
 	case *tcell.EventPaste:

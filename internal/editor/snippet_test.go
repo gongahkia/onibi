@@ -7,6 +7,10 @@ import (
 )
 
 func TestSnippetDefaultsChoicesAndRejectUnsupported(t *testing.T) {
+	path, _, e := parseSnippet(`C:\Users\file $0`)
+	if e != nil || path != `C:\Users\file ` {
+		t.Fatal(path, e)
+	}
 	s, stops, err := parseSnippet(`fn(${1:name}, ${2|one,two|}, $1)$0`)
 	if err != nil || s != "fn(name, one, name)" || len(stops) != 3 || len(stops[0].Ranges) != 2 {
 		t.Fatal(s, stops, err)

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func workspaceFixture(t *testing.T) (*App, []*workspaceTarget) {
@@ -78,6 +79,37 @@ func TestWorkspaceDiskConflictAndCheckbox(t *testing.T) {
 	a.Preview.Checked[1] = false
 	a.applyWorkspacePreview()
 	if len(a.Buffers) != 2 {
+		t.Fatal(a.Status)
+	}
+}
+
+func TestProjectSearchDeduplicatesCanonicalOpenPaths(t *testing.T) {
+	a, targets := workspaceFixture(t)
+	real := a.Root
+	link := filepath.Join(t.TempDir(), "linked")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	a.Root = link
+	if err := a.Open(targets[0].Buffer.File.Path); err != nil {
+		t.Fatal(err)
+	}
+	a.searchProject("one", "two", true)
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
+	for a.Preview == nil {
+		select {
+		case fn := <-a.updates:
+			fn()
+		case <-timer.C:
+			t.Fatal(a.Status)
+		}
+	}
+	if len(a.Preview.Edits) != 2 {
+		t.Fatal("duplicate canonical path", len(a.Preview.Edits))
+	}
+	a.applyWorkspacePreview()
+	if a.Preview != nil {
 		t.Fatal(a.Status)
 	}
 }

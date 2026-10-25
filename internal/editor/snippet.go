@@ -30,7 +30,7 @@ func parseSnippet(source string) (string, []snippetStop, error) {
 		return "", nil, errors.New("completion uses an unsupported snippet variable, nested placeholder or transform")
 	}
 	for i := 0; i < len(source); {
-		if source[i] == '\\' && i+1 < len(source) {
+		if source[i] == '\\' && i+1 < len(source) && strings.ContainsRune("\\$}", rune(source[i+1])) {
 			out.WriteByte(source[i+1])
 			i += 2
 			continue
@@ -73,7 +73,7 @@ func parseSnippet(source string) (string, []snippetStop, error) {
 				closed := false
 				for i < len(source) {
 					c := source[i]
-					if c == '\\' && i+1 < len(source) {
+					if c == '\\' && i+1 < len(source) && (strings.ContainsRune("\\$}", rune(source[i+1])) || (choice && strings.ContainsRune(",|", rune(source[i+1])))) {
 						if first {
 							body.WriteByte(source[i+1])
 						}

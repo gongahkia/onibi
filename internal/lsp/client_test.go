@@ -188,3 +188,30 @@ func TestInstalledClangd(t *testing.T) {
 		t.Fatalf("completion: %s %v", result, err)
 	}
 }
+
+func TestDocumentEpochPreventsLateCloseAndSyncAfterReopen(t *testing.T) {
+	t.Setenv("SHACK_TEST_SERVER", "1")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	c, err := Start(ctx, []string{os.Args[0], "-test.run=TestServerProcess"}, t.TempDir(), func(Notification) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	uri := "file:///tmp/lifecycle.go"
+	if err = c.Sync(uri, "go", "old", 9, 1); err != nil {
+		t.Fatal(err)
+	}
+	c.Forget(uri, 1)
+	if err = c.Sync(uri, "go", "new", 0, 2); err != nil {
+		t.Fatal(err)
+	}
+	c.Forget(uri, 1)
+	c.Sync(uri, "go", "late old", 10, 1)
+	c.syncMu.Lock()
+	doc := c.docs[uri]
+	c.syncMu.Unlock()
+	if doc.source != "new" || doc.epoch != 2 {
+		t.Fatal(doc)
+	}
+}

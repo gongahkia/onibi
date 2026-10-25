@@ -37,6 +37,7 @@ type reply struct {
 	err  error
 }
 type document struct {
+	epoch   uint64
 	version uint64
 	source  string
 }
@@ -48,6 +49,7 @@ type Client struct {
 	next        int
 	pending     map[int]chan reply
 	docs        map[string]document
+	retired     map[string]uint64
 	syncMu      sync.Mutex
 	incremental bool
 	notify      func(Notification)
@@ -110,7 +112,7 @@ func Start(parent context.Context, argv []string, root string, notify func(Notif
 		cancel()
 		return nil, err
 	}
-	c := &Client{cmd: cmd, input: stdin, pending: map[int]chan reply{}, docs: map[string]document{}, notify: notify, ctx: ctx, cancel: cancel, done: make(chan struct{})}
+	c := &Client{cmd: cmd, input: stdin, pending: map[int]chan reply{}, docs: map[string]document{}, retired: map[string]uint64{}, notify: notify, ctx: ctx, cancel: cancel, done: make(chan struct{})}
 	if err = cmd.Start(); err != nil {
 		cancel()
 		return nil, err
@@ -288,10 +290,26 @@ func (c *Client) fail(err error) {
 		}
 	}
 }
-func (c *Client) Sync(uri, language, source string, version uint64) error {
+func (c *Client) Sync(uri, language, source string, version uint64, epochs ...uint64) error {
 	c.syncMu.Lock()
 	defer c.syncMu.Unlock()
+	epoch := uint64(0)
+	if len(epochs) > 0 {
+		epoch = epochs[0]
+	}
+	if retired, ok := c.retired[uri]; epoch > 0 && ok && epoch <= retired {
+		return nil
+	}
 	old, exists := c.docs[uri]
+	if exists && old.epoch > epoch {
+		return nil
+	}
+	if exists && old.epoch != epoch {
+		if err := c.Notify("textDocument/didClose", map[string]any{"textDocument": map[string]string{"uri": uri}}); err != nil {
+			return err
+		}
+		exists = false
+	}
 	if exists && old.version >= version {
 		return nil
 	}
@@ -306,14 +324,27 @@ func (c *Client) Sync(uri, language, source string, version uint64) error {
 		err = c.Notify("textDocument/didChange", map[string]any{"textDocument": map[string]any{"uri": uri, "version": version}, "contentChanges": []any{change}})
 	}
 	if err == nil {
-		c.docs[uri] = document{version, source}
+		c.docs[uri] = document{epoch, version, source}
 	}
 	return err
 }
-func (c *Client) Forget(uri string) {
+func (c *Client) Forget(uri string, epochs ...uint64) {
 	c.syncMu.Lock()
 	defer c.syncMu.Unlock()
-	if _, ok := c.docs[uri]; ok {
+	epoch := uint64(0)
+	if len(epochs) > 0 {
+		epoch = epochs[0]
+	}
+	if c.retired == nil {
+		c.retired = map[string]uint64{}
+	}
+	if len(epochs) == 0 {
+		epoch = c.docs[uri].epoch
+	}
+	if epoch > 0 {
+		c.retired[uri] = max(c.retired[uri], epoch)
+	}
+	if old, ok := c.docs[uri]; ok && old.epoch <= epoch {
 		_ = c.Notify("textDocument/didClose", map[string]any{"textDocument": map[string]string{"uri": uri}})
 		delete(c.docs, uri)
 	}

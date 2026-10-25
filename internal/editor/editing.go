@@ -329,6 +329,7 @@ func (a *App) reload() {
 		}
 		b.Doc.MarkSaved()
 		b.File = f
+		b.DiskConflict = false
 		b.Newline = detectNewline(b.Doc.Text)
 		pos = min(pos, b.Doc.Text.Len())
 		for !b.Doc.Text.Boundary(pos) {

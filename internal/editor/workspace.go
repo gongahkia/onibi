@@ -154,6 +154,9 @@ func (a *App) searchProject(query, replacement string, replace bool) {
 		sort.Strings(paths)
 		if err == nil {
 			for _, path := range paths {
+				if canonical, e := filepath.EvalSymlinks(path); e == nil {
+					path = canonical
+				}
 				if ctx.Err() != nil {
 					err = ctx.Err()
 					break
