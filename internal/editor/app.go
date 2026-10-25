@@ -63,6 +63,7 @@ type preview struct {
 	Index                 int
 }
 type App struct {
+	bindings                    map[string]func()
 	indexMode                   string
 	workspaceSeq                uint64
 	workspaceCancel             context.CancelFunc
@@ -142,7 +143,12 @@ func New(screen tcell.Screen, cfg config.Config, paths []string, readonly bool) 
 	a.intelligenceCommands()
 	a.paneCommands()
 	a.workspaceCommands()
+	a.editingCommands()
 	a.Commands = append(a.Commands, command{"Recover unsaved buffers", "", a.recoveryPicker})
+	if err := a.configureKeys(); err != nil {
+		cancel()
+		return nil, err
+	}
 	a.Status = "Ctrl+E commands · Ctrl+P files · Ctrl+F find · F1 help"
 	return a, nil
 }
@@ -354,7 +360,8 @@ func (a *App) Save() {
 		a.scheduleRecovery()
 	}
 }
-func (a *App) saveAs() {
+func (a *App) saveAs() { a.saveAsThen(nil) }
+func (a *App) saveAsThen(done func()) {
 	b := a.Current()
 	a.prompt("Save as (existing files are protected)", b.File.Path, func(path string) {
 		if a.Readonly {
@@ -381,13 +388,26 @@ func (a *App) saveAs() {
 		b.LanguageKey = ""
 		b.Diagnostics = nil
 		a.Status = "Saved " + abs
+		a.scheduleRecovery()
 		a.schedule()
+		if done != nil {
+			done()
+		}
 	})
 }
 func (a *App) closeBuffer() {
 	b := a.Current()
 	if b.Doc.Dirty() {
-		a.list("Unsaved changes in "+bufferName(b), []choice{{"Keep editing", func() {}}, {"Save", a.Save}, {"Discard this buffer", a.discardBuffer}})
+		a.list("Unsaved changes in "+bufferName(b), []choice{{"Keep editing", func() {}}, {"Save and close", func() {
+			if b.File.Path == "" {
+				a.saveAsThen(a.discardBuffer)
+				return
+			}
+			a.Save()
+			if !b.Doc.Dirty() {
+				a.discardBuffer()
+			}
+		}}, {"Discard this buffer", a.discardBuffer}})
 		return
 	}
 	a.discardBuffer()
@@ -425,20 +445,7 @@ func (a *App) requestQuit() {
 		return
 	}
 	a.list(fmt.Sprintf("%d unsaved buffer(s)", dirty), []choice{{"Keep editing", func() {}}, {"Save all and quit", func() {
-		for i, b := range a.Buffers {
-			if b.Doc.Dirty() {
-				a.Active = i
-				if b.File.Path == "" {
-					a.saveAs()
-					return
-				}
-				if err := b.File.Save(b.Doc); err != nil {
-					a.Status = err.Error()
-					return
-				}
-			}
-		}
-		a.quit = true
+		a.saveAll(func() { a.quit = true })
 	}}, {"Discard all changes and quit", func() { a.quit = true }}})
 }
 func bufferName(b *Buffer) string {

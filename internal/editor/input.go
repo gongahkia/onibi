@@ -95,6 +95,11 @@ func (a *App) pasteText(s string) {
 	a.insert(s)
 }
 func (a *App) key(ev *tcell.EventKey) {
+	if run, ok := a.bindings[ev.Name()]; ok {
+		a.typingDoc = nil
+		run()
+		return
+	}
 	if ev.Key() != tcell.KeyRune || ev.Modifiers()&(tcell.ModCtrl|tcell.ModAlt) != 0 {
 		a.typingDoc = nil
 	}
@@ -102,6 +107,32 @@ func (a *App) key(ev *tcell.EventKey) {
 		return
 	}
 	shift := ev.Modifiers()&tcell.ModShift != 0
+	if ev.Modifiers()&tcell.ModCtrl != 0 {
+		switch ev.Key() {
+		case tcell.KeyLeft:
+			a.word(-1, shift, false)
+			return
+		case tcell.KeyRight:
+			a.word(1, shift, false)
+			return
+		case tcell.KeyBackspace, tcell.KeyBackspace2:
+			a.word(-1, false, true)
+			return
+		case tcell.KeyDelete:
+			a.word(1, false, true)
+			return
+		}
+	}
+	if ev.Modifiers()&tcell.ModAlt != 0 {
+		switch ev.Key() {
+		case tcell.KeyUp:
+			a.lines("up")
+			return
+		case tcell.KeyDown:
+			a.lines("down")
+			return
+		}
+	}
 	if ev.Modifiers()&tcell.ModAlt != 0 && ev.Key() == tcell.KeyRune {
 		switch ev.Rune() {
 		case 'f':
@@ -190,11 +221,9 @@ func (a *App) key(ev *tcell.EventKey) {
 	case tcell.KeyDown:
 		a.move(0, 1, shift)
 	case tcell.KeyPgUp:
-		_, h := a.Screen.Size()
-		a.move(0, -max(1, h-4), shift)
+		a.move(0, -max(1, a.rect(a.focus).H-1), shift)
 	case tcell.KeyPgDn:
-		_, h := a.Screen.Size()
-		a.move(0, max(1, h-4), shift)
+		a.move(0, max(1, a.rect(a.focus).H-1), shift)
 	case tcell.KeyHome:
 		a.homeEnd(false, shift, ev.Modifiers()&tcell.ModCtrl != 0)
 	case tcell.KeyEnd:
