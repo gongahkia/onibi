@@ -45,7 +45,7 @@ func TestTerminalPresentationFixture(t *testing.T) {
 	live := termui.NewLive(terminalUI(cmd))
 	defer live.Close()
 	live.Start(func(elapsed time.Duration) string {
-		return "HTTP live / " + termui.Elapsed(elapsed) + " / 3 req / 0 active / Ctrl-C stops"
+		return live.StatusLine("HTTP live", elapsed, "3 req / 0 active", "Ctrl-C stops")
 	})
 	logger := logging.Web(io.Discard, live, slog.LevelInfo)
 	logger.Info("web.started", "pid", 1234, "version", "preview")

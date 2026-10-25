@@ -101,7 +101,7 @@ func writeWebStatus(cmd *cobra.Command, s web.RuntimeStatus, asJSON bool) error 
 	ui := terminalUI(cmd)
 	ui.Banner("Web cockpit / status")
 	ui.Field("State", "Running")
-	ui.Field("Version", s.Version+" ("+s.Commit+")")
+	ui.Field("Version", termui.Revision(s.Version, s.Commit))
 	ui.Field("Process", strconv.Itoa(s.PID)+" / "+(time.Duration(s.UptimeSeconds)*time.Second).String()+" uptime")
 	ui.Field("Executable", s.Executable)
 	ui.Field("Open", s.Origin)
@@ -162,7 +162,12 @@ func runWebLogs(cmd *cobra.Command, logPath string) error {
 		ui.Line("")
 		if follow {
 			live.Start(func(elapsed time.Duration) string {
-				return fmt.Sprintf("Following / %s / %d records / Ctrl-C exits", termui.Elapsed(elapsed), live.Records())
+				count := live.Records()
+				unit := "records"
+				if count == 1 {
+					unit = "record"
+				}
+				return live.StatusLine("Following", elapsed, fmt.Sprintf("%d %s", count, unit), "Ctrl-C exits")
 			})
 		}
 	}

@@ -24,3 +24,10 @@ func ShortPath(path string) string {
 	}
 	return path
 }
+
+func Revision(version, commit string) string {
+	if commit == "" || commit == "unknown" || strings.HasPrefix(commit, strings.TrimSuffix(version, "-dirty")) {
+		return version
+	}
+	return version + " / " + commit
+}

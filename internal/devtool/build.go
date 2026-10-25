@@ -86,7 +86,7 @@ func (t *Tool) build(ctx context.Context, afterPublish func(version, commit stri
 	}
 	t.UI.Section("BUILD / native Ghostty cockpit")
 	version, commit := t.revision(ctx)
-	t.UI.Field("Revision", version+" / "+commit)
+	t.UI.Field("Revision", termui.Revision(version, commit))
 	if runtime.GOOS == "darwin" {
 		t.UI.Field("Capture", "CGO enabled for macOS Accessibility")
 	}

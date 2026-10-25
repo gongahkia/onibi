@@ -188,3 +188,14 @@ func terminalRows(raw string) []string {
 	}
 	return result
 }
+
+func TestActivityPrioritizesExitHintOnNarrowTerminals(t *testing.T) {
+	for _, width := range []int{28, 40, 60, 96} {
+		live := NewLive(&UI{Out: &bytes.Buffer{}, Interactive: true, width: width})
+		text := live.StatusLine("HTTP live", time.Second, "12 requests / 3 active", "Ctrl-C stops")
+		if !strings.Contains(text, "Ctrl-C stops") || uniseg.StringWidth(text) > width-11 {
+			t.Fatalf("width=%d status=%q", width, text)
+		}
+		live.Close()
+	}
+}

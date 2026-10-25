@@ -19,6 +19,7 @@ type Live struct {
 	ui                       *UI
 	done                     chan struct{}
 	wg                       sync.WaitGroup
+	finish                   sync.Once
 	started, closed, visible bool
 	startedAt                time.Time
 	label, pending           string
@@ -64,7 +65,8 @@ func (l *Live) clearLocked() {
 		return
 	}
 	// Ghostty reflows the one unfinished row when its viewport shrinks.
-	rows := (l.cells + max(1, l.ui.columns()) - 1) / max(1, l.ui.columns())
+	columns := max(1, l.ui.columns())
+	rows := (l.cells + columns - 1) / columns
 	_, l.err = io.WriteString(l.ui.Out, "\r\x1b[2K")
 	for i := 1; i < rows && l.err == nil; i++ {
 		_, l.err = io.WriteString(l.ui.Out, "\x1b[1A\r\x1b[2K")
@@ -155,23 +157,37 @@ func (l *Live) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 func (l *Live) Close() error {
-	u := l.ui
-	u.mu.Lock()
-	if l.closed {
-		err := l.err
+	l.finish.Do(func() {
+		u := l.ui
+		u.mu.Lock()
+		l.closed = true
+		close(l.done)
 		u.mu.Unlock()
-		return err
-	}
-	l.closed = true
-	close(l.done)
-	u.mu.Unlock()
-	l.wg.Wait()
-	u.mu.Lock()
-	defer u.mu.Unlock()
-	l.clearLocked()
-	if l.pending != "" {
-		l.eventLocked(l.pending)
-		l.pending = ""
-	}
+		l.wg.Wait()
+		u.mu.Lock()
+		defer u.mu.Unlock()
+		l.clearLocked()
+		if l.pending != "" {
+			l.eventLocked(l.pending)
+			l.pending = ""
+		}
+	})
+	l.ui.mu.Lock()
+	defer l.ui.mu.Unlock()
 	return l.err
+}
+
+// StatusLine drops secondary counters before truncation so the exit gesture
+// remains visible in a narrow terminal. It is called by the status callback,
+// outside the renderer's lock.
+func (l *Live) StatusLine(label string, elapsed time.Duration, detail, control string) string {
+	l.ui.mu.Lock()
+	width := l.ui.columns() - 11
+	l.ui.mu.Unlock()
+	for _, line := range []string{label + " / " + Elapsed(elapsed) + " / " + detail + " / " + control, label + " / " + Elapsed(elapsed) + " / " + control, label + " / " + control, control} {
+		if uniseg.StringWidth(line) <= width {
+			return line
+		}
+	}
+	return control
 }

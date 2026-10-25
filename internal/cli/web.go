@@ -147,7 +147,7 @@ func runWeb(cmd *cobra.Command, _ []string) error {
 			if ctx.Err() != nil {
 				phase = "Draining"
 			}
-			return fmt.Sprintf("%s / %s / %d req / %d active / Ctrl-C stops", phase, termui.Elapsed(elapsed), status.Requests, status.ActiveRequests)
+			return activity.StatusLine(phase, elapsed, fmt.Sprintf("%d req / %d active", status.Requests, status.ActiveRequests), "Ctrl-C stops")
 		})
 	}
 	logger.Info("web.started", "version", buildinfo.Version, "commit", buildinfo.Commit, "pid", os.Getpid(), "log_level", levelName)
@@ -177,7 +177,7 @@ func writeWebWelcome(cmd *cobra.Command, pairingURL, address, origin, logPath st
 	ui := terminalUI(cmd)
 
 	ui.Banner("Control Ghostty wherever text renders")
-	ui.Field("Version", buildinfo.Version+" ("+buildinfo.Commit+")")
+	ui.Field("Version", termui.Revision(buildinfo.Version, buildinfo.Commit))
 	ui.Field("Process", strconv.Itoa(os.Getpid()))
 	ui.Field("Listening", address)
 	ui.Field("Open", origin)
