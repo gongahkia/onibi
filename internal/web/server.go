@@ -134,6 +134,9 @@ func (s *Server) PairingURL() string {
 	return link
 }
 
+// ValidateOrigin checks configuration without making a network request.
+func ValidateOrigin(raw string) error { _, err := parseOrigin(raw); return err }
+
 func parseOrigin(raw string) (*url.URL, error) {
 	u, err := url.Parse(raw)
 	if err != nil || u.Host == "" || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.Opaque != "" || (u.Path != "" && u.Path != "/") {

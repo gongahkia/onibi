@@ -32,10 +32,10 @@ func runNative(ctx context.Context, req nativeRequest) (nativeResponse, error) {
 	cmd.WaitDelay = time.Second
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() != nil {
-			return nativeResponse{}, errors.New("Ghostty did not respond in time; inspect the terminal before trying again")
+			return nativeResponse{}, ErrUnresponsive
 		}
 		// Apple event errors can include arguments. Never return raw stderr.
-		return nativeResponse{}, errors.New("Ghostty communication failed; inspect the terminal before trying again")
+		return nativeResponse{}, ErrCommunication
 	}
 	if stdout.overflow {
 		return nativeResponse{}, errors.New("Ghostty response exceeded the output limit")

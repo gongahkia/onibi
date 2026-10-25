@@ -156,7 +156,7 @@ func (c *Client) call(ctx context.Context, req nativeRequest) (nativeResponse, e
 		return response, nil
 	}
 	message := map[string]string{
-		"not_running":        "Ghostty is not running; open it on this Mac first",
+		"not_running":        ErrNotRunning.Error(),
 		"stale_process":      "Ghostty restarted; refresh the terminal list",
 		"missing_target":     "this Ghostty terminal is no longer available; refresh the terminal list",
 		"missing_window":     "this Ghostty window is no longer available; refresh the terminal list",
@@ -173,8 +173,17 @@ func (c *Client) call(ctx context.Context, req nativeRequest) (nativeResponse, e
 		message = "Ghostty returned an invalid response"
 	}
 	var failure error = errors.New(message)
-	if response.Code == "focus_required" {
+	switch response.Code {
+	case "focus_required":
 		failure = ErrFocusRequired
+	case "not_running":
+		failure = ErrNotRunning
+	case "permission":
+		failure = ErrAutomation
+	case "stale_process", "missing_target", "missing_window", "missing_tab":
+		failure = ErrStaleTarget
+	case "unsupported_action":
+		failure = ErrUnsupportedAction
 	}
 	if response.Status == "rejected" {
 		failure = rejected(failure)

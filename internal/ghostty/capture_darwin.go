@@ -87,10 +87,17 @@ func captureNative(ctx context.Context, pid int) (string, error) {
 	case 0:
 		return C.GoStringN(data, C.int(length)), nil
 	case 1:
-		return "", fmt.Errorf("%w: allow Onibi in macOS Privacy & Security → Accessibility to read terminal output", ErrCaptureUnavailable)
+		return "", ErrCapturePermission
 	case 2:
 		return "", ErrFocusRequired
 	default:
 		return "", fmt.Errorf("%w: Ghostty could not provide focused terminal text; focus the terminal and try again", ErrCaptureUnavailable)
 	}
+}
+
+func captureReadiness() Check {
+	if C.AXIsProcessTrusted() != 0 {
+		return Check{"capture", "ready", "Accessibility is authorized for this process. Focused-pane text has not been read."}
+	}
+	return Check{"capture", "capture_permission", "Allow the process launching Onibi in macOS Privacy & Security → Accessibility to read output. No permission prompt was requested."}
 }
