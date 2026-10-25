@@ -112,8 +112,8 @@ func (u *UI) Banner(subtitle string) {
 	u.lineLocked("")
 }
 
-// Section is deliberately compact. Build + web produces one large banner,
-// and nested build work never repeats an install/update command's banner.
+// Section keeps nested phases compact. The source launcher prints the full
+// build/run banner before compilation; install/update own their command banner.
 func (u *UI) Section(title string) {
 	u.mu.Lock()
 	defer u.mu.Unlock()

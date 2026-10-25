@@ -175,3 +175,24 @@ func TestMissingLogShowsStartGuidance(t *testing.T) {
 		t.Fatal("missing command identity")
 	}
 }
+
+func TestSourceRunSkipsOnlyTheSecondBanner(t *testing.T) {
+	for _, shown := range []bool{false, true} {
+		cmd := webCmd()
+		var out bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.Flags().Set("no-banner", fmt.Sprint(shown))
+		ui := terminalUI(cmd)
+		ui.Interactive = true
+		ui.ASCII = false
+		writeWebWelcome(cmd, "http://127.0.0.1:8787/#token=test-only", "127.0.0.1:8787", "http://127.0.0.1:8787", "/tmp/web.log")
+		if strings.Contains(out.String(), "█") == shown {
+			t.Fatal("incorrect banner handoff")
+		}
+		for _, want := range []string{"PAIR THIS BROWSER", "#token=test-only", "ACTIVITY", "Ctrl-C stops Onibi"} {
+			if !strings.Contains(out.String(), want) {
+				t.Fatalf("banner suppression hid %q", want)
+			}
+		}
+	}
+}

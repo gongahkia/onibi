@@ -32,6 +32,8 @@ func webCmd() *cobra.Command {
 		Args: cobra.NoArgs, RunE: runWeb,
 	}
 	cmd.AddCommand(webDoctorCmd(), webPairCmd(), webDevicesCmd(), webServiceCmd(), webStatusCmd(), webLogsCmd())
+	cmd.Flags().Bool("no-banner", false, "startup banner already printed by the source launcher")
+	_ = cmd.Flags().MarkHidden("no-banner")
 	cmd.Flags().String("log-level", "info", "web telemetry verbosity: info or debug (debug includes successful reads)")
 	cmd.Flags().Bool("background", false, "suppress pairing secrets in service logs; use onibi web pair locally")
 	cmd.Flags().String("listen", "127.0.0.1:8787", "loopback address for the local HTTP server")
@@ -176,7 +178,10 @@ func runWeb(cmd *cobra.Command, _ []string) error {
 func writeWebWelcome(cmd *cobra.Command, pairingURL, address, origin, logPath string) {
 	ui := terminalUI(cmd)
 
-	ui.Banner("Control Ghostty wherever text renders")
+	bannerShown, _ := cmd.Flags().GetBool("no-banner")
+	if !bannerShown {
+		ui.Banner("Control Ghostty wherever text renders")
+	}
 	ui.Field("Version", termui.Revision(buildinfo.Version, buildinfo.Commit))
 	ui.Field("Process", strconv.Itoa(os.Getpid()))
 	ui.Field("Listening", address)

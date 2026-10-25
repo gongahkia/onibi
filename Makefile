@@ -84,8 +84,8 @@ vet:
 tidy:
 	$(Q)go mod tidy
 
-run: build
-	$(Q)$(BUILD_DIR)/$(BINARY) web
+run:
+	@sh scripts/onibi-dev.sh run $(if $(filter 1,$(VERBOSE)),--verbose,)
 
 setup: doctor
 	@printf '%s\n' 'Start locally: ./bin/onibi web' 'Private phone access: see docs/web.md for Tailscale HTTPS and pairing.'
