@@ -82,7 +82,7 @@ func TestFieldWrappingPreservesWideTextAndHangingIndent(t *testing.T) {
 		if uniseg.StringWidth(line) >= 64 {
 			t.Fatalf("overflow %q", line)
 		}
-		if i > 0 && !strings.HasPrefix(line, strings.Repeat(" ", 15)) {
+		if i > 0 && !strings.HasPrefix(line, strings.Repeat(" ", 17)) {
 			t.Fatal("lost continuation indent")
 		}
 	}
@@ -197,5 +197,18 @@ func TestActivityPrioritizesExitHintOnNarrowTerminals(t *testing.T) {
 			t.Fatalf("width=%d status=%q", width, text)
 		}
 		live.Close()
+	}
+}
+
+func TestLocalePrecedenceForASCIIFallback(t *testing.T) {
+	t.Setenv("LC_ALL", "C")
+	t.Setenv("LC_CTYPE", "en_US.UTF-8")
+	t.Setenv("LANG", "en_US.UTF-8")
+	if !New(&bytes.Buffer{}).ASCII {
+		t.Fatal("LC_ALL did not override lower-priority UTF-8 locales")
+	}
+	t.Setenv("LC_ALL", "")
+	if New(&bytes.Buffer{}).ASCII {
+		t.Fatal("LC_CTYPE UTF-8 was ignored")
 	}
 }

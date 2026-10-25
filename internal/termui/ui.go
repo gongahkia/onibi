@@ -20,6 +20,7 @@ type UI struct {
 	Interactive bool
 	ASCII       bool
 	NoStyle     bool
+	LabelWidth  int
 	bannerShown bool
 	width       int
 	mu          sync.Mutex
@@ -34,7 +35,13 @@ func New(out io.Writer) *UI {
 			u.width = int(size.Col)
 		}
 	}
-	locale := strings.ToUpper(os.Getenv("LC_ALL") + os.Getenv("LC_CTYPE") + os.Getenv("LANG"))
+	locale := ""
+	for _, name := range []string{"LC_ALL", "LC_CTYPE", "LANG"} {
+		if value := os.Getenv(name); value != "" {
+			locale = strings.ToUpper(value)
+			break
+		}
+	}
 	u.ASCII = !strings.Contains(locale, "UTF")
 	return u
 }
@@ -134,7 +141,7 @@ func (u *UI) textLocked(value, first, rest string) {
 func (u *UI) Field(label, value string) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
-	prefix := fmt.Sprintf("  %-12s ", Clean(label))
+	prefix := fmt.Sprintf("  %-*s ", max(14, u.LabelWidth), Clean(label))
 	if u.Interactive && u.columns() < 48 {
 		u.textLocked(label, "  ", "  ")
 		u.textLocked(value, "    ", "    ")
