@@ -49,6 +49,9 @@ type Options struct {
 	PublicOrigin string
 	Assets       fs.FS
 	Diagnostics  func(context.Context) ghostty.Diagnostics
+	// Now defaults to time.Now. A supplied clock must be safe for concurrent
+	// calls; tests can advance expiry without changing session policy.
+	Now func() time.Time
 	// ProxyHosts are explicit loopback upstream authorities used by a local
 	// HTTPS proxy. They are accepted only from a loopback peer. Forwarded
 	// headers never determine the trusted public origin or cookie security.
@@ -102,12 +105,16 @@ func New(opts Options) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
+	now := opts.Now
+	if now == nil {
+		now = time.Now
+	}
 	s := &Server{
 		backend: opts.Backend, db: opts.DB, diagnostics: opts.Diagnostics, origin: origin.String(), host: origin.Host,
 		secure: origin.Scheme == "https", cookieName: "onibi_local_session",
 		proxyHosts: map[string]bool{}, sessions: map[[sha256.Size]byte]browserSession{},
-		execution: make(chan struct{}, 1), now: time.Now,
-		pairHash: sha256.Sum256([]byte(token)), pairExpires: time.Now().Add(pairingLifetime),
+		execution: make(chan struct{}, 1), now: now,
+		pairHash: sha256.Sum256([]byte(token)), pairExpires: now().Add(pairingLifetime),
 	}
 	if s.secure {
 		s.cookieName = "__Host-onibi_session"

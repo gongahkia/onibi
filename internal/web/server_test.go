@@ -205,6 +205,30 @@ func TestWebPairingIsSingleUseAndExpires(t *testing.T) {
 	}
 }
 
+func TestConfiguredClockStartsPairingAndSessionLifetimesTogether(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "clock.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	now := time.Date(2040, time.January, 1, 0, 0, 0, 0, time.UTC)
+	s, err := New(Options{Backend: &fakeBackend{}, DB: db, PublicOrigin: testOrigin, Now: func() time.Time { return now }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A non-wall-clock start must not accidentally expire the pairing link.
+	now = now.Add(pairingLifetime - time.Second)
+	b := pairBrowser(t, s)
+	now = now.Add(sessionLifetime - time.Second)
+	if got := request(s, b, http.MethodGet, "/api/session", nil); got.Code != http.StatusOK {
+		t.Fatalf("session expired early: %d", got.Code)
+	}
+	now = now.Add(time.Second)
+	if got := request(s, b, http.MethodGet, "/api/session", nil); got.Code != http.StatusUnauthorized {
+		t.Fatalf("session survived expiry: %d", got.Code)
+	}
+}
+
 func TestWebRejectsHostOriginCSRFAndMalformedBodies(t *testing.T) {
 	s, backend := testServer(t, testOrigin)
 	b := pairBrowser(t, s)

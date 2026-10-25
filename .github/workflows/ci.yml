@@ -31,6 +31,7 @@ jobs:
       - run: go build ./cmd/onibi ./clients/onibi-notify
 
   browser:
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -43,6 +44,10 @@ jobs:
         working-directory: web-tests
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
       - uses: actions/setup-node@v4
         with:
           node-version: '22'

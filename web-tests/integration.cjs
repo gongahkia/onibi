@@ -1,0 +1,408 @@
+// Exercises production HTTP/authentication/assets/SQLite with a simulated
+// Ghostty backend. The fixture exposes no test-control HTTP routes.
+const { chromium, webkit } = require("playwright");
+const assert = require("node:assert/strict");
+const { spawn, execFileSync } = require("node:child_process");
+const { once } = require("node:events");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const readline = require("node:readline");
+const { randomUUID } = require("node:crypto");
+
+const root = path.resolve(__dirname, "..");
+const temp = fs.mkdtempSync(path.join(os.tmpdir(), "onibi-integration-"));
+const binary = path.join(temp, "fixture");
+let fixture,
+  browser,
+  sequence = 0;
+
+async function start(port = 0) {
+  const child = spawn(
+    binary,
+    ["--state", path.join(temp, "state"), "--port", String(port)],
+    { stdio: ["pipe", "pipe", "pipe"] },
+  );
+  const waiters = new Map();
+  let stderr = "";
+  child.stderr.on("data", (chunk) => {
+    stderr += chunk;
+  });
+  const exited = once(child, "exit");
+  const ready = new Promise((resolve, reject) => {
+    waiters.set(0, { resolve, reject });
+  });
+  const lines = readline.createInterface({ input: child.stdout });
+  lines.on("line", (line) => {
+    const data = JSON.parse(line);
+    const id = data.ready ? 0 : data.id;
+    waiters.get(id)?.resolve(data);
+    waiters.delete(id);
+  });
+  child.on("error", (error) => {
+    for (const waiter of waiters.values()) waiter.reject(error);
+    waiters.clear();
+  });
+  child.on("exit", () => {
+    for (const waiter of waiters.values())
+      waiter.reject(new Error("Fixture exited: " + stderr));
+    waiters.clear();
+    lines.close();
+  });
+  const command = (data = {}) =>
+    new Promise((resolve, reject) => {
+      const id = ++sequence;
+      waiters.set(id, { resolve, reject });
+      child.stdin.write(JSON.stringify({ id, ...data }) + "\n");
+    });
+  const stop = async () => {
+    if (child.exitCode === null && child.signalCode === null)
+      child.kill("SIGKILL");
+    await exited;
+  };
+  // Keep cleanup available even if startup fails.
+  fixture = { command, stop };
+  return (fixture = { command, stop, ...(await ready) });
+}
+
+async function eventually(read, predicate, label) {
+  const end = Date.now() + 15000;
+  while (Date.now() < end) {
+    if (predicate(await read())) return;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error("Timed out: " + label);
+}
+
+async function api(page, route, body, csrf = true) {
+  return page.evaluate(
+    async ({ route, body, csrf }) => {
+      const headers = {};
+      if (body) {
+        headers["Content-Type"] = "application/json";
+        if (csrf)
+          headers["X-Onibi-CSRF"] = (
+            await (await fetch("/api/session")).json()
+          ).csrf;
+      }
+      const response = await fetch(route, {
+        method: body ? "POST" : "GET",
+        headers,
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      return { status: response.status, body: await response.json() };
+    },
+    { route, body, csrf },
+  );
+}
+
+async function selectWork(page) {
+  await page.click("#open-picker");
+  await page
+    .locator("#picker-list .target")
+    .filter({ hasText: "Work shell" })
+    .click();
+}
+
+(async () => {
+  execFileSync(
+    "go",
+    ["build", "-tags", "browserfixture", "-o", binary, "./web-tests/fixture"],
+    { cwd: root, stdio: "pipe", env: { ...process.env, GOMAXPROCS: "2" } },
+  );
+  await start();
+  const engine = process.env.ONIBI_BROWSER || "chromium";
+  assert(["chromium", "webkit"].includes(engine));
+  browser = await { chromium, webkit }[engine].launch({
+    headless: true,
+    ...(engine === "chromium" && process.env.ONIBI_CHROME_PATH
+      ? { executablePath: process.env.ONIBI_CHROME_PATH }
+      : {}),
+  });
+  const context = await browser.newContext({
+    ignoreHTTPSErrors: true,
+    viewport: { width: 390, height: 844 },
+  });
+  const page = await context.newPage();
+  page.setDefaultTimeout(20000);
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  const response = await page.goto(fixture.pairingURL);
+  assert.match(
+    response.headers()["content-security-policy"],
+    /default-src 'none'/,
+  );
+  assert.equal(response.headers()["cache-control"], "no-store");
+  await page.locator("#workspace").waitFor({ state: "visible" });
+  await page.waitForFunction(
+    () =>
+      document.getElementById("connection-label").textContent === "Connected",
+  );
+  assert.equal(new URL(page.url()).hash, "");
+  assert.equal(await page.evaluate(() => document.cookie), "");
+  const cookies = await context.cookies();
+  assert.equal(cookies.length, 1);
+  assert.equal(cookies[0].name, "__Host-onibi_session");
+  assert.equal(cookies[0].httpOnly, true);
+  assert.equal(cookies[0].secure, true);
+  assert.equal(cookies[0].sameSite, "Strict");
+  const token = new URLSearchParams(
+    new URL(fixture.pairingURL).hash.slice(1),
+  ).get("token");
+  assert.equal(
+    (await api(page, "/api/pair", { token }, false)).status,
+    401,
+    "pairing token is single use",
+  );
+  const input = {
+    kind: "input",
+    targetId: "pane-work",
+    text: "must not run",
+    enter: true,
+  };
+  assert.equal(
+    (
+      await api(
+        page,
+        "/api/actions",
+        { id: randomUUID(), action: input },
+        false,
+      )
+    ).status,
+    403,
+  );
+  const foreign = await context.request.post(fixture.url + "/api/actions", {
+    headers: { Origin: "https://foreign.invalid" },
+    data: { id: randomUUID(), action: input },
+  });
+  assert.equal(foreign.status(), 403);
+  assert.equal((await foreign.json()).code, "invalid_origin");
+  assert.equal((await fixture.command()).actions, null);
+  await selectWork(page);
+  await page.locator("#terminal-output").waitFor({ state: "visible" });
+  assert.match(await page.textContent("#terminal-output"), /<img src=x/);
+  assert.equal(await page.locator("#terminal-output img").count(), 0);
+  const literal = 'printf "%s" "$(echo untouched)"\n🦊 <>&';
+  await page.fill("#compose", literal);
+  await page.click("#paste-input");
+  await page.waitForFunction(
+    () => document.getElementById("compose").value === "",
+  );
+  assert.deepEqual((await fixture.command()).actions.at(-1), {
+    kind: "input",
+    targetId: "pane-work",
+    text: literal,
+  });
+
+  // Lose the HTTP response after execution, then recover its durable receipt.
+  let lostID;
+  const loseResponse = async (route) => {
+    lostID = route.request().postDataJSON().id;
+    await route.fetch();
+    await route.abort("connectionfailed");
+  };
+  await page.route("**/api/actions", loseResponse);
+  await page.fill("#compose", "response lost once");
+  await page.click("#send-input");
+  await page.waitForFunction(
+    () => document.getElementById("compose").value === "",
+  );
+  await page.unroute("**/api/actions", loseResponse);
+  let stats = await fixture.command();
+  assert.equal(stats.actions.length, 2);
+  assert.equal(stats.actions[1].enter, true);
+  assert.equal(
+    (await api(page, "/api/actions/" + lostID)).body.state,
+    "completed",
+  );
+  const replay = await api(page, "/api/actions", {
+    id: lostID,
+    action: stats.actions[1],
+  });
+  assert.equal(replay.body.state, "completed");
+  assert.equal((await fixture.command()).actions.length, 2);
+  assert.equal(
+    (await api(page, "/api/actions", { id: lostID, action: input })).status,
+    409,
+  );
+  console.log(
+    "Passed real HTTPS pairing, secure cookies, origin/CSRF, literal input, and lost-response receipt recovery.",
+  );
+
+  await fixture.command({ captureDenied: true });
+  await page.click("#read-output");
+  await page.waitForFunction(
+    () =>
+      document.getElementById("connection-label").textContent ===
+      "Output unavailable",
+  );
+  await page.fill("#compose", "draft stays with work");
+  assert.equal(await page.locator("#send-input").isEnabled(), true);
+  const health = (await api(page, "/api/health")).body;
+  assert.equal(health.inventory.state, "ready");
+  assert.equal(health.capture.code, "capture_permission");
+  console.log("Verified independent capture permission failure.");
+  await fixture.command({ captureDenied: false, unavailable: true });
+  await page.click("#open-picker");
+  await page.click("#refresh-picker");
+  await page.waitForFunction(
+    () =>
+      document.getElementById("connection-label").textContent ===
+      "Ghostty unavailable",
+  );
+  await page.click("#close-picker");
+  await page.click("#read-output");
+  await page.waitForFunction(
+    () => !document.getElementById("read-output").disabled,
+  );
+  assert.equal(
+    await page.textContent("#connection-label"),
+    "Ghostty unavailable",
+  );
+  assert.equal(await page.locator("#send-input").isDisabled(), true);
+  assert.equal(await page.inputValue("#compose"), "draft stays with work");
+  stats = await fixture.command();
+  assert.equal((await api(page, "/api/targets")).status, 503);
+  assert.equal(
+    (await fixture.command()).inventories,
+    stats.inventories,
+    "backoff avoids native polling",
+  );
+  await fixture.command({ unavailable: false, advance: 61, version: "1.3.0" });
+  await page.waitForFunction(
+    () =>
+      document.getElementById("connection-label").textContent === "Connected",
+  );
+  await page.click("#open-controls");
+  assert.equal(
+    await page.locator('[data-rename="rename_tab"]').isDisabled(),
+    true,
+  );
+  assert.equal(await page.locator("#title-capability").isVisible(), true);
+  await page.click("#close-controls");
+  const denied = await api(page, "/api/actions", {
+    id: randomUUID(),
+    action: { kind: "rename_tab", targetId: "pane-work", name: "old version" },
+  });
+  assert.equal(denied.body.state, "rejected");
+  assert.equal((await fixture.command()).actions.length, 2);
+  await fixture.command({ version: "1.3.1" });
+  await page.click("#new-tab");
+  await page.waitForFunction(
+    () =>
+      document.getElementById("destination-title").textContent === "New shell",
+  );
+  assert.equal(
+    (await fixture.command()).actions.at(-1).windowId,
+    "window-main",
+  );
+  await page.click("#close-tab");
+  await page.click("#confirm-close");
+  await page.waitForFunction(
+    () =>
+      document.getElementById("destination-title").textContent ===
+      "Choose a terminal",
+  );
+  await selectWork(page);
+  assert.equal(await page.inputValue("#compose"), "draft stays with work");
+  console.log(
+    "Passed independent capture health, native backoff/recovery, version guards, and real create/close inventory reconciliation.",
+  );
+
+  // Crash after the receipt is claimed and execution begins. Restart on the
+  // same HTTPS origin/database: old cookies revoke, unfinished work is uncertain.
+  await fixture.command({ hold: true });
+  const countBeforeCrash = (await fixture.command()).actions.length;
+  await page.fill("#compose", "never replay after crash");
+  await page.click("#send-input");
+  await eventually(
+    () => fixture.command(),
+    (s) => s.actions.length === countBeforeCrash + 1,
+    "held action entered backend",
+  );
+  const pendingRaw = await page.evaluate(() =>
+    sessionStorage.getItem("onibi.pending-action.v1"),
+  );
+  const pending = JSON.parse(pendingRaw);
+  assert(!pendingRaw.includes("never replay"));
+  assert(!pendingRaw.includes(token));
+  assert(!pendingRaw.includes("csrf"));
+  assert.equal(await page.evaluate(() => localStorage.length), 0);
+  const port = new URL(fixture.url).port;
+  await fixture.stop();
+  await start(port);
+  assert.equal((await api(page, "/api/session")).status, 401);
+  await page.reload();
+  await page.locator("#pair-view").waitFor({ state: "visible" });
+  const nextToken = new URLSearchParams(
+    new URL(fixture.pairingURL).hash.slice(1),
+  ).get("token");
+  await page.fill("#pair-token", nextToken);
+  await page.click("#pair-submit");
+  await page
+    .locator("#action-title")
+    .filter({ hasText: "Delivery needs checking" })
+    .waitFor();
+  assert.equal(
+    (await api(page, "/api/actions/" + pending.id)).body.state,
+    "uncertain",
+  );
+  assert.equal(
+    (await fixture.command()).actions,
+    null,
+    "restart must not replay",
+  );
+  assert.equal(
+    await page.inputValue("#compose"),
+    "",
+    "drafts remain memory-only",
+  );
+  await selectWork(page);
+  await page.fill("#compose", "new explicit action");
+  assert.equal(await page.locator("#send-input").isDisabled(), true);
+  await page.click("#acknowledge-action");
+  await page.waitForFunction(
+    () => !document.getElementById("send-input").disabled,
+  );
+  await fixture.command({ advance: 13 * 60 * 60 });
+  await page.click("#connection");
+  await page.locator("#pair-view").waitFor({ state: "visible" });
+  assert.match(await page.textContent("#pair-message"), /expired/);
+  assert.equal(await page.locator("#health-dialog").isVisible(), false);
+  assert.equal((await fixture.command()).actions, null);
+  assert.deepEqual(errors, []);
+  console.log(
+    JSON.stringify({
+      passed: true,
+      engine,
+      integration: "production Go HTTPS server",
+      checks: [
+        "secure cookies",
+        "single-use pairing",
+        "CSRF and origin",
+        "literal send/paste",
+        "durable deduplication",
+        "lost response",
+        "independent readiness",
+        "backoff",
+        "version guard",
+        "create/close",
+        "crash recovery without replay",
+        "restart revocation",
+        "12-hour session expiry",
+        "memory-only drafts",
+        "no JS errors",
+      ],
+    }),
+  );
+})()
+  .catch((error) => {
+    // Assertion messages intentionally omit fixture pairing links and cookies.
+    console.error(error);
+    process.exitCode = 1;
+  })
+  .finally(async () => {
+    await browser?.close();
+    await fixture?.stop();
+    fs.rmSync(temp, { recursive: true, force: true });
+  });
