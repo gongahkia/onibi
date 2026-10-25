@@ -117,3 +117,40 @@ func BenchmarkLargeFileLineLookup(b *testing.B) {
 		benchmarkIntSink = r.LineStart(i % 1000000)
 	}
 }
+
+func TestGroupedHistoryAndStaging(t *testing.T) {
+	d, _ := NewDocument("abc")
+	d.Selections = []Selection{{3, 3}}
+	d.Insert("x")
+	d.Insert("y")
+	d.Coalesce()
+	d.Insert("z")
+	d.Coalesce()
+	if !d.Undo() || d.Text.String() != "abc" {
+		t.Fatal("typing was not grouped")
+	}
+	if len(d.LastChanges) != 3 {
+		t.Fatal("missing reverse changes")
+	}
+	if !d.Redo() || d.Text.String() != "abcxyz" {
+		t.Fatal("group redo")
+	}
+	clone := d.Clone()
+	clone.Insert("!")
+	if d.Text.String() != "abcxyz" {
+		t.Fatal("stage mutated live state")
+	}
+	version := d.Version
+	if err := d.Apply(version, []Edit{{0, 3, "abc"}}); err != nil || d.Version != version {
+		t.Fatal("no-op dirtied document")
+	}
+}
+func TestIndexedPlainText(t *testing.T) {
+	r := New(strings.Repeat("x", 1000000) + "\t你好\nend")
+	if !r.Plain(0, 1000000) || r.Plain(0, 1000001) || r.Plain(1000001, 1000007) {
+		t.Fatal("ASCII index")
+	}
+	if r.LineEnd(0) != 1000007 {
+		t.Fatal(r.LineEnd(0))
+	}
+}

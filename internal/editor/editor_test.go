@@ -145,3 +145,36 @@ func TestIndentBlockAndIgnoreStaleClipboard(t *testing.T) {
 		t.Fatal("late clipboard pasted at another location")
 	}
 }
+
+func TestTypingUndoBoundary(t *testing.T) {
+	a := testApp(t)
+	for _, r := range "hello" {
+		a.Handle(tcell.NewEventKey(tcell.KeyRune, r, 0))
+	}
+	key(a, tcell.KeyCtrlZ)
+	if a.Current().Doc.Text.Len() != 0 {
+		t.Fatal("word undo")
+	}
+	key(a, tcell.KeyCtrlY)
+	key(a, tcell.KeyLeft)
+	a.Handle(tcell.NewEventKey(tcell.KeyRune, '!', 0))
+	key(a, tcell.KeyCtrlZ)
+	if a.Current().Doc.Text.String() != "hello" {
+		t.Fatal("navigation did not break undo group")
+	}
+}
+func BenchmarkLongLineViewport(b *testing.B) {
+	s := tcell.NewSimulationScreen("UTF-8")
+	s.Init()
+	defer s.Fini()
+	s.SetSize(100, 30)
+	a, _ := New(s, config.Default(), nil, false)
+	defer a.cancel()
+	a.insert(strings.Repeat("x", 1<<20))
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		a.reveal()
+		a.draw()
+	}
+}

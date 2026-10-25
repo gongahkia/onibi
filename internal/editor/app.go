@@ -9,6 +9,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/gongahkia/shack/internal/config"
@@ -56,6 +58,10 @@ type preview struct {
 	Index                 int
 }
 type App struct {
+	typingDoc           *text.Document
+	typingVersion       uint64
+	typingHead          int
+	typingTime          time.Time
 	languages           map[string]*languageState
 	languageBusy        bool
 	Screen              tcell.Screen
@@ -229,22 +235,42 @@ func (a *App) apply(edits []text.Edit) {
 		a.Status = "Read-only mode"
 		return
 	}
-	if err := a.Current().Doc.Apply(a.Current().Doc.Version, edits); err != nil {
+	version := a.Current().Doc.Version
+	if err := a.Current().Doc.Apply(version, edits); err != nil {
 		a.Status = err.Error()
 		return
 	}
-	a.changed()
+	if a.Current().Doc.Version != version {
+		a.changed()
+	}
 }
 func (a *App) insert(s string) {
 	if a.Readonly {
 		a.Status = "Read-only mode"
 		return
 	}
-	if err := a.Current().Doc.Insert(s); err != nil {
+	d := a.Current().Doc
+	version := d.Version
+	r, n := utf8.DecodeRuneInString(s)
+	typing := n == len(s) && !unicode.IsSpace(r) && len(d.Selections) == 1 && d.Selections[0].Start() == d.Selections[0].End()
+	merge := typing && a.typingDoc == d && a.typingVersion == version && a.typingHead == d.Selections[0].Head && time.Since(a.typingTime) < 800*time.Millisecond
+	if err := d.Insert(s); err != nil {
 		a.Status = err.Error()
 		return
 	}
-	a.changed()
+	if merge {
+		d.Coalesce()
+	}
+	a.typingDoc = nil
+	if typing {
+		a.typingDoc = d
+		a.typingVersion = d.Version
+		a.typingHead = d.Selections[0].Head
+		a.typingTime = time.Now()
+	}
+	if d.Version != version {
+		a.changed()
+	}
 }
 func (a *App) prompt(title, input string, accept func(string)) {
 	a.Dialog = &dialog{Title: title, Input: input, Cursor: len([]rune(input)), Accept: accept}
@@ -278,6 +304,7 @@ func fuzzy(query, value string) bool {
 	return true
 }
 func (a *App) Save() {
+	a.typingDoc = nil
 	b := a.Current()
 	if a.Readonly {
 		a.Status = "Read-only mode"

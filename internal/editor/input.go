@@ -95,6 +95,9 @@ func (a *App) pasteText(s string) {
 	a.insert(s)
 }
 func (a *App) key(ev *tcell.EventKey) {
+	if ev.Key() != tcell.KeyRune || ev.Modifiers()&(tcell.ModCtrl|tcell.ModAlt) != 0 {
+		a.typingDoc = nil
+	}
 	if a.languageKey(ev.Key()) {
 		return
 	}
@@ -214,6 +217,9 @@ func (a *App) cycle(delta int) {
 	a.schedule()
 }
 func previous(r text.Rope, p int) int {
+	if p > 0 && r.Plain(p-1, p) {
+		return p - 1
+	}
 	if p <= 0 {
 		return 0
 	}
@@ -234,6 +240,9 @@ func previous(r text.Rope, p int) int {
 	return last
 }
 func next(r text.Rope, p int) int {
+	if p < r.Len() && r.Plain(p, min(r.Len(), p+2)) {
+		return p + 1
+	}
 	if p >= r.Len() {
 		return r.Len()
 	}
@@ -296,9 +305,9 @@ func (a *App) move(dx, dy int, extend bool) {
 		}
 		if dy != 0 {
 			line := r.LineAt(p)
-			col := visualColumn(r.Slice(r.LineStart(line), p), a.Config.TabSize)
+			col := columnAt(r, p, a.Config.TabSize)
 			target := max(0, min(r.Lines()-1, line+dy))
-			p = r.LineStart(target) + offsetAt(r.Line(target), col, a.Config.TabSize)
+			p = lineOffset(r, target, col, a.Config.TabSize)
 		}
 		if !extend {
 			s.Anchor = p
@@ -606,7 +615,7 @@ func (a *App) indent(outdent bool) {
 		s := "\t"
 		if a.Config.InsertSpaces {
 			p := d.Selections[0].Head
-			col := visualColumn(d.Text.Slice(d.Text.LineStart(d.Text.LineAt(p)), p), a.Config.TabSize)
+			col := columnAt(d.Text, p, a.Config.TabSize)
 			s = strings.Repeat(" ", a.Config.TabSize-col%a.Config.TabSize)
 		}
 		a.insert(s)
@@ -647,4 +656,19 @@ func (a *App) indent(outdent bool) {
 		}
 	}
 	a.apply(edits)
+}
+
+func columnAt(r text.Rope, p, tab int) int {
+	start := r.LineStart(r.LineAt(p))
+	if r.Plain(start, p) {
+		return p - start
+	}
+	return visualColumn(r.Slice(start, p), tab)
+}
+func lineOffset(r text.Rope, line, col, tab int) int {
+	start, end := r.LineStart(line), r.LineEnd(line)
+	if r.Plain(start, end) {
+		return min(end, start+col)
+	}
+	return start + offsetAt(r.Slice(start, end), col, tab)
 }

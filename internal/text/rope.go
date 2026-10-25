@@ -19,6 +19,8 @@ type node struct {
 	breaks       []int
 	priority     uint64
 	bytes, lines int
+	special      int
+	localSpecial int
 }
 
 func size(n *node) int {
@@ -38,6 +40,7 @@ func rebuilt(n *node, l, r *node) *node {
 	c.left, c.right = l, r
 	c.bytes = size(l) + len(c.text) + size(r)
 	c.lines = lines(l) + len(c.breaks) + lines(r)
+	c.special = n.localSpecial + special(l) + special(r)
 	return &c
 }
 func piece(s string, priority uint64) *node {
@@ -47,6 +50,12 @@ func piece(s string, priority uint64) *node {
 			n.breaks = append(n.breaks, i)
 		}
 	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < 32 || s[i] >= 127 {
+			n.localSpecial++
+		}
+	}
+	n.special = n.localSpecial
 	n.lines = len(n.breaks)
 	return n
 }
@@ -199,4 +208,47 @@ func (r Rope) LineAt(offset int) int {
 }
 func (r Rope) Boundary(offset int) bool {
 	return offset >= 0 && offset <= r.Len() && (offset == r.Len() || utf8.RuneStart(r.Slice(offset, offset+1)[0]))
+}
+
+func special(n *node) int {
+	if n == nil {
+		return 0
+	}
+	return n.special
+}
+func plain(n *node, start, end int) bool {
+	if n == nil || start >= end {
+		return true
+	}
+	if start == 0 && end == size(n) {
+		return n.special == 0
+	}
+	l := size(n.left)
+	stop := l + len(n.text)
+	if start < l && !plain(n.left, start, min(end, l)) {
+		return false
+	}
+	if start < stop && end > l {
+		if n.localSpecial > 0 {
+			for _, b := range []byte(n.text[max(0, start-l):min(len(n.text), end-l)]) {
+				if b < 32 || b >= 127 {
+					return false
+				}
+			}
+		}
+	}
+	return end <= stop || plain(n.right, max(0, start-stop), end-stop)
+}
+
+// Plain is indexed: an ordinary ASCII line needs no grapheme scan or copy.
+func (r Rope) Plain(start, end int) bool { return plain(r.root, max(0, start), min(end, r.Len())) }
+func (r Rope) LineEnd(line int) int {
+	end := r.LineStart(line + 1)
+	if line < r.Lines()-1 {
+		end--
+	}
+	if end > r.LineStart(line) && r.Slice(end-1, end) == "\r" {
+		end--
+	}
+	return end
 }

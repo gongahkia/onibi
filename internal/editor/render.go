@@ -69,7 +69,7 @@ func (a *App) reveal() {
 		b.Top = line - height + 1
 	}
 	w, _ := a.Screen.Size()
-	column := visualColumn(b.Doc.Text.Slice(b.Doc.Text.LineStart(line), p), a.Config.TabSize)
+	column := columnAt(b.Doc.Text, p, a.Config.TabSize)
 	width := max(1, w-a.gutter())
 	if column < b.Left {
 		b.Left = column
@@ -85,7 +85,9 @@ func (a *App) draw() {
 	}
 	p := a.styles()
 	a.Screen.SetStyle(p.text)
-	a.Screen.Clear()
+	for row := 0; row < h; row++ {
+		a.fill(0, row, w, p.text)
+	}
 	a.Screen.HideCursor()
 	b := a.Current()
 	d := b.Doc
@@ -130,9 +132,17 @@ func (a *App) draw() {
 			break
 		}
 		a.put(0, row+1, gutter-1, fmt.Sprintf("%*d", gutter-2, line+1), p.dim)
-		value := d.Text.Line(line)
 		start := d.Text.LineStart(line)
+		end := d.Text.LineEnd(line)
 		col := 0
+		var value string
+		if d.Text.Plain(start, end) {
+			col = min(b.Left, end-start)
+			start += col
+			value = d.Text.Slice(start, min(end, start+w-gutter))
+		} else {
+			value = d.Text.Slice(start, end)
+		}
 		g := uniseg.NewGraphemes(value)
 		for g.Next() {
 			from, _ := g.Positions()
@@ -189,7 +199,7 @@ func (a *App) draw() {
 	}
 	pos := d.Selections[0].Head
 	line := d.Text.LineAt(pos)
-	column := visualColumn(d.Text.Slice(d.Text.LineStart(line), pos), a.Config.TabSize)
+	column := columnAt(d.Text, pos, a.Config.TabSize)
 	state := fmt.Sprintf(" Shack  %d:%d  %d selection(s)", line+1, column+1, len(d.Selections))
 	if len(b.Diagnostics) > 0 {
 		state += fmt.Sprintf("  %d diagnostics", len(b.Diagnostics))
