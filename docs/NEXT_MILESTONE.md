@@ -11,17 +11,17 @@ not narrow the goal or justify declaring the entire milestone complete.
 | Language-server compatibility | Live Go, Rust, Python and TypeScript workflows (completion, diagnostics, navigation, formatting, rename/actions as supported), plus regressions | Pending |
 | SSH and terminal compatibility | Actual SSH transport, tmux over SSH, several terminal profiles, resize/input/clipboard limitations documented | Pending |
 | Unicode and worst-case performance | Grapheme-correct editing/wrapping of Unicode-heavy long files; latency, allocations, redraw traffic and RSS measured against 0.2 | Pending |
-| Embedded terminal | Real PTY shell and interactive full-screen programs; emulation, resize, keyboard/mouse input, scrollback, clean shutdown; bounded memory | Pending |
+| Embedded terminal | Real PTY shell and interactive full-screen programs; emulation, resize, keyboard/mouse input, scrollback, clean shutdown; bounded memory | Implemented: race tests, PTY protocol/backpressure tests, tmux shell/Vim/resize/interrupt/cleanup smoke; SSH matrix remains below |
 | Debugging through DAP | Launch/attach, breakpoints, continue/pause/step, stack frames, scopes/variables, exit/error cleanup; fake and live adapter coverage | Pending |
 | Complete snippet language | Nested placeholders, linked stops, choices, variables/defaults and transformations against documented grammar, with editing/rebasing tests | Pending |
 | LSP file operations | Reviewed create/rename/delete with text edits, file conflicts/options, validation and failure handling; protocol tests | Pending |
 | LSP server commands | User-selected commands, resolve, reviewed applyEdit callbacks, cancellation/lifecycle tests | Pending |
-| Nested splits | Mixed orientations, independent views, resize/close/focus and session round trips | Pending |
+| Nested splits | Mixed orientations, independent views, resize/close/focus and session round trips | Implemented: mixed split, divider drag, collapse, tiny terminal and session regression tests; tmux smoke |
 | Git merge resolution | Conflict discovery, base/ours/theirs inspection, explicit per-hunk resolution, undo/save/stage, real conflicting repository test | Pending |
-| Left file tree | Expand/collapse, keyboard navigation, click-to-open, refresh/reveal, bounded discovery and no per-frame filesystem work | Pending |
-| Minimap | Meaningful text overview, current viewport/position, click/drag navigation; bounded work independent of file size | Pending |
-| Left/right mouse controls | Selection/drag, pane/tree/minimap interaction, context menus and menu activation; keyboard alternatives | Pending |
-| Low overhead and distribution | Demand-driven terminal/debugger, bounded caches/output, idle behavior, measured artifact/RSS/latency, all five target builds and constrained Linux run | Pending |
+| Left file tree | Expand/collapse, keyboard navigation, click-to-open, refresh/reveal, bounded discovery and no per-frame filesystem work | Implemented: indexed hierarchy, keyboard/mouse/narrow-screen tests |
+| Minimap | Meaningful text overview, current viewport/position, click/drag navigation; bounded work independent of file size | Implemented: sampled background map, Unicode/navigation tests; 500k-line sample benchmark 0.569 ms |
+| Left/right mouse controls | Selection/drag, pane/tree/minimap interaction, context menus and menu activation; keyboard alternatives | Implemented: selection/context/tree/minimap/preview regression tests; outer-terminal compatibility still needs matrix |
+| Low overhead and distribution | Demand-driven terminal/debugger, bounded caches/output, idle behavior, measured artifact/RSS/latency, all five target builds and constrained Linux run | Current increment verified: all five builds; 11.4 MiB idle RSS; 64 MiB / 0.5 CPU Linux scratch editing. Repeat after remaining features |
 | Markdown and Org rendering | Bundled rendered views, links/code/lists/tables/headings as applicable; bounded cached parsing and rendering benchmarks | Pending; after current IDE tasks |
 | Code folding | Discoverable fold controls, nested folds, cursor/edit behavior, language/markup coverage, large-file tests | Pending; after current IDE tasks |
 | Atomic git commits | Focused commits after relevant checks; preserve user edits | Ongoing |

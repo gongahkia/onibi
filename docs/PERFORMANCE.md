@@ -103,3 +103,31 @@ at 8 MiB combined text, task output at 1 MiB, session restoration at 16 MiB, and
 core opening at 256 MiB per file. These are input/retention bounds, not total
 process-memory guarantees. Language servers and build tools have separate memory
 costs that are not constrained by the editor's output/text limits.
+
+## Nested layout, workspace views and embedded terminal increment
+
+Measured on the same Intel macOS development host, 2026-10-25, Go 1.27, stripped
+CGO-disabled builds. These are individual local observations, not tail-latency
+budgets or a cross-machine comparison:
+
+- macOS amd64 binary: **9,039,856 bytes (8.62 MiB)**; Linux amd64:
+  **8,958,112 bytes (8.54 MiB)**. All five release targets build.
+- Native PTY: **78.8 ms** first frame, **11.4 MiB** first-frame RSS without LSP.
+- An isolated tmux run with the tree disabled measured **11.5 MiB** before opening
+  a terminal and **15.2 MiB** with an idle shell terminal. Shell child RSS is
+  excluded; scrollback and sustained output increase memory beyond this sample.
+- 30 local PTY edits with the default project tree: first-output median
+  **0.672 ms**, maximum **1.212 ms**; median **600 bytes/edit**, maximum **615**,
+  no full-screen clears. Output timing excludes terminal painting/network delay.
+- Sampling a minimap for 500,000 Unicode lines (26 display rows): **0.569 ms**,
+  **8,592 B / 372 allocations** per sample; performed off the UI thread.
+- The updated Linux binary passes editing, paste, selective preview, undo/redo,
+  save and quit in a scratch container limited to **64 MiB / 0.5 CPU**, with no
+  runtime, shell, shared libc or network. This validates core editing; terminal
+  sessions and debugging require their respective programs and additional memory.
+
+Terminal emulators are created only on request. Their fixed parser buffer,
+screens and optional history are per-session costs. Frames are capped at 30 Hz;
+there is no idle frame timer. PTY queues, history cells, session count and screen
+size are bounded, as described in USAGE.md. This is not a constant-RSS promise
+for arbitrary terminal text. Minimap refreshes are debounced and coalesced.

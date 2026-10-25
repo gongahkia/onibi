@@ -370,6 +370,10 @@ func (a *App) mouse(ev *tcell.EventMouse) {
 		a.focusPane(target)
 	}
 	a.treeFocus = false
+	if a.Current().Terminal != nil && !header {
+		a.terminalMouse(ev, r, pressed, right)
+		return
+	}
 	if buttons&tcell.WheelUp != 0 {
 		a.scrollRows(-3)
 		return

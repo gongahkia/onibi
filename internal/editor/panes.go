@@ -204,6 +204,9 @@ func (a *App) contentWidth(b *Buffer, r rectangle) int {
 }
 func (a *App) reveal() {
 	b := a.Current()
+	if b.Terminal != nil {
+		return
+	}
 	r := a.rect(a.focus)
 	p := b.Doc.Selections[0].Head
 	line := b.Doc.Text.LineAt(p)

@@ -130,6 +130,22 @@ func (a *App) draw() {
 	if d.Text.Len() > a.Config.ServiceMaxBytes {
 		state += "  LARGE FILE"
 	}
+	if v := b.Terminal; v != nil {
+		state = " Shack  Terminal · Ctrl+] editor controls"
+		if !v.Input {
+			state = " Shack  Editor controls · Resume terminal input"
+		}
+		if v.Session != nil {
+			if f := v.Session.Frame(); f != nil {
+				if f.Scroll > 0 {
+					state += fmt.Sprintf(" · scrollback %d/%d", f.Scroll, f.History)
+				}
+				if f.Exited {
+					state += " · " + f.Exit
+				}
+			}
+		}
+	}
 	a.fill(0, h-2, w, p.bar)
 	a.put(0, h-2, w, state, p.bar)
 	a.put(0, h-1, w, a.Status, p.dim)
@@ -150,6 +166,10 @@ func (a *App) draw() {
 	a.Screen.Show()
 }
 func (a *App) drawPane(index int, p palette) {
+	if a.panes[index].Buffer.Terminal != nil {
+		a.drawTerminal(index, p)
+		return
+	}
 	pane := &a.panes[index]
 	b := pane.Buffer
 	d := b.Doc

@@ -16,6 +16,20 @@ operations, previews and background results. tcell supplies terminal I/O; Chroma
 supplies bundled lexers. Ordinary rendering updates the logical screen and lets
 tcell emit changed cells; it does not request a physical full-screen clear.
 
+Pane layout is a bounded binary split tree with per-divider ratios; session
+restoration prunes missing leaves and preserves nested orientation. The file tree
+is built from the existing bounded project index, never from per-frame filesystem
+walks. The optional minimap samples short line prefixes into cached immutable
+rows on a coalescing worker; neither syntax lexing nor a full-file copy is needed.
+
+`internal/terminal` owns each explicitly started PTY and terminal emulator. An
+actor serializes emulation, input, resize and scrollback, publishing immutable
+frames through an atomic pointer. Separate goroutines read/write the PTY. The UI
+never waits on terminal I/O or acquires an emulator lock. Queues, dimensions,
+scrollback cells and update frequency are capped; no terminal resources are
+allocated until requested. Closing cancels blocked I/O and signals the shell and
+foreground process groups. Only the active view controls a shared PTY's size.
+
 Workspace previews retain bounded document snapshots. Every included target is
 validated and staged before publishing any change to live buffers. Version and
 disk-fingerprint checks reject stale edits. The latest workspace transaction has

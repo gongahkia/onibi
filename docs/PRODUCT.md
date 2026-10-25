@@ -9,7 +9,9 @@ Name: **Shack**. Description: **Atomweight Terminal Text Editor IDE with Sensibl
   searchable commands; multiple buffers and multiple selections.
 - Literal and regex search, selectable replacement previews, and transformations
   applied as undoable operations, including reviewed multi-file replacements.
-- Split panes, soft wrapping, configurable controls, recovery and project sessions.
+- Nested split panes, optional file tree/minimap, context menus, soft wrapping,
+  configurable controls, recovery and project sessions.
+- On-demand embedded PTY terminals with interactive programs and bounded history.
 - Bundled syntax highlighting. Optional completion, diagnostics, definition, and
   formatting through detected language servers; documentation, symbols, references,
   rename and edit-based code actions. No silent dependency downloads.
@@ -29,8 +31,9 @@ retain editing when language intelligence or highlighting is disabled.
 
 ## Scope boundaries
 
-Native Windows, debugger integration, embedded terminals, a plugin marketplace,
-editing-model DSLs, and legacy Zenbu API compatibility are deferred. Current Git
+Native Windows, a plugin marketplace, editing-model DSLs and legacy Zenbu API
+compatibility are deferred. Debugging, Markdown/Org rendering, folding and deeper
+language interoperability are active work tracked in [NEXT_MILESTONE.md](NEXT_MILESTONE.md). Current Git
 commands do not provide merge resolution. Workspace edits are atomic in memory;
 saving several files is sequential. Full snippet grammar and LSP resource/command
 actions remain unsupported. See [IDE_AUDIT.md](IDE_AUDIT.md) for the capability matrix.

@@ -21,6 +21,7 @@ import (
 )
 
 type Buffer struct {
+	Terminal                                *terminalView
 	DiskConflict                            bool
 	LanguageEpoch                           uint64
 	Title                                   string
@@ -67,6 +68,7 @@ type preview struct {
 	Index                 int
 }
 type App struct {
+	terminalSequence                                           int
 	tree                                                       *fileTree
 	treeVisible, treeFocus, treeDrag, minimapVisible, miniDrag bool
 	treeWidth                                                  int
@@ -186,6 +188,7 @@ func New(screen tcell.Screen, cfg config.Config, paths []string, readonly bool) 
 	a.workspaceCommands()
 	a.editingCommands()
 	a.developmentCommands()
+	a.terminalCommands()
 	a.Commands = append(a.Commands, command{"Recover unsaved buffers", "", a.recoveryPicker}, command{"Restore project session", "", a.restoreSession}, command{"Save project session", "", func() {
 		if err := a.saveSession(); err != nil {
 			a.Status = err.Error()
@@ -244,6 +247,7 @@ func (a *App) Run() error {
 		return err
 	}
 	defer a.Screen.Fini()
+	defer a.closeTerminals()
 	defer a.cancel()
 	defer func() {
 		for _, state := range a.languages {
@@ -423,6 +427,10 @@ func (a *App) Save() {
 func (a *App) saveAs() { a.saveAsThen(nil) }
 func (a *App) saveAsThen(done func()) {
 	b := a.Current()
+	if b.Terminal != nil {
+		a.Status = "Use Export terminal screen to save terminal output"
+		return
+	}
 	a.prompt("Save as (existing files are protected)", b.File.Path, func(path string) {
 		if a.Readonly {
 			a.Status = "Read-only mode"
@@ -478,6 +486,9 @@ func (a *App) closeBuffer() {
 }
 func (a *App) discardBuffer() {
 	closed := a.Current()
+	if v := closed.Terminal; v != nil && v.Session != nil {
+		v.Session.Close()
+	}
 	a.forgetLanguage(closed)
 	a.Buffers = append(a.Buffers[:a.Active], a.Buffers[a.Active+1:]...)
 	if len(a.Buffers) == 0 {

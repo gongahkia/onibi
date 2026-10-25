@@ -60,7 +60,8 @@ No public release or download URL is assumed to exist yet.
 | Copy / cut / paste | Ctrl+C / Ctrl+X / Ctrl+V |
 | Undo / redo | Ctrl+Z / Ctrl+Y |
 | Next / previous buffer | Alt+N / Alt+P, or click a visible tab |
-| Go to line | Ctrl+G |
+| Go to line / toggle file tree | Ctrl+G / Ctrl+B |
+| Context menu | Right-click or Shift+F10 |
 | Indent / outdent selection | Tab / Shift+Tab |
 | Completion / go to definition | Ctrl+Space / F12 |
 | Move / select by word | Ctrl+Left/Right / Ctrl+Shift+Left/Right |
@@ -157,11 +158,26 @@ budget, but tokenisation is not preemptible within an individual lexer call.
 
 ## Project editing and navigation
 
-**Split vertically** and **Split horizontally** create up to four equal panes.
-All panes share the selected orientation. **Focus next pane**, mouse clicks, and
-**Close pane** manage them. Each pane retains its own cursor and scroll position,
+**Split vertically** and **Split horizontally** divide the focused pane, up to 16
+panes with mixed orientations. Drag a divider, or use **Grow pane** / **Shrink pane**,
+to resize. **Focus next pane**, directional focus commands, mouse clicks, and
+**Close pane** manage them. Small panes cannot be split further. Each pane retains its own cursor and scroll position,
 including when several panes show the same file. **Toggle soft wrapping** changes
 visual wrapping without inserting newlines; vertical arrows follow visual rows.
+
+**Toggle file tree** (Ctrl+B) shows the project index on the left. It opens by
+default when a directory is supplied and the terminal is at least 70 columns wide.
+Click folders to expand and files to open. **Focus file tree** enables arrow-key
+navigation; Enter opens a file and Tab/Escape returns to the editor. **Reveal file
+in tree** locates the active file. The tree uses the same bounded index as the file
+picker; refresh after external file changes. Drag its edge to resize.
+
+**Toggle minimap** enables an optional text-density overview on wide terminals.
+Click or drag to navigate; the highlighted area marks the viewport. Sampling runs
+in the background with bounded work, even for large files. It is not a syntax map
+and does not depict every line. Right-click text, tabs, the tree or minimap for
+context commands. Double-click selects a word, triple-click a line, and Shift-click
+extends a selection. Dialog lists and replacement previews also accept clicks.
 
 **Find in project** uses literal or regex search and opens a list of locations.
 Search includes unsaved open buffers. **Preview replace in project** offers the
@@ -209,7 +225,7 @@ not protected. Abrupt termination can also lose edits since the latest snapshot.
 Clean quit/discard removes the current instance's recovery record. Recovery is
 not persistent undo or a backup service. `--no-recovery` disables it.
 
-Project sessions remember up to 64 file paths, cursor positions, and four panes
+Project sessions remember up to 64 file paths, cursor positions, and 16 nested panes
 under the same state directory, with private files. Clean exit saves the session;
 **Save project session** also saves explicitly. Use `shack --restore .` or
 **Restore project session** to reopen it. Restoration reads current disk contents
@@ -228,12 +244,45 @@ Output streams into a read-only buffer, with at most 1 MiB retained.
 **Cancel running task** kills its process group; one task runs at a time.
 **Task output locations** opens existing `path:line[:column]` locations. Column
 interpretation is byte-based and some tools use other conventions. Tasks receive
-no interactive input. This is a task runner, not an embedded PTY terminal.
+no interactive input. Use **New terminal** for interactive programs.
 
 When Git is installed, **Git status**, **Git diff**, **Git staged diff**, **Git stage
 current file**, and **Git unstage current file** are available. Diffs reflect saved
 files; save before staging. These commands do not commit, push, fetch or resolve
 merge conflicts. Core editing works without Git.
+
+## Embedded terminal
+
+**New terminal** opens a real PTY in a buffer, in the project directory. It starts
+`$SHELL -i`, falling back to `/bin/sh -i`; `terminal_shell` can specify an argument
+array instead. Split or switch this buffer like any other buffer. Sessions start
+only on request and are not restored on reopening Shack.
+
+While terminal input is active, keys go to the shell or foreground program,
+including Ctrl+C, Ctrl+Z and Ctrl+Q. **Ctrl+] returns to editor controls**; use the
+palette's **Resume terminal input**, or click the terminal, to resume. **Send Ctrl+]
+to terminal** passes the reserved key through. Shift+PageUp/PageDown or the mouse
+wheel scroll history; typing returns to the live screen. Drag selects text and
+right-click opens terminal commands. Applications that enable mouse reporting
+receive mouse events; hold Shift to use Shack's selection/context controls where
+the outer terminal forwards that modifier. **Copy terminal selection** requests
+OSC 52 and keeps an internal copy; **Export terminal screen** creates a savable
+read-only report of the visible screen.
+
+ANSI colors, alternate screens, cursor modes, bracketed paste, resizing and
+standard mouse reports are supported. The emulator is not a complete replacement
+for a desktop terminal: graphics protocols, every extended key/mouse protocol,
+and unmodified hover-motion reporting are not promised. The default scrollback is
+500 rows, configurable from 1–2,000, also limited by a 4 MiB cell-storage budget.
+Text payloads and emulator parser storage add to that budget. The emulated screen
+is capped at 300 columns, 200 rows and 20,000 cells. At most four terminal buffers
+may be open; input queues/pastes are capped at 1 MiB. Frames update at most 30 times
+per second, with no idle refresh timer.
+
+**Stop terminal**, closing its buffer, or exiting Shack closes the PTY and signals
+its shell/foreground process groups. Closing just a pane keeps its buffer alive.
+Detached or deliberately daemonized processes are outside that cleanup contract.
+Terminal contents are ephemeral and excluded from recovery/session files.
 
 ## SSH and tmux
 
@@ -268,6 +317,10 @@ Missing fields retain defaults. Example:
   "auto_indent": true,
   "auto_complete": true,
   "soft_wrap": false,
+  "file_tree": "auto",
+  "tree_width": 26,
+  "minimap": false,
+  "terminal_scrollback": 500,
   "recovery": true,
   "recovery_max_bytes": 8388608,
   "session": true,
@@ -311,13 +364,12 @@ Theme/mouse palette changes last for the session; configuration is read at start
 - Files are loaded into memory; the default open limit is 256 MiB. This is an
   input bound, not a promise that a 256 MiB file fits on a 256 MiB server.
 - Undo history is in memory. Sessions/recovery do not preserve undo history.
-  Panes use one equal-sized orientation, without arbitrary nested layouts.
   A plugin API and complete standalone `.gitignore` parsing are not implemented.
 - Saves detect changed/deleted targets, stage beside the file, sync, and atomically
   replace. Existing symlinks resolve at open; hard-linked files require Save as.
   Ownership and permission bits are retained; ACLs/xattrs are not copied.
   External-write detection is not an interprocess lock and has a final race window.
-- Debugging/DAP, embedded terminal emulation, full TextMate snippets, LSP file
+- Debugging/DAP, full TextMate snippets, LSP file
   operations and server commands, native Windows, general encodings, Git merge
   resolution, and automatic language-server installation remain unimplemented.
 - This remains a development editor, not a claim of mature IDE parity. See the
@@ -331,6 +383,7 @@ make build
 python3 scripts/pty_smoke.py        # real pseudo-terminal editing workflow
 python3 scripts/tmux_smoke.py       # isolated tmux server (requires tmux)
 python3 scripts/ide_smoke.py        # project edits, panes and tasks in tmux
+python3 scripts/terminal_smoke.py   # embedded shell, Vim, resize and cleanup
 python3 scripts/recovery_smoke.py   # SIGKILL and recovery through a real PTY
 python3 scripts/redraw_bench.py     # local output timing and bytes per edit
 go test ./internal/editor -run '^$' -bench BenchmarkLongLineViewport -benchmem

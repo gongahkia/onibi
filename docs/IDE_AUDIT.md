@@ -16,13 +16,13 @@ Git discovery follows [`git ls-files`](https://git-scm.com/docs/git-ls-files).
 | --- | --- | --- |
 | Trust | Grouped typing undo, private crash recovery, disk-change warnings, undoable reload, complete Save All/close flow | Recovery is bounded, delayed and not persistent undo |
 | Interaction | Incremental terminal updates; indexed ASCII positioning and visible-line slicing | Extremely long mixed-Unicode lines can still scan/allocate heavily |
-| Layout | Up to four panes, independent same-buffer cursors, Unicode soft wrapping | Equal panes in one shared orientation, no nested split tree |
+| Layout | Up to 16 nested panes, draggable ratios, independent same-buffer cursors, Unicode soft wrapping | Minimum pane sizes constrain further splitting |
 | Project navigation | Ignore-aware Git index, standalone fallback, project search, jump history | Fallback exclusions are not full `.gitignore`; explicit result/file bounds |
 | Bulk changes | Multi-file replacement/rename/action preview, selective edits, all-or-none buffer staging, guarded group undo/redo | Saving is sequential; edits remain unsaved until requested |
 | Language intelligence | Debounced inline completion, basic linked snippets, hover, signatures, references, definitions, implementations, types, symbols, diagnostics navigation, formatting, rename, edit-based actions | Requires a capable external server; complex snippets, resource operations and server-command actions remain unsupported |
 | Familiar editing | Word movement/deletion, line duplication/deletion/movement, line comments, configurable shortcuts | Line operations need a contiguous selection; comment prefixes are extension based |
-| Development loop | Cancellable build/test commands, bounded output, navigable output locations, Git status/diffs/stage/unstage | No interactive task input, debugger, terminal emulator or merge-resolution UI |
-| Sessions | Private project session storage and explicit restoration of files, panes and positions | Up to 64 files / four panes; 16 MiB restore budget; recovery handles dirty text separately |
+| Development loop | Cancellable build/test commands, bounded output, navigable output locations, Git status/diffs/stage/unstage | Tasks are noninteractive; embedded PTY buffers run interactive programs. Debugger/merge UI still pending |
+| Sessions | Private project session storage and explicit restoration of files, panes and positions | Up to 64 files / 16 panes; 16 MiB restore budget; recovery handles dirty text separately |
 
 ## Validation
 
@@ -36,6 +36,11 @@ Git discovery follows [`git ls-files`](https://git-scm.com/docs/git-ls-files).
 - Regression tests cover symlinked project roots, disk-conflicting previews,
   same-file pane rebasing, stale language sessions and late closes, snippet ranges,
   session restoration, and subprocess cancellation/output limits.
+- Embedded PTY: bracketed paste, application cursor keys, SGR mouse reports,
+  blocked-input/output cleanup, plus a real shell and Vim Unicode edit/save,
+  resize and interruption inside tmux.
+- File tree/minimap/context menus and nested split/session behavior have regression
+  tests. Full remaining scope is tracked in [NEXT_MILESTONE.md](NEXT_MILESTONE.md).
 - Distribution and measured resource observations are in [PERFORMANCE.md](PERFORMANCE.md).
 
 ## What should come next
@@ -45,14 +50,15 @@ Git discovery follows [`git ls-files`](https://git-scm.com/docs/git-ls-files).
    Unicode-heavy long lines; repositories with large numbers of files; external
    file watchers; and repeated crash/restore/save workflows. Establish reproducible
    key-latency, tail-latency and peak-memory budgets on low-resource hardware.
-2. **A real embedded terminal.** PTY lifecycle, terminal emulation, resize handling,
-   input ownership, scrollback and SSH/tmux interoperability need a cohesive design.
-   The current output buffer is not an interactive terminal.
+2. **Embedded terminal compatibility.** Real PTY buffers now support shells and Vim,
+   alternate screens, colors, resize, scrollback, input ownership and cleanup.
+   Continue with SSH and terminal-family coverage; see the bounded emulator
+   contract in [USAGE.md](USAGE.md).
 3. **Debugger integration.** A DAP client and UI for launch/attach, breakpoints,
    stepping, stack frames and variables. Build/test commands are not debugging.
 4. **Deeper language and project editing.** Complete snippet grammar, server-command
    actions with reviewed `workspace/applyEdit`, LSP resource operations, richer
-   diagnostics, gitignore behavior without Git, nested splits and merge resolution.
+   diagnostics, gitignore behavior without Git and merge resolution.
 5. **Distribution maturity.** Signed/notarized macOS distribution, package-manager
    installation, release automation, broader CPU/OS tests, and native Windows later.
 

@@ -48,7 +48,7 @@ func (a *App) Handle(event tcell.Event) {
 			if a.pasteOverflow {
 				return
 			}
-			if a.paste.Len() > a.Config.MaxFileMiB<<20 {
+			if a.paste.Len() >= a.pasteLimit() {
 				a.pasteOverflow = true
 				a.paste.Reset()
 				return
@@ -81,6 +81,9 @@ func (a *App) Handle(event tcell.Event) {
 				return
 			}
 		}
+		if a.terminalKey(ev) {
+			return
+		}
 		if a.treeKey(ev) {
 			return
 		}
@@ -106,6 +109,10 @@ func (a *App) pasteText(s string) {
 		return
 	}
 	if a.Preview != nil {
+		return
+	}
+	if v := a.Current().Terminal; v != nil && v.Input && v.Session != nil {
+		a.terminalError(v.Session.Paste(s))
 		return
 	}
 	if a.Current().Newline == "\r\n" {
@@ -699,4 +706,11 @@ func lineOffset(r text.Rope, line, col, tab int) int {
 		return min(end, start+col)
 	}
 	return start + offsetAt(r.Slice(start, end), col, tab)
+}
+
+func (a *App) pasteLimit() int {
+	if a.Current().Terminal != nil {
+		return 1 << 20
+	}
+	return a.Config.MaxFileMiB << 20
 }

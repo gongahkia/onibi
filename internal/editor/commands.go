@@ -331,6 +331,14 @@ func (a *App) transform(name string, f func(string) string) {
 
 func (a *App) copy(cut bool) {
 	b := a.Current()
+	if b.Terminal != nil {
+		if cut {
+			a.Status = "Terminal text cannot be cut"
+		} else {
+			a.copyTerminalSelection()
+		}
+		return
+	}
 	parts := []string{}
 	edits := []text.Edit{}
 	for _, s := range b.Doc.Selections {
