@@ -2,6 +2,8 @@
 
 Onibi's web interface controls the Ghostty application already running in your Mac's graphical login session. It does not move processes into a new terminal, add hooks to running coding agents, or keep the Mac awake. The Mac, Ghostty, and the Onibi web process must remain available.
 
+The cockpit is served by the Mac over private Tailscale HTTPS. This repository does not use GitHub Pages: the former `/docs` publishing configuration was retired. Documentation stays in the repository and release archives; Pages is not part of deployment or CI verification.
+
 ## Private connection
 
 Install Tailscale on both devices and sign into your private network. On the Mac:

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Retired the repository's public GitHub Pages documentation site. The Ghostty cockpit continues to run on the Mac over private Tailscale HTTPS.
+
 - Added passive `onibi web doctor` diagnostics, explicit native probes, typed availability errors, and Ghostty version capabilities.
 - Added a Mac readiness sheet and distinct phone states for connection, native inventory, focused capture, permissions, and session expiry. Recovery targets the failed capability and preserves pane drafts.
 - Coalesced concurrent inventory polls, added bounded failure backoff, retained fresh mutation preconditions, and reduced redundant post-input observation. Rejected actions immediately reconcile readiness; lost connections stop Follow.
