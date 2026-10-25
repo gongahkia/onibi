@@ -32,11 +32,11 @@ func (a *App) registerCommands() {
 		{"Toggle regular expression search", "", func() { a.Regex = !a.Regex; a.Status = fmt.Sprintf("Regex search: %t", a.Regex) }},
 		{"Select all search matches", "Alt+A", a.selectMatches}, {"Add next occurrence", "Ctrl+D", a.addOccurrence},
 		{"Undo", "Ctrl+Z", func() {
-			if !a.Readonly && a.Current().Doc.Undo() {
+			if !a.Readonly && !a.Current().Transient && a.Current().Doc.Undo() {
 				a.changed()
 			}
 		}}, {"Redo", "Ctrl+Y", func() {
-			if !a.Readonly && a.Current().Doc.Redo() {
+			if !a.Readonly && !a.Current().Transient && a.Current().Doc.Redo() {
 				a.changed()
 			}
 		}},

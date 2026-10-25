@@ -120,8 +120,11 @@ func Start(parent context.Context, argv []string, root string, notify func(Notif
 	initCtx, stop := context.WithTimeout(ctx, 8*time.Second)
 	defer stop()
 	params := map[string]any{"processId": os.Getpid(), "rootUri": URI(root), "clientInfo": map[string]string{"name": "shack"}, "workspaceFolders": []any{map[string]string{"uri": URI(root), "name": root}}, "capabilities": map[string]any{
-		"general": map[string]any{"positionEncodings": []string{"utf-16"}}, "workspace": map[string]any{"configuration": true},
-		"textDocument": map[string]any{"completion": map[string]any{"completionItem": map[string]any{"snippetSupport": false}}, "definition": map[string]any{"linkSupport": true}, "publishDiagnostics": map[string]any{"versionSupport": true}},
+		"general": map[string]any{"positionEncodings": []string{"utf-16"}}, "workspace": map[string]any{"configuration": true, "workspaceEdit": map[string]any{"documentChanges": true, "failureHandling": "transactional"}},
+		"textDocument": map[string]any{"completion": map[string]any{"completionItem": map[string]any{"snippetSupport": false}}, "hover": map[string]any{"contentFormat": []string{"plaintext", "markdown"}},
+			"documentSymbol": map[string]any{"hierarchicalDocumentSymbolSupport": true},
+			"codeAction":     map[string]any{"codeActionLiteralSupport": map[string]any{"codeActionKind": map[string]any{"valueSet": []string{"quickfix", "refactor", "source.organizeImports"}}}, "resolveSupport": map[string]any{"properties": []string{"edit"}}},
+			"definition":     map[string]any{"linkSupport": true}, "publishDiagnostics": map[string]any{"versionSupport": true}},
 	}}
 	result, err := c.Request(initCtx, "initialize", params)
 	if err != nil {

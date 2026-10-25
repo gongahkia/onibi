@@ -153,6 +153,25 @@ func TestInstalledClangd(t *testing.T) {
 	if err = json.Unmarshal(result, &locations); err != nil || len(locations) == 0 {
 		t.Fatalf("definition %s: %v", result, err)
 	}
+	for _, method := range []string{"hover", "references", "documentSymbol", "signatureHelp", "rename"} {
+		params := map[string]any{"textDocument": map[string]string{"uri": URI(path)}, "position": pos}
+		if method == "references" {
+			params["context"] = map[string]bool{"includeDeclaration": true}
+		}
+		if method == "rename" {
+			params["newName"] = "double_value"
+		}
+		if method == "signatureHelp" {
+			params["position"] = PositionAt(source, strings.LastIndex(source, "21"))
+		}
+		response, e := c.Request(ctx, "textDocument/"+method, params)
+		if e != nil || len(response) == 0 || string(response) == "null" {
+			t.Fatalf("%s: %s %v", method, response, e)
+		}
+		if method == "rename" && !strings.Contains(string(response), "double_value") {
+			t.Fatal(string(response))
+		}
+	}
 	result, err = c.Request(ctx, "textDocument/formatting", map[string]any{"textDocument": map[string]string{"uri": URI(path)}, "options": map[string]any{"tabSize": 4, "insertSpaces": true}})
 	if err != nil {
 		t.Fatal(err)

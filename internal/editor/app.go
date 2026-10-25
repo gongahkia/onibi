@@ -20,6 +20,7 @@ import (
 )
 
 type Buffer struct {
+	Title                                   string
 	WrapTop                                 int
 	Transient                               bool
 	LanguageKey, LanguageID, LanguageStatus string
@@ -138,6 +139,7 @@ func New(screen tcell.Screen, cfg config.Config, paths []string, readonly bool) 
 	a.wrap = cfg.SoftWrap
 	a.registerCommands()
 	a.languageCommands()
+	a.intelligenceCommands()
 	a.paneCommands()
 	a.workspaceCommands()
 	a.Commands = append(a.Commands, command{"Recover unsaved buffers", "", a.recoveryPicker})
@@ -262,7 +264,7 @@ func (a *App) changed() {
 	a.schedule()
 }
 func (a *App) apply(edits []text.Edit) {
-	if a.Readonly {
+	if a.Readonly || a.Current().Transient {
 		a.Status = "Read-only mode"
 		return
 	}
@@ -276,7 +278,7 @@ func (a *App) apply(edits []text.Edit) {
 	}
 }
 func (a *App) insert(s string) {
-	if a.Readonly {
+	if a.Readonly || a.Current().Transient {
 		a.Status = "Read-only mode"
 		return
 	}
@@ -337,7 +339,7 @@ func fuzzy(query, value string) bool {
 func (a *App) Save() {
 	a.typingDoc = nil
 	b := a.Current()
-	if a.Readonly {
+	if a.Readonly || a.Current().Transient {
 		a.Status = "Read-only mode"
 		return
 	}
@@ -373,6 +375,8 @@ func (a *App) saveAs() {
 			return
 		}
 		b.File = f
+		b.Transient = false
+		b.Title = ""
 		b.Synced = false
 		b.LanguageKey = ""
 		b.Diagnostics = nil
@@ -438,6 +442,9 @@ func (a *App) requestQuit() {
 	}}, {"Discard all changes and quit", func() { a.quit = true }}})
 }
 func bufferName(b *Buffer) string {
+	if b.Title != "" {
+		return b.Title
+	}
 	if b.File.Path == "" {
 		return "Untitled"
 	}

@@ -150,11 +150,11 @@ func (a *App) key(ev *tcell.EventKey) {
 	case tcell.KeyCtrlG:
 		a.prompt("Go to line", "", a.gotoLine)
 	case tcell.KeyCtrlZ:
-		if !a.Readonly && a.Current().Doc.Undo() {
+		if !a.Readonly && !a.Current().Transient && a.Current().Doc.Undo() {
 			a.changed()
 		}
 	case tcell.KeyCtrlY:
-		if !a.Readonly && a.Current().Doc.Redo() {
+		if !a.Readonly && !a.Current().Transient && a.Current().Doc.Redo() {
 			a.changed()
 		}
 	case tcell.KeyCtrlA:
@@ -549,7 +549,7 @@ func (a *App) previewKey(ev *tcell.EventKey) {
 			a.applyWorkspacePreview()
 			return
 		}
-		if a.Readonly {
+		if a.Readonly || p.Buffer.Transient {
 			a.Status = "Read-only mode"
 			return
 		}

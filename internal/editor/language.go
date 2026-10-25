@@ -49,6 +49,9 @@ func (a *App) languageCommands() {
 	)
 }
 func (a *App) languageClient(b *Buffer) *lsp.Client {
+	if b.Transient {
+		return nil
+	}
 	if !a.Config.LSP {
 		b.LanguageStatus = "Language services disabled"
 		return nil
@@ -218,7 +221,8 @@ func (a *App) diagnosticPicker() {
 	}
 	a.list("Diagnostics", items)
 }
-func (a *App) languageRequest(kind string) {
+func (a *App) languageRequest(kind string) { a.languageRequestWith(kind, nil) }
+func (a *App) languageRequestWith(kind string, extra map[string]any) {
 	b := a.Current()
 	client := a.languageClient(b)
 	if client == nil {
@@ -230,6 +234,18 @@ func (a *App) languageRequest(kind string) {
 		return
 	}
 	a.languageBusy = true
+	versions := map[*Buffer]uint64{}
+	type syncItem struct {
+		uri, language, source string
+		version               uint64
+	}
+	pending := []syncItem{}
+	for _, other := range a.Buffers {
+		versions[other] = other.Doc.Version
+		if other != b && other.LanguageKey == b.LanguageKey && other.File.Path != "" && other.Doc.Text.Len() <= a.Config.ServiceMaxBytes {
+			pending = append(pending, syncItem{lsp.URI(other.File.Path), other.LanguageID, other.Doc.Text.String(), other.Doc.Version})
+		}
+	}
 	snapshot := b.Doc.Text
 	version := b.Doc.Version
 	caret := b.Doc.Selections[0].Head
@@ -241,6 +257,12 @@ func (a *App) languageRequest(kind string) {
 		source := snapshot.String()
 		err := syncWithTimeout(a.ctx, client, uri, language, source, version)
 		var result json.RawMessage
+		for _, item := range pending {
+			if err != nil {
+				break
+			}
+			err = syncWithTimeout(a.ctx, client, item.uri, item.language, item.source, item.version)
+		}
 		if err == nil {
 			params := map[string]any{"textDocument": map[string]string{"uri": uri}}
 			if kind == "formatting" {
@@ -249,7 +271,15 @@ func (a *App) languageRequest(kind string) {
 				params["position"] = lsp.PositionAt(source, caret)
 			}
 			ctx, cancel := context.WithTimeout(a.ctx, 5*time.Second)
-			result, err = client.Request(ctx, "textDocument/"+kind, params)
+			for k, v := range extra {
+				params[k] = v
+			}
+			method := "textDocument/" + kind
+			if kind == "workspaceSymbol" {
+				method = "workspace/symbol"
+				params = extra
+			}
+			result, err = client.Request(ctx, method, params)
 			cancel()
 		}
 		a.post(func() {
@@ -265,7 +295,7 @@ func (a *App) languageRequest(kind string) {
 			switch kind {
 			case "completion":
 				a.completions(b, version, caret, source, result)
-			case "definition":
+			case "definition", "references", "implementation", "typeDefinition":
 				a.definitions(result)
 			case "formatting":
 				var serverEdits []lsp.TextEdit
@@ -279,6 +309,14 @@ func (a *App) languageRequest(kind string) {
 					return
 				}
 				a.showPreview("Format document", b, version, edits)
+			default:
+				for other, v := range versions {
+					if other.Doc.Version != v {
+						a.Status = "Workspace changed during the language request; try again"
+						return
+					}
+				}
+				a.intelligenceResult(kind, client, result)
 			}
 		})
 	}()
@@ -377,6 +415,7 @@ func (a *App) definitions(result json.RawMessage) {
 			continue
 		}
 		items = append(items, choice{fmt.Sprintf("%s:%d", path, loc.Range.Start.Line+1), func() {
+			a.rememberJump()
 			if err := a.Open(path); err != nil {
 				a.Status = err.Error()
 				return
@@ -387,17 +426,15 @@ func (a *App) definitions(result json.RawMessage) {
 				a.Status = err.Error()
 				return
 			}
-			b.Doc.Selections = []text.Selection{{Anchor: p, Head: p}}
-			a.reveal()
-			a.schedule()
+			a.jumpTo(b, p)
 		}})
 	}
 	if len(items) == 1 {
 		items[0].Run()
 	} else if len(items) > 1 {
-		a.list("Definitions", items)
+		a.list("Locations", items)
 	} else {
-		a.Status = "No definition found"
+		a.Status = "No locations found"
 	}
 }
 
