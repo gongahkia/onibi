@@ -5,6 +5,7 @@ import (
 	"github.com/gdamore/tcell/v2"
 	"github.com/gongahkia/shack/internal/text"
 	"github.com/rivo/uniseg"
+	"strconv"
 	"time"
 	"unicode/utf8"
 )
@@ -389,6 +390,13 @@ func (a *App) mouse(ev *tcell.EventMouse) {
 		return
 	}
 	b := a.Current()
+	if pressed && !b.Transient && b.File.Path != "" && x == r.X+len(strconv.Itoa(b.Doc.Text.Lines()))+1 {
+		row := y - r.Y
+		if row >= 0 && row < len(a.panes[a.focus].Rows) {
+			a.toggleBreakpointAt(b, a.panes[a.focus].Rows[row].Line+1)
+		}
+		return
+	}
 	if right {
 		inside := false
 		for _, s := range b.Doc.Selections {

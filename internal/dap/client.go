@@ -78,7 +78,10 @@ func Start(parent context.Context, argv []string, root string) (*Client, error) 
 	}
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Dir = root
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	// Adapters may transfer their controlling terminal to the debuggee even
+	// when stdio uses pipes (debugpy does). A separate session prevents them
+	// from taking keyboard input away from Shack's terminal.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, err
@@ -101,7 +104,17 @@ func Start(parent context.Context, argv []string, root string) (*Client, error) 
 		return nil, err
 	}
 	exited := atomic.Bool{}
+	processDone := make(chan struct{})
 	c := connect(parent, stdout, stdin, func() {
+		// Closing stdin first lets the adapter process client disconnection and
+		// clean up targets that it placed in separate process groups. Killing
+		// the adapter immediately can strand those targets (notably debugpy).
+		timer := time.NewTimer(time.Second)
+		defer timer.Stop()
+		select {
+		case <-processDone:
+		case <-timer.C:
+		}
 		if !exited.Load() {
 			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 		}
@@ -122,6 +135,7 @@ func Start(parent context.Context, argv []string, root string) (*Client, error) 
 	go func() {
 		err := cmd.Wait()
 		exited.Store(true)
+		close(processDone)
 		if err == nil {
 			err = errors.New("debug adapter exited")
 		}
@@ -139,7 +153,7 @@ func Dial(parent context.Context, address string) (*Client, error) {
 func connect(parent context.Context, r io.ReadCloser, w io.WriteCloser, stop func()) *Client {
 	ctx, cancel := context.WithCancel(parent)
 	c := &Client{ctx: ctx, cancel: cancel, done: make(chan struct{}), pending: map[int]chan reply{}, writes: make(chan outgoing, 16), Events: make(chan Message, 64), OutputReady: make(chan struct{}, 1)}
-	go func() { <-ctx.Done(); r.Close(); w.Close(); stop(); c.fail(ctx.Err()) }()
+	go func() { <-ctx.Done(); c.fail(ctx.Err()); w.Close(); stop(); r.Close() }()
 	go c.read(r)
 	go func() {
 		for {

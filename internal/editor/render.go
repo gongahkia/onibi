@@ -146,6 +146,9 @@ func (a *App) draw() {
 			}
 		}
 	}
+	if d := a.debug; d != nil && !d.Ended {
+		state += " · Debug " + d.Phase
+	}
 	a.fill(0, h-2, w, p.bar)
 	a.put(0, h-2, w, state, p.bar)
 	a.put(0, h-1, w, a.Status, p.dim)
@@ -196,6 +199,7 @@ func (a *App) drawPane(index int, p palette) {
 		}
 		a.put(r.X, r.Y-1, r.W, fmt.Sprintf("%d · %s", index+1, bufferName(b)), style)
 	}
+	a.adoptDebugBreakpoints(b)
 	gutter := len(strconv.Itoa(d.Text.Lines())) + 2
 	width := max(1, r.W-gutter)
 	line, wrapRow := max(0, min(pane.Top, d.Text.Lines()-1)), max(0, pane.WrapTop)
@@ -218,6 +222,11 @@ func (a *App) drawPane(index int, p palette) {
 			a.put(r.X, r.Y+row, gutter-1, fmt.Sprintf("%*d", gutter-2, line+1), p.dim)
 		} else {
 			a.put(r.X, r.Y+row, gutter-1, "↪", p.dim)
+		}
+		if !a.wrap || wrapRow == 0 {
+			if marker, style := a.debugGutter(b, line+1, p); marker != "" {
+				a.put(r.X+gutter-1, r.Y+row, 1, marker, style)
+			}
 		}
 		from, end, col := seg.Start, seg.End, seg.Column
 		left := pane.Left

@@ -21,7 +21,7 @@ Git discovery follows [`git ls-files`](https://git-scm.com/docs/git-ls-files).
 | Bulk changes | Multi-file replacement/rename/action preview, selective edits, all-or-none buffer staging, guarded group undo/redo | Saving is sequential; edits remain unsaved until requested |
 | Language intelligence | Debounced inline completion, basic linked snippets, hover, signatures, references, definitions, implementations, types, symbols, diagnostics navigation, formatting, rename, edit-based actions | Requires a capable external server; complex snippets, resource operations and server-command actions remain unsupported |
 | Familiar editing | Word movement/deletion, line duplication/deletion/movement, line comments, configurable shortcuts | Line operations need a contiguous selection; comment prefixes are extension based |
-| Development loop | Cancellable build/test commands, bounded output, navigable output locations, Git status/diffs/stage/unstage | Tasks are noninteractive; embedded PTY buffers run interactive programs. Debugger/merge UI still pending |
+| Development loop | Cancellable build/test commands, bounded output, navigable output locations, Git status/diffs/stage/unstage | Tasks are noninteractive; embedded PTY buffers run interactive programs. DAP source debugging is available; merge UI still pending |
 | Sessions | Private project session storage and explicit restoration of files, panes and positions | Up to 64 files / 16 panes; 16 MiB restore budget; recovery handles dirty text separately |
 
 ## Validation
@@ -41,6 +41,10 @@ Git discovery follows [`git ls-files`](https://git-scm.com/docs/git-ls-files).
   resize and interruption inside tmux.
 - File tree/minimap/context menus and nested split/session behavior have regression
   tests. Full remaining scope is tracked in [NEXT_MILESTONE.md](NEXT_MILESTONE.md).
+- DAP: live debugpy 1.8.22 launch, attach/detach, breakpoint/variable/step
+  workflows, abrupt connection cleanup; tmux function-key, pause and target
+  termination workflow. Protocol tests cover timeouts, blocked writes, response
+  ordering and output bounds.
 - Distribution and measured resource observations are in [PERFORMANCE.md](PERFORMANCE.md).
 
 ## What should come next
@@ -54,8 +58,10 @@ Git discovery follows [`git ls-files`](https://git-scm.com/docs/git-ls-files).
    alternate screens, colors, resize, scrollback, input ownership and cleanup.
    Continue with SSH and terminal-family coverage; see the bounded emulator
    contract in [USAGE.md](USAGE.md).
-3. **Debugger integration.** A DAP client and UI for launch/attach, breakpoints,
-   stepping, stack frames and variables. Build/test commands are not debugging.
+3. **Debugger compatibility.** DAP launch/attach, breakpoints, stepping, frames,
+   scopes, variables, evaluation and output now have live debugpy and tmux checks.
+   Broaden adapter coverage and interactive-debuggee support; advanced DAP
+   features remain outside the current source-debugging workflow.
 4. **Deeper language and project editing.** Complete snippet grammar, server-command
    actions with reviewed `workspace/applyEdit`, LSP resource operations, richer
    diagnostics, gitignore behavior without Git and merge resolution.

@@ -202,3 +202,36 @@ func TestLiveDebugpyAttachDetachPreservesTarget(t *testing.T) {
 		t.Fatal("detach killed attached target", err)
 	}
 }
+
+func TestLiveDebugpyAbruptTransportClose(t *testing.T) {
+	python := debugPython(t)
+	root := t.TempDir()
+	path := filepath.Join(root, "close.py")
+	pidfile := filepath.Join(root, "pid")
+	os.WriteFile(path, []byte(fmt.Sprintf("import os, pathlib, time\npathlib.Path(%q).write_text(str(os.getpid()))\nvalue = 42\nwhile True:\n    time.sleep(.1)\n", pidfile)), 0600)
+	c, err := Start(context.Background(), []string{python, "-m", "debugpy.adapter"}, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	configure(t, c, "launch", map[string]any{"program": path, "python": []string{python}, "console": "internalConsole", "subProcess": false}, path, 4)
+	stoppedFrame(t, c)
+	raw, err := os.ReadFile(pidfile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid := 0
+	if _, err = fmt.Sscanf(string(raw), "%d", &pid); err != nil || pid <= 0 {
+		t.Fatal("missing child PID")
+	}
+	defer syscall.Kill(pid, syscall.SIGKILL)
+	c.Close()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if syscall.Kill(pid, 0) == syscall.ESRCH {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("launched target survived abrupt transport shutdown")
+}

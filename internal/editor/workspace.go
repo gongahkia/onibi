@@ -375,6 +375,7 @@ func (a *App) applyWorkspacePreview() {
 	a.Status = fmt.Sprintf("Changed %d buffers; Save all writes files · Undo last workspace edit reverts the group", len(batch.Buffers))
 }
 func (a *App) rebaseOtherPanes(b *Buffer) {
+	a.rebaseDebug(b)
 	for i := range a.panes {
 		p := &a.panes[i]
 		if p.Buffer != b || p.Version == b.Doc.Version {

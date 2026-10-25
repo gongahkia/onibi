@@ -314,6 +314,7 @@ func (a *App) saveAll(done func()) {
 	}
 	a.scheduleRecovery()
 	a.Status = "Saved all buffers"
+	a.syncAllBreakpoints()
 	if done != nil {
 		done()
 	}

@@ -16,6 +16,7 @@ Name: **Shack**. Description: **Atomweight Terminal Text Editor IDE with Sensibl
   formatting through detected language servers; documentation, symbols, references,
   rename and edit-based code actions. No silent dependency downloads.
 - Explicit cancellable build/test tasks and optional Git status/diff/staging.
+- Optional DAP launch/attach, source breakpoints, stepping, frames and variables.
 - Core editing works offline without configuration or a language server.
 - Portable executable distribution, with CGO disabled. Linux builds require no
   libc shared library; macOS uses the operating system libraries.
@@ -32,7 +33,7 @@ retain editing when language intelligence or highlighting is disabled.
 ## Scope boundaries
 
 Native Windows, a plugin marketplace, editing-model DSLs and legacy Zenbu API
-compatibility are deferred. Debugging, Markdown/Org rendering, folding and deeper
+compatibility are deferred. Markdown/Org rendering, folding and deeper
 language interoperability are active work tracked in [NEXT_MILESTONE.md](NEXT_MILESTONE.md). Current Git
 commands do not provide merge resolution. Workspace edits are atomic in memory;
 saving several files is sequential. Full snippet grammar and LSP resource/command

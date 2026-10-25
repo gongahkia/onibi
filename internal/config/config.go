@@ -13,32 +13,33 @@ type Server struct {
 	Language string   `json:"language"`
 }
 type Config struct {
-	TerminalShell      []string            `json:"terminal_shell"`
-	TerminalScrollback int                 `json:"terminal_scrollback"`
-	FileTree           string              `json:"file_tree"`
-	TreeWidth          int                 `json:"tree_width"`
-	Minimap            bool                `json:"minimap"`
-	Session            bool                `json:"session"`
-	AutoComplete       bool                `json:"auto_complete"`
-	Tasks              map[string][]string `json:"tasks"`
-	Recovery           bool                `json:"recovery"`
-	RecoveryMaxBytes   int                 `json:"recovery_max_bytes"`
-	SoftWrap           bool                `json:"soft_wrap"`
-	Keybindings        map[string]string   `json:"keybindings"`
-	TabSize            int                 `json:"tab_size"`
-	InsertSpaces       bool                `json:"insert_spaces"`
-	AutoIndent         bool                `json:"auto_indent"`
-	Mouse              bool                `json:"mouse"`
-	Syntax             bool                `json:"syntax"`
-	LSP                bool                `json:"lsp"`
-	Theme              string              `json:"theme"`
-	ServiceMaxBytes    int                 `json:"service_max_bytes"`
-	MaxFileMiB         int                 `json:"max_file_mib"`
-	Servers            map[string]Server   `json:"servers"`
+	Debuggers          map[string]DebugProfile `json:"debuggers"`
+	TerminalShell      []string                `json:"terminal_shell"`
+	TerminalScrollback int                     `json:"terminal_scrollback"`
+	FileTree           string                  `json:"file_tree"`
+	TreeWidth          int                     `json:"tree_width"`
+	Minimap            bool                    `json:"minimap"`
+	Session            bool                    `json:"session"`
+	AutoComplete       bool                    `json:"auto_complete"`
+	Tasks              map[string][]string     `json:"tasks"`
+	Recovery           bool                    `json:"recovery"`
+	RecoveryMaxBytes   int                     `json:"recovery_max_bytes"`
+	SoftWrap           bool                    `json:"soft_wrap"`
+	Keybindings        map[string]string       `json:"keybindings"`
+	TabSize            int                     `json:"tab_size"`
+	InsertSpaces       bool                    `json:"insert_spaces"`
+	AutoIndent         bool                    `json:"auto_indent"`
+	Mouse              bool                    `json:"mouse"`
+	Syntax             bool                    `json:"syntax"`
+	LSP                bool                    `json:"lsp"`
+	Theme              string                  `json:"theme"`
+	ServiceMaxBytes    int                     `json:"service_max_bytes"`
+	MaxFileMiB         int                     `json:"max_file_mib"`
+	Servers            map[string]Server       `json:"servers"`
 }
 
 func Default() Config {
-	return Config{TerminalScrollback: 500, FileTree: "auto", TreeWidth: 26, Session: true, AutoComplete: true, Tasks: map[string][]string{}, Recovery: true, RecoveryMaxBytes: 8 << 20, Keybindings: map[string]string{}, TabSize: 4, InsertSpaces: true, AutoIndent: true, Mouse: true, Syntax: true, LSP: true, Theme: "dark", ServiceMaxBytes: 1 << 20, MaxFileMiB: 256, Servers: map[string]Server{}}
+	return Config{Debuggers: map[string]DebugProfile{}, TerminalScrollback: 500, FileTree: "auto", TreeWidth: 26, Session: true, AutoComplete: true, Tasks: map[string][]string{}, Recovery: true, RecoveryMaxBytes: 8 << 20, Keybindings: map[string]string{}, TabSize: 4, InsertSpaces: true, AutoIndent: true, Mouse: true, Syntax: true, LSP: true, Theme: "dark", ServiceMaxBytes: 1 << 20, MaxFileMiB: 256, Servers: map[string]Server{}}
 }
 func Path() string {
 	base := os.Getenv("XDG_CONFIG_HOME")
@@ -76,6 +77,14 @@ func Load(path string, explicit bool) (Config, error) {
 	for name, args := range c.Tasks {
 		if name == "" || len(args) == 0 || len(args) > 64 || args[0] == "" {
 			return c, fmt.Errorf("task %q needs 1–64 command arguments", name)
+		}
+	}
+	for name, profile := range c.Debuggers {
+		if name == "" {
+			return c, fmt.Errorf("debugger profile name cannot be empty")
+		}
+		if err := profile.Validate(); err != nil {
+			return c, fmt.Errorf("debugger %q: %w", name, err)
 		}
 	}
 	if c.FileTree != "auto" && c.FileTree != "on" && c.FileTree != "off" {

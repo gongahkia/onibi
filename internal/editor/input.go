@@ -191,9 +191,25 @@ func (a *App) key(ev *tcell.EventKey) {
 		if a.treeVisible && a.tree == nil {
 			a.rebuildTree()
 		}
+	case tcell.KeyF5:
+		if shift {
+			a.stopDebugger()
+		} else {
+			a.debugContinue()
+		}
+	case tcell.KeyF9:
+		a.toggleBreakpoint()
+	case tcell.KeyF11:
+		if shift {
+			a.debugControl("stepOut")
+		} else {
+			a.debugControl("stepIn")
+		}
 	case tcell.KeyF10:
 		if shift {
 			a.openContextAtCaret()
+		} else {
+			a.debugControl("next")
 		}
 	case tcell.KeyCtrlQ:
 		a.requestQuit()

@@ -68,6 +68,9 @@ No public release or download URL is assumed to exist yet.
 | Delete word / move lines | Ctrl+Backspace/Delete / Alt+Up/Down |
 | Collapse selections / cancel | Escape |
 | Redraw after terminal corruption | Ctrl+L |
+| Debug start/continue / breakpoint | F5 / F9 |
+| Debug step over / into / out | F10 / F11 / Shift+F11 |
+| Debug stop or detach | Shift+F5 |
 
 Some terminals intercept shortcuts, particularly Command keys on macOS and
 Ctrl+Space. Every editing command with a terminal-sensitive shortcut is also
@@ -284,6 +287,84 @@ its shell/foreground process groups. Closing just a pane keeps its buffer alive.
 Detached or deliberately daemonized processes are outside that cleanup contract.
 Terminal contents are ephemeral and excluded from recovery/session files.
 
+## Debugging
+
+Debugging uses the [Debug Adapter Protocol](https://microsoft.github.io/debug-adapter-protocol/).
+Adapters and language runtimes are optional external programs; Shack does not
+install or start them on project open. **Debug start or continue** (F5) offers
+configured profiles. Python files also offer a `python3 -m debugpy.adapter`
+preset, which requires debugpy in that interpreter. Missing adapters report an
+error; **Debug output** includes adapter stderr for troubleshooting.
+
+Add profiles under `debuggers` in your user configuration, for example:
+
+```json
+{
+  "debuggers": {
+    "Python current file": {
+      "command": ["python3", "-m", "debugpy.adapter"],
+      "request": "launch",
+      "arguments": {
+        "program": "${file}",
+        "cwd": "${workspaceFolder}",
+        "console": "internalConsole",
+        "redirectOutput": true,
+        "subProcess": false
+      }
+    },
+    "Attach to Python": {
+      "address": "127.0.0.1:5678",
+      "request": "attach",
+      "arguments": {"justMyCode": true, "subProcess": false}
+    }
+  }
+}
+```
+
+Choose either a stdio `command` array or an existing DAP TCP `address`. The attach
+example expects a target already started with debugpy's `--listen` and
+`--wait-for-client` options. Adapter-specific `arguments` pass through unchanged
+apart from `${workspaceFolder}`, `${file}`, `${fileDirname}` and `${fileBasename}`
+substitution in strings. These substitutions are also available in command
+arguments. Arbitrary VS Code launch-variable resolution is not implemented.
+No project-local debug configuration is executed automatically.
+
+Save dirty buffers before launch/attach; the picker offers Save All. F9 or a click
+in the marker column of the gutter toggles a line breakpoint. `○` means pending
+or unverified and `●` means the adapter verified it; `▶` marks the selected stopped
+frame. **Debug breakpoints** lists locations and adapter messages. **Debug edit
+breakpoint condition** adds a condition when the adapter supports it. Breakpoints
+follow edits/undo and synchronize after saving; editing does not reload running
+code. They are retained for the current Shack process, not in session files.
+
+At a stop, Shack opens the source line. F10 steps over, F11 steps into, Shift+F11
+steps out, and F5 continues. **Debug pause** interrupts a running target. Use
+**Debug threads**, **Debug stack frames**, and **Debug scopes and variables** to
+choose a thread/frame and expand values. Expensive scopes load only when selected;
+variables and frames are paged. **Debug current location** returns to the selected
+frame. **Debug evaluate expression** explicitly evaluates in that frame and may
+execute code. **Debug status** describes the current session and controls.
+
+**Debug output** opens a read-only, bounded transcript. Adapter stderr shares its
+1 MiB tail buffer; visible output refreshes at most ten times per second.
+There is no idle polling. **Debug stop or detach** (Shift+F5) requests termination
+for a launched target and detachment for an attached target. Leaving Shack uses
+the same distinction. Locally spawned adapters run in separate OS sessions so
+their targets cannot take Shack's controlling terminal. After disconnect, an
+unresponsive local adapter is killed after a bounded grace period. Cleanup of
+separately spawned debuggee processes ultimately depends on the adapter; local
+debugpy launch, detach and abrupt-connection cleanup are covered by live tests.
+
+This is source-level debugging, not the whole DAP feature set. One session runs
+at a time; data/instruction/function breakpoints, watch persistence, memory and
+disassembly views, and multi-process child-session orchestration are not exposed.
+Programs needing interactive stdin require a separately launched target and
+attach; `runInTerminal`/`startDebugging` reverse requests return explicit errors.
+Use an internal-console configuration for launch. Conditions are limited to
+4 KiB, breakpoints to 256 per file / 1,024 total, variable expansion to 32 levels,
+and protocol messages to 8 MiB. Other adapters can use the same transport, but
+live compatibility has been established with debugpy 1.8.22, not every adapter.
+
 ## SSH and tmux
 
 Run the binary on the remote host; the local terminal forwards its input/output.
@@ -369,7 +450,7 @@ Theme/mouse palette changes last for the session; configuration is read at start
   replace. Existing symlinks resolve at open; hard-linked files require Save as.
   Ownership and permission bits are retained; ACLs/xattrs are not copied.
   External-write detection is not an interprocess lock and has a final race window.
-- Debugging/DAP, full TextMate snippets, LSP file
+- Full TextMate snippets, LSP file
   operations and server commands, native Windows, general encodings, Git merge
   resolution, and automatic language-server installation remain unimplemented.
 - This remains a development editor, not a claim of mature IDE parity. See the
@@ -384,6 +465,9 @@ python3 scripts/pty_smoke.py        # real pseudo-terminal editing workflow
 python3 scripts/tmux_smoke.py       # isolated tmux server (requires tmux)
 python3 scripts/ide_smoke.py        # project edits, panes and tasks in tmux
 python3 scripts/terminal_smoke.py   # embedded shell, Vim, resize and cleanup
+# Optional live debugging checks (the chosen interpreter needs debugpy):
+SHACK_DEBUGPY_PYTHON=/path/to/python go test -race ./internal/dap ./internal/editor
+SHACK_DEBUGPY_PYTHON=/path/to/python python3 scripts/debug_smoke.py
 python3 scripts/recovery_smoke.py   # SIGKILL and recovery through a real PTY
 python3 scripts/redraw_bench.py     # local output timing and bytes per edit
 go test ./internal/editor -run '^$' -bench BenchmarkLongLineViewport -benchmem

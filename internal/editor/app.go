@@ -68,6 +68,8 @@ type preview struct {
 	Index                 int
 }
 type App struct {
+	debug                                                      *debugSession
+	breakpoints                                                map[string]map[int]*debugBreakpoint
 	terminalSequence                                           int
 	tree                                                       *fileTree
 	treeVisible, treeFocus, treeDrag, minimapVisible, miniDrag bool
@@ -189,6 +191,7 @@ func New(screen tcell.Screen, cfg config.Config, paths []string, readonly bool) 
 	a.editingCommands()
 	a.developmentCommands()
 	a.terminalCommands()
+	a.debugCommands()
 	a.Commands = append(a.Commands, command{"Recover unsaved buffers", "", a.recoveryPicker}, command{"Restore project session", "", a.restoreSession}, command{"Save project session", "", func() {
 		if err := a.saveSession(); err != nil {
 			a.Status = err.Error()
@@ -249,6 +252,7 @@ func (a *App) Run() error {
 	defer a.Screen.Fini()
 	defer a.closeTerminals()
 	defer a.cancel()
+	defer a.closeDebugger()
 	defer func() {
 		for _, state := range a.languages {
 			if state.Client != nil {
@@ -320,6 +324,7 @@ func (a *App) schedule() {
 	a.serviceC = a.serviceTimer.C
 }
 func (a *App) changed() {
+	a.rebaseDebug(a.Current())
 	a.rebaseSnippet()
 	a.rebasePanes()
 	a.scheduleRecovery()
@@ -421,6 +426,7 @@ func (a *App) Save() {
 	} else {
 		b.DiskConflict = false
 		a.Status = "Saved " + filepath.Base(b.File.Path)
+		a.syncBreakpoints(b.File.Path)
 		a.scheduleRecovery()
 	}
 }
@@ -460,6 +466,7 @@ func (a *App) saveAsThen(done func()) {
 		b.LanguageKey = ""
 		b.Diagnostics = nil
 		a.Status = "Saved " + abs
+		a.syncBreakpoints(abs)
 		a.scheduleRecovery()
 		a.schedule()
 		if done != nil {
@@ -486,6 +493,17 @@ func (a *App) closeBuffer() {
 }
 func (a *App) discardBuffer() {
 	closed := a.Current()
+	if d := a.debug; d != nil && d.OutputBuffer == closed {
+		d.OutputBuffer = nil
+		d.WantsOutput.Store(false)
+	}
+	for _, points := range a.breakpoints {
+		for _, point := range points {
+			if point.Buffer == closed {
+				point.Buffer = nil
+			}
+		}
+	}
 	if v := closed.Terminal; v != nil && v.Session != nil {
 		v.Session.Close()
 	}

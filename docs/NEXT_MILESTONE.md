@@ -12,7 +12,7 @@ not narrow the goal or justify declaring the entire milestone complete.
 | SSH and terminal compatibility | Actual SSH transport, tmux over SSH, several terminal profiles, resize/input/clipboard limitations documented | Pending |
 | Unicode and worst-case performance | Grapheme-correct editing/wrapping of Unicode-heavy long files; latency, allocations, redraw traffic and RSS measured against 0.2 | Pending |
 | Embedded terminal | Real PTY shell and interactive full-screen programs; emulation, resize, keyboard/mouse input, scrollback, clean shutdown; bounded memory | Implemented: race tests, PTY protocol/backpressure tests, tmux shell/Vim/resize/interrupt/cleanup smoke; SSH matrix remains below |
-| Debugging through DAP | Launch/attach, breakpoints, continue/pause/step, stack frames, scopes/variables, exit/error cleanup; fake and live adapter coverage | Pending |
+| Debugging through DAP | Launch/attach, breakpoints, continue/pause/step, stack frames, scopes/variables, exit/error cleanup; fake and live adapter coverage | Implemented: protocol/race tests, live debugpy launch + attach/detach + abrupt cleanup, editor regression and real tmux control workflow. Other adapters remain compatibility work |
 | Complete snippet language | Nested placeholders, linked stops, choices, variables/defaults and transformations against documented grammar, with editing/rebasing tests | Pending |
 | LSP file operations | Reviewed create/rename/delete with text edits, file conflicts/options, validation and failure handling; protocol tests | Pending |
 | LSP server commands | User-selected commands, resolve, reviewed applyEdit callbacks, cancellation/lifecycle tests | Pending |

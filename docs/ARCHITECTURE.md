@@ -49,6 +49,17 @@ replace a newly reopened document. UI results check source versions and position
 Workspace refactoring enters the same preview path as project replacement.
 Unsupported resource operations/server commands fail without partial application.
 
+`internal/dap` implements bounded framed requests, cancellation, output retention
+and lifecycle for explicitly chosen stdio/TCP adapters. A dedicated writer keeps
+adapter I/O off the event loop. Spawned adapters get their own OS session, so a
+debuggee cannot seize the editor's controlling terminal. Closing the transport
+allows a bounded cleanup interval before process-group termination. The editor
+tracks stopped-state epochs and rejects stale frame/variable results. Breakpoint
+synchronization is serialized per file and limited to four concurrent files;
+line anchors rebase through normal and workspace edits. Output uses a byte ring
+and is copied into a report only when that report was requested. Attach cleanup
+requests detachment; launch cleanup requests target termination.
+
 `internal/recovery` stores bounded, private, atomically replaced snapshots with
 live-session locks and monotonically sequenced writes. Recovery retains original
 fingerprints, protecting later saves against outside changes. Project session
