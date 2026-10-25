@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Expanded the Ghostty cockpit with native window creation, four-direction splits, named pane/tab/window closure, pane/tab titles, and allowlisted layout, scrollback, font, and fullscreen controls.
+- Redesigned the phone interface with a searchable window/tab/pane navigator, amber/mint surfaces, control and key drawers, Ctrl/Alt letters and function keys, per-pane memory-only drafts, output freshness, and opt-in bounded Follow.
+- Made native request queuing cancellable and prevented canceled output reads from replacing another pane's view. Added native-script fixtures, Chromium/WebKit browser regressions, and automated accessibility checks.
+
 - Added a Mac-served, phone-friendly Ghostty interface with private Tailscale HTTPS, browser pairing, exact native targets, bounded focused-pane text, input/keys, and tab creation and confirmed closure.
 - Added durable web action receipts, interrupted-delivery recovery, session revocation, and explicit output capability states.
 - Retained optional Telegram control of named tmux, Zellij and Screen sessions, rendered screenshots, Codex App Server decisions, and Pi/Claude hooks.

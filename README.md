@@ -2,17 +2,17 @@
 
 **Control Ghostty wherever text renders.**
 
-Onibi's first web preview is designed to control your Mac's existing Ghostty windows, tabs, and panes from an iPhone-friendly interface. The server runs on your Mac; private HTTPS through Tailscale connects your devices. Select a specific pane, inspect its visible text, send literal input or keys, and create or close tabs. Native end-to-end and physical iPhone validation remain outstanding; see the [verification limits](docs/web.md#verification-boundaries).
+Onibi's first web preview is designed to control your Mac's existing Ghostty windows, tabs, and panes from an iPhone-friendly interface. The server runs on your Mac; private HTTPS through Tailscale connects your devices. Select a specific pane, inspect its visible text, send literal input or keys, and manage windows, tabs, split panes, titles, and layout. Native end-to-end and physical iPhone validation remain outstanding; see the [verification limits](docs/web.md#verification-boundaries).
 
 The optional Telegram interface manages named terminal sessions through `tmux`, Zellij, or GNU Screen, with screenshots and agent approval cards. Codex uses the local App Server for structured progress, approvals, and questions; Pi and Claude Code use local hooks. These managed sessions are separate from the web interface's existing Ghostty panes.
 
 ## Scope
 
-Included: explicit Ghostty targeting, browser pairing, mobile controls, bounded visible text, tab creation and confirmed closure; plus Telegram owner pairing, named durable sessions, generic multiplexer control, screenshots, audit/recovery, Codex semantic decisions, Pi approval extension, and Claude Code approval/completion hooks.
+Included: explicit Ghostty targeting, browser pairing, searchable mobile controls, bounded visible text with opt-in Follow, per-pane drafts, window/tab/pane creation and confirmed closure, layout/title controls; plus Telegram owner pairing, named durable sessions, generic multiplexer control, screenshots, audit/recovery, Codex semantic decisions, Pi approval extension, and Claude Code approval/completion hooks.
 
 Not included: a hosted relay, team collaboration, full terminal emulation in the browser, arbitrary terminal-prompt inference, or agent hooks retrofitted into already running Ghostty processes. The web interface is macOS-only; the Telegram backend also supports Linux.
 
-See the [product and engineering audit](docs/product-audit.md) for the principles, implementation map, fixes, and remaining limits.
+See the [product and engineering audit](docs/product-audit.md) and [cockpit capability and design review](docs/cockpit-review.md) for the principles, implementation map, research, fixes, and remaining limits.
 
 ## Ghostty from your iPhone
 
@@ -27,7 +27,7 @@ Use Ghostty 1.3 or later on macOS. Source builds need a patched Go toolchain (th
    ```
 
 3. Open the printed pairing link on your iPhone within ten minutes. It can pair one browser once. Allow macOS Automation and Accessibility access for the process launching Onibi when needed.
-4. Select a Ghostty pane. Use **Focus & read** to bring it forward on the Mac and read its visible text. Send text with Enter, paste without Enter, or use the key controls. Closing a tab requires confirmation and affects every pane in that tab.
+4. Select a Ghostty pane. Use **Focus & read** to bring it forward on the Mac and read its visible text. Send text with Enter, paste without Enter, or use the key controls. Use **Controls** for windows, tabs, splits, titles, layout, scrollback, and Mac display settings. Closing a pane, tab, or window requires a named confirmation. **More keys** exposes Ctrl/Alt letters, navigation, and function keys.
 
 No Telegram token is needed for `onibi web`. For a local preview on the Mac, run `./bin/onibi web` and open its printed link. The listener remains on loopback; Tailscale Serve provides the private HTTPS route. Stop with `Ctrl-C`; restarting revokes browser sessions and prints a fresh pairing link. See [web operation](docs/web.md) for setup, recovery, and capture limitations.
 
