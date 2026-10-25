@@ -242,7 +242,7 @@ func (t *Tool) Install(ctx context.Context, update bool, opts LifecycleOptions) 
 		t.UI.Note("Add this directory to your shell PATH:")
 		t.UI.Line("  export PATH=%s:\"$PATH\"", shellQuote(t.Prefix))
 	}
-	t.UI.Note("Start the cockpit: " + filepath.Join(t.Prefix, "onibi") + " web")
+	t.UI.Note("Start the cockpit: " + shellQuote(filepath.Join(t.Prefix, "onibi")) + " web")
 	if opts.RestartWeb {
 		if err := t.UI.Step("Restart web login service (requested)", func(func(string)) error {
 			out, err := t.Runner.Run(ctx, t.Root, nil, filepath.Join(t.Prefix, "onibi"), []string{"web", "service", "restart"}, nil)
@@ -424,6 +424,7 @@ func (t *Tool) Uninstall(ctx context.Context, opts LifecycleOptions) error {
 		t.UI.Field("Remove", filepath.Join(t.Prefix, name))
 	}
 	t.UI.Field("Preserve", "State, grants, credentials, logs, checkout and Ghostty terminals")
+	t.UI.Note("Foreground servers are not stopped. Stop them with Ctrl-C before uninstalling.")
 	t.UI.Note("Remembered browser access is retained in the state database. Revoke grants before uninstalling if you want to retire that access.")
 	if opts.DryRun {
 		t.UI.Note("Preview only. Nothing was stopped or removed.")

@@ -140,14 +140,23 @@ func (u *UI) Step(label string, task func(update func(string)) error) error {
 	} else {
 		u.Line("[start] %s", label)
 	}
+	var once sync.Once
+	finish := func() {
+		once.Do(func() {
+			close(done)
+			wg.Wait()
+			if u.Interactive {
+				u.mu.Lock()
+				fmt.Fprint(u.Out, "\r\x1b[2K")
+				u.mu.Unlock()
+			}
+		})
+	}
+	defer finish()
 	err := task(update)
-	close(done)
-	wg.Wait()
+	finish()
 	u.mu.Lock()
 	defer u.mu.Unlock()
-	if u.Interactive {
-		fmt.Fprint(u.Out, "\r\x1b[2K")
-	}
 	status := "ok"
 	if err != nil {
 		status = "failed"

@@ -30,11 +30,15 @@ func (m *Manager) uninstallSystemd(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	_, _ = m.Runner.Run(ctx, "systemctl", "--user", "disable", "--now", UnitName)
+	if out, err := m.Runner.Run(ctx, "systemctl", "--user", "disable", "--now", UnitName); err != nil {
+		return fmt.Errorf("systemctl disable --now failed; service file retained: %w: %s", err, strings.TrimSpace(string(out)))
+	}
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	_, _ = m.Runner.Run(ctx, "systemctl", "--user", "daemon-reload")
+	if out, err := m.Runner.Run(ctx, "systemctl", "--user", "daemon-reload"); err != nil {
+		return fmt.Errorf("service removed but systemctl daemon-reload failed: %w: %s", err, strings.TrimSpace(string(out)))
+	}
 	return nil
 }
 

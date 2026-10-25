@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -189,6 +190,30 @@ func TestLaunchdStatusDistinguishesLoadedAndRunning(t *testing.T) {
 			m := &Manager{Paths: testPaths(t), Executable: "/usr/local/bin/onibi", Runner: &fakeRunner{out: []byte(tt.output)}, GOOS: "darwin", Home: t.TempDir(), UID: 501}
 			if got := m.Status(t.Context()); got.Running != tt.running {
 				t.Fatalf("running=%t want=%t detail=%q", got.Running, tt.running, got.Detail)
+			}
+		})
+	}
+}
+
+func TestUninstallStopFailurePreservesServiceConfiguration(t *testing.T) {
+	for _, platform := range []string{"darwin", "linux"} {
+		t.Run(platform, func(t *testing.T) {
+			m := &Manager{Paths: testPaths(t), Executable: "/usr/local/bin/onibi", Runner: &fakeRunner{out: []byte("permission denied"), err: errors.New("stop failed")}, GOOS: platform, Home: t.TempDir(), UID: 501}
+			path, err := m.ServicePath()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte("keep"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := m.Uninstall(t.Context()); err == nil {
+				t.Fatal("ignored stop failure")
+			}
+			if raw, err := os.ReadFile(path); err != nil || string(raw) != "keep" {
+				t.Fatal("service file lost")
 			}
 		})
 	}

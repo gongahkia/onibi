@@ -33,7 +33,10 @@ func (m *Manager) uninstallLaunchd(ctx context.Context) error {
 		return err
 	}
 	domain := fmt.Sprintf("gui/%d", m.UID)
-	_, _ = m.Runner.Run(ctx, "launchctl", "bootout", domain, path)
+	out, stopErr := m.Runner.Run(ctx, "launchctl", "bootout", domain, path)
+	if stopErr != nil && !strings.Contains(string(out), "No such process") && !strings.Contains(string(out), "Could not find service") {
+		return fmt.Errorf("launchctl bootout failed; service file retained: %w: %s", stopErr, strings.TrimSpace(string(out)))
+	}
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return err
 	}
