@@ -131,3 +131,22 @@ screens and optional history are per-session costs. Frames are capped at 30 Hz;
 there is no idle frame timer. PTY queues, history cells, session count and screen
 size are bounded, as described in USAGE.md. This is not a constant-RSS promise
 for arbitrary terminal text. Minimap refreshes are debounced and coalesced.
+
+## DAP source-debugging increment
+
+Same host/build settings, 2026-10-25. The stripped macOS amd64 executable is now
+**9,630,352 bytes (9.18 MiB)**; Linux amd64 is **9,482,400 bytes (9.04 MiB)**.
+All five targets build. With no debug session or language server, the native PTY
+check observed **11.5 MiB** first-frame RSS and **22.7 ms** startup (one warm run,
+not directly comparable to a cold launch). Core editing again passes the **64 MiB /
+0.5 CPU** scratch-container test. Debug adapters and debuggee processes have
+additional, language-dependent memory costs and were not included in idle RSS.
+
+No adapter, output ring, debug worker or polling timer starts before a debugging
+request. Active output uses a 1 MiB byte ring; copying/rendering its transcript is
+throttled and begins only when the user opens Debug output. Protocol payloads,
+pending requests, event queues, breakpoint counts and variable pages are bounded.
+Live debugpy and real tmux tests cover launch/attach, input ownership, breakpoint
+hits, scopes/variables, evaluation, stepping, pause, normal stop and abrupt
+transport cleanup. These demonstrate working behavior, not universal adapter
+compatibility or a debugger memory budget.
