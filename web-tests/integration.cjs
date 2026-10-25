@@ -14,6 +14,8 @@ const { randomUUID } = require("node:crypto");
 const root = path.resolve(__dirname, "..");
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "onibi-integration-"));
 const binary = path.join(temp, "fixture");
+const screenshotDir = process.env.ONIBI_SCREENSHOT_DIR || temp;
+fs.mkdirSync(screenshotDir, { recursive: true });
 let fixture,
   browser,
   sequence = 0;
@@ -174,7 +176,7 @@ async function selectWork(page) {
     .analyze();
   assert.deepEqual(capabilityAudit.violations, [], "capability accessibility");
   await page.screenshot({
-    path: path.join(temp, "capabilities.png"),
+    path: path.join(screenshotDir, "capabilities.png"),
     fullPage: true,
   });
   await page.click("#close-capabilities");
@@ -459,6 +461,10 @@ async function selectWork(page) {
       deviceCookie.secure &&
       deviceCookie.sameSite === "Strict",
   );
+  await page.screenshot({
+    path: path.join(screenshotDir, "remembered-browser.png"),
+    fullPage: true,
+  });
   const rememberedID = (await api(page, "/api/session")).body.device.id;
   const spareContext = await browser.newContext({
     ignoreHTTPSErrors: true,
@@ -474,6 +480,10 @@ async function selectWork(page) {
     .locator("#devices-list")
     .filter({ hasText: "Spare browser" })
     .waitFor();
+  await page.screenshot({
+    path: path.join(screenshotDir, "devices.png"),
+    fullPage: true,
+  });
   assert.deepEqual(
     (
       await new AxeBuilder({ page })
