@@ -122,7 +122,7 @@ func TestWebServiceLifecycleIsSeparateAndPreservesFailedStops(t *testing.T) {
 }
 func TestWebServiceRejectsUnsafeConfiguration(t *testing.T) {
 	m := WebManager{&Manager{Paths: testPaths(t), Executable: "/bin/onibi", Home: t.TempDir(), UID: 501, GOOS: "darwin", Runner: &webRunner{}}}
-	for _, address := range []string{"0.0.0.0:8787", "127.0.0.1:0", ":8787"} {
+	for _, address := range []string{"0.0.0.0:8787", "127.0.0.1:0", "127.0.0.1:bad", "127.0.0.1:65536", ":8787"} {
 		if err := m.Install(context.Background(), address, ""); err == nil {
 			t.Fatalf("accepted %s", address)
 		}

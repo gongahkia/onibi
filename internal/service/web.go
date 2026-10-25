@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/gongahkia/onibi/internal/web"
@@ -36,7 +37,8 @@ func (m WebManager) Install(ctx context.Context, listen, origin string) error {
 		return err
 	}
 	host, port, err := net.SplitHostPort(listen)
-	if err != nil || port == "0" || (host != "localhost" && !net.ParseIP(host).IsLoopback()) {
+	number, portErr := strconv.Atoi(port)
+	if err != nil || portErr != nil || number < 1 || number > 65535 || (host != "localhost" && !net.ParseIP(host).IsLoopback()) {
 		return errors.New("web service requires a fixed loopback listen address")
 	}
 	if origin == "" {
