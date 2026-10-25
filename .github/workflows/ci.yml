@@ -31,6 +31,12 @@ jobs:
       - run: go build ./cmd/onibi ./clients/onibi-notify
 
   browser:
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [chromium, webkit]
+    env:
+      ONIBI_BROWSER: ${{ matrix.engine }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -43,7 +49,7 @@ jobs:
           cache: npm
           cache-dependency-path: web-tests/package-lock.json
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
+      - run: npx playwright install --with-deps ${{ matrix.engine }}
       - run: npm test
 
   release-snapshot:

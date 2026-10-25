@@ -56,11 +56,23 @@ const actions = [],
   requests = [],
   receipts = new Map();
 const controls = [
-  { id: "zoom", label: "Zoom / restore pane", group: "Layout" },
-  { id: "equalize", label: "Balance splits", group: "Layout" },
-  { id: "scroll_up", label: "Page up", group: "Scrollback" },
-  { id: "font_reset", label: "Reset Mac font", group: "Mac display" },
-];
+  ["zoom", "Zoom / restore pane", "Layout"],
+  ["equalize", "Balance splits", "Layout"],
+  ["resize_left", "Resize left", "Layout"],
+  ["resize_right", "Resize right", "Layout"],
+  ["resize_up", "Resize up", "Layout"],
+  ["resize_down", "Resize down", "Layout"],
+  ["scroll_top", "Oldest output", "Scrollback"],
+  ["scroll_up", "Page up", "Scrollback"],
+  ["scroll_down", "Page down", "Scrollback"],
+  ["scroll_bottom", "Latest output", "Scrollback"],
+  ["prompt_previous", "Previous prompt", "Scrollback"],
+  ["prompt_next", "Next prompt", "Scrollback"],
+  ["font_increase", "Larger on Mac", "Mac display"],
+  ["font_decrease", "Smaller on Mac", "Mac display"],
+  ["font_reset", "Reset Mac font", "Mac display"],
+  ["fullscreen", "Toggle fullscreen", "Mac display"],
+].map(([id, label, group]) => ({ id, label, group }));
 const text =
   '$ go test ./...\nok  github.com/gongahkia/onibi/internal/ghostty\nok  github.com/gongahkia/onibi/internal/web\n\n$ git status --short\n M internal/web/assets/app.js\n\n<img src=x onerror="window.injected=true">\n\n$ _';
 const json = (res, status, body) => {
