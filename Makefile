@@ -1,4 +1,4 @@
-.PHONY: build install update upgrade uninstall install-status setup doctor dogfood test unit e2e-live vet tidy run clean
+.PHONY: help build install update upgrade uninstall install-status setup doctor dogfood test unit test-browser e2e-live vet tidy run clean telegram-setup telegram-doctor telegram-run telegram-dogfood
 
 BINARY := onibi
 NOTIFY_BINARY := onibi-notify
@@ -8,15 +8,9 @@ INSTALL_DIR ?= $(HOME)/.local/bin
 VERBOSE ?= 0
 ifeq ($(VERBOSE),1)
 Q :=
-RUN = $(2)
 else
 Q := @
-RUN = sh scripts/onibi-loader.sh "$(1)" $(2)
 endif
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
-COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
-DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
-LDFLAGS := -s -w -X github.com/gongahkia/onibi/internal/buildinfo.Version=$(VERSION) -X github.com/gongahkia/onibi/internal/buildinfo.Commit=$(COMMIT) -X github.com/gongahkia/onibi/internal/buildinfo.Date=$(DATE)
 
 build:
 	@sh scripts/onibi-dev.sh build $(if $(filter 1,$(VERBOSE)),--verbose,)
@@ -41,7 +35,7 @@ install-status:
 # First-time setup stores and validates a BotFather token. It prompts with
 # hidden input when ONIBI_TELEGRAM_TOKEN is not already set, so CI can still
 # provide the token non-interactively. Use a dedicated dogfooding bot.
-setup: build
+telegram-setup: build
 	$(Q)printf '%s\n' '==> 👻 Setting up your Telegram bot'
 	$(Q)onibi_setup_token="$$ONIBI_TELEGRAM_TOKEN"; \
 	if test -z "$$onibi_setup_token"; then \
@@ -58,10 +52,13 @@ setup: build
 	$(Q)$(BUILD_DIR)/$(BINARY) doctor
 
 doctor: build
+	$(Q)$(BUILD_DIR)/$(BINARY) web doctor
+
+telegram-doctor: build
 	$(Q)$(BUILD_DIR)/$(BINARY) doctor
 
 # Runs the readiness checks then starts a foreground daemon. Stop it with Ctrl-C.
-dogfood: build
+telegram-dogfood: build
 	$(Q)$(BUILD_DIR)/$(BINARY) doctor
 	$(Q)printf '%s\n' '==> 👻 Starting Onibi in the foreground (Ctrl-C to stop)'
 	$(Q)$(BUILD_DIR)/$(BINARY) start
@@ -70,25 +67,37 @@ dogfood: build
 uninstall:
 	@sh scripts/onibi-dev.sh uninstall $(LIFECYCLE_FLAGS)
 
-test:
-	$(Q)$(MAKE) unit
-	$(Q)$(MAKE) e2e-live
+test: unit
+
+test-browser:
+	$(Q)npm test --prefix web-tests
 
 unit:
-	$(Q)$(call RUN,Running unit tests,go test -race -count=1 ./...)
+	$(Q)go test -race -count=1 ./...
 
 e2e-live:
-	$(Q)$(call RUN,Running live Telegram E2E test,go run ./cmd/onibi-e2e-live)
+	$(Q)go run ./cmd/onibi-e2e-live
 
 vet:
-	$(Q)$(call RUN,Running go vet,go vet ./...)
+	$(Q)go vet ./...
 
 tidy:
-	$(Q)$(call RUN,Tidying Go modules,go mod tidy)
+	$(Q)go mod tidy
 
 run: build
-	$(Q)printf '%s\n' '==> 👻 Starting Onibi in the foreground (Ctrl-C to stop)'
+	$(Q)$(BUILD_DIR)/$(BINARY) web
+
+setup: doctor
+	@printf '%s\n' 'Start locally: ./bin/onibi web' 'Private phone access: see docs/web.md for Tailscale HTTPS and pairing.'
+
+dogfood: doctor
+	$(Q)$(BUILD_DIR)/$(BINARY) web
+
+telegram-run: build
 	$(Q)$(BUILD_DIR)/$(BINARY) start
 
 clean:
 	$(Q)rm -rf $(BUILD_DIR)
+
+help:
+	@printf '%s\n' 'Onibi / source workflow' '' '  make build          Native build with elapsed progress; bin/build.log' '  make run            Build and start the web cockpit' '  make doctor         Build and inspect passive Mac readiness' '  make install        Install managed binaries into ~/.local/bin' '  make install-status Verify installed revision and checksums' '  make update         Rebuild this checkout; preserve state' '  make uninstall      Remove managed binaries and their login services' '' '  DRY_RUN=1           Preview install/update/uninstall' '  UPDATE_PULL=1       Fetch and fast-forward clean main during update' '  RESTART_WEB=1       Explicitly restart the web service after update' '  INSTALL_DIR=...     Choose a user binary directory' '  VERBOSE=1           Show compiler output' '  ONIBI_PLAIN=1       Disable animated terminal presentation' '' '  make test           Hermetic Go tests with race detection' '  make test-browser   Browser and HTTP integration tests (npm ci first)' '  make e2e-live       Explicit opt-in: live Telegram environment required' '' 'Telegram workflows: telegram-setup, telegram-doctor, telegram-run, telegram-dogfood'

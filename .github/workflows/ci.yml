@@ -29,6 +29,10 @@ jobs:
       - run: go vet ./...
       - run: go test -race -count=1 ./...
       - run: go build ./cmd/onibi ./clients/onibi-notify
+      - name: Source installation lifecycle (isolated prefixes, no native services)
+        run: go test -count=1 -run TestSourceLifecycleIntegration -v ./internal/devtool
+        env:
+          ONIBI_SOURCE_SMOKE: "1"
 
   browser:
     timeout-minutes: 15

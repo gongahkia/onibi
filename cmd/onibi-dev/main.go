@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -30,10 +31,19 @@ func run() error {
 	restart := flags.Bool("restart-web", false, "restart the web login service after a successful update")
 	verbose := flags.Bool("verbose", false, "stream compiler output")
 	if err := flags.Parse(os.Args[2:]); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
 		return err
 	}
 	if flags.NArg() != 0 {
 		return fmt.Errorf("unexpected arguments: %v", flags.Args())
+	}
+	if os.Args[1] != "update" && (*pull || *restart) {
+		return errors.New("--pull and --restart-web require update")
+	}
+	if (os.Args[1] == "build" || os.Args[1] == "status") && *dryRun {
+		return errors.New("--dry-run applies to install, update, and uninstall")
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
