@@ -21,6 +21,7 @@ import (
 )
 
 type Buffer struct {
+	Merge                                   *mergeFile
 	Terminal                                *terminalView
 	DiskConflict                            bool
 	LanguageEpoch                           uint64
@@ -75,6 +76,10 @@ type preview struct {
 	Index                 int
 }
 type App struct {
+	mergeFile                                                  *mergeFile
+	mergeCancel                                                context.CancelFunc
+	mergeSequence                                              uint64
+	mergeWriting                                               bool
 	resourcePreparation                                        *resourcePreparation
 	resourceCommitCancel                                       context.CancelFunc
 	resourceResult                                             chan func()
@@ -204,6 +209,7 @@ func New(screen tcell.Screen, cfg config.Config, paths []string, readonly bool) 
 	a.workspaceCommands()
 	a.editingCommands()
 	a.developmentCommands()
+	a.mergeCommands()
 	a.terminalCommands()
 	a.debugCommands()
 	a.Commands = append(a.Commands, command{"Snippet choices", "", a.snippetChoices})

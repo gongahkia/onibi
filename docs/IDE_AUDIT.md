@@ -21,7 +21,7 @@ Git discovery follows [`git ls-files`](https://git-scm.com/docs/git-ls-files).
 | Bulk changes | Multi-file replacement/rename/action preview, selective edits, all-or-none buffer staging, guarded group undo/redo | Text edits remain unsaved until requested; accepted resource operations change disk with best-effort rollback |
 | Language intelligence | Debounced inline completion, nested/linked snippets, choices, variables/transforms, hover, signatures, references, definitions, implementations, types, symbols, diagnostics navigation, formatting, rename, resolved edit/command actions | Requires a capable external server; resource operations have bounded snapshots and best-effort rollback; snippet bounds and regex differences are documented |
 | Familiar editing | Word movement/deletion, line duplication/deletion/movement, line comments, configurable shortcuts | Line operations need a contiguous selection; comment prefixes are extension based |
-| Development loop | Cancellable build/test commands, bounded output, navigable output locations, Git status/diffs/stage/unstage | Tasks are noninteractive; embedded PTY buffers run interactive programs. DAP source debugging is available; merge UI still pending |
+| Development loop | Cancellable build/test commands, bounded output, navigable output locations, Git status/diffs/stage/unstage | Tasks are noninteractive; embedded PTY buffers run interactive programs. DAP source debugging and reviewed text-conflict resolution are available; binary/submodule/complex rename conflicts require external tools |
 | Sessions | Private project session storage and explicit restoration of files, panes and positions | Up to 64 files / 16 panes; 16 MiB restore budget; recovery handles dirty text separately |
 
 ## Validation
@@ -53,6 +53,9 @@ Git discovery follows [`git ls-files`](https://git-scm.com/docs/git-ls-files).
   shutdown, and real tmux create/rename/delete/save/undo/redo coverage.
 - Snippets: grammar/fuzz and stale-result/undo tests, plus a real tmux completion
   through a protocol fixture, nested linked edits, choices, variables and transforms.
+- Git merges: real conflicting repositories exercise stage inspection, hunk
+  preview, dirty/stale guards, undo/save/stage and modify/delete resolution; tmux
+  covers the Unicode zdiff3 workflow without creating a merge commit.
 - Distribution and measured resource observations are in [PERFORMANCE.md](PERFORMANCE.md).
 
 ## What should come next
@@ -70,8 +73,8 @@ Git discovery follows [`git ls-files`](https://git-scm.com/docs/git-ls-files).
    scopes, variables, evaluation and output now have live debugpy and tmux checks.
    Broaden adapter coverage and interactive-debuggee support; advanced DAP
    features remain outside the current source-debugging workflow.
-4. **Deeper language and project editing.** Git merge resolution, richer
-   diagnostics and gitignore behavior without Git. Broaden live-server coverage
+4. **Deeper language and project editing.** Richer diagnostics, broader merge
+   conflict types and gitignore behavior without Git. Broaden live-server coverage
    of reviewed resource operations and server-command callbacks.
 5. **Distribution maturity.** Signed/notarized macOS distribution, package-manager
    installation, release automation, broader CPU/OS tests, and native Windows later.

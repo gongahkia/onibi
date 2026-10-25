@@ -261,6 +261,38 @@ this is not a syntax-aware comment engine. **Reload from disk** preserves the ol
 text in undo. Focus events, when supported by the terminal, warn about external
 changes; saves always recheck the disk fingerprint.
 
+## Git conflict resolution
+
+**Git merge conflicts** lists unmerged paths within the open project. Choose a
+file, then **Resolve hunk** to preview ours, theirs, both (ours then theirs), or
+the base section when present. **Resolve conflict at cursor**, **Next merge
+conflict**, and **Previous merge conflict** also work on textual conflict markers.
+Selective hunk previews preserve clean surrounding text; accepting is undoable and
+remains unsaved until Save. **Merge file actions** includes whole-text replacement
+as a separate preview, manual editing and a deletion preview for an absent side.
+
+**Inspect merge base/ours/theirs** opens read-only snapshots of Git index stages
+1/2/3. These are Git's stage meanings; during a rebase they may differ from the
+branches you informally call “my changes” and “their changes”; see the
+[Git stage semantics](https://git-scm.com/docs/git-checkout#Documentation/git-checkout.txt---ours).
+Close the report or
+use **Merge file actions** to return to the working copy. Standard splits can keep
+a snapshot and working text visible together.
+
+After resolving and saving, **Stage saved merge resolution** checks for recognized
+remaining markers, changed disk files and stale index stages before staging that
+path. Review **Git staged diff**, then commit with Git when ready. Shack does not
+commit or finish the merge automatically. Buffer/workspace undo does not undo Git
+staging; use the ordinary Git stage/unstage commands for subsequent changes.
+
+Inspection runs on demand off the UI thread, with 8 MiB per text/stage, 2,000
+paths/hunks, and cancellable Git requests. Merge, diff3/zdiff3 and marker widths
+of seven or more are supported. Malformed/nested conflicts require manual repair
+or an explicit whole-text replacement. Binary/encoded files, symlink/submodule
+conflicts, executable-bit choices and complex rename pairing need external Git
+tools. Staging uses optimistic checks, not an interprocess lock covering the
+working tree. Git is optional for ordinary editing.
+
 ## Recovery and returning to a project
 
 Dirty text is snapshotted after up to two seconds, under
@@ -501,8 +533,8 @@ Theme/mouse palette changes last for the session; configuration is read at start
   replace. Existing symlinks resolve at open; hard-linked files require Save as.
   Ownership and permission bits are retained; ACLs/xattrs are not copied.
   External-write detection is not an interprocess lock and has a final race window.
-- Native Windows, general encodings, Git merge resolution, and automatic
-  language-server installation remain unimplemented.
+- Native Windows, general encodings, and automatic language-server installation
+  remain unimplemented.
 - This remains a development editor, not a claim of mature IDE parity. See the
   [capability audit](IDE_AUDIT.md) for the next substantive work.
 
@@ -514,6 +546,7 @@ make build
 python3 scripts/pty_smoke.py        # real pseudo-terminal editing workflow
 python3 scripts/tmux_smoke.py       # isolated tmux server (requires tmux)
 python3 scripts/lsp_resources_smoke.py # reviewed file operations, save, undo/redo
+python3 scripts/merge_smoke.py       # real Git conflict, review, save and stage
 python3 scripts/ide_smoke.py        # project edits, panes and tasks in tmux
 python3 scripts/terminal_smoke.py   # embedded shell, Vim, resize and cleanup
 # Optional live debugging checks (the chosen interpreter needs debugpy):

@@ -66,6 +66,14 @@ Save All changes and restores both. Completion is consumed before normal recover
 shutdown; there is no persistent filesystem transaction journal. Text-only ordered
 edits use a single validated document sequence and one undo entry.
 
+`internal/gitmerge` reads bounded, literal-pathspec Git index records and immutable
+stage blobs. Its linear conflict parser produces UTF-8 byte ranges for merge,
+diff3/zdiff3 and longer marker widths. Resolution uses ordinary editor previews;
+modify/delete choices reuse the resource transaction path. Stage reports are
+read-only. Explicit staging validates saved content and the captured unmerged
+index entries, while leaving commits and merge completion to Git. No merge work
+or subprocess runs until requested.
+
 `internal/snippet` parses bounded LSP snippets into an immutable program. The
 editor retains explicit linked ranges and applies precise edits to preserve pane
 and breakpoint positions. Nested replacements regenerate stop metadata; cached

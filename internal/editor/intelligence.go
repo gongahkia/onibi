@@ -57,6 +57,7 @@ func (a *App) report(title, body string) {
 		return
 	}
 	b.Doc = d
+	b.Merge = nil
 	b.Transient = true
 	b.Title = title
 	b.Top = 0

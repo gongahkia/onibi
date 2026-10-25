@@ -263,6 +263,7 @@ func (a *App) key(ev *tcell.EventKey) {
 	case tcell.KeyCtrlL:
 		a.Screen.Sync()
 	case tcell.KeyEscape:
+		a.cancelMerge()
 		a.cancelLanguageCommand()
 		a.cancelPreview("Cancelled by user")
 		if a.searchCancel != nil {
@@ -658,6 +659,11 @@ func (a *App) previewKey(ev *tcell.EventKey) {
 		}
 		if a.Readonly || p.Buffer.Transient {
 			a.Status = "Read-only mode"
+			return
+		}
+		if a.Current() != p.Buffer {
+			a.Status = "Active buffer changed; regenerate the preview"
+			a.cancelPreview(a.Status)
 			return
 		}
 		edits := []text.Edit{}
