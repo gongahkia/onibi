@@ -15,6 +15,7 @@ import (
 
 type fakeRunner struct {
 	failNotifier bool
+	contents     string
 	calls        [][]string
 }
 
@@ -32,7 +33,12 @@ func (f *fakeRunner) Run(_ context.Context, dir string, env []string, name strin
 		}
 		for i, a := range args {
 			if a == "-o" {
-				if err := os.WriteFile(args[i+1], []byte("new binary"), 0755); err != nil {
+				if err := os.WriteFile(args[i+1], []byte(func() string {
+					if f.contents != "" {
+						return f.contents
+					}
+					return "new binary"
+				}()), 0755); err != nil {
 					return "", err
 				}
 			}

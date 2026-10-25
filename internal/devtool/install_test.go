@@ -1,0 +1,170 @@
+package devtool
+
+import (
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strconv"
+	"strings"
+	"testing"
+)
+
+func TestInstallUpdatePreviewAndOwnedUninstall(t *testing.T) {
+	tool, r, _ := sourceTool(t)
+	tool.Prefix = filepath.Join(t.TempDir(), "bin with spaces")
+	opts := LifecycleOptions{Home: t.TempDir(), DryRun: true}
+	if err := tool.Install(t.Context(), false, opts); err != nil {
+		t.Fatal(err)
+	}
+	if len(r.calls) != 0 {
+		t.Fatal("preview ran external command")
+	}
+	if _, err := os.Stat(tool.Prefix); !os.IsNotExist(err) {
+		t.Fatal("preview created prefix")
+	}
+	opts.DryRun = false
+	if err := tool.Install(t.Context(), false, opts); err != nil {
+		t.Fatal(err)
+	}
+	manifest, ok, err := tool.manifest()
+	if err != nil || !ok {
+		t.Fatal("missing manifest", err)
+	}
+	if err := tool.checkManaged(manifest, true); err != nil {
+		t.Fatal(err)
+	}
+	r.contents = "next version"
+	r.failNotifier = true
+	if err := tool.Install(t.Context(), true, opts); err == nil {
+		t.Fatal("failed update succeeded")
+	}
+	if raw, _ := os.ReadFile(filepath.Join(tool.Prefix, "onibi")); string(raw) != "new binary" {
+		t.Fatal("failed update lost installed executable")
+	}
+	r.failNotifier = false
+	if err := tool.Install(t.Context(), true, opts); err != nil {
+		t.Fatal(err)
+	}
+	unrelated := filepath.Join(tool.Prefix, "keep-me")
+	os.WriteFile(unrelated, []byte("preserve"), 0600)
+	opts.DryRun = true
+	if err := tool.Uninstall(t.Context(), opts); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(tool.Prefix, "onibi")); err != nil {
+		t.Fatal("uninstall preview removed binary")
+	}
+	os.WriteFile(filepath.Join(tool.Prefix, "onibi"), []byte("modified by owner"), 0755)
+	opts.DryRun = false
+	if err := tool.Uninstall(t.Context(), opts); err == nil {
+		t.Fatal("removed modified binary")
+	}
+	os.WriteFile(filepath.Join(tool.Prefix, "onibi"), []byte("next version"), 0755)
+	if err := tool.Uninstall(t.Context(), opts); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range append(binaryNames, manifestName) {
+		if _, err := os.Stat(filepath.Join(tool.Prefix, name)); !os.IsNotExist(err) {
+			t.Fatalf("managed file remains: %s", name)
+		}
+	}
+	if raw, _ := os.ReadFile(unrelated); string(raw) != "preserve" {
+		t.Fatal("uninstall touched unrelated file")
+	}
+}
+func TestInstallRefusesUnmanagedFileAndBuildDirectory(t *testing.T) {
+	tool, _, _ := sourceTool(t)
+	tool.Prefix = t.TempDir()
+	os.WriteFile(filepath.Join(tool.Prefix, "onibi"), []byte("unmanaged"), 0755)
+	if err := tool.Install(t.Context(), false, LifecycleOptions{}); err == nil {
+		t.Fatal("overwrote unmanaged binary")
+	}
+	tool.Prefix = filepath.Join(tool.Root, "bin")
+	if err := tool.Install(t.Context(), false, LifecycleOptions{}); err == nil {
+		t.Fatal("accepted build output as install prefix")
+	}
+}
+
+type serviceFailRunner struct{ *fakeRunner }
+
+func (r serviceFailRunner) Run(ctx context.Context, dir string, env []string, name string, args []string, line func(string)) (string, error) {
+	if len(args) == 3 && args[1] == "service" && args[2] == "remove" {
+		return "permission denied", errors.New("stop failed")
+	}
+	return r.fakeRunner.Run(ctx, dir, env, name, args, line)
+}
+func TestUninstallServiceFailureRetainsBinaries(t *testing.T) {
+	tool, r, _ := sourceTool(t)
+	tool.Prefix = t.TempDir()
+	home := t.TempDir()
+	opts := LifecycleOptions{Home: home}
+	if err := tool.Install(t.Context(), false, opts); err != nil {
+		t.Fatal(err)
+	}
+	exe := filepath.Join(tool.Prefix, "onibi")
+	var path, body string
+	if runtime.GOOS == "darwin" {
+		path = filepath.Join(home, "Library", "LaunchAgents", "sh.onibi.web.plist")
+		body = `<plist><dict><key>ProgramArguments</key><array><string>` + exe + `</string><string>web</string></array></dict></plist>`
+	} else {
+		path = filepath.Join(home, ".config", "systemd", "user", "onibi.service")
+		body = "[Service]\nExecStart=" + strconv.Quote(exe) + " start\n"
+	}
+	os.MkdirAll(filepath.Dir(path), 0700)
+	os.WriteFile(path, []byte(body), 0600)
+	tool.Runner = serviceFailRunner{r}
+	if err := tool.Uninstall(t.Context(), opts); err == nil || !strings.Contains(err.Error(), "binaries retained") {
+		t.Fatalf("ignored failed service stop: %v", err)
+	}
+	if _, err := os.Stat(exe); err != nil {
+		t.Fatal("removed executable after failed stop")
+	}
+	os.WriteFile(path, []byte(strings.ReplaceAll(body, exe, "/another/install/onibi")), 0600)
+	if err := tool.Uninstall(t.Context(), opts); err == nil || !strings.Contains(err.Error(), "another installation") {
+		t.Fatal("removed unrelated service", err)
+	}
+}
+
+type pullRunner struct {
+	branch, status string
+	diverged       bool
+	calls          []string
+}
+
+func (r *pullRunner) Run(_ context.Context, _ string, _ []string, name string, args []string, _ func(string)) (string, error) {
+	r.calls = append(r.calls, name+" "+strings.Join(args, " "))
+	switch args[0] {
+	case "branch":
+		return r.branch, nil
+	case "status":
+		return r.status, nil
+	case "merge-base":
+		if r.diverged {
+			return "", errors.New("not ancestor")
+		}
+	}
+	return "", nil
+}
+func TestPullOnlyFastForwardsCleanMain(t *testing.T) {
+	for _, tt := range []struct {
+		branch, status    string
+		diverged, success bool
+	}{{"feature", "", false, false}, {"main", " M work.go", false, false}, {"main", "", true, false}, {"main", "", false, true}} {
+		tool, _, _ := sourceTool(t)
+		r := &pullRunner{branch: tt.branch, status: tt.status, diverged: tt.diverged}
+		tool.Runner = r
+		err := tool.pull(t.Context())
+		if (err == nil) != tt.success {
+			t.Fatalf("unexpected result: %v", err)
+		}
+		calls := strings.Join(r.calls, "\n")
+		if strings.Contains(calls, "reset") || strings.Contains(calls, "rebase") || strings.Contains(calls, "checkout") {
+			t.Fatal("destructive source update")
+		}
+		if strings.Contains(calls, "git merge --ff-only") != tt.success {
+			t.Fatal("incorrect merge", calls)
+		}
+	}
+}

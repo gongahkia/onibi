@@ -21,9 +21,13 @@ func main() {
 }
 func run() error {
 	if len(os.Args) < 2 {
-		return fmt.Errorf("usage: onibi-dev build")
+		return fmt.Errorf("usage: onibi-dev build|install|update|uninstall|status [options]")
 	}
 	flags := flag.NewFlagSet(os.Args[1], flag.ContinueOnError)
+	prefix := flags.String("prefix", "", "installation directory (default ~/.local/bin)")
+	dryRun := flags.Bool("dry-run", false, "preview lifecycle changes")
+	pull := flags.Bool("pull", false, "fetch and fast-forward a clean main checkout before updating")
+	restart := flags.Bool("restart-web", false, "restart the web login service after a successful update")
 	verbose := flags.Bool("verbose", false, "stream compiler output")
 	if err := flags.Parse(os.Args[2:]); err != nil {
 		return err
@@ -41,10 +45,19 @@ func run() error {
 	if *verbose {
 		ui.Interactive = false
 	}
-	tool := devtool.Tool{Root: cwd, UI: ui, Verbose: *verbose}
+	tool := devtool.Tool{Root: cwd, Prefix: *prefix, UI: ui, Verbose: *verbose}
+	opts := devtool.LifecycleOptions{DryRun: *dryRun, Pull: *pull, RestartWeb: *restart}
 	switch os.Args[1] {
 	case "build":
 		return tool.Build(ctx)
+	case "install":
+		return tool.Install(ctx, false, opts)
+	case "update":
+		return tool.Install(ctx, true, opts)
+	case "uninstall":
+		return tool.Uninstall(ctx, opts)
+	case "status":
+		return tool.Status(ctx)
 	default:
 		return fmt.Errorf("unknown operation %q", os.Args[1])
 	}

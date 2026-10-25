@@ -1,4 +1,4 @@
-.PHONY: build install uninstall setup doctor dogfood test unit e2e-live vet tidy run clean
+.PHONY: build install update upgrade uninstall install-status setup doctor dogfood test unit e2e-live vet tidy run clean
 
 BINARY := onibi
 NOTIFY_BINARY := onibi-notify
@@ -21,12 +21,22 @@ LDFLAGS := -s -w -X github.com/gongahkia/onibi/internal/buildinfo.Version=$(VERS
 build:
 	@sh scripts/onibi-dev.sh build $(if $(filter 1,$(VERBOSE)),--verbose,)
 
-install: build
-	$(Q)printf '%s\n' '==> 👻 Installing Onibi'
-	$(Q)install -d $(INSTALL_DIR)
-	$(Q)install -m 0755 $(BUILD_DIR)/$(BINARY) $(INSTALL_DIR)/$(BINARY)
-	$(Q)install -m 0755 $(BUILD_DIR)/$(NOTIFY_BINARY) $(INSTALL_DIR)/$(NOTIFY_BINARY)
-	$(Q)printf '%s\n' '    ✓ Installed to $(INSTALL_DIR)'
+# Source lifecycle controls; previews never fetch, build, stop, or remove files.
+DRY_RUN ?= 0
+UPDATE_PULL ?= 0
+RESTART_WEB ?= 0
+LIFECYCLE_FLAGS = --prefix "$(INSTALL_DIR)" $(if $(filter 1,$(DRY_RUN)),--dry-run,) $(if $(filter 1,$(VERBOSE)),--verbose,)
+
+install:
+	@sh scripts/onibi-dev.sh install $(LIFECYCLE_FLAGS)
+
+update:
+	@sh scripts/onibi-dev.sh update $(LIFECYCLE_FLAGS) $(if $(filter 1,$(UPDATE_PULL)),--pull,) $(if $(filter 1,$(RESTART_WEB)),--restart-web,)
+
+upgrade: update
+
+install-status:
+	@sh scripts/onibi-dev.sh status --prefix "$(INSTALL_DIR)"
 
 # First-time setup stores and validates a BotFather token. It prompts with
 # hidden input when ONIBI_TELEGRAM_TOKEN is not already set, so CI can still
@@ -56,14 +66,9 @@ dogfood: build
 	$(Q)printf '%s\n' '==> 👻 Starting Onibi in the foreground (Ctrl-C to stop)'
 	$(Q)$(BUILD_DIR)/$(BINARY) start
 
-# Stops the managed user service and removes installed binaries. It preserves
-# local state and credentials; run `onibi telegram disable` separately to revoke
-# the bot token and pairing.
+# Removes only manifest-owned binaries and their login services. State stays.
 uninstall:
-	$(Q)printf '%s\n' '==> 👻 Removing the Onibi service and binaries'
-	$(Q)if test -x "$(INSTALL_DIR)/$(BINARY)"; then $(INSTALL_DIR)/$(BINARY) system service remove; fi
-	$(Q)rm -f $(INSTALL_DIR)/$(BINARY) $(INSTALL_DIR)/$(NOTIFY_BINARY)
-	$(Q)printf '%s\n' '    ✓ Binaries removed; local state and credentials were preserved'
+	@sh scripts/onibi-dev.sh uninstall $(LIFECYCLE_FLAGS)
 
 test:
 	$(Q)$(MAKE) unit
