@@ -177,17 +177,16 @@ func (a *App) symbols(raw json.RawMessage) {
 }
 
 type wireWorkspaceEdit struct {
+	ChangeAnnotations map[string]struct {
+		Label, Description string
+		NeedsConfirmation  bool
+	} `json:"changeAnnotations"`
 	Changes         map[string][]lsp.TextEdit `json:"changes"`
 	DocumentChanges []json.RawMessage         `json:"documentChanges"`
 }
 
 func (a *App) workspaceEdit(title string, raw json.RawMessage) {
-	targets, err := a.decodeWorkspaceEdit(raw)
-	if err != nil {
-		a.Status = err.Error()
-		return
-	}
-	a.showWorkspacePreview(title, targets)
+	a.actionPreview(title, raw, func(bool, string) {}, nil)
 }
 func (a *App) decodeWorkspaceEdit(raw json.RawMessage) ([]*workspaceTarget, error) {
 	var wire wireWorkspaceEdit
@@ -195,6 +194,9 @@ func (a *App) decodeWorkspaceEdit(raw json.RawMessage) ([]*workspaceTarget, erro
 		return nil, err
 	}
 	versions := map[string]*uint64{}
+	if wire.DocumentChanges != nil {
+		wire.Changes = nil
+	}
 	if wire.Changes == nil {
 		wire.Changes = map[string][]lsp.TextEdit{}
 	}

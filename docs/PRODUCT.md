@@ -36,8 +36,9 @@ Native Windows, a plugin marketplace, editing-model DSLs and legacy Zenbu API
 compatibility are deferred. Markdown/Org rendering, folding and deeper
 language interoperability are active work tracked in [NEXT_MILESTONE.md](NEXT_MILESTONE.md). Current Git
 commands do not provide merge resolution. Workspace edits are atomic in memory;
-saving several files is sequential. LSP resource operations remain unsupported; server-command actions use reviewed
-applyEdit callbacks.
+saving several files is sequential. Reviewed LSP resource operations use bounded
+filesystem snapshots and best-effort rollback; they are not crash-safe multi-file
+transactions. Server-command actions use reviewed applyEdit callbacks.
 Snippets support nested placeholders, choices, variables and bounded transforms;
 regex compatibility limits are documented in USAGE.md. See [IDE_AUDIT.md](IDE_AUDIT.md) for the capability matrix.
 

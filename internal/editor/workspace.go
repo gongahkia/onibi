@@ -21,9 +21,10 @@ type workspaceTarget struct {
 	New      bool
 }
 type workspaceBatch struct {
-	Buffers  []*Buffer
-	Versions []uint64
-	Undone   bool
+	Resources *resourcePlan
+	Buffers   []*Buffer
+	Versions  []uint64
+	Undone    bool
 }
 type jump struct {
 	Buffer *Buffer
@@ -260,6 +261,9 @@ func (a *App) searchProject(query, replacement string, replace bool) {
 	}()
 }
 func (a *App) showWorkspacePreview(title string, targets []*workspaceTarget) {
+	if a.Preview != nil && a.Preview.CommitCancel != nil {
+		return
+	}
 	a.cancelPreview("Preview replaced by another edit")
 	p := &preview{Title: title, Targets: []*workspaceTarget{}}
 	for _, t := range targets {
@@ -291,6 +295,10 @@ func (f *File) Unchanged(limit int64) error {
 }
 func (a *App) applyWorkspacePreview() {
 	p := a.Preview
+	if p.Resources != nil {
+		a.applyResourcePreview()
+		return
+	}
 	if p.Valid != nil {
 		if err := p.Valid(); err != nil {
 			a.Status = err.Error()
@@ -419,6 +427,10 @@ func (a *App) rebaseOtherPanes(b *Buffer) {
 }
 func (a *App) undoWorkspace(redo bool) {
 	g := a.batch
+	if g != nil && g.Resources != nil {
+		a.undoResources(redo)
+		return
+	}
 	if a.Readonly || g == nil || len(g.Buffers) == 0 || g.Undone != redo {
 		a.Status = "No workspace edit available to undo/redo"
 		return

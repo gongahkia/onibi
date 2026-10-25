@@ -51,8 +51,20 @@ Server-command actions support lazy resolution and ordered edit-then-command
 execution. Reverse applyEdit requests run off the protocol reader and wait for an
 all-or-none preview result; cancellation/closed-session guards prevent stale
 application. Incoming review payloads are capped at 8 MiB / four requests; client
-requests at 32; small replies use one bounded writer queue. Unsupported resource
-operations still fail without partial application.
+requests at 32; small replies use one bounded writer queue.
+
+`internal/fileops` plans ordered file/directory changes in a bounded virtual
+snapshot, checking containment, file kinds, overwrite options and directory
+membership. The resource preview captures immutable buffer state; it validates
+again before committing on a worker. Staging preserves originals until all steps
+succeed, and rollback never overwrites a detected concurrent writer. Failure
+reports retain originals for manual recovery when rollback cannot finish. The
+protocol advertises best-effort undo rather than transactional filesystem support.
+Open buffers follow renames; deleted contents remain exportable reports. Resource
+undo/redo checks buffer identities/versions and disk snapshots, recognizes guarded
+Save All changes and restores both. Completion is consumed before normal recovery
+shutdown; there is no persistent filesystem transaction journal. Text-only ordered
+edits use a single validated document sequence and one undo entry.
 
 `internal/snippet` parses bounded LSP snippets into an immutable program. The
 editor retains explicit linked ranges and applies precise edits to preserve pane

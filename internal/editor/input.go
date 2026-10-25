@@ -264,6 +264,7 @@ func (a *App) key(ev *tcell.EventKey) {
 		a.Screen.Sync()
 	case tcell.KeyEscape:
 		a.cancelLanguageCommand()
+		a.cancelPreview("Cancelled by user")
 		if a.searchCancel != nil {
 			a.searchCancel()
 		}
@@ -577,6 +578,13 @@ func (a *App) dialogKey(ev *tcell.EventKey) {
 }
 func (a *App) previewKey(ev *tcell.EventKey) {
 	p := a.Preview
+	if p.CommitCancel != nil {
+		if ev.Key() == tcell.KeyEscape {
+			p.CommitCancel()
+			a.Status = "Cancelling file operations; waiting for rollback"
+		}
+		return
+	}
 	if ev.Key() == tcell.KeyTab {
 		p.Detail = !p.Detail
 		p.DetailTop = 0

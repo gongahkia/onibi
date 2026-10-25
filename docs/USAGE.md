@@ -167,7 +167,35 @@ previously accepted edits remain undoable. Cancellation cannot undo other effect
 performed by an external language server. Requests/reviews time out after two
 minutes; closing/restarting the server cancels outstanding reviews.
 
-File resource operations (creation, rename, deletion) still reject the whole edit.
+LSP workspace edits can create files (including missing parent directories),
+rename files/directories and delete files/directories. The preview includes
+ordered operations, affected directory members, text changes and change
+annotations. Overwrite, ignore-existing, ignore-missing and recursive options are
+validated before application. **Accepting a resource preview writes its file
+operations to disk immediately.** Text edits are separate unsaved buffer changes;
+for example create-then-insert creates an empty file until **Save all**.
+
+Dirty open buffers follow renames. Deleted or overwritten open text remains in a
+read-only report that **Save as** can export. **Undo last workspace edit** and
+**Redo last workspace edit** restore the guarded filesystem snapshots and buffers,
+including after Save All. Changing or closing a target, or conflicting disk edits,
+prevents group undo. Ctrl+Z alone only changes buffer text. File refactors during
+a debug session require rechecking breakpoints and restarting the debuggee.
+
+Resource planning and disk I/O run off the event loop. Previews are limited to
+2,000 changes / 8 MiB of displayed text; filesystem snapshots to 512 paths / 8 MiB
+of file data. Resource operations stay below the project root, reject symlinks,
+hard-linked files and special files, and need the staging directory and changed
+files on the same filesystem. Case-only renames on an insensitive filesystem need
+an intermediate distinct name. Existing permission bits and ownership are retained;
+ACLs/xattrs are preserved for rollback originals but not copied into staged results.
+
+Disk changes use conflict checks, staged content and rollback on failure. This is
+best-effort rollback (`failureHandling: undo`), not a globally atomic or crash-safe
+multi-file transaction. Another process can still race the checks. An incomplete
+rollback reports the private `.shack-edit-*` directory retaining original backups;
+do not delete it before recovering those files. Escape requests cancellation and
+waits for rollback. Normal shutdown gives this work up to ten seconds to finish.
 Language support varies with each server.
 
 Shack does not download servers or their runtimes. Some servers need Node.js,
@@ -473,8 +501,8 @@ Theme/mouse palette changes last for the session; configuration is read at start
   replace. Existing symlinks resolve at open; hard-linked files require Save as.
   Ownership and permission bits are retained; ACLs/xattrs are not copied.
   External-write detection is not an interprocess lock and has a final race window.
-- LSP file operations, native Windows, general encodings, Git merge
-  resolution, and automatic language-server installation remain unimplemented.
+- Native Windows, general encodings, Git merge resolution, and automatic
+  language-server installation remain unimplemented.
 - This remains a development editor, not a claim of mature IDE parity. See the
   [capability audit](IDE_AUDIT.md) for the next substantive work.
 
@@ -485,6 +513,7 @@ make check                         # formatting, vet, tests, race detector
 make build
 python3 scripts/pty_smoke.py        # real pseudo-terminal editing workflow
 python3 scripts/tmux_smoke.py       # isolated tmux server (requires tmux)
+python3 scripts/lsp_resources_smoke.py # reviewed file operations, save, undo/redo
 python3 scripts/ide_smoke.py        # project edits, panes and tasks in tmux
 python3 scripts/terminal_smoke.py   # embedded shell, Vim, resize and cleanup
 # Optional live debugging checks (the chosen interpreter needs debugpy):

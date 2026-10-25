@@ -18,8 +18,8 @@ Git discovery follows [`git ls-files`](https://git-scm.com/docs/git-ls-files).
 | Interaction | Incremental terminal updates; indexed ASCII positioning and visible-line slicing | Extremely long mixed-Unicode lines can still scan/allocate heavily |
 | Layout | Up to 16 nested panes, draggable ratios, independent same-buffer cursors, Unicode soft wrapping | Minimum pane sizes constrain further splitting |
 | Project navigation | Ignore-aware Git index, standalone fallback, project search, jump history | Fallback exclusions are not full `.gitignore`; explicit result/file bounds |
-| Bulk changes | Multi-file replacement/rename/action preview, selective edits, all-or-none buffer staging, guarded group undo/redo | Saving is sequential; edits remain unsaved until requested |
-| Language intelligence | Debounced inline completion, nested/linked snippets, choices, variables/transforms, hover, signatures, references, definitions, implementations, types, symbols, diagnostics navigation, formatting, rename, resolved edit/command actions | Requires a capable external server; resource operations remain unsupported; snippet bounds and regex differences are documented |
+| Bulk changes | Multi-file replacement/rename/action preview, selective edits, all-or-none buffer staging, guarded group undo/redo | Text edits remain unsaved until requested; accepted resource operations change disk with best-effort rollback |
+| Language intelligence | Debounced inline completion, nested/linked snippets, choices, variables/transforms, hover, signatures, references, definitions, implementations, types, symbols, diagnostics navigation, formatting, rename, resolved edit/command actions | Requires a capable external server; resource operations have bounded snapshots and best-effort rollback; snippet bounds and regex differences are documented |
 | Familiar editing | Word movement/deletion, line duplication/deletion/movement, line comments, configurable shortcuts | Line operations need a contiguous selection; comment prefixes are extension based |
 | Development loop | Cancellable build/test commands, bounded output, navigable output locations, Git status/diffs/stage/unstage | Tasks are noninteractive; embedded PTY buffers run interactive programs. DAP source debugging is available; merge UI still pending |
 | Sessions | Private project session storage and explicit restoration of files, panes and positions | Up to 64 files / 16 panes; 16 MiB restore budget; recovery handles dirty text separately |
@@ -48,6 +48,9 @@ Git discovery follows [`git ls-files`](https://git-scm.com/docs/git-ls-files).
 - LSP commands: subprocess protocol tests and tmux resolve/review/cancel/accept/
   save/undo workflow; reader concurrency, callback cancellation, stale sources and
   transport shutdown have race-enabled coverage.
+- LSP resources: filesystem failure injection, options/path/size bounds, conflicts,
+  annotated and sequential edits, dirty/deleted buffers, saved-new-child rename,
+  shutdown, and real tmux create/rename/delete/save/undo/redo coverage.
 - Snippets: grammar/fuzz and stale-result/undo tests, plus a real tmux completion
   through a protocol fixture, nested linked edits, choices, variables and transforms.
 - Distribution and measured resource observations are in [PERFORMANCE.md](PERFORMANCE.md).
@@ -67,8 +70,9 @@ Git discovery follows [`git ls-files`](https://git-scm.com/docs/git-ls-files).
    scopes, variables, evaluation and output now have live debugpy and tmux checks.
    Broaden adapter coverage and interactive-debuggee support; advanced DAP
    features remain outside the current source-debugging workflow.
-4. **Deeper language and project editing.** LSP resource operations, richer
-   diagnostics, gitignore behavior without Git and merge resolution.
+4. **Deeper language and project editing.** Git merge resolution, richer
+   diagnostics and gitignore behavior without Git. Broaden live-server coverage
+   of reviewed resource operations and server-command callbacks.
 5. **Distribution maturity.** Signed/notarized macOS distribution, package-manager
    installation, release automation, broader CPU/OS tests, and native Windows later.
 

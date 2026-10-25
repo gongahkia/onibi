@@ -56,6 +56,9 @@ type dialog struct {
 	Accept        func(string)
 }
 type preview struct {
+	Resources             *resourcePlan
+	Labels                []string
+	CommitCancel          context.CancelFunc
 	Strict                bool
 	Finish                func(bool, string)
 	Valid                 func() error
@@ -72,6 +75,10 @@ type preview struct {
 	Index                 int
 }
 type App struct {
+	resourcePreparation                                        *resourcePreparation
+	resourceCommitCancel                                       context.CancelFunc
+	resourceResult                                             chan func()
+	resourceClosing                                            bool
 	languageCommand                                            *languageCommand
 	snippetRequest                                             uint64
 	snippetCancel                                              context.CancelFunc
@@ -221,6 +228,9 @@ func (a *App) NewBuffer() {
 	a.Active = len(a.Buffers) - 1
 }
 func (a *App) Open(path string) error {
+	if a.resourceCommitCancel != nil {
+		return fmt.Errorf("file operations are still running")
+	}
 	if strings.HasPrefix(path, "~/") {
 		home, _ := os.UserHomeDir()
 		path = filepath.Join(home, path[2:])
@@ -288,6 +298,7 @@ func (a *App) Run() error {
 	a.draw()
 	a.startRecovery()
 	defer a.finishRecovery()
+	defer a.closeResourceWork()
 	a.draw()
 	for !a.quit {
 		select {
@@ -390,12 +401,18 @@ func (a *App) insert(s string) {
 }
 func (a *App) prompt(title, input string, accept func(string)) {
 	a.cancelPreview("Preview replaced by another command")
+	if a.Preview != nil {
+		return
+	}
 	a.Menu = nil
 	a.Dialog = &dialog{Title: title, Input: input, Cursor: len([]rune(input)), Accept: accept}
 	a.Preview = nil
 }
 func (a *App) list(title string, items []choice) {
 	a.cancelPreview("Preview replaced by another command")
+	if a.Preview != nil {
+		return
+	}
 	a.Menu = nil
 	a.Dialog = &dialog{Title: title, Items: items}
 	a.Preview = nil

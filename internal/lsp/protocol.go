@@ -21,8 +21,9 @@ type Range struct {
 	End   Position `json:"end"`
 }
 type TextEdit struct {
-	Range   Range  `json:"range"`
-	NewText string `json:"newText"`
+	Range        Range  `json:"range"`
+	NewText      string `json:"newText"`
+	AnnotationID string `json:"annotationId,omitempty"`
 }
 type Diagnostic struct {
 	Range    Range  `json:"range"`
@@ -73,7 +74,7 @@ func Path(uri string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if u.Scheme != "file" || (u.Host != "" && u.Host != "localhost") {
+	if u.Scheme != "file" || (u.Host != "" && u.Host != "localhost") || u.RawQuery != "" || u.Fragment != "" || !filepath.IsAbs(filepath.FromSlash(u.Path)) {
 		return "", errors.New("definition is not a local file")
 	}
 	return filepath.FromSlash(u.Path), nil

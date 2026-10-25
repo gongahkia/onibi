@@ -21,7 +21,17 @@ type serverCommand struct {
 }
 
 func (a *App) cancelPreview(reason string) {
+	if job := a.resourcePreparation; job != nil {
+		a.resourcePreparation = nil
+		job.Cancel()
+		job.Finish(false, reason)
+	}
 	p := a.Preview
+	if p != nil && p.CommitCancel != nil {
+		p.CommitCancel()
+		a.Status = "Cancelling file operations; waiting for rollback"
+		return
+	}
 	a.Preview = nil
 	if p != nil && p.Finish != nil {
 		p.Finish(false, reason)
@@ -30,6 +40,7 @@ func (a *App) cancelPreview(reason string) {
 
 func (a *App) reviewServerEdit(ctx context.Context, key string, state *languageState, params lsp.ApplyEditParams) lsp.ApplyEditResult {
 	done := make(chan lsp.ApplyEditResult, 1)
+	var job *resourcePreparation
 	var pending *preview // accessed only by closures on the event loop
 	a.post(func() {
 		finish := func(applied bool, reason string) {
@@ -50,7 +61,7 @@ func (a *App) reviewServerEdit(ctx context.Context, key string, state *languageS
 			finish(false, "Read-only mode")
 			return
 		}
-		if a.Preview != nil || (a.Dialog != nil && !a.Dialog.Inline) {
+		if a.resourcePreparation != nil || a.Preview != nil || (a.Dialog != nil && !a.Dialog.Inline) {
 			finish(false, "Another dialog is open; retry the action after closing it")
 			return
 		}
@@ -58,12 +69,14 @@ func (a *App) reviewServerEdit(ctx context.Context, key string, state *languageS
 		if params.Label != "" {
 			title += ": " + params.Label[:min(len(params.Label), 160)]
 		}
-		a.actionPreview(title, params.Edit, finish)
-		pending = a.Preview
-		if pending != nil {
-			pending.Server = state.Client
-			pending.Valid = ctx.Err
-		}
+		job = a.actionPreview(title, params.Edit, finish, func(p *preview) {
+			pending = p
+			p.Server = state.Client
+			p.Valid = ctx.Err
+			if ctx.Err() != nil {
+				a.cancelPreview("Language edit request cancelled")
+			}
+		})
 	})
 	select {
 	case result := <-done:
@@ -76,13 +89,18 @@ func (a *App) reviewServerEdit(ctx context.Context, key string, state *languageS
 		default:
 		}
 		a.post(func() {
+			if job != nil && a.resourcePreparation == job {
+				a.cancelPreview("Language edit request cancelled")
+			}
 			if pending != nil && a.Preview == pending {
 				a.cancelPreview("Language edit request cancelled")
 				a.Status = "Language edit request cancelled"
 			}
-			select {
-			case done <- lsp.ApplyEditResult{FailureReason: ctx.Err().Error()}:
-			default:
+			if pending == nil || pending.CommitCancel == nil {
+				select {
+				case done <- lsp.ApplyEditResult{FailureReason: ctx.Err().Error()}:
+				default:
+				}
 			}
 		})
 		select {
@@ -94,20 +112,31 @@ func (a *App) reviewServerEdit(ctx context.Context, key string, state *languageS
 	}
 }
 
-func (a *App) actionPreview(title string, raw json.RawMessage, finish func(bool, string)) {
+func (a *App) actionPreview(title string, raw json.RawMessage, finish func(bool, string), ready func(*preview)) *resourcePreparation {
+	if a.Preview != nil && a.Preview.CommitCancel != nil {
+		finish(false, "A file operation is still running")
+		return nil
+	}
+	if hasResourceChanges(raw) {
+		return a.prepareResourcePreview(title, raw, finish, ready)
+	}
 	targets, err := a.decodeWorkspaceEdit(raw)
 	if err != nil {
 		a.Status = err.Error()
 		finish(false, a.Status)
-		return
+		return nil
 	}
 	a.showWorkspacePreview(title, targets)
 	if a.Preview == nil {
 		finish(true, "")
-		return
+		return nil
 	}
 	a.Preview.Strict = true
 	a.Preview.Finish = finish
+	if ready != nil {
+		ready(a.Preview)
+	}
+	return nil
 }
 
 func actionServerCommand(c codeAction) (*serverCommand, error) {
@@ -248,15 +277,16 @@ func (a *App) runCodeAction(client *lsp.Client, action codeAction) {
 		}
 	}
 	if hasJSON(action.Edit) {
-		a.actionPreview(action.Title, action.Edit, finish)
-		if cmd != nil && a.Preview != nil {
-			a.Preview.Valid = func() error {
-				if !client.Alive() {
-					return errors.New("Language server exited")
+		a.actionPreview(action.Title, action.Edit, finish, func(p *preview) {
+			if cmd != nil {
+				p.Valid = func() error {
+					if !client.Alive() {
+						return errors.New("Language server exited")
+					}
+					return nil
 				}
-				return nil
 			}
-		}
+		})
 		return
 	}
 	if cmd != nil {
@@ -267,6 +297,9 @@ func (a *App) runCodeAction(client *lsp.Client, action codeAction) {
 }
 
 func (a *App) executeServerCommand(client *lsp.Client, title string, command serverCommand) {
+	if a.resourceClosing {
+		return
+	}
 	if a.languageCommand != nil {
 		a.Status = "A server command is still running"
 		return

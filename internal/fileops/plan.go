@@ -141,6 +141,34 @@ func diskNode(path string, remaining int) (Node, error) {
 }
 
 func (p *Plan) Path(path string) (string, error) { return checkedPath(p.Root, path) }
+
+// SavedFile captures metadata for a file that the editor saved after previewing
+// a previously missing path. The exact saved bytes are still required to match.
+func SavedFile(root, path, data string) (Node, error) {
+	if _, err := checkedPath(root, path); err != nil {
+		return Node{}, err
+	}
+	n, err := diskNode(path, MaxBytes)
+	if err != nil {
+		return Node{}, err
+	}
+	if n.Kind != File || n.Data != data {
+		return Node{}, fmt.Errorf("saved resource changed on disk: %s", path)
+	}
+	return n, nil
+}
+
+func (p *Plan) Tree(path string) (map[string]Node, error) {
+	paths, err := p.tree(path)
+	if err != nil {
+		return nil, err
+	}
+	image := make(map[string]Node, len(paths))
+	for _, at := range paths {
+		image[at] = p.After[at]
+	}
+	return image, nil
+}
 func (p *Plan) Read(path string) (Node, error) {
 	path, err := p.Path(path)
 	if err != nil {

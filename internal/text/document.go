@@ -143,6 +143,53 @@ func (d *Document) Insert(s string) error {
 	return d.Apply(d.Version, edits)
 }
 
+// ApplySequence validates ordered batches against their successive text states
+// but publishes one version and one undo step. Unlike typing coalescence, this
+// also preserves the original undo history for sequences longer than 256 steps.
+func (d *Document) ApplySequence(version uint64, batches [][]Edit) error {
+	if version != d.Version {
+		return errors.New("document changed; open a fresh preview")
+	}
+	if len(batches) > 2048 {
+		return errors.New("edit sequence exceeds 2,048 batches")
+	}
+	next := d.Clone()
+	next.undo = nil
+	next.redo = nil
+	forward, reverse := [][]Edit{}, [][]Edit{}
+	for _, batch := range batches {
+		v := next.Version
+		if err := next.Apply(v, batch); err != nil {
+			return err
+		}
+		if next.Version == v {
+			continue
+		}
+		forward = append(forward, next.LastChanges...)
+		reverse = append(reverse, next.undo[0].changes...)
+		next.undo = nil
+	}
+	if len(forward) == 0 {
+		return nil
+	}
+	for i, j := 0, len(reverse)-1; i < j; i, j = i+1, j-1 {
+		reverse[i], reverse[j] = reverse[j], reverse[i]
+	}
+	before := d.state()
+	before.changes = reverse
+	before.reverse = forward
+	d.undo = append(d.undo, before)
+	if len(d.undo) > 256 {
+		d.undo = append([]snapshot(nil), d.undo[len(d.undo)-256:]...)
+	}
+	d.redo = nil
+	d.Text = next.Text
+	d.Selections = next.Selections
+	d.Version = next.Version
+	d.LastChanges = forward
+	return nil
+}
+
 // Coalesce joins adjacent typing transactions without flattening shared text.
 func (d *Document) Coalesce() {
 	if len(d.undo) < 2 {

@@ -413,7 +413,11 @@ func (a *App) drawPreview(p palette) {
 			mark = "[x]"
 		}
 		a.fill(x+1, row, w-2, style)
-		a.put(x+1, row, w-2, fmt.Sprintf("%s %s:%d", mark, bufferName(b), v.documentAt(i).Text.LineAt(e.Start)+1), style)
+		label := fmt.Sprintf("%s %s:%d", mark, bufferName(b), v.documentAt(i).Text.LineAt(e.Start)+1)
+		if i < len(v.Labels) {
+			label = mark + " " + v.Labels[i]
+		}
+		a.put(x+1, row, w-2, label, style)
 		a.put(x+2, row+1, w-4, "− "+displayExcerpt(v.documentAt(i).Text.Slice(e.Start, min(e.End, e.Start+200))), p.warning)
 		a.put(x+2, row+2, w-4, "+ "+displayExcerpt(e.Text), p.accent)
 	}

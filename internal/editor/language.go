@@ -140,6 +140,9 @@ func (a *App) languageClient(b *Buffer) *lsp.Client {
 	return state.Client
 }
 func (a *App) syncLanguage() {
+	if a.resourceCommitCancel != nil {
+		return
+	}
 	b := a.Current()
 	client := a.languageClient(b)
 	if client == nil || b.Syncing || (b.Synced && b.SyncedVersion == b.Doc.Version) {

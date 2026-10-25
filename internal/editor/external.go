@@ -5,6 +5,9 @@ import (
 )
 
 func (a *App) checkDisk() {
+	if a.resourceCommitCancel != nil {
+		return
+	}
 	b := a.Current()
 	if a.fileCheckBusy || b.File.Path == "" || b.Transient {
 		return
