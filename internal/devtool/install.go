@@ -181,6 +181,9 @@ func (t *Tool) Install(ctx context.Context, update bool, opts LifecycleOptions) 
 	if err != nil {
 		return err
 	}
+	if update && !installed {
+		return errors.New("installation changed; inspect again before updating")
+	}
 	if err := t.checkManaged(m, installed); err != nil {
 		return err
 	}
@@ -189,46 +192,50 @@ func (t *Tool) Install(ctx context.Context, update bool, opts LifecycleOptions) 
 			return err
 		}
 	}
-	if err := t.Build(ctx); err != nil {
-		return err
-	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	stage, err := os.MkdirTemp(t.Prefix, ".install-")
-	if err != nil {
-		return err
-	}
-	defer os.RemoveAll(stage)
-	version, commit := t.revision(ctx)
-	next := Manifest{Schema: 1, Source: t.Root, Version: version, Commit: commit, InstalledAt: time.Now().UTC(), Files: map[string]string{}}
-	err = t.UI.Step("Stage verified installation", func(func(string)) error {
-		for _, name := range binaryNames {
-			path := filepath.Join(stage, name)
-			if err := copyExecutable(filepath.Join(t.Root, "bin", name), path); err != nil {
-				return err
-			}
-			hash, err := digest(path)
-			if err != nil {
-				return err
-			}
-			next.Files[name] = hash
+	var version, commit string
+	err = t.build(ctx, func(builtVersion, builtCommit string) error {
+		version, commit = builtVersion, builtCommit
+		if err := ctx.Err(); err != nil {
+			return err
 		}
-		raw, err := json.MarshalIndent(next, "", "  ")
+		stage, err := os.MkdirTemp(t.Prefix, ".install-")
 		if err != nil {
 			return err
 		}
-		return os.WriteFile(filepath.Join(stage, manifestName), append(raw, '\n'), 0600)
+		defer os.RemoveAll(stage)
+		next := Manifest{Schema: 1, Source: t.Root, Version: version, Commit: commit, InstalledAt: time.Now().UTC(), Files: map[string]string{}}
+		err = t.UI.Step("Stage verified installation", func(func(string)) error {
+			for _, name := range binaryNames {
+				path := filepath.Join(stage, name)
+				if err := copyExecutable(filepath.Join(t.Root, "bin", name), path); err != nil {
+					return err
+				}
+				hash, err := digest(path)
+				if err != nil {
+					return err
+				}
+				next.Files[name] = hash
+			}
+			raw, err := json.MarshalIndent(next, "", "  ")
+			if err != nil {
+				return err
+			}
+			return os.WriteFile(filepath.Join(stage, manifestName), append(raw, '\n'), 0600)
+		})
+		if err != nil {
+			return err
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err = t.UI.Step("Install binaries and ownership manifest", func(func(string)) error {
+			return promote(stage, t.Prefix, append(append([]string{}, binaryNames...), manifestName))
+		}); err != nil {
+			return err
+		}
+		return nil
 	})
 	if err != nil {
-		return err
-	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if err = t.UI.Step("Install binaries and ownership manifest", func(func(string)) error {
-		return promote(stage, t.Prefix, append(append([]string{}, binaryNames...), manifestName))
-	}); err != nil {
 		return err
 	}
 	t.UI.Field("Installed", version+" / "+commit)
@@ -498,6 +505,10 @@ func (t *Tool) Uninstall(ctx context.Context, opts LifecycleOptions) error {
 	})
 	if err != nil {
 		return err
+	}
+	if err := os.RemoveAll(stage); err != nil {
+		keepRecovery = true
+		return fmt.Errorf("managed paths removed, but staged files remain at %s: %w", stage, err)
 	}
 	t.UI.Note("Uninstalled. Preserved data can be reused by a later installation.")
 	t.UI.Note("Any separately launched foreground Onibi process must be stopped with Ctrl-C.")

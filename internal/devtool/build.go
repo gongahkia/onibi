@@ -77,7 +77,10 @@ func privateLog(path string) (*os.File, error) {
 	}
 	return file, nil
 }
-func (t *Tool) Build(ctx context.Context) error {
+func (t *Tool) Build(ctx context.Context) error { return t.build(ctx, nil) }
+
+// afterPublish runs under the build lock so install copies this exact build.
+func (t *Tool) build(ctx context.Context, afterPublish func(version, commit string) error) error {
 	if err := t.prepare(); err != nil {
 		return err
 	}
@@ -155,6 +158,9 @@ func (t *Tool) Build(ctx context.Context) error {
 	}
 	if err = t.UI.Step("[4/4] Publish local binaries", func(func(string)) error { return promote(stage, output, binaryNames) }); err != nil {
 		return err
+	}
+	if afterPublish != nil {
+		return afterPublish(version, commit)
 	}
 	t.UI.Note("Ready: ./bin/onibi web")
 	t.UI.Note("Fresh link: ./bin/onibi web pair  |  Diagnostics: ./bin/onibi web doctor")

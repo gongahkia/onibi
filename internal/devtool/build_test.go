@@ -138,3 +138,26 @@ func TestBuildLockAndCancellation(t *testing.T) {
 		t.Fatalf("cancellation failed: %v", err)
 	}
 }
+
+func TestBuildKeepsLockThroughInstallationCopy(t *testing.T) {
+	tool, _, _ := sourceTool(t)
+	called := false
+	err := tool.build(t.Context(), func(version, commit string) error {
+		called = true
+		lock, err := lockDirectory(filepath.Join(tool.Root, "bin"))
+		if err == nil {
+			lock.Close()
+			t.Fatal("another build could replace artifacts during installation")
+		}
+		if version == "" || commit == "" {
+			t.Fatal("lost build provenance")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !called {
+		t.Fatal("installation callback missing")
+	}
+}
