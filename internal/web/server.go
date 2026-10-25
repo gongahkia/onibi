@@ -65,6 +65,7 @@ type browserSession struct {
 }
 
 type Server struct {
+	featureObservations    map[string]FeatureObservation
 	backend                Backend
 	db                     *store.DB
 	origin                 string
@@ -242,6 +243,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	switch r.URL.Path {
+	case "/api/capabilities":
+		if requireMethod(w, r, http.MethodGet) {
+			writeJSON(w, http.StatusOK, s.featureReport())
+		}
 	case "/api/health":
 		if requireMethod(w, r, http.MethodGet) {
 			s.health(w, r)
@@ -435,6 +440,7 @@ func (s *Server) action(w http.ResponseWriter, r *http.Request) {
 		}
 		receipt.State, receipt.Result = "completed", &result
 	}
+	s.recordFeature(request.Action, result, err)
 	s.finishAction(w, receipt)
 }
 
