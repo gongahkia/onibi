@@ -64,6 +64,7 @@ type preview struct {
 	Index                 int
 }
 type App struct {
+	RestoreOnStart                      bool
 	wantCompletion, completionAutomatic bool
 	snippet                             *snippetState
 	taskCancel                          context.CancelFunc
@@ -152,7 +153,13 @@ func New(screen tcell.Screen, cfg config.Config, paths []string, readonly bool) 
 	a.workspaceCommands()
 	a.editingCommands()
 	a.developmentCommands()
-	a.Commands = append(a.Commands, command{"Recover unsaved buffers", "", a.recoveryPicker})
+	a.Commands = append(a.Commands, command{"Recover unsaved buffers", "", a.recoveryPicker}, command{"Restore project session", "", a.restoreSession}, command{"Save project session", "", func() {
+		if err := a.saveSession(); err != nil {
+			a.Status = err.Error()
+		} else {
+			a.Status = "Project session saved"
+		}
+	}})
 	if err := a.configureKeys(); err != nil {
 		cancel()
 		return nil, err
@@ -222,6 +229,10 @@ func (a *App) Run() error {
 	defer close(done)
 	go a.Screen.ChannelEvents(events, done)
 	go a.syntaxWorker()
+	if a.RestoreOnStart {
+		a.restoreSession()
+	}
+	defer func() { _ = a.saveSession() }()
 	a.indexFiles()
 	a.schedule()
 	a.draw()

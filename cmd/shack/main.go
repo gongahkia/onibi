@@ -22,6 +22,8 @@ func run() error {
 	show := flag.Bool("version", false, "print Shack version")
 	configPath := flag.String("config", "", "use a JSON configuration file")
 	noConfig := flag.Bool("no-config", false, "use built-in defaults")
+	restore := flag.Bool("restore", false, "restore files and panes from the saved project session")
+	noSession := flag.Bool("no-session", false, "disable project session storage")
 	noRecovery := flag.Bool("no-recovery", false, "disable recovery snapshots")
 	noLSP := flag.Bool("no-lsp", false, "disable language servers")
 	plain := flag.Bool("plain", false, "disable syntax highlighting and language servers")
@@ -47,6 +49,9 @@ func run() error {
 			return err
 		}
 	}
+	if *noSession {
+		cfg.Session = false
+	}
 	if *noRecovery {
 		cfg.Recovery = false
 	}
@@ -64,6 +69,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	app.RestoreOnStart = *restore
 	if info, e := os.Stdin.Stat(); e == nil && info.Mode()&os.ModeCharDevice == 0 {
 		data, e := io.ReadAll(io.LimitReader(os.Stdin, (int64(cfg.MaxFileMiB)<<20)+1))
 		if e != nil {
