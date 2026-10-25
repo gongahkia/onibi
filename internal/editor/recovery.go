@@ -139,8 +139,9 @@ func (a *App) restoreRecovery(entry *recovery.Entry) {
 			d, _ = text.NewDocument("")
 		}
 		if err != nil {
-			a.Status = err.Error()
-			return
+			// Snapshot contents remain recoverable even if the original is unreadable or binary now.
+			file = &File{}
+			d, _ = text.NewDocument("")
 		}
 		// An already-open buffer is kept; a recovered conflict becomes an untitled copy.
 		for _, b := range a.Buffers {

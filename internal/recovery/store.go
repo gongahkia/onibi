@@ -103,7 +103,15 @@ func (s *Store) Save(sequence uint64, record Record) error {
 	if err = f.Close(); err != nil {
 		return err
 	}
-	return os.Rename(f.Name(), s.path)
+	if err = os.Rename(f.Name(), s.path); err != nil {
+		return err
+	}
+	dir, err := os.Open(s.dir)
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	return dir.Sync()
 }
 func (s *Store) Scan() ([]*Entry, error) {
 	paths, err := filepath.Glob(filepath.Join(s.dir, "session-*.lock.json"))
@@ -174,7 +182,7 @@ func (s *Store) Close(discard bool) {
 		_ = os.Remove(s.path)
 	}
 	_ = s.lock.Close()
-	if discard {
+	if _, err := os.Stat(s.path); discard || os.IsNotExist(err) {
 		_ = os.Remove(s.lock.Name())
 	}
 }
