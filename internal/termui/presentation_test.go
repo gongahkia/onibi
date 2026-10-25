@@ -9,6 +9,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/rivo/uniseg"
 )
@@ -162,9 +163,8 @@ func terminalRows(raw string) []string {
 				continue
 			}
 		}
-		chars := []rune(raw)
-		ch := chars[0]
-		raw = string(chars[1:])
+		ch, size := utf8.DecodeRuneInString(raw)
+		raw = raw[size:]
 		switch ch {
 		case '\r':
 			col = 0

@@ -19,6 +19,7 @@ import (
 	"github.com/gongahkia/onibi/internal/buildinfo"
 	"github.com/gongahkia/onibi/internal/ghostty"
 	"github.com/gongahkia/onibi/internal/logging"
+	"github.com/gongahkia/onibi/internal/termui"
 	"github.com/gongahkia/onibi/internal/web"
 	"github.com/gongahkia/onibi/internal/webadmin"
 	"github.com/spf13/cobra"
@@ -108,8 +109,13 @@ func runWeb(cmd *cobra.Command, _ []string) error {
 	defer logFile.Close()
 	background, _ := cmd.Flags().GetBool("background")
 	var console io.Writer
+	var activity *termui.Live
 	if !background {
-		console = cmd.ErrOrStderr()
+		presentation := terminalUIFor(cmd, cmd.ErrOrStderr())
+		presentation.Interactive = presentation.Interactive && terminalUI(cmd).Interactive
+		activity = termui.NewLive(presentation)
+		defer activity.Close()
+		console = activity
 	}
 	logger := logging.Web(logFile, console, level)
 	app, err := web.New(web.Options{Backend: ghostty.New(), Diagnostics: ghostty.Inspect, DB: db, PublicOrigin: origin, ProxyHosts: []string{listener.Addr().String()}, Assets: web.Assets(), Logger: logger})
@@ -130,9 +136,19 @@ func runWeb(cmd *cobra.Command, _ []string) error {
 		BaseContext: func(net.Listener) context.Context { return ctx },
 	}
 	done := make(chan error, 1)
-	go func() { done <- server.Serve(listener) }()
 	if !background {
 		writeWebWelcome(cmd, app.PairingURL(), listener.Addr().String(), origin, logPath)
+	}
+	go func() { done <- server.Serve(listener) }()
+	if activity != nil {
+		activity.Start(func(elapsed time.Duration) string {
+			status := app.RuntimeStatus()
+			phase := "HTTP live"
+			if ctx.Err() != nil {
+				phase = "Draining"
+			}
+			return fmt.Sprintf("%s / %s / %d req / %d active / Ctrl-C stops", phase, termui.Elapsed(elapsed), status.Requests, status.ActiveRequests)
+		})
 	}
 	logger.Info("web.started", "version", buildinfo.Version, "commit", buildinfo.Commit, "pid", os.Getpid(), "log_level", levelName)
 	defer logger.Info("web.stopped")
@@ -166,7 +182,7 @@ func writeWebWelcome(cmd *cobra.Command, pairingURL, address, origin, logPath st
 	ui.Field("Listening", address)
 	ui.Field("Open", origin)
 	ui.Field("Native", "Not checked yet / select a terminal in the browser")
-	ui.Field("Logs", logPath)
+	ui.Field("Logs", termui.ShortPath(logPath))
 	ui.Line("")
 	ui.Note("PAIR THIS BROWSER / one use / expires in 10 minutes")
 	ui.Line("%s", pairingURL)
@@ -175,7 +191,8 @@ func writeWebWelcome(cmd *cobra.Command, pairingURL, address, origin, logPath st
 	ui.Field("Pair again", hint+" web pair")
 	ui.Field("Status", hint+" web status")
 	ui.Field("Follow logs", hint+" web logs --follow")
+	ui.Note("Keep this terminal open. Use a second terminal for status or logs.")
 	ui.Note("Ctrl-C stops Onibi. Temporary access ends on restart.")
 	ui.Note("Remembered browsers expire after 30 days or when revoked.")
-	ui.Line("")
+	ui.Section("ACTIVITY / local server events")
 }

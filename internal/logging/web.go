@@ -1,11 +1,11 @@
 package logging
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"log/slog"
-	"strings"
 	"sync"
 )
 
@@ -15,7 +15,7 @@ import (
 func Web(file, console io.Writer, level slog.Level) *slog.Logger {
 	handlers := []slog.Handler{slog.NewJSONHandler(file, &slog.HandlerOptions{Level: level})}
 	if console != nil {
-		handlers = append(handlers, &consoleHandler{out: console, mu: &sync.Mutex{}, level: level})
+		handlers = append(handlers, slog.NewJSONHandler(&consoleWriter{out: console}, &slog.HandlerOptions{Level: level}))
 	}
 	return slog.New(NewRedactingHandler(multiHandler(handlers)))
 }
@@ -56,44 +56,19 @@ func (h multiHandler) WithGroup(g string) slog.Handler {
 	return out
 }
 
-type consoleHandler struct {
-	out   io.Writer
-	mu    *sync.Mutex
-	level slog.Level
-	attrs []slog.Attr
-	group string
+// The same JSON record formatter is used for foreground events and log replay.
+// Styling/activity belong to termui.Live, leaving the persisted JSON untouched.
+type consoleWriter struct {
+	out io.Writer
+	mu  sync.Mutex
 }
 
-func (h *consoleHandler) Enabled(_ context.Context, l slog.Level) bool { return l >= h.level }
-func (h *consoleHandler) Handle(_ context.Context, r slog.Record) error {
-	var b strings.Builder
-	fmt.Fprintf(&b, "%s  %-5s  %s", r.Time.Format("15:04:05"), r.Level.String(), strings.ReplaceAll(strings.TrimPrefix(r.Message, "web."), "_", " "))
-	attrs := append([]slog.Attr{}, h.attrs...)
-	r.Attrs(func(a slog.Attr) bool { attrs = append(attrs, a); return true })
-	for _, a := range attrs {
-		fmt.Fprintf(&b, "  %s%s=%s", h.group, a.Key, consoleValue(a.Value.Resolve().String()))
+func (w *consoleWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	_, err := fmt.Fprintln(w.out, FormatRecord(bytes.TrimSpace(p)))
+	if err != nil {
+		return 0, err
 	}
-	b.WriteByte('\n')
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	_, err := io.WriteString(h.out, b.String())
-	return err
-}
-func consoleValue(s string) string {
-	return strings.Map(func(r rune) rune {
-		if r < 32 || r == 127 {
-			return -1
-		}
-		return r
-	}, s)
-}
-func (h *consoleHandler) WithAttrs(a []slog.Attr) slog.Handler {
-	copy := *h
-	copy.attrs = append(append([]slog.Attr{}, h.attrs...), a...)
-	return &copy
-}
-func (h *consoleHandler) WithGroup(g string) slog.Handler {
-	copy := *h
-	copy.group += g + "."
-	return &copy
+	return len(p), nil
 }

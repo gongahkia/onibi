@@ -83,7 +83,7 @@ func (l *Live) redrawLocked() {
 	if l.ui.ASCII {
 		rattle = SimpleDots
 	}
-	line := clip("  "+rattle.Frame(time.Since(l.startedAt))+"  "+l.label, l.ui.columns()-1)
+	line := clip("  "+rattle.Frame(time.Since(l.startedAt))+"  "+l.label, l.ui.columns()-4)
 	l.cells = uniseg.StringWidth(line)
 	if !l.ui.NoStyle {
 		line = "\x1b[2m" + line + "\x1b[0m"

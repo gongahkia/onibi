@@ -161,7 +161,9 @@ func FormatRecord(line []byte) string {
 		timestamp = parsed.Local().Format("15:04:05")
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s  %-5v  %v", timestamp, record["level"], record["msg"])
+	message, _ := record["msg"].(string)
+	message = strings.ReplaceAll(strings.TrimPrefix(message, "web."), "_", " ")
+	fmt.Fprintf(&b, "%s  %-5v  %s", timestamp, record["level"], message)
 	keys := make([]string, 0, len(record))
 	for key := range record {
 		if key != "time" && key != "level" && key != "msg" {

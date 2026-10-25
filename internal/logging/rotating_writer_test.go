@@ -73,3 +73,15 @@ func TestLogWriterRefusesSymlinkAndConsoleIsPlain(t *testing.T) {
 		t.Fatal(fmt.Sprint(&file, &console))
 	}
 }
+
+func TestForegroundAndReplayUseIdenticalFormatting(t *testing.T) {
+	var file, console bytes.Buffer
+	logger := Web(&file, &console, slog.LevelDebug).With("version", "test")
+	logger.Info("web.native_state", "state", "ready", "duration_ms", 23)
+	if got, want := strings.TrimSuffix(console.String(), "\n"), FormatRecord(bytes.TrimSpace(file.Bytes())); got != want {
+		t.Fatalf("foreground %q differs from replay %q", got, want)
+	}
+	if strings.Contains(console.String(), "web.") {
+		t.Fatal("raw event prefix in human console")
+	}
+}

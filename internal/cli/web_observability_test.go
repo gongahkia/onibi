@@ -2,11 +2,19 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"github.com/gongahkia/onibi/internal/web"
+	"github.com/gongahkia/onibi/internal/webadmin"
 	"github.com/spf13/cobra"
+	"os"
+	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
 
 func TestRuntimeStatusPresentationAndJSON(t *testing.T) {
@@ -76,5 +84,94 @@ func TestVersionJSONRemainsMachineReadable(t *testing.T) {
 	}
 	if data["go"] == "" || data["platform"] == "" {
 		t.Fatal("missing provenance")
+	}
+}
+
+func TestStoppedStatusIsAResultWithoutSocketError(t *testing.T) {
+	for _, cause := range []error{os.ErrNotExist, syscall.ECONNREFUSED} {
+		for _, asJSON := range []bool{false, true} {
+			cmd := webStatusCmd()
+			var out bytes.Buffer
+			cmd.SetOut(&out)
+			err := writeWebStatusResult(cmd, webadmin.Response{}, fmt.Errorf("dial private socket: %w", cause), asJSON)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if asJSON {
+				var status struct {
+					Running bool
+					State   string
+				}
+				if err := json.Unmarshal(out.Bytes(), &status); err != nil || status.Running || status.State != "stopped" {
+					t.Fatalf("%s err=%v", out.String(), err)
+				}
+			} else {
+				if !strings.Contains(out.String(), "Stopped") || !strings.Contains(out.String(), "second terminal") || strings.Contains(out.String(), "socket") {
+					t.Fatal(out.String())
+				}
+			}
+		}
+	}
+	cmd := webStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	if err := writeWebStatusResult(cmd, webadmin.Response{}, os.ErrPermission, false); !errors.Is(err, os.ErrPermission) {
+		t.Fatal("permission failure presented as stopped")
+	}
+	if strings.Contains(out.String(), "Stopped") {
+		t.Fatal("false stopped state")
+	}
+}
+func TestLogViewerCancellationAndJSONOutput(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "web.log")
+	record := `{"time":"2026-01-01T00:00:00Z","level":"INFO","msg":"web.started","pid":123}` + "\n"
+	if err := os.WriteFile(path, []byte(record), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, asJSON := range []bool{false, true} {
+		cmd := webLogsCmd()
+		var out bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.Flags().Set("follow", "true")
+		cmd.Flags().Set("json", fmt.Sprint(asJSON))
+		ctx, cancel := context.WithTimeout(t.Context(), 250*time.Millisecond)
+		defer cancel()
+		cmd.SetContext(ctx)
+		if !asJSON {
+			terminalUI(cmd).Interactive = true
+			terminalUI(cmd).ASCII = false
+		}
+		if err := runWebLogs(cmd, path); err != nil {
+			t.Fatal(err)
+		}
+		before := out.String()
+		time.Sleep(120 * time.Millisecond)
+		if out.String() != before {
+			t.Fatal("log viewer kept drawing after cancellation")
+		}
+		if asJSON {
+			if out.String() != record {
+				t.Fatalf("machine output decorated: %q", out.String())
+			}
+		} else {
+			if !strings.Contains(before, "█") || !strings.Contains(before, "Following") || !strings.Contains(before, "Log follow ended.") {
+				t.Fatal(before)
+			}
+			if strings.Contains(before, "web.started") {
+				t.Fatal("replay uses a different event format")
+			}
+		}
+	}
+}
+func TestMissingLogShowsStartGuidance(t *testing.T) {
+	cmd := webLogsCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	err := runWebLogs(cmd, filepath.Join(t.TempDir(), "missing.log"))
+	if err == nil || !strings.Contains(err.Error(), "no web log yet") {
+		t.Fatalf("%v", err)
+	}
+	if !strings.Contains(out.String(), "Web cockpit / logs") {
+		t.Fatal("missing command identity")
 	}
 }
