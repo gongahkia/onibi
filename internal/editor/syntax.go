@@ -20,6 +20,7 @@ type syntaxJob struct {
 }
 
 func (a *App) services() {
+	a.syncLanguage()
 	b := a.Current()
 	if !a.Config.Syntax || b.Doc.Text.Len() > a.Config.ServiceMaxBytes {
 		return

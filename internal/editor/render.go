@@ -178,6 +178,9 @@ func (a *App) draw() {
 	line := d.Text.LineAt(pos)
 	column := visualColumn(d.Text.Slice(d.Text.LineStart(line), pos), a.Config.TabSize)
 	state := fmt.Sprintf(" Shack  %d:%d  %d selection(s)", line+1, column+1, len(d.Selections))
+	if len(b.Diagnostics) > 0 {
+		state += fmt.Sprintf("  %d diagnostics", len(b.Diagnostics))
+	}
 	if a.Readonly {
 		state += "  READ ONLY"
 	}

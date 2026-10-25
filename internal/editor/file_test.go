@@ -19,7 +19,7 @@ func TestSaveConflictPermissionsAndSymlink(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d.Selections = []text.Selection{{0, 3}}
+	d.Selections = []text.Selection{{Anchor: 0, Head: 3}}
 	d.Insert("new")
 	if err = f.Save(d); err != nil {
 		t.Fatal(err)

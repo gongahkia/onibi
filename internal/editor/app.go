@@ -10,17 +10,23 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/gongahkia/shack/internal/config"
+	"github.com/gongahkia/shack/internal/lsp"
 	"github.com/gongahkia/shack/internal/text"
 )
 
 type Buffer struct {
-	File          *File
-	Doc           *text.Document
-	Top, Left     int
-	Spans         []span
-	SyntaxVersion uint64
-	SyntaxReady   bool
-	Newline       string
+	LanguageKey, LanguageID, LanguageStatus string
+	Synced, Syncing                         bool
+	SyncedVersion                           uint64
+	Diagnostics                             []lsp.Diagnostic
+	DiagnosticVersion                       uint64
+	File                                    *File
+	Doc                                     *text.Document
+	Top, Left                               int
+	Spans                                   []span
+	SyntaxVersion                           uint64
+	SyntaxReady                             bool
+	Newline                                 string
 }
 type command struct {
 	Name, Key string
@@ -45,6 +51,8 @@ type preview struct {
 	Index   int
 }
 type App struct {
+	languages          map[string]*languageState
+	languageBusy       bool
 	Screen             tcell.Screen
 	Config             config.Config
 	Buffers            []*Buffer
@@ -94,6 +102,7 @@ func New(screen tcell.Screen, cfg config.Config, paths []string, readonly bool) 
 		a.NewBuffer()
 	}
 	a.registerCommands()
+	a.languageCommands()
 	a.Status = "Ctrl+E commands · Ctrl+P files · Ctrl+F find · F1 help"
 	return a, nil
 }
@@ -139,6 +148,13 @@ func (a *App) Run() error {
 	}
 	defer a.Screen.Fini()
 	defer a.cancel()
+	defer func() {
+		for _, state := range a.languages {
+			if state.Client != nil {
+				state.Client.Close()
+			}
+		}
+	}()
 	if a.Config.Mouse {
 		a.Screen.EnableMouse(tcell.MouseButtonEvents, tcell.MouseDragEvents)
 	}
@@ -189,6 +205,7 @@ func (a *App) changed() {
 	a.reveal()
 	a.Matches = nil
 	a.Current().SyntaxReady = false
+	a.Current().Diagnostics = nil
 	a.schedule()
 }
 func (a *App) apply(edits []text.Edit) {

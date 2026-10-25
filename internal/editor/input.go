@@ -79,6 +79,9 @@ func (a *App) pasteText(s string) {
 	a.insert(s)
 }
 func (a *App) key(ev *tcell.EventKey) {
+	if a.languageKey(ev.Key()) {
+		return
+	}
 	shift := ev.Modifiers()&tcell.ModShift != 0
 	if ev.Modifiers()&tcell.ModAlt != 0 && ev.Key() == tcell.KeyRune {
 		switch ev.Rune() {
@@ -136,7 +139,7 @@ func (a *App) key(ev *tcell.EventKey) {
 			a.changed()
 		}
 	case tcell.KeyCtrlA:
-		a.Current().Doc.Selections = []text.Selection{{0, a.Current().Doc.Text.Len()}}
+		a.Current().Doc.Selections = []text.Selection{{Anchor: 0, Head: a.Current().Doc.Text.Len()}}
 	case tcell.KeyCtrlD:
 		a.addOccurrence()
 	case tcell.KeyCtrlC:
@@ -149,7 +152,7 @@ func (a *App) key(ev *tcell.EventKey) {
 		a.Screen.Sync()
 	case tcell.KeyEscape:
 		p := a.Current().Doc.Selections[0].Head
-		a.Current().Doc.Selections = []text.Selection{{p, p}}
+		a.Current().Doc.Selections = []text.Selection{{Anchor: p, Head: p}}
 		a.Matches = nil
 	case tcell.KeyLeft:
 		a.move(-1, 0, shift)
