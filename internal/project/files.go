@@ -18,6 +18,9 @@ const MaxFiles = 10000
 // Files uses Git's complete ignore semantics when Git is available in a repository.
 // The standalone fallback skips common dependency/build directories and symlinks.
 func Files(ctx context.Context, root string) (files []string, mode string, err error) {
+	if canonical, e := filepath.EvalSymlinks(root); e == nil {
+		root = canonical
+	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", "-C", root, "ls-files", "-c", "-o", "--exclude-standard", "-z", "--", ".")
