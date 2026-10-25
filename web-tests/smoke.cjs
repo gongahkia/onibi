@@ -299,7 +299,38 @@ const server = http.createServer(async (req, res) => {
   };
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
+  const externalRequests = [];
+  page.on("request", (request) => {
+    if (new URL(request.url()).origin !== new URL(url).origin)
+      externalRequests.push(request.url());
+  });
   await page.goto(url);
+  await page.evaluate(async () => {
+    await Promise.all([
+      document.fonts.load('400 14px "JetBrains Mono"'),
+      document.fonts.load('600 14px "JetBrains Mono"'),
+    ]);
+    await document.fonts.ready;
+  });
+  const fontState = await page.evaluate(() => ({
+    family: getComputedStyle(document.body).fontFamily,
+    loaded: Array.from(document.fonts).filter(
+      (font) =>
+        font.family.includes("JetBrains Mono") && font.status === "loaded",
+    ).length,
+    assets: performance
+      .getEntriesByType("resource")
+      .filter((entry) => entry.name.includes(".woff2"))
+      .map((entry) => entry.name),
+  }));
+  assert(fontState.family.includes("JetBrains Mono"));
+  assert.equal(fontState.loaded, 2, "both local font faces load successfully");
+  assert.equal(fontState.assets.length, 2);
+  assert.deepEqual(
+    externalRequests,
+    [],
+    "pairing needs no third-party font or branding requests",
+  );
   await page
     .locator("#pair-message")
     .filter({ hasText: "one-time pairing" })
