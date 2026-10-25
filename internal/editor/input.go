@@ -30,20 +30,17 @@ func (a *App) Handle(event tcell.Event) {
 	case *tcell.EventMouse:
 		a.mouse(ev)
 	case *tcell.EventKey:
-		defer a.reveal()
 		if a.pasting {
-			switch ev.Key() {
-			case tcell.KeyRune:
+			if ev.Key() == tcell.KeyRune {
 				a.paste.WriteRune(ev.Rune())
-			case tcell.KeyEnter:
-				a.paste.WriteByte('\n')
-			case tcell.KeyTab:
-				a.paste.WriteByte('\t')
-			case tcell.KeyBackspace, tcell.KeyBackspace2:
-				a.paste.WriteByte('\b')
+			} else if ev.Key() >= tcell.KeyCtrlSpace && ev.Key() <= tcell.KeyCtrlUnderscore {
+				a.paste.WriteByte(byte(ev.Key() - tcell.KeyCtrlSpace))
+			} else if ev.Key() >= 0 && ev.Key() <= 31 {
+				a.paste.WriteByte(byte(ev.Key()))
 			}
 			return
 		}
+		defer a.reveal()
 		if a.Preview != nil {
 			a.previewKey(ev)
 			return

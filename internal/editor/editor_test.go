@@ -42,7 +42,7 @@ func TestGraphemesPasteAndUndo(t *testing.T) {
 	for _, r := range "a\n  b" {
 		k := tcell.KeyRune
 		if r == '\n' {
-			k = tcell.KeyEnter
+			k = tcell.KeyCtrlJ
 		}
 		a.Handle(tcell.NewEventKey(k, r, 0))
 	}

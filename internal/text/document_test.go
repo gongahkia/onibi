@@ -96,13 +96,16 @@ func TestSearchAnchorsCapturesAndLimits(t *testing.T) {
 		t.Fatal("cancellation ignored")
 	}
 }
+
+var benchmarkRopeSink Rope
+
 func BenchmarkLargeFileEdit(b *testing.B) {
 	r := New(strings.Repeat("a reasonably ordinary line of text\n", 300000))
 	at := r.Len() / 2
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = r.Replace(at, at, "x", uint64(i))
+		benchmarkRopeSink = r.Replace(at, at, "x", uint64(i))
 	}
 }
 func BenchmarkLargeFileLineLookup(b *testing.B) {

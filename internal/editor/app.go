@@ -183,7 +183,9 @@ func (a *App) Run() error {
 		case <-a.ctx.Done():
 			return nil
 		}
-		a.draw()
+		if !a.pasting {
+			a.draw()
+		}
 	}
 	return nil
 }
