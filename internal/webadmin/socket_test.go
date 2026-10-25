@@ -12,6 +12,7 @@ import (
 
 type fakeAdmin struct{ revoked string }
 
+func (f *fakeAdmin) RevokeAllDevices(context.Context) error { f.revoked = "all"; return nil }
 func (f *fakeAdmin) FreshPairingURL() (string, error) {
 	return "https://example.test/#token=secret", nil
 }

@@ -154,6 +154,17 @@ func (s *Server) pair(w http.ResponseWriter, r *http.Request) {
 		lifetime = rememberedLifetime
 	}
 	d := Device{ID: id, Name: name, Remembered: body.Remember, CreatedAt: s.now().UTC(), ExpiresAt: s.now().Add(lifetime).UTC()}
+
+	// Keep expired enrollment metadata and session entries from accumulating.
+	if _, err := s.db.SQL().ExecContext(r.Context(), `DELETE FROM web_devices WHERE expires_at<=?`, s.now().Unix()); err != nil {
+		deviceFailure(w)
+		return
+	}
+	for key, old := range s.sessions {
+		if !s.now().Before(old.ExpiresAt) {
+			delete(s.sessions, key)
+		}
+	}
 	secretHash := sha256.Sum256([]byte(secret))
 	var storedHash any
 	if body.Remember {
@@ -298,4 +309,17 @@ func (s *Server) revokeDevice(w http.ResponseWriter, r *http.Request, session br
 		s.setDeviceCookie(w, "", time.Unix(1, 0))
 	}
 	writeJSON(w, 200, map[string]bool{"revoked": true})
+}
+
+// RevokeAllDevices is a local-only recovery operation. It also invalidates the
+// outstanding pairing link; a fresh link must be explicitly requested afterward.
+func (s *Server) RevokeAllDevices(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, err := s.db.SQL().ExecContext(ctx, `DELETE FROM web_devices WHERE origin=?`, s.origin); err != nil {
+		return err
+	}
+	clear(s.sessions)
+	s.pairUsed, s.pairURL = true, ""
+	return nil
 }

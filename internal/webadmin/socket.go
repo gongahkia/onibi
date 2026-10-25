@@ -21,6 +21,7 @@ type Admin interface {
 	FreshPairingURL() (string, error)
 	ListDevices(context.Context) ([]web.Device, error)
 	RevokeDevice(context.Context, string) error
+	RevokeAllDevices(context.Context) error
 }
 type Request struct {
 	Operation string `json:"operation"`
@@ -124,6 +125,8 @@ func serve(c *net.UnixConn, admin Admin) {
 		response.PairingURL, err = admin.FreshPairingURL()
 	case "devices":
 		response.Devices, err = admin.ListDevices(ctx)
+	case "revoke-all":
+		err = admin.RevokeAllDevices(ctx)
 	case "revoke":
 		err = admin.RevokeDevice(ctx, request.ID)
 	default:

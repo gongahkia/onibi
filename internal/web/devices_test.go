@@ -197,3 +197,35 @@ func TestDeviceNameValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestLocalRevokeAllInvalidatesRememberedTemporaryAndUnusedGrant(t *testing.T) {
+	s, _ := testServer(t, testOrigin)
+	remembered, c, _ := pairDevice(t, s, true)
+	temporary, _, _ := pairDevice(t, s, false)
+	link, err := s.FreshPairingURL()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RevokeAllDevices(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for _, b := range []browser{remembered, temporary} {
+		if got := request(s, b, "GET", "/api/session", nil); got.Code != 401 {
+			t.Fatal("session survived revoke-all")
+		}
+	}
+	if got := resumeDevice(s, c); got.Code != 401 {
+		t.Fatal("remembered credential survived revoke-all")
+	}
+	u, _ := url.Parse(link)
+	v, _ := url.ParseQuery(u.Fragment)
+	raw, _ := json.Marshal(map[string]string{"token": v.Get("token")})
+	if got := request(s, browser{}, "POST", "/api/pair", raw); got.Code != 401 {
+		t.Fatal("unused link survived revoke-all")
+	}
+	devices, err := s.ListDevices(context.Background())
+	if err != nil || len(devices) != 0 {
+		t.Fatal("devices retained", err)
+	}
+	pairDevice(t, s, false) // Explicit new local grant restores enrollment.
+}

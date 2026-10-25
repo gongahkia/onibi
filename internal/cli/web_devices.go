@@ -59,6 +59,14 @@ func webDevicesCmd() *cobra.Command {
 		cmd.Println("Device access revoked. Already dispatched commands cannot be recalled.")
 		return nil
 	}}
-	cmd.AddCommand(list, revoke)
+	all := &cobra.Command{Use: "revoke-all", Short: "Revoke every browser and the unused pairing link for this web origin", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		_, err := webAdminCall(cmd, webadmin.Request{Operation: "revoke-all"})
+		if err != nil {
+			return err
+		}
+		cmd.Println("All browser access and the unused pairing link were revoked. Run onibi web pair to enroll again. Already dispatched commands cannot be recalled.")
+		return nil
+	}}
+	cmd.AddCommand(list, revoke, all)
 	return cmd
 }
