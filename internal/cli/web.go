@@ -15,6 +15,7 @@ import (
 
 	"github.com/gongahkia/onibi/internal/ghostty"
 	"github.com/gongahkia/onibi/internal/web"
+	"github.com/gongahkia/onibi/internal/webadmin"
 	"github.com/spf13/cobra"
 	"golang.org/x/sys/unix"
 )
@@ -24,7 +25,8 @@ func webCmd() *cobra.Command {
 		Use: "web", Short: "Control existing Ghostty terminals from a private web interface",
 		Args: cobra.NoArgs, RunE: runWeb,
 	}
-	cmd.AddCommand(webDoctorCmd())
+	cmd.AddCommand(webDoctorCmd(), webPairCmd(), webDevicesCmd())
+	cmd.Flags().Bool("background", false, "suppress pairing secrets in service logs; use onibi web pair locally")
 	cmd.Flags().String("listen", "127.0.0.1:8787", "loopback address for the local HTTP server")
 	cmd.Flags().String("origin", "", "public HTTPS origin from Tailscale Serve (defaults to local HTTP)")
 	return cmd
@@ -87,6 +89,11 @@ func runWeb(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
+	admin, err := webadmin.Listen(webadmin.Path(paths.StateDir), app)
+	if err != nil {
+		return err
+	}
+	defer admin.Close()
 	ctx, stop := signal.NotifyContext(contextOrBackground(cmd.Context()), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	server := &http.Server{
@@ -97,7 +104,12 @@ func runWeb(cmd *cobra.Command, _ []string) error {
 	}
 	done := make(chan error, 1)
 	go func() { done <- server.Serve(listener) }()
-	fmt.Fprintf(cmd.OutOrStdout(), "Onibi · Control Ghostty wherever text renders\nListening on %s\nPair this browser (one use, expires in 10 minutes):\n%s\nStop with Ctrl-C. Restarting revokes browser sessions.\n", listener.Addr(), app.PairingURL())
+	fmt.Fprintf(cmd.OutOrStdout(), "Onibi · Control Ghostty wherever text renders\nListening on %s\n", listener.Addr())
+	background, _ := cmd.Flags().GetBool("background")
+	if !background {
+		fmt.Fprintf(cmd.OutOrStdout(), "Pair this browser (one use, expires in 10 minutes):\n%s\nStop with Ctrl-C. Temporary access ends on restart.\n", app.PairingURL())
+	}
+	fmt.Fprintln(cmd.OutOrStdout(), "Run onibi web pair locally for a fresh link. Remembered devices expire after 30 days or when revoked.")
 	select {
 	case err := <-done:
 		if errors.Is(err, http.ErrServerClosed) {
