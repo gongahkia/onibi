@@ -113,6 +113,56 @@ func TestInventorySharesResultWithoutSharingMutableSlice(t *testing.T) {
 	}
 }
 
+func TestNewInventoryDoesNotInheritAbandonedFlight(t *testing.T) {
+	s, base := testServer(t, testOrigin)
+	var calls atomic.Int32
+	started, release := make(chan struct{}), make(chan struct{})
+	defer func() {
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+	}()
+	s.backend = &observingBackend{fakeBackend: base, list: func(context.Context) ([]ghostty.Target, error) {
+		if calls.Add(1) == 1 {
+			close(started)
+			<-release // Model a native adapter that is slow to notice cancellation.
+			return nil, ghostty.ErrUnresponsive
+		}
+		return base.targets, nil
+	}}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	first := make(chan error, 1)
+	go func() { _, err := s.observedTargets(ctx); first <- err }()
+	<-started
+	s.mu.Lock()
+	abandoned := s.inventoryFlight
+	s.mu.Unlock()
+	cancel()
+	if !errors.Is(<-first, context.Canceled) {
+		t.Fatal("abandoned waiter did not cancel")
+	}
+	nextCtx, stop := context.WithTimeout(t.Context(), time.Second)
+	defer stop()
+	targets, err := s.observedTargets(nextCtx)
+	if err != nil || len(targets) != 1 || calls.Load() != 2 {
+		t.Fatalf("new client inherited abandoned work: targets=%v err=%v calls=%d", targets, err, calls.Load())
+	}
+	close(release)
+	select {
+	case <-abandoned.done:
+	case <-nextCtx.Done():
+		t.Fatal("abandoned work did not finish")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.inventoryObservation.State != "ready" || s.inventoryErr != nil {
+		t.Fatal("abandoned result overwrote fresh readiness")
+	}
+}
+
 func TestInventoryBackoffDoesNotCacheActionPreconditions(t *testing.T) {
 	s, base := testServer(t, testOrigin)
 	b := pairBrowser(t, s)
