@@ -234,6 +234,10 @@ function setNetwork(value, version = ++state.requestVersion) {
   if (version < state.transportVersion) return;
   state.transportVersion = version;
   state.transport = value;
+  if (value === "offline") {
+    clearTimeout(state.followTimer);
+    state.follow = false;
+  }
   updateControls();
 }
 function setNative(value, code = "", version = ++state.checkVersion) {
@@ -267,6 +271,8 @@ function renderReadiness() {
           "Your Mac is reachable. Allow Automation access for the process launching Onibi.",
         ghostty_timeout:
           "Your Mac is reachable, but Ghostty did not respond in time. Automatic checks are slowing down.",
+        ghostty_communication:
+          "Your Mac is reachable, but communication with Ghostty failed. Check the app on your Mac; automatic checks will retry.",
         unsupported_platform: "Native Ghostty control requires macOS.",
       }[state.nativeCode] ||
       "Your Mac is reachable, but Ghostty’s terminal inventory is unavailable.";
@@ -1016,6 +1022,10 @@ async function applyReceipt(receipt) {
       receipt.error ||
         "Your Mac rejected this action. Your draft has been kept.",
     );
+    // A precondition can fail before the next scheduled poll (closed pane,
+    // lost native connection, changed focus). Reconcile before offering input.
+    setNative("checking");
+    await refreshTargets({ force: true });
   } else {
     if (pending.action.kind === "input") {
       if (

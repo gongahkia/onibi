@@ -685,6 +685,31 @@ const server = http.createServer(async (req, res) => {
   await page.waitForFunction(
     () => !document.getElementById("read-output").disabled,
   );
+  // Losing the Mac connection through another endpoint must pause Follow too.
+  await page.click("#follow-output");
+  await page.waitForFunction(
+    () => !document.getElementById("read-output").disabled,
+  );
+  const loseHealth = (route) => route.abort("connectionfailed");
+  await page.route("**/api/health", loseHealth);
+  await page.click("#connection");
+  await page
+    .locator("#health-error")
+    .filter({ hasText: "interrupted" })
+    .waitFor();
+  assert.equal(
+    await page.locator("#follow-output").getAttribute("aria-pressed"),
+    "false",
+  );
+  await page.unroute("**/api/health", loseHealth);
+  await page.click("#close-health");
+  await page.click("#open-picker");
+  await page.click("#refresh-picker");
+  await page.waitForFunction(
+    () =>
+      document.getElementById("connection-label").textContent === "Connected",
+  );
+  await page.click("#close-picker");
   console.log(
     "Passed pane drafts, search, focus guards, literal titles, expanded keys, and bounded Follow.",
   );

@@ -243,14 +243,19 @@ async function selectWork(page) {
   assert.equal(health.capture.code, "capture_permission");
   console.log("Verified independent capture permission failure.");
   await fixture.command({ captureDenied: false, unavailable: true });
-  await page.click("#open-picker");
-  await page.click("#refresh-picker");
+  // Ghostty fails between the last successful inventory and an input action.
+  // Its rejected receipt must immediately reconcile readiness and keep the draft.
+  await page.click("#send-input");
+  await page
+    .locator("#action-title")
+    .filter({ hasText: "Action wasn’t sent" })
+    .waitFor();
   await page.waitForFunction(
     () =>
       document.getElementById("connection-label").textContent ===
       "Ghostty unavailable",
   );
-  await page.click("#close-picker");
+  assert.equal((await fixture.command()).actions.length, 2);
   await page.click("#read-output");
   await page.waitForFunction(
     () => !document.getElementById("read-output").disabled,
