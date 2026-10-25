@@ -6,10 +6,10 @@
       name="viewport"
       content="width=device-width, initial-scale=1, viewport-fit=cover"
     />
-    <meta name="theme-color" content="#171817" />
+    <meta name="theme-color" content="#11191c" />
     <meta name="color-scheme" content="dark" />
     <meta name="referrer" content="no-referrer" />
-    <title>Onibi · Your Ghostty, within reach</title>
+    <title>Onibi · Your Ghostty cockpit</title>
     <link rel="icon" href="icon.svg" type="image/svg+xml" />
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="stylesheet" href="style.css" />
@@ -19,9 +19,9 @@
     <a class="skip-link" href="#main">Skip to terminal</a>
     <header class="site-header">
       <a class="brand" href="./" aria-label="Onibi home"
-        ><img src="icon.svg" width="34" height="34" alt="" /><span
+        ><img src="icon.svg" width="36" height="36" alt="" /><span
           >onibi<span class="brand-dot">.</span></span
-        ></a
+        ><span class="brand-caption">GHOSTTY COCKPIT</span></a
       >
       <p class="tagline">Control Ghostty wherever text renders</p>
       <div class="header-actions" id="session-controls" hidden>
@@ -32,27 +32,44 @@
         <button class="quiet" id="logout" type="button">Disconnect</button>
       </div>
     </header>
-
     <main id="main" tabindex="-1">
       <section class="pair-view" id="pair-view" aria-labelledby="pair-heading">
         <div class="pair-intro">
-          <span class="eyebrow"
-            ><span class="tiny-line"></span> A window into your Mac</span
-          >
+          <div class="ghost-orbit" aria-hidden="true">
+            <span class="orbit-dot"></span
+            ><svg viewBox="0 0 160 160" fill="none">
+              <path
+                d="M40 124V75a40 40 0 0 1 80 0v49l-14-10-13 10-13-10-13 10-13-10-14 10Z"
+                stroke="currentColor"
+                stroke-width="3"
+                stroke-linejoin="round"
+              />
+              <path
+                d="m60 72 8 7-8 7m25 0h15"
+                stroke="currentColor"
+                stroke-width="4"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              /></svg
+            ><span class="orbit-caption">SAME MAC. NEW PERSPECTIVE.</span>
+          </div>
+          <span class="eyebrow">YOUR TERMINALS, WITHIN REACH</span>
           <h1 id="pair-heading">
-            Pick up where<br />you left off<span class="brand-dot">.</span>
+            Little screen.<br />Big command<span class="brand-dot">.</span>
           </h1>
           <p>
-            Your Ghostty terminals, a little closer.<br />Read output, send
-            input, and keep moving.
+            A quiet place to keep things moving.<br />Your agents, editors, and
+            shells — right where you left them.
           </p>
         </div>
         <form class="pair-card" id="pair-form">
-          <span class="card-kicker">PRIVATE ACCESS</span>
-          <h2>Connect to your Mac</h2>
+          <span class="card-kicker"
+            ><span class="status-dot"></span> PRIVATE CONNECTION</span
+          >
+          <h2>Meet your Mac here.</h2>
           <p id="pair-description">
-            Open a fresh Onibi pairing link from your Mac, or paste its one-time
-            token below.
+            Open the pairing link printed by Onibi on your Mac, or paste its
+            one-time token.
           </p>
           <label for="pair-token">Pairing token</label>
           <input
@@ -62,30 +79,24 @@
             autocapitalize="off"
             spellcheck="false"
             required
-            placeholder="Paste your one-time token"
+            placeholder="Your one-time token"
             aria-describedby="pair-description pair-message"
           />
           <button class="primary full" id="pair-submit" type="submit">
-            Connect <span aria-hidden="true">↗</span>
+            Connect to my Mac <span aria-hidden="true">↗</span>
           </button>
-          <p
-            class="form-message"
-            id="pair-message"
-            role="status"
-            aria-live="polite"
-          >
+          <p class="form-message" id="pair-message" role="status">
             Checking this browser’s connection…
           </p>
           <div class="pair-footnote">
-            <span aria-hidden="true">◈</span
-            ><span
-              >Served by your Mac.<br />Your terminals stay on your
-              machine.</span
-            >
+            <span aria-hidden="true">⌁</span>
+            <p>
+              Served by your Mac. Connected privately.<br />Work keeps running
+              in Ghostty.
+            </p>
           </div>
         </form>
       </section>
-
       <section
         class="workspace"
         id="workspace"
@@ -95,8 +106,8 @@
         <aside class="destinations" aria-label="Available terminals">
           <div class="section-heading">
             <div>
-              <span class="eyebrow">ON YOUR MAC</span>
-              <h2>Terminals</h2>
+              <span class="eyebrow">FLIGHT DECK</span>
+              <h2>Your terminals</h2>
             </div>
             <button
               class="icon-button"
@@ -107,48 +118,78 @@
               ↻
             </button>
           </div>
+          <p class="fleet-count" id="fleet-count">
+            Finding your Mac’s terminals…
+          </p>
+          <label class="search-field"
+            ><span aria-hidden="true">⌕</span
+            ><input
+              id="target-search"
+              type="search"
+              placeholder="Find a pane or folder"
+              aria-label="Filter terminals"
+              autocomplete="off"
+          /></label>
           <div id="target-list" class="target-list"></div>
+          <button
+            class="secondary full new-window"
+            id="new-window"
+            type="button"
+            disabled
+          >
+            <span aria-hidden="true">＋</span> New Ghostty window
+          </button>
           <p class="sidebar-note">
-            Choose an exact pane.<br />Input goes only to that destination.
+            Choose a destination.<br />Your input follows that exact pane.
           </p>
         </aside>
-
         <div class="terminal-workspace">
           <div class="workspace-heading">
             <div class="workspace-title">
-              <span class="eyebrow">YOUR DESTINATION</span>
+              <span class="eyebrow" id="destination-context"
+                >READY WHEN YOU ARE</span
+              >
               <h1 id="destination-title">Choose a terminal</h1>
               <p id="destination-detail">
                 An existing Ghostty pane on your Mac
               </p>
             </div>
-            <button
-              id="open-picker"
-              class="secondary picker-button"
-              type="button"
-            >
-              Terminals <span aria-hidden="true">⌄</span>
-            </button>
+            <div class="heading-actions">
+              <button
+                id="open-picker"
+                class="secondary picker-button"
+                type="button"
+              >
+                Terminals <span aria-hidden="true">⌄</span></button
+              ><button id="open-controls" class="secondary" type="button">
+                Controls <span aria-hidden="true">⊞</span>
+              </button>
+            </div>
           </div>
-          <div
-            class="banner"
-            id="workspace-message"
-            role="status"
-            aria-live="polite"
-            hidden
-          ></div>
-
+          <div class="banner" id="workspace-message" role="status" hidden></div>
           <section class="output-card" aria-labelledby="output-heading">
             <div class="output-toolbar">
               <div class="output-label">
                 <span class="terminal-glyph" aria-hidden="true">›_</span>
-                <h2 id="output-heading">Terminal output</h2>
+                <h2 id="output-heading">The view from your Mac</h2>
               </div>
               <div class="output-actions">
-                <button id="focus-terminal" class="quiet" type="button" hidden>
-                  Focus &amp; read</button
-                ><button id="read-output" class="quiet" type="button" disabled>
-                  Read again <span aria-hidden="true">↻</span>
+                <button
+                  id="follow-output"
+                  class="quiet follow-toggle"
+                  type="button"
+                  aria-pressed="false"
+                  disabled
+                >
+                  <span class="status-dot"></span> Follow</button
+                ><button
+                  id="read-output"
+                  class="icon-button"
+                  type="button"
+                  aria-label="Read output again"
+                  disabled
+                >
+                  ↻
                 </button>
               </div>
             </div>
@@ -156,7 +197,7 @@
               <span class="empty-glyph" aria-hidden="true">⌁</span>
               <h3 id="output-empty-title">Your next move starts here</h3>
               <p id="output-empty-description">
-                Select a Ghostty pane to read its output and send input.
+                Choose a pane. Check its output. Pick up the conversation.
               </p>
               <button class="secondary" id="choose-terminal" type="button">
                 Choose a terminal <span aria-hidden="true">↗</span>
@@ -170,12 +211,20 @@
               hidden
             ></pre>
             <div class="output-footer">
-              <span id="snapshot-state">No terminal selected</span
-              ><time id="snapshot-time"></time
-              ><span class="snapshot-kind">Text snapshot</span>
+              <div>
+                <span id="snapshot-state">No terminal selected</span>
+                <time id="snapshot-time"></time>
+              </div>
+              <span class="snapshot-kind">Visible text</span>
             </div>
           </section>
-
+          <div class="focus-row">
+            <span id="focus-hint"
+              >Reading another pane may need a focus change on your Mac.</span
+            ><button id="focus-terminal" class="secondary" type="button" hidden>
+              Focus &amp; read <span aria-hidden="true">↗</span>
+            </button>
+          </div>
           <section
             class="action-notice"
             id="action-notice"
@@ -199,19 +248,17 @@
               </button>
             </div>
           </section>
-
           <section class="compose-card" aria-labelledby="compose-label">
             <div class="compose-heading">
-              <label id="compose-label" for="compose"
-                >Send to selected pane</label
+              <label id="compose-label" for="compose">Your next move</label
               ><span class="destination-badge" id="compose-destination"
                 >No destination</span
               >
             </div>
             <textarea
               id="compose"
-              rows="3"
-              placeholder="Type a command or a message…"
+              rows="2"
+              placeholder="A command, a prompt, a little nudge…"
               autocapitalize="off"
               autocorrect="off"
               spellcheck="false"
@@ -236,7 +283,6 @@
               </div>
             </div>
           </section>
-
           <div class="key-strip" role="group" aria-label="Terminal keys">
             <button type="button" data-key="esc" disabled>Esc</button
             ><button type="button" data-key="tab" disabled>Tab</button
@@ -249,41 +295,36 @@
               disabled
             >
               ↓</button
-            ><button
-              type="button"
-              data-key="left"
-              aria-label="Left arrow"
-              disabled
-            >
-              ←</button
-            ><button
-              type="button"
-              data-key="right"
-              aria-label="Right arrow"
-              disabled
-            >
-              →</button
             ><button type="button" data-key="ctrl-c" disabled>Ctrl C</button
-            ><button type="button" data-key="enter" disabled>Enter ↵</button>
+            ><button type="button" data-key="enter" disabled>Enter ↵</button
+            ><button
+              id="open-keyboard"
+              type="button"
+              aria-label="More terminal keys"
+            >
+              More ⌨
+            </button>
           </div>
           <div class="tab-actions">
             <button class="quiet" id="new-tab" type="button" disabled>
-              <span aria-hidden="true">＋</span> New tab in this window</button
+              <span aria-hidden="true">＋</span> New tab</button
+            ><button class="quiet" id="split-right" type="button" disabled>
+              <span aria-hidden="true">◫</span> Split pane</button
             ><button
               class="quiet danger-text"
               id="close-tab"
               type="button"
               disabled
             >
-              Close this tab
+              Close tab
             </button>
           </div>
         </div>
       </section>
     </main>
     <footer class="site-footer">
-      <span>ONIBI</span
-      ><span>Same Mac. Same session. A little more freedom.</span>
+      <span>ONIBI <span class="brand-dot">/</span> MADE FOR YOUR MAC</span
+      ><span>Control Ghostty wherever text renders</span>
     </footer>
 
     <dialog
@@ -293,8 +334,8 @@
     >
       <div class="dialog-heading">
         <div>
-          <span class="eyebrow">ON YOUR MAC</span>
-          <h2 id="picker-title">Choose a terminal</h2>
+          <span class="eyebrow">FIND YOUR PLACE</span>
+          <h2 id="picker-title">Your terminals</h2>
         </div>
         <button
           class="icon-button"
@@ -305,10 +346,150 @@
           ×
         </button>
       </div>
+      <label class="search-field"
+        ><span aria-hidden="true">⌕</span
+        ><input
+          id="picker-search"
+          type="search"
+          placeholder="Pane, tab, or folder"
+          aria-label="Filter terminal picker"
+          autocomplete="off"
+      /></label>
       <div id="picker-list" class="target-list"></div>
-      <button class="secondary full" id="refresh-picker" type="button">
-        Refresh terminals
+      <div class="dialog-bottom">
+        <button class="secondary" id="refresh-picker" type="button">
+          Refresh terminals</button
+        ><button class="primary" id="picker-new-window" type="button" disabled>
+          ＋ New window
+        </button>
+      </div>
+    </dialog>
+    <dialog
+      class="controls-dialog"
+      id="controls-dialog"
+      aria-labelledby="controls-title"
+    >
+      <div class="dialog-heading">
+        <div>
+          <span class="eyebrow">MAKE YOURSELF AT HOME</span>
+          <h2 id="controls-title">Ghostty controls</h2>
+        </div>
+        <button
+          class="icon-button"
+          id="close-controls"
+          type="button"
+          aria-label="Close controls"
+        >
+          ×
+        </button>
+      </div>
+      <p class="dialog-destination" id="control-destination">
+        Choose a pane to get started.
+      </p>
+      <div class="control-group">
+        <h3>Create some room</h3>
+        <div class="control-grid">
+          <button class="secondary" id="controls-new-window" type="button">
+            ＋ New window</button
+          ><button class="secondary" data-action="new_tab" type="button">
+            ＋ New tab</button
+          ><button class="secondary" data-split="left" type="button">
+            Split left ←</button
+          ><button class="secondary" data-split="right" type="button">
+            Split right →</button
+          ><button class="secondary" data-split="up" type="button">
+            Split above ↑</button
+          ><button class="secondary" data-split="down" type="button">
+            Split below ↓
+          </button>
+        </div>
+      </div>
+      <p class="control-focus-note" id="control-focus-note">
+        Layout, scrollback, and titles need this pane focused on your Mac.
+      </p>
+      <button class="primary full" id="controls-focus" type="button">
+        Focus selected pane on Mac
       </button>
+      <div id="native-controls"></div>
+      <div class="control-group">
+        <h3>Put a name to it</h3>
+        <div class="control-grid">
+          <button class="secondary" data-rename="rename_pane" type="button">
+            Rename pane</button
+          ><button class="secondary" data-rename="rename_tab" type="button">
+            Rename tab
+          </button>
+        </div>
+      </div>
+      <div class="control-group danger-group">
+        <h3>Close with care</h3>
+        <p>Closing a destination may stop everything running inside it.</p>
+        <div class="control-grid">
+          <button
+            class="secondary danger-text"
+            data-close="close_pane"
+            type="button"
+          >
+            Close pane</button
+          ><button
+            class="secondary danger-text"
+            data-close="close_tab"
+            type="button"
+          >
+            Close tab</button
+          ><button
+            class="secondary danger-text"
+            data-close="close_window"
+            type="button"
+          >
+            Close window
+          </button>
+        </div>
+      </div>
+    </dialog>
+    <dialog
+      class="keyboard-dialog"
+      id="keyboard-dialog"
+      aria-labelledby="keyboard-title"
+    >
+      <div class="dialog-heading">
+        <div>
+          <span class="eyebrow">SMALL SCREEN, FULL VOCABULARY</span>
+          <h2 id="keyboard-title">Terminal keys</h2>
+        </div>
+        <button
+          class="icon-button"
+          id="close-keyboard"
+          type="button"
+          aria-label="Close keyboard"
+        >
+          ×
+        </button>
+      </div>
+      <p class="dialog-destination" id="keyboard-destination">
+        Choose a pane first.
+      </p>
+      <div class="modifier-tabs" role="group" aria-label="Letter key modifier">
+        <button type="button" data-modifier="ctrl" aria-pressed="true">
+          Ctrl + letter</button
+        ><button type="button" data-modifier="meta" aria-pressed="false">
+          Alt + letter
+        </button>
+      </div>
+      <div
+        class="letter-grid"
+        id="letter-keys"
+        role="group"
+        aria-label="Modified letter keys"
+      ></div>
+      <h3 class="keys-heading">Navigate &amp; edit</h3>
+      <div class="navigation-keys" id="navigation-keys"></div>
+      <h3 class="keys-heading">Function keys</h3>
+      <div class="function-keys" id="function-keys"></div>
+      <p class="keyboard-note">
+        Each tap sends one key combination to the named pane. Ctrl C interrupts;
+        Ctrl D can end a shell; Ctrl Z suspends a foreground process.
+      </p>
     </dialog>
     <dialog
       class="confirm-dialog"
@@ -321,15 +502,44 @@
       <p id="close-description"></p>
       <ul id="close-pane-list"></ul>
       <p class="muted">
-        Processes in every pane of this tab may stop. This cannot be undone.
+        Processes in these panes may stop. This cannot be undone.
       </p>
       <div class="dialog-actions">
         <button class="secondary" id="cancel-close" type="button">
-          Keep tab open</button
+          Keep open</button
         ><button class="danger" id="confirm-close" type="button">
           Close tab
         </button>
       </div>
+    </dialog>
+    <dialog
+      class="rename-dialog"
+      id="rename-dialog"
+      aria-labelledby="rename-title"
+    >
+      <form id="rename-form">
+        <div class="dialog-heading">
+          <h2 id="rename-title">Rename tab</h2>
+          <button
+            class="icon-button"
+            id="cancel-rename"
+            type="button"
+            aria-label="Cancel rename"
+          >
+            ×
+          </button>
+        </div>
+        <label for="rename-input">A name you’ll recognize from anywhere</label
+        ><input
+          id="rename-input"
+          type="text"
+          maxlength="256"
+          autocomplete="off"
+          placeholder="Agent · review / server / notes"
+        />
+        <p class="muted" id="rename-message">Leave blank to clear the title.</p>
+        <button class="primary full" type="submit">Save title</button>
+      </form>
     </dialog>
   </body>
 </html>

@@ -1,4 +1,5 @@
-const { chromium } = require("playwright");
+const { chromium, webkit } = require("playwright");
+const AxeBuilder = require("@axe-core/playwright").default;
 const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -47,10 +48,19 @@ let targets = structuredClone(baseTargets),
   mode = "normal",
   receiptState = "completed",
   unavailable = false,
-  snapshotUnavailable = false;
+  snapshotUnavailable = false,
+  snapshotDelay = 0,
+  snapshotActive = 0,
+  snapshotPeak = 0;
 const actions = [],
   requests = [],
   receipts = new Map();
+const controls = [
+  { id: "zoom", label: "Zoom / restore pane", group: "Layout" },
+  { id: "equalize", label: "Balance splits", group: "Layout" },
+  { id: "scroll_up", label: "Page up", group: "Scrollback" },
+  { id: "font_reset", label: "Reset Mac font", group: "Mac display" },
+];
 const text =
   '$ go test ./...\nok  github.com/gongahkia/onibi/internal/ghostty\nok  github.com/gongahkia/onibi/internal/web\n\n$ git status --short\n M internal/web/assets/app.js\n\n<img src=x onerror="window.injected=true">\n\n$ _';
 const json = (res, status, body) => {
@@ -98,9 +108,14 @@ const server = http.createServer(async (req, res) => {
       unavailable ? 503 : 200,
       unavailable
         ? { error: "Ghostty is unavailable.", code: "ghostty_unavailable" }
-        : { targets },
+        : { targets, controls },
     );
   if (req.url.startsWith("/api/snapshot")) {
+    snapshotActive++;
+    snapshotPeak = Math.max(snapshotPeak, snapshotActive);
+    res.on("close", () => snapshotActive--);
+    if (snapshotDelay) await new Promise((r) => setTimeout(r, snapshotDelay));
+    if (res.destroyed) return;
     if (snapshotUnavailable)
       return json(res, 503, {
         error: "Enable Accessibility on your Mac to read output.",
@@ -130,21 +145,39 @@ const server = http.createServer(async (req, res) => {
       focused = data.action.targetId;
       targets = targets.map((t) => ({ ...t, focused: t.id === focused }));
     }
-    if (data.action.kind === "new_tab") {
+    if (["new_tab", "new_window", "split"].includes(data.action.kind)) {
       const t = {
-        id: "surface-new",
-        windowId: data.action.windowId,
+        id: "surface-new-" + actions.length,
+        windowId:
+          data.action.windowId ||
+          (data.action.kind === "split"
+            ? targets.find((t) => t.id === data.action.targetId).windowId
+            : "window-created"),
         windowTitle: "Personal",
-        tabId: "tab-new",
+        tabId:
+          data.action.kind === "split"
+            ? targets.find((t) => t.id === data.action.targetId).tabId
+            : "tab-new-" + actions.length,
         tabTitle: "New tab",
         title: "New shell",
         cwd: "~",
         focused: true,
       };
+      targets = targets.map((t) => ({ ...t, focused: false }));
       targets.push(t);
       result.targetId = t.id;
       focused = t.id;
     }
+    if (data.action.kind.startsWith("rename_"))
+      targets = targets.map((t) =>
+        t.id === data.action.targetId
+          ? {
+              ...t,
+              [data.action.kind === "rename_tab" ? "tabTitle" : "title"]:
+                data.action.name,
+            }
+          : t,
+      );
     const receipt = { id: data.id, state: receiptState, result };
     if (receiptState === "uncertain")
       receipt.error = "Native action could not be confirmed.";
@@ -186,16 +219,35 @@ const server = http.createServer(async (req, res) => {
 (async () => {
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
   const url = `http://127.0.0.1:${server.address().port}`;
-  const browser = await chromium.launch({
-    ...(process.env.ONIBI_CHROME_PATH
+  const engine = process.env.ONIBI_BROWSER || "chromium";
+  assert(["chromium", "webkit"].includes(engine));
+  const browser = await { chromium, webkit }[engine].launch({
+    ...(engine === "chromium" && process.env.ONIBI_CHROME_PATH
       ? { executablePath: process.env.ONIBI_CHROME_PATH }
       : {}),
     headless: true,
   });
-  const page = await browser.newPage({
+  const context = await browser.newContext({
     viewport: { width: 390, height: 844 },
     deviceScaleFactor: 1,
   });
+  const page = await context.newPage();
+  const auditAccessibility = async (label) => {
+    const { violations } = await new AxeBuilder({ page })
+      .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
+      .analyze();
+    assert.deepEqual(
+      violations.map((v) => ({
+        rule: v.id,
+        nodes: v.nodes.map((n) => ({
+          target: n.target,
+          issue: n.failureSummary,
+        })),
+      })),
+      [],
+      label,
+    );
+  };
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto(url);
@@ -203,12 +255,18 @@ const server = http.createServer(async (req, res) => {
     .locator("#pair-message")
     .filter({ hasText: "one-time pairing" })
     .waitFor();
+  await auditAccessibility("Pairing accessibility");
   await page.screenshot({
     path: path.join(output, "pair-mobile.png"),
     fullPage: true,
   });
-  await page.keyboard.press("Tab");
-  assert.equal(await page.evaluate(() => document.activeElement.className), "skip-link");
+  // WebKit follows macOS full-keyboard-access preferences for link tabbing.
+  if (engine === "webkit") await page.locator(".skip-link").focus();
+  else await page.keyboard.press("Tab");
+  assert.equal(
+    await page.evaluate(() => document.activeElement.className),
+    "skip-link",
+  );
   await page.keyboard.press("Enter");
   assert.equal(new URL(page.url()).hash, "#main");
   assert.equal(await page.evaluate(() => document.activeElement.id), "main");
@@ -231,6 +289,7 @@ const server = http.createServer(async (req, res) => {
     path: path.join(output, "terminal-mobile.png"),
     fullPage: true,
   });
+  await auditAccessibility("Terminal accessibility");
   await page.fill("#compose", "printf hello");
   await page.click("#send-input");
   await page.waitForFunction(
@@ -348,7 +407,9 @@ const server = http.createServer(async (req, res) => {
   await page.waitForFunction(
     () => !document.getElementById("send-input").disabled,
   );
-  console.log("Passed uncertain receipt recovery, including reload without replay or stored input.");
+  console.log(
+    "Passed uncertain receipt recovery, including reload without replay or stored input.",
+  );
   await page.click("#open-picker");
   await page.locator("#picker-list .target").nth(1).click();
   await page.locator("#focus-terminal").waitFor({ state: "visible" });
@@ -356,6 +417,7 @@ const server = http.createServer(async (req, res) => {
   await page.locator("#terminal-output").waitFor({ state: "visible" });
   assert.equal(actions.at(-1).action.kind, "focus");
   assert.equal(actions.at(-1).action.targetId, "surface-logs");
+  await page.fill("#compose", "logs draft");
   snapshotUnavailable = true;
   await page.click("#read-output");
   await page
@@ -368,8 +430,11 @@ const server = http.createServer(async (req, res) => {
     path: path.join(output, "capture-unavailable-mobile.png"),
     fullPage: true,
   });
-  snapshotUnavailable = false;
-  await page.locator('[data-key="ctrl-c"]').click();
+  ((snapshotUnavailable = false),
+    (snapshotDelay = 0),
+    (snapshotActive = 0),
+    (snapshotPeak = 0));
+  await page.locator('.key-strip [data-key="ctrl-c"]').click();
   await page.waitForFunction(
     () => document.getElementById("action-title").textContent === "Done",
   );
@@ -403,11 +468,12 @@ const server = http.createServer(async (req, res) => {
       document.getElementById("destination-title").textContent ===
       "Choose a terminal",
   );
-  assert.equal(await page.inputValue("#compose"), "preserve draft");
+  assert.equal(await page.inputValue("#compose"), "");
   assert.equal(await page.locator("#send-input").isDisabled(), true);
   if (!(await page.locator("#target-picker").isVisible()))
     await page.click("#open-picker");
   await page.locator("#picker-list .target").last().click();
+  assert.equal(await page.inputValue("#compose"), "");
   await page.click("#new-tab");
   await page.waitForFunction(
     () =>
@@ -417,6 +483,127 @@ const server = http.createServer(async (req, res) => {
     kind: "new_tab",
     windowId: "window-notes",
   });
+  await page.fill("#compose", "preserve draft");
+  const createdId = actions.at(-1).id;
+  // Drafts stay with their exact pane, including when visiting another shell.
+  await page.click("#open-picker");
+  await page.fill("#picker-search", "notes");
+  assert.equal(await page.locator("#picker-list .target").count(), 1);
+  await page.locator("#picker-list .target").click();
+  assert.equal(await page.inputValue("#compose"), "");
+  await page.fill("#compose", "notes draft");
+  await page.click("#open-controls");
+  assert.equal(await page.locator('[data-control="zoom"]').isDisabled(), true);
+  assert.equal(
+    await page.locator('[data-rename="rename_pane"]').isDisabled(),
+    true,
+  );
+  await page.click("#close-controls");
+  await page.click("#open-picker");
+  await page.fill("#picker-search", "New shell");
+  await page.locator("#picker-list .target").click();
+  assert.equal(await page.inputValue("#compose"), "preserve draft");
+  await page.click("#open-picker");
+  await page.fill("#picker-search", "");
+  await page.click("#close-picker");
+  await page.click("#open-controls");
+  await page.screenshot({
+    path: path.join(output, "controls-mobile.png"),
+    fullPage: false,
+  });
+  const selected = receipts.get(createdId).result.targetId;
+  await page.locator('[data-control="zoom"]').click();
+  await page.waitForFunction(
+    () => !document.querySelector('[data-control="zoom"]').disabled,
+  );
+  assert.deepEqual(actions.at(-1).action, {
+    kind: "control",
+    targetId: selected,
+    control: "zoom",
+  });
+  await page.locator('[data-rename="rename_pane"]').click();
+  const title = 'Agent · review <literal> "quoted"';
+  await page.fill("#rename-input", title);
+  await page.locator('#rename-form button[type="submit"]').click();
+  await page.waitForFunction(
+    (t) => document.getElementById("destination-title").textContent === t,
+    title,
+  );
+  assert.deepEqual(actions.at(-1).action, {
+    kind: "rename_pane",
+    targetId: selected,
+    name: title,
+  });
+  await page.click("#open-keyboard");
+  await page.screenshot({
+    path: path.join(output, "keyboard-mobile.png"),
+    fullPage: false,
+  });
+  await page.locator('[data-letter="d"]').click();
+  await page.waitForFunction(
+    () => !document.querySelector('[data-letter="d"]').disabled,
+  );
+  assert.deepEqual(actions.at(-1).action, {
+    kind: "key",
+    targetId: selected,
+    key: "ctrl-d",
+  });
+  await page.locator('[data-modifier="meta"]').click();
+  await page.locator('[data-letter="b"]').click();
+  await page.waitForFunction(
+    () => !document.querySelector('[data-letter="b"]').disabled,
+  );
+  assert.equal(actions.at(-1).action.key, "meta-b");
+  await page.locator('[data-key="f12"]').click();
+  await page.waitForFunction(
+    () => !document.querySelector('[data-key="f12"]').disabled,
+  );
+  assert.equal(actions.at(-1).action.key, "f12");
+  await page.click("#close-keyboard");
+  // Slow snapshots must never overlap during Follow, and input cancels a read.
+  await page.waitForFunction(
+    () => !document.getElementById("read-output").disabled,
+  );
+  snapshotDelay = 300;
+  snapshotPeak = 0;
+  let snapshotBefore = requests.filter((r) =>
+    r.url.startsWith("/api/snapshot"),
+  ).length;
+  await page.click("#follow-output");
+  await page.waitForTimeout(3200);
+  assert(
+    requests.filter((r) => r.url.startsWith("/api/snapshot")).length >=
+      snapshotBefore + 2,
+  );
+  assert.equal(snapshotPeak, 1);
+  await page.click("#follow-output");
+  await page.waitForFunction(
+    () => !document.getElementById("read-output").disabled,
+  );
+  snapshotBefore = requests.filter((r) =>
+    r.url.startsWith("/api/snapshot"),
+  ).length;
+  await page.waitForTimeout(2800);
+  assert.equal(
+    requests.filter((r) => r.url.startsWith("/api/snapshot")).length,
+    snapshotBefore,
+  );
+  snapshotUnavailable = true;
+  await page.click("#follow-output");
+  await page.waitForFunction(
+    () =>
+      document.getElementById("follow-output").getAttribute("aria-pressed") ===
+      "false",
+  );
+  snapshotUnavailable = false;
+  snapshotDelay = 0;
+  await page.click("#read-output");
+  await page.waitForFunction(
+    () => !document.getElementById("read-output").disabled,
+  );
+  console.log(
+    "Passed pane drafts, search, focus guards, literal titles, expanded keys, and bounded Follow.",
+  );
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.screenshot({
     path: path.join(output, "terminal-desktop.png"),
@@ -433,6 +620,51 @@ const server = http.createServer(async (req, res) => {
     path: path.join(output, "terminal-small.png"),
     fullPage: true,
   });
+  // Small-screen sheets retain 44px touch targets and never overflow horizontally.
+  for (const [opener, dialog, closer] of [
+    ["open-picker", "target-picker", "close-picker"],
+    ["open-controls", "controls-dialog", "close-controls"],
+    ["open-keyboard", "keyboard-dialog", "close-keyboard"],
+  ]) {
+    await page.click("#" + opener);
+    assert.equal(
+      await page
+        .locator("#" + dialog)
+        .evaluate((el) => el.scrollWidth <= el.clientWidth),
+      true,
+    );
+    const small = await page
+      .locator("#" + dialog + " button")
+      .evaluateAll((els) =>
+        els
+          .filter((el) => el.getClientRects().length)
+          .filter(
+            (el) =>
+              el.getBoundingClientRect().width < 43.9 ||
+              el.getBoundingClientRect().height < 43.9,
+          )
+          .map((el) => el.textContent),
+      );
+    assert.deepEqual(small, []);
+    await auditAccessibility(dialog + " accessibility");
+    await page.click("#" + closer);
+  }
+  await page.setViewportSize({ width: 844, height: 390 });
+  await page.click("#open-keyboard");
+  assert.equal(
+    await page
+      .locator("#keyboard-dialog")
+      .evaluate((el) => el.scrollWidth <= el.clientWidth),
+    true,
+  );
+  await page.locator('[data-key="f12"]').scrollIntoViewIfNeeded();
+  assert.equal(await page.locator("#close-keyboard").isVisible(), true);
+  await page.click("#close-keyboard");
+  await page.screenshot({
+    path: path.join(output, "terminal-landscape.png"),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 320, height: 760 });
   unavailable = true;
   await page.click("#open-picker");
   await page.click("#refresh-picker");
@@ -452,6 +684,72 @@ const server = http.createServer(async (req, res) => {
       document.getElementById("connection-label").textContent === "Connected",
   );
   await page.click("#close-picker");
+  // Creation works with no existing windows. Close scopes name only what the user confirmed.
+  targets = [];
+  await page.click("#open-picker");
+  await page.click("#refresh-picker");
+  await page.waitForFunction(
+    () =>
+      document.getElementById("destination-title").textContent ===
+      "Choose a terminal",
+  );
+  await page.click("#picker-new-window");
+  await page.waitForFunction(
+    () =>
+      document.getElementById("destination-title").textContent === "New shell",
+  );
+  assert.deepEqual(actions.at(-1).action, { kind: "new_window" });
+  let pane = receipts.get(actions.at(-1).id).result.targetId;
+  for (const direction of ["left", "right", "up", "down"]) {
+    await page.click("#open-controls");
+    await page.locator(`[data-split="${direction}"]`).click();
+    await page.waitForFunction(
+      () => !document.getElementById("split-right").disabled,
+    );
+    assert.deepEqual(actions.at(-1).action, {
+      kind: "split",
+      targetId: pane,
+      direction,
+    });
+    pane = receipts.get(actions.at(-1).id).result.targetId;
+  }
+  for (const kind of ["close_pane", "close_window"]) {
+    await page.click("#open-controls");
+    await page.locator(`[data-close="${kind}"]`).click();
+    assert.equal(
+      await page.locator("#close-pane-list li").count(),
+      kind === "close_pane" ? 1 : 5,
+    );
+    assert.equal(
+      await page.evaluate(() => document.activeElement.id),
+      "cancel-close",
+    );
+    await page.click("#confirm-close");
+    await page.waitForFunction(
+      () => !document.getElementById("split-right").disabled,
+    );
+    assert.deepEqual(
+      actions.at(-1).action,
+      kind === "close_pane"
+        ? { kind, targetId: pane }
+        : { kind, windowId: "window-created" },
+    );
+  }
+  // A canceled slow read cannot replace a newly selected pane's output.
+  snapshotDelay = 1000;
+  await page.click("#read-output");
+  await page.click("#open-picker");
+  await page.locator("#picker-list .target").first().click();
+  await page.waitForTimeout(1200);
+  assert.equal(await page.locator("#terminal-output").isVisible(), false);
+  snapshotDelay = 0;
+  await page.click("#focus-terminal");
+  await page.waitForFunction(
+    () => !document.getElementById("split-right").disabled,
+  );
+  console.log(
+    "Passed empty inventory creation, four split directions, close scopes, and canceled stale reads.",
+  );
   await page.evaluate(() => {
     Storage.prototype.setItem = function () {
       throw new Error("Storage blocked");
@@ -478,6 +776,7 @@ const server = http.createServer(async (req, res) => {
   console.log(
     JSON.stringify({
       passed: true,
+      engine,
       assertions: [
         "fragment removal",
         "explicit selection",
@@ -498,6 +797,15 @@ const server = http.createServer(async (req, res) => {
         "mobile overflow",
         "offline draft preservation",
         "reduced motion",
+        "pane-specific in-memory drafts",
+        "search and focus guards",
+        "literal renaming and Ctrl/Alt/function keys",
+        "non-overlapping Follow and error pause",
+        "new window with empty inventory",
+        "four split directions and close scopes",
+        "canceled stale output",
+        "44px sheet controls and landscape layout",
+        "WCAG A/AA automated checks",
         "logout",
         "no JS errors",
       ],
