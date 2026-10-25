@@ -336,6 +336,11 @@ const server = http.createServer(async (req, res) => {
     .filter({ hasText: "one-time pairing" })
     .waitFor();
   await auditAccessibility("Pairing accessibility");
+  const connectBounds = await page.locator("#pair-submit").boundingBox();
+  assert(
+    connectBounds.y + connectBounds.height <= 844,
+    "connect action is visible in the initial phone viewport",
+  );
   await page.screenshot({
     path: path.join(output, "pair-mobile.png"),
     fullPage: true,

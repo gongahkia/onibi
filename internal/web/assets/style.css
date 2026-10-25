@@ -1579,6 +1579,7 @@ dialog::backdrop {
   font-weight: 600;
 }
 .pair-view {
+  margin: 0 auto 40px;
   max-width: 1040px;
   gap: 64px;
   padding-block: 64px;
@@ -1637,21 +1638,33 @@ dialog {
 }
 @media (max-width: 720px) {
   .pair-view {
-    padding: 28px 20px;
-    gap: 24px;
+    padding: 24px 20px;
+    gap: 20px;
   }
   .pair-intro {
     padding-top: 0;
   }
   .pair-intro h1 {
-    font-size: 30px;
+    font-size: 24px;
+    margin: 0;
+  }
+  .pair-intro > .eyebrow,
+  .pair-intro > p,
+  .pair-footnote {
+    display: none;
   }
   .pair-intro > p {
     max-width: none;
     font-size: 12px;
   }
   .pair-card {
-    padding: 22px;
+    padding: 20px;
+  }
+  .pair-card label {
+    margin-top: 18px;
+  }
+  .pair-card .remember-option {
+    margin-top: 20px;
   }
   .brand {
     font-size: 20px;
