@@ -88,14 +88,17 @@ func writeWebDoctor(cmd *cobra.Command, report ghostty.Diagnostics, asJSON bool)
 			return err
 		}
 	} else {
-		fmt.Fprintln(cmd.OutOrStdout(), "Onibi · Ghostty readiness")
+		ui := terminalUI(cmd)
+		ui.Banner("Ghostty readiness")
 		if report.Capabilities.Version != "" {
-			fmt.Fprintln(cmd.OutOrStdout(), "Ghostty version:", report.Capabilities.Version)
+			ui.Field("Ghostty", report.Capabilities.Version)
 		}
 		for _, check := range report.Checks {
-			fmt.Fprintf(cmd.OutOrStdout(), "%-19s %-22s %s\n", check.ID, check.State, check.Detail)
+			ui.Line("  [%s] %s", check.State, check.ID)
+			ui.Note("  " + check.Detail)
+			ui.Line("")
 		}
-		fmt.Fprintln(cmd.OutOrStdout(), "Unknown checks are not evidence of readiness. No focus changes or terminal input are performed.")
+		ui.Note("Unknown checks are not evidence of readiness. No focus changes or terminal input are performed.")
 	}
 	for _, c := range report.Checks {
 		switch c.State {

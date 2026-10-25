@@ -4,16 +4,21 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"syscall"
 	"time"
 
+	"github.com/gongahkia/onibi/internal/buildinfo"
 	"github.com/gongahkia/onibi/internal/ghostty"
+	"github.com/gongahkia/onibi/internal/logging"
 	"github.com/gongahkia/onibi/internal/web"
 	"github.com/gongahkia/onibi/internal/webadmin"
 	"github.com/spf13/cobra"
@@ -25,7 +30,8 @@ func webCmd() *cobra.Command {
 		Use: "web", Short: "Control existing Ghostty terminals from a private web interface",
 		Args: cobra.NoArgs, RunE: runWeb,
 	}
-	cmd.AddCommand(webDoctorCmd(), webPairCmd(), webDevicesCmd(), webServiceCmd())
+	cmd.AddCommand(webDoctorCmd(), webPairCmd(), webDevicesCmd(), webServiceCmd(), webStatusCmd(), webLogsCmd())
+	cmd.Flags().String("log-level", "info", "web telemetry verbosity: info or debug (debug includes successful reads)")
 	cmd.Flags().Bool("background", false, "suppress pairing secrets in service logs; use onibi web pair locally")
 	cmd.Flags().String("listen", "127.0.0.1:8787", "loopback address for the local HTTP server")
 	cmd.Flags().String("origin", "", "public HTTPS origin from Tailscale Serve (defaults to local HTTP)")
@@ -59,6 +65,15 @@ func runWeb(cmd *cobra.Command, _ []string) error {
 	if runtime.GOOS != "darwin" {
 		return errors.New("Ghostty web control requires macOS and Ghostty 1.3 or later")
 	}
+	levelName, _ := cmd.Flags().GetString("log-level")
+	level := slog.LevelInfo
+	switch levelName {
+	case "info":
+	case "debug":
+		level = slog.LevelDebug
+	default:
+		return errors.New("--log-level must be info or debug")
+	}
 	address, _ := cmd.Flags().GetString("listen")
 	if err := validateWebListen(address); err != nil {
 		return err
@@ -75,7 +90,7 @@ func runWeb(cmd *cobra.Command, _ []string) error {
 	defer lock.Close()
 	listener, err := net.Listen("tcp", address)
 	if err != nil {
-		return fmt.Errorf("start web listener: %w", err)
+		return fmt.Errorf("start web listener: %w; inspect %s web status, or choose another loopback port with --listen", err, commandHint())
 	}
 	defer listener.Close()
 	if bound, ok := listener.Addr().(*net.TCPAddr); !ok || !bound.IP.IsLoopback() {
@@ -85,7 +100,19 @@ func runWeb(cmd *cobra.Command, _ []string) error {
 	if origin == "" {
 		origin = "http://" + listener.Addr().String()
 	}
-	app, err := web.New(web.Options{Backend: ghostty.New(), Diagnostics: ghostty.Inspect, DB: db, PublicOrigin: origin, ProxyHosts: []string{listener.Addr().String()}, Assets: web.Assets()})
+	logPath := filepath.Join(paths.LogDir, "web.log")
+	logFile, err := logging.NewRotatingWriter(logPath, logging.DefaultMaxBytes, logging.DefaultBackups)
+	if err != nil {
+		return fmt.Errorf("open private web log: %w", err)
+	}
+	defer logFile.Close()
+	background, _ := cmd.Flags().GetBool("background")
+	var console io.Writer
+	if !background {
+		console = cmd.ErrOrStderr()
+	}
+	logger := logging.Web(logFile, console, level)
+	app, err := web.New(web.Options{Backend: ghostty.New(), Diagnostics: ghostty.Inspect, DB: db, PublicOrigin: origin, ProxyHosts: []string{listener.Addr().String()}, Assets: web.Assets(), Logger: logger})
 	if err != nil {
 		return err
 	}
@@ -104,12 +131,29 @@ func runWeb(cmd *cobra.Command, _ []string) error {
 	}
 	done := make(chan error, 1)
 	go func() { done <- server.Serve(listener) }()
-	fmt.Fprintf(cmd.OutOrStdout(), "Onibi · Control Ghostty wherever text renders\nListening on %s\n", listener.Addr())
-	background, _ := cmd.Flags().GetBool("background")
+	ui := terminalUI(cmd)
 	if !background {
-		fmt.Fprintf(cmd.OutOrStdout(), "Pair this browser (one use, expires in 10 minutes):\n%s\nStop with Ctrl-C. Temporary access ends on restart.\n", app.PairingURL())
+		ui.Banner("Control Ghostty wherever text renders")
+		ui.Field("Version", buildinfo.Version+" ("+buildinfo.Commit+")")
+		ui.Field("Process", strconv.Itoa(os.Getpid()))
+		ui.Field("Listening", listener.Addr().String())
+		ui.Field("Open", origin)
+		ui.Field("Native", "Not checked yet / select a terminal in the browser")
+		ui.Field("Logs", logPath)
+		ui.Line("")
+		ui.Note("PAIR THIS BROWSER / one use / expires in 10 minutes")
+		ui.Line("%s", app.PairingURL())
+		ui.Line("")
+		hint := commandHint()
+		ui.Field("Pair again", hint+" web pair")
+		ui.Field("Status", hint+" web status")
+		ui.Field("Follow logs", hint+" web logs --follow")
+		ui.Note("Ctrl-C stops Onibi. Temporary access ends on restart.")
+		ui.Note("Remembered browsers expire after 30 days or when revoked.")
+		ui.Line("")
 	}
-	fmt.Fprintln(cmd.OutOrStdout(), "Run onibi web pair locally for a fresh link. Remembered devices expire after 30 days or when revoked.")
+	logger.Info("web.started", "version", buildinfo.Version, "commit", buildinfo.Commit, "pid", os.Getpid(), "log_level", levelName)
+	defer logger.Info("web.stopped")
 	select {
 	case err := <-done:
 		if errors.Is(err, http.ErrServerClosed) {
@@ -117,6 +161,7 @@ func runWeb(cmd *cobra.Command, _ []string) error {
 		}
 		return err
 	case <-ctx.Done():
+		logger.Info("web.stopping", "drain_timeout_seconds", 45)
 		// Actions survive browser disconnects and have a 30-second execution
 		// budget plus 5 seconds to persist their receipt. Keep the database and
 		// exclusive state lock alive until those handlers have drained.

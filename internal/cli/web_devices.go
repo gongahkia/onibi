@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/gongahkia/onibi/internal/config"
+	"github.com/gongahkia/onibi/internal/termui"
 	"github.com/gongahkia/onibi/internal/webadmin"
 	"github.com/spf13/cobra"
 )
@@ -46,7 +47,7 @@ func webDevicesCmd() *cobra.Command {
 			if d.Remembered {
 				kind = "remembered"
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%s  %s  %s  expires %s\n", d.ID, d.Name, kind, d.ExpiresAt.Format(time.RFC3339))
+			fmt.Fprintf(cmd.OutOrStdout(), "%s  %s  %s  expires %s\n", d.ID, termui.Clean(d.Name), kind, d.ExpiresAt.Format(time.RFC3339))
 		}
 		return nil
 	}}

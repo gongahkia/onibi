@@ -33,30 +33,42 @@ func webServiceCmd() *cobra.Command {
 				if err := validateWebListen(listen); err != nil {
 					return err
 				}
-				if err := manager.Install(ctx, listen, origin); err != nil {
+				if err := terminalUI(cmd).Step("Install web login service", func(func(string)) error { return manager.Install(ctx, listen, origin) }); err != nil {
 					return err
 				}
-				cmd.Println("Web login service installed. Run onibi web service start, then onibi web pair. It also starts at your next graphical login.")
+				cmd.Printf("Installed. Start: %s web service start\nThen pair: %s web pair\nIt also starts at your next graphical login.\n", commandHint(), commandHint())
 				return nil
 			case "start":
-				err = manager.Start(ctx)
+				err = terminalUI(cmd).Step("Start web login service", func(func(string)) error { return manager.Start(ctx) })
 			case "stop":
-				err = manager.Stop(ctx)
+				err = terminalUI(cmd).Step("Stop web login service", func(func(string)) error { return manager.Stop(ctx) })
 			case "restart":
-				err = manager.Restart(ctx)
+				err = terminalUI(cmd).Step("Restart web login service", func(func(string)) error { return manager.Restart(ctx) })
 			case "remove":
-				err = manager.Remove(ctx)
+				err = terminalUI(cmd).Step("Remove web login service", func(func(string)) error { return manager.Remove(ctx) })
 			case "status":
 				status := manager.Status(ctx)
 				asJSON, _ := cmd.Flags().GetBool("json")
 				if asJSON {
 					return json.NewEncoder(cmd.OutOrStdout()).Encode(status)
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "Installed: %t\nRunning: %t\nFile: %s\n%s\n", status.Installed, status.Running, status.Path, status.Detail)
+				ui := terminalUI(cmd)
+				ui.Banner("Web login service")
+				ui.Field("Installed", fmt.Sprint(status.Installed))
+				ui.Field("Running", fmt.Sprint(status.Running))
+				ui.Field("File", status.Path)
+				ui.Note(status.Detail)
 				return nil
 			}
 			if err == nil {
-				cmd.Printf("Web service %s completed.\n", op)
+				switch op {
+				case "start", "restart":
+					cmd.Printf("Inspect: %s web status\nPair: %s web pair\n", commandHint(), commandHint())
+				case "remove":
+					cmd.Println("Login service removed. Browser grants, state and logs were preserved.")
+				case "stop":
+					cmd.Println("Stopped. The installed service starts again at your next graphical login.")
+				}
 			}
 			return err
 		}}
