@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/gdamore/tcell/v2"
@@ -149,6 +151,9 @@ func (a *App) post(fn func()) {
 	}
 }
 func (a *App) Run() error {
+	termination := make(chan os.Signal, 1)
+	signal.Notify(termination, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	defer signal.Stop(termination)
 	if err := a.Screen.Init(); err != nil {
 		a.cancel()
 		return err
@@ -187,6 +192,8 @@ func (a *App) Run() error {
 		case <-a.serviceC:
 			a.serviceC = nil
 			a.services()
+		case <-termination:
+			return nil
 		case <-a.ctx.Done():
 			return nil
 		}
