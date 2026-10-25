@@ -114,13 +114,50 @@ const server = http.createServer(async (req, res) => {
     authorized = false;
     return json(res, 200, { ok: true });
   }
+  if (req.url === "/api/health")
+    return json(res, 200, {
+      diagnostics: {
+        capabilities: {
+          version: "1.3.1",
+          known: true,
+          control: true,
+          rename: true,
+        },
+        checks: [
+          {
+            id: "process",
+            state: "running",
+            detail:
+              "One Ghostty process found; responsiveness has not been tested.",
+          },
+          {
+            id: "capture",
+            state: snapshotUnavailable ? "capture_permission" : "ready",
+            detail: "Capture permission status.",
+          },
+        ],
+      },
+      inventory: {
+        state: unavailable ? "unavailable" : "ready",
+        durationMs: 15,
+      },
+    });
   if (req.url === "/api/targets")
     return json(
       res,
       unavailable ? 503 : 200,
       unavailable
         ? { error: "Ghostty is unavailable.", code: "ghostty_unavailable" }
-        : { targets, controls },
+        : {
+            targets,
+            controls,
+            capabilities: {
+              version: "1.3.1",
+              known: true,
+              control: true,
+              rename: true,
+            },
+          },
     );
   if (req.url.startsWith("/api/snapshot")) {
     snapshotActive++;
@@ -375,7 +412,7 @@ const server = http.createServer(async (req, res) => {
         request.url === "/api/actions/" + actions.at(-1).id,
     ),
   );
-  assert.equal(await page.textContent("#action-title"), "Done");
+  assert.equal(await page.textContent("#action-title"), "Input delivered");
   mode = "lost-post";
   receiptState = "uncertain";
   const before = actions.length;
@@ -436,7 +473,10 @@ const server = http.createServer(async (req, res) => {
     .locator("#snapshot-state")
     .filter({ hasText: "not live" })
     .waitFor();
-  assert.equal(await page.textContent("#connection-label"), "Connected");
+  assert.equal(
+    await page.textContent("#connection-label"),
+    "Output unavailable",
+  );
   assert.equal(await page.locator("#send-input").isDisabled(), false);
   await page.screenshot({
     path: path.join(output, "capture-unavailable-mobile.png"),
@@ -447,8 +487,10 @@ const server = http.createServer(async (req, res) => {
     (snapshotActive = 0),
     (snapshotPeak = 0));
   await page.locator('.key-strip [data-key="ctrl-c"]').click();
-  await page.waitForFunction(
-    () => document.getElementById("action-title").textContent === "Done",
+  await page.waitForFunction(() =>
+    ["Done", "Key delivered", "Close requested"].includes(
+      document.getElementById("action-title").textContent,
+    ),
   );
   assert.deepEqual(actions.at(-1).action, {
     kind: "key",
@@ -463,8 +505,10 @@ const server = http.createServer(async (req, res) => {
   assert.equal(actions.length, closeBefore);
   await page.click("#close-tab");
   await page.click("#confirm-close");
-  await page.waitForFunction(
-    () => document.getElementById("action-title").textContent === "Done",
+  await page.waitForFunction(() =>
+    ["Done", "Key delivered", "Close requested"].includes(
+      document.getElementById("action-title").textContent,
+    ),
   );
   assert.deepEqual(actions.at(-1).action, {
     kind: "close_tab",
@@ -683,7 +727,7 @@ const server = http.createServer(async (req, res) => {
   await page.waitForFunction(
     () =>
       document.getElementById("connection-label").textContent ===
-      "Disconnected",
+      "Ghostty unavailable",
   );
   await page.click("#close-picker");
   assert.equal(await page.locator("#send-input").isDisabled(), true);

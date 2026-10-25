@@ -12,7 +12,22 @@ const state = {
   csrf: "",
   targets: [],
   selectedId: "",
-  connected: false,
+  transport: "checking",
+  transportVersion: 0,
+  requestVersion: 0,
+  nativeState: "checking",
+  nativeVersion: 0,
+  checkVersion: 0,
+  nativeCode: "",
+  captureState: "unknown",
+  captureDetail: "",
+  capabilities: { known: false },
+  targetsPromise: null,
+  targetTimer: null,
+  targetFailures: 0,
+  nextInventoryAt: 0,
+  readTimer: null,
+  expiresAt: 0,
   targetsLoading: false,
   snapshotVersion: 0,
   snapshotTarget: "",
@@ -130,14 +145,17 @@ function restorePending() {
 }
 
 class APIError extends Error {
-  constructor(message, status = 0, code = "") {
+  constructor(message, status = 0, code = "", retryAfter = 0) {
     super(message);
     this.status = status;
     this.code = code;
+    this.retryAfter = retryAfter;
   }
 }
 
 async function api(path, options = {}) {
+  const networkVersion = ++state.requestVersion;
+  const generation = state.authGeneration;
   const controller = new AbortController();
   const { signal: upstream, ...requestOptions } = options;
   const abort = () => controller.abort();
@@ -158,6 +176,8 @@ async function api(path, options = {}) {
         ...options.headers,
       },
     });
+    if (generation === state.authGeneration)
+      setNetwork("reachable", networkVersion);
     let body;
     try {
       body = await response.json();
@@ -174,10 +194,16 @@ async function api(path, options = {}) {
           : "The request could not be completed.",
         response.status,
         body.code || "",
+        Math.min(
+          60,
+          Math.max(0, Number(response.headers.get("Retry-After")) || 0),
+        ),
       );
     return body;
   } catch (error) {
     if (error instanceof APIError) throw error;
+    if (!upstream?.aborted && generation === state.authGeneration)
+      setNetwork("offline", networkVersion);
     throw new APIError("Connection to your Mac was interrupted.");
   } finally {
     clearTimeout(timeout);
@@ -197,13 +223,139 @@ function tabName(target) {
 function windowName(target) {
   return target.windowTitle || "Ghostty window";
 }
-function setConnected(connected) {
-  state.connected = connected;
-  byId("connection").classList.toggle("disconnected", !connected);
-  byId("connection-label").textContent = connected
-    ? "Connected"
-    : "Disconnected";
+function controlReady() {
+  return (
+    state.transport === "reachable" &&
+    state.nativeState === "ready" &&
+    !(state.capabilities.known && !state.capabilities.control)
+  );
+}
+function setNetwork(value, version = ++state.requestVersion) {
+  if (version < state.transportVersion) return;
+  state.transportVersion = version;
+  state.transport = value;
   updateControls();
+}
+function setNative(value, code = "", version = ++state.checkVersion) {
+  if (version < state.nativeVersion) return;
+  state.nativeVersion = version;
+  state.nativeState = value;
+  state.nativeCode = code;
+  updateControls();
+}
+function renderReadiness() {
+  let label = "Connected",
+    detail = "Your Mac and Ghostty are responding.";
+  if (state.transport === "offline") {
+    label = "Disconnected";
+    detail =
+      "The connection to your Mac was lost. Your pane drafts are kept in this page.";
+  } else if (state.nativeState === "checking") {
+    label = "Checking Ghostty";
+    detail = "Checking the Mac’s native terminal inventory…";
+  } else if (state.nativeState !== "ready") {
+    label = "Ghostty unavailable";
+    detail =
+      {
+        ghostty_not_running:
+          "Your Mac is reachable. Open Ghostty on the Mac to continue.",
+        automation_permission:
+          "Your Mac is reachable. Allow Automation access for the process launching Onibi.",
+        ghostty_timeout:
+          "Your Mac is reachable, but Ghostty did not respond in time. Automatic checks are slowing down.",
+        unsupported_platform: "Native Ghostty control requires macOS.",
+      }[state.nativeCode] ||
+      "Your Mac is reachable, but Ghostty’s terminal inventory is unavailable.";
+  } else if (state.capabilities.known && !state.capabilities.control) {
+    label = "Update Ghostty";
+    detail =
+      "This Ghostty version does not support the required native controls.";
+  } else if (state.captureState === "focus_required") {
+    label = "Focus needed";
+    detail =
+      "Input targets the selected pane. Focus it on your Mac to read output.";
+  } else if (state.captureState === "unavailable") {
+    label = "Output unavailable";
+    detail =
+      state.captureDetail ||
+      "Terminal control is available, but output could not be read.";
+  }
+  byId("connection-label").textContent = label;
+  byId("connection").classList.toggle("disconnected", !controlReady());
+  byId("connection").setAttribute("aria-label", label + ". View Mac readiness");
+  byId("readiness-strip").hidden = label === "Connected";
+  byId("readiness-summary").textContent = detail;
+  byId("health-summary").textContent = detail;
+  const waiting = Date.now() < state.nextInventoryAt;
+  byId("retry-connection").disabled =
+    state.targetsLoading || waiting || !state.csrf;
+  byId("retry-connection").textContent = state.targetsLoading
+    ? "Checking…"
+    : waiting
+      ? "Retry shortly"
+      : "Check again";
+  byId("session-expiry").textContent = state.expiresAt
+    ? "Browser session expires " +
+      new Date(state.expiresAt).toLocaleString() +
+      ". Restarting Onibi also revokes this session."
+    : "Session expiry is unavailable.";
+}
+function scheduleInventory() {
+  clearTimeout(state.targetTimer);
+  if (!state.csrf || document.hidden) return;
+  const delay = Math.max(10000, state.nextInventoryAt - Date.now());
+  state.targetTimer = setTimeout(() => {
+    if (state.pending) scheduleInventory();
+    else refreshTargets();
+  }, delay);
+}
+async function loadHealth() {
+  byId("health-refresh").disabled = true;
+  const generation = state.authGeneration;
+  try {
+    const data = await api("/api/health");
+    if (generation !== state.authGeneration) return;
+    const list = byId("health-checks");
+    list.replaceChildren();
+    const checks = data.diagnostics?.checks || [];
+    for (const check of checks) {
+      const row = document.createElement("li");
+      const name = document.createElement("strong");
+      const detail = document.createElement("p");
+      name.textContent =
+        check.id.replaceAll("_", " ") +
+        " · " +
+        check.state.replaceAll("_", " ");
+      detail.textContent = check.detail;
+      row.append(name, detail);
+      list.append(row);
+    }
+    const version =
+      data.diagnostics?.capabilities?.version ||
+      state.capabilities.version ||
+      "unknown";
+    const inventory = data.inventory;
+    byId("health-observation").textContent =
+      "Ghostty " +
+      version +
+      (inventory?.state && inventory.state !== "unknown"
+        ? " · Last inventory: " +
+          inventory.state +
+          " (" +
+          inventory.durationMs +
+          " ms)"
+        : " · Native inventory has not been verified.");
+    byId("health-error").textContent = "";
+  } catch (error) {
+    if (generation !== state.authGeneration) return;
+    if (error.status === 401)
+      requirePairing(
+        "Your session expired. Use a fresh pairing link from your Mac.",
+      );
+    else byId("health-error").textContent = error.message;
+  } finally {
+    byId("health-refresh").disabled = false;
+  }
 }
 function message(text) {
   byId("workspace-message").textContent = text;
@@ -216,9 +368,9 @@ function pairMessage(text, error = false) {
 function updateControls() {
   const target = selectedTarget();
   const canAct = Boolean(
-    state.csrf && target && state.connected && !state.pending,
+    state.csrf && target && controlReady() && !state.pending,
   );
-  const canCreate = Boolean(state.csrf && state.connected && !state.pending);
+  const canCreate = Boolean(state.csrf && controlReady() && !state.pending);
   for (const id of actionButtons) byId(id).disabled = !canAct;
   for (const id of ["new-window", "picker-new-window", "controls-new-window"])
     byId(id).disabled = !canCreate;
@@ -227,7 +379,7 @@ function updateControls() {
   byId("compose").disabled = !state.csrf || !target;
   byId("read-output").disabled =
     !state.csrf || !target || state.snapshotLoading;
-  byId("follow-output").disabled = !state.csrf || !target;
+  byId("follow-output").disabled = !state.csrf || !target || !controlReady();
   byId("follow-output").setAttribute("aria-pressed", String(state.follow));
   byId("logout").disabled = Boolean(state.pending);
   for (const button of document.querySelectorAll(
@@ -237,11 +389,20 @@ function updateControls() {
   for (const button of document.querySelectorAll(
     "[data-control], [data-rename]",
   ))
-    button.disabled = !canAct || !target?.focused;
+    button.disabled =
+      !canAct ||
+      !target?.focused ||
+      (button.hasAttribute("data-rename") &&
+        state.capabilities.known &&
+        !state.capabilities.rename);
   byId("controls-focus").hidden = Boolean(target?.focused) || !target;
   byId("control-focus-note").textContent = target?.focused
     ? "These controls affect this focused pane on your Mac."
     : "Focus this pane on your Mac to use layout, scrollback, display, and title controls.";
+  byId("title-capability").hidden = !(
+    state.capabilities.known && !state.capabilities.rename
+  );
+  renderReadiness();
 }
 
 function rememberDraft() {
@@ -260,7 +421,7 @@ function scheduleFollow() {
     !state.snapshotLoading &&
     !document.hidden &&
     state.csrf &&
-    state.connected &&
+    controlReady() &&
     !state.pending &&
     selectedTarget()
   ) {
@@ -269,6 +430,7 @@ function scheduleFollow() {
 }
 function cancelSnapshot() {
   state.snapshotVersion++;
+  clearTimeout(state.readTimer);
   state.snapshotAbort?.abort();
   state.snapshotAbort = null;
   state.snapshotLoading = false;
@@ -311,12 +473,17 @@ function authenticated(session) {
     throw new APIError("This browser could not establish a session.");
   state.authGeneration++;
   state.targetsLoading = false;
+  state.targetsPromise = null;
+  state.targetFailures = 0;
+  state.nextInventoryAt = 0;
+  state.expiresAt = Date.parse(session.expiresAt);
   state.csrf = session.csrf;
   byId("pair-token").value = "";
   byId("pair-view").hidden = true;
   byId("workspace").hidden = false;
   byId("session-controls").hidden = false;
-  setConnected(true);
+  state.nativeState = "checking";
+  setNetwork("reachable");
   refreshTargets();
   if (state.pending) {
     actionNotice(
@@ -333,6 +500,10 @@ function requirePairing(text) {
   stopFollow();
   state.authGeneration++;
   state.csrf = "";
+  clearTimeout(state.targetTimer);
+  state.captureState = "unknown";
+  state.capabilities = { known: false };
+  state.nativeState = "checking";
   state.targets = [];
   state.selectedId = "";
   byId("compose").value = "";
@@ -510,8 +681,28 @@ function renderDestination() {
   updateControls();
 }
 
-async function refreshTargets() {
-  if (!state.csrf || state.targetsLoading) return;
+async function refreshTargets(options = {}) {
+  if (!state.csrf) return;
+  const force = options.force === true;
+  if (state.targetsPromise) {
+    await state.targetsPromise;
+    if (force && state.csrf) return refreshTargets({ force: true });
+    return;
+  }
+  if (!force && Date.now() < state.nextInventoryAt) {
+    scheduleInventory();
+    return;
+  }
+  const pending = refreshTargetsRequest();
+  state.targetsPromise = pending;
+  try {
+    await pending;
+  } finally {
+    if (state.targetsPromise === pending) state.targetsPromise = null;
+  }
+}
+async function refreshTargetsRequest() {
+  const evidence = ++state.checkVersion;
   const generation = state.authGeneration;
   state.targetsLoading = true;
   if (!state.targets.length) renderTargets();
@@ -520,6 +711,7 @@ async function refreshTargets() {
     if (!state.csrf || generation !== state.authGeneration) return;
     if (!Array.isArray(data.targets))
       throw new APIError("The terminal list is unavailable.");
+    state.capabilities = data.capabilities || { known: false };
     state.targets = data.targets.filter(
       (target) =>
         typeof target.id === "string" &&
@@ -544,6 +736,8 @@ async function refreshTargets() {
       cancelSnapshot();
       stopFollow();
       state.selectedId = "";
+      state.captureState = "unknown";
+      state.captureDetail = "";
       byId("compose").value = "";
       state.snapshotVersion++;
       state.snapshotTarget = "";
@@ -555,7 +749,9 @@ async function refreshTargets() {
       byId("snapshot-state").textContent = "Destination unavailable";
       byId("snapshot-time").textContent = "";
     }
-    setConnected(true);
+    state.targetFailures = 0;
+    state.nextInventoryAt = 0;
+    setNative("ready", "", evidence);
     message("");
   } catch (error) {
     if (generation !== state.authGeneration) return;
@@ -564,16 +760,21 @@ async function refreshTargets() {
         "Your session expired. Reconnect with a fresh pairing link from your Mac.",
       );
     else {
-      setConnected(false);
-      message(
-        error.message + " Refresh terminals to reconnect. Your draft is kept.",
-      );
+      state.targetFailures = Math.min(state.targetFailures + 1, 4);
+      state.nextInventoryAt =
+        Date.now() +
+        Math.max(
+          error.retryAfter * 1000,
+          Math.min(10000 * 2 ** (state.targetFailures - 1), 60000),
+        );
+      setNative("unavailable", error.code, evidence);
     }
   } finally {
     if (generation === state.authGeneration) {
       state.targetsLoading = false;
       renderTargets();
       renderDestination();
+      scheduleInventory();
     }
   }
 }
@@ -596,6 +797,8 @@ function selectTarget(id) {
   cancelSnapshot();
   stopFollow();
   state.selectedId = id;
+  state.captureState = "unknown";
+  state.captureDetail = "";
   byId("compose").value = state.drafts.get(id) || "";
   state.snapshotTarget = "";
   state.snapshotVersion++;
@@ -617,6 +820,7 @@ async function readSnapshot() {
   const target = selectedTarget();
   if (!state.csrf || !target || state.snapshotLoading || document.hidden)
     return;
+  const evidence = ++state.checkVersion;
   const version = ++state.snapshotVersion;
   const generation = state.authGeneration;
   state.snapshotLoading = true;
@@ -637,6 +841,8 @@ async function readSnapshot() {
       return;
     if (snapshot.targetId !== target.id || typeof snapshot.text !== "string")
       throw new APIError("The snapshot destination could not be verified.");
+    state.captureState = "ready";
+    state.captureDetail = "";
     state.snapshotTarget = target.id;
     state.snapshotStale = false;
     const output = byId("terminal-output");
@@ -668,7 +874,7 @@ async function readSnapshot() {
       "stale",
     );
     message("");
-    setConnected(true);
+    updateControls();
   } catch (error) {
     if (
       signal.aborted ||
@@ -685,8 +891,7 @@ async function readSnapshot() {
       return;
     }
     state.snapshotStale = true;
-    const focusRequired =
-      error.code === "focus_required" || error.status === 409;
+    const focusRequired = error.code === "focus_required";
     byId("focus-terminal").hidden = !focusRequired;
     byId("snapshot-state").textContent =
       state.snapshotTarget === target.id
@@ -704,9 +909,19 @@ async function readSnapshot() {
         description,
       );
     else message(description);
-    // Snapshot support and terminal control are separate capabilities. An
-    // HTTP error still proves the Mac is reachable; only transport loss does not.
-    setConnected(error.status !== 0);
+    state.captureState = focusRequired ? "focus_required" : "unavailable";
+    state.captureDetail = description;
+    if (
+      [
+        "ghostty_not_running",
+        "ghostty_timeout",
+        "ghostty_communication",
+        "automation_permission",
+        "unsupported_platform",
+      ].includes(error.code)
+    )
+      setNative("unavailable", error.code, evidence);
+    updateControls();
   } finally {
     if (version === state.snapshotVersion) {
       state.snapshotLoading = false;
@@ -782,12 +997,29 @@ async function applyReceipt(receipt) {
         state.drafts.delete(pending.action.targetId);
     }
     actionNotice(
-      "Done",
+      {
+        input: "Input delivered",
+        key: "Key delivered",
+        close_pane: "Close requested",
+        close_tab: "Close requested",
+        close_window: "Close requested",
+      }[pending.action.kind] || "Done",
       receipt.result && receipt.result.message
         ? receipt.result.message
         : "Your Mac confirmed the action.",
     );
-    await refreshTargets();
+    if (["input", "key"].includes(pending.action.kind)) {
+      // Collapse post-input observation during repeated key taps. The server
+      // still performs fresh destination checks before every mutation.
+      if (state.selectedId === pending.action.targetId) {
+        clearTimeout(state.readTimer);
+        state.readTimer = setTimeout(readSnapshot, 400);
+      }
+      updateControls();
+      scheduleFollow();
+      return;
+    }
+    await refreshTargets({ force: true });
     if (
       ["new_tab", "new_window", "split"].includes(pending.action.kind) &&
       receipt.result &&
@@ -814,7 +1046,6 @@ async function checkReceipt() {
         "Your session expired while an action was being checked. Reconnect to check its receipt; it will not be replayed.",
       );
     } else {
-      if (!error.status) setConnected(false);
       unresolved(
         error.status === 404
           ? "No receipt was found. The action may have reached your Mac before the connection was lost."
@@ -830,7 +1061,7 @@ async function performAction(action, draft = "") {
   const target = selectedTarget();
   if (
     !state.csrf ||
-    !state.connected ||
+    !controlReady() ||
     (action.kind !== "new_window" && !target) ||
     state.pending
   )
@@ -882,7 +1113,6 @@ async function performAction(action, draft = "") {
           "Your session expired. Reconnect to continue; your draft has been kept.",
         );
     } else {
-      setConnected(false);
       actionNotice(
         "Checking delivery",
         "The connection was interrupted. Checking the receipt; the action will not be sent again.",
@@ -1044,7 +1274,7 @@ byId("logout").addEventListener("click", async () => {
 window.addEventListener("offline", () => {
   cancelSnapshot();
   stopFollow();
-  setConnected(false);
+  setNetwork("offline");
   if (state.csrf)
     message(
       "You’re offline. Your draft is kept. Reconnect before sending input.",
@@ -1071,6 +1301,7 @@ window.addEventListener("online", () => {
 });
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
+    clearTimeout(state.targetTimer);
     cancelSnapshot();
     return;
   }
@@ -1080,9 +1311,20 @@ document.addEventListener("visibilitychange", () => {
     else readSnapshot();
   }
 });
-setInterval(() => {
-  if (!document.hidden && state.csrf) refreshTargets();
-}, 10000);
+byId("connection").addEventListener("click", () => {
+  byId("health-dialog").showModal();
+  loadHealth();
+});
+byId("close-health").addEventListener("click", () =>
+  byId("health-dialog").close(),
+);
+byId("health-refresh").addEventListener("click", () => {
+  loadHealth();
+  refreshTargets();
+});
+byId("retry-connection").addEventListener("click", () =>
+  refreshTargets({ force: true }),
+);
 
 for (const id of ["new-window", "picker-new-window", "controls-new-window"])
   byId(id).addEventListener("click", () => {
@@ -1263,6 +1505,7 @@ byId("close-keyboard").addEventListener("click", () =>
   byId("keyboard-dialog").close(),
 );
 setInterval(() => {
+  if (state.csrf && !document.hidden) renderReadiness();
   if (
     state.snapshotTarget &&
     Number.isFinite(state.lastCapturedAt) &&
@@ -1275,7 +1518,7 @@ setInterval(() => {
     byId("snapshot-time").textContent = age < 2 ? "just now" : `${age}s ago`;
     byId("snapshot-time").parentElement.parentElement.classList.toggle(
       "stale",
-      state.snapshotStale || age > 15 || !state.connected,
+      state.snapshotStale || age > 15 || !controlReady(),
     );
   }
 }, 1000);
