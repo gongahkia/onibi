@@ -190,7 +190,7 @@ func (a *App) outputLocations() {
 			for !b.Doc.Text.Boundary(p) {
 				p--
 			}
-			a.jumpTo(b, p)
+			a.finishJump(b, p)
 		}})
 		if len(items) >= 2000 {
 			break
@@ -244,7 +244,7 @@ func (a *App) gitStatus() {
 					a.Status = err.Error()
 					return
 				}
-				a.jumpTo(a.Current(), 0)
+				a.finishJump(a.Current(), 0)
 			}})
 		}
 		if len(items) == 0 {

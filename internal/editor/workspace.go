@@ -63,6 +63,9 @@ func (a *App) rememberJump() {
 }
 func (a *App) jumpTo(b *Buffer, offset int) {
 	a.rememberJump()
+	a.finishJump(b, offset)
+}
+func (a *App) finishJump(b *Buffer, offset int) {
 	for i, open := range a.Buffers {
 		if open == b {
 			a.Active = i
@@ -246,7 +249,7 @@ func (a *App) searchProject(query, replacement string, replace bool) {
 							a.Status = "Search result changed; search again"
 							return
 						}
-						a.jumpTo(b, e.Start)
+						a.finishJump(b, e.Start)
 					}})
 				}
 			}

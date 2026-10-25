@@ -506,7 +506,7 @@ func (a *App) definitions(result json.RawMessage) {
 				a.Status = err.Error()
 				return
 			}
-			a.jumpTo(b, p)
+			a.finishJump(b, p)
 		}})
 	}
 	if len(items) == 1 {
