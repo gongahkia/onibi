@@ -213,3 +213,26 @@ Verification:
 - `go test -c -o /private/tmp/onibi-terminal-preview.test ./internal/cli` built an opt-in fixture. `ONIBI_TERMINAL_FIXTURE=welcome|logs` exercises the real renderer with synthetic metadata and temporary files, without an HTTP listener, real state database, Ghostty or launchd. Wide/narrow captures and the 10% ANSI replay were inspected; the replay adapts the motion review to terminal output rather than browser CSS animations.
 
 **Verdict: Approve** for the implemented terminal scope. **Not verified:** physical Ghostty font/theme rendering and live resizing, native Ghostty control, physical iPhone/Tailscale, and live launchd/TCC. Those native acceptance checks remain deferred. ANSI replay validates presentation behavior; it does not claim native terminal-control acceptance. The exact final CI head/result appears in the handoff.
+
+### Banner-first source commands
+
+Full review addendum, scoped to **when** `make build` and `make run` display the existing terminal banner. The established Go/ANSI styling and application web UI are unchanged. The shell bootstrap uses generated output from `termui.Banner`, rather than a second artwork implementation.
+
+| Category | Evidence inspected | Result |
+| --- | --- | --- |
+| Typography | Generated wide/compact, Unicode/ASCII and styled/plain variants compared with the Go renderer | Existing alignment and shadow retained |
+| Surfaces | First output, preparation/build phases and run handoff | One banner first, then compact build and server content |
+| Animations | Existing progress/activity flow | Unchanged; no new animation requiring a separate slow-motion review |
+| Icons | Existing ONIBI artwork | No new imagery |
+| Performance | Shell bootstrap precedes any Go invocation | Banner does not wait for compilation or a warm Go cache |
+
+| Severity | Location | Before | After | Why |
+| --- | --- | --- | --- | --- |
+| MEDIUM | `scripts/onibi-dev.sh`, `scripts/onibi-banner.sh`, `Makefile` | Build had no full banner; run displayed it only after compilation | Print the aligned banner immediately before preparation for both commands | Establish command identity at the moment the command starts |
+| MEDIUM | `internal/cli/web.go` | Moving a banner to run startup could duplicate it in the server | Explicit launcher-to-server handoff suppresses only the second logo | Preserve one banner while retaining pairing, status fields and activity output |
+
+Rejected: printing from the Go helper alone (still waits for cold compilation); copying hand-maintained artwork into shell (would drift from the runtime renderer).
+
+Verification: targeted race tests pass for `internal/termui`, `internal/devtool` and `internal/cli`. Regression coverage checks banner-before-compiler ordering, build failure propagation without starting a server, successful run handoff, generated-art parity, and preservation of server content when its second banner is suppressed. Fake compilers/servers make run validation hermetic. A real TTY `make build` confirms the banner is the first content, followed by preparation and successful native compilation. Full vet/race and exact-head GitHub Actions results are checked before handoff.
+
+**Verdict: Approve** for banner ordering. Native Ghostty controls, live server startup and physical terminal resizing were not exercised for this change; the previously documented manual acceptance boundary remains.
