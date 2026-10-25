@@ -19,11 +19,7 @@ DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS := -s -w -X github.com/gongahkia/onibi/internal/buildinfo.Version=$(VERSION) -X github.com/gongahkia/onibi/internal/buildinfo.Commit=$(COMMIT) -X github.com/gongahkia/onibi/internal/buildinfo.Date=$(DATE)
 
 build:
-	$(Q)printf '%s\n' '==> 👻 Building Onibi'
-	$(Q)mkdir -p $(BUILD_DIR)
-	$(Q)$(call RUN,Building command center,go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY) ./cmd/onibi)
-	$(Q)$(call RUN,Building Pi notifier,go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(NOTIFY_BINARY) ./clients/onibi-notify)
-	$(Q)printf '%s\n' '    ✓ Built bin/onibi and bin/onibi-notify'
+	@sh scripts/onibi-dev.sh build $(if $(filter 1,$(VERBOSE)),--verbose,)
 
 install: build
 	$(Q)printf '%s\n' '==> 👻 Installing Onibi'
