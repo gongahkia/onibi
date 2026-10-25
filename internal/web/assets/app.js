@@ -945,7 +945,9 @@ async function readSnapshot() {
           : "Output isn’t available yet",
         description,
       );
-    else message(description);
+    // The recovery strip owns this explanation, including for retained output.
+    // Do not repeat the same failure in a second adjacent alert.
+    message("");
     state.captureState = focusRequired ? "focus_required" : "unavailable";
     state.captureDetail = description;
     if (

@@ -477,6 +477,7 @@ const server = http.createServer(async (req, res) => {
     await page.textContent("#connection-label"),
     "Output unavailable",
   );
+  assert.equal(await page.locator("#workspace-message").isVisible(), false);
   assert.equal(await page.locator("#send-input").isDisabled(), false);
   await page.click("#connection");
   await page.locator("#health-checks li").first().waitFor();
