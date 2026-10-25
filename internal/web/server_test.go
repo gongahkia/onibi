@@ -502,3 +502,23 @@ func TestCockpitLifecycleAndControls(t *testing.T) {
 		t.Fatalf("cannot recover an empty Ghostty: %s", response.Body)
 	}
 }
+
+func TestFocusedControlsRejectAnInactivePane(t *testing.T) {
+	s, backend := testServer(t, testOrigin)
+	backend.targets[0].Focused = false
+	b := pairBrowser(t, s)
+	for i, action := range []ghostty.Action{
+		{Kind: "control", TargetID: "surface-1", Control: "zoom"},
+		{Kind: "rename_tab", TargetID: "surface-1", Name: "Review"},
+		{Kind: "rename_pane", TargetID: "surface-1", Name: "Agent"},
+	} {
+		raw, _ := json.Marshal(actionRequest{ID: fmt.Sprintf("inactive-pane-%04d", i), Action: action})
+		response := request(s, b, http.MethodPost, "/api/actions", raw)
+		if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"state":"rejected"`) {
+			t.Fatalf("inactive %s accepted: %d %s", action.Kind, response.Code, response.Body)
+		}
+	}
+	if len(backend.calls) != 0 {
+		t.Fatal("inactive control reached native backend")
+	}
+}
