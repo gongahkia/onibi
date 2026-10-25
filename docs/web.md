@@ -17,7 +17,7 @@ make build
 
 The raw `CGO_ENABLED=1 go build -o bin/onibi ./cmd/onibi` command still works, but Go itself does not use Onibi's presentation. Use `make build` for progress, provenance, staging and recovery. `VERBOSE=1 make build` streams compiler output; `ONIBI_PLAIN=1 make build` disables animation and block art. Redirected output and CI use plain stage lines. Compiler output is retained in `bin/build.log` with mode `0600`, replaced on each build; failed stages print its last lines. Build failures preserve previous binaries. Cancellation stops the compiler process group.
 
-The foreground server prints a monochrome ASCII banner, revision, PID, listener, log path, a copyable pairing URL and commands using the current executable. It does not probe Ghostty at startup. Ctrl-C drains bounded work before exiting. If an old Onibi process is already running, stop it explicitly and launch the new binary to see the new interface; a build does not restart it.
+The foreground server prints one aligned ONIBI block banner with ANSI dim shading, followed by revision, PID, listener, log path, a copyable pairing URL and commands using the current executable. Build stages use a compact heading, so `make run` (or build followed by web) does not repeat the large logo. Status, log viewing, source install/update/remove, and `make help` use the same banner. It does not probe Ghostty at startup. Keep that terminal open and use a second terminal for status or logs. Ctrl-C drains bounded work before exiting. If an old Onibi process is already running, stop it explicitly and launch the new binary to see the new interface; a build does not restart it.
 
 `make run` builds and starts the web cockpit; `make doctor` builds and runs passive web diagnostics; `make setup` adds startup guidance. `make help` lists the source workflow. Telegram keeps explicit `telegram-setup`, `telegram-doctor`, `telegram-run` and `telegram-dogfood` targets. `make test` runs hermetic race-enabled Go tests. `make e2e-live` is the separate, explicit live Telegram test.
 
@@ -58,17 +58,24 @@ Uninstall previews the exact owned paths. It verifies hashes, stops/removes only
 ./bin/onibi web status              # metadata for the running server
 ./bin/onibi web status --json
 ./bin/onibi web logs --tail 50
-./bin/onibi web logs --follow
 ./bin/onibi web logs --json --tail 100
 ```
 
-Status uses the same-user local administration socket. It reports process/version, uptime, origin, request/error totals, active requests, completed/rejected/uncertain action totals, and last observed inventory/capture health. It does not invoke Ghostty. Counters reset with the process; native observations can be unknown or stale. A replayed durable receipt is not counted as a new dispatch. A running/local revision mismatch is called out. Old running versions need an explicit restart before they support these commands.
+To keep a separate log viewer open:
 
-The web server writes JSON events to `~/Library/Application Support/onibi/logs/web.log` (`0600`), rotating during operation at 1 MiB with three backups. Foreground mode also prints compact timestamped events. `--log-level debug` adds successful read-request metadata; normal polling is quiet at the default `info` level. HTTP responses include `X-Onibi-Request-ID` to correlate a request with its event. Action logs contain the kind and recorded outcome; native logs record availability transitions and elapsed time.
+```sh
+./bin/onibi web logs --follow
+```
+
+Follow deliberately waits for new events, including when the server is stopped. **Ctrl-C exits the viewer**; it does not stop a server running in another terminal. Commands pasted after `--follow` wait until it exits. Use `web logs --tail 50` for a snapshot that returns immediately.
+
+Status uses the same-user local administration socket. It reports process/version, uptime, origin, request/error totals, active requests, completed/rejected/uncertain action totals, and last observed inventory/capture health. It does not invoke Ghostty. Counters reset with the process; native observations can be unknown or stale. A replayed durable receipt is not counted as a new dispatch. A running/local revision mismatch is called out. Old running versions need an explicit restart before they support these commands. A missing/refused administration socket produces a normal **Stopped** screen with startup guidance; status exits successfully, and `--json` reports `{"running":false,"state":"stopped"}`. Running JSON status adds `"running":true` to the existing runtime fields. Permission errors and timeouts still fail; they are not reported as stopped.
+
+The web server writes JSON events to `~/Library/Application Support/onibi/logs/web.log` (`0600`), rotating during operation at 1 MiB with three backups. Foreground mode also prints compact timestamped events, using the same formatting as log replay. An animated activity row stays below the events, showing elapsed time and request counts. **HTTP live** describes the local web process, not a claim that Ghostty or the phone connection is healthy. A separate log viewer shows **Following** and the number of records shown. These activity frames are presentation only and are never added to the log file. Long fields and event metadata wrap with indentation; narrow footers keep the exit gesture before secondary counters. `--log-level debug` adds successful read-request metadata; normal polling is quiet at the default `info` level. HTTP responses include `X-Onibi-Request-ID` to correlate a request with its event. Action logs contain the kind and recorded outcome; native logs record availability transitions and elapsed time.
 
 Telemetry uses allowlisted metadata. It excludes terminal input/output, target identities/titles, device names, raw URLs/query strings, receipt IDs, cookies, CSRF values and pairing tokens, including in debug mode. Pairing links appear only in explicit foreground/pair command output. Redaction is a secondary defense, not a reason to log payloads. Build logs contain compiler diagnostics rather than application events.
 
-Log inspection reads at most the last 1 MiB and 1,000 records initially, refuses symlinks/nonregular files, and follows rotation until Ctrl-C. It is a local troubleshooting view, not guaranteed archival delivery across rapid rotations. Use `--json` for tooling and `--plain` (or `ONIBI_PLAIN=1`) for terminal presentation without animation/art. `web service status` inspects launchd registration separately from `web status`, which inspects the actual running HTTP process.
+Log inspection reads at most the last 1 MiB and 1,000 records initially, refuses symlinks/nonregular files, and follows rotation until Ctrl-C. It is a local troubleshooting view, not guaranteed archival delivery across rapid rotations. Use `--json` for tooling and `--plain` (or `ONIBI_PLAIN=1`) for terminal presentation without animation/art. `NO_COLOR=1` disables ANSI shading while retaining interactive progress. Non-UTF-8 locales get ASCII glyphs; locale overrides follow `LC_ALL`, `LC_CTYPE`, then `LANG`. Redirected/CI/dumb-terminal output stays plain. No alternate screen is used, and the activity row is removed before the command returns to the shell. `web service status` inspects launchd registration separately from `web status`, which inspects the actual running HTTP process.
 
 ## Private connection
 

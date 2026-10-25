@@ -173,3 +173,43 @@ Mode: **full**. Scope: embedded web typography, palette, branding and pairing de
 - Real Ghostty input/capture, physical iPhone/Safari and VoiceOver, live launchd/TCC, and the actual Tailscale route remain unverified. This pass neither restarts Ghostty nor resolves the earlier native automation timeout. Rotation is bounded local diagnostics, not guaranteed archival event delivery; atomic replacements are per file with rollback, not power-loss-safe multi-file transactions.
 
 Verdict: implemented scope is ready for the deferred manual acceptance checks once automated CI is green. Native reliability remains an explicit open validation item.
+
+## Terminal shadow banner and activity review
+
+Mode: **full**. Scope: build-to-web startup, foreground event stream, status (running/stopped/error/JSON), snapshot/follow log viewing, source installation preview and Make help. Framework: the existing Go `termui` renderer and `slog`; ANSI bold/dim styling, grid-based block lettering, and the existing Rattles frames. The browser application was not changed or visually re-reviewed in this pass.
+
+| Category | Evidence inspected | Result |
+| --- | --- | --- |
+| Typography | Fixed letter grids, ASCII fallback, fields/metadata at 60 and 96 columns, actual help/status/preview captures | Logo rows align by terminal cell; hanging indentation prevents mid-field visual drift; help has a consistent label column |
+| Surfaces | One banner per command; compact nested build headings; event section divider; stopped/empty/error views | One command identity followed by structured content. Only the unfinished activity row is redrawn; ordinary log records remain in scrollback |
+| Animations | PTY captures of the real renderer; recorded ANSI stream replayed at 10% speed; log arrivals, idle frames, narrow footer and exit cleanup | One restrained Rattles activity row. Counts and labels supply static meaning. Plain, CI and machine output contain no animation |
+| Icons | Block letters, offset shadow and existing spinner frames | No extra mascot or new icon library. Bold face/dim shadow follow terminal colors; `NO_COLOR` removes SGR styling |
+| Performance | Renderer lock, bounded partial record buffer, footer ticker, cached runtime status, repeated close and shutdown paths | Writes/redraws serialize; no Ghostty polling is introduced; the ticker is joined on close, with no alternate screen or stdin takeover |
+
+| Severity | Location | Before | After | Why |
+| --- | --- | --- | --- | --- |
+| MEDIUM | `internal/termui/banner.go:82`, `internal/devtool/build.go` | Thin slash-based lettering and duplicate build/server logos | Fixed-cell block lettering with a dim offset shadow; one full banner and compact build sections | Typography and motion restraint: avoid ligature-sensitive alignment and repeated visual noise |
+| MEDIUM | `internal/termui/ui.go`, `internal/devtool/help.go:8` | Long fields wrapped at arbitrary terminal edges; help label columns varied | Word/cell-aware wrapping with hanging indentation, consistent help columns and shortened display paths | Optical alignment: retain the relationship between a label and its continued value |
+| MEDIUM | `internal/termui/live.go`, `internal/cli/web.go:176` | Foreground server appeared idle between events | Animated footer with elapsed time, local HTTP counts and explicit stop gesture below actual records | Static labels explain what animation means; no fake success or native readiness claim |
+| MEDIUM | `internal/cli/web_observability.go:56` | Inspecting after Ctrl-C printed a raw socket failure | Banner, normal Stopped state, startup guidance and a second-terminal hint; structured running flag | Treat an expected stopped state as status, while retaining actual permission/timeout failures |
+| MEDIUM | `internal/cli/web_observability.go:143`, `internal/logging/reader.go:154` | Follow looked inert and used different event wording from foreground logs | Shared formatter, log-view banner, record count, explicit persistent wait/exit instructions, clean cancellation | Recovery and consistency: users can distinguish waiting from failure and know why later pasted commands wait |
+| MEDIUM | `cmd/onibi-dev/main.go`, `internal/devtool/help.go:8`, `Makefile` | Make help lacked the command identity | One shared banner and grouped source workflow commands | Consistent presentation across the commands in the user's screenshots |
+| LOW | `internal/termui/ui.go`, `internal/termui/live.go:183` | Locale override detection was ambiguous; narrow activity text could clip exit guidance | Correct locale precedence, explicit no-style mode, prioritized exit hints and compact counters | Progressive fallback: preserve usable controls in small or limited terminals |
+
+Considered and rejected:
+
+| Location | Candidate | Rejected because |
+| --- | --- | --- |
+| Server/log viewer | Full-screen alternate-buffer dashboard | Normal scrollback, copyable pairing links and shell recovery are useful here |
+| Event stream | Animate each event or append periodic heartbeat log records | Repeated events should remain stable, and presentation must not manufacture persisted activity |
+| Build/install | Render the logo again for each nested phase | Repeats the exact duplication shown in the user's screenshot |
+| Banner | Multicolored gradient/shadow | The established direction is monochrome; terminal foreground plus ANSI bold/dim supplies hierarchy |
+
+Verification:
+
+- `GOMAXPROCS=2 go vet -p 2 ./...` and `GOMAXPROCS=2 go test -race -p 2 -count=1 ./...` passed. After the final layout/locale adjustment, `go test -race` passed again for `internal/termui`, `internal/cli`, and `internal/devtool`; the final CI run covers the complete head.
+- Meaningful regression checks cover concurrent log writers with reconstructed terminal-screen assertions (no erased/duplicated events), animation teardown, fallback widths and grapheme cells, locale precedence, no-color/plain output, stopped-state classification, unchanged JSON log records, missing-log guidance, and shared foreground/replay formatting.
+- Native `make build` passed without starting Onibi. Actual PTY invocations of `./bin/onibi web status`, `make install DRY_RUN=1`, and `make help` exited successfully and were captured for review. The install command was a preview only.
+- `go test -c -o /private/tmp/onibi-terminal-preview.test ./internal/cli` built an opt-in fixture. `ONIBI_TERMINAL_FIXTURE=welcome|logs` exercises the real renderer with synthetic metadata and temporary files, without an HTTP listener, real state database, Ghostty or launchd. Wide/narrow captures and the 10% ANSI replay were inspected; the replay adapts the motion review to terminal output rather than browser CSS animations.
+
+**Verdict: Approve** for the implemented terminal scope. **Not verified:** physical Ghostty font/theme rendering and live resizing, native Ghostty control, physical iPhone/Tailscale, and live launchd/TCC. Those native acceptance checks remain deferred. ANSI replay validates presentation behavior; it does not claim native terminal-control acceptance. The exact final CI head/result appears in the handoff.
