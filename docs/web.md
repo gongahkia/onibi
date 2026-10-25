@@ -4,6 +4,72 @@ Onibi's web interface controls the Ghostty application already running in your M
 
 The cockpit is served by the Mac over private Tailscale HTTPS. This repository does not use GitHub Pages: the former `/docs` publishing configuration was retired. Documentation stays in the repository and release archives; Pages is not part of deployment or CI verification.
 
+## Build and run from source
+
+From this checkout, use the Go toolchain declared in `go.mod` and Apple's Command Line Tools (`xcode-select --install` if missing):
+
+```sh
+make build
+./bin/onibi web
+```
+
+`make build` enables CGO on macOS, compiles both binaries into a private staging directory, verifies the executable, and replaces the local `bin/` artifacts. It shows four stages, elapsed time, and actual compiler package activity. The indeterminate animation is a Go adaptation of [Rattles](https://github.com/vyfor/rattles/tree/6eabf671ee86ddd773f458b9c25ef9d3f00ae53b); it does not invent a percentage. Rust is not required. The small Go helper bootstraps first; a cold Go cache can make the initial preparation take longer.
+
+The raw `CGO_ENABLED=1 go build -o bin/onibi ./cmd/onibi` command still works, but Go itself does not use Onibi's presentation. Use `make build` for progress, provenance, staging and recovery. `VERBOSE=1 make build` streams compiler output; `ONIBI_PLAIN=1 make build` disables animation and block art. Redirected output and CI use plain stage lines. Compiler output is retained in `bin/build.log` with mode `0600`, replaced on each build; failed stages print its last lines. Build failures preserve previous binaries. Cancellation stops the compiler process group.
+
+The foreground server prints a monochrome ASCII banner, revision, PID, listener, log path, a copyable pairing URL and commands using the current executable. It does not probe Ghostty at startup. Ctrl-C drains bounded work before exiting. If an old Onibi process is already running, stop it explicitly and launch the new binary to see the new interface; a build does not restart it.
+
+`make run` builds and starts the web cockpit; `make doctor` builds and runs passive web diagnostics; `make setup` adds startup guidance. `make help` lists the source workflow. Telegram keeps explicit `telegram-setup`, `telegram-doctor`, `telegram-run` and `telegram-dogfood` targets. `make test` runs hermetic race-enabled Go tests. `make e2e-live` is the separate, explicit live Telegram test.
+
+## Install, update and remove
+
+Source-based installation is optional. Running `./bin/onibi web` directly is supported.
+
+```sh
+make install DRY_RUN=1
+make install
+make install-status
+```
+
+The default destination is `~/.local/bin`; use `INSTALL_DIR='/path/with spaces/bin'` consistently to choose another directory. No `sudo` is needed. Installation prints the PATH addition if needed, but does not edit shell configuration or start a service. Shell completion is available through `onibi completion zsh` (also `bash` and `fish`).
+
+The private `.onibi-install.json` manifest records the source checkout, revision and checksums of `onibi` and `onibi-notify`. Existing unmanaged, modified, missing or symlinked binaries are refused with an actionable error. The two binaries and manifest are staged on the destination filesystem. Each replacement is atomic, with rollback if a subsequent replacement fails; this is not a single multi-file transaction across power loss. A lock prevents concurrent lifecycle operations; the build lock remains held while installation copies the exact compiled artifacts. An incomplete rollback retains recovery copies and reports their path.
+
+```sh
+make update DRY_RUN=1              # preview rebuilding this checkout
+make update                        # compile and install this checkout
+make update UPDATE_PULL=1          # optionally fetch and fast-forward clean main
+make update RESTART_WEB=1          # explicitly restart the web login service
+```
+
+`make upgrade` is an alias for `make update`. Pulling requires clean `main`, including untracked files, and refuses divergence; it never resets or rebases local work. If a pull succeeds but compilation fails, the source stays advanced while the installed binaries remain unchanged. Updates preserve state, remembered browser grants, configuration, credentials and logs. Running processes keep their current executable until explicitly restarted. A requested restart failure is reported separately after successful binary installation. Packaged release downloads and automatic background updates are outside this workflow.
+
+```sh
+make uninstall DRY_RUN=1
+make uninstall
+```
+
+Uninstall previews the exact owned paths. It verifies hashes, stops/removes only login services pointing to this managed installation, and refuses services from another installation. A service stop failure retains its configuration and the installed binaries. Foreground processes must be stopped separately with Ctrl-C. Only managed binaries and their manifest are removed; unrelated files, the checkout, Ghostty terminals, state and logs remain. Browser grants remain in the state database for a later installation. To retire access too, run `onibi web devices revoke-all` while the server is still running before uninstalling. There is no implicit state purge.
+
+## Status and logs
+
+```sh
+./bin/onibi version --json          # metadata for this executable
+./bin/onibi web status              # metadata for the running server
+./bin/onibi web status --json
+./bin/onibi web logs --tail 50
+./bin/onibi web logs --follow
+./bin/onibi web logs --json --tail 100
+```
+
+Status uses the same-user local administration socket. It reports process/version, uptime, origin, request/error totals, active requests, completed/rejected/uncertain action totals, and last observed inventory/capture health. It does not invoke Ghostty. Counters reset with the process; native observations can be unknown or stale. A replayed durable receipt is not counted as a new dispatch. A running/local revision mismatch is called out. Old running versions need an explicit restart before they support these commands.
+
+The web server writes JSON events to `~/Library/Application Support/onibi/logs/web.log` (`0600`), rotating during operation at 1 MiB with three backups. Foreground mode also prints compact timestamped events. `--log-level debug` adds successful read-request metadata; normal polling is quiet at the default `info` level. HTTP responses include `X-Onibi-Request-ID` to correlate a request with its event. Action logs contain the kind and recorded outcome; native logs record availability transitions and elapsed time.
+
+Telemetry uses allowlisted metadata. It excludes terminal input/output, target identities/titles, device names, raw URLs/query strings, receipt IDs, cookies, CSRF values and pairing tokens, including in debug mode. Pairing links appear only in explicit foreground/pair command output. Redaction is a secondary defense, not a reason to log payloads. Build logs contain compiler diagnostics rather than application events.
+
+Log inspection reads at most the last 1 MiB and 1,000 records initially, refuses symlinks/nonregular files, and follows rotation until Ctrl-C. It is a local troubleshooting view, not guaranteed archival delivery across rapid rotations. Use `--json` for tooling and `--plain` (or `ONIBI_PLAIN=1`) for terminal presentation without animation/art. `web service status` inspects launchd registration separately from `web status`, which inspects the actual running HTTP process.
+
 ## Private connection
 
 Install Tailscale on both devices and sign into your private network. On the Mac:
@@ -114,7 +180,7 @@ onibi web service remove
 
 Install writes a private `~/Library/LaunchAgents/sh.onibi.web.plist`; it does not start the process immediately. Start launches it in the current user’s graphical session. It also starts at the next graphical login. Stop unloads the job until another start or login; remove also deletes its plist. Existing installations must be removed before changing their stored address. Restart uses stop/start, with a 45-second shutdown allowance for bounded commands and receipt recording. A fixed loopback port is required; `--listen` defaults to `127.0.0.1:8787`.
 
-Service output goes to `web.out.log` and `web.err.log` in Onibi’s private log directory. Background mode prints no pairing secrets; retrieve a fresh link locally. A foreground web process must be stopped before starting the service against the same state directory. macOS permissions are tied to the launching environment; inspect readiness again when switching to the login service. Live launchd/TCC behavior has not been validated in this pass.
+Application events go to the continuously rotated `web.log`. Launchd retains bootstrap errors in `web.err.log` and `web.out.log`; these diagnostic streams are separate from application telemetry. Background mode prints no pairing secrets; retrieve a fresh link locally. A foreground web process must be stopped before starting the service against the same state directory. macOS permissions are tied to the launching environment; inspect readiness again when switching to the login service. Live launchd/TCC behavior has not been validated in this pass.
 
 `onibi system service install` manages the separate Telegram daemon. Tailscale Serve’s background setting keeps the proxy running; it does not start Onibi or keep the Mac awake. A graphical login, running Ghostty, and an awake reachable Mac remain necessary.
 

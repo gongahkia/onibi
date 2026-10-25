@@ -128,3 +128,48 @@ Mode: **full**. Scope: pairing choice, device list/revocation, close outcome fee
 - Native Ghostty, physical iPhone, VoiceOver/keyboard, real clipboard permissions, live launchd/TCC, and the actual Tailscale route are **not verified**. The earlier native timeout is not diagnosed or resolved by these code changes. No semantic agent integration or full terminal emulation is claimed.
 
 **Verdict: Approve** the implemented code and reviewed interface scope, subject to the explicit unverified native/device checks above. The exact final GitHub Actions head and result are reported in the handoff; automated coverage is not native acceptance.
+
+## Monochrome cockpit and source lifecycle review
+
+Mode: **full**. Scope: embedded web typography, palette, branding and pairing density; foreground CLI startup/status/logs; build/install/update/uninstall presentation and recovery. Styling: existing HTML/JavaScript/plain CSS, with local JetBrains Mono WOFF2 faces. Terminal presentation: a small Go line-oriented renderer; no full-screen framework, Rust runtime or new application dependency. The user selected source-based updates and deferred native/manual testing.
+
+### Findings and implementation
+
+| Severity | Location | Before | After | Why |
+| --- | --- | --- | --- | --- |
+| MEDIUM | `internal/web/assets/style.css`, `index.html` | Amber/mint palette, repeated brand graphics and mixed fonts | Neutral surfaces, text wordmark, local JetBrains Mono throughout, restrained borders | Matches the requested minimalist direction and avoids external font requests |
+| MEDIUM | `style.css` mobile pairing | Large introductory area placed the primary action below a phone viewport | Compact phone introduction and spacing; connection action fits the tested 390×844 viewport | Make initial pairing usable before decorative content consumes the screen |
+| MEDIUM | `internal/termui`, `internal/devtool/build.go` | Silent raw build and an older shell loader | Go-port Rattles frames, real stage/package activity, elapsed time, private compiler log and explicit failure output | Show liveness without inventing completion percentages; preserve readable output in pipes |
+| HIGH | `internal/devtool/install.go` | No owned source update/removal workflow | Manifest/checksum ownership, previews, clean-main optional fast-forward, staged replacements and rollback | Protect unrelated files and keep a failed update recoverable |
+| HIGH | `internal/devtool/build.go` | Build artifacts could change between publication and installation copy | Build lock spans the copy; manifest uses the build's captured revision | Installed provenance must match the binaries actually copied |
+| HIGH | `internal/service/launchd.go`, `systemd.go` | Telegram service removal could ignore stop failure | Stop failure retains configuration and fails removal | The new uninstaller must not remove executable files after silently failing to stop their service |
+| MEDIUM | `internal/cli/web.go`, `web_observability.go` | Startup text lacked runtime inspection and event guidance | ASCII startup panel, exact executable hints, cached status, version JSON, bounded log tail/follow | Make local operation and diagnosis possible without a native probe |
+| HIGH | `internal/web/observability.go`, `internal/logging` | No content-safe web event stream or continuous runtime rotation | Allowlisted metadata, request correlation, deduplicated outcome counts, private rotated JSON, readable console | Provide operational evidence without storing terminal content or access secrets |
+| MEDIUM | `Makefile`, CI | Generic run/setup paths led to Telegram; default tests invoked live E2E | Web defaults, explicit Telegram targets, hermetic default tests, real isolated lifecycle CI on Mac/Linux | Align first-run paths with this product and keep live tests deliberate |
+
+### Coverage
+
+| Category | Review evidence and result |
+| --- | --- |
+| Typography | Regular and semibold local JetBrains Mono are loaded in Chromium/WebKit; font readiness and no external requests are asserted. Terminal output preserves literal text, sizing and independent phone reader preferences. |
+| Surfaces | Pairing, desktop cockpit, mobile terminal and existing dialogs retain visible labels/borders and 44px controls. Neutral primary/secondary actions and explicit danger copy carry meaning without hue. Pairing density was corrected after screenshot inspection. |
+| Animations | Existing short press/color feedback and reduced-motion handling remain. No new browser loops or entrance animation. Terminal spinners run only while work is active, clean up on completion/cancellation/panic, and disappear from redirected/CI/plain output. No 10%-speed animation-panel review was performed. |
+| Icons | Removed the decorative ghost illustration and redundant logo; kept existing functional controls with accessible labels. No new icon vocabulary. Terminal block art appears once, with compact/plain fallbacks. |
+| Performance | Two embedded WOFF2 faces, no CDN, no additional runtime JS/dependency. Cached status performs no Ghostty calls. Routine successful polling is debug-only; runtime logs and reader memory are bounded. Build process cancellation includes compiler descendants. |
+
+### Considered and rejected
+
+- A full-screen terminal dashboard: it would hide normal scrollback and complicate piping and interruption for a server whose main job is to stay running.
+- A fake percentage for Go compilation: package work and cache hits vary; real stages, elapsed time and package names provide honest progress.
+- Automatic service restarts during updates: the agreed policy preserves running work until an explicit restart request.
+- Packaged release downloads in this pass: the user chose the source workflow; provenance and safe replacement were implemented for that path first.
+- Colored status accents or a new mascot: the requested visual direction is monochrome with less branding; text, borders and existing labels distinguish states.
+
+### Verification and limits
+
+- Race tests cover request correlation/content exclusion at debug level, replay-safe counters, local status sockets, runtime rotation, tail/follow through rotation, cancellation, unsafe paths, ownership checks, failed builds/replacements, pull guards and service removal failures.
+- The opt-in `ONIBI_SOURCE_SMOKE=1 go test -run TestSourceLifecycleIntegration -v ./internal/devtool` compiles real artifacts, installs/updates into an isolated path containing spaces, checks binary/manifest provenance and previews, uninstalls, and verifies unrelated files/state remain. It runs in both Mac/Linux CI jobs and invokes no native services or terminal controls.
+- Local verification includes `go vet ./...`, full `go test -race ./...`, Chromium/WebKit UI and production HTTPS/SQLite integration suites, axe checks, font-load assertions, and reviewed mobile/desktop screenshots. A native `make build` exercises real TTY progress without starting the application. The exact final CI head/result is recorded in the handoff.
+- Real Ghostty input/capture, physical iPhone/Safari and VoiceOver, live launchd/TCC, and the actual Tailscale route remain unverified. This pass neither restarts Ghostty nor resolves the earlier native automation timeout. Rotation is bounded local diagnostics, not guaranteed archival event delivery; atomic replacements are per file with rollback, not power-loss-safe multi-file transactions.
+
+Verdict: implemented scope is ready for the deferred manual acceptance checks once automated CI is green. Native reliability remains an explicit open validation item.
