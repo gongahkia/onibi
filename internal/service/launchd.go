@@ -118,7 +118,7 @@ func (m *Manager) launchdPlist() string {
 
 func writePlistDict(b *bytes.Buffer, vals map[string]any) {
 	b.WriteString("<dict>\n")
-	keys := []string{"Label", "ProgramArguments", "RunAtLoad", "KeepAlive", "ProcessType", "WorkingDirectory", "EnvironmentVariables", "StandardOutPath", "StandardErrorPath"}
+	keys := []string{"Label", "ProgramArguments", "RunAtLoad", "KeepAlive", "ProcessType", "LimitLoadToSessionType", "ExitTimeOut", "WorkingDirectory", "EnvironmentVariables", "StandardOutPath", "StandardErrorPath"}
 	for _, k := range keys {
 		v, ok := vals[k]
 		if !ok {
@@ -134,6 +134,8 @@ func writePlistValue(b *bytes.Buffer, v any, indent string) {
 	switch x := v.(type) {
 	case string:
 		fmt.Fprintf(b, "%s<string>%s</string>\n", indent, xmlEscape(x))
+	case int:
+		fmt.Fprintf(b, "%s<integer>%d</integer>\n", indent, x)
 	case bool:
 		if x {
 			fmt.Fprintf(b, "%s<true/>\n", indent)

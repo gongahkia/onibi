@@ -25,7 +25,7 @@ func webCmd() *cobra.Command {
 		Use: "web", Short: "Control existing Ghostty terminals from a private web interface",
 		Args: cobra.NoArgs, RunE: runWeb,
 	}
-	cmd.AddCommand(webDoctorCmd(), webPairCmd(), webDevicesCmd())
+	cmd.AddCommand(webDoctorCmd(), webPairCmd(), webDevicesCmd(), webServiceCmd())
 	cmd.Flags().Bool("background", false, "suppress pairing secrets in service logs; use onibi web pair locally")
 	cmd.Flags().String("listen", "127.0.0.1:8787", "loopback address for the local HTTP server")
 	cmd.Flags().String("origin", "", "public HTTPS origin from Tailscale Serve (defaults to local HTTP)")
