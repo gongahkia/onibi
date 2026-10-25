@@ -63,6 +63,16 @@ func (a *App) configureKeys() error {
 		if _, ok := a.bindings[canonical]; ok {
 			return fmt.Errorf("duplicate shortcut %q", key)
 		}
+		for i := range a.Commands {
+			remaining := []string{}
+			for _, label := range strings.Split(a.Commands[i].Key, " / ") {
+				existing, e := parseKey(label)
+				if label != "" && (e != nil || existing != canonical) {
+					remaining = append(remaining, label)
+				}
+			}
+			a.Commands[i].Key = strings.Join(remaining, " / ")
+		}
 		name := a.Config.Keybindings[key]
 		if name == "" {
 			a.bindings[canonical] = func() {}
@@ -72,7 +82,10 @@ func (a *App) configureKeys() error {
 		for i := range a.Commands {
 			if strings.EqualFold(a.Commands[i].Name, name) {
 				a.bindings[canonical] = a.Commands[i].Run
-				a.Commands[i].Key = key
+				if a.Commands[i].Key != "" {
+					a.Commands[i].Key += " / "
+				}
+				a.Commands[i].Key += key
 				found = true
 				break
 			}

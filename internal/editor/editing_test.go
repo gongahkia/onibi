@@ -14,6 +14,11 @@ func TestCustomShortcutsAndValidation(t *testing.T) {
 	if err := a.configureKeys(); err != nil {
 		t.Fatal(err)
 	}
+	for _, c := range a.Commands {
+		if c.Name == "Save" && c.Key != "" {
+			t.Fatal("palette shows disabled shortcut")
+		}
+	}
 	a.Handle(tcell.NewEventKey(tcell.KeyRune, 's', tcell.ModAlt))
 	if len(a.panes) != 2 {
 		t.Fatal("key not bound")
