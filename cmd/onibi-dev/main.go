@@ -22,7 +22,7 @@ func main() {
 }
 func run() error {
 	if len(os.Args) < 2 {
-		return fmt.Errorf("usage: onibi-dev build|install|update|uninstall|status [options]")
+		return fmt.Errorf("usage: onibi-dev build|install|update|uninstall|status|help [options]")
 	}
 	flags := flag.NewFlagSet(os.Args[1], flag.ContinueOnError)
 	prefix := flags.String("prefix", "", "installation directory (default ~/.local/bin)")
@@ -58,6 +58,9 @@ func run() error {
 	tool := devtool.Tool{Root: cwd, Prefix: *prefix, UI: ui, Verbose: *verbose}
 	opts := devtool.LifecycleOptions{DryRun: *dryRun, Pull: *pull, RestartWeb: *restart}
 	switch os.Args[1] {
+	case "help":
+		tool.Help()
+		return nil
 	case "build":
 		return tool.Build(ctx)
 	case "install":
