@@ -40,6 +40,7 @@ function run() {
             for (var i=0; i<all.length; i++) if (all[i].id()===id) return all[i];
             return null;
         }
+        function focusedTarget() { try { return app.frontWindow().selectedTab().focusedTerminal().id(); } catch (_) { return ''; } }
         function bounded(value, limit) { return String(value || '').slice(0, limit); }
         if (req.operation==='targets') {
             var targets=[];
@@ -57,13 +58,23 @@ function run() {
             }
             return success({targets:targets});
         }
-        if (req.operation==='new_tab' || req.operation==='close_tab') {
+        if (req.operation==='new_window') {
+            attempted=true;
+            var createdWindow=app.newWindow();
+            return success({targetId:createdWindow.selectedTab().focusedTerminal().id()});
+        }
+        if (req.operation==='new_tab' || req.operation==='close_tab' || req.operation==='close_window') {
             var window=findWindow(req.windowId);
             if (!window) return failure('missing_window');
             if(req.operation==='new_tab') {
                 attempted=true;
                 var created=app.newTab({'in':window});
                 return success({targetId:created.focusedTerminal().id()});
+            }
+            if(req.operation==='close_window') {
+                attempted=true;
+                app.closeWindow(window);
+                return success();
             }
             var tab=findTab(window,req.tabId);
             if(!tab) return failure('missing_tab');
@@ -75,6 +86,25 @@ function run() {
         if(!terminal) return failure('missing_target');
         if(req.operation==='focused') {
             if(focusedID!==req.targetId) return failure('focus_required');
+            return success({targetId:req.targetId});
+        }
+        if(req.operation==='split') {
+            if(['left','right','up','down'].indexOf(req.direction)<0) return failure('query_failed');
+            attempted=true;
+            var splitTerminal=app.split(terminal, {direction:req.direction});
+            return success({targetId:splitTerminal.id()});
+        }
+        if(req.operation==='close_pane') {
+            attempted=true;
+            app.close(terminal);
+            return success();
+        }
+        if(req.operation==='control' || req.operation==='rename_tab' || req.operation==='rename_pane') {
+            // Several AppKit layout/title actions address the focused surface.
+            // Never silently focus another pane or apply them to a stale selection.
+            if(focusedTarget()!==req.targetId) return failure('focus_required');
+            attempted=true;
+            if(!app.performAction(req.nativeAction, {'on':terminal})) return failure('unsupported_action');
             return success({targetId:req.targetId});
         }
         if(req.operation==='focus') {

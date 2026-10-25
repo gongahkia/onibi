@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 )
 
@@ -180,5 +181,83 @@ func TestTabCreationReturnsBoundTerminalAndClosureKeepsWindowScope(t *testing.T)
 	}
 	if _, err := c.Execute(t.Context(), Action{Kind: "close_tab", WindowID: testID("window", "w"), TabID: testID("tab", "t")}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCockpitActionsRemainScopedAndAllowlisted(t *testing.T) {
+	for _, a := range []Action{
+		{Kind: "split", TargetID: testID("terminal", "s"), Direction: "right"},
+		{Kind: "close_pane", TargetID: testID("terminal", "s")},
+		{Kind: "close_window", WindowID: testID("window", "w")},
+		{Kind: "rename_tab", TargetID: testID("terminal", "s"), Name: "agent: 'review'"},
+		{Kind: "rename_pane", TargetID: testID("terminal", "s"), Name: ""},
+		{Kind: "control", TargetID: testID("terminal", "s"), Control: "resize_right"},
+		{Kind: "new_window"},
+	} {
+		r, err := prepareAction(a)
+		if err != nil {
+			t.Fatalf("%s: %v", a.Kind, err)
+		}
+		if a.Kind != "new_window" && (r.PID != 123 || r.Started == "") {
+			t.Fatalf("lost process scope: %#v", r)
+		}
+		if a.Kind == "rename_tab" && r.NativeAction != "set_tab_title:"+a.Name {
+			t.Fatalf("title was not literal: %#v", r)
+		}
+		if a.Kind == "control" && r.NativeAction != "resize_split:right,40" {
+			t.Fatalf("wrong native control: %#v", r)
+		}
+	}
+	for _, a := range []Action{
+		{Kind: "new_window", TargetID: testID("terminal", "s")},
+		{Kind: "split", TargetID: testID("terminal", "s"), Direction: "right; quit"},
+		{Kind: "control", TargetID: testID("terminal", "s"), Control: "close_all_windows"},
+		{Kind: "rename_tab", TargetID: testID("terminal", "s"), Name: "hidden\ncommand"},
+		{Kind: "focus", TargetID: testID("terminal", "s"), Text: "unexpected"},
+	} {
+		if _, err := prepareAction(a); err == nil {
+			t.Fatalf("accepted %#v", a)
+		}
+	}
+}
+
+func TestNewWindowUsesReturnedProcessIdentity(t *testing.T) {
+	c := &Client{run: func(_ context.Context, r nativeRequest) (nativeResponse, error) {
+		if r.Operation != "new_window" || r.PID != 0 {
+			t.Fatalf("request=%#v", r)
+		}
+		return nativeResponse{Status: "ok", PID: 456, Started: "new-launch", TargetID: "created"}, nil
+	}}
+	r, err := c.Execute(t.Context(), Action{Kind: "new_window"})
+	if err != nil || r.TargetID != encodeID(456, "new-launch", "terminal", "created") {
+		t.Fatalf("result=%#v err=%v", r, err)
+	}
+}
+
+func TestCancelledWaiterDoesNotQueueBehindNativeCapture(t *testing.T) {
+	entered, release := make(chan struct{}), make(chan struct{})
+	c := &Client{run: func(_ context.Context, r nativeRequest) (nativeResponse, error) {
+		close(entered)
+		<-release
+		return nativeResponse{Status: "ok", PID: 123, Started: "launch"}, nil
+	}}
+	done := make(chan struct{})
+	go func() { defer close(done); _, _ = c.Targets(t.Context()) }()
+	<-entered
+	defer func() { close(release); <-done }()
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	waiter := make(chan error, 1)
+	go func() {
+		_, err := c.Execute(ctx, Action{Kind: "key", TargetID: testID("terminal", "s"), Key: "enter"})
+		waiter <- err
+	}()
+	select {
+	case err := <-waiter:
+		if !errors.Is(err, context.Canceled) || !IsRejected(err) {
+			t.Fatalf("err=%v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("cancelled action stayed queued behind native work")
 	}
 }

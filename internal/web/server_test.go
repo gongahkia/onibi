@@ -460,3 +460,45 @@ func decodeReceipt(t *testing.T, response *httptest.ResponseRecorder) Receipt {
 	}
 	return receipt
 }
+
+func TestCockpitLifecycleAndControls(t *testing.T) {
+	s, backend := testServer(t, testOrigin)
+	backend.targets[0].Focused = true
+	b := pairBrowser(t, s)
+	for i, action := range []ghostty.Action{
+		{Kind: "new_window"},
+		{Kind: "split", TargetID: "surface-1", Direction: "down"},
+		{Kind: "close_pane", TargetID: "surface-1"},
+		{Kind: "close_window", WindowID: "window-1"},
+		{Kind: "rename_tab", TargetID: "surface-1", Name: "Agent review"},
+		{Kind: "control", TargetID: "surface-1", Control: "scroll_up"},
+	} {
+		raw, _ := json.Marshal(actionRequest{ID: fmt.Sprintf("cockpit-action-%04d", i), Action: action})
+		response := request(s, b, http.MethodPost, "/api/actions", raw)
+		if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"state":"completed"`) {
+			t.Fatalf("%s: %d %s", action.Kind, response.Code, response.Body)
+		}
+	}
+	before := len(backend.calls)
+	for i, action := range []ghostty.Action{
+		{Kind: "split", TargetID: "missing", Direction: "down"},
+		{Kind: "close_window", WindowID: "missing"},
+		{Kind: "control", TargetID: "surface-1", Control: "quit"},
+		{Kind: "rename_pane", TargetID: "surface-1", Name: "bad\nname"},
+	} {
+		raw, _ := json.Marshal(actionRequest{ID: fmt.Sprintf("cockpit-reject-%04d", i), Action: action})
+		response := request(s, b, http.MethodPost, "/api/actions", raw)
+		if response.Code == http.StatusOK && !strings.Contains(response.Body.String(), `"state":"rejected"`) {
+			t.Fatalf("accepted %s: %s", action.Kind, response.Body)
+		}
+	}
+	if len(backend.calls) != before {
+		t.Fatal("invalid cockpit actions reached Ghostty")
+	}
+	backend.targets = nil
+	raw, _ := json.Marshal(actionRequest{ID: "empty-app-new-window", Action: ghostty.Action{Kind: "new_window"}})
+	response := request(s, b, http.MethodPost, "/api/actions", raw)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"state":"completed"`) {
+		t.Fatalf("cannot recover an empty Ghostty: %s", response.Body)
+	}
+}

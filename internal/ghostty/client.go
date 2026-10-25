@@ -32,13 +32,16 @@ type Snapshot struct {
 }
 
 type Action struct {
-	Kind     string `json:"kind"`
-	TargetID string `json:"targetId,omitempty"`
-	WindowID string `json:"windowId,omitempty"`
-	TabID    string `json:"tabId,omitempty"`
-	Text     string `json:"text,omitempty"`
-	Key      string `json:"key,omitempty"`
-	Enter    bool   `json:"enter,omitempty"`
+	Kind      string `json:"kind"`
+	TargetID  string `json:"targetId,omitempty"`
+	WindowID  string `json:"windowId,omitempty"`
+	TabID     string `json:"tabId,omitempty"`
+	Text      string `json:"text,omitempty"`
+	Key       string `json:"key,omitempty"`
+	Enter     bool   `json:"enter,omitempty"`
+	Direction string `json:"direction,omitempty"`
+	Name      string `json:"name,omitempty"`
+	Control   string `json:"control,omitempty"`
 }
 
 type Result struct {
@@ -66,16 +69,18 @@ func IsRejected(err error) bool {
 }
 
 type nativeRequest struct {
-	Operation string `json:"operation"`
-	PID       int    `json:"pid,omitempty"`
-	Started   string `json:"started,omitempty"`
-	TargetID  string `json:"targetId,omitempty"`
-	WindowID  string `json:"windowId,omitempty"`
-	TabID     string `json:"tabId,omitempty"`
-	Text      string `json:"text,omitempty"`
-	Key       string `json:"key,omitempty"`
-	Modifiers string `json:"modifiers,omitempty"`
-	Enter     bool   `json:"enter,omitempty"`
+	Operation    string `json:"operation"`
+	PID          int    `json:"pid,omitempty"`
+	Started      string `json:"started,omitempty"`
+	TargetID     string `json:"targetId,omitempty"`
+	WindowID     string `json:"windowId,omitempty"`
+	TabID        string `json:"tabId,omitempty"`
+	Text         string `json:"text,omitempty"`
+	Key          string `json:"key,omitempty"`
+	Modifiers    string `json:"modifiers,omitempty"`
+	Enter        bool   `json:"enter,omitempty"`
+	Direction    string `json:"direction,omitempty"`
+	NativeAction string `json:"nativeAction,omitempty"`
 }
 
 type nativeResponse struct {
@@ -91,12 +96,29 @@ type runner func(context.Context, nativeRequest) (nativeResponse, error)
 type capturer func(context.Context, int) (string, error)
 
 type Client struct {
-	mu      sync.Mutex
-	run     runner
-	capture capturer
+	gateOnce sync.Once
+	gate     chan struct{}
+	run      runner
+	capture  capturer
 }
 
 func New() *Client { return &Client{run: runNative, capture: captureNative} }
+
+// Waiting for a slow Accessibility/Apple event must honor the request deadline.
+// A mutex would leave disconnected pollers queued behind a frozen application.
+func (c *Client) acquire(ctx context.Context) error {
+	c.gateOnce.Do(func() { c.gate = make(chan struct{}, 1) })
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case c.gate <- struct{}{}:
+		if err := ctx.Err(); err != nil {
+			<-c.gate
+			return err
+		}
+		return nil
+	}
+}
 
 type identity struct {
 	PID     int    `json:"p"`
@@ -134,17 +156,18 @@ func (c *Client) call(ctx context.Context, req nativeRequest) (nativeResponse, e
 		return response, nil
 	}
 	message := map[string]string{
-		"not_running":      "Ghostty is not running; open it on this Mac first",
-		"stale_process":    "Ghostty restarted; refresh the terminal list",
-		"missing_target":   "this Ghostty terminal is no longer available; refresh the terminal list",
-		"missing_window":   "this Ghostty window is no longer available; refresh the terminal list",
-		"missing_tab":      "this Ghostty tab is no longer available in that window; refresh the terminal list",
-		"permission":       "allow Onibi to control Ghostty in macOS Privacy & Security → Automation",
-		"disabled":         "enable macos-applescript in Ghostty configuration and reload it",
-		"focus_required":   ErrFocusRequired.Error(),
-		"too_many_targets": "Ghostty has too many terminal surfaces to list safely",
-		"query_failed":     "Ghostty could not be inspected; check that macos-applescript is enabled and Automation access is allowed",
-		"action_failed":    "Ghostty did not confirm the action; inspect the terminal before trying again",
+		"not_running":        "Ghostty is not running; open it on this Mac first",
+		"stale_process":      "Ghostty restarted; refresh the terminal list",
+		"missing_target":     "this Ghostty terminal is no longer available; refresh the terminal list",
+		"missing_window":     "this Ghostty window is no longer available; refresh the terminal list",
+		"missing_tab":        "this Ghostty tab is no longer available in that window; refresh the terminal list",
+		"permission":         "allow Onibi to control Ghostty in macOS Privacy & Security → Automation",
+		"disabled":           "enable macos-applescript in Ghostty configuration and reload it",
+		"focus_required":     ErrFocusRequired.Error(),
+		"too_many_targets":   "Ghostty has too many terminal surfaces to list safely",
+		"query_failed":       "Ghostty could not be inspected; check that macos-applescript is enabled and Automation access is allowed",
+		"action_failed":      "Ghostty did not confirm the action; inspect the terminal before trying again",
+		"unsupported_action": "Ghostty did not accept this control; check your installed version",
 	}[response.Code]
 	if message == "" {
 		message = "Ghostty returned an invalid response"
@@ -160,8 +183,10 @@ func (c *Client) call(ctx context.Context, req nativeRequest) (nativeResponse, e
 }
 
 func (c *Client) Targets(ctx context.Context) ([]Target, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	if err := c.acquire(ctx); err != nil {
+		return nil, err
+	}
+	defer func() { <-c.gate }()
 	r, err := c.call(ctx, nativeRequest{Operation: "targets"})
 	if err != nil {
 		return nil, err
@@ -185,8 +210,10 @@ func (c *Client) Targets(ctx context.Context) ([]Target, error) {
 }
 
 func (c *Client) Snapshot(ctx context.Context, targetID string) (Snapshot, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	if err := c.acquire(ctx); err != nil {
+		return Snapshot{}, err
+	}
+	defer func() { <-c.gate }()
 	id, err := decodeID(targetID, "terminal")
 	if err != nil {
 		return Snapshot{}, err
@@ -218,8 +245,10 @@ func (c *Client) Snapshot(ctx context.Context, targetID string) (Snapshot, error
 }
 
 func (c *Client) Execute(ctx context.Context, action Action) (Result, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	if err := c.acquire(ctx); err != nil {
+		return Result{}, rejected(err)
+	}
+	defer func() { <-c.gate }()
 	req, err := prepareAction(action)
 	if err != nil {
 		return Result{}, err
@@ -228,10 +257,16 @@ func (c *Client) Execute(ctx context.Context, action Action) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	result := Result{TargetID: action.TargetID, Message: map[string]string{"input": "Input sent", "key": "Key sent", "focus": "Terminal focused", "new_tab": "Tab created", "close_tab": "Tab close requested; refresh to confirm"}[action.Kind]}
-	if action.Kind == "new_tab" {
+	result := Result{TargetID: action.TargetID, Message: map[string]string{"input": "Input sent", "key": "Key sent", "focus": "Terminal focused", "new_tab": "Tab created", "new_window": "Window created", "split": "Pane created", "close_pane": "Pane close requested; refresh to confirm", "close_tab": "Tab close requested; refresh to confirm", "close_window": "Window close requested; refresh to confirm", "rename_tab": "Tab title updated", "rename_pane": "Pane title updated", "control": "Ghostty control accepted"}[action.Kind]}
+	if action.Kind == "new_tab" || action.Kind == "new_window" || action.Kind == "split" {
 		if r.TargetID == "" {
-			return Result{}, errors.New("Ghostty created a tab but did not return its terminal; refresh the terminal list")
+			return Result{}, errors.New("Ghostty did not return the created terminal; refresh the terminal list")
+		}
+		if action.Kind == "new_window" {
+			if r.PID <= 0 || r.Started == "" {
+				return Result{}, errors.New("Ghostty did not confirm the new window identity")
+			}
+			req.PID, req.Started = r.PID, r.Started
 		}
 		result.TargetID = encodeID(req.PID, req.Started, "terminal", r.TargetID)
 	}
@@ -239,16 +274,21 @@ func (c *Client) Execute(ctx context.Context, action Action) (Result, error) {
 }
 
 func prepareAction(a Action) (nativeRequest, error) {
-	r := nativeRequest{Operation: a.Kind, Text: a.Text, Enter: a.Enter}
+	r := nativeRequest{Operation: a.Kind, Text: a.Text, Enter: a.Enter, Direction: a.Direction}
+	if err := ValidateAction(a); err != nil {
+		return r, rejected(err)
+	}
 	var id identity
 	var err error
 	switch a.Kind {
-	case "input", "key", "focus":
+	case "input", "key", "focus", "split", "close_pane", "rename_tab", "rename_pane", "control":
 		id, err = decodeID(a.TargetID, "terminal")
 		r.TargetID = id.Native
-	case "new_tab", "close_tab":
+	case "new_tab", "close_tab", "close_window":
 		id, err = decodeID(a.WindowID, "window")
 		r.WindowID = id.Native
+	case "new_window":
+		return r, nil
 	default:
 		return r, rejected(errors.New("unsupported Ghostty action"))
 	}
@@ -274,6 +314,15 @@ func prepareAction(a Action) (nativeRequest, error) {
 		if err != nil {
 			return r, rejected(err)
 		}
+	}
+	if a.Kind == "control" {
+		r.NativeAction, _ = controlAction(a.Control)
+	}
+	if a.Kind == "rename_tab" {
+		r.NativeAction = "set_tab_title:" + a.Name
+	}
+	if a.Kind == "rename_pane" {
+		r.NativeAction = "set_surface_title:" + a.Name
 	}
 	return r, nil
 }

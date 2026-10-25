@@ -333,7 +333,7 @@ func (s *Server) targets(w http.ResponseWriter, r *http.Request) {
 	if targets == nil {
 		targets = []ghostty.Target{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"targets": targets})
+	writeJSON(w, http.StatusOK, map[string]any{"targets": targets, "controls": ghostty.Controls(), "outputMode": "focused-text"})
 }
 
 func (s *Server) snapshot(w http.ResponseWriter, r *http.Request) {
@@ -441,9 +441,12 @@ func (s *Server) validateTarget(ctx context.Context, action ghostty.Action) erro
 	if err != nil {
 		return errors.New("Ghostty could not be checked before execution. No input was sent.")
 	}
+	if action.Kind == "new_window" {
+		return nil
+	}
 	for _, target := range targets {
 		switch action.Kind {
-		case "new_tab":
+		case "new_tab", "close_window":
 			if target.WindowID == action.WindowID {
 				return nil
 			}
@@ -453,6 +456,9 @@ func (s *Server) validateTarget(ctx context.Context, action ghostty.Action) erro
 			}
 		default:
 			if target.ID == action.TargetID && (action.WindowID == "" || target.WindowID == action.WindowID) && (action.TabID == "" || target.TabID == action.TabID) {
+				if (action.Kind == "control" || action.Kind == "rename_tab" || action.Kind == "rename_pane") && !target.Focused {
+					return errors.New("Focus this pane on your Mac before using layout, scrollback, display, or title controls. No action was sent.")
+				}
 				return nil
 			}
 		}
@@ -461,45 +467,10 @@ func (s *Server) validateTarget(ctx context.Context, action ghostty.Action) erro
 }
 
 func validateAction(action ghostty.Action) error {
-	for _, id := range []string{action.TargetID, action.WindowID, action.TabID} {
-		if id != "" && !validTargetID(id) {
-			return errors.New("Invalid target identity.")
-		}
+	if len(action.Text) > maxInputBytes {
+		return errors.New("Input must be at most 16 KiB.")
 	}
-	if len(action.Text) > maxInputBytes || !utf8.ValidString(action.Text) || strings.ContainsRune(action.Text, 0) {
-		return errors.New("Input must be valid text of at most 16 KiB without NUL characters.")
-	}
-	if action.Kind != "input" && (action.Text != "" || action.Enter) {
-		return errors.New("Text and Enter are only valid for input actions.")
-	}
-	if action.Kind != "key" && action.Key != "" {
-		return errors.New("A key is only valid for key actions.")
-	}
-	switch action.Kind {
-	case "input":
-		if action.TargetID == "" || action.Text == "" {
-			return errors.New("Input requires an explicit target and text. Use the Enter key action for an empty line.")
-		}
-	case "key":
-		if action.TargetID == "" || len(action.Key) == 0 || len(action.Key) > 32 {
-			return errors.New("A key action requires an explicit target and key.")
-		}
-	case "focus":
-		if action.TargetID == "" {
-			return errors.New("Focus requires an explicit target.")
-		}
-	case "new_tab":
-		if action.WindowID == "" {
-			return errors.New("Creating a tab requires an explicit window.")
-		}
-	case "close_tab":
-		if action.WindowID == "" || action.TabID == "" {
-			return errors.New("Closing a tab requires its explicit window and tab IDs.")
-		}
-	default:
-		return errors.New("Unsupported action.")
-	}
-	return nil
+	return ghostty.ValidateAction(action)
 }
 
 func validTargetID(id string) bool {
