@@ -655,7 +655,11 @@ const server = http.createServer(async (req, res) => {
     expectedTargets: ["surface-logs", "surface-work"],
   });
   await page.fill("#compose", "preserve draft");
+  await page.click("#reader-expand");
   targets = targets.filter((t) => t.id !== "surface-logs");
+  // Inventory reconciliation must dismiss a reader whose destination vanished.
+  await page.evaluate(() => refreshTargets());
+  await page.locator("#reader-dialog").waitFor({ state: "hidden" });
   await page.click("#open-picker");
   await page.click("#refresh-picker");
   await page.waitForFunction(

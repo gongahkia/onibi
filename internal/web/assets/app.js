@@ -710,6 +710,10 @@ function renderTargets() {
 
 function renderDestination() {
   const target = selectedTarget();
+  byId("reader-destination").textContent = target
+    ? `${targetName(target)} · ${tabName(target)} · ${windowName(target)}`
+    : "No pane selected";
+  if (!target) byId("reader-dialog").close();
   byId("focus-terminal").hidden = !target || Boolean(target.focused);
   byId("destination-context").textContent = target
     ? target.focused
@@ -862,6 +866,7 @@ function selectTarget(id) {
   rememberDraft();
   cancelSnapshot();
   stopFollow();
+  byId("reader-dialog").close();
   state.selectedId = id;
   state.captureState = "unknown";
   state.captureDetail = "";

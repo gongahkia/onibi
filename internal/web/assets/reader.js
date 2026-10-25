@@ -55,10 +55,7 @@ byId("output-card").before(readerHome);
 byId("reader-expand").addEventListener("click", () => {
   if (!state.snapshotTarget || state.snapshotTarget !== state.selectedId)
     return;
-  byId("reader-destination").textContent =
-    byId("destination-title").textContent +
-    " · " +
-    byId("destination-context").textContent;
+  renderDestination();
   byId("reader-mount").append(byId("output-card"));
   byId("reader-dialog").showModal();
   byId("reader-close").focus();
