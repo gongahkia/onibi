@@ -482,6 +482,9 @@ func (s *Server) validateTarget(ctx context.Context, action ghostty.Action) erro
 	if action.Kind == "new_window" {
 		return nil
 	}
+	if err := ghostty.CheckCloseScope(action, targets); err != nil {
+		return err
+	}
 	for _, target := range targets {
 		switch action.Kind {
 		case "new_tab", "close_window":

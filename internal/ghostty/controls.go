@@ -50,6 +50,9 @@ func controlAction(id string) (string, bool) {
 // ValidateAction validates the public shape without interpreting native IDs.
 // Both the HTTP boundary and the native client use the same action contract.
 func ValidateAction(a Action) error {
+	if err := validateCloseScope(a); err != nil {
+		return err
+	}
 	for _, id := range []string{a.TargetID, a.WindowID, a.TabID} {
 		if len(id) > 1024 || !utf8.ValidString(id) || strings.ContainsAny(id, "\x00\r\n") {
 			return errors.New("invalid target identity")

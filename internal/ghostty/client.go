@@ -32,16 +32,17 @@ type Snapshot struct {
 }
 
 type Action struct {
-	Kind      string `json:"kind"`
-	TargetID  string `json:"targetId,omitempty"`
-	WindowID  string `json:"windowId,omitempty"`
-	TabID     string `json:"tabId,omitempty"`
-	Text      string `json:"text,omitempty"`
-	Key       string `json:"key,omitempty"`
-	Enter     bool   `json:"enter,omitempty"`
-	Direction string `json:"direction,omitempty"`
-	Name      string `json:"name,omitempty"`
-	Control   string `json:"control,omitempty"`
+	Kind            string   `json:"kind"`
+	TargetID        string   `json:"targetId,omitempty"`
+	WindowID        string   `json:"windowId,omitempty"`
+	TabID           string   `json:"tabId,omitempty"`
+	Text            string   `json:"text,omitempty"`
+	Key             string   `json:"key,omitempty"`
+	Enter           bool     `json:"enter,omitempty"`
+	Direction       string   `json:"direction,omitempty"`
+	Name            string   `json:"name,omitempty"`
+	Control         string   `json:"control,omitempty"`
+	ExpectedTargets []string `json:"expectedTargets,omitempty"`
 }
 
 type Result struct {

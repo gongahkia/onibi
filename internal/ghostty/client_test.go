@@ -179,7 +179,7 @@ func TestTabCreationReturnsBoundTerminalAndClosureKeepsWindowScope(t *testing.T)
 	if err != nil || r.TargetID != testID("terminal", "new-surface") {
 		t.Fatalf("result=%#v err=%v", r, err)
 	}
-	if _, err := c.Execute(t.Context(), Action{Kind: "close_tab", WindowID: testID("window", "w"), TabID: testID("tab", "t")}); err != nil {
+	if _, err := c.Execute(t.Context(), Action{Kind: "close_tab", WindowID: testID("window", "w"), TabID: testID("tab", "t"), ExpectedTargets: []string{testID("terminal", "s")}}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -187,8 +187,8 @@ func TestTabCreationReturnsBoundTerminalAndClosureKeepsWindowScope(t *testing.T)
 func TestCockpitActionsRemainScopedAndAllowlisted(t *testing.T) {
 	for _, a := range []Action{
 		{Kind: "split", TargetID: testID("terminal", "s"), Direction: "right"},
-		{Kind: "close_pane", TargetID: testID("terminal", "s")},
-		{Kind: "close_window", WindowID: testID("window", "w")},
+		{Kind: "close_pane", TargetID: testID("terminal", "s"), ExpectedTargets: []string{testID("terminal", "s")}},
+		{Kind: "close_window", WindowID: testID("window", "w"), ExpectedTargets: []string{testID("terminal", "s")}},
 		{Kind: "rename_tab", TargetID: testID("terminal", "s"), Name: "agent: 'review'"},
 		{Kind: "rename_pane", TargetID: testID("terminal", "s"), Name: ""},
 		{Kind: "control", TargetID: testID("terminal", "s"), Control: "resize_right"},

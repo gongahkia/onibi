@@ -457,7 +457,7 @@ func TestWebTabActionsRequireExplicitNativeRelationship(t *testing.T) {
 		{Kind: "new_tab"},
 		{Kind: "close_tab", TabID: "tab-1"},
 		{Kind: "new_tab", WindowID: "missing"},
-		{Kind: "close_tab", WindowID: "other-window", TabID: "tab-1"},
+		{Kind: "close_tab", WindowID: "other-window", TabID: "tab-1", ExpectedTargets: []string{"surface-1"}},
 	} {
 		raw, _ := json.Marshal(actionRequest{ID: fmt.Sprintf("tab-operation-%04d", i), Action: action})
 		got := request(s, b, http.MethodPost, "/api/actions", raw)
@@ -492,8 +492,8 @@ func TestCockpitLifecycleAndControls(t *testing.T) {
 	for i, action := range []ghostty.Action{
 		{Kind: "new_window"},
 		{Kind: "split", TargetID: "surface-1", Direction: "down"},
-		{Kind: "close_pane", TargetID: "surface-1"},
-		{Kind: "close_window", WindowID: "window-1"},
+		{Kind: "close_pane", TargetID: "surface-1", ExpectedTargets: []string{"surface-1"}},
+		{Kind: "close_window", WindowID: "window-1", ExpectedTargets: []string{"surface-1"}},
 		{Kind: "rename_tab", TargetID: "surface-1", Name: "Agent review"},
 		{Kind: "control", TargetID: "surface-1", Control: "scroll_up"},
 	} {

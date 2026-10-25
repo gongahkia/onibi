@@ -543,6 +543,7 @@ const server = http.createServer(async (req, res) => {
     kind: "close_tab",
     windowId: "window-main",
     tabId: "tab-work",
+    expectedTargets: ["surface-logs", "surface-work"],
   });
   await page.fill("#compose", "preserve draft");
   targets = targets.filter((t) => t.id !== "surface-logs");
@@ -859,8 +860,15 @@ const server = http.createServer(async (req, res) => {
     assert.deepEqual(
       actions.at(-1).action,
       kind === "close_pane"
-        ? { kind, targetId: pane }
-        : { kind, windowId: "window-created" },
+        ? { kind, targetId: pane, expectedTargets: [pane] }
+        : {
+            kind,
+            windowId: "window-created",
+            expectedTargets: targets
+              .filter((t) => t.windowId === "window-created")
+              .map((t) => t.id)
+              .sort(),
+          },
     );
   }
   // A canceled slow read cannot replace a newly selected pane's output.

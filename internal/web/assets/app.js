@@ -1258,7 +1258,11 @@ function requestClose(kind) {
       : kind === "close_tab"
         ? tabName(target)
         : targetName(target);
-  state.closeTarget = { ...target, kind };
+  state.closeTarget = {
+    ...target,
+    kind,
+    expectedTargets: panes.map((pane) => pane.id).sort(),
+  };
   byId("close-title").textContent = `Close “${name}”?`;
   byId("close-description").textContent =
     `This closes the ${noun} in ${windowName(target)}, including ${panes.length} ${panes.length === 1 ? "pane" : "panes"}:`;
@@ -1297,6 +1301,7 @@ byId("confirm-close").addEventListener("click", () => {
       : t.kind === "close_window"
         ? { kind: t.kind, windowId: t.windowId }
         : { kind: t.kind, windowId: t.windowId, tabId: t.tabId };
+  action.expectedTargets = t.expectedTargets;
   performAction(action);
 });
 byId("logout").addEventListener("click", async () => {
