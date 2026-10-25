@@ -2,10 +2,12 @@ package devtool
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gongahkia/onibi/internal/termui"
 )
@@ -46,6 +48,15 @@ func TestSourceLifecycleIntegration(t *testing.T) {
 	if strings.TrimSpace(version) != m.Version {
 		t.Fatalf("artifact %q disagrees with manifest %q", version, m.Version)
 	}
+	metadata, err := tool.Runner.Run(t.Context(), root, nil, filepath.Join(tool.Prefix, "onibi"), []string{"version", "--json"}, nil)
+	check(err)
+	var built map[string]string
+	check(json.Unmarshal([]byte(metadata), &built))
+	if built["version"] != m.Version || built["commit"] != m.Commit {
+		t.Fatalf("compiled provenance does not match manifest: %v", built)
+	}
+	_, err = time.Parse(time.RFC3339, built["builtAt"])
+	check(err)
 	check(tool.Install(t.Context(), true, opts))
 	unrelated := filepath.Join(tool.Prefix, "unrelated")
 	check(os.WriteFile(unrelated, []byte("keep"), 0600))

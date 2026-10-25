@@ -6,8 +6,10 @@ import (
 	"testing"
 )
 
-func TestLDFlagInjectionTargets(t *testing.T) {
-	for _, path := range []string{"../../Makefile", "../../.goreleaser.yaml"} {
+// Source-build injection is checked against a real installed executable by
+// devtool.TestSourceLifecycleIntegration. Keep the release config check here.
+func TestReleaseLDFlagInjectionTargets(t *testing.T) {
+	for _, path := range []string{"../../.goreleaser.yaml"} {
 		body, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatal(err)
