@@ -19,6 +19,12 @@ func (a *App) startRecovery() {
 		return
 	}
 	a.recovery = store
+	for _, b := range a.Buffers {
+		if b.Doc.Dirty() {
+			a.scheduleRecovery()
+			break
+		}
+	}
 	entries, err := store.Scan()
 	if err == nil {
 		a.recoverable = entries

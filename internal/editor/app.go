@@ -15,6 +15,7 @@ import (
 	"github.com/gdamore/tcell/v2"
 	"github.com/gongahkia/shack/internal/config"
 	"github.com/gongahkia/shack/internal/lsp"
+	"github.com/gongahkia/shack/internal/project"
 	"github.com/gongahkia/shack/internal/recovery"
 	"github.com/gongahkia/shack/internal/text"
 )
@@ -137,15 +138,20 @@ func New(screen tcell.Screen, cfg config.Config, paths []string, readonly bool) 
 	ctx, cancel := context.WithCancel(context.Background())
 	root, _ := os.Getwd()
 	a := &App{Screen: screen, Config: cfg, Root: root, Readonly: readonly, ctx: ctx, cancel: cancel, updates: make(chan func(), 32), syntaxJobs: make(chan syntaxJob, 1)}
+	explicitRoot := false
 	for _, path := range paths {
 		if st, err := os.Stat(path); err == nil && st.IsDir() {
 			a.Root, _ = filepath.Abs(path)
+			explicitRoot = true
 			continue
 		}
 		if err := a.Open(path); err != nil {
 			cancel()
 			return nil, err
 		}
+	}
+	if !explicitRoot && len(a.Buffers) > 0 && !project.Inside(a.Root, a.Buffers[0].File.Path) {
+		a.Root = lsp.Root(a.Buffers[0].File.Path)
 	}
 	if canonical, e := filepath.EvalSymlinks(a.Root); e == nil {
 		a.Root = canonical

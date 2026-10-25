@@ -247,6 +247,7 @@ func (a *App) languageRequestWith(kind string, extra map[string]any) {
 	}
 	versions := map[*Buffer]uint64{}
 	type syncItem struct {
+		buffer                *Buffer
 		uri, language, source string
 		version, epoch        uint64
 	}
@@ -254,14 +255,29 @@ func (a *App) languageRequestWith(kind string, extra map[string]any) {
 	syncBytes := b.Doc.Text.Len()
 	for _, other := range a.Buffers {
 		versions[other] = other.Doc.Version
-		if other != b && other.LanguageKey == b.LanguageKey && other.File.Path != "" && other.Doc.Text.Len() <= a.Config.ServiceMaxBytes {
+		if other != b && !other.Transient && other.File.Path != "" && other.Doc.Text.Len() <= a.Config.ServiceMaxBytes {
+			if other.LanguageKey == "" {
+				server, available := lsp.ServerFor(other.File.Path, a.Config.Servers)
+				key := lsp.Root(other.File.Path) + "\x00" + strings.Join(server.Command, "\x00")
+				if available && key == b.LanguageKey {
+					other.LanguageKey = key
+					other.LanguageID = server.Language
+					if other.LanguageEpoch == 0 {
+						a.languageSequence++
+						other.LanguageEpoch = a.languageSequence
+					}
+				}
+			}
+			if other.LanguageKey != b.LanguageKey || (other.Synced && other.SyncedVersion == other.Doc.Version) {
+				continue
+			}
 			syncBytes += other.Doc.Text.Len()
 			if syncBytes > workspaceBytes {
 				a.languageBusy = false
 				a.Status = "Language request exceeds 8 MiB of open workspace text"
 				return
 			}
-			pending = append(pending, syncItem{lsp.URI(other.File.Path), other.LanguageID, other.Doc.Text.String(), other.Doc.Version, other.LanguageEpoch})
+			pending = append(pending, syncItem{other, lsp.URI(other.File.Path), other.LanguageID, other.Doc.Text.String(), other.Doc.Version, other.LanguageEpoch})
 		}
 	}
 	snapshot := b.Doc.Text
@@ -315,8 +331,18 @@ func (a *App) languageRequestWith(kind string, extra map[string]any) {
 				return
 			}
 			if err != nil {
-				a.Status = err.Error()
+				if !automatic {
+					a.Status = err.Error()
+				}
 				return
+			}
+			b.Synced = true
+			b.SyncedVersion = version
+			for _, item := range pending {
+				if item.buffer.LanguageEpoch == item.epoch {
+					item.buffer.Synced = true
+					item.buffer.SyncedVersion = item.version
+				}
 			}
 			switch kind {
 			case "completion":
