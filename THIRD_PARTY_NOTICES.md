@@ -7,3 +7,5 @@ Onibi embeds these regular TTF faces from [Nerd Fonts v3.5.0](https://github.com
 - Go Mono Nerd Font Mono — BSD 3-Clause; [license](third_party/fonts/GoMonoNerdFontMono-BSD-3-Clause.txt); SHA-256 `f7483d8ecd20387dcc820abdf0e3a8010e52c7a0ff59e7f4507645099ebb4275`.
 
 BigBlueTerminal Nerd Font Mono is not bundled. Configure it as a local external font when its CC BY-SA terms fit your distribution.
+
+The web cockpit bundles unmodified JetBrains Mono Regular and SemiBold WOFF2 from [JetBrains/JetBrainsMono](https://github.com/JetBrains/JetBrainsMono/tree/19371302b95d218af43299bce79ddbddd0bc364d), under the [SIL Open Font License 1.1](third_party/fonts/JetBrainsMono-Web-OFL-1.1.txt). Fonts are served locally; no font CDN is contacted.

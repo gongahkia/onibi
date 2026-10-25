@@ -6,7 +6,7 @@
       name="viewport"
       content="width=device-width, initial-scale=1, viewport-fit=cover"
     />
-    <meta name="theme-color" content="#11191c" />
+    <meta name="theme-color" content="#101010" />
     <meta name="color-scheme" content="dark" />
     <meta name="referrer" content="no-referrer" />
     <title>Onibi · Your Ghostty cockpit</title>
@@ -20,11 +20,7 @@
   <body>
     <a class="skip-link" href="#main">Skip to terminal</a>
     <header class="site-header">
-      <a class="brand" href="./" aria-label="Onibi home"
-        ><img src="icon.svg" width="36" height="36" alt="" /><span
-          >onibi<span class="brand-dot">.</span></span
-        ><span class="brand-caption">GHOSTTY COCKPIT</span></a
-      >
+      <a class="brand" href="./" aria-label="Onibi home">onibi</a>
       <p class="tagline">Control Ghostty wherever text renders</p>
       <div class="header-actions" id="session-controls" hidden>
         <button
@@ -43,38 +39,18 @@
     <main id="main" tabindex="-1">
       <section class="pair-view" id="pair-view" aria-labelledby="pair-heading">
         <div class="pair-intro">
-          <div class="ghost-orbit" aria-hidden="true">
-            <span class="orbit-dot"></span
-            ><svg viewBox="0 0 160 160" fill="none">
-              <path
-                d="M40 124V75a40 40 0 0 1 80 0v49l-14-10-13 10-13-10-13 10-13-10-14 10Z"
-                stroke="currentColor"
-                stroke-width="3"
-                stroke-linejoin="round"
-              />
-              <path
-                d="m60 72 8 7-8 7m25 0h15"
-                stroke="currentColor"
-                stroke-width="4"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              /></svg
-            ><span class="orbit-caption">SAME MAC. NEW PERSPECTIVE.</span>
-          </div>
-          <span class="eyebrow">YOUR TERMINALS, WITHIN REACH</span>
-          <h1 id="pair-heading">
-            Little screen.<br />Big command<span class="brand-dot">.</span>
-          </h1>
+          <span class="eyebrow">GHOSTTY, WITHIN REACH</span>
+          <h1 id="pair-heading">Your Mac.<br />Where you are.</h1>
           <p>
-            A quiet place to keep things moving.<br />Your agents, editors, and
-            shells — right where you left them.
+            Control the terminals already running on your Mac. One browser, one
+            explicit destination.
           </p>
         </div>
         <form class="pair-card" id="pair-form">
           <span class="card-kicker"
             ><span class="status-dot"></span> PRIVATE CONNECTION</span
           >
-          <h2>Meet your Mac here.</h2>
+          <h2>Connect this browser.</h2>
           <p id="pair-description">
             Open the pairing link printed by Onibi on your Mac, or paste its
             one-time token. For a fresh link, run <code>onibi web pair</code> on
@@ -119,7 +95,6 @@
             Checking this browser’s connection…
           </p>
           <div class="pair-footnote">
-            <span aria-hidden="true">⌁</span>
             <p>
               Served by your Mac. Connected privately.<br />Work keeps running
               in Ghostty.
@@ -136,7 +111,7 @@
         <aside class="destinations" aria-label="Available terminals">
           <div class="section-heading">
             <div>
-              <span class="eyebrow">FLIGHT DECK</span>
+              <span class="eyebrow">TERMINALS</span>
               <h2>Your terminals</h2>
             </div>
             <button
