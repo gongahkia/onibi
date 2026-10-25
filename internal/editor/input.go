@@ -95,6 +95,16 @@ func (a *App) pasteText(s string) {
 	a.insert(s)
 }
 func (a *App) key(ev *tcell.EventKey) {
+	if a.snippet != nil {
+		if (ev.Key() == tcell.KeyTab || ev.Key() == tcell.KeyBacktab) && a.snippetTab(ev.Key() == tcell.KeyBacktab) {
+			return
+		}
+		switch ev.Key() {
+		case tcell.KeyRune, tcell.KeyBackspace, tcell.KeyBackspace2, tcell.KeyDelete:
+		default:
+			a.snippet = nil
+		}
+	}
 	if run, ok := a.bindings[ev.Name()]; ok {
 		a.typingDoc = nil
 		run()
@@ -598,6 +608,7 @@ func (a *App) previewKey(ev *tcell.EventKey) {
 	}
 }
 func (a *App) mouse(ev *tcell.EventMouse) {
+	a.snippet = nil
 	if a.Dialog != nil || a.Preview != nil {
 		return
 	}

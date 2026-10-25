@@ -63,6 +63,7 @@ type preview struct {
 	Index                 int
 }
 type App struct {
+	snippet                     *snippetState
 	taskCancel                  context.CancelFunc
 	taskSeq                     uint64
 	taskBuffer                  *Buffer
@@ -266,6 +267,7 @@ func (a *App) schedule() {
 	a.serviceC = a.serviceTimer.C
 }
 func (a *App) changed() {
+	a.rebaseSnippet()
 	a.rebasePanes()
 	a.scheduleRecovery()
 	a.reveal()
