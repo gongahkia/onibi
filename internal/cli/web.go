@@ -131,26 +131,8 @@ func runWeb(cmd *cobra.Command, _ []string) error {
 	}
 	done := make(chan error, 1)
 	go func() { done <- server.Serve(listener) }()
-	ui := terminalUI(cmd)
 	if !background {
-		ui.Banner("Control Ghostty wherever text renders")
-		ui.Field("Version", buildinfo.Version+" ("+buildinfo.Commit+")")
-		ui.Field("Process", strconv.Itoa(os.Getpid()))
-		ui.Field("Listening", listener.Addr().String())
-		ui.Field("Open", origin)
-		ui.Field("Native", "Not checked yet / select a terminal in the browser")
-		ui.Field("Logs", logPath)
-		ui.Line("")
-		ui.Note("PAIR THIS BROWSER / one use / expires in 10 minutes")
-		ui.Line("%s", app.PairingURL())
-		ui.Line("")
-		hint := commandHint()
-		ui.Field("Pair again", hint+" web pair")
-		ui.Field("Status", hint+" web status")
-		ui.Field("Follow logs", hint+" web logs --follow")
-		ui.Note("Ctrl-C stops Onibi. Temporary access ends on restart.")
-		ui.Note("Remembered browsers expire after 30 days or when revoked.")
-		ui.Line("")
+		writeWebWelcome(cmd, app.PairingURL(), listener.Addr().String(), origin, logPath)
 	}
 	logger.Info("web.started", "version", buildinfo.Version, "commit", buildinfo.Commit, "pid", os.Getpid(), "log_level", levelName)
 	defer logger.Info("web.stopped")
@@ -173,4 +155,27 @@ func runWeb(cmd *cobra.Command, _ []string) error {
 		}
 		return nil
 	}
+}
+
+func writeWebWelcome(cmd *cobra.Command, pairingURL, address, origin, logPath string) {
+	ui := terminalUI(cmd)
+
+	ui.Banner("Control Ghostty wherever text renders")
+	ui.Field("Version", buildinfo.Version+" ("+buildinfo.Commit+")")
+	ui.Field("Process", strconv.Itoa(os.Getpid()))
+	ui.Field("Listening", address)
+	ui.Field("Open", origin)
+	ui.Field("Native", "Not checked yet / select a terminal in the browser")
+	ui.Field("Logs", logPath)
+	ui.Line("")
+	ui.Note("PAIR THIS BROWSER / one use / expires in 10 minutes")
+	ui.Line("%s", pairingURL)
+	ui.Line("")
+	hint := commandHint()
+	ui.Field("Pair again", hint+" web pair")
+	ui.Field("Status", hint+" web status")
+	ui.Field("Follow logs", hint+" web logs --follow")
+	ui.Note("Ctrl-C stops Onibi. Temporary access ends on restart.")
+	ui.Note("Remembered browsers expire after 30 days or when revoked.")
+	ui.Line("")
 }
