@@ -20,6 +20,7 @@ import (
 )
 
 type Buffer struct {
+	WrapTop                                 int
 	Transient                               bool
 	LanguageKey, LanguageID, LanguageStatus string
 	Synced, Syncing                         bool
@@ -49,6 +50,7 @@ type dialog struct {
 	Accept        func(string)
 }
 type preview struct {
+	Targets               []*workspaceTarget
 	Detail                bool
 	DetailTop, DetailLeft int
 	Before, After         []string
@@ -60,6 +62,15 @@ type preview struct {
 	Index                 int
 }
 type App struct {
+	indexMode                   string
+	workspaceSeq                uint64
+	workspaceCancel             context.CancelFunc
+	batch                       *workspaceBatch
+	jumps                       []jump
+	jumpIndex                   int
+	panes                       []pane
+	focus                       int
+	horizontal, wrap            bool
 	recoveryBusy, recoveryDirty bool
 	recovery                    *recovery.Store
 	recoverable                 []*recovery.Entry
@@ -124,8 +135,11 @@ func New(screen tcell.Screen, cfg config.Config, paths []string, readonly bool) 
 	if len(a.Buffers) == 0 {
 		a.NewBuffer()
 	}
+	a.wrap = cfg.SoftWrap
 	a.registerCommands()
 	a.languageCommands()
+	a.paneCommands()
+	a.workspaceCommands()
 	a.Commands = append(a.Commands, command{"Recover unsaved buffers", "", a.recoveryPicker})
 	a.Status = "Ctrl+E commands · Ctrl+P files · Ctrl+F find · F1 help"
 	return a, nil
@@ -239,6 +253,7 @@ func (a *App) schedule() {
 	a.serviceC = a.serviceTimer.C
 }
 func (a *App) changed() {
+	a.rebasePanes()
 	a.scheduleRecovery()
 	a.reveal()
 	a.Matches = nil
@@ -374,12 +389,23 @@ func (a *App) closeBuffer() {
 	a.discardBuffer()
 }
 func (a *App) discardBuffer() {
+	closed := a.Current()
 	a.Buffers = append(a.Buffers[:a.Active], a.Buffers[a.Active+1:]...)
 	if len(a.Buffers) == 0 {
 		a.NewBuffer()
 	} else {
 		a.Active = min(a.Active, len(a.Buffers)-1)
 	}
+	for i := range a.panes {
+		if a.panes[i].Buffer == closed {
+			a.panes[i].Buffer = a.Current()
+			a.panes[i].Selections = append([]text.Selection(nil), a.Current().Doc.Selections...)
+			a.panes[i].Top = 0
+			a.panes[i].Left = 0
+			a.panes[i].WrapTop = 0
+		}
+	}
+	a.scheduleRecovery()
 	a.Matches = nil
 	a.schedule()
 }

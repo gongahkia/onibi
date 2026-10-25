@@ -173,6 +173,10 @@ func (a *App) key(ev *tcell.EventKey) {
 		if a.searchCancel != nil {
 			a.searchCancel()
 		}
+		if a.workspaceCancel != nil {
+			a.workspaceCancel()
+			a.workspaceSeq++
+		}
 		a.clipboardRequested = false
 		p := a.Current().Doc.Selections[0].Head
 		a.Current().Doc.Selections = []text.Selection{{Anchor: p, Head: p}}
@@ -286,6 +290,10 @@ func offsetAt(s string, column, tab int) int {
 	return len(s)
 }
 func (a *App) move(dx, dy int, extend bool) {
+	if a.wrap && dy != 0 {
+		a.moveVisual(dy, extend)
+		return
+	}
 	d := a.Current().Doc
 	r := d.Text
 	for i, s := range d.Selections {
@@ -480,7 +488,7 @@ func (a *App) previewKey(ev *tcell.EventKey) {
 		p.DetailLeft = 0
 		if p.Detail {
 			e := p.Edits[p.Index]
-			p.Before = strings.Split(p.Buffer.Doc.Text.Slice(e.Start, e.End), "\n")
+			p.Before = strings.Split(p.documentAt(p.Index).Text.Slice(e.Start, e.End), "\n")
 			p.After = strings.Split(e.Text, "\n")
 		} else {
 			p.Before = nil
@@ -537,6 +545,10 @@ func (a *App) previewKey(ev *tcell.EventKey) {
 			}
 		}
 	case tcell.KeyEnter:
+		if p.Targets != nil {
+			a.applyWorkspacePreview()
+			return
+		}
 		if a.Readonly {
 			a.Status = "Read-only mode"
 			return
@@ -560,27 +572,14 @@ func (a *App) mouse(ev *tcell.EventMouse) {
 	if a.Dialog != nil || a.Preview != nil {
 		return
 	}
+	a.ensurePanes()
 	x, y := ev.Position()
 	buttons := ev.Buttons()
-	b := a.Current()
-	_, h := a.Screen.Size()
-	if buttons&tcell.WheelUp != 0 {
-		b.Top = max(0, b.Top-3)
-		return
-	}
-	if buttons&tcell.WheelDown != 0 {
-		b.Top = min(max(0, b.Doc.Text.Lines()-1), b.Top+3)
-		return
-	}
-	if buttons&tcell.Button1 == 0 {
-		a.dragging = false
-		return
-	}
-	if y == 0 {
+	if y == 0 && buttons&tcell.Button1 != 0 {
 		position := 0
-		for i, buf := range a.Buffers {
-			name := " " + bufferName(buf)
-			if buf.Doc.Dirty() {
+		for i, b := range a.Buffers {
+			name := " " + bufferName(b)
+			if b.Doc.Dirty() {
 				name += " *"
 			}
 			name += " "
@@ -595,16 +594,48 @@ func (a *App) mouse(ev *tcell.EventMouse) {
 		}
 		return
 	}
-	if y < 1 || y >= h-2 {
+	target := -1
+	for i := range a.panes {
+		r := a.rect(i)
+		if x >= r.X && x < r.X+r.W && y >= r.Y && y < r.Y+r.H {
+			target = i
+			break
+		}
+	}
+	if target < 0 {
 		return
 	}
-	line := min(b.Doc.Text.Lines()-1, b.Top+y-1)
-	p := b.Doc.Text.LineStart(line) + offsetAt(b.Doc.Text.Line(line), max(0, x-a.gutter()+b.Left), a.Config.TabSize)
+	if target != a.focus {
+		a.focusPane(target)
+		a.dragging = false
+	}
+	if buttons&tcell.WheelUp != 0 {
+		a.scrollRows(-3)
+		return
+	}
+	if buttons&tcell.WheelDown != 0 {
+		a.scrollRows(3)
+		return
+	}
+	if buttons&tcell.Button1 == 0 {
+		a.dragging = false
+		return
+	}
+	r := a.rect(target)
+	rows := a.panes[target].Rows
+	row := y - r.Y
+	if row < 0 || row >= len(rows) {
+		return
+	}
+	projected := rows[row]
+	b := a.Current()
+	column := max(0, x-r.X-a.gutter()) + projected.Column
+	offset := min(projected.End, lineOffset(b.Doc.Text, projected.Line, column, a.Config.TabSize))
 	if !a.dragging {
-		b.Doc.Selections = []text.Selection{{Anchor: p, Head: p}}
+		b.Doc.Selections = []text.Selection{{Anchor: offset, Head: offset}}
 		a.dragging = true
 	} else {
-		b.Doc.Selections[0].Head = p
+		b.Doc.Selections[0].Head = offset
 	}
 }
 

@@ -3,8 +3,8 @@ package editor
 import (
 	"context"
 	"fmt"
+	"github.com/gongahkia/shack/internal/project"
 	"github.com/gongahkia/shack/internal/text"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -140,39 +140,10 @@ func (a *App) gotoLine(value string) {
 func (a *App) indexFiles() {
 	root := a.Root
 	go func() {
-		files := []string{}
-		err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
-			if err != nil {
-				return nil
-			}
-			if a.ctx.Err() != nil {
-				return fs.SkipAll
-			}
-			if len(files) >= 10000 {
-				return fs.SkipAll
-			}
-			if entry.IsDir() {
-				if path != root {
-					switch entry.Name() {
-					case ".git", "node_modules", "vendor", ".cache", "_build", "_opam", ".venv", "target", "build", "dist":
-						return fs.SkipDir
-					}
-				}
-				return nil
-			}
-			if entry.Type()&os.ModeSymlink != 0 {
-				return nil
-			}
-			if entry.Type().IsRegular() {
-				rel, e := filepath.Rel(root, path)
-				if e == nil {
-					files = append(files, rel)
-				}
-			}
-			return nil
-		})
+		files, mode, err := project.Files(a.ctx, root)
 		a.post(func() {
 			a.Files = files
+			a.indexMode = mode
 			if err != nil {
 				a.Status = "File index: " + err.Error()
 			}

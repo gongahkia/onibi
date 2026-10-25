@@ -56,28 +56,6 @@ func (a *App) fill(x, y, width int, style tcell.Style) {
 	}
 }
 func (a *App) gutter() int { return len(strconv.Itoa(a.Current().Doc.Text.Lines())) + 2 }
-func (a *App) reveal() {
-	b := a.Current()
-	_, h := a.Screen.Size()
-	height := max(1, h-3)
-	p := b.Doc.Selections[0].Head
-	line := b.Doc.Text.LineAt(p)
-	if line < b.Top {
-		b.Top = line
-	}
-	if line >= b.Top+height {
-		b.Top = line - height + 1
-	}
-	w, _ := a.Screen.Size()
-	column := columnAt(b.Doc.Text, p, a.Config.TabSize)
-	width := max(1, w-a.gutter())
-	if column < b.Left {
-		b.Left = column
-	}
-	if column >= b.Left+width {
-		b.Left = column - width + 1
-	}
-}
 func (a *App) draw() {
 	w, h := a.Screen.Size()
 	if w < 1 || h < 1 {
@@ -116,86 +94,9 @@ func (a *App) draw() {
 			break
 		}
 	}
-	gutter := a.gutter()
-	height := h - 3
-	selections := append([]text.Selection(nil), d.Selections...)
-	sort.Slice(selections, func(i, j int) bool { return selections[i].Start() < selections[j].Start() })
-	carets := map[int]bool{}
-	for _, s := range selections {
-		if s.Start() == s.End() {
-			carets[s.Head] = true
-		}
-	}
-	for row := 0; row < height; row++ {
-		line := b.Top + row
-		if line >= d.Text.Lines() {
-			break
-		}
-		a.put(0, row+1, gutter-1, fmt.Sprintf("%*d", gutter-2, line+1), p.dim)
-		start := d.Text.LineStart(line)
-		end := d.Text.LineEnd(line)
-		col := 0
-		var value string
-		if d.Text.Plain(start, end) {
-			col = min(b.Left, end-start)
-			start += col
-			value = d.Text.Slice(start, min(end, start+w-gutter))
-		} else {
-			value = d.Text.Slice(start, end)
-		}
-		g := uniseg.NewGraphemes(value)
-		for g.Next() {
-			from, _ := g.Positions()
-			cellWidth := g.Width()
-			grapheme := g.Str()
-			if grapheme == "\t" {
-				cellWidth = a.Config.TabSize - col%a.Config.TabSize
-			}
-			if col+cellWidth <= b.Left {
-				col += cellWidth
-				continue
-			}
-			if col-b.Left >= w-gutter {
-				break
-			}
-			style := p.text
-			offset := start + from
-			if b.SyntaxReady && b.SyntaxVersion == d.Version {
-				index := sort.Search(len(b.Spans), func(i int) bool { return b.Spans[i].End > offset })
-				if index < len(b.Spans) && b.Spans[index].Start <= offset {
-					style = style.Foreground(b.Spans[index].Color)
-				}
-			}
-			selected := sort.Search(len(selections), func(i int) bool { return selections[i].End() > offset })
-			if selected < len(selections) && selections[selected].Start() <= offset {
-				style = style.Background(p.selectionBackground())
-			}
-			if carets[offset] && len(selections) > 1 {
-				style = style.Reverse(true)
-			}
-
-			if a.matchBuffer == b && a.matchVersion == d.Version {
-				index := sort.Search(len(a.Matches), func(i int) bool { return a.Matches[i].End > offset })
-				if index < len(a.Matches) && a.Matches[index].Start <= offset {
-					style = style.Underline(true)
-				}
-			}
-			screenX := gutter + col - b.Left
-			if grapheme == "\t" {
-				for j := 0; j < cellWidth; j++ {
-					if screenX+j >= gutter && screenX+j < w {
-						a.Screen.SetContent(screenX+j, row+1, ' ', nil, style)
-					}
-				}
-			} else if screenX >= gutter && screenX+cellWidth <= w {
-				r := g.Runes()
-				if len(r) > 0 && unicode.IsControl(r[0]) {
-					grapheme = "·"
-				}
-				a.Screen.Put(screenX, row+1, grapheme, style)
-			}
-			col += cellWidth
-		}
+	a.ensurePanes()
+	for i := range a.panes {
+		a.drawPane(i, p)
 	}
 	pos := d.Selections[0].Head
 	line := d.Text.LineAt(pos)
@@ -213,9 +114,7 @@ func (a *App) draw() {
 	a.fill(0, h-2, w, p.bar)
 	a.put(0, h-2, w, state, p.bar)
 	a.put(0, h-1, w, a.Status, p.dim)
-	if a.Dialog == nil && a.Preview == nil && line >= b.Top && line < b.Top+height && column >= b.Left && column-b.Left < w-gutter {
-		a.Screen.ShowCursor(gutter+column-b.Left, line-b.Top+1)
-	}
+
 	if a.Dialog != nil {
 		a.drawDialog(p)
 	}
@@ -223,6 +122,133 @@ func (a *App) draw() {
 		a.drawPreview(p)
 	}
 	a.Screen.Show()
+}
+func (a *App) drawPane(index int, p palette) {
+	pane := &a.panes[index]
+	b := pane.Buffer
+	d := b.Doc
+	r := a.rect(index)
+	active := index == a.focus
+	selections := append([]text.Selection(nil), pane.Selections...)
+	if active {
+		selections = append([]text.Selection(nil), d.Selections...)
+	}
+	sort.Slice(selections, func(i, j int) bool { return selections[i].Start() < selections[j].Start() })
+	carets := map[int]bool{}
+	for _, s := range selections {
+		if s.Start() == s.End() {
+			carets[s.Head] = true
+		}
+	}
+	if len(a.panes) > 1 {
+		style := p.dim
+		if active {
+			style = p.accent
+		}
+		a.put(r.X, r.Y-1, r.W, bufferName(b), style)
+	}
+	gutter := len(strconv.Itoa(d.Text.Lines())) + 2
+	width := max(1, r.W-gutter)
+	line, wrapRow := pane.Top, pane.WrapTop
+	pane.Rows = nil
+	for row := 0; row < r.H && line < d.Text.Lines(); row++ {
+		seg := segment{d.Text.LineStart(line), d.Text.LineEnd(line), 0}
+		if a.wrap {
+			seg = rowSegment(d.Text, line, wrapRow, width, a.Config.TabSize)
+		}
+		if !a.wrap || wrapRow == 0 {
+			a.put(r.X, r.Y+row, gutter-1, fmt.Sprintf("%*d", gutter-2, line+1), p.dim)
+		} else {
+			a.put(r.X, r.Y+row, gutter-1, "↪", p.dim)
+		}
+		from, end, col := seg.Start, seg.End, seg.Column
+		left := pane.Left
+		if a.wrap {
+			left = seg.Column
+		}
+		if d.Text.Plain(from, end) {
+			skip := min(end-from, max(0, left-col))
+			from += skip
+			col += skip
+			end = min(end, from+width)
+		}
+		pane.Rows = append(pane.Rows, screenRow{line, seg.Start, seg.End, left})
+		value := d.Text.Slice(from, end)
+		g := uniseg.NewGraphemes(value)
+		for g.Next() {
+			offset, _ := g.Positions()
+			offset += from
+			cw := g.Width()
+			grapheme := g.Str()
+			if grapheme == "\t" {
+				cw = a.Config.TabSize - col%a.Config.TabSize
+			}
+			if col+cw <= left {
+				col += cw
+				continue
+			}
+			if col-left >= width {
+				break
+			}
+			style := p.text
+			if b.SyntaxReady && b.SyntaxVersion == d.Version {
+				si := sort.Search(len(b.Spans), func(i int) bool { return b.Spans[i].End > offset })
+				if si < len(b.Spans) && b.Spans[si].Start <= offset {
+					style = style.Foreground(b.Spans[si].Color)
+				}
+			}
+			si := sort.Search(len(selections), func(i int) bool { return selections[i].End() > offset })
+			if si < len(selections) && selections[si].Start() <= offset {
+				style = style.Background(p.selectionBackground())
+			}
+			if carets[offset] && len(selections) > 1 {
+				style = style.Reverse(true)
+			}
+			if a.matchBuffer == b && a.matchVersion == d.Version {
+				mi := sort.Search(len(a.Matches), func(i int) bool { return a.Matches[i].End > offset })
+				if mi < len(a.Matches) && a.Matches[mi].Start <= offset {
+					style = style.Underline(true)
+				}
+			}
+			for _, diag := range b.Diagnostics {
+				if diag.Range.Start.Line == line && b.DiagnosticVersion == d.Version {
+					style = style.Underline(true)
+					break
+				}
+			}
+			x := r.X + gutter + col - left
+			if grapheme == "\t" {
+				for k := 0; k < cw; k++ {
+					if x+k >= r.X+gutter && x+k < r.X+r.W {
+						a.Screen.SetContent(x+k, r.Y+row, ' ', nil, style)
+					}
+				}
+			} else if x >= r.X+gutter && x+cw <= r.X+r.W {
+				runes := g.Runes()
+				if len(runes) > 0 && unicode.IsControl(runes[0]) {
+					grapheme = "·"
+				}
+				a.Screen.Put(x, r.Y+row, grapheme, style)
+			}
+			col += cw
+		}
+		if active && a.Dialog == nil && a.Preview == nil {
+			pos := d.Selections[0].Head
+			last := seg.End == d.Text.LineEnd(line)
+			if pos >= seg.Start && (pos < seg.End || (last && pos == seg.End)) && d.Text.LineAt(pos) == line {
+				cx := columnAt(d.Text, pos, a.Config.TabSize) - left
+				if cx >= 0 && cx < width {
+					a.Screen.ShowCursor(r.X+gutter+cx, r.Y+row)
+				}
+			}
+		}
+		if a.wrap && wrapRow+1 < rowCount(d.Text, line, width, a.Config.TabSize) {
+			wrapRow++
+		} else {
+			line++
+			wrapRow = 0
+		}
+	}
 }
 func (p palette) selectionBackground() tcell.Color { _, bg, _ := p.selection.Decompose(); return bg }
 func (a *App) panel(title string, p palette) (int, int, int, int) {
@@ -309,6 +335,7 @@ func (a *App) drawPreview(p palette) {
 	start := max(0, v.Index-visible+1)
 	for i := start; i < len(v.Edits) && i < start+visible; i++ {
 		e := v.Edits[i]
+		b := v.bufferAt(i)
 		row := y + 1 + (i-start)*3
 		style := p.bar
 		if i == v.Index {
@@ -319,8 +346,8 @@ func (a *App) drawPreview(p palette) {
 			mark = "[x]"
 		}
 		a.fill(x+1, row, w-2, style)
-		a.put(x+1, row, w-2, fmt.Sprintf("%s line %d", mark, v.Buffer.Doc.Text.LineAt(e.Start)+1), style)
-		a.put(x+2, row+1, w-4, "− "+displayExcerpt(v.Buffer.Doc.Text.Slice(e.Start, min(e.End, e.Start+200))), p.warning)
+		a.put(x+1, row, w-2, fmt.Sprintf("%s %s:%d", mark, bufferName(b), v.documentAt(i).Text.LineAt(e.Start)+1), style)
+		a.put(x+2, row+1, w-4, "− "+displayExcerpt(v.documentAt(i).Text.Slice(e.Start, min(e.End, e.Start+200))), p.warning)
 		a.put(x+2, row+2, w-4, "+ "+displayExcerpt(e.Text), p.accent)
 	}
 	a.put(x+1, y+h-1, w-2, "Space toggle · Tab inspect · Enter apply · Esc cancel", p.dim)
