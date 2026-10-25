@@ -61,6 +61,7 @@ type Options struct {
 type browserSession struct {
 	CSRF      string    `json:"csrf"`
 	ExpiresAt time.Time `json:"expiresAt"`
+	Device    Device    `json:"device"`
 }
 
 type Server struct {
@@ -137,6 +138,9 @@ func New(opts Options) (*Server, error) {
 	s.pairURL = link.String()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	if err := s.prepareDevices(ctx); err != nil {
+		return nil, fmt.Errorf("prepare browser devices: %w", err)
+	}
 	if err := s.prepareReceipts(ctx); err != nil {
 		return nil, fmt.Errorf("prepare web command receipts: %w", err)
 	}
@@ -222,7 +226,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	session, key, ok := s.authenticate(r)
+	if r.URL.Path == "/api/session" && r.Method == http.MethodGet {
+		s.resumeSession(w, r)
+		return
+	}
+	session, _, ok := s.authenticate(r)
 	if !ok {
 		writeError(w, http.StatusUnauthorized, "unauthorized", "Pair this browser with Onibi to continue.")
 		return
@@ -244,11 +252,15 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	case "/api/logout":
 		if requireMethod(w, r, http.MethodPost) {
-			s.mu.Lock()
-			delete(s.sessions, key)
-			s.mu.Unlock()
-			s.setCookie(w, "", time.Unix(1, 0))
-			writeJSON(w, http.StatusOK, map[string]bool{"loggedOut": true})
+			s.logout(w, r, session)
+		}
+	case "/api/devices":
+		if requireMethod(w, r, http.MethodGet) {
+			s.devices(w, r)
+		}
+	case "/api/devices/revoke":
+		if requireMethod(w, r, http.MethodPost) {
+			s.revokeDevice(w, r, session)
 		}
 	case "/api/targets":
 		if requireMethod(w, r, http.MethodGet) {
@@ -291,53 +303,6 @@ func (s *Server) validOrigin(r *http.Request) bool {
 		return false
 	}
 	return (r.Method == http.MethodGet || r.Method == http.MethodHead) || value == s.origin
-}
-
-func (s *Server) pair(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Token string `json:"token"`
-	}
-	if !readJSON(w, r, &body) {
-		return
-	}
-	hash := sha256.Sum256([]byte(body.Token))
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.pairUsed || !s.now().Before(s.pairExpires) || subtle.ConstantTimeCompare(hash[:], s.pairHash[:]) != 1 {
-		writeError(w, http.StatusUnauthorized, "invalid_pairing", "This pairing link is invalid, expired, or already used. Restart Onibi locally for a new link.")
-		return
-	}
-	token, err := randomToken()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "session_failed", "Could not create a browser session.")
-		return
-	}
-	csrf, err := randomToken()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "session_failed", "Could not create a browser session.")
-		return
-	}
-	session := browserSession{CSRF: csrf, ExpiresAt: s.now().Add(sessionLifetime)}
-	s.sessions[sha256.Sum256([]byte(token))] = session
-	s.pairUsed, s.pairURL = true, ""
-	s.setCookie(w, token, session.ExpiresAt)
-	writeJSON(w, http.StatusOK, session)
-}
-
-func (s *Server) authenticate(r *http.Request) (browserSession, [sha256.Size]byte, bool) {
-	cookie, err := r.Cookie(s.cookieName)
-	if err != nil || len(cookie.Value) != 43 {
-		return browserSession{}, [sha256.Size]byte{}, false
-	}
-	key := sha256.Sum256([]byte(cookie.Value))
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	session, ok := s.sessions[key]
-	if ok && !s.now().Before(session.ExpiresAt) {
-		delete(s.sessions, key)
-		ok = false
-	}
-	return session, key, ok
 }
 
 func (s *Server) setCookie(w http.ResponseWriter, token string, expiry time.Time) {
@@ -447,7 +412,7 @@ func (s *Server) action(w http.ResponseWriter, r *http.Request) {
 		s.finishAction(w, receipt)
 		return
 	}
-	if _, _, ok := s.authenticate(r); !ok {
+	if _, _, ok := s.authenticate(r.WithContext(ctx)); !ok {
 		receipt.State, receipt.Error = "rejected", "The browser session ended before execution. No input was sent."
 		s.finishAction(w, receipt)
 		return
