@@ -138,6 +138,9 @@ func (a *App) syncLanguage() {
 		err := syncWithTimeout(a.ctx, client, uri, language, snapshot.String(), version)
 		a.post(func() {
 			b.Syncing = false
+			if lsp.URI(b.File.Path) != uri {
+				return
+			}
 			if err != nil {
 				b.LanguageStatus = err.Error()
 				return
@@ -251,7 +254,7 @@ func (a *App) languageRequest(kind string) {
 		}
 		a.post(func() {
 			a.languageBusy = false
-			if b != a.Current() || b.Doc.Version != version || b.Doc.Selections[0].Head != caret {
+			if b != a.Current() || b.Doc.Version != version || b.Doc.Selections[0].Head != caret || lsp.URI(b.File.Path) != uri {
 				a.Status = "Discarded outdated language result"
 				return
 			}

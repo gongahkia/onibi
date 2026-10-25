@@ -3,6 +3,7 @@ package editor
 import (
 	"fmt"
 	"github.com/gdamore/tcell/v2"
+	"github.com/gongahkia/shack/internal/text"
 	"github.com/rivo/uniseg"
 	"sort"
 	"strconv"
@@ -104,7 +105,8 @@ func (a *App) draw() {
 		name += " "
 		style := p.bar
 		if i == a.Active {
-			style = style.Foreground(tcell.ColorAqua).Bold(true)
+			fg, _, _ := p.accent.Decompose()
+			style = style.Foreground(fg).Bold(true)
 		}
 		a.put(x, 0, w-x, name, style)
 		x += uniseg.StringWidth(name)
@@ -114,6 +116,14 @@ func (a *App) draw() {
 	}
 	gutter := a.gutter()
 	height := h - 3
+	selections := append([]text.Selection(nil), d.Selections...)
+	sort.Slice(selections, func(i, j int) bool { return selections[i].Start() < selections[j].Start() })
+	carets := map[int]bool{}
+	for _, s := range selections {
+		if s.Start() == s.End() {
+			carets[s.Head] = true
+		}
+	}
 	for row := 0; row < height; row++ {
 		line := b.Top + row
 		if line >= d.Text.Lines() {
@@ -146,11 +156,14 @@ func (a *App) draw() {
 					style = style.Foreground(b.Spans[index].Color)
 				}
 			}
-			for _, sel := range d.Selections {
-				if offset >= sel.Start() && offset < sel.End() {
-					style = style.Background(p.selectionBackground())
-				}
+			selected := sort.Search(len(selections), func(i int) bool { return selections[i].End() > offset })
+			if selected < len(selections) && selections[selected].Start() <= offset {
+				style = style.Background(p.selectionBackground())
 			}
+			if carets[offset] && len(selections) > 1 {
+				style = style.Reverse(true)
+			}
+
 			if a.matchBuffer == b && a.matchVersion == d.Version {
 				index := sort.Search(len(a.Matches), func(i int) bool { return a.Matches[i].End > offset })
 				if index < len(a.Matches) && a.Matches[index].Start <= offset {
@@ -260,6 +273,28 @@ func (a *App) drawPreview(p palette) {
 		}
 	}
 	x, y, w, h := a.panel(fmt.Sprintf("%s · %d/%d changes", v.Title, count, len(v.Edits)), p)
+	if v.Detail {
+		half := (w - 3) / 2
+		a.put(x+1, y+1, half, "Before", p.warning)
+		a.put(x+half+2, y+1, half, "After", p.accent)
+		for row := 0; row < h-4; row++ {
+			line := v.DetailTop + row
+			if line < len(v.Before) {
+				value := strings.TrimSuffix(v.Before[line], "\r")
+				cut := offsetAt(value, v.DetailLeft, a.Config.TabSize)
+				a.put(x+1, y+2+row, half, value[cut:], p.warning)
+			}
+			if line < len(v.After) {
+				value := strings.TrimSuffix(v.After[line], "\r")
+				cut := offsetAt(value, v.DetailLeft, a.Config.TabSize)
+				a.put(x+half+2, y+2+row, half, value[cut:], p.accent)
+			}
+		}
+		a.put(x+1, y+h-1, w-2, "↑↓ scroll · ←→ pan · Tab list · Enter apply · Esc cancel", p.dim)
+		a.Screen.HideCursor()
+		return
+	}
+
 	visible := max(1, (h-3)/3)
 	start := max(0, v.Index-visible+1)
 	for i := start; i < len(v.Edits) && i < start+visible; i++ {
@@ -278,6 +313,6 @@ func (a *App) drawPreview(p palette) {
 		a.put(x+2, row+1, w-4, "− "+displayExcerpt(v.Buffer.Doc.Text.Slice(e.Start, min(e.End, e.Start+200))), p.warning)
 		a.put(x+2, row+2, w-4, "+ "+displayExcerpt(e.Text), p.accent)
 	}
-	a.put(x+1, y+h-1, w-2, "Space toggle · A all · Enter apply · Esc cancel", p.dim)
+	a.put(x+1, y+h-1, w-2, "Space toggle · Tab inspect · Enter apply · Esc cancel", p.dim)
 	a.Screen.HideCursor()
 }

@@ -43,45 +43,52 @@ type dialog struct {
 	Accept        func(string)
 }
 type preview struct {
-	Title   string
-	Buffer  *Buffer
-	Version uint64
-	Edits   []text.Edit
-	Checked []bool
-	Index   int
+	Detail                bool
+	DetailTop, DetailLeft int
+	Before, After         []string
+	Title                 string
+	Buffer                *Buffer
+	Version               uint64
+	Edits                 []text.Edit
+	Checked               []bool
+	Index                 int
 }
 type App struct {
-	languages          map[string]*languageState
-	languageBusy       bool
-	Screen             tcell.Screen
-	Config             config.Config
-	Buffers            []*Buffer
-	Active             int
-	Root               string
-	Readonly           bool
-	Status             string
-	Commands           []command
-	Dialog             *dialog
-	Preview            *preview
-	Query              string
-	Regex              bool
-	Matches            []text.Edit
-	matchVersion       uint64
-	matchBuffer        *Buffer
-	Files              []string
-	clipboard          string
-	clipboardRequested bool
-	paste              strings.Builder
-	pasting            bool
-	dragging           bool
-	quit               bool
-	ctx                context.Context
-	cancel             context.CancelFunc
-	updates            chan func()
-	syntaxJobs         chan syntaxJob
-	serviceTimer       *time.Timer
-	serviceC           <-chan time.Time
-	searchCancel       context.CancelFunc
+	languages           map[string]*languageState
+	languageBusy        bool
+	Screen              tcell.Screen
+	Config              config.Config
+	Buffers             []*Buffer
+	Active              int
+	Root                string
+	Readonly            bool
+	Status              string
+	Commands            []command
+	Dialog              *dialog
+	Preview             *preview
+	Query               string
+	Regex               bool
+	Matches             []text.Edit
+	matchVersion        uint64
+	matchBuffer         *Buffer
+	Files               []string
+	clipboard           string
+	clipboardRequested  bool
+	clipboardTarget     *Buffer
+	clipboardVersion    uint64
+	clipboardSelections []text.Selection
+	pasteOverflow       bool
+	paste               strings.Builder
+	pasting             bool
+	dragging            bool
+	quit                bool
+	ctx                 context.Context
+	cancel              context.CancelFunc
+	updates             chan func()
+	syntaxJobs          chan syntaxJob
+	serviceTimer        *time.Timer
+	serviceC            <-chan time.Time
+	searchCancel        context.CancelFunc
 }
 
 func New(screen tcell.Screen, cfg config.Config, paths []string, readonly bool) (*App, error) {
@@ -300,6 +307,9 @@ func (a *App) saveAs() {
 			return
 		}
 		b.File = f
+		b.Synced = false
+		b.LanguageKey = ""
+		b.Diagnostics = nil
 		a.Status = "Saved " + abs
 		a.schedule()
 	})

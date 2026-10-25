@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 )
@@ -49,6 +50,10 @@ func Load(path string, explicit bool) (Config, error) {
 	d.DisallowUnknownFields()
 	if err = d.Decode(&c); err != nil {
 		return c, fmt.Errorf("config %s: %w", path, err)
+	}
+	var extra any
+	if err = d.Decode(&extra); err != io.EOF {
+		return c, fmt.Errorf("config: expected one JSON object")
 	}
 	if c.TabSize < 1 || c.TabSize > 16 || c.ServiceMaxBytes < 0 || c.ServiceMaxBytes > 16<<20 || c.MaxFileMiB < 1 || c.MaxFileMiB > 1024 {
 		return c, fmt.Errorf("config: tab_size must be 1–16, service_max_bytes 0–16777216, max_file_mib 1–1024")

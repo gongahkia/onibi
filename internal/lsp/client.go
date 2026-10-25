@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -96,6 +97,8 @@ func Start(parent context.Context, argv []string, root string, notify func(Notif
 	ctx, cancel := context.WithCancel(parent)
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Dir = root
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	cmd.Stderr = io.Discard
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -313,4 +316,12 @@ func (c *Client) Forget(uri string) {
 	}
 }
 func (c *Client) Alive() bool { return c.ctx.Err() == nil }
-func (c *Client) Close()      { c.closeOnce.Do(func() { c.cancel(); c.input.Close() }) }
+func (c *Client) Close() {
+	c.closeOnce.Do(func() {
+		c.cancel()
+		if c.cmd.Process != nil {
+			_ = syscall.Kill(-c.cmd.Process.Pid, syscall.SIGKILL)
+		}
+		c.input.Close()
+	})
+}

@@ -4,6 +4,8 @@ import (
 	"github.com/gdamore/tcell/v2"
 	"github.com/gongahkia/shack/internal/text"
 	"github.com/rivo/uniseg"
+	"slices"
+	"sort"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -17,20 +19,37 @@ func (a *App) Handle(event tcell.Event) {
 		if ev.Start() {
 			a.pasting = true
 			a.paste.Reset()
+			a.pasteOverflow = false
 		} else if a.pasting {
 			a.pasting = false
-			a.pasteText(a.paste.String())
+			if a.pasteOverflow {
+				a.Status = "Paste exceeds configured file limit"
+			} else {
+				a.pasteText(a.paste.String())
+			}
 			a.paste.Reset()
 		}
 	case *tcell.EventClipboard:
 		if a.clipboardRequested {
 			a.clipboardRequested = false
-			a.pasteText(string(ev.Data()))
+			if a.clipboardTarget == a.Current() && a.clipboardVersion == a.Current().Doc.Version && slices.Equal(a.clipboardSelections, a.Current().Doc.Selections) && a.Dialog == nil && a.Preview == nil {
+				a.pasteText(string(ev.Data()))
+			} else {
+				a.Status = "Discarded clipboard reply after editing position changed"
+			}
 		}
 	case *tcell.EventMouse:
 		a.mouse(ev)
 	case *tcell.EventKey:
 		if a.pasting {
+			if a.pasteOverflow {
+				return
+			}
+			if a.paste.Len() > a.Config.MaxFileMiB<<20 {
+				a.pasteOverflow = true
+				a.paste.Reset()
+				return
+			}
 			if ev.Key() == tcell.KeyRune {
 				a.paste.WriteRune(ev.Rune())
 			} else if ev.Key() >= tcell.KeyCtrlSpace && ev.Key() <= tcell.KeyCtrlUnderscore {
@@ -148,6 +167,10 @@ func (a *App) key(ev *tcell.EventKey) {
 	case tcell.KeyCtrlL:
 		a.Screen.Sync()
 	case tcell.KeyEscape:
+		if a.searchCancel != nil {
+			a.searchCancel()
+		}
+		a.clipboardRequested = false
 		p := a.Current().Doc.Selections[0].Head
 		a.Current().Doc.Selections = []text.Selection{{Anchor: p, Head: p}}
 		a.Matches = nil
@@ -176,11 +199,9 @@ func (a *App) key(ev *tcell.EventKey) {
 	case tcell.KeyEnter:
 		a.newline()
 	case tcell.KeyTab:
-		s := "\t"
-		if a.Config.InsertSpaces {
-			s = strings.Repeat(" ", a.Config.TabSize)
-		}
-		a.insert(s)
+		a.indent(false)
+	case tcell.KeyBacktab:
+		a.indent(true)
 	case tcell.KeyRune:
 		if ev.Modifiers()&(tcell.ModCtrl|tcell.ModAlt) == 0 {
 			a.insert(string(ev.Rune()))
@@ -289,23 +310,27 @@ func (a *App) move(dx, dy int, extend bool) {
 }
 func (a *App) normalizeSelections() {
 	d := a.Current().Doc
-	out := []text.Selection{}
+	sort.SliceStable(d.Selections, func(i, j int) bool { return d.Selections[i].Start() < d.Selections[j].Start() })
+	out := make([]text.Selection, 0, len(d.Selections))
 	for _, s := range d.Selections {
-		duplicate := false
-		for _, o := range out {
-			if s.Start() <= o.End() && s.End() >= o.Start() {
-				duplicate = true
-				break
+		if len(out) == 0 || s.Start() > out[len(out)-1].End() {
+			out = append(out, s)
+		} else {
+			last := &out[len(out)-1]
+			lo := last.Start()
+			hi := max(last.End(), s.End())
+			if last.Head < last.Anchor {
+				last.Head = lo
+				last.Anchor = hi
+			} else {
+				last.Anchor = lo
+				last.Head = hi
 			}
 		}
-		if !duplicate {
-			out = append(out, s)
-		}
 	}
-	if len(out) > 0 {
-		d.Selections = out
-	}
+	d.Selections = out
 }
+
 func (a *App) homeEnd(end, extend, document bool) {
 	d := a.Current().Doc
 	for i, s := range d.Selections {
@@ -440,6 +465,44 @@ func (a *App) dialogKey(ev *tcell.EventKey) {
 }
 func (a *App) previewKey(ev *tcell.EventKey) {
 	p := a.Preview
+	if ev.Key() == tcell.KeyTab {
+		p.Detail = !p.Detail
+		p.DetailTop = 0
+		p.DetailLeft = 0
+		if p.Detail {
+			e := p.Edits[p.Index]
+			p.Before = strings.Split(p.Buffer.Doc.Text.Slice(e.Start, e.End), "\n")
+			p.After = strings.Split(e.Text, "\n")
+		} else {
+			p.Before = nil
+			p.After = nil
+		}
+		return
+	}
+	if p.Detail {
+		limit := max(len(p.Before), len(p.After)) - 1
+		switch ev.Key() {
+		case tcell.KeyUp:
+			p.DetailTop = max(0, p.DetailTop-1)
+			return
+		case tcell.KeyDown:
+			p.DetailTop = min(limit, p.DetailTop+1)
+			return
+		case tcell.KeyPgUp:
+			p.DetailTop = max(0, p.DetailTop-10)
+			return
+		case tcell.KeyPgDn:
+			p.DetailTop = min(limit, p.DetailTop+10)
+			return
+		case tcell.KeyLeft:
+			p.DetailLeft = max(0, p.DetailLeft-10)
+			return
+		case tcell.KeyRight:
+			p.DetailLeft += 10
+			return
+		}
+	}
+
 	switch ev.Key() {
 	case tcell.KeyEscape:
 		a.Preview = nil
@@ -504,6 +567,25 @@ func (a *App) mouse(ev *tcell.EventMouse) {
 		a.dragging = false
 		return
 	}
+	if y == 0 {
+		position := 0
+		for i, buf := range a.Buffers {
+			name := " " + bufferName(buf)
+			if buf.Doc.Dirty() {
+				name += " *"
+			}
+			name += " "
+			width := uniseg.StringWidth(name)
+			if x >= position && x < position+width {
+				a.Active = i
+				a.Matches = nil
+				a.schedule()
+				return
+			}
+			position += width
+		}
+		return
+	}
 	if y < 1 || y >= h-2 {
 		return
 	}
@@ -515,4 +597,54 @@ func (a *App) mouse(ev *tcell.EventMouse) {
 	} else {
 		b.Doc.Selections[0].Head = p
 	}
+}
+
+func (a *App) indent(outdent bool) {
+	b := a.Current()
+	d := b.Doc
+	if !outdent && len(d.Selections) == 1 && d.Selections[0].Start() == d.Selections[0].End() {
+		s := "\t"
+		if a.Config.InsertSpaces {
+			p := d.Selections[0].Head
+			col := visualColumn(d.Text.Slice(d.Text.LineStart(d.Text.LineAt(p)), p), a.Config.TabSize)
+			s = strings.Repeat(" ", a.Config.TabSize-col%a.Config.TabSize)
+		}
+		a.insert(s)
+		return
+	}
+	seen := map[int]bool{}
+	edits := []text.Edit{}
+	for _, s := range d.Selections {
+		first, last := d.Text.LineAt(s.Start()), d.Text.LineAt(s.End())
+		if s.End() > s.Start() && s.End() == d.Text.LineStart(last) {
+			last--
+		}
+		for line := first; line <= last; line++ {
+			if seen[line] {
+				continue
+			}
+			seen[line] = true
+			start := d.Text.LineStart(line)
+			value := d.Text.Line(line)
+			if outdent {
+				count := 0
+				for count < len(value) && count < a.Config.TabSize && value[count] == ' ' {
+					count++
+				}
+				if strings.HasPrefix(value, "\t") {
+					count = 1
+				}
+				if count > 0 {
+					edits = append(edits, text.Edit{Start: start, End: start + count})
+				}
+			} else {
+				indent := "\t"
+				if a.Config.InsertSpaces {
+					indent = strings.Repeat(" ", a.Config.TabSize)
+				}
+				edits = append(edits, text.Edit{Start: start, End: start, Text: indent})
+			}
+		}
+	}
+	a.apply(edits)
 }

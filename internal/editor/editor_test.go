@@ -122,3 +122,26 @@ func TestBundledHighlightingAndCRLF(t *testing.T) {
 		t.Fatal("CRLF paste")
 	}
 }
+
+func TestIndentBlockAndIgnoreStaleClipboard(t *testing.T) {
+	a := testApp(t)
+	a.insert("one\ntwo\n")
+	key(a, tcell.KeyCtrlA)
+	key(a, tcell.KeyTab)
+	if a.Current().Doc.Text.String() != "    one\n    two\n" {
+		t.Fatal("Tab replaced selected text")
+	}
+	key(a, tcell.KeyCtrlZ)
+	if a.Current().Doc.Text.String() != "one\ntwo\n" {
+		t.Fatal("indent undo")
+	}
+	a.clipboardRequested = true
+	a.clipboardTarget = a.Current()
+	a.clipboardVersion = a.Current().Doc.Version
+	a.clipboardSelections = append([]text.Selection(nil), a.Current().Doc.Selections...)
+	key(a, tcell.KeyLeft)
+	a.Handle(tcell.NewEventClipboard([]byte("stale clipboard")))
+	if strings.Contains(a.Current().Doc.Text.String(), "stale") {
+		t.Fatal("late clipboard pasted at another location")
+	}
+}

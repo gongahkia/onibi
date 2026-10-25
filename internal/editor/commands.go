@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -327,20 +328,35 @@ func (a *App) showPreview(title string, b *Buffer, version uint64, edits []text.
 }
 func (a *App) transform(name string, f func(string) string) {
 	b := a.Current()
-	edits := []text.Edit{}
-	sels := b.Doc.Selections
+	snapshot := b.Doc.Text
+	version := b.Doc.Version
+	sels := append([]text.Selection(nil), b.Doc.Selections...)
 	if len(sels) == 1 && sels[0].Start() == sels[0].End() {
-		sels = []text.Selection{{Anchor: 0, Head: b.Doc.Text.Len()}}
+		sels = []text.Selection{{Anchor: 0, Head: snapshot.Len()}}
 	}
-	for _, s := range sels {
-		original := b.Doc.Text.Slice(s.Start(), s.End())
-		replacement := f(original)
-		if original != replacement {
-			edits = append(edits, text.Edit{Start: s.Start(), End: s.End(), Text: replacement})
+	a.Status = "Preparing " + name + " preview…"
+	go func() {
+		edits := []text.Edit{}
+		for _, s := range sels {
+			if a.ctx.Err() != nil {
+				return
+			}
+			original := snapshot.Slice(s.Start(), s.End())
+			replacement := f(original)
+			if original != replacement {
+				edits = append(edits, text.Edit{Start: s.Start(), End: s.End(), Text: replacement})
+			}
 		}
-	}
-	a.showPreview(name, b, b.Doc.Version, edits)
+		a.post(func() {
+			if b != a.Current() || b.Doc.Version != version {
+				a.Status = "Discarded outdated preview"
+				return
+			}
+			a.showPreview(name, b, version, edits)
+		})
+	}()
 }
+
 func (a *App) copy(cut bool) {
 	b := a.Current()
 	parts := []string{}
@@ -403,12 +419,13 @@ func (a *App) pasteClipboard() {
 		if cmd := clipboardCommand(false); cmd != nil {
 			b := a.Current()
 			version := b.Doc.Version
+			selections := append([]text.Selection(nil), b.Doc.Selections...)
 			go func() {
 				ctx, cancel := context.WithTimeout(a.ctx, time.Second)
 				defer cancel()
 				data, err := exec.CommandContext(ctx, cmd[0], cmd[1:]...).Output()
 				a.post(func() {
-					if b != a.Current() || b.Doc.Version != version {
+					if b != a.Current() || b.Doc.Version != version || !slices.Equal(selections, b.Doc.Selections) || a.Dialog != nil || a.Preview != nil {
 						return
 					}
 					if err != nil {
@@ -421,6 +438,9 @@ func (a *App) pasteClipboard() {
 			return
 		}
 	}
+	a.clipboardTarget = a.Current()
+	a.clipboardVersion = a.Current().Doc.Version
+	a.clipboardSelections = append([]text.Selection(nil), a.Current().Doc.Selections...)
 	a.clipboardRequested = true
 	a.Screen.GetClipboard()
 	a.Status = "Requested terminal clipboard; if blocked, use terminal paste (Ctrl+Shift+V / Cmd+V)"
