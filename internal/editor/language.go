@@ -94,7 +94,16 @@ func (a *App) languageClient(b *Buffer) *lsp.Client {
 		a.languages[key] = state
 		b.LanguageStatus = "Starting " + server.Command[0]
 		go func() {
-			client, err := lsp.Start(a.ctx, server.Command, root, func(n lsp.Notification) { a.post(func() { a.notification(key, n) }) })
+			client, err := lsp.Start(a.ctx, server.Command, root, func(n lsp.Notification) {
+				a.post(func() {
+					if a.languages[key] == state {
+						a.notification(key, n)
+					}
+				})
+			},
+				func(ctx context.Context, p lsp.ApplyEditParams) lsp.ApplyEditResult {
+					return a.reviewServerEdit(ctx, key, state, p)
+				})
 			a.post(func() {
 				if a.languages[key] != state {
 					if client != nil {

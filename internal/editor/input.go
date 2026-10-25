@@ -263,6 +263,7 @@ func (a *App) key(ev *tcell.EventKey) {
 	case tcell.KeyCtrlL:
 		a.Screen.Sync()
 	case tcell.KeyEscape:
+		a.cancelLanguageCommand()
 		if a.searchCancel != nil {
 			a.searchCancel()
 		}
@@ -616,7 +617,7 @@ func (a *App) previewKey(ev *tcell.EventKey) {
 
 	switch ev.Key() {
 	case tcell.KeyEscape:
-		a.Preview = nil
+		a.cancelPreview("Cancelled by user")
 	case tcell.KeyDown:
 		p.Index = min(len(p.Edits)-1, p.Index+1)
 	case tcell.KeyUp:
@@ -626,6 +627,10 @@ func (a *App) previewKey(ev *tcell.EventKey) {
 	case tcell.KeyPgUp:
 		p.Index = max(0, p.Index-10)
 	case tcell.KeyRune:
+		if p.Strict {
+			a.Status = "Apply the whole action or cancel"
+			return
+		}
 		if ev.Rune() == ' ' && len(p.Checked) > 0 {
 			p.Checked[p.Index] = !p.Checked[p.Index]
 		}

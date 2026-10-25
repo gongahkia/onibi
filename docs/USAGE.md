@@ -155,10 +155,20 @@ unsupported or timed-out snippets fail with an explanation. Snippet source is
 limited to 64 KiB, expansion to 128 KiB and nesting to 32 levels.
 
 Hover and signatures open scrollable read-only buffers; Markdown is shown as text.
-Ctrl+W closes these reports. Formatting, rename, and edit-based code actions are
-reviewed before application. File resource operations (creation, rename, deletion)
-and server-command actions are rejected as a whole. Some servers consequently
-expose actions Shack cannot yet perform. Language support varies with each server.
+Ctrl+W closes these reports. Formatting, rename and code-action edits are reviewed
+before application. Code actions can resolve additional edits and commands lazily.
+Selecting a command action sends it to the language server; an action with both
+an edit and a command runs the command after accepting its edit. Incoming
+`workspace/applyEdit` requests await a whole-action preview; Escape rejects them.
+Accepted text edits remain unsaved and support workspace undo. Another open dialog
+rejects incoming edits with an explanation, so retry after closing it. Escape
+outside the preview or **Cancel language server command** requests cancellation;
+previously accepted edits remain undoable. Cancellation cannot undo other effects
+performed by an external language server. Requests/reviews time out after two
+minutes; closing/restarting the server cancels outstanding reviews.
+
+File resource operations (creation, rename, deletion) still reject the whole edit.
+Language support varies with each server.
 
 Shack does not download servers or their runtimes. Some servers need Node.js,
 Python, or language toolchains; their memory is additional to Shack's. Missing
@@ -463,7 +473,7 @@ Theme/mouse palette changes last for the session; configuration is read at start
   replace. Existing symlinks resolve at open; hard-linked files require Save as.
   Ownership and permission bits are retained; ACLs/xattrs are not copied.
   External-write detection is not an interprocess lock and has a final race window.
-- LSP file operations and server commands, native Windows, general encodings, Git merge
+- LSP file operations, native Windows, general encodings, Git merge
   resolution, and automatic language-server installation remain unimplemented.
 - This remains a development editor, not a claim of mature IDE parity. See the
   [capability audit](IDE_AUDIT.md) for the next substantive work.

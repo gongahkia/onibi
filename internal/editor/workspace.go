@@ -260,6 +260,7 @@ func (a *App) searchProject(query, replacement string, replace bool) {
 	}()
 }
 func (a *App) showWorkspacePreview(title string, targets []*workspaceTarget) {
+	a.cancelPreview("Preview replaced by another edit")
 	p := &preview{Title: title, Targets: []*workspaceTarget{}}
 	for _, t := range targets {
 		for _, e := range t.Edits {
@@ -290,6 +291,21 @@ func (f *File) Unchanged(limit int64) error {
 }
 func (a *App) applyWorkspacePreview() {
 	p := a.Preview
+	if p.Valid != nil {
+		if err := p.Valid(); err != nil {
+			a.Status = err.Error()
+			a.cancelPreview(a.Status)
+			return
+		}
+	}
+	if p.Strict {
+		for _, checked := range p.Checked {
+			if !checked {
+				a.Status = "Apply the whole action or cancel"
+				return
+			}
+		}
+	}
 	if a.Readonly {
 		a.Status = "Read-only mode"
 		return
@@ -341,6 +357,13 @@ func (a *App) applyWorkspacePreview() {
 		}
 		staged[t] = d
 	}
+	if p.Valid != nil {
+		if err := p.Valid(); err != nil {
+			a.Status = err.Error()
+			a.cancelPreview(a.Status)
+			return
+		}
+	}
 	batch := &workspaceBatch{}
 	old := a.Active
 	for _, t := range targets {
@@ -373,6 +396,9 @@ func (a *App) applyWorkspacePreview() {
 	a.schedule()
 	a.reveal()
 	a.Status = fmt.Sprintf("Changed %d buffers; Save all writes files · Undo last workspace edit reverts the group", len(batch.Buffers))
+	if p.Finish != nil {
+		p.Finish(true, "")
+	}
 }
 func (a *App) rebaseOtherPanes(b *Buffer) {
 	a.rebaseDebug(b)

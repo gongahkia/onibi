@@ -1,7 +1,6 @@
 package editor
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,11 +8,11 @@ import (
 	"github.com/gongahkia/shack/internal/text"
 	"sort"
 	"strings"
-	"time"
 )
 
 func (a *App) intelligenceCommands() {
 	a.Commands = append(a.Commands,
+		command{"Cancel language server command", "", a.cancelLanguageCommand},
 		command{"Hover documentation", "", func() { a.languageRequest("hover") }}, command{"Signature help", "", func() { a.languageRequest("signatureHelp") }},
 		command{"Find references", "", func() {
 			a.languageRequestWith("references", map[string]any{"context": map[string]bool{"includeDeclaration": true}})
@@ -266,91 +265,16 @@ func (a *App) decodeWorkspaceEdit(raw json.RawMessage) ([]*workspaceTarget, erro
 }
 
 type codeAction struct {
-	Title    string          `json:"title"`
-	Edit     json.RawMessage `json:"edit"`
-	Command  json.RawMessage `json:"command"`
-	Data     json.RawMessage `json:"data"`
-	Disabled *struct {
+	Arguments json.RawMessage `json:"arguments,omitempty"`
+	Title     string          `json:"title"`
+	Edit      json.RawMessage `json:"edit"`
+	Command   json.RawMessage `json:"command"`
+	Data      json.RawMessage `json:"data"`
+	Disabled  *struct {
 		Reason string `json:"reason"`
 	} `json:"disabled"`
 }
 
-func (a *App) codeActions(client *lsp.Client, raw json.RawMessage) {
-	var actions []codeAction
-	if err := json.Unmarshal(raw, &actions); err != nil {
-		a.Status = err.Error()
-		return
-	}
-	items := []choice{}
-	versions := map[*Buffer]uint64{}
-	for _, b := range a.Buffers {
-		versions[b] = b.Doc.Version
-	}
-	for _, action := range actions[:min(1000, len(actions))] {
-		c := action
-		label := c.Title
-		if c.Disabled != nil {
-			label += " (" + c.Disabled.Reason + ")"
-		}
-		items = append(items, choice{label, func() {
-			for b, v := range versions {
-				if b.Doc.Version != v {
-					a.Status = "Code actions are stale"
-					return
-				}
-			}
-			if c.Disabled != nil {
-				a.Status = c.Disabled.Reason
-				return
-			}
-			if hasJSON(c.Edit) {
-				if hasJSON(c.Command) {
-					a.Status = "This action also requires a server command; not supported"
-					return
-				}
-				a.workspaceEdit(c.Title, c.Edit)
-				return
-			}
-			if hasJSON(c.Data) {
-				if a.languageBusy {
-					return
-				}
-				a.languageBusy = true
-				go func() {
-					ctx, cancel := context.WithTimeout(a.ctx, 5*time.Second)
-					defer cancel()
-					resolved, err := client.Request(ctx, "codeAction/resolve", c)
-					a.post(func() {
-						a.languageBusy = false
-						for b, v := range versions {
-							if b.Doc.Version != v {
-								a.Status = "Code action became stale"
-								return
-							}
-						}
-						if err != nil {
-							a.Status = err.Error()
-							return
-						}
-						var action codeAction
-						if json.Unmarshal(resolved, &action) != nil || action.Disabled != nil || !hasJSON(action.Edit) || hasJSON(action.Command) {
-							a.Status = "Action needs an unsupported server command or has no edit"
-							return
-						}
-						a.workspaceEdit(action.Title, action.Edit)
-					})
-				}()
-				return
-			}
-			a.Status = "Server-command actions are not supported; no changes applied"
-		}})
-	}
-	if len(items) == 0 {
-		a.Status = "No code actions here"
-		return
-	}
-	a.list("Code actions · edits will be previewed", items)
-}
 func hasJSON(raw json.RawMessage) bool { return len(raw) > 0 && string(raw) != "null" }
 func (a *App) nextDiagnostic(delta int) {
 	b := a.Current()

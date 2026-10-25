@@ -56,6 +56,10 @@ type dialog struct {
 	Accept        func(string)
 }
 type preview struct {
+	Strict                bool
+	Finish                func(bool, string)
+	Valid                 func() error
+	Server                *lsp.Client
 	Targets               []*workspaceTarget
 	Detail                bool
 	DetailTop, DetailLeft int
@@ -68,6 +72,7 @@ type preview struct {
 	Index                 int
 }
 type App struct {
+	languageCommand                                            *languageCommand
 	snippetRequest                                             uint64
 	snippetCancel                                              context.CancelFunc
 	debug                                                      *debugSession
@@ -384,11 +389,13 @@ func (a *App) insert(s string) {
 	}
 }
 func (a *App) prompt(title, input string, accept func(string)) {
+	a.cancelPreview("Preview replaced by another command")
 	a.Menu = nil
 	a.Dialog = &dialog{Title: title, Input: input, Cursor: len([]rune(input)), Accept: accept}
 	a.Preview = nil
 }
 func (a *App) list(title string, items []choice) {
+	a.cancelPreview("Preview replaced by another command")
 	a.Menu = nil
 	a.Dialog = &dialog{Title: title, Items: items}
 	a.Preview = nil

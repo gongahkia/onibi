@@ -47,7 +47,12 @@ One process is shared per root/server command, up to four combinations. Document
 carry session identities as well as versions, so delayed sync/close work cannot
 replace a newly reopened document. UI results check source versions and positions.
 Workspace refactoring enters the same preview path as project replacement.
-Unsupported resource operations/server commands fail without partial application.
+Server-command actions support lazy resolution and ordered edit-then-command
+execution. Reverse applyEdit requests run off the protocol reader and wait for an
+all-or-none preview result; cancellation/closed-session guards prevent stale
+application. Incoming review payloads are capped at 8 MiB / four requests; client
+requests at 32; small replies use one bounded writer queue. Unsupported resource
+operations still fail without partial application.
 
 `internal/snippet` parses bounded LSP snippets into an immutable program. The
 editor retains explicit linked ranges and applies precise edits to preserve pane

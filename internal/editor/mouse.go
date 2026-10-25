@@ -169,14 +169,14 @@ func (a *App) modalMouse(ev *tcell.EventMouse, pressed, right bool) bool {
 	if a.Preview != nil {
 		p := a.Preview
 		if right {
-			a.showContext(x, y, []choice{{"Inspect selected change", func() { a.previewKey(tcell.NewEventKey(tcell.KeyTab, 0, 0)) }}, {"Apply selected changes", func() { a.previewKey(tcell.NewEventKey(tcell.KeyEnter, 0, 0)) }}, {"Cancel preview", func() { a.Preview = nil }}})
+			a.showContext(x, y, []choice{{"Inspect selected change", func() { a.previewKey(tcell.NewEventKey(tcell.KeyTab, 0, 0)) }}, {"Apply selected changes", func() { a.previewKey(tcell.NewEventKey(tcell.KeyEnter, 0, 0)) }}, {"Cancel preview", func() { a.cancelPreview("Cancelled by user") }}})
 			return true
 		}
 		if pressed && y == r.Y+r.H-1 && x >= r.X+r.W-17 {
 			if x < r.X+r.W-9 {
 				a.previewKey(tcell.NewEventKey(tcell.KeyEnter, 0, 0))
 			} else {
-				a.Preview = nil
+				a.cancelPreview("Cancelled by user")
 			}
 			return true
 		}
@@ -199,7 +199,9 @@ func (a *App) modalMouse(ev *tcell.EventMouse, pressed, right bool) bool {
 			if i < len(p.Edits) {
 				p.Index = i
 				if x < r.X+6 {
-					p.Checked[i] = !p.Checked[i]
+					if !p.Strict {
+						p.Checked[i] = !p.Checked[i]
+					}
 				}
 			}
 		}
@@ -465,6 +467,9 @@ func wordRange(r text.Rope, offset int) (int, int) {
 }
 func (a *App) previewFooter(x, y, w int, p palette, detail bool) {
 	label := "Space toggle · Tab inspect"
+	if a.Preview != nil && a.Preview.Strict {
+		label = "Whole action · Tab inspect"
+	}
 	if detail {
 		label = "↑↓ scroll · ←→ pan · Tab list"
 	}

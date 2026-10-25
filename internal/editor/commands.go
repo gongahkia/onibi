@@ -287,6 +287,7 @@ func (a *App) addOccurrence() {
 	d.Selections = append(d.Selections, text.Selection{Anchor: p, Head: p + len(needle)})
 }
 func (a *App) showPreview(title string, b *Buffer, version uint64, edits []text.Edit) {
+	a.cancelPreview("Preview replaced by another edit")
 	if len(edits) == 0 {
 		a.Status = "No changes to preview"
 		return

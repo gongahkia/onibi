@@ -42,21 +42,26 @@ type document struct {
 	source  string
 }
 type Client struct {
-	cmd         *exec.Cmd
-	input       io.WriteCloser
-	writer      sync.Mutex
-	mu          sync.Mutex
-	next        int
-	pending     map[int]chan reply
-	docs        map[string]document
-	retired     map[string]uint64
-	syncMu      sync.Mutex
-	incremental bool
-	notify      func(Notification)
-	ctx         context.Context
-	cancel      context.CancelFunc
-	done        chan struct{}
-	closeOnce   sync.Once
+	cmd                *exec.Cmd
+	input              io.WriteCloser
+	writer             sync.Mutex
+	mu                 sync.Mutex
+	next               int
+	pending            map[int]chan reply
+	docs               map[string]document
+	retired            map[string]uint64
+	syncMu             sync.Mutex
+	ResolveCodeActions bool
+	incremental        bool
+	notify             func(Notification)
+	applyEdit          ApplyEditHandler
+	serverCalls        map[string]context.CancelFunc
+	serverBytes        int
+	replies            chan any
+	ctx                context.Context
+	cancel             context.CancelFunc
+	done               chan struct{}
+	closeOnce          sync.Once
 }
 
 const maxMessage = 8 << 20
@@ -92,7 +97,7 @@ func ReadMessage(r *bufio.Reader) ([]byte, error) {
 	_, err := io.ReadFull(r, data)
 	return data, err
 }
-func Start(parent context.Context, argv []string, root string, notify func(Notification)) (*Client, error) {
+func Start(parent context.Context, argv []string, root string, notify func(Notification), apply ...ApplyEditHandler) (*Client, error) {
 	if len(argv) == 0 {
 		return nil, errors.New("empty server command")
 	}
@@ -117,15 +122,33 @@ func Start(parent context.Context, argv []string, root string, notify func(Notif
 		cancel()
 		return nil, err
 	}
+	c.serverCalls = make(map[string]context.CancelFunc)
+	c.replies = make(chan any, 16)
+	if len(apply) > 0 {
+		c.applyEdit = apply[0]
+	}
+	go func() {
+		for {
+			select {
+			case response := <-c.replies:
+				if err := c.send(response); err != nil {
+					c.fail(err)
+					return
+				}
+			case <-c.ctx.Done():
+				return
+			}
+		}
+	}()
 	go c.read(stdout)
 	go func() { _ = cmd.Wait(); c.fail(errors.New("language server exited")); close(c.done) }()
 	initCtx, stop := context.WithTimeout(ctx, 8*time.Second)
 	defer stop()
 	params := map[string]any{"processId": os.Getpid(), "rootUri": URI(root), "clientInfo": map[string]string{"name": "shack"}, "workspaceFolders": []any{map[string]string{"uri": URI(root), "name": root}}, "capabilities": map[string]any{
-		"general": map[string]any{"positionEncodings": []string{"utf-16"}}, "workspace": map[string]any{"configuration": true, "workspaceEdit": map[string]any{"documentChanges": true, "failureHandling": "transactional"}},
+		"general": map[string]any{"positionEncodings": []string{"utf-16"}}, "workspace": map[string]any{"configuration": true, "applyEdit": c.applyEdit != nil, "executeCommand": map[string]any{"dynamicRegistration": false}, "workspaceEdit": map[string]any{"documentChanges": true, "failureHandling": "transactional"}},
 		"textDocument": map[string]any{"completion": map[string]any{"completionItem": map[string]any{"snippetSupport": true}}, "hover": map[string]any{"contentFormat": []string{"plaintext", "markdown"}},
 			"documentSymbol": map[string]any{"hierarchicalDocumentSymbolSupport": true},
-			"codeAction":     map[string]any{"codeActionLiteralSupport": map[string]any{"codeActionKind": map[string]any{"valueSet": []string{"quickfix", "refactor", "source.organizeImports"}}}, "resolveSupport": map[string]any{"properties": []string{"edit"}}},
+			"codeAction":     map[string]any{"codeActionLiteralSupport": map[string]any{"codeActionKind": map[string]any{"valueSet": []string{"quickfix", "refactor", "source.organizeImports"}}}, "dataSupport": true, "disabledSupport": true, "resolveSupport": map[string]any{"properties": []string{"edit", "command"}}},
 			"definition":     map[string]any{"linkSupport": true}, "publishDiagnostics": map[string]any{"versionSupport": true}},
 	}}
 	result, err := c.Request(initCtx, "initialize", params)
@@ -135,8 +158,9 @@ func Start(parent context.Context, argv []string, root string, notify func(Notif
 	}
 	var response struct {
 		Capabilities struct {
-			PositionEncoding string          `json:"positionEncoding"`
-			TextDocumentSync json.RawMessage `json:"textDocumentSync"`
+			CodeActionProvider json.RawMessage `json:"codeActionProvider"`
+			PositionEncoding   string          `json:"positionEncoding"`
+			TextDocumentSync   json.RawMessage `json:"textDocumentSync"`
 		} `json:"capabilities"`
 	}
 	if err = json.Unmarshal(result, &response); err != nil {
@@ -156,6 +180,11 @@ func Start(parent context.Context, argv []string, root string, notify func(Notif
 		_ = json.Unmarshal(response.Capabilities.TextDocumentSync, &options)
 		kind = options.Change
 	}
+	var actionOptions struct {
+		Resolve bool `json:"resolveProvider"`
+	}
+	_ = json.Unmarshal(response.Capabilities.CodeActionProvider, &actionOptions)
+	c.ResolveCodeActions = actionOptions.Resolve
 	c.incremental = kind == 2
 	if err = c.Notify("initialized", map[string]any{}); err != nil {
 		c.Close()
@@ -187,7 +216,14 @@ func (c *Client) Notify(method string, params any) error {
 	return c.send(map[string]any{"jsonrpc": "2.0", "method": method, "params": params})
 }
 func (c *Client) Request(ctx context.Context, method string, params any) (json.RawMessage, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	c.mu.Lock()
+	if len(c.pending) >= 32 {
+		c.mu.Unlock()
+		return nil, errors.New("too many pending language requests")
+	}
 	c.next++
 	id := c.next
 	ch := make(chan reply, 1)
@@ -213,6 +249,7 @@ func (c *Client) Request(ctx context.Context, method string, params any) (json.R
 	case response := <-ch:
 		return response.data, response.err
 	case <-ctx.Done():
+		c.queueReply(map[string]any{"jsonrpc": "2.0", "method": "$/cancelRequest", "params": map[string]any{"id": id}})
 		return nil, ctx.Err()
 	case <-c.ctx.Done():
 		return nil, c.ctx.Err()
@@ -241,10 +278,15 @@ func (c *Client) read(r io.Reader) {
 						Items []any `json:"items"`
 					}
 					_ = json.Unmarshal(m.Params, &p)
-					result = make([]any, len(p.Items))
+					if len(p.Items) > 1000 {
+						responseErr = &rpcError{-32602, "Too many configuration items"}
+					} else {
+						result = make([]any, len(p.Items))
+					}
 				case "client/registerCapability", "client/unregisterCapability", "window/workDoneProgress/create":
 				case "workspace/applyEdit":
-					result = map[string]any{"applied": false, "failureReason": "Use a previewable Shack editing command"}
+					c.handleApplyEdit(m)
+					continue
 				default:
 					responseErr = &rpcError{-32601, "Unsupported client request"}
 				}
@@ -254,7 +296,9 @@ func (c *Client) read(r io.Reader) {
 				} else {
 					response["result"] = result
 				}
-				go func() { _ = c.send(response) }()
+				c.queueReply(response)
+			} else if m.Method == "$/cancelRequest" {
+				c.cancelServerRequest(m.Params)
 			} else if c.notify != nil {
 				c.notify(Notification{m.Method, m.Params})
 			}
