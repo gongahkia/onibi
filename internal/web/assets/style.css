@@ -1373,6 +1373,7 @@ dialog::backdrop {
 /* Keep an exit within reach when a long phone sheet scrolls. */
 .controls-dialog .dialog-heading,
 .keyboard-dialog .dialog-heading,
+.health-dialog .dialog-heading,
 .picker-dialog .dialog-heading {
   position: sticky;
   top: -24px;
@@ -1383,6 +1384,7 @@ dialog::backdrop {
 @media (max-width: 760px) {
   .controls-dialog .dialog-heading,
   .keyboard-dialog .dialog-heading,
+  .health-dialog .dialog-heading,
   .picker-dialog .dialog-heading {
     top: -22px;
   }
@@ -1417,8 +1419,19 @@ dialog::backdrop {
   border-bottom: 1px solid var(--line);
 }
 .health-checks strong {
-  color: var(--mint);
+  color: var(--amber);
   font-size: 13px;
+}
+.health-checks li[data-state="ready"] strong,
+.health-checks li[data-state="running"] strong {
+  color: var(--mint);
+}
+.health-checks li[data-state="unknown"] strong {
+  color: var(--muted);
+}
+#health-observation,
+#session-expiry {
+  font-variant-numeric: tabular-nums;
 }
 .health-checks p {
   color: var(--muted);

@@ -478,6 +478,22 @@ const server = http.createServer(async (req, res) => {
     "Output unavailable",
   );
   assert.equal(await page.locator("#send-input").isDisabled(), false);
+  await page.click("#connection");
+  await page.locator("#health-checks li").first().waitFor();
+  assert.match(
+    await page.textContent("#health-observation"),
+    /Ghostty 1.3.1.*15 ms/,
+  );
+  assert.match(
+    await page.textContent("#session-expiry"),
+    /Browser session expires/,
+  );
+  await auditAccessibility("Readiness accessibility");
+  await page.screenshot({
+    path: path.join(output, "readiness-mobile.png"),
+    fullPage: true,
+  });
+  await page.click("#close-health");
   await page.screenshot({
     path: path.join(output, "capture-unavailable-mobile.png"),
     fullPage: true,
@@ -486,6 +502,18 @@ const server = http.createServer(async (req, res) => {
     (snapshotDelay = 0),
     (snapshotActive = 0),
     (snapshotPeak = 0));
+  const inventoryBeforeRetry = requests.filter(
+    (r) => r.url === "/api/targets",
+  ).length;
+  await page.click("#retry-connection");
+  await page.waitForFunction(
+    () =>
+      document.getElementById("connection-label").textContent === "Connected",
+  );
+  assert.equal(
+    requests.filter((r) => r.url === "/api/targets").length,
+    inventoryBeforeRetry,
+  );
   await page.locator('.key-strip [data-key="ctrl-c"]').click();
   await page.waitForFunction(() =>
     ["Done", "Key delivered", "Close requested"].includes(
@@ -681,6 +709,7 @@ const server = http.createServer(async (req, res) => {
     ["open-picker", "target-picker", "close-picker"],
     ["open-controls", "controls-dialog", "close-controls"],
     ["open-keyboard", "keyboard-dialog", "close-keyboard"],
+    ["connection", "health-dialog", "close-health"],
   ]) {
     await page.click("#" + opener);
     assert.equal(
@@ -732,6 +761,23 @@ const server = http.createServer(async (req, res) => {
   await page.click("#close-picker");
   assert.equal(await page.locator("#send-input").isDisabled(), true);
   assert.equal(await page.inputValue("#compose"), "preserve draft");
+  // A successful capture and a healthy HTTP endpoint must not erase a failed
+  // native inventory observation or enable terminal input.
+  await page.click("#read-output");
+  await page.waitForFunction(
+    () => !document.getElementById("read-output").disabled,
+  );
+  await page.click("#connection");
+  await page
+    .locator("#health-observation")
+    .filter({ hasText: "unavailable" })
+    .waitFor();
+  assert.equal(
+    await page.textContent("#connection-label"),
+    "Ghostty unavailable",
+  );
+  assert.equal(await page.locator("#send-input").isDisabled(), true);
+  await page.click("#close-health");
   unavailable = false;
   await page.click("#open-picker");
   await page.click("#refresh-picker");

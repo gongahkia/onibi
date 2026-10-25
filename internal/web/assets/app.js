@@ -241,6 +241,10 @@ function setNative(value, code = "", version = ++state.checkVersion) {
   state.nativeVersion = version;
   state.nativeState = value;
   state.nativeCode = code;
+  if (value !== "ready") {
+    clearTimeout(state.followTimer);
+    state.follow = false;
+  }
   updateControls();
 }
 function renderReadiness() {
@@ -287,13 +291,21 @@ function renderReadiness() {
   byId("readiness-summary").textContent = detail;
   byId("health-summary").textContent = detail;
   const waiting = Date.now() < state.nextInventoryAt;
+  const retryCapture = controlReady() && state.captureState === "unavailable";
   byId("retry-connection").disabled =
-    state.targetsLoading || waiting || !state.csrf;
-  byId("retry-connection").textContent = state.targetsLoading
-    ? "Checking…"
-    : waiting
-      ? "Retry shortly"
-      : "Check again";
+    !state.csrf ||
+    (retryCapture ? state.snapshotLoading : state.targetsLoading || waiting);
+  byId("retry-connection").hidden =
+    controlReady() && state.captureState === "focus_required";
+  byId("retry-connection").textContent = retryCapture
+    ? state.snapshotLoading
+      ? "Reading…"
+      : "Retry output"
+    : state.targetsLoading
+      ? "Checking…"
+      : waiting
+        ? "Retry shortly"
+        : "Check again";
   byId("session-expiry").textContent = state.expiresAt
     ? "Browser session expires " +
       new Date(state.expiresAt).toLocaleString() +
@@ -320,12 +332,30 @@ async function loadHealth() {
     const checks = data.diagnostics?.checks || [];
     for (const check of checks) {
       const row = document.createElement("li");
+      row.dataset.state = check.state;
       const name = document.createElement("strong");
       const detail = document.createElement("p");
+      const checkNames = {
+        installation: "Ghostty app",
+        process: "Ghostty process",
+        automation: "Automation",
+        capture: "Accessibility",
+      };
+      const checkStates = {
+        ready: "Ready",
+        running: "Running",
+        unknown: "Not checked",
+        capture_permission: "Permission needed",
+        stopped: "Not running",
+        missing: "Not installed",
+        ambiguous: "Multiple processes",
+        unsupported: "Unsupported",
+        unavailable: "Unavailable",
+      };
       name.textContent =
-        check.id.replaceAll("_", " ") +
+        (checkNames[check.id] || check.id.replaceAll("_", " ")) +
         " · " +
-        check.state.replaceAll("_", " ");
+        (checkStates[check.state] || check.state.replaceAll("_", " "));
       detail.textContent = check.detail;
       row.append(name, detail);
       list.append(row);
@@ -500,6 +530,7 @@ function requirePairing(text) {
   stopFollow();
   state.authGeneration++;
   state.csrf = "";
+  state.expiresAt = 0;
   clearTimeout(state.targetTimer);
   state.captureState = "unknown";
   state.capabilities = { known: false };
@@ -1322,9 +1353,10 @@ byId("health-refresh").addEventListener("click", () => {
   loadHealth();
   refreshTargets();
 });
-byId("retry-connection").addEventListener("click", () =>
-  refreshTargets({ force: true }),
-);
+byId("retry-connection").addEventListener("click", () => {
+  if (controlReady() && state.captureState === "unavailable") readSnapshot();
+  else refreshTargets({ force: true });
+});
 
 for (const id of ["new-window", "picker-new-window", "controls-new-window"])
   byId(id).addEventListener("click", () => {
