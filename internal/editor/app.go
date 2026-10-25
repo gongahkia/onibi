@@ -67,6 +67,8 @@ type preview struct {
 	Index                 int
 }
 type App struct {
+	layout                              *splitNode
+	dividerDrag                         *divider
 	taskOutput                          string
 	fileCheckBusy                       bool
 	languageSequence                    uint64

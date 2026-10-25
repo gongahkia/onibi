@@ -23,6 +23,9 @@ func (a *App) ensurePanes() {
 	if len(a.panes) == 0 {
 		a.panes = []pane{{Buffer: a.Current()}}
 	}
+	if a.layout == nil {
+		a.layout = legacyLayout(len(a.panes), a.horizontal)
+	}
 	a.savePane()
 }
 func (a *App) savePane() {
@@ -37,35 +40,6 @@ func (a *App) savePane() {
 	p.WrapTop = b.WrapTop
 	p.Version = b.Doc.Version
 	p.Selections = append([]text.Selection(nil), b.Doc.Selections...)
-}
-func (a *App) rect(i int) rectangle {
-	w, h := a.Screen.Size()
-	r := rectangle{0, 1, w, max(1, h-3)}
-	n := max(1, len(a.panes))
-	if n == 1 {
-		return r
-	}
-	if a.horizontal {
-		height := r.H / n
-		r.Y += i * height
-		r.H = height
-		if i == n-1 {
-			r.H = h - 2 - r.Y
-		}
-		r.Y++
-		r.H = max(1, r.H-1)
-	} else {
-		width := w / n
-		r.X = i * width
-		r.W = width - 1
-		if i == n-1 {
-			r.W = w - r.X
-		}
-		r.Y++
-		r.H = max(1, r.H-1)
-	}
-	r.W = max(1, r.W)
-	return r
 }
 func (a *App) focusPane(index int) {
 	a.ensurePanes()
@@ -111,11 +85,20 @@ func (a *App) clampSelections(b *Buffer) {
 }
 func (a *App) split(horizontal bool) {
 	a.ensurePanes()
-	if len(a.panes) >= 4 {
-		a.Status = "Up to four panes are supported"
+	if len(a.panes) >= maxPanes {
+		a.Status = "Up to sixteen panes are supported"
 		return
 	}
-	a.horizontal = horizontal
+	r := a.rect(a.focus)
+	if (horizontal && r.H < 7) || (!horizontal && r.W < 28) {
+		a.Status = "Enlarge this pane before splitting it"
+		return
+	}
+	node := a.layout.find(a.focus)
+	if node == nil {
+		return
+	}
+	*node = splitNode{Horizontal: horizontal, Ratio: 500, First: &splitNode{Pane: a.focus}, Second: &splitNode{Pane: len(a.panes)}}
 	p := a.panes[a.focus]
 	p.Selections = append([]text.Selection(nil), p.Selections...)
 	p.Rows = nil
@@ -127,7 +110,9 @@ func (a *App) closePane() {
 		a.Status = "This is the only pane"
 		return
 	}
+	a.savePane()
 	index := a.focus
+	a.layout = a.layout.remove(index)
 	a.panes = append(a.panes[:index], a.panes[index+1:]...)
 	a.focus = min(index, len(a.panes)-1)
 	p := a.panes[a.focus]
@@ -329,6 +314,8 @@ func (a *App) moveVisual(delta int, extend bool) {
 }
 func (a *App) paneCommands() {
 	a.Commands = append(a.Commands,
+		command{"Grow pane", "", func() { a.resizePane(50) }}, command{"Shrink pane", "", func() { a.resizePane(-50) }},
+		command{"Focus pane left", "", func() { a.focusDirection(-1, 0) }}, command{"Focus pane right", "", func() { a.focusDirection(1, 0) }}, command{"Focus pane above", "", func() { a.focusDirection(0, -1) }}, command{"Focus pane below", "", func() { a.focusDirection(0, 1) }},
 		command{"Split vertically", "", func() { a.split(false) }}, command{"Split horizontally", "", func() { a.split(true) }}, command{"Focus next pane", "", func() { a.focusPane(a.focus + 1) }}, command{"Close pane", "", a.closePane}, command{"Toggle soft wrapping", "", func() {
 			a.wrap = !a.wrap
 			for _, b := range a.Buffers {

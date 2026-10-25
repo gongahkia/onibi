@@ -20,6 +20,7 @@ type sessionFile struct {
 	Top, Left, WrapTop int
 }
 type sessionState struct {
+	Layout           *splitNode
 	Schema           int
 	Root             string
 	Files            []sessionFile
@@ -52,11 +53,19 @@ func (a *App) saveSession() error {
 			break
 		}
 	}
-	for _, p := range a.panes {
+	indices := map[int]int{}
+	for i, p := range a.panes {
 		if p.Buffer.Transient || p.Buffer.File.Path == "" {
 			continue
 		}
+		indices[i] = len(state.Panes)
 		state.Panes = append(state.Panes, sessionFile{p.Buffer.File.Path, append([]text.Selection(nil), p.Selections[:min(32, len(p.Selections))]...), p.Top, p.Left, p.WrapTop})
+	}
+	state.Layout = remapLayout(a.layout, indices)
+	if i, ok := indices[a.focus]; ok {
+		state.Focus = i
+	} else {
+		state.Focus = 0
 	}
 	data, err := json.Marshal(state)
 	if err != nil {
@@ -103,7 +112,7 @@ func (a *App) restoreSession() {
 		return
 	}
 	var state sessionState
-	if json.Unmarshal(data, &state) != nil || state.Schema != 1 || len(state.Files) > 64 || len(state.Panes) > 4 {
+	if json.Unmarshal(data, &state) != nil || state.Schema != 1 || len(state.Files) > 64 || len(state.Panes) > maxPanes {
 		a.Status = "Invalid project session"
 		return
 	}
@@ -152,7 +161,9 @@ func (a *App) restoreSession() {
 		a.Buffers = a.Buffers[1:]
 	}
 	a.panes = nil
-	for _, saved := range state.Panes {
+	a.layout = nil
+	indices := map[int]int{}
+	for i, saved := range state.Panes {
 		b := opened[saved.Path]
 		if b == nil {
 			continue
@@ -161,7 +172,14 @@ func (a *App) restoreSession() {
 		if len(sel) == 0 {
 			sel = b.Doc.Selections
 		}
+		indices[i] = len(a.panes)
 		a.panes = append(a.panes, pane{Buffer: b, Top: max(0, min(saved.Top, b.Doc.Text.Lines()-1)), Left: max(0, saved.Left), WrapTop: max(0, saved.WrapTop), Selections: append([]text.Selection(nil), sel[:min(32, len(sel))]...), Version: b.Doc.Version})
+	}
+	if validLayout(state.Layout, len(state.Panes)) {
+		a.layout = remapLayout(state.Layout, indices)
+	}
+	if a.layout == nil {
+		a.layout = legacyLayout(len(a.panes), state.Horizontal)
 	}
 	a.horizontal = state.Horizontal
 	a.wrap = state.Wrap
@@ -173,7 +191,10 @@ func (a *App) restoreSession() {
 		}
 	}
 	if len(a.panes) > 0 {
-		a.focus = max(0, min(state.Focus, len(a.panes)-1))
+		a.focus = 0
+		if i, ok := indices[state.Focus]; ok {
+			a.focus = i
+		}
 		p := a.panes[a.focus]
 		for i, b := range a.Buffers {
 			if b == p.Buffer {

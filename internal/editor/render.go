@@ -95,6 +95,20 @@ func (a *App) draw() {
 		}
 	}
 	a.ensurePanes()
+	if a.layout != nil {
+		var boxes [maxPanes]rectangle
+		var dividers []divider
+		a.layout.arrange(a.workspaceRect(), &boxes, &dividers)
+		for _, d := range dividers {
+			for j := 0; j < d.Length; j++ {
+				x, y, ch := d.X+j, d.Y, '─'
+				if !d.Node.Horizontal {
+					x, y, ch = d.X, d.Y+j, '│'
+				}
+				a.Screen.SetContent(x, y, ch, nil, p.dim)
+			}
+		}
+	}
 	for i := range a.panes {
 		a.drawPane(i, p)
 	}
@@ -135,6 +149,9 @@ func (a *App) drawPane(index int, p palette) {
 	b := pane.Buffer
 	d := b.Doc
 	r := a.rect(index)
+	if r.W <= 0 || r.H <= 0 {
+		return
+	}
 	active := index == a.focus
 	selections := append([]text.Selection(nil), pane.Selections...)
 	if active {
