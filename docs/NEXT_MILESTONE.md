@@ -23,7 +23,7 @@ not narrow the goal or justify declaring the entire milestone complete.
 | Left/right mouse controls | Selection/drag, pane/tree/minimap interaction, context menus and menu activation; keyboard alternatives | Implemented: selection/context/tree/minimap/preview regression tests; outer-terminal compatibility still needs matrix |
 | Low overhead and distribution | Demand-driven terminal/debugger, bounded caches/output, idle behavior, measured artifact/RSS/latency, all five target builds and constrained Linux run | Current increment verified: all five builds; 11.4 MiB idle RSS; 64 MiB / 0.5 CPU Linux scratch editing. Repeat after remaining features |
 | Markdown and Org rendering | Bundled rendered views, links/code/lists/tables/headings as applicable; bounded cached parsing and rendering benchmarks | Implemented: parser/fuzz/race tests, cached viewport benchmark and real tmux source/preview/split/live-refresh workflow; limits in USAGE.md |
-| Code folding | Discoverable fold controls, nested folds, cursor/edit behavior, language/markup coverage, large-file tests | Pending; after current IDE tasks |
+| Code folding | Discoverable fold controls, nested folds, cursor/edit behavior, language/markup coverage, large-file tests | Implemented: bounded scanner/fuzz tests, independent-pane/nested/edit/reveal tests, 100k-line Unicode projection and real tmux workflow; heuristic coverage/limits in USAGE.md |
 | Atomic git commits | Focused commits after relevant checks; preserve user edits | Ongoing |
 
 ## Sequence

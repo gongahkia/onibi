@@ -191,6 +191,12 @@ func (a *App) key(ev *tcell.EventKey) {
 		if a.treeVisible && a.tree == nil {
 			a.rebuildTree()
 		}
+	case tcell.KeyF6:
+		if shift {
+			a.foldCommand("unfold", -1)
+		} else {
+			a.foldCommand("toggle", -1)
+		}
 	case tcell.KeyF4:
 		a.documentPreview("", false)
 	case tcell.KeyF5:
@@ -410,7 +416,7 @@ func (a *App) move(dx, dy int, extend bool) {
 		if dy != 0 {
 			line := r.LineAt(p)
 			col := columnAt(r, p, a.Config.TabSize)
-			target := max(0, min(r.Lines()-1, line+dy))
+			target := a.stepVisible(line, dy)
 			p = lineOffset(r, target, col, a.Config.TabSize)
 		}
 		if !extend {

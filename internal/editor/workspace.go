@@ -409,6 +409,7 @@ func (a *App) applyWorkspacePreview() {
 	}
 }
 func (a *App) rebaseOtherPanes(b *Buffer) {
+	a.rebaseFolds(b)
 	a.rebaseDebug(b)
 	for i := range a.panes {
 		p := &a.panes[i]

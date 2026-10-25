@@ -46,7 +46,7 @@ func TestWrapMovementAndMouse(t *testing.T) {
 		t.Fatal(b.Doc.Selections, width)
 	}
 	a.draw()
-	a.mouse(tcell.NewEventMouse(5, 2, tcell.Button1, 0))
+	a.mouse(tcell.NewEventMouse(a.gutter()+2, 2, tcell.Button1, 0))
 	if b.Doc.Selections[0].Head != width+2 {
 		t.Fatal(b.Doc.Selections, width)
 	}

@@ -604,3 +604,41 @@ indented examples can also hit the nesting guard. Limits leave source editing
 available. Parsing runs off the UI thread; third-party parser calls themselves
 cannot be interrupted mid-call. These are input/output bounds, not fixed peak-RSS
 or hard real-time guarantees.
+
+## Code and outline folding
+
+**Toggle fold** (F6) collapses/expands the section at the caret; inside a section it
+chooses the nearest enclosing region. **Fold all** collapses nested sections;
+**Unfold all** (Shift+F6) expands them in the focused pane. The rightmost gutter
+column accepts clicks and shows `▸` for collapsed sections and `▾` for available
+ones after scanning. The adjacent breakpoint column keeps its existing function.
+The context menu and command palette provide keyboard alternatives.
+
+Folds are independent per pane, including two panes showing the same buffer.
+Splitting copies the current fold state; subsequent changes are independent.
+Vertical arrows, page movement and wheel scrolling skip hidden lines, including
+with soft wrapping enabled. Searching, go-to-line, debugging and other caret jumps
+into hidden text expand its containing folds. Collapsing a section containing the
+caret places it on the header. Edits touching a folded region expand it; edits
+before an untouched region rebase its position. Parent expansion preserves nested
+child folds. Fold state is temporary and is not restored across restarts.
+
+Folding never changes source bytes or the undo history. Copying, selecting,
+replacing and saving a range still includes its hidden text. Deleting across a
+folded region edits the underlying source and expands the affected region; undo
+remains available. Rendered previews and terminal buffers use their own layouts;
+fold the source instead.
+
+The built-in scanner needs no language server. It finds brace/bracket/parenthesis
+blocks, multiline and consecutive line comments, Python triple-quoted strings,
+indentation in Python/YAML/TOML/shell/Ruby/plain text, Markdown headings and fenced
+blocks, and Org headings/blocks. This is structural, heuristic folding, not a full
+language grammar or LSP folding-range implementation: unusual strings, regex
+literals, templates, preprocessor branches and malformed syntax can produce missing
+or approximate regions. Ordinary editing is unaffected.
+
+Scanning starts on demand, runs on one background worker and caches candidates
+for the current document version. The next fold command after editing rescans;
+ordinary keystrokes and redraws do not parse the file. The limits are 16 MiB of
+source, 500,000 lines and 20,000 regions. Closed regions use a sorted visibility
+index, so moving past a large collapsed section does not visit its hidden lines.

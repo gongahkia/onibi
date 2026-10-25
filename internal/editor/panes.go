@@ -2,6 +2,7 @@ package editor
 
 import (
 	"fmt"
+	"github.com/gongahkia/shack/internal/folding"
 	"github.com/gongahkia/shack/internal/text"
 	"github.com/rivo/uniseg"
 	"sort"
@@ -9,6 +10,7 @@ import (
 )
 
 type pane struct {
+	Folds              *foldState
 	Buffer             *Buffer
 	Top, Left, WrapTop int
 	Selections         []text.Selection
@@ -34,6 +36,9 @@ func (a *App) savePane() {
 	}
 	b := a.Current()
 	p := &a.panes[a.focus]
+	if p.Buffer != b {
+		p.Folds = nil
+	}
 	p.Buffer = b
 	p.Top = b.Top
 	p.Left = b.Left
@@ -101,6 +106,12 @@ func (a *App) split(horizontal bool) {
 	}
 	*node = splitNode{Horizontal: horizontal, Ratio: 500, First: &splitNode{Pane: a.focus}, Second: &splitNode{Pane: len(a.panes)}}
 	p := a.panes[a.focus]
+	if p.Folds != nil {
+		copy := *p.Folds
+		copy.Closed = append([]folding.Range(nil), copy.Closed...)
+		copy.Visible = append([]foldLine(nil), copy.Visible...)
+		p.Folds = &copy
+	}
 	p.Selections = append([]text.Selection(nil), p.Selections...)
 	p.Rows = nil
 	a.panes = append(a.panes, p)
@@ -132,6 +143,7 @@ func (a *App) closePane() {
 }
 func (a *App) rebasePanes() {
 	b := a.Current()
+	a.rebaseFolds(b)
 	for i := range a.panes {
 		p := &a.panes[i]
 		if i == a.focus || p.Buffer != b || p.Version == b.Doc.Version {
@@ -200,13 +212,14 @@ func rowAt(r text.Rope, line, offset, width, tab int) int {
 	return max(0, sort.Search(len(s), func(i int) bool { return s[i].Start > offset })-1)
 }
 func (a *App) contentWidth(b *Buffer, r rectangle) int {
-	return max(1, r.W-len(strconv.Itoa(b.Doc.Text.Lines()))-2)
+	return max(1, r.W-len(strconv.Itoa(b.Doc.Text.Lines()))-3)
 }
 func (a *App) reveal() {
 	b := a.Current()
 	if b.Terminal != nil {
 		return
 	}
+	a.unfoldCursor(b)
 	r := a.rect(a.focus)
 	p := b.Doc.Selections[0].Head
 	line := b.Doc.Text.LineAt(p)
@@ -216,8 +229,15 @@ func (a *App) reveal() {
 		if line < b.Top {
 			b.Top = line
 		}
-		if line >= b.Top+r.H {
-			b.Top = line - r.H + 1
+		distance := 0
+		for l := b.Top; l < line && distance < r.H; l = a.nextVisible(a.focus, l) {
+			distance++
+		}
+		if distance >= r.H {
+			b.Top = line
+			for n := 1; n < r.H && b.Top > 0; n++ {
+				b.Top = a.previousVisible(a.focus, b.Top)
+			}
 		}
 		if column < b.Left {
 			b.Left = column
@@ -235,14 +255,10 @@ func (a *App) reveal() {
 		return
 	}
 	distance := row - b.WrapTop
-	if line-b.Top >= r.H {
-		distance = r.H
-	} else {
-		for l := b.Top; l < line; l++ {
-			distance += rowCount(b.Doc.Text, l, width, a.Config.TabSize)
-			if distance >= r.H {
-				break
-			}
+	for l := b.Top; l < line; l = a.nextVisible(a.focus, l) {
+		distance += rowCount(b.Doc.Text, l, width, a.Config.TabSize)
+		if distance >= r.H {
+			break
 		}
 	}
 	if distance >= r.H {
@@ -253,7 +269,7 @@ func (a *App) reveal() {
 func (a *App) scrollRows(delta int) {
 	b := a.Current()
 	if !a.wraps(b) {
-		b.Top = max(0, min(b.Doc.Text.Lines()-1, b.Top+delta))
+		b.Top = a.stepVisible(b.Top, delta)
 		return
 	}
 	width := a.contentWidth(b, a.rect(a.focus))
@@ -261,8 +277,8 @@ func (a *App) scrollRows(delta int) {
 		n := rowCount(b.Doc.Text, b.Top, width, a.Config.TabSize)
 		if b.WrapTop+1 < n {
 			b.WrapTop++
-		} else if b.Top < b.Doc.Text.Lines()-1 {
-			b.Top++
+		} else if next := a.nextVisible(a.focus, b.Top); next < b.Doc.Text.Lines() {
+			b.Top = next
 			b.WrapTop = 0
 		}
 		delta--
@@ -271,7 +287,7 @@ func (a *App) scrollRows(delta int) {
 		if b.WrapTop > 0 {
 			b.WrapTop--
 		} else if b.Top > 0 {
-			b.Top--
+			b.Top = a.previousVisible(a.focus, b.Top)
 			b.WrapTop = rowCount(b.Doc.Text, b.Top, width, a.Config.TabSize) - 1
 		}
 		delta++
@@ -290,8 +306,8 @@ func (a *App) moveVisual(delta int, extend bool) {
 		for steps > 0 {
 			if row+1 < rowCount(r, line, width, a.Config.TabSize) {
 				row++
-			} else if line < r.Lines()-1 {
-				line++
+			} else if next := a.nextVisible(a.focus, line); next < r.Lines() {
+				line = next
 				row = 0
 			}
 			steps--
@@ -300,7 +316,7 @@ func (a *App) moveVisual(delta int, extend bool) {
 			if row > 0 {
 				row--
 			} else if line > 0 {
-				line--
+				line = a.previousVisible(a.focus, line)
 				row = rowCount(r, line, width, a.Config.TabSize) - 1
 			}
 			steps++

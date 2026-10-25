@@ -55,7 +55,7 @@ func (a *App) fill(x, y, width int, style tcell.Style) {
 		a.Screen.SetContent(x+i, y, ' ', nil, style)
 	}
 }
-func (a *App) gutter() int { return len(strconv.Itoa(a.Current().Doc.Text.Lines())) + 2 }
+func (a *App) gutter() int { return len(strconv.Itoa(a.Current().Doc.Text.Lines())) + 3 }
 func (a *App) draw() {
 	w, h := a.Screen.Size()
 	if w < 1 || h < 1 {
@@ -206,9 +206,10 @@ func (a *App) drawPane(index int, p palette) {
 		a.put(r.X, r.Y-1, r.W, fmt.Sprintf("%d · %s", index+1, bufferName(b)), style)
 	}
 	a.adoptDebugBreakpoints(b)
-	gutter := len(strconv.Itoa(d.Text.Lines())) + 2
+	gutter := len(strconv.Itoa(d.Text.Lines())) + 3
 	width := max(1, r.W-gutter)
-	line, wrapRow := max(0, min(pane.Top, d.Text.Lines()-1)), max(0, pane.WrapTop)
+	a.rebaseFolds(b)
+	line, wrapRow := a.visibleStart(index, max(0, min(pane.Top, d.Text.Lines()-1))), max(0, pane.WrapTop)
 	if a.wraps(b) {
 		wrapRow = min(wrapRow, rowCount(d.Text, line, width, a.Config.TabSize)-1)
 	}
@@ -225,13 +226,18 @@ func (a *App) drawPane(index int, p palette) {
 			seg = rowSegment(d.Text, line, wrapRow, width, a.Config.TabSize)
 		}
 		if !a.wraps(b) || wrapRow == 0 {
-			a.put(r.X, r.Y+row, gutter-1, fmt.Sprintf("%*d", gutter-2, line+1), p.dim)
+			a.put(r.X, r.Y+row, gutter-2, fmt.Sprintf("%*d", gutter-3, line+1), p.dim)
 		} else {
-			a.put(r.X, r.Y+row, gutter-1, "↪", p.dim)
+			a.put(r.X, r.Y+row, gutter-2, "↪", p.dim)
 		}
 		if !a.wraps(b) || wrapRow == 0 {
 			if marker, style := a.debugGutter(b, line+1, p); marker != "" {
-				a.put(r.X+gutter-1, r.Y+row, 1, marker, style)
+				a.put(r.X+gutter-2, r.Y+row, 1, marker, style)
+			}
+		}
+		if !a.wraps(b) || wrapRow == 0 {
+			if marker := a.foldMarker(index, line); marker != "" {
+				a.put(r.X+gutter-1, r.Y+row, 1, marker, p.accent)
 			}
 		}
 		from, end, col := seg.Start, seg.End, seg.Column
@@ -319,7 +325,7 @@ func (a *App) drawPane(index int, p palette) {
 		if a.wraps(b) && wrapRow+1 < rowCount(d.Text, line, width, a.Config.TabSize) {
 			wrapRow++
 		} else {
-			line++
+			line = a.nextVisible(index, line)
 			wrapRow = 0
 		}
 	}

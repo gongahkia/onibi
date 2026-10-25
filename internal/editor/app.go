@@ -21,6 +21,7 @@ import (
 )
 
 type Buffer struct {
+	FoldCache                               *foldCache
 	Reading                                 *readingView
 	Merge                                   *mergeFile
 	Terminal                                *terminalView
@@ -77,6 +78,8 @@ type preview struct {
 	Index                 int
 }
 type App struct {
+	foldBusy                                                   bool
+	foldPending                                                *foldJob
 	readingBusy                                                bool
 	readingPending                                             []readingJob
 	mergeFile                                                  *mergeFile
@@ -214,6 +217,7 @@ func New(screen tcell.Screen, cfg config.Config, paths []string, readonly bool) 
 	a.developmentCommands()
 	a.mergeCommands()
 	a.readingCommands()
+	a.foldCommands()
 	a.terminalCommands()
 	a.debugCommands()
 	a.Commands = append(a.Commands, command{"Snippet choices", "", a.snippetChoices})

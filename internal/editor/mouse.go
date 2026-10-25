@@ -71,7 +71,7 @@ func (a *App) contextKey(ev *tcell.EventKey) {
 	}
 }
 func (a *App) editingContext(x, y int) {
-	items := []choice{{"Copy", func() { a.copy(false) }}, {"Cut", func() { a.copy(true) }}, {"Paste", a.pasteClipboard}, {"Select all", func() { a.Current().Doc.Selections = []text.Selection{{Anchor: 0, Head: a.Current().Doc.Text.Len()}} }}, {"Go to definition", func() { a.languageRequest("definition") }}, {"Hover documentation", func() { a.languageRequest("hover") }}, {"Code actions", func() { a.runCommand("Code actions") }}, {"Toggle line comments", a.commentLines}, {"Split vertically", func() { a.split(false) }}, {"Split horizontally", func() { a.split(true) }}, {"Close pane", a.closePane}, {"Save", a.Save}}
+	items := []choice{{"Copy", func() { a.copy(false) }}, {"Cut", func() { a.copy(true) }}, {"Paste", a.pasteClipboard}, {"Select all", func() { a.Current().Doc.Selections = []text.Selection{{Anchor: 0, Head: a.Current().Doc.Text.Len()}} }}, {"Go to definition", func() { a.languageRequest("definition") }}, {"Hover documentation", func() { a.languageRequest("hover") }}, {"Code actions", func() { a.runCommand("Code actions") }}, {"Toggle line comments", a.commentLines}, {"Split vertically", func() { a.split(false) }}, {"Split horizontally", func() { a.split(true) }}, {"Close pane", a.closePane}, {"Save", a.Save}, {"Toggle fold", func() { a.foldCommand("toggle", -1) }}, {"Unfold all", func() { a.foldCommand("unfold", -1) }}}
 	if a.Current().Transient || a.Readonly {
 		items = []choice{{"Copy", func() { a.copy(false) }}, {"Save as", a.saveAs}, {"Close buffer", a.closeBuffer}, {"Split vertically", func() { a.split(false) }}}
 	}
@@ -368,7 +368,7 @@ func (a *App) mouse(ev *tcell.EventMouse) {
 	offset := pane.Buffer.Doc.Text.Len()
 	if row := y - r.Y; !header && row >= 0 && row < len(pane.Rows) {
 		projected := pane.Rows[row]
-		gutter := len(fmt.Sprint(pane.Buffer.Doc.Text.Lines())) + 2
+		gutter := len(fmt.Sprint(pane.Buffer.Doc.Text.Lines())) + 3
 		column := max(0, x-r.X-gutter) + projected.Column
 		offset = min(projected.End, lineOffset(pane.Buffer.Doc.Text, projected.Line, column, a.Config.TabSize))
 	}
@@ -395,6 +395,13 @@ func (a *App) mouse(ev *tcell.EventMouse) {
 		return
 	}
 	b := a.Current()
+	if pressed && x == r.X+len(strconv.Itoa(b.Doc.Text.Lines()))+2 {
+		row := y - r.Y
+		if row >= 0 && row < len(a.panes[a.focus].Rows) {
+			a.foldCommand("toggle", a.panes[a.focus].Rows[row].Line)
+		}
+		return
+	}
 	if pressed && !b.Transient && b.File.Path != "" && x == r.X+len(strconv.Itoa(b.Doc.Text.Lines()))+1 {
 		row := y - r.Y
 		if row >= 0 && row < len(a.panes[a.focus].Rows) {

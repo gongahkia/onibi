@@ -187,3 +187,23 @@ go test ./internal/markup -run '^$' -bench BenchmarkRender -benchmem
 go test ./internal/editor -run '^$' -bench BenchmarkReadingViewport -benchmem
 python3 scripts/markup_smoke.py
 ```
+
+## Folding increment
+
+Same host/settings, 2026-10-25. Scanning 495,000 bytes / 45,000 lines of repeated Go
+functions with Unicode strings took **6.79 ms**, **8,103,972 B / 49 allocations**
+per scan. Scans materialise a source snapshot and build a line/region index off the
+UI thread; none run during ordinary redraws. One running scan and one coalesced
+pending request are permitted. Limits are documented in USAGE.md.
+
+A regression test collapses a section containing 100,000 Unicode lines and checks
+viewport rows, navigation and reveal without visiting the hidden lines. Closed
+region lookup is binary search; edit rebasing sweeps ordered edits and regions
+instead of multiplying the two counts. This is functional/scaling evidence, not
+an end-to-end latency measurement. Final transport, Unicode long-line, RSS and
+release measurements remain in the milestone ledger.
+
+```sh
+go test ./internal/folding -run '^$' -bench BenchmarkLargeCode -benchmem
+python3 scripts/folding_smoke.py
+```
