@@ -1,6 +1,6 @@
 #!/bin/sh
 set -eu
-version=${1:-0.1.0-dev}
+version=${1:-$(cat VERSION)}
 mkdir -p dist build/release
 ./scripts/licenses.sh
 for target in linux/amd64 linux/arm64 linux/arm darwin/amd64 darwin/arm64; do
@@ -11,7 +11,7 @@ for target in linux/amd64 linux/arm64 linux/arm darwin/amd64 darwin/arm64; do
   CGO_ENABLED=0 GOOS="$target_os" GOARCH="$target_arch" GOARM=7 GOAMD64=v1 \
     go build -trimpath -ldflags="-s -w -X main.version=$version" -o "$stage/shack" ./cmd/shack
   cp README.txt docs/*.md LICENSE build/THIRD_PARTY_LICENSES.txt "$stage/"
-  tar -czf "dist/shack-$version-$target_os-$target_arch.tar.gz" -C "$stage" shack README.txt USAGE.md ARCHITECTURE.md PRODUCT.md PERFORMANCE.md THIRD_PARTY.md LICENSE THIRD_PARTY_LICENSES.txt
+  tar -czf "dist/shack-$version-$target_os-$target_arch.tar.gz" -C "$stage" shack README.txt USAGE.md ARCHITECTURE.md PRODUCT.md PERFORMANCE.md IDE_AUDIT.md THIRD_PARTY.md LICENSE THIRD_PARTY_LICENSES.txt
 done
 if command -v sha256sum >/dev/null 2>&1; then
   (cd dist && sha256sum ./*.tar.gz > SHA256SUMS)
