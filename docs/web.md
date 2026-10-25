@@ -20,7 +20,7 @@ Use the HTTPS origin printed by Serve, without a path, as Onibi's public origin:
 
 Onibi binds `127.0.0.1:8787`; `--listen` accepts only loopback addresses. Serve terminates HTTPS and proxies to the local server. Follow Tailscale's HTTPS consent flow if prompted. Tailnet access rules still apply. See the [official Serve setup](https://tailscale.com/docs/features/tailscale-serve) and [CLI reference](https://tailscale.com/docs/reference/tailscale-cli/serve).
 
-The printed link contains a one-use pairing secret in its URL fragment. Open it on the intended iPhone browser within ten minutes. The page removes the fragment immediately, exchanges the secret for an HttpOnly session cookie, and keeps its CSRF token only in memory. Terminal text and pairing secrets are not stored in browser local storage. A manual pairing field is available when copying the link is inconvenient.
+The printed link contains a one-use pairing secret in its URL fragment. Open it on the intended iPhone browser within ten minutes. The page removes the fragment immediately, then asks you to name the browser and choose its access duration before connecting. Temporary access is the default: it lasts up to twelve hours and ends when Onibi restarts. **Remember this browser for 30 days** is an explicit option with a fixed expiry; reconnecting does not extend it. Credentials use HttpOnly cookies and CSRF stays in memory. A manual token field is available. Terminal text, drafts, and pairing secrets are never stored in browser local storage; only reader size/wrap preferences are saved there.
 
 For local development, omit `--origin` and use the printed loopback HTTP link on the Mac. For phone access, use the configured HTTPS origin consistently; switching between the loopback and private addresses does not share a browser session.
 
@@ -37,7 +37,9 @@ This inspects the Ghostty app bundle/version, running-process count, and the cal
 
 When ready to test native responsiveness, explicitly run `onibi web doctor --probe`. This sends one bounded inventory request and can prompt for Automation permission. Adding `--read-target '<exact pane ID>'` verifies focused-pane capture and discards the captured text; it never focuses the pane for you. Do not add these options when you only want passive diagnostics.
 
-On the phone, tap the connection status to open **Mac readiness**. It shows passive permission/process details, the installed version, the last native inventory duration, and browser session expiry. **Check again** refreshes diagnostics and requests inventory when its retry delay permits. Observations describe the last completed request, not a guarantee about the next one.
+On the phone, tap the connection status to open **Mac readiness**. **Explore cockpit capabilities** lists implemented controls, automated contract coverage, version requirements, focus requirements, native observations, and unsupported features. The endpoint is passive: it does not probe Ghostty. A command acknowledgement is not proof that its program completed work; fake backends cannot acquire native-verification labels. Observation evidence lasts only for this Onibi run. The map explicitly excludes semantic agent/approval detection, mouse forwarding, full terminal emulation, and complete or unfocused scrollback capture.
+
+Mac readiness shows passive permission/process details, the installed version, the last native inventory duration, and browser session expiry. **Check again** refreshes diagnostics and requests inventory when its retry delay permits. Observations describe the last completed request, not a guarantee about the next one.
 
 | Phone status | Meaning and next action |
 | --- | --- |
@@ -60,8 +62,9 @@ Healthy inventory polling waits ten seconds after the previous request settles w
 - Create a window even when Ghostty has no open panes; Ghostty must already be running. Create a tab in the selected window, or split the selected pane left, right, above, or below. New destinations use Ghostty's native defaults and are selected after their identities appear in inventory.
 - **Controls** exposes pane zoom, balanced splits, 40-pixel split resizing, scrollback pages/top/bottom, previous/next prompt, Mac font size, fullscreen, and pane/tab titles. Prompt navigation needs Ghostty shell integration. These controls require the selected pane to be focused on the Mac; Onibi never focuses it implicitly. Known Ghostty 1.3.0 installations have title controls disabled in the phone UI and rejected before dispatch. Unknown/development versions remain explicitly unknown; a version alone does not prove permission or responsiveness.
 - **More keys** offers Ctrl/Alt A–Z, arrows, Home/End, Page Up/Down, Shift Tab, Backspace/Delete, Space, and F1–F12. Each tap is a key action for the named pane. The target program and Ghostty configuration determine its meaning. Ctrl C interrupts, Ctrl D can exit a shell, and Ctrl Z can suspend a process.
-- Close a pane, tab, or window only after checking the named confirmation and affected pane list. A tab/window close affects all its panes. The displayed list is a snapshot; another local user can change it before confirmation. A confirmed close request does not itself prove that Ghostty removed the destination—check the refreshed list.
-- Drafts belong to their exact pane and stay only in page memory. Switching panes restores that pane's draft; a removed pane's draft never transfers to another shell. Network loss or session expiry preserves page-memory drafts. Reloading, closing the page, or choosing **Disconnect** discards them. Delivery recovery stores only an unresolved receipt and destination IDs.
+- Close a pane, tab, or window after reviewing its exact affected pane list. The server and native bridge reject the close if membership changed. A successful native acknowledgement triggers at most three inventory observations within three seconds: the phone reports **Close confirmed**, **Still open on your Mac**, or **Close outcome unverified**. Confirmation means the reviewed panes disappeared; an empty native window object is not independently verified. A local Ghostty prompt may keep work open. Observation never repeats the close. Checks and the close remain separate OS calls, so a narrow native race cannot be eliminated.
+- Drafts belong to their exact pane and stay only in page memory. Switching panes restores that pane's draft; a removed pane's draft never transfers to another shell. Network loss or session expiry preserves page-memory drafts. Reloading, closing the page, or choosing **Forget browser** discards them. Delivery recovery stores only an unresolved receipt and destination IDs.
+- **Reader tools** changes only this browser: 12–22px text, optional wrap, and start/end navigation within the captured snapshot. **Expand** opens a focused reading view with the destination, capture age, and a visible Done button. **Copy text** copies literal snapshot text; when clipboard access is denied, it selects the text for browser Copy. Copying or touching output pauses Follow so selection is stable. Clipboard writes need browser support and permission; copied content then belongs to the system clipboard. Reader controls do not change the Mac font, native scroll position, or capture bounds.
 - **Follow** requests fresh visible text 2.5 seconds after the previous request settles. Requests do not overlap. Switching panes stops Follow; hiding the page pauses it, and returning reads again. Capture errors or going offline stop it until you explicitly enable it again. Output age is visible, and the view preserves your scroll position unless you were already following the bottom. Follow cannot read an unfocused pane or keep your Mac awake.
 
 Ghostty's [AppleScript API](https://ghostty.org/docs/features/applescript) controls native terminals by identity. Stock Ghostty 1.3 exposes visible text through Accessibility, but not through a UUID-addressable AppleScript text property. Onibi therefore avoids guessing a pane from its title or screen position. See the [Ghostty Accessibility implementation](https://github.com/ghostty-org/ghostty/blob/v1.3.1/macos/Sources/Ghostty/Surface%20View/SurfaceView_AppKit.swift).
@@ -72,15 +75,54 @@ macOS may require Automation permission to control Ghostty and Accessibility per
 
 Each action has a unique receipt recorded before execution. Reusing the same ID and payload returns its prior state; changing the payload under an existing ID is rejected. Network loss causes the browser to check the receipt, never silently resend the input. An action interrupted by a crash or an ambiguous native error is marked uncertain. Inspect the terminal before deciding whether to send a new action.
 
-Receipts retain hashes and decision metadata, not command text. The browser keeps only an unresolved receipt's ID, action kind and destination IDs in tab-scoped session storage so a page reload can check its outcome; drafts and credentials are never stored there. Browser sessions expire after twelve hours. A server restart revokes browser sessions and marks unfinished receipts uncertain. Only one web process can use a state directory at a time. Logout revokes that browser's session. Stop `onibi web` to cut off browser control; in-flight actions may finish during shutdown, and existing Ghostty terminals continue running. A fresh pairing link currently requires restarting the web process; this also revokes other browser sessions. Device enrollment and renewal policy remain future work.
+Receipts retain hashes and decision metadata, not command text. The browser keeps only an unresolved receipt’s ID, action kind and destination IDs in tab-scoped session storage, so a reload can check its outcome. Restart marks unfinished receipts uncertain. Reconnection checks receipts without replaying commands. Only one web process can use a state directory at a time.
 
-`onibi system service install` currently installs the Telegram daemon, not the web process. Run the web command in a foreground session for this first version. Tailscale Serve's background setting keeps the proxy running, but does not start Onibi after a reboot.
+## Browsers and local recovery
+
+Run these commands on the Mac while the web server is running:
+
+```sh
+onibi web pair
+onibi web devices list
+onibi web devices list --json
+onibi web devices revoke '<device-id>'
+onibi web devices revoke-all
+```
+
+`pair` prints a fresh ten-minute, one-use link without restarting. It invalidates any unused prior link and preserves existing paired devices. Treat the link as a credential. The local administration socket lives in the private state directory, has mode 0600, verifies peer user IDs, accepts no terminal actions, and has no HTTP equivalent for issuing links.
+
+**Devices** on the phone lists active named browser grants and individually revokes them after confirmation. Names are user labels, not verified hardware identities. **Forget browser** revokes this browser, clears its cookies, and discards page-memory drafts. Revocation invalidates short sessions and remembered renewal, including commands still queued or validating their target. It cannot recall commands already dispatched.
+
+Remembered access uses a separate Secure/HttpOnly/SameSite Strict cookie over HTTPS. The Mac stores only its hash, name, opaque ID, origin, creation time and fixed expiry. A GET to `/api/session` may establish a fresh short session and CSRF token after a restart; an expired POST is rejected, never replayed. **Reconnect a remembered browser** restores access without discarding page-memory drafts, but you still choose a pane and explicitly send again. Temporary devices are removed on restart. Remembered devices expire after 30 days, independent of reconnects, and are restricted to the configured origin.
+
+`revoke-all` is local-only: it revokes all browsers for the configured origin and invalidates the unused pairing link. Restart alone does **not** revoke remembered access. Stop the foreground web process or its login service to cut off browser control while it is stopped. In-flight commands may finish during shutdown; existing Ghostty terminals continue running. Removing the service does not delete the state database or device grants; revoke them first if you want to retire access permanently.
+
+## Background web service
+
+Use a stable installed binary, then configure the separate Mac login service:
+
+```sh
+onibi web service install --origin https://your-mac.your-tailnet.ts.net
+onibi web service start
+onibi web pair
+onibi web service status
+onibi web service status --json
+onibi web service restart
+onibi web service stop
+onibi web service remove
+```
+
+Install writes a private `~/Library/LaunchAgents/sh.onibi.web.plist`; it does not start the process immediately. Start launches it in the current user’s graphical session. It also starts at the next graphical login. Stop unloads the job until another start or login; remove also deletes its plist. Existing installations must be removed before changing their stored address. Restart uses stop/start, with a 45-second shutdown allowance for bounded commands and receipt recording. A fixed loopback port is required; `--listen` defaults to `127.0.0.1:8787`.
+
+Service output goes to `web.out.log` and `web.err.log` in Onibi’s private log directory. Background mode prints no pairing secrets; retrieve a fresh link locally. A foreground web process must be stopped before starting the service against the same state directory. macOS permissions are tied to the launching environment; inspect readiness again when switching to the login service. Live launchd/TCC behavior has not been validated in this pass.
+
+`onibi system service install` manages the separate Telegram daemon. Tailscale Serve’s background setting keeps the proxy running; it does not start Onibi or keep the Mac awake. A graphical login, running Ghostty, and an awake reachable Mac remain necessary.
 
 ## Verification boundaries
 
-Hermetic backend tests cover native command construction, targeting failures, focus guards, cancellable/coalesced inventory, failure backoff, capability versions, HTTP authentication, origin/CSRF enforcement, and action recovery. Seven Node VM tests execute the actual JXA bridge with a simulated native object model. Chromium and WebKit UI fixtures exercise phone layouts, scope confirmations, draft isolation, output cancellation, readiness/recovery, and receipt recovery; axe checks automatically detectable WCAG A/AA issues.
+Hermetic backend tests cover native command construction, targeting failures, focus guards, cancellable/coalesced inventory, failure backoff, capability versions, HTTP authentication, origin/CSRF enforcement, and action recovery. Eight Node VM tests execute the actual JXA bridge with a simulated native object model. Chromium and WebKit UI fixtures exercise phone layouts, scope confirmations, draft isolation, output cancellation, readiness/recovery, and receipt recovery; axe checks automatically detectable WCAG A/AA issues.
 
-Both browsers also run against the **production Go HTTP handler, embedded assets, real SQLite store, and real HTTPS cookies** with only the Ghostty backend simulated. That suite tests single-use pairing, origin/CSRF rejection, lost-response receipt recovery, deduplication, create/close reconciliation, rejected-action recovery, native/capture independence, version restrictions, a process killed during execution, restart revocation, and twelve-hour expiry. Its `browserfixture` build tag excludes the host from normal builds; configuration travels over test-process stdin, with no HTTP test backdoor. TLS uses an ephemeral local certificate trusted only by the test browser; this is not Tailscale certificate verification.
+Both browsers also run against the **production Go HTTP handler, embedded assets, real SQLite store, and real HTTPS cookies** with only the Ghostty backend simulated. That suite tests single-use pairing, origin/CSRF rejection, lost-response receipt recovery, deduplication, create/close reconciliation, rejected-action recovery, native/capture independence, version restrictions, a process killed during execution, temporary restart revocation, twelve-hour expiry, opt-in remembered access across process restarts, individual revocation, fixed 30-day expiry, capability/device accessibility, and close-inventory races. Its `browserfixture` build tag excludes the host from normal builds; configuration travels over test-process stdin, with no HTTP test backdoor. TLS uses an ephemeral local certificate trusted only by the test browser; this is not Tailscale certificate verification.
 
 These fixtures do not execute Ghostty or establish physical iPhone/Tailscale behavior. Permission behavior and native responsiveness remain unverified on the actual device path. A passive local doctor check found Ghostty 1.3.1, one running process, and Accessibility authorization; it deliberately did not probe Automation or capture text.
 
