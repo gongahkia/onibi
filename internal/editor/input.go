@@ -17,6 +17,7 @@ func (a *App) Handle(event tcell.Event) {
 		a.focusEvent(ev)
 	case *tcell.EventResize:
 		a.Screen.Sync()
+		a.reveal()
 	case *tcell.EventPaste:
 		if ev.Start() {
 			a.pasting = true

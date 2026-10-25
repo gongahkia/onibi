@@ -19,8 +19,8 @@ type node struct {
 	breaks       []int
 	priority     uint64
 	bytes, lines int
-	special      int
-	localSpecial int
+	special      bool
+	localSpecial bool
 }
 
 func size(n *node) int {
@@ -40,7 +40,7 @@ func rebuilt(n *node, l, r *node) *node {
 	c.left, c.right = l, r
 	c.bytes = size(l) + len(c.text) + size(r)
 	c.lines = lines(l) + len(c.breaks) + lines(r)
-	c.special = n.localSpecial + special(l) + special(r)
+	c.special = n.localSpecial || special(l) || special(r)
 	return &c
 }
 func piece(s string, priority uint64) *node {
@@ -52,7 +52,8 @@ func piece(s string, priority uint64) *node {
 	}
 	for i := 0; i < len(s); i++ {
 		if s[i] < 32 || s[i] >= 127 {
-			n.localSpecial++
+			n.localSpecial = true
+			break
 		}
 	}
 	n.special = n.localSpecial
@@ -210,9 +211,9 @@ func (r Rope) Boundary(offset int) bool {
 	return offset >= 0 && offset <= r.Len() && (offset == r.Len() || utf8.RuneStart(r.Slice(offset, offset+1)[0]))
 }
 
-func special(n *node) int {
+func special(n *node) bool {
 	if n == nil {
-		return 0
+		return false
 	}
 	return n.special
 }
@@ -221,7 +222,7 @@ func plain(n *node, start, end int) bool {
 		return true
 	}
 	if start == 0 && end == size(n) {
-		return n.special == 0
+		return !n.special
 	}
 	l := size(n.left)
 	stop := l + len(n.text)
@@ -229,7 +230,7 @@ func plain(n *node, start, end int) bool {
 		return false
 	}
 	if start < stop && end > l {
-		if n.localSpecial > 0 {
+		if n.localSpecial {
 			for _, b := range []byte(n.text[max(0, start-l):min(len(n.text), end-l)]) {
 				if b < 32 || b >= 127 {
 					return false

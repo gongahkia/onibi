@@ -156,7 +156,16 @@ func (a *App) drawPane(index int, p palette) {
 	}
 	gutter := len(strconv.Itoa(d.Text.Lines())) + 2
 	width := max(1, r.W-gutter)
-	line, wrapRow := pane.Top, pane.WrapTop
+	line, wrapRow := max(0, min(pane.Top, d.Text.Lines()-1)), max(0, pane.WrapTop)
+	if a.wrap {
+		wrapRow = min(wrapRow, rowCount(d.Text, line, width, a.Config.TabSize)-1)
+	}
+	pane.Top = line
+	pane.WrapTop = wrapRow
+	if active {
+		b.Top = line
+		b.WrapTop = wrapRow
+	}
 	pane.Rows = nil
 	for row := 0; row < r.H && line < d.Text.Lines(); row++ {
 		seg := segment{d.Text.LineStart(line), d.Text.LineEnd(line), 0}
