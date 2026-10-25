@@ -1621,3 +1621,22 @@ dialog::backdrop {
   z-index: 1;
   background: var(--surface);
 }
+.capability-group {
+  border-top: 1px solid var(--line);
+}
+.capability-group summary {
+  min-height: 44px;
+  padding: 14px 0;
+  cursor: pointer;
+  font-weight: 600;
+}
+.capability-status {
+  color: var(--mint);
+  font-size: 12px;
+}
+#capability-list {
+  overflow-wrap: anywhere;
+}
+#open-capabilities {
+  margin-block: 12px;
+}

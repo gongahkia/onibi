@@ -15,6 +15,7 @@
     <link rel="stylesheet" href="style.css" />
     <script src="app.js" defer></script>
     <script src="reader.js" defer></script>
+    <script src="capabilities.js" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to terminal</a>
@@ -664,8 +665,42 @@
         focus or send terminal input. Native observations describe the last
         completed request.
       </p>
+      <button id="open-capabilities" type="button" class="secondary full">
+        Explore cockpit capabilities
+      </button>
       <button id="health-refresh" type="button" class="secondary full">
         Check again
+      </button>
+    </dialog>
+    <dialog
+      id="capability-dialog"
+      class="health-dialog"
+      aria-labelledby="capability-title"
+    >
+      <div class="dialog-heading">
+        <div>
+          <span class="eyebrow">WHAT’S WITHIN REACH</span>
+          <h2 id="capability-title">Cockpit capabilities</h2>
+        </div>
+        <button
+          id="close-capabilities"
+          class="icon-button"
+          type="button"
+          aria-label="Close capabilities"
+        >
+          ×
+        </button>
+      </div>
+      <p id="capability-summary" class="muted"></p>
+      <p class="muted">
+        Automated coverage describes repository tests, not a live CI result.
+        Native observations describe the last completed request in this Onibi
+        run; they do not guarantee the next one.
+      </p>
+      <p id="capability-message" role="status"></p>
+      <div id="capability-list"></div>
+      <button id="refresh-capabilities" class="secondary full" type="button">
+        Refresh observations
       </button>
     </dialog>
     <dialog id="reader-dialog" aria-labelledby="reader-title">

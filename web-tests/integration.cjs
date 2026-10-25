@@ -1,6 +1,7 @@
 // Exercises production HTTP/authentication/assets/SQLite with a simulated
 // Ghostty backend. The fixture exposes no test-control HTTP routes.
 const { chromium, webkit } = require("playwright");
+const AxeBuilder = require("@axe-core/playwright").default;
 const assert = require("node:assert/strict");
 const { spawn, execFileSync } = require("node:child_process");
 const { once } = require("node:events");
@@ -141,6 +142,43 @@ async function selectWork(page) {
   );
   assert.equal(new URL(page.url()).hash, "");
   assert.equal(await page.evaluate(() => document.cookie), "");
+  const beforeCapabilities = await fixture.command();
+  const report = await api(page, "/api/capabilities");
+  assert.equal(report.status, 200);
+  assert.equal(report.body.nativeBackend, false);
+  assert(
+    report.body.features.filter((f) => f.implemented).every((f) => f.automated),
+  );
+  assert(report.body.features.every((f) => !f.observation));
+  assert.equal(
+    report.body.features.find((f) => f.id === "mouse").implemented,
+    false,
+  );
+  await page.click("#connection");
+  await page.click("#open-capabilities");
+  await page
+    .locator("#capability-summary")
+    .filter({ hasText: "Simulated backend" })
+    .waitFor();
+  await page.getByText("Not implemented", { exact: true }).first().click();
+  assert.match(
+    await page.textContent("#capability-list"),
+    /Agent task and approval state/,
+  );
+  assert.equal(
+    (await fixture.command()).actions?.length || 0,
+    beforeCapabilities.actions?.length || 0,
+  );
+  const capabilityAudit = await new AxeBuilder({ page })
+    .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+    .analyze();
+  assert.deepEqual(capabilityAudit.violations, [], "capability accessibility");
+  await page.screenshot({
+    path: path.join(temp, "capabilities.png"),
+    fullPage: true,
+  });
+  await page.click("#close-capabilities");
+  await page.click("#close-health");
   const cookies = await context.cookies();
   assert.equal(cookies.length, 1);
   assert.equal(cookies[0].name, "__Host-onibi_session");
@@ -433,6 +471,20 @@ async function selectWork(page) {
   await spare.locator("#workspace").waitFor({ state: "visible" });
   await page.click("#open-devices");
   await page
+    .locator("#devices-list")
+    .filter({ hasText: "Spare browser" })
+    .waitFor();
+  assert.deepEqual(
+    (
+      await new AxeBuilder({ page })
+        .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+        .analyze()
+    ).violations,
+    [],
+    "device accessibility",
+  );
+
+  await page
     .getByRole("button", {
       name: "Revoke access for Spare browser",
       exact: true,
@@ -492,6 +544,9 @@ async function selectWork(page) {
         "restart revocation",
         "12-hour session expiry",
         "memory-only drafts",
+        "remembered devices and revocation",
+        "fixed 30-day expiry",
+        "capability and device accessibility",
         "no JS errors",
       ],
     }),
