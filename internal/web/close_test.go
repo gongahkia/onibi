@@ -1,13 +1,69 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/gongahkia/onibi/internal/ghostty"
 )
+
+func TestCloseObservationIsBoundedAndNeverRepeatsTheMutation(t *testing.T) {
+	for _, scenario := range []string{"removed", "still_present", "moved_elsewhere", "delayed", "unresponsive"} {
+		t.Run(scenario, func(t *testing.T) {
+			s, base := testServer(t, testOrigin)
+			b := pairBrowser(t, s)
+			if scenario == "delayed" {
+				s.closeObservationBudget = time.Second
+			}
+			calls := 0
+			s.backend = &observingBackend{fakeBackend: base, list: func(ctx context.Context) ([]ghostty.Target, error) {
+				calls++
+				if calls == 1 {
+					return base.targets, nil
+				}
+				switch scenario {
+				case "removed":
+					return []ghostty.Target{}, nil
+				case "moved_elsewhere":
+					return []ghostty.Target{{ID: "surface-1", WindowID: "other", TabID: "other"}}, nil
+				case "delayed":
+					if calls > 2 {
+						return []ghostty.Target{}, nil
+					}
+				case "unresponsive":
+					<-ctx.Done()
+					return nil, ctx.Err()
+				}
+				return base.targets, nil
+			}}
+			raw, _ := json.Marshal(actionRequest{ID: "close-observation-once", Action: ghostty.Action{Kind: "close_window", WindowID: "window-1", ExpectedTargets: []string{"surface-1"}}})
+			start := time.Now()
+			r := decodeReceipt(t, request(s, b, http.MethodPost, "/api/actions", raw))
+			if time.Since(start) > 2*time.Second {
+				t.Fatal("unbounded close observation")
+			}
+			want := "still_present"
+			if scenario == "removed" || scenario == "delayed" {
+				want = "removed"
+			}
+			if scenario == "unresponsive" {
+				want = "unverified"
+			}
+			if r.State != "completed" || r.Result == nil || r.Result.CloseState != want {
+				t.Fatalf("%+v result=%+v want=%s", r, r.Result, want)
+			}
+			before := calls
+			replayed := decodeReceipt(t, request(s, b, http.MethodPost, "/api/actions", raw))
+			if replayed.Result.CloseState != want || calls != before || len(base.calls) != 1 {
+				t.Fatal("receipt lookup replayed close or observation")
+			}
+		})
+	}
+}
 
 func TestCloseRequiresTheExactReviewedMembership(t *testing.T) {
 	for _, kind := range []string{"close_window", "close_tab"} {

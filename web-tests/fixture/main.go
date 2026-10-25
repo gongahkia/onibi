@@ -191,6 +191,7 @@ func main() {
 		var command struct {
 			ID            int     `json:"id"`
 			Op            string  `json:"op"`
+			TargetID      string  `json:"targetId"`
 			Unavailable   *bool   `json:"unavailable"`
 			CaptureDenied *bool   `json:"captureDenied"`
 			Version       *string `json:"version"`
@@ -199,6 +200,16 @@ func main() {
 		}
 		must(json.Unmarshal(scanner.Bytes(), &command))
 		b.mu.Lock()
+		if command.Op == "external_split" {
+			for _, target := range b.targets {
+				if target.ID == command.TargetID {
+					pane := target
+					pane.ID, pane.Title, pane.Focused = fmt.Sprintf("external-%d", len(b.targets)), "Local split", false
+					b.targets = append(b.targets, pane)
+					break
+				}
+			}
+		}
 		if command.Unavailable != nil {
 			b.unavailable = *command.Unavailable
 		}

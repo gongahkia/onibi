@@ -64,31 +64,32 @@ type browserSession struct {
 }
 
 type Server struct {
-	backend              Backend
-	db                   *store.DB
-	origin               string
-	host                 string
-	proxyHosts           map[string]bool
-	secure               bool
-	cookieName           string
-	assets               http.Handler
-	execution            chan struct{}
-	mu                   sync.Mutex
-	pairHash             [sha256.Size]byte
-	pairExpires          time.Time
-	pairUsed             bool
-	pairURL              string
-	sessions             map[[sha256.Size]byte]browserSession
-	now                  func() time.Time
-	diagnostics          func(context.Context) ghostty.Diagnostics
-	inventoryObservation Observation
-	captureObservation   Observation
-	inventoryStarted     time.Time
-	captureStarted       time.Time
-	inventoryFlight      *inventoryFlight
-	inventoryFailures    int
-	inventoryRetryAt     time.Time
-	inventoryErr         error
+	backend                Backend
+	db                     *store.DB
+	origin                 string
+	host                   string
+	proxyHosts             map[string]bool
+	secure                 bool
+	cookieName             string
+	assets                 http.Handler
+	execution              chan struct{}
+	mu                     sync.Mutex
+	pairHash               [sha256.Size]byte
+	pairExpires            time.Time
+	pairUsed               bool
+	pairURL                string
+	sessions               map[[sha256.Size]byte]browserSession
+	now                    func() time.Time
+	diagnostics            func(context.Context) ghostty.Diagnostics
+	inventoryObservation   Observation
+	captureObservation     Observation
+	inventoryStarted       time.Time
+	captureStarted         time.Time
+	inventoryFlight        *inventoryFlight
+	inventoryFailures      int
+	inventoryRetryAt       time.Time
+	inventoryErr           error
+	closeObservationBudget time.Duration
 }
 
 // New creates a server. The caller must hold an exclusive process lock for the
@@ -114,7 +115,8 @@ func New(opts Options) (*Server, error) {
 		secure: origin.Scheme == "https", cookieName: "onibi_local_session",
 		proxyHosts: map[string]bool{}, sessions: map[[sha256.Size]byte]browserSession{},
 		execution: make(chan struct{}, 1), now: now,
-		pairHash: sha256.Sum256([]byte(token)), pairExpires: now().Add(pairingLifetime),
+		closeObservationBudget: 3 * time.Second,
+		pairHash:               sha256.Sum256([]byte(token)), pairExpires: now().Add(pairingLifetime),
 	}
 	if s.secure {
 		s.cookieName = "__Host-onibi_session"
@@ -463,6 +465,9 @@ func (s *Server) action(w http.ResponseWriter, r *http.Request) {
 			receipt.State, receipt.Error = "uncertain", uncertainMessage
 		}
 	} else {
+		if ghostty.IsClose(request.Action.Kind) {
+			s.observeClose(ctx, request.Action, &result)
+		}
 		receipt.State, receipt.Result = "completed", &result
 	}
 	s.finishAction(w, receipt)

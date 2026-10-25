@@ -19,7 +19,10 @@ function bridge(request, options = {}) {
   const tab = {
     id: () => "tab-a",
     name: () => "Work",
-    terminals: () => [terminal],
+    terminals: () =>
+      options.panes
+        ? options.panes.map((id) => ({ id: () => id }))
+        : [terminal],
     focusedTerminal: () => terminal,
   };
   const win = {
@@ -132,13 +135,25 @@ test("splits and close scopes reach only their explicit native object", () => {
       { ...scope, operation: "split", direction: "down" },
       ["split", "pane-a", "down"],
     ],
-    [{ ...scope, operation: "close_pane" }, ["close_pane", "pane-a"]],
     [
-      { operation: "close_tab", windowId: "window-a", tabId: "tab-a" },
+      { ...scope, operation: "close_pane", expectedTargets: ["pane-a"] },
+      ["close_pane", "pane-a"],
+    ],
+    [
+      {
+        operation: "close_tab",
+        windowId: "window-a",
+        tabId: "tab-a",
+        expectedTargets: ["pane-a"],
+      },
       ["close_tab", "tab-a"],
     ],
     [
-      { operation: "close_window", windowId: "window-a" },
+      {
+        operation: "close_window",
+        windowId: "window-a",
+        expectedTargets: ["pane-a"],
+      },
       ["close_window", "window-a"],
     ],
   ]) {
@@ -167,8 +182,59 @@ test("native rejection remains uncertain after an action attempt", () => {
   assert.equal(calls.length, 1);
 });
 
+test("native close rechecks membership immediately before dispatch", () => {
+  for (const operation of ["close_tab", "close_window"]) {
+    for (const panes of [["pane-a", "extra"], [], ["replacement"]]) {
+      const { result, calls } = bridge(
+        {
+          operation,
+          windowId: "window-a",
+          tabId: "tab-a",
+          expectedTargets: ["pane-a"],
+        },
+        { panes },
+      );
+      assert.equal(result.status, "rejected");
+      assert.equal(result.code, "close_scope_changed");
+      assert.deepEqual(calls, []);
+    }
+    const { result, calls } = bridge(
+      {
+        operation,
+        windowId: "window-a",
+        tabId: "tab-a",
+        expectedTargets: ["pane-b", "pane-a"],
+      },
+      { panes: ["pane-a", "pane-b"] },
+    );
+    assert.equal(result.status, "ok");
+    assert.equal(calls.length, 1);
+  }
+  for (const expectedTargets of [
+    undefined,
+    [],
+    ["pane-a", "pane-a"],
+    ["other"],
+  ]) {
+    const { result, calls } = bridge({
+      ...scope,
+      operation: "close_pane",
+      expectedTargets,
+    });
+    assert.equal(result.status, "rejected");
+    assert.deepEqual(calls, []);
+  }
+});
+
 test("older Ghostty rejects title changes before dispatch", () => {
-  const { result, calls } = bridge({ ...scope, operation: "rename_pane", nativeAction: "set_surface_title:review" }, { version: "1.3.0" });
+  const { result, calls } = bridge(
+    {
+      ...scope,
+      operation: "rename_pane",
+      nativeAction: "set_surface_title:review",
+    },
+    { version: "1.3.0" },
+  );
   assert.equal(result.status, "rejected");
   assert.equal(result.code, "unsupported_action");
   assert.deepEqual(calls, []);

@@ -302,11 +302,35 @@ async function selectWork(page) {
     "window-main",
   );
   await page.click("#close-tab");
+  const createdID = (await fixture.command()).targets.find(
+    (t) => t.title === "New shell",
+  ).id;
+  await fixture.command({ op: "external_split", targetId: createdID });
+  await page.click("#confirm-close");
+  await page
+    .locator("#action-title")
+    .filter({ hasText: "Action wasn’t sent" })
+    .waitFor();
+  await page.waitForFunction(
+    () => !document.getElementById("close-tab").disabled,
+  );
+  assert.equal(
+    (await fixture.command()).actions.length,
+    3,
+    "changed close scope must not execute",
+  );
+  await page.click("#close-tab");
+  assert.equal(await page.locator("#close-pane-list li").count(), 2);
   await page.click("#confirm-close");
   await page.waitForFunction(
     () =>
       document.getElementById("destination-title").textContent ===
       "Choose a terminal",
+  );
+  assert.equal(await page.textContent("#action-title"), "Close confirmed");
+  assert.equal(
+    (await fixture.command()).actions.at(-1).expectedTargets.length,
+    2,
   );
   await selectWork(page);
   assert.equal(await page.inputValue("#compose"), "draft stays with work");

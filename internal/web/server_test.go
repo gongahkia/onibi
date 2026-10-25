@@ -74,6 +74,7 @@ func testServer(t *testing.T, origin string) (*Server, *fakeBackend) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	s.closeObservationBudget = 10 * time.Millisecond
 	return s, backend
 }
 

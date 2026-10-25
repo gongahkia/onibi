@@ -46,8 +46,10 @@ type Action struct {
 }
 
 type Result struct {
-	TargetID string `json:"targetId,omitempty"`
-	Message  string `json:"message"`
+	TargetID   string    `json:"targetId,omitempty"`
+	Message    string    `json:"message"`
+	CloseState string    `json:"closeState,omitempty"`
+	ObservedAt time.Time `json:"observedAt,omitzero"`
 }
 
 var (
@@ -70,18 +72,19 @@ func IsRejected(err error) bool {
 }
 
 type nativeRequest struct {
-	Operation    string `json:"operation"`
-	PID          int    `json:"pid,omitempty"`
-	Started      string `json:"started,omitempty"`
-	TargetID     string `json:"targetId,omitempty"`
-	WindowID     string `json:"windowId,omitempty"`
-	TabID        string `json:"tabId,omitempty"`
-	Text         string `json:"text,omitempty"`
-	Key          string `json:"key,omitempty"`
-	Modifiers    string `json:"modifiers,omitempty"`
-	Enter        bool   `json:"enter,omitempty"`
-	Direction    string `json:"direction,omitempty"`
-	NativeAction string `json:"nativeAction,omitempty"`
+	Operation       string   `json:"operation"`
+	PID             int      `json:"pid,omitempty"`
+	Started         string   `json:"started,omitempty"`
+	TargetID        string   `json:"targetId,omitempty"`
+	WindowID        string   `json:"windowId,omitempty"`
+	TabID           string   `json:"tabId,omitempty"`
+	Text            string   `json:"text,omitempty"`
+	Key             string   `json:"key,omitempty"`
+	Modifiers       string   `json:"modifiers,omitempty"`
+	Enter           bool     `json:"enter,omitempty"`
+	Direction       string   `json:"direction,omitempty"`
+	NativeAction    string   `json:"nativeAction,omitempty"`
+	ExpectedTargets []string `json:"expectedTargets,omitempty"`
 }
 
 type nativeResponse struct {
@@ -163,24 +166,27 @@ func (c *Client) call(ctx context.Context, req nativeRequest) (nativeResponse, e
 		return response, nil
 	}
 	message := map[string]string{
-		"not_running":        ErrNotRunning.Error(),
-		"stale_process":      "Ghostty restarted; refresh the terminal list",
-		"missing_target":     "this Ghostty terminal is no longer available; refresh the terminal list",
-		"missing_window":     "this Ghostty window is no longer available; refresh the terminal list",
-		"missing_tab":        "this Ghostty tab is no longer available in that window; refresh the terminal list",
-		"permission":         "allow Onibi to control Ghostty in macOS Privacy & Security → Automation",
-		"disabled":           "enable macos-applescript in Ghostty configuration and reload it",
-		"focus_required":     ErrFocusRequired.Error(),
-		"too_many_targets":   "Ghostty has too many terminal surfaces to list safely",
-		"query_failed":       "Ghostty could not be inspected; check that macos-applescript is enabled and Automation access is allowed",
-		"action_failed":      "Ghostty did not confirm the action; inspect the terminal before trying again",
-		"unsupported_action": "Ghostty did not accept this control; check your installed version",
+		"close_scope_changed": ErrCloseScopeChanged.Error(),
+		"not_running":         ErrNotRunning.Error(),
+		"stale_process":       "Ghostty restarted; refresh the terminal list",
+		"missing_target":      "this Ghostty terminal is no longer available; refresh the terminal list",
+		"missing_window":      "this Ghostty window is no longer available; refresh the terminal list",
+		"missing_tab":         "this Ghostty tab is no longer available in that window; refresh the terminal list",
+		"permission":          "allow Onibi to control Ghostty in macOS Privacy & Security → Automation",
+		"disabled":            "enable macos-applescript in Ghostty configuration and reload it",
+		"focus_required":      ErrFocusRequired.Error(),
+		"too_many_targets":    "Ghostty has too many terminal surfaces to list safely",
+		"query_failed":        "Ghostty could not be inspected; check that macos-applescript is enabled and Automation access is allowed",
+		"action_failed":       "Ghostty did not confirm the action; inspect the terminal before trying again",
+		"unsupported_action":  "Ghostty did not accept this control; check your installed version",
 	}[response.Code]
 	if message == "" {
 		message = "Ghostty returned an invalid response"
 	}
 	var failure error = errors.New(message)
 	switch response.Code {
+	case "close_scope_changed":
+		failure = ErrCloseScopeChanged
 	case "focus_required":
 		failure = ErrFocusRequired
 	case "not_running":
@@ -312,6 +318,16 @@ func prepareAction(a Action) (nativeRequest, error) {
 		return r, err
 	}
 	r.PID, r.Started = id.PID, id.Started
+	for _, expected := range a.ExpectedTargets {
+		pane, err := decodeID(expected, "terminal")
+		if err != nil {
+			return r, err
+		}
+		if pane.PID != id.PID || pane.Started != id.Started {
+			return r, rejected(errors.New("close confirmation belongs to another Ghostty instance"))
+		}
+		r.ExpectedTargets = append(r.ExpectedTargets, pane.Native)
+	}
 	if a.Kind == "close_tab" {
 		tab, err := decodeID(a.TabID, "tab")
 		if err != nil {

@@ -43,6 +43,14 @@ function run() {
         }
         function focusedTarget() { try { return app.frontWindow().selectedTab().focusedTerminal().id(); } catch (_) { return ''; } }
         function bounded(value, limit) { return String(value || '').slice(0, limit); }
+        function sameCloseScope(terminals) {
+            if (!Array.isArray(req.expectedTargets) || !req.expectedTargets.length || req.expectedTargets.length>256) return false;
+            var actual=terminals.map(function(t) { return t.id(); }).sort();
+            var expected=req.expectedTargets.slice().sort();
+            if(actual.length!==expected.length) return false;
+            for(var i=0;i<actual.length;i++) if(actual[i]!==expected[i] || i>0 && expected[i]===expected[i-1]) return false;
+            return true;
+        }
         if (req.operation==='targets') {
             var targets=[];
             for (var wi=0; wi<windows.length; wi++) {
@@ -73,12 +81,16 @@ function run() {
                 return success({targetId:created.focusedTerminal().id()});
             }
             if(req.operation==='close_window') {
+                var closing=[];
+                window.tabs().forEach(function(t) { closing=closing.concat(t.terminals()); });
+                if(!sameCloseScope(closing)) return failure('close_scope_changed');
                 attempted=true;
                 app.closeWindow(window);
                 return success();
             }
             var tab=findTab(window,req.tabId);
             if(!tab) return failure('missing_tab');
+            if(!sameCloseScope(tab.terminals())) return failure('close_scope_changed');
             attempted=true;
             app.closeTab(tab);
             return success();
@@ -96,6 +108,7 @@ function run() {
             return success({targetId:splitTerminal.id()});
         }
         if(req.operation==='close_pane') {
+            if(!sameCloseScope([terminal])) return failure('close_scope_changed');
             attempted=true;
             app.close(terminal);
             return success();

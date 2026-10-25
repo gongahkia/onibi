@@ -1039,14 +1039,21 @@ async function applyReceipt(receipt) {
       } else if (state.drafts.get(pending.action.targetId) === pending.draft)
         state.drafts.delete(pending.action.targetId);
     }
+    const closeTitle = {
+      removed: "Close confirmed",
+      still_present: "Still open on your Mac",
+      unverified: "Close outcome unverified",
+    }[receipt.result?.closeState];
     actionNotice(
-      {
-        input: "Input delivered",
-        key: "Key delivered",
-        close_pane: "Close requested",
-        close_tab: "Close requested",
-        close_window: "Close requested",
-      }[pending.action.kind] || "Done",
+      closeTitle ||
+        {
+          input: "Input delivered",
+          key: "Key delivered",
+          close_pane: "Close requested",
+          close_tab: "Close requested",
+          close_window: "Close requested",
+        }[pending.action.kind] ||
+        "Done",
       receipt.result && receipt.result.message
         ? receipt.result.message
         : "Your Mac confirmed the action.",

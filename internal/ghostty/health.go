@@ -23,6 +23,8 @@ var (
 // It never exposes native stderr or caller-provided error text.
 func ErrorCode(err error) string {
 	switch {
+	case errors.Is(err, ErrCloseScopeChanged):
+		return "close_scope_changed"
 	case errors.Is(err, ErrFocusRequired):
 		return "focus_required"
 	case errors.Is(err, ErrCapturePermission):

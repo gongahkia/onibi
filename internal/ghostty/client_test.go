@@ -43,7 +43,9 @@ func TestExecuteRejectsInvalidActionsBeforeNativeCalls(t *testing.T) {
 		{Kind: "key", TargetID: testID("terminal", "s"), Key: "command-q"},
 		{Kind: "focus", TargetID: testID("window", "w")},
 		{Kind: "new_tab"},
-		{Kind: "close_tab", WindowID: testID("window", "w"), TabID: encodeID(123, "other-start", "tab", "t")},
+		{Kind: "close_tab", WindowID: testID("window", "w"), TabID: encodeID(123, "other-start", "tab", "t"), ExpectedTargets: []string{testID("terminal", "s")}},
+		{Kind: "close_window", WindowID: testID("window", "w"), ExpectedTargets: []string{encodeID(123, "other-start", "terminal", "s")}},
+		{Kind: "close_window", WindowID: testID("window", "w"), ExpectedTargets: []string{testID("tab", "wrong-kind")}},
 	} {
 		if _, err := c.Execute(t.Context(), a); err == nil || !IsRejected(err) {
 			t.Fatalf("action=%#v err=%v", a, err)
@@ -172,6 +174,9 @@ func TestTabCreationReturnsBoundTerminalAndClosureKeepsWindowScope(t *testing.T)
 		}
 		if r.Operation == "close_tab" && r.TabID != "t" {
 			t.Fatalf("request=%#v", r)
+		}
+		if r.Operation == "close_tab" && (len(r.ExpectedTargets) != 1 || r.ExpectedTargets[0] != "s") {
+			t.Fatalf("lost reviewed identities: %#v", r)
 		}
 		return nativeResponse{Status: "ok", TargetID: "new-surface"}, nil
 	}}
