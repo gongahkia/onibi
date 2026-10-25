@@ -408,6 +408,7 @@ func (a *App) completions(b *Buffer, version uint64, caret int, source string, r
 				a.Status = "Completion is stale"
 				return
 			}
+			a.snippetRequest++
 			insert := item.InsertText
 			if insert == "" {
 				insert = item.Label
@@ -431,35 +432,12 @@ func (a *App) completions(b *Buffer, version uint64, caret int, source string, r
 				a.Status = err.Error()
 				return
 			}
-			var stops []snippetStop
 			if item.InsertTextFormat == 2 {
-				var parsed string
-				parsed, stops, err = parseSnippet(edits[0].Text)
-				if err != nil {
-					a.Status = err.Error()
-					return
-				}
-				edits[0].Text = parsed
-			}
-			primary := edits[0]
-			base := primary.Start
-			for _, e := range additional {
-				if e.End <= primary.Start {
-					base += len(e.Text) - (e.End - e.Start)
-				}
+				a.snippetCompletion(b, version, edits[0], additional)
+				return
 			}
 			edits = append(edits, additional...)
 			a.apply(edits)
-			if b.Doc.Version != version && len(stops) > 0 {
-				for i := range stops {
-					for j := range stops[i].Ranges {
-						stops[i].Ranges[j].Anchor += base
-						stops[i].Ranges[j].Head += base
-					}
-				}
-				a.snippet = &snippetState{Buffer: b, Version: b.Doc.Version, Stops: stops}
-				a.selectSnippetStop()
-			}
 		}})
 	}
 	if len(choices) == 0 {

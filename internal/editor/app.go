@@ -68,6 +68,8 @@ type preview struct {
 	Index                 int
 }
 type App struct {
+	snippetRequest                                             uint64
+	snippetCancel                                              context.CancelFunc
 	debug                                                      *debugSession
 	breakpoints                                                map[string]map[int]*debugBreakpoint
 	terminalSequence                                           int
@@ -192,6 +194,7 @@ func New(screen tcell.Screen, cfg config.Config, paths []string, readonly bool) 
 	a.developmentCommands()
 	a.terminalCommands()
 	a.debugCommands()
+	a.Commands = append(a.Commands, command{"Snippet choices", "", a.snippetChoices})
 	a.Commands = append(a.Commands, command{"Recover unsaved buffers", "", a.recoveryPicker}, command{"Restore project session", "", a.restoreSession}, command{"Save project session", "", func() {
 		if err := a.saveSession(); err != nil {
 			a.Status = err.Error()
@@ -351,6 +354,9 @@ func (a *App) apply(edits []text.Edit) {
 func (a *App) insert(s string) {
 	if a.Readonly || a.Current().Transient {
 		a.Status = "Read-only mode"
+		return
+	}
+	if a.snippetInsert(s) {
 		return
 	}
 	d := a.Current().Doc

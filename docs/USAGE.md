@@ -137,9 +137,22 @@ Completion appears beside the caret after a 200 ms editing pause, after two word
 characters or a dot, when a server is ready. Ctrl+Space requests it explicitly.
 Up/Down selects; Tab or Enter accepts; Escape dismisses. Typing continues editing
 and refreshes suggestions. Set `auto_complete: false` to request suggestions only.
-Numbered snippet tabstops, plain defaults, first choices and linked occurrences
-are supported; Tab/Shift+Tab moves between stops. Variables, nested placeholders
-and transforms are rejected with an explanation rather than inserted literally.
+Snippet completions support nested placeholders, forward and linked stops, choice
+menus, variables/defaults, and capture/case/conditional transforms. Tab/Shift+Tab
+moves between stops; Up/Down and Enter choose a value. Typing supplies a custom
+choice, and **Snippet choices** reopens the menu. Replacing an outer placeholder
+removes its nested stops. Transforms refresh when leaving a stop and share its
+undo step; editing continues while the bounded transform worker runs.
+
+File, selection, word, workspace, date/time, random and comment variables use the
+current document context. `CLIPBOARD` uses Shack's last copied text. Unknown
+variables become editable placeholders. The supported syntax follows the
+[VS Code snippet grammar](https://code.visualstudio.com/docs/editing/userdefinedsnippets).
+Regex evaluation uses a bounded ECMAScript-compatible engine with rune-based
+Unicode matching; it does not implement every JavaScript regex detail (including
+Unicode-set `v` mode) or TextMate shell interpolation. Oversized, cyclic,
+unsupported or timed-out snippets fail with an explanation. Snippet source is
+limited to 64 KiB, expansion to 128 KiB and nesting to 32 levels.
 
 Hover and signatures open scrollable read-only buffers; Markdown is shown as text.
 Ctrl+W closes these reports. Formatting, rename, and edit-based code actions are
@@ -450,8 +463,7 @@ Theme/mouse palette changes last for the session; configuration is read at start
   replace. Existing symlinks resolve at open; hard-linked files require Save as.
   Ownership and permission bits are retained; ACLs/xattrs are not copied.
   External-write detection is not an interprocess lock and has a final race window.
-- Full TextMate snippets, LSP file
-  operations and server commands, native Windows, general encodings, Git merge
+- LSP file operations and server commands, native Windows, general encodings, Git merge
   resolution, and automatic language-server installation remain unimplemented.
 - This remains a development editor, not a claim of mature IDE parity. See the
   [capability audit](IDE_AUDIT.md) for the next substantive work.

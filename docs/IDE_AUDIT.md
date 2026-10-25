@@ -19,7 +19,7 @@ Git discovery follows [`git ls-files`](https://git-scm.com/docs/git-ls-files).
 | Layout | Up to 16 nested panes, draggable ratios, independent same-buffer cursors, Unicode soft wrapping | Minimum pane sizes constrain further splitting |
 | Project navigation | Ignore-aware Git index, standalone fallback, project search, jump history | Fallback exclusions are not full `.gitignore`; explicit result/file bounds |
 | Bulk changes | Multi-file replacement/rename/action preview, selective edits, all-or-none buffer staging, guarded group undo/redo | Saving is sequential; edits remain unsaved until requested |
-| Language intelligence | Debounced inline completion, basic linked snippets, hover, signatures, references, definitions, implementations, types, symbols, diagnostics navigation, formatting, rename, edit-based actions | Requires a capable external server; complex snippets, resource operations and server-command actions remain unsupported |
+| Language intelligence | Debounced inline completion, nested/linked snippets, choices, variables/transforms, hover, signatures, references, definitions, implementations, types, symbols, diagnostics navigation, formatting, rename, edit-based actions | Requires a capable external server; resource operations and server-command actions remain unsupported; snippet bounds and regex differences are documented |
 | Familiar editing | Word movement/deletion, line duplication/deletion/movement, line comments, configurable shortcuts | Line operations need a contiguous selection; comment prefixes are extension based |
 | Development loop | Cancellable build/test commands, bounded output, navigable output locations, Git status/diffs/stage/unstage | Tasks are noninteractive; embedded PTY buffers run interactive programs. DAP source debugging is available; merge UI still pending |
 | Sessions | Private project session storage and explicit restoration of files, panes and positions | Up to 64 files / 16 panes; 16 MiB restore budget; recovery handles dirty text separately |
@@ -45,6 +45,8 @@ Git discovery follows [`git ls-files`](https://git-scm.com/docs/git-ls-files).
   workflows, abrupt connection cleanup; tmux function-key, pause and target
   termination workflow. Protocol tests cover timeouts, blocked writes, response
   ordering and output bounds.
+- Snippets: grammar/fuzz and stale-result/undo tests, plus a real tmux completion
+  through a protocol fixture, nested linked edits, choices, variables and transforms.
 - Distribution and measured resource observations are in [PERFORMANCE.md](PERFORMANCE.md).
 
 ## What should come next
@@ -62,7 +64,7 @@ Git discovery follows [`git ls-files`](https://git-scm.com/docs/git-ls-files).
    scopes, variables, evaluation and output now have live debugpy and tmux checks.
    Broaden adapter coverage and interactive-debuggee support; advanced DAP
    features remain outside the current source-debugging workflow.
-4. **Deeper language and project editing.** Complete snippet grammar, server-command
+4. **Deeper language and project editing.** Server-command
    actions with reviewed `workspace/applyEdit`, LSP resource operations, richer
    diagnostics, gitignore behavior without Git and merge resolution.
 5. **Distribution maturity.** Signed/notarized macOS distribution, package-manager

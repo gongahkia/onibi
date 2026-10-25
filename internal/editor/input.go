@@ -126,7 +126,7 @@ func (a *App) key(ev *tcell.EventKey) {
 			return
 		}
 		switch ev.Key() {
-		case tcell.KeyRune, tcell.KeyBackspace, tcell.KeyBackspace2, tcell.KeyDelete:
+		case tcell.KeyRune, tcell.KeyBackspace, tcell.KeyBackspace2, tcell.KeyDelete, tcell.KeyLeft, tcell.KeyRight, tcell.KeyUp, tcell.KeyDown, tcell.KeyHome, tcell.KeyEnd, tcell.KeyCtrlE, tcell.KeyCtrlV, tcell.KeyF2, tcell.KeyF1:
 		default:
 			a.snippet = nil
 		}
@@ -462,6 +462,9 @@ func (a *App) homeEnd(end, extend, document bool) {
 	a.normalizeSelections()
 }
 func (a *App) delete(forward bool) {
+	if a.snippetDelete(forward) {
+		return
+	}
 	d := a.Current().Doc
 	edits := []text.Edit{}
 	for _, s := range d.Selections {

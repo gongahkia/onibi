@@ -36,8 +36,9 @@ Native Windows, a plugin marketplace, editing-model DSLs and legacy Zenbu API
 compatibility are deferred. Markdown/Org rendering, folding and deeper
 language interoperability are active work tracked in [NEXT_MILESTONE.md](NEXT_MILESTONE.md). Current Git
 commands do not provide merge resolution. Workspace edits are atomic in memory;
-saving several files is sequential. Full snippet grammar and LSP resource/command
-actions remain unsupported. See [IDE_AUDIT.md](IDE_AUDIT.md) for the capability matrix.
+saving several files is sequential. LSP resource/command actions remain unsupported.
+Snippets support nested placeholders, choices, variables and bounded transforms;
+regex compatibility limits are documented in USAGE.md. See [IDE_AUDIT.md](IDE_AUDIT.md) for the capability matrix.
 
 Clipboard protocols depend on the terminal and multiplexer. Report the path used;
 terminal paste remains available when clipboard querying is disabled. Language

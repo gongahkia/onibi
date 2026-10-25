@@ -49,6 +49,13 @@ replace a newly reopened document. UI results check source versions and position
 Workspace refactoring enters the same preview path as project replacement.
 Unsupported resource operations/server commands fail without partial application.
 
+`internal/snippet` parses bounded LSP snippets into an immutable program. The
+editor retains explicit linked ranges and applies precise edits to preserve pane
+and breakpoint positions. Nested replacements regenerate stop metadata; cached
+transforms stay off the typing path. Expansion and regex refresh run on a worker,
+with source-version, selection and request checks before publishing. Regex
+compilation, evaluation, recursion and expanded output have explicit bounds.
+
 `internal/dap` implements bounded framed requests, cancellation, output retention
 and lifecycle for explicitly chosen stdio/TCP adapters. A dedicated writer keeps
 adapter I/O off the event loop. Spawned adapters get their own OS session, so a

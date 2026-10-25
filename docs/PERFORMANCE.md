@@ -150,3 +150,14 @@ Live debugpy and real tmux tests cover launch/attach, input ownership, breakpoin
 hits, scopes/variables, evaluation, stepping, pause, normal stop and abrupt
 transport cleanup. These demonstrate working behavior, not universal adapter
 compatibility or a debugger memory budget.
+
+## Snippet expansion increment
+
+Same Intel macOS host, Go 1.27, 2026-10-25: cached expansion of 32 linked nested
+placeholders measured **6.84 µs**, **5,352 bytes / 39 allocations** per operation
+(`BenchmarkCachedLinkedExpansion`). This isolates expansion, not document edits
+or terminal latency. Regex transforms run on a worker when entering/leaving a
+stop; ordinary linked typing uses cached results. Parser size/depth, expansion,
+reference work and regex execution are bounded. Timeout checks are coarse and
+are not a strict wall-clock deadline. No snippet worker or regex timer is started
+merely by launching the editor.

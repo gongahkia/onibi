@@ -135,3 +135,26 @@ func FuzzCompileExpand(f *testing.F) {
 		_, _ = p.Expand(context.Background(), nil, nil, false)
 	})
 }
+
+func BenchmarkCachedLinkedExpansion(b *testing.B) {
+	p, err := Compile(`${1:hello ${2:world}}` + strings.Repeat(` / $1`, 31) + ` / ${2/(.*)/${1:/upcase}/}$0`)
+	if err != nil {
+		b.Fatal(err)
+	}
+	p, err = p.Resolve(nil)
+	if err != nil {
+		b.Fatal(err)
+	}
+	first, err := p.Expand(context.Background(), nil, nil, true)
+	if err != nil {
+		b.Fatal(err)
+	}
+	values := map[int]string{2: "someone"}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := p.Expand(context.Background(), values, first.Cache, false); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
