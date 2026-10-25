@@ -199,6 +199,11 @@ func main() {
 			Advance       int64   `json:"advance"`
 		}
 		must(json.Unmarshal(scanner.Bytes(), &command))
+		pairLink := ""
+		if command.Op == "pair" {
+			pairLink, err = app.FreshPairingURL()
+			must(err)
+		}
 		b.mu.Lock()
 		if command.Op == "external_split" {
 			for _, target := range b.targets {
@@ -229,7 +234,7 @@ func main() {
 			}
 		}
 		offset.Add(command.Advance)
-		must(encoder.Encode(map[string]any{"id": command.ID, "actions": b.actions, "targets": b.targets, "inventories": b.inventories, "captures": b.captures}))
+		must(encoder.Encode(map[string]any{"id": command.ID, "pairingURL": pairLink, "actions": b.actions, "targets": b.targets, "inventories": b.inventories, "captures": b.captures}))
 		b.mu.Unlock()
 	}
 	must(scanner.Err())

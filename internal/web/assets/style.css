@@ -1465,3 +1465,27 @@ dialog::backdrop {
     font-size: 11px;
   }
 }
+
+.remember-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding-block: 12px;
+  min-height: 44px;
+}
+.remember-option input {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  accent-color: var(--mint);
+}
+.remember-option small {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-weight: 400;
+  line-height: 1.5;
+}
+#devices-list li {
+  overflow-wrap: anywhere;
+}

@@ -10,6 +10,7 @@ if (new URLSearchParams(location.hash.slice(1)).has("token"))
 const byId = (id) => document.getElementById(id);
 const state = {
   csrf: "",
+  device: null,
   targets: [],
   selectedId: "",
   transport: "checking",
@@ -315,7 +316,11 @@ function renderReadiness() {
   byId("session-expiry").textContent = state.expiresAt
     ? "Browser session expires " +
       new Date(state.expiresAt).toLocaleString() +
-      ". Restarting Onibi also revokes this session."
+      (state.device?.remembered
+        ? ". Remembered access ends " +
+          new Date(state.device.expiresAt).toLocaleString() +
+          "."
+        : ". Temporary access ends on restart.")
     : "Session expiry is unavailable.";
 }
 function scheduleInventory() {
@@ -514,6 +519,7 @@ function authenticated(session) {
   state.nextInventoryAt = 0;
   state.expiresAt = Date.parse(session.expiresAt);
   state.csrf = session.csrf;
+  state.device = session.device || null;
   byId("pair-token").value = "";
   byId("pair-view").hidden = true;
   byId("workspace").hidden = false;
@@ -536,6 +542,7 @@ function requirePairing(text) {
   stopFollow();
   state.authGeneration++;
   state.csrf = "";
+  state.device = null;
   state.expiresAt = 0;
   clearTimeout(state.targetTimer);
   state.captureState = "unknown";
@@ -569,7 +576,11 @@ async function pair(token) {
   try {
     const session = await api("/api/pair", {
       method: "POST",
-      body: JSON.stringify({ token }),
+      body: JSON.stringify({
+        token,
+        name: byId("device-name").value.trim(),
+        remember: byId("remember-browser").checked,
+      }),
     });
     authenticated(session);
   } catch (error) {
@@ -1346,7 +1357,7 @@ window.addEventListener("hashchange", () => {
   const token = fragment.get("token") || "";
   if (fragment.has("token"))
     history.replaceState(null, "", location.pathname + location.search);
-  if (token) pair(token);
+  if (token) presentPairingToken(token);
 });
 window.addEventListener("online", () => {
   if (state.csrf) {
@@ -1584,7 +1595,7 @@ setInterval(() => {
   if (fragmentToken) {
     const token = fragmentToken;
     fragmentToken = "";
-    await pair(token);
+    presentPairingToken(token);
     return;
   }
   try {
@@ -1598,3 +1609,108 @@ setInterval(() => {
     );
   }
 })();
+
+// Pairing always pauses for the access choice, including links from the Mac.
+// The fragment is already stripped; secrets never enter persistent JS storage.
+function presentPairingToken(token) {
+  if (state.csrf)
+    requirePairing("Review this browser’s access before connecting.");
+  byId("pair-token").value = token;
+  byId("remember-browser").checked = false;
+  pairMessage(
+    "Link ready. Name this browser and choose whether to remember it.",
+  );
+}
+byId("resume-browser").addEventListener("click", async () => {
+  byId("resume-browser").disabled = true;
+  try {
+    authenticated(await api("/api/session"));
+  } catch (error) {
+    pairMessage(
+      error.status === 401
+        ? "This browser has no active remembered access. Run onibi web pair on your Mac for a fresh link."
+        : error.message,
+      true,
+    );
+  } finally {
+    byId("resume-browser").disabled = false;
+  }
+});
+let revokeCandidate = null;
+async function loadDevices() {
+  const generation = state.authGeneration;
+  byId("refresh-devices").disabled = true;
+  byId("devices-message").textContent = "Checking browser access…";
+  try {
+    const data = await api("/api/devices");
+    if (generation !== state.authGeneration) return;
+    byId("devices-list").replaceChildren();
+    for (const device of data.devices || []) {
+      const row = document.createElement("li");
+      const title = document.createElement("strong");
+      const current = device.id === state.device?.id;
+      title.textContent = device.name + (current ? " · this browser" : "");
+      const detail = document.createElement("p");
+      detail.textContent =
+        (device.remembered ? "Remembered until " : "Temporary · expires ") +
+        new Date(device.expiresAt).toLocaleString() +
+        (device.remembered ? "" : " or when Onibi restarts.");
+      const revoke = document.createElement("button");
+      revoke.type = "button";
+      revoke.className = "secondary";
+      revoke.textContent = "Revoke access";
+      revoke.setAttribute("aria-label", "Revoke access for " + device.name);
+      revoke.disabled = current && Boolean(state.pending);
+      revoke.addEventListener("click", () => {
+        revokeCandidate = device;
+        byId("revoke-name").textContent =
+          device.name + (current ? " · this browser will disconnect" : "");
+        byId("revoke-dialog").showModal();
+        byId("cancel-revoke").focus();
+      });
+      row.append(title, detail, revoke);
+      byId("devices-list").append(row);
+    }
+    byId("devices-message").textContent =
+      "Only unexpired devices are listed. Temporary access ends on restart.";
+  } catch (error) {
+    if (generation === state.authGeneration)
+      byId("devices-message").textContent = error.message;
+  } finally {
+    byId("refresh-devices").disabled = false;
+  }
+}
+byId("open-devices").addEventListener("click", () => {
+  byId("devices-dialog").showModal();
+  loadDevices();
+});
+byId("close-devices").addEventListener("click", () =>
+  byId("devices-dialog").close(),
+);
+byId("refresh-devices").addEventListener("click", loadDevices);
+byId("cancel-revoke").addEventListener("click", () =>
+  byId("revoke-dialog").close(),
+);
+byId("confirm-revoke").addEventListener("click", async () => {
+  const device = revokeCandidate;
+  if (!device || (device.id === state.device?.id && state.pending)) return;
+  byId("confirm-revoke").disabled = true;
+  try {
+    await api("/api/devices/revoke", {
+      method: "POST",
+      body: JSON.stringify({ id: device.id }),
+    });
+    byId("revoke-dialog").close();
+    if (device.id === state.device?.id) {
+      state.drafts.clear();
+      requirePairing("This browser’s access was revoked.");
+    } else await loadDevices();
+  } catch (error) {
+    byId("revoke-dialog").close();
+    byId("devices-message").textContent =
+      "Revocation could not be confirmed. " + error.message;
+  } finally {
+    revokeCandidate = null;
+    byId("confirm-revoke").disabled = false;
+  }
+});

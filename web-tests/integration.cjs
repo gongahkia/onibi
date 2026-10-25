@@ -128,6 +128,7 @@ async function selectWork(page) {
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   const response = await page.goto(fixture.pairingURL);
+  await page.click("#pair-submit");
   assert.match(
     response.headers()["content-security-policy"],
     /default-src 'none'/,
@@ -399,6 +400,77 @@ async function selectWork(page) {
   assert.match(await page.textContent("#pair-message"), /expired/);
   assert.equal(await page.locator("#health-dialog").isVisible(), false);
   assert.equal((await fixture.command()).actions, null);
+  // Explicit remembered access, named device revocation, and a real process
+  // restart. These use production cookies/SQLite; only Ghostty is simulated.
+  await fixture.command({ advance: -13 * 60 * 60 });
+  const fresh = await fixture.command({ op: "pair" });
+  await page.goto(fresh.pairingURL);
+  await page.waitForFunction(() => location.hash === "");
+  assert.equal(await page.locator("#remember-browser").isChecked(), false);
+  assert.equal(await page.locator("#workspace").isVisible(), false);
+  await page.fill("#device-name", "My iPhone");
+  await page.check("#remember-browser");
+  await page.click("#pair-submit");
+  await page.locator("#workspace").waitFor({ state: "visible" });
+  const deviceCookie = (await context.cookies()).find(
+    (c) => c.name === "__Host-onibi_device",
+  );
+  assert(
+    deviceCookie &&
+      deviceCookie.httpOnly &&
+      deviceCookie.secure &&
+      deviceCookie.sameSite === "Strict",
+  );
+  const rememberedID = (await api(page, "/api/session")).body.device.id;
+  const spareContext = await browser.newContext({
+    ignoreHTTPSErrors: true,
+    viewport: { width: 320, height: 740 },
+  });
+  const spare = await spareContext.newPage();
+  await spare.goto((await fixture.command({ op: "pair" })).pairingURL);
+  await spare.fill("#device-name", "Spare browser");
+  await spare.click("#pair-submit");
+  await spare.locator("#workspace").waitFor({ state: "visible" });
+  await page.click("#open-devices");
+  await page
+    .getByRole("button", {
+      name: "Revoke access for Spare browser",
+      exact: true,
+    })
+    .click();
+  assert.match(await page.textContent("#revoke-name"), /Spare browser/);
+  await page.click("#confirm-revoke");
+  await page.waitForFunction(
+    () =>
+      !document
+        .getElementById("devices-list")
+        .textContent.includes("Spare browser"),
+  );
+  assert.equal((await api(spare, "/api/session")).status, 401);
+  await spareContext.close();
+  await fixture.stop();
+  await start(port);
+  await page.reload();
+  await page.locator("#workspace").waitFor({ state: "visible" });
+  assert.equal((await api(page, "/api/session")).body.device.id, rememberedID);
+  assert.equal(
+    (await fixture.command()).actions,
+    null,
+    "remembered reconnection must not send commands",
+  );
+  assert.equal(await page.evaluate(() => localStorage.length), 0);
+  await fixture.command({ advance: 31 * 24 * 60 * 60 });
+  await page.reload();
+  await page.locator("#pair-view").waitFor({ state: "visible" });
+  await page.click("#resume-browser");
+  await page
+    .locator("#pair-message")
+    .filter({ hasText: "no active remembered access" })
+    .waitFor();
+  assert.equal((await fixture.command()).actions, null);
+  console.log(
+    "Passed named devices, opt-in remembrance, individual revocation, restart recovery, and fixed 30-day expiry.",
+  );
   assert.deepEqual(errors, []);
   console.log(
     JSON.stringify({

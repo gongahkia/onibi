@@ -320,6 +320,7 @@ const server = http.createServer(async (req, res) => {
   assert.equal(new URL(page.url()).hash, "#main");
   assert.equal(await page.evaluate(() => document.activeElement.id), "main");
   await page.goto(url + "/#token=one-time-secret");
+  await page.click("#pair-submit");
   await page.locator("#workspace").waitFor({ state: "visible" });
   await page
     .locator("#target-list .target")

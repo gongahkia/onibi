@@ -34,7 +34,8 @@
           <span class="status-dot" aria-hidden="true"></span
           ><span id="connection-label">Connecting</span>
         </button>
-        <button class="quiet" id="logout" type="button">Disconnect</button>
+        <button class="quiet" id="open-devices" type="button">Devices</button>
+        <button class="quiet" id="logout" type="button">Forget browser</button>
       </div>
     </header>
     <main id="main" tabindex="-1">
@@ -74,7 +75,8 @@
           <h2>Meet your Mac here.</h2>
           <p id="pair-description">
             Open the pairing link printed by Onibi on your Mac, or paste its
-            one-time token.
+            one-time token. For a fresh link, run <code>onibi web pair</code> on
+            your Mac.
           </p>
           <label for="pair-token">Pairing token</label>
           <input
@@ -87,8 +89,29 @@
             placeholder="Your one-time token"
             aria-describedby="pair-description pair-message"
           />
+          <label for="device-name">Name this browser</label>
+          <input
+            id="device-name"
+            type="text"
+            value="My phone"
+            maxlength="64"
+            required
+            autocomplete="off"
+          />
+          <label class="remember-option"
+            ><input id="remember-browser" type="checkbox" />
+            <span
+              >Remember this browser for 30 days<small
+                >Optional. Survives Onibi restarts. Revoke it anytime from
+                Devices or your Mac.</small
+              ></span
+            >
+          </label>
           <button class="primary full" id="pair-submit" type="submit">
             Connect to my Mac <span aria-hidden="true">↗</span>
+          </button>
+          <button class="quiet full" id="resume-browser" type="button">
+            Reconnect a remembered browser
           </button>
           <p class="form-message" id="pair-message" role="status">
             Checking this browser’s connection…
@@ -587,6 +610,51 @@
       <button id="health-refresh" type="button" class="secondary full">
         Check again
       </button>
+    </dialog>
+    <dialog
+      id="devices-dialog"
+      class="health-dialog"
+      aria-labelledby="devices-title"
+    >
+      <div class="dialog-heading">
+        <div>
+          <span class="eyebrow">WHO HAS THE CONTROLS</span>
+          <h2 id="devices-title">Your browsers</h2>
+        </div>
+        <button
+          id="close-devices"
+          class="icon-button"
+          type="button"
+          aria-label="Close devices"
+        >
+          ×
+        </button>
+      </div>
+      <p class="muted">
+        Each browser has full cockpit access. Names are yours to choose; they do
+        not identify hardware. To pair another, run
+        <code>onibi web pair</code> on your Mac.
+      </p>
+      <p id="devices-message" role="status"></p>
+      <ul id="devices-list" class="health-checks"></ul>
+      <button id="refresh-devices" class="secondary full" type="button">
+        Refresh devices
+      </button>
+    </dialog>
+    <dialog id="revoke-dialog" aria-labelledby="revoke-title">
+      <h2 id="revoke-title">Revoke browser access?</h2>
+      <p id="revoke-name"></p>
+      <p>
+        This ends its sessions and remembered access. Commands already sent to
+        Ghostty cannot be recalled.
+      </p>
+      <div class="dialog-actions">
+        <button id="cancel-revoke" class="secondary" type="button">
+          Keep access</button
+        ><button id="confirm-revoke" class="danger" type="button">
+          Revoke access
+        </button>
+      </div>
     </dialog>
   </body>
 </html>
