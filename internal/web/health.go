@@ -60,8 +60,8 @@ func (s *Server) recordInventory(start time.Time, err error) {
 		return
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if start.Before(s.inventoryStarted) {
+		s.mu.Unlock()
 		return
 	}
 	s.inventoryStarted = start
@@ -78,7 +78,12 @@ func (s *Server) recordInventory(start time.Time, err error) {
 		s.inventoryRetryAt = time.Time{}
 		s.inventoryErr = nil
 	}
+	previous := s.inventoryObservation
 	s.inventoryObservation = observation
+	s.mu.Unlock()
+	if previous.State != observation.State || previous.Code != observation.Code {
+		s.log.Info("web.native_state", "state", observation.State, "code", observation.Code, "duration_ms", observation.DurationMS)
+	}
 }
 
 func (s *Server) recordCapture(start time.Time, id string, err error) {
@@ -86,8 +91,8 @@ func (s *Server) recordCapture(start time.Time, id string, err error) {
 		return
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if start.Before(s.captureStarted) {
+		s.mu.Unlock()
 		return
 	}
 	s.captureStarted = start
@@ -96,7 +101,12 @@ func (s *Server) recordCapture(start time.Time, id string, err error) {
 		observation.State = "unavailable"
 		observation.Code = ghostty.ErrorCode(err)
 	}
+	previous := s.captureObservation
 	s.captureObservation = observation
+	s.mu.Unlock()
+	if previous.State != observation.State || previous.Code != observation.Code {
+		s.log.Info("web.capture_state", "state", observation.State, "code", observation.Code, "duration_ms", observation.DurationMS)
+	}
 }
 
 // Inventory polls share only in-flight work. Execution preconditions always

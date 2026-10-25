@@ -52,6 +52,7 @@ func (s *Server) FreshPairingURL() (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.pairHash, s.pairExpires, s.pairUsed, s.pairURL = sha256.Sum256([]byte(token)), s.now().Add(pairingLifetime), false, ""
+	s.log.Info("web.pairing_link_issued", "expires_in_minutes", 10)
 	return link.String(), nil
 }
 
@@ -84,6 +85,7 @@ func (s *Server) RevokeDevice(ctx context.Context, id string) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.log.Info("web.device_revoked")
 	for key, session := range s.sessions {
 		if session.Device.ID == id {
 			delete(s.sessions, key)
@@ -178,6 +180,7 @@ func (s *Server) pair(w http.ResponseWriter, r *http.Request) {
 	session := browserSession{CSRF: csrf, ExpiresAt: s.now().Add(sessionLifetime), Device: d}
 	s.sessions[sha256.Sum256([]byte(sessionToken))] = session
 	s.pairUsed, s.pairURL = true, ""
+	s.log.Info("web.browser_paired", "remembered", body.Remember)
 	s.setCookie(w, sessionToken, session.ExpiresAt)
 	if body.Remember {
 		s.setDeviceCookie(w, secret, d.ExpiresAt)
@@ -320,6 +323,7 @@ func (s *Server) RevokeAllDevices(ctx context.Context) error {
 		return err
 	}
 	clear(s.sessions)
+	s.log.Info("web.all_devices_revoked")
 	s.pairUsed, s.pairURL = true, ""
 	return nil
 }

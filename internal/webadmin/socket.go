@@ -22,15 +22,17 @@ type Admin interface {
 	ListDevices(context.Context) ([]web.Device, error)
 	RevokeDevice(context.Context, string) error
 	RevokeAllDevices(context.Context) error
+	RuntimeStatus() web.RuntimeStatus
 }
 type Request struct {
 	Operation string `json:"operation"`
 	ID        string `json:"id,omitempty"`
 }
 type Response struct {
-	PairingURL string       `json:"pairingURL,omitempty"`
-	Devices    []web.Device `json:"devices,omitempty"`
-	Error      string       `json:"error,omitempty"`
+	PairingURL string             `json:"pairingURL,omitempty"`
+	Devices    []web.Device       `json:"devices,omitempty"`
+	Status     *web.RuntimeStatus `json:"status,omitempty"`
+	Error      string             `json:"error,omitempty"`
 }
 type Server struct {
 	listener *net.UnixListener
@@ -121,6 +123,9 @@ func serve(c *net.UnixConn, admin Admin) {
 	var response Response
 	var err error
 	switch request.Operation {
+	case "status":
+		status := admin.RuntimeStatus()
+		response.Status = &status
 	case "pair":
 		response.PairingURL, err = admin.FreshPairingURL()
 	case "devices":

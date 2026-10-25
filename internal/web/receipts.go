@@ -82,7 +82,7 @@ func (s *Server) receipt(ctx context.Context, id string) (Receipt, string, error
 	return receipt, hash, nil
 }
 
-func (s *Server) finishAction(w http.ResponseWriter, receipt Receipt) {
+func (s *Server) finishAction(w http.ResponseWriter, receipt Receipt, kind string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	var raw []byte
@@ -96,6 +96,7 @@ func (s *Server) finishAction(w http.ResponseWriter, receipt Receipt) {
 	if err != nil {
 		receipt.State, receipt.Result, receipt.Error = "uncertain", nil, uncertainMessage
 	}
+	s.recordReceipt(w, receipt, kind)
 	writeJSON(w, http.StatusOK, receipt)
 }
 

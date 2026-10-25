@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"mime"
 	"net"
 	"net/http"
@@ -44,6 +45,7 @@ type Backend interface {
 }
 
 type Options struct {
+	Logger       *slog.Logger
 	Backend      Backend
 	DB           *store.DB
 	PublicOrigin string
@@ -65,6 +67,9 @@ type browserSession struct {
 }
 
 type Server struct {
+	log                    *slog.Logger
+	started                time.Time
+	metrics                counters
 	featureObservations    map[string]FeatureObservation
 	backend                Backend
 	db                     *store.DB
@@ -113,12 +118,16 @@ func New(opts Options) (*Server, error) {
 		now = time.Now
 	}
 	s := &Server{
+		log: opts.Logger, started: time.Now().UTC(),
 		backend: opts.Backend, db: opts.DB, diagnostics: opts.Diagnostics, origin: origin.String(), host: origin.Host,
 		secure: origin.Scheme == "https", cookieName: "onibi_local_session",
 		proxyHosts: map[string]bool{}, sessions: map[[sha256.Size]byte]browserSession{},
 		execution: make(chan struct{}, 1), now: now,
 		closeObservationBudget: 3 * time.Second,
 		pairHash:               sha256.Sum256([]byte(token)), pairExpires: now().Add(pairingLifetime),
+	}
+	if s.log == nil {
+		s.log = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
 	if s.secure {
 		s.cookieName = "__Host-onibi_session"
@@ -196,7 +205,7 @@ func loopbackHost(host string) bool {
 	return host == "localhost" || net.ParseIP(host).IsLoopback()
 }
 
-func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Referrer-Policy", "no-referrer")
@@ -414,24 +423,24 @@ func (s *Server) action(w http.ResponseWriter, r *http.Request) {
 		defer func() { <-s.execution }()
 	case <-ctx.Done():
 		receipt.State, receipt.Error = "rejected", "Onibi was busy. No input was sent."
-		s.finishAction(w, receipt)
+		s.finishAction(w, receipt, request.Action.Kind)
 		return
 	}
 	if _, _, ok := s.authenticate(r.WithContext(ctx)); !ok {
 		receipt.State, receipt.Error = "rejected", "The browser session ended before execution. No input was sent."
-		s.finishAction(w, receipt)
+		s.finishAction(w, receipt, request.Action.Kind)
 		return
 	}
 	if err := s.validateTarget(ctx, request.Action); err != nil {
 		receipt.State, receipt.Error = "rejected", err.Error()
-		s.finishAction(w, receipt)
+		s.finishAction(w, receipt, request.Action.Kind)
 		return
 	}
 	// Native validation can take seconds. Recheck the grant again after it,
 	// immediately before dispatch, so revocation during a slow inventory wins.
 	if _, _, ok := s.authenticate(r.WithContext(ctx)); !ok {
 		receipt.State, receipt.Error = "rejected", "Browser access ended during target validation. No input was sent."
-		s.finishAction(w, receipt)
+		s.finishAction(w, receipt, request.Action.Kind)
 		return
 	}
 	result, err := s.backend.Execute(ctx, request.Action)
@@ -448,7 +457,7 @@ func (s *Server) action(w http.ResponseWriter, r *http.Request) {
 		receipt.State, receipt.Result = "completed", &result
 	}
 	s.recordFeature(request.Action, result, err)
-	s.finishAction(w, receipt)
+	s.finishAction(w, receipt, request.Action.Kind)
 }
 
 func (s *Server) validateTarget(ctx context.Context, action ghostty.Action) error {

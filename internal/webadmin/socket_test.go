@@ -12,6 +12,9 @@ import (
 
 type fakeAdmin struct{ revoked string }
 
+func (f *fakeAdmin) RuntimeStatus() web.RuntimeStatus {
+	return web.RuntimeStatus{PID: 123, Origin: "https://example.test"}
+}
 func (f *fakeAdmin) RevokeAllDevices(context.Context) error { f.revoked = "all"; return nil }
 func (f *fakeAdmin) FreshPairingURL() (string, error) {
 	return "https://example.test/#token=secret", nil
@@ -84,5 +87,24 @@ func TestLocalSocketLifecycleAndOperations(t *testing.T) {
 	os.Chmod(dir, 0755)
 	if _, err := Listen(path, admin); err == nil {
 		t.Fatal("accepted public directory")
+	}
+}
+
+func TestLocalRuntimeStatus(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	server, err := Listen(Path(dir), &fakeAdmin{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+	response, err := Call(t.Context(), Path(dir), Request{Operation: "status"})
+	if err != nil || response.Status == nil || response.Status.PID != 123 {
+		t.Fatalf("response=%+v err=%v", response, err)
+	}
+	if response.PairingURL != "" || len(response.Devices) != 0 {
+		t.Fatal("status returned access data")
 	}
 }
