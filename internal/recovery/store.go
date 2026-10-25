@@ -76,7 +76,7 @@ func (s *Store) Save(sequence uint64, record Record) error {
 	for _, b := range record.Buffers {
 		total += len(b.Contents)
 	}
-	if total > s.Limit {
+	if total > s.Limit || len(record.Buffers) > 64 {
 		return errors.New("recovery snapshot exceeds configured limit")
 	}
 	if len(record.Buffers) == 0 {
@@ -119,6 +119,7 @@ func (s *Store) Scan() ([]*Entry, error) {
 		return nil, err
 	}
 	out := []*Entry{}
+	retained := 0
 	for _, path := range paths {
 		if path == s.path || len(out) >= 20 {
 			continue
@@ -152,10 +153,11 @@ func (s *Store) Scan() ([]*Entry, error) {
 				valid = false
 			}
 		}
-		if !valid || size > s.Limit {
+		if !valid || size > s.Limit || retained+size > s.Limit {
 			lock.Close()
 			continue
 		}
+		retained += size
 		out = append(out, &Entry{Path: path, Record: record, lock: lock})
 	}
 	return out, nil

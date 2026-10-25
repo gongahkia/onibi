@@ -43,11 +43,14 @@ func (a *App) recoveryRecord() (recovery.Record, error) {
 		if !b.Doc.Dirty() || b.Transient {
 			continue
 		}
+		if len(record.Buffers) >= 64 {
+			return record, fmt.Errorf("more than 64 unsaved buffers; save some buffers to resume recovery")
+		}
 		total += b.Doc.Text.Len()
 		if total > a.Config.RecoveryMaxBytes {
 			return record, fmt.Errorf("unsaved text exceeds recovery limit (%d MiB)", a.Config.RecoveryMaxBytes>>20)
 		}
-		record.Buffers = append(record.Buffers, recovery.Buffer{Path: b.File.Path, Contents: b.Doc.Text.String(), Selections: append([]text.Selection(nil), b.Doc.Selections...), BaseHash: hex.EncodeToString(b.File.hash[:]), Existed: b.File.exists})
+		record.Buffers = append(record.Buffers, recovery.Buffer{Path: b.File.Path, Contents: b.Doc.Text.String(), Selections: append([]text.Selection(nil), b.Doc.Selections[:min(32, len(b.Doc.Selections))]...), BaseHash: hex.EncodeToString(b.File.hash[:]), Existed: b.File.exists})
 	}
 	return record, nil
 }
