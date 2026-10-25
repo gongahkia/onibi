@@ -1489,3 +1489,135 @@ dialog::backdrop {
 #devices-list li {
   overflow-wrap: anywhere;
 }
+
+.reader-bar {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.reader-bar details {
+  flex: 1;
+  min-width: 0;
+}
+.reader-bar summary {
+  min-height: 44px;
+  padding: 12px 6px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--muted);
+}
+.reader-settings {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: 8px 6px 12px;
+}
+.reader-settings label {
+  font-size: 12px;
+  color: var(--muted);
+}
+.reader-settings select {
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px;
+  background: var(--terminal);
+  color: var(--text);
+  font-size: 16px;
+}
+.reader-settings p {
+  font-size: 12px;
+}
+.reader-message {
+  margin: 0;
+  padding: 12px 16px;
+  font-size: 12px;
+  color: var(--mint);
+  overflow-wrap: anywhere;
+}
+#reader-wrap[aria-pressed="true"] {
+  color: var(--mint);
+  background: #a8dbc810;
+}
+.terminal-output.wrap-lines {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.terminal-output[data-font="12"] {
+  font-size: 12px;
+}
+.terminal-output[data-font="13"] {
+  font-size: 13px;
+}
+.terminal-output[data-font="14"] {
+  font-size: 14px;
+}
+.terminal-output[data-font="16"] {
+  font-size: 16px;
+}
+.terminal-output[data-font="18"] {
+  font-size: 18px;
+}
+.terminal-output[data-font="20"] {
+  font-size: 20px;
+}
+.terminal-output[data-font="22"] {
+  font-size: 22px;
+}
+#reader-dialog {
+  width: min(1100px, calc(100vw - 16px));
+  max-width: none;
+  height: calc(100dvh - 24px);
+  max-height: calc(100dvh - 24px);
+  padding: max(12px, env(safe-area-inset-top))
+    max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom))
+    max(12px, env(safe-area-inset-left));
+}
+#reader-dialog[open] {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+#reader-dialog .dialog-heading {
+  flex-shrink: 0;
+  margin: 0;
+}
+#reader-destination {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+#reader-mount {
+  flex: 1;
+  min-height: 0;
+}
+#reader-mount .output-card {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+#reader-mount .terminal-output {
+  flex: 1;
+  min-height: 100px;
+  height: auto;
+}
+#reader-mount .output-toolbar,
+#reader-mount .output-footer,
+#reader-mount .reader-bar {
+  flex-shrink: 0;
+}
+#reader-mount #reader-expand {
+  display: none;
+}
+#reader-mount .reader-settings {
+  max-height: 30dvh;
+  overflow-y: auto;
+}
+#reader-dialog .dialog-heading {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface);
+}

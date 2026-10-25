@@ -32,6 +32,7 @@ const state = {
   targetsLoading: false,
   snapshotVersion: 0,
   snapshotTarget: "",
+  snapshotText: "",
   pending: null,
   receiptTimer: null,
   closeTarget: null,
@@ -443,6 +444,19 @@ function updateControls() {
   byId("title-capability").hidden = !(
     state.capabilities.known && !state.capabilities.rename
   );
+  for (const id of [
+    "reader-expand",
+    "reader-copy",
+    "reader-top",
+    "reader-bottom",
+  ]) {
+    byId(id).disabled =
+      !state.csrf ||
+      !state.snapshotTarget ||
+      state.snapshotTarget !== state.selectedId ||
+      byId("terminal-output").hidden ||
+      (id === "reader-copy" && !state.snapshotText);
+  }
   renderReadiness();
 }
 
@@ -553,6 +567,8 @@ function requirePairing(text) {
   byId("compose").value = "";
   state.snapshotVersion++;
   state.snapshotTarget = "";
+  state.snapshotText = "";
+  byId("reader-message").hidden = true;
   byId("terminal-output").textContent = "";
   byId("snapshot-time").textContent = "";
   byId("snapshot-state").textContent = "No terminal selected";
@@ -789,6 +805,8 @@ async function refreshTargetsRequest() {
       byId("compose").value = "";
       state.snapshotVersion++;
       state.snapshotTarget = "";
+      state.snapshotText = "";
+      byId("reader-message").hidden = true;
       byId("terminal-output").textContent = "";
       showEmpty(
         "That pane is no longer available",
@@ -849,6 +867,8 @@ function selectTarget(id) {
   state.captureDetail = "";
   byId("compose").value = state.drafts.get(id) || "";
   state.snapshotTarget = "";
+  state.snapshotText = "";
+  byId("reader-message").hidden = true;
   state.snapshotVersion++;
   byId("terminal-output").textContent = "";
   byId("snapshot-time").textContent = "";
@@ -892,6 +912,7 @@ async function readSnapshot() {
     state.captureState = "ready";
     state.captureDetail = "";
     state.snapshotTarget = target.id;
+    state.snapshotText = snapshot.text;
     state.snapshotStale = false;
     const output = byId("terminal-output");
     const atBottom =

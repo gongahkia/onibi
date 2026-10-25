@@ -14,6 +14,7 @@
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="stylesheet" href="style.css" />
     <script src="app.js" defer></script>
+    <script src="reader.js" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to terminal</a>
@@ -201,7 +202,11 @@
             </button>
           </div>
           <div class="banner" id="workspace-message" role="status" hidden></div>
-          <section class="output-card" aria-labelledby="output-heading">
+          <section
+            class="output-card"
+            id="output-card"
+            aria-labelledby="output-heading"
+          >
             <div class="output-toolbar">
               <div class="output-label">
                 <span class="terminal-glyph" aria-hidden="true">›_</span>
@@ -227,6 +232,58 @@
                 </button>
               </div>
             </div>
+            <div class="reader-bar">
+              <details id="reader-tools">
+                <summary>Reader tools</summary>
+                <div class="reader-settings">
+                  <label for="reader-size">Text on this screen</label>
+                  <select id="reader-size">
+                    <option value="12">12 px</option>
+                    <option value="13" selected>13 px</option>
+                    <option value="14">14 px</option>
+                    <option value="16">16 px</option>
+                    <option value="18">18 px</option>
+                    <option value="20">20 px</option>
+                    <option value="22">22 px</option>
+                  </select>
+                  <button
+                    id="reader-wrap"
+                    class="quiet"
+                    type="button"
+                    aria-pressed="false"
+                  >
+                    Wrap lines
+                  </button>
+                  <button id="reader-top" class="quiet" type="button" disabled>
+                    Snapshot start
+                  </button>
+                  <button
+                    id="reader-bottom"
+                    class="quiet"
+                    type="button"
+                    disabled
+                  >
+                    Snapshot end
+                  </button>
+                  <p class="muted">
+                    These controls change this reader only. Mac display and
+                    scrollback controls are in Controls.
+                  </p>
+                </div>
+              </details>
+              <button id="reader-copy" class="quiet" type="button" disabled>
+                Copy text
+              </button>
+              <button id="reader-expand" class="quiet" type="button" disabled>
+                Expand
+              </button>
+            </div>
+            <p
+              id="reader-message"
+              class="reader-message"
+              role="status"
+              hidden
+            ></p>
             <div class="output-empty" id="output-empty">
               <span class="empty-glyph" aria-hidden="true">⌁</span>
               <h3 id="output-empty-title">Your next move starts here</h3>
@@ -610,6 +667,17 @@
       <button id="health-refresh" type="button" class="secondary full">
         Check again
       </button>
+    </dialog>
+    <dialog id="reader-dialog" aria-labelledby="reader-title">
+      <div class="dialog-heading">
+        <div>
+          <span class="eyebrow">READING VIEW</span>
+          <h2 id="reader-title">Terminal output</h2>
+          <p id="reader-destination" class="muted"></p>
+        </div>
+        <button id="reader-close" class="secondary" type="button">Done</button>
+      </div>
+      <div id="reader-mount"></div>
     </dialog>
     <dialog
       id="devices-dialog"

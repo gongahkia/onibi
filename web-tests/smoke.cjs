@@ -73,7 +73,7 @@ const controls = [
   ["font_reset", "Reset Mac font", "Mac display"],
   ["fullscreen", "Toggle fullscreen", "Mac display"],
 ].map(([id, label, group]) => ({ id, label, group }));
-const text =
+let text =
   '$ go test ./...\nok  github.com/gongahkia/onibi/internal/ghostty\nok  github.com/gongahkia/onibi/internal/web\n\n$ git status --short\n M internal/web/assets/app.js\n\n<img src=x onerror="window.injected=true">\n\n$ _';
 const json = (res, status, body) => {
   res.writeHead(status, {
@@ -340,6 +340,114 @@ const server = http.createServer(async (req, res) => {
     fullPage: true,
   });
   await auditAccessibility("Terminal accessibility");
+  const originalText = text;
+  text = Array.from(
+    { length: 240 },
+    (_, i) => `Line ${i}: ` + "literal <tag> & text ".repeat(12),
+  ).join("\n");
+  await page.click("#read-output");
+  await page.waitForFunction(() =>
+    document
+      .getElementById("terminal-output")
+      .textContent.startsWith("Line 0:"),
+  );
+  const beforeReaderActions = actions.length;
+  await page.click("#reader-tools summary");
+  await page.selectOption("#reader-size", "22");
+  await page.click("#reader-wrap");
+  assert.equal(
+    await page
+      .locator("#terminal-output")
+      .evaluate((el) => getComputedStyle(el).fontSize),
+    "22px",
+  );
+  assert.equal(await page.textContent("#terminal-output"), text);
+  await page.click("#reader-bottom");
+  assert(
+    await page.locator("#terminal-output").evaluate((el) => el.scrollTop > 0),
+  );
+  await page.click("#reader-top");
+  assert.equal(
+    await page.locator("#terminal-output").evaluate((el) => el.scrollTop),
+    0,
+  );
+  await page.click("#reader-tools summary");
+  await page.click("#reader-expand");
+  await page.setViewportSize({ width: 320, height: 740 });
+  await auditAccessibility("Expanded reader accessibility");
+  assert(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  );
+  await page.screenshot({
+    path: path.join(output, "reader-mobile.png"),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 844, height: 390 });
+  assert(await page.locator("#reader-close").isVisible());
+  await page.screenshot({
+    path: path.join(output, "reader-landscape.png"),
+    fullPage: true,
+  });
+  await page.click("#reader-close");
+  await page.waitForFunction(
+    () => document.activeElement.id === "reader-expand",
+  );
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.evaluate(() =>
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: async (text) => {
+          window.copiedSnapshot = text;
+        },
+      },
+    }),
+  );
+  await page.click("#reader-copy");
+  await page
+    .locator("#reader-message")
+    .filter({ hasText: "Snapshot copied" })
+    .waitFor();
+  assert.equal(await page.evaluate(() => window.copiedSnapshot), text);
+  await page.evaluate(() =>
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: async () => {
+          throw new Error("denied");
+        },
+      },
+    }),
+  );
+  await page.click("#reader-copy");
+  await page
+    .locator("#reader-message")
+    .filter({ hasText: "Text is selected" })
+    .waitFor();
+  assert.equal(await page.evaluate(() => getSelection().toString()), text);
+  assert.equal(
+    actions.length,
+    beforeReaderActions,
+    "reader must not mutate Ghostty",
+  );
+  const prefs = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem("onibi.reader.v1")),
+  );
+  assert.deepEqual(prefs, { size: 22, wrap: true });
+  await page.evaluate(() => getSelection().removeAllRanges());
+  await page.click("#reader-tools summary");
+  await page.selectOption("#reader-size", "13");
+  await page.click("#reader-wrap");
+  await page.click("#reader-tools summary");
+  text = originalText;
+  await page.click("#read-output");
+  await page.waitForFunction(() =>
+    document
+      .getElementById("terminal-output")
+      .textContent.startsWith("$ go test"),
+  );
   await page.fill("#compose", "printf hello");
   await page.click("#send-input");
   await page.waitForFunction(
@@ -904,7 +1012,9 @@ const server = http.createServer(async (req, res) => {
       .evaluate((el) => getComputedStyle(el).transitionDuration),
     "0s",
   );
-  assert.equal(await page.evaluate(() => localStorage.length), 0);
+  assert.deepEqual(await page.evaluate(() => Object.keys(localStorage)), [
+    "onibi.reader.v1",
+  ]);
   assert.equal(await page.evaluate(() => sessionStorage.length), 0);
   assert.deepEqual(errors, []);
   await page.click("#logout");
