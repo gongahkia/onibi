@@ -41,7 +41,7 @@ builds:
 
 archives:
   - formats: [tar.gz]
-    files: [LICENSE, README.md, SECURITY.md, THREAT-MODEL.md, THIRD_PARTY_NOTICES.md, docs/telegram.md, docs/web.md, docs/product-audit.md]
+    files: [LICENSE, SECURITY.md, THREAT-MODEL.md, THIRD_PARTY_NOTICES.md, docs/telegram.md, docs/web.md, docs/product-audit.md, docs/cockpit-review.md]
 
 checksum:
   name_template: checksums.txt
