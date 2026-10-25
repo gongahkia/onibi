@@ -15,10 +15,12 @@ import (
 	"github.com/gdamore/tcell/v2"
 	"github.com/gongahkia/shack/internal/config"
 	"github.com/gongahkia/shack/internal/lsp"
+	"github.com/gongahkia/shack/internal/recovery"
 	"github.com/gongahkia/shack/internal/text"
 )
 
 type Buffer struct {
+	Transient                               bool
 	LanguageKey, LanguageID, LanguageStatus string
 	Synced, Syncing                         bool
 	SyncedVersion                           uint64
@@ -58,45 +60,51 @@ type preview struct {
 	Index                 int
 }
 type App struct {
-	typingDoc           *text.Document
-	typingVersion       uint64
-	typingHead          int
-	typingTime          time.Time
-	languages           map[string]*languageState
-	languageBusy        bool
-	Screen              tcell.Screen
-	Config              config.Config
-	Buffers             []*Buffer
-	Active              int
-	Root                string
-	Readonly            bool
-	Status              string
-	Commands            []command
-	Dialog              *dialog
-	Preview             *preview
-	Query               string
-	Regex               bool
-	Matches             []text.Edit
-	matchVersion        uint64
-	matchBuffer         *Buffer
-	Files               []string
-	clipboard           string
-	clipboardRequested  bool
-	clipboardTarget     *Buffer
-	clipboardVersion    uint64
-	clipboardSelections []text.Selection
-	pasteOverflow       bool
-	paste               strings.Builder
-	pasting             bool
-	dragging            bool
-	quit                bool
-	ctx                 context.Context
-	cancel              context.CancelFunc
-	updates             chan func()
-	syntaxJobs          chan syntaxJob
-	serviceTimer        *time.Timer
-	serviceC            <-chan time.Time
-	searchCancel        context.CancelFunc
+	recoveryBusy, recoveryDirty bool
+	recovery                    *recovery.Store
+	recoverable                 []*recovery.Entry
+	recoveryTimer               *time.Timer
+	recoveryC                   <-chan time.Time
+	recoverySeq                 uint64
+	typingDoc                   *text.Document
+	typingVersion               uint64
+	typingHead                  int
+	typingTime                  time.Time
+	languages                   map[string]*languageState
+	languageBusy                bool
+	Screen                      tcell.Screen
+	Config                      config.Config
+	Buffers                     []*Buffer
+	Active                      int
+	Root                        string
+	Readonly                    bool
+	Status                      string
+	Commands                    []command
+	Dialog                      *dialog
+	Preview                     *preview
+	Query                       string
+	Regex                       bool
+	Matches                     []text.Edit
+	matchVersion                uint64
+	matchBuffer                 *Buffer
+	Files                       []string
+	clipboard                   string
+	clipboardRequested          bool
+	clipboardTarget             *Buffer
+	clipboardVersion            uint64
+	clipboardSelections         []text.Selection
+	pasteOverflow               bool
+	paste                       strings.Builder
+	pasting                     bool
+	dragging                    bool
+	quit                        bool
+	ctx                         context.Context
+	cancel                      context.CancelFunc
+	updates                     chan func()
+	syntaxJobs                  chan syntaxJob
+	serviceTimer                *time.Timer
+	serviceC                    <-chan time.Time
+	searchCancel                context.CancelFunc
 }
 
 func New(screen tcell.Screen, cfg config.Config, paths []string, readonly bool) (*App, error) {
@@ -118,6 +126,7 @@ func New(screen tcell.Screen, cfg config.Config, paths []string, readonly bool) 
 	}
 	a.registerCommands()
 	a.languageCommands()
+	a.Commands = append(a.Commands, command{"Recover unsaved buffers", "", a.recoveryPicker})
 	a.Status = "Ctrl+E commands · Ctrl+P files · Ctrl+F find · F1 help"
 	return a, nil
 }
@@ -186,6 +195,9 @@ func (a *App) Run() error {
 	a.indexFiles()
 	a.schedule()
 	a.draw()
+	a.startRecovery()
+	defer a.finishRecovery()
+	a.draw()
 	for !a.quit {
 		select {
 		case ev, ok := <-events:
@@ -198,6 +210,9 @@ func (a *App) Run() error {
 		case <-a.serviceC:
 			a.serviceC = nil
 			a.services()
+		case <-a.recoveryC:
+			a.recoveryC = nil
+			_ = a.writeRecovery(false)
 		case <-termination:
 			return nil
 		case <-a.ctx.Done():
@@ -224,6 +239,7 @@ func (a *App) schedule() {
 	a.serviceC = a.serviceTimer.C
 }
 func (a *App) changed() {
+	a.scheduleRecovery()
 	a.reveal()
 	a.Matches = nil
 	a.Current().SyntaxReady = false
@@ -318,6 +334,7 @@ func (a *App) Save() {
 		a.Status = err.Error()
 	} else {
 		a.Status = "Saved " + filepath.Base(b.File.Path)
+		a.scheduleRecovery()
 	}
 }
 func (a *App) saveAs() {

@@ -22,6 +22,7 @@ func run() error {
 	show := flag.Bool("version", false, "print Shack version")
 	configPath := flag.String("config", "", "use a JSON configuration file")
 	noConfig := flag.Bool("no-config", false, "use built-in defaults")
+	noRecovery := flag.Bool("no-recovery", false, "disable recovery snapshots")
 	noLSP := flag.Bool("no-lsp", false, "disable language servers")
 	plain := flag.Bool("plain", false, "disable syntax highlighting and language servers")
 	readonly := flag.Bool("readonly", false, "open without modifying files")
@@ -45,6 +46,9 @@ func run() error {
 		if err != nil {
 			return err
 		}
+	}
+	if *noRecovery {
+		cfg.Recovery = false
 	}
 	if *noLSP || *plain {
 		cfg.LSP = false
