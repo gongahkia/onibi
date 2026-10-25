@@ -21,6 +21,7 @@ import (
 )
 
 type Buffer struct {
+	Reading                                 *readingView
 	Merge                                   *mergeFile
 	Terminal                                *terminalView
 	DiskConflict                            bool
@@ -76,6 +77,8 @@ type preview struct {
 	Index                 int
 }
 type App struct {
+	readingBusy                                                bool
+	readingPending                                             []readingJob
 	mergeFile                                                  *mergeFile
 	mergeCancel                                                context.CancelFunc
 	mergeSequence                                              uint64
@@ -210,6 +213,7 @@ func New(screen tcell.Screen, cfg config.Config, paths []string, readonly bool) 
 	a.editingCommands()
 	a.developmentCommands()
 	a.mergeCommands()
+	a.readingCommands()
 	a.terminalCommands()
 	a.debugCommands()
 	a.Commands = append(a.Commands, command{"Snippet choices", "", a.snippetChoices})
@@ -497,6 +501,9 @@ func (a *App) saveAsThen(done func()) {
 		}
 		b.File = f
 		b.Transient = false
+		if b.Reading != nil {
+			a.closeReading(b)
+		}
 		b.Title = ""
 		b.Synced = false
 		b.LanguageKey = ""
@@ -529,6 +536,7 @@ func (a *App) closeBuffer() {
 }
 func (a *App) discardBuffer() {
 	closed := a.Current()
+	a.closeReading(closed)
 	if d := a.debug; d != nil && d.OutputBuffer == closed {
 		d.OutputBuffer = nil
 		d.WantsOutput.Store(false)

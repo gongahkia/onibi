@@ -146,6 +146,12 @@ func (a *App) draw() {
 			}
 		}
 	}
+	if v := b.Reading; v != nil {
+		state += " · " + v.Format + " preview · F4 source"
+		if v.Error != "" {
+			state += " · " + v.Error
+		}
+	}
 	if d := a.debug; d != nil && !d.Ended {
 		state += " · Debug " + d.Phase
 	}
@@ -203,7 +209,7 @@ func (a *App) drawPane(index int, p palette) {
 	gutter := len(strconv.Itoa(d.Text.Lines())) + 2
 	width := max(1, r.W-gutter)
 	line, wrapRow := max(0, min(pane.Top, d.Text.Lines()-1)), max(0, pane.WrapTop)
-	if a.wrap {
+	if a.wraps(b) {
 		wrapRow = min(wrapRow, rowCount(d.Text, line, width, a.Config.TabSize)-1)
 	}
 	pane.Top = line
@@ -215,22 +221,22 @@ func (a *App) drawPane(index int, p palette) {
 	pane.Rows = nil
 	for row := 0; row < r.H && line < d.Text.Lines(); row++ {
 		seg := segment{d.Text.LineStart(line), d.Text.LineEnd(line), 0}
-		if a.wrap {
+		if a.wraps(b) {
 			seg = rowSegment(d.Text, line, wrapRow, width, a.Config.TabSize)
 		}
-		if !a.wrap || wrapRow == 0 {
+		if !a.wraps(b) || wrapRow == 0 {
 			a.put(r.X, r.Y+row, gutter-1, fmt.Sprintf("%*d", gutter-2, line+1), p.dim)
 		} else {
 			a.put(r.X, r.Y+row, gutter-1, "↪", p.dim)
 		}
-		if !a.wrap || wrapRow == 0 {
+		if !a.wraps(b) || wrapRow == 0 {
 			if marker, style := a.debugGutter(b, line+1, p); marker != "" {
 				a.put(r.X+gutter-1, r.Y+row, 1, marker, style)
 			}
 		}
 		from, end, col := seg.Start, seg.End, seg.Column
 		left := pane.Left
-		if a.wrap {
+		if a.wraps(b) {
 			left = seg.Column
 		}
 		if d.Text.Plain(from, end) {
@@ -264,6 +270,7 @@ func (a *App) drawPane(index int, p palette) {
 					style = style.Foreground(b.Spans[si].Color)
 				}
 			}
+			style = readingStyle(b.Reading, offset, style, p)
 			si := sort.Search(len(selections), func(i int) bool { return selections[i].End() > offset })
 			if si < len(selections) && selections[si].Start() <= offset {
 				style = style.Background(p.selectionBackground())
@@ -309,7 +316,7 @@ func (a *App) drawPane(index int, p palette) {
 				}
 			}
 		}
-		if a.wrap && wrapRow+1 < rowCount(d.Text, line, width, a.Config.TabSize) {
+		if a.wraps(b) && wrapRow+1 < rowCount(d.Text, line, width, a.Config.TabSize) {
 			wrapRow++
 		} else {
 			line++

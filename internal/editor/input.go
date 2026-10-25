@@ -191,6 +191,8 @@ func (a *App) key(ev *tcell.EventKey) {
 		if a.treeVisible && a.tree == nil {
 			a.rebuildTree()
 		}
+	case tcell.KeyF4:
+		a.documentPreview("", false)
 	case tcell.KeyF5:
 		if shift {
 			a.stopDebugger()
@@ -384,7 +386,7 @@ func offsetAt(s string, column, tab int) int {
 	return len(s)
 }
 func (a *App) move(dx, dy int, extend bool) {
-	if a.wrap && dy != 0 {
+	if a.wraps(a.Current()) && dy != 0 {
 		a.moveVisual(dy, extend)
 		return
 	}

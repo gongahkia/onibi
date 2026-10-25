@@ -212,7 +212,7 @@ func (a *App) reveal() {
 	line := b.Doc.Text.LineAt(p)
 	width := a.contentWidth(b, r)
 	column := columnAt(b.Doc.Text, p, a.Config.TabSize)
-	if !a.wrap {
+	if !a.wraps(b) {
 		if line < b.Top {
 			b.Top = line
 		}
@@ -252,7 +252,7 @@ func (a *App) reveal() {
 }
 func (a *App) scrollRows(delta int) {
 	b := a.Current()
-	if !a.wrap {
+	if !a.wraps(b) {
 		b.Top = max(0, min(b.Doc.Text.Lines()-1, b.Top+delta))
 		return
 	}
@@ -321,6 +321,14 @@ func (a *App) paneCommands() {
 		command{"Grow pane", "", func() { a.resizePane(50) }}, command{"Shrink pane", "", func() { a.resizePane(-50) }},
 		command{"Focus pane left", "", func() { a.focusDirection(-1, 0) }}, command{"Focus pane right", "", func() { a.focusDirection(1, 0) }}, command{"Focus pane above", "", func() { a.focusDirection(0, -1) }}, command{"Focus pane below", "", func() { a.focusDirection(0, 1) }},
 		command{"Split vertically", "", func() { a.split(false) }}, command{"Split horizontally", "", func() { a.split(true) }}, command{"Focus next pane", "", func() { a.focusPane(a.focus + 1) }}, command{"Close pane", "", a.closePane}, command{"Toggle soft wrapping", "", func() {
+			if v := a.Current().Reading; v != nil {
+				v.Wrap = !v.Wrap
+				a.Current().WrapTop = 0
+				a.Current().Left = 0
+				a.reveal()
+				a.Status = fmt.Sprintf("Preview soft wrapping: %t", v.Wrap)
+				return
+			}
 			a.wrap = !a.wrap
 			for _, b := range a.Buffers {
 				b.WrapTop = 0

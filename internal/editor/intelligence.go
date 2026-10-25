@@ -58,6 +58,7 @@ func (a *App) report(title, body string) {
 	}
 	b.Doc = d
 	b.Merge = nil
+	a.closeReading(b)
 	b.Transient = true
 	b.Title = title
 	b.Top = 0

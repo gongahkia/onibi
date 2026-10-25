@@ -161,3 +161,29 @@ stop; ordinary linked typing uses cached results. Parser size/depth, expansion,
 reference work and regex execution are bounded. Timeout checks are coarse and
 are not a strict wall-clock deadline. No snippet worker or regex timer is started
 merely by launching the editor.
+
+## Bundled Markdown/Org preview increment
+
+Same Intel macOS host, Go 1.27, 2026-10-25, individual benchmark runs:
+
+- Markdown, 24,000 bytes of repeated headings/emphasis/links/lists: **3.73 ms**,
+  **1,715,352 B / 12,813 allocations** per full render.
+- Org, 23,700 bytes of equivalent content: **5.54 ms**,
+  **1,629,311 B / 22,894 allocations** per full render.
+- Cached Unicode Markdown preview, 100×32 simulation screen, 500 sections:
+  **0.708 ms**, **37,671 B / 5,145 allocations** per full logical redraw.
+  This includes the editor's screen traversal, not terminal transport/painting.
+
+Rendering starts only when a preview is requested. Source edits debounce for
+200 ms; a single background renderer coalesces pending versions per view. Hidden
+views do not reparse until displayed. Style lookup during painting is binary
+search over cached ranges. Source, output, node/span/table limits and the eight-view
+cap are documented in USAGE.md; parser intermediate allocations can exceed retained
+output, so these figures are examples rather than memory ceilings. Final artifact,
+RSS and constrained-Linux measurements still need repeating after folding.
+
+```sh
+go test ./internal/markup -run '^$' -bench BenchmarkRender -benchmem
+go test ./internal/editor -run '^$' -bench BenchmarkReadingViewport -benchmem
+python3 scripts/markup_smoke.py
+```

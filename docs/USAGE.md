@@ -564,3 +564,43 @@ The test suite includes a real clangd integration when that executable is availa
 Python and tmux above are development-test tools, not editor runtime dependencies.
 See [architecture](ARCHITECTURE.md), [product scope](PRODUCT.md), and
 [performance observations](PERFORMANCE.md).
+
+## Markdown and Org previews
+
+**Toggle document preview** (F4) opens a rendered, read-only view of `.md`,
+`.markdown`, `.mdown`, `.mkd` or `.org` buffers. F4 returns to the source. For other
+extensions and unsaved buffers, choose the format; **Preview as Markdown** and
+**Preview as Org** also select it explicitly. **Document preview beside source**
+opens the view in a vertical split. No external viewer or renderer is installed.
+
+Headings, emphasis, lists, task checkboxes, links, tables, quotes and literal code
+blocks render as terminal text/styles. Markdown uses Goldmark's parser with table,
+strikethrough, task-list and link extensions; Org uses go-org. Images show their
+alt text. HTML, LaTeX and exported code remain text; this is a document reader,
+not a browser, equation renderer or Org agenda/Babel environment. Org includes,
+setup-file reads, macro expansion and code execution are disabled. Tables pad
+ordinary cells; very long cells may extend past the alignment and can wrap/scroll.
+
+Visible previews update after the source changes, with a 200 ms debounce and one
+background renderer. Hidden previews refresh when reopened. Ordinary redraws
+reuse text/styles, with no parsing. Each preview wraps independently of the source;
+**Toggle soft wrapping** switches wrapping for the active preview. Up to eight
+previews may be open. **Document preview headings** navigates the outline;
+**Document preview links** copies a web/mail URL, also through the terminal
+clipboard when supported. Supported terminals can activate OSC 8 web/mail links;
+local/custom links are displayed without automatic execution or file opening.
+
+Copy, search, selection and pane navigation work in previews. Editing and normal
+Save are disabled; **Save as** exports the rendered plain text and detaches that
+buffer from live updates. Closing the source leaves a read-only snapshot. Source
+files are never modified by rendering. A failed refresh retains the last good
+snapshot and displays an error in its status bar. **Refresh document preview**
+retries explicitly.
+
+Parsing is limited to 1 MiB of Markdown or 256 KiB of Org, 20,000 lines and 60,000
+bytes per line, with conservative nesting checks. Output is limited to 2 MiB,
+32,768 styled ranges, 100,000 traversal nodes and 4,096 cells per table. Deeply
+indented examples can also hit the nesting guard. Limits leave source editing
+available. Parsing runs off the UI thread; third-party parser calls themselves
+cannot be interrupted mid-call. These are input/output bounds, not fixed peak-RSS
+or hard real-time guarantees.

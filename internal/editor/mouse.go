@@ -75,6 +75,9 @@ func (a *App) editingContext(x, y int) {
 	if a.Current().Transient || a.Readonly {
 		items = []choice{{"Copy", func() { a.copy(false) }}, {"Save as", a.saveAs}, {"Close buffer", a.closeBuffer}, {"Split vertically", func() { a.split(false) }}}
 	}
+	if a.Current().Reading != nil {
+		items = append([]choice{{"Return to source", func() { a.documentPreview("", false) }}, {"Document headings", a.readingHeadings}, {"Copy document link", a.readingLinks}}, items...)
+	}
 	a.showContext(x, y, items)
 }
 func (a *App) runCommand(name string) {

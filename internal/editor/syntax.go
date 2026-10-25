@@ -22,8 +22,9 @@ type syntaxJob struct {
 func (a *App) services() {
 	a.syncLanguage()
 	a.autoCompletion()
+	a.refreshReading()
 	b := a.Current()
-	if !a.Config.Syntax || b.Doc.Text.Len() > a.Config.ServiceMaxBytes {
+	if b.Transient || !a.Config.Syntax || b.Doc.Text.Len() > a.Config.ServiceMaxBytes {
 		return
 	}
 	job := syntaxJob{b, b.Doc.Version, b.Doc.Text, b.File.Path, a.Config.Theme}
