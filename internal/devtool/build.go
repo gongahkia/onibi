@@ -84,7 +84,7 @@ func (t *Tool) build(ctx context.Context, afterPublish func(version, commit stri
 	if err := t.prepare(); err != nil {
 		return err
 	}
-	t.UI.Banner("BUILD / native Ghostty cockpit")
+	t.UI.Section("BUILD / native Ghostty cockpit")
 	version, commit := t.revision(ctx)
 	t.UI.Field("Revision", version+" / "+commit)
 	if runtime.GOOS == "darwin" {
@@ -110,7 +110,7 @@ func (t *Tool) build(ctx context.Context, afterPublish func(version, commit stri
 		return err
 	}
 	defer log.Close()
-	t.UI.Field("Build log", logPath)
+	t.UI.Field("Build log", "./bin/build.log")
 	flags := "-s -w -X github.com/gongahkia/onibi/internal/buildinfo.Version=" + version + " -X github.com/gongahkia/onibi/internal/buildinfo.Commit=" + commit + " -X github.com/gongahkia/onibi/internal/buildinfo.Date=" + time.Now().UTC().Format(time.RFC3339)
 	env := []string{}
 	if runtime.GOOS == "darwin" {

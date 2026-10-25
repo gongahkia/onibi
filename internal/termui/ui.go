@@ -19,12 +19,14 @@ type UI struct {
 	Out         io.Writer
 	Interactive bool
 	ASCII       bool
+	NoStyle     bool
+	bannerShown bool
 	width       int
 	mu          sync.Mutex
 }
 
 func New(out io.Writer) *UI {
-	u := &UI{Out: out, width: 80}
+	u := &UI{Out: out, width: 80, NoStyle: os.Getenv("NO_COLOR") != ""}
 	if file, ok := out.(*os.File); ok {
 		size, err := unix.IoctlGetWinsize(int(file.Fd()), unix.TIOCGWINSZ)
 		u.Interactive = err == nil && os.Getenv("TERM") != "dumb" && os.Getenv("CI") == "" && os.Getenv("ONIBI_PLAIN") == ""
@@ -73,28 +75,74 @@ func (u *UI) columns() int {
 	}
 	return u.width
 }
+func (u *UI) lineLocked(format string, args ...any) { fmt.Fprintf(u.Out, format+"\n", args...) }
 func (u *UI) Line(format string, args ...any) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
-	fmt.Fprintf(u.Out, format+"\n", args...)
+	u.lineLocked(format, args...)
 }
-func (u *UI) Banner(subtitle string) {
+
+// wrapCells keeps grapheme clusters intact and prefers word boundaries. It is
+// used only for human text; copyable pairing URLs and JSON bypass wrapping.
+func wrapCells(value string, width int) []string {
+	value = Clean(value)
+	width = max(1, width)
+	var rows []string
+	for uniseg.StringWidth(value) > width {
+		g := uniseg.NewGraphemes(value)
+		used, end, lastSpace := 0, 0, 0
+		for g.Next() {
+			if used+g.Width() > width {
+				break
+			}
+			used += g.Width()
+			_, end = g.Positions()
+			if g.Str() == " " {
+				lastSpace = end
+			}
+		}
+		if end == 0 {
+			g = uniseg.NewGraphemes(value)
+			g.Next()
+			_, end = g.Positions()
+			rows = append(rows, "?")
+			value = value[end:]
+			continue
+		}
+		if lastSpace > 0 {
+			end = lastSpace
+		}
+		rows = append(rows, strings.TrimRight(value[:end], " "))
+		value = strings.TrimLeft(value[end:], " ")
+	}
+	return append(rows, value)
+}
+func (u *UI) textLocked(value, first, rest string) {
 	if !u.Interactive {
-		u.Line("Onibi / %s", Clean(subtitle))
+		u.lineLocked("%s%s", first, Clean(value))
 		return
 	}
-	u.Line("")
-	if u.columns() >= 42 {
-		for _, line := range []string{`   ___  _  _ ___ ___ ___`, `  / _ \| \| |_ _| _ )_ _|`, " | (_) | .` || || _ \\| |", `  \___/|_|\_|___|___/___|`} {
-			u.Line("%s", line)
+	width := max(1, u.columns()-1-max(uniseg.StringWidth(first), uniseg.StringWidth(rest)))
+	for i, row := range wrapCells(value, width) {
+		prefix := rest
+		if i == 0 {
+			prefix = first
 		}
-	} else {
-		u.Line(" ONIBI")
+		u.lineLocked("%s%s", prefix, row)
 	}
-	u.Line("  %s\n", clip(subtitle, u.columns()-3))
 }
-func (u *UI) Field(label, value string) { u.Line("  %-12s %s", label, Clean(value)) }
-func (u *UI) Note(value string)         { u.Line("  %s", Clean(value)) }
+func (u *UI) Field(label, value string) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	prefix := fmt.Sprintf("  %-12s ", Clean(label))
+	if u.Interactive && u.columns() < 48 {
+		u.textLocked(label, "  ", "  ")
+		u.textLocked(value, "    ", "    ")
+		return
+	}
+	u.textLocked(value, prefix, strings.Repeat(" ", uniseg.StringWidth(prefix)))
+}
+func (u *UI) Note(value string) { u.mu.Lock(); defer u.mu.Unlock(); u.textLocked(value, "  ", "  ") }
 
 // Step uses an indeterminate rattle: elapsed time and actual operation details,
 // never an invented completion percentage. The task owns cancellation.
