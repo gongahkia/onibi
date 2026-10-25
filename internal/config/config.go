@@ -13,6 +13,7 @@ type Server struct {
 	Language string   `json:"language"`
 }
 type Config struct {
+	AutoComplete     bool                `json:"auto_complete"`
 	Tasks            map[string][]string `json:"tasks"`
 	Recovery         bool                `json:"recovery"`
 	RecoveryMaxBytes int                 `json:"recovery_max_bytes"`
@@ -31,7 +32,7 @@ type Config struct {
 }
 
 func Default() Config {
-	return Config{Tasks: map[string][]string{}, Recovery: true, RecoveryMaxBytes: 8 << 20, Keybindings: map[string]string{}, TabSize: 4, InsertSpaces: true, AutoIndent: true, Mouse: true, Syntax: true, LSP: true, Theme: "dark", ServiceMaxBytes: 1 << 20, MaxFileMiB: 256, Servers: map[string]Server{}}
+	return Config{AutoComplete: true, Tasks: map[string][]string{}, Recovery: true, RecoveryMaxBytes: 8 << 20, Keybindings: map[string]string{}, TabSize: 4, InsertSpaces: true, AutoIndent: true, Mouse: true, Syntax: true, LSP: true, Theme: "dark", ServiceMaxBytes: 1 << 20, MaxFileMiB: 256, Servers: map[string]Server{}}
 }
 func Path() string {
 	base := os.Getenv("XDG_CONFIG_HOME")

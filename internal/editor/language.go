@@ -223,10 +223,13 @@ func (a *App) diagnosticPicker() {
 }
 func (a *App) languageRequest(kind string) { a.languageRequestWith(kind, nil) }
 func (a *App) languageRequestWith(kind string, extra map[string]any) {
+	automatic := a.completionAutomatic
 	b := a.Current()
 	client := a.languageClient(b)
 	if client == nil {
-		a.Status = b.LanguageStatus
+		if !automatic {
+			a.Status = b.LanguageStatus
+		}
 		return
 	}
 	if a.languageBusy {
@@ -234,6 +237,9 @@ func (a *App) languageRequestWith(kind string, extra map[string]any) {
 		return
 	}
 	a.languageBusy = true
+	if kind == "completion" {
+		a.wantCompletion = false
+	}
 	versions := map[*Buffer]uint64{}
 	type syncItem struct {
 		uri, language, source string
@@ -252,7 +258,9 @@ func (a *App) languageRequestWith(kind string, extra map[string]any) {
 	uri := lsp.URI(b.File.Path)
 	language := b.LanguageID
 	tabSize, spaces := a.Config.TabSize, a.Config.InsertSpaces
-	a.Status = "Requesting " + kind + "…"
+	if !automatic {
+		a.Status = "Requesting " + kind + "…"
+	}
 	go func() {
 		source := snapshot.String()
 		err := syncWithTimeout(a.ctx, client, uri, language, source, version)
@@ -284,8 +292,13 @@ func (a *App) languageRequestWith(kind string, extra map[string]any) {
 		}
 		a.post(func() {
 			a.languageBusy = false
+			if a.wantCompletion {
+				a.schedule()
+			}
 			if b != a.Current() || b.Doc.Version != version || b.Doc.Selections[0].Head != caret || lsp.URI(b.File.Path) != uri {
-				a.Status = "Discarded outdated language result"
+				if !automatic {
+					a.Status = "Discarded outdated language result"
+				}
 				return
 			}
 			if err != nil {
@@ -294,6 +307,9 @@ func (a *App) languageRequestWith(kind string, extra map[string]any) {
 			}
 			switch kind {
 			case "completion":
+				if a.Dialog != nil || a.Preview != nil {
+					return
+				}
 				a.completions(b, version, caret, source, result)
 			case "definition", "references", "implementation", "typeDefinition":
 				a.definitions(result)
@@ -411,7 +427,8 @@ func (a *App) completions(b *Buffer, version uint64, caret int, source string, r
 		a.Status = "No completions at this position"
 		return
 	}
-	a.list("Completions · type to filter", choices)
+	a.list("Completions", choices)
+	a.Dialog.Inline = true
 }
 func (a *App) definitions(result json.RawMessage) {
 	var locations []lsp.Location

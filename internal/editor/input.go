@@ -65,13 +65,22 @@ func (a *App) Handle(event tcell.Event) {
 			return
 		}
 		if a.Dialog != nil {
-			a.dialogKey(ev)
-			return
+			if a.Dialog.Inline {
+				if a.completionKey(ev) {
+					return
+				}
+			} else {
+				a.dialogKey(ev)
+				return
+			}
 		}
 		a.key(ev)
 	}
 }
 func (a *App) pasteText(s string) {
+	if a.Dialog != nil && a.Dialog.Inline {
+		a.Dialog = nil
+	}
 	defer a.reveal()
 	if !utf8.ValidString(s) {
 		a.Status = "Clipboard is not UTF-8"
@@ -609,6 +618,9 @@ func (a *App) previewKey(ev *tcell.EventKey) {
 }
 func (a *App) mouse(ev *tcell.EventMouse) {
 	a.snippet = nil
+	if a.Dialog != nil && a.Dialog.Inline {
+		a.Dialog = nil
+	}
 	if a.Dialog != nil || a.Preview != nil {
 		return
 	}

@@ -45,6 +45,7 @@ type choice struct {
 	Run   func()
 }
 type dialog struct {
+	Inline        bool
 	Title, Input  string
 	Cursor, Index int
 	Items         []choice
@@ -63,66 +64,67 @@ type preview struct {
 	Index                 int
 }
 type App struct {
-	snippet                     *snippetState
-	taskCancel                  context.CancelFunc
-	taskSeq                     uint64
-	taskBuffer                  *Buffer
-	taskRoot                    string
-	bindings                    map[string]func()
-	indexMode                   string
-	workspaceSeq                uint64
-	workspaceCancel             context.CancelFunc
-	batch                       *workspaceBatch
-	jumps                       []jump
-	jumpIndex                   int
-	panes                       []pane
-	focus                       int
-	horizontal, wrap            bool
-	recoveryBusy, recoveryDirty bool
-	recovery                    *recovery.Store
-	recoverable                 []*recovery.Entry
-	recoveryTimer               *time.Timer
-	recoveryC                   <-chan time.Time
-	recoverySeq                 uint64
-	typingDoc                   *text.Document
-	typingVersion               uint64
-	typingHead                  int
-	typingTime                  time.Time
-	languages                   map[string]*languageState
-	languageBusy                bool
-	Screen                      tcell.Screen
-	Config                      config.Config
-	Buffers                     []*Buffer
-	Active                      int
-	Root                        string
-	Readonly                    bool
-	Status                      string
-	Commands                    []command
-	Dialog                      *dialog
-	Preview                     *preview
-	Query                       string
-	Regex                       bool
-	Matches                     []text.Edit
-	matchVersion                uint64
-	matchBuffer                 *Buffer
-	Files                       []string
-	clipboard                   string
-	clipboardRequested          bool
-	clipboardTarget             *Buffer
-	clipboardVersion            uint64
-	clipboardSelections         []text.Selection
-	pasteOverflow               bool
-	paste                       strings.Builder
-	pasting                     bool
-	dragging                    bool
-	quit                        bool
-	ctx                         context.Context
-	cancel                      context.CancelFunc
-	updates                     chan func()
-	syntaxJobs                  chan syntaxJob
-	serviceTimer                *time.Timer
-	serviceC                    <-chan time.Time
-	searchCancel                context.CancelFunc
+	wantCompletion, completionAutomatic bool
+	snippet                             *snippetState
+	taskCancel                          context.CancelFunc
+	taskSeq                             uint64
+	taskBuffer                          *Buffer
+	taskRoot                            string
+	bindings                            map[string]func()
+	indexMode                           string
+	workspaceSeq                        uint64
+	workspaceCancel                     context.CancelFunc
+	batch                               *workspaceBatch
+	jumps                               []jump
+	jumpIndex                           int
+	panes                               []pane
+	focus                               int
+	horizontal, wrap                    bool
+	recoveryBusy, recoveryDirty         bool
+	recovery                            *recovery.Store
+	recoverable                         []*recovery.Entry
+	recoveryTimer                       *time.Timer
+	recoveryC                           <-chan time.Time
+	recoverySeq                         uint64
+	typingDoc                           *text.Document
+	typingVersion                       uint64
+	typingHead                          int
+	typingTime                          time.Time
+	languages                           map[string]*languageState
+	languageBusy                        bool
+	Screen                              tcell.Screen
+	Config                              config.Config
+	Buffers                             []*Buffer
+	Active                              int
+	Root                                string
+	Readonly                            bool
+	Status                              string
+	Commands                            []command
+	Dialog                              *dialog
+	Preview                             *preview
+	Query                               string
+	Regex                               bool
+	Matches                             []text.Edit
+	matchVersion                        uint64
+	matchBuffer                         *Buffer
+	Files                               []string
+	clipboard                           string
+	clipboardRequested                  bool
+	clipboardTarget                     *Buffer
+	clipboardVersion                    uint64
+	clipboardSelections                 []text.Selection
+	pasteOverflow                       bool
+	paste                               strings.Builder
+	pasting                             bool
+	dragging                            bool
+	quit                                bool
+	ctx                                 context.Context
+	cancel                              context.CancelFunc
+	updates                             chan func()
+	syntaxJobs                          chan syntaxJob
+	serviceTimer                        *time.Timer
+	serviceC                            <-chan time.Time
+	searchCancel                        context.CancelFunc
 }
 
 func New(screen tcell.Screen, cfg config.Config, paths []string, readonly bool) (*App, error) {
@@ -309,6 +311,7 @@ func (a *App) insert(s string) {
 	}
 	a.typingDoc = nil
 	if typing {
+		a.wantCompletion = true
 		a.typingDoc = d
 		a.typingVersion = d.Version
 		a.typingHead = d.Selections[0].Head

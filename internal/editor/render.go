@@ -116,7 +116,11 @@ func (a *App) draw() {
 	a.put(0, h-1, w, a.Status, p.dim)
 
 	if a.Dialog != nil {
-		a.drawDialog(p)
+		if a.Dialog.Inline {
+			a.drawCompletion(p)
+		} else {
+			a.drawDialog(p)
+		}
 	}
 	if a.Preview != nil {
 		a.drawPreview(p)
@@ -232,7 +236,7 @@ func (a *App) drawPane(index int, p palette) {
 			}
 			col += cw
 		}
-		if active && a.Dialog == nil && a.Preview == nil {
+		if active && (a.Dialog == nil || a.Dialog.Inline) && a.Preview == nil {
 			pos := d.Selections[0].Head
 			last := seg.End == d.Text.LineEnd(line)
 			if pos >= seg.Start && (pos < seg.End || (last && pos == seg.End)) && d.Text.LineAt(pos) == line {
