@@ -9,7 +9,7 @@ import (
 )
 
 func TestSourceLauncherBannerPrecedesCompilerAndRunHandoff(t *testing.T) {
-	for _, operation := range []string{"build", "run"} {
+	for _, operation := range []string{"build", "run", "build run"} {
 		for _, fail := range []bool{false, true} {
 			t.Run(operation+map[bool]string{true: "-failure", false: "-success"}[fail], func(t *testing.T) {
 				root := filepath.Join(t.TempDir(), "source checkout")
@@ -27,6 +27,13 @@ func TestSourceLauncherBannerPrecedesCompilerAndRunHandoff(t *testing.T) {
 						t.Fatal(err)
 					}
 				}
+				rawMake, err := os.ReadFile(filepath.Join("..", "..", "Makefile"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(root, "Makefile"), rawMake, 0600); err != nil {
+					t.Fatal(err)
+				}
 				compiler := "#!/bin/sh\nprintf '[compiler] %s\\n' \"$*\"\n"
 				if fail {
 					compiler += "exit 23\n"
@@ -37,7 +44,8 @@ func TestSourceLauncherBannerPrecedesCompilerAndRunHandoff(t *testing.T) {
 				if err := os.WriteFile(filepath.Join(root, "bin", "onibi"), []byte("#!/bin/sh\nprintf '[server handoff] %s\\n' \"$*\"\n"), 0700); err != nil {
 					t.Fatal(err)
 				}
-				cmd := exec.CommandContext(t.Context(), "/bin/sh", filepath.Join(root, "scripts", "onibi-dev.sh"), operation, "--verbose")
+				args := append([]string{"--no-print-directory", "-j2", "-C", root, "VERBOSE=1"}, strings.Fields(operation)...)
+				cmd := exec.CommandContext(t.Context(), "make", args...)
 				cmd.Env = append(os.Environ(), "CI=1", "PATH="+filepath.Join(root, "tools")+":"+os.Getenv("PATH"))
 				raw, err := cmd.CombinedOutput()
 				output := string(raw)
@@ -48,12 +56,12 @@ func TestSourceLauncherBannerPrecedesCompilerAndRunHandoff(t *testing.T) {
 				if strings.Index(output, "[prepare]") > strings.Index(output, "[compiler]") {
 					t.Fatal("compiler ran before preparation output")
 				}
-				if !strings.Contains(output, "[compiler] run ./cmd/onibi-dev build --verbose") {
+				if strings.Count(output, "[compiler] run ./cmd/onibi-dev build --verbose") != 1 {
 					t.Fatalf("wrong build handoff:\n%s", output)
 				}
 				if fail {
 					exit, ok := err.(*exec.ExitError)
-					if !ok || exit.ExitCode() != 23 {
+					if !ok || exit.ExitCode() != 2 {
 						t.Fatalf("failure status lost: %v", err)
 					}
 					if strings.Contains(output, "[server handoff]") {
@@ -63,7 +71,7 @@ func TestSourceLauncherBannerPrecedesCompilerAndRunHandoff(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					if got := strings.Contains(output, "[server handoff] web --no-banner"); got != (operation == "run") {
+					if got := strings.Contains(output, "[server handoff] web --no-banner"); got != strings.Contains(operation, "run") {
 						t.Fatalf("wrong server handoff:\n%s", output)
 					}
 				}
