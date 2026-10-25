@@ -98,6 +98,7 @@ func TestSearchAnchorsCapturesAndLimits(t *testing.T) {
 }
 
 var benchmarkRopeSink Rope
+var benchmarkIntSink int
 
 func BenchmarkLargeFileEdit(b *testing.B) {
 	r := New(strings.Repeat("a reasonably ordinary line of text\n", 300000))
@@ -113,6 +114,6 @@ func BenchmarkLargeFileLineLookup(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = r.LineStart(i % 1000000)
+		benchmarkIntSink = r.LineStart(i % 1000000)
 	}
 }

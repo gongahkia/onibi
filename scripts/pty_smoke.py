@@ -2,12 +2,14 @@
 """Exercise the shipped executable through a real Unix pseudo-terminal."""
 import errno
 import fcntl
+import json
 import os
 from pathlib import Path
 import pty
 import select
 import signal
 import struct
+import subprocess
 import tempfile
 import termios
 import time
@@ -20,7 +22,9 @@ with tempfile.TemporaryDirectory(prefix='shack-pty-') as directory:
     pid, master = pty.fork()
     if pid == 0:
         env = dict(os.environ, TERM='xterm-256color')
-        os.execve(binary, [binary, '--no-config', '--no-lsp', str(target)], env)
+        command = json.loads(os.environ['SHACK_COMMAND']) if 'SHACK_COMMAND' in os.environ else [binary, '--no-config', '--no-lsp', '{file}']
+        command = [arg.replace('{file}', str(target)).replace('{directory}', directory) for arg in command]
+        os.execvpe(command[0], command, env)
     fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack('HHHH', 24, 90, 0, 0))
     captured = bytearray()
     def receive_until(needle, timeout=10):
@@ -37,6 +41,7 @@ with tempfile.TemporaryDirectory(prefix='shack-pty-') as directory:
     try:
         receive_until(b'Ctrl+E commands')
         ready_ms = (time.monotonic() - started) * 1000
+        rss_kib = int(subprocess.check_output(["ps", "-o", "rss=", "-p", str(pid)]).strip())
         os.write(master, b'\x01\x1b[200~first line\nsecond line\x1b[201~')
         time.sleep(0.1)
         os.write(master, b'\x1a\x19')  # undo entire paste, then redo
@@ -60,7 +65,8 @@ with tempfile.TemporaryDirectory(prefix='shack-pty-') as directory:
                         raise
         assert pid == 0, 'editor failed to exit'
         assert target.read_text() == 'first line\nsecond row', target.read_text()
-        print(f'PTY editing, paste undo/redo, selective preview, save and quit: PASS; first frame {ready_ms:.1f} ms')
+        memory = '' if 'SHACK_COMMAND' in os.environ else f'; RSS {rss_kib / 1024:.1f} MiB'
+        print(f'PTY editing, paste undo/redo, selective preview, save and quit: PASS; first frame {ready_ms:.1f} ms{memory}')
     finally:
         if pid:
             os.kill(pid, signal.SIGKILL)

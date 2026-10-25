@@ -1,5 +1,5 @@
 .PHONY: build test check release
-VERSION ?= 0.1.0-dev
+VERSION ?= $(shell cat VERSION)
 build:
 	CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.version=$(VERSION)" -o build/shack ./cmd/shack
 test:
