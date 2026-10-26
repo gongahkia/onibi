@@ -38,7 +38,7 @@ with tempfile.TemporaryDirectory(prefix='shack-terminal-test-') as folder:
     def wait(text):
         until(lambda: text in pane(), 'missing ' + repr(text))
     def command(value):
-        keys('C-e')
+        keys('F2')
         type_text(value)
         keys('Enter')
     def shell(value):
@@ -54,7 +54,7 @@ with tempfile.TemporaryDirectory(prefix='shack-terminal-test-') as folder:
     try:
         run('new-session', '-d', '-x', '110', '-y', '30', '-s', 'shack', binary,
             '--config', str(config), '--no-lsp', '--no-session', '--no-recovery', str(root))
-        wait('Ctrl+E commands')
+        wait('Ctrl+Shift+P commands')
         editor_pid = run('display-message', '-p', '-t', 'shack', '#{pane_pid}').stdout.decode().strip()
         def rss():
             return int(subprocess.check_output(['ps', '-o', 'rss=', '-p', editor_pid]).strip()) / 1024

@@ -37,13 +37,13 @@ with tempfile.TemporaryDirectory(prefix='shack-fold-test-') as folder:
     def wait(text):
         until(lambda: text in pane(), 'missing ' + repr(text))
     def palette(name):
-        keys('C-e')
+        keys('F2')
         type_text(name)
         keys('Enter')
     try:
         run('new-session', '-d', '-x', '110', '-y', '28', '-s', 'shack', binary,
             '--no-lsp', '--config', str(config), '--no-session', '--no-recovery', str(source))
-        wait('Ctrl+E commands')
+        wait('Ctrl+Shift+P commands')
         keys('F6')
         wait('1 collapsed regions')
         assert 'hidden 世界' not in pane()

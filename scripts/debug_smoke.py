@@ -44,7 +44,7 @@ with tempfile.TemporaryDirectory(prefix='shack-debug-test-') as folder:
     def wait(text):
         until(lambda: text in pane(), 'missing ' + repr(text))
     def command(value):
-        keys('C-e')
+        keys('F2')
         type_text(value)
         keys('Enter')
     def gone(pid):
@@ -57,7 +57,7 @@ with tempfile.TemporaryDirectory(prefix='shack-debug-test-') as folder:
     try:
         run('new-session', '-d', '-x', '120', '-y', '32', '-s', 'shack', binary,
             '--config', str(config), '--no-lsp', '--no-session', '--no-recovery', str(root), str(source))
-        wait('Ctrl+E commands')
+        wait('Ctrl+Shift+P commands')
         keys('C-g')
         type_text('5')
         keys('Enter', 'F9')

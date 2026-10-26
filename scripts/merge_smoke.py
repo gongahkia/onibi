@@ -57,9 +57,9 @@ with tempfile.TemporaryDirectory(prefix='shack-merge-test-') as folder:
     try:
         run('new-session', '-d', '-x', '120', '-y', '30', '-s', 'shack', binary,
             '--no-lsp', '--config', str(config), '--no-session', '--no-recovery', str(root), str(source))
-        wait('Ctrl+E commands')
+        wait('Ctrl+Shift+P commands')
         def palette(name):
-            keys('C-e')
+            keys('F2')
             type_text(name)
             keys('Enter')
         palette('Git merge conflicts')

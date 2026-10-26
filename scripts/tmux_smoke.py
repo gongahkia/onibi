@@ -22,7 +22,7 @@ with tempfile.TemporaryDirectory(prefix='shack-tmux-') as folder:
         run('new-session', '-d', '-x', '90', '-y', '24', '-s', 'shack', binary, '--no-config', '--no-lsp', str(path))
         for _ in range(100):
             pane = run('capture-pane', '-p', '-t', 'shack').stdout
-            if b'Ctrl+E commands' in pane:
+            if b'Ctrl+Shift+P commands' in pane:
                 break
             time.sleep(.05)
         else:

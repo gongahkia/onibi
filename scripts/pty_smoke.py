@@ -39,9 +39,36 @@ with tempfile.TemporaryDirectory(prefix='shack-pty-') as directory:
                 captured.extend(data)
         raise AssertionError(f'terminal never displayed {needle!r}: {bytes(captured[-1500:])!r}')
     try:
-        receive_until(b'Ctrl+E commands')
+        receive_until(b'Ctrl+Shift+P commands')
         ready_ms = (time.monotonic() - started) * 1000
         rss_kib = int(subprocess.check_output(["ps", "-o", "rss=", "-p", str(pid)]).strip())
+        def settle():
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline and select.select([master], [], [], .08)[0]:
+                os.read(master, 65536)
+            captured.clear()
+        # Actual terminal decoding: CSI-u and xterm modifyOtherKeys, including
+        # uppercase encodings. Legacy control bytes retain their original meaning.
+        for sequence, title in (
+            (b'\x1b[112;6u', b'Commands'),
+            (b'\x1b[80;6u', b'Commands'),
+            (b'\x1b[27;6;80~', b'Commands'),
+            (b'\x1b[104;5u', b'Help'),
+            (b'\x1b[27;5;104~', b'Help'),
+            (b'\x1bOQ', b'Commands'),
+            (b'\x1bOP', b'Help'),
+            (b'\x10', b'Project files'),
+        ):
+            settle()
+            os.write(master, sequence)
+            receive_until(title)
+            os.write(master, b'\x1b')
+            time.sleep(.1)
+        settle()
+        os.write(master, b'x\x7fy\x08\x13')
+        receive_until(b'Saved sample.txt')
+        assert target.read_text() == 'original\n', 'shortcut or Backspace changed source unexpectedly'
+        settle()
         os.write(master, b'\x01\x1b[200~first line\nsecond line\x1b[201~')
         time.sleep(0.1)
         os.write(master, b'\x1a\x19')  # undo entire paste, then redo
@@ -66,7 +93,7 @@ with tempfile.TemporaryDirectory(prefix='shack-pty-') as directory:
         assert pid == 0, 'editor failed to exit'
         assert target.read_text() == 'first line\nsecond row', target.read_text()
         memory = '' if 'SHACK_COMMAND' in os.environ else f'; RSS {rss_kib / 1024:.1f} MiB'
-        print(f'PTY editing, paste undo/redo, selective preview, save and quit: PASS; first frame {ready_ms:.1f} ms{memory}')
+        print(f'PTY palette/help protocols, Backspace, editing, paste undo/redo, selective preview, save and quit: PASS; first frame {ready_ms:.1f} ms{memory}')
     finally:
         if pid:
             os.kill(pid, signal.SIGKILL)

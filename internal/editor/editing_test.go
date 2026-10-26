@@ -5,6 +5,7 @@ import (
 	"github.com/gongahkia/shack/internal/text"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -111,5 +112,66 @@ func TestReloadIsUndoable(t *testing.T) {
 	key(a, tcell.KeyCtrlZ)
 	if a.Current().Doc.Text.String() != "before" || !a.Current().Doc.Dirty() {
 		t.Fatal("reload undo")
+	}
+}
+
+func TestPaletteAndHelpShortcuts(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		event *tcell.EventKey
+		title string
+	}{
+		{"palette lowercase", tcell.NewEventKey(tcell.KeyRune, 'p', tcell.ModCtrl|tcell.ModShift), "Commands"},
+		{"palette uppercase", tcell.NewEventKey(tcell.KeyRune, 'P', tcell.ModCtrl|tcell.ModShift), "Commands"},
+		{"palette control key", tcell.NewEventKey(tcell.KeyCtrlP, 0, tcell.ModShift), "Commands"},
+		{"palette fallback", tcell.NewEventKey(tcell.KeyF2, 0, 0), "Commands"},
+		{"file picker", tcell.NewEventKey(tcell.KeyCtrlP, 0, 0), "Project files"},
+		{"help", tcell.NewEventKey(tcell.KeyRune, 'h', tcell.ModCtrl), "Help"},
+		{"help fallback", tcell.NewEventKey(tcell.KeyF1, 0, 0), "Help"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := testApp(t)
+			a.insert("keep me")
+			a.Handle(tc.event)
+			if a.Dialog == nil || !strings.HasPrefix(a.Dialog.Title, tc.title) {
+				t.Fatalf("expected %s dialog, got %+v", tc.title, a.Dialog)
+			}
+			if a.Current().Doc.Text.String() != "keep me" {
+				t.Fatal("shortcut edited text")
+			}
+		})
+	}
+	a := testApp(t)
+	key(a, tcell.KeyCtrlE)
+	if a.Dialog != nil {
+		t.Fatal("old palette shortcut is still bound")
+	}
+	a.insert("abc")
+	key(a, tcell.KeyBackspace)
+	key(a, tcell.KeyBackspace2)
+	if a.Current().Doc.Text.String() != "a" || a.Dialog != nil {
+		t.Fatal("Backspace must still delete")
+	}
+}
+
+func TestModifiedPaletteShortcutOverrides(t *testing.T) {
+	a := testApp(t)
+	a.Config.Keybindings = map[string]string{"Ctrl+Shift+P": "", "Ctrl+H": "Command palette"}
+	if err := a.configureKeys(); err != nil {
+		t.Fatal(err)
+	}
+	for _, ev := range []*tcell.EventKey{
+		tcell.NewEventKey(tcell.KeyRune, 'p', tcell.ModCtrl|tcell.ModShift),
+		tcell.NewEventKey(tcell.KeyRune, 'P', tcell.ModCtrl|tcell.ModShift),
+		tcell.NewEventKey(tcell.KeyCtrlP, 0, tcell.ModShift),
+	} {
+		a.Handle(ev)
+		if a.Dialog != nil {
+			t.Fatal("disabled palette shortcut ran")
+		}
+	}
+	key(a, tcell.KeyCtrlH)
+	if a.Dialog == nil || !strings.HasPrefix(a.Dialog.Title, "Commands") {
+		t.Fatal("help override ignored")
 	}
 }

@@ -70,11 +70,11 @@ with tempfile.TemporaryDirectory(prefix='shack-unicode-') as directory:
         resize(100, 30)
         output = bytearray()
         deadline = time.monotonic() + 10
-        while b'Ctrl+E commands' not in output and time.monotonic() < deadline:
+        while b'Ctrl+Shift+P commands' not in output and time.monotonic() < deadline:
             output.extend(drain(.1))
-        assert b'Ctrl+E commands' in output, 'startup did not complete'
+        assert b'Ctrl+Shift+P commands' in output, 'startup did not complete'
         jump_ms, _ = exchange(b'\x1b[F')  # End: first distant Unicode index.
-        exchange(b'\x05Toggle soft wrapping\r')
+        exchange(b'\x1bOQToggle soft wrapping\r')
         exchange(b'\x7f\x7f\x7f')  # flag, ZWJ emoji, then combining-accent cluster
         save(original[:-len(tail)])
         exchange(b'\x1a\x1a\x1a')

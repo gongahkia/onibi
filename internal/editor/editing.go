@@ -11,6 +11,21 @@ import (
 	"unicode/utf8"
 )
 
+// Terminals can encode Ctrl+Shift letters using either letter case. Match
+// configured bindings consistently with parseKey's lowercase base characters.
+func bindingName(ev *tcell.EventKey) string {
+	if ev.Modifiers()&tcell.ModCtrl != 0 || ev.Key() >= tcell.KeyCtrlA && ev.Key() <= tcell.KeyCtrlZ {
+		r := ev.Rune()
+		if ev.Key() >= tcell.KeyCtrlA && ev.Key() <= tcell.KeyCtrlZ {
+			r = 'a' + rune(ev.Key()-tcell.KeyCtrlA)
+		}
+		if unicode.IsLetter(r) {
+			return tcell.NewEventKey(tcell.KeyRune, unicode.ToLower(r), ev.Modifiers()|tcell.ModCtrl).Name()
+		}
+	}
+	return ev.Name()
+}
+
 func parseKey(value string) (string, error) {
 	parts := strings.Split(value, "+")
 	var mod tcell.ModMask

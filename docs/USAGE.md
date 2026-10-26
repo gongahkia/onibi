@@ -3,8 +3,8 @@
 **Atomweight Terminal Text Editor IDE with Sensible Day 1 Defaults**
 
 Shack is a nonmodal terminal editor for macOS and Linux. Type to insert text;
-use arrows, Shift+arrows, or the mouse to select. `Ctrl+E` opens searchable
-commands and `F1` opens the same command reference with shortcuts.
+use arrows, Shift+arrows, or the mouse to select. `Ctrl+Shift+P` opens searchable
+commands and `Ctrl+H` opens the same command reference with shortcuts.
 
 This is the second development milestone, `0.2.0-dev`. Features below are implemented;
 remaining limitations are listed explicitly. It is not a published stable release.
@@ -53,7 +53,7 @@ No public release or download URL is assumed to exist yet.
 | --- | --- |
 | Save / new buffer / close buffer / quit | Ctrl+S / Ctrl+N / Ctrl+W / Ctrl+Q |
 | Open path / find project file | Ctrl+O / Ctrl+P |
-| Commands / help | Ctrl+E or F2 / F1 |
+| Commands / help | Ctrl+Shift+P or F2 / Ctrl+H or F1 |
 | Find / preview replacement / next match | Ctrl+F / Ctrl+R / F3 or Alt+F |
 | Select all matches / next occurrence | Alt+A / Ctrl+D |
 | Select all text | Ctrl+A |
@@ -71,6 +71,10 @@ No public release or download URL is assumed to exist yet.
 | Debug start/continue / breakpoint | F5 / F9 |
 | Debug step over / into / out | F10 / F11 / Shift+F11 |
 | Debug stop or detach | Shift+F5 |
+
+Ctrl+Shift+P and Ctrl+H require distinguishable terminal key events. Older terminal
+protocols may report them as Ctrl+P and Backspace respectively; use F2 for commands
+and F1 for help in that case. Backspace continues to delete text.
 
 Some terminals intercept shortcuts, particularly Command keys on macOS and
 Ctrl+Space. Every editing command with a terminal-sensitive shortcut is also

@@ -69,7 +69,7 @@ while True:
     try:
         run('new-session', '-d', '-x', '120', '-y', '30', '-s', 'shack', binary,
             '--config', str(config), '--no-session', '--no-recovery', str(root), str(source))
-        wait('Ctrl+E commands')
+        wait('Ctrl+Shift+P commands')
         until(lambda: (root / 'ready').exists(), 'LSP document did not synchronize')
         keys('End', 'C-Space')
         wait('Rich snippet')

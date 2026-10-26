@@ -76,7 +76,8 @@ func (a *App) registerCommands() {
 				a.Config.Theme = "dark"
 			}
 		}},
-		{"Help / keyboard shortcuts", "F1", a.help},
+		{"Command palette", "Ctrl+Shift+P / F2", a.palette},
+		{"Help / keyboard shortcuts", "Ctrl+H / F1", a.help},
 	}
 }
 func sortLines(s string, unique bool) string {

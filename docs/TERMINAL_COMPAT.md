@@ -35,8 +35,10 @@ of the shell and a foreground process when Shack exits.
 
 ## Practical controls
 
-- Use Ctrl+E for commands when a terminal cannot transmit a function key or a
-  shortcut is intercepted. In tmux, Ctrl+B is normally the tmux prefix; use the
+- Ctrl+Shift+P opens commands; Ctrl+H opens help. These require a terminal
+  protocol that distinguishes modified keys. Legacy protocols can report them
+  as Ctrl+P and Backspace; F2 and F1 remain the respective fallbacks. Check
+  extended-key forwarding when using tmux. In tmux, Ctrl+B is normally the prefix; use the
   **Toggle file tree** command or a configured alternative binding.
 - Copy always updates Shack's internal clipboard. **Paste Shack internal
   clipboard** works even when OSC 52 is unavailable or blocked. Native terminal

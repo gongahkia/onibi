@@ -84,10 +84,10 @@ while True:
     try:
         run('new-session', '-d', '-x', '120', '-y', '30', '-s', 'shack', binary,
             '--config', str(config), '--no-session', '--no-recovery', str(root), str(source))
-        wait('Ctrl+E commands')
+        wait('Ctrl+Shift+P commands')
         until(lambda: (root / 'ready').exists(), 'LSP document did not synchronize')
         def palette(name):
-            keys('C-e')
+            keys('F2')
             type_text(name)
             keys('Enter')
         palette('Code actions')

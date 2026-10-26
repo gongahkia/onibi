@@ -71,7 +71,7 @@ class Session:
             self.output.clear()
         os.write(self.fd, data.encode() if isinstance(data, str) else data)
     def command(self, name):
-        self.send('\x05' + name + '\r')
+        self.send('\x1bOQ' + name + '\r')
     def save(self, path, expected):
         self.send('\x13')
         self.until(lambda: path.read_text() == expected, 'saved text differs')
@@ -175,7 +175,7 @@ with tempfile.TemporaryDirectory(prefix='shack-ssh-') as folder:
                 remote = shlex.join([tmux, '-S', sock, '-f', str(tmux_config), 'new-session', '-s', 'shack', remote])
             session = Session(ssh + [remote], 'xterm-256color' if nested else profile)
             try:
-                session.wait('Ctrl+E commands')
+                session.wait('Ctrl+Shift+P commands')
                 if index == 0:
                     session.benchmark()
                 # All profiles get Unicode insertion, whole-grapheme deletion and undo.
@@ -248,7 +248,7 @@ with tempfile.TemporaryDirectory(prefix='shack-ssh-') as folder:
         session = Session(ssh + [remote], 'xterm-256color')
         children = []
         try:
-            session.wait('Ctrl+E commands')
+            session.wait('Ctrl+Shift+P commands')
             session.command('New terminal')
             session.wait('Terminal input')
             session.send('echo $$ > shell.pid; stty size > before.size; printf "REMOTE_PTY_READY\\n"\r')

@@ -126,18 +126,25 @@ func (a *App) key(ev *tcell.EventKey) {
 			return
 		}
 		switch ev.Key() {
-		case tcell.KeyRune, tcell.KeyBackspace, tcell.KeyBackspace2, tcell.KeyDelete, tcell.KeyLeft, tcell.KeyRight, tcell.KeyUp, tcell.KeyDown, tcell.KeyHome, tcell.KeyEnd, tcell.KeyCtrlE, tcell.KeyCtrlV, tcell.KeyF2, tcell.KeyF1:
+		case tcell.KeyRune, tcell.KeyBackspace, tcell.KeyBackspace2, tcell.KeyDelete, tcell.KeyLeft, tcell.KeyRight, tcell.KeyUp, tcell.KeyDown, tcell.KeyHome, tcell.KeyEnd, tcell.KeyCtrlH, tcell.KeyCtrlV, tcell.KeyF2, tcell.KeyF1:
 		default:
 			a.snippet = nil
 		}
 	}
-	if run, ok := a.bindings[ev.Name()]; ok {
+	if run, ok := a.bindings[bindingName(ev)]; ok {
 		a.typingDoc = nil
 		run()
 		return
 	}
 	if ev.Key() != tcell.KeyRune || ev.Modifiers()&(tcell.ModCtrl|tcell.ModAlt) != 0 {
 		a.typingDoc = nil
+	}
+	// Extended keyboard protocols preserve Ctrl+Shift+P as a rune and modifiers.
+	// Some event sources report the corresponding control key instead.
+	if ev.Modifiers()&tcell.ModShift != 0 && ev.Modifiers()&tcell.ModAlt == 0 &&
+		(ev.Key() == tcell.KeyCtrlP || ev.Key() == tcell.KeyRune && ev.Modifiers()&tcell.ModCtrl != 0 && unicode.ToLower(ev.Rune()) == 'p') {
+		a.palette()
+		return
 	}
 	if a.languageKey(ev.Key()) {
 		return
@@ -238,9 +245,9 @@ func (a *App) key(ev *tcell.EventKey) {
 		a.closeBuffer()
 	case tcell.KeyCtrlP:
 		a.filePicker()
-	case tcell.KeyCtrlE, tcell.KeyF2:
+	case tcell.KeyF2:
 		a.palette()
-	case tcell.KeyF1:
+	case tcell.KeyCtrlH, tcell.KeyF1:
 		a.help()
 	case tcell.KeyCtrlF:
 		a.findPrompt()
