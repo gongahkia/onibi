@@ -1,0 +1,5 @@
+flowchart TD
+    A{Frontmatter?} -->|ja| B[Metadaten lesen]
+    A -->|nein| C[Erste Ueberschrift]
+    B --> D[Titelblock]
+    C --> D

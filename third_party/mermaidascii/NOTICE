@@ -1,0 +1,45 @@
+mermaidascii
+============
+
+A Go library that renders Mermaid diagrams as ASCII or Unicode box drawings.
+
+Provenance
+----------
+
+This library is a port. Its ancestry, oldest first:
+
+1. mermaid-ascii — https://github.com/AlexanderGrooff/mermaid-ascii
+   Copyright (c) 2023 Alexander Grooff, MIT License.
+   The original renderer, written in Go. Introduced the grid layout and the
+   edge drawing approach that everything below still builds on.
+
+2. beautiful-mermaid — https://github.com/lukilabs/beautiful-mermaid
+   Copyright (c) 2026 Craft Docs, MIT License.
+   Ported mermaid-ascii from Go to TypeScript and extended it with sequence,
+   class and ER diagrams, Unicode box-drawing characters, node shapes and
+   configurable spacing.
+
+3. this library
+   Copyright (c) 2026 core.equip, MIT License.
+   Ports the ASCII renderer of beautiful-mermaid back to Go, as a library
+   with no dependencies outside the standard library.
+
+Why a third implementation
+--------------------------
+
+mermaid-ascii is a command line tool, not a library: its core lives in
+package `cmd` alongside cobra, logrus and a gin web server. Importing its
+one exported entry point, `cmd.DiagramFactory`, grows a Go binary from
+1.1 MB to 12 MB. It also parses node shapes incorrectly — `B{Decision}`
+becomes two nodes rather than one diamond, and `([stadium])`, `[(cylinder)]`
+and `{{hexagon}}` keep their raw brackets.
+
+beautiful-mermaid gets those right, but it is TypeScript, and calling it
+from Go would mean shipping a JavaScript runtime.
+
+Hence this: the shapes and layout of beautiful-mermaid, in Go, importable,
+with the standard library as its only dependency.
+
+Thanks to Alexander Grooff for the foundation and to Craft Docs for the
+shapes. Sequence diagram arrow placement follows mermaid-ascii, which
+handles it more carefully than the TypeScript port.
