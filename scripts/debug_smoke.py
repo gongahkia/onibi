@@ -12,6 +12,10 @@ tmux = os.environ.get('TMUX_BINARY') or shutil.which('tmux')
 python = os.environ.get('SHACK_DEBUGPY_PYTHON')
 if not tmux or not python:
     raise SystemExit('requires tmux and SHACK_DEBUGPY_PYTHON pointing to a Python with debugpy')
+# Preserve virtual-environment symlinks: resolving bin/python selects the base
+# interpreter and loses the environment's installed debugpy package.
+python = os.path.abspath(python)
+subprocess.run([python, '-c', 'import debugpy'], check=True, timeout=15)
 binary = str(Path(os.environ.get('SHACK_BINARY', 'build/shack')).resolve())
 with tempfile.TemporaryDirectory(prefix='shack-debug-test-') as folder:
     root = Path(folder)
@@ -91,6 +95,17 @@ with tempfile.TemporaryDirectory(prefix='shack-debug-test-') as folder:
         until(lambda: gone(target), 'launched target survived debugger stop')
         keys('C-q')
         print('tmux DAP launch, gutter breakpoint, locals, evaluation, step, pause and target cleanup: PASS')
+    except Exception:
+        # Preserve adapter stderr in failures, not just the editor's EOF status.
+        command('Debug output')
+        for _ in range(30):
+            if 'Debug output' in pane():
+                break
+            time.sleep(.04)
+        print('Adapter output on failure:\n' + pane(), flush=True)
+        if target is None and (root / 'debug.pid').exists():
+            target = int((root / 'debug.pid').read_text())
+        raise
     finally:
         subprocess.run(base + ['kill-server'], capture_output=True)
         if target and not gone(target):

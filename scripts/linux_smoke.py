@@ -23,7 +23,8 @@ with tempfile.TemporaryDirectory(prefix='shack-container-') as directory:
         command = ['docker', 'run', '--rm', '--name', name, '--network', 'none', '--memory', '64m', '--cpus', '0.5', '-it', '-e', 'TERM=xterm-256color', '-e', 'LANG=C.UTF-8', '--mount', 'type=bind,source={directory},target=/work', '-w', '/work', name, '/shack', '--no-config', '--no-lsp', '/work/sample.txt']
         env = dict(os.environ, SHACK_COMMAND=json.dumps(command))
         subprocess.run([sys.executable, str(root / 'scripts/pty_smoke.py')], env=env, check=True)
-        print('Linux scratch container, 64 MiB memory, 0.5 CPU, no network or installed runtime: PASS')
+        subprocess.run([sys.executable, str(root / 'scripts/unicode_smoke.py')], env=env, check=True)
+        print('Linux scratch container: basic and 1 MiB Unicode editing, 64 MiB memory, 0.5 CPU, no network or installed runtime: PASS')
     finally:
         subprocess.run(['docker', 'rm', '-f', name], capture_output=True)
         subprocess.run(['docker', 'image', 'rm', name], capture_output=True)
