@@ -323,42 +323,10 @@ func (a *App) cycle(delta int) {
 	a.schedule()
 }
 func previous(r text.Rope, p int) int {
-	if p > 0 && r.Plain(p-1, p) {
-		return p - 1
-	}
-	if p <= 0 {
-		return 0
-	}
-	line := r.LineAt(p)
-	start := r.LineStart(line)
-	if p == start {
-		if p >= 2 && r.Slice(p-2, p) == "\r\n" {
-			return p - 2
-		}
-		return p - 1
-	}
-	g := uniseg.NewGraphemes(r.Slice(start, p))
-	last := start
-	for g.Next() {
-		from, _ := g.Positions()
-		last = start + from
-	}
-	return last
+	return cursorBoundary(r, p, false, func(line int) *lineLayout { return uncachedLayout(r, line) })
 }
 func next(r text.Rope, p int) int {
-	if p < r.Len() && r.Plain(p, min(r.Len(), p+2)) {
-		return p + 1
-	}
-	if p >= r.Len() {
-		return r.Len()
-	}
-	end := r.LineStart(r.LineAt(p) + 1)
-	g := uniseg.NewGraphemes(r.Slice(p, end))
-	if g.Next() {
-		_, to := g.Positions()
-		return p + to
-	}
-	return min(r.Len(), p+1)
+	return cursorBoundary(r, p, true, func(line int) *lineLayout { return uncachedLayout(r, line) })
 }
 func visualColumn(s string, tab int) int {
 	col := 0
@@ -408,16 +376,16 @@ func (a *App) move(dx, dy int, extend bool) {
 					p = s.End()
 				}
 			} else if dx < 0 {
-				p = previous(r, p)
+				p = a.previous(a.Current(), p)
 			} else {
-				p = next(r, p)
+				p = a.next(a.Current(), p)
 			}
 		}
 		if dy != 0 {
 			line := r.LineAt(p)
-			col := columnAt(r, p, a.Config.TabSize)
+			col := a.columnAt(a.Current(), p)
 			target := a.stepVisible(line, dy)
-			p = lineOffset(r, target, col, a.Config.TabSize)
+			p = a.lineOffset(a.Current(), target, col)
 		}
 		if !extend {
 			s.Anchor = p
@@ -482,9 +450,9 @@ func (a *App) delete(forward bool) {
 		lo, hi := s.Start(), s.End()
 		if lo == hi {
 			if forward {
-				hi = next(d.Text, hi)
+				hi = a.next(a.Current(), hi)
 			} else {
-				lo = previous(d.Text, lo)
+				lo = a.previous(a.Current(), lo)
 			}
 		}
 		if lo != hi {
@@ -519,7 +487,7 @@ func (a *App) wordSelection() {
 	}
 	lo, hi := s.Head, s.Head
 	for lo > 0 {
-		p := previous(d.Text, lo)
+		p := a.previous(a.Current(), lo)
 		r, _ := utf8.DecodeRuneInString(d.Text.Slice(p, lo))
 		if !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_' {
 			break
@@ -527,7 +495,7 @@ func (a *App) wordSelection() {
 		lo = p
 	}
 	for hi < d.Text.Len() {
-		p := next(d.Text, hi)
+		p := a.next(a.Current(), hi)
 		r, _ := utf8.DecodeRuneInString(d.Text.Slice(hi, p))
 		if !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_' {
 			break
@@ -696,7 +664,7 @@ func (a *App) indent(outdent bool) {
 		s := "\t"
 		if a.Config.InsertSpaces {
 			p := d.Selections[0].Head
-			col := columnAt(d.Text, p, a.Config.TabSize)
+			col := a.columnAt(a.Current(), p)
 			s = strings.Repeat(" ", a.Config.TabSize-col%a.Config.TabSize)
 		}
 		a.insert(s)

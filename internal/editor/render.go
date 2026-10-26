@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 type palette struct{ text, dim, bar, accent, selection, warning tcell.Style }
@@ -116,7 +117,7 @@ func (a *App) draw() {
 	a.drawMinimap(p)
 	pos := d.Selections[0].Head
 	line := d.Text.LineAt(pos)
-	column := columnAt(d.Text, pos, a.Config.TabSize)
+	column := a.columnAt(b, pos)
 	state := fmt.Sprintf(" Shack  %d:%d  %d selection(s)", line+1, column+1, len(d.Selections))
 	if len(b.Diagnostics) > 0 {
 		state += fmt.Sprintf("  %d diagnostics", len(b.Diagnostics))
@@ -211,7 +212,7 @@ func (a *App) drawPane(index int, p palette) {
 	a.rebaseFolds(b)
 	line, wrapRow := a.visibleStart(index, max(0, min(pane.Top, d.Text.Lines()-1))), max(0, pane.WrapTop)
 	if a.wraps(b) {
-		wrapRow = min(wrapRow, rowCount(d.Text, line, width, a.Config.TabSize)-1)
+		_, wrapRow = a.rowSegment(b, line, wrapRow, width)
 	}
 	pane.Top = line
 	pane.WrapTop = wrapRow
@@ -223,7 +224,7 @@ func (a *App) drawPane(index int, p palette) {
 	for row := 0; row < r.H && line < d.Text.Lines(); row++ {
 		seg := segment{d.Text.LineStart(line), d.Text.LineEnd(line), 0}
 		if a.wraps(b) {
-			seg = rowSegment(d.Text, line, wrapRow, width, a.Config.TabSize)
+			seg, _ = a.rowSegment(b, line, wrapRow, width)
 		}
 		if !a.wraps(b) || wrapRow == 0 {
 			a.put(r.X, r.Y+row, gutter-2, fmt.Sprintf("%*d", gutter-3, line+1), p.dim)
@@ -250,15 +251,17 @@ func (a *App) drawPane(index int, p palette) {
 			from += skip
 			col += skip
 			end = min(end, from+width)
+		} else if !a.wraps(b) && left > 0 {
+			from = a.lineOffset(b, line, left)
+			col = a.columnAt(b, from)
 		}
 		pane.Rows = append(pane.Rows, screenRow{line, seg.Start, seg.End, left})
-		value := d.Text.Slice(from, end)
-		g := uniseg.NewGraphemes(value)
-		for g.Next() {
-			offset, _ := g.Positions()
-			offset += from
-			cw := g.Width()
-			grapheme := g.Str()
+		g := newGraphemeReader(d.Text, from, end)
+		for {
+			grapheme, offset, cw, ok := g.next()
+			if !ok {
+				break
+			}
 			if grapheme == "\t" {
 				cw = a.Config.TabSize - col%a.Config.TabSize
 			}
@@ -304,9 +307,14 @@ func (a *App) drawPane(index int, p palette) {
 					}
 				}
 			} else if x >= r.X+gutter && x+cw <= r.X+r.W {
-				runes := g.Runes()
-				if len(runes) > 0 && unicode.IsControl(runes[0]) {
+				first, _ := utf8.DecodeRuneInString(grapheme)
+				if unicode.IsControl(first) {
 					grapheme = "·"
+				}
+				// A pathological combining sequence can contain megabytes in one
+				// terminal cell. Keep painting/output bounded without changing text.
+				if len(grapheme) > 256 {
+					grapheme = "�"
 				}
 				a.Screen.Put(x, r.Y+row, grapheme, style)
 			}
@@ -316,13 +324,13 @@ func (a *App) drawPane(index int, p palette) {
 			pos := d.Selections[0].Head
 			last := seg.End == d.Text.LineEnd(line)
 			if pos >= seg.Start && (pos < seg.End || (last && pos == seg.End)) && d.Text.LineAt(pos) == line {
-				cx := columnAt(d.Text, pos, a.Config.TabSize) - left
+				cx := a.columnAt(b, pos) - left
 				if cx >= 0 && cx < width {
 					a.Screen.ShowCursor(r.X+gutter+cx, r.Y+row)
 				}
 			}
 		}
-		if a.wraps(b) && wrapRow+1 < rowCount(d.Text, line, width, a.Config.TabSize) {
+		if a.wraps(b) && a.hasRow(b, line, wrapRow+1, width) {
 			wrapRow++
 		} else {
 			line = a.nextVisible(index, line)

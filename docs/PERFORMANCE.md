@@ -223,3 +223,49 @@ The same harness verifies eight TERM profiles, real tmux-over-SSH and an embedde
 shell/Vim workflow with resize and process cleanup. See TERMINAL_COMPAT.md for the
 capability matrix and clipboard restrictions. Final Unicode worst-case and release
 RSS/artifact measurements are still outstanding.
+
+
+## Unicode long-line layout indexing
+
+Intel macOS / Go 1.27, 2026-10-26, 100×30 simulated terminal. The workload is
+one line repeating CJK, combining accents, ZWJ emoji, regional-indicator flags
+and tabs, with the cursor at EOF. These are editor reveal + draw measurements,
+not terminal/network latency. Before changes, a single warmed redraw measured:
+
+| Line bytes | Unwrapped | Wrapped |
+| --- | ---: | ---: |
+| 128 KiB | 42.1 ms / 0.52 MiB allocated | 635 ms / 9.86 MiB allocated |
+| 1 MiB | 351 ms / 4.02 MiB allocated | 6,517 ms / 82.05 MiB allocated |
+
+Two subsequent ten-iteration samples measured **0.42–0.72 ms unwrapped** and
+**1.17–2.06 ms wrapped** across those sizes. At 1 MiB, allocations fell to about
+**19.5 KiB unwrapped / 247 KiB wrapped per draw**. These measurements are warm
+viewport costs; they do not conceal the cost of initially indexing distant text.
+
+A separate 928 KiB line sample measured a **26.4 ms cold jump to EOF**, **9.7 µs
+cold first-row lookup**, **11.2 µs warm previous-grapheme lookup**, and **23.5 µs
+end edit + undo / 56.4 µs middle edit + undo**, including row/column queries.
+The index benchmark now uses the same approximately 1 MiB length as the viewport
+benchmark; rerun it when comparing exact values. Cold distant navigation and a
+single extremely long combining sequence still require scanning their text.
+
+The UI now shares a lazy grapheme/column/wrap index, limited to 16 line/width
+entries with at most 2,048 checkpoints each (1.25 MiB of checkpoint storage on
+64-bit hosts, plus small entry/slice overhead). Sparse checkpoints compact for
+very long lines. Edits preserve only verified unchanged prefixes; skipped
+versions and replaced documents discard stale indexes. ASCII arithmetic remains
+available without indexing. Readers use small windows and extend lookahead at
+cluster boundaries, instead of copying a whole line for each visible row.
+Painting replaces any individual cluster longer than 256 UTF-8 bytes with `�`;
+the original text, selection offsets, copying and saving remain intact.
+
+Coverage includes forward/backward cursor boundaries (including Unicode Prepend
+characters), tabs, CRLF, chunk-spanning ZWJ/flag/combining sequences, edit/undo,
+cache compaction/eviction and random edits. `make check` passed; a 20-second
+layout fuzz run completed 46,633 cases. Final executable/resource and real PTY
+checks remain outstanding.
+
+```sh
+go test ./internal/editor -run '^$' -bench 'BenchmarkUnicodeLongLine(Index|Viewport)' -benchmem
+go test ./internal/editor -run '^$' -fuzz '^FuzzLineLayout$' -fuzztime=20s
+```

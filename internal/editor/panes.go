@@ -224,7 +224,7 @@ func (a *App) reveal() {
 	p := b.Doc.Selections[0].Head
 	line := b.Doc.Text.LineAt(p)
 	width := a.contentWidth(b, r)
-	column := columnAt(b.Doc.Text, p, a.Config.TabSize)
+	column := a.columnAt(b, p)
 	if !a.wraps(b) {
 		if line < b.Top {
 			b.Top = line
@@ -248,7 +248,7 @@ func (a *App) reveal() {
 		return
 	}
 	b.Left = 0
-	row := rowAt(b.Doc.Text, line, p, width, a.Config.TabSize)
+	row := a.rowAt(b, line, p, width)
 	if line < b.Top || (line == b.Top && row < b.WrapTop) {
 		b.Top = line
 		b.WrapTop = row
@@ -256,7 +256,8 @@ func (a *App) reveal() {
 	}
 	distance := row - b.WrapTop
 	for l := b.Top; l < line; l = a.nextVisible(a.focus, l) {
-		distance += rowCount(b.Doc.Text, l, width, a.Config.TabSize)
+		_, last := a.rowSegment(b, l, r.H, width)
+		distance += last + 1
 		if distance >= r.H {
 			break
 		}
@@ -274,8 +275,7 @@ func (a *App) scrollRows(delta int) {
 	}
 	width := a.contentWidth(b, a.rect(a.focus))
 	for delta > 0 {
-		n := rowCount(b.Doc.Text, b.Top, width, a.Config.TabSize)
-		if b.WrapTop+1 < n {
+		if a.hasRow(b, b.Top, b.WrapTop+1, width) {
 			b.WrapTop++
 		} else if next := a.nextVisible(a.focus, b.Top); next < b.Doc.Text.Lines() {
 			b.Top = next
@@ -288,7 +288,7 @@ func (a *App) scrollRows(delta int) {
 			b.WrapTop--
 		} else if b.Top > 0 {
 			b.Top = a.previousVisible(a.focus, b.Top)
-			b.WrapTop = rowCount(b.Doc.Text, b.Top, width, a.Config.TabSize) - 1
+			b.WrapTop = a.rowCount(b, b.Top, width) - 1
 		}
 		delta++
 	}
@@ -299,12 +299,12 @@ func (a *App) moveVisual(delta int, extend bool) {
 	width := a.contentWidth(b, a.rect(a.focus))
 	for i, s := range b.Doc.Selections {
 		line := r.LineAt(s.Head)
-		row := rowAt(r, line, s.Head, width, a.Config.TabSize)
-		seg := rowSegment(r, line, row, width, a.Config.TabSize)
-		col := columnAt(r, s.Head, a.Config.TabSize) - seg.Column
+		row := a.rowAt(b, line, s.Head, width)
+		seg, _ := a.rowSegment(b, line, row, width)
+		col := a.columnAt(b, s.Head) - seg.Column
 		steps := delta
 		for steps > 0 {
-			if row+1 < rowCount(r, line, width, a.Config.TabSize) {
+			if a.hasRow(b, line, row+1, width) {
 				row++
 			} else if next := a.nextVisible(a.focus, line); next < r.Lines() {
 				line = next
@@ -317,12 +317,12 @@ func (a *App) moveVisual(delta int, extend bool) {
 				row--
 			} else if line > 0 {
 				line = a.previousVisible(a.focus, line)
-				row = rowCount(r, line, width, a.Config.TabSize) - 1
+				row = a.rowCount(b, line, width) - 1
 			}
 			steps++
 		}
-		target := rowSegment(r, line, row, width, a.Config.TabSize)
-		p := min(target.End, lineOffset(r, line, target.Column+col, a.Config.TabSize))
+		target, _ := a.rowSegment(b, line, row, width)
+		p := min(target.End, a.lineOffset(b, line, target.Column+col))
 		s.Head = p
 		if !extend {
 			s.Anchor = p

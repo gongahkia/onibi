@@ -309,13 +309,13 @@ func (a *App) snippetDelete(forward bool) bool {
 				a.snippet = nil
 				return false
 			}
-			selection.Head = next(a.Current().Doc.Text, selection.Head)
+			selection.Head = a.next(a.Current(), selection.Head)
 		} else {
 			if selection.Head == r.Start() {
 				a.snippet = nil
 				return false
 			}
-			selection.Anchor = previous(a.Current().Doc.Text, selection.Anchor)
+			selection.Anchor = a.previous(a.Current(), selection.Anchor)
 		}
 	}
 	return a.snippetEdit("", selection)

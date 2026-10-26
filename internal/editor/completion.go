@@ -65,7 +65,7 @@ func (a *App) drawCompletion(p palette) {
 	x, y := r.X+a.gutter(), r.Y
 	for i, row := range a.panes[a.focus].Rows {
 		if caret >= row.Start && caret <= row.End {
-			x = r.X + a.gutter() + columnAt(b.Doc.Text, caret, a.Config.TabSize) - row.Column
+			x = r.X + a.gutter() + a.columnAt(b, caret) - row.Column
 			if !a.wraps(b) {
 				x -= b.Left
 			}

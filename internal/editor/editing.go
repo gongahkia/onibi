@@ -118,6 +118,9 @@ func wordClass(r rune) int {
 	return 2
 }
 func wordOffset(r text.Rope, p, delta int) int {
+	return wordOffsetWith(r, p, delta, func(p int) int { return previous(r, p) }, func(p int) int { return next(r, p) })
+}
+func wordOffsetWith(r text.Rope, p, delta int, previous, next func(int) int) int {
 	class := func(at int) int {
 		v, _ := utf8.DecodeRuneInString(r.Slice(at, min(r.Len(), at+4)))
 		return wordClass(v)
@@ -128,22 +131,22 @@ func wordOffset(r text.Rope, p, delta int) int {
 		}
 		c := class(p)
 		for p < r.Len() && class(p) == c {
-			p = next(r, p)
+			p = next(p)
 		}
 		for p < r.Len() && class(p) == 0 {
-			p = next(r, p)
+			p = next(p)
 		}
 		return p
 	}
-	for p > 0 && class(previous(r, p)) == 0 {
-		p = previous(r, p)
+	for p > 0 && class(previous(p)) == 0 {
+		p = previous(p)
 	}
 	if p == 0 {
 		return p
 	}
-	c := class(previous(r, p))
-	for p > 0 && class(previous(r, p)) == c {
-		p = previous(r, p)
+	c := class(previous(p))
+	for p > 0 && class(previous(p)) == c {
+		p = previous(p)
 	}
 	return p
 }
@@ -153,7 +156,7 @@ func (a *App) word(delta int, extend, remove bool) {
 		if remove && s.Start() != s.End() {
 			continue
 		}
-		p := wordOffset(d.Text, s.Head, delta)
+		p := wordOffsetWith(d.Text, s.Head, delta, func(p int) int { return a.previous(a.Current(), p) }, func(p int) int { return a.next(a.Current(), p) })
 		if !extend && !remove {
 			s.Anchor = p
 		}

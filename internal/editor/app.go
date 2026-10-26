@@ -78,6 +78,7 @@ type preview struct {
 	Index                 int
 }
 type App struct {
+	lineLayouts                                                layoutCache
 	foldBusy                                                   bool
 	foldPending                                                *foldJob
 	readingBusy                                                bool
@@ -556,6 +557,7 @@ func (a *App) discardBuffer() {
 		v.Session.Close()
 	}
 	a.forgetLanguage(closed)
+	a.lineLayouts.forget(a.Current())
 	a.Buffers = append(a.Buffers[:a.Active], a.Buffers[a.Active+1:]...)
 	if len(a.Buffers) == 0 {
 		a.NewBuffer()

@@ -370,7 +370,7 @@ func (a *App) mouse(ev *tcell.EventMouse) {
 		projected := pane.Rows[row]
 		gutter := len(fmt.Sprint(pane.Buffer.Doc.Text.Lines())) + 3
 		column := max(0, x-r.X-gutter) + projected.Column
-		offset = min(projected.End, lineOffset(pane.Buffer.Doc.Text, projected.Line, column, a.Config.TabSize))
+		offset = min(projected.End, a.lineOffset(pane.Buffer, projected.Line, column))
 	}
 	if target != a.focus {
 		a.focusPane(target)
