@@ -8,6 +8,8 @@ No user config, clipboard, installed files or system caches are modified.
 import errno
 import fcntl
 import json
+import hashlib
+import platform
 import os
 from pathlib import Path
 import pty
@@ -17,6 +19,7 @@ import signal
 import statistics
 import struct
 import subprocess
+import sys
 import tempfile
 import termios
 import time
@@ -40,6 +43,7 @@ def run(label, binary, kind, source):
         if label == 'Shack':
             argv = [binary, '--no-config', '--plain', '--no-session', '--no-recovery', str(target)]
         elif label == 'Micro':
+            (folder / 'micro').mkdir()
             argv = [binary, '-config-dir', str(folder / 'micro'), '-syntax', 'off',
                     '-clipboard', 'internal', '-backup', 'false', '-savehistory', 'false',
                     '-saveundo', 'false', '-eofnewline', 'false', str(target)]
@@ -85,7 +89,19 @@ def run(label, binary, kind, source):
             return delay, len(output)
 
         def rss():
-            return int(subprocess.check_output(['ps', '-o', 'rss=', '-p', str(pid)]).strip()) / 1024
+            # Neovim can split its TUI and editor into separate processes. Count
+            # the complete editor tree for every participant, not only the PTY PID.
+            rows = subprocess.check_output(['ps', '-axo', 'pid=,ppid=,rss='], text=True)
+            processes = [tuple(map(int, row.split())) for row in rows.splitlines()]
+            wanted, seen, total = [pid], set(), 0
+            while wanted:
+                current = wanted.pop()
+                if current in seen:
+                    continue
+                seen.add(current)
+                total += sum(memory for process, _, memory in processes if process == current)
+                wanted.extend(process for process, parent, _ in processes if parent == current)
+            return total / 1024, len(seen)
 
         try:
             output = bytearray()
@@ -95,7 +111,7 @@ def run(label, binary, kind, source):
             assert b'COMPARE_READY' in output, (label, kind, bytes(output[-2000:]))
             startup = (time.perf_counter_ns() - started) / 1e6
             drain(.3)
-            initial_rss = rss()
+            initial_rss, initial_processes = rss()
             modal = label in ('Vim', 'Neovim')
             if kind == 'unicode_1m':
                 seek_ms, _ = exchange(b'G$a' if modal else b'\x1b[1;5F')
@@ -109,7 +125,7 @@ def run(label, binary, kind, source):
                 delay, size = exchange(b'x')
                 delays.append(delay)
                 sizes.append(size)
-            active_rss = rss()
+            active_rss, editing_processes = rss()
             exchange(b'\x1b:w\r' if modal else b'\x13')
             expected = source + 'x' * 20 if kind == 'unicode_1m' else 'x' * 20 + source
             deadline = time.monotonic() + 5
@@ -127,6 +143,7 @@ def run(label, binary, kind, source):
                 drain(.03)
             assert pid == 0, (label, 'failed to quit')
             return dict(startup_ms=startup, initial_rss_mib=initial_rss, editing_rss_mib=active_rss,
+                        initial_processes=initial_processes, editing_processes=editing_processes,
                         first_output_ms=delays, output_bytes=sizes, cold_end_first_output_ms=seek_ms)
         finally:
             if pid:
@@ -141,7 +158,7 @@ for kind, source in fixtures.items():
         names = list(editors)
         names = names[round:] + names[:round]
         for name in names:
-            print(f'{kind}: {name}, {"warmup" if round == 0 else "run " + str(round)}', file=__import__('sys').stderr, flush=True)
+            print(f'{kind}: {name}, {"warmup" if round == 0 else "run " + str(round)}', file=sys.stderr, flush=True)
             result = run(name, editors[name], kind, source)
             if round:
                 results[kind][name].append(result)
@@ -159,4 +176,11 @@ for kind, rows in results.items():
             'first_output_ms_max': max(latencies),
             'output_bytes_median': statistics.median(sizes),
         }
-print(json.dumps(dict(summary=summary, runs=results), indent=2))
+metadata = dict(system=platform.system(), release=platform.release(), machine=platform.machine(),
+                terminal='xterm-256color', dimensions=[100, 30], measured_runs=3, keys_per_run=20,
+                versions={}, binary_sha256={})
+for name, binary in editors.items():
+    flag = '-version' if name == 'Micro' else '--version'
+    metadata['versions'][name] = subprocess.check_output([binary, flag], text=True, timeout=5).splitlines()[:3]
+    metadata['binary_sha256'][name] = hashlib.sha256(Path(binary).read_bytes()).hexdigest()
+print(json.dumps(dict(metadata=metadata, summary=summary, runs=results), indent=2))

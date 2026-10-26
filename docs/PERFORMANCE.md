@@ -2,8 +2,9 @@
 
 Measured on 2026-10-25: macOS 15.6 (Darwin 24.6.0), x86-64, Intel Core i5-8279U
 at 2.40 GHz, Go 1.27.0. The development build uses `CGO_ENABLED=0`, `-trimpath`,
-and `-ldflags='-s -w'`. These observations are not a comparative benchmark against
-Micro or a guarantee for another terminal, processor, or file.
+and `-ldflags='-s -w'`. The historical milestone measurements are not comparisons against other editors.
+A separate matched local comparison appears at the end of this document; none of
+these observations guarantees performance on another terminal, processor or file.
 
 ## Original 0.1 baseline
 
@@ -390,6 +391,67 @@ The harness now checks the optional dependency before launch and retains adapter
 output on failure. Packaging no longer depends on the removed README and excludes
 macOS AppleDouble metadata; USAGE.md is included as the installation/user guide.
 
-No Micro comparison, universal terminal certification, constant-time cold Unicode
-navigation, mature IDE parity or total-memory bound for external language servers
-is claimed. The measured limits and future work above remain explicit.
+The milestone measurements do not establish a cross-editor ranking, universal
+terminal certification, constant-time cold Unicode navigation, mature IDE parity
+or a total-memory bound for external language servers. The measured limits and future work above remain explicit.
+
+
+## Matched local comparison with Micro, Vim and Neovim
+
+2026-10-26 on the same Intel macOS host. `scripts/editor_compare.py` runs Shack
+0.2.0-dev, Micro 2.0.15, Apple's Vim 9.1 (patches 1–1752) and Neovim 0.12.4 through
+100×30 xterm-256color PTYs. It uses isolated/disabled user configuration,
+syntax/services off, wrapping off, one discarded warmup, then three interleaved
+runs with twenty measured ASCII insertions each. Every run verifies saved text
+and clean exit. The small fixture contains a marker plus 1,000 ordinary text
+lines; insertion is at its beginning. The other fixture is a single approximately
+1 MiB line mixing CJK, combining accents, ZWJ emoji, flags and tabs; insertion is
+at EOF after its first navigation/indexing cost. This deliberately stresses long
+Unicode lines, not ordinary multiline files or complete IDE workloads.
+
+All response values below are input-write to **first readable terminal output**,
+not full-frame completion, GUI painting or human-perceived latency. Memory is
+median RSS after editing, summed over each editor's full process tree. RSS can
+double-count shared pages and is not peak/private memory. Neovim uses separate
+TUI and editor processes, both included, as described in its
+[official TUI documentation](https://neovim.io/doc/user/tui/).
+
+| Editor | Small-file response, median / maximum | Small-file RSS | 1 MiB Unicode-line response, median / maximum | Unicode-line RSS |
+| --- | ---: | ---: | ---: | ---: |
+| Shack | 1.71 / 4.61 ms | 14.9 MiB | 1.01 / 5.96 ms | 16.9 MiB |
+| Micro | 1.40 / 3.39 ms | 15.3 MiB | 192.75 / 349.33 ms | 25.0 MiB |
+| Vim | 0.20 / 0.62 ms | 4.9 MiB | 36.75 / 45.90 ms | 12.7 MiB |
+| Neovim | 0.60 / 1.21 ms | 10.4 MiB | 19.86 / 48.85 ms | 18.3 MiB |
+
+Shack is in Micro's general response/memory range on the small file; lean Vim and
+Neovim respond faster and use less memory in that workload. Shack has a large
+advantage in this specific long-Unicode-line workload. Neither observation proves
+that it is faster or lighter for most editing workloads. An initial timing pass
+also put Shack/Micro close together on small-file typing, with their order reversed;
+the approximately 0.3 ms gap is not a stable general performance claim.
+
+A clear remaining weakness is terminal traffic: median bytes per small-file edit
+were **1,824 Shack / 133 Micro / 33 Vim / 124 Neovim**. Long-line values were
+**811 / 1,883 / 13 / 118 bytes** respectively. These are terminal bytes, excluding
+SSH framing. Shack's excess ordinary-edit output could matter on low-bandwidth
+connections even when local rendering is quick; it is a concrete optimization
+target. There is no implementation change in this comparison.
+
+Warm launch-to-first-file-marker medians were 37.1 / 34.7 / 27.6 / 156.8 ms for
+Shack/Micro/Vim/Neovim on the small fixture. The harness does not emulate terminal
+query replies, and startup includes terminal probing/handshakes. These figures
+should not be generalized into real-terminal startup rankings; they are retained
+in the raw data for reproducibility.
+
+GNU Nano, Helix and Emacs were not measured. This Mac's `/usr/bin/nano` resolves
+to Pico, so treating it as a GNU Nano result would be incorrect. External published
+results use different hosts, versions and endpoints; they are not merged into this
+table. Future comparisons should add these editors, ordinary code with syntax/LSP,
+multiline large files and completed-frame/real-SSH measurements.
+
+[Raw runs, versions and binary hashes](benchmarks/editor-comparison-macos-2026-10-26.json)
+are retained with the repository. Reproduce on macOS with installed participants:
+
+```sh
+python3 scripts/editor_compare.py > build/editor-comparison.json
+```
