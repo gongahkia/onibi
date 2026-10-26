@@ -556,6 +556,7 @@ make check                         # formatting, vet, tests, race detector
 make build
 python3 scripts/pty_smoke.py        # real pseudo-terminal editing workflow
 python3 scripts/tmux_smoke.py       # isolated tmux server (requires tmux)
+python3 scripts/reading_features_smoke.py # preview links, code, images and diagrams
 python3 scripts/lsp_resources_smoke.py # reviewed file operations, save, undo/redo
 python3 scripts/merge_smoke.py       # real Git conflict, review, save and stage
 python3 scripts/ide_smoke.py        # project edits, panes and tasks in tmux
@@ -597,40 +598,96 @@ footnotes/definition lists. The terminal renderer covers:
 | ATX/setext headings, paragraphs, thematic breaks | Styled headings with outline navigation, paragraph spacing and rules |
 | Emphasis/strong/nested emphasis, escapes, entities | Styled text and decoded literal characters |
 | Soft/hard line breaks | Soft breaks become spaces; hard breaks retain newlines |
-| Inline, indented and fenced code | Literal code text; fences display their language label |
+| Inline, indented and fenced code | Literal text; recognized fenced-code languages receive theme-aware token colors |
 | Ordered/unordered, nested and loose lists | Preserved starting numbers and indented continuation blocks |
 | Nested blockquotes | Quote markers on logical content lines; nested markers retained |
 | Inline/reference links and autolinks | Labels and safe web/mail targets; reference definitions resolve normally |
-| Images, including reference images | Alt text and destination placeholders; web destinations can be copied/opened through supported terminal links |
+| Images, including reference images | PNG/JPEG/GIF render as colored terminal cells; alt text and destinations remain visible |
 | GFM tables, task lists and strikethrough | Unicode-aware left/center/right alignment, checkboxes and strike styling |
-| Footnotes, including repeated references | Numbered references and definitions at the end, with formatted multiline content |
+| Footnotes, including repeated references | Numbered references jump to definitions; each return arrow jumps back to its reference |
 | Definition lists | Bold terms and indented descriptions |
 | Inline/block HTML | Visible inert source text, including comments; no browser layout or script execution |
 
 This is a terminal adaptation, not HTML output or a claim of support for every
 Markdown dialect. Goldmark provides parsing; Shack's regression fixtures exercise
 each core node family and enabled extension, rather than certify the entire
-CommonMark/GFM HTML conformance corpus. Footnote references are readable numbers,
-not clickable jumps. Heading anchors and relative-file links do not navigate yet.
-Images are not decoded into terminal graphics. LaTeX/math, Mermaid diagrams,
-frontmatter, GitHub alerts, emoji shortcodes, custom containers and MDX components
-have no dedicated rendering; their source remains visible (fenced content remains
-literal code). Code fences have a uniform code style, not per-language token colors.
-Soft-wrapped visual continuation rows do not repeat container markers.
+CommonMark/GFM HTML conformance corpus. LaTeX/math, frontmatter, GitHub alerts,
+emoji shortcodes, custom containers and MDX components have no dedicated rendering;
+their source remains visible. Soft-wrapped visual continuation rows do not repeat
+container markers. Raw HTML remains inert text; no browser, scripts or document
+code run in the preview.
 
-Org uses go-org. HTML, LaTeX and exported code remain text; Org includes, setup-file
-reads, macro expansion and code execution are disabled. Tables pad ordinary cells;
-very long cells may extend past the alignment and can wrap/scroll. No preview
-fetches images, executes embedded code or installs a runtime.
+**Enter** follows the link at the preview cursor; **Tab / Shift+Tab** moves between
+links. **Ctrl-click** follows a link without changing ordinary selection behavior.
+The context menu and **Follow document link**, **Copy document link** and
+**Document preview links** commands provide alternatives. **Alt+Left / Alt+Right**
+in a preview, or **Jump back / Jump forward**, navigate history.
 
-Visible previews update after the source changes, with a 200 ms debounce and one
-background renderer. Hidden previews refresh when reopened. Ordinary redraws
-reuse text/styles, with no parsing. Each preview wraps independently of the source;
-**Toggle soft wrapping** switches wrapping for the active preview. Up to eight
-previews may be open. **Document preview headings** navigates the outline;
-**Document preview links** copies a web/mail URL, also through the terminal
-clipboard when supported. Supported terminals can activate OSC 8 web/mail links;
-local/custom links are displayed without automatic execution or file opening.
+Markdown heading links such as `[section](#getting-started)` jump within the
+preview. Heading IDs lowercase the rendered heading, replace whitespace with
+hyphens, retain Unicode letters/marks/numbers plus `_`/`-`, and remove punctuation.
+Duplicates receive `-1`, `-2`, etc., avoiding collisions with existing IDs.
+Percent-encoded Unicode fragments work. Raw HTML custom anchor IDs are not indexed.
+Footnote markers and their return arrows use distinct internal targets, so headings
+cannot collide with them.
+
+Relative-file links resolve from the source document's directory, including `..`,
+spaces/percent escapes and `other.md#heading` fragments. Markdown/Org targets open
+as previews; ordinary text files open for editing; PNG/JPEG/GIF targets open an
+image preview. Already-open files retain unsaved edits. Missing files and directories
+report an error rather than creating a buffer or file. Save an untitled source
+before following relative links. Absolute paths, `file:`/custom schemes and local
+query strings are not navigation targets. Web/mail links copy their URL on Enter;
+supported terminals can open them through OSC 8. Local targets are never sent as
+terminal hyperlinks or passed to a shell.
+
+Fenced code uses the bundled Chroma lexers, with colors that follow the light/dark
+theme. Unknown languages and blocks over 64 KiB retain plain code styling. Lexing
+has per-block token/time checks and a 256 KiB / 200 ms per-render budget, checked
+between tokens; an individual lexer call cannot be interrupted. No language server
+or external highlighter is needed, and literal code text is preserved.
+
+Local PNG, JPEG and GIF images render automatically using half-block characters
+with foreground/background colors. GIF uses its first frame. Rendering is portable
+across normal terminal/SSH/tmux routes; color fidelity depends on terminal support.
+Images fit within 48 columns × 24 rows, use a checkerboard for transparency, and
+are bounded to 8 MiB encoded / four megapixels decoded, eight images per preview.
+SVG, WebP and other formats retain placeholders with an explanation. Local assets
+are resolved beside the source; they are read only when preview rendering needs them.
+
+Remote images are off by default. **Load remote preview images** enables HTTP(S)
+image loading for that preview, with byte limits, redirect limits, request timeouts
+and a three-second shared download window. Successful images are cached as small
+terminal representations, not full bitmaps; source edits reuse that cache. Local
+cache keys include size/mtime. **Refresh document preview** clears the cache and
+reloads assets, including remote assets if enabled. **Toggle preview media** hides
+or shows images and Mermaid drawings. Image-only previews return to the previous
+document through jump history; they have no editable text source.
+
+Fenced `mermaid` blocks render a terminal subset of flowcharts (`flowchart`/`graph`,
+TD/TB/LR) and sequence diagrams using bundled
+[mermaidascii](https://github.com/coreequip/mermaidascii). No Node.js, browser or
+external renderer is installed. Shapes, arrows/labels, branching/chains and basic
+sequence messages, notes and balanced blocks are supported. Subgraphs, class/ER/
+other diagram families, styling/click directives, extended node metadata, BT/RL
+layouts and non-ASCII labels retain the source with an explanation. Layout differs
+from Mermaid's browser renderer. Limits are eight diagrams per preview, 4 KiB /
+64 lines / 160 bytes per line per diagram, 16 flowchart nodes / 32 edges, or eight
+sequence actors / 24 messages / eight blocks / eight notes. Unsupported or oversized
+blocks remain readable source; they do not prevent the rest of the preview rendering.
+
+Previews switch wrapping off when images or diagrams first appear, preserving their
+layout. **Toggle soft wrapping** can override that; ordinary previews wrap by default.
+Org continues to use go-org, with includes, setup-file reads, macro expansion and
+code execution disabled. Its HTML, LaTeX and exported code remain text. The new
+footnote/relative-link, fenced-code and media behavior applies to Markdown; Org's
+existing outline and safe web-link behavior remains available.
+
+Visible previews update after source changes, with a 200 ms debounce and one
+background renderer. Hidden previews refresh when reopened. Ordinary redraws reuse
+text/styles and media cells without parsing, decoding or layout. Each preview wraps
+independently; up to eight previews may be open. **Document preview headings**
+navigates the outline. Tables pad ordinary cells; very long cells can scroll/wrap.
 
 Copy, search, selection and pane navigation work in previews. Editing and normal
 Save are disabled; **Save as** exports the rendered plain text and detaches that

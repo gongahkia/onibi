@@ -626,3 +626,49 @@ Reproduce with:
 ```sh
 go test ./internal/markup -run '^$' -bench 'BenchmarkRender(Markdown|Org|ExtendedMarkdown)$' -benchmem -count=3
 ```
+
+## Navigable previews, code colors and media
+
+2026-10-26, same Intel macOS host. Three non-race repetitions after adding heading,
+footnote and relative-file navigation, fenced-code colors, local/opt-in remote image
+decoding and a bounded Mermaid renderer:
+
+| Fixture | Complete render time | Allocated bytes / allocations per render |
+| --- | ---: | ---: |
+| Small mixed document: heading, links, footnote, Go fence and two-node flowchart | 0.170–0.171 ms | 94–95 KB / 1,094–1,095 |
+| 256 × 256 PNG, including decode and terminal-cell conversion | 1.30–1.32 ms | 992 KB / 2,622 |
+| Same image document with cached terminal cells | 0.199–0.204 ms | 345 KB / 261 |
+| Existing Markdown fixture, about 24 KB | 2.99–3.06 ms | 2.14 MB / 14,415 |
+
+The existing Markdown fixture's time remains comparable to the previous pass;
+allocated bytes increased about 25% from 1.72 MB because styles now carry navigation,
+token and pixel data, and headings have indexed anchors. This is a real allocation
+tradeoff, not a claim that richer previews are free. Allocated bytes are cumulative
+per render, not retained memory or process RSS. The mixed fixture is small and does
+not predict large code/diagram document performance.
+
+These are background document-render times, not keypress or terminal frame latency.
+Ordinary redraws reuse the installed document's text/styles/media cells. Source
+updates remain debounced by 200 ms; the bounded image cache avoids decoding unchanged
+assets again. Remote HTTP latency is excluded from these benchmarks. Code lexing
+uses token/time checks, not an interruptible hard deadline. Image, source and diagram
+limits are documented in [USAGE.md](USAGE.md#markdown-and-org-previews). The local
+Mermaid patch additionally bounds route-search area and retained search state;
+unsupported diagrams retain readable source.
+
+Validation passed: `make check` (including the local Mermaid module's race tests),
+both Markdown/Org and reading-feature tmux smoke workflows, native build, Linux
+amd64 cross-build, and a 20-second fuzz run (5,268 executions including cached corpus).
+The terminal workflows cover heading/footnote/backlink/file/image navigation, media
+toggles, source preservation and live refresh. Unit fixtures check code token styles,
+pixel colors, remote opt-in/cache behavior and navigation history. The stripped
+native executable is 14,643,952 bytes (about 14.0 MiB); no image/diagram runtime needs
+to be installed alongside it. The Linux binary was cross-built, not executed in
+this validation pass.
+
+[Raw samples](benchmarks/reading-features-macos-2026-10-26.txt) are retained.
+Reproduce with:
+
+```sh
+go test ./internal/markup -run '^$' -bench 'BenchmarkRender(Markdown|ReadingFeatures|ImagePreview)$' -benchmem -count=3
+```
