@@ -16,6 +16,7 @@ with tempfile.TemporaryDirectory(prefix='shack-markup-test-') as folder:
     root = Path(folder)
     source = root / 'note.md'
     original = '# Hello **世界**\n\n- [x] First task\n\n[website](https://example.com)\n'
+    original += '\nTerm\n: Definition text.\n\n| Left | Right |\n|:---|---:|\n| alpha | 42 |\n\nA note[^one].\n\n[^one]: Footnote content.\n'
     source.write_text(original)
     org = root / 'note.org'
     org.write_text('#+TITLE: Org notebook\n* TODO Heading\nSome *bold* and /italic/ text.\n\n#+BEGIN_SRC python\nprint("inert code")\n#+END_SRC\n')
@@ -50,6 +51,12 @@ with tempfile.TemporaryDirectory(prefix='shack-markup-test-') as folder:
         wait('Hello 世界')
         wait('☑ First task')
         assert '**世界**' not in pane()
+        wait('Definition text.')
+        wait('│ alpha')
+        wait('A note[1].')
+        keys('C-End')
+        wait('Footnotes')
+        wait('[1] Footnote content.')
         type_text('SHOULD NOT INSERT')
         wait('Read-only mode')
         assert source.read_text() == original
@@ -82,6 +89,6 @@ with tempfile.TemporaryDirectory(prefix='shack-markup-test-') as folder:
         wait('Some bold and italic text.')
         wait('print("inert code")')
         keys('C-q')
-        print('tmux Markdown/Org rendering, source toggle, split/live refresh, read-only controls, headings, links and save: PASS')
+        print('tmux Markdown extensions/Org rendering, source toggle, split/live refresh, read-only controls, headings, links and save: PASS')
     finally:
         subprocess.run(base + ['kill-server'], capture_output=True)

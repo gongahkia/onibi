@@ -15,7 +15,7 @@ import (
 
 func (r *renderer) markdown(source string) {
 	data := []byte(source)
-	md := goldmark.New(goldmark.WithExtensions(extension.Table, extension.Strikethrough, extension.TaskList, extension.Linkify))
+	md := goldmark.New(goldmark.WithExtensions(extension.GFM, extension.Footnote, extension.DefinitionList))
 	root := md.Parser().Parse(gtext.NewReader(data))
 	r.mdNode(root, data, Style{}, 0)
 }
@@ -92,27 +92,54 @@ func (r *renderer) mdNode(n ast.Node, data []byte, style Style, depth int) {
 		r.newline(2)
 	case *ast.Blockquote:
 		r.newline(1)
-		r.write("▎ ", Style{Dim: true})
-		style.Italic = true
+		if r.out.Len() > 0 && r.out.Len() == r.blockStart {
+			r.write("▎ ", Style{Dim: true})
+			r.blockStart = r.out.Len()
+		}
+		prefix := r.prefix
+		r.prefix += "▎ "
 		r.mdChildren(n, data, style, depth)
+		r.prefix = prefix
 		r.newline(2)
 	case *ast.List:
+		if r.out.Len() > 0 && r.out.Len() == r.blockStart {
+			r.blockStart = -1
+		}
 		r.newline(1)
 		i := n.Start
 		for c := n.FirstChild(); c != nil; c = c.NextSibling() {
-			r.write(strings.Repeat("  ", min(8, mdListDepth(n))), Style{})
 			bullet := "• "
 			if n.IsOrdered() {
 				bullet = fmt.Sprintf("%d. ", i)
 				i++
 			}
-			r.write(bullet, Style{Dim: true})
-			r.mdNode(c, data, style, depth+1)
-			r.newline(1)
+			r.mdItem(bullet, func() { r.mdNode(c, data, style, depth+1) })
 		}
 		r.newline(1)
 	case *ast.ListItem:
 		r.mdChildren(n, data, style, depth)
+	case *east.FootnoteLink:
+		r.write(fmt.Sprintf("[%d]", n.Index), Style{Dim: true})
+	case *east.FootnoteBacklink:
+		// Numbered references/definitions remain readable without HTML anchors.
+	case *east.FootnoteList:
+		r.newline(2)
+		r.write("Footnotes", Style{Bold: true})
+		r.newline(2)
+		r.mdChildren(n, data, style, depth)
+	case *east.Footnote:
+		r.mdItem(fmt.Sprintf("[%d] ", n.Index), func() { r.mdChildren(n, data, style, depth) })
+	case *east.DefinitionList:
+		r.newline(2)
+		r.mdChildren(n, data, style, depth)
+		r.newline(2)
+	case *east.DefinitionTerm:
+		r.newline(1)
+		style.Bold = true
+		r.mdChildren(n, data, style, depth)
+		r.newline(1)
+	case *east.DefinitionDescription:
+		r.mdItem("  ", func() { r.mdChildren(n, data, style, depth) })
 	case *east.TaskCheckBox:
 		if n.IsChecked {
 			r.write("☑ ", Style{Dim: true})
@@ -128,9 +155,15 @@ func (r *renderer) mdNode(n ast.Node, data []byte, style Style, depth int) {
 		style.Underline = true
 		r.write(string(n.Label(data)), style)
 	case *ast.Image:
+		if style.Link == "" {
+			style.Link = SafeURL(decoded(n.Destination))
+		}
 		r.write("[image: ", Style{Dim: true})
 		r.mdChildren(n, data, style, depth)
 		r.write("]", Style{Dim: true})
+		if len(n.Destination) > 0 {
+			r.write(" ("+decoded(n.Destination)+")", Style{Dim: true, Link: style.Link})
+		}
 	case *ast.ThematicBreak:
 		r.newline(1)
 		r.write("────────────────────────\n", Style{Dim: true})
@@ -156,7 +189,16 @@ func (r *renderer) mdNode(n ast.Node, data []byte, style Style, depth int) {
 			}
 			rows = append(rows, out)
 		}
-		r.table(rows, true)
+		alignments := make([]alignment, len(n.Alignments))
+		for i, a := range n.Alignments {
+			switch a {
+			case east.AlignRight:
+				alignments[i] = alignRight
+			case east.AlignCenter:
+				alignments[i] = alignCenter
+			}
+		}
+		r.table(rows, true, alignments)
 	case *ast.HTMLBlock:
 		r.newline(1)
 		r.mdLines(n, data, Style{Dim: true})
@@ -180,12 +222,17 @@ func (r *renderer) mdLines(n ast.Node, data []byte, style Style) {
 		r.write(string(s.Value(data)), style)
 	}
 }
-func mdListDepth(n ast.Node) int {
-	d := 0
-	for p := n.Parent(); p != nil; p = p.Parent() {
-		if _, ok := p.(*ast.List); ok {
-			d++
-		}
-	}
-	return d
+
+// Keep each container's continuation lines aligned with its content. Blocks
+// such as headings/code can start immediately after a marker without an empty
+// bullet line; nested containers inherit the accumulated continuation prefix.
+func (r *renderer) mdItem(marker string, content func()) {
+	r.newline(1)
+	r.write(marker, Style{Dim: true})
+	prefix, start := r.prefix, r.blockStart
+	r.prefix += strings.Repeat(" ", len([]rune(marker)))
+	r.blockStart = r.out.Len()
+	content()
+	r.prefix, r.blockStart = prefix, start
+	r.newline(1)
 }

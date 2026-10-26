@@ -41,13 +41,15 @@ type Document struct {
 	Headings []Heading
 }
 type renderer struct {
-	ctx      context.Context
-	out      strings.Builder
-	spans    []Span
-	headings []Heading
-	nodes    int
-	err      error
-	trailing int
+	ctx        context.Context
+	out        strings.Builder
+	spans      []Span
+	headings   []Heading
+	nodes      int
+	err        error
+	trailing   int
+	prefix     string
+	blockStart int // suppress leading block spacing immediately after a list marker
 }
 
 func Format(path string) string {
@@ -206,6 +208,37 @@ func (r *renderer) write(s string, style Style) {
 		r.err = fmt.Errorf("rendered preview exceeds 2 MiB")
 		return
 	}
+	if r.prefix == "" {
+		r.writeRaw(s, style)
+		return
+	}
+	for len(s) > 0 {
+		end := strings.IndexByte(s, '\n')
+		if end < 0 {
+			end = len(s)
+		} else {
+			end++
+		}
+		if s[0] != '\n' {
+			r.linePrefix()
+		}
+		r.writeRaw(s[:end], style)
+		s = s[end:]
+	}
+}
+func (r *renderer) linePrefix() {
+	if r.prefix != "" && (r.out.Len() == 0 || r.trailing > 0) {
+		r.writeRaw(r.prefix, Style{Dim: true})
+	}
+}
+func (r *renderer) writeRaw(s string, style Style) {
+	if r.err != nil || s == "" {
+		return
+	}
+	if r.out.Len()+len(s) > MaxOutput {
+		r.err = fmt.Errorf("rendered preview exceeds 2 MiB")
+		return
+	}
 	start := r.out.Len()
 	r.out.WriteString(s)
 	for _, c := range s {
@@ -229,12 +262,13 @@ func (r *renderer) write(s string, style Style) {
 	r.spans = append(r.spans, Span{start, r.out.Len(), style})
 }
 func (r *renderer) newline(n int) {
-	if r.out.Len() > 0 && r.trailing < n {
+	if r.out.Len() > 0 && r.out.Len() != r.blockStart && r.trailing < n {
 		r.write(strings.Repeat("\n", n-r.trailing), Style{})
 	}
 }
 func (r *renderer) heading(level int, content func(Style)) {
 	r.newline(2)
+	r.linePrefix()
 	start := r.out.Len()
 	content(Style{Bold: true, Heading: true})
 	r.headings = append(r.headings, Heading{start, level, r.out.String()[start:]})
@@ -259,9 +293,17 @@ func (r *renderer) append(child *renderer) {
 	}
 }
 
+type alignment uint8
+
+const (
+	alignLeft alignment = iota
+	alignRight
+	alignCenter
+)
+
 // Tables preserve every cell's text. Padding is capped so a very long cell does
 // not multiply its width across every other row. Such cells can scroll/wrap.
-func (r *renderer) table(rows [][]*renderer, header bool) {
+func (r *renderer) table(rows [][]*renderer, header bool, alignmentOptions ...[]alignment) {
 	r.newline(2)
 	widths := []int{}
 	for _, row := range rows {
@@ -275,9 +317,19 @@ func (r *renderer) table(rows [][]*renderer, header bool) {
 	for i, row := range rows {
 		r.write("│ ", Style{Dim: true})
 		for c, cell := range row {
-			r.append(cell)
 			pad := max(0, widths[c]-uniseg.StringWidth(cell.out.String()))
-			r.write(strings.Repeat(" ", pad)+" │ ", Style{Dim: true})
+			left := 0
+			if len(alignmentOptions) > 0 && c < len(alignmentOptions[0]) {
+				switch alignmentOptions[0][c] {
+				case alignRight:
+					left = pad
+				case alignCenter:
+					left = pad / 2
+				}
+			}
+			r.write(strings.Repeat(" ", left), Style{Dim: true})
+			r.append(cell)
+			r.write(strings.Repeat(" ", pad-left)+" │ ", Style{Dim: true})
 		}
 		r.newline(1)
 		if i == 0 && header {

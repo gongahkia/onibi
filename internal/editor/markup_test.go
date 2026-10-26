@@ -22,7 +22,7 @@ func TestDocumentPreviewWorkflow(t *testing.T) {
 	a := testApp(t)
 	source := a.Current()
 	source.File.Path = filepath.Join(t.TempDir(), "note.md")
-	a.insert("# Hello **世界**\n\n- [x] A task\n\n[site](https://example.com)\n")
+	a.insert("# Hello **世界**\n\n- [x] A task\n\n[site](https://example.com)\n\nReference[^note].\n\n[^note]: A **footnote**.\n\nTerm\n: Definition text.\n")
 	original := source.Doc.Text.String()
 	a.documentPreview("", true)
 	preview := a.Current()
@@ -38,6 +38,11 @@ func TestDocumentPreviewWorkflow(t *testing.T) {
 	key(a, tcell.KeyCtrlS)
 	if source.Doc.Text.String() != original || strings.Contains(preview.Doc.Text.String(), "bad") {
 		t.Fatal("preview edited source or rendered text")
+	}
+	for _, expected := range []string{"Reference[1].", "[1] A footnote.", "Definition text."} {
+		if !strings.Contains(preview.Doc.Text.String(), expected) {
+			t.Fatal("missing Markdown extension", expected)
+		}
 	}
 	a.draw()
 	foundBold := false

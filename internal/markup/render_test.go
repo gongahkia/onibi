@@ -139,7 +139,7 @@ func benchmarkRender(b *testing.B, format, chunk string) {
 	}
 }
 func FuzzRender(f *testing.F) {
-	for _, s := range []string{"# hello **world**", "* TODO org\n#+BEGIN_SRC go\nx\n#+END_SRC", "[x](https://example.com)", "| a | b |\n|---|---|\n| c | d |", "😀 é 👩‍💻", strings.Repeat("[", 1000)} {
+	for _, s := range []string{"# hello **world**", "Note[^a].\n\n[^a]: Footnote\n\nTerm\n: Definition\n", "> - # Nested\n>   - item\n", "* TODO org\n#+BEGIN_SRC go\nx\n#+END_SRC", "[x](https://example.com)", "| a | b |\n|---|---|\n| c | d |", "😀 é 👩‍💻", strings.Repeat("[", 1000)} {
 		f.Add(s, false)
 		f.Add(s, true)
 	}
