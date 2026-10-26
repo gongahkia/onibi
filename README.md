@@ -6,7 +6,7 @@
 Shack is an [atomweight](https://en.wikipedia.org/wiki/Atomweight) terminal IDE with [sensible day 1 defaults](https://martinfowler.com/bliki/SensibleDefault.html).
 
 <div align="center">
-    <img src="./assets/logo/shack.png" width="45%">
+    <img src="./assets/logo/shack.png" width="35%">
 </div>
 
 ## Stack
@@ -24,6 +24,12 @@ Shack is an [atomweight](https://en.wikipedia.org/wiki/Atomweight) terminal IDE 
 * Markdown and Org reading views, live previews and code folding
 * Integrated terminals, build/test tasks, Git tools and optional source-level debugging
 * Unsaved-buffer recovery, project sessions and [JSON configuration](./docs/USAGE.md#configuration)
+
+## Video of `Shack` editing its own source code
+
+<div align="center">
+  <video width="85%" src="placeholder" controls muted playsinline preload="metadata"></video>
+</div>
 
 ## Usage
 
