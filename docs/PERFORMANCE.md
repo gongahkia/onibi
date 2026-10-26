@@ -269,3 +269,20 @@ checks remain outstanding.
 go test ./internal/editor -run '^$' -bench 'BenchmarkUnicodeLongLine(Index|Viewport)' -benchmem
 go test ./internal/editor -run '^$' -fuzz '^FuzzLineLayout$' -fuzztime=20s
 ```
+
+### Long identifiers and word selection
+
+A 1 MiB uninterrupted identifier alternating CJK and combining accents exposed a
+separate repeated-scan problem: indexed character-by-character word movement still
+measured **4.97 s left / 2.51 s right**, allocating **3.15 / 1.57 GB cumulatively**
+(not peak RSS). Streaming class runs now serve Ctrl+Arrow and word selection.
+Three-iteration samples measured **25.0 ms left / 24.7 ms right**, with
+**1.19 / 3.46 MB allocated**. This scans the whole megabyte-long word by necessity;
+ordinary nearby words stop after their local run. Backward traversal reuses sparse
+grapheme checkpoints instead of materializing or repeatedly rescanning the prefix.
+Reference comparisons cover Unicode classes, punctuation, CRLF, selection and
+whitespace spanning multiple windows. Reproduce with:
+
+```sh
+go test ./internal/editor -run '^$' -bench BenchmarkUnicodeLongWord -benchmem
+```

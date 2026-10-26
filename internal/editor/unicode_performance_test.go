@@ -87,3 +87,24 @@ func BenchmarkUnicodeLongLineIndex(b *testing.B) {
 		})
 	}
 }
+
+func BenchmarkUnicodeLongWord(b *testing.B) {
+	source := strings.Repeat("界é", (1<<20)/len("界é"))
+	for _, direction := range []int{-1, 1} {
+		b.Run(fmt.Sprint(direction), func(b *testing.B) {
+			d, _ := text.NewDocument(source)
+			buffer := &Buffer{Doc: d}
+			a := &App{Config: config.Default(), Buffers: []*Buffer{buffer}}
+			a.columnAt(buffer, d.Text.Len())
+			b.ReportAllocs()
+			b.ResetTimer()
+			for b.Loop() {
+				p := 0
+				if direction < 0 {
+					p = d.Text.Len()
+				}
+				a.wordOffset(buffer, p, direction)
+			}
+		})
+	}
+}

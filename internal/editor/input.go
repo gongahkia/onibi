@@ -486,18 +486,22 @@ func (a *App) wordSelection() {
 		return
 	}
 	lo, hi := s.Head, s.Head
+	classify := func(r rune) int {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' {
+			return 1
+		}
+		return 0
+	}
 	for lo > 0 {
-		p := a.previous(a.Current(), lo)
-		r, _ := utf8.DecodeRuneInString(d.Text.Slice(p, lo))
-		if !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_' {
+		p, c := a.wordChunk(a.Current(), lo, false, classify)
+		if c != 1 {
 			break
 		}
 		lo = p
 	}
 	for hi < d.Text.Len() {
-		p := a.next(a.Current(), hi)
-		r, _ := utf8.DecodeRuneInString(d.Text.Slice(hi, p))
-		if !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_' {
+		p, c := a.wordChunk(a.Current(), hi, true, classify)
+		if c != 1 {
 			break
 		}
 		hi = p

@@ -156,7 +156,7 @@ func (a *App) word(delta int, extend, remove bool) {
 		if remove && s.Start() != s.End() {
 			continue
 		}
-		p := wordOffsetWith(d.Text, s.Head, delta, func(p int) int { return a.previous(a.Current(), p) }, func(p int) int { return a.next(a.Current(), p) })
+		p := a.wordOffset(a.Current(), s.Head, delta)
 		if !extend && !remove {
 			s.Anchor = p
 		}
