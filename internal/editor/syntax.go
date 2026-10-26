@@ -117,3 +117,39 @@ func highlight(done <-chan struct{}, job syntaxJob) (out []span) {
 	}
 	return out
 }
+
+// Preserve unaffected colors provisionally while the debounced lexer catches
+// up. Dropping every span on each keystroke flashes the entire viewport and
+// transmits two full recolorings. Spans touching an edit are discarded; lexical
+// context changes elsewhere are corrected by the next complete lexer result.
+func (a *App) rebaseSyntax(b *Buffer) {
+	if !b.SyntaxReady {
+		return
+	}
+	if b.SyntaxVersion == b.Doc.Version {
+		return
+	}
+	if b.SyntaxVersion+1 != b.Doc.Version || len(b.Doc.LastChanges) == 0 || b.Doc.Text.Len() > a.Config.ServiceMaxBytes {
+		b.SyntaxReady = false
+		return
+	}
+	for _, edits := range b.Doc.LastChanges {
+		out := b.Spans[:0]
+		index, delta := 0, 0
+		for _, s := range b.Spans {
+			for index < len(edits) && edits[index].End <= s.Start {
+				e := edits[index]
+				delta += len(e.Text) - (e.End - e.Start)
+				index++
+			}
+			if index < len(edits) && edits[index].Start < s.End {
+				continue
+			}
+			s.Start += delta
+			s.End += delta
+			out = append(out, s)
+		}
+		b.Spans = out
+	}
+	b.SyntaxVersion = b.Doc.Version
+}

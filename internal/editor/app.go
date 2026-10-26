@@ -366,7 +366,7 @@ func (a *App) changed() {
 	a.scheduleRecovery()
 	a.reveal()
 	a.Matches = nil
-	a.Current().SyntaxReady = false
+	a.rebaseSyntax(a.Current())
 	a.Current().Diagnostics = nil
 	a.schedule()
 }
