@@ -205,7 +205,7 @@ func (a *App) notification(key string, n lsp.Notification) {
 		if p.Version != nil && *p.Version != b.Doc.Version {
 			continue
 		}
-		if p.Version == nil && b.Doc.Version != 0 {
+		if p.Version == nil && (n.DocumentVersion == nil || *n.DocumentVersion != b.Doc.Version || n.DocumentEpoch != b.LanguageEpoch) {
 			continue
 		}
 		b.Diagnostics = p.Diagnostics[:min(len(p.Diagnostics), 1000)]

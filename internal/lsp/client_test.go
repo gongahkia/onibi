@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -96,6 +97,7 @@ func TestServerProcess(t *testing.T) {
 	if os.Getenv("SHACK_TEST_SERVER") != "1" {
 		return
 	}
+	counts := map[string]int{}
 	r := bufio.NewReader(os.Stdin)
 	for {
 		data, err := ReadMessage(r)
@@ -107,12 +109,37 @@ func TestServerProcess(t *testing.T) {
 		if len(m.ID) == 0 {
 			continue
 		}
+		var retry struct {
+			Retry bool `json:"fixtureRetry"`
+		}
+		json.Unmarshal(m.Params, &retry)
+		if retry.Retry {
+			counts[m.Method]++
+			var response map[string]any
+			if counts[m.Method] == 1 {
+				notice, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "method": "fixture.retry", "params": m.Method})
+				fmt.Fprintf(os.Stdout, "Content-Length: %d\r\n\r\n%s", len(notice), notice)
+				response = map[string]any{"jsonrpc": "2.0", "id": m.ID, "error": map[string]any{"code": -32801, "message": "content modified"}}
+			} else {
+				response = map[string]any{"jsonrpc": "2.0", "id": m.ID, "result": counts[m.Method]}
+			}
+			encoded, _ := json.Marshal(response)
+			fmt.Fprintf(os.Stdout, "Content-Length: %d\r\n\r\n%s", len(encoded), encoded)
+			continue
+		}
 		var result any
 		switch m.Method {
 		case "initialize":
 			result = map[string]any{"capabilities": map[string]any{"positionEncoding": "utf-16", "textDocumentSync": 2}}
 		case "textDocument/completion":
 			result = []any{map[string]any{"label": "hello"}}
+		case "fixture.diagnostics":
+			var p struct {
+				URI string `json:"uri"`
+			}
+			json.Unmarshal(m.Params, &p)
+			event, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "method": "textDocument/publishDiagnostics", "params": map[string]any{"uri": p.URI, "diagnostics": []any{}}})
+			fmt.Fprintf(os.Stdout, "Content-Length: %d\r\n\r\n%s", len(event), event)
 		case "hang":
 			continue
 		default:
@@ -213,5 +240,122 @@ func TestDocumentEpochPreventsLateCloseAndSyncAfterReopen(t *testing.T) {
 	c.syncMu.Unlock()
 	if doc.source != "new" || doc.epoch != 2 {
 		t.Fatal(doc)
+	}
+}
+
+func TestUnversionedDiagnosticMetadata(t *testing.T) {
+	t.Setenv("SHACK_TEST_SERVER", "1")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	events := make(chan Notification, 8)
+	c, e := Start(ctx, []string{os.Args[0], "-test.run=^TestServerProcess$"}, t.TempDir(), func(n Notification) { events <- n })
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer c.Close()
+	uri := URI(filepath.Join(t.TempDir(), "a.ts"))
+	check := func(version *uint64, epoch uint64) {
+		t.Helper()
+		if _, e := c.Request(ctx, "fixture.diagnostics", map[string]string{"uri": uri}); e != nil {
+			t.Fatal(e)
+		}
+		select {
+		case n := <-events:
+			if (version == nil) != (n.DocumentVersion == nil) || version != nil && (*version != *n.DocumentVersion || epoch != n.DocumentEpoch) {
+				t.Fatalf("metadata: %#v", n)
+			}
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		}
+	}
+	check(nil, 0)
+	for _, v := range []uint64{1, 2} {
+		if e = c.Sync(uri, "typescript", "const x=1", v, 7); e != nil {
+			t.Fatal(e)
+		}
+		check(&v, 7)
+	}
+	c.Forget(uri, 7)
+	check(nil, 0)
+	v := uint64(0)
+	if e = c.Sync(uri, "typescript", "const y=2", v, 8); e != nil {
+		t.Fatal(e)
+	}
+	check(&v, 8)
+}
+
+func TestContentModifiedRetryDoesNotReplayCommands(t *testing.T) {
+	t.Setenv("SHACK_TEST_SERVER", "1")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	c, e := Start(ctx, []string{os.Args[0], "-test.run=^TestServerProcess$"}, t.TempDir(), nil)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer c.Close()
+	params := map[string]bool{"fixtureRetry": true}
+	result, e := c.Request(ctx, "textDocument/hover", params)
+	if e != nil || string(result) != "2" {
+		t.Fatal(string(result), e)
+	}
+	for _, method := range []string{"workspace/executeCommand", "codeAction/resolve"} {
+		if _, e = c.Request(ctx, method, params); e == nil {
+			t.Fatal("replayed", method)
+		}
+		result, e = c.Request(ctx, method, params)
+		if e != nil || string(result) != "2" {
+			t.Fatal("unexpected count", string(result), e)
+		}
+	}
+	short, stop := context.WithTimeout(ctx, 20*time.Millisecond)
+	defer stop()
+	if _, e = c.Request(short, "textDocument/references", params); e != context.DeadlineExceeded {
+		t.Fatal(e)
+	}
+}
+
+func TestContentModifiedRetryStopsAfterDocumentSync(t *testing.T) {
+	t.Setenv("SHACK_TEST_SERVER", "1")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	notified := make(chan struct{}, 1)
+	resume := make(chan struct{})
+	c, e := Start(ctx, []string{os.Args[0], "-test.run=^TestServerProcess$"}, t.TempDir(), func(n Notification) {
+		if n.Method == "fixture.retry" {
+			notified <- struct{}{}
+			select {
+			case <-resume:
+			case <-ctx.Done():
+			}
+		}
+	})
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer c.Close()
+	done := make(chan error, 1)
+	params := map[string]bool{"fixtureRetry": true}
+	go func() { _, e := c.Request(ctx, "textDocument/definition", params); done <- e }()
+	select {
+	case <-notified:
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	if e = c.Sync(URI(filepath.Join(t.TempDir(), "a.go")), "go", "changed", 1); e != nil {
+		t.Fatal(e)
+	}
+	close(resume)
+	select {
+	case e = <-done:
+		var rpc *rpcError
+		if !errors.As(e, &rpc) || rpc.Code != -32801 {
+			t.Fatal("retried stale position", e)
+		}
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	result, e := c.Request(ctx, "textDocument/definition", params)
+	if e != nil || string(result) != "2" {
+		t.Fatal(string(result), e)
 	}
 }

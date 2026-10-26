@@ -12,13 +12,18 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
 
 type Notification struct {
-	Method string
-	Params json.RawMessage
+	// DocumentVersion is the client-side version being sent when an unversioned
+	// diagnostic arrived. It is not a server assertion about diagnostic freshness.
+	DocumentVersion *uint64
+	DocumentEpoch   uint64
+	Method          string
+	Params          json.RawMessage
 }
 type wire struct {
 	JSONRPC string          `json:"jsonrpc,omitempty"`
@@ -32,6 +37,9 @@ type rpcError struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
 }
+
+func (e *rpcError) Error() string { return "LSP: " + e.Message }
+
 type reply struct {
 	data json.RawMessage
 	err  error
@@ -41,7 +49,10 @@ type document struct {
 	version uint64
 	source  string
 }
+type syncStamp struct{ Version, Epoch uint64 }
 type Client struct {
+	diagnosticStamps   sync.Map
+	syncGeneration     atomic.Uint64
 	cmd                *exec.Cmd
 	input              io.WriteCloser
 	writer             sync.Mutex
@@ -215,7 +226,39 @@ func (c *Client) send(v any) error {
 func (c *Client) Notify(method string, params any) error {
 	return c.send(map[string]any{"jsonrpc": "2.0", "method": method, "params": params})
 }
+
+// Retry a bounded set of read/compute requests when server workspace loading
+// invalidates its analysis. Reuse positions only while our synced documents are
+// unchanged. Commands, initialization and resolve objects are never replayed.
 func (c *Client) Request(ctx context.Context, method string, params any) (json.RawMessage, error) {
+	generation := c.syncGeneration.Load()
+	retryable := false
+	switch method {
+	case "textDocument/completion", "textDocument/hover", "textDocument/definition", "textDocument/typeDefinition", "textDocument/implementation", "textDocument/references", "textDocument/documentSymbol", "workspace/symbol", "textDocument/signatureHelp", "textDocument/formatting", "textDocument/rename", "textDocument/codeAction":
+		retryable = true
+	}
+	for attempt := 0; ; attempt++ {
+		data, err := c.requestOnce(ctx, method, params)
+		var rpc *rpcError
+		if !retryable || attempt >= 3 || !errors.As(err, &rpc) || rpc.Code != -32801 || c.syncGeneration.Load() != generation {
+			return data, err
+		}
+		timer := time.NewTimer(time.Duration(attempt+1) * 100 * time.Millisecond)
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-c.ctx.Done():
+			timer.Stop()
+			return nil, c.ctx.Err()
+		}
+		if c.syncGeneration.Load() != generation {
+			return data, err
+		}
+	}
+}
+func (c *Client) requestOnce(ctx context.Context, method string, params any) (json.RawMessage, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -300,7 +343,21 @@ func (c *Client) read(r io.Reader) {
 			} else if m.Method == "$/cancelRequest" {
 				c.cancelServerRequest(m.Params)
 			} else if c.notify != nil {
-				c.notify(Notification{m.Method, m.Params})
+				n := Notification{Method: m.Method, Params: m.Params}
+				if m.Method == "textDocument/publishDiagnostics" {
+					var p struct {
+						URI     string  `json:"uri"`
+						Version *uint64 `json:"version"`
+					}
+					if json.Unmarshal(m.Params, &p) == nil && p.Version == nil {
+						if value, ok := c.diagnosticStamps.Load(p.URI); ok {
+							stamp := value.(syncStamp)
+							n.DocumentVersion = &stamp.Version
+							n.DocumentEpoch = stamp.Epoch
+						}
+					}
+				}
+				c.notify(n)
 			}
 			continue
 		}
@@ -314,7 +371,7 @@ func (c *Client) read(r io.Reader) {
 		if ch != nil {
 			r := reply{data: m.Result}
 			if m.Error != nil {
-				r.err = fmt.Errorf("LSP: %s", m.Error.Message)
+				r.err = m.Error
 			}
 			select {
 			case ch <- r:
@@ -357,6 +414,10 @@ func (c *Client) Sync(uri, language, source string, version uint64, epochs ...ui
 	if exists && old.version >= version {
 		return nil
 	}
+	// Publish only scalar metadata before writing; the reader must never wait
+	// for syncMu while a server is writing notifications instead of reading stdin.
+	c.syncGeneration.Add(1)
+	c.diagnosticStamps.Store(uri, syncStamp{version, epoch})
 	var err error
 	if !exists {
 		err = c.Notify("textDocument/didOpen", map[string]any{"textDocument": map[string]any{"uri": uri, "languageId": language, "version": version, "text": source}})
@@ -369,6 +430,8 @@ func (c *Client) Sync(uri, language, source string, version uint64, epochs ...ui
 	}
 	if err == nil {
 		c.docs[uri] = document{epoch, version, source}
+	} else {
+		c.diagnosticStamps.Delete(uri)
 	}
 	return err
 }
@@ -389,8 +452,10 @@ func (c *Client) Forget(uri string, epochs ...uint64) {
 		c.retired[uri] = max(c.retired[uri], epoch)
 	}
 	if old, ok := c.docs[uri]; ok && old.epoch <= epoch {
+		c.syncGeneration.Add(1)
 		_ = c.Notify("textDocument/didClose", map[string]any{"textDocument": map[string]string{"uri": uri}})
 		delete(c.docs, uri)
+		c.diagnosticStamps.Delete(uri)
 	}
 }
 func (c *Client) Alive() bool { return c.ctx.Err() == nil }
