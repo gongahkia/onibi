@@ -12,7 +12,7 @@ Shack is an [atomweight](https://en.wikipedia.org/wiki/Atomweight) terminal IDE 
 ## Stack
 
 * *Scripting*: [Go 1.27+](https://go.dev/dl/)
-* *CLI*:[tcell](https://github.com/gdamore/tcell)
+* *CLI*: [tcell](https://github.com/gdamore/tcell)
 * *Highlighting*: [Chroma](https://github.com/alecthomas/chroma)
 
 ## Features
