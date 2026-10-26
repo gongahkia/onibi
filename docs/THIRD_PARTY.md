@@ -1,7 +1,7 @@
 # Third-party components
 
 Shack directly uses tcell v2 (terminal handling), Chroma v2 (syntax lexers), uniseg (Unicode grapheme segmentation), creack/pty (PTY lifecycle), Charm
-vt/ultraviolet/ansi (terminal emulation and input), and x/sys (OS interfaces). Transitive runtime dependencies are pinned
+vt/ultraviolet/ansi (terminal emulation and input), regexp2 (snippet transforms), Goldmark and go-org (document parsing), and x/sys (OS interfaces). Transitive runtime dependencies are pinned
 in go.mod and go.sum. They are compiled into the executable.
 
 Release archives include THIRD_PARTY_LICENSES.txt with the license and notice

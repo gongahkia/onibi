@@ -202,8 +202,12 @@ Shack does not download servers or their runtimes. Some servers need Node.js,
 Python, or language toolchains; their memory is additional to Shack's. Missing
 servers leave ordinary editing and bundled highlighting available. Only C/clangd
 has live integration tests for completion, definition, formatting, hover,
-references, symbols, signatures and rename, in addition to deterministic protocol tests;
-other presets still need testing against their respective server installations.
+references, symbols, signatures and rename, in addition to deterministic protocol tests.
+Live Go, Rust, Python (Pyright and pylsp) and TypeScript workflows are recorded in
+[LANGUAGE_SERVERS.md](LANGUAGE_SERVERS.md), with versions, tested operations and
+server limitations. Pyright does not provide formatting; use a Python server with
+a formatter such as pylsp when formatting is required. Unversioned diagnostics
+are supported on a best-effort basis, as explained in that document.
 
 For a small server, use `shack --no-lsp` or `shack --plain`. Optional highlighting
 and LSP are disabled for documents over 1 MiB by default. This keeps large-file

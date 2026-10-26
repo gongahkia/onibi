@@ -8,7 +8,7 @@ not narrow the goal or justify declaring the entire milestone complete.
 
 | Requirement | Acceptance evidence | Status |
 | --- | --- | --- |
-| Language-server compatibility | Live Go, Rust, Python and TypeScript workflows (completion, diagnostics, navigation, formatting, rename/actions as supported), plus regressions | Pending |
+| Language-server compatibility | Live Go, Rust, Python and TypeScript workflows (completion, diagnostics, navigation, formatting, rename/actions as supported), plus regressions | Verified: live gopls, rust-analyzer, Pyright, pylsp and TypeScript protocol + editor workflows under race detection; fixes for unversioned diagnostics and indexing retries; versions/limits in LANGUAGE_SERVERS.md |
 | SSH and terminal compatibility | Actual SSH transport, tmux over SSH, several terminal profiles, resize/input/clipboard limitations documented | Pending |
 | Unicode and worst-case performance | Grapheme-correct editing/wrapping of Unicode-heavy long files; latency, allocations, redraw traffic and RSS measured against 0.2 | Pending |
 | Embedded terminal | Real PTY shell and interactive full-screen programs; emulation, resize, keyboard/mouse input, scrollback, clean shutdown; bounded memory | Implemented: race tests, PTY protocol/backpressure tests, tmux shell/Vim/resize/interrupt/cleanup smoke; SSH matrix remains below |
