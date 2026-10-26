@@ -5,6 +5,7 @@ Uses isolated config, 100x30 PTYs, syntax/services disabled, one discarded warmu
 per editor/workload, then interleaved measured runs. Results go to stdout as JSON.
 No user config, clipboard, installed files or system caches are modified.
 """
+import argparse
 import errno
 import fcntl
 import json
@@ -25,15 +26,31 @@ import termios
 import time
 
 root = Path(__file__).resolve().parent.parent
-editors = {'Shack': str(root / 'build/shack')}
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--editors', default='Shack,Micro,Vim,Neovim')
+parser.add_argument('--fixtures', default='small,unicode_1m')
+parser.add_argument('--shack-binary', type=Path, default=root / 'build/shack')
+args = parser.parse_args()
+editors = {'Shack': str(args.shack_binary.resolve())}
 for label, command in [('Micro', 'micro'), ('Vim', 'vim'), ('Neovim', 'nvim')]:
     if path := shutil.which(command):
         editors[label] = path
+requested = args.editors.split(',')
+if set(requested) - {'Shack', 'Micro', 'Vim', 'Neovim'}:
+    parser.error('unknown editor')
+editors = {name: binary for name, binary in editors.items() if name in requested}
+if not editors:
+    parser.error('no requested editor is installed')
 unit = '界 é 👩‍💻 🇸🇬\t'
 fixtures = {
     'small': 'COMPARE_READY\n' + 'sample plain text\n' * 1000,
     'unicode_1m': 'COMPARE_READY ' + unit * ((1 << 20) // len(unit.encode())) + 'END',
 }
+
+requested_fixtures = args.fixtures.split(',')
+if set(requested_fixtures) - set(fixtures):
+    parser.error('unknown fixture')
+fixtures = {name: source for name, source in fixtures.items() if name in requested_fixtures}
 
 def run(label, binary, kind, source):
     with tempfile.TemporaryDirectory(prefix='shack-compare-') as directory:
