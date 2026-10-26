@@ -57,7 +57,7 @@ with tempfile.TemporaryDirectory(prefix='shack-debug-test-') as folder:
     try:
         run('new-session', '-d', '-x', '120', '-y', '32', '-s', 'shack', binary,
             '--config', str(config), '--no-lsp', '--no-session', '--no-recovery', str(root), str(source))
-        wait('Ctrl+Shift+P commands')
+        wait('Ctrl+E commands')
         keys('C-g')
         type_text('5')
         keys('Enter', 'F9')

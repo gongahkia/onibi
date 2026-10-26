@@ -37,9 +37,9 @@ with tempfile.TemporaryDirectory(prefix='shack-redraw-') as directory:
     try:
         captured = bytearray()
         until = time.monotonic() + 10
-        while b'Ctrl+Shift+P commands' not in captured and time.monotonic() < until:
+        while b'Ctrl+E commands' not in captured and time.monotonic() < until:
             captured.extend(drain(.1))
-        assert b'Ctrl+Shift+P commands' in captured
+        assert b'Ctrl+E commands' in captured
         drain(.2)
         delays, sizes = [], []
         for _ in range(30):

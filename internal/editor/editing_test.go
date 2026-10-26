@@ -121,9 +121,9 @@ func TestPaletteAndHelpShortcuts(t *testing.T) {
 		event *tcell.EventKey
 		title string
 	}{
-		{"palette lowercase", tcell.NewEventKey(tcell.KeyRune, 'p', tcell.ModCtrl|tcell.ModShift), "Commands"},
-		{"palette uppercase", tcell.NewEventKey(tcell.KeyRune, 'P', tcell.ModCtrl|tcell.ModShift), "Commands"},
-		{"palette control key", tcell.NewEventKey(tcell.KeyCtrlP, 0, tcell.ModShift), "Commands"},
+		{"palette lowercase", tcell.NewEventKey(tcell.KeyRune, 'e', tcell.ModCtrl), "Commands"},
+		{"palette uppercase", tcell.NewEventKey(tcell.KeyRune, 'E', tcell.ModCtrl), "Commands"},
+		{"palette control key", tcell.NewEventKey(tcell.KeyCtrlE, 0, 0), "Commands"},
 		{"palette fallback", tcell.NewEventKey(tcell.KeyF2, 0, 0), "Commands"},
 		{"file picker", tcell.NewEventKey(tcell.KeyCtrlP, 0, 0), "Project files"},
 		{"help", tcell.NewEventKey(tcell.KeyRune, 'h', tcell.ModCtrl), "Help"},
@@ -142,10 +142,11 @@ func TestPaletteAndHelpShortcuts(t *testing.T) {
 		})
 	}
 	a := testApp(t)
-	key(a, tcell.KeyCtrlE)
-	if a.Dialog != nil {
+	a.Handle(tcell.NewEventKey(tcell.KeyRune, 'p', tcell.ModCtrl|tcell.ModShift))
+	if a.Dialog != nil && strings.HasPrefix(a.Dialog.Title, "Commands") {
 		t.Fatal("old palette shortcut is still bound")
 	}
+	a.Dialog = nil
 	a.insert("abc")
 	key(a, tcell.KeyBackspace)
 	key(a, tcell.KeyBackspace2)
@@ -156,14 +157,14 @@ func TestPaletteAndHelpShortcuts(t *testing.T) {
 
 func TestModifiedPaletteShortcutOverrides(t *testing.T) {
 	a := testApp(t)
-	a.Config.Keybindings = map[string]string{"Ctrl+Shift+P": "", "Ctrl+H": "Command palette"}
+	a.Config.Keybindings = map[string]string{"Ctrl+E": "", "Ctrl+H": "Command palette"}
 	if err := a.configureKeys(); err != nil {
 		t.Fatal(err)
 	}
 	for _, ev := range []*tcell.EventKey{
-		tcell.NewEventKey(tcell.KeyRune, 'p', tcell.ModCtrl|tcell.ModShift),
-		tcell.NewEventKey(tcell.KeyRune, 'P', tcell.ModCtrl|tcell.ModShift),
-		tcell.NewEventKey(tcell.KeyCtrlP, 0, tcell.ModShift),
+		tcell.NewEventKey(tcell.KeyRune, 'e', tcell.ModCtrl),
+		tcell.NewEventKey(tcell.KeyRune, 'E', tcell.ModCtrl),
+		tcell.NewEventKey(tcell.KeyCtrlE, 0, 0),
 	} {
 		a.Handle(ev)
 		if a.Dialog != nil {

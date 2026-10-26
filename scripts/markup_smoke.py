@@ -46,7 +46,7 @@ with tempfile.TemporaryDirectory(prefix='shack-markup-test-') as folder:
     try:
         run('new-session', '-d', '-x', '120', '-y', '30', '-s', 'shack', binary,
             '--no-lsp', '--config', str(config), '--no-session', '--no-recovery', str(source))
-        wait('Ctrl+Shift+P commands')
+        wait('Ctrl+E commands')
         keys('F4')
         wait('Hello 世界')
         wait('☑ First task')

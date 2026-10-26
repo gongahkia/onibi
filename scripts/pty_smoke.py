@@ -39,7 +39,7 @@ with tempfile.TemporaryDirectory(prefix='shack-pty-') as directory:
                 captured.extend(data)
         raise AssertionError(f'terminal never displayed {needle!r}: {bytes(captured[-1500:])!r}')
     try:
-        receive_until(b'Ctrl+Shift+P commands')
+        receive_until(b'Ctrl+E commands')
         ready_ms = (time.monotonic() - started) * 1000
         rss_kib = int(subprocess.check_output(["ps", "-o", "rss=", "-p", str(pid)]).strip())
         def settle():
@@ -50,9 +50,10 @@ with tempfile.TemporaryDirectory(prefix='shack-pty-') as directory:
         # Actual terminal decoding: CSI-u and xterm modifyOtherKeys, including
         # uppercase encodings. Legacy control bytes retain their original meaning.
         for sequence, title in (
-            (b'\x1b[112;6u', b'Commands'),
-            (b'\x1b[80;6u', b'Commands'),
-            (b'\x1b[27;6;80~', b'Commands'),
+            (b'\x05', b'Commands'),
+            (b'\x1b[101;5u', b'Commands'),
+            (b'\x1b[69;5u', b'Commands'),
+            (b'\x1b[27;5;101~', b'Commands'),
             (b'\x1b[104;5u', b'Help'),
             (b'\x1b[27;5;104~', b'Help'),
             (b'\x1bOQ', b'Commands'),

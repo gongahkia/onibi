@@ -43,7 +43,7 @@ with tempfile.TemporaryDirectory(prefix='shack-fold-test-') as folder:
     try:
         run('new-session', '-d', '-x', '110', '-y', '28', '-s', 'shack', binary,
             '--no-lsp', '--config', str(config), '--no-session', '--no-recovery', str(source))
-        wait('Ctrl+Shift+P commands')
+        wait('Ctrl+E commands')
         keys('F6')
         wait('1 collapsed regions')
         assert 'hidden 世界' not in pane()

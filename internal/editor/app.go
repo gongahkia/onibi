@@ -235,7 +235,7 @@ func New(screen tcell.Screen, cfg config.Config, paths []string, readonly bool) 
 		cancel()
 		return nil, err
 	}
-	a.Status = "Ctrl+Shift+P commands · Ctrl+P files · Ctrl+F find · Ctrl+H help"
+	a.Status = "Ctrl+E commands · Ctrl+P files · Ctrl+F find · Ctrl+H help"
 	return a, nil
 }
 func (a *App) Current() *Buffer { return a.Buffers[a.Active] }

@@ -175,7 +175,7 @@ with tempfile.TemporaryDirectory(prefix='shack-ssh-') as folder:
                 remote = shlex.join([tmux, '-S', sock, '-f', str(tmux_config), 'new-session', '-s', 'shack', remote])
             session = Session(ssh + [remote], 'xterm-256color' if nested else profile)
             try:
-                session.wait('Ctrl+Shift+P commands')
+                session.wait('Ctrl+E commands')
                 if index == 0:
                     session.benchmark()
                 # All profiles get Unicode insertion, whole-grapheme deletion and undo.
@@ -248,7 +248,7 @@ with tempfile.TemporaryDirectory(prefix='shack-ssh-') as folder:
         session = Session(ssh + [remote], 'xterm-256color')
         children = []
         try:
-            session.wait('Ctrl+Shift+P commands')
+            session.wait('Ctrl+E commands')
             session.command('New terminal')
             session.wait('Terminal input')
             session.send('echo $$ > shell.pid; stty size > before.size; printf "REMOTE_PTY_READY\\n"\r')

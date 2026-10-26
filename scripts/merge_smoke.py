@@ -57,7 +57,7 @@ with tempfile.TemporaryDirectory(prefix='shack-merge-test-') as folder:
     try:
         run('new-session', '-d', '-x', '120', '-y', '30', '-s', 'shack', binary,
             '--no-lsp', '--config', str(config), '--no-session', '--no-recovery', str(root), str(source))
-        wait('Ctrl+Shift+P commands')
+        wait('Ctrl+E commands')
         def palette(name):
             keys('F2')
             type_text(name)

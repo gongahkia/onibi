@@ -129,7 +129,7 @@ func (a *App) terminalKey(ev *tcell.EventKey) bool {
 	}
 	if ev.Key() == tcell.KeyCtrlRightSq {
 		v.Input = false
-		a.Status = "Editor controls · Ctrl+Shift+P commands · Resume terminal input to return"
+		a.Status = "Editor controls · Ctrl+E commands · Resume terminal input to return"
 		return true
 	}
 	if v.Session == nil {

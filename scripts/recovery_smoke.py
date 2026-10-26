@@ -58,7 +58,7 @@ with tempfile.TemporaryDirectory(prefix='shack-recovery-test-') as folder:
 
     try:
         start(root, target)
-        wait(lambda: b'Ctrl+Shift+P commands' in output)
+        wait(lambda: b'Ctrl+E commands' in output)
         os.write(master, b'\x01\x1b[200~recovered after SIGKILL\x1b[201~')
         def persisted():
             for path in (state / 'shack' / 'recovery').glob('*.json'):

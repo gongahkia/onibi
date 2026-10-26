@@ -76,7 +76,7 @@ func (a *App) registerCommands() {
 				a.Config.Theme = "dark"
 			}
 		}},
-		{"Command palette", "Ctrl+Shift+P / F2", a.palette},
+		{"Command palette", "Ctrl+E / F2", a.palette},
 		{"Help / keyboard shortcuts", "Ctrl+H / F1", a.help},
 	}
 }

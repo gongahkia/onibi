@@ -38,7 +38,7 @@ with tempfile.TemporaryDirectory(prefix='shack-ide-test-') as folder:
         keys('Enter')
     try:
         run('new-session', '-d', '-x', '110', '-y', '30', '-s', 'shack', binary, '--no-config', '--no-lsp', '--no-session', '--no-recovery', str(root), str(root / 'one.txt'))
-        wait('Ctrl+Shift+P commands')
+        wait('Ctrl+E commands')
         command('Split vertically')
         wait('2 · one.txt')
         command('Toggle soft wrapping')

@@ -80,7 +80,7 @@ Arrived at destination.
     try:
         run('new-session', '-d', '-x', '140', '-y', '48', '-s', 'shack', binary,
             '--no-config', '--no-lsp', '--no-session', '--no-recovery', str(source))
-        wait('Ctrl+Shift+P commands')
+        wait('Ctrl+E commands')
         keys('F4')
         wait('▀')
         wait('Start')
