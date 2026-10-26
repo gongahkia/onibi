@@ -588,13 +588,40 @@ extensions and unsaved buffers, choose the format; **Preview as Markdown** and
 **Preview as Org** also select it explicitly. **Document preview beside source**
 opens the view in a vertical split. No external viewer or renderer is installed.
 
-Headings, emphasis, lists, task checkboxes, links, tables, quotes and literal code
-blocks render as terminal text/styles. Markdown uses Goldmark's parser with table,
-strikethrough, task-list and link extensions; Org uses go-org. Images show their
-alt text. HTML, LaTeX and exported code remain text; this is a document reader,
-not a browser, equation renderer or Org agenda/Babel environment. Org includes,
-setup-file reads, macro expansion and code execution are disabled. Tables pad
-ordinary cells; very long cells may extend past the alignment and can wrap/scroll.
+Markdown is parsed with Goldmark using the [CommonMark](https://spec.commonmark.org/0.31.2/)
+syntax model, [GitHub-flavored extensions](https://github.github.com/gfm/), and
+footnotes/definition lists. The terminal renderer covers:
+
+| Syntax | Preview behavior |
+| --- | --- |
+| ATX/setext headings, paragraphs, thematic breaks | Styled headings with outline navigation, paragraph spacing and rules |
+| Emphasis/strong/nested emphasis, escapes, entities | Styled text and decoded literal characters |
+| Soft/hard line breaks | Soft breaks become spaces; hard breaks retain newlines |
+| Inline, indented and fenced code | Literal code text; fences display their language label |
+| Ordered/unordered, nested and loose lists | Preserved starting numbers and indented continuation blocks |
+| Nested blockquotes | Quote markers on logical content lines; nested markers retained |
+| Inline/reference links and autolinks | Labels and safe web/mail targets; reference definitions resolve normally |
+| Images, including reference images | Alt text and destination placeholders; web destinations can be copied/opened through supported terminal links |
+| GFM tables, task lists and strikethrough | Unicode-aware left/center/right alignment, checkboxes and strike styling |
+| Footnotes, including repeated references | Numbered references and definitions at the end, with formatted multiline content |
+| Definition lists | Bold terms and indented descriptions |
+| Inline/block HTML | Visible inert source text, including comments; no browser layout or script execution |
+
+This is a terminal adaptation, not HTML output or a claim of support for every
+Markdown dialect. Goldmark provides parsing; Shack's regression fixtures exercise
+each core node family and enabled extension, rather than certify the entire
+CommonMark/GFM HTML conformance corpus. Footnote references are readable numbers,
+not clickable jumps. Heading anchors and relative-file links do not navigate yet.
+Images are not decoded into terminal graphics. LaTeX/math, Mermaid diagrams,
+frontmatter, GitHub alerts, emoji shortcodes, custom containers and MDX components
+have no dedicated rendering; their source remains visible (fenced content remains
+literal code). Code fences have a uniform code style, not per-language token colors.
+Soft-wrapped visual continuation rows do not repeat container markers.
+
+Org uses go-org. HTML, LaTeX and exported code remain text; Org includes, setup-file
+reads, macro expansion and code execution are disabled. Tables pad ordinary cells;
+very long cells may extend past the alignment and can wrap/scroll. No preview
+fetches images, executes embedded code or installs a runtime.
 
 Visible previews update after the source changes, with a 200 ms debounce and one
 background renderer. Hidden previews refresh when reopened. Ordinary redraws

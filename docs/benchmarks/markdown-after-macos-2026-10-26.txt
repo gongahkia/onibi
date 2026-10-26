@@ -1,0 +1,15 @@
+goos: darwin
+goarch: amd64
+pkg: github.com/gongahkia/shack/internal/markup
+cpu: Intel(R) Core(TM) i5-8279U CPU @ 2.40GHz
+BenchmarkRenderExtendedMarkdown-8   	     226	   5539018 ns/op	   6.17 MB/s	 3695695 B/op	   26354 allocs/op
+BenchmarkRenderExtendedMarkdown-8   	     180	   6632204 ns/op	   5.16 MB/s	 3695600 B/op	   26354 allocs/op
+BenchmarkRenderExtendedMarkdown-8   	     175	   7244184 ns/op	   4.72 MB/s	 3695627 B/op	   26354 allocs/op
+BenchmarkRenderMarkdown-8           	     397	   3013595 ns/op	   7.96 MB/s	 1717074 B/op	   12851 allocs/op
+BenchmarkRenderMarkdown-8           	     386	   3100953 ns/op	   7.74 MB/s	 1717076 B/op	   12851 allocs/op
+BenchmarkRenderMarkdown-8           	     360	   3503164 ns/op	   6.85 MB/s	 1717072 B/op	   12851 allocs/op
+BenchmarkRenderOrg-8                	     202	   5679387 ns/op	   4.17 MB/s	 1630006 B/op	   22894 allocs/op
+BenchmarkRenderOrg-8                	     238	   5000337 ns/op	   4.74 MB/s	 1629873 B/op	   22894 allocs/op
+BenchmarkRenderOrg-8                	     225	   5372427 ns/op	   4.41 MB/s	 1629532 B/op	   22894 allocs/op
+PASS
+ok  	github.com/gongahkia/shack/internal/markup	11.309s

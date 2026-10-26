@@ -587,3 +587,42 @@ snapshot. All other profile setup is in the script.
 make build
 python3 scripts/ide_compare.py --runs 3 --output build/ide-comparison.json
 ```
+
+
+## Expanded Markdown preview coverage
+
+2026-10-26, same Intel macOS host. Markdown previews now enable Goldmark's GFM,
+footnote and definition-list extensions, preserve list/quote continuation indentation,
+respect table column alignment and retain image destinations in text placeholders.
+The parser/output bounds, 200 ms source-update debounce, single background renderer
+and cached ordinary redraw path remain in place. No new runtime dependency was added.
+
+Three non-race benchmark repetitions observed:
+
+| Fixture | Before | After | Allocated bytes / allocations per render after |
+| --- | ---: | ---: | ---: |
+| Existing Markdown fixture, about 24 KB | 3.19–4.00 ms | 3.01–3.50 ms | 1.72 MB / 12,851 |
+| Existing Org fixture, about 24 KB | 4.80–6.07 ms | 5.00–5.68 ms | 1.63 MB / 22,894 |
+| New nested quote/list, definition and aligned-table fixture, about 34 KB | — | 5.54–7.24 ms | 3.70 MB / 26,354 |
+
+The existing Markdown fixture previously allocated about 1.72 MB / 12,813 allocations;
+the extra parser extensions add little overhead on that fixture. These are complete
+background-render samples, not keypress latency, peak memory or proof of a speedup.
+The richer fixture has more layout/style work and is not a before/after comparison.
+
+`make check`, the rebuilt executable's Markdown/Org tmux workflow and a 20-second
+fuzz run passed (217,130 executions including the cached corpus). New regression
+fixtures cover core Markdown node families, enabled extensions, Unicode table
+alignment, container heading offsets and combined text/link styles. The tmux check
+also verifies footnote/definition/table rendering, live refresh, read-only behavior,
+source preservation, outline navigation and URL copying. This is not certification
+against the full CommonMark/GFM HTML conformance suite; terminal adaptations and
+remaining dialect/visual limitations are documented in [USAGE.md](USAGE.md#markdown-and-org-previews).
+
+[Before samples](benchmarks/markdown-before-macos-2026-10-26.txt) and
+[after samples](benchmarks/markdown-after-macos-2026-10-26.txt) are retained.
+Reproduce with:
+
+```sh
+go test ./internal/markup -run '^$' -bench 'BenchmarkRender(Markdown|Org|ExtendedMarkdown)$' -benchmem -count=3
+```
