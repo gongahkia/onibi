@@ -1,4 +1,4 @@
-name: Shack CI
+name: Shack CI/CD on Push
 on: [push, pull_request]
 permissions:
   contents: read
