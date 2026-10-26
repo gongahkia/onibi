@@ -424,7 +424,7 @@ func (a *App) homeEnd(end, extend, document bool) {
 		line := d.Text.LineAt(s.Head)
 		p := d.Text.LineStart(line)
 		if end {
-			p += len(d.Text.Line(line))
+			p = d.Text.LineEnd(line)
 		}
 		if document {
 			p = 0

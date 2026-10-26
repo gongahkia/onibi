@@ -249,8 +249,8 @@ The index benchmark now uses the same approximately 1 MiB length as the viewport
 benchmark; rerun it when comparing exact values. Cold distant navigation and a
 single extremely long combining sequence still require scanning their text.
 
-The UI now shares a lazy grapheme/column/wrap index, limited to 16 line/width
-entries with at most 2,048 checkpoints each (1.25 MiB of checkpoint storage on
+The UI now shares a lazy grapheme/column/wrap index, limited to 64 line/width
+entries with at most 512 checkpoints each (1.25 MiB of checkpoint storage on
 64-bit hosts, plus small entry/slice overhead). Sparse checkpoints compact for
 very long lines. Edits preserve only verified unchanged prefixes; skipped
 versions and replaced documents discard stale indexes. ASCII arithmetic remains
@@ -286,3 +286,30 @@ whitespace spanning multiple windows. Reproduce with:
 ```sh
 go test ./internal/editor -run '^$' -bench BenchmarkUnicodeLongWord -benchmem
 ```
+
+
+### Multiple long lines and oversized clusters
+
+The cache now accommodates 64 line/width entries while keeping the same
+1.25 MiB checkpoint ceiling. This avoids eviction churn across a typical tall
+viewport. A 100×40 simulated viewport horizontally scrolled through forty
+128 KiB mixed-Unicode lines measured **110 ms** with the initial 16-entry cache
+and **2.1–3.2 ms** with the revised cache (ten-iteration samples). The 8 KiB-per-line
+case measured **1.6–2.4 ms**, down from 7.1 ms. Eight recent boundaries per entry
+keep sequential rows local after sparse checkpoints compact.
+
+Each entry also remembers the extent and width of up to sixteen clusters longer
+than 256 bytes, retaining no source strings. A viewport containing one 1 MiB
+combining sequence measured **0.372 ms warmed**; the first inspection still needs
+to read the cluster. Text remains intact while its display uses a placeholder.
+These small fixed metadata arrays add about 45 KiB at the full 64-entry limit.
+`End` now uses the rope's line-end index instead of copying the line.
+
+A real native 1 MiB Unicode PTY check passed whole-grapheme deletion of a flag,
+ZWJ emoji and combining accent, undo/save, wrapping, shrink/enlarge and quit.
+Its first cold End produced output in **22.47 ms**; twenty wrapped edits observed
+**0.829 ms median / 2.533 ms maximum to first output**, **518 / 528 terminal bytes**,
+and **17.9 MiB editor RSS** after editing. This excludes GUI painting and is not
+whole-frame latency. `make check` passed after the final cache changes; another
+15-second fuzz run completed 123,951 cases. Reproduce with
+`python3 scripts/unicode_smoke.py` after `make build`.

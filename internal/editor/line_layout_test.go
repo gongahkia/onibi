@@ -247,3 +247,43 @@ func FuzzLineLayout(f *testing.F) {
 		}
 	})
 }
+
+func TestOversizedClusterMeasurementsSurviveOnlyUnchangedPrefix(t *testing.T) {
+	cluster := "a" + strings.Repeat("́", 10000)
+	d, _ := text.NewDocument(cluster + "x")
+	b := &Buffer{Doc: d}
+	var cache layoutCache
+	l := cache.line(b, 0, 80, 4)
+	if l.column(d.Text.Len()) != 2 || l.oversizedCount != 1 {
+		t.Fatal("measurement missing")
+	}
+	if start, end := l.atOffset(len(cluster) - 1); start.Offset != 0 || end.Offset != len(cluster) {
+		t.Fatal("cluster extent", start, end)
+	}
+	d.Apply(d.Version, []text.Edit{{Start: d.Text.Len(), End: d.Text.Len(), Text: "y"}})
+	l = cache.line(b, 0, 80, 4)
+	if l.oversizedCount != 1 || l.column(d.Text.Len()) != 3 {
+		t.Fatal("unchanged cluster forgotten")
+	}
+	d.Apply(d.Version, []text.Edit{{Start: 1, End: len(cluster), Text: ""}})
+	l = cache.line(b, 0, 80, 4)
+	if l.oversizedCount != 0 || l.column(d.Text.Len()) != 3 {
+		t.Fatal("stale cluster extent")
+	}
+	checkLineLayout(t, cluster+"界\t", 2, 4)
+}
+func TestManyLongLinesRemainCached(t *testing.T) {
+	d, _ := text.NewDocument(strings.Repeat(strings.Repeat("界", 5000)+"\n", 40))
+	b := &Buffer{Doc: d}
+	var c layoutCache
+	layouts := make([]*lineLayout, 40)
+	for line := range layouts {
+		layouts[line] = c.line(b, line, 0, 4)
+		layouts[line].column(d.Text.LineEnd(line))
+	}
+	for line, want := range layouts {
+		if got := c.line(b, line, 0, 4); got != want {
+			t.Fatal("visible line evicted", line)
+		}
+	}
+}

@@ -10,14 +10,15 @@ import (
 // Index only grapheme boundaries, never arbitrary byte offsets. Checkpoints are
 // sparse and compact as a line grows; the total cache is bounded across panes
 // and buffers. No source text is flattened or retained outside the current rope.
-const layoutEntries = 16
-const layoutPoints = 2048
+const layoutEntries = 64
+const layoutPoints = 512
 const layoutStride = 512
 
 type layoutPoint struct {
 	Offset, Column           int
 	Row, RowStart, RowColumn int
 }
+type clusterMeasure struct{ Start, End, Width int }
 type lineLayout struct {
 	buffer                               *Buffer
 	doc                                  *text.Document
@@ -26,6 +27,10 @@ type lineLayout struct {
 	line, start, end, width, tab, stride int
 	used                                 uint64
 	points                               []layoutPoint
+	recent                               [8]layoutPoint
+	recentCount, recentNext              int
+	oversized                            [16]clusterMeasure
+	oversizedCount, oversizedNext        int
 }
 type layoutCache struct {
 	entries []*lineLayout
@@ -73,6 +78,16 @@ func (c *layoutCache) line(b *Buffer, line, width, tab int) *lineLayout {
 		// cluster. Retain only checkpoints strictly before the first changed byte.
 		n := sort.Search(len(l.points), func(i int) bool { return l.points[i].Offset >= earliest })
 		l.points = l.points[:max(1, n)]
+		l.recentCount, l.recentNext = 0, 0
+		kept := 0
+		for _, cluster := range l.oversized[:l.oversizedCount] {
+			if cluster.End < earliest {
+				l.oversized[kept] = cluster
+				kept++
+			}
+		}
+		l.oversizedCount = kept
+		l.oversizedNext = kept % len(l.oversized)
 	}
 	for _, l := range c.entries {
 		if l.buffer == b && l.line == line && l.width == width && l.tab == tab {
@@ -136,6 +151,28 @@ func (g *graphemeReader) next() (string, int, int, bool) {
 		return cluster, from, width, true
 	}
 }
+
+// Width/extent memoization avoids repeatedly decoding a pathological single
+// cluster. Its bytes are never retained here or passed wholesale to a terminal.
+func (l *lineLayout) grapheme(g *graphemeReader) (string, int, int, bool) {
+	for _, c := range l.oversized[:l.oversizedCount] {
+		if c.Start == g.offset && c.End <= g.end {
+			g.offset = c.End
+			g.rest = ""
+			g.state = -1
+			return "�", c.Start, c.Width, true
+		}
+	}
+	s, from, w, ok := g.next()
+	if len(s) > 256 {
+		l.oversized[l.oversizedNext] = clusterMeasure{from, g.offset, w}
+		l.oversizedNext = (l.oversizedNext + 1) % len(l.oversized)
+		l.oversizedCount = min(len(l.oversized), l.oversizedCount+1)
+		s = "�"
+	}
+	return s, from, w, ok
+}
+
 func (l *lineLayout) remember(p layoutPoint) {
 	last := l.points[len(l.points)-1]
 	if p.Offset <= last.Offset || (p.Offset-last.Offset < l.stride && p.Offset != l.end) {
@@ -157,16 +194,30 @@ func (l *lineLayout) remember(p layoutPoint) {
 	}
 	l.points = append(l.points, p)
 }
+
+// A few recent boundaries keep sequential viewport rows local even when a
+// very long line has forced its persistent checkpoints far apart.
+func (l *lineLayout) rememberRecent(p layoutPoint) {
+	l.recent[l.recentNext] = p
+	l.recentNext = (l.recentNext + 1) % len(l.recent)
+	l.recentCount = min(len(l.recent), l.recentCount+1)
+}
 func (l *lineLayout) checkpoint(after func(layoutPoint) bool) layoutPoint {
 	i := sort.Search(len(l.points), func(i int) bool { return after(l.points[i]) })
-	return l.points[max(0, i-1)]
+	p := l.points[max(0, i-1)]
+	for _, candidate := range l.recent[:l.recentCount] {
+		if candidate.Offset > p.Offset && !after(candidate) {
+			p = candidate
+		}
+	}
+	return p
 }
 
 // step returns the cluster's actual row and advances to the next boundary.
 // Overflow is decided before emitting a cluster; an exactly full row is closed
 // afterward, leaving the same trailing empty row as ordinary ASCII wrapping.
 func (l *lineLayout) step(p *layoutPoint, g *graphemeReader) (layoutPoint, int, bool) {
-	cluster, from, w, ok := g.next()
+	cluster, from, w, ok := l.grapheme(g)
 	if !ok {
 		return *p, 0, false
 	}
@@ -177,6 +228,7 @@ func (l *lineLayout) step(p *layoutPoint, g *graphemeReader) (layoutPoint, int, 
 		p.Row++
 		p.RowStart = from
 		p.RowColumn = p.Column
+		l.rememberRecent(*p)
 	}
 	before := *p
 	p.Offset = g.offset
@@ -185,6 +237,7 @@ func (l *lineLayout) step(p *layoutPoint, g *graphemeReader) (layoutPoint, int, 
 		p.Row++
 		p.RowStart = p.Offset
 		p.RowColumn = p.Column
+		l.rememberRecent(*p)
 	}
 	l.remember(*p)
 	return before, w, true
@@ -196,9 +249,11 @@ func (l *lineLayout) atOffset(offset int) (layoutPoint, layoutPoint) {
 	for {
 		before, _, ok := l.step(&p, &g)
 		if !ok {
+			l.rememberRecent(p)
 			return p, p
 		}
 		if p.Offset > offset {
+			l.rememberRecent(before)
 			return before, p
 		}
 	}

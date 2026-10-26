@@ -36,16 +36,16 @@ func (a *App) put(x, y, width int, value string, style tcell.Style) {
 	for g.Next() {
 		s := g.Str()
 		w := g.Width()
-		r := g.Runes()
-		if len(r) == 0 {
-			continue
-		}
-		if unicode.IsControl(r[0]) {
+		first, _ := utf8.DecodeRuneInString(s)
+		if unicode.IsControl(first) {
 			s = " "
 			w = 1
 		}
 		if used+w > width {
 			break
+		}
+		if len(s) > 256 {
+			s = "�"
 		}
 		a.Screen.Put(x+used, y, s, style)
 		used += w
@@ -256,9 +256,24 @@ func (a *App) drawPane(index int, p palette) {
 			col = a.columnAt(b, from)
 		}
 		pane.Rows = append(pane.Rows, screenRow{line, seg.Start, seg.End, left})
+		layoutWidth := 0
+		if a.wraps(b) {
+			layoutWidth = width
+		}
+		var layout *lineLayout
+		if !d.Text.Plain(from, end) {
+			layout = a.lineLayouts.line(b, line, layoutWidth, a.Config.TabSize)
+		}
 		g := newGraphemeReader(d.Text, from, end)
 		for {
-			grapheme, offset, cw, ok := g.next()
+			var grapheme string
+			var offset, cw int
+			var ok bool
+			if layout != nil {
+				grapheme, offset, cw, ok = layout.grapheme(&g)
+			} else {
+				grapheme, offset, cw, ok = g.next()
+			}
 			if !ok {
 				break
 			}

@@ -108,3 +108,57 @@ func BenchmarkUnicodeLongWord(b *testing.B) {
 		})
 	}
 }
+
+func BenchmarkUnicodeManyLongLines(b *testing.B) {
+	for _, size := range []int{8 << 10, 128 << 10} {
+		b.Run(fmt.Sprint(size), func(b *testing.B) {
+			screen := tcell.NewSimulationScreen("UTF-8")
+			screen.Init()
+			defer screen.Fini()
+			screen.SetSize(100, 40)
+			a, err := New(screen, config.Default(), nil, false)
+			if err != nil {
+				b.Fatal(err)
+			}
+			defer a.cancel()
+			unit := "界 é 👩‍💻 🇸🇬\t"
+			line := strings.Repeat(unit, size/len(unit))
+			d, _ := text.NewDocument(strings.Repeat(line+"\n", 40))
+			a.Current().Doc = d
+			d.Selections = []text.Selection{{Anchor: len(line), Head: len(line)}}
+			a.reveal()
+			a.draw()
+			b.ReportAllocs()
+			b.ResetTimer()
+			for b.Loop() {
+				a.reveal()
+				a.draw()
+			}
+		})
+	}
+}
+
+func BenchmarkOversizedClusterViewport(b *testing.B) {
+	screen := tcell.NewSimulationScreen("UTF-8")
+	screen.Init()
+	defer screen.Fini()
+	screen.SetSize(100, 30)
+	a, err := New(screen, config.Default(), nil, false)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer a.cancel()
+	source := "a" + strings.Repeat("́", 1<<19) + "x"
+	d, _ := text.NewDocument(source)
+	a.Current().Doc = d
+	a.wrap = true
+	d.Selections = []text.Selection{{Anchor: len(source), Head: len(source)}}
+	a.reveal()
+	a.draw()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		a.reveal()
+		a.draw()
+	}
+}
