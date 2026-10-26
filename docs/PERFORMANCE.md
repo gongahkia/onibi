@@ -455,3 +455,135 @@ are retained with the repository. Reproduce on macOS with installed participants
 ```sh
 python3 scripts/editor_compare.py > build/editor-comparison.json
 ```
+
+
+## Redraw optimization: matched before/after
+
+The original 1,000-line plain-text fixture was rerun against the retained pre-change
+binary and the new binary, three measured runs each after a discarded warmup. Median
+terminal traffic fell from **1,823.5 to 88 bytes per edit (95.2% less)**. Editor RSS
+was 15.02 versus 15.13 MiB. First-output medians were 0.90 versus 1.49 ms in these
+successive batches: this is a bandwidth improvement, not evidence of reduced CPU
+cost or faster key response. The changed renderer composes a complete logical frame
+before publishing final cell differences, adding comparison work to avoid redundant
+terminal writes. A separate syntax fix retains/rebases unaffected token colors
+until the background lexer refreshes them; edited spans are discarded immediately,
+and changed lexical context elsewhere is corrected on that refresh.
+
+[Raw before/after samples and binary hashes](benchmarks/redraw-comparison-macos-2026-10-26.json)
+are retained. Reproduce each binary with:
+
+```sh
+python3 scripts/editor_compare.py --editors Shack --fixtures small --shack-binary /path/to/shack
+```
+
+Validation passed `make check` (format, vet and all race tests), plus tmux startup,
+Markdown/Org, folding, embedded terminal and long-Unicode PTY smoke checks. Regression
+tests cover unchanged-frame writes, wide cells, overlays/resizing, syntax retention,
+undo and skipped document versions.
+
+
+## Code editing with language services: Micro, configured Neovim, Helix and Kakoune
+
+2026-10-26, same Intel macOS host, after Shack's frame composition and provisional
+syntax-color preservation changes. This comparison uses the requested IDE-oriented
+setups; the older bare-editor table above remains a historical baseline.
+
+`scripts/ide_compare.py` opens the same 1,004-line Go source file in a small two-file
+module. Syntax highlighting is active. The harness waits for a diagnostic about an
+intentional unresolved identifier, then inserts twenty characters at the end of the
+first comment, verifies the exact saved file, and checks clean exit. Each LSP profile
+must produce diagnostic publications and forward document changes to the server.
+These are **comment-typing measurements with language services running**, not a
+completion, navigation, formatting or large-workspace benchmark.
+
+Profiles:
+
+- Shack: built-in syntax and LSP, user configuration/session/recovery disabled.
+- Micro 2.0.15: default syntax with the
+  [Micro LSP plugin](https://github.com/AndCake/micro-plugin-lsp), explicitly bound to
+  gopls; its optional format-on-save is disabled. The plugin describes itself as a
+  proof of concept; this is not a claim of feature parity with the other clients.
+- Neovim 0.12.4, current: a private copy of the user's actual configuration, plugin
+  installations and parsers, including Treesitter, completion, statusline and other
+  IDE plugins. No language server is attached for this Go file. The live configuration
+  is never modified. Runtime inspection verifies Treesitter is active.
+- Neovim + gopls: the same private copy, plus a benchmark-only `vim.lsp.start` call
+  using the configuration's completion capabilities. Runtime inspection verifies an
+  attached gopls client. The existing lsp-zero integration emits a compatibility
+  warning; the harness acknowledges its hit-enter prompt before measuring. This
+  profile is not a silently repaired version of the user's configuration.
+- Helix 25.07.1: bundled Go Treesitter grammar and
+  [default Go language-server integration](https://docs.helix-editor.com/lang-support.html),
+  with true color enabled; normal auto-completion and format-on-save remain enabled.
+- Kakoune 2026.05.21: default Go highlighting plus
+  [kak-lsp](https://github.com/kakoune-lsp/kakoune-lsp) 22.0.0, enabled in isolated kakrc.
+
+All server-backed profiles use the same local gopls 0.24.0 binary. A small Python
+stdio recorder verifies protocol activity without recording document content. Its
+process and the server's descendants are included in total RSS. The editor column
+excludes the recorder/server subtree, but includes the Kakoune LSP bridge and both
+Neovim UI/editor processes. RSS is sampled after typing; it is neither peak memory
+nor private memory and can count shared pages more than once. Server memory can
+vary with garbage collection and client capabilities even with an identical server.
+
+The PTYs are 100×30, xterm-256color. Each setup gets a discarded warmup followed by
+three interleaved measured runs (60 keys per setup). Response time is from writing
+a key to the **first readable terminal output**, not a completed frame or screen
+painting. Immediate traffic includes output until a 30 ms quiet period; settled
+traffic additionally drains until a 250 ms quiet period, capturing debounced syntax
+and LSP redraws. Later activity can fall outside that window. Values exclude SSH
+framing and are not measurements over an actual SSH/tmux connection. Different
+statuslines, colors, diagnostics and plugin defaults remain part of each setup.
+
+| Setup | First-output median / p95 / maximum (ms) | Editor + bridge RSS (MiB) | Total RSS (MiB) | Immediate / settled bytes per edit |
+| --- | ---: | ---: | ---: | ---: |
+| Shack | 1.51 / 2.28 / 3.23 | 20.0 | 162.4 | 151 / 485 |
+| Micro+LSP | 26.92 / 33.56 / 200.93 | 57.2 | 267.6 | 119 / 119 |
+| Neovim-current | 5.22 / 9.70 / 10.47 | 37.4 | 37.4 | 130 / 130 |
+| Neovim+gopls | 7.30 / 13.76 / 16.94 | 38.9 | 276.9 | 130 / 130 |
+| Helix | 5.42 / 7.17 / 9.24 | 18.4 | 255.4 | 150 / 278 |
+| Kakoune+LSP | 1.37 / 2.06 / 17.13 | 16.1 | 258.4 | 231.5 / 245.5 |
+
+Shack and Kakoune have the lowest median first-output times in this particular
+workload. Shack's editor footprint is close to Helix/Kakoune and lower than these
+Micro/Neovim configurations. This does not isolate which plugins or implementation
+choices cause the differences. In particular, Micro's result includes this specific
+LSP plugin; it must not be generalized to Micro's core typing speed. The single
+200.93 ms Micro outlier is retained, not removed from the sample.
+
+Shack's immediate traffic is competitive with Helix, but its delayed syntax and
+service updates raise total observed traffic to 485 bytes/edit, more than every
+other setup here. Incremental highlighting and diagnostic redraws remain useful
+optimization targets. Total language-service memory varies substantially across
+runs and must not be mistaken for the editor's own footprint. Shack's total samples
+range from 90.7 to 257.7 MiB, and Kakoune's from 117.4 to 259.6 MiB; the table reports
+medians, not reliable total-memory budgets or a ranking of server efficiency.
+
+[Raw IDE runs, configuration fingerprints and protocol evidence](benchmarks/ide-comparison-macos-2026-10-26.json)
+are retained alongside these results.
+
+
+Startup and language-server readiness timings are retained in the raw data but
+are not used for a startup ranking: the harness does not emulate terminal query
+replies, caches are warm, and Neovim's compatibility prompt needs acknowledgement.
+This small Go module does not establish whole-IDE parity, performance in large
+repositories, Linux/low-memory results, sustained typing behavior or complete-frame
+latency. In particular, the no-server Neovim row is context for the user's current
+setup and must not be treated as an equal-language-service memory comparison.
+
+Reproduction requires the pinned editors, gopls in `build/tools/gopls`, Helix's
+release directory/runtime and kak-lsp in `build/compare-tools`, and a checkout of the
+Micro plugin at `build/compare-tools/micro-lsp`. Copy the desired Neovim config and
+data into `build/compare-tools/nvim-snapshot/{config,data}/nvim`; do not point the
+snapshot paths at live configuration. A nested `build/compare-tools/go.mod` keeps
+third-party Go test fixtures out of Shack's `go test ./...` traversal. The harness
+records binary/script/config hashes, the Micro plugin revision, Neovim plugin locks,
+per-key samples, process counts and protocol metadata. Private Neovim configuration
+contents are not published, so reproducing that exact profile requires the local
+snapshot. All other profile setup is in the script.
+
+```sh
+make build
+python3 scripts/ide_compare.py --runs 3 --output build/ide-comparison.json
+```
