@@ -1,8 +1,8 @@
 [![](https://github.com/gongahkia/shack/actions/workflows/ci.yml/badge.svg)](https://github.com/gongahkia/shack/actions/workflows/ci.yml)
 
-# `Shack`
+# `Shack` - a SHiok Atomweight Cli worKstation
 
-Shack is an **atomweight terminal text editor IDE with sensible Day 1 defaults** for macOS and Linux.
+Shack is an [atomweight](https://en.wikipedia.org/wiki/Atomweight) terminal IDE with [sensible day 1 defaults](https://martinfowler.com/bliki/SensibleDefault.html).
 
 <div align="center">
     <img src="./assets/logo/shack.png" width="20%" alt="A small wooden shack with a corrugated roof">
@@ -11,14 +11,12 @@ Shack is an **atomweight terminal text editor IDE with sensible Day 1 defaults**
 ## Stack
 
 * *Scripting*: [Go 1.27+](https://go.dev/dl/)
-* *Terminal*: [tcell](https://github.com/gdamore/tcell)
+* *CLI*:[tcell](https://github.com/gdamore/tcell)
 * *Highlighting*: [Chroma](https://github.com/alecthomas/chroma)
-* *Build*: Make
-* *Test*: Go's built-in testing tools
 
 ## Features
 
-* Nonmodal editing with familiar keyboard shortcuts and mouse selection
+* Familiar keyboard shortcuts and mouse selection
 * Multiple buffers, split panes, a project file tree and an optional minimap
 * Literal and regex search, multiple selections and reviewed multi-file replacements
 * Bundled syntax highlighting, with optional language servers for completion, diagnostics, navigation and formatting
@@ -29,7 +27,7 @@ Shack is an **atomweight terminal text editor IDE with sensible Day 1 defaults**
 ## Usage
 
 > [!IMPORTANT]
-> Building from source requires Go 1.27 or newer and `make`. The current version is `0.2.0-dev`.
+> Building from source requires Go 1.27 or newer and `make`. 
 
 ### Building `Shack` yourself
 
@@ -46,24 +44,21 @@ $ GOTOOLCHAIN=auto make build
 $ ./build/shack .
 ```
 
-[`GOTOOLCHAIN=auto`](https://go.dev/doc/toolchain) lets Go download the required toolchain if your installed version is older.
-
-To open a specific file, or edit without language servers:
+3. Then run the below to open a specific file
 
 ```console
 $ ./build/shack docs/USAGE.md
+```
+
+
+4. Optionally edit a file without a language server using the below.
+
+```console
 $ ./build/shack --no-lsp .
 ```
 
-Press **F1** for help, **F2** for commands, **Ctrl+S** to save and **Ctrl+Q** to quit.
+5. See the [usage guide](./docs/USAGE.md) for the full list of controls, configuration, and [language-server workflows](./docs/LANGUAGE_SERVERS.md).
 
-No configuration file is needed. Language servers are optional external programs detected on your `PATH`; ordinary editing and highlighting work without them.
+## Reference
 
-### Development checks
-
-```console
-$ GOTOOLCHAIN=auto make test
-$ GOTOOLCHAIN=auto make check
-```
-
-See the [usage guide](./docs/USAGE.md) for all controls and configuration, and [language-server workflows](./docs/LANGUAGE_SERVERS.md) for optional language support.
+Also see [`Shed`](https://github.com/gongahkia/shed).
