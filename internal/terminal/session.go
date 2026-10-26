@@ -14,6 +14,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -151,6 +152,23 @@ func Start(parent context.Context, argv []string, root string, w, h, history int
 		cancel()
 		return nil, err
 	}
+	raw, err := master.SyscallConn()
+	if err == nil && runtime.GOOS == "linux" {
+		// creack/pty's setup ioctls switch the master to blocking mode.
+		// Restore nonblocking I/O so Close interrupts backpressured writes.
+		var nonblockErr error
+		err = raw.Control(func(fd uintptr) { nonblockErr = unix.SetNonblock(int(fd), true) })
+		if err == nil {
+			err = nonblockErr
+		}
+	}
+	if err != nil {
+		cancel()
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		_ = master.Close()
+		return nil, err
+	}
 	s := &Session{cancel: cancel, commands: make(chan action, 64), sizes: make(chan [2]int, 1), done: make(chan struct{})}
 	emulator := vt.NewEmulator(w, h)
 	pipe := emulator.InputPipe().(*io.PipeWriter)
@@ -220,7 +238,8 @@ func Start(parent context.Context, argv []string, root string, w, h, history int
 	go func() {
 		defer close(shutdownDone)
 		<-ctx.Done()
-		foreground, _ := unix.IoctlGetInt(int(master.Fd()), unix.TIOCGPGRP)
+		foreground := 0
+		_ = raw.Control(func(fd uintptr) { foreground, _ = unix.IoctlGetInt(int(fd), unix.TIOCGPGRP) })
 		if !s.exited.Load() {
 			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGHUP)
 		}
@@ -340,7 +359,10 @@ func Start(parent context.Context, argv []string, root string, w, h, history int
 				emulator.Resize(size[0], size[1])
 				maxWidth = max(maxWidth, size[0])
 				boundHistory()
-				_ = pty.Setsize(master, &pty.Winsize{Cols: uint16(size[0]), Rows: uint16(size[1])})
+				// Fd (including pty.Setsize) would restore blocking mode on Linux.
+				_ = raw.Control(func(fd uintptr) {
+					_ = unix.IoctlSetWinsize(int(fd), unix.TIOCSWINSZ, &unix.Winsize{Col: uint16(size[0]), Row: uint16(size[1])})
+				})
 				dirty()
 			case a := <-s.commands:
 				switch a.Kind {

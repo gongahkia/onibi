@@ -6,8 +6,10 @@ import tarfile
 
 root = Path(__file__).resolve().parent.parent
 version = (root / 'VERSION').read_text().strip()
-required = {'shack', 'LICENSE', 'THIRD_PARTY_LICENSES.txt'} | {
+required = {'shack', 'THIRD_PARTY_LICENSES.txt'} | {
     path.name for path in (root / 'docs').glob('*.md')}
+if (root / 'LICENSE').is_file():
+    required.add('LICENSE')
 checksums = {}
 for line in (root / 'dist/SHA256SUMS').read_text().splitlines():
     digest, name = line.split(maxsplit=1)

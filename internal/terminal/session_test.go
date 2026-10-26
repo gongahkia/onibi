@@ -114,16 +114,24 @@ func TestPTYBracketedPasteApplicationKeysAndMouse(t *testing.T) {
 	}
 }
 func TestCancelWhenChildStopsReading(t *testing.T) {
-	s := start(t, "stty raw -echo; printf READY; sleep 60")
-	waitFrame(t, s, func(f *Frame) bool { return strings.Contains(f.String(), "READY") })
-	if err := s.Text(strings.Repeat("x", maxInput)); err != nil {
-		t.Fatal(err)
-	}
-	time.Sleep(100 * time.Millisecond)
-	s.Close()
-	select {
-	case <-s.Done():
-	case <-time.After(3 * time.Second):
-		t.Fatal("input backpressure prevented shutdown")
+	for _, name := range []string{"initial", "resized"} {
+		t.Run(name, func(t *testing.T) {
+			s := start(t, "trap '' HUP; stty raw -echo; printf READY; sleep 60")
+			waitFrame(t, s, func(f *Frame) bool { return strings.Contains(f.String(), "READY") })
+			if name == "resized" {
+				s.Resize(70, 20)
+				waitFrame(t, s, func(f *Frame) bool { return f.Width == 70 && f.Height == 20 })
+			}
+			if err := s.Text(strings.Repeat("x", maxInput)); err != nil {
+				t.Fatal(err)
+			}
+			time.Sleep(100 * time.Millisecond)
+			s.Close()
+			select {
+			case <-s.Done():
+			case <-time.After(3 * time.Second):
+				t.Fatal("input backpressure prevented shutdown")
+			}
+		})
 	}
 }

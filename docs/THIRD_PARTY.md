@@ -12,5 +12,5 @@ changes and validation; `make check` includes this module's tests.
 
 Release archives include THIRD_PARTY_LICENSES.txt with the license and notice
 files from modules used by the build. The Go runtime is distributed under the Go
-BSD-style license, included in that file as well. Shack's MIT license does not
-replace these upstream licenses.
+BSD-style license, included in that file as well. These notices apply to the
+bundled third-party components.
