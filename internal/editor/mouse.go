@@ -76,7 +76,7 @@ func (a *App) editingContext(x, y int) {
 		items = []choice{{"Copy", func() { a.copy(false) }}, {"Save as", a.saveAs}, {"Close buffer", a.closeBuffer}, {"Split vertically", func() { a.split(false) }}}
 	}
 	if a.Current().Reading != nil {
-		items = append([]choice{{"Return to source", func() { a.documentPreview("", false) }}, {"Document headings", a.readingHeadings}, {"Copy document link", a.readingLinks}}, items...)
+		items = append([]choice{{"Return to source", func() { a.documentPreview("", false) }}, {"Document headings", a.readingHeadings}, {"Follow document link", a.followReadingLink}, {"Document links", a.readingLinks}, {"Copy document link", a.copyReadingLink}}, items...)
 	}
 	a.showContext(x, y, items)
 }
@@ -418,6 +418,11 @@ func (a *App) mouse(ev *tcell.EventMouse) {
 			b.Doc.Selections = []text.Selection{{Anchor: offset, Head: offset}}
 		}
 		a.editingContext(x, y)
+		return
+	}
+	if pressed && b.Reading != nil && ev.Modifiers()&tcell.ModCtrl != 0 {
+		b.Doc.Selections = []text.Selection{{Anchor: offset, Head: offset}}
+		a.followReadingLink()
 		return
 	}
 	if pressed {

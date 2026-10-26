@@ -56,7 +56,7 @@ func TestDocumentPreviewWorkflow(t *testing.T) {
 	}
 	a.readingLinks()
 	items := a.Dialog.Items
-	if len(items) != 1 || items[0].Label != "https://example.com" {
+	if len(items) != 3 || items[0].Label != "https://example.com" {
 		t.Fatal(items)
 	}
 	a.Dialog = nil

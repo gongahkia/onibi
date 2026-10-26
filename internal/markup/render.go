@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"net/url"
 	"path/filepath"
+	"sort"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -26,6 +28,10 @@ const (
 type Style struct {
 	Bold, Italic, Underline, Strike, Code, Heading, Dim bool
 	Link                                                string
+	Target, Anchor                                      string
+	Token                                               TokenStyle
+	Pixel                                               bool
+	Foreground, Background                              uint32
 }
 type Span struct {
 	Start, End int
@@ -36,20 +42,31 @@ type Heading struct {
 	Title         string
 }
 type Document struct {
+	Media    bool
 	Text     string
 	Spans    []Span
 	Headings []Heading
+	Anchors  map[string]int
 }
 type renderer struct {
-	ctx        context.Context
-	out        strings.Builder
-	spans      []Span
-	headings   []Heading
-	nodes      int
-	err        error
-	trailing   int
-	prefix     string
-	blockStart int // suppress leading block spacing immediately after a list marker
+	ctx           context.Context
+	out           strings.Builder
+	spans         []Span
+	headings      []Heading
+	anchors       map[string]int
+	slugs         map[string]int
+	nodes         int
+	err           error
+	trailing      int
+	prefix        string
+	options       Options
+	assets        int
+	diagrams      int
+	hasMedia      bool
+	codeDeadline  time.Time
+	codeBytes     int
+	assetDeadline time.Time
+	blockStart    int // suppress leading block spacing immediately after a list marker
 }
 
 func Format(path string) string {
@@ -65,7 +82,10 @@ func Format(path string) string {
 // Render bounds retained output and traversal. Parsing runs on the caller's
 // worker: parser calls cannot be interrupted halfway through; cancellation is
 // checked before parsing and throughout output construction.
-func Render(ctx context.Context, source, format string) (doc Document, err error) {
+func Render(ctx context.Context, source, format string) (Document, error) {
+	return RenderWithOptions(ctx, source, format, Options{Media: true})
+}
+func RenderWithOptions(ctx context.Context, source, format string, options Options) (doc Document, err error) {
 	defer func() {
 		if p := recover(); p != nil {
 			doc = Document{}
@@ -88,7 +108,7 @@ func Render(ctx context.Context, source, format string) (doc Document, err error
 	if err = preflight(source, format); err != nil {
 		return doc, err
 	}
-	r := &renderer{ctx: ctx}
+	r := &renderer{ctx: ctx, options: options, assetDeadline: time.Now().Add(3 * time.Second)}
 	switch format {
 	case "markdown":
 		r.markdown(source)
@@ -100,7 +120,7 @@ func Render(ctx context.Context, source, format string) (doc Document, err error
 	if r.err != nil {
 		return doc, r.err
 	}
-	return Document{r.out.String(), r.spans, r.headings}, nil
+	return Document{Text: r.out.String(), Spans: r.spans, Headings: r.headings, Anchors: r.anchors, Media: r.hasMedia}, nil
 }
 
 // Reject extreme nesting before handing input to third-party recursive parsers.
@@ -271,7 +291,9 @@ func (r *renderer) heading(level int, content func(Style)) {
 	r.linePrefix()
 	start := r.out.Len()
 	content(Style{Bold: true, Heading: true})
-	r.headings = append(r.headings, Heading{start, level, r.out.String()[start:]})
+	title := r.out.String()[start:]
+	r.headings = append(r.headings, Heading{start, level, title})
+	r.headingAnchor(title, start)
 	r.newline(2)
 }
 func (r *renderer) append(child *renderer) {
@@ -280,13 +302,34 @@ func (r *renderer) append(child *renderer) {
 		return
 	}
 	s := child.out.String()
+	type anchor struct {
+		key    string
+		offset int
+	}
+	anchors := []anchor{}
+	for key, offset := range child.anchors {
+		anchors = append(anchors, anchor{key, offset})
+	}
+	sort.Slice(anchors, func(i, j int) bool { return anchors[i].offset < anchors[j].offset })
+	index := 0
+	emit := func(start, end int, style Style) {
+		for index < len(anchors) && anchors[index].offset <= end {
+			h := anchors[index]
+			r.write(s[start:h.offset], style)
+			r.linePrefix()
+			r.setAnchor(h.key, r.out.Len())
+			start = h.offset
+			index++
+		}
+		r.write(s[start:end], style)
+	}
 	pos := 0
 	for _, span := range child.spans {
-		r.write(s[pos:span.Start], Style{})
-		r.write(s[span.Start:span.End], span.Style)
+		emit(pos, span.Start, Style{})
+		emit(span.Start, span.End, span.Style)
 		pos = span.End
 	}
-	r.write(s[pos:], Style{})
+	emit(pos, len(s), Style{})
 	r.nodes += child.nodes
 	if r.nodes > maxNodes {
 		r.err = fmt.Errorf("preview exceeds node limit")

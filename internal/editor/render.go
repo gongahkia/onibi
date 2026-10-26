@@ -12,7 +12,10 @@ import (
 	"unicode/utf8"
 )
 
-type palette struct{ text, dim, bar, accent, selection, warning tcell.Style }
+type palette struct {
+	text, dim, bar, accent, selection, warning tcell.Style
+	light                                      bool
+}
 
 func (a *App) styles() palette {
 	fg, bg, dim, bar, accent, selected := tcell.ColorWhite, tcell.NewHexColor(0x141a22), tcell.NewHexColor(0x8c9aab), tcell.NewHexColor(0x263242), tcell.NewHexColor(0x76d6b5), tcell.NewHexColor(0x35536e)
@@ -25,7 +28,7 @@ func (a *App) styles() palette {
 		selected = tcell.NewHexColor(0xc0dbf4)
 	}
 	base := tcell.StyleDefault.Foreground(fg).Background(bg)
-	return palette{base, base.Foreground(dim), base.Background(bar), base.Foreground(accent), base.Background(selected), base.Foreground(tcell.ColorOrange)}
+	return palette{base, base.Foreground(dim), base.Background(bar), base.Foreground(accent), base.Background(selected), base.Foreground(tcell.ColorOrange), a.Config.Theme == "light"}
 }
 func (a *App) put(x, y, width int, value string, style tcell.Style) {
 	if width <= 0 {

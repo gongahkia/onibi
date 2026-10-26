@@ -78,7 +78,7 @@ with tempfile.TemporaryDirectory(prefix='shack-markup-test-') as folder:
         keys('Escape')
         until(lambda: 'Document headings' not in pane(), 'outline did not close')
         palette('Document preview links')
-        wait('Document links · Enter copies URL')
+        wait('Document links · Enter follows; web URLs copy')
         wait('https://example.com')
         keys('Enter')
         wait('Link copied internally')

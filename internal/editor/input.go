@@ -146,6 +146,9 @@ func (a *App) key(ev *tcell.EventKey) {
 		a.palette()
 		return
 	}
+	if a.readingKey(ev) {
+		return
+	}
 	if a.languageKey(ev.Key()) {
 		return
 	}

@@ -2,6 +2,7 @@ package editor
 
 import (
 	"fmt"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
@@ -12,22 +13,31 @@ import (
 )
 
 type readingView struct {
-	Source    *Buffer
-	Format    string
-	Image     *markup.Document
-	SourceDoc *text.Document
-	Version   uint64
-	Requested bool
-	Error     string
-	Wrap      bool
+	Source              *Buffer
+	Format              string
+	Image               *markup.Document
+	SourceDoc           *text.Document
+	Version             uint64
+	Requested           bool
+	Error               string
+	Wrap                bool
+	SourcePath          string
+	Media, RemoteImages bool
+	Cache               *markup.MediaCache
+	AssetPath           string
+	PendingAnchor       string
+	ImageDoc            *text.Document
+	ImageVersion        uint64
 }
 type readingJob struct {
-	Target  *Buffer
-	View    *readingView
-	Source  *Buffer
-	Doc     *text.Document
-	Version uint64
-	Text    text.Rope
+	Target     *Buffer
+	View       *readingView
+	Source     *Buffer
+	Doc        *text.Document
+	Version    uint64
+	Text       text.Rope
+	SourcePath string
+	Options    markup.Options
 }
 
 func (a *App) readingCommands() {
@@ -39,13 +49,20 @@ func (a *App) readingCommands() {
 		command{"Refresh document preview", "", func() {
 			if v := a.Current().Reading; v != nil {
 				v.Requested = false
+				v.Cache = &markup.MediaCache{}
 				a.queueReading(a.Current())
 			} else {
 				a.documentPreview("", false)
 			}
 		}},
+		command{"Toggle preview media", "", func() { a.configureReadingMedia(false) }},
+		command{"Load remote preview images", "", func() { a.configureReadingMedia(true) }},
 		command{"Document preview headings", "", a.readingHeadings},
 		command{"Document preview links", "", a.readingLinks},
+		command{"Follow document link", "Enter", a.followReadingLink},
+		command{"Copy document link", "", a.copyReadingLink},
+		command{"Next document link", "Tab", func() { a.nextReadingLink(1) }},
+		command{"Previous document link", "Shift+Tab", func() { a.nextReadingLink(-1) }},
 	)
 }
 func (a *App) selectReadingBuffer(b *Buffer) {
@@ -68,6 +85,10 @@ func (a *App) selectReadingBuffer(b *Buffer) {
 func (a *App) documentPreview(format string, beside bool) {
 	source := a.Current()
 	if v := source.Reading; v != nil {
+		if v.AssetPath != "" {
+			a.Status = "Image preview · Jump back returns to the document"
+			return
+		}
 		if v.Source == nil {
 			a.Status = "Source buffer was closed; preview is a snapshot"
 			return
@@ -122,7 +143,7 @@ func (a *App) documentPreview(format string, beside bool) {
 	b := a.Current()
 	b.Transient = true
 	b.Title = "Preview · " + bufferName(source)
-	b.Reading = &readingView{Source: source, Format: format, Wrap: true}
+	b.Reading = &readingView{Source: source, Format: format, Wrap: true, Media: true, Cache: &markup.MediaCache{}}
 	b.Doc, _ = text.NewDocument("Rendering document…\n")
 	a.savePane()
 	a.queueReading(b)
@@ -152,13 +173,18 @@ func (a *App) queueReading(b *Buffer) {
 		return
 	}
 	source := v.Source
-	if v.Requested && v.SourceDoc == source.Doc && v.Version == source.Doc.Version {
+	if v.Requested && v.SourceDoc == source.Doc && v.Version == source.Doc.Version && v.SourcePath == source.File.Path {
 		return
 	}
 	v.Requested = true
 	v.SourceDoc = source.Doc
 	v.Version = source.Doc.Version
-	job := readingJob{b, v, source, source.Doc, source.Doc.Version, source.Doc.Text}
+	v.SourcePath = source.File.Path
+	base := ""
+	if source.File.Path != "" {
+		base = filepath.Dir(source.File.Path)
+	}
+	job := readingJob{Target: b, View: v, Source: source, Doc: source.Doc, Version: source.Doc.Version, Text: source.Doc.Text, SourcePath: source.File.Path, Options: markup.Options{BaseDir: base, Media: v.Media, RemoteImages: v.RemoteImages, Cache: v.Cache}}
 	for i, old := range a.readingPending {
 		if old.Target == b {
 			a.readingPending[i] = job
@@ -194,7 +220,7 @@ func (a *App) startReading() {
 		if job.Text.Len() > limit {
 			err = fmt.Errorf("%s preview limit is %d KiB; source remains editable", job.View.Format, limit>>10)
 		} else {
-			image, err = markup.Render(a.ctx, job.Text.String(), job.View.Format)
+			image, err = markup.RenderWithOptions(a.ctx, job.Text.String(), job.View.Format, job.Options)
 		}
 		var doc *text.Document
 		if err == nil {
@@ -202,7 +228,7 @@ func (a *App) startReading() {
 		}
 		a.post(func() {
 			a.readingBusy = false
-			if slices.Contains(a.Buffers, job.Target) && job.Target.Reading == job.View && job.View.Source == job.Source && job.Source.Doc == job.Doc && job.Source.Doc.Version == job.Version {
+			if slices.Contains(a.Buffers, job.Target) && job.Target.Reading == job.View && job.View.Source == job.Source && job.Source.Doc == job.Doc && job.Source.Doc.Version == job.Version && job.Source.File.Path == job.SourcePath && job.View.Cache == job.Options.Cache && job.View.Media == job.Options.Media && job.View.RemoteImages == job.Options.RemoteImages {
 				v := job.View
 				v.Error = ""
 				if err != nil {
@@ -214,10 +240,21 @@ func (a *App) startReading() {
 						a.Status = "Preview: " + v.Error
 					}
 				} else {
+					if image.Media && (v.Image == nil || !v.Image.Media) {
+						v.Wrap = false
+					}
 					v.Image = &image
+					v.ImageDoc = job.Doc
+					v.ImageVersion = job.Version
 				}
 				if doc != nil {
 					a.installReading(job.Target, doc)
+				}
+				if anchor := v.PendingAnchor; anchor != "" {
+					v.PendingAnchor = ""
+					if err == nil && a.Current() == job.Target {
+						a.jumpReadingAnchor(job.Target, anchor, false)
+					}
 				}
 			}
 			a.startReading()
@@ -294,7 +331,7 @@ func readingStyle(v *readingView, offset int, style tcell.Style, p palette) tcel
 		return style
 	}
 	s := spans[i].Style
-	if s.Heading || s.Link != "" {
+	if s.Heading || s.Link != "" || s.Target != "" || s.Anchor != "" {
 		fg, _, _ := p.accent.Decompose()
 		style = style.Foreground(fg)
 	} else if s.Dim {
@@ -304,6 +341,20 @@ func readingStyle(v *readingView, offset int, style tcell.Style, p palette) tcel
 	if s.Code {
 		_, bg, _ := p.bar.Decompose()
 		style = style.Background(bg)
+	}
+	if s.Token != markup.TokenPlain {
+		dark := [...]int32{0, 0xc9a3f5, 0x8c9aab, 0x9dd59b, 0xe4bd7a, 0x86c7ef}
+		light := [...]int32{0, 0x7543a8, 0x647182, 0x267536, 0x946208, 0x155f9a}
+		if int(s.Token) < len(dark) {
+			color := dark[s.Token]
+			if p.light {
+				color = light[s.Token]
+			}
+			style = style.Foreground(tcell.NewHexColor(color))
+		}
+	}
+	if s.Pixel {
+		style = style.Foreground(tcell.NewHexColor(int32(s.Foreground))).Background(tcell.NewHexColor(int32(s.Background)))
 	}
 	return style.Bold(s.Bold).Italic(s.Italic).Underline(s.Underline).StrikeThrough(s.Strike).Url(s.Link)
 }
@@ -319,34 +370,11 @@ func (a *App) readingHeadings() {
 	for _, h := range image.Headings {
 		items = append(items, choice{strings.Repeat("  ", min(8, h.Level-1)) + h.Title, func() {
 			if b.Reading == v && v.Image == image {
+				a.rememberJump()
 				a.selectReadingBuffer(b)
-				b.Doc.Selections = []text.Selection{{Anchor: h.Offset, Head: h.Offset}}
-				a.reveal()
+				a.finishJump(b, h.Offset)
 			}
 		}})
 	}
 	a.list("Document headings", items)
-}
-func (a *App) readingLinks() {
-	b := a.Current()
-	v := b.Reading
-	if v == nil || v.Image == nil {
-		a.Status = "Open a document preview first (F4)"
-		return
-	}
-	items := []choice{}
-	seen := map[string]bool{}
-	for _, s := range v.Image.Spans {
-		u := s.Style.Link
-		if u == "" || seen[u] {
-			continue
-		}
-		seen[u] = true
-		items = append(items, choice{u, func() {
-			a.clipboard = u
-			a.Screen.SetClipboard([]byte(u))
-			a.Status = "Link copied internally; terminal clipboard write requested"
-		}})
-	}
-	a.list("Document links · Enter copies URL", items)
 }

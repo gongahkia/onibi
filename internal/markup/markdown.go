@@ -84,7 +84,12 @@ func (r *renderer) mdNode(n ast.Node, data []byte, style Style, depth int) {
 		if lang := string(n.Language(data)); lang != "" {
 			r.write("┌ "+lang+"\n", Style{Dim: true})
 		}
-		r.mdLines(n, data, Style{Code: true})
+		source, language := string(n.Lines().Value(data)), string(n.Language(data))
+		if language == "mermaid" && r.options.Media {
+			r.diagram(source)
+		} else {
+			r.codeBlock(source, language)
+		}
 		r.newline(2)
 	case *ast.CodeBlock:
 		r.newline(2)
@@ -119,15 +124,20 @@ func (r *renderer) mdNode(n ast.Node, data []byte, style Style, depth int) {
 	case *ast.ListItem:
 		r.mdChildren(n, data, style, depth)
 	case *east.FootnoteLink:
-		r.write(fmt.Sprintf("[%d]", n.Index), Style{Dim: true})
+		r.linePrefix()
+		r.setAnchor(fmt.Sprintf("reference:%d:%d", n.Index, n.RefIndex), r.out.Len())
+		r.write(fmt.Sprintf("[%d]", n.Index), Style{Underline: true, Anchor: fmt.Sprintf("footnote:%d", n.Index)})
 	case *east.FootnoteBacklink:
-		// Numbered references/definitions remain readable without HTML anchors.
+		r.write(" ↩", Style{Underline: true, Anchor: fmt.Sprintf("reference:%d:%d", n.Index, n.RefIndex)})
 	case *east.FootnoteList:
 		r.newline(2)
 		r.write("Footnotes", Style{Bold: true})
 		r.newline(2)
 		r.mdChildren(n, data, style, depth)
 	case *east.Footnote:
+		r.newline(1)
+		r.linePrefix()
+		r.setAnchor(fmt.Sprintf("footnote:%d", n.Index), r.out.Len())
 		r.mdItem(fmt.Sprintf("[%d] ", n.Index), func() { r.mdChildren(n, data, style, depth) })
 	case *east.DefinitionList:
 		r.newline(2)
@@ -147,22 +157,30 @@ func (r *renderer) mdNode(n ast.Node, data []byte, style Style, depth int) {
 			r.write("☐ ", Style{Dim: true})
 		}
 	case *ast.Link:
-		style.Link = SafeURL(decoded(n.Destination))
+		style.Target = LinkTarget(decoded(n.Destination))
+		style.Link = SafeURL(style.Target)
 		style.Underline = true
 		r.mdChildren(n, data, style, depth)
 	case *ast.AutoLink:
-		style.Link = SafeURL(string(n.URL(data)))
+		style.Target = LinkTarget(string(n.URL(data)))
+		style.Link = SafeURL(style.Target)
 		style.Underline = true
 		r.write(string(n.Label(data)), style)
 	case *ast.Image:
-		if style.Link == "" {
-			style.Link = SafeURL(decoded(n.Destination))
+		if style.Target == "" && style.Anchor == "" {
+			style.Target = LinkTarget(decoded(n.Destination))
+			style.Link = SafeURL(style.Target)
 		}
-		r.write("[image: ", Style{Dim: true})
+		labelStyle := style
+		labelStyle.Dim = true
+		r.write("[image: ", labelStyle)
 		r.mdChildren(n, data, style, depth)
-		r.write("]", Style{Dim: true})
+		r.write("]", labelStyle)
 		if len(n.Destination) > 0 {
-			r.write(" ("+decoded(n.Destination)+")", Style{Dim: true, Link: style.Link})
+			r.write(" ("+decoded(n.Destination)+")", labelStyle)
+		}
+		if r.options.Media {
+			r.image(decoded(n.Destination))
 		}
 	case *ast.ThematicBreak:
 		r.newline(1)
