@@ -1,3 +1,4 @@
+[![](https://img.shields.io/badge/shack_1.0.0-passing-green)](https://github.com/gongahkia/shack/releases/tag/1.0.0)
 [![](https://github.com/gongahkia/shack/actions/workflows/ci.yml/badge.svg)](https://github.com/gongahkia/shack/actions/workflows/ci.yml)
 
 # `Shack` - a SHiok Atomweight Cli worKstation
