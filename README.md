@@ -6,7 +6,7 @@
 Shack is an [atomweight](https://en.wikipedia.org/wiki/Atomweight) terminal IDE with [sensible day 1 defaults](https://martinfowler.com/bliki/SensibleDefault.html).
 
 <div align="center">
-    <img src="./assets/logo/shack.png" width="20%" alt="A small wooden shack with a corrugated roof">
+    <img src="./assets/logo/shack.png" width="45%">
 </div>
 
 ## Stack
