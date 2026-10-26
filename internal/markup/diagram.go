@@ -43,6 +43,9 @@ func diagramText(source string) (out string, err error) {
 		if line == "" || strings.HasPrefix(line, "%%") {
 			continue
 		}
+		if strings.Contains(line, "@{") {
+			return "", fmt.Errorf("extended node/actor metadata is not supported")
+		}
 		if len(line) > 160 {
 			return "", fmt.Errorf("limit: 160 bytes per line")
 		}
@@ -112,6 +115,17 @@ func diagramText(source string) (out string, err error) {
 				return "", fmt.Errorf("use one basic node/edge statement per line")
 			}
 		}
+		// The library tolerates unrecognised suffixes and its bare-node scanner
+		// can consume an unspaced arrow as part of an ID. Validate the complete
+		// statement and separate tokens before handing it to the layout engine.
+		for i := 1; i < len(lines); i++ {
+			line, ok := normalizeFlowLine(lines[i])
+			if !ok {
+				return "", fmt.Errorf("unsupported or incomplete flowchart statement")
+			}
+			lines[i] = line
+		}
+		source = strings.Join(lines, "\n")
 		g, e := mermaidascii.Parse(source)
 		if e != nil {
 			return "", e
@@ -135,3 +149,70 @@ func diagramText(source string) (out string, err error) {
 var sequenceBlock = regexp.MustCompile(`^(loop|alt|opt|par|critical|break|rect)\b`)
 var sequenceDivider = regexp.MustCompile(`^(else|and)\b`)
 var sequenceStatement = regexp.MustCompile(`^(?:(?:participant|actor)\s+\S+(?:\s+as\s+.+)?|(?i:note)\s+(?i:left of|right of|over)\s+[^:]+:\s*.+|\S+?\s*(?:-->>|--x|--\)|-->|->>|-x|-\)|->)\s*[+-]?\S+?\s*:\s*.+)$`)
+
+var flowCompactEdge = regexp.MustCompile(`^<?(?:-->|-\.->|==>|---|-\.-|===)(?:\|[^|]*\|)?`)
+var flowTextEdge = regexp.MustCompile(`^<?(?:--|-\.|==)\s+.+?\s+(?:-->|---|\.->|-\.-|==>|===)`)
+
+func normalizeFlowLine(line string) (string, bool) {
+	line = strings.TrimSpace(strings.SplitN(line, "%%", 2)[0])
+	if line == "" {
+		return "", true
+	}
+	var out []string
+	group := func() bool {
+		for {
+			line = strings.TrimSpace(line)
+			end := 0
+			word := func(c byte) bool {
+				return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_'
+			}
+			for end < len(line) {
+				if word(line[end]) || end > 0 && line[end] == '-' && end+1 < len(line) && word(line[end+1]) {
+					end++
+					continue
+				}
+				break
+			}
+			if end == 0 {
+				return false
+			}
+			for _, pair := range [][2]string{{"(((", ")))"}, {"([", "])"}, {"((", "))"}, {"[[", "]]"}, {"[(", ")]"}, {"{{", "}}"}, {"[/", "\\]"}, {"[\\", "/]"}, {"[/", "/]"}, {"[", "]"}, {"(", ")"}, {"{", "}"}} {
+				if !strings.HasPrefix(line[end:], pair[0]) {
+					continue
+				}
+				start := end + len(pair[0])
+				close := strings.Index(line[start:], pair[1])
+				if close <= 0 {
+					continue
+				}
+				end = start + close + len(pair[1])
+				break
+			}
+			out = append(out, line[:end])
+			line = strings.TrimSpace(line[end:])
+			if !strings.HasPrefix(line, "&") {
+				return true
+			}
+			out = append(out, "&")
+			line = line[1:]
+		}
+	}
+	if !group() {
+		return "", false
+	}
+	for line != "" {
+		edge := flowTextEdge.FindString(line)
+		if edge == "" {
+			edge = flowCompactEdge.FindString(line)
+		}
+		if edge == "" {
+			return "", false
+		}
+		out = append(out, edge)
+		line = line[len(edge):]
+		if !group() {
+			return "", false
+		}
+	}
+	return strings.Join(out, " "), true
+}

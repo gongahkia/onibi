@@ -71,12 +71,19 @@ func (a *App) currentReadingLink() (markup.Style, bool) {
 	return markup.Style{}, false
 }
 
+func anchorLabel(key string) string {
+	if strings.HasPrefix(key, "footnote:") {
+		return "Footnote " + strings.TrimPrefix(key, "footnote:")
+	}
+	var note, reference int
+	if n, _ := fmt.Sscanf(key, "reference:%d:%d", &note, &reference); n == 2 {
+		return fmt.Sprintf("Back to footnote %d reference %d", note, reference+1)
+	}
+	return strings.TrimPrefix(key, "heading:")
+}
 func linkLabel(s markup.Style) string {
 	if s.Anchor != "" {
-		if strings.HasPrefix(s.Anchor, "footnote:") {
-			return "Footnote " + strings.TrimPrefix(s.Anchor, "footnote:")
-		}
-		return "Back to footnote reference " + strings.TrimPrefix(s.Anchor, "reference:")
+		return anchorLabel(s.Anchor)
 	}
 	if s.Target != "" {
 		return s.Target
@@ -173,7 +180,7 @@ func (a *App) jumpReadingAnchor(b *Buffer, key string, remember bool) {
 	}
 	offset, ok := v.Image.Anchors[key]
 	if !ok {
-		a.Status = "Document anchor not found: " + strings.TrimPrefix(key, "heading:")
+		a.Status = "Document anchor not found: " + anchorLabel(key)
 		return
 	}
 	if remember {
@@ -184,7 +191,7 @@ func (a *App) jumpReadingAnchor(b *Buffer, key string, remember bool) {
 		a.jumps[a.jumpIndex].Offset = offset
 	}
 	a.finishJump(b, offset)
-	a.Status = "Document link · " + strings.TrimPrefix(key, "heading:")
+	a.Status = "Document link · " + anchorLabel(key)
 }
 
 func (a *App) followReadingTarget(b *Buffer, s markup.Style) {
@@ -234,6 +241,14 @@ func (a *App) followReadingTarget(b *Buffer, s markup.Style) {
 	info, err := os.Stat(resolved)
 	if err != nil || !info.Mode().IsRegular() {
 		a.Status = "Document link must point to an existing regular file"
+		return
+	}
+	if v.Source.File.Path == resolved && v.AssetPath == "" {
+		if u.Fragment == "" {
+			a.jumpTo(b, 0)
+		} else {
+			a.jumpReadingAnchor(b, "heading:"+u.Fragment, true)
+		}
 		return
 	}
 	a.rememberJump()

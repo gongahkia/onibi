@@ -102,7 +102,7 @@ func TestFencedCodeColorsAndLiteralFallback(t *testing.T) {
 }
 
 func TestMermaidDrawingsAndFallback(t *testing.T) {
-	for _, source := range []string{"flowchart LR\nA[Start] --> B[Done]\n", "sequenceDiagram\nparticipant A as Alice\nparticipant B as Bob\nA->>B: Hello\nB-->>A: Hi\n"} {
+	for _, source := range []string{"flowchart LR\nA[Start] --> B[Done]\n", "flowchart TD\nA-->B\nB-->A\n", "sequenceDiagram\nparticipant A as Alice\nparticipant B as Bob\nA->>B: Hello\nB-->>A: Hi\n"} {
 		d, err := Render(context.Background(), "```mermaid\n"+source+"```", "markdown")
 		if err != nil {
 			t.Fatal(err)
@@ -112,7 +112,7 @@ func TestMermaidDrawingsAndFallback(t *testing.T) {
 			t.Fatal(d.Text)
 		}
 	}
-	for _, source := range []string{"pie\n\"A\": 2", "flowchart BT\nA --> B", "flowchart TD\nsubgraph one\nA --> B\nend", "flowchart TD\nA[世界] --> B", "flowchart TD\n" + strings.Repeat("A --> B\n", 65)} {
+	for _, source := range []string{"pie\n\"A\": 2", "flowchart TD\nA --o B", "flowchart TD\nA -->", "sequenceDiagram\nautonumber\nA->>B: Hi", "flowchart BT\nA --> B", "flowchart TD\nsubgraph one\nA --> B\nend", "flowchart TD\nA[世界] --> B", "flowchart TD\n" + strings.Repeat("A --> B\n", 65)} {
 		d, err := Render(context.Background(), "```mermaid\n"+source+"\n```", "markdown")
 		if err != nil {
 			t.Fatal(err)
@@ -207,5 +207,54 @@ func TestRemoteImagesRequireOptInAndCache(t *testing.T) {
 	}
 	if calls.Load() != 1 {
 		t.Fatal("remote image was not cached", calls.Load())
+	}
+}
+
+func BenchmarkRenderReadingFeatures(b *testing.B) {
+	source := "# Guide\n\n[section](#guide) and note[^one].\n\n```go\npackage main\nfunc main() { println(\"hello\", 42) }\n```\n\n```mermaid\nflowchart LR\nA[Start]-->B[Done]\n```\n\n[^one]: Footnote content.\n"
+	b.ReportAllocs()
+	b.SetBytes(int64(len(source)))
+	for b.Loop() {
+		if _, err := Render(context.Background(), source, "markdown"); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+func BenchmarkRenderImagePreview(b *testing.B) {
+	root := b.TempDir()
+	bitmap := image.NewRGBA(image.Rect(0, 0, 256, 256))
+	for y := range 256 {
+		for x := range 256 {
+			bitmap.Set(x, y, color.RGBA{uint8(x), uint8(y), 80, 255})
+		}
+	}
+	f, err := os.Create(filepath.Join(root, "image.png"))
+	if err != nil {
+		b.Fatal(err)
+	}
+	if err = png.Encode(f, bitmap); err != nil {
+		b.Fatal(err)
+	}
+	f.Close()
+	for _, cached := range []bool{false, true} {
+		name := "decode"
+		if cached {
+			name = "cached"
+		}
+		b.Run(name, func(b *testing.B) {
+			options := Options{BaseDir: root, Media: true}
+			if cached {
+				options.Cache = &MediaCache{}
+			}
+			if _, err := RenderWithOptions(context.Background(), "![gradient](image.png)", "markdown", options); err != nil {
+				b.Fatal(err)
+			}
+			b.ReportAllocs()
+			for b.Loop() {
+				if _, err := RenderWithOptions(context.Background(), "![gradient](image.png)", "markdown", options); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
 	}
 }

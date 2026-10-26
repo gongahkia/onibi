@@ -207,3 +207,16 @@ func TestReadingStandaloneImageAndMediaToggle(t *testing.T) {
 		t.Fatal("image history")
 	}
 }
+
+func TestReadingRelativeSelfLinkKeepsHistory(t *testing.T) {
+	a := testApp(t)
+	b := openTestPreview(t, a, filepath.Join(t.TempDir(), "index.md"), "[self](index.md#destination)\n\n# Destination\n")
+	key(a, tcell.KeyEnter)
+	if b.Doc.Selections[0].Head == 0 {
+		t.Fatal("self link did not jump")
+	}
+	a.jumpBy(-1)
+	if a.Current() != b || b.Doc.Selections[0].Head != 0 {
+		t.Fatal("self link lost origin history")
+	}
+}

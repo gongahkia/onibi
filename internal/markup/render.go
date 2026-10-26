@@ -1,5 +1,6 @@
 // Package markup renders Markdown and Org into terminal-independent text and
-// style ranges. It never executes document code, expands includes or fetches URLs.
+// style ranges. Document code and includes are never executed. Image loading
+// requires explicit render options; remote images additionally require opt-in.
 package markup
 
 import (

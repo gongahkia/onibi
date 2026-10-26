@@ -18,6 +18,11 @@ func validate(t *testing.T, d Document) {
 		}
 		last = s.End
 	}
+	for name, p := range d.Anchors {
+		if p < 0 || p > len(d.Text) || !utf8.ValidString(d.Text[:p]) {
+			t.Fatalf("invalid anchor %s at %d", name, p)
+		}
+	}
 	for _, h := range d.Headings {
 		if !strings.HasPrefix(d.Text[h.Offset:], h.Title) {
 			t.Fatalf("heading %#v", h)
@@ -139,7 +144,7 @@ func benchmarkRender(b *testing.B, format, chunk string) {
 	}
 }
 func FuzzRender(f *testing.F) {
-	for _, s := range []string{"# hello **world**", "Note[^a].\n\n[^a]: Footnote\n\nTerm\n: Definition\n", "> - # Nested\n>   - item\n", "* TODO org\n#+BEGIN_SRC go\nx\n#+END_SRC", "[x](https://example.com)", "| a | b |\n|---|---|\n| c | d |", "😀 é 👩‍💻", strings.Repeat("[", 1000)} {
+	for _, s := range []string{"```mermaid\nflowchart TD\nA-->B\n```", "```go\npackage main\n```", "![local](missing.png) [go](#hello)\n\n# Hello", "# hello **world**", "Note[^a].\n\n[^a]: Footnote\n\nTerm\n: Definition\n", "> - # Nested\n>   - item\n", "* TODO org\n#+BEGIN_SRC go\nx\n#+END_SRC", "[x](https://example.com)", "| a | b |\n|---|---|\n| c | d |", "😀 é 👩‍💻", strings.Repeat("[", 1000)} {
 		f.Add(s, false)
 		f.Add(s, true)
 	}
