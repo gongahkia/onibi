@@ -646,3 +646,6 @@ for the current document version. The next fold command after editing rescans;
 ordinary keystrokes and redraws do not parse the file. The limits are 16 MiB of
 source, 500,000 lines and 20,000 regions. Closed regions use a sorted visibility
 index, so moving past a large collapsed section does not visit its hidden lines.
+
+The tested SSH/terminal profile matrix, clipboard limitations, tmux shortcuts and
+reproduction steps are in [TERMINAL_COMPAT.md](TERMINAL_COMPAT.md).

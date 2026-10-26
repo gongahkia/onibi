@@ -207,3 +207,19 @@ release measurements remain in the milestone ledger.
 go test ./internal/folding -run '^$' -bench BenchmarkLargeCode -benchmem
 python3 scripts/folding_smoke.py
 ```
+
+## Real SSH transport checks
+
+OpenSSH 9.9p2 over loopback on the same Intel macOS host, 2026-10-26. Two 20-edit
+samples with the current native binary observed median first-output delays of
+**8.33 ms** and **12.12 ms**, with maxima **14.15 ms** and **21.68 ms**. Both emitted
+**444 median / 453 maximum terminal bytes per edit**, without full-screen clears.
+These figures include local SSH/PTY scheduling, exclude desktop painting and
+TCP/encryption framing bytes, and do not predict WAN/low-bandwidth behaviour.
+The variation is a reason to retain raw observations rather than claim a fixed
+latency budget. Reproduce with `python3 scripts/ssh_smoke.py`.
+
+The same harness verifies eight TERM profiles, real tmux-over-SSH and an embedded
+shell/Vim workflow with resize and process cleanup. See TERMINAL_COMPAT.md for the
+capability matrix and clipboard restrictions. Final Unicode worst-case and release
+RSS/artifact measurements are still outstanding.
