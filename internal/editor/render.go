@@ -47,13 +47,13 @@ func (a *App) put(x, y, width int, value string, style tcell.Style) {
 		if len(s) > 256 {
 			s = "�"
 		}
-		a.Screen.Put(x+used, y, s, style)
+		a.paintCell(x+used, y, s, style)
 		used += w
 	}
 }
 func (a *App) fill(x, y, width int, style tcell.Style) {
 	for i := 0; i < width; i++ {
-		a.Screen.SetContent(x+i, y, ' ', nil, style)
+		a.paintRune(x+i, y, ' ', nil, style)
 	}
 }
 func (a *App) gutter() int { return len(strconv.Itoa(a.Current().Doc.Text.Lines())) + 3 }
@@ -62,6 +62,9 @@ func (a *App) draw() {
 	if w < 1 || h < 1 {
 		return
 	}
+	a.frame.Resize(w, h)
+	a.composing = true
+	defer a.finishFrame()
 	p := a.styles()
 	a.Screen.SetStyle(p.text)
 	for row := 0; row < h; row++ {
@@ -72,7 +75,6 @@ func (a *App) draw() {
 	d := b.Doc
 	if w < 20 || h < 5 {
 		a.put(0, 0, w, "Shack · enlarge terminal", p.text)
-		a.Screen.Show()
 		return
 	}
 	// Keep keyboard edits visible without forcing a mouse-scrolled viewport back.
@@ -106,7 +108,7 @@ func (a *App) draw() {
 				if !d.Node.Horizontal {
 					x, y, ch = d.X, d.Y+j, '│'
 				}
-				a.Screen.SetContent(x, y, ch, nil, p.dim)
+				a.paintRune(x, y, ch, nil, p.dim)
 			}
 		}
 	}
@@ -173,7 +175,6 @@ func (a *App) draw() {
 	if a.Menu != nil {
 		a.drawContext(p)
 	}
-	a.Screen.Show()
 }
 func (a *App) drawPane(index int, p palette) {
 	if a.panes[index].Buffer.Terminal != nil {
@@ -318,7 +319,7 @@ func (a *App) drawPane(index int, p palette) {
 			if grapheme == "\t" {
 				for k := 0; k < cw; k++ {
 					if x+k >= r.X+gutter && x+k < r.X+r.W {
-						a.Screen.SetContent(x+k, r.Y+row, ' ', nil, style)
+						a.paintRune(x+k, r.Y+row, ' ', nil, style)
 					}
 				}
 			} else if x >= r.X+gutter && x+cw <= r.X+r.W {
@@ -331,7 +332,7 @@ func (a *App) drawPane(index int, p palette) {
 				if len(grapheme) > 256 {
 					grapheme = "�"
 				}
-				a.Screen.Put(x, r.Y+row, grapheme, style)
+				a.paintCell(x, r.Y+row, grapheme, style)
 			}
 			col += cw
 		}

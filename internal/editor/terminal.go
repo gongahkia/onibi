@@ -298,7 +298,7 @@ func (a *App) drawTerminal(index int, p palette) {
 			if value == "" || c.Attrs&uv.AttrConceal != 0 {
 				value = " "
 			}
-			a.Screen.Put(r.X+x, r.Y+y, value, style)
+			a.paintCell(r.X+x, r.Y+y, value, style)
 		}
 	}
 	if active && v.Input && !f.Hidden && v.Selection == nil && a.Menu == nil && a.Dialog == nil && a.Preview == nil && f.CursorX < r.W && f.CursorY < r.H {

@@ -78,6 +78,8 @@ type preview struct {
 	Index                 int
 }
 type App struct {
+	frame                                                      tcell.CellBuffer
+	composing                                                  bool
 	lineLayouts                                                layoutCache
 	foldBusy                                                   bool
 	foldPending                                                *foldJob

@@ -270,7 +270,7 @@ func (a *App) drawTree(p palette) {
 	t := a.tree
 	for y := 1; y < height-2; y++ {
 		a.fill(0, y, width-1, p.bar)
-		a.Screen.SetContent(width-1, y, '│', nil, p.dim)
+		a.paintRune(width-1, y, '│', nil, p.dim)
 	}
 	title := filepath.Base(a.Root)
 	if a.treeFocus {

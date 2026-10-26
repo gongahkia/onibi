@@ -147,7 +147,7 @@ func (a *App) drawMinimap(p palette) {
 	a.wantMinimap()
 	a.put(r.X+1, 1, r.W-1, "Map", p.dim)
 	for y := 1; y < r.Y+r.H; y++ {
-		a.Screen.SetContent(r.X, y, '│', nil, p.dim)
+		a.paintRune(r.X, y, '│', nil, p.dim)
 	}
 	image := a.miniCache
 	if image == nil || image.Job.Buffer != a.Current() {
