@@ -16,6 +16,17 @@ operations, previews and background results. tcell supplies terminal I/O; Chroma
 supplies bundled lexers. Ordinary rendering updates the logical screen and lets
 tcell emit changed cells; it does not request a physical full-screen clear.
 
+Unicode layout uses an application-wide cache of 64 line/width entries, each
+with at most 512 sparse grapheme checkpoints. Indexing extends only as a query
+requires; checkpoints compact for long lines. A few recent boundaries keep
+sequential screen rows local. Edits retain verified unchanged prefixes and discard
+stale suffixes; replaced documents and skipped versions invalidate their entries.
+Rope readers extend lookahead across UTF-8/grapheme boundaries without repeatedly
+flattening whole lines. Word traversal streams class runs. Oversized grapheme
+measurements are bounded and never retain source strings; terminal painting uses
+a placeholder for clusters longer than 256 bytes while storage remains unchanged.
+Cold navigation to a distant position still scans intervening Unicode text.
+
 Pane layout is a bounded binary split tree with per-divider ratios; session
 restoration prunes missing leaves and preserves nested orientation. The file tree
 is built from the existing bounded project index, never from per-frame filesystem
@@ -102,6 +113,18 @@ process-group cancellation and throttled updates. The same boundary supports
 optional Git commands. Tasks do not run on project open. No new runtime dependency
 is required for ordinary editing, recovery, splits, search, or configuration.
 
+`internal/markup` bundles Markdown and Org parsing and produces bounded terminal
+text, style spans, links and source locations. One coalescing worker renders live
+read-only previews; ordinary frames reuse their cached text. Document content
+cannot execute code or load local include files. Preview navigation can return to
+the corresponding source; limits and format coverage are documented in USAGE.md.
+
+`internal/folding` discovers bounded structural and outline ranges on demand.
+Collapsed state belongs to a pane, never to the text document. Sorted ranges
+project visible rows without walking hidden lines. Edits expand intersected folds
+and rebase unaffected ranges; jumps reveal their target. The scanner is heuristic,
+not a complete parser for every language.
+
 Large-file mode bounds optional services. The editor does not claim constant-memory
-opening, complete Unicode long-line optimization, universal encodings or mature
+opening, constant-time cold Unicode navigation, universal encodings or mature
 IDE parity. Original Zenbu remains in Git history and `archive/zenbu-before-shack`.

@@ -89,14 +89,15 @@ python3 scripts/redraw_bench.py
 go test ./internal/editor -run '^$' -bench BenchmarkLongLineViewport -benchmem -count=3
 ```
 
-## Outstanding performance work
+## Measurement limits and future work
 
 Measure cold startup systematically; complete key-to-frame latency and worst-case
-stalls; Unicode-heavy long lines, many selections, large pastes, sustained history,
+percentiles under sustained load; many selections, large pastes, sustained history,
 real low-bandwidth SSH traffic, and peak memory with real language servers.
 
-Mixed-Unicode grapheme positioning and wrapping can still scan an entire line;
-soft-wrap segments are currently recomputed. Files are loaded into memory, and
+The final milestone below adds bounded Unicode layout/word traversal and actual
+SSH/PTy measurements. Cold distant navigation still scans the required prefix.
+Files are loaded into memory, and
 search/transform workers materialise strings. Syntax/LSP defaults to a 1 MiB file
 threshold; project result snapshots are capped at 8 MiB / 2,000 matches, recovery
 at 8 MiB combined text, task output at 1 MiB, session restoration at 16 MiB, and
@@ -180,7 +181,7 @@ views do not reparse until displayed. Style lookup during painting is binary
 search over cached ranges. Source, output, node/span/table limits and the eight-view
 cap are documented in USAGE.md; parser intermediate allocations can exceed retained
 output, so these figures are examples rather than memory ceilings. Final artifact,
-RSS and constrained-Linux measurements still need repeating after folding.
+Final RSS and constrained-Linux repeats are recorded in the completed milestone below.
 
 ```sh
 go test ./internal/markup -run '^$' -bench BenchmarkRender -benchmem
@@ -201,7 +202,7 @@ viewport rows, navigation and reveal without visiting the hidden lines. Closed
 region lookup is binary search; edit rebasing sweeps ordered edits and regions
 instead of multiplying the two counts. This is functional/scaling evidence, not
 an end-to-end latency measurement. Final transport, Unicode long-line, RSS and
-release measurements remain in the milestone ledger.
+release measurements appear below.
 
 ```sh
 go test ./internal/folding -run '^$' -bench BenchmarkLargeCode -benchmem
@@ -221,8 +222,8 @@ latency budget. Reproduce with `python3 scripts/ssh_smoke.py`.
 
 The same harness verifies eight TERM profiles, real tmux-over-SSH and an embedded
 shell/Vim workflow with resize and process cleanup. See TERMINAL_COMPAT.md for the
-capability matrix and clipboard restrictions. Final Unicode worst-case and release
-RSS/artifact measurements are still outstanding.
+capability matrix and clipboard restrictions. Final Unicode and release
+RSS/artifact measurements follow below.
 
 
 ## Unicode long-line layout indexing
@@ -262,8 +263,8 @@ the original text, selection offsets, copying and saving remain intact.
 Coverage includes forward/backward cursor boundaries (including Unicode Prepend
 characters), tabs, CRLF, chunk-spanning ZWJ/flag/combining sequences, edit/undo,
 cache compaction/eviction and random edits. `make check` passed; a 20-second
-layout fuzz run completed 46,633 cases. Final executable/resource and real PTY
-checks remain outstanding.
+layout fuzz run completed 46,633 cases. Subsequent executable/resource and real PTY
+checks are recorded below.
 
 ```sh
 go test ./internal/editor -run '^$' -bench 'BenchmarkUnicodeLongLine(Index|Viewport)' -benchmem
@@ -313,3 +314,82 @@ and **17.9 MiB editor RSS** after editing. This excludes GUI painting and is not
 whole-frame latency. `make check` passed after the final cache changes; another
 15-second fuzz run completed 123,951 cases. Reproduce with
 `python3 scripts/unicode_smoke.py` after `make build`.
+
+## Completed workflow milestone — 2026-10-26
+
+Final executable checks use the same Intel macOS host and Go 1.27, CGO disabled,
+`-trimpath -ldflags='-s -w'`. All five release archives were rebuilt; executable
+bytes, every packaged document, execute permissions and SHA-256 manifests were
+verified with `scripts/verify_release.py`. Linux `file` inspection confirms static
+linking. macOS amd64 and Linux amd64 were executed; other architectures were
+cross-built, not run on physical ARM hardware.
+
+| Target | Executable | Compressed archive (approximately) |
+| --- | ---: | ---: |
+| macOS amd64 | 10.550 MiB | 3.75 MiB |
+| macOS arm64 | 10.014 MiB | 3.50 MiB |
+| Linux amd64 | 10.367 MiB | 3.70 MiB |
+| Linux arm64 | 9.813 MiB | 3.37 MiB |
+| Linux ARMv7 | 9.875 MiB | 3.49 MiB |
+
+Compared with the earlier 0.2 baseline, the native executable grew from about
+8.0 to 10.55 MiB, and first-frame editor RSS from about 11.2 to **14.1 MiB**.
+This includes the added terminal, debugger, snippet, markup and folding support.
+A separate embedded-terminal workflow observed **14.4 MiB before / 17.5 MiB with
+an idle shell terminal**, excluding child memory. Three-second idle observations
+with and without an embedded shell produced **zero terminal bytes and 0.00 s
+additional reported editor CPU** at the system counter's resolution. This is an
+idle sample, not a claim of zero resource use.
+
+The native basic PTY check observed a **28.3 ms warm first frame**. A first launch
+from the rebuilt macOS release path also passed, taking **498 ms** with **13.8 MiB
+RSS**; launch-path/cache/security checks make startup observations variable. Thirty ordinary
+edits measured **0.651 ms median / 1.295 ms maximum to first output** and
+**600 / 615 terminal bytes**, without full-screen clears. The original 0.2 sample
+was 0.767 / 1.457 ms and 316 / 330 bytes: the expanded UI emits more bytes, while
+these samples show comparable local response times. They are not percentile SLAs
+or measurements of completed desktop painting. The final loopback SSH repeat
+measured **10.01 / 12.47 ms** and **444 / 453 terminal bytes**; all eight profiles
+and both nested tmux/embedded-terminal workflows passed.
+
+Three half-second benchmark samples retained **0.412–0.418 ms** simulated ASCII
+long-line redraws and about **21.7 KB / 3,925 allocations**, comparable to 0.2's
+0.440–0.448 ms. Core large-file insertion observed **8.72–14.19 µs** (one slower
+sample), **7,878 B / 70 allocations**; indexed line lookup was **36.75–37.46 ns**
+with no allocations. The final ten-iteration Unicode sample observed:
+
+| Workload | Time |
+| --- | ---: |
+| Warm 1 MiB unwrapped viewport | 0.482 ms |
+| Warm 1 MiB wrapped viewport | 1.303 ms |
+| Cold first row / cold EOF layout query | 9.6 µs / 18.9 ms |
+| Warm previous grapheme near EOF | 1.47 µs |
+| End edit + undo + row/column queries | 39.2 µs |
+| Middle edit + undo + row/column queries | 75.4 µs |
+| Whole 1 MiB word, left / right | 23.9 / 25.6 ms |
+| Forty 128 KiB Unicode lines, scrolled horizontally | 1.62 ms |
+| Warm viewport with one 1 MiB combining cluster | 0.401 ms |
+
+The final Linux amd64 binary passed both basic and 1 MiB Unicode PTY editing in
+a Docker **scratch** container with **64 MiB RAM, 0.5 CPU, no network, no Go,
+no shell and no libc installation**. The Unicode test includes deletion/undo of
+whole flag/ZWJ/accent clusters, wrapping, resize, save and exit. One constrained
+run observed **4.00 ms median / 31.14 ms maximum first-output delay** during twenty
+wrapped edits; its cold End was **150 ms**. Basic startup was **1.46 s including
+Docker startup/attachment**, during other development checks. These are observations
+under a CPU quota, not a comparison with native startup or a guarantee that every
+file fits in 64 MiB. Recovery, retained undo, large source files and optional child
+processes can consume more memory.
+
+Final validation also passed `make check`, live Go/Rust/Python/TypeScript
+protocol/editor workflows under the race detector, live debugpy launch/attach/
+cleanup tests, and all tmux feature smoke checks. A debugger smoke invocation
+initially used a resolved Python symlink, which selected the base interpreter
+without debugpy; preserving the venv path passed three consecutive terminal runs.
+The harness now checks the optional dependency before launch and retains adapter
+output on failure. Packaging no longer depends on the removed README and excludes
+macOS AppleDouble metadata; USAGE.md is included as the installation/user guide.
+
+No Micro comparison, universal terminal certification, constant-time cold Unicode
+navigation, mature IDE parity or total-memory bound for external language servers
+is claimed. The measured limits and future work above remain explicit.

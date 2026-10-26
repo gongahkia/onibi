@@ -15,13 +15,14 @@ Git discovery follows [`git ls-files`](https://git-scm.com/docs/git-ls-files).
 | Area | Working behavior | Important boundary |
 | --- | --- | --- |
 | Trust | Grouped typing undo, private crash recovery, disk-change warnings, undoable reload, complete Save All/close flow | Recovery is bounded, delayed and not persistent undo |
-| Interaction | Incremental terminal updates; indexed ASCII positioning and visible-line slicing | Extremely long mixed-Unicode lines can still scan/allocate heavily |
+| Interaction | Incremental terminal updates; ASCII arithmetic and bounded lazy Unicode layout/cursor indexing; streaming word movement | Cold distant Unicode navigation and traversing a huge word still scale with text inspected |
 | Layout | Up to 16 nested panes, draggable ratios, independent same-buffer cursors, Unicode soft wrapping | Minimum pane sizes constrain further splitting |
 | Project navigation | Ignore-aware Git index, standalone fallback, project search, jump history | Fallback exclusions are not full `.gitignore`; explicit result/file bounds |
 | Bulk changes | Multi-file replacement/rename/action preview, selective edits, all-or-none buffer staging, guarded group undo/redo | Text edits remain unsaved until requested; accepted resource operations change disk with best-effort rollback |
 | Language intelligence | Debounced inline completion, nested/linked snippets, choices, variables/transforms, hover, signatures, references, definitions, implementations, types, symbols, diagnostics navigation, formatting, rename, resolved edit/command actions | Requires a capable external server; resource operations have bounded snapshots and best-effort rollback; snippet bounds and regex differences are documented |
 | Familiar editing | Word movement/deletion, line duplication/deletion/movement, line comments, configurable shortcuts | Line operations need a contiguous selection; comment prefixes are extension based |
 | Development loop | Cancellable build/test commands, bounded output, navigable output locations, Git status/diffs/stage/unstage | Tasks are noninteractive; embedded PTY buffers run interactive programs. DAP source debugging and reviewed text-conflict resolution are available; binary/submodule/complex rename conflicts require external tools |
+| Reading and folding | Bundled live Markdown/Org previews; per-pane code/outline folds, source navigation and edit rebasing | Bounded parsers and heuristic folding; source text is preserved |
 | Sessions | Private project session storage and explicit restoration of files, panes and positions | Up to 64 files / 16 panes; 16 MiB restore budget; recovery handles dirty text separately |
 
 ## Validation
@@ -40,7 +41,7 @@ Git discovery follows [`git ls-files`](https://git-scm.com/docs/git-ls-files).
   blocked-input/output cleanup, plus a real shell and Vim Unicode edit/save,
   resize and interruption inside tmux.
 - File tree/minimap/context menus and nested split/session behavior have regression
-  tests. Full remaining scope is tracked in [NEXT_MILESTONE.md](NEXT_MILESTONE.md).
+  tests. The requirement/evidence ledger is in [NEXT_MILESTONE.md](NEXT_MILESTONE.md).
 - DAP: live debugpy 1.8.22 launch, attach/detach, breakpoint/variable/step
   workflows, abrupt connection cleanup; tmux function-key, pause and target
   termination workflow. Protocol tests cover timeouts, blocked writes, response
@@ -56,18 +57,26 @@ Git discovery follows [`git ls-files`](https://git-scm.com/docs/git-ls-files).
 - Git merges: real conflicting repositories exercise stage inspection, hunk
   preview, dirty/stale guards, undo/save/stage and modify/delete resolution; tmux
   covers the Unicode zdiff3 workflow without creating a merge commit.
+- Live gopls, rust-analyzer, Pyright, pylsp and TypeScript protocol/editor workflows
+  pass under the race detector; exact versions and limits are in LANGUAGE_SERVERS.md.
+- Real loopback SSH, eight TERM profiles, tmux-over-SSH and nested shell/Vim pass;
+  these are protocol checks, not visual certification of every GUI terminal.
+- Markdown/Org source/preview/live-update and independent-pane folding pass real
+  tmux workflows. Unicode long-line, long-word and oversized-cluster tests cover
+  cache invalidation, editing/undo and bounded memory; native and constrained Linux
+  PTYs exercise grapheme deletion, wrapping, resize, save and quit.
 - Distribution and measured resource observations are in [PERFORMANCE.md](PERFORMANCE.md).
 
 ## What should come next
 
-1. **Compatibility and daily-use hardening.** Exercise gopls, rust-analyzer,
-   pyright/pylsp and TypeScript servers; real SSH hosts; multiple terminal families;
-   Unicode-heavy long lines; repositories with large numbers of files; external
-   file watchers; and repeated crash/restore/save workflows. Establish reproducible
-   key-latency, tail-latency and peak-memory budgets on low-resource hardware.
+1. **Broader daily-use evidence.** Large monorepos, real WAN/low-bandwidth links,
+   native terminal applications/fonts, external file watchers and long-running
+   recovery/undo sessions. Establish percentile latency and total process-tree
+   memory budgets on representative low-resource hardware; current measurements
+   are explicit local samples, not performance guarantees.
 2. **Embedded terminal compatibility.** Real PTY buffers now support shells and Vim,
    alternate screens, colors, resize, scrollback, input ownership and cleanup.
-   Continue with SSH and terminal-family coverage; see the bounded emulator
+   Broaden interactive-program coverage beyond the tested shell/Vim/SSH routes; see the bounded emulator
    contract in [USAGE.md](USAGE.md).
 3. **Debugger compatibility.** DAP launch/attach, breakpoints, stepping, frames,
    scopes, variables, evaluation and output now have live debugpy and tmux checks.

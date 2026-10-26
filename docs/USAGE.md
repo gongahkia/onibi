@@ -38,7 +38,7 @@ From this checkout, developers need Go 1.27 or later:
 
 ```sh
 make build
-./build/shack README.txt
+./build/shack docs/USAGE.md
 ./build/shack src/main.go src/util.go
 ./build/shack .
 printf 'scratch text\n' | ./build/shack
@@ -529,6 +529,9 @@ Theme/mouse palette changes last for the session; configuration is read at start
 
 - UTF-8 text only; files containing NUL bytes or invalid UTF-8 are rejected.
   Existing LF/CRLF is retained. There is no encoding conversion or binary mode.
+- Unicode layout caches are bounded and built lazily. A first jump far into a
+  long Unicode line still needs to inspect its prefix. Individual grapheme clusters
+  longer than 256 bytes display as `�`; copying and saving retain the original text.
 - Files are loaded into memory; the default open limit is 256 MiB. This is an
   input bound, not a promise that a 256 MiB file fits on a 256 MiB server.
 - Undo history is in memory. Sessions/recovery do not preserve undo history.
@@ -558,9 +561,13 @@ SHACK_DEBUGPY_PYTHON=/path/to/python go test -race ./internal/dap ./internal/edi
 SHACK_DEBUGPY_PYTHON=/path/to/python python3 scripts/debug_smoke.py
 python3 scripts/recovery_smoke.py   # SIGKILL and recovery through a real PTY
 python3 scripts/redraw_bench.py     # local output timing and bytes per edit
+python3 scripts/unicode_smoke.py    # 1 MiB Unicode, graphemes, wrap and resize
+python3 scripts/lsp_live.py --race  # optional real Go/Rust/Python/TypeScript servers
+python3 scripts/ssh_smoke.py        # real SSH, TERM profiles and nested tmux
 go test ./internal/editor -run '^$' -bench BenchmarkLongLineViewport -benchmem
 go test ./internal/text -run '^$' -bench . -benchmem
 make release
+python3 scripts/verify_release.py  # all five archives, docs and checksums
 python3 scripts/linux_smoke.py      # optional Docker scratch-container check
 ```
 

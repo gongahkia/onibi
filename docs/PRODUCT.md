@@ -11,6 +11,7 @@ Name: **Shack**. Description: **Atomweight Terminal Text Editor IDE with Sensibl
   applied as undoable operations, including reviewed multi-file replacements.
 - Nested split panes, optional file tree/minimap, context menus, soft wrapping,
   configurable controls, recovery and project sessions.
+- Bundled Markdown/Org reading views, live source previews and per-pane code/outline folding.
 - On-demand embedded PTY terminals with interactive programs and bounded history.
 - Bundled syntax highlighting. Optional completion, diagnostics, definition, and
   formatting through detected language servers; documentation, symbols, references,
@@ -33,9 +34,8 @@ retain editing when language intelligence or highlighting is disabled.
 ## Scope boundaries
 
 Native Windows, a plugin marketplace, editing-model DSLs and legacy Zenbu API
-compatibility are deferred. Markdown/Org rendering, folding and deeper
-language interoperability are active work tracked in
-[NEXT_MILESTONE.md](NEXT_MILESTONE.md). Git text-conflict resolution supports
+compatibility are deferred. The implemented workflow milestone and its validation
+are recorded in [NEXT_MILESTONE.md](NEXT_MILESTONE.md). Git text-conflict resolution supports
 reviewed hunks and stage inspection; binary, submodule and complex rename conflicts
 remain external-tool workflows. Workspace edits are atomic in memory;
 saving several files is sequential. Reviewed LSP resource operations use bounded
