@@ -1,0 +1,10 @@
+Generated with the built-in imagegen tool and transparent_background=true.
+
+Use case: logo-brand
+Asset type: PNG logo for the GitHub README of Shack, a lightweight terminal text editor.
+Primary request: a small rustic wooden hut, drawn as a simple charming hand-drawn cartoon.
+Subject: one modest little wooden shack with a pitched corrugated roof, a plain door and one small window, shown in three-quarter view. Keep the silhouette compact and immediately readable at a small README logo size.
+Style/medium: flat colored illustration with bold slightly wobbly black outlines and a few simple wood-grain marks; the materials should look like wood and weathered roofing, with restrained shading.
+Composition/framing: the whole hut centered in a square canvas with modest transparent padding; nothing cropped.
+Scene/backdrop: genuinely transparent background with alpha; isolate only the hut. No white backdrop, no ground plane, no scenery, no checkerboard baked into the image, no border, no drop shadow.
+Constraints: no text, no letters, no logos on the hut, no watermark, no people, no extra objects. Output a transparent PNG.
