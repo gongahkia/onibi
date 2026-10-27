@@ -4,121 +4,40 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"path/filepath"
 	"testing"
 	"time"
 )
 
-func TestDisconnectedDecisionClientCancelsHandler(t *testing.T) {
-	for _, typ := range []string{TypeApprovalRequest} {
-		t.Run(typ, func(t *testing.T) {
-			sock := testSocket(t)
-			srv := New(sock, nil)
-			started, cancelled := make(chan struct{}), make(chan struct{})
-			handler := func(ctx context.Context, _ Event) (Response, error) {
-				close(started)
-				<-ctx.Done()
-				close(cancelled)
-				return Response{Decision: "cancelled"}, nil
-			}
-			srv.SetApprovalHandler(handler)
-			ctx, cancel := context.WithCancel(t.Context())
-			defer cancel()
-			go func() { _ = srv.Serve(ctx) }()
-			waitSocket(t, sock)
-			conn, err := net.Dial("unix", sock)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer conn.Close()
-			if err := json.NewEncoder(conn).Encode(Event{Type: typ}); err != nil {
-				t.Fatal(err)
-			}
-			select {
-			case <-started:
-			case <-time.After(time.Second):
-				t.Fatal("decision handler did not start")
-			}
-			_ = conn.Close()
-			select {
-			case <-cancelled:
-			case <-time.After(time.Second):
-				t.Fatal("disconnected hook left its decision handler running")
-			}
-			if ctx.Err() != nil {
-				t.Fatal("disconnect cancelled the server context")
-			}
-		})
-	}
-}
-
-func TestApprovalRPCRoundtrip(t *testing.T) {
-	dir := t.TempDir()
-	sock := filepath.Join(dir, "onibi.sock")
-
-	approver := func(_ context.Context, ev Event) (Response, error) {
-		if ev.Tool != "Bash" {
-			t.Errorf("got tool %q", ev.Tool)
-		}
-		return Response{
-			Decision:  "approve",
-			DecidedBy: 42,
-		}, nil
-	}
-
+func TestRetiredHookRequestsAreRefused(t *testing.T) {
+	sock := testSocket(t)
 	srv := New(sock, nil)
-	srv.SetApprovalHandler(approver)
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
+	srv.SetRPCHandler(func(context.Context, Event) (Response, error) {
+		t.Error("retired request reached the rpc handler")
+		return Response{}, nil
+	})
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
 	go func() { _ = srv.Serve(ctx) }()
-
-	// wait for bind
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if _, err := pingSock(sock); err == nil {
-			break
+	waitSocket(t, sock)
+	for _, typ := range []string{"approval_request", "claude_question", "agent_lifecycle"} {
+		if _, err := Request(sock, Event{Type: typ}, time.Second); !IsRejected(err) {
+			t.Fatalf("%s: client sent a retired request: %v", typ, err)
 		}
-		time.Sleep(20 * time.Millisecond)
-	}
-
-	resp, err := Request(sock, Event{
-		Type:      TypeApprovalRequest,
-		Tool:      "Bash",
-		InputJSON: `{"command":"ls"}`,
-	}, 5*time.Second)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp.Decision != "approve" {
-		t.Fatalf("decision = %q", resp.Decision)
-	}
-	if resp.DecidedBy != 42 {
-		t.Fatalf("decided_by = %d", resp.DecidedBy)
-	}
-}
-
-func TestApprovalNoHandlerCancels(t *testing.T) {
-	dir := t.TempDir()
-	sock := filepath.Join(dir, "onibi.sock")
-	srv := New(sock, nil)
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	go func() { _ = srv.Serve(ctx) }()
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if _, err := pingSock(sock); err == nil {
-			break
+		conn, err := net.Dial("unix", sock)
+		if err != nil {
+			t.Fatal(err)
 		}
-		time.Sleep(20 * time.Millisecond)
-	}
-
-	resp, err := Request(sock, Event{Type: TypeApprovalRequest, Tool: "Bash"}, 2*time.Second)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp.Decision != "cancelled" {
-		t.Fatalf("expected cancelled, got %q", resp.Decision)
+		if err := json.NewEncoder(conn).Encode(Event{Type: typ}); err != nil {
+			t.Fatal(err)
+		}
+		_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+		if n, err := conn.Read(make([]byte, 1)); n != 0 || !errors.Is(err, io.EOF) {
+			t.Fatalf("%s: server answered a retired request: n=%d err=%v", typ, n, err)
+		}
+		_ = conn.Close()
 	}
 }
 

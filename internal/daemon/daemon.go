@@ -2,7 +2,6 @@ package daemon
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -10,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gongahkia/onibi/internal/approval"
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/intake"
 	"github.com/gongahkia/onibi/internal/store"
@@ -26,8 +24,6 @@ type Daemon struct {
 	Log              *slog.Logger
 	Registry         *Registry
 	Intake           *intake.Server
-	Queue            *approval.Queue
-	Sweeper          *approval.Sweeper
 	OutputBufferSize int
 	LivenessInterval time.Duration
 	UploadTTL        time.Duration
@@ -43,7 +39,6 @@ type Daemon struct {
 	attention        *attentionTracker
 	started          time.Time
 	mu               sync.Mutex
-	agentEvents      chan AgentEvent
 	sessionEvents    chan SessionEvent
 	SkipRestore      bool
 }
@@ -54,21 +49,18 @@ type SessionEvent struct {
 }
 
 type Options struct {
-	Paths                  config.Paths
-	DB                     *store.DB
-	Log                    *slog.Logger
-	ApprovalTTL            time.Duration
-	ApprovalSweepInterval  time.Duration
-	ApprovalMaxSubscribers int
-	OutputBufferSize       int
-	LivenessInterval       time.Duration
-	UploadTTL              time.Duration
-	UploadMaxBytes         int64
-	ShellDefault           string
-	ShellLogin             bool
-	ScreenFont             string
-	ScreenFontPath         string
-	SkipRestore            bool
+	Paths            config.Paths
+	DB               *store.DB
+	Log              *slog.Logger
+	OutputBufferSize int
+	LivenessInterval time.Duration
+	UploadTTL        time.Duration
+	UploadMaxBytes   int64
+	ShellDefault     string
+	ShellLogin       bool
+	ScreenFont       string
+	ScreenFontPath   string
+	SkipRestore      bool
 }
 
 func New(opts Options) *Daemon {
@@ -84,17 +76,10 @@ func New(opts Options) *Daemon {
 	if opts.UploadMaxBytes <= 0 {
 		opts.UploadMaxBytes = 20 << 20
 	}
-	d := &Daemon{Paths: opts.Paths, DB: opts.DB, Log: opts.Log, Registry: NewRegistry(), OutputBufferSize: opts.OutputBufferSize, LivenessInterval: opts.LivenessInterval, UploadTTL: opts.UploadTTL, UploadMaxBytes: opts.UploadMaxBytes, ShellDefault: opts.ShellDefault, ShellLogin: opts.ShellLogin, ScreenFont: opts.ScreenFont, ScreenFontPath: opts.ScreenFontPath, started: time.Now(), frames: map[string]terminalFrame{}, agentEvents: make(chan AgentEvent, 128), sessionEvents: make(chan SessionEvent, 128), SkipRestore: opts.SkipRestore}
+	d := &Daemon{Paths: opts.Paths, DB: opts.DB, Log: opts.Log, Registry: NewRegistry(), OutputBufferSize: opts.OutputBufferSize, LivenessInterval: opts.LivenessInterval, UploadTTL: opts.UploadTTL, UploadMaxBytes: opts.UploadMaxBytes, ShellDefault: opts.ShellDefault, ShellLogin: opts.ShellLogin, ScreenFont: opts.ScreenFont, ScreenFontPath: opts.ScreenFontPath, started: time.Now(), frames: map[string]terminalFrame{}, sessionEvents: make(chan SessionEvent, 128), SkipRestore: opts.SkipRestore}
 	d.health = newHealthTracker(opts.DB, opts.Log)
 	d.attention = newAttentionTracker()
-	d.Queue = approval.New(opts.DB, opts.ApprovalTTL)
-	if opts.ApprovalMaxSubscribers > 0 {
-		d.Queue.MaxSubscribers = opts.ApprovalMaxSubscribers
-	}
-	d.Queue.Log = opts.Log
-	d.Sweeper = &approval.Sweeper{Queue: d.Queue, Interval: opts.ApprovalSweepInterval, Log: opts.Log}
 	d.Intake = intake.New(opts.Paths.Socket, opts.Log)
-	d.Intake.SetApprovalHandler(d.handleApprovalRequest)
 	d.Intake.SetRPCHandler(d.handleRPCRequest)
 	return d
 }
@@ -108,17 +93,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 	if d.DB != nil {
 		d.health.load(ctx)
 		_ = d.DB.KVPurgeExpired(ctx)
-		if n, err := d.Queue.CancelPending(ctx, "daemon restarted"); err != nil {
-			d.Log.Warn("cancel stale Pi approvals", "err", err)
-		} else if n > 0 {
-			d.Log.Info("cancelled stale Pi approvals", "count", n)
-		}
 	}
 	if !d.SkipRestore {
 		d.restoreSessions(ctx)
-	}
-	if d.DB != nil {
-		_, _ = d.Queue.ExpireOverdue(ctx)
 	}
 	d.Log.Info("daemon starting", "state", d.Paths.StateDir)
 	var wg sync.WaitGroup
@@ -131,8 +108,6 @@ func (d *Daemon) Run(ctx context.Context) error {
 		}
 	}()
 	wg.Add(1)
-	go func() { defer wg.Done(); d.Sweeper.Run(ctx) }()
-	wg.Add(1)
 	go func() { defer wg.Done(); d.watchTmuxSessions(ctx) }()
 	wg.Add(1)
 	go func() { defer wg.Done(); d.sweepUploads(ctx) }()
@@ -141,11 +116,6 @@ func (d *Daemon) Run(ctx context.Context) error {
 	case <-ctx.Done():
 	case runErr = <-errCh:
 		stop()
-	}
-	if n, err := d.Queue.CancelPending(context.Background(), "daemon stopped"); err != nil {
-		d.Log.Warn("cancel pending Pi approvals", "err", err)
-	} else if n > 0 {
-		d.Log.Info("cancelled pending Pi approvals", "count", n)
 	}
 	wg.Wait()
 	if runErr != nil {
@@ -296,49 +266,5 @@ func (d *Daemon) touchSession(ctx context.Context, s *Session) {
 	s.Touch()
 	if d.DB != nil {
 		_ = d.DB.SessionTouch(ctx, s.ID, s.LastActivityAt())
-	}
-}
-func (d *Daemon) handleApprovalRequest(ctx context.Context, ev intake.Event) (intake.Response, error) {
-	s, err := d.sessionByID(ev.Session)
-	if err != nil {
-		return intake.Response{Decision: "cancelled", Reason: "unknown Onibi session"}, nil
-	}
-	agent := strings.ToLower(strings.TrimSpace(ev.Agent))
-	if agent == "" {
-		agent = s.Agent
-	}
-	if (agent != "pi" && agent != "claude") || s.Agent != agent {
-		return intake.Response{Decision: "cancelled", Reason: "unsupported approval source"}, nil
-	}
-	req := approval.Request{SessionID: s.ID, Agent: agent, Tool: ev.Tool, Input: json.RawMessage(ev.InputJSON)}
-	if ev.Approval != nil {
-		req = *ev.Approval
-		req.SessionID = s.ID
-		req.Agent = agent
-	}
-	normalized, err := approval.NormalizeRequest(req)
-	if err != nil {
-		return intake.Response{Decision: "cancelled", Reason: "invalid approval payload"}, nil
-	}
-	id, waiter, err := d.Queue.RequestModel(ctx, normalized)
-	if err != nil {
-		return intake.Response{Decision: "cancelled", Reason: err.Error()}, nil
-	}
-	d.audit(ctx, "approval.request", s.ID, string(normalized.Input), 0, "id="+id)
-	select {
-	case decision := <-waiter:
-		switch decision.Verdict {
-		case approval.VerdictApprove:
-			return intake.Response{Decision: "approve"}, nil
-		case approval.VerdictExpire:
-			return intake.Response{Decision: "expired", Reason: decision.Reason}, nil
-		case approval.VerdictCancel:
-			return intake.Response{Decision: "cancelled", Reason: decision.Reason}, nil
-		default:
-			return intake.Response{Decision: "deny", Reason: decision.Reason}, nil
-		}
-	case <-ctx.Done():
-		_ = d.Queue.Cancel(context.Background(), id, "approval request cancelled")
-		return intake.Response{Decision: "cancelled", Reason: "approval request cancelled"}, nil
 	}
 }

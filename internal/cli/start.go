@@ -68,5 +68,5 @@ func newDaemon(paths config.Paths, db *store.DB, logger *slog.Logger) (*daemon.D
 	if err := render.ValidateFont(cfg.Screen.Font, cfg.Screen.FontPath); err != nil {
 		return nil, fmt.Errorf("screen font: %w", err)
 	}
-	return daemon.New(daemon.Options{Paths: paths, DB: db, Log: logger, ApprovalTTL: cfg.Daemon.ApprovalTimeout.Std(), ApprovalSweepInterval: cfg.Daemon.ApprovalSweepInterval.Std(), ApprovalMaxSubscribers: cfg.Daemon.MaxSubscribers, OutputBufferSize: cfg.Daemon.OutputBufferBytes, LivenessInterval: cfg.Daemon.LivenessInterval.Std(), UploadTTL: cfg.Daemon.UploadTTL.Std(), UploadMaxBytes: cfg.Daemon.UploadMaxBytes, ShellDefault: cfg.Shell.Default, ShellLogin: cfg.Shell.Login, ScreenFont: cfg.Screen.Font, ScreenFontPath: cfg.Screen.FontPath}), nil
+	return daemon.New(daemon.Options{Paths: paths, DB: db, Log: logger, OutputBufferSize: cfg.Daemon.OutputBufferBytes, LivenessInterval: cfg.Daemon.LivenessInterval.Std(), UploadTTL: cfg.Daemon.UploadTTL.Std(), UploadMaxBytes: cfg.Daemon.UploadMaxBytes, ShellDefault: cfg.Shell.Default, ShellLogin: cfg.Shell.Login, ScreenFont: cfg.Screen.Font, ScreenFontPath: cfg.Screen.FontPath}), nil
 }

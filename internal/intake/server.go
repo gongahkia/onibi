@@ -16,18 +16,14 @@ import (
 	"time"
 )
 
-// ApprovalHandler processes a Pi approval request while its local client waits.
-type ApprovalHandler func(context.Context, Event) (Response, error)
-
 type RPCHandler func(context.Context, Event) (Response, error)
 
 var readPeerUIDMu sync.RWMutex
 var readPeerUIDFunc = readPeerUID
 
-// Server listens on a Unix domain socket for local CLI requests and Pi approvals.
+// Server listens on a Unix domain socket for local CLI and web requests.
 type Server struct {
 	socketPath string
-	approval   ApprovalHandler
 	rpc        RPCHandler
 	logger     *slog.Logger
 	ln         net.Listener
@@ -40,9 +36,6 @@ func New(socketPath string, logger *slog.Logger) *Server {
 	}
 	return &Server{socketPath: socketPath, logger: logger}
 }
-
-// SetApprovalHandler installs the blocking Pi approval handler.
-func (s *Server) SetApprovalHandler(h ApprovalHandler) { s.approval = h }
 
 func (s *Server) SetRPCHandler(h RPCHandler) { s.rpc = h }
 
@@ -138,24 +131,6 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 		ev.TS = time.Now().Unix()
 	}
 
-	if ev.Type == TypeApprovalRequest {
-		// A decision is useful only while the hook is still waiting for it.
-		// These requests have one payload and one response, so any subsequent
-		// read is solely a liveness check on the requesting connection.
-		_ = c.SetReadDeadline(time.Time{})
-		requestCtx, cancel := context.WithCancel(ctx)
-		defer cancel()
-		go func() {
-			_, _ = io.Copy(io.Discard, c)
-			cancel()
-		}()
-		ctx = requestCtx
-	}
-
-	if ev.Type == TypeApprovalRequest {
-		s.handleApproval(ctx, c, ev)
-		return
-	}
 	if isRPCType(ev.Type) {
 		s.handleRPC(ctx, c, ev)
 		return
@@ -181,27 +156,9 @@ func (s *Server) handleRPC(ctx context.Context, c net.Conn, ev Event) {
 	}
 }
 
-func (s *Server) handleApproval(ctx context.Context, c net.Conn, ev Event) {
-	if s.approval == nil {
-		_ = writeResponse(c, Response{Decision: "cancelled", Reason: "daemon has no approval handler"})
-		return
-	}
-	_ = c.SetReadDeadline(time.Time{})
-
-	resp, err := s.approval(ctx, ev)
-	if err != nil {
-		s.logger.Warn("approval handler error", slog.Any("err", err))
-		resp = Response{Decision: "cancelled", Reason: "approval handler error"}
-	}
-	_ = c.SetWriteDeadline(time.Now().Add(5 * time.Second))
-	if werr := writeResponse(c, resp); werr != nil {
-		s.logger.Warn("approval write response", slog.Any("err", werr))
-	}
-}
-
 func isRPCType(typ string) bool {
 	switch typ {
-	case TypeSessionInput, TypeSessionPeek, TypeSessionNew, TypeSessionAdopt, TypeSessionControl, TypeSessionList, TypeSessionCapture, TypeSessionKey, TypeAgentLifecycle, TypePing:
+	case TypeSessionInput, TypeSessionPeek, TypeSessionNew, TypeSessionAdopt, TypeSessionControl, TypeSessionList, TypeSessionCapture, TypeSessionKey, TypePing:
 		return true
 	}
 	return false

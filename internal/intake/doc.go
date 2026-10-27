@@ -1,3 +1,3 @@
 // Package intake serves the same-user Unix-domain socket used by local CLI
-// control and the narrow Pi approval client.
+// and web control of managed sessions.
 package intake
