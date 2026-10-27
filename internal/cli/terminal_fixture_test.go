@@ -41,7 +41,7 @@ func TestTerminalPresentationFixture(t *testing.T) {
 	cmd := &cobra.Command{}
 	cmd.SetOut(os.Stdout)
 	cmd.SetErr(os.Stderr)
-	writeWebWelcome(cmd, "http://127.0.0.1:8787/#token=visual-fixture-only", "127.0.0.1:8787", "http://127.0.0.1:8787", "/example/onibi/logs/web.log")
+	writeWebWelcome(cmd, "http://127.0.0.1:8787/#token=visual-fixture-only", "127.0.0.1:8787", "http://127.0.0.1:8787", "/example/onibi/logs/web.log", false)
 	live := termui.NewLive(terminalUI(cmd))
 	defer live.Close()
 	live.Start(func(elapsed time.Duration) string {

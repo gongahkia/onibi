@@ -18,6 +18,7 @@ import (
 
 	"github.com/gongahkia/onibi/internal/buildinfo"
 	"github.com/gongahkia/onibi/internal/ghostty"
+	"github.com/gongahkia/onibi/internal/intake"
 	"github.com/gongahkia/onibi/internal/logging"
 	"github.com/gongahkia/onibi/internal/termui"
 	"github.com/gongahkia/onibi/internal/web"
@@ -120,7 +121,7 @@ func runWeb(cmd *cobra.Command, _ []string) error {
 		console = activity
 	}
 	logger := logging.Web(logFile, console, level)
-	app, err := web.New(web.Options{Backend: ghostty.New(), Diagnostics: ghostty.Inspect, DB: db, PublicOrigin: origin, ProxyHosts: []string{listener.Addr().String()}, Assets: web.Assets(), Logger: logger})
+	app, err := web.New(web.Options{Backend: ghostty.New(), Sessions: web.DaemonSessions{Socket: paths.Socket}, Diagnostics: ghostty.Inspect, DB: db, PublicOrigin: origin, ProxyHosts: []string{listener.Addr().String()}, Assets: web.Assets(), Logger: logger})
 	if err != nil {
 		return err
 	}
@@ -139,7 +140,7 @@ func runWeb(cmd *cobra.Command, _ []string) error {
 	}
 	done := make(chan error, 1)
 	if !background {
-		writeWebWelcome(cmd, app.PairingURL(), listener.Addr().String(), origin, logPath)
+		writeWebWelcome(cmd, app.PairingURL(), listener.Addr().String(), origin, logPath, intake.SocketActive(paths.Socket, 500*time.Millisecond))
 	}
 	go func() { done <- server.Serve(listener) }()
 	if activity != nil {
@@ -175,7 +176,7 @@ func runWeb(cmd *cobra.Command, _ []string) error {
 	}
 }
 
-func writeWebWelcome(cmd *cobra.Command, pairingURL, address, origin, logPath string) {
+func writeWebWelcome(cmd *cobra.Command, pairingURL, address, origin, logPath string, daemonRunning bool) {
 	ui := terminalUI(cmd)
 
 	bannerShown, _ := cmd.Flags().GetBool("no-banner")
@@ -187,6 +188,11 @@ func writeWebWelcome(cmd *cobra.Command, pairingURL, address, origin, logPath st
 	ui.Field("Listening", address)
 	ui.Field("Open", origin)
 	ui.Field("Native", "Not checked yet / select a terminal in the browser")
+	if daemonRunning {
+		ui.Field("Sessions", "Daemon running / managed sessions appear in the browser")
+	} else {
+		ui.Field("Sessions", "Daemon not running / "+commandHint()+" start enables persistent sessions")
+	}
 	ui.Field("Logs", termui.ShortPath(logPath))
 	ui.Line("")
 	ui.Note("PAIR THIS BROWSER / one use / expires in 10 minutes")

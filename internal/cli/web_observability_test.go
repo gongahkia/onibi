@@ -57,7 +57,7 @@ func TestWelcomeKeepsPairingLinkCopyableAndOutOfEventStream(t *testing.T) {
 	cmd.SetOut(&output)
 	cmd.SetErr(&events)
 	link := "https://example.test/#token=test-only-secret"
-	writeWebWelcome(cmd, link, "127.0.0.1:8787", "https://example.test", "/private/logs/web.log")
+	writeWebWelcome(cmd, link, "127.0.0.1:8787", "https://example.test", "/private/logs/web.log", false)
 	if strings.Count(output.String(), link) != 1 || !strings.Contains(output.String(), "\n"+link+"\n") {
 		t.Fatal("pair link is not a standalone line")
 	}
@@ -185,7 +185,7 @@ func TestSourceRunSkipsOnlyTheSecondBanner(t *testing.T) {
 		ui := terminalUI(cmd)
 		ui.Interactive = true
 		ui.ASCII = false
-		writeWebWelcome(cmd, "http://127.0.0.1:8787/#token=test-only", "127.0.0.1:8787", "http://127.0.0.1:8787", "/tmp/web.log")
+		writeWebWelcome(cmd, "http://127.0.0.1:8787/#token=test-only", "127.0.0.1:8787", "http://127.0.0.1:8787", "/tmp/web.log", false)
 		if strings.Contains(out.String(), "█") == shown {
 			t.Fatal("incorrect banner handoff")
 		}
