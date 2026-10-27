@@ -36,7 +36,7 @@ Bells come from tmux. For sessions Onibi starts, tmux counts every bell into a s
 
 ## What still runs
 
-`onibi web` runs the daemon inside the web server when no daemon is already running, so one command (or one `onibi web service`) is enough. The daemon stops with the web server; its multiplexer sessions keep running and are restored at the next start. `onibi start` runs only the daemon, in the foreground and without credentials, and refuses to start when a daemon already owns the socket. It serves the same-user intake socket, restores managed sessions, polls multiplexer liveness and purges staged uploads. `onibi system service install` registers that daemon-only setup as a launchd/systemd user service; it is unnecessary when the web login service is installed.
+`onibi web` runs the daemon inside the web server when no daemon is already running, so one command (or one `onibi web service`) is enough. The daemon stops with the web server; its multiplexer sessions keep running and are restored at the next start. `onibi start` runs only the daemon, in the foreground and without credentials, and refuses to start when a daemon already owns the socket. It serves the same-user intake socket, restores managed sessions and polls multiplexer liveness. `onibi system service install` registers that daemon-only setup as a launchd/systemd user service; it is unnecessary when the web login service is installed.
 
 These CLI paths reach it over the intake socket:
 
@@ -53,11 +53,7 @@ The web cockpit uses the `session_list`, `session_capture`, `session_key`, `sess
 
 | Capability | Code | Behaviour without a surface |
 | --- | --- | --- |
-| Session ended events | `SessionEvents()` | Logged by the daemon; the channel drops when full. |
 | Multiplexer health alerts | `internal/daemon/health.go` | Logged as `health alert` warnings. |
-| Rendered terminal screenshots and fonts | `internal/render`, `Daemon.CaptureSessionScreen`, `screen.*` config | Never requested. |
-| Staged uploads | `Daemon.StageUpload`, `daemon.upload_*` config | Nothing calls `StageUpload`; the expiry sweep still runs. |
-| Keychain/env-file secrets | `internal/secrets` | Not used by any command. A previously stored bot token remains under keychain service `sh.onibi.daemon`, account `TELEGRAM_BOT_TOKEN`, or in the `.env` fallback file in the state directory. Delete it there if you no longer need it, and revoke the bot with BotFather. |
 
 ## Removed integrations
 
@@ -68,5 +64,11 @@ The Pi approval extension, the Claude Code approval and `AskUserQuestion` hooks,
 - `make update` and `make uninstall` remove the `onibi-notify` binary an older source install recorded, while it still matches its checksum.
 - The intake socket refuses `approval_request`, `claude_question` and `agent_lifecycle` requests.
 - `onibi doctor` fails while the Pi extension from an older release is still installed (by default `~/.pi/agent/extensions/onibi.ts`), because it blocks Pi tool calls in every Onibi session. Delete the file and run `/reload` in Pi.
+
+Code that only served Telegram has also been removed: rendered terminal screenshots and their bundled Nerd Fonts, upload staging, the keychain secret store, the per-session output buffer, session resizing, and log secret redaction. It is available at commit `74630036` (`internal/render/png.go`, `internal/daemon/screen_frame.go`, `internal/daemon/upload.go`, `internal/secrets`, `internal/logging/redact.go`). Upgrading from a release that had it:
+
+- `screen.font`, `screen.font_path`, `daemon.upload_ttl`, `daemon.upload_max_bytes` and `daemon.output_buffer_bytes` are ignored in `config.yaml`, whatever their values, and dropped the next time `onibi config set` saves it.
+- The daemon deletes the `uploads` folder in the state directory when it starts. Files there were copies of Telegram uploads, previously kept for `daemon.upload_ttl` (seven days by default).
+- A bot token stored by an earlier release stays where it was: keychain service `sh.onibi.daemon`, account `TELEGRAM_BOT_TOKEN`, or the `.env` file in the state directory, whose permissions `onibi doctor` still checks. Delete it if you no longer need it, and revoke the bot with BotFather.
 
 The removed Telegram implementation is available at commit `b3c6fc90` (`internal/daemon/telegram_bridge.go`, `internal/telegram`, `docs/telegram.md`) and is a useful reference for card state, outbox retries and screen debouncing.

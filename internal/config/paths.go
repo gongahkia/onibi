@@ -15,7 +15,7 @@ type Paths struct {
 	StateDir string // owns sqlite db, .env fallback, audit log
 	Socket   string // intake socket (0600)
 	DBFile   string // onibi.sqlite
-	EnvFile  string // .env (fallback when no keystore)
+	EnvFile  string // .env left by releases that stored the Telegram token
 	LogDir   string // rotated log files
 	Config   string // config.yaml
 }
@@ -87,7 +87,7 @@ func enforceDirPerms(dir string, want os.FileMode) error {
 	return nil
 }
 
-// EnvFilePerms ensures the .env fallback file has 0600 perms when present.
+// EnvFilePerms ensures a leftover .env file has 0600 perms when present.
 func (p Paths) EnvFilePerms() error {
 	fi, err := os.Stat(p.EnvFile)
 	if errors.Is(err, os.ErrNotExist) {
