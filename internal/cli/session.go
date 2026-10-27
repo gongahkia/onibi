@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -31,9 +32,9 @@ func runSessionAdopt(cmd *cobra.Command, args []string) error {
 	defer db.Close()
 	name, _ := cmd.Flags().GetString("name")
 	cwd, _ := cmd.Flags().GetString("cwd")
-	response, err := intake.Request(paths.Socket, intake.Event{Type: intake.TypeSessionAdopt, Name: name, CWD: cwd, Mux: strings.ToLower(args[0]), Text: args[1]}, 5*time.Second)
+	response, err := sessionRequest(paths.Socket, intake.Event{Type: intake.TypeSessionAdopt, Name: name, CWD: cwd, Mux: strings.ToLower(args[0]), Text: args[1]})
 	if err != nil {
-		return fmt.Errorf("daemon unavailable: %w", err)
+		return err
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "%s (%s)\n", response.Text, response.SessionID)
 	return nil
@@ -47,12 +48,25 @@ func runSessionNew(cmd *cobra.Command, args []string) error {
 	name, _ := cmd.Flags().GetString("name")
 	cwd, _ := cmd.Flags().GetString("cwd")
 	mux, _ := cmd.Flags().GetString("mux")
-	response, err := intake.Request(paths.Socket, intake.Event{Type: intake.TypeSessionNew, Agent: strings.ToLower(args[0]), Args: args[1:], Name: name, CWD: cwd, Mux: mux}, 5*time.Second)
+	response, err := sessionRequest(paths.Socket, intake.Event{Type: intake.TypeSessionNew, Agent: strings.ToLower(args[0]), Args: args[1:], Name: name, CWD: cwd, Mux: mux})
 	if err != nil {
-		return fmt.Errorf("daemon unavailable: %w", err)
+		return err
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "%s (%s)\n", response.Text, response.SessionID)
 	return nil
+}
+
+// sessionRequest separates an unreachable daemon from one that refused the
+// request; the latter reports its reason in an otherwise successful reply.
+func sessionRequest(socket string, ev intake.Event) (intake.Response, error) {
+	response, err := intake.Request(socket, ev, 5*time.Second)
+	if err != nil {
+		return intake.Response{}, fmt.Errorf("daemon unavailable: %w", err)
+	}
+	if response.Reason != "" {
+		return intake.Response{}, errors.New(response.Reason)
+	}
+	return response, nil
 }
 func runSessionList(cmd *cobra.Command, _ []string) error {
 	_, db, err := pathsAndStore()
