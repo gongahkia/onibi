@@ -1,3 +1,3 @@
-// Package logging configures log/slog with redaction middleware for loaded
-// secret strings.
+// Package logging configures log/slog output and the private rotating log
+// files, and reads them back for the logs commands.
 package logging

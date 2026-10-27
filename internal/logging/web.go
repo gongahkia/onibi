@@ -17,7 +17,7 @@ func Web(file, console io.Writer, level slog.Level) *slog.Logger {
 	if console != nil {
 		handlers = append(handlers, slog.NewJSONHandler(&consoleWriter{out: console}, &slog.HandlerOptions{Level: level}))
 	}
-	return slog.New(NewRedactingHandler(multiHandler(handlers)))
+	return slog.New(multiHandler(handlers))
 }
 
 type multiHandler []slog.Handler
