@@ -75,7 +75,9 @@ func (k Key) PublicKey() string {
 // Subscription is what PushSubscription.toJSON() returns in the browser.
 type Subscription struct {
 	Endpoint string `json:"endpoint"`
-	Keys     struct {
+	// ExpirationTime is part of PushSubscription.toJSON(); browsers send null.
+	ExpirationTime *int64 `json:"expirationTime,omitempty"`
+	Keys           struct {
 		P256dh string `json:"p256dh"`
 		Auth   string `json:"auth"`
 	} `json:"keys"`

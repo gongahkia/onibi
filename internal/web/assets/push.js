@@ -2,7 +2,12 @@
 
 // Notifications are opt-in per browser. The server holds the subscription
 // against this browser's grant, so revoking the browser also stops them.
-const pushState = { publicKey: "", subscribed: false, busy: false };
+const pushState = {
+  publicKey: "",
+  subscribed: false,
+  busy: false,
+  loading: false,
+};
 
 function pushSupported() {
   return (
@@ -51,11 +56,15 @@ function renderPush(note) {
       : "Off. Turn on to be notified when a persistent session needs input or rings the bell.";
   }
   byId("notify-status").textContent = note || status;
-  toggle.disabled = test.disabled = pushState.busy;
+  toggle.disabled = test.disabled = pushState.busy || pushState.loading;
 }
 
 async function loadPush() {
   if (!pushSupported()) return renderPush();
+  // A toggle tapped mid-load would be overwritten by the stale answer.
+  if (pushState.busy || pushState.loading) return;
+  pushState.loading = true;
+  renderPush();
   try {
     // Only look: nothing is installed until notifications are turned on.
     const [status, registration] = await Promise.all([
@@ -65,10 +74,13 @@ async function loadPush() {
     const subscription = await registration?.pushManager.getSubscription();
     pushState.publicKey = status.publicKey;
     pushState.subscribed = Boolean(status.subscribed && subscription);
-    renderPush();
   } catch (error) {
+    pushState.loading = false;
     renderPush("Notification settings couldn’t be loaded. " + error.message);
+    return;
   }
+  pushState.loading = false;
+  renderPush();
 }
 
 async function turnOnPush() {
@@ -108,7 +120,7 @@ byId("notify-toggle").addEventListener("click", async () => {
     renderPush("Notifications couldn’t be changed. " + error.message);
   } finally {
     pushState.busy = false;
-    byId("notify-toggle").disabled = byId("notify-test").disabled = false;
+    renderPush(byId("notify-status").textContent);
   }
 });
 

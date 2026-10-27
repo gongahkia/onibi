@@ -13,7 +13,7 @@ import (
 	"github.com/gongahkia/onibi/internal/webpush"
 )
 
-const testPushBody = `{"endpoint":"https://web.push.apple.com/abc","keys":{"p256dh":"BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4","auth":"BTBZMqHH6r4Tts7J_aSIgg"}}`
+const testPushBody = `{"endpoint":"https://web.push.apple.com/abc","expirationTime":null,"keys":{"p256dh":"BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4","auth":"BTBZMqHH6r4Tts7J_aSIgg"}}`
 
 type sentPush struct {
 	endpoint string

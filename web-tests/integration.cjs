@@ -644,6 +644,7 @@ async function selectWork(page) {
         toJSON() {
           return {
             endpoint: this.endpoint,
+            expirationTime: null,
             keys: {
               p256dh:
                 "BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4",

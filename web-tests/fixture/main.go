@@ -207,6 +207,7 @@ func must(err error) {
 func main() {
 	state := flag.String("state", "", "isolated test state directory")
 	port := flag.Int("port", 0, "loopback port, zero allocates one")
+	notify := flag.Bool("notify", false, "run the push notification watcher")
 	flag.Parse()
 	if *state == "" {
 		panic("explicit isolated state directory required")
@@ -238,6 +239,9 @@ func main() {
 		return ghostty.Diagnostics{CheckedAt: now(), Capabilities: b.Capabilities(), Checks: []ghostty.Check{{ID: "process", State: "running", Detail: "Simulated Ghostty; no native automation."}}}
 	}})
 	must(err)
+	if *notify {
+		go app.RunNotifications(context.Background())
+	}
 	server := &http.Server{Handler: app, ReadHeaderTimeout: 5 * time.Second}
 	defer server.Close()
 	go func() {
@@ -257,6 +261,7 @@ func main() {
 			Hold          *bool   `json:"hold"`
 			Advance       int64   `json:"advance"`
 			SessionsDown  *bool   `json:"sessionsDown"`
+			Attention     *string `json:"attention"`
 		}
 		must(json.Unmarshal(scanner.Bytes(), &command))
 		pairLink := ""
@@ -297,6 +302,15 @@ func main() {
 		managed.mu.Lock()
 		if command.SessionsDown != nil {
 			managed.down = *command.SessionsDown
+		}
+		if command.Attention != nil {
+			for i := range managed.list {
+				reason := ""
+				if *command.Attention == "input" {
+					reason = "Yes/no prompt"
+				}
+				managed.list[i].Attention = intake.Attention{State: *command.Attention, Reason: reason, Since: now()}
+			}
 		}
 		must(encoder.Encode(map[string]any{"id": command.ID, "pairingURL": pairLink, "actions": b.actions, "targets": b.targets, "inventories": b.inventories, "captures": b.captures, "sessionActions": managed.actions, "sessions": managed.list}))
 		managed.mu.Unlock()
