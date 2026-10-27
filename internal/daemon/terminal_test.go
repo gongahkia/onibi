@@ -258,9 +258,6 @@ func TestTmuxControlAndRestoreUseProjectConfiguration(t *testing.T) {
 	if _, err := d.CaptureSessionTail(ctx, s.ID, 80); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := d.CaptureSessionFrame(ctx, s.ID); err != nil {
-		t.Fatal(err)
-	}
 	if err := d.ControlSession(ctx, s.ID, "interrupt"); err != nil {
 		t.Fatal(err)
 	}

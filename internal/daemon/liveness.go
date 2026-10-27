@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/gongahkia/onibi/internal/mux"
-	"github.com/gongahkia/onibi/internal/tmux"
 )
 
 func (d *Daemon) watchTmuxSessions(ctx context.Context) {
@@ -56,24 +55,4 @@ func (d *Daemon) checkTmuxSessions(ctx context.Context) {
 			d.markSessionEndedReason(ctx, s, s.Transport+" session exited")
 		}
 	}
-}
-
-func tmuxScreenDimensions(ctx context.Context, ctrl *tmux.Controller, target string) (int, int) {
-	cols, rows, err := ctrl.PaneSize(ctx, target)
-	if err != nil {
-		return 100, 26
-	}
-	if cols < 20 {
-		cols = 20
-	}
-	if cols > 160 {
-		cols = 160
-	}
-	if rows < 10 {
-		rows = 10
-	}
-	if rows > 60 {
-		rows = 60
-	}
-	return cols, rows
 }

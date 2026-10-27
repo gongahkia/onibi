@@ -30,11 +30,6 @@ type Daemon struct {
 	UploadMaxBytes   int64
 	ShellDefault     string
 	ShellLogin       bool
-	screenMu         sync.RWMutex
-	frameMu          sync.Mutex
-	frames           map[string]terminalFrame
-	ScreenFont       string
-	ScreenFontPath   string
 	health           *healthTracker
 	attention        *attentionTracker
 	started          time.Time
@@ -58,8 +53,6 @@ type Options struct {
 	UploadMaxBytes   int64
 	ShellDefault     string
 	ShellLogin       bool
-	ScreenFont       string
-	ScreenFontPath   string
 	SkipRestore      bool
 }
 
@@ -76,7 +69,7 @@ func New(opts Options) *Daemon {
 	if opts.UploadMaxBytes <= 0 {
 		opts.UploadMaxBytes = 20 << 20
 	}
-	d := &Daemon{Paths: opts.Paths, DB: opts.DB, Log: opts.Log, Registry: NewRegistry(), OutputBufferSize: opts.OutputBufferSize, LivenessInterval: opts.LivenessInterval, UploadTTL: opts.UploadTTL, UploadMaxBytes: opts.UploadMaxBytes, ShellDefault: opts.ShellDefault, ShellLogin: opts.ShellLogin, ScreenFont: opts.ScreenFont, ScreenFontPath: opts.ScreenFontPath, started: time.Now(), frames: map[string]terminalFrame{}, sessionEvents: make(chan SessionEvent, 128), SkipRestore: opts.SkipRestore}
+	d := &Daemon{Paths: opts.Paths, DB: opts.DB, Log: opts.Log, Registry: NewRegistry(), OutputBufferSize: opts.OutputBufferSize, LivenessInterval: opts.LivenessInterval, UploadTTL: opts.UploadTTL, UploadMaxBytes: opts.UploadMaxBytes, ShellDefault: opts.ShellDefault, ShellLogin: opts.ShellLogin, started: time.Now(), sessionEvents: make(chan SessionEvent, 128), SkipRestore: opts.SkipRestore}
 	d.health = newHealthTracker(opts.DB, opts.Log)
 	d.attention = newAttentionTracker()
 	d.Intake = intake.New(opts.Paths.Socket, opts.Log)
@@ -249,7 +242,6 @@ func (d *Daemon) markSessionEndedReason(ctx context.Context, s *Session, reason 
 	}
 	d.health.sessionEnded(ctx, s)
 	d.attention.forget(s.ID)
-	d.InvalidateSessionFrame(s.ID)
 	d.Log.Info("session ended", "session", s.ID, "name", s.Name, "agent", s.Agent, "reason", reason)
 	d.audit(ctx, "session.ended", s.ID, "", 0, "")
 	select {

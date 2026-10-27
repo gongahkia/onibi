@@ -181,14 +181,6 @@ func (d *Daemon) CaptureSessionTail(ctx context.Context, id string, lines int) (
 func (d *Daemon) CaptureSessionText(ctx context.Context, id string) (string, error) {
 	return d.CaptureSessionTail(ctx, id, 80)
 }
-func (d *Daemon) CaptureSessionScreen(ctx context.Context, id string) ([]byte, error) {
-	frame, err := d.CaptureSessionFrame(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	return frame.PNG, nil
-}
-
 func (d *Daemon) SendSessionText(ctx context.Context, id, text string, enter bool) error {
 	s, err := d.sessionForRPCTarget(id)
 	if err != nil {
@@ -237,12 +229,6 @@ func (d *Daemon) SendSessionTextAndCapture(ctx context.Context, id, text string,
 func tmuxSessionGone(err error) bool {
 	text := strings.ToLower(err.Error())
 	return strings.Contains(text, "no server running") || strings.Contains(text, "can't find session") || strings.Contains(text, "no such session")
-}
-func maxInt(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }
 func commandLine(bin string, args []string) string {
 	return strings.TrimSpace(strings.Join(append([]string{bin}, args...), " "))
