@@ -1,8 +1,10 @@
 # Threat model
 
-Onibi grants a paired browser control over existing Ghostty terminals, and optionally grants a single paired Telegram private chat control over managed terminal sessions. Both surfaces act with the local OS user's authority. The Mac, Ghostty, the configured multiplexer, and their processes are trusted. A paired client can execute commands and terminate work.
+Onibi grants a paired browser control over existing Ghostty terminals. It acts with the local OS user's authority. The Mac, Ghostty, the configured multiplexer, and their processes are trusted. A paired client can execute commands and terminate work.
 
-The web server binds only to loopback. For remote use, Tailscale Serve terminates private HTTPS and forwards to the local listener. Tailscale, the tailnet access policy, the browser, and the Mac's local network stack are trusted parts of that route. Telegram has its own independent credentials and pairing.
+The web server binds only to loopback. For remote use, Tailscale Serve terminates private HTTPS and forwards to the local listener. Tailscale, the tailnet access policy, the browser, and the Mac's local network stack are trusted parts of that route.
+
+The optional managed-session daemon (`onibi start`) has no remote surface. It is reachable only through the same-user intake socket; see [managed sessions](docs/managed-sessions.md).
 
 ## Protections
 
@@ -13,24 +15,18 @@ The web server binds only to loopback. For remote use, Tailscale Serve terminate
 - Native actions use Ghostty process and surface identities rather than terminal titles or positions. Output capture checks the focused pane before and after reading bounded Accessibility text. Pane/tab/window closure binds confirmation to the exact reviewed pane IDs; the server and native bridge both reject changed membership. Bounded follow-up observations distinguish removal, continued presence, and an unverified outcome without replaying the close. Layout and title controls come from a fixed server allowlist and require a verified focused pane; arbitrary native action strings are not exposed.
 - Passive diagnostics inspect app/process metadata and Accessibility trust without native Apple events or terminal reads. The HTTP health endpoint requires pairing. Explicit CLI probes may request Automation access. Health observations are historical; version capabilities do not prove current permission or responsiveness.
 - Concurrent inventory polling shares only in-flight work and backs off after failure. Mutations bypass polling backoff and validate fresh native targets; no cached list authorizes input. Capture and native availability are tracked separately so an HTTP response or successful read cannot clear a failed inventory observation in the phone interface.
-- Incoming messages and callbacks require the paired private chat and user ID. Unpaired users cannot select sessions or issue commands.
-- `onibi telegram disable` sets a persisted kill switch before removing the local token and pairing. The running daemon checks it before processing updates and delivering queued output, then exits after its current long poll. BotFather token rotation is a separate Telegram-side action.
-- Local state and uploaded files use restrictive filesystem permissions. The intake socket is same-user only. Callback data contains opaque tokens rather than command or approval bodies.
+- Local state and uploaded files use restrictive filesystem permissions. The intake socket is same-user only.
 - Approvals and Claude questions expire or are cancelled when their waiter goes away. Resolved raw payloads are scrubbed after 24 hours; audit hashes and decision metadata remain.
-- Telegram update claims are recorded before side effects. An update interrupted by a crash is reported as uncertain, not blindly replayed.
 
 ## Residual risks
 
-- A leaked unused browser pairing link, session, or remembered credential grants terminal control. Remembered credentials can restore access until their fixed expiry unless revoked. Use local device revocation, or stop the web process to cut off control while stopped. Restart does not erase remembered grants. A compromised same-origin page can act with the browser’s authority despite HttpOnly cookies. `onibi telegram disable` only revokes Telegram access.
+- A leaked unused browser pairing link, session, or remembered credential grants terminal control. Remembered credentials can restore access until their fixed expiry unless revoked. Use local device revocation, or stop the web process to cut off control while stopped. Restart does not erase remembered grants. A compromised same-origin page can act with the browser’s authority despite HttpOnly cookies.
 - Focus and output capture span separate operating-system calls; they cannot form one atomic Ghostty transaction. The adapter discards detected focus changes, but cannot prove no focus change occurred and reversed between checks. Output is visible plaintext, not full terminal history.
 - Focus-dependent layout/title actions also span separate operating-system calls. A concurrent focus change can race the final check; these calls are not atomic with local interaction.
 - Follow reads bounded text only while visible and never automatically focuses a pane. Drafts are per-pane and memory-only; terminal output remains inert text. Only font/wrap preferences persist in local storage. Explicit copying writes terminal text to the system clipboard, outside Onibi’s retention control.
 - Closing a Ghostty pane, tab, or window may terminate its processes. Membership checks and the close are separate native calls; local changes can race the final check. Observed disappearance verifies reviewed panes, not an empty window object or a program’s clean shutdown. An already executing action can finish during logout or shutdown; revocation cannot undo input already sent.
-- Telegram bot chats are not end-to-end encrypted. Telegram and anyone with access to the bot account or paired account can see messages and output.
 - Local processes running as the same OS user may read Onibi state or control the multiplexer directly. Onibi does not sandbox commands or protect against a compromised host.
-- A leaked bot token can operate the bot outside Onibi. Disabling Onibi does not revoke that token; rotate it with BotFather.
-- A decision already in flight when disable is invoked may complete. Disable is a local access cutoff, not a rollback of commands already sent.
-- A delayed screenshot can become unavailable if its session exits before the queued capture. Bounded text fallbacks are retained for up to 24 hours, but not full terminal history; for a very early exit there may be no captured fallback yet.
 - Adopting an existing mux session gives Onibi the ability to send input and kill that session. Existing Pi/Claude processes do not gain hooks merely by being adopted.
+- With no decision surface wired, managed Pi and Claude approvals expire to their default denial, and Codex App Server requests wait unanswered.
 
-Use a dedicated bot and a non-production OS account for evaluation. Do not send credentials or production secrets through Telegram.
+Use a non-production OS account for evaluation.

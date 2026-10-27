@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Removed the Telegram transport: the `onibi telegram` commands, bot-token doctor checks, `telegram-*` make targets, live Telegram end-to-end test, and the `gotd/td` dependency. `onibi start` now runs the managed-session daemon without credentials. Opening an existing state database drops the retired Telegram tables and keys. Managed sessions, agent hooks, and screenshot rendering remain in the tree without a decision surface; see [managed sessions](docs/managed-sessions.md).
+
 - Retired the repository's public GitHub Pages documentation site. The Ghostty cockpit continues to run on the Mac over private Tailscale HTTPS.
 
 - Added passive `onibi web doctor` diagnostics, explicit native probes, typed availability errors, and Ghostty version capabilities.

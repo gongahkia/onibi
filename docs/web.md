@@ -19,7 +19,7 @@ The raw `CGO_ENABLED=1 go build -o bin/onibi ./cmd/onibi` command still works, b
 
 The foreground server prints one aligned ONIBI block banner with ANSI dim shading, followed by revision, PID, listener, log path, a copyable pairing URL and commands using the current executable. Both `make build` and `make run` print that banner first, before `[prepare]` or compiler output. Build stages then use a compact heading. `make run` passes banner ownership to the web process so it does not print a second logo after compilation. A separate `./bin/onibi web` invocation still prints its own banner. Status, log viewing, source install/update/remove, and `make help` use the same banner. It does not probe Ghostty at startup. Keep that terminal open and use a second terminal for status or logs. Ctrl-C drains bounded work before exiting. If an old Onibi process is already running, stop it explicitly and launch the new binary to see the new interface; a build does not restart it.
 
-`make run` builds and starts the web cockpit; `make doctor` builds and runs passive web diagnostics; `make setup` adds startup guidance. `make help` lists the source workflow. Telegram keeps explicit `telegram-setup`, `telegram-doctor`, `telegram-run` and `telegram-dogfood` targets. `make test` runs hermetic race-enabled Go tests. `make e2e-live` is the separate, explicit live Telegram test.
+`make run` builds and starts the web cockpit; `make doctor` builds and runs passive web diagnostics; `make setup` adds startup guidance. `make help` lists the source workflow. `make test` runs hermetic race-enabled Go tests.
 
 ## Install, update and remove
 
@@ -189,7 +189,7 @@ Install writes a private `~/Library/LaunchAgents/sh.onibi.web.plist`; it does no
 
 Application events go to the continuously rotated `web.log`. Launchd retains bootstrap errors in `web.err.log` and `web.out.log`; these diagnostic streams are separate from application telemetry. Background mode prints no pairing secrets; retrieve a fresh link locally. A foreground web process must be stopped before starting the service against the same state directory. macOS permissions are tied to the launching environment; inspect readiness again when switching to the login service. Live launchd/TCC behavior has not been validated in this pass.
 
-`onibi system service install` manages the separate Telegram daemon. Tailscale Serve’s background setting keeps the proxy running; it does not start Onibi or keep the Mac awake. A graphical login, running Ghostty, and an awake reachable Mac remain necessary.
+`onibi system service install` manages the separate managed-session daemon, which the web cockpit does not use; see [managed sessions](managed-sessions.md). Tailscale Serve’s background setting keeps the proxy running; it does not start Onibi or keep the Mac awake. A graphical login, running Ghostty, and an awake reachable Mac remain necessary.
 
 ## Verification boundaries
 

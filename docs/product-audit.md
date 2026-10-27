@@ -4,6 +4,8 @@ Audit date: 2026-10-23. Baseline: `928fb1b8`. This review covered the Go CLI, da
 
 Follow-up: the [2026-10-25 cockpit review](cockpit-review.md) maps the expanded native controls, focused-pane safeguards, output following, draft isolation, mobile redesign, and cross-browser evidence. The findings below retain the original audit baseline.
 
+Follow-up (2026-10-27): the Telegram transport has since been removed. The managed-session backend it drove remains unwired; see [managed sessions](managed-sessions.md). Telegram references below describe the audited baseline.
+
 ## Intended product
 
 **Control Ghostty wherever text renders.** The maintainer clarified that this means controlling the exact Ghostty tabs and windows already open on the Mac from an iPhone. Merely attaching two clients to an Onibi-created multiplexer session does not satisfy that goal.
