@@ -7,10 +7,15 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
+	"github.com/gongahkia/onibi/internal/ghostty"
 	"github.com/gongahkia/onibi/internal/intake"
 	"github.com/gongahkia/onibi/internal/prompt"
 )
@@ -20,6 +25,11 @@ const (
 	defaultSessionLines = 200
 	maxSessionLines     = 2000
 	maxSessionKeyBytes  = 32
+	maxProgramBytes     = 256
+	maxProgramArgs      = 32
+	maxArgBytes         = 1024
+	maxPathBytes        = 4096
+	maxNameBytes        = 64
 )
 
 var errSessionsUnavailable = errors.New("managed sessions are unavailable")
@@ -31,8 +41,8 @@ type SessionBackend interface {
 	Sessions(context.Context) ([]intake.SessionInfo, error)
 	Capture(ctx context.Context, id string, lines int) (SessionCapture, error)
 	// Execute must return an intake.Reject error only when nothing reached
-	// the session.
-	Execute(context.Context, SessionAction) error
+	// the session. It returns the session ID, which is new for "new".
+	Execute(context.Context, SessionAction) (string, error)
 }
 
 type SessionCapture struct {
@@ -42,14 +52,19 @@ type SessionCapture struct {
 	Prompt    *prompt.Prompt `json:"prompt,omitempty"`
 }
 
-// SessionAction is the browser's request for a managed session. Kill and
-// interrupt are the only lifecycle operations exposed remotely.
+// SessionAction is the browser's request for a managed session. New, kill
+// and interrupt are the only lifecycle operations exposed remotely; adopt
+// stays local because it reaches sessions Onibi did not start.
 type SessionAction struct {
-	Kind      string `json:"kind"`
-	SessionID string `json:"sessionId"`
-	Text      string `json:"text,omitempty"`
-	Enter     bool   `json:"enter,omitempty"`
-	Key       string `json:"key,omitempty"`
+	Kind      string   `json:"kind"`
+	SessionID string   `json:"sessionId"`
+	Text      string   `json:"text,omitempty"`
+	Enter     bool     `json:"enter,omitempty"`
+	Key       string   `json:"key,omitempty"`
+	Program   string   `json:"program,omitempty"`
+	Args      []string `json:"args,omitempty"`
+	CWD       string   `json:"cwd,omitempty"`
+	Name      string   `json:"name,omitempty"`
 }
 
 func validSessionID(id string) bool {
@@ -64,7 +79,51 @@ func validSessionID(id string) bool {
 	return true
 }
 
+// plainField rejects control characters, which have no business in a
+// program, argument, folder or name and could forge terminal input.
+func plainField(value string, maxBytes int) bool {
+	if len(value) > maxBytes || !utf8.ValidString(value) {
+		return false
+	}
+	for _, r := range value {
+		if unicode.IsControl(r) {
+			return false
+		}
+	}
+	return true
+}
+
+func validateNewSession(action SessionAction) error {
+	if action.SessionID != "" || action.Text != "" || action.Key != "" || action.Enter {
+		return errors.New("A new session takes a program, folder and optional name only.")
+	}
+	if action.Program == "" || !plainField(action.Program, maxProgramBytes) {
+		return errors.New("Choose a program: shell, a command name, or an absolute path.")
+	}
+	if len(action.Args) > maxProgramArgs {
+		return errors.New("Use at most 32 arguments.")
+	}
+	for _, arg := range action.Args {
+		if !plainField(arg, maxArgBytes) {
+			return errors.New("Arguments must be plain text of at most 1 KiB each.")
+		}
+	}
+	if !(filepath.IsAbs(action.CWD) || action.CWD == "~" || strings.HasPrefix(action.CWD, "~/")) || !plainField(action.CWD, maxPathBytes) {
+		return errors.New("Choose a folder on your Mac as an absolute path.")
+	}
+	if !plainField(action.Name, maxNameBytes) {
+		return errors.New("Session names are plain text of at most 64 bytes.")
+	}
+	return nil
+}
+
 func validateSessionAction(action SessionAction) error {
+	if action.Kind == "new" {
+		return validateNewSession(action)
+	}
+	if action.Program != "" || action.Args != nil || action.CWD != "" || action.Name != "" {
+		return errors.New("Only a new session takes a program, folder or name.")
+	}
 	if !validSessionID(action.SessionID) {
 		return errors.New("An explicit managed session is required.")
 	}
@@ -185,6 +244,9 @@ func (s *Server) executeSession(ctx context.Context, r *http.Request, receipt Re
 		receipt.State, receipt.Error = "rejected", "Managed sessions are not configured. No input was sent."
 		return receipt
 	}
+	if action.Kind == "new" {
+		return s.startSession(ctx, r, receipt, action)
+	}
 	sessions, err := s.managed.Sessions(ctx)
 	if err != nil {
 		receipt.State, receipt.Error = "rejected", "The Onibi daemon could not be checked before execution. No input was sent."
@@ -205,7 +267,7 @@ func (s *Server) executeSession(ctx context.Context, r *http.Request, receipt Re
 		receipt.State, receipt.Error = "rejected", "Browser access ended during session validation. No input was sent."
 		return receipt
 	}
-	if err := s.managed.Execute(ctx, action); err != nil {
+	if _, err := s.managed.Execute(ctx, action); err != nil {
 		if intake.IsRejected(err) {
 			receipt.State, receipt.Error = "rejected", sessionRejection(err)
 		} else {
@@ -214,6 +276,33 @@ func (s *Server) executeSession(ctx context.Context, r *http.Request, receipt Re
 		return receipt
 	}
 	receipt.State = "completed"
+	return receipt
+}
+
+func (s *Server) startSession(ctx context.Context, r *http.Request, receipt Receipt, action SessionAction) Receipt {
+	if _, _, ok := s.authenticate(r.WithContext(ctx)); !ok {
+		receipt.State, receipt.Error = "rejected", "Browser access ended before the session started. Nothing was started."
+		return receipt
+	}
+	if action.CWD == "~" || strings.HasPrefix(action.CWD, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			receipt.State, receipt.Error = "rejected", "Your home folder could not be found. Nothing was started."
+			return receipt
+		}
+		action.CWD = filepath.Join(home, strings.TrimPrefix(action.CWD, "~"))
+	}
+	id, err := s.managed.Execute(ctx, action)
+	if err != nil {
+		if intake.IsRejected(err) {
+			receipt.State, receipt.Error = "rejected", strings.Replace(sessionRejection(err), "No input was sent.", "Nothing was started.", 1)
+		} else {
+			receipt.State, receipt.Error = "uncertain", "The session may have started. Check the session list before starting it again."
+		}
+		return receipt
+	}
+	receipt.State = "completed"
+	receipt.Result = &ghostty.Result{TargetID: sessionTargetPrefix + id, Message: "It keeps running when Ghostty quits."}
 	return receipt
 }
 
@@ -267,9 +356,11 @@ func (d DaemonSessions) Capture(_ context.Context, id string, lines int) (Sessio
 	return SessionCapture{SessionID: id, Text: resp.Text, ANSI: resp.ANSI}, err
 }
 
-func (d DaemonSessions) Execute(_ context.Context, action SessionAction) error {
+func (d DaemonSessions) Execute(_ context.Context, action SessionAction) (string, error) {
 	var ev intake.Event
 	switch action.Kind {
+	case "new":
+		ev = intake.Event{Type: intake.TypeSessionNew, Agent: action.Program, Args: action.Args, CWD: action.CWD, Name: action.Name}
 	case "input":
 		ev = intake.Event{Type: intake.TypeSessionInput, Session: action.SessionID, Text: action.Text, Enter: action.Enter, Exact: true}
 	case "key":
@@ -277,8 +368,14 @@ func (d DaemonSessions) Execute(_ context.Context, action SessionAction) error {
 	case "interrupt", "kill":
 		ev = intake.Event{Type: intake.TypeSessionControl, Session: action.SessionID, Action: action.Kind, Exact: true}
 	default:
-		return intake.Reject(errors.New("unsupported session action"))
+		return "", intake.Reject(errors.New("unsupported session action"))
 	}
-	_, err := d.request(ev, 15*time.Second)
-	return err
+	resp, err := d.request(ev, 15*time.Second)
+	if err != nil {
+		return "", err
+	}
+	if action.Kind == "new" {
+		return resp.SessionID, nil
+	}
+	return action.SessionID, nil
 }

@@ -776,6 +776,11 @@ const server = http.createServer(async (req, res) => {
   await page.fill("#picker-search", "");
   await page.click("#close-picker");
   await page.click("#open-controls");
+  assert.equal(
+    await page.isDisabled("#picker-new-session"),
+    true,
+    "new session needs the sessions daemon",
+  );
   await page.screenshot({
     path: path.join(output, "controls-mobile.png"),
     fullPage: false,

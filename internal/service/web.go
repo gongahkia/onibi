@@ -61,7 +61,7 @@ func (m WebManager) Install(ctx context.Context, listen, origin string) error {
 		"RunAtLoad":        true, "KeepAlive": map[string]any{"Crashed": true},
 		"ProcessType": "Interactive", "LimitLoadToSessionType": "Aqua", "ExitTimeOut": 45,
 		"WorkingDirectory":     m.Paths.StateDir,
-		"EnvironmentVariables": map[string]string{"PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"},
+		"EnvironmentVariables": map[string]string{"PATH": launchdPATH()},
 		"StandardOutPath":      filepath.Join(m.Paths.LogDir, "web.out.log"),
 		"StandardErrorPath":    filepath.Join(m.Paths.LogDir, "web.err.log"),
 	}

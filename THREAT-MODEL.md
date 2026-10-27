@@ -4,7 +4,7 @@ Onibi grants a paired browser control over existing Ghostty terminals. It acts w
 
 The web server binds only to loopback. For remote use, Tailscale Serve terminates private HTTPS and forwards to the local listener. Tailscale, the tailnet access policy, the browser, and the Mac's local network stack are trusted parts of that route.
 
-The managed-session daemon (run by `onibi web` unless one is already running, or alone by `onibi start`) listens only on the same-user intake socket. When it runs, the paired web cockpit reaches it through that socket, so a paired browser can read, type into, interrupt and end its multiplexer sessions. It cannot start or adopt sessions. See [managed sessions](docs/managed-sessions.md).
+The managed-session daemon (run by `onibi web` unless one is already running, or alone by `onibi start`) listens only on the same-user intake socket. When it runs, the paired web cockpit reaches it through that socket, so a paired browser can start a shell or any program in a folder it names, and read, type into, interrupt and end those sessions. This adds no capability beyond typing into a Ghostty pane, which a paired browser can already do. It cannot adopt multiplexer sessions that Onibi did not start. See [managed sessions](docs/managed-sessions.md).
 
 ## Protections
 

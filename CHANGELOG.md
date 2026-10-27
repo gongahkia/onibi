@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added New session to the phone. It starts a shell or any program in a folder of an open pane or session, or in a typed absolute path, using a durable receipt, then selects the new session. The web login service now keeps the `PATH` from install time, like the daemon service, so programs in folders such as `~/.local/bin` are found.
 - Added quick replies. When a Ghostty pane or persistent session is waiting on a yes/no question, a key press or a numbered menu, the phone offers one-tap replies that send the same key a person would press. Prompt detection moved into a shared package, so the daemon and the web server recognise the same prompts.
 - Tightened the phone interface. Forget this browser moved from the header into Devices. Session and device expiry read as relative times, such as "expires in 12 hours". The footer and filler helper lines are gone, and Ghostty status no longer wraps in the header.
 - `onibi web` now runs the sessions daemon itself when none is running, so one command, or one `onibi web service`, gives the phone both Ghostty and persistent sessions. The daemon stops with the web server and its sessions are restored at the next start. `onibi start` still runs the daemon alone, and now refuses to start when a daemon is already running.

@@ -40,7 +40,9 @@ func (d *Daemon) handleRPCRequest(ctx context.Context, ev intake.Event) (intake.
 		}
 		s, err := d.StartTerminalSession(ctx, ev.Name, name, path, args, ev.CWD, ev.Mux)
 		if err != nil {
-			return intake.Response{}, err
+			// StartTerminalSession kills the multiplexer session on any
+			// failure after creating it, so nothing is left running.
+			return intake.Response{}, intake.Reject(err)
 		}
 		return intake.Response{SessionID: s.ID, Text: "started " + s.Name}, nil
 	case intake.TypeSessionAdopt:

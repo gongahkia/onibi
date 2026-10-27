@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -45,11 +46,14 @@ func (f *fakeSessions) Capture(_ context.Context, id string, lines int) (Session
 	return c, f.capErr
 }
 
-func (f *fakeSessions) Execute(_ context.Context, action SessionAction) error {
+func (f *fakeSessions) Execute(_ context.Context, action SessionAction) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, action)
-	return f.execErr
+	if action.Kind == "new" {
+		return "fedcba9876543210", f.execErr
+	}
+	return action.SessionID, f.execErr
 }
 
 func testSessionServer(t *testing.T) (*Server, *fakeBackend, *fakeSessions, browser) {
@@ -109,7 +113,7 @@ func TestSessionActionsUseReceiptsAndExactValidation(t *testing.T) {
 	s, backend, managed, b := testSessionServer(t)
 	action := SessionAction{Kind: "input", SessionID: testSessionID, Text: "y", Enter: true}
 	receipt := decodeReceipt(t, request(s, b, http.MethodPost, "/api/actions", sessionRequest("session-action-0001", action)))
-	if receipt.State != "completed" || len(managed.calls) != 1 || managed.calls[0] != action || len(backend.calls) != 0 {
+	if receipt.State != "completed" || len(managed.calls) != 1 || !reflect.DeepEqual(managed.calls[0], action) || len(backend.calls) != 0 {
 		t.Fatalf("receipt=%#v calls=%#v", receipt, managed.calls)
 	}
 	if replay := decodeReceipt(t, request(s, b, http.MethodPost, "/api/actions", sessionRequest("session-action-0001", action))); replay.State != "completed" || len(managed.calls) != 1 {
@@ -199,6 +203,8 @@ func TestDaemonSessionsMapsIntakeResponses(t *testing.T) {
 			return intake.Response{}, intake.Reject(errors.New("unsupported key"))
 		case intake.TypeSessionControl:
 			return intake.Response{}, errors.New("tmux exited")
+		case intake.TypeSessionNew:
+			return intake.Response{SessionID: "fedcba9876543210", Text: "started " + ev.Name}, nil
 		}
 		return intake.Response{SessionID: ev.Session}, nil
 	})
@@ -213,19 +219,25 @@ func TestDaemonSessionsMapsIntakeResponses(t *testing.T) {
 	if sessions, err := d.Sessions(t.Context()); err != nil || len(sessions) != 1 {
 		t.Fatalf("sessions=%#v err=%v", sessions, err)
 	}
-	if err := d.Execute(t.Context(), SessionAction{Kind: "input", SessionID: testSessionID, Text: "ls", Enter: true}); err != nil {
+	if _, err := d.Execute(t.Context(), SessionAction{Kind: "input", SessionID: testSessionID, Text: "ls", Enter: true}); err != nil {
 		t.Fatal(err)
 	}
-	if err := d.Execute(t.Context(), SessionAction{Kind: "key", SessionID: testSessionID, Key: "x"}); !intake.IsRejected(err) || sessionRejection(err) != "unsupported key. No input was sent." {
+	if _, err := d.Execute(t.Context(), SessionAction{Kind: "key", SessionID: testSessionID, Key: "x"}); !intake.IsRejected(err) || sessionRejection(err) != "unsupported key. No input was sent." {
 		t.Fatalf("key err=%v", err)
 	}
-	if err := d.Execute(t.Context(), SessionAction{Kind: "kill", SessionID: testSessionID}); err == nil || intake.IsRejected(err) {
+	if _, err := d.Execute(t.Context(), SessionAction{Kind: "kill", SessionID: testSessionID}); err == nil || intake.IsRejected(err) {
 		t.Fatalf("kill err=%v", err)
+	}
+	if id, err := d.Execute(t.Context(), SessionAction{Kind: "new", Program: "codex", Args: []string{"--model", "gpt-5"}, CWD: "/tmp", Name: "review"}); err != nil || id != "fedcba9876543210" {
+		t.Fatalf("new id=%q err=%v", id, err)
 	}
 	mu.Lock()
 	defer mu.Unlock()
 	if !seen[1].Exact || seen[1].Type != intake.TypeSessionInput || !seen[3].Exact || seen[3].Action != "kill" {
 		t.Fatalf("events=%#v", seen)
+	}
+	if ev := seen[4]; ev.Type != intake.TypeSessionNew || ev.Agent != "codex" || !reflect.DeepEqual(ev.Args, []string{"--model", "gpt-5"}) || ev.CWD != "/tmp" || ev.Name != "review" {
+		t.Fatalf("new event=%#v", ev)
 	}
 }
 
@@ -245,5 +257,36 @@ func TestSnapshotsCarryTheWaitingPromptForGhosttyAndSessions(t *testing.T) {
 	backend.snapText = "$ ls\n"
 	if body := request(s, b, http.MethodGet, "/api/snapshot?targetId=surface-1", nil).Body.String(); strings.Contains(body, `"prompt"`) {
 		t.Fatalf("prompt without one waiting: %s", body)
+	}
+}
+
+func TestNewSessionStartsOnceAndReportsItsTarget(t *testing.T) {
+	s, backend, managed, b := testSessionServer(t)
+	action := SessionAction{Kind: "new", Program: "codex", Args: []string{"--model", "gpt-5"}, CWD: "/Users/me/code/app", Name: "review"}
+	receipt := decodeReceipt(t, request(s, b, http.MethodPost, "/api/actions", sessionRequest("session-new-000001", action)))
+	if receipt.State != "completed" || receipt.Result == nil || receipt.Result.TargetID != "session:fedcba9876543210" || len(managed.calls) != 1 || !reflect.DeepEqual(managed.calls[0], action) || len(backend.calls) != 0 {
+		t.Fatalf("receipt=%#v calls=%#v", receipt, managed.calls)
+	}
+	if replay := decodeReceipt(t, request(s, b, http.MethodPost, "/api/actions", sessionRequest("session-new-000001", action))); replay.State != "completed" || len(managed.calls) != 1 {
+		t.Fatalf("replay started another session: %#v calls=%d", replay, len(managed.calls))
+	}
+	for name, bad := range map[string]SessionAction{
+		"relative folder":    {Kind: "new", Program: "shell", CWD: "code/app"},
+		"no program":         {Kind: "new", CWD: "/tmp"},
+		"control in program": {Kind: "new", Program: "sh\nrm", CWD: "/tmp"},
+		"control in arg":     {Kind: "new", Program: "shell", Args: []string{"a\x1b[2J"}, CWD: "/tmp"},
+		"text on new":        {Kind: "new", Program: "shell", CWD: "/tmp", Text: "ls"},
+		"session id on new":  {Kind: "new", Program: "shell", CWD: "/tmp", SessionID: testSessionID},
+		"program on input":   {Kind: "input", SessionID: testSessionID, Text: "y", Program: "shell"},
+		"long name":          {Kind: "new", Program: "shell", CWD: "/tmp", Name: strings.Repeat("n", 65)},
+	} {
+		if got := request(s, b, http.MethodPost, "/api/actions", sessionRequest("session-new-bad-"+strings.ReplaceAll(name, " ", "-"), bad)); got.Code != http.StatusBadRequest {
+			t.Errorf("%s: %d %s", name, got.Code, got.Body)
+		}
+	}
+	managed.execErr = intake.Reject(&daemonRejection{message: "nonexistent not found in PATH"})
+	receipt = decodeReceipt(t, request(s, b, http.MethodPost, "/api/actions", sessionRequest("session-new-000002", SessionAction{Kind: "new", Program: "nonexistent", CWD: "/tmp"})))
+	if receipt.State != "rejected" || receipt.Error != "nonexistent not found in PATH. Nothing was started." {
+		t.Fatalf("rejection=%#v", receipt)
 	}
 }

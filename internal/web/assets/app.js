@@ -266,6 +266,14 @@ const attentionLabels = {
 function needsAttention(session) {
   return ["input", "bell"].includes(session.attention?.state);
 }
+function canStartSession() {
+  return Boolean(
+    state.csrf &&
+    state.transport === "reachable" &&
+    state.sessionsAvailable &&
+    !state.pending,
+  );
+}
 function sessionReady() {
   return state.transport === "reachable" && Boolean(selectedSession());
 }
@@ -474,6 +482,8 @@ function updateControls() {
   for (const id of actionButtons) byId(id).disabled = !canAct;
   for (const id of ["new-window", "picker-new-window", "controls-new-window"])
     byId(id).disabled = !canCreate;
+  for (const id of ["new-session", "picker-new-session", "start-session"])
+    byId(id).disabled = !canStartSession();
   byId("send-input").disabled = !canType || byId("compose").value.length === 0;
   byId("paste-input").disabled = byId("send-input").disabled;
   byId("compose").disabled = !state.csrf || !(target || session);
@@ -1399,6 +1409,15 @@ async function applyReceipt(receipt) {
   } else if (pending.action.kind === "kill") {
     actionNotice("Session ended", "The session was stopped on your Mac.");
     await refreshSessions();
+  } else if (pending.action.kind === "new") {
+    actionNotice(
+      "Session started",
+      receipt.result?.message || "Your Mac confirmed the session.",
+    );
+    await refreshSessions();
+    const id = receipt.result?.targetId;
+    if (id && state.sessions.some((s) => sessionPrefix + s.id === id))
+      selectTarget(id);
   } else {
     if (pending.action.kind === "input") {
       recordRecall(pending.draft, "Sent");
@@ -1493,7 +1512,9 @@ async function performAction(action, draft = "", session = null) {
   if (!state.csrf || state.pending) return;
   if (
     session
-      ? !sessionReady()
+      ? session.kind === "new"
+        ? !canStartSession()
+        : !sessionReady()
       : !controlReady() || (action.kind !== "new_window" && !target)
   )
     return;
@@ -1509,7 +1530,9 @@ async function performAction(action, draft = "", session = null) {
   persistPending();
   updateControls();
   const detail = session
-    ? `Destination: ${sessionName(selectedSession())}`
+    ? session.kind === "new"
+      ? `Starting ${session.program} in ${session.cwd}.`
+      : `Destination: ${sessionName(selectedSession())}`
     : action.kind === "input"
       ? `Destination: ${targetName(target)} · ${tabName(target)}`
       : "Waiting for the selected action to be confirmed.";
@@ -1819,6 +1842,75 @@ for (const id of ["new-window", "picker-new-window", "controls-new-window"])
     byId("controls-dialog").close();
     performAction({ kind: "new_window" });
   });
+// Folders come from what is already open on the Mac; any other folder can be
+// typed. The server checks the path and the daemon checks the program.
+function knownChoices(values, limit) {
+  const seen = new Set();
+  for (const value of values)
+    if (typeof value === "string" && value && !seen.has(value)) seen.add(value);
+  return [...seen].slice(0, limit);
+}
+function renderChoices(containerId, inputId, values) {
+  byId(containerId).replaceChildren(
+    ...values.map((value) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "quiet";
+      button.textContent = value;
+      button.addEventListener("click", () => {
+        byId(inputId).value = value;
+        byId(inputId).focus();
+      });
+      return button;
+    }),
+  );
+}
+function openNewSession() {
+  const current = selectedSession() || selectedTarget();
+  const folders = knownChoices(
+    [
+      current?.cwd,
+      ...state.sessions.map((s) => s.cwd),
+      ...state.targets.map((t) => t.cwd),
+    ].filter((cwd) => cwd?.startsWith("/") || cwd?.startsWith("~")),
+    6,
+  );
+  renderChoices(
+    "new-session-programs",
+    "new-session-command",
+    knownChoices(["shell", ...state.sessions.map((s) => s.agent)], 6),
+  );
+  renderChoices("new-session-folders", "new-session-cwd", folders);
+  if (!byId("new-session-cwd").value)
+    byId("new-session-cwd").value = folders[0] || "";
+  byId("target-picker").close();
+  byId("new-session-dialog").showModal();
+  byId("new-session-command").focus();
+}
+for (const id of ["new-session", "picker-new-session"])
+  byId(id).addEventListener("click", openNewSession);
+byId("cancel-new-session").addEventListener("click", () =>
+  byId("new-session-dialog").close(),
+);
+byId("new-session-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const [program, ...args] = byId("new-session-command")
+    .value.trim()
+    .split(/\s+/);
+  const cwd = byId("new-session-cwd").value.trim();
+  const name = byId("new-session-name").value.trim();
+  if (!program || !cwd) return;
+  byId("new-session-dialog").close();
+  byId("new-session-name").value = "";
+  performSessionAction({
+    kind: "new",
+    sessionId: "",
+    program,
+    args,
+    cwd,
+    ...(name ? { name } : {}),
+  });
+});
 byId("split-right").addEventListener("click", () => {
   const t = selectedTarget();
   if (t) performAction({ kind: "split", targetId: t.id, direction: "right" });

@@ -314,6 +314,17 @@ async function selectWork(page) {
     path: path.join(screenshotDir, "session.png"),
     fullPage: true,
   });
+  await page.click("#open-picker");
+  await page.click("#picker-new-session");
+  assert.deepEqual(
+    await page.locator("#new-session-folders button").allTextContents(),
+    ["/fixture/repo"],
+  );
+  assert.equal(await page.inputValue("#new-session-cwd"), "/fixture/repo");
+  await page.screenshot({
+    path: path.join(screenshotDir, "new-session-dialog.png"),
+  });
+  await page.click("#cancel-new-session");
   await page.click("#reader-history");
   await page
     .locator("#terminal-output")
@@ -367,6 +378,30 @@ async function selectWork(page) {
   assert.deepEqual(afterKill.sessions, []);
   assert.equal(afterKill.sessionActions.length, 3);
   assert.equal(afterKill.actions.length, 2, "no Ghostty action was sent");
+  await page.click("#open-picker");
+  await page.click("#picker-new-session");
+  await page.locator("#new-session-dialog").waitFor({ state: "visible" });
+  assert.equal(await page.inputValue("#new-session-command"), "shell");
+  await page.fill("#new-session-command", "codex  --model gpt-5");
+  await page.fill("#new-session-cwd", "/fixture/repo");
+  await page.fill("#new-session-name", "review");
+  await page.click("#start-session");
+  await page
+    .locator("#destination-title")
+    .filter({ hasText: "review" })
+    .waitFor();
+  assert.deepEqual((await fixture.command()).sessionActions.at(-1), {
+    kind: "new",
+    sessionId: "",
+    program: "codex",
+    args: ["--model", "gpt-5"],
+    cwd: "/fixture/repo",
+    name: "review",
+  });
+  await page.screenshot({
+    path: path.join(screenshotDir, "new-session.png"),
+    fullPage: true,
+  });
   await page.waitForFunction(() => !document.title.startsWith("("));
   await fixture.command({ unavailable: false, advance: 61 });
   await page.waitForFunction(

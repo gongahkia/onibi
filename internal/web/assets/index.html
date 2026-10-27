@@ -145,6 +145,14 @@
           >
             <span aria-hidden="true">＋</span> New Ghostty window
           </button>
+          <button
+            class="secondary full new-window"
+            id="new-session"
+            type="button"
+            disabled
+          >
+            <span aria-hidden="true">＋</span> New session
+          </button>
         </aside>
         <div class="terminal-workspace">
           <div class="workspace-heading">
@@ -453,6 +461,13 @@
       <div class="dialog-bottom">
         <button class="secondary" id="refresh-picker" type="button">
           Refresh terminals</button
+        ><button
+          class="secondary"
+          id="picker-new-session"
+          type="button"
+          disabled
+        >
+          ＋ New session</button
         ><button class="primary" id="picker-new-window" type="button" disabled>
           ＋ New window
         </button>
@@ -646,6 +661,76 @@
         />
         <p class="muted" id="rename-message">Leave blank to clear the title.</p>
         <button class="primary full" type="submit">Save title</button>
+      </form>
+    </dialog>
+    <dialog
+      class="rename-dialog"
+      id="new-session-dialog"
+      aria-labelledby="new-session-title"
+    >
+      <form id="new-session-form">
+        <div class="dialog-heading">
+          <h2 id="new-session-title">New session</h2>
+          <button
+            class="icon-button"
+            id="cancel-new-session"
+            type="button"
+            aria-label="Close new session"
+          >
+            ×
+          </button>
+        </div>
+        <label for="new-session-command">Program</label
+        ><input
+          id="new-session-command"
+          type="text"
+          value="shell"
+          maxlength="2048"
+          required
+          autocomplete="off"
+          autocapitalize="off"
+          spellcheck="false"
+          aria-describedby="new-session-help"
+        />
+        <div
+          class="choice-row"
+          id="new-session-programs"
+          role="group"
+          aria-label="Programs already running"
+        ></div>
+        <label for="new-session-cwd">Folder on your Mac</label
+        ><input
+          id="new-session-cwd"
+          type="text"
+          maxlength="4096"
+          required
+          autocomplete="off"
+          autocapitalize="off"
+          spellcheck="false"
+          placeholder="/Users/you/project"
+        />
+        <div
+          class="choice-row"
+          id="new-session-folders"
+          role="group"
+          aria-label="Folders of open panes and sessions"
+        ></div>
+        <label for="new-session-name">Name (optional)</label
+        ><input
+          id="new-session-name"
+          type="text"
+          maxlength="64"
+          autocomplete="off"
+          autocapitalize="off"
+          spellcheck="false"
+        />
+        <p class="muted" id="new-session-help">
+          Runs in tmux, Zellij or Screen and keeps running when Ghostty quits.
+          Arguments are separated by spaces.
+        </p>
+        <button class="primary full" id="start-session" type="submit">
+          Start session
+        </button>
       </form>
     </dialog>
     <dialog

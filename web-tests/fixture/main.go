@@ -166,10 +166,15 @@ func (s *sessions) Capture(_ context.Context, id string, lines int) (web.Session
 	return web.SessionCapture{}, intake.Reject(errors.New("session ended"))
 }
 
-func (s *sessions) Execute(_ context.Context, action web.SessionAction) error {
+func (s *sessions) Execute(_ context.Context, action web.SessionAction) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.actions = append(s.actions, action)
+	if action.Kind == "new" {
+		id := fmt.Sprintf("%016x", len(s.actions))
+		s.list = append(s.list, intake.SessionInfo{ID: id, Name: action.Name, Agent: action.Program, Transport: "tmux", CWD: action.CWD, Attention: intake.Attention{State: "quiet"}})
+		return id, nil
+	}
 	if action.Kind == "kill" {
 		kept := s.list[:0]
 		for _, session := range s.list {
@@ -179,7 +184,7 @@ func (s *sessions) Execute(_ context.Context, action web.SessionAction) error {
 		}
 		s.list = kept
 	}
-	return nil
+	return action.SessionID, nil
 }
 
 func certificate() tls.Certificate {

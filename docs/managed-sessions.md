@@ -47,7 +47,7 @@ These CLI paths reach it over the intake socket:
 | `onibi session list [--all]` | List sessions from the state database |
 | `onibi system status`, `onibi doctor` | Report daemon, service and multiplexer readiness |
 
-The web cockpit uses the `session_list`, `session_capture`, `session_key`, and exact-ID `session_input` and `session_control` RPCs (`internal/daemon/rpc.go`). `session_peek` and the name-matching forms of `session_input` and `session_control` have no caller.
+The web cockpit uses the `session_list`, `session_capture`, `session_key`, `session_new`, and exact-ID `session_input` and `session_control` RPCs (`internal/daemon/rpc.go`). `session_peek` and the name-matching forms of `session_input` and `session_control` have no caller.
 
 ## What has no consumer
 
