@@ -235,7 +235,7 @@ func main() {
 		{ID: "pane-work", WindowID: "window-main", TabID: "tab-work", WindowTitle: "Fixture Mac", TabTitle: "Work", Title: "Work shell", Focused: true},
 		{ID: "pane-logs", WindowID: "window-main", TabID: "tab-logs", WindowTitle: "Fixture Mac", TabTitle: "Logs", Title: "Server logs"},
 	}}
-	managed := &sessions{list: []intake.SessionInfo{{
+	managed := &sessions{actions: []web.SessionAction{}, list: []intake.SessionInfo{{
 		ID: "0123456789abcdef", Name: "build", Agent: "shell", Transport: "tmux", CWD: "/fixture/repo", Command: "make watch",
 		StartedAt: time.Now(), LastActivityAt: time.Now(),
 		Attention: intake.Attention{State: "input", Reason: "Yes/no prompt", Since: time.Now()},
