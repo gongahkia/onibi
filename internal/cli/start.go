@@ -68,5 +68,5 @@ func newDaemon(paths config.Paths, db *store.DB, logger *slog.Logger) (*daemon.D
 	if err := render.ValidateFont(cfg.Screen.Font, cfg.Screen.FontPath); err != nil {
 		return nil, fmt.Errorf("screen font: %w", err)
 	}
-	return daemon.New(daemon.Options{Paths: paths, DB: db, Log: logger, OutputBufferSize: cfg.Daemon.OutputBufferBytes, LivenessInterval: cfg.Daemon.LivenessInterval.Std(), ShellDefault: cfg.Shell.Default, ShellLogin: cfg.Shell.Login}), nil
+	return daemon.New(daemon.Options{Paths: paths, DB: db, Log: logger, LivenessInterval: cfg.Daemon.LivenessInterval.Std(), ShellDefault: cfg.Shell.Default, ShellLogin: cfg.Shell.Login}), nil
 }

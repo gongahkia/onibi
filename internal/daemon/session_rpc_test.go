@@ -10,7 +10,7 @@ import (
 
 func addTmuxSession(t *testing.T, d *Daemon, id, name string) *Session {
 	t.Helper()
-	s := NewSession(id, name, "shell", 4096)
+	s := NewSession(id, name, "shell")
 	s.TmuxTarget = "onibi-" + id
 	if err := d.Registry.Add(s); err != nil {
 		t.Fatal(err)

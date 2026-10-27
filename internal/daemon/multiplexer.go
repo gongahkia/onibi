@@ -50,11 +50,8 @@ func (d *Daemon) StartTerminalSession(ctx context.Context, name, agent, bin stri
 	if err != nil {
 		return nil, err
 	}
-	s := NewSession(id, name, agent, d.bufferSize())
+	s := NewSession(id, name, agent)
 	s.Transport, s.TmuxTarget, s.Cmd, s.CWD = kind, target.String(), commandLine(bin, args), cwd
-	if initial, err := controller.Capture(ctx, target, 80); err == nil {
-		_, _ = s.Buf.Write([]byte(initial))
-	}
 	if d.DB != nil {
 		if err := d.DB.SessionUpsertStart(ctx, s.ID, s.Name, s.Agent, s.CWD, s.Cmd, s.Transport, s.TmuxTarget, s.StartedAt()); err != nil {
 			_ = controller.Kill(context.Background(), target)
@@ -131,11 +128,8 @@ func (d *Daemon) AdoptTerminalSession(ctx context.Context, name, kind, rawTarget
 	if err != nil {
 		return nil, err
 	}
-	s := NewSession(NewID(), name, "shell", d.bufferSize())
+	s := NewSession(NewID(), name, "shell")
 	s.Transport, s.TmuxTarget, s.Cmd, s.CWD = kind, target.String(), "[adopted]", cwd
-	if output, err := controller.Capture(ctx, target, 80); err == nil {
-		_, _ = s.Buf.Write([]byte(output))
-	}
 	if d.DB != nil {
 		if err := d.DB.SessionUpsertStart(ctx, s.ID, s.Name, s.Agent, s.CWD, s.Cmd, s.Transport, s.TmuxTarget, s.StartedAt()); err != nil {
 			return nil, fmt.Errorf("persist adopted session: %w", err)

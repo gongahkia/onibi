@@ -14,8 +14,6 @@ import (
 	"github.com/gongahkia/onibi/internal/store"
 )
 
-const BufferSize = 64 * 1024
-
 var ErrSessionEnded = errors.New("session ended")
 
 type Daemon struct {
@@ -24,7 +22,6 @@ type Daemon struct {
 	Log              *slog.Logger
 	Registry         *Registry
 	Intake           *intake.Server
-	OutputBufferSize int
 	LivenessInterval time.Duration
 	ShellDefault     string
 	ShellLogin       bool
@@ -45,7 +42,6 @@ type Options struct {
 	Paths            config.Paths
 	DB               *store.DB
 	Log              *slog.Logger
-	OutputBufferSize int
 	LivenessInterval time.Duration
 	ShellDefault     string
 	ShellLogin       bool
@@ -59,7 +55,7 @@ func New(opts Options) *Daemon {
 	if opts.LivenessInterval <= 0 {
 		opts.LivenessInterval = 5 * time.Second
 	}
-	d := &Daemon{Paths: opts.Paths, DB: opts.DB, Log: opts.Log, Registry: NewRegistry(), OutputBufferSize: opts.OutputBufferSize, LivenessInterval: opts.LivenessInterval, ShellDefault: opts.ShellDefault, ShellLogin: opts.ShellLogin, started: time.Now(), sessionEvents: make(chan SessionEvent, 128), SkipRestore: opts.SkipRestore}
+	d := &Daemon{Paths: opts.Paths, DB: opts.DB, Log: opts.Log, Registry: NewRegistry(), LivenessInterval: opts.LivenessInterval, ShellDefault: opts.ShellDefault, ShellLogin: opts.ShellLogin, started: time.Now(), sessionEvents: make(chan SessionEvent, 128), SkipRestore: opts.SkipRestore}
 	d.health = newHealthTracker(opts.DB, opts.Log)
 	d.attention = newAttentionTracker()
 	d.Intake = intake.New(opts.Paths.Socket, opts.Log)
@@ -106,13 +102,6 @@ func (d *Daemon) Run(ctx context.Context) error {
 		return runErr
 	}
 	return ctx.Err()
-}
-
-func (d *Daemon) bufferSize() int {
-	if d.OutputBufferSize < 4096 {
-		return BufferSize
-	}
-	return d.OutputBufferSize
 }
 func (d *Daemon) audit(ctx context.Context, action, sessionID, payload string, chatID int64, detail string) {
 	if d.DB != nil {

@@ -17,19 +17,18 @@ type Session struct {
 	CWD          string
 	Transport    string
 	TmuxTarget   string
-	Buf          *RingBuffer
 	mu           sync.Mutex
 	started      time.Time
 	lastActivity time.Time
 	ended        bool
 }
 
-func NewSession(id, name, agent string, size int) *Session {
+func NewSession(id, name, agent string) *Session {
 	now := time.Now()
-	return &Session{ID: id, Name: name, Agent: agent, Transport: "tmux", Buf: NewRingBuffer(size), started: now, lastActivity: now}
+	return &Session{ID: id, Name: name, Agent: agent, Transport: "tmux", started: now, lastActivity: now}
 }
-func newSessionAt(id, name, agent string, size int, started, last time.Time) *Session {
-	s := NewSession(id, name, agent, size)
+func newSessionAt(id, name, agent string, started, last time.Time) *Session {
+	s := NewSession(id, name, agent)
 	if !started.IsZero() {
 		s.started = started
 	}

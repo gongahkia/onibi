@@ -143,7 +143,7 @@ func TestStartTerminalSessionFailsClosedWhenPersistenceFails(t *testing.T) {
 
 func TestResizeSessionUsesTmuxPreset(t *testing.T) {
 	d, runner := testDaemon(t)
-	s := NewSession("resize-1", "work", "shell", 4096)
+	s := NewSession("resize-1", "work", "shell")
 	s.TmuxTarget = "onibi-resize-1"
 	if err := d.Registry.Add(s); err != nil {
 		t.Fatal(err)
@@ -169,7 +169,7 @@ func TestLivenessCheckEndsMissingTmuxSession(t *testing.T) {
 	}
 	defer db.Close()
 	d := New(Options{DB: db, Paths: config.Paths{StateDir: state}})
-	s := NewSession("dead-1", "work", "pi", 4096)
+	s := NewSession("dead-1", "work", "pi")
 	s.TmuxTarget = "onibi-dead-1"
 	if err := d.Registry.Add(s); err != nil {
 		t.Fatal(err)
@@ -268,12 +268,16 @@ func TestTmuxControlAndRestoreUseProjectConfiguration(t *testing.T) {
 		t.Fatal("killed session remains live")
 	}
 	calls := runner.snapshot()
-	if len(calls) < 10 {
-		t.Fatalf("missing lifecycle calls: %#v", calls)
-	}
+	seen := map[string]bool{}
 	for _, call := range calls {
 		if len(call) < 4 || call[0] != "/configured/tmux" || call[1] != "-f" || call[2] != configPath {
 			t.Fatalf("control lost project configuration: %#v", call)
+		}
+		seen[call[3]] = true
+	}
+	for _, verb := range []string{"has-session", "send-keys", "resize-window", "capture-pane", "kill-session"} {
+		if !seen[verb] {
+			t.Fatalf("missing %s call: %#v", verb, calls)
 		}
 	}
 }

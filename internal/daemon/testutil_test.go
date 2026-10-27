@@ -55,7 +55,7 @@ func testDaemon(t *testing.T) (*Daemon, *fakeTmuxRunner) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	d := New(Options{DB: db, Paths: config.Paths{StateDir: state, Socket: filepath.Join(state, "onibi.sock"), Config: filepath.Join(state, "config.yaml")}, OutputBufferSize: 4096})
+	d := New(Options{DB: db, Paths: config.Paths{StateDir: state, Socket: filepath.Join(state, "onibi.sock"), Config: filepath.Join(state, "config.yaml")}})
 	// Use an explicit empty path so mock calls cannot load the host's tmux config.
 	cfg := config.Default()
 	cfg.Multiplexer.Tmux.Config = ""

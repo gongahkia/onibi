@@ -19,7 +19,7 @@ func TestHealthPersistsSessionState(t *testing.T) {
 	defer db.Close()
 	h := newHealthTracker(db, nil)
 	ctx := context.Background()
-	s := NewSession("s-persist", "work", "shell", 4096)
+	s := NewSession("s-persist", "work", "shell")
 	s.Transport = "tmux"
 	h.tmuxResult(ctx, s, false, errors.New("offline"))
 	h2 := newHealthTracker(db, nil)
@@ -36,7 +36,7 @@ func TestStatusReportsTmuxHealth(t *testing.T) {
 	}
 	defer db.Close()
 	d := New(Options{DB: db, Paths: config.Paths{StateDir: t.TempDir()}})
-	s := NewSession("s-health", "work", "shell", 4096)
+	s := NewSession("s-health", "work", "shell")
 	s.TmuxTarget = "onibi-s-health"
 	if err := d.Registry.Add(s); err != nil {
 		t.Fatal(err)
@@ -54,7 +54,7 @@ func TestHealthNamesActualMultiplexer(t *testing.T) {
 	d := New(Options{Paths: config.Paths{StateDir: t.TempDir()}})
 	ctx := t.Context()
 	for _, backend := range []string{"tmux", "zellij", "screen"} {
-		s := NewSession("health-"+backend, "work-"+backend, "shell", 4096)
+		s := NewSession("health-"+backend, "work-"+backend, "shell")
 		s.Transport = backend
 		if err := d.Registry.Add(s); err != nil {
 			t.Fatal(err)

@@ -39,11 +39,8 @@ func (d *Daemon) StartTmuxSession(ctx context.Context, name, agent, bin string, 
 	if err := ctrl.StartSession(ctx, target, tmux.StartOptions{WindowName: name, CWD: cwd, Env: []string{"ONIBI_SESSION_ID=" + id, "ONIBI_SOCK=" + d.Paths.Socket}, Command: bin, Args: args}); err != nil {
 		return nil, err
 	}
-	s := NewSession(id, name, agent, d.bufferSize())
+	s := NewSession(id, name, agent)
 	s.TmuxTarget, s.Cmd, s.CWD = target, commandLine(bin, args), cwd
-	if initial, err := ctrl.Capture(ctx, target, 80); err == nil {
-		_, _ = s.Buf.Write([]byte(initial))
-	}
 	if d.DB != nil {
 		if err := d.DB.SessionUpsertStart(ctx, s.ID, s.Name, s.Agent, s.CWD, s.Cmd, "tmux", s.TmuxTarget, s.StartedAt()); err != nil {
 			_ = ctrl.KillSession(context.Background(), target)
@@ -97,11 +94,8 @@ func (d *Daemon) restoreSessions(ctx context.Context) {
 			d.Log.Info("restored session already ended", "session", row.ID, "name", row.Name)
 			continue
 		}
-		s := newSessionAt(row.ID, row.Name, row.Agent, d.bufferSize(), row.StartedAt, row.LastActivity)
+		s := newSessionAt(row.ID, row.Name, row.Agent, row.StartedAt, row.LastActivity)
 		s.TmuxTarget, s.Cmd, s.CWD = row.TmuxTarget, row.Command, row.CWD
-		if out, err := ctrl.Capture(ctx, row.TmuxTarget, 80); err == nil {
-			_, _ = s.Buf.Write([]byte(out))
-		}
 		if err := d.Registry.Add(s); err == nil {
 			d.audit(ctx, "session.restore", s.ID, "", 0, "target="+s.TmuxTarget)
 		}
@@ -114,7 +108,7 @@ func (d *Daemon) restoreOtherMuxSessions(ctx context.Context, rows []store.Sessi
 		if row.Transport == "tmux" || row.Transport == legacyCodexTransport || row.TmuxTarget == "" {
 			continue
 		}
-		s := newSessionAt(row.ID, row.Name, row.Agent, d.bufferSize(), row.StartedAt, row.LastActivity)
+		s := newSessionAt(row.ID, row.Name, row.Agent, row.StartedAt, row.LastActivity)
 		s.Transport, s.TmuxTarget, s.Cmd, s.CWD = row.Transport, row.TmuxTarget, row.Command, row.CWD
 		ctrl, err := d.controllerForSession(s)
 		if err != nil {
@@ -130,9 +124,6 @@ func (d *Daemon) restoreOtherMuxSessions(ctx context.Context, rows []store.Sessi
 			_ = d.DB.SessionMarkEnded(ctx, row.ID, row.LastActivity)
 			d.Log.Info("restored session already ended", "session", row.ID, "name", row.Name)
 			continue
-		}
-		if out, err := ctrl.Capture(ctx, mux.ParseTarget(s.TmuxTarget), 80); err == nil {
-			_, _ = s.Buf.Write([]byte(out))
 		}
 		if err := d.Registry.Add(s); err == nil {
 			d.audit(ctx, "session.restore", s.ID, "", 0, "target="+s.TmuxTarget)
@@ -160,8 +151,6 @@ func (d *Daemon) CaptureSessionTail(ctx context.Context, id string, lines int) (
 		if err != nil {
 			return "", d.muxSessionError(ctx, s, err)
 		}
-		s.Buf.Reset()
-		_, _ = s.Buf.Write([]byte(out))
 		d.touchSession(ctx, s)
 		return render.TextTailBody([]byte(out), render.Options{MaxLines: lines, MaxChars: 3500}), nil
 	}
@@ -173,8 +162,6 @@ func (d *Daemon) CaptureSessionTail(ctx context.Context, id string, lines int) (
 	if err != nil {
 		return "", d.tmuxSessionError(ctx, s, err)
 	}
-	s.Buf.Reset()
-	_, _ = s.Buf.Write([]byte(out))
 	d.touchSession(ctx, s)
 	return render.TextTailBody([]byte(out), render.Options{MaxLines: lines, MaxChars: 3500}), nil
 }
