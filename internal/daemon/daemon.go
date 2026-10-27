@@ -44,7 +44,6 @@ type Daemon struct {
 	attention             *attentionTracker
 	started               time.Time
 	mu                    sync.Mutex
-	claudeMu              sync.Mutex
 	agentEvents           chan AgentEvent
 	claudeQuestionMu      sync.Mutex
 	claudeQuestions       map[string]chan struct{}
