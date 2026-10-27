@@ -483,8 +483,13 @@ function updateControls() {
   for (const id of actionButtons) byId(id).disabled = !canAct;
   for (const id of ["new-window", "picker-new-window", "controls-new-window"])
     byId(id).disabled = !canCreate;
-  for (const id of ["new-session", "picker-new-session", "start-session"])
+  for (const id of ["new-session", "picker-new-session", "start-session"]) {
     byId(id).disabled = !canStartSession();
+    byId(id).title =
+      state.csrf && !state.sessionsAvailable
+        ? "Needs the sessions daemon on your Mac. Restart onibi web."
+        : "";
+  }
   byId("send-input").disabled = !canType || byId("compose").value.length === 0;
   byId("paste-input").disabled = byId("send-input").disabled;
   byId("compose").disabled = !state.csrf || !(target || session);
