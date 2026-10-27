@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
-	"strings"
 
 	"github.com/gongahkia/onibi/internal/intake"
 )
@@ -31,14 +30,13 @@ func (d *Daemon) handleRPCRequest(ctx context.Context, ev intake.Event) (intake.
 		out, err := d.CaptureSessionText(ctx, ev.Session)
 		return intake.Response{SessionID: ev.Session, Text: out}, err
 	case intake.TypeSessionNew:
-		agent := strings.ToLower(strings.TrimSpace(ev.Agent))
-		bin, name, args, ok := d.agentCommand(agent, ev.Args)
+		bin, name, args, ok := d.agentCommand(ev.Agent, ev.Args)
 		if !ok {
-			return intake.Response{}, errors.New("supported agents: shell, codex, pi, claude")
+			return intake.Response{}, intake.Reject(errors.New("program must be shell, a command name, or an absolute path"))
 		}
 		path, err := exec.LookPath(bin)
 		if err != nil {
-			return intake.Response{}, fmt.Errorf("%s not found in PATH", bin)
+			return intake.Response{}, intake.Reject(fmt.Errorf("%s not found in PATH", bin))
 		}
 		s, err := d.StartTerminalSession(ctx, ev.Name, name, path, args, ev.CWD, ev.Mux)
 		if err != nil {

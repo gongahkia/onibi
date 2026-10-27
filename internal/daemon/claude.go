@@ -3,7 +3,6 @@ package daemon
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -118,15 +117,4 @@ func claudeAgentTitle(agent string) string {
 		return "Claude"
 	}
 	return "Pi"
-}
-
-func (d *Daemon) prepareClaudeSessionArgs(agent string, args []string) ([]string, error) {
-	if strings.EqualFold(agent, "claude") {
-		prepared, err := d.claudeArgs(args)
-		if err != nil {
-			return nil, fmt.Errorf("Claude hooks: %w", err)
-		}
-		return prepared, nil
-	}
-	return args, nil
 }

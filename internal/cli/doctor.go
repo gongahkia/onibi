@@ -111,9 +111,6 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 	}
 	doctorCheckMultiplexer(&report, cfg)
 
-	doctorCheckProgram(&report, "codex", "optional; required for Codex sessions")
-	doctorCheckProgram(&report, "claude", "optional; required for Claude Code sessions")
-	doctorCheckProgram(&report, "pi", "optional; required for Pi sessions")
 	doctorCheckDaemon(&report, paths)
 	doctorCheckService(ctx, &report)
 
@@ -161,15 +158,6 @@ func doctorCheckPrivateDirectory(path string) error {
 		return fmt.Errorf("permissions %#o are too broad; run chmod 700 %s", info.Mode().Perm(), path)
 	}
 	return nil
-}
-
-func doctorCheckProgram(report *doctorReport, program, missingDetail string) {
-	path, err := exec.LookPath(program)
-	if err != nil {
-		report.add(doctorInfo, program, missingDetail)
-		return
-	}
-	report.add(doctorInfo, program, "available at "+path)
 }
 
 func doctorCheckMultiplexer(report *doctorReport, cfg config.Config) {

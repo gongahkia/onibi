@@ -29,6 +29,6 @@ The optional managed-session daemon (`onibi start`) listens only on the same-use
 - Local processes running as the same OS user may read Onibi state or control the multiplexer directly. Onibi does not sandbox commands or protect against a compromised host.
 - Managed-session reads include up to 2,000 lines of scrollback, which may hold secrets that have scrolled off screen. Attention states are heuristics over screen text and can miss or misreport a prompt.
 - Adopting an existing mux session gives Onibi, and any paired browser while the daemon runs, the ability to send input and kill that session. Existing Pi/Claude processes do not gain hooks merely by being adopted.
-- With no decision surface wired, managed Pi and Claude approvals expire to their default denial, and Codex App Server requests wait unanswered.
+- Onibi launches agents plainly and adds no hooks, so their own terminal prompts remain the only approval path. Programs reached through the phone run with the Mac user's privileges and whatever permission mode they were started with.
 
 Use a non-production OS account for evaluation.

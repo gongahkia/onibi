@@ -16,8 +16,8 @@ import (
 var chooseMultiplexer = mux.Choose
 var openMultiplexer = mux.Open
 
-// StartTerminalSession starts a shell, Pi, or Claude session in the configured
-// terminal multiplexer. An empty requestedMux resolves from the global config
+// StartTerminalSession starts a shell or program in the configured terminal
+// multiplexer. An empty requestedMux resolves from the global config
 // and the optional <cwd>/.onibi.yaml project override.
 func (d *Daemon) StartTerminalSession(ctx context.Context, name, agent, bin string, args []string, cwd, requestedMux string) (*Session, error) {
 	if _, err := exec.LookPath(bin); err != nil {
@@ -26,10 +26,6 @@ func (d *Daemon) StartTerminalSession(ctx context.Context, name, agent, bin stri
 	cwd, err := normalizeSessionCWD(cwd)
 	if err != nil {
 		return nil, fmt.Errorf("working directory: %w", err)
-	}
-	args, err = d.prepareClaudeSessionArgs(agent, args)
-	if err != nil {
-		return nil, err
 	}
 	resolved, err := config.ResolveForCWD(d.Paths, cwd)
 	if err != nil {

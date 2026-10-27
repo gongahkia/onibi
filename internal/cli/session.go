@@ -12,7 +12,9 @@ import (
 
 func sessionCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "session", Short: "Create and inspect managed sessions"}
-	newCmd := &cobra.Command{Use: "new <shell|codex|pi|claude> [args...]", Short: "Create a persistent session in tmux, Zellij or Screen", Args: cobra.MinimumNArgs(1), RunE: runSessionNew}
+	newCmd := &cobra.Command{Use: "new <shell|program> [args...]", Short: "Run a shell or any program in a persistent tmux, Zellij or Screen session", Example: "  onibi session new shell\n  onibi session new --name review codex --model gpt-5\n  onibi session new htop -d 5", Args: cobra.MinimumNArgs(1), RunE: runSessionNew}
+	// Everything after the program belongs to it, not to onibi.
+	newCmd.Flags().SetInterspersed(false)
 	newCmd.Flags().String("name", "", "session name")
 	newCmd.Flags().String("cwd", "", "working directory")
 	newCmd.Flags().String("mux", "", "terminal multiplexer (auto, tmux, zellij, screen)")
@@ -48,7 +50,7 @@ func runSessionNew(cmd *cobra.Command, args []string) error {
 	name, _ := cmd.Flags().GetString("name")
 	cwd, _ := cmd.Flags().GetString("cwd")
 	mux, _ := cmd.Flags().GetString("mux")
-	response, err := sessionRequest(paths.Socket, intake.Event{Type: intake.TypeSessionNew, Agent: strings.ToLower(args[0]), Args: args[1:], Name: name, CWD: cwd, Mux: mux})
+	response, err := sessionRequest(paths.Socket, intake.Event{Type: intake.TypeSessionNew, Agent: args[0], Args: args[1:], Name: name, CWD: cwd, Mux: mux})
 	if err != nil {
 		return err
 	}

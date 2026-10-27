@@ -2,7 +2,7 @@
 
 Managed sessions are tmux, Zellij or GNU Screen sessions owned by the Onibi daemon. They keep running when Ghostty quits, have a stable identity, and can be read without focusing anything on the Mac. The web cockpit shows them as **Persistent sessions** alongside Ghostty panes, so this part is not tied to any particular program.
 
-The agent-specific paths (Pi, Claude and Codex approvals and questions) still have no decision surface. They are described under [What has no consumer](#what-has-no-consumer).
+Coding agents get no special treatment. `onibi session new codex`, `claude` or `pi` runs the program exactly as given, with no hooks, settings or flag checks, and the cockpit handles it like any other terminal program: its own prompts appear in the output and raise the generic attention signals. The agent-specific approval and question code is still in the tree but nothing launches it; see [What has no consumer](#what-has-no-consumer).
 
 ## In the web cockpit
 
@@ -42,7 +42,7 @@ These CLI paths reach it over the intake socket:
 
 | Command | Effect |
 | --- | --- |
-| `onibi session new <shell\|codex\|pi\|claude> [--name] [--cwd] [--mux]` | Start a managed session in tmux, Zellij or GNU Screen. `codex` runs the interactive Codex CLI like any other program |
+| `onibi session new [--name] [--cwd] [--mux] <shell\|program> [args...]` | Run the configured shell, or any program on `PATH` or given by absolute path, in tmux, Zellij or GNU Screen. Arguments after the program are passed to it unchanged. `ONIBI_<PROGRAM>_BIN` overrides which binary a bare name resolves to |
 | `onibi session adopt <tmux\|zellij\|screen> <target>` | Take control of an existing multiplexer session |
 | `onibi session list [--all]` | List sessions from the state database |
 | `onibi system status`, `onibi doctor` | Report daemon, service and multiplexer readiness |
@@ -54,8 +54,8 @@ The web cockpit uses the `session_list`, `session_capture`, `session_key`, and e
 
 | Capability | Code | Behaviour without a surface |
 | --- | --- | --- |
-| Pi and Claude tool approvals | `internal/approval`, `Daemon.handleApprovalRequest`, `clients/onibi-notify` | Requests queue and nobody can decide them. They expire after `daemon.approval_timeout` and the agent receives the default denial. |
-| Claude `AskUserQuestion` | `internal/daemon/claude_question.go`, `Daemon.AnswerClaudeQuestion` | Questions are published on `ClaudeQuestionEvents()`, which nothing reads. They expire after `daemon.claude_question_timeout`. |
+| Pi and Claude tool approvals | `internal/approval`, `Daemon.handleApprovalRequest`, `Daemon.claudeArgs`, `clients/onibi-notify` | Claude is no longer launched with the hook settings that send requests here. If something still calls `onibi-notify`, requests queue with nobody to decide them, expire after `daemon.approval_timeout`, and the agent receives a denial. |
+| Claude `AskUserQuestion` | `internal/daemon/claude_question.go`, `Daemon.AnswerClaudeQuestion` | No longer hooked. Questions arriving anyway are published on `ClaudeQuestionEvents()`, which nothing reads, and are denied after `daemon.claude_question_timeout`, which stops Claude from asking in its terminal. |
 | Codex App Server sessions | `internal/daemon/codex.go`, `internal/codexapp`, `Daemon.StartCodexSession`, `Daemon.RespondCodexRequest` | Not started by any command, and leftover App Server sessions are marked ended on restart instead of resumed. Approval requests would be published on `CodexEvents()`, which nothing reads, so Codex would wait for replies that never arrive. |
 | Agent lifecycle (Pi/Claude turn start and end) | `internal/daemon/pi.go`, `AgentEvents()` | Events are dropped when the buffer is full. |
 | Session ended events | `SessionEvents()` | Logged by the daemon; the channel drops when full. |
@@ -75,6 +75,6 @@ The web cockpit covers terminal control. A surface for agent decisions would rep
 5. Record a claim before any input side effect and report interrupted actions as uncertain instead of replaying them. The web cockpit's receipts (`internal/web/receipts.go`) are the existing model.
 6. Bind each decision or destructive control to an explicit session ID, as the web close confirmation does.
 
-Claude sessions launch with an owned settings file and reject `--bare`, `--settings`, `--dangerously-skip-permissions`, `--allow-dangerously-skip-permissions`, and the `bypassPermissions`/`dontAsk` permission modes, because those bypass the decision path. Keep that guard when wiring a surface.
+When the hooks are wired again, launch Claude through `Daemon.claudeArgs`. It adds the owned settings file and rejects `--bare`, `--settings`, `--dangerously-skip-permissions`, `--allow-dangerously-skip-permissions`, and the `bypassPermissions`/`dontAsk` permission modes, because those bypass the decision path. Only do this once the surface answers both approvals and questions; an unanswered hook is worse than none.
 
 The removed Telegram implementation is available at commit `b3c6fc90` (`internal/daemon/telegram_bridge.go`, `internal/telegram`, `docs/telegram.md`) and is a useful reference for card state, outbox retries and screen debouncing.
