@@ -53,7 +53,7 @@ func (d *Daemon) StartTerminalSession(ctx context.Context, name, agent, bin stri
 	s := NewSession(id, name, agent)
 	s.Transport, s.TmuxTarget, s.Cmd, s.CWD = kind, target.String(), commandLine(bin, args), cwd
 	if d.DB != nil {
-		if err := d.DB.SessionUpsertStart(ctx, s.ID, s.Name, s.Agent, s.CWD, s.Cmd, s.Transport, s.TmuxTarget, s.StartedAt()); err != nil {
+		if err := d.DB.SessionUpsertStart(ctx, s.ID, s.Name(), s.Agent, s.CWD, s.Cmd, s.Transport, s.TmuxTarget, s.StartedAt()); err != nil {
 			_ = controller.Kill(context.Background(), target)
 			return nil, fmt.Errorf("persist session: %w", err)
 		}
@@ -69,7 +69,7 @@ func (d *Daemon) StartTerminalSession(ctx context.Context, name, agent, bin stri
 		d.installBellCounter(ctx, s)
 	}
 	d.audit(ctx, "session.start", s.ID, "", 0, "agent="+agent+" target="+s.TmuxTarget)
-	d.Log.Info("session started", "session", s.ID, "name", s.Name, "agent", agent, "transport", kind)
+	d.Log.Info("session started", "session", s.ID, "name", s.Name(), "agent", agent, "transport", kind)
 	return s, nil
 }
 
@@ -102,7 +102,7 @@ func (d *Daemon) AdoptTerminalSession(ctx context.Context, name, kind, rawTarget
 	}
 	for _, existing := range d.liveSessions() {
 		if existing.Transport == kind && existing.TmuxTarget == target.String() {
-			return nil, fmt.Errorf("target already managed as %s", existing.Name)
+			return nil, fmt.Errorf("target already managed as %s", existing.Name())
 		}
 	}
 	resolved, err := config.ResolveForCWD(d.Paths, cwd)
@@ -131,7 +131,7 @@ func (d *Daemon) AdoptTerminalSession(ctx context.Context, name, kind, rawTarget
 	s := NewSession(NewID(), name, "shell")
 	s.Transport, s.TmuxTarget, s.Cmd, s.CWD = kind, target.String(), "[adopted]", cwd
 	if d.DB != nil {
-		if err := d.DB.SessionUpsertStart(ctx, s.ID, s.Name, s.Agent, s.CWD, s.Cmd, s.Transport, s.TmuxTarget, s.StartedAt()); err != nil {
+		if err := d.DB.SessionUpsertStart(ctx, s.ID, s.Name(), s.Agent, s.CWD, s.Cmd, s.Transport, s.TmuxTarget, s.StartedAt()); err != nil {
 			return nil, fmt.Errorf("persist adopted session: %w", err)
 		}
 	}

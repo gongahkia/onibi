@@ -44,14 +44,31 @@ func (d *Daemon) handleRPCRequest(ctx context.Context, ev intake.Event) (intake.
 			// failure after creating it, so nothing is left running.
 			return intake.Response{}, intake.Reject(err)
 		}
-		return intake.Response{SessionID: s.ID, Text: "started " + s.Name}, nil
+		return intake.Response{SessionID: s.ID, Text: "started " + s.Name()}, nil
 	case intake.TypeSessionAdopt:
 		s, err := d.AdoptTerminalSession(ctx, ev.Name, ev.Mux, ev.Text, ev.CWD)
 		if err != nil {
 			return intake.Response{}, err
 		}
-		return intake.Response{SessionID: s.ID, Text: "adopted " + s.Name}, nil
+		return intake.Response{SessionID: s.ID, Text: "adopted " + s.Name()}, nil
 	case intake.TypeSessionControl:
+		if ev.Action == "rename" {
+			var s *Session
+			var err error
+			if ev.Exact {
+				s, err = d.exactLiveSession(ev.Session)
+			} else {
+				s, err = d.sessionForRPCTarget(ev.Session)
+			}
+			if err != nil {
+				return intake.Response{}, err
+			}
+			name, err := d.RenameSession(ctx, s, ev.Name)
+			if err != nil {
+				return intake.Response{}, intake.Reject(err)
+			}
+			return intake.Response{SessionID: s.ID, Text: name}, nil
+		}
 		if ev.Exact {
 			if _, err := d.exactLiveSession(ev.Session); err != nil {
 				return intake.Response{}, err

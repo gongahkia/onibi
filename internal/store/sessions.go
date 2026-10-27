@@ -46,6 +46,11 @@ func (d *DB) SessionTouch(ctx context.Context, id string, at time.Time) error {
 	return err
 }
 
+func (d *DB) SessionRename(ctx context.Context, id, name string) error {
+	_, err := d.sql.ExecContext(ctx, `UPDATE sessions SET name = ? WHERE id = ?`, name, id)
+	return err
+}
+
 func (d *DB) SessionMarkEnded(ctx context.Context, id string, ended time.Time) error {
 	_, err := d.sql.ExecContext(ctx, `UPDATE sessions SET ended_at = COALESCE(ended_at, ?) WHERE id = ?`, ended.Unix(), id)
 	return err

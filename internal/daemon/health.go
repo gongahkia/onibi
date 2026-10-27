@@ -89,16 +89,16 @@ func (h *healthTracker) tmuxResult(ctx context.Context, s *Session, live bool, e
 	} else if !live {
 		status = "ended"
 	}
-	h.state.Sessions[s.ID] = sessionHealth{Name: s.Name, Status: status, UpdatedAt: now, Error: detail}
+	h.state.Sessions[s.ID] = sessionHealth{Name: s.Name(), Status: status, UpdatedAt: now, Error: detail}
 	h.persistLocked(ctx)
 	if !known || previous.Status == status {
 		return nil
 	}
 	switch {
 	case status == "healthy":
-		return &healthEvent{Dedupe: "health:tmux:" + s.ID + ":recovered", Text: "Onibi alert: " + s.Transport + " session " + s.Name + " recovered."}
+		return &healthEvent{Dedupe: "health:tmux:" + s.ID + ":recovered", Text: "Onibi alert: " + s.Transport + " session " + s.Name() + " recovered."}
 	case status == "unavailable":
-		return &healthEvent{Dedupe: "health:tmux:" + s.ID + ":unavailable", Text: "Onibi alert: " + s.Transport + " health check failed for " + s.Name + "."}
+		return &healthEvent{Dedupe: "health:tmux:" + s.ID + ":unavailable", Text: "Onibi alert: " + s.Transport + " health check failed for " + s.Name() + "."}
 	}
 	return nil
 }
@@ -112,7 +112,7 @@ func (h *healthTracker) sessionEnded(ctx context.Context, s *Session) {
 	if h.state.Sessions == nil {
 		h.state.Sessions = map[string]sessionHealth{}
 	}
-	h.state.Sessions[s.ID] = sessionHealth{Name: s.Name, Status: "ended", UpdatedAt: time.Now()}
+	h.state.Sessions[s.ID] = sessionHealth{Name: s.Name(), Status: "ended", UpdatedAt: time.Now()}
 	h.persistLocked(ctx)
 }
 
@@ -161,7 +161,7 @@ func (d *Daemon) pingText(_ context.Context) string {
 			if status == "" {
 				status = "unknown"
 			}
-			fmt.Fprintf(&out, "\n- %s (%s)=%s", s.Name, s.Transport, status)
+			fmt.Fprintf(&out, "\n- %s (%s)=%s", s.Name(), s.Transport, status)
 		}
 	}
 	return out.String()

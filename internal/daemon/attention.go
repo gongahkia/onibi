@@ -159,7 +159,7 @@ func (d *Daemon) observeAttention(ctx context.Context) {
 		before := d.attention.snapshot(s.ID)
 		after := d.attention.observe(s.ID, obs)
 		if after.State != before.State && (after.State == AttentionInput || after.State == AttentionBell) {
-			d.Log.Info("session needs attention", "session", s.ID, "name", s.Name, "state", after.State, "reason", after.Reason)
+			d.Log.Info("session needs attention", "session", s.ID, "name", s.Name(), "state", after.State, "reason", after.Reason)
 		}
 	}
 }

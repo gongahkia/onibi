@@ -149,7 +149,7 @@ func TestLivenessCheckEndsMissingTmuxSession(t *testing.T) {
 	d := New(Options{DB: db, Paths: config.Paths{StateDir: state}})
 	s := NewSession("dead-1", "work", "pi")
 	s.TmuxTarget = "onibi-dead-1"
-	if err := db.SessionUpsertStart(t.Context(), s.ID, s.Name, s.Agent, "", "pi", "tmux", s.TmuxTarget, s.StartedAt()); err != nil {
+	if err := db.SessionUpsertStart(t.Context(), s.ID, s.Name(), s.Agent, "", "pi", "tmux", s.TmuxTarget, s.StartedAt()); err != nil {
 		t.Fatal(err)
 	}
 	if err := d.Registry.Add(s); err != nil {

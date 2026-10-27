@@ -11,13 +11,13 @@ import (
 
 type Session struct {
 	ID           string
-	Name         string
 	Agent        string
 	Cmd          string
 	CWD          string
 	Transport    string
 	TmuxTarget   string
 	mu           sync.Mutex
+	name         string
 	started      time.Time
 	lastActivity time.Time
 	ended        bool
@@ -25,7 +25,7 @@ type Session struct {
 
 func NewSession(id, name, agent string) *Session {
 	now := time.Now()
-	return &Session{ID: id, Name: name, Agent: agent, Transport: "tmux", started: now, lastActivity: now}
+	return &Session{ID: id, name: name, Agent: agent, Transport: "tmux", started: now, lastActivity: now}
 }
 func newSessionAt(id, name, agent string, started, last time.Time) *Session {
 	s := NewSession(id, name, agent)
@@ -37,6 +37,8 @@ func newSessionAt(id, name, agent string, started, last time.Time) *Session {
 	}
 	return s
 }
+func (s *Session) Name() string              { s.mu.Lock(); defer s.mu.Unlock(); return s.name }
+func (s *Session) setName(name string)       { s.mu.Lock(); s.name = name; s.mu.Unlock() }
 func (s *Session) Touch()                    { s.mu.Lock(); s.lastActivity = time.Now(); s.mu.Unlock() }
 func (s *Session) LastActivityAt() time.Time { s.mu.Lock(); defer s.mu.Unlock(); return s.lastActivity }
 func (s *Session) StartedAt() time.Time      { s.mu.Lock(); defer s.mu.Unlock(); return s.started }

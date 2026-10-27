@@ -29,6 +29,7 @@ type Daemon struct {
 	attention        *attentionTracker
 	started          time.Time
 	SkipRestore      bool
+	renameMu         sync.Mutex
 }
 
 type Options struct {
@@ -128,7 +129,7 @@ func (d *Daemon) sessionByID(id string) (*Session, error) {
 		if strings.HasPrefix(s.ID, id) {
 			prefix = append(prefix, s)
 		}
-		if s.Name == id {
+		if s.Name() == id {
 			name = append(name, s)
 		}
 	}
@@ -195,7 +196,7 @@ func (d *Daemon) sessionName(name, fallback string) (string, error) {
 }
 func (d *Daemon) sessionNameTaken(name string) bool {
 	for _, s := range d.liveSessions() {
-		if s.Name == name {
+		if s.Name() == name {
 			return true
 		}
 	}
@@ -210,7 +211,7 @@ func (d *Daemon) markSessionEndedReason(ctx context.Context, s *Session, reason 
 	}
 	d.health.sessionEnded(ctx, s)
 	d.attention.forget(s.ID)
-	d.Log.Info("session ended", "session", s.ID, "name", s.Name, "agent", s.Agent, "reason", reason)
+	d.Log.Info("session ended", "session", s.ID, "name", s.Name(), "agent", s.Agent, "reason", reason)
 	d.audit(ctx, "session.ended", s.ID, "", 0, "")
 }
 
