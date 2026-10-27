@@ -2,6 +2,7 @@ package devtool
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -36,14 +37,14 @@ func TestInstallUpdatePreviewAndOwnedUninstall(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.contents = "next version"
-	r.failNotifier = true
+	r.failCompile = true
 	if err := tool.Install(t.Context(), true, opts); err == nil {
 		t.Fatal("failed update succeeded")
 	}
 	if raw, _ := os.ReadFile(filepath.Join(tool.Prefix, "onibi")); string(raw) != "new binary" {
 		t.Fatal("failed update lost installed executable")
 	}
-	r.failNotifier = false
+	r.failCompile = false
 	if err := tool.Install(t.Context(), true, opts); err != nil {
 		t.Fatal(err)
 	}
@@ -72,6 +73,99 @@ func TestInstallUpdatePreviewAndOwnedUninstall(t *testing.T) {
 	}
 	if raw, _ := os.ReadFile(unrelated); string(raw) != "preserve" {
 		t.Fatal("uninstall touched unrelated file")
+	}
+}
+func TestRetiredNotifierFromOlderInstallIsRemoved(t *testing.T) {
+	legacy := func(t *testing.T, notifier string) (*Tool, LifecycleOptions) {
+		t.Helper()
+		tool, _, _ := sourceTool(t)
+		tool.Prefix = t.TempDir()
+		opts := LifecycleOptions{Home: t.TempDir()}
+		if err := tool.Install(t.Context(), false, opts); err != nil {
+			t.Fatal(err)
+		}
+		m, ok, err := tool.manifest()
+		if err != nil || !ok {
+			t.Fatal("missing manifest", err)
+		}
+		path := filepath.Join(tool.Prefix, "onibi-notify")
+		if err := os.WriteFile(path, []byte("old notifier"), 0755); err != nil {
+			t.Fatal(err)
+		}
+		hash, err := digest(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		m.Files["onibi-notify"] = hash
+		raw, _ := json.Marshal(m)
+		if err := os.WriteFile(filepath.Join(tool.Prefix, manifestName), raw, 0600); err != nil {
+			t.Fatal(err)
+		}
+		if notifier != "old notifier" {
+			if err := os.WriteFile(path, []byte(notifier), 0755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return tool, opts
+	}
+	t.Run("update", func(t *testing.T) {
+		tool, opts := legacy(t, "old notifier")
+		if err := tool.Install(t.Context(), true, opts); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Stat(filepath.Join(tool.Prefix, "onibi-notify")); !os.IsNotExist(err) {
+			t.Fatal("update kept the retired notifier")
+		}
+		m, ok, err := tool.manifest()
+		if err != nil || !ok || len(m.Files) != len(binaryNames) {
+			t.Fatalf("manifest=%#v ok=%v err=%v", m, ok, err)
+		}
+		if err := tool.Status(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("uninstall", func(t *testing.T) {
+		tool, opts := legacy(t, "old notifier")
+		if err := tool.Uninstall(t.Context(), opts); err != nil {
+			t.Fatal(err)
+		}
+		for _, name := range []string{"onibi", "onibi-notify", manifestName} {
+			if _, err := os.Stat(filepath.Join(tool.Prefix, name)); !os.IsNotExist(err) {
+				t.Fatalf("managed file remains: %s", name)
+			}
+		}
+	})
+	t.Run("modified notifier is kept", func(t *testing.T) {
+		tool, opts := legacy(t, "edited by owner")
+		if err := tool.Install(t.Context(), true, opts); err == nil {
+			t.Fatal("updated over a modified notifier")
+		}
+		if err := tool.Uninstall(t.Context(), opts); err == nil {
+			t.Fatal("uninstalled over a modified notifier")
+		}
+		if raw, _ := os.ReadFile(filepath.Join(tool.Prefix, "onibi-notify")); string(raw) != "edited by owner" {
+			t.Fatal("modified notifier was touched")
+		}
+	})
+	t.Run("deleted notifier is ignored", func(t *testing.T) {
+		tool, opts := legacy(t, "old notifier")
+		if err := os.Remove(filepath.Join(tool.Prefix, "onibi-notify")); err != nil {
+			t.Fatal(err)
+		}
+		if err := tool.Install(t.Context(), true, opts); err != nil {
+			t.Fatal(err)
+		}
+	})
+}
+func TestManifestRejectsUnknownFiles(t *testing.T) {
+	tool, _, _ := sourceTool(t)
+	tool.Prefix = t.TempDir()
+	raw, _ := json.Marshal(Manifest{Schema: 1, Files: map[string]string{"onibi": strings.Repeat("a", 64), "other": strings.Repeat("b", 64)}})
+	if err := os.WriteFile(filepath.Join(tool.Prefix, manifestName), raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := tool.manifest(); err == nil {
+		t.Fatal("accepted a manifest owning an unknown file")
 	}
 }
 func TestInstallRefusesUnmanagedFileAndBuildDirectory(t *testing.T) {

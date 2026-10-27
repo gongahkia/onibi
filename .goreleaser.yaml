@@ -30,15 +30,6 @@ builds:
       - -X github.com/gongahkia/onibi/internal/buildinfo.Version={{.Version}}
       - -X github.com/gongahkia/onibi/internal/buildinfo.Commit={{.Commit}}
       - -X github.com/gongahkia/onibi/internal/buildinfo.Date={{.Date}}
-  - id: onibi-notify
-    main: ./clients/onibi-notify
-    binary: onibi-notify
-    env: [CGO_ENABLED=0]
-    flags: [-trimpath]
-    goos: [darwin, linux]
-    goarch: [amd64, arm64]
-    ldflags: [-s -w]
-
 archives:
   - formats: [tar.gz]
     files: [LICENSE, SECURITY.md, THREAT-MODEL.md, THIRD_PARTY_NOTICES.md, third_party/rattles/LICENSE-MIT, third_party/fonts/*.txt, docs/web.md, docs/managed-sessions.md, docs/product-audit.md, docs/cockpit-review.md, docs/readiness-review.md]

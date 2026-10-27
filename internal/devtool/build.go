@@ -116,7 +116,7 @@ func (t *Tool) build(ctx context.Context, afterPublish func(version, commit stri
 	if runtime.GOOS == "darwin" {
 		env = append(env, "CGO_ENABLED=1")
 	}
-	steps := []struct{ name, pkg, label string }{{"onibi", "./cmd/onibi", "[1/4] Compile native cockpit"}, {"onibi-notify", "./clients/onibi-notify", "[2/4] Compile session notifier"}}
+	steps := []struct{ name, pkg, label string }{{"onibi", "./cmd/onibi", "[1/3] Compile native cockpit"}}
 	for _, step := range steps {
 		err = t.UI.Step(step.label, func(update func(string)) error {
 			_, err := t.Runner.Run(ctx, t.Root, env, "go", []string{"build", "-v", "-trimpath", "-ldflags", flags, "-o", filepath.Join(stage, step.name), step.pkg}, func(line string) {
@@ -134,7 +134,7 @@ func (t *Tool) build(ctx context.Context, afterPublish func(version, commit stri
 			return fmt.Errorf("build stopped; existing binaries were preserved: %w", err)
 		}
 	}
-	if err = t.UI.Step("[3/4] Verify staged executable", func(update func(string)) error {
+	if err = t.UI.Step("[2/3] Verify staged executable", func(update func(string)) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -156,7 +156,7 @@ func (t *Tool) build(ctx context.Context, afterPublish func(version, commit stri
 	if err = ctx.Err(); err != nil {
 		return err
 	}
-	if err = t.UI.Step("[4/4] Publish local binaries", func(func(string)) error { return promote(stage, output, binaryNames) }); err != nil {
+	if err = t.UI.Step("[3/3] Publish local binaries", func(func(string)) error { return promote(stage, output, binaryNames) }); err != nil {
 		return err
 	}
 	if afterPublish != nil {
@@ -182,7 +182,11 @@ func (t *Tool) failure(path string, file *os.File) {
 	t.UI.Field("Full output", path)
 }
 
-var binaryNames = []string{"onibi", "onibi-notify"}
+var binaryNames = []string{"onibi"}
+
+// retiredBinaryNames were installed by earlier releases. Their manifests stay
+// valid, and update or uninstall removes them while their checksums match.
+var retiredBinaryNames = []string{"onibi-notify"}
 
 func lockDirectory(dir string) (*os.File, error) {
 	fd, err := unix.Open(filepath.Join(dir, ".onibi-lifecycle.lock"), unix.O_CREAT|unix.O_RDWR|unix.O_NOFOLLOW, 0600)

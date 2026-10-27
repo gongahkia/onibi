@@ -14,9 +14,9 @@ import (
 )
 
 type fakeRunner struct {
-	failNotifier bool
-	contents     string
-	calls        [][]string
+	failCompile bool
+	contents    string
+	calls       [][]string
 }
 
 func (f *fakeRunner) Run(_ context.Context, dir string, env []string, name string, args []string, line func(string)) (string, error) {
@@ -25,7 +25,7 @@ func (f *fakeRunner) Run(_ context.Context, dir string, env []string, name strin
 		return "test-revision\n", nil
 	}
 	if name == "go" {
-		if f.failNotifier && args[len(args)-1] == "./clients/onibi-notify" {
+		if f.failCompile && args[len(args)-1] == "./cmd/onibi" {
 			if line != nil {
 				line("compiler: deliberate failure")
 			}
@@ -60,14 +60,14 @@ func sourceTool(t *testing.T) (*Tool, *fakeRunner, *bytes.Buffer) {
 	out := &bytes.Buffer{}
 	return &Tool{Root: root, Runner: r, UI: termui.New(out)}, r, out
 }
-func TestBuildStagesBothBinariesAndPreservesOldOnFailure(t *testing.T) {
+func TestBuildStagesBinariesAndPreservesOldOnFailure(t *testing.T) {
 	tool, r, out := sourceTool(t)
 	bin := filepath.Join(tool.Root, "bin")
 	os.MkdirAll(bin, 0755)
 	for _, name := range binaryNames {
 		os.WriteFile(filepath.Join(bin, name), []byte("old binary"), 0755)
 	}
-	r.failNotifier = true
+	r.failCompile = true
 	if err := tool.Build(t.Context()); err == nil {
 		t.Fatal("ignored compiler failure")
 	}
@@ -80,7 +80,7 @@ func TestBuildStagesBothBinariesAndPreservesOldOnFailure(t *testing.T) {
 	if !strings.Contains(out.String(), "deliberate failure") || strings.Contains(out.String(), "\x1b") {
 		t.Fatal("missing/plain compiler failure")
 	}
-	r.failNotifier = false
+	r.failCompile = false
 	if err := tool.Build(t.Context()); err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +100,7 @@ func TestPromotionRollsBackAndRefusesSymlinks(t *testing.T) {
 	stage := t.TempDir()
 	os.WriteFile(filepath.Join(dest, "onibi"), []byte("old"), 0755)
 	os.WriteFile(filepath.Join(stage, "onibi"), []byte("new"), 0755)
-	if err := promote(stage, dest, binaryNames); err == nil {
+	if err := promote(stage, dest, []string{"onibi", manifestName}); err == nil {
 		t.Fatal("missing staged file accepted")
 	}
 	raw, _ := os.ReadFile(filepath.Join(dest, "onibi"))

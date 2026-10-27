@@ -1,8 +1,6 @@
 # onibi v2 (Go)
 /onibi
 /onibi-notify
-/bin/onibi-notify
-onibi-notify
 /dist/
 /build/
 /bin/

@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -92,8 +93,16 @@ func (t *Tool) manifest() (Manifest, bool, error) {
 	if err := json.Unmarshal(raw, &m); err != nil {
 		return m, false, err
 	}
-	if m.Schema != 1 || len(m.Files) != len(binaryNames) {
+	if m.Schema != 1 {
 		return m, false, errors.New("unrecognized installation manifest")
+	}
+	for name, hash := range m.Files {
+		if !slices.Contains(binaryNames, name) && !slices.Contains(retiredBinaryNames, name) {
+			return m, false, errors.New("unrecognized installation manifest")
+		}
+		if len(hash) != 64 {
+			return m, false, errors.New("incomplete installation manifest")
+		}
 	}
 	for _, name := range binaryNames {
 		if len(m.Files[name]) != 64 {
@@ -102,8 +111,27 @@ func (t *Tool) manifest() (Manifest, bool, error) {
 	}
 	return m, true, nil
 }
+
+// retired lists binaries from earlier releases that m owns and that are still
+// present under the prefix.
+func (t *Tool) retired(m Manifest) []string {
+	var out []string
+	for _, name := range retiredBinaryNames {
+		if _, owned := m.Files[name]; !owned {
+			continue
+		}
+		if _, err := os.Lstat(filepath.Join(t.Prefix, name)); err == nil {
+			out = append(out, name)
+		}
+	}
+	return out
+}
 func (t *Tool) checkManaged(m Manifest, installed bool) error {
-	for _, name := range binaryNames {
+	names := binaryNames
+	if installed {
+		names = append(append([]string{}, binaryNames...), t.retired(m)...)
+	}
+	for _, name := range names {
 		hash, err := digest(filepath.Join(t.Prefix, name))
 		if os.IsNotExist(err) {
 			if installed {
@@ -233,6 +261,14 @@ func (t *Tool) Install(ctx context.Context, update bool, opts LifecycleOptions) 
 		}); err != nil {
 			return err
 		}
+		for _, name := range t.retired(m) {
+			path := filepath.Join(t.Prefix, name)
+			if hash, err := digest(path); err != nil || hash != m.Files[name] || os.Remove(path) != nil {
+				t.UI.Note("No longer used; remove it yourself: " + path)
+				continue
+			}
+			t.UI.Field("Removed", path+" (no longer used)")
+		}
 		return nil
 	})
 	if err != nil {
@@ -315,7 +351,7 @@ func (t *Tool) Status(ctx context.Context) error {
 	if err := t.checkManaged(m, true); err != nil {
 		return err
 	}
-	t.UI.Note("Both managed binaries match their installation checksums.")
+	t.UI.Note("Managed binaries match their installation checksums.")
 	return nil
 }
 
@@ -427,7 +463,7 @@ func (t *Tool) Uninstall(ctx context.Context, opts LifecycleOptions) error {
 	for _, svc := range services {
 		t.UI.Field("Remove job", svc.path)
 	}
-	for _, name := range binaryNames {
+	for _, name := range append(append([]string{}, binaryNames...), t.retired(m)...) {
 		t.UI.Field("Remove", filepath.Join(t.Prefix, name))
 	}
 	t.UI.Field("Preserve", "State, grants, credentials, logs, checkout and Ghostty terminals")
@@ -487,7 +523,7 @@ func (t *Tool) Uninstall(ctx context.Context, opts LifecycleOptions) error {
 	}()
 	moved := []string{}
 	err = t.UI.Step("Remove verified managed binaries", func(func(string)) error {
-		for _, name := range append(append([]string{}, binaryNames...), manifestName) {
+		for _, name := range append(append(append([]string{}, binaryNames...), t.retired(m)...), manifestName) {
 			if err := os.Rename(filepath.Join(t.Prefix, name), filepath.Join(stage, name)); err != nil {
 				var restore error
 				for _, old := range moved {

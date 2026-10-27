@@ -28,7 +28,7 @@ jobs:
           cache: true
       - run: go vet ./...
       - run: go test -race -count=1 ./...
-      - run: go build ./cmd/onibi ./clients/onibi-notify
+      - run: go build ./cmd/onibi ./cmd/onibi-dev
       - name: Source installation lifecycle (isolated prefixes, no native services)
         run: go test -count=1 -run TestSourceLifecycleIntegration -v ./internal/devtool
         env:

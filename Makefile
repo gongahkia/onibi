@@ -1,7 +1,6 @@
 .PHONY: help build install update upgrade uninstall install-status setup doctor dogfood test unit test-browser vet tidy run clean
 
 BINARY := onibi
-NOTIFY_BINARY := onibi-notify
 BUILD_DIR := bin
 INSTALL_DIR ?= $(HOME)/.local/bin
 # Keep normal install output readable. Use VERBOSE=1 to print every command.
