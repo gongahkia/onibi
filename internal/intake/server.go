@@ -81,9 +81,6 @@ func (s *Server) Serve(ctx context.Context) error {
 	}
 }
 
-// SocketPath returns the path the server is bound to.
-func (s *Server) SocketPath() string { return s.socketPath }
-
 func SocketActive(socketPath string, timeout time.Duration) bool {
 	if socketPath == "" {
 		return false
