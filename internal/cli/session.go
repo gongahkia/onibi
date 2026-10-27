@@ -11,7 +11,7 @@ import (
 
 func sessionCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "session", Short: "Create and inspect managed sessions"}
-	newCmd := &cobra.Command{Use: "new <shell|codex|pi|claude> [args...]", Short: "Create a persistent session", Args: cobra.MinimumNArgs(1), RunE: runSessionNew}
+	newCmd := &cobra.Command{Use: "new <shell|codex|pi|claude> [args...]", Short: "Create a persistent session in tmux, Zellij or Screen", Args: cobra.MinimumNArgs(1), RunE: runSessionNew}
 	newCmd.Flags().String("name", "", "session name")
 	newCmd.Flags().String("cwd", "", "working directory")
 	newCmd.Flags().String("mux", "", "terminal multiplexer (auto, tmux, zellij, screen)")

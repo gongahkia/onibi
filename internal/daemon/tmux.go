@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/gongahkia/onibi/internal/mux"
 	"github.com/gongahkia/onibi/internal/render"
@@ -74,9 +75,9 @@ func (d *Daemon) restoreSessions(ctx context.Context) {
 	}
 	for _, row := range rows {
 		if row.Transport == "codex" {
-			if err := d.restoreCodexSession(ctx, row); err != nil {
-				d.Log.Warn("restore Codex", "session", row.ID, "err", err)
-			}
+			// Unanswered App Server requests would stall the session.
+			_ = d.DB.SessionMarkEnded(ctx, row.ID, time.Now())
+			d.Log.Info("Codex App Server session not restored", "session", row.ID, "name", row.Name)
 			continue
 		}
 		if row.Transport != "tmux" {

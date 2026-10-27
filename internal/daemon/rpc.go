@@ -32,13 +32,6 @@ func (d *Daemon) handleRPCRequest(ctx context.Context, ev intake.Event) (intake.
 		return intake.Response{SessionID: ev.Session, Text: out}, err
 	case intake.TypeSessionNew:
 		agent := strings.ToLower(strings.TrimSpace(ev.Agent))
-		if agent == "codex" {
-			s, err := d.StartCodexSession(ctx, ev.Name, ev.CWD)
-			if err != nil {
-				return intake.Response{}, err
-			}
-			return intake.Response{SessionID: s.ID, Text: "started Codex session"}, nil
-		}
 		bin, name, args, ok := d.agentCommand(agent, ev.Args)
 		if !ok {
 			return intake.Response{}, errors.New("supported agents: shell, codex, pi, claude")

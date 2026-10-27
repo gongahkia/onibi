@@ -10,7 +10,6 @@ import (
 	"sync"
 
 	"github.com/gongahkia/onibi/internal/codexapp"
-	"github.com/gongahkia/onibi/internal/store"
 )
 
 const codexThreadPrefix = "codex.thread."
@@ -339,36 +338,4 @@ func (d *Daemon) codexRuntime(id string) (*codexRuntime, error) {
 		return nil, errors.New("Codex runtime unavailable")
 	}
 	return r, nil
-}
-func (d *Daemon) restoreCodexSession(ctx context.Context, row store.SessionEntry) error {
-	if d.DB == nil {
-		return errors.New("state database required")
-	}
-	threadID, ok, err := d.DB.KVGetString(ctx, codexThreadPrefix+row.ID)
-	if err != nil || !ok || threadID == "" {
-		return errors.New("stored Codex thread unavailable")
-	}
-	path, err := exec.LookPath("codex")
-	if err != nil {
-		return err
-	}
-	client, err := codexapp.Start(ctx, codexapp.Options{Command: path, Dir: row.CWD})
-	if err != nil {
-		return err
-	}
-	if err := client.ResumeThread(ctx, threadID); err != nil {
-		_ = client.Close()
-		return err
-	}
-	s := newSessionAt(row.ID, row.Name, "codex", d.bufferSize(), row.StartedAt, row.LastActivity)
-	s.Transport = "codex"
-	s.Cmd = "codex app-server"
-	s.CWD = row.CWD
-	if err := d.Registry.Add(s); err != nil {
-		_ = client.Close()
-		return err
-	}
-	d.addCodexRuntime(ctx, s, client, threadID)
-	d.audit(ctx, "session.restore", s.ID, "", 0, "agent=codex")
-	return nil
 }

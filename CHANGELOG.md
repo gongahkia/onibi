@@ -4,6 +4,7 @@
 
 - Added persistent sessions to the web cockpit. When `onibi start` is running, its tmux, Zellij and Screen sessions appear above the Ghostty windows. Their scrollback and screen can be read without focus, tmux output keeps its colours, and input, keys, interrupt and a confirmed end-session use the durable receipts. Sessions keep working while Ghostty is unavailable. The intake socket gains exact-ID session list, capture and key RPCs.
 - Added generic attention signals for managed sessions: needs input (prompt patterns on the cursor line), bell (a tmux bell counter on started sessions, and the bell flag on adopted ones), active, idle and quiet. The phone shows them as badges and counts waiting sessions in the page title. See [managed sessions](docs/managed-sessions.md).
+- `onibi session new codex` now runs the interactive Codex CLI in a multiplexer, so it gets the same reading, input and attention signals as any other program. The Codex App Server transport is no longer started, and App Server sessions left from earlier versions are marked ended on restart.
 
 - Removed the Telegram transport: the `onibi telegram` commands, bot-token doctor checks, `telegram-*` make targets, live Telegram end-to-end test, and the `gotd/td` dependency. `onibi start` now runs the managed-session daemon without credentials. Opening an existing state database drops the retired Telegram tables and keys. Managed sessions, agent hooks, and screenshot rendering remain in the tree without a decision surface; see [managed sessions](docs/managed-sessions.md).
 

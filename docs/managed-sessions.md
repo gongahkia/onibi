@@ -42,7 +42,7 @@ These CLI paths reach it over the intake socket:
 
 | Command | Effect |
 | --- | --- |
-| `onibi session new <shell\|codex\|pi\|claude> [--name] [--cwd] [--mux]` | Start a managed session in tmux, Zellij or GNU Screen, or a Codex App Server session |
+| `onibi session new <shell\|codex\|pi\|claude> [--name] [--cwd] [--mux]` | Start a managed session in tmux, Zellij or GNU Screen. `codex` runs the interactive Codex CLI like any other program |
 | `onibi session adopt <tmux\|zellij\|screen> <target>` | Take control of an existing multiplexer session |
 | `onibi session list [--all]` | List sessions from the state database |
 | `onibi system status`, `onibi doctor` | Report daemon, service and multiplexer readiness |
@@ -56,7 +56,7 @@ The web cockpit uses the `session_list`, `session_capture`, `session_key`, and e
 | --- | --- | --- |
 | Pi and Claude tool approvals | `internal/approval`, `Daemon.handleApprovalRequest`, `clients/onibi-notify` | Requests queue and nobody can decide them. They expire after `daemon.approval_timeout` and the agent receives the default denial. |
 | Claude `AskUserQuestion` | `internal/daemon/claude_question.go`, `Daemon.AnswerClaudeQuestion` | Questions are published on `ClaudeQuestionEvents()`, which nothing reads. They expire after `daemon.claude_question_timeout`. |
-| Codex App Server approvals and questions | `internal/daemon/codex.go`, `internal/codexapp`, `Daemon.RespondCodexRequest` | Requests are published on `CodexEvents()`. Nothing reads it, so once its 128-slot buffer fills, request forwarding blocks for that session. Codex waits for a reply that never arrives. |
+| Codex App Server sessions | `internal/daemon/codex.go`, `internal/codexapp`, `Daemon.StartCodexSession`, `Daemon.RespondCodexRequest` | Not started by any command, and leftover App Server sessions are marked ended on restart instead of resumed. Approval requests would be published on `CodexEvents()`, which nothing reads, so Codex would wait for replies that never arrive. |
 | Agent lifecycle (Pi/Claude turn start and end) | `internal/daemon/pi.go`, `AgentEvents()` | Events are dropped when the buffer is full. |
 | Session ended events | `SessionEvents()` | Logged by the daemon; the channel drops when full. |
 | Multiplexer health alerts | `internal/daemon/health.go` | Logged as `health alert` warnings. |

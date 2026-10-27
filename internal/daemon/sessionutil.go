@@ -47,6 +47,12 @@ func (d *Daemon) agentCommand(agent string, args []string) (string, string, []st
 	if agent == "claude" {
 		return agentBinary("claude"), "claude", args, true
 	}
+	// Codex runs as its interactive CLI in a multiplexer like any other
+	// program. The App Server transport (codex.go) needs a decision surface
+	// that answers its requests, so it is no longer started.
+	if agent == "codex" {
+		return agentBinary("codex"), "codex", args, true
+	}
 	return "", "", nil, false
 }
 func agentBinary(name string) string {
