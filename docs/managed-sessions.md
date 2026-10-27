@@ -16,7 +16,7 @@ Coding agents get no special treatment. `onibi session new codex`, `claude` or `
 | Interrupt and end | **Interrupt** sends Ctrl C. **End session** kills the multiplexer session after a confirmation naming it. |
 | Delivery | Every action uses the durable web receipts. The server confirms the session in a fresh daemon listing before dispatch, and the daemon resolves only the full session ID, never a name or prefix. A failure before any byte reaches the daemon, or a daemon rejection before a side effect, is reported as **not sent**. Anything later is **uncertain** and is never replayed. |
 
-Starting or adopting sessions from the phone is not offered. Use `onibi session new` or `onibi session adopt` on the Mac.
+**New session** starts one from the phone: a program (the shell, a command on `PATH` or an absolute path, with optional arguments), a folder (from an open pane or session, or a typed absolute path) and an optional name. It uses the configured default multiplexer, like `onibi session new` without `--mux`. Adopting an existing tmux, Zellij or Screen session is not offered from the phone, because it reaches sessions Onibi did not start; use `onibi session adopt` on the Mac.
 
 ## Attention signals
 
