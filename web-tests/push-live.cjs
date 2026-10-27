@@ -16,7 +16,7 @@ const binary = path.join(temp, "fixture");
 function startFixture() {
   const child = spawn(
     binary,
-    ["--state", path.join(temp, "state"), "--notify"],
+    ["--state", path.join(temp, "state"), "--notify", "--log"],
     { stdio: ["pipe", "pipe", "inherit"] },
   );
   const waiters = new Map();
