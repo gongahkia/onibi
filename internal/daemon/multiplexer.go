@@ -155,9 +155,6 @@ func (d *Daemon) controllerForSession(s *Session) (mux.Controller, error) {
 	if s == nil {
 		return nil, errors.New("session required")
 	}
-	if s.Transport == "codex" {
-		return nil, errors.New("Codex app-server sessions have no terminal multiplexer")
-	}
 	resolved, err := config.ResolveForCWD(d.Paths, s.CWD)
 	if err != nil {
 		return nil, err
@@ -197,5 +194,3 @@ func (d *Daemon) muxSessionError(ctx context.Context, s *Session, err error) err
 	}
 	return err
 }
-
-func isTerminalSession(s *Session) bool { return s != nil && s.Transport != "codex" }

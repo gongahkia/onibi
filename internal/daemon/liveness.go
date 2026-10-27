@@ -26,7 +26,7 @@ func (d *Daemon) watchTmuxSessions(ctx context.Context) {
 
 func (d *Daemon) checkTmuxSessions(ctx context.Context) {
 	for _, s := range d.liveSessions() {
-		if s.Transport == "codex" || s.TmuxTarget == "" {
+		if s.TmuxTarget == "" {
 			continue
 		}
 		var live bool

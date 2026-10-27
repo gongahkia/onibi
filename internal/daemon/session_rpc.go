@@ -61,8 +61,6 @@ func (d *Daemon) CaptureSessionHistory(ctx context.Context, id string, lines int
 	}
 	var raw string
 	switch s.Transport {
-	case "codex":
-		raw = string(s.Buf.Snapshot())
 	case "tmux":
 		ctrl, err := d.tmuxControllerForCWD(s.CWD)
 		if err != nil {
@@ -85,8 +83,7 @@ func (d *Daemon) CaptureSessionHistory(ctx context.Context, id string, lines int
 	return string(render.StripANSI([]byte(raw))), raw, nil
 }
 
-// SendSessionInput sends literal text, optionally followed by Enter. Codex
-// sessions accept only submitted turns.
+// SendSessionInput sends literal text, optionally followed by Enter.
 func (d *Daemon) SendSessionInput(ctx context.Context, id, text string, enter bool) error {
 	s, err := d.exactLiveSession(id)
 	if err != nil {
@@ -95,13 +92,6 @@ func (d *Daemon) SendSessionInput(ctx context.Context, id, text string, enter bo
 	if text == "" {
 		return intake.Reject(errors.New("text required"))
 	}
-	if s.Transport == "codex" {
-		if !enter {
-			return intake.Reject(errors.New("paste mode is unavailable for Codex sessions"))
-		}
-		_, err := d.sendCodexTurn(ctx, s.ID, text)
-		return err
-	}
 	return d.SendSessionText(ctx, s.ID, text, enter)
 }
 
@@ -109,9 +99,6 @@ func (d *Daemon) sendExactSessionKey(ctx context.Context, id, key string) error 
 	s, err := d.exactLiveSession(id)
 	if err != nil {
 		return err
-	}
-	if s.Transport == "codex" {
-		return intake.Reject(errors.New("Codex app-server sessions do not accept terminal keys"))
 	}
 	normalized, err := terminalKey(key)
 	if err != nil {

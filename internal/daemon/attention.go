@@ -148,7 +148,7 @@ func (d *Daemon) installBellCounter(ctx context.Context, s *Session) {
 
 func (d *Daemon) observeAttention(ctx context.Context) {
 	for _, s := range d.liveSessions() {
-		if !isTerminalSession(s) || s.TmuxTarget == "" {
+		if s.TmuxTarget == "" {
 			continue
 		}
 		obs, err := d.attentionObservation(ctx, s)

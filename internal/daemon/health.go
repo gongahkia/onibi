@@ -150,21 +150,12 @@ func (d *Daemon) reportHealthEvent(event *healthEvent) {
 
 func (d *Daemon) pingText(_ context.Context) string {
 	state := d.health.snapshot()
-	codexSessions := 0
 	sessions := d.liveSessions()
-	for _, s := range sessions {
-		if s.Transport == "codex" {
-			codexSessions++
-		}
-	}
 	var out strings.Builder
-	fmt.Fprintf(&out, "onibi\nuptime=%s\nsessions=%d\ncodex_sessions=%d", time.Since(d.started).Truncate(time.Second), len(sessions), codexSessions)
-	if len(sessions) > codexSessions {
+	fmt.Fprintf(&out, "onibi\nuptime=%s\nsessions=%d", time.Since(d.started).Truncate(time.Second), len(sessions))
+	if len(sessions) > 0 {
 		out.WriteString("\nmultiplexers:")
 		for _, s := range sessions {
-			if s.Transport == "codex" {
-				continue
-			}
 			health := state.Sessions[s.ID]
 			status := health.Status
 			if status == "" {

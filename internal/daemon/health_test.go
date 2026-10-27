@@ -50,17 +50,14 @@ func TestStatusReportsTmuxHealth(t *testing.T) {
 	}
 }
 
-func TestHealthNamesActualMultiplexerAndExcludesCodex(t *testing.T) {
+func TestHealthNamesActualMultiplexer(t *testing.T) {
 	d := New(Options{Paths: config.Paths{StateDir: t.TempDir()}})
 	ctx := t.Context()
-	for _, backend := range []string{"tmux", "zellij", "screen", "codex"} {
+	for _, backend := range []string{"tmux", "zellij", "screen"} {
 		s := NewSession("health-"+backend, "work-"+backend, "shell", 4096)
 		s.Transport = backend
 		if err := d.Registry.Add(s); err != nil {
 			t.Fatal(err)
-		}
-		if backend == "codex" {
-			continue
 		}
 		d.health.tmuxResult(ctx, s, true, nil)
 		event := d.health.tmuxResult(ctx, s, false, errors.New("backend unavailable"))
@@ -73,12 +70,9 @@ func TestHealthNamesActualMultiplexerAndExcludesCodex(t *testing.T) {
 		}
 	}
 	status := d.pingText(ctx)
-	for _, want := range []string{"codex_sessions=1", "work-tmux (tmux)=healthy", "work-zellij (zellij)=healthy", "work-screen (screen)=healthy"} {
+	for _, want := range []string{"sessions=3", "work-tmux (tmux)=healthy", "work-zellij (zellij)=healthy", "work-screen (screen)=healthy"} {
 		if !strings.Contains(status, want) {
 			t.Fatalf("status missing %q: %s", want, status)
 		}
-	}
-	if strings.Contains(status, "work-codex") {
-		t.Fatalf("Codex was incorrectly listed as a multiplexer: %s", status)
 	}
 }

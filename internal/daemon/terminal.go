@@ -61,9 +61,6 @@ func (d *Daemon) ResizeSession(ctx context.Context, id, size string) (int, int, 
 		return 0, 0, err
 	}
 	if s.Transport != "tmux" {
-		if s.Transport == "codex" {
-			return 0, 0, errors.New("Codex app-server sessions cannot resize")
-		}
 		ctrl, err := d.controllerForSession(s)
 		if err != nil {
 			return 0, 0, err

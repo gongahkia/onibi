@@ -16,6 +16,8 @@ import (
 
 var newTmuxController = tmux.New
 
+const legacyCodexTransport = "codex"
+
 func (d *Daemon) StartTmuxSession(ctx context.Context, name, agent, bin string, args []string, cwd string) (*Session, error) {
 	if _, err := exec.LookPath(bin); err != nil {
 		return nil, fmt.Errorf("%s not found in PATH: %w", bin, err)
@@ -70,8 +72,9 @@ func (d *Daemon) restoreSessions(ctx context.Context) {
 		return
 	}
 	for _, row := range rows {
-		if row.Transport == "codex" {
-			// Unanswered App Server requests would stall the session.
+		if row.Transport == legacyCodexTransport {
+			// Earlier releases ran Codex App Server sessions, which cannot be
+			// resumed as terminal programs.
 			_ = d.DB.SessionMarkEnded(ctx, row.ID, time.Now())
 			d.Log.Info("Codex App Server session not restored", "session", row.ID, "name", row.Name)
 			continue
@@ -108,7 +111,7 @@ func (d *Daemon) restoreSessions(ctx context.Context) {
 
 func (d *Daemon) restoreOtherMuxSessions(ctx context.Context, rows []store.SessionEntry) {
 	for _, row := range rows {
-		if row.Transport == "tmux" || row.Transport == "codex" || row.TmuxTarget == "" {
+		if row.Transport == "tmux" || row.Transport == legacyCodexTransport || row.TmuxTarget == "" {
 			continue
 		}
 		s := newSessionAt(row.ID, row.Name, row.Agent, d.bufferSize(), row.StartedAt, row.LastActivity)
@@ -141,9 +144,6 @@ func (d *Daemon) CaptureSessionTail(ctx context.Context, id string, lines int) (
 	s, err := d.sessionForRPCTarget(id)
 	if err != nil {
 		return "", err
-	}
-	if s.Transport == "codex" {
-		return render.TextTailBody(s.Buf.Snapshot(), render.Options{MaxLines: lines, MaxChars: 3500}), nil
 	}
 	if lines < 1 {
 		lines = 80
@@ -197,9 +197,6 @@ func (d *Daemon) SendSessionText(ctx context.Context, id, text string, enter boo
 	if text == "" {
 		return errors.New("text required")
 	}
-	if s.Transport == "codex" {
-		return errors.New("Codex sessions require a submitted turn")
-	}
 	if s.Transport != "tmux" {
 		ctrl, err := d.controllerForSession(s)
 		if err != nil {
@@ -230,12 +227,6 @@ func (d *Daemon) SendSessionTextAndCapture(ctx context.Context, id, text string,
 	}
 	if text == "" {
 		return "", errors.New("text required")
-	}
-	if s.Transport == "codex" {
-		if !enter {
-			return "", errors.New("paste mode is unavailable for Codex sessions")
-		}
-		return d.sendCodexTurn(ctx, s.ID, text)
 	}
 	if err := d.SendSessionText(ctx, s.ID, text, enter); err != nil {
 		return "", err

@@ -44,7 +44,7 @@ func (d *Daemon) CaptureSessionFrame(ctx context.Context, id string) (terminalFr
 		s.Buf.Reset()
 		_, _ = s.Buf.Write(raw)
 		d.touchSession(ctx, s)
-	} else if s.Transport != "codex" {
+	} else {
 		ctrl, err := d.controllerForSession(s)
 		if err != nil {
 			return terminalFrame{}, err
@@ -57,9 +57,6 @@ func (d *Daemon) CaptureSessionFrame(ctx context.Context, id string) (terminalFr
 		s.Buf.Reset()
 		_, _ = s.Buf.Write(raw)
 		d.touchSession(ctx, s)
-		rows, cols = outputScreenDimensions(raw)
-	} else {
-		raw = s.Buf.Snapshot()
 		rows, cols = outputScreenDimensions(raw)
 	}
 	opts := d.screenPNGOptions(rows, cols)
