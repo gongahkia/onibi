@@ -57,11 +57,12 @@ function renderPush(note) {
 async function loadPush() {
   if (!pushSupported()) return renderPush();
   try {
+    // Only look: nothing is installed until notifications are turned on.
     const [status, registration] = await Promise.all([
       api("/api/push"),
-      pushRegistration(),
+      navigator.serviceWorker.getRegistration(),
     ]);
-    const subscription = await registration.pushManager.getSubscription();
+    const subscription = await registration?.pushManager.getSubscription();
     pushState.publicKey = status.publicKey;
     pushState.subscribed = Boolean(status.subscribed && subscription);
     renderPush();
