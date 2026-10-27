@@ -121,20 +121,6 @@ func (m *Manager) Restart(ctx context.Context) error {
 	}
 }
 
-func (m *Manager) PID(ctx context.Context) (int, bool, error) {
-	if err := m.ensure(); err != nil {
-		return 0, false, err
-	}
-	switch m.GOOS {
-	case "darwin":
-		return m.launchdPID(ctx)
-	case "linux":
-		return m.systemdPID(ctx)
-	default:
-		return 0, false, fmt.Errorf("unsupported os: %s", m.GOOS)
-	}
-}
-
 // Status reports whether the service file exists and appears to be running.
 func (m *Manager) Status(ctx context.Context) Status {
 	if err := m.ensure(); err != nil {
