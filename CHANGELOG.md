@@ -1,6 +1,23 @@
 # Changelog
 
-## Unreleased
+## 0.1.0 (2026-10-27)
+
+First tagged release.
+
+### Upgrading from a source install
+
+- Telegram, the agent hooks, the approval queue and the Codex App Server transport are gone. Config files that still set their retired keys load without error; the keys are ignored.
+- Opening an existing state database drops the retired Telegram, `approvals` and `claude_questions` tables, so a downgrade cannot recover them.
+- A bot token stored by an earlier release is not deleted; remove it from the keychain or `.env` file yourself.
+- Delete the Pi extension from an older release (by default `~/.pi/agent/extensions/onibi.ts`); `onibi doctor` fails while it remains.
+
+### Changes
+
+- Added renaming of persistent sessions: `onibi session rename <name|id> <new-name>` on the Mac, and **Rename** next to Interrupt on the phone. Names use letters, digits, dot, underscore and hyphen and stay unique among live sessions; the multiplexer's own session name is unchanged.
+- New session arguments on the phone now follow shell quoting: single quotes, double quotes and backslash escapes group words, with no variable, glob or command expansion. An unclosed quote is reported instead of being sent.
+- Redesigned the phone's look around an animated ASCII fire and block-letter "Onibi" art on the pairing page and header. The tab is titled ONIBI (with the waiting count first), and explanatory filler copy is gone. Text size, wrapping and snapshot start/end moved into a Settings dialog at the top right.
+- Removed the Ghostty Controls drawer (layout, scrollback, font, fullscreen and pane/tab title controls) from the phone for now. New tab, Split pane and Close tab remain.
+- Fixed push subscriptions from Chrome being rejected for their `expirationTime` field, and a race where toggling notifications could show Off after subscribing.
 
 - Added opt-in push notifications, turned on per browser in Devices. A browser is notified when a persistent session starts needing input or rings the bell; the notification names the session and reason, never its output, and opens the session when tapped. Delivery uses Web Push with VAPID and RFC 8291 encryption implemented on the standard library, and only reaches browser vendors' push services. Revoking a browser removes its subscription. Onibi can now be added to an iPhone Home Screen with a proper icon, which iOS requires for notifications.
 - Added New session to the phone. It starts a shell or any program in a folder of an open pane or session, or in a typed absolute path, using a durable receipt, then selects the new session. The web login service now keeps the `PATH` from install time, like the daemon service, so programs in folders such as `~/.local/bin` are found.
