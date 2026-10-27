@@ -24,7 +24,7 @@ The daemon samples the last 40 lines of each multiplexer session at the liveness
 
 | State | Meaning |
 | --- | --- |
-| Needs input | The cursor line ends in a generic prompt: `[y/N]`/`(yes/no)`, "press enter/any key", a password or passphrase prompt, or a question such as "Do you want to …?". A question higher up counts only when every line below it is a menu choice. |
+| Needs input | The cursor line ends in a generic prompt: `[y/N]`/`(yes/no)`, "press enter/any key", a password or passphrase prompt, or a question such as "Do you want to …?". A question higher up counts only when every line below it is a menu choice, optionally followed by key hints such as "Esc to cancel". Box-drawing borders around a dialog are ignored, so agent approval dialogs are recognised without any agent-specific code. |
 | Bell | The terminal rang its bell since the last change. New output or input sent through Onibi clears it. |
 | Active | Output changed within the last 30 seconds. |
 | Idle | Output has not changed for 30 seconds. |

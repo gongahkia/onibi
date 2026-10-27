@@ -22,7 +22,7 @@ const (
 
 	attentionCaptureLines = 40
 	defaultIdleAfter      = 30 * time.Second
-	promptWindowLines     = 6
+	promptWindowLines     = 8
 )
 
 // Prompt patterns are deliberately generic: they describe common terminal
@@ -40,11 +40,27 @@ var cursorPrompts = []struct {
 }
 
 // A question above the cursor counts only when every line below it looks
-// like a choice in a selection menu.
+// like a choice in a selection menu, optionally followed by key hints such as
+// "Esc to cancel". Box-drawing borders around a dialog are ignored.
 var (
 	menuQuestion = regexp.MustCompile(`(?i)\b(do you want to|would you like to|are you sure)\b[^\n]*\?`)
 	menuChoice   = regexp.MustCompile(`(?i)^\s*([❯›>*•]\s*)?(\d+[.)]|yes\b|no\b|\[[ x]\])`)
+	keyHint      = regexp.MustCompile(`(?i)^\s*(press\s+)?(esc|enter|return|tab|space|ctrl[-+]\S+)\s+to\b`)
 )
+
+const (
+	boxSides   = "│┃║"
+	boxBorders = "─━═╭╮╰╯┌┐└┘┏┓┗┛╔╗╚╝├┤┬┴┼"
+)
+
+// promptLine removes dialog box edges; a border-only line becomes empty.
+func promptLine(line string) string {
+	line = strings.Trim(line, " \t\r"+boxSides)
+	if strings.Trim(line, " "+boxBorders) == "" {
+		return ""
+	}
+	return line
+}
 
 type attentionObservation struct {
 	Plain        string
@@ -157,7 +173,7 @@ func detectPrompt(plain string) string {
 	lines := strings.Split(strings.TrimRight(plain, " \t\r\n"), "\n")
 	var recent []string
 	for i := len(lines) - 1; i >= 0 && len(recent) < promptWindowLines; i-- {
-		if line := strings.TrimRight(lines[i], " \t\r"); strings.TrimSpace(line) != "" {
+		if line := promptLine(lines[i]); line != "" {
 			recent = append(recent, line)
 		}
 	}
@@ -169,13 +185,18 @@ func detectPrompt(plain string) string {
 			return pattern.reason
 		}
 	}
-	for i, line := range recent {
+	choices := 0
+	for _, line := range recent {
+		if choices == 0 && keyHint.MatchString(line) {
+			continue
+		}
 		if !menuChoice.MatchString(line) {
-			if i > 0 && menuQuestion.MatchString(line) {
+			if choices > 0 && menuQuestion.MatchString(line) {
 				return "Question prompt"
 			}
 			return ""
 		}
+		choices++
 	}
 	return ""
 }
