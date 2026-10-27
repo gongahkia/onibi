@@ -26,8 +26,6 @@ type Daemon struct {
 	Intake           *intake.Server
 	OutputBufferSize int
 	LivenessInterval time.Duration
-	UploadTTL        time.Duration
-	UploadMaxBytes   int64
 	ShellDefault     string
 	ShellLogin       bool
 	health           *healthTracker
@@ -49,8 +47,6 @@ type Options struct {
 	Log              *slog.Logger
 	OutputBufferSize int
 	LivenessInterval time.Duration
-	UploadTTL        time.Duration
-	UploadMaxBytes   int64
 	ShellDefault     string
 	ShellLogin       bool
 	SkipRestore      bool
@@ -63,13 +59,7 @@ func New(opts Options) *Daemon {
 	if opts.LivenessInterval <= 0 {
 		opts.LivenessInterval = 5 * time.Second
 	}
-	if opts.UploadTTL <= 0 {
-		opts.UploadTTL = 7 * 24 * time.Hour
-	}
-	if opts.UploadMaxBytes <= 0 {
-		opts.UploadMaxBytes = 20 << 20
-	}
-	d := &Daemon{Paths: opts.Paths, DB: opts.DB, Log: opts.Log, Registry: NewRegistry(), OutputBufferSize: opts.OutputBufferSize, LivenessInterval: opts.LivenessInterval, UploadTTL: opts.UploadTTL, UploadMaxBytes: opts.UploadMaxBytes, ShellDefault: opts.ShellDefault, ShellLogin: opts.ShellLogin, started: time.Now(), sessionEvents: make(chan SessionEvent, 128), SkipRestore: opts.SkipRestore}
+	d := &Daemon{Paths: opts.Paths, DB: opts.DB, Log: opts.Log, Registry: NewRegistry(), OutputBufferSize: opts.OutputBufferSize, LivenessInterval: opts.LivenessInterval, ShellDefault: opts.ShellDefault, ShellLogin: opts.ShellLogin, started: time.Now(), sessionEvents: make(chan SessionEvent, 128), SkipRestore: opts.SkipRestore}
 	d.health = newHealthTracker(opts.DB, opts.Log)
 	d.attention = newAttentionTracker()
 	d.Intake = intake.New(opts.Paths.Socket, opts.Log)
@@ -87,6 +77,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 		d.health.load(ctx)
 		_ = d.DB.KVPurgeExpired(ctx)
 	}
+	d.removeRetiredUploads()
 	if !d.SkipRestore {
 		d.restoreSessions(ctx)
 	}
@@ -103,7 +94,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	wg.Add(1)
 	go func() { defer wg.Done(); d.watchTmuxSessions(ctx) }()
 	wg.Add(1)
-	go func() { defer wg.Done(); d.sweepUploads(ctx) }()
+	go func() { defer wg.Done(); d.sweepExpiredControls(ctx) }()
 	var runErr error
 	select {
 	case <-ctx.Done():
