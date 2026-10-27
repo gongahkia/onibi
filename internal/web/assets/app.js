@@ -8,6 +8,20 @@ if (new URLSearchParams(location.hash.slice(1)).has("token"))
   history.replaceState(null, "", location.pathname + location.search);
 
 const byId = (id) => document.getElementById(id);
+const relativeFormat = new Intl.RelativeTimeFormat(undefined, {
+  numeric: "auto",
+});
+function relativeTime(value) {
+  const seconds = Math.round((new Date(value).getTime() - Date.now()) / 1000);
+  if (Number.isNaN(seconds)) return "at an unknown time";
+  const abs = Math.abs(seconds);
+  if (abs < 45) return seconds >= 0 ? "in a moment" : "just now";
+  if (abs < 2700)
+    return relativeFormat.format(Math.round(seconds / 60), "minute");
+  if (abs < 77760)
+    return relativeFormat.format(Math.round(seconds / 3600), "hour");
+  return relativeFormat.format(Math.round(seconds / 86400), "day");
+}
 const state = {
   csrf: "",
   device: null,
@@ -354,10 +368,10 @@ function renderReadiness() {
         : "Check again";
   byId("session-expiry").textContent = state.expiresAt
     ? "Browser session expires " +
-      new Date(state.expiresAt).toLocaleString() +
+      relativeTime(state.expiresAt) +
       (state.device?.remembered
         ? ". Remembered access ends " +
-          new Date(state.device.expiresAt).toLocaleString() +
+          relativeTime(state.device.expiresAt) +
           "."
         : ". Temporary access ends on restart.")
     : "Session expiry is unavailable.";
@@ -843,8 +857,7 @@ function renderSessionDestination(session) {
       ? "NEEDS YOU · " +
         (attention.reason || attentionLabels[attention.state]).toUpperCase()
       : "PERSISTENT SESSION";
-  byId("focus-hint").textContent =
-    "Runs under the Onibi daemon. Reading never changes focus on your Mac.";
+  byId("focus-hint").textContent = "";
   byId("keyboard-destination").textContent = `Keys go to ${name}`;
   byId("destination-title").textContent = name;
   byId("destination-detail").textContent =
@@ -872,7 +885,7 @@ function renderDestination() {
       : "YOUR SELECTED PANE"
     : "READY WHEN YOU ARE";
   byId("focus-hint").textContent = target?.focused
-    ? "Your input goes to this exact pane. Follow refreshes visible text."
+    ? ""
     : "Focus & read brings this pane forward on your Mac.";
   byId("control-destination").textContent = target
     ? `${targetName(target)} · ${tabName(target)} · ${windowName(target)}`
@@ -1245,7 +1258,7 @@ async function readSnapshot() {
     state.snapshotStale = false;
     showCapturedText(snapshot.text, new Date(snapshot.capturedAt));
     byId("focus-terminal").hidden = true;
-    byId("snapshot-state").textContent = "Read on your Mac";
+    byId("snapshot-state").textContent = "Updated";
     message("");
     updateControls();
   } catch (error) {
@@ -1712,6 +1725,7 @@ byId("logout").addEventListener("click", async () => {
   if (state.pending) return;
   try {
     await api("/api/logout", { method: "POST", body: "{}" });
+    byId("devices-dialog").close();
     byId("compose").value = "";
     state.drafts.clear();
     clearRecall();
@@ -1720,7 +1734,8 @@ byId("logout").addEventListener("click", async () => {
       "Disconnected. Open a new pairing link from your Mac to reconnect.",
     );
   } catch (error) {
-    message("Disconnect could not be confirmed. " + error.message);
+    byId("devices-message").textContent =
+      "Disconnect could not be confirmed. " + error.message;
   }
 });
 
@@ -2066,9 +2081,10 @@ async function loadDevices() {
       title.textContent = device.name + (current ? " · this browser" : "");
       const detail = document.createElement("p");
       detail.textContent =
-        (device.remembered ? "Remembered until " : "Temporary · expires ") +
-        new Date(device.expiresAt).toLocaleString() +
-        (device.remembered ? "" : " or when Onibi restarts.");
+        (device.remembered ? "Remembered · expires " : "Temporary · expires ") +
+        relativeTime(device.expiresAt) +
+        (device.remembered ? "" : " or when Onibi restarts");
+      detail.title = new Date(device.expiresAt).toLocaleString();
       const revoke = document.createElement("button");
       revoke.type = "button";
       revoke.className = "secondary";
@@ -2085,8 +2101,9 @@ async function loadDevices() {
       row.append(title, detail, revoke);
       byId("devices-list").append(row);
     }
+    const count = (data.devices || []).length;
     byId("devices-message").textContent =
-      "Only unexpired devices are listed. Temporary access ends on restart.";
+      count + (count === 1 ? " browser has" : " browsers have") + " access.";
   } catch (error) {
     if (generation === state.authGeneration)
       byId("devices-message").textContent = error.message;

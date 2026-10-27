@@ -1104,6 +1104,7 @@ const server = http.createServer(async (req, res) => {
   ]);
   assert.equal(await page.evaluate(() => sessionStorage.length), 0);
   assert.deepEqual(errors, []);
+  await page.click("#open-devices");
   await page.click("#logout");
   await page.locator("#pair-view").waitFor({ state: "visible" });
   assert.equal(await page.inputValue("#compose"), "");

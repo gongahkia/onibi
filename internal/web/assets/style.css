@@ -436,14 +436,6 @@ main {
   margin-top: 8px;
   font-size: 12px;
 }
-.sidebar-note {
-  font-size: 11px;
-  color: var(--muted);
-  line-height: 1.8;
-  margin: 22px 10px 0;
-  padding-top: 20px;
-  border-top: 1px solid var(--line);
-}
 .terminal-workspace {
   min-width: 0;
   padding: 30px 36px 24px;
@@ -609,6 +601,13 @@ main {
   margin: 7px 0;
   font-size: 11px;
   color: var(--muted);
+}
+.focus-row:has(#focus-hint:empty):has(#focus-terminal[hidden]) {
+  display: none;
+}
+#devices-message {
+  color: var(--muted);
+  font-size: 12px;
 }
 .focus-row button {
   font-size: 12px;
@@ -804,20 +803,6 @@ main {
 }
 .banner[role="status"] {
   line-height: 1.7;
-}
-.site-footer {
-  max-width: 1500px;
-  width: 100%;
-  margin: auto;
-  padding: 18px 26px max(20px, env(safe-area-inset-bottom));
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  font-size: 10px;
-  color: var(--faint);
-}
-.site-footer > span:first-child {
-  letter-spacing: 0.12em;
 }
 .pair-view {
   max-width: 1050px;
@@ -1262,15 +1247,6 @@ dialog::backdrop {
   .notice-actions {
     justify-content: flex-end;
   }
-  .site-footer {
-    font-size: 8px;
-    padding-inline: 18px;
-    gap: 10px;
-  }
-  .site-footer > span:last-child {
-    max-width: 45%;
-    text-align: right;
-  }
   .pair-view {
     display: block;
     max-width: 460px;
@@ -1454,10 +1430,6 @@ dialog::backdrop {
 @media (max-width: 760px) {
   .header-actions .connection {
     padding-inline: 4px;
-    max-width: 120px;
-    white-space: normal;
-    text-align: left;
-    line-height: 1.4;
   }
   .readiness-strip {
     font-size: 11px;

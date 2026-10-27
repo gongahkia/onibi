@@ -35,7 +35,6 @@
           ><span id="connection-label">Connecting</span>
         </button>
         <button class="quiet" id="open-devices" type="button">Devices</button>
-        <button class="quiet" id="logout" type="button">Forget browser</button>
       </div>
     </header>
     <main id="main" tabindex="-1">
@@ -146,9 +145,6 @@
           >
             <span aria-hidden="true">＋</span> New Ghostty window
           </button>
-          <p class="sidebar-note">
-            Choose a destination.<br />Your input follows that exact pane.
-          </p>
         </aside>
         <div class="terminal-workspace">
           <div class="workspace-heading">
@@ -188,7 +184,7 @@
             <div class="output-toolbar">
               <div class="output-label">
                 <span class="terminal-glyph" aria-hidden="true">›_</span>
-                <h2 id="output-heading">The view from your Mac</h2>
+                <h2 id="output-heading">Output</h2>
               </div>
               <div class="output-actions">
                 <button
@@ -212,7 +208,7 @@
             </div>
             <div class="reader-bar">
               <details id="reader-tools">
-                <summary>Reader tools</summary>
+                <summary>View</summary>
                 <div class="reader-settings">
                   <label for="reader-size">Text on this screen</label>
                   <select id="reader-size">
@@ -322,7 +318,7 @@
           </section>
           <section class="compose-card" aria-labelledby="compose-label">
             <div class="compose-heading">
-              <label id="compose-label" for="compose">Your next move</label
+              <label id="compose-label" for="compose">Input</label
               ><span class="destination-badge" id="compose-destination"
                 >No destination</span
               >
@@ -330,7 +326,7 @@
             <textarea
               id="compose"
               rows="2"
-              placeholder="A command, a prompt, a little nudge…"
+              placeholder="Type a command or a reply"
               autocapitalize="off"
               autocorrect="off"
               spellcheck="false"
@@ -338,9 +334,7 @@
               disabled
             ></textarea>
             <div class="compose-actions">
-              <p id="compose-help">
-                Send adds Enter.<br />Paste adds no Enter.
-              </p>
+              <p id="compose-help">Send adds Enter.<br />Paste doesn’t.</p>
               <div>
                 <button
                   class="secondary"
@@ -417,10 +411,6 @@
         </div>
       </section>
     </main>
-    <footer class="site-footer">
-      <span>ONIBI <span class="brand-dot">/</span> MADE FOR YOUR MAC</span
-      ><span>Control Ghostty wherever text renders</span>
-    </footer>
 
     <dialog
       class="picker-dialog"
@@ -747,14 +737,16 @@
         </button>
       </div>
       <p class="muted">
-        Each browser has full cockpit access. Names are yours to choose; they do
-        not identify hardware. To pair another, run
+        Each browser has full access. To pair another, run
         <code>onibi web pair</code> on your Mac.
       </p>
       <p id="devices-message" role="status"></p>
       <ul id="devices-list" class="health-checks"></ul>
       <button id="refresh-devices" class="secondary full" type="button">
         Refresh devices
+      </button>
+      <button id="logout" class="quiet full danger-text" type="button">
+        Forget this browser
       </button>
     </dialog>
     <dialog id="revoke-dialog" aria-labelledby="revoke-title">

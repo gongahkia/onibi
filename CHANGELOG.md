@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Tightened the phone interface. Forget this browser moved from the header into Devices. Session and device expiry read as relative times, such as "expires in 12 hours". The footer and filler helper lines are gone, and Ghostty status no longer wraps in the header.
 - `onibi web` now runs the sessions daemon itself when none is running, so one command, or one `onibi web service`, gives the phone both Ghostty and persistent sessions. The daemon stops with the web server and its sessions are restored at the next start. `onibi start` still runs the daemon alone, and now refuses to start when a daemon is already running.
 - Added `onibi session attach` (execs the multiplexer's own attach, or switches client inside tmux) and `onibi session kill` (asks for confirmation on a terminal, otherwise requires `--yes`). `session list` (alias `ls`) prints a table with live attention, `--all` and `--json`. `session new` starts in the current folder and accepts `--attach`. Session names complete in the shell.
 - Added `onibi --version`, help text for every command, and a labelled `onibi system status` with `--json`.
