@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"strings"
 	"testing"
 	"time"
 
@@ -143,14 +142,13 @@ func TestStartTerminalSessionFailsClosedWhenPersistenceFails(t *testing.T) {
 }
 
 func TestResizeSessionUsesTmuxPreset(t *testing.T) {
-	b, runner, cleanup := testTelegramBridge(t)
-	defer cleanup()
+	d, runner := testDaemon(t)
 	s := NewSession("resize-1", "work", "shell", 4096)
 	s.TmuxTarget = "onibi-resize-1"
-	if err := b.d.Registry.Add(s); err != nil {
+	if err := d.Registry.Add(s); err != nil {
 		t.Fatal(err)
 	}
-	cols, rows, err := b.d.ResizeSession(t.Context(), s.ID, "large")
+	cols, rows, err := d.ResizeSession(t.Context(), s.ID, "large")
 	if err != nil || cols != 120 || rows != 40 {
 		t.Fatalf("size=%dx%d err=%v", cols, rows, err)
 	}
@@ -158,19 +156,19 @@ func TestResizeSessionUsesTmuxPreset(t *testing.T) {
 	if len(runner.calls) != 1 || !reflect.DeepEqual(runner.calls[0], want) {
 		t.Fatalf("calls=%#v", runner.calls)
 	}
-	if _, _, err := b.d.ResizeSession(t.Context(), s.ID, "huge"); err == nil {
+	if _, _, err := d.ResizeSession(t.Context(), s.ID, "huge"); err == nil {
 		t.Fatal("accepted unsupported size")
 	}
 }
 
-func TestLivenessCheckEndsAndQueuesMissingTmuxSession(t *testing.T) {
+func TestLivenessCheckEndsMissingTmuxSession(t *testing.T) {
 	state := t.TempDir()
 	db, err := store.Open(filepath.Join(state, "onibi.sqlite"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	d := New(Options{DB: db, Paths: config.Paths{StateDir: state}, TelegramOwnerID: 42})
+	d := New(Options{DB: db, Paths: config.Paths{StateDir: state}})
 	s := NewSession("dead-1", "work", "pi", 4096)
 	s.TmuxTarget = "onibi-dead-1"
 	if err := d.Registry.Add(s); err != nil {
@@ -178,7 +176,7 @@ func TestLivenessCheckEndsAndQueuesMissingTmuxSession(t *testing.T) {
 	}
 	oldController := newTmuxController
 	newTmuxController = func() *tmux.Controller {
-		return tmux.NewWithRunner(&bridgeRunner{err: errors.New("no server running on /private/tmp/tmux-501/default")})
+		return tmux.NewWithRunner(&fakeTmuxRunner{err: errors.New("no server running on /private/tmp/tmux-501/default")})
 	}
 	defer func() { newTmuxController = oldController }()
 	d.checkTmuxSessions(context.Background())
@@ -193,10 +191,6 @@ func TestLivenessCheckEndsAndQueuesMissingTmuxSession(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("missing liveness event")
 	}
-	item, err := db.TelegramOutboxClaim(context.Background())
-	if err != nil || item == nil || item.Kind != "ended" || !strings.Contains(item.Title, "work ended") {
-		t.Fatalf("item=%#v err=%v", item, err)
-	}
 }
 
 func TestRestoreMarksTmuxSessionsEndedWhenServerIsGone(t *testing.T) {
@@ -210,20 +204,16 @@ func TestRestoreMarksTmuxSessionsEndedWhenServerIsGone(t *testing.T) {
 	if err := db.SessionUpsertStart(ctx, "restore-dead", "work", "shell", state, "zsh", "tmux", "onibi-restore-dead", time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	d := New(Options{DB: db, Paths: config.Paths{StateDir: state}, TelegramOwnerID: 42})
+	d := New(Options{DB: db, Paths: config.Paths{StateDir: state}})
 	oldController := newTmuxController
 	newTmuxController = func() *tmux.Controller {
-		return tmux.NewWithRunner(&bridgeRunner{err: errors.New("no server running on /private/tmp/tmux-501/default")})
+		return tmux.NewWithRunner(&fakeTmuxRunner{err: errors.New("no server running on /private/tmp/tmux-501/default")})
 	}
 	defer func() { newTmuxController = oldController }()
 	d.restoreSessions(ctx)
 	entry, found, err := db.Session(ctx, "restore-dead")
 	if err != nil || !found || !entry.Ended {
 		t.Fatalf("entry=%#v found=%t err=%v", entry, found, err)
-	}
-	item, err := db.TelegramOutboxClaim(ctx)
-	if err != nil || item == nil || item.SessionID != "restore-dead" {
-		t.Fatalf("item=%#v err=%v", item, err)
 	}
 }
 
@@ -245,7 +235,7 @@ func TestTmuxControlAndRestoreUseProjectConfiguration(t *testing.T) {
 	if err := db.SessionUpsertStart(ctx, "configured", "work", "shell", cwd, "sh", "tmux", "onibi-configured", time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	runner := &bridgeRunner{}
+	runner := &fakeTmuxRunner{}
 	oldController := newTmuxController
 	newTmuxController = func() *tmux.Controller { return tmux.NewWithRunner(runner) }
 	t.Cleanup(func() { newTmuxController = oldController })

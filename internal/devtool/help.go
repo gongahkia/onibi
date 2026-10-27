@@ -30,7 +30,6 @@ func (t *Tool) Help() {
 	ui.Section("CHECKS")
 	ui.Field("make test", "Hermetic Go tests with race detection")
 	ui.Field("make test-browser", "Browser/HTTP integration (npm ci first)")
-	ui.Field("make e2e-live", "Opt-in live Telegram test; dedicated environment required")
 	ui.Line("")
 	ui.Note("Telegram: telegram-setup, telegram-doctor, telegram-run, telegram-dogfood")
 }

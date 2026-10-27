@@ -9,19 +9,18 @@ import (
 )
 
 func TestStageUploadIsPrivateBoundedAndExpires(t *testing.T) {
-	b, _, cleanup := testTelegramBridge(t)
-	defer cleanup()
-	b.d.UploadMaxBytes = 16
-	b.d.UploadTTL = time.Hour
+	d, _ := testDaemon(t)
+	d.UploadMaxBytes = 16
+	d.UploadTTL = time.Hour
 	s := NewSession("upload-1", "work", "shell", 4096)
-	if err := b.d.Registry.Add(s); err != nil {
+	if err := d.Registry.Add(s); err != nil {
 		t.Fatal(err)
 	}
-	path, expires, err := b.d.StageUpload(t.Context(), s.ID, "../../build file?.txt", 5, strings.NewReader("hello"))
+	path, expires, err := d.StageUpload(t.Context(), s.ID, "../../build file?.txt", 5, strings.NewReader("hello"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	root := filepath.Join(b.d.Paths.StateDir, "uploads", s.ID)
+	root := filepath.Join(d.Paths.StateDir, "uploads", s.ID)
 	if filepath.Dir(path) != root || strings.Contains(filepath.Base(path), " ") || !strings.HasSuffix(path, "build_file_.txt") {
 		t.Fatalf("path=%q", path)
 	}
@@ -36,16 +35,16 @@ func TestStageUploadIsPrivateBoundedAndExpires(t *testing.T) {
 	if err != nil || string(data) != "hello" {
 		t.Fatalf("data=%q err=%v", data, err)
 	}
-	if _, _, err := b.d.StageUpload(t.Context(), s.ID, "large", 17, strings.NewReader("x")); err == nil {
+	if _, _, err := d.StageUpload(t.Context(), s.ID, "large", 17, strings.NewReader("x")); err == nil {
 		t.Fatal("accepted declared oversize upload")
 	}
-	if _, _, err := b.d.StageUpload(t.Context(), s.ID, "large", 0, strings.NewReader(strings.Repeat("x", 17))); err == nil {
+	if _, _, err := d.StageUpload(t.Context(), s.ID, "large", 0, strings.NewReader(strings.Repeat("x", 17))); err == nil {
 		t.Fatal("accepted streamed oversize upload")
 	}
 	if err := os.Chtimes(path, time.Now().Add(-2*time.Hour), time.Now().Add(-2*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	if err := b.d.PurgeExpiredUploads(time.Now()); err != nil {
+	if err := d.PurgeExpiredUploads(time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
@@ -54,24 +53,23 @@ func TestStageUploadIsPrivateBoundedAndExpires(t *testing.T) {
 }
 
 func TestStageUploadRejectsIncompleteOrMismatchedDownloads(t *testing.T) {
-	b, _, cleanup := testTelegramBridge(t)
-	defer cleanup()
+	d, _ := testDaemon(t)
 	s := NewSession("upload-integrity", "work", "shell", 4096)
-	if err := b.d.Registry.Add(s); err != nil {
+	if err := d.Registry.Add(s); err != nil {
 		t.Fatal(err)
 	}
 	for _, body := range []string{"short", "too much data"} {
-		if _, _, err := b.d.StageUpload(t.Context(), s.ID, "document.txt", 10, strings.NewReader(body)); err == nil || !strings.Contains(err.Error(), "size mismatch") {
+		if _, _, err := d.StageUpload(t.Context(), s.ID, "document.txt", 10, strings.NewReader(body)); err == nil || !strings.Contains(err.Error(), "size mismatch") {
 			t.Fatalf("body=%q err=%v", body, err)
 		}
-		files, err := os.ReadDir(filepath.Join(b.d.Paths.StateDir, "uploads", s.ID))
+		files, err := os.ReadDir(filepath.Join(d.Paths.StateDir, "uploads", s.ID))
 		if err != nil || len(files) != 0 {
 			t.Fatalf("mismatched upload left staged bytes: files=%v err=%v", files, err)
 		}
 	}
-	// Telegram may omit file_size, so an unknown size remains bounded by
+	// An unknown size remains bounded by
 	// UploadMaxBytes and is accepted after a complete read.
-	if _, _, err := b.d.StageUpload(t.Context(), s.ID, "unknown.txt", 0, strings.NewReader("complete")); err != nil {
+	if _, _, err := d.StageUpload(t.Context(), s.ID, "unknown.txt", 0, strings.NewReader("complete")); err != nil {
 		t.Fatal(err)
 	}
 }

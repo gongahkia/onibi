@@ -152,7 +152,7 @@ func (d *Daemon) AnswerClaudeQuestion(ctx context.Context, id string, answers ma
 	if err := validateClaudeAnswers(item.InputJSON, answers); err != nil {
 		return nil, err
 	}
-	updated, changed, err := d.resolveClaudeQuestion(ctx, id, store.ClaudeQuestionAnswered, answers, "answered from Telegram", by)
+	updated, changed, err := d.resolveClaudeQuestion(ctx, id, store.ClaudeQuestionAnswered, answers, "answered", by)
 	if err != nil {
 		return nil, err
 	}

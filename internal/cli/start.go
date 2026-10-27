@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -19,7 +18,7 @@ import (
 )
 
 func startCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "start", Short: "Start the Telegram command center", Args: cobra.NoArgs, RunE: runStart}
+	cmd := &cobra.Command{Use: "start", Short: "Start the managed-session daemon", Args: cobra.NoArgs, RunE: runStart}
 	cmd.Flags().String("log-file", "", "write daemon logs to this file")
 	return cmd
 }
@@ -36,27 +35,6 @@ func runStart(cmd *cobra.Command, _ []string) error {
 	if err := render.ValidateFont(cfg.Screen.Font, cfg.Screen.FontPath); err != nil {
 		return fmt.Errorf("screen font: %w", err)
 	}
-	token, err := telegramToken(paths)
-	if err != nil {
-		return err
-	}
-	if token == "" {
-		return errors.New("Telegram bot token missing; run onibi telegram setup")
-	}
-	if enabled, ok, err := db.KVGetString(cmd.Context(), daemon.TelegramKVEnabled); err != nil {
-		return err
-	} else if ok && enabled != "1" {
-		return errors.New("Telegram disabled; run onibi telegram setup to re-enable it")
-	}
-	ownerChat, ownerUser := telegramBinding(cmd.Context(), db)
-	pair := ""
-	if ownerChat == 0 || ownerUser == 0 {
-		pair, err = ensurePairCode(cmd.Context(), db)
-		if err != nil {
-			return err
-		}
-		fmt.Fprintf(cmd.OutOrStdout(), "Pair: send /start %s to your bot.\n", pair)
-	}
 	level := slog.LevelInfo
 	debug, _ := cmd.Root().PersistentFlags().GetBool("debug")
 	if debug {
@@ -72,11 +50,10 @@ func runStart(cmd *cobra.Command, _ []string) error {
 	}
 	defer file.Close()
 	writer := io.MultiWriter(cmd.ErrOrStderr(), file)
-	logging.SetSecrets(token)
 	logger := logging.New(writer, level)
 	ctx, stop := signal.NotifyContext(contextOrBackground(cmd.Context()), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	d := daemon.New(daemon.Options{Paths: paths, DB: db, Log: logger, ApprovalTTL: cfg.Daemon.ApprovalTimeout.Std(), ClaudeQuestionTimeout: cfg.Daemon.ClaudeQuestionTimeout.Std(), ApprovalSweepInterval: cfg.Daemon.ApprovalSweepInterval.Std(), ApprovalMaxSubscribers: cfg.Daemon.MaxSubscribers, OutputBufferSize: cfg.Daemon.OutputBufferBytes, LivenessInterval: cfg.Daemon.LivenessInterval.Std(), UploadTTL: cfg.Daemon.UploadTTL.Std(), UploadMaxBytes: cfg.Daemon.UploadMaxBytes, ShellDefault: cfg.Shell.Default, ShellLogin: cfg.Shell.Login, ScreenFont: cfg.Screen.Font, ScreenFontPath: cfg.Screen.FontPath, TelegramToken: token, TelegramOwnerID: ownerChat, TelegramOwnerUserID: ownerUser, TelegramPair: pair})
+	d := daemon.New(daemon.Options{Paths: paths, DB: db, Log: logger, ApprovalTTL: cfg.Daemon.ApprovalTimeout.Std(), ClaudeQuestionTimeout: cfg.Daemon.ClaudeQuestionTimeout.Std(), ApprovalSweepInterval: cfg.Daemon.ApprovalSweepInterval.Std(), ApprovalMaxSubscribers: cfg.Daemon.MaxSubscribers, OutputBufferSize: cfg.Daemon.OutputBufferBytes, LivenessInterval: cfg.Daemon.LivenessInterval.Std(), UploadTTL: cfg.Daemon.UploadTTL.Std(), UploadMaxBytes: cfg.Daemon.UploadMaxBytes, ShellDefault: cfg.Shell.Default, ShellLogin: cfg.Shell.Login, ScreenFont: cfg.Screen.Font, ScreenFontPath: cfg.Screen.FontPath})
 	return d.Run(ctx)
 }
 func telegramBinding(ctx context.Context, db interface {

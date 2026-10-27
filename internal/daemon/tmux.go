@@ -94,7 +94,7 @@ func (d *Daemon) restoreSessions(ctx context.Context) {
 		}
 		if !live {
 			_ = d.DB.SessionMarkEnded(ctx, row.ID, row.LastActivity)
-			d.queueSessionEndedNotice(ctx, row.ID, row.Name, row.Agent)
+			d.Log.Info("restored session already ended", "session", row.ID, "name", row.Name)
 			continue
 		}
 		s := newSessionAt(row.ID, row.Name, row.Agent, d.bufferSize(), row.StartedAt, row.LastActivity)
@@ -128,7 +128,7 @@ func (d *Daemon) restoreOtherMuxSessions(ctx context.Context, rows []store.Sessi
 		}
 		if !live {
 			_ = d.DB.SessionMarkEnded(ctx, row.ID, row.LastActivity)
-			d.queueSessionEndedNotice(ctx, row.ID, row.Name, row.Agent)
+			d.Log.Info("restored session already ended", "session", row.ID, "name", row.Name)
 			continue
 		}
 		if out, err := ctrl.Capture(ctx, mux.ParseTarget(s.TmuxTarget), 80); err == nil {

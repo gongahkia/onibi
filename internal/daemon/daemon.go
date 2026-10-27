@@ -40,10 +40,6 @@ type Daemon struct {
 	frames                map[string]terminalFrame
 	ScreenFont            string
 	ScreenFontPath        string
-	TelegramToken         string
-	TelegramOwnerID       int64
-	TelegramOwnerUserID   int64
-	TelegramPair          string
 	health                *healthTracker
 	started               time.Time
 	mu                    sync.Mutex
@@ -80,10 +76,6 @@ type Options struct {
 	ShellLogin             bool
 	ScreenFont             string
 	ScreenFontPath         string
-	TelegramToken          string
-	TelegramOwnerID        int64
-	TelegramOwnerUserID    int64
-	TelegramPair           string
 	SkipRestore            bool
 }
 
@@ -103,7 +95,7 @@ func New(opts Options) *Daemon {
 	if opts.UploadMaxBytes <= 0 {
 		opts.UploadMaxBytes = 20 << 20
 	}
-	d := &Daemon{Paths: opts.Paths, DB: opts.DB, Log: opts.Log, Registry: NewRegistry(), OutputBufferSize: opts.OutputBufferSize, LivenessInterval: opts.LivenessInterval, ClaudeQuestionTimeout: opts.ClaudeQuestionTimeout, UploadTTL: opts.UploadTTL, UploadMaxBytes: opts.UploadMaxBytes, ShellDefault: opts.ShellDefault, ShellLogin: opts.ShellLogin, ScreenFont: opts.ScreenFont, ScreenFontPath: opts.ScreenFontPath, TelegramToken: opts.TelegramToken, TelegramOwnerID: opts.TelegramOwnerID, TelegramOwnerUserID: opts.TelegramOwnerUserID, TelegramPair: opts.TelegramPair, started: time.Now(), frames: map[string]terminalFrame{}, codex: map[string]*codexRuntime{}, codexEvents: make(chan CodexEvent, 128), agentEvents: make(chan AgentEvent, 128), claudeQuestions: map[string]chan struct{}{}, claudeQuestionEvents: make(chan ClaudeQuestionEvent, 128), sessionEvents: make(chan SessionEvent, 128), SkipRestore: opts.SkipRestore}
+	d := &Daemon{Paths: opts.Paths, DB: opts.DB, Log: opts.Log, Registry: NewRegistry(), OutputBufferSize: opts.OutputBufferSize, LivenessInterval: opts.LivenessInterval, ClaudeQuestionTimeout: opts.ClaudeQuestionTimeout, UploadTTL: opts.UploadTTL, UploadMaxBytes: opts.UploadMaxBytes, ShellDefault: opts.ShellDefault, ShellLogin: opts.ShellLogin, ScreenFont: opts.ScreenFont, ScreenFontPath: opts.ScreenFontPath, started: time.Now(), frames: map[string]terminalFrame{}, codex: map[string]*codexRuntime{}, codexEvents: make(chan CodexEvent, 128), agentEvents: make(chan AgentEvent, 128), claudeQuestions: map[string]chan struct{}{}, claudeQuestionEvents: make(chan ClaudeQuestionEvent, 128), sessionEvents: make(chan SessionEvent, 128), SkipRestore: opts.SkipRestore}
 	d.health = newHealthTracker(opts.DB, opts.Log)
 	d.Queue = approval.New(opts.DB, opts.ApprovalTTL)
 	if opts.ApprovalMaxSubscribers > 0 {
@@ -121,9 +113,6 @@ func New(opts Options) *Daemon {
 func (d *Daemon) Run(ctx context.Context) error {
 	ctx, stop := context.WithCancel(ctx)
 	defer stop()
-	if strings.TrimSpace(d.TelegramToken) == "" {
-		return errors.New("Telegram bot token required; run onibi telegram setup")
-	}
 	if d.DB == nil {
 		return errors.New("state database required")
 	}
@@ -147,9 +136,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 	if d.DB != nil {
 		_, _ = d.Queue.ExpireOverdue(ctx)
 	}
-	d.Log.Info("daemon starting", "owner_paired", d.TelegramOwnerID != 0, "state", d.Paths.StateDir)
+	d.Log.Info("daemon starting", "state", d.Paths.StateDir)
 	var wg sync.WaitGroup
-	errCh := make(chan error, 2)
+	errCh := make(chan error, 1)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -163,13 +152,6 @@ func (d *Daemon) Run(ctx context.Context) error {
 	go func() { defer wg.Done(); d.watchTmuxSessions(ctx) }()
 	wg.Add(1)
 	go func() { defer wg.Done(); d.sweepUploads(ctx) }()
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if err := d.runTelegramBridge(ctx); err != nil && !errors.Is(err, context.Canceled) {
-			errCh <- err
-		}
-	}()
 	var runErr error
 	select {
 	case <-ctx.Done():
@@ -187,9 +169,6 @@ func (d *Daemon) Run(ctx context.Context) error {
 		d.Log.Info("cancelled pending Claude questions", "count", n)
 	}
 	wg.Wait()
-	if errors.Is(runErr, errTelegramDisabled) {
-		return nil
-	}
 	if runErr != nil {
 		return runErr
 	}
@@ -322,7 +301,7 @@ func (d *Daemon) markSessionEndedReason(ctx context.Context, s *Session, reason 
 	d.cancelClaudeQuestionsForSession(ctx, s.ID, "session ended")
 	d.health.sessionEnded(ctx, s)
 	d.InvalidateSessionFrame(s.ID)
-	d.queueSessionEndedNotice(ctx, s.ID, s.Name, s.Agent)
+	d.Log.Info("session ended", "session", s.ID, "name", s.Name, "agent", s.Agent, "reason", reason)
 	d.audit(ctx, "session.ended", s.ID, "", 0, "")
 	select {
 	case d.sessionEvents <- SessionEvent{SessionID: s.ID, Reason: reason}:
@@ -331,15 +310,6 @@ func (d *Daemon) markSessionEndedReason(ctx context.Context, s *Session, reason 
 	}
 }
 
-func (d *Daemon) queueSessionEndedNotice(ctx context.Context, sessionID, name, agent string) {
-	if d.DB == nil || d.TelegramOwnerID == 0 || strings.TrimSpace(sessionID) == "" {
-		return
-	}
-	text := name + " ended. Screens, input, and controls are unavailable. Use /new " + agent + " to start another."
-	if err := d.DB.TelegramOutboxUpsert(ctx, store.TelegramOutboxIntent{ID: NewID(), DedupeKey: "ended:" + sessionID, Kind: "ended", ChatID: d.TelegramOwnerID, SessionID: sessionID, Title: text}); err != nil {
-		d.Log.Warn("queue session ended notice", "session", sessionID, "err", err)
-	}
-}
 func (d *Daemon) touchSession(ctx context.Context, s *Session) {
 	if s == nil {
 		return

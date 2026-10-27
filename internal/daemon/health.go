@@ -14,17 +14,7 @@ import (
 const healthStateKey = "daemon.health.v1"
 
 type daemonHealthState struct {
-	PollSuccess      time.Time                `json:"poll_success,omitempty"`
-	PollFailure      time.Time                `json:"poll_failure,omitempty"`
-	PollFailures     int                      `json:"poll_failures,omitempty"`
-	PollError        string                   `json:"poll_error,omitempty"`
-	PollAlerted      bool                     `json:"poll_alerted,omitempty"`
-	DeliverySuccess  time.Time                `json:"delivery_success,omitempty"`
-	DeliveryFailure  time.Time                `json:"delivery_failure,omitempty"`
-	DeliveryFailures int                      `json:"delivery_failures,omitempty"`
-	DeliveryError    string                   `json:"delivery_error,omitempty"`
-	DeliveryAlerted  bool                     `json:"delivery_alerted,omitempty"`
-	Sessions         map[string]sessionHealth `json:"sessions,omitempty"`
+	Sessions map[string]sessionHealth `json:"sessions,omitempty"`
 }
 
 type sessionHealth struct {
@@ -80,64 +70,6 @@ func (h *healthTracker) persistLocked(ctx context.Context) {
 	if err != nil {
 		h.log.Warn("persist daemon health", "err", err)
 	}
-}
-
-func (h *healthTracker) pollResult(ctx context.Context, err error) *healthEvent {
-	if h == nil {
-		return nil
-	}
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	now := time.Now()
-	var event *healthEvent
-	if err == nil {
-		h.state.PollSuccess = now
-		h.state.PollFailures = 0
-		h.state.PollError = ""
-		if h.state.PollAlerted {
-			h.state.PollAlerted = false
-			event = &healthEvent{Dedupe: "health:telegram-poll:recovered", Text: "Onibi alert: Telegram polling recovered."}
-		}
-	} else {
-		h.state.PollFailure = now
-		h.state.PollFailures++
-		h.state.PollError = healthError(err)
-		if h.state.PollFailures >= 3 && !h.state.PollAlerted {
-			h.state.PollAlerted = true
-			event = &healthEvent{Dedupe: "health:telegram-poll:failed", Text: "Onibi alert: Telegram polling has failed three consecutive times; commands may be delayed."}
-		}
-	}
-	h.persistLocked(ctx)
-	return event
-}
-
-func (h *healthTracker) deliveryResult(ctx context.Context, err error, permanent bool) *healthEvent {
-	if h == nil {
-		return nil
-	}
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	now := time.Now()
-	var event *healthEvent
-	if err == nil {
-		h.state.DeliverySuccess = now
-		h.state.DeliveryFailures = 0
-		h.state.DeliveryError = ""
-		if h.state.DeliveryAlerted {
-			h.state.DeliveryAlerted = false
-			event = &healthEvent{Dedupe: "health:telegram-delivery:recovered", Text: "Onibi alert: Telegram delivery recovered."}
-		}
-	} else {
-		h.state.DeliveryFailure = now
-		h.state.DeliveryFailures++
-		h.state.DeliveryError = healthError(err)
-		if permanent && !h.state.DeliveryAlerted {
-			h.state.DeliveryAlerted = true
-			event = &healthEvent{Dedupe: "health:telegram-delivery:failed", Text: "Onibi alert: Telegram permanently rejected an outbound message; inspect /status and bot permissions."}
-		}
-	}
-	h.persistLocked(ctx)
-	return event
 }
 
 func (h *healthTracker) tmuxResult(ctx context.Context, s *Session, live bool, err error) *healthEvent {
@@ -209,33 +141,15 @@ func healthError(err error) string {
 	return text
 }
 
-func healthAge(now, value time.Time) string {
-	if value.IsZero() {
-		return "never"
-	}
-	return now.Sub(value).Truncate(time.Second).String() + " ago"
-}
-
-func (d *Daemon) queueHealthEvent(ctx context.Context, event *healthEvent) {
-	if event == nil || d.DB == nil || d.TelegramOwnerID == 0 {
+func (d *Daemon) reportHealthEvent(event *healthEvent) {
+	if event == nil {
 		return
 	}
-	if err := d.DB.TelegramOutboxUpsert(ctx, store.TelegramOutboxIntent{ID: NewID(), DedupeKey: event.Dedupe, Kind: "notice", ChatID: d.TelegramOwnerID, Title: event.Text}); err != nil {
-		d.Log.Warn("queue health alert", "err", err)
-	}
+	d.Log.Warn("health alert", "key", event.Dedupe, "text", event.Text)
 }
 
-func (d *Daemon) pingText(ctx context.Context) string {
+func (d *Daemon) pingText(_ context.Context) string {
 	state := d.health.snapshot()
-	now := time.Now()
-	stats := store.TelegramOutboxStats{}
-	if d.DB != nil {
-		var err error
-		stats, err = d.DB.TelegramOutboxStats(ctx)
-		if err != nil {
-			d.Log.Warn("Telegram outbox stats", "err", err)
-		}
-	}
 	codexSessions := 0
 	sessions := d.liveSessions()
 	for _, s := range sessions {
@@ -244,7 +158,7 @@ func (d *Daemon) pingText(ctx context.Context) string {
 		}
 	}
 	var out strings.Builder
-	fmt.Fprintf(&out, "onibi\nuptime=%s\nsessions=%d\ncodex_sessions=%d\npoll=%s failures=%d\ndelivery=%s failures=%d\noutbox=pending:%d running:%d expired:%d", time.Since(d.started).Truncate(time.Second), len(sessions), codexSessions, healthAge(now, state.PollSuccess), state.PollFailures, healthAge(now, state.DeliverySuccess), state.DeliveryFailures, stats.Pending, stats.Running, stats.Expired)
+	fmt.Fprintf(&out, "onibi\nuptime=%s\nsessions=%d\ncodex_sessions=%d", time.Since(d.started).Truncate(time.Second), len(sessions), codexSessions)
 	if len(sessions) > codexSessions {
 		out.WriteString("\nmultiplexers:")
 		for _, s := range sessions {

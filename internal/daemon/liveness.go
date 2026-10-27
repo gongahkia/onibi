@@ -46,10 +46,10 @@ func (d *Daemon) checkTmuxSessions(ctx context.Context) {
 		}
 		if err != nil {
 			d.Log.Warn("multiplexer liveness", "session", s.ID, "transport", s.Transport, "err", err)
-			d.queueHealthEvent(ctx, d.health.tmuxResult(ctx, s, false, err))
+			d.reportHealthEvent(d.health.tmuxResult(ctx, s, false, err))
 			continue
 		}
-		d.queueHealthEvent(ctx, d.health.tmuxResult(ctx, s, live, nil))
+		d.reportHealthEvent(d.health.tmuxResult(ctx, s, live, nil))
 		if !live {
 			d.markSessionEndedReason(ctx, s, s.Transport+" session exited")
 		}

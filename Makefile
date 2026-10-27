@@ -1,4 +1,4 @@
-.PHONY: help build install update upgrade uninstall install-status setup doctor dogfood test unit test-browser e2e-live vet tidy run clean telegram-setup telegram-doctor telegram-run telegram-dogfood
+.PHONY: help build install update upgrade uninstall install-status setup doctor dogfood test unit test-browser vet tidy run clean telegram-setup telegram-doctor telegram-run telegram-dogfood
 
 BINARY := onibi
 NOTIFY_BINARY := onibi-notify
@@ -74,9 +74,6 @@ test-browser:
 
 unit:
 	$(Q)go test -race -count=1 ./...
-
-e2e-live:
-	$(Q)go run ./cmd/onibi-e2e-live
 
 vet:
 	$(Q)go vet ./...
