@@ -697,7 +697,8 @@ function sessionGroup() {
       "aria-label",
       `${sessionName(session)} ${sessionDetail(session)}${attentionLabels[attention] ? ", " + attentionLabels[attention] : ""}${session.attention?.reason ? ": " + session.attention.reason : ""}`,
     );
-    button.title = session.attention?.reason || session.cwd || sessionName(session);
+    button.title =
+      session.attention?.reason || session.cwd || sessionName(session);
     const mark = document.createElement("span");
     mark.className = "target-mark";
     mark.textContent = id === state.selectedId ? "›" : "·";
@@ -834,11 +835,13 @@ function restoreListFocus(container, focusedId) {
 function renderSessionDestination(session) {
   const name = sessionName(session);
   const attention = session.attention || {};
-  byId("reader-destination").textContent = `${name} · ${sessionDetail(session)}`;
+  byId("reader-destination").textContent =
+    `${name} · ${sessionDetail(session)}`;
   byId("focus-terminal").hidden = true;
   byId("destination-context").textContent =
     attention.state === "input" || attention.state === "bell"
-      ? "NEEDS YOU · " + (attention.reason || attentionLabels[attention.state]).toUpperCase()
+      ? "NEEDS YOU · " +
+        (attention.reason || attentionLabels[attention.state]).toUpperCase()
       : "PERSISTENT SESSION";
   byId("focus-hint").textContent =
     "Runs under the Onibi daemon. Reading never changes focus on your Mac.";
@@ -905,7 +908,8 @@ function renderFleetCount() {
 }
 function renderAttentionTitle() {
   const waiting = state.sessions.filter(needsAttention).length;
-  document.title = (waiting ? `(${waiting}) ` : "") + "Onibi · Your Ghostty cockpit";
+  document.title =
+    (waiting ? `(${waiting}) ` : "") + "Onibi · Your Ghostty cockpit";
 }
 
 // Session listing is independent of Ghostty: a daemon that is not running
@@ -1058,7 +1062,9 @@ function showEmpty(title, description) {
   byId("output-empty").hidden = false;
   byId("output-empty-title").textContent = title;
   byId("output-empty-description").textContent = description;
-  byId("choose-terminal").hidden = Boolean(selectedTarget() || selectedSession());
+  byId("choose-terminal").hidden = Boolean(
+    selectedTarget() || selectedSession(),
+  );
 }
 
 function selectTarget(id) {
@@ -1182,7 +1188,9 @@ async function readSessionSnapshot(session) {
     }
     state.snapshotStale = true;
     byId("snapshot-state").textContent =
-      state.snapshotTarget === id ? "Last snapshot · not live" : "Output unavailable";
+      state.snapshotTarget === id
+        ? "Last snapshot · not live"
+        : "Output unavailable";
     byId("snapshot-state").parentElement.parentElement.classList.add("stale");
     if (state.snapshotTarget !== id)
       showEmpty("Output isn’t available yet", error.message);
