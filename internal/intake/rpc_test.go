@@ -11,7 +11,7 @@ import (
 )
 
 func TestDisconnectedDecisionClientCancelsHandler(t *testing.T) {
-	for _, typ := range []string{TypeApprovalRequest, TypeClaudeQuestion} {
+	for _, typ := range []string{TypeApprovalRequest} {
 		t.Run(typ, func(t *testing.T) {
 			sock := testSocket(t)
 			srv := New(sock, nil)
@@ -23,7 +23,6 @@ func TestDisconnectedDecisionClientCancelsHandler(t *testing.T) {
 				return Response{Decision: "cancelled"}, nil
 			}
 			srv.SetApprovalHandler(handler)
-			srv.SetQuestionHandler(handler)
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 			go func() { _ = srv.Serve(ctx) }()

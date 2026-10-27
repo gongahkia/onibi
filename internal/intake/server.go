@@ -18,7 +18,6 @@ import (
 
 // ApprovalHandler processes a Pi approval request while its local client waits.
 type ApprovalHandler func(context.Context, Event) (Response, error)
-type QuestionHandler func(context.Context, Event) (Response, error)
 
 type RPCHandler func(context.Context, Event) (Response, error)
 
@@ -29,7 +28,6 @@ var readPeerUIDFunc = readPeerUID
 type Server struct {
 	socketPath string
 	approval   ApprovalHandler
-	question   QuestionHandler
 	rpc        RPCHandler
 	logger     *slog.Logger
 	ln         net.Listener
@@ -45,7 +43,6 @@ func New(socketPath string, logger *slog.Logger) *Server {
 
 // SetApprovalHandler installs the blocking Pi approval handler.
 func (s *Server) SetApprovalHandler(h ApprovalHandler) { s.approval = h }
-func (s *Server) SetQuestionHandler(h QuestionHandler) { s.question = h }
 
 func (s *Server) SetRPCHandler(h RPCHandler) { s.rpc = h }
 
@@ -141,7 +138,7 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 		ev.TS = time.Now().Unix()
 	}
 
-	if ev.Type == TypeApprovalRequest || ev.Type == TypeClaudeQuestion {
+	if ev.Type == TypeApprovalRequest {
 		// A decision is useful only while the hook is still waiting for it.
 		// These requests have one payload and one response, so any subsequent
 		// read is solely a liveness check on the requesting connection.
@@ -157,10 +154,6 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 
 	if ev.Type == TypeApprovalRequest {
 		s.handleApproval(ctx, c, ev)
-		return
-	}
-	if ev.Type == TypeClaudeQuestion {
-		s.handleQuestion(ctx, c, ev)
 		return
 	}
 	if isRPCType(ev.Type) {
@@ -203,23 +196,6 @@ func (s *Server) handleApproval(ctx context.Context, c net.Conn, ev Event) {
 	_ = c.SetWriteDeadline(time.Now().Add(5 * time.Second))
 	if werr := writeResponse(c, resp); werr != nil {
 		s.logger.Warn("approval write response", slog.Any("err", werr))
-	}
-}
-
-func (s *Server) handleQuestion(ctx context.Context, c net.Conn, ev Event) {
-	if s.question == nil {
-		_ = writeResponse(c, Response{Decision: "cancelled", Reason: "daemon has no question handler"})
-		return
-	}
-	_ = c.SetReadDeadline(time.Time{})
-	resp, err := s.question(ctx, ev)
-	if err != nil {
-		s.logger.Warn("question handler error", slog.Any("err", err))
-		resp = Response{Decision: "cancelled", Reason: "question handler error"}
-	}
-	_ = c.SetWriteDeadline(time.Now().Add(5 * time.Second))
-	if werr := writeResponse(c, resp); werr != nil {
-		s.logger.Warn("question write response", slog.Any("err", werr))
 	}
 }
 

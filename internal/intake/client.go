@@ -15,7 +15,7 @@ func Request(socketPath string, ev Event, timeout time.Duration) (Response, erro
 	if socketPath == "" {
 		return Response{}, Reject(errors.New("intake: empty socket path"))
 	}
-	if ev.Type != TypeApprovalRequest && ev.Type != TypeClaudeQuestion && !isRPCType(ev.Type) {
+	if ev.Type != TypeApprovalRequest && !isRPCType(ev.Type) {
 		return Response{}, Reject(errors.New("intake: unsupported request type"))
 	}
 	raw, err := json.Marshal(ev)

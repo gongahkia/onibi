@@ -57,8 +57,7 @@ type Response struct {
 	// Text is used by non-approval request/response calls.
 	Text string `json:"text,omitempty"`
 	// SessionID is used by session lifecycle RPC calls.
-	SessionID string            `json:"session_id,omitempty"`
-	Answers   map[string]string `json:"answers,omitempty"`
+	SessionID string `json:"session_id,omitempty"`
 	// Rejected reports that the failure described by Reason preceded any
 	// session side effect, so the caller may treat the action as not sent.
 	Rejected bool `json:"rejected,omitempty"`

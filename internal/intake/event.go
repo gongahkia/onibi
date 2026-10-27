@@ -4,7 +4,6 @@ import "github.com/gongahkia/onibi/internal/approval"
 
 const (
 	TypeApprovalRequest = "approval_request"
-	TypeClaudeQuestion  = "claude_question"
 	TypeSessionInput    = "session_input"
 	TypeSessionPeek     = "session_peek"
 	TypeSessionNew      = "session_new"
