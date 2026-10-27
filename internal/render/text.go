@@ -8,25 +8,16 @@ import (
 const (
 	DefaultMaxLines = 40
 	DefaultMaxChars = 3500
-	fence           = "```"
 )
 
-// Options configures TextTail.
+// Options configures TextTailBody.
 type Options struct {
-	MaxLines int    // 0 → DefaultMaxLines
-	MaxChars int    // 0 → DefaultMaxChars
-	Lang     string // optional code-block language hint (e.g. "shell", "")
+	MaxLines int // 0 → DefaultMaxLines
+	MaxChars int // 0 → DefaultMaxChars
 }
 
-// TextTail returns the last N lines of buf, ANSI-stripped, wrapped in a
-// fenced code block. Truncates head-side when the result would exceed
-// MaxChars.
-func TextTail(buf []byte, opts Options) string {
-	body := TextTailBody(buf, opts)
-	lang := opts.Lang
-	return fence + lang + "\n" + body + "\n" + fence
-}
-
+// TextTailBody returns the last MaxLines lines of buf, ANSI-stripped.
+// Truncates head-side when the result would exceed MaxChars.
 func TextTailBody(buf []byte, opts Options) string {
 	if opts.MaxLines <= 0 {
 		opts.MaxLines = DefaultMaxLines
@@ -76,7 +67,7 @@ func TextTailBody(buf []byte, opts Options) string {
 }
 
 // StripANSI removes ANSI escape sequences (CSI sequences and most basic
-// OSC sequences) so the output is suitable for a fenced code block.
+// OSC sequences) so the output is plain text.
 // Conservative — preserves all printable text and newlines.
 func StripANSI(in []byte) []byte {
 	out := make([]byte, 0, len(in))
