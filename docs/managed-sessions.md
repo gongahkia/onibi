@@ -2,7 +2,7 @@
 
 Managed sessions are tmux, Zellij or GNU Screen sessions owned by the Onibi daemon. They keep running when Ghostty quits, have a stable identity, and can be read without focusing anything on the Mac. The web cockpit shows them as **Persistent sessions** alongside Ghostty panes, so this part is not tied to any particular program.
 
-Coding agents get no special treatment. `onibi session new codex`, `claude` or `pi` runs the program exactly as given, with no hooks, settings or flag checks, and the cockpit handles it like any other terminal program: its own prompts appear in the output and raise the generic attention signals. The agent-specific approval and question code is still in the tree but nothing launches it; see [What has no consumer](#what-has-no-consumer).
+Coding agents get no special treatment. `onibi session new codex`, `claude` or `pi` runs the program exactly as given, with no hooks, settings or flag checks, and the cockpit handles it like any other terminal program: its own prompts appear in the output and raise the generic attention signals. Onibi has no agent-specific approval or question handling; see [Removed integrations](#removed-integrations).
 
 ## In the web cockpit
 
@@ -36,7 +36,7 @@ Bells come from tmux. For sessions Onibi starts, tmux counts every bell into a s
 
 ## What still runs
 
-`onibi web` runs the daemon inside the web server when no daemon is already running, so one command (or one `onibi web service`) is enough. The daemon stops with the web server; its multiplexer sessions keep running and are restored at the next start. `onibi start` runs only the daemon, in the foreground and without credentials, and refuses to start when a daemon already owns the socket. It serves the same-user intake socket, restores managed sessions, polls multiplexer liveness, expires approvals and purges staged uploads. `onibi system service install` registers that daemon-only setup as a launchd/systemd user service; it is unnecessary when the web login service is installed.
+`onibi web` runs the daemon inside the web server when no daemon is already running, so one command (or one `onibi web service`) is enough. The daemon stops with the web server; its multiplexer sessions keep running and are restored at the next start. `onibi start` runs only the daemon, in the foreground and without credentials, and refuses to start when a daemon already owns the socket. It serves the same-user intake socket, restores managed sessions, polls multiplexer liveness and purges staged uploads. `onibi system service install` registers that daemon-only setup as a launchd/systemd user service; it is unnecessary when the web login service is installed.
 
 These CLI paths reach it over the intake socket:
 
@@ -53,27 +53,20 @@ The web cockpit uses the `session_list`, `session_capture`, `session_key`, `sess
 
 | Capability | Code | Behaviour without a surface |
 | --- | --- | --- |
-| Pi and Claude tool approvals | `internal/approval`, `Daemon.handleApprovalRequest`, `Daemon.claudeArgs`, `internal/pi`, `clients/onibi-notify` | Claude is no longer launched with the hook settings that send requests here, and the `onibi pi install` command that wrote the Pi extension is removed. `onibi doctor` fails while an extension from an older release is still installed, because it blocks Pi tool calls in every Onibi session. If something still calls `onibi-notify`, requests queue with nobody to decide them, expire after `daemon.approval_timeout`, and the agent receives a denial. |
-| Claude `AskUserQuestion` | `internal/daemon/claude_question.go`, `Daemon.AnswerClaudeQuestion` | No longer hooked. Questions arriving anyway are published on `ClaudeQuestionEvents()`, which nothing reads, and are denied after `daemon.claude_question_timeout`, which stops Claude from asking in its terminal. |
-| Codex App Server sessions | `internal/daemon/codex.go`, `internal/codexapp`, `Daemon.StartCodexSession`, `Daemon.RespondCodexRequest` | Not started by any command, and leftover App Server sessions are marked ended on restart instead of resumed. Approval requests would be published on `CodexEvents()`, which nothing reads, so Codex would wait for replies that never arrive. |
-| Agent lifecycle (Pi/Claude turn start and end) | `internal/daemon/pi.go`, `AgentEvents()` | Events are dropped when the buffer is full. |
 | Session ended events | `SessionEvents()` | Logged by the daemon; the channel drops when full. |
 | Multiplexer health alerts | `internal/daemon/health.go` | Logged as `health alert` warnings. |
 | Rendered terminal screenshots and fonts | `internal/render`, `Daemon.CaptureSessionScreen`, `screen.*` config | Never requested. |
 | Staged uploads | `Daemon.StageUpload`, `daemon.upload_*` config | Nothing calls `StageUpload`; the expiry sweep still runs. |
 | Keychain/env-file secrets | `internal/secrets` | Not used by any command. A previously stored bot token remains under keychain service `sh.onibi.daemon`, account `TELEGRAM_BOT_TOKEN`, or in the `.env` fallback file in the state directory. Delete it there if you no longer need it, and revoke the bot with BotFather. |
 
-## Wiring agent decisions
+## Removed integrations
 
-The web cockpit covers terminal control. A surface for agent decisions would replace the rest of what the Telegram bridge did. At minimum it should:
+The Pi approval extension, the Claude Code approval and `AskUserQuestion` hooks, the Codex App Server transport, and the `onibi-notify` hook client they relied on have been removed. They are available at commit `e0bbe9e1` (`internal/approval`, `internal/daemon/claude.go`, `internal/daemon/claude_question.go`, `internal/daemon/codex.go`, `internal/codexapp`, `internal/pi`, `clients/onibi-notify`). Upgrading from a release that had them:
 
-1. Hold one `Daemon` (or talk to it over the intake socket) and read `CodexEvents()`, `AgentEvents()`, `ClaudeQuestionEvents()` and `SessionEvents()` continuously so producers never block.
-2. Subscribe to `Queue.Subscribe()` and resolve approvals with `Queue.DecideIdempotently`. Replay pending approvals with `Queue.Pending` after reconnecting.
-3. Answer Codex requests with `RespondCodexRequest` and Claude questions with `AnswerClaudeQuestion` or `CancelClaudeQuestion`.
-4. Use `SendSessionText`, `SendSessionKey`, `ControlSession`, `ResizeSession`, `CaptureSessionTail` and `CaptureSessionScreen` for input and output.
-5. Record a claim before any input side effect and report interrupted actions as uncertain instead of replaying them. The web cockpit's receipts (`internal/web/receipts.go`) are the existing model.
-6. Bind each decision or destructive control to an explicit session ID, as the web close confirmation does.
-
-When the hooks are wired again, launch Claude through `Daemon.claudeArgs`. It adds the owned settings file and rejects `--bare`, `--settings`, `--dangerously-skip-permissions`, `--allow-dangerously-skip-permissions`, and the `bypassPermissions`/`dontAsk` permission modes, because those bypass the decision path. Only do this once the surface answers both approvals and questions; an unanswered hook is worse than none.
+- Opening the state database drops the `approvals` and `claude_questions` tables, which may hold raw tool input and answers, and deletes stored Codex thread IDs. Codex App Server sessions recorded by an earlier release are marked ended instead of restored.
+- `daemon.approval_timeout`, `daemon.claude_question_timeout`, `daemon.approval_sweep_interval` and `daemon.max_subscribers` are ignored in `config.yaml` and dropped the next time `onibi config set` saves it.
+- `make update` and `make uninstall` remove the `onibi-notify` binary an older source install recorded, while it still matches its checksum.
+- The intake socket refuses `approval_request`, `claude_question` and `agent_lifecycle` requests.
+- `onibi doctor` fails while the Pi extension from an older release is still installed (by default `~/.pi/agent/extensions/onibi.ts`), because it blocks Pi tool calls in every Onibi session. Delete the file and run `/reload` in Pi.
 
 The removed Telegram implementation is available at commit `b3c6fc90` (`internal/daemon/telegram_bridge.go`, `internal/telegram`, `docs/telegram.md`) and is a useful reference for card state, outbox retries and screen debouncing.

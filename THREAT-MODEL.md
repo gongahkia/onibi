@@ -17,8 +17,7 @@ The managed-session daemon (run by `onibi web` unless one is already running, or
 - Concurrent inventory polling shares only in-flight work and backs off after failure. Mutations bypass polling backoff and validate fresh native targets; no cached list authorizes input. Capture and native availability are tracked separately so an HTTP response or successful read cannot clear a failed inventory observation in the phone interface.
 - Managed-session actions use the same receipts, grant rechecks and CSRF checks as Ghostty actions. The server confirms the session in a fresh daemon listing before dispatch, and the daemon accepts only the full session ID from web requests, never a name or prefix match. Ending a session requires a confirmation naming it. Captured colours are parsed into inert text runs; other terminal escape sequences are dropped.
 - Push notifications are opt-in per browser and stored against that browser's grant; revoking or expiring the grant stops them. The server posts only to the HTTPS endpoints of the browser vendors' push services (Apple, Google, Mozilla, Microsoft), never to an arbitrary URL a browser supplies, and does not follow redirects. Payloads are encrypted for the subscribing browser (RFC 8291) and contain the session name and a generic reason such as "Yes/no prompt", never terminal output. The VAPID signing key lives in the state database.
-- Local state and uploaded files use restrictive filesystem permissions. The intake socket is same-user only.
-- Approvals and Claude questions expire or are cancelled when their waiter goes away. Resolved raw payloads are scrubbed after 24 hours; audit hashes and decision metadata remain.
+- Local state and uploaded files use restrictive filesystem permissions. The intake socket is same-user only and accepts only session control requests. Opening a state database from an earlier release drops its stored tool approvals and Claude questions.
 
 ## Residual risks
 
