@@ -16,7 +16,7 @@ import (
 
 func systemCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "system", Short: "Inspect local Onibi state"}
-	status := &cobra.Command{Use: "status", Short: "Show daemon and Telegram state", RunE: runSystemStatus}
+	status := &cobra.Command{Use: "status", Short: "Show daemon and service state", RunE: runSystemStatus}
 	configCmd := &cobra.Command{Use: "config", Short: "Read or write configuration"}
 	resolve := &cobra.Command{Use: "resolve", Short: "Show the multiplexer configuration resolved for a working directory", RunE: runConfigResolve}
 	resolve.Flags().String("cwd", "", "project working directory")
@@ -81,7 +81,7 @@ func runSystemStatus(cmd *cobra.Command, _ []string) error {
 	if daemonRunning {
 		fmt.Fprintf(cmd.OutOrStdout(), "daemon_status=%s\n", strings.ReplaceAll(strings.TrimSpace(ping.Text), "\n", "; "))
 	}
-	return runTelegramStatus(cmd, nil)
+	return nil
 }
 func loadConfig() (config.Paths, config.Config, error) {
 	paths, err := config.DefaultPaths()

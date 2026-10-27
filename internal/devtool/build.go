@@ -1,5 +1,5 @@
 // Package devtool implements the source-checkout build and binary lifecycle.
-// It deliberately has no dependency on Ghostty, Telegram, or their runtimes.
+// It deliberately has no dependency on Ghostty or its runtime.
 package devtool
 
 import (

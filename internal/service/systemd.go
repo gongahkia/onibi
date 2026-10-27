@@ -77,7 +77,7 @@ func (m *Manager) systemdStatus(ctx context.Context) Status {
 
 func (m *Manager) systemdUnit() string {
 	return `[Unit]
-Description=Onibi Telegram command center
+Description=Onibi managed-session daemon
 After=network-online.target
 
 [Service]

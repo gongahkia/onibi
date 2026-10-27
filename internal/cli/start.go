@@ -1,13 +1,11 @@
 package cli
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"log/slog"
 	"os/signal"
 	"path/filepath"
-	"strconv"
 	"syscall"
 
 	"github.com/gongahkia/onibi/internal/config"
@@ -55,26 +53,4 @@ func runStart(cmd *cobra.Command, _ []string) error {
 	defer stop()
 	d := daemon.New(daemon.Options{Paths: paths, DB: db, Log: logger, ApprovalTTL: cfg.Daemon.ApprovalTimeout.Std(), ClaudeQuestionTimeout: cfg.Daemon.ClaudeQuestionTimeout.Std(), ApprovalSweepInterval: cfg.Daemon.ApprovalSweepInterval.Std(), ApprovalMaxSubscribers: cfg.Daemon.MaxSubscribers, OutputBufferSize: cfg.Daemon.OutputBufferBytes, LivenessInterval: cfg.Daemon.LivenessInterval.Std(), UploadTTL: cfg.Daemon.UploadTTL.Std(), UploadMaxBytes: cfg.Daemon.UploadMaxBytes, ShellDefault: cfg.Shell.Default, ShellLogin: cfg.Shell.Login, ScreenFont: cfg.Screen.Font, ScreenFontPath: cfg.Screen.FontPath})
 	return d.Run(ctx)
-}
-func telegramBinding(ctx context.Context, db interface {
-	KVGetString(context.Context, string) (string, bool, error)
-}) (int64, int64) {
-	chat, _, _ := db.KVGetString(ctx, daemon.TelegramKVOwnerChatID)
-	user, _, _ := db.KVGetString(ctx, daemon.TelegramKVOwnerUserID)
-	chatID, _ := strconv.ParseInt(chat, 10, 64)
-	userID, _ := strconv.ParseInt(user, 10, 64)
-	return chatID, userID
-}
-func ensurePairCode(ctx context.Context, db interface {
-	KVGetString(context.Context, string) (string, bool, error)
-	KVSetString(context.Context, string, string) error
-}) (string, error) {
-	if code, ok, err := db.KVGetString(ctx, daemon.TelegramKVPairCode); err == nil && ok && code != "" {
-		return code, nil
-	}
-	code, err := daemon.NewTelegramPairCode()
-	if err != nil {
-		return "", err
-	}
-	return code, db.KVSetString(ctx, daemon.TelegramKVPairCode, code)
 }

@@ -10,10 +10,8 @@ import (
 	"time"
 
 	"github.com/gongahkia/onibi/internal/config"
-	"github.com/gongahkia/onibi/internal/daemon"
 	"github.com/gongahkia/onibi/internal/intake"
 	"github.com/gongahkia/onibi/internal/render"
-	"github.com/gongahkia/onibi/internal/telegram"
 	"github.com/gongahkia/onibi/internal/tmux"
 	"github.com/spf13/cobra"
 )
@@ -29,7 +27,6 @@ func doctorCmd() *cobra.Command {
 		RunE:          runDoctor,
 		SilenceErrors: true,
 	}
-	cmd.Flags().Bool("check-telegram", false, "validate the configured bot token with Telegram")
 	return cmd
 }
 
@@ -80,7 +77,6 @@ func (r doctorReport) writeTo(cmd *cobra.Command) {
 func runDoctor(cmd *cobra.Command, _ []string) error {
 	ctx, cancel := context.WithTimeout(contextOrBackground(cmd.Context()), 12*time.Second)
 	defer cancel()
-	checkTelegram, _ := cmd.Flags().GetBool("check-telegram")
 	report := doctorReport{}
 
 	if runtime.GOOS == "linux" || runtime.GOOS == "darwin" {
@@ -114,22 +110,6 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 		report.add(doctorOK, "config", "defaults ("+paths.Config+" will be created when configured)")
 	}
 	doctorCheckMultiplexer(&report, cfg)
-
-	token, tokenErr := doctorTelegramToken(ctx, paths)
-	if tokenErr != nil {
-		report.add(doctorFail, "Telegram token", tokenErr.Error())
-	} else if token == "" {
-		report.add(doctorFail, "Telegram token", "missing; run onibi telegram setup --token <BotFather token>")
-	} else if !telegram.ValidBotToken(token) {
-		report.add(doctorFail, "Telegram token", "does not look like a BotFather token")
-	} else {
-		report.add(doctorOK, "Telegram token", "configured")
-	}
-	if checkTelegram {
-		doctorCheckTelegram(ctx, &report, token, tokenErr)
-	} else {
-		report.add(doctorInfo, "Telegram API", "not checked; rerun with --check-telegram")
-	}
 
 	doctorCheckProgram(&report, "codex", "optional; required for Codex sessions")
 	doctorCheckProgram(&report, "claude", "optional; required for Claude Code sessions")
@@ -181,34 +161,6 @@ func doctorCheckPrivateDirectory(path string) error {
 		return fmt.Errorf("permissions %#o are too broad; run chmod 700 %s", info.Mode().Perm(), path)
 	}
 	return nil
-}
-
-func doctorTelegramToken(ctx context.Context, paths config.Paths) (string, error) {
-	if value := strings.TrimSpace(os.Getenv("ONIBI_TELEGRAM_TOKEN")); value != "" {
-		return value, nil
-	}
-	store, err := telegramSecrets(paths)
-	if err != nil {
-		return "", err
-	}
-	value, ok, err := store.GetWithTimeout(ctx, daemon.TelegramSecretBotToken, 3*time.Second)
-	if err != nil || !ok {
-		return "", err
-	}
-	return strings.TrimSpace(value), nil
-}
-
-func doctorCheckTelegram(ctx context.Context, report *doctorReport, token string, tokenErr error) {
-	if tokenErr != nil || !telegram.ValidBotToken(token) {
-		report.add(doctorInfo, "Telegram API", "skipped because no valid token is available")
-		return
-	}
-	bot, err := telegram.NewClient(token).GetMe(ctx)
-	if err != nil {
-		report.add(doctorFail, "Telegram API", err.Error())
-		return
-	}
-	report.add(doctorOK, "Telegram API", "connected to @"+bot.Username)
 }
 
 func doctorCheckProgram(report *doctorReport, program, missingDetail string) {

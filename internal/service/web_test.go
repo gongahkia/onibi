@@ -71,7 +71,7 @@ func TestWebServiceLifecycleIsSeparateAndPreservesFailedStops(t *testing.T) {
 		}
 	}
 	if strings.Contains(string(raw), Label) || strings.Contains(string(raw), "token=") {
-		t.Fatal("web service shares Telegram identity or logs secret")
+		t.Fatal("web service shares daemon identity or logs secret")
 	}
 	if info, _ := os.Stat(path); info.Mode().Perm() != 0600 {
 		t.Fatal("service configuration not private")

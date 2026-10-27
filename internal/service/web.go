@@ -18,7 +18,7 @@ import (
 const WebLabel = "sh.onibi.web"
 
 // WebManager manages the native web cockpit in the user's graphical login
-// session, independently of the Telegram daemon. No system/root service exists.
+// session, independently of the managed-session daemon. No system/root service exists.
 type WebManager struct{ *Manager }
 
 func (m WebManager) path() (string, error) {

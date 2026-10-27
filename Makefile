@@ -1,4 +1,4 @@
-.PHONY: help build install update upgrade uninstall install-status setup doctor dogfood test unit test-browser vet tidy run clean telegram-setup telegram-doctor telegram-run telegram-dogfood
+.PHONY: help build install update upgrade uninstall install-status setup doctor dogfood test unit test-browser vet tidy run clean
 
 BINARY := onibi
 NOTIFY_BINARY := onibi-notify
@@ -32,36 +32,8 @@ upgrade: update
 install-status:
 	@sh scripts/onibi-dev.sh status --prefix "$(INSTALL_DIR)"
 
-# First-time setup stores and validates a BotFather token. It prompts with
-# hidden input when ONIBI_TELEGRAM_TOKEN is not already set, so CI can still
-# provide the token non-interactively. Use a dedicated dogfooding bot.
-telegram-setup: build
-	$(Q)printf '%s\n' '==> 👻 Setting up your Telegram bot'
-	$(Q)onibi_setup_token="$$ONIBI_TELEGRAM_TOKEN"; \
-	if test -z "$$onibi_setup_token"; then \
-		if test ! -t 0; then echo "Set ONIBI_TELEGRAM_TOKEN when setup is non-interactive." >&2; exit 1; fi; \
-		printf "BotFather token: " >&2; \
-		stty -echo; trap 'stty echo; printf "\\n" >&2; exit 130' HUP INT TERM; \
-		IFS= read -r onibi_setup_token; onibi_setup_read_status=$$?; \
-		trap - HUP INT TERM; stty echo; printf "\\n" >&2; \
-		test "$$onibi_setup_read_status" -eq 0 || exit "$$onibi_setup_read_status"; \
-	fi; \
-	if test -z "$$onibi_setup_token"; then echo "A BotFather token is required." >&2; exit 1; fi; \
-	ONIBI_TELEGRAM_TOKEN="$$onibi_setup_token" $(BUILD_DIR)/$(BINARY) telegram setup
-	$(Q)printf '%s\n' '==> 👻 Checking readiness'
-	$(Q)$(BUILD_DIR)/$(BINARY) doctor
-
 doctor: build
 	$(Q)$(BUILD_DIR)/$(BINARY) web doctor
-
-telegram-doctor: build
-	$(Q)$(BUILD_DIR)/$(BINARY) doctor
-
-# Runs the readiness checks then starts a foreground daemon. Stop it with Ctrl-C.
-telegram-dogfood: build
-	$(Q)$(BUILD_DIR)/$(BINARY) doctor
-	$(Q)printf '%s\n' '==> 👻 Starting Onibi in the foreground (Ctrl-C to stop)'
-	$(Q)$(BUILD_DIR)/$(BINARY) start
 
 # Removes only manifest-owned binaries and their login services. State stays.
 uninstall:
@@ -89,9 +61,6 @@ setup: doctor
 
 dogfood: doctor
 	$(Q)$(BUILD_DIR)/$(BINARY) web
-
-telegram-run: build
-	$(Q)$(BUILD_DIR)/$(BINARY) start
 
 clean:
 	$(Q)rm -rf $(BUILD_DIR)
