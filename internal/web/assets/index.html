@@ -9,8 +9,8 @@
     <meta name="theme-color" content="#101010" />
     <meta name="color-scheme" content="dark" />
     <meta name="referrer" content="no-referrer" />
-    <title>Onibi · Your Ghostty cockpit</title>
-    <link rel="icon" href="icon.svg" type="image/svg+xml" />
+    <title>ONIBI</title>
+    <link rel="icon" href="blank.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="apple-touch-icon.png" />
     <meta name="apple-mobile-web-app-title" content="Onibi" />
     <link rel="manifest" href="manifest.webmanifest" />
@@ -27,7 +27,6 @@
     <a class="skip-link" href="#main">Skip to terminal</a>
     <header class="site-header">
       <a class="brand" href="./" aria-label="Onibi home">onibi</a>
-      <p class="tagline">Your Mac’s terminals, wherever you are</p>
       <div class="header-actions" id="session-controls" hidden>
         <button
           class="connection quiet"
@@ -44,24 +43,24 @@
     <main id="main" tabindex="-1">
       <section class="pair-view" id="pair-view" aria-labelledby="pair-heading">
         <div class="pair-intro">
-          <pre class="pair-fire" id="pair-fire" aria-hidden="true"></pre>
-          <span class="eyebrow">GHOSTTY, WITHIN REACH</span>
-          <h1 id="pair-heading">Your Mac.<br />Where you are.</h1>
-          <p>
-            Control the terminals already running on your Mac. One browser, one
-            explicit destination.
-          </p>
+          <h1 class="visually-hidden" id="pair-heading">Onibi</h1>
+          <div class="pair-mark" aria-hidden="true">
+            <pre class="pair-fire" id="pair-fire"></pre>
+            <pre
+              class="pair-logo"
+            > <span class="solid">██████</span><span class="shade">╗</span> <span class="solid">███</span><span class="shade">╗</span>   <span class="solid">██</span><span class="shade">╗</span><span class="solid">██</span><span class="shade">╗</span><span class="solid">██████</span><span class="shade">╗</span> <span class="solid">██</span><span class="shade">╗</span>
+<span class="solid">██</span><span class="shade">╔═══</span><span class="solid">██</span><span class="shade">╗</span><span class="solid">████</span><span class="shade">╗</span>  <span class="solid">██</span><span class="shade">║</span><span class="solid">██</span><span class="shade">║</span><span class="solid">██</span><span class="shade">╔══</span><span class="solid">██</span><span class="shade">╗</span><span class="solid">██</span><span class="shade">║</span>
+<span class="solid">██</span><span class="shade">║</span>   <span class="solid">██</span><span class="shade">║</span><span class="solid">██</span><span class="shade">╔</span><span class="solid">██</span><span class="shade">╗</span> <span class="solid">██</span><span class="shade">║</span><span class="solid">██</span><span class="shade">║</span><span class="solid">██████</span><span class="shade">╔╝</span><span class="solid">██</span><span class="shade">║</span>
+<span class="solid">██</span><span class="shade">║</span>   <span class="solid">██</span><span class="shade">║</span><span class="solid">██</span><span class="shade">║╚</span><span class="solid">██</span><span class="shade">╗</span><span class="solid">██</span><span class="shade">║</span><span class="solid">██</span><span class="shade">║</span><span class="solid">██</span><span class="shade">╔══</span><span class="solid">██</span><span class="shade">╗</span><span class="solid">██</span><span class="shade">║</span>
+<span class="shade">╚</span><span class="solid">██████</span><span class="shade">╔╝</span><span class="solid">██</span><span class="shade">║</span> <span class="shade">╚</span><span class="solid">████</span><span class="shade">║</span><span class="solid">██</span><span class="shade">║</span><span class="solid">██████</span><span class="shade">╔╝</span><span class="solid">██</span><span class="shade">║</span>
+ <span class="shade">╚═════╝</span> <span class="shade">╚═╝</span>  <span class="shade">╚═══╝╚═╝╚═════╝</span> <span class="shade">╚═╝</span></pre>
+          </div>
         </div>
         <form class="pair-card" id="pair-form">
           <span class="card-kicker"
             ><span class="status-dot"></span> PRIVATE CONNECTION</span
           >
           <h2>Connect this browser.</h2>
-          <p id="pair-description">
-            Open the pairing link printed by Onibi on your Mac, or paste its
-            one-time token. For a fresh link, run <code>onibi web pair</code> on
-            your Mac.
-          </p>
           <label for="pair-token">Pairing token</label>
           <input
             id="pair-token"
@@ -71,7 +70,7 @@
             spellcheck="false"
             required
             placeholder="Your one-time token"
-            aria-describedby="pair-description pair-message"
+            aria-describedby="pair-message"
           />
           <label for="device-name">Name this browser</label>
           <input
@@ -100,12 +99,6 @@
           <p class="form-message" id="pair-message" role="status">
             Checking this browser’s connection…
           </p>
-          <div class="pair-footnote">
-            <p>
-              Served by your Mac. Connected privately.<br />Work keeps running
-              in Ghostty.
-            </p>
-          </div>
         </form>
       </section>
       <section
@@ -116,10 +109,9 @@
       >
         <aside class="destinations" aria-label="Available terminals">
           <div class="section-heading">
-            <div>
-              <span class="eyebrow">TERMINALS</span>
-              <h2>Your terminals</h2>
-            </div>
+            <p class="fleet-count" id="fleet-count">
+              Finding your Mac’s terminals…
+            </p>
             <button
               class="icon-button"
               id="refresh-targets"
@@ -129,9 +121,6 @@
               ↻
             </button>
           </div>
-          <p class="fleet-count" id="fleet-count">
-            Finding your Mac’s terminals…
-          </p>
           <label class="search-field"
             ><span aria-hidden="true">⌕</span
             ><input
@@ -162,13 +151,9 @@
         <div class="terminal-workspace">
           <div class="workspace-heading">
             <div class="workspace-title">
-              <span class="eyebrow" id="destination-context"
-                >READY WHEN YOU ARE</span
-              >
-              <h1 id="destination-title">Choose a terminal</h1>
-              <p id="destination-detail">
-                An existing Ghostty pane on your Mac
-              </p>
+              <span class="eyebrow" id="destination-context" hidden></span>
+              <h1 id="destination-title" hidden></h1>
+              <p id="destination-detail" hidden></p>
             </div>
             <div class="heading-actions">
               <button

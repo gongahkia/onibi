@@ -867,22 +867,31 @@ function restoreListFocus(container, focusedId) {
       ?.focus({ preventScroll: true });
 }
 
+function setHeading(id, text) {
+  byId(id).textContent = text;
+  byId(id).hidden = !text;
+}
+
 function renderSessionDestination(session) {
   const name = sessionName(session);
   const attention = session.attention || {};
   byId("reader-destination").textContent =
     `${name} · ${sessionDetail(session)}`;
   byId("focus-terminal").hidden = true;
-  byId("destination-context").textContent =
+  setHeading(
+    "destination-context",
     attention.state === "input" || attention.state === "bell"
       ? "NEEDS YOU · " +
-        (attention.reason || attentionLabels[attention.state]).toUpperCase()
-      : "PERSISTENT SESSION";
+          (attention.reason || attentionLabels[attention.state]).toUpperCase()
+      : "",
+  );
   byId("focus-hint").textContent = "";
   byId("keyboard-destination").textContent = `Keys go to ${name}`;
-  byId("destination-title").textContent = name;
-  byId("destination-detail").textContent =
-    sessionDetail(session) + (session.command ? " · " + session.command : "");
+  setHeading("destination-title", name);
+  setHeading(
+    "destination-detail",
+    sessionDetail(session) + (session.command ? " · " + session.command : ""),
+  );
   byId("compose-destination").textContent = name;
   byId("compose-destination").title = `${session.transport} / ${session.id}`;
   byId("snapshot-kind").textContent = "Scrollback + screen";
@@ -900,11 +909,7 @@ function renderDestination() {
     : "No pane selected";
   if (!target) byId("reader-dialog").close();
   byId("focus-terminal").hidden = !target || Boolean(target.focused);
-  byId("destination-context").textContent = target
-    ? target.focused
-      ? "FOCUSED ON YOUR MAC"
-      : "YOUR SELECTED PANE"
-    : "READY WHEN YOU ARE";
+  setHeading("destination-context", "");
   byId("focus-hint").textContent = target?.focused
     ? ""
     : "Focus & read brings this pane forward on your Mac.";
@@ -914,12 +919,13 @@ function renderDestination() {
   byId("keyboard-destination").textContent = target
     ? `Keys go to ${targetName(target)} · ${tabName(target)}`
     : "Choose a pane before sending keys.";
-  byId("destination-title").textContent = target
-    ? targetName(target)
-    : "Choose a terminal";
-  byId("destination-detail").textContent = target
-    ? `${windowName(target)} / ${tabName(target)}${target.cwd ? " · " + target.cwd : ""}`
-    : "An existing Ghostty pane on your Mac";
+  setHeading("destination-title", target ? targetName(target) : "");
+  setHeading(
+    "destination-detail",
+    target
+      ? `${windowName(target)} / ${tabName(target)}${target.cwd ? " · " + target.cwd : ""}`
+      : "",
+  );
   byId("compose-destination").textContent = target
     ? targetName(target)
     : "No destination";
@@ -942,8 +948,7 @@ function renderFleetCount() {
 }
 function renderAttentionTitle() {
   const waiting = state.sessions.filter(needsAttention).length;
-  document.title =
-    (waiting ? `(${waiting}) ` : "") + "Onibi · Your Ghostty cockpit";
+  document.title = (waiting ? `(${waiting}) ` : "") + "ONIBI";
 }
 
 // Session listing is independent of Ghostty: a daemon that is not running
@@ -2213,9 +2218,7 @@ setInterval(() => {
     authenticated(await api("/api/session"));
   } catch (error) {
     pairMessage(
-      error.status === 401
-        ? "A one-time pairing keeps this browser connected securely."
-        : error.message,
+      error.status === 401 ? "" : error.message,
       error.status !== 401,
     );
   }
@@ -2228,9 +2231,7 @@ function presentPairingToken(token) {
     requirePairing("Review this browser’s access before connecting.");
   byId("pair-token").value = token;
   byId("remember-browser").checked = false;
-  pairMessage(
-    "Link ready. Name this browser and choose whether to remember it.",
-  );
+  pairMessage("");
 }
 byId("resume-browser").addEventListener("click", async () => {
   byId("resume-browser").disabled = true;

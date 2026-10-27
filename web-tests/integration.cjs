@@ -520,9 +520,7 @@ async function selectWork(page) {
   assert.equal(await page.locator("#close-pane-list li").count(), 2);
   await page.click("#confirm-close");
   await page.waitForFunction(
-    () =>
-      document.getElementById("destination-title").textContent ===
-      "Choose a terminal",
+    () => document.getElementById("destination-title").textContent === "",
   );
   assert.equal(await page.textContent("#action-title"), "Close confirmed");
   assert.equal(

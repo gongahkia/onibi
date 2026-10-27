@@ -34,21 +34,27 @@
     cool();
     const sway = Math.sin(tick / 11) + Math.sin(tick / 27) * 0.5;
     const height = 0.86 + Math.sin(tick / 5) * 0.05 + Math.random() * 0.05;
-    const radius = W * 0.32;
+    const radius = W * 0.3;
+    // Cells are about 1.5x taller than wide, so the round bulb spans fewer rows.
+    const bulb = Math.min(0.5, radius / 1.5 / ((H - 1) * height));
     const grid = new Array(W * H).fill(0);
     for (let y = 0; y < H; y++) {
       // v runs from 0 at the base to 1 at the tip of the flame.
-      const v = (H - 1 - y) / ((H - 1) * height);
+      const v = (H - 0.6 - y) / ((H - 1) * height);
       if (v > 1) continue;
       const half =
-        radius * Math.pow(1 - v, 1.3) * Math.min(1, Math.sqrt(v * 7 + 0.08));
+        v < bulb
+          ? radius * Math.sqrt(1 - Math.pow(1 - v / bulb, 2))
+          : radius * Math.pow((1 - v) / (1 - bulb), 1.15);
       const centre =
         (W - 1) / 2 + sway * v * v * 2.5 + Math.sin(v * 7 - tick / 3) * v * 1.2;
       for (let x = 0; x < W; x++) {
         const d = Math.abs(x - centre) / (half + 0.35);
         if (d >= 1) continue;
-        const body = Math.pow(1 - d * d, 0.6) * (1 - v * 0.45);
-        const flicker = 0.55 + noise[y * W + x] * 0.6;
+        const body = Math.pow(1 - d * d, 0.45) * (1 - v * 0.45);
+        // Steady near the base so its curve holds; wilder toward the tip.
+        const wild = Math.min(1, v / bulb) * 0.45 + 0.15;
+        const flicker = 1 - wild + noise[y * W + x] * wild * 1.3;
         grid[y * W + x] = Math.min(1, body * flicker);
       }
     }

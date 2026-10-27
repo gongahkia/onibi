@@ -229,10 +229,6 @@ textarea:focus {
   white-space: nowrap;
 }
 
-.tagline {
-  color: var(--muted);
-  font-size: 12px;
-}
 .header-actions {
   display: flex;
   align-items: center;
@@ -283,17 +279,14 @@ main {
 .section-heading {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
-}
-.section-heading h2 {
-  margin-top: 4px;
-  font-size: 20px;
+  margin-bottom: 18px;
 }
 .fleet-count {
   font-size: 12px;
   color: var(--muted);
-  margin: 14px 0 18px;
+  margin: 0;
   font-variant-numeric: tabular-nums;
 }
 .search-field {
@@ -878,21 +871,6 @@ main {
   align-items: center;
   gap: 80px;
 }
-.pair-intro h1 {
-  font-size: 56px;
-  font-weight: 550;
-  letter-spacing: -0.065em;
-  line-height: 1.08;
-  margin: 17px 0 22px;
-}
-.pair-intro > p {
-  font-size: 16px;
-  line-height: 1.9;
-  color: var(--muted);
-}
-.pair-intro > .eyebrow {
-  color: var(--positive);
-}
 
 .pair-card {
   background: var(--surface);
@@ -936,17 +914,6 @@ main {
 }
 .form-message.error {
   color: var(--danger);
-}
-.pair-footnote {
-  display: flex;
-  gap: 14px;
-  align-items: center;
-  padding-top: 22px;
-  margin-top: 24px;
-  border-top: 1px solid var(--line);
-  font-size: 11px;
-  color: var(--muted);
-  line-height: 1.8;
 }
 
 dialog {
@@ -1146,14 +1113,8 @@ dialog::backdrop {
     padding: 25px 16px;
   }
 
-  .tagline {
-    font-size: 11px;
-  }
   .pair-view {
     gap: 40px;
-  }
-  .pair-intro h1 {
-    font-size: 48px;
   }
   .pair-card {
     padding: 26px;
@@ -1171,12 +1132,6 @@ dialog::backdrop {
     font-size: 27px;
   }
 
-  .tagline {
-    order: 3;
-    flex-basis: 100%;
-    font-size: 10px;
-    margin-top: -2px;
-  }
   .header-actions {
     gap: 4px;
   }
@@ -1186,9 +1141,6 @@ dialog::backdrop {
   .header-actions .quiet {
     font-size: 10px;
     padding: 8px;
-  }
-  body:has(#workspace:not([hidden])) .tagline {
-    display: none;
   }
   .workspace {
     display: block;
@@ -1319,18 +1271,6 @@ dialog::backdrop {
     padding: 0 24px;
   }
 
-  .pair-intro h1 {
-    font-size: 38px;
-    margin: 14px 0 17px;
-    line-height: 1.13;
-  }
-  .pair-intro > .eyebrow {
-    font-size: 8px;
-  }
-  .pair-intro > p {
-    font-size: 13px;
-    line-height: 1.8;
-  }
   .pair-card {
     clear: both;
     margin-top: 30px;
@@ -1396,9 +1336,6 @@ dialog::backdrop {
   }
   .pair-view {
     padding-inline: 18px;
-  }
-  .pair-intro h1 {
-    font-size: 34px;
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -1826,17 +1763,6 @@ dialog::backdrop {
 .pair-intro {
   padding-top: 36px;
 }
-.pair-intro h1 {
-  font-size: clamp(30px, 3.2vw, 44px);
-  letter-spacing: -0.055em;
-  line-height: 1.25;
-  font-weight: 600;
-}
-.pair-intro > p {
-  font-size: 13px;
-  line-height: 1.9;
-  max-width: 36ch;
-}
 .pair-card {
   border: 1px solid var(--line);
   border-radius: 16px;
@@ -1874,8 +1800,41 @@ dialog {
 .danger:hover {
   background: #fff;
 }
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.pair-mark pre {
+  font-family: inherit;
+}
+.pair-mark {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: fit-content;
+  user-select: none;
+}
+.pair-logo {
+  margin: 0;
+  font-size: 10px;
+  line-height: 1.32;
+  letter-spacing: 0;
+  color: var(--text);
+}
+.pair-logo .shade {
+  color: #5a5a5a;
+}
+.pair-logo .solid {
+  background: var(--text);
+  color: transparent;
+  padding-block: 0.08em;
+}
 .pair-fire {
-  margin: 0 0 28px;
+  margin: 0 0 6px;
   font-size: 11px;
   line-height: 1;
   letter-spacing: 0.08em;
@@ -1892,19 +1851,11 @@ dialog {
   .pair-intro {
     padding-top: 0;
   }
-  .pair-intro h1 {
-    font-size: 24px;
-    margin: 0;
-  }
-  .pair-intro > .eyebrow,
-  .pair-intro > p,
-  .pair-fire,
-  .pair-footnote {
+  .pair-fire {
     display: none;
   }
-  .pair-intro > p {
-    max-width: none;
-    font-size: 12px;
+  .pair-logo {
+    font-size: 7px;
   }
   .pair-card {
     padding: 20px;

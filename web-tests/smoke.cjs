@@ -331,10 +331,9 @@ const server = http.createServer(async (req, res) => {
     [],
     "pairing needs no third-party font or branding requests",
   );
-  await page
-    .locator("#pair-message")
-    .filter({ hasText: "one-time pairing" })
-    .waitFor();
+  await page.waitForFunction(
+    () => document.getElementById("pair-message").textContent.trim() === "",
+  );
   await auditAccessibility("Pairing accessibility");
   const connectBounds = await page.locator("#pair-submit").boundingBox();
   assert(
@@ -733,9 +732,7 @@ const server = http.createServer(async (req, res) => {
   await page.click("#open-picker");
   await page.click("#refresh-picker");
   await page.waitForFunction(
-    () =>
-      document.getElementById("destination-title").textContent ===
-      "Choose a terminal",
+    () => document.getElementById("destination-title").textContent === "",
   );
   assert.equal(await page.inputValue("#compose"), "");
   assert.equal(await page.locator("#send-input").isDisabled(), true);
@@ -1019,9 +1016,7 @@ const server = http.createServer(async (req, res) => {
   await page.click("#open-picker");
   await page.click("#refresh-picker");
   await page.waitForFunction(
-    () =>
-      document.getElementById("destination-title").textContent ===
-      "Choose a terminal",
+    () => document.getElementById("destination-title").textContent === "",
   );
   await page.click("#picker-new-window");
   await page.waitForFunction(
