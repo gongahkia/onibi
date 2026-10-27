@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,21 +12,23 @@ import (
 	"github.com/gongahkia/onibi/internal/intake"
 	"github.com/gongahkia/onibi/internal/render"
 	"github.com/gongahkia/onibi/internal/service"
+	"github.com/gongahkia/onibi/internal/termui"
 	"github.com/spf13/cobra"
 )
 
 func systemCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "system", Short: "Inspect local Onibi state"}
-	status := &cobra.Command{Use: "status", Short: "Show daemon and service state", RunE: runSystemStatus}
+	status := &cobra.Command{Use: "status", Short: "Show daemon and service state", Args: cobra.NoArgs, RunE: runSystemStatus}
+	status.Flags().Bool("json", false, "print machine-readable JSON")
 	configCmd := &cobra.Command{Use: "config", Short: "Read or write configuration"}
 	resolve := &cobra.Command{Use: "resolve", Short: "Show the multiplexer configuration resolved for a working directory", RunE: runConfigResolve}
 	resolve.Flags().String("cwd", "", "project working directory")
-	configCmd.AddCommand(&cobra.Command{Use: "get <key>", Args: cobra.ExactArgs(1), RunE: runConfigGet}, &cobra.Command{Use: "set <key> <value>", Args: cobra.ExactArgs(2), RunE: runConfigSet}, &cobra.Command{Use: "list", RunE: runConfigList}, resolve)
-	serviceCmd := &cobra.Command{Use: "service", Short: "Manage background Onibi service"}
-	serviceCmd.AddCommand(&cobra.Command{Use: "install", RunE: runServiceInstall}, &cobra.Command{Use: "remove", RunE: runServiceRemove}, &cobra.Command{Use: "status", RunE: runServiceStatus})
+	configCmd.AddCommand(&cobra.Command{Use: "get <key>", Short: "Print one configuration value", Args: cobra.ExactArgs(1), ValidArgsFunction: completeConfigKeys, RunE: runConfigGet}, &cobra.Command{Use: "set <key> <value>", Short: "Change one configuration value", Example: "  onibi system config set multiplexer.default zellij", Args: cobra.ExactArgs(2), ValidArgsFunction: completeConfigKeys, RunE: runConfigSet}, &cobra.Command{Use: "list", Short: "List every configuration key and its current value", Args: cobra.NoArgs, RunE: runConfigList}, resolve)
+	serviceCmd := &cobra.Command{Use: "service", Short: "Run the sessions daemon as a login service"}
+	serviceCmd.AddCommand(&cobra.Command{Use: "install", Short: "Install and start the daemon as a login service", Args: cobra.NoArgs, RunE: runServiceInstall}, &cobra.Command{Use: "remove", Short: "Stop and remove the login service", Args: cobra.NoArgs, RunE: runServiceRemove}, &cobra.Command{Use: "status", Short: "Show whether the login service is installed and running", Args: cobra.NoArgs, RunE: runServiceStatus})
 	logs := &cobra.Command{Use: "logs", Short: "Show recent daemon logs", RunE: runSystemLogs}
 	logs.Flags().Int("tail", 100, "number of lines")
-	serviceCmd.AddCommand(&cobra.Command{Use: "restart", RunE: runServiceRestart})
+	serviceCmd.AddCommand(&cobra.Command{Use: "restart", Short: "Restart the login service", Args: cobra.NoArgs, RunE: runServiceRestart})
 	cmd.AddCommand(status, configCmd, serviceCmd, logs)
 	return cmd
 }
@@ -77,9 +80,35 @@ func runSystemStatus(cmd *cobra.Command, _ []string) error {
 		status := m.Status(cmd.Context())
 		serviceRunning, serviceInstalled = status.Running, status.Installed
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "state=%s\nsessions=%d\ndaemon_running=%t\nservice_installed=%t\nservice_running=%t\n", paths.StateDir, len(rows), daemonRunning, serviceInstalled, serviceRunning)
+	daemonStatus := ""
 	if daemonRunning {
-		fmt.Fprintf(cmd.OutOrStdout(), "daemon_status=%s\n", strings.ReplaceAll(strings.TrimSpace(ping.Text), "\n", "; "))
+		daemonStatus = strings.ReplaceAll(strings.TrimSpace(ping.Text), "\n", "; ")
+	}
+	if asJSON, _ := cmd.Flags().GetBool("json"); asJSON {
+		enc := json.NewEncoder(cmd.OutOrStdout())
+		enc.SetIndent("", "  ")
+		return enc.Encode(map[string]any{"stateDir": paths.StateDir, "sessions": len(rows), "daemonRunning": daemonRunning, "daemonStatus": daemonStatus, "serviceInstalled": serviceInstalled, "serviceRunning": serviceRunning})
+	}
+	ui := terminalUI(cmd)
+	ui.Banner("Sessions daemon / status")
+	if daemonRunning {
+		ui.Field("Daemon", "Running")
+		ui.Field("Status", daemonStatus)
+	} else {
+		ui.Field("Daemon", "Stopped")
+	}
+	ui.Field("Sessions", fmt.Sprintf("%d running", len(rows)))
+	switch {
+	case serviceRunning:
+		ui.Field("Service", "Installed and running")
+	case serviceInstalled:
+		ui.Field("Service", "Installed, not running")
+	default:
+		ui.Field("Service", "Not installed")
+	}
+	ui.Field("State", termui.ShortPath(paths.StateDir))
+	if !daemonRunning {
+		ui.Note("Start it with onibi start, or install the login service with onibi system service install.")
 	}
 	return nil
 }
@@ -187,4 +216,20 @@ func runServiceStatus(cmd *cobra.Command, _ []string) error {
 	s := m.Status(cmd.Context())
 	fmt.Fprintf(cmd.OutOrStdout(), "installed=%t\nrunning=%t\n%s\n", s.Installed, s.Running, strings.TrimSpace(s.Detail))
 	return nil
+}
+
+func completeConfigKeys(_ *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
+	if len(args) > 0 {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	paths, cfg, err := loadConfig()
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	_, meta, _ := config.Load(paths)
+	var keys []string
+	for _, key := range config.Keys(cfg, meta) {
+		keys = append(keys, key.Key)
+	}
+	return keys, cobra.ShellCompDirectiveNoFileComp
 }

@@ -30,7 +30,7 @@ func webPairCmd() *cobra.Command {
 }
 func webDevicesCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "devices", Short: "List or revoke browsers paired with the running web server"}
-	list := &cobra.Command{Use: "list", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+	list := &cobra.Command{Use: "list", Short: "List browsers that can use the cockpit", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		response, err := webAdminCall(cmd, webadmin.Request{Operation: "devices"})
 		if err != nil {
 			return err

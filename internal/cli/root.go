@@ -8,7 +8,21 @@ import (
 )
 
 func Root() *cobra.Command {
-	root := &cobra.Command{Use: "onibi", Short: "Control Ghostty wherever text renders", SilenceUsage: true, SilenceErrors: true}
+	root := &cobra.Command{
+		Use:   "onibi",
+		Short: "Control Ghostty and persistent terminal sessions from your phone",
+		Long: `Onibi lets a paired phone read and drive your Mac's terminals: Ghostty
+windows, tabs and panes, and persistent tmux, Zellij or Screen sessions that
+keep running when Ghostty quits.`,
+		Example: `  onibi web                      start the phone cockpit and print a pairing link
+  onibi session new codex        run a program in a persistent session
+  onibi session attach codex     attach this terminal to it
+  onibi doctor                   check that everything is ready`,
+		Version:       buildinfo.Version,
+		SilenceUsage:  true,
+		SilenceErrors: true,
+	}
+	root.SetVersionTemplate("onibi {{.Version}}\n")
 	root.PersistentFlags().Bool("plain", false, "disable terminal animation and ASCII art (also ONIBI_PLAIN=1)")
 	root.PersistentFlags().Bool("debug", false, "print debug errors")
 	root.AddCommand(webCmd(), startCmd(), sessionCmd(), systemCmd(), doctorCmd(), versionCmd(), completionCmd())
