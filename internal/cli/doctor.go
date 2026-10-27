@@ -11,6 +11,7 @@ import (
 
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/intake"
+	"github.com/gongahkia/onibi/internal/pi"
 	"github.com/gongahkia/onibi/internal/render"
 	"github.com/gongahkia/onibi/internal/tmux"
 	"github.com/spf13/cobra"
@@ -110,6 +111,7 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 		report.add(doctorOK, "config", "defaults ("+paths.Config+" will be created when configured)")
 	}
 	doctorCheckMultiplexer(&report, cfg)
+	doctorCheckPiExtension(&report)
 
 	doctorCheckDaemon(&report, paths)
 	doctorCheckService(ctx, &report)
@@ -158,6 +160,21 @@ func doctorCheckPrivateDirectory(path string) error {
 		return fmt.Errorf("permissions %#o are too broad; run chmod 700 %s", info.Mode().Perm(), path)
 	}
 	return nil
+}
+
+// doctorCheckPiExtension flags the approval extension older releases
+// installed. It blocks Pi tool calls in every Onibi session because nothing
+// answers its requests any more.
+func doctorCheckPiExtension(report *doctorReport) {
+	path, err := pi.ExtensionPath()
+	if err != nil {
+		return
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil || !strings.Contains(string(raw), "onibi-notify") {
+		return
+	}
+	report.add(doctorFail, "pi extension", "remove "+path+"; Onibi no longer answers its approval requests, so Pi tool calls are blocked in Onibi sessions")
 }
 
 func doctorCheckMultiplexer(report *doctorReport, cfg config.Config) {

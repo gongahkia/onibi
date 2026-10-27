@@ -46,7 +46,6 @@ These CLI paths reach it over the intake socket:
 | `onibi session adopt <tmux\|zellij\|screen> <target>` | Take control of an existing multiplexer session |
 | `onibi session list [--all]` | List sessions from the state database |
 | `onibi system status`, `onibi doctor` | Report daemon, service and multiplexer readiness |
-| `onibi pi install --experimental` | Install the Pi approval extension that calls `onibi-notify` |
 
 The web cockpit uses the `session_list`, `session_capture`, `session_key`, and exact-ID `session_input` and `session_control` RPCs (`internal/daemon/rpc.go`). `session_peek` and the name-matching forms of `session_input` and `session_control` have no caller.
 
@@ -54,7 +53,7 @@ The web cockpit uses the `session_list`, `session_capture`, `session_key`, and e
 
 | Capability | Code | Behaviour without a surface |
 | --- | --- | --- |
-| Pi and Claude tool approvals | `internal/approval`, `Daemon.handleApprovalRequest`, `Daemon.claudeArgs`, `clients/onibi-notify` | Claude is no longer launched with the hook settings that send requests here. If something still calls `onibi-notify`, requests queue with nobody to decide them, expire after `daemon.approval_timeout`, and the agent receives a denial. |
+| Pi and Claude tool approvals | `internal/approval`, `Daemon.handleApprovalRequest`, `Daemon.claudeArgs`, `internal/pi`, `clients/onibi-notify` | Claude is no longer launched with the hook settings that send requests here, and the `onibi pi install` command that wrote the Pi extension is removed. `onibi doctor` fails while an extension from an older release is still installed, because it blocks Pi tool calls in every Onibi session. If something still calls `onibi-notify`, requests queue with nobody to decide them, expire after `daemon.approval_timeout`, and the agent receives a denial. |
 | Claude `AskUserQuestion` | `internal/daemon/claude_question.go`, `Daemon.AnswerClaudeQuestion` | No longer hooked. Questions arriving anyway are published on `ClaudeQuestionEvents()`, which nothing reads, and are denied after `daemon.claude_question_timeout`, which stops Claude from asking in its terminal. |
 | Codex App Server sessions | `internal/daemon/codex.go`, `internal/codexapp`, `Daemon.StartCodexSession`, `Daemon.RespondCodexRequest` | Not started by any command, and leftover App Server sessions are marked ended on restart instead of resumed. Approval requests would be published on `CodexEvents()`, which nothing reads, so Codex would wait for replies that never arrive. |
 | Agent lifecycle (Pi/Claude turn start and end) | `internal/daemon/pi.go`, `AgentEvents()` | Events are dropped when the buffer is full. |

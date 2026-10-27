@@ -11,7 +11,7 @@ func Root() *cobra.Command {
 	root := &cobra.Command{Use: "onibi", Short: "Control Ghostty wherever text renders", SilenceUsage: true, SilenceErrors: true}
 	root.PersistentFlags().Bool("plain", false, "disable terminal animation and ASCII art (also ONIBI_PLAIN=1)")
 	root.PersistentFlags().Bool("debug", false, "print debug errors")
-	root.AddCommand(webCmd(), startCmd(), sessionCmd(), piCmd(), systemCmd(), doctorCmd(), versionCmd(), completionCmd())
+	root.AddCommand(webCmd(), startCmd(), sessionCmd(), systemCmd(), doctorCmd(), versionCmd(), completionCmd())
 	return root
 }
 func DebugEnabled(root *cobra.Command) bool { v, _ := root.Flags().GetBool("debug"); return v }

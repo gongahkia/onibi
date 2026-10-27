@@ -18,6 +18,23 @@ func TestDoctorReportFailures(t *testing.T) {
 	}
 }
 
+func TestDoctorFlagsLeftoverPiExtension(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "onibi.ts")
+	t.Setenv("ONIBI_PI_EXTENSION", path)
+	report := doctorReport{}
+	doctorCheckPiExtension(&report)
+	if len(report.checks) != 0 {
+		t.Fatalf("missing extension reported %#v", report.checks)
+	}
+	if err := os.WriteFile(path, []byte(`const ONIBI_NOTIFY = "/usr/local/bin/onibi-notify";`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	doctorCheckPiExtension(&report)
+	if report.failures() != 1 {
+		t.Fatalf("checks = %#v", report.checks)
+	}
+}
+
 func TestDoctorCheckState(t *testing.T) {
 	t.Run("missing state is ready for first setup", func(t *testing.T) {
 		base := t.TempDir()
