@@ -419,34 +419,27 @@
       </section>
     </main>
 
-    <dialog
-      class="picker-dialog"
-      id="target-picker"
-      aria-labelledby="picker-title"
-    >
+    <dialog class="picker-dialog" id="target-picker" aria-label="Terminals">
       <div class="dialog-heading">
-        <div>
-          <span class="eyebrow">FIND YOUR PLACE</span>
-          <h2 id="picker-title">Your terminals</h2>
-        </div>
+        <label class="search-field"
+          ><span aria-hidden="true">⌕</span
+          ><input
+            id="picker-search"
+            type="search"
+            placeholder="Pane, tab, or folder"
+            aria-label="Filter terminal picker"
+            autocomplete="off"
+        /></label>
         <button
           class="icon-button"
           id="close-picker"
           type="button"
+          autofocus
           aria-label="Close terminal picker"
         >
           ×
         </button>
       </div>
-      <label class="search-field"
-        ><span aria-hidden="true">⌕</span
-        ><input
-          id="picker-search"
-          type="search"
-          placeholder="Pane, tab, or folder"
-          aria-label="Filter terminal picker"
-          autocomplete="off"
-      /></label>
       <div id="picker-list" class="target-list"></div>
       <div class="dialog-bottom">
         <button class="secondary" id="refresh-picker" type="button">

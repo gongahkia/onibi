@@ -1355,6 +1355,10 @@ dialog::backdrop {
 .controls-dialog .dialog-heading,
 .keyboard-dialog .dialog-heading,
 .health-dialog .dialog-heading,
+.picker-dialog .dialog-heading .search-field {
+  flex: 1;
+  margin: 0;
+}
 .picker-dialog .dialog-heading {
   position: sticky;
   top: -24px;
