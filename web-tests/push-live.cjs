@@ -76,16 +76,6 @@ async function waitForNotification(page, title, timeoutMs) {
     await page.click("#pair-submit");
     await page.locator("#workspace").waitFor({ state: "visible" });
     await page.click("#open-devices");
-    page.on("console", (m) => console.log("console:", m.text()));
-    await page.evaluate(() => {
-      new MutationObserver(() => console.log("status=", document.getElementById("notify-status").textContent.slice(0, 40), Notification.permission)).observe(document.getElementById("notify-status"), { childList: true, characterData: true, subtree: true });
-      const orig = Notification.requestPermission.bind(Notification);
-      const t0 = Date.now();
-      const sub = PushManager.prototype.subscribe;
-      PushManager.prototype.subscribe = async function (o) { console.log("subscribe start", Date.now() - t0); try { const r = await sub.call(this, o); console.log("subscribe done", Date.now() - t0); return r; } catch (e) { console.log("subscribe err", e.message, Date.now() - t0); throw e; } };
-      navigator.serviceWorker.ready.then(() => console.log("ready", Date.now() - t0));
-      Notification.requestPermission = async () => { const r = await orig(); console.log("requestPermission ->", r); return r; };
-    });
     await page
       .locator("#notify-toggle")
       .filter({ hasText: "Turn on notifications" })
@@ -93,7 +83,7 @@ async function waitForNotification(page, title, timeoutMs) {
     await page
       .locator("#notify-status")
       .filter({ hasText: /^On\./ })
-      .waitFor({ timeout: 120000 })
+      .waitFor({ timeout: 90000 })
       .catch(async (error) => {
         throw new Error(
           "Subscribing failed: " + (await page.textContent("#notify-status")),
