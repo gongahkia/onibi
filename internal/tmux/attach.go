@@ -216,6 +216,46 @@ func normalizeKey(key string) string {
 	return key
 }
 
+// bellHookSlot is a fixed alert-bell array index so Onibi's hook coexists
+// with hooks the user configures in other slots.
+const bellHookSlot = "alert-bell[86]"
+
+// InstallBellCounter makes tmux count bells in the session's @onibi_bells
+// option. The window bell flag alone stays set until a client views the
+// window, so it cannot report a second bell in a detached session.
+func (c *Controller) InstallBellCounter(ctx context.Context, target string) error {
+	if strings.TrimSpace(target) == "" || strings.ContainsAny(target, "\"'#;{} \t\r\n") {
+		return errors.New("tmux bell counter needs a plain session name")
+	}
+	command := `set-option -F -t ` + target + ` @onibi_bells "#{e|+:#{?@onibi_bells,#{@onibi_bells},0},1}"`
+	_, err := c.run(ctx, "set-hook", "-t", target, bellHookSlot, command)
+	return err
+}
+
+// Alerts reports the session's bell counter, when installed, and the bell
+// flag of its current window.
+func (c *Controller) Alerts(ctx context.Context, target string) (bells int, counted bool, flag bool, err error) {
+	if strings.TrimSpace(target) == "" {
+		return 0, false, false, errors.New("tmux target required")
+	}
+	out, err := c.run(ctx, "display-message", "-p", "-t", target, "#{?@onibi_bells,#{@onibi_bells},-} #{window_bell_flag}")
+	if err != nil {
+		return 0, false, false, err
+	}
+	fields := strings.Fields(string(out))
+	if len(fields) != 2 {
+		return 0, false, false, errors.New("tmux alert state unavailable")
+	}
+	if fields[0] != "-" {
+		bells, err = strconv.Atoi(fields[0])
+		if err != nil || bells < 0 {
+			return 0, false, false, errors.New("tmux bell counter unavailable")
+		}
+		counted = true
+	}
+	return bells, counted, fields[1] == "1", nil
+}
+
 func (c *Controller) KillSession(ctx context.Context, target string) error {
 	if strings.TrimSpace(target) == "" {
 		return errors.New("tmux target required")

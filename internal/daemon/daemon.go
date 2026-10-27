@@ -41,6 +41,7 @@ type Daemon struct {
 	ScreenFont            string
 	ScreenFontPath        string
 	health                *healthTracker
+	attention             *attentionTracker
 	started               time.Time
 	mu                    sync.Mutex
 	codexMu               sync.Mutex
@@ -97,6 +98,7 @@ func New(opts Options) *Daemon {
 	}
 	d := &Daemon{Paths: opts.Paths, DB: opts.DB, Log: opts.Log, Registry: NewRegistry(), OutputBufferSize: opts.OutputBufferSize, LivenessInterval: opts.LivenessInterval, ClaudeQuestionTimeout: opts.ClaudeQuestionTimeout, UploadTTL: opts.UploadTTL, UploadMaxBytes: opts.UploadMaxBytes, ShellDefault: opts.ShellDefault, ShellLogin: opts.ShellLogin, ScreenFont: opts.ScreenFont, ScreenFontPath: opts.ScreenFontPath, started: time.Now(), frames: map[string]terminalFrame{}, codex: map[string]*codexRuntime{}, codexEvents: make(chan CodexEvent, 128), agentEvents: make(chan AgentEvent, 128), claudeQuestions: map[string]chan struct{}{}, claudeQuestionEvents: make(chan ClaudeQuestionEvent, 128), sessionEvents: make(chan SessionEvent, 128), SkipRestore: opts.SkipRestore}
 	d.health = newHealthTracker(opts.DB, opts.Log)
+	d.attention = newAttentionTracker()
 	d.Queue = approval.New(opts.DB, opts.ApprovalTTL)
 	if opts.ApprovalMaxSubscribers > 0 {
 		d.Queue.MaxSubscribers = opts.ApprovalMaxSubscribers
@@ -300,6 +302,7 @@ func (d *Daemon) markSessionEndedReason(ctx context.Context, s *Session, reason 
 	}
 	d.cancelClaudeQuestionsForSession(ctx, s.ID, "session ended")
 	d.health.sessionEnded(ctx, s)
+	d.attention.forget(s.ID)
 	d.InvalidateSessionFrame(s.ID)
 	d.Log.Info("session ended", "session", s.ID, "name", s.Name, "agent", s.Agent, "reason", reason)
 	d.audit(ctx, "session.ended", s.ID, "", 0, "")

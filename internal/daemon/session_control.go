@@ -20,13 +20,21 @@ func (d *Daemon) SendSessionKey(ctx context.Context, id, key string) error {
 		if err != nil {
 			return err
 		}
-		return d.muxSessionError(ctx, s, ctrl.SendKey(ctx, mux.ParseTarget(s.TmuxTarget), key))
+		if err := d.muxSessionError(ctx, s, ctrl.SendKey(ctx, mux.ParseTarget(s.TmuxTarget), key)); err != nil {
+			return err
+		}
+		d.attention.acknowledge(s.ID)
+		return nil
 	}
 	ctrl, err := d.tmuxControllerForCWD(s.CWD)
 	if err != nil {
 		return err
 	}
-	return d.tmuxSessionError(ctx, s, ctrl.SendKey(ctx, s.TmuxTarget, key))
+	if err := d.tmuxSessionError(ctx, s, ctrl.SendKey(ctx, s.TmuxTarget, key)); err != nil {
+		return err
+	}
+	d.attention.acknowledge(s.ID)
+	return nil
 }
 func (d *Daemon) ControlSession(ctx context.Context, id, action string) error {
 	s, err := d.sessionForRPCTarget(id)

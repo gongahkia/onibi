@@ -40,7 +40,7 @@ func (d *Daemon) SessionInfos() []intake.SessionInfo {
 	for _, s := range sessions {
 		out = append(out, intake.SessionInfo{
 			ID: s.ID, Name: s.Name, Agent: s.Agent, Transport: s.Transport, CWD: s.CWD, Command: s.Cmd,
-			StartedAt: s.StartedAt(), LastActivityAt: s.LastActivityAt(),
+			StartedAt: s.StartedAt(), LastActivityAt: s.LastActivityAt(), Attention: d.attention.snapshot(s.ID),
 		})
 	}
 	return out

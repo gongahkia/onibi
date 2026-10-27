@@ -10,6 +10,7 @@ import (
 
 func (d *Daemon) watchTmuxSessions(ctx context.Context) {
 	d.checkTmuxSessions(ctx)
+	d.observeAttention(ctx)
 	ticker := time.NewTicker(d.LivenessInterval)
 	defer ticker.Stop()
 	for {
@@ -18,6 +19,7 @@ func (d *Daemon) watchTmuxSessions(ctx context.Context) {
 			return
 		case <-ticker.C:
 			d.checkTmuxSessions(ctx)
+			d.observeAttention(ctx)
 		}
 	}
 }

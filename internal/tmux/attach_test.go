@@ -96,6 +96,37 @@ func TestHasSessionAndPaneSize(t *testing.T) {
 	}
 }
 
+func TestBellCounterUsesItsOwnHookSlot(t *testing.T) {
+	r := &fakeRunner{}
+	c := NewWithRunner(r)
+	if err := c.InstallBellCounter(t.Context(), "onibi-a"); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"tmux", "set-hook", "-t", "onibi-a", "alert-bell[86]", `set-option -F -t onibi-a @onibi_bells "#{e|+:#{?@onibi_bells,#{@onibi_bells},0},1}"`}
+	if !reflect.DeepEqual(r.calls[0], want) {
+		t.Fatalf("calls=%#v", r.calls)
+	}
+	if err := c.InstallBellCounter(t.Context(), "user session;kill-server"); err == nil {
+		t.Fatal("accepted a session name that would change the hook command")
+	}
+}
+
+func TestAlertsParsesCounterAndFlag(t *testing.T) {
+	for _, tc := range []struct {
+		out              string
+		bells            int
+		counted, flagged bool
+	}{{"3 1\n", 3, true, true}, {"- 1\n", 0, false, true}, {"- 0\n", 0, false, false}} {
+		bells, counted, flag, err := NewWithRunner(&fakeRunner{out: []byte(tc.out)}).Alerts(t.Context(), "onibi-a")
+		if err != nil || bells != tc.bells || counted != tc.counted || flag != tc.flagged {
+			t.Fatalf("out=%q bells=%d counted=%t flag=%t err=%v", tc.out, bells, counted, flag, err)
+		}
+	}
+	if _, _, _, err := NewWithRunner(&fakeRunner{out: []byte("x 1")}).Alerts(t.Context(), "onibi-a"); err == nil {
+		t.Fatal("accepted malformed counter")
+	}
+}
+
 func TestHasSessionTreatsMissingTargetAsNotLive(t *testing.T) {
 	live, err := NewWithRunner(&fakeRunner{out: []byte("can't find session: onibi-a"), err: errors.New("exit status 1")}).HasSession(t.Context(), "onibi-a")
 	if err != nil || live {

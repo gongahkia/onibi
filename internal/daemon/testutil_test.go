@@ -16,6 +16,7 @@ type fakeTmuxRunner struct {
 	calls   [][]string
 	err     error
 	capture func(context.Context) ([]byte, error)
+	alerts  string
 }
 
 func (r *fakeTmuxRunner) Run(ctx context.Context, name string, args ...string) ([]byte, error) {
@@ -27,6 +28,11 @@ func (r *fakeTmuxRunner) Run(ctx context.Context, name string, args ...string) (
 			return r.capture(ctx)
 		}
 		return []byte("ready\n"), r.err
+	}
+	if len(args) > 0 && args[0] == "display-message" && r.alerts != "" {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		return []byte(r.alerts), r.err
 	}
 	return nil, r.err
 }

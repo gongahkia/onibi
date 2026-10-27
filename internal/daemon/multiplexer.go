@@ -72,6 +72,9 @@ func (d *Daemon) StartTerminalSession(ctx context.Context, name, agent, bin stri
 		}
 		return nil, err
 	}
+	if kind == mux.Tmux {
+		d.installBellCounter(ctx, s)
+	}
 	d.audit(ctx, "session.start", s.ID, "", 0, "agent="+agent+" target="+s.TmuxTarget)
 	d.Log.Info("session started", "session", s.ID, "name", s.Name, "agent", agent, "transport", kind)
 	return s, nil

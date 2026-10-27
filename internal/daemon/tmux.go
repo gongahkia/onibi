@@ -212,6 +212,7 @@ func (d *Daemon) SendSessionText(ctx context.Context, id, text string, enter boo
 			return d.muxSessionError(ctx, s, err)
 		}
 		d.touchSession(ctx, s)
+		d.attention.acknowledge(s.ID)
 		return nil
 	}
 	ctrl, err := d.tmuxControllerForCWD(s.CWD)
@@ -222,6 +223,7 @@ func (d *Daemon) SendSessionText(ctx context.Context, id, text string, enter boo
 		return d.tmuxSessionError(ctx, s, err)
 	}
 	d.touchSession(ctx, s)
+	d.attention.acknowledge(s.ID)
 	return nil
 }
 func (d *Daemon) SendSessionTextAndCapture(ctx context.Context, id, text string, enter bool) (string, error) {
