@@ -920,6 +920,10 @@ body:has(#pair-view:not([hidden])) .site-header {
   margin-top: 14px;
   min-height: 40px;
 }
+#new-session-error:empty {
+  min-height: 0;
+  margin: 0;
+}
 .form-message.error {
   color: var(--danger);
 }

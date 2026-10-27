@@ -383,9 +383,19 @@ async function selectWork(page) {
   await page.click("#picker-new-session");
   await page.locator("#new-session-dialog").waitFor({ state: "visible" });
   assert.equal(await page.inputValue("#new-session-command"), "shell");
-  await page.fill("#new-session-command", "codex  --model gpt-5");
+  await page.fill("#new-session-command", 'codex "fix the build');
   await page.fill("#new-session-cwd", "/fixture/repo");
   await page.fill("#new-session-name", "review");
+  await page.click("#start-session");
+  await page
+    .locator("#new-session-error")
+    .filter({ hasText: "Close the double quote." })
+    .waitFor();
+  assert.equal(await page.locator("#new-session-dialog").isVisible(), true);
+  await page.fill(
+    "#new-session-command",
+    `codex  --model gpt-5 "fix the build" 'it''s'`,
+  );
   await page.click("#start-session");
   await page
     .locator("#destination-title")
@@ -395,7 +405,7 @@ async function selectWork(page) {
     kind: "new",
     sessionId: "",
     program: "codex",
-    args: ["--model", "gpt-5"],
+    args: ["--model", "gpt-5", "fix the build", "its"],
     cwd: "/fixture/repo",
     name: "review",
   });

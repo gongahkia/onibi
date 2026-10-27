@@ -16,6 +16,7 @@
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="stylesheet" href="style.css" />
     <script src="ansi.js" defer></script>
+    <script src="words.js" defer></script>
     <script src="app.js" defer></script>
     <script src="reader.js" defer></script>
     <script src="recall.js" defer></script>
@@ -592,8 +593,9 @@
         />
         <p class="muted" id="new-session-help">
           Runs in tmux, Zellij or Screen and keeps running when Ghostty quits.
-          Arguments are separated by spaces.
+          Quote arguments that contain spaces.
         </p>
+        <p class="form-message error" id="new-session-error" role="alert"></p>
         <button class="primary full" id="start-session" type="submit">
           Start session
         </button>

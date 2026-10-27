@@ -1833,6 +1833,7 @@ function openNewSession() {
   renderChoices("new-session-folders", "new-session-cwd", folders);
   if (!byId("new-session-cwd").value)
     byId("new-session-cwd").value = folders[0] || "";
+  byId("new-session-error").textContent = "";
   byId("target-picker").close();
   byId("new-session-dialog").showModal();
   byId("new-session-command").focus();
@@ -1844,9 +1845,16 @@ byId("cancel-new-session").addEventListener("click", () =>
 );
 byId("new-session-form").addEventListener("submit", (event) => {
   event.preventDefault();
-  const [program, ...args] = byId("new-session-command")
-    .value.trim()
-    .split(/\s+/);
+  let words;
+  try {
+    words = splitWords(byId("new-session-command").value);
+  } catch (error) {
+    byId("new-session-error").textContent = error.message;
+    byId("new-session-command").focus();
+    return;
+  }
+  byId("new-session-error").textContent = "";
+  const [program, ...args] = words;
   const cwd = byId("new-session-cwd").value.trim();
   const name = byId("new-session-name").value.trim();
   if (!program || !cwd) return;
