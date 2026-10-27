@@ -1897,9 +1897,19 @@ for (const letter of "abcdefghijklmnopqrstuvwxyz") {
   button.dataset.letter = letter;
   button.textContent = letter.toUpperCase();
   button.addEventListener("click", () =>
-    sendKey(state.modifier + "-" + letter),
+    sendKey(
+      state.modifier === "plain" ? letter : state.modifier + "-" + letter,
+    ),
   );
   byId("letter-keys").append(button);
+}
+for (const digit of "1234567890") {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.dataset.key = digit;
+  button.textContent = digit;
+  button.addEventListener("click", () => sendKey(digit));
+  byId("digit-keys").append(button);
 }
 for (const button of document.querySelectorAll("[data-modifier]"))
   button.addEventListener("click", () => {
@@ -1912,7 +1922,12 @@ function labelLetters() {
   for (const button of document.querySelectorAll("[data-letter]"))
     button.setAttribute(
       "aria-label",
-      `${state.modifier === "ctrl" ? "Control" : "Alt"} ${button.dataset.letter.toUpperCase()}`,
+      [
+        { ctrl: "Control", meta: "Alt", plain: "" }[state.modifier],
+        button.dataset.letter.toUpperCase(),
+      ]
+        .filter(Boolean)
+        .join(" "),
     );
 }
 labelLetters();

@@ -39,7 +39,7 @@ func featureCatalog() []Feature {
 	add("inventory", "Windows, tabs and panes", "Find and read", "Exact existing identities. Titles describe work; they do not prove agent status.", "1.3.0", false)
 	add("snapshot", "Visible terminal text", "Find and read", "Bounded Accessibility snapshot of the focused pane. Follow polls snapshots; it is not a terminal stream.", "1.3.0", true)
 	add("input", "Send or paste literal text", "Input", "Send adds Enter. Paste does not. Delivery acknowledgement does not prove the program processed it.", "1.3.0", false)
-	add("key", "Keys and modifiers", "Input", "Navigation, editing, Ctrl/Alt letters and function keys. The program decides what a key means.", "1.3.0", false)
+	add("key", "Keys and modifiers", "Input", "Navigation, editing, digits, plain and Ctrl/Alt letters, and function keys, each sent as a key press rather than a paste. The program decides what a key means.", "1.3.0", false)
 	add("focus", "Focus an exact pane", "Workspace", "Changes focus on your Mac before reading.", "1.3.0", false)
 	add("new_window", "Create a window", "Workspace", "Creates a native Ghostty window.", "1.3.0", false)
 	add("new_tab", "Create a tab", "Workspace", "Creates a tab in the explicitly chosen window.", "1.3.0", false)

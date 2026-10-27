@@ -367,6 +367,11 @@ func nativeKey(raw string) (string, string, error) {
 	if key == "shift-tab" {
 		return "tab", "shift", nil
 	}
+	// Ghostty's send key emits no character for an unmodified letter or digit;
+	// the bridge types these through the text: action instead.
+	if len(key) == 1 && ((key[0] >= 'a' && key[0] <= 'z') || (key[0] >= '0' && key[0] <= '9')) {
+		return key, "", nil
+	}
 	for prefix, modifier := range map[string]string{"ctrl-": "control", "meta-": "option"} {
 		if len(key) == len(prefix)+1 && strings.HasPrefix(key, prefix) && key[len(prefix)] >= 'a' && key[len(prefix)] <= 'z' {
 			return key[len(prefix):], modifier, nil

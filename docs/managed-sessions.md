@@ -12,7 +12,7 @@ Coding agents get no special treatment. `onibi session new codex`, `claude` or `
 | --- | --- |
 | List | Live sessions with name, multiplexer, working directory and command, refreshed every five seconds. |
 | Read | Scrollback plus the visible screen, 200 lines by default, with **More history** raising it to 1,000 and then 2,000 lines. Reading never changes focus and is not counted as session activity. tmux output keeps its SGR colours. Zellij and Screen dumps are plain text. |
-| Input and keys | Send, paste, and the same key set as Ghostty panes. |
+| Input and keys | Send, paste, and the same key set as Ghostty panes. Text is typed into tmux, Zellij and Screen sessions as plain keystrokes, never as a bracketed paste, so it behaves the same on all three. |
 | Interrupt and end | **Interrupt** sends Ctrl C. **End session** kills the multiplexer session after a confirmation naming it. |
 | Delivery | Every action uses the durable web receipts. The server confirms the session in a fresh daemon listing before dispatch, and the daemon resolves only the full session ID, never a name or prefix. A failure before any byte reaches the daemon, or a daemon rejection before a side effect, is reported as **not sent**. Anything later is **uncertain** and is never replayed. |
 

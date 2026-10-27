@@ -823,6 +823,19 @@ const server = http.createServer(async (req, res) => {
     () => !document.querySelector('[data-letter="b"]').disabled,
   );
   assert.equal(actions.at(-1).action.key, "meta-b");
+  await page.locator('[data-modifier="plain"]').click();
+  assert.equal(await page.getAttribute('[data-letter="y"]', "aria-label"), "Y");
+  await page.locator('[data-letter="y"]').click();
+  await page.waitForFunction(
+    () => !document.querySelector('[data-letter="y"]').disabled,
+  );
+  assert.equal(actions.at(-1).action.key, "y");
+  await page.locator('#digit-keys [data-key="1"]').click();
+  await page.waitForFunction(
+    () => !document.querySelector('#digit-keys [data-key="1"]').disabled,
+  );
+  assert.equal(actions.at(-1).action.key, "1");
+  await page.locator('[data-modifier="ctrl"]').click();
   await page.locator('[data-key="f12"]').click();
   await page.waitForFunction(
     () => !document.querySelector('[data-key="f12"]').disabled,

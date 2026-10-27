@@ -571,7 +571,9 @@
         <button type="button" data-modifier="ctrl" aria-pressed="true">
           Ctrl + letter</button
         ><button type="button" data-modifier="meta" aria-pressed="false">
-          Alt + letter
+          Alt + letter</button
+        ><button type="button" data-modifier="plain" aria-pressed="false">
+          Letter
         </button>
       </div>
       <div
@@ -580,13 +582,21 @@
         role="group"
         aria-label="Modified letter keys"
       ></div>
+      <h3 class="keys-heading">Numbers</h3>
+      <div
+        class="letter-grid"
+        id="digit-keys"
+        role="group"
+        aria-label="Number keys"
+      ></div>
       <h3 class="keys-heading">Navigate &amp; edit</h3>
       <div class="navigation-keys" id="navigation-keys"></div>
       <h3 class="keys-heading">Function keys</h3>
       <div class="function-keys" id="function-keys"></div>
       <p class="keyboard-note">
-        Each tap sends one key combination to the named pane. Ctrl C interrupts;
-        Ctrl D can end a shell; Ctrl Z suspends a foreground process.
+        Each tap sends one key press to the named pane. Numbers and plain
+        letters pick menu choices such as 1 or y. Ctrl C interrupts; Ctrl D can
+        end a shell; Ctrl Z suspends a foreground process.
       </p>
     </dialog>
     <dialog

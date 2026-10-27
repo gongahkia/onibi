@@ -104,6 +104,28 @@ test("native script preserves literal input and exact identity", () => {
     ["key", "enter", "pane-a"],
   ]);
 });
+test("plain characters are typed, modified keys are key events", () => {
+  for (const [key, modifiers, want] of [
+    ["1", "", ["control", "text:1", "pane-a"]],
+    ["y", "", ["control", "text:y", "pane-a"]],
+    ["c", "control", ["key", "c", "pane-a"]],
+    ["tab", "", ["key", "tab", "pane-a"]],
+  ]) {
+    const { result, calls } = bridge({
+      ...scope,
+      operation: "key",
+      key,
+      modifiers,
+    });
+    assert.equal(result.status, "ok");
+    assert.deepEqual(calls, [want]);
+  }
+  const { result } = bridge(
+    { ...scope, operation: "key", key: "1" },
+    { accept: false },
+  );
+  assert.equal(result.status, "uncertain");
+});
 test("stale process, missing window, and wrong tab reject before mutation", () => {
   for (const request of [
     { ...scope, pid: 456, operation: "input", text: "no" },

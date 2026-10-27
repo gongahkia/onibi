@@ -68,7 +68,7 @@ func TestInputRemainsLiteralAndScoped(t *testing.T) {
 }
 
 func TestNativeKeyNamesMatchGhosttyDictionary(t *testing.T) {
-	for raw, want := range map[string][2]string{"up": {"arrowUp", ""}, "pgdn": {"pageDown", ""}, "shift-tab": {"tab", "shift"}, "ctrl-c": {"c", "control"}, "meta-x": {"x", "option"}, "f12": {"f12", ""}} {
+	for raw, want := range map[string][2]string{"up": {"arrowUp", ""}, "pgdn": {"pageDown", ""}, "shift-tab": {"tab", "shift"}, "ctrl-c": {"c", "control"}, "meta-x": {"x", "option"}, "f12": {"f12", ""}, "y": {"y", ""}, "1": {"1", ""}} {
 		key, mods, err := nativeKey(raw)
 		if err != nil || key != want[0] || mods != want[1] {
 			t.Fatalf("%s=%s,%s,%v", raw, key, mods, err)

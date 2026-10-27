@@ -139,7 +139,11 @@ function run() {
             if(req.enter) app.sendKey('enter', {'to':terminal});
         } else if(req.operation==='key') {
             attempted=true;
-            app.sendKey(req.key, {'to':terminal, modifiers:req.modifiers || ''});
+            // Unmodified characters produce no text through sendKey; the
+            // text: action types them without bracketed-paste markers.
+            if(/^[a-z0-9]$/.test(req.key) && !req.modifiers) {
+                if(!app.performAction('text:'+req.key, {'on':terminal})) return failure('action_failed');
+            } else app.sendKey(req.key, {'to':terminal, modifiers:req.modifiers || ''});
         } else return failure('query_failed');
         return success({targetId:req.targetId});
     } catch(error) {

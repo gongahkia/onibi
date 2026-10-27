@@ -99,11 +99,14 @@ func (c *zellijController) Resize(context.Context, Target, int, int) error {
 	return errors.New("Zellij does not support exact Onibi viewport presets")
 }
 
+// SendText types the text rather than pasting it, so it arrives as plain
+// keystrokes exactly as tmux and Screen deliver it; a pasted "1" or "y" can be
+// ignored by menus that wait for a key press.
 func (c *zellijController) SendText(ctx context.Context, target Target, text string, enter bool) error {
 	if target.Session == "" || target.Pane == "" {
 		return errors.New("Zellij session and pane target required")
 	}
-	if _, err := c.run(ctx, c.sessionArgs(target.Session, "action", "paste", "--pane-id", target.Pane, "--", text)...); err != nil {
+	if _, err := c.run(ctx, c.sessionArgs(target.Session, "action", "write-chars", "--pane-id", target.Pane, "--", text)...); err != nil {
 		return gone(err)
 	}
 	if !enter {

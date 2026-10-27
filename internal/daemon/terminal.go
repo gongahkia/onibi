@@ -28,6 +28,11 @@ func terminalKey(input string) (string, error) {
 	if value, ok := terminalKeys[key]; ok {
 		return value, nil
 	}
+	// A plain letter or digit is a single key press, for menus that select
+	// with "1" or "y" and may ignore the same character delivered as a paste.
+	if len(key) == 1 && ((key[0] >= 'a' && key[0] <= 'z') || (key[0] >= '0' && key[0] <= '9')) {
+		return key, nil
+	}
 	if len(key) >= 3 && len(key) <= 10 && (strings.HasPrefix(key, "ctrl-") || strings.HasPrefix(key, "meta-")) {
 		prefix, value := "ctrl-", strings.TrimPrefix(key, "ctrl-")
 		if strings.HasPrefix(key, "meta-") {

@@ -63,7 +63,7 @@ func TestZellijSendsTextAndCanonicalKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := [][]string{
-		{"--session", "onibi-1", "action", "paste", "--pane-id", "terminal_2", "--", "echo hi"},
+		{"--session", "onibi-1", "action", "write-chars", "--pane-id", "terminal_2", "--", "echo hi"},
 		{"--session", "onibi-1", "action", "send-keys", "--pane-id", "terminal_2", "Enter"},
 		{"--session", "onibi-1", "action", "send-keys", "--pane-id", "terminal_2", "Ctrl c"},
 	}
