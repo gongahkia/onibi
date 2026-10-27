@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "description": "Hermetic browser checks for Onibi's embedded application",
   "scripts": {
-    "test": "node --test native-bridge.test.cjs && node smoke.cjs && node integration.cjs",
+    "test": "node --test native-bridge.test.cjs ansi.test.cjs && node smoke.cjs && node integration.cjs",
     "test:integration": "node integration.cjs"
   },
   "devDependencies": {

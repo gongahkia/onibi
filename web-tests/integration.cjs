@@ -290,6 +290,18 @@ async function selectWork(page) {
     .filter({ hasText: "200 requested" })
     .waitFor();
   assert.equal(await page.locator("#terminal-output img").count(), 0);
+  assert.equal(
+    await page.textContent("#terminal-output .ansi-fg-1"),
+    "<img src=x onerror=alert(1)>",
+  );
+  assert.equal(
+    await page
+      .locator("#terminal-output .ansi-bold")
+      .evaluate((el) => getComputedStyle(el).color),
+    "rgb(255, 200, 0)",
+  );
+  assert.match(await page.textContent("#terminal-output"), /\[y\/N\]$/);
+  assert.doesNotMatch(await page.textContent("#terminal-output"), /\x1b/);
   assert.equal(await page.textContent("#snapshot-kind"), "Scrollback + screen");
   assert.equal(await page.locator("#new-tab").isHidden(), true);
   assert.equal(await page.locator("#open-controls").isHidden(), true);

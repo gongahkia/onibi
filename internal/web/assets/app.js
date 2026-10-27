@@ -56,6 +56,7 @@ const state = {
   sessionLines: 200,
   closeSession: null,
   snapshotAnsi: "",
+  renderedOutput: "",
 };
 const sessionPrefix = "session:";
 const sessionPollMs = 5000;
@@ -629,7 +630,7 @@ function requirePairing(text) {
   state.snapshotTarget = "";
   state.snapshotText = "";
   byId("reader-message").hidden = true;
-  byId("terminal-output").textContent = "";
+  clearOutput();
   byId("snapshot-time").textContent = "";
   byId("snapshot-state").textContent = "No terminal selected";
   showEmpty(
@@ -957,7 +958,7 @@ function clearSelection(title, description) {
   state.snapshotTarget = "";
   state.snapshotText = "";
   byId("reader-message").hidden = true;
-  byId("terminal-output").textContent = "";
+  clearOutput();
   showEmpty(title, description);
   byId("snapshot-state").textContent = "Destination unavailable";
   byId("snapshot-time").textContent = "";
@@ -1082,7 +1083,7 @@ function selectTarget(id) {
   state.snapshotText = "";
   byId("reader-message").hidden = true;
   state.snapshotVersion++;
-  byId("terminal-output").textContent = "";
+  clearOutput();
   byId("snapshot-time").textContent = "";
   byId("snapshot-state").textContent = "Reading…";
   byId("focus-terminal").hidden = true;
@@ -1096,12 +1097,22 @@ function selectTarget(id) {
   readSnapshot();
 }
 
-function showCapturedText(text, capturedAt) {
+function clearOutput() {
+  byId("terminal-output").textContent = "";
+  state.renderedOutput = "";
+}
+
+function showCapturedText(text, capturedAt, ansi = "") {
   const output = byId("terminal-output");
   const atBottom =
     output.scrollHeight - output.scrollTop - output.clientHeight < 32;
-  if (output.textContent !== (text || "(No visible output.)"))
-    output.textContent = text || "(No visible output.)";
+  // Re-render only on change so Follow does not disturb a text selection.
+  const rendered = text && ansi ? "ansi:" + ansi : "text:" + text;
+  if (state.renderedOutput !== rendered) {
+    if (text && ansi) output.replaceChildren(renderAnsi(ansi));
+    else output.textContent = text || "(No visible output.)";
+    state.renderedOutput = rendered;
+  }
   if (state.follow && atBottom) output.scrollTop = output.scrollHeight;
   output.hidden = false;
   byId("output-empty").hidden = true;
@@ -1151,7 +1162,7 @@ async function readSessionSnapshot(session) {
     state.snapshotText = snapshot.text;
     state.snapshotAnsi = typeof snapshot.ansi === "string" ? snapshot.ansi : "";
     state.snapshotStale = false;
-    showCapturedText(snapshot.text, new Date());
+    showCapturedText(snapshot.text, new Date(), state.snapshotAnsi);
     byId("snapshot-state").textContent = "Read without changing focus";
     message("");
   } catch (error) {

@@ -1492,6 +1492,127 @@ dialog::backdrop {
   color: var(--positive);
   background: #cfcfcf10;
 }
+/* Captured SGR colours. Index 0 is lifted from pure black so it stays
+   visible on the terminal background. Inverse precedes the palette so an
+   explicit colour wins over its defaults. */
+.ansi-inverse {
+  color: var(--terminal);
+  background-color: var(--text);
+}
+.ansi-bold {
+  font-weight: 600;
+}
+.ansi-dim {
+  opacity: 0.65;
+}
+.ansi-italic {
+  font-style: italic;
+}
+.ansi-underline {
+  text-decoration: underline;
+}
+.ansi-strike {
+  text-decoration: line-through;
+}
+.ansi-underline.ansi-strike {
+  text-decoration: underline line-through;
+}
+.ansi-fg-0 {
+  color: #4a4a4a;
+}
+.ansi-fg-1 {
+  color: #e06c75;
+}
+.ansi-fg-2 {
+  color: #98c379;
+}
+.ansi-fg-3 {
+  color: #e5c07b;
+}
+.ansi-fg-4 {
+  color: #61afef;
+}
+.ansi-fg-5 {
+  color: #c678dd;
+}
+.ansi-fg-6 {
+  color: #56b6c2;
+}
+.ansi-fg-7 {
+  color: #d0d0d0;
+}
+.ansi-fg-8 {
+  color: #7a7a7a;
+}
+.ansi-fg-9 {
+  color: #ff8a93;
+}
+.ansi-fg-10 {
+  color: #b5e890;
+}
+.ansi-fg-11 {
+  color: #ffd98e;
+}
+.ansi-fg-12 {
+  color: #8cc8ff;
+}
+.ansi-fg-13 {
+  color: #e09cff;
+}
+.ansi-fg-14 {
+  color: #7fdbe6;
+}
+.ansi-fg-15 {
+  color: #ffffff;
+}
+.ansi-bg-0 {
+  background-color: #1e1e1e;
+}
+.ansi-bg-1 {
+  background-color: #8b2f37;
+}
+.ansi-bg-2 {
+  background-color: #3f6b2a;
+}
+.ansi-bg-3 {
+  background-color: #8a6a1f;
+}
+.ansi-bg-4 {
+  background-color: #1f5a8f;
+}
+.ansi-bg-5 {
+  background-color: #6f3a86;
+}
+.ansi-bg-6 {
+  background-color: #22666f;
+}
+.ansi-bg-7 {
+  background-color: #8c8c8c;
+}
+.ansi-bg-8 {
+  background-color: #3a3a3a;
+}
+.ansi-bg-9 {
+  background-color: #b0434d;
+}
+.ansi-bg-10 {
+  background-color: #5a8f3f;
+}
+.ansi-bg-11 {
+  background-color: #b08a30;
+}
+.ansi-bg-12 {
+  background-color: #3a7cc0;
+}
+.ansi-bg-13 {
+  background-color: #9050b0;
+}
+.ansi-bg-14 {
+  background-color: #348a96;
+}
+.ansi-bg-15 {
+  background-color: #e0e0e0;
+}
 .terminal-output.wrap-lines {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
