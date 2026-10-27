@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/gongahkia/onibi/internal/intake"
+	"github.com/gongahkia/onibi/internal/prompt"
 )
 
 const (
@@ -35,9 +36,10 @@ type SessionBackend interface {
 }
 
 type SessionCapture struct {
-	SessionID string `json:"sessionId"`
-	Text      string `json:"text"`
-	ANSI      string `json:"ansi,omitempty"`
+	SessionID string         `json:"sessionId"`
+	Text      string         `json:"text"`
+	ANSI      string         `json:"ansi,omitempty"`
+	Prompt    *prompt.Prompt `json:"prompt,omitempty"`
 }
 
 // SessionAction is the browser's request for a managed session. Kill and
@@ -145,7 +147,17 @@ func (s *Server) sessionSnapshot(w http.ResponseWriter, r *http.Request) {
 	capture.SessionID = id
 	capture.Text = trimSnapshot(capture.Text)
 	capture.ANSI = trimSnapshot(capture.ANSI)
+	capture.Prompt = detectPrompt(capture.Text)
 	writeJSON(w, http.StatusOK, capture)
+}
+
+// detectPrompt reports a prompt waiting in the newest output so the browser
+// can offer its choices; nil when nothing is waiting.
+func detectPrompt(text string) *prompt.Prompt {
+	if p := prompt.Detect(text); p.Reason != "" {
+		return &p
+	}
+	return nil
 }
 
 // trimSnapshot keeps the newest output within the response budget, starting

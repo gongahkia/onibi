@@ -319,11 +319,22 @@ async function selectWork(page) {
     .locator("#terminal-output")
     .filter({ hasText: "1000 requested" })
     .waitFor();
-  await page.fill("#compose", "y");
-  await page.click("#send-input");
-  await page.waitForFunction(
-    () => document.getElementById("compose").value === "",
+  await page.locator("#quick-replies").waitFor({ state: "visible" });
+  assert.equal(await page.textContent("#reply-reason"), "Yes/no prompt");
+  assert.deepEqual(
+    await page.locator("#reply-list button span").allTextContents(),
+    ["Yes", "No"],
   );
+  await page.fill("#compose", "kept draft");
+  await page.locator("#reply-list button", { hasText: "Yes" }).click();
+  assert.equal(await page.locator("#quick-replies").isHidden(), true);
+  await eventually(
+    () => fixture.command(),
+    (s) => s.sessionActions.length === 1,
+    "quick reply",
+  );
+  assert.equal(await page.inputValue("#compose"), "kept draft");
+  await page.fill("#compose", "");
   assert.deepEqual((await fixture.command()).sessionActions.at(-1), {
     kind: "input",
     sessionId: "0123456789abcdef",

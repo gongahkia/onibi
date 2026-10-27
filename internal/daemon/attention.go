@@ -3,13 +3,12 @@ package daemon
 import (
 	"context"
 	"crypto/sha256"
-	"regexp"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/gongahkia/onibi/internal/intake"
 	"github.com/gongahkia/onibi/internal/mux"
+	"github.com/gongahkia/onibi/internal/prompt"
 	"github.com/gongahkia/onibi/internal/render"
 )
 
@@ -22,45 +21,7 @@ const (
 
 	attentionCaptureLines = 40
 	defaultIdleAfter      = 30 * time.Second
-	promptWindowLines     = 8
 )
-
-// Prompt patterns are deliberately generic: they describe common terminal
-// conventions rather than any particular program's interface. Cursor-line
-// patterns must end the last non-empty line, so an answered prompt or a
-// command line that merely contains "[y/N]" does not match.
-var cursorPrompts = []struct {
-	re     *regexp.Regexp
-	reason string
-}{
-	{regexp.MustCompile(`(?i)[\[(]\s*(y/n|yes/no)\s*[\])]\s*[:?>]?\s*$`), "Yes/no prompt"},
-	{regexp.MustCompile(`(?i)\bpress (enter|return|any key)\b[^\n]{0,40}$`), "Waiting for a key press"},
-	{regexp.MustCompile(`(?i)\b(password|passphrase|passcode)\b[^:]*:\s*$`), "Password prompt"},
-	{regexp.MustCompile(`(?i)\b(do you want to|would you like to|are you sure|continue|proceed|overwrite)\b[^\n]*\?\s*$`), "Question prompt"},
-}
-
-// A question above the cursor counts only when every line below it looks
-// like a choice in a selection menu, optionally followed by key hints such as
-// "Esc to cancel". Box-drawing borders around a dialog are ignored.
-var (
-	menuQuestion = regexp.MustCompile(`(?i)\b(do you want to|would you like to|are you sure)\b[^\n]*\?`)
-	menuChoice   = regexp.MustCompile(`(?i)^\s*([❯›>*•]\s*)?(\d+[.)]|yes\b|no\b|\[[ x]\])`)
-	keyHint      = regexp.MustCompile(`(?i)^\s*(press\s+)?(esc|enter|return|tab|space|ctrl[-+]\S+)\s+to\b`)
-)
-
-const (
-	boxSides   = "│┃║"
-	boxBorders = "─━═╭╮╰╯┌┐└┘┏┓┗┛╔╗╚╝├┤┬┴┼"
-)
-
-// promptLine removes dialog box edges; a border-only line becomes empty.
-func promptLine(line string) string {
-	line = strings.Trim(line, " \t\r"+boxSides)
-	if strings.Trim(line, " "+boxBorders) == "" {
-		return ""
-	}
-	return line
-}
 
 type attentionObservation struct {
 	Plain        string
@@ -170,35 +131,7 @@ func (t *attentionTracker) snapshot(id string) intake.Attention {
 }
 
 func detectPrompt(plain string) string {
-	lines := strings.Split(strings.TrimRight(plain, " \t\r\n"), "\n")
-	var recent []string
-	for i := len(lines) - 1; i >= 0 && len(recent) < promptWindowLines; i-- {
-		if line := promptLine(lines[i]); line != "" {
-			recent = append(recent, line)
-		}
-	}
-	if len(recent) == 0 {
-		return ""
-	}
-	for _, pattern := range cursorPrompts {
-		if pattern.re.MatchString(recent[0]) {
-			return pattern.reason
-		}
-	}
-	choices := 0
-	for _, line := range recent {
-		if choices == 0 && keyHint.MatchString(line) {
-			continue
-		}
-		if !menuChoice.MatchString(line) {
-			if choices > 0 && menuQuestion.MatchString(line) {
-				return "Question prompt"
-			}
-			return ""
-		}
-		choices++
-	}
-	return ""
+	return prompt.Detect(plain).Reason
 }
 
 // installBellCounter is best effort: without it the watcher still sees the

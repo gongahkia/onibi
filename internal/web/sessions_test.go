@@ -14,6 +14,7 @@ import (
 
 	"github.com/gongahkia/onibi/internal/ghostty"
 	"github.com/gongahkia/onibi/internal/intake"
+	"github.com/gongahkia/onibi/internal/prompt"
 )
 
 const testSessionID = "0123456789abcdef"
@@ -225,5 +226,24 @@ func TestDaemonSessionsMapsIntakeResponses(t *testing.T) {
 	defer mu.Unlock()
 	if !seen[1].Exact || seen[1].Type != intake.TypeSessionInput || !seen[3].Exact || seen[3].Action != "kill" {
 		t.Fatalf("events=%#v", seen)
+	}
+}
+
+func TestSnapshotsCarryTheWaitingPromptForGhosttyAndSessions(t *testing.T) {
+	s, backend, managed, b := testSessionServer(t)
+	backend.snapText = "Do you want to proceed?\n❯ 1. Yes\n  2. No (esc)\n"
+	managed.capture = SessionCapture{Text: "Apply? [y/N]"}
+	var ghosttySnap, sessionSnap struct {
+		Prompt *prompt.Prompt `json:"prompt"`
+	}
+	if err := json.Unmarshal(request(s, b, http.MethodGet, "/api/snapshot?targetId=surface-1", nil).Body.Bytes(), &ghosttySnap); err != nil || ghosttySnap.Prompt == nil || len(ghosttySnap.Prompt.Choices) != 2 || ghosttySnap.Prompt.Choices[1].Key != "esc" {
+		t.Fatalf("ghostty prompt=%#v err=%v", ghosttySnap.Prompt, err)
+	}
+	if err := json.Unmarshal(request(s, b, http.MethodGet, "/api/sessions/snapshot?sessionId="+testSessionID, nil).Body.Bytes(), &sessionSnap); err != nil || sessionSnap.Prompt == nil || sessionSnap.Prompt.Choices[0].Send != "y" {
+		t.Fatalf("session prompt=%#v err=%v", sessionSnap.Prompt, err)
+	}
+	backend.snapText = "$ ls\n"
+	if body := request(s, b, http.MethodGet, "/api/snapshot?targetId=surface-1", nil).Body.String(); strings.Contains(body, `"prompt"`) {
+		t.Fatalf("prompt without one waiting: %s", body)
 	}
 }

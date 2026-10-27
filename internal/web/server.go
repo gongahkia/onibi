@@ -26,6 +26,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/gongahkia/onibi/internal/ghostty"
+	"github.com/gongahkia/onibi/internal/prompt"
 	"github.com/gongahkia/onibi/internal/store"
 )
 
@@ -389,7 +390,10 @@ func (s *Server) snapshot(w http.ResponseWriter, r *http.Request) {
 			snapshot.Text = snapshot.Text[1:]
 		}
 	}
-	writeJSON(w, http.StatusOK, snapshot)
+	writeJSON(w, http.StatusOK, struct {
+		ghostty.Snapshot
+		Prompt *prompt.Prompt `json:"prompt,omitempty"`
+	}{snapshot, detectPrompt(snapshot.Text)})
 }
 
 // actionRequest carries exactly one of Action (a Ghostty target) or Session

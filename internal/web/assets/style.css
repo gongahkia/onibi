@@ -602,6 +602,35 @@ main {
   font-size: 11px;
   color: var(--muted);
 }
+.quick-replies {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.reply-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.reply-list button {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  max-width: 100%;
+  text-align: left;
+}
+.reply-list kbd {
+  flex-shrink: 0;
+  min-width: 24px;
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 11px;
+  text-align: center;
+  color: var(--muted);
+}
 .focus-row:has(#focus-hint:empty):has(#focus-terminal[hidden]) {
   display: none;
 }

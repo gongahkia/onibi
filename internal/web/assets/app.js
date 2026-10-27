@@ -61,6 +61,7 @@ const state = {
   followTimer: null,
   lastCapturedAt: 0,
   snapshotStale: false,
+  prompt: null,
   authGeneration: 0,
   // Daemon-managed multiplexer sessions. Their selection IDs carry a
   // "session:" prefix so they can never collide with Ghostty target IDs.
@@ -482,7 +483,9 @@ function updateControls() {
     !state.csrf || !((target && controlReady()) || session);
   byId("follow-output").setAttribute("aria-pressed", String(state.follow));
   byId("logout").disabled = Boolean(state.pending);
-  for (const button of document.querySelectorAll("[data-key], [data-letter]"))
+  for (const button of document.querySelectorAll(
+    "[data-key], [data-letter], [data-reply]",
+  ))
     button.disabled = !canType;
   for (const button of document.querySelectorAll(
     "[data-split], [data-action], [data-close]",
@@ -643,6 +646,8 @@ function requirePairing(text) {
   state.snapshotVersion++;
   state.snapshotTarget = "";
   state.snapshotText = "";
+  state.prompt = null;
+  renderReplies();
   byId("reader-message").hidden = true;
   clearOutput();
   byId("snapshot-time").textContent = "";
@@ -974,6 +979,8 @@ function clearSelection(title, description) {
   state.snapshotVersion++;
   state.snapshotTarget = "";
   state.snapshotText = "";
+  state.prompt = null;
+  renderReplies();
   byId("reader-message").hidden = true;
   clearOutput();
   showEmpty(title, description);
@@ -1100,6 +1107,8 @@ function selectTarget(id) {
   byId("compose").value = state.drafts.get(id) || "";
   state.snapshotTarget = "";
   state.snapshotText = "";
+  state.prompt = null;
+  renderReplies();
   byId("reader-message").hidden = true;
   state.snapshotVersion++;
   clearOutput();
@@ -1181,6 +1190,8 @@ async function readSessionSnapshot(session) {
     state.snapshotText = snapshot.text;
     state.snapshotAnsi = typeof snapshot.ansi === "string" ? snapshot.ansi : "";
     state.snapshotStale = false;
+    state.prompt = snapshot.prompt || null;
+    renderReplies();
     showCapturedText(snapshot.text, new Date(), state.snapshotAnsi);
     byId("snapshot-state").textContent = "Read without changing focus";
     message("");
@@ -1200,6 +1211,7 @@ async function readSessionSnapshot(session) {
       return;
     }
     state.snapshotStale = true;
+    renderReplies();
     byId("snapshot-state").textContent =
       state.snapshotTarget === id
         ? "Last snapshot · not live"
@@ -1256,6 +1268,8 @@ async function readSnapshot() {
     state.snapshotText = snapshot.text;
     state.snapshotAnsi = "";
     state.snapshotStale = false;
+    state.prompt = snapshot.prompt || null;
+    renderReplies();
     showCapturedText(snapshot.text, new Date(snapshot.capturedAt));
     byId("focus-terminal").hidden = true;
     byId("snapshot-state").textContent = "Updated";
@@ -1277,6 +1291,7 @@ async function readSnapshot() {
       return;
     }
     state.snapshotStale = true;
+    renderReplies();
     const focusRequired = error.code === "focus_required";
     byId("focus-terminal").hidden = !focusRequired;
     byId("snapshot-state").textContent =
@@ -1897,6 +1912,54 @@ byId("rename-form").addEventListener("submit", (event) => {
   state.renameAction = null;
   performAction({ ...action, name });
 });
+const replyKeyLabels = { enter: "↵", esc: "Esc" };
+// Choices come from the latest snapshot. Each sends the key a person would
+// press, then hides until a fresh snapshot shows what the program asks next.
+function renderReplies() {
+  const prompt = state.prompt;
+  const choices =
+    prompt && !state.snapshotStale && state.snapshotTarget === state.selectedId
+      ? prompt.choices || []
+      : [];
+  byId("quick-replies").hidden = choices.length === 0;
+  byId("reply-reason").textContent = prompt?.reason || "";
+  const buttons = choices.map((choice) => {
+    const button = document.createElement("button");
+    const key = document.createElement("kbd");
+    const label = document.createElement("span");
+    button.type = "button";
+    button.className = "secondary";
+    button.dataset.reply = "";
+    key.textContent = choice.key
+      ? replyKeyLabels[choice.key] || choice.key
+      : choice.send + " ↵";
+    label.textContent = choice.label;
+    button.append(key, label);
+    button.addEventListener("click", () => {
+      state.prompt = null;
+      renderReplies();
+      if (choice.key) sendKey(choice.key);
+      else sendText(choice.send);
+    });
+    return button;
+  });
+  byId("reply-list").replaceChildren(...buttons);
+  updateControls();
+}
+function sendText(text) {
+  const session = selectedSession();
+  if (session) {
+    performSessionAction({
+      kind: "input",
+      sessionId: session.id,
+      text,
+      enter: true,
+    });
+    return;
+  }
+  const t = selectedTarget();
+  if (t) performAction({ kind: "input", targetId: t.id, text, enter: true });
+}
 function sendKey(key) {
   const session = selectedSession();
   if (session) {
