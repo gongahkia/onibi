@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- `onibi web` now runs the sessions daemon itself when none is running, so one command, or one `onibi web service`, gives the phone both Ghostty and persistent sessions. The daemon stops with the web server and its sessions are restored at the next start. `onibi start` still runs the daemon alone, and now refuses to start when a daemon is already running.
+- Added `onibi session attach` (execs the multiplexer's own attach, or switches client inside tmux) and `onibi session kill` (asks for confirmation on a terminal, otherwise requires `--yes`). `session list` (alias `ls`) prints a table with live attention, `--all` and `--json`. `session new` starts in the current folder and accepts `--attach`. Session names complete in the shell.
+- Added `onibi --version`, help text for every command, and a labelled `onibi system status` with `--json`.
 - Added persistent sessions to the web cockpit. When `onibi start` is running, its tmux, Zellij and Screen sessions appear above the Ghostty windows. Their scrollback and screen can be read without focus, tmux output keeps its colours, and input, keys, interrupt and a confirmed end-session use the durable receipts. Sessions keep working while Ghostty is unavailable. The intake socket gains exact-ID session list, capture and key RPCs.
 - Added generic attention signals for managed sessions: needs input (prompt patterns on the cursor line), bell (a tmux bell counter on started sessions, and the bell flag on adopted ones), active, idle and quiet. The phone shows them as badges and counts waiting sessions in the page title. See [managed sessions](docs/managed-sessions.md).
 - Added recall of recent sends and copies on the phone: up to 20 delivered inputs and copied output snippets, inserted into the draft with a tap and never sent automatically. The list stays in page memory only.

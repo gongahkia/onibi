@@ -24,7 +24,7 @@ func systemCmd() *cobra.Command {
 	resolve := &cobra.Command{Use: "resolve", Short: "Show the multiplexer configuration resolved for a working directory", RunE: runConfigResolve}
 	resolve.Flags().String("cwd", "", "project working directory")
 	configCmd.AddCommand(&cobra.Command{Use: "get <key>", Short: "Print one configuration value", Args: cobra.ExactArgs(1), ValidArgsFunction: completeConfigKeys, RunE: runConfigGet}, &cobra.Command{Use: "set <key> <value>", Short: "Change one configuration value", Example: "  onibi system config set multiplexer.default zellij", Args: cobra.ExactArgs(2), ValidArgsFunction: completeConfigKeys, RunE: runConfigSet}, &cobra.Command{Use: "list", Short: "List every configuration key and its current value", Args: cobra.NoArgs, RunE: runConfigList}, resolve)
-	serviceCmd := &cobra.Command{Use: "service", Short: "Run the sessions daemon as a login service"}
+	serviceCmd := &cobra.Command{Use: "service", Short: "Run only the sessions daemon as a login service (onibi web service includes it)"}
 	serviceCmd.AddCommand(&cobra.Command{Use: "install", Short: "Install and start the daemon as a login service", Args: cobra.NoArgs, RunE: runServiceInstall}, &cobra.Command{Use: "remove", Short: "Stop and remove the login service", Args: cobra.NoArgs, RunE: runServiceRemove}, &cobra.Command{Use: "status", Short: "Show whether the login service is installed and running", Args: cobra.NoArgs, RunE: runServiceStatus})
 	logs := &cobra.Command{Use: "logs", Short: "Show recent daemon logs", RunE: runSystemLogs}
 	logs.Flags().Int("tail", 100, "number of lines")
@@ -108,7 +108,7 @@ func runSystemStatus(cmd *cobra.Command, _ []string) error {
 	}
 	ui.Field("State", termui.ShortPath(paths.StateDir))
 	if !daemonRunning {
-		ui.Note("Start it with onibi start, or install the login service with onibi system service install.")
+		ui.Note("onibi web starts it automatically; onibi start runs it on its own.")
 	}
 	return nil
 }

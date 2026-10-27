@@ -17,9 +17,11 @@ import (
 	"time"
 
 	"github.com/gongahkia/onibi/internal/buildinfo"
+	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/ghostty"
 	"github.com/gongahkia/onibi/internal/intake"
 	"github.com/gongahkia/onibi/internal/logging"
+	"github.com/gongahkia/onibi/internal/store"
 	"github.com/gongahkia/onibi/internal/termui"
 	"github.com/gongahkia/onibi/internal/web"
 	"github.com/gongahkia/onibi/internal/webadmin"
@@ -132,6 +134,8 @@ func runWeb(cmd *cobra.Command, _ []string) error {
 	defer admin.Close()
 	ctx, stop := signal.NotifyContext(contextOrBackground(cmd.Context()), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	sessions, stopDaemon := startEmbeddedDaemon(paths, db, level, logger)
+	defer stopDaemon()
 	server := &http.Server{
 		Handler: app, ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout: 15 * time.Second, WriteTimeout: 45 * time.Second,
@@ -140,7 +144,7 @@ func runWeb(cmd *cobra.Command, _ []string) error {
 	}
 	done := make(chan error, 1)
 	if !background {
-		writeWebWelcome(cmd, app.PairingURL(), listener.Addr().String(), origin, logPath, intake.SocketActive(paths.Socket, 500*time.Millisecond))
+		writeWebWelcome(cmd, app.PairingURL(), listener.Addr().String(), origin, logPath, sessions)
 	}
 	go func() { done <- server.Serve(listener) }()
 	if activity != nil {
@@ -176,7 +180,57 @@ func runWeb(cmd *cobra.Command, _ []string) error {
 	}
 }
 
-func writeWebWelcome(cmd *cobra.Command, pairingURL, address, origin, logPath string, daemonRunning bool) {
+// startEmbeddedDaemon runs the sessions daemon inside the web server unless
+// another daemon already owns the socket. The returned stop must run after
+// HTTP handlers drain, because in-flight actions still talk to the daemon.
+func startEmbeddedDaemon(paths config.Paths, db *store.DB, level slog.Level, webLog *slog.Logger) (string, func()) {
+	if intake.SocketActive(paths.Socket, 500*time.Millisecond) {
+		return "Daemon running separately / managed sessions appear in the browser", func() {}
+	}
+	unavailable := func(err error) (string, func()) {
+		webLog.Warn("daemon.unavailable", "err", err)
+		return "Unavailable / " + err.Error(), func() {}
+	}
+	file, err := logging.OpenRotating(daemonLogPath(paths), logging.DefaultMaxBytes, logging.DefaultBackups)
+	if err != nil {
+		return unavailable(err)
+	}
+	d, err := newDaemon(paths, db, logging.New(file, level))
+	if err != nil {
+		_ = file.Close()
+		return unavailable(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- d.Run(ctx) }()
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		if intake.SocketActive(paths.Socket, 100*time.Millisecond) {
+			break
+		}
+		select {
+		case err := <-done:
+			cancel()
+			_ = file.Close()
+			if err == nil {
+				err = errors.New("daemon exited during startup")
+			}
+			return unavailable(err)
+		default:
+		}
+	}
+	webLog.Info("daemon.started", "log", daemonLogPath(paths))
+	return "Running inside this server / persistent sessions survive restarts", func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(10 * time.Second):
+			webLog.Warn("daemon.stop_timeout")
+		}
+		_ = file.Close()
+	}
+}
+
+func writeWebWelcome(cmd *cobra.Command, pairingURL, address, origin, logPath, sessions string) {
 	ui := terminalUI(cmd)
 
 	bannerShown, _ := cmd.Flags().GetBool("no-banner")
@@ -188,11 +242,7 @@ func writeWebWelcome(cmd *cobra.Command, pairingURL, address, origin, logPath st
 	ui.Field("Listening", address)
 	ui.Field("Open", origin)
 	ui.Field("Native", "Not checked yet / select a terminal in the browser")
-	if daemonRunning {
-		ui.Field("Sessions", "Daemon running / managed sessions appear in the browser")
-	} else {
-		ui.Field("Sessions", "Daemon not running / "+commandHint()+" start enables persistent sessions")
-	}
+	ui.Field("Sessions", sessions)
 	ui.Field("Logs", termui.ShortPath(logPath))
 	ui.Line("")
 	ui.Note("PAIR THIS BROWSER / one use / expires in 10 minutes")

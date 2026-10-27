@@ -36,7 +36,7 @@ Bells come from tmux. For sessions Onibi starts, tmux counts every bell into a s
 
 ## What still runs
 
-`onibi start` runs the daemon in the foreground without credentials. It serves the same-user intake socket, restores managed sessions, polls multiplexer liveness, expires approvals and purges staged uploads. `onibi system service install` registers the same daemon as a launchd/systemd user service.
+`onibi web` runs the daemon inside the web server when no daemon is already running, so one command (or one `onibi web service`) is enough. The daemon stops with the web server; its multiplexer sessions keep running and are restored at the next start. `onibi start` runs only the daemon, in the foreground and without credentials, and refuses to start when a daemon already owns the socket. It serves the same-user intake socket, restores managed sessions, polls multiplexer liveness, expires approvals and purges staged uploads. `onibi system service install` registers that daemon-only setup as a launchd/systemd user service; it is unnecessary when the web login service is installed.
 
 These CLI paths reach it over the intake socket:
 

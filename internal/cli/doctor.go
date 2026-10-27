@@ -219,7 +219,7 @@ func doctorCheckMultiplexer(report *doctorReport, cfg config.Config) {
 
 func doctorCheckDaemon(report *doctorReport, paths config.Paths) {
 	if _, err := intake.Request(paths.Socket, intake.Event{Type: intake.TypePing}, 750*time.Millisecond); err != nil {
-		report.add(doctorInfo, "daemon", "not running; run onibi start")
+		report.add(doctorInfo, "daemon", "not running; onibi web starts it, or run onibi start")
 		return
 	}
 	report.add(doctorOK, "daemon", "responding on "+paths.Socket)
@@ -233,7 +233,7 @@ func doctorCheckService(ctx context.Context, report *doctorReport) {
 	}
 	status := m.Status(ctx)
 	if !status.Installed {
-		report.add(doctorInfo, "service", "not installed; use onibi system service install after a foreground test")
+		report.add(doctorInfo, "service", "not installed; use onibi web service install after a foreground test")
 		return
 	}
 	if status.Running {

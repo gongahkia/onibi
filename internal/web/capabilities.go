@@ -56,7 +56,7 @@ func featureCatalog() []Feature {
 		}
 		add("control:"+control.ID, control.Label, control.Group, detail, "1.3.0", true)
 	}
-	add("session_read", "Read persistent sessions", "Persistent sessions", "Scrollback plus screen of daemon-managed tmux, Zellij and Screen sessions, up to 2,000 lines, without changing focus. tmux colours are kept. Requires onibi start.", "", false)
+	add("session_read", "Read persistent sessions", "Persistent sessions", "Scrollback plus screen of daemon-managed tmux, Zellij and Screen sessions, up to 2,000 lines, without changing focus. tmux colours are kept. Requires the sessions daemon, which onibi web starts.", "", false)
 	add("session_control", "Control persistent sessions", "Persistent sessions", "Text, keys, interrupt and a confirmed end-session by exact session ID. Works while Ghostty is unavailable.", "", false)
 	add("session_attention", "Session attention signals", "Persistent sessions", "Generic prompt patterns on the cursor line, terminal bells (tmux), and activity or idleness. Heuristics over screen text, not program state.", "", false)
 	add("reader", "Phone reader tools", "This browser", "Text size, wrap, expanded reading, snapshot navigation and copy. No native display change.", "", false)

@@ -103,7 +103,7 @@ func (s *Server) sessionList(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	sessions, err := s.managed.Sessions(ctx)
 	if err != nil {
-		writeError(w, http.StatusServiceUnavailable, "daemon_unavailable", "The Onibi daemon is not running. Start it with onibi start to see managed sessions.")
+		writeError(w, http.StatusServiceUnavailable, "daemon_unavailable", "The Onibi daemon is not running. Restart onibi web, or run onibi start, to see managed sessions.")
 		return
 	}
 	if sessions == nil {

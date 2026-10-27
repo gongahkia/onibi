@@ -12,9 +12,17 @@ import (
 )
 
 func webServiceCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "service", Short: "Manage the Mac web cockpit as a separate login service"}
+	cmd := &cobra.Command{Use: "service", Short: "Run the web cockpit and sessions daemon as one login service"}
+	shorts := map[string]string{
+		"install": "Install the login service (it includes the sessions daemon)",
+		"start":   "Start the login service now",
+		"stop":    "Stop the login service until the next login",
+		"restart": "Restart the login service",
+		"status":  "Show whether the login service is installed and running",
+		"remove":  "Remove the login service; browser grants and logs are kept",
+	}
 	for _, op := range []string{"install", "start", "stop", "restart", "status", "remove"} {
-		sub := &cobra.Command{Use: op, Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		sub := &cobra.Command{Use: op, Short: shorts[op], Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 			paths, err := config.DefaultPaths()
 			if err != nil {
 				return err
@@ -36,7 +44,7 @@ func webServiceCmd() *cobra.Command {
 				if err := terminalUI(cmd).Step("Install web login service", func(func(string)) error { return manager.Install(ctx, listen, origin) }); err != nil {
 					return err
 				}
-				cmd.Printf("Installed. Start: %s web service start\nThen pair: %s web pair\nIt also starts at your next graphical login.\n", commandHint(), commandHint())
+				cmd.Printf("Installed. Start: %s web service start\nThen pair: %s web pair\nIt also starts at your next graphical login and runs the sessions daemon, so %s system service is not needed.\n", commandHint(), commandHint(), commandHint())
 				return nil
 			case "start":
 				err = terminalUI(cmd).Step("Start web login service", func(func(string)) error { return manager.Start(ctx) })

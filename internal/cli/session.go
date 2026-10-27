@@ -93,7 +93,7 @@ func runSessionNew(cmd *cobra.Command, args []string) error {
 func sessionRequest(socket string, ev intake.Event) (intake.Response, error) {
 	response, err := intake.Request(socket, ev, 5*time.Second)
 	if err != nil {
-		return intake.Response{}, fmt.Errorf("daemon unavailable (start it with onibi start): %w", err)
+		return intake.Response{}, fmt.Errorf("daemon unavailable (start it with onibi web or onibi start): %w", err)
 	}
 	if response.Reason != "" {
 		return intake.Response{}, errors.New(response.Reason)
