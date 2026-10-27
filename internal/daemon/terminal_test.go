@@ -149,6 +149,9 @@ func TestLivenessCheckEndsMissingTmuxSession(t *testing.T) {
 	d := New(Options{DB: db, Paths: config.Paths{StateDir: state}})
 	s := NewSession("dead-1", "work", "pi")
 	s.TmuxTarget = "onibi-dead-1"
+	if err := db.SessionUpsertStart(t.Context(), s.ID, s.Name, s.Agent, "", "pi", "tmux", s.TmuxTarget, s.StartedAt()); err != nil {
+		t.Fatal(err)
+	}
 	if err := d.Registry.Add(s); err != nil {
 		t.Fatal(err)
 	}
@@ -161,13 +164,9 @@ func TestLivenessCheckEndsMissingTmuxSession(t *testing.T) {
 	if !s.Ended() {
 		t.Fatal("session was not ended")
 	}
-	select {
-	case event := <-d.SessionEvents():
-		if event.SessionID != s.ID || event.Reason != "tmux session exited" {
-			t.Fatalf("event=%#v", event)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("missing liveness event")
+	active, err := db.SessionsActive(t.Context())
+	if err != nil || len(active) != 0 {
+		t.Fatalf("ended session still active: %#v err=%v", active, err)
 	}
 }
 

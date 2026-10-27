@@ -3,8 +3,6 @@ package daemon
 import (
 	"context"
 	"errors"
-	"fmt"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -17,47 +15,6 @@ import (
 var newTmuxController = tmux.New
 
 const legacyCodexTransport = "codex"
-
-func (d *Daemon) StartTmuxSession(ctx context.Context, name, agent, bin string, args []string, cwd string) (*Session, error) {
-	if _, err := exec.LookPath(bin); err != nil {
-		return nil, fmt.Errorf("%s not found in PATH: %w", bin, err)
-	}
-	cwd, err := normalizeSessionCWD(cwd)
-	if err != nil {
-		return nil, fmt.Errorf("working directory: %w", err)
-	}
-	id := NewID()
-	name, err = d.sessionName(name, agent)
-	if err != nil {
-		return nil, err
-	}
-	target := "onibi-" + id
-	ctrl, err := d.tmuxControllerForCWD(cwd)
-	if err != nil {
-		return nil, err
-	}
-	if err := ctrl.StartSession(ctx, target, tmux.StartOptions{WindowName: name, CWD: cwd, Env: []string{"ONIBI_SESSION_ID=" + id, "ONIBI_SOCK=" + d.Paths.Socket}, Command: bin, Args: args}); err != nil {
-		return nil, err
-	}
-	s := NewSession(id, name, agent)
-	s.TmuxTarget, s.Cmd, s.CWD = target, commandLine(bin, args), cwd
-	if d.DB != nil {
-		if err := d.DB.SessionUpsertStart(ctx, s.ID, s.Name, s.Agent, s.CWD, s.Cmd, "tmux", s.TmuxTarget, s.StartedAt()); err != nil {
-			_ = ctrl.KillSession(context.Background(), target)
-			return nil, fmt.Errorf("persist session: %w", err)
-		}
-	}
-	if err := d.Registry.Add(s); err != nil {
-		_ = ctrl.KillSession(context.Background(), target)
-		if d.DB != nil {
-			_ = d.DB.SessionMarkEnded(context.Background(), s.ID, s.StartedAt())
-		}
-		return nil, err
-	}
-	d.audit(ctx, "session.start", s.ID, "", 0, "agent="+agent+" target="+target)
-	d.Log.Info("session started", "session", s.ID, "name", s.Name, "agent", agent, "transport", "tmux")
-	return s, nil
-}
 
 func (d *Daemon) restoreSessions(ctx context.Context) {
 	if d.DB == nil {

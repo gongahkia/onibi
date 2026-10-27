@@ -28,14 +28,7 @@ type Daemon struct {
 	health           *healthTracker
 	attention        *attentionTracker
 	started          time.Time
-	mu               sync.Mutex
-	sessionEvents    chan SessionEvent
 	SkipRestore      bool
-}
-
-type SessionEvent struct {
-	SessionID string
-	Reason    string
 }
 
 type Options struct {
@@ -55,7 +48,7 @@ func New(opts Options) *Daemon {
 	if opts.LivenessInterval <= 0 {
 		opts.LivenessInterval = 5 * time.Second
 	}
-	d := &Daemon{Paths: opts.Paths, DB: opts.DB, Log: opts.Log, Registry: NewRegistry(), LivenessInterval: opts.LivenessInterval, ShellDefault: opts.ShellDefault, ShellLogin: opts.ShellLogin, started: time.Now(), sessionEvents: make(chan SessionEvent, 128), SkipRestore: opts.SkipRestore}
+	d := &Daemon{Paths: opts.Paths, DB: opts.DB, Log: opts.Log, Registry: NewRegistry(), LivenessInterval: opts.LivenessInterval, ShellDefault: opts.ShellDefault, ShellLogin: opts.ShellLogin, started: time.Now(), SkipRestore: opts.SkipRestore}
 	d.health = newHealthTracker(opts.DB, opts.Log)
 	d.attention = newAttentionTracker()
 	d.Intake = intake.New(opts.Paths.Socket, opts.Log)
@@ -208,11 +201,6 @@ func (d *Daemon) sessionNameTaken(name string) bool {
 	}
 	return false
 }
-func (d *Daemon) SessionEvents() <-chan SessionEvent { return d.sessionEvents }
-
-func (d *Daemon) markSessionEnded(ctx context.Context, s *Session) {
-	d.markSessionEndedReason(ctx, s, "session ended")
-}
 func (d *Daemon) markSessionEndedReason(ctx context.Context, s *Session, reason string) {
 	if s == nil || !s.MarkEnded() {
 		return
@@ -224,11 +212,6 @@ func (d *Daemon) markSessionEndedReason(ctx context.Context, s *Session, reason 
 	d.attention.forget(s.ID)
 	d.Log.Info("session ended", "session", s.ID, "name", s.Name, "agent", s.Agent, "reason", reason)
 	d.audit(ctx, "session.ended", s.ID, "", 0, "")
-	select {
-	case d.sessionEvents <- SessionEvent{SessionID: s.ID, Reason: reason}:
-	default:
-		d.Log.Warn("dropping session ended event", "session", s.ID)
-	}
 }
 
 func (d *Daemon) touchSession(ctx context.Context, s *Session) {
