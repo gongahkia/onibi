@@ -26,17 +26,25 @@ const (
 )
 
 // Prompt patterns are deliberately generic: they describe common terminal
-// conventions rather than any particular program's interface.
-var promptPatterns = []struct {
-	re       *regexp.Regexp
-	reason   string
-	lastLine bool
+// conventions rather than any particular program's interface. Cursor-line
+// patterns must end the last non-empty line, so an answered prompt or a
+// command line that merely contains "[y/N]" does not match.
+var cursorPrompts = []struct {
+	re     *regexp.Regexp
+	reason string
 }{
-	{regexp.MustCompile(`(?i)[\[(]\s*(y/n|yes/no)\s*[\])]`), "Yes/no prompt", false},
-	{regexp.MustCompile(`(?i)\bpress (enter|return|any key)\b`), "Waiting for a key press", false},
-	{regexp.MustCompile(`(?i)\b(password|passphrase|passcode)\b[^:]*:\s*$`), "Password prompt", true},
-	{regexp.MustCompile(`(?i)\b(do you want to|would you like to|are you sure|continue\?|proceed\?|overwrite\?)`), "Question prompt", false},
+	{regexp.MustCompile(`(?i)[\[(]\s*(y/n|yes/no)\s*[\])]\s*[:?>]?\s*$`), "Yes/no prompt"},
+	{regexp.MustCompile(`(?i)\bpress (enter|return|any key)\b[^\n]{0,40}$`), "Waiting for a key press"},
+	{regexp.MustCompile(`(?i)\b(password|passphrase|passcode)\b[^:]*:\s*$`), "Password prompt"},
+	{regexp.MustCompile(`(?i)\b(do you want to|would you like to|are you sure|continue|proceed|overwrite)\b[^\n]*\?\s*$`), "Question prompt"},
 }
+
+// A question above the cursor counts only when every line below it looks
+// like a choice in a selection menu.
+var (
+	menuQuestion = regexp.MustCompile(`(?i)\b(do you want to|would you like to|are you sure)\b[^\n]*\?`)
+	menuChoice   = regexp.MustCompile(`(?i)^\s*([❯›>*•]\s*)?(\d+[.)]|yes\b|no\b|\[[ x]\])`)
+)
 
 type attentionObservation struct {
 	Plain        string
@@ -153,14 +161,20 @@ func detectPrompt(plain string) string {
 			recent = append(recent, line)
 		}
 	}
-	for _, pattern := range promptPatterns {
-		for i, line := range recent {
-			if pattern.lastLine && i > 0 {
-				break
+	if len(recent) == 0 {
+		return ""
+	}
+	for _, pattern := range cursorPrompts {
+		if pattern.re.MatchString(recent[0]) {
+			return pattern.reason
+		}
+	}
+	for i, line := range recent {
+		if !menuChoice.MatchString(line) {
+			if i > 0 && menuQuestion.MatchString(line) {
+				return "Question prompt"
 			}
-			if pattern.re.MatchString(line) {
-				return pattern.reason
-			}
+			return ""
 		}
 	}
 	return ""

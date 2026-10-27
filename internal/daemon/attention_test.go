@@ -48,8 +48,15 @@ func TestAttentionDetectsPromptsInRecentLines(t *testing.T) {
 		{"Done.\nPress Enter to exit", "Waiting for a key press"},
 		{"ssh host\nEnter passphrase for key '/k':  ", "Password prompt"},
 		{"Do you want to apply these changes?\n\n  1. Yes\n  2. No\n", "Question prompt"},
+		{"Would you like to continue?\n❯ 1. Yes\n  2. No, and tell it what to do", "Question prompt"},
+		{"Are you sure you want to delete branch main?", "Question prompt"},
 		{"password: hunter2 was rejected\n$ ", ""},
-		{"Continue? [y/N] y\n1\n2\n3\n4\n5\n6\n7", ""},
+		{"Continue? [y/N] y\n$ ", ""},
+		{"Continue? [y/N] y", ""},
+		{"% read -p 'Overwrite config? [y/N] ' a\nread: -p: no coprocess\n% ", ""},
+		{"% read -p 'Overwrite config? [y/N] ' a", ""},
+		{"Do you want to apply these changes?\n  1. Yes\n$ ", ""},
+		{"Would you like to know more?\nSee the docs.", ""},
 		{"compiling\nok", ""},
 	} {
 		if got := detectPrompt(tc.plain); got != tc.want {
