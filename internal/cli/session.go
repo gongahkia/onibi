@@ -40,7 +40,8 @@ func sessionCmd() *cobra.Command {
 	attach := &cobra.Command{Use: "attach <name|id>", Aliases: []string{"a"}, Short: "Attach this terminal to a session", Example: "  onibi session attach build\n  onibi session attach 7df5", Args: cobra.ExactArgs(1), ValidArgsFunction: completeSessions, RunE: runSessionAttach}
 	kill := &cobra.Command{Use: "kill <name|id>", Short: "End a session and the programs running in it", Args: cobra.ExactArgs(1), ValidArgsFunction: completeSessions, RunE: runSessionKill}
 	kill.Flags().BoolP("yes", "y", false, "do not ask for confirmation")
-	cmd.AddCommand(newCmd, list, attach, kill, adopt)
+	rename := &cobra.Command{Use: "rename <name|id> <new-name>", Short: "Rename a session (letters, digits, dot, underscore and hyphen)", Example: "  onibi session rename shell-2 review", Args: cobra.ExactArgs(2), ValidArgsFunction: completeSessions, RunE: runSessionRename}
+	cmd.AddCommand(newCmd, list, attach, rename, kill, adopt)
 	return cmd
 }
 func runSessionAdopt(cmd *cobra.Command, args []string) error {
@@ -350,6 +351,24 @@ func runSessionKill(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "Ended %s (%s)\n", row.Name, shortID(row.ID))
+	return nil
+}
+
+func runSessionRename(cmd *cobra.Command, args []string) error {
+	paths, db, err := pathsAndStore()
+	if err != nil {
+		return err
+	}
+	row, err := resolveSession(cmd, db, args[0])
+	db.Close()
+	if err != nil {
+		return err
+	}
+	resp, err := sessionRequest(paths.Socket, intake.Event{Type: intake.TypeSessionControl, Session: row.ID, Action: "rename", Name: args[1], Exact: true})
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "Renamed %s to %s (%s)\n", row.Name, resp.Text, shortID(row.ID))
 	return nil
 }
 

@@ -45,6 +45,9 @@ These CLI paths reach it over the intake socket:
 | `onibi session new [--name] [--cwd] [--mux] <shell\|program> [args...]` | Run the configured shell, or any program on `PATH` or given by absolute path, in tmux, Zellij or GNU Screen. Arguments after the program are passed to it unchanged. `ONIBI_<PROGRAM>_BIN` overrides which binary a bare name resolves to |
 | `onibi session adopt <tmux\|zellij\|screen> <target>` | Take control of an existing multiplexer session |
 | `onibi session list [--all]` | List sessions from the state database |
+| `onibi session attach <name\|id>` | Attach this terminal to the session's multiplexer |
+| `onibi session rename <name\|id> <new-name>` | Change the name Onibi shows and resolves. Names use letters, digits, dot, underscore and hyphen, and must be unique among live sessions. The multiplexer's own session name is unchanged, so attach commands keep working |
+| `onibi session kill [--yes] <name\|id>` | End the session and the programs in it, after confirmation |
 | `onibi system status`, `onibi doctor` | Report daemon, service and multiplexer readiness |
 
 The web cockpit uses the `session_list`, `session_capture`, `session_key`, `session_new`, and exact-ID `session_input` and `session_control` RPCs (`internal/daemon/rpc.go`). `session_peek` and the name-matching forms of `session_input` and `session_control` have no caller.
