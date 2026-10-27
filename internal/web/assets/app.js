@@ -1373,6 +1373,7 @@ async function applyReceipt(receipt) {
     await refreshSessions();
   } else {
     if (pending.action.kind === "input") {
+      recordRecall(pending.draft, "Sent");
       if (
         state.selectedId === pending.action.targetId &&
         byId("compose").value === pending.draft
@@ -1713,6 +1714,7 @@ byId("logout").addEventListener("click", async () => {
     await api("/api/logout", { method: "POST", body: "{}" });
     byId("compose").value = "";
     state.drafts.clear();
+    clearRecall();
     byId("action-notice").hidden = true;
     requirePairing(
       "Disconnected. Open a new pairing link from your Mac to reconnect.",
@@ -2100,6 +2102,7 @@ byId("confirm-revoke").addEventListener("click", async () => {
     byId("revoke-dialog").close();
     if (device.id === state.device?.id) {
       state.drafts.clear();
+      clearRecall();
       requirePairing("This browser’s access was revoked.");
     } else await loadDevices();
   } catch (error) {

@@ -82,6 +82,7 @@ byId("reader-copy").addEventListener("click", async () => {
     if (!navigator.clipboard?.writeText)
       throw new Error("Clipboard unavailable");
     await navigator.clipboard.writeText(text);
+    recordRecall(text, "Copied");
     detail = "Snapshot copied. Follow is paused.";
   } catch {
     if (generation !== state.authGeneration || target !== state.snapshotTarget)

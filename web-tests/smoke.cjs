@@ -484,6 +484,19 @@ const server = http.createServer(async (req, res) => {
       .getElementById("terminal-output")
       .textContent.startsWith("$ go test"),
   );
+  await page.evaluate(() => {
+    const output = document.getElementById("terminal-output");
+    const first = document
+      .createTreeWalker(output, NodeFilter.SHOW_TEXT)
+      .nextNode();
+    const range = document.createRange();
+    range.setStart(first, 2);
+    range.setEnd(first, 9);
+    getSelection().removeAllRanges();
+    getSelection().addRange(range);
+    output.dispatchEvent(new ClipboardEvent("copy", { bubbles: true }));
+    getSelection().removeAllRanges();
+  });
   await page.fill("#compose", "printf hello");
   await page.click("#send-input");
   await page.waitForFunction(
@@ -512,6 +525,27 @@ const server = http.createServer(async (req, res) => {
     .waitFor();
   assert.equal(actions.length, beforeOversize);
   assert.equal(await page.inputValue("#compose"), oversize);
+  await page.fill("#compose", "");
+  await page.click("#recall summary");
+  const recalled = await page.$$eval("#recall-list .recall-item", (items) =>
+    items.map((item) => [
+      item.querySelector(".recall-source").textContent,
+      item.querySelector(".recall-text").textContent,
+    ]),
+  );
+  assert.deepEqual(recalled[0], ["Sent", "printf hello"]);
+  assert.deepEqual(recalled[1], ["Copied", "go test"]);
+  assert(!recalled.some(([, value]) => !value.trim()), "blank sends skipped");
+  const beforeRecall = actions.length;
+  await page.click("#recall-list .recall-item >> nth=0");
+  assert.equal(await page.inputValue("#compose"), "printf hello");
+  assert.equal(actions.length, beforeRecall, "recall must not send");
+  const stored = await page.evaluate(() =>
+    JSON.stringify({ ...localStorage, ...sessionStorage }),
+  );
+  assert(!stored.includes("printf hello"), "recall must not be persisted");
+  await page.fill("#compose", "");
+  await page.click("#recall summary");
   console.log(
     "Passed pairing, explicit destinations, inert output, input fidelity, and UTF-8 limits.",
   );
