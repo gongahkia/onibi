@@ -2,7 +2,6 @@ package cli
 
 import (
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"os/signal"
@@ -14,7 +13,6 @@ import (
 	"github.com/gongahkia/onibi/internal/daemon"
 	"github.com/gongahkia/onibi/internal/intake"
 	"github.com/gongahkia/onibi/internal/logging"
-	"github.com/gongahkia/onibi/internal/render"
 	"github.com/gongahkia/onibi/internal/store"
 	"github.com/spf13/cobra"
 )
@@ -64,9 +62,6 @@ func newDaemon(paths config.Paths, db *store.DB, logger *slog.Logger) (*daemon.D
 	cfg, _, err := config.Load(paths)
 	if err != nil {
 		return nil, err
-	}
-	if err := render.ValidateFont(cfg.Screen.Font, cfg.Screen.FontPath); err != nil {
-		return nil, fmt.Errorf("screen font: %w", err)
 	}
 	return daemon.New(daemon.Options{Paths: paths, DB: db, Log: logger, LivenessInterval: cfg.Daemon.LivenessInterval.Std(), ShellDefault: cfg.Shell.Default, ShellLogin: cfg.Shell.Login}), nil
 }

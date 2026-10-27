@@ -35,25 +35,16 @@ func (d *Duration) UnmarshalYAML(n *yaml.Node) error {
 type Config struct {
 	Daemon      Daemon      `yaml:"daemon" json:"daemon"`
 	Shell       Shell       `yaml:"shell" json:"shell"`
-	Screen      Screen      `yaml:"screen" json:"screen"`
 	Multiplexer Multiplexer `yaml:"multiplexer" json:"multiplexer"`
 }
 
 type Daemon struct {
-	OutputBufferBytes int      `yaml:"output_buffer_bytes" json:"output_buffer_bytes"`
-	LivenessInterval  Duration `yaml:"liveness_interval" json:"liveness_interval"`
-	UploadTTL         Duration `yaml:"upload_ttl" json:"upload_ttl"`
-	UploadMaxBytes    int64    `yaml:"upload_max_bytes" json:"upload_max_bytes"`
+	LivenessInterval Duration `yaml:"liveness_interval" json:"liveness_interval"`
 }
 
 type Shell struct {
 	Default string `yaml:"default" json:"default"`
 	Login   bool   `yaml:"login" json:"login"`
-}
-
-type Screen struct {
-	Font     string `yaml:"font" json:"font"`
-	FontPath string `yaml:"font_path" json:"font_path"`
 }
 
 // Multiplexer selects the backend used for terminal-backed sessions. A project
@@ -87,9 +78,8 @@ type KeyInfo struct {
 
 func Default() Config {
 	return Config{
-		Daemon: Daemon{OutputBufferBytes: 64 * 1024, LivenessInterval: Duration(5 * time.Second), UploadTTL: Duration(7 * 24 * time.Hour), UploadMaxBytes: 20 << 20},
+		Daemon: Daemon{LivenessInterval: Duration(5 * time.Second)},
 		Shell:  Shell{Default: "auto", Login: true},
-		Screen: Screen{Font: "jetbrains-mono-nerd"},
 		Multiplexer: Multiplexer{
 			Default: "auto",
 			Tmux:    MuxBackend{Config: "auto"},
@@ -120,19 +110,12 @@ func Load(paths Paths) (Config, LoadMeta, error) {
 func loadBytes(path string, b []byte, cfg Config, meta LoadMeta) (Config, LoadMeta, error) {
 	var raw struct {
 		Daemon struct {
-			OutputBufferBytes *int      `yaml:"output_buffer_bytes"`
-			LivenessInterval  *Duration `yaml:"liveness_interval"`
-			UploadTTL         *Duration `yaml:"upload_ttl"`
-			UploadMaxBytes    *int64    `yaml:"upload_max_bytes"`
+			LivenessInterval *Duration `yaml:"liveness_interval"`
 		} `yaml:"daemon"`
 		Shell struct {
 			Default *string `yaml:"default"`
 			Login   *bool   `yaml:"login"`
 		} `yaml:"shell"`
-		Screen struct {
-			Font     *string `yaml:"font"`
-			FontPath *string `yaml:"font_path"`
-		} `yaml:"screen"`
 		Multiplexer struct {
 			Default *string `yaml:"default"`
 			Tmux    struct {
@@ -153,21 +136,9 @@ func loadBytes(path string, b []byte, cfg Config, meta LoadMeta) (Config, LoadMe
 	if err := dec.Decode(&raw); err != nil {
 		return cfg, meta, fmt.Errorf("parse %s: %w", path, err)
 	}
-	if raw.Daemon.OutputBufferBytes != nil {
-		cfg.Daemon.OutputBufferBytes = *raw.Daemon.OutputBufferBytes
-		meta.Explicit["daemon.output_buffer_bytes"] = true
-	}
 	if raw.Daemon.LivenessInterval != nil {
 		cfg.Daemon.LivenessInterval = *raw.Daemon.LivenessInterval
 		meta.Explicit["daemon.liveness_interval"] = true
-	}
-	if raw.Daemon.UploadTTL != nil {
-		cfg.Daemon.UploadTTL = *raw.Daemon.UploadTTL
-		meta.Explicit["daemon.upload_ttl"] = true
-	}
-	if raw.Daemon.UploadMaxBytes != nil {
-		cfg.Daemon.UploadMaxBytes = *raw.Daemon.UploadMaxBytes
-		meta.Explicit["daemon.upload_max_bytes"] = true
 	}
 	if raw.Shell.Default != nil {
 		cfg.Shell.Default = strings.TrimSpace(*raw.Shell.Default)
@@ -176,14 +147,6 @@ func loadBytes(path string, b []byte, cfg Config, meta LoadMeta) (Config, LoadMe
 	if raw.Shell.Login != nil {
 		cfg.Shell.Login = *raw.Shell.Login
 		meta.Explicit["shell.login"] = true
-	}
-	if raw.Screen.Font != nil {
-		cfg.Screen.Font = strings.TrimSpace(*raw.Screen.Font)
-		meta.Explicit["screen.font"] = true
-	}
-	if raw.Screen.FontPath != nil {
-		cfg.Screen.FontPath = strings.TrimSpace(*raw.Screen.FontPath)
-		meta.Explicit["screen.font_path"] = true
 	}
 	if raw.Multiplexer.Default != nil {
 		cfg.Multiplexer.Default = strings.ToLower(strings.TrimSpace(*raw.Multiplexer.Default))
@@ -241,33 +204,11 @@ func Save(path string, cfg Config) error {
 }
 
 func (c Config) Validate() error {
-	if c.Daemon.OutputBufferBytes < 4096 || c.Daemon.OutputBufferBytes > 10*1024*1024 {
-		return errors.New("daemon.output_buffer_bytes must be between 4096 and 10485760")
-	}
 	if c.Daemon.LivenessInterval.Std() < time.Second || c.Daemon.LivenessInterval.Std() > 5*time.Minute {
 		return errors.New("daemon.liveness_interval must be between 1s and 5m")
 	}
-	if c.Daemon.UploadTTL.Std() < time.Hour || c.Daemon.UploadTTL.Std() > 30*24*time.Hour {
-		return errors.New("daemon.upload_ttl must be between 1h and 720h")
-	}
-	if c.Daemon.UploadMaxBytes < 1<<20 || c.Daemon.UploadMaxBytes > 100<<20 {
-		return errors.New("daemon.upload_max_bytes must be between 1048576 and 104857600")
-	}
 	if strings.TrimSpace(c.Shell.Default) == "" {
 		return errors.New("shell.default required")
-	}
-	switch c.Screen.Font {
-	case "jetbrains-mono-nerd", "caskaydia-cove-nerd", "go-mono-nerd":
-	case "custom":
-		if c.Screen.FontPath == "" {
-			return errors.New("screen.font_path required when screen.font=custom")
-		}
-		info, err := os.Stat(c.Screen.FontPath)
-		if err != nil || info.IsDir() {
-			return errors.New("screen.font_path must be a readable font file")
-		}
-	default:
-		return errors.New("screen.font must be jetbrains-mono-nerd, caskaydia-cove-nerd, go-mono-nerd, or custom")
 	}
 	switch strings.ToLower(strings.TrimSpace(c.Multiplexer.Default)) {
 	case "auto", "tmux", "zellij", "screen":
@@ -294,30 +235,12 @@ func ParseDuration(s string) (time.Duration, error) {
 
 func Set(cfg *Config, key, value string) error {
 	switch strings.TrimSpace(key) {
-	case "daemon.output_buffer_bytes":
-		n, err := strconv.Atoi(value)
-		if err != nil {
-			return err
-		}
-		cfg.Daemon.OutputBufferBytes = n
 	case "daemon.liveness_interval":
 		d, err := ParseDuration(value)
 		if err != nil {
 			return err
 		}
 		cfg.Daemon.LivenessInterval = Duration(d)
-	case "daemon.upload_ttl":
-		d, err := ParseDuration(value)
-		if err != nil {
-			return err
-		}
-		cfg.Daemon.UploadTTL = Duration(d)
-	case "daemon.upload_max_bytes":
-		n, err := strconv.ParseInt(value, 10, 64)
-		if err != nil {
-			return err
-		}
-		cfg.Daemon.UploadMaxBytes = n
 	case "shell.default":
 		cfg.Shell.Default = strings.TrimSpace(value)
 	case "shell.login":
@@ -326,10 +249,6 @@ func Set(cfg *Config, key, value string) error {
 			return err
 		}
 		cfg.Shell.Login = v
-	case "screen.font":
-		cfg.Screen.Font = strings.TrimSpace(value)
-	case "screen.font_path":
-		cfg.Screen.FontPath = strings.TrimSpace(value)
 	case "multiplexer.default":
 		cfg.Multiplexer.Default = strings.ToLower(strings.TrimSpace(value))
 	case "multiplexer.tmux.bin":
@@ -352,22 +271,12 @@ func Set(cfg *Config, key, value string) error {
 
 func Get(cfg Config, key string) (string, error) {
 	switch strings.TrimSpace(key) {
-	case "daemon.output_buffer_bytes":
-		return strconv.Itoa(cfg.Daemon.OutputBufferBytes), nil
 	case "daemon.liveness_interval":
 		return cfg.Daemon.LivenessInterval.String(), nil
-	case "daemon.upload_ttl":
-		return cfg.Daemon.UploadTTL.String(), nil
-	case "daemon.upload_max_bytes":
-		return strconv.FormatInt(cfg.Daemon.UploadMaxBytes, 10), nil
 	case "shell.default":
 		return cfg.Shell.Default, nil
 	case "shell.login":
 		return strconv.FormatBool(cfg.Shell.Login), nil
-	case "screen.font":
-		return cfg.Screen.Font, nil
-	case "screen.font_path":
-		return cfg.Screen.FontPath, nil
 	case "multiplexer.default":
 		return cfg.Multiplexer.Default, nil
 	case "multiplexer.tmux.bin":
@@ -390,14 +299,9 @@ func Get(cfg Config, key string) (string, error) {
 func Keys(cfg Config, meta LoadMeta) []KeyInfo {
 	def := Default()
 	return []KeyInfo{
-		{"daemon.output_buffer_bytes", strconv.Itoa(def.Daemon.OutputBufferBytes), strconv.Itoa(cfg.Daemon.OutputBufferBytes), meta.Explicit["daemon.output_buffer_bytes"], "output retained for session tail and screen capture"},
 		{"daemon.liveness_interval", def.Daemon.LivenessInterval.String(), cfg.Daemon.LivenessInterval.String(), meta.Explicit["daemon.liveness_interval"], "managed tmux liveness polling cadence"},
-		{"daemon.upload_ttl", def.Daemon.UploadTTL.String(), cfg.Daemon.UploadTTL.String(), meta.Explicit["daemon.upload_ttl"], "private staged-upload retention"},
-		{"daemon.upload_max_bytes", strconv.FormatInt(def.Daemon.UploadMaxBytes, 10), strconv.FormatInt(cfg.Daemon.UploadMaxBytes, 10), meta.Explicit["daemon.upload_max_bytes"], "maximum staged upload size"},
 		{"shell.default", def.Shell.Default, cfg.Shell.Default, meta.Explicit["shell.default"], "default shell for new tmux sessions"},
 		{"shell.login", strconv.FormatBool(def.Shell.Login), strconv.FormatBool(cfg.Shell.Login), meta.Explicit["shell.login"], "run default shell as a login shell"},
-		{"screen.font", def.Screen.Font, cfg.Screen.Font, meta.Explicit["screen.font"], "font used for rendered terminal screens"},
-		{"screen.font_path", def.Screen.FontPath, cfg.Screen.FontPath, meta.Explicit["screen.font_path"], "external TTF/OTF path when screen.font=custom"},
 		{"multiplexer.default", def.Multiplexer.Default, cfg.Multiplexer.Default, meta.Explicit["multiplexer.default"], "terminal multiplexer selected for new sessions (auto, tmux, zellij, screen)"},
 		{"multiplexer.tmux.bin", def.Multiplexer.Tmux.Bin, cfg.Multiplexer.Tmux.Bin, meta.Explicit["multiplexer.tmux.bin"], "tmux executable override"},
 		{"multiplexer.tmux.config", def.Multiplexer.Tmux.Config, cfg.Multiplexer.Tmux.Config, meta.Explicit["multiplexer.tmux.config"], "tmux config path, or auto to resolve project and user configs"},

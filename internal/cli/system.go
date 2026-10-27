@@ -10,7 +10,6 @@ import (
 
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/intake"
-	"github.com/gongahkia/onibi/internal/render"
 	"github.com/gongahkia/onibi/internal/service"
 	"github.com/gongahkia/onibi/internal/termui"
 	"github.com/spf13/cobra"
@@ -138,11 +137,6 @@ func runConfigSet(cmd *cobra.Command, args []string) error {
 	}
 	if err := config.Set(&cfg, args[0], args[1]); err != nil {
 		return err
-	}
-	if strings.HasPrefix(args[0], "screen.") {
-		if err := render.ValidateFont(cfg.Screen.Font, cfg.Screen.FontPath); err != nil {
-			return fmt.Errorf("screen font: %w", err)
-		}
 	}
 	return config.Save(paths.Config, cfg)
 }

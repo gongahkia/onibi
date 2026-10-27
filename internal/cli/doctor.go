@@ -12,7 +12,6 @@ import (
 
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/intake"
-	"github.com/gongahkia/onibi/internal/render"
 	"github.com/gongahkia/onibi/internal/tmux"
 	"github.com/spf13/cobra"
 )
@@ -103,8 +102,6 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 	cfg, meta, err := config.Load(paths)
 	if err != nil {
 		report.add(doctorFail, "config", err.Error())
-	} else if err := render.ValidateFont(cfg.Screen.Font, cfg.Screen.FontPath); err != nil {
-		report.add(doctorFail, "screen font", err.Error())
 	} else if meta.Exists {
 		report.add(doctorOK, "config", paths.Config)
 	} else {
