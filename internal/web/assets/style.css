@@ -1874,6 +1874,16 @@ dialog {
 .danger:hover {
   background: #fff;
 }
+.pair-fire {
+  margin: 0 0 28px;
+  font-size: 11px;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  color: var(--text);
+  white-space: pre;
+  user-select: none;
+  min-height: 20em;
+}
 @media (max-width: 720px) {
   .pair-view {
     padding: 24px 20px;
@@ -1888,6 +1898,7 @@ dialog {
   }
   .pair-intro > .eyebrow,
   .pair-intro > p,
+  .pair-fire,
   .pair-footnote {
     display: none;
   }
