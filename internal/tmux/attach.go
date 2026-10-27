@@ -200,7 +200,7 @@ func normalizeKey(key string) string {
 	if value, ok := map[string]string{
 		"up": "Up", "down": "Down", "left": "Left", "right": "Right", "tab": "Tab", "shift-tab": "BTab",
 		"backspace": "BSpace", "delete": "DC", "home": "Home", "end": "End", "pgup": "PPage", "pgdn": "NPage",
-		"esc": "Escape", "enter": "Enter", "ctrl-c": "C-c", "ctrl-d": "C-d", "ctrl-z": "C-z", "ctrl-l": "C-l", "ctrl-r": "C-r", "meta-enter": "M-Enter",
+		"esc": "Escape", "enter": "Enter", "ctrl-c": "C-c", "ctrl-d": "C-d", "ctrl-z": "C-z", "ctrl-l": "C-l", "ctrl-r": "C-r", "meta-enter": "M-Enter", "space": "Space",
 	}[key]; ok {
 		return value
 	}

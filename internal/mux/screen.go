@@ -154,7 +154,7 @@ func screenKey(key string) string {
 	if value, ok := map[string]string{
 		"up": "\x1b[A", "down": "\x1b[B", "left": "\x1b[D", "right": "\x1b[C", "tab": "\t", "shift-tab": "\x1b[Z",
 		"backspace": "\x7f", "delete": "\x1b[3~", "home": "\x1b[H", "end": "\x1b[F", "pgup": "\x1b[5~", "pgdn": "\x1b[6~",
-		"esc": "\x1b", "enter": "\r", "ctrl-c": "\x03", "ctrl-d": "\x04", "ctrl-z": "\x1a", "ctrl-l": "\x0c", "ctrl-r": "\x12", "meta-enter": "\x1b\r",
+		"esc": "\x1b", "enter": "\r", "ctrl-c": "\x03", "ctrl-d": "\x04", "ctrl-z": "\x1a", "ctrl-l": "\x0c", "ctrl-r": "\x12", "meta-enter": "\x1b\r", "space": " ",
 		"f1": "\x1bOP", "f2": "\x1bOQ", "f3": "\x1bOR", "f4": "\x1bOS", "f5": "\x1b[15~", "f6": "\x1b[17~", "f7": "\x1b[18~", "f8": "\x1b[19~", "f9": "\x1b[20~", "f10": "\x1b[21~", "f11": "\x1b[23~", "f12": "\x1b[24~",
 	}[key]; ok {
 		return value

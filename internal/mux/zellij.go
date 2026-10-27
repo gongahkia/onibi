@@ -208,7 +208,7 @@ func zellijKey(key string) string {
 	if value, ok := map[string]string{
 		"up": "Up", "down": "Down", "left": "Left", "right": "Right", "tab": "Tab", "shift-tab": "Shift Tab",
 		"backspace": "Backspace", "delete": "Delete", "home": "Home", "end": "End", "pgup": "PageUp", "pgdn": "PageDown",
-		"esc": "Esc", "enter": "Enter", "ctrl-c": "Ctrl c", "ctrl-d": "Ctrl d", "ctrl-z": "Ctrl z", "ctrl-l": "Ctrl l", "ctrl-r": "Ctrl r", "meta-enter": "Alt Enter",
+		"esc": "Esc", "enter": "Enter", "ctrl-c": "Ctrl c", "ctrl-d": "Ctrl d", "ctrl-z": "Ctrl z", "ctrl-l": "Ctrl l", "ctrl-r": "Ctrl r", "meta-enter": "Alt Enter", "space": "Space",
 	}[key]; ok {
 		return value
 	}

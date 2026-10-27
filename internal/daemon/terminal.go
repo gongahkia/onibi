@@ -14,7 +14,7 @@ var terminalKeys = map[string]string{
 	"tab": "tab", "shift-tab": "shift-tab", "backspace": "backspace", "delete": "delete",
 	"home": "home", "end": "end", "pgup": "pgup", "pgdn": "pgdn",
 	"esc": "esc", "enter": "enter", "ctrl-c": "ctrl-c", "ctrl-d": "ctrl-d",
-	"ctrl-z": "ctrl-z", "ctrl-l": "ctrl-l", "ctrl-r": "ctrl-r", "meta-enter": "meta-enter",
+	"ctrl-z": "ctrl-z", "ctrl-l": "ctrl-l", "ctrl-r": "ctrl-r", "meta-enter": "meta-enter", "space": "space",
 }
 
 var terminalSizes = map[string][2]int{
