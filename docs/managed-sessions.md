@@ -1,8 +1,38 @@
-# Managed sessions (currently unwired)
+# Managed sessions
 
-The Telegram transport was removed. The managed-session backend it drove is kept in the tree so a future surface (most likely the web cockpit) can reuse it. This page records what still works, what has no consumer, and what a new surface needs to provide.
+Managed sessions are tmux, Zellij or GNU Screen sessions owned by the Onibi daemon. They keep running when Ghostty quits, have a stable identity, and can be read without focusing anything on the Mac. The web cockpit shows them as **Persistent sessions** alongside Ghostty panes, so this part is not tied to any particular program.
 
-The Ghostty web cockpit described in [web.md](web.md) does not use any of this code. It controls existing Ghostty panes directly.
+The agent-specific paths (Pi, Claude and Codex approvals and questions) still have no decision surface. They are described under [What has no consumer](#what-has-no-consumer).
+
+## In the web cockpit
+
+`onibi web` connects to the daemon over the same-user intake socket. If the daemon is not running, the cockpit hides the session group and Ghostty control is unaffected. If Ghostty is unavailable, sessions remain usable.
+
+| Capability | Behaviour |
+| --- | --- |
+| List | Live sessions with name, multiplexer, working directory and command, refreshed every five seconds. |
+| Read | Scrollback plus the visible screen, 200 lines by default, with **More history** raising it to 1,000 and then 2,000 lines. Reading never changes focus and is not counted as session activity. tmux output keeps its SGR colours. Zellij and Screen dumps are plain text. |
+| Input and keys | Send, paste, and the same key set as Ghostty panes. |
+| Interrupt and end | **Interrupt** sends Ctrl C. **End session** kills the multiplexer session after a confirmation naming it. |
+| Delivery | Every action uses the durable web receipts. The server confirms the session in a fresh daemon listing before dispatch, and the daemon resolves only the full session ID, never a name or prefix. A failure before any byte reaches the daemon, or a daemon rejection before a side effect, is reported as **not sent**. Anything later is **uncertain** and is never replayed. |
+
+Starting or adopting sessions from the phone is not offered. Use `onibi session new` or `onibi session adopt` on the Mac.
+
+## Attention signals
+
+The daemon samples the last 40 lines of each multiplexer session at the liveness interval (five seconds by default) and classifies it. The phone shows the result as a badge, and the page title counts sessions that need input or rang a bell.
+
+| State | Meaning |
+| --- | --- |
+| Needs input | The cursor line ends in a generic prompt: `[y/N]`/`(yes/no)`, "press enter/any key", a password or passphrase prompt, or a question such as "Do you want to …?". A question higher up counts only when every line below it is a menu choice. |
+| Bell | The terminal rang its bell since the last change. New output or input sent through Onibi clears it. |
+| Active | Output changed within the last 30 seconds. |
+| Idle | Output has not changed for 30 seconds. |
+| Quiet | No output change has been observed since the daemon started watching. |
+
+These are heuristics over screen text. They have no knowledge of a program's internal state, so a prompt drawn in an unusual way is missed, and text that happens to look like a prompt on the cursor line is reported. The first sample after a daemon start is a baseline, so bells rung while the daemon was stopped are not reported.
+
+Bells come from tmux. For sessions Onibi starts, tmux counts every bell into a session option through an `alert-bell[86]` hook. The fixed index leaves hooks you configure in other slots untouched. Adopted sessions are not modified, so only the window bell flag is available. It stays set until a client views the window, so a second bell before then is not seen. tmux reports bells only when `monitor-bell` is on (the default). Zellij and Screen sessions report prompts and activity but not bells. Desktop notification escapes such as OSC 9 and OSC 777 do not pass through tmux and are not detected.
 
 ## What still runs
 
@@ -18,7 +48,7 @@ These CLI paths reach it over the intake socket:
 | `onibi system status`, `onibi doctor` | Report daemon, service and multiplexer readiness |
 | `onibi pi install --experimental` | Install the Pi approval extension that calls `onibi-notify` |
 
-The intake socket also accepts `session_input`, `session_peek` and `session_control` RPCs (`internal/daemon/rpc.go`), but no CLI command sends them.
+The web cockpit uses the `session_list`, `session_capture`, `session_key`, and exact-ID `session_input` and `session_control` RPCs (`internal/daemon/rpc.go`). `session_peek` and the name-matching forms of `session_input` and `session_control` have no caller.
 
 ## What has no consumer
 
@@ -34,9 +64,9 @@ The intake socket also accepts `session_input`, `session_peek` and `session_cont
 | Staged uploads | `Daemon.StageUpload`, `daemon.upload_*` config | Nothing calls `StageUpload`; the expiry sweep still runs. |
 | Keychain/env-file secrets | `internal/secrets` | Not used by any command. A previously stored bot token remains under keychain service `sh.onibi.daemon`, account `TELEGRAM_BOT_TOKEN`, or in the `.env` fallback file in the state directory. Delete it there if you no longer need it, and revoke the bot with BotFather. |
 
-## Wiring a new surface
+## Wiring agent decisions
 
-A surface replaces what the Telegram bridge did. At minimum it should:
+The web cockpit covers terminal control. A surface for agent decisions would replace the rest of what the Telegram bridge did. At minimum it should:
 
 1. Hold one `Daemon` (or talk to it over the intake socket) and read `CodexEvents()`, `AgentEvents()`, `ClaudeQuestionEvents()` and `SessionEvents()` continuously so producers never block.
 2. Subscribe to `Queue.Subscribe()` and resolve approvals with `Queue.DecideIdempotently`. Replay pending approvals with `Queue.Pending` after reconnecting.

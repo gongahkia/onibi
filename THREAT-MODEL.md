@@ -4,7 +4,7 @@ Onibi grants a paired browser control over existing Ghostty terminals. It acts w
 
 The web server binds only to loopback. For remote use, Tailscale Serve terminates private HTTPS and forwards to the local listener. Tailscale, the tailnet access policy, the browser, and the Mac's local network stack are trusted parts of that route.
 
-The optional managed-session daemon (`onibi start`) has no remote surface. It is reachable only through the same-user intake socket; see [managed sessions](docs/managed-sessions.md).
+The optional managed-session daemon (`onibi start`) listens only on the same-user intake socket. When it runs, the paired web cockpit reaches it through that socket, so a paired browser can read, type into, interrupt and end its multiplexer sessions. It cannot start or adopt sessions. See [managed sessions](docs/managed-sessions.md).
 
 ## Protections
 
@@ -15,6 +15,7 @@ The optional managed-session daemon (`onibi start`) has no remote surface. It is
 - Native actions use Ghostty process and surface identities rather than terminal titles or positions. Output capture checks the focused pane before and after reading bounded Accessibility text. Pane/tab/window closure binds confirmation to the exact reviewed pane IDs; the server and native bridge both reject changed membership. Bounded follow-up observations distinguish removal, continued presence, and an unverified outcome without replaying the close. Layout and title controls come from a fixed server allowlist and require a verified focused pane; arbitrary native action strings are not exposed.
 - Passive diagnostics inspect app/process metadata and Accessibility trust without native Apple events or terminal reads. The HTTP health endpoint requires pairing. Explicit CLI probes may request Automation access. Health observations are historical; version capabilities do not prove current permission or responsiveness.
 - Concurrent inventory polling shares only in-flight work and backs off after failure. Mutations bypass polling backoff and validate fresh native targets; no cached list authorizes input. Capture and native availability are tracked separately so an HTTP response or successful read cannot clear a failed inventory observation in the phone interface.
+- Managed-session actions use the same receipts, grant rechecks and CSRF checks as Ghostty actions. The server confirms the session in a fresh daemon listing before dispatch, and the daemon accepts only the full session ID from web requests, never a name or prefix match. Ending a session requires a confirmation naming it. Captured colours are parsed into inert text runs; other terminal escape sequences are dropped.
 - Local state and uploaded files use restrictive filesystem permissions. The intake socket is same-user only.
 - Approvals and Claude questions expire or are cancelled when their waiter goes away. Resolved raw payloads are scrubbed after 24 hours; audit hashes and decision metadata remain.
 
@@ -26,7 +27,8 @@ The optional managed-session daemon (`onibi start`) has no remote surface. It is
 - Follow reads bounded text only while visible and never automatically focuses a pane. Drafts are per-pane and memory-only; terminal output remains inert text. Only font/wrap preferences persist in local storage. Explicit copying writes terminal text to the system clipboard, outside Onibi’s retention control.
 - Closing a Ghostty pane, tab, or window may terminate its processes. Membership checks and the close are separate native calls; local changes can race the final check. Observed disappearance verifies reviewed panes, not an empty window object or a program’s clean shutdown. An already executing action can finish during logout or shutdown; revocation cannot undo input already sent.
 - Local processes running as the same OS user may read Onibi state or control the multiplexer directly. Onibi does not sandbox commands or protect against a compromised host.
-- Adopting an existing mux session gives Onibi the ability to send input and kill that session. Existing Pi/Claude processes do not gain hooks merely by being adopted.
+- Managed-session reads include up to 2,000 lines of scrollback, which may hold secrets that have scrolled off screen. Attention states are heuristics over screen text and can miss or misreport a prompt.
+- Adopting an existing mux session gives Onibi, and any paired browser while the daemon runs, the ability to send input and kill that session. Existing Pi/Claude processes do not gain hooks merely by being adopted.
 - With no decision surface wired, managed Pi and Claude approvals expire to their default denial, and Codex App Server requests wait unanswered.
 
 Use a non-production OS account for evaluation.

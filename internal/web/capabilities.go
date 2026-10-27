@@ -56,13 +56,16 @@ func featureCatalog() []Feature {
 		}
 		add("control:"+control.ID, control.Label, control.Group, detail, "1.3.0", true)
 	}
+	add("session_read", "Read persistent sessions", "Persistent sessions", "Scrollback plus screen of daemon-managed tmux, Zellij and Screen sessions, up to 2,000 lines, without changing focus. tmux colours are kept. Requires onibi start.", "", false)
+	add("session_control", "Control persistent sessions", "Persistent sessions", "Text, keys, interrupt and a confirmed end-session by exact session ID. Works while Ghostty is unavailable.", "", false)
+	add("session_attention", "Session attention signals", "Persistent sessions", "Generic prompt patterns on the cursor line, terminal bells (tmux), and activity or idleness. Heuristics over screen text, not program state.", "", false)
 	add("reader", "Phone reader tools", "This browser", "Text size, wrap, expanded reading, snapshot navigation and copy. No native display change.", "", false)
 	add("devices", "Pairing and named browsers", "Access", "Optional fixed 30-day remembered access; individual revocation. Local fresh-link and login-service commands.", "", false)
 	for _, item := range []struct{ id, name, detail string }{
-		{"agent_state", "Agent task and approval state", "Agents can receive text and keys. Their task, approval and completion states are not inferred from titles or output."},
-		{"terminal_stream", "Full terminal emulation", "No PTY stream, ANSI renderer, terminal graphics or images."},
+		{"agent_state", "Agent task and approval state", "Agents can receive text and keys. Persistent sessions show generic prompt and bell signals, but a specific agent's task, approval and completion states are not inferred."},
+		{"terminal_stream", "Full terminal emulation", "No PTY stream, cursor rendering, terminal graphics or images. Persistent session colours come from periodic captures."},
 		{"mouse", "Remote terminal mouse input", "Mouse reporting is not exposed by this cockpit."},
-		{"background_capture", "Unfocused or complete scrollback capture", "Read the focused pane’s visible text. Native scrollback controls can change what is visible."},
+		{"background_capture", "Unfocused Ghostty pane capture", "Ghostty panes expose the focused pane’s visible text. Persistent sessions are the way to read scrollback without focus."},
 		{"configuration", "Arbitrary Ghostty configuration and actions", "Only the listed actions are exposed. Config editing, raw action strings, window positioning and file transfer remain outside this interface."},
 	} {
 		features = append(features, Feature{ID: item.id, Name: item.name, Group: "Not implemented", Detail: item.detail})
