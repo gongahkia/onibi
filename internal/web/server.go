@@ -45,8 +45,11 @@ type Backend interface {
 }
 
 type Options struct {
-	Logger       *slog.Logger
-	Backend      Backend
+	Logger  *slog.Logger
+	Backend Backend
+	// Sessions is optional. When set, daemon-managed multiplexer sessions
+	// appear alongside Ghostty targets and keep working without Ghostty.
+	Sessions     SessionBackend
 	DB           *store.DB
 	PublicOrigin string
 	Assets       fs.FS
@@ -72,6 +75,7 @@ type Server struct {
 	metrics                counters
 	featureObservations    map[string]FeatureObservation
 	backend                Backend
+	managed                SessionBackend
 	db                     *store.DB
 	origin                 string
 	host                   string
@@ -119,7 +123,7 @@ func New(opts Options) (*Server, error) {
 	}
 	s := &Server{
 		log: opts.Logger, started: time.Now().UTC(),
-		backend: opts.Backend, db: opts.DB, diagnostics: opts.Diagnostics, origin: origin.String(), host: origin.Host,
+		backend: opts.Backend, managed: opts.Sessions, db: opts.DB, diagnostics: opts.Diagnostics, origin: origin.String(), host: origin.Host,
 		secure: origin.Scheme == "https", cookieName: "onibi_local_session",
 		proxyHosts: map[string]bool{}, sessions: map[[sha256.Size]byte]browserSession{},
 		execution: make(chan struct{}, 1), now: now,
@@ -284,6 +288,14 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		if requireMethod(w, r, http.MethodGet) {
 			s.snapshot(w, r)
 		}
+	case "/api/sessions":
+		if requireMethod(w, r, http.MethodGet) {
+			s.sessionList(w, r)
+		}
+	case "/api/sessions/snapshot":
+		if requireMethod(w, r, http.MethodGet) {
+			s.sessionSnapshot(w, r)
+		}
 	case "/api/actions":
 		if requireMethod(w, r, http.MethodPost) {
 			s.action(w, r)
@@ -380,9 +392,12 @@ func (s *Server) snapshot(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, snapshot)
 }
 
+// actionRequest carries exactly one of Action (a Ghostty target) or Session
+// (a daemon-managed multiplexer session).
 type actionRequest struct {
-	ID     string         `json:"id"`
-	Action ghostty.Action `json:"action"`
+	ID      string         `json:"id"`
+	Action  ghostty.Action `json:"action"`
+	Session *SessionAction `json:"session,omitempty"`
 }
 
 func (s *Server) action(w http.ResponseWriter, r *http.Request) {
@@ -394,13 +409,26 @@ func (s *Server) action(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_action_id", "Provide a unique action ID of 16 to 128 URL-safe characters.")
 		return
 	}
-	if err := validateAction(request.Action); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_action", err.Error())
-		return
+	var hash, kind string
+	if request.Session != nil {
+		if !emptyAction(request.Action) {
+			writeError(w, http.StatusBadRequest, "invalid_action", "Send either a terminal action or a session action, not both.")
+			return
+		}
+		if err := validateSessionAction(*request.Session); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_action", err.Error())
+			return
+		}
+		hash, kind = sessionActionHash(*request.Session), "session_"+request.Session.Kind
+	} else {
+		if err := validateAction(request.Action); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_action", err.Error())
+			return
+		}
+		raw, _ := json.Marshal(request.Action)
+		hashBytes := sha256.Sum256(raw)
+		hash, kind = hex.EncodeToString(hashBytes[:]), request.Action.Kind
 	}
-	raw, _ := json.Marshal(request.Action)
-	hashBytes := sha256.Sum256(raw)
-	hash := hex.EncodeToString(hashBytes[:])
 	receipt, claimed, err := s.claimReceipt(r.Context(), request.ID, hash)
 	if errors.Is(err, errReceiptConflict) {
 		writeError(w, http.StatusConflict, "action_id_conflict", "This action ID was already used for different input.")
@@ -423,12 +451,16 @@ func (s *Server) action(w http.ResponseWriter, r *http.Request) {
 		defer func() { <-s.execution }()
 	case <-ctx.Done():
 		receipt.State, receipt.Error = "rejected", "Onibi was busy. No input was sent."
-		s.finishAction(w, receipt, request.Action.Kind)
+		s.finishAction(w, receipt, kind)
 		return
 	}
 	if _, _, ok := s.authenticate(r.WithContext(ctx)); !ok {
 		receipt.State, receipt.Error = "rejected", "The browser session ended before execution. No input was sent."
-		s.finishAction(w, receipt, request.Action.Kind)
+		s.finishAction(w, receipt, kind)
+		return
+	}
+	if request.Session != nil {
+		s.finishAction(w, s.executeSession(ctx, r, receipt, *request.Session), kind)
 		return
 	}
 	if err := s.validateTarget(ctx, request.Action); err != nil {
@@ -497,6 +529,12 @@ func (s *Server) validateTarget(ctx context.Context, action ghostty.Action) erro
 		}
 	}
 	return errors.New("The selected target is no longer available. No input was sent.")
+}
+
+func emptyAction(action ghostty.Action) bool {
+	raw, _ := json.Marshal(action)
+	zero, _ := json.Marshal(ghostty.Action{})
+	return string(raw) == string(zero)
 }
 
 func validateAction(action ghostty.Action) error {

@@ -8,23 +8,26 @@ import (
 	"time"
 )
 
+// Request sends one event and waits for its response. Failures before any
+// byte reaches the daemon are marked with Reject; later failures may follow
+// a side effect.
 func Request(socketPath string, ev Event, timeout time.Duration) (Response, error) {
 	if socketPath == "" {
-		return Response{}, errors.New("intake: empty socket path")
+		return Response{}, Reject(errors.New("intake: empty socket path"))
 	}
 	if ev.Type != TypeApprovalRequest && ev.Type != TypeClaudeQuestion && !isRPCType(ev.Type) {
-		return Response{}, errors.New("intake: unsupported request type")
+		return Response{}, Reject(errors.New("intake: unsupported request type"))
+	}
+	raw, err := json.Marshal(ev)
+	if err != nil {
+		return Response{}, Reject(err)
 	}
 	c, err := net.DialTimeout("unix", socketPath, time.Second)
 	if err != nil {
-		return Response{}, err
+		return Response{}, Reject(err)
 	}
 	defer c.Close()
 	_ = c.SetWriteDeadline(time.Now().Add(2 * time.Second))
-	raw, err := json.Marshal(ev)
-	if err != nil {
-		return Response{}, err
-	}
 	if _, err := c.Write(append(raw, '\n')); err != nil {
 		return Response{}, err
 	}
