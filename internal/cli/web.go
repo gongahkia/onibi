@@ -136,6 +136,7 @@ func runWeb(cmd *cobra.Command, _ []string) error {
 	defer stop()
 	sessions, stopDaemon := startEmbeddedDaemon(paths, db, level, logger)
 	defer stopDaemon()
+	go app.RunNotifications(ctx)
 	server := &http.Server{
 		Handler: app, ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout: 15 * time.Second, WriteTimeout: 45 * time.Second,

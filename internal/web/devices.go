@@ -83,6 +83,9 @@ func (s *Server) RevokeDevice(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
+	if _, err := s.db.SQL().ExecContext(ctx, `DELETE FROM web_push_subscriptions WHERE device_id=?`, id); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.log.Info("web.device_revoked")
@@ -320,6 +323,9 @@ func (s *Server) RevokeAllDevices(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, err := s.db.SQL().ExecContext(ctx, `DELETE FROM web_devices WHERE origin=?`, s.origin); err != nil {
+		return err
+	}
+	if _, err := s.db.SQL().ExecContext(ctx, `DELETE FROM web_push_subscriptions WHERE origin=?`, s.origin); err != nil {
 		return err
 	}
 	clear(s.sessions)

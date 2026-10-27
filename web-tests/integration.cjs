@@ -118,6 +118,8 @@ async function selectWork(page) {
   assert(["chromium", "webkit"].includes(engine));
   browser = await { chromium, webkit }[engine].launch({
     headless: true,
+    // Service workers refuse the fixture's self-signed certificate otherwise.
+    ...(engine === "chromium" ? { args: ["--ignore-certificate-errors"] } : {}),
     ...(engine === "chromium" && process.env.ONIBI_CHROME_PATH
       ? { executablePath: process.env.ONIBI_CHROME_PATH }
       : {}),
@@ -402,6 +404,14 @@ async function selectWork(page) {
     path: path.join(screenshotDir, "new-session.png"),
     fullPage: true,
   });
+  const started = (await fixture.command()).sessions.at(-1).id;
+  await page.goto(new URL("/?session=" + started, page.url()).href);
+  await page.locator("#workspace").waitFor({ state: "visible" });
+  await page
+    .locator("#destination-title")
+    .filter({ hasText: "review" })
+    .waitFor();
+  assert.equal(new URL(page.url()).search, "", "notification link is removed");
   await page.waitForFunction(() => !document.title.startsWith("("));
   await fixture.command({ unavailable: false, advance: 61 });
   await page.waitForFunction(
@@ -621,6 +631,41 @@ async function selectWork(page) {
   await spare.fill("#device-name", "Spare browser");
   await spare.click("#pair-submit");
   await spare.locator("#workspace").waitFor({ state: "visible" });
+  if (engine === "chromium")
+    // Headless Chromium denies notifications and cannot reach a real push
+    // service. The stubs stand in for the browser's permission and
+    // subscription, so the production server still validates and stores it.
+    await page.evaluate(() => {
+      Object.defineProperty(Notification, "permission", {
+        get: () => "granted",
+      });
+      Notification.requestPermission = async () => "granted";
+      let current = null;
+      const fake = {
+        endpoint: "https://fcm.googleapis.com/fcm/send/fixture",
+        toJSON() {
+          return {
+            endpoint: this.endpoint,
+            keys: {
+              p256dh:
+                "BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4",
+              auth: "BTBZMqHH6r4Tts7J_aSIgg",
+            },
+          };
+        },
+        async unsubscribe() {
+          current = null;
+          return true;
+        },
+      };
+      PushManager.prototype.getSubscription = async () => current;
+      PushManager.prototype.subscribe = async (options) => {
+        if (options.applicationServerKey.length !== 65)
+          throw new Error("bad application server key");
+        current = fake;
+        return fake;
+      };
+    });
   await page.click("#open-devices");
   await page
     .locator("#devices-list")
@@ -630,6 +675,19 @@ async function selectWork(page) {
     path: path.join(screenshotDir, "devices.png"),
     fullPage: true,
   });
+  if (engine === "chromium") {
+    await page
+      .locator("#notify-toggle")
+      .filter({ hasText: "Turn on notifications" })
+      .waitFor();
+    await page.click("#notify-toggle");
+    await page.locator("#notify-status").filter({ hasText: /^On\./ }).waitFor();
+    assert.equal((await api(page, "/api/push")).body.subscribed, true);
+    assert.equal(await page.locator("#notify-test").isVisible(), true);
+    await page.screenshot({
+      path: path.join(screenshotDir, "notifications.png"),
+    });
+  }
   assert.deepEqual(
     (
       await new AxeBuilder({ page })
@@ -661,6 +719,12 @@ async function selectWork(page) {
   await page.reload();
   await page.locator("#workspace").waitFor({ state: "visible" });
   assert.equal((await api(page, "/api/session")).body.device.id, rememberedID);
+  if (engine === "chromium")
+    assert.equal(
+      (await api(page, "/api/push")).body.subscribed,
+      true,
+      "a remembered browser keeps notifications across restarts",
+    );
   assert.equal(
     (await fixture.command()).actions,
     null,

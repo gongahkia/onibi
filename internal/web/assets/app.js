@@ -62,6 +62,7 @@ const state = {
   lastCapturedAt: 0,
   snapshotStale: false,
   prompt: null,
+  openSession: "",
   authGeneration: 0,
   // Daemon-managed multiplexer sessions. Their selection IDs carry a
   // "session:" prefix so they can never collide with Ghostty target IDs.
@@ -974,9 +975,30 @@ async function refreshSessions() {
   renderAttentionTitle();
   renderTargets();
   renderDestination();
+  openRequestedSession();
   if (!document.hidden)
     state.sessionsTimer = setTimeout(refreshSessions, sessionPollMs);
 }
+
+// A tapped notification names a session; open it once the list has it.
+function openFromNotification(href) {
+  const url = new URL(href, location.href);
+  const id = url.searchParams.get("session") || "";
+  if (url.searchParams.has("session")) {
+    url.searchParams.delete("session");
+    history.replaceState(null, "", url.pathname + url.search + location.hash);
+  }
+  if (!/^[0-9a-f]{8,64}$/.test(id)) return;
+  state.openSession = id;
+  openRequestedSession();
+}
+function openRequestedSession() {
+  const id = state.openSession;
+  if (!id || !state.sessions.some((s) => s.id === id)) return;
+  state.openSession = "";
+  if (state.selectedId !== sessionPrefix + id) selectTarget(sessionPrefix + id);
+}
+openFromNotification(location.href);
 
 function clearSelection(title, description) {
   rememberDraft();

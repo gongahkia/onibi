@@ -28,6 +28,7 @@ import (
 	"github.com/gongahkia/onibi/internal/ghostty"
 	"github.com/gongahkia/onibi/internal/prompt"
 	"github.com/gongahkia/onibi/internal/store"
+	"github.com/gongahkia/onibi/internal/webpush"
 )
 
 const (
@@ -102,6 +103,8 @@ type Server struct {
 	inventoryRetryAt       time.Time
 	inventoryErr           error
 	closeObservationBudget time.Duration
+	pushKey                webpush.Key
+	pushSend               pushSender
 }
 
 // New creates a server. The caller must hold an exclusive process lock for the
@@ -155,6 +158,9 @@ func New(opts Options) (*Server, error) {
 	defer cancel()
 	if err := s.prepareDevices(ctx); err != nil {
 		return nil, fmt.Errorf("prepare browser devices: %w", err)
+	}
+	if err := s.preparePush(ctx); err != nil {
+		return nil, fmt.Errorf("prepare push notifications: %w", err)
 	}
 	if err := s.prepareReceipts(ctx); err != nil {
 		return nil, fmt.Errorf("prepare web command receipts: %w", err)
@@ -280,6 +286,22 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	case "/api/devices/revoke":
 		if requireMethod(w, r, http.MethodPost) {
 			s.revokeDevice(w, r, session)
+		}
+	case "/api/push":
+		if requireMethod(w, r, http.MethodGet) {
+			s.pushStatus(w, r, session)
+		}
+	case "/api/push/subscribe":
+		if requireMethod(w, r, http.MethodPost) {
+			s.pushSubscribe(w, r, session)
+		}
+	case "/api/push/unsubscribe":
+		if requireMethod(w, r, http.MethodPost) {
+			s.pushUnsubscribe(w, r, session)
+		}
+	case "/api/push/test":
+		if requireMethod(w, r, http.MethodPost) {
+			s.pushTest(w, r, session)
 		}
 	case "/api/targets":
 		if requireMethod(w, r, http.MethodGet) {

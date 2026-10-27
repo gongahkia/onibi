@@ -11,6 +11,8 @@
     <meta name="referrer" content="no-referrer" />
     <title>Onibi · Your Ghostty cockpit</title>
     <link rel="icon" href="icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-title" content="Onibi" />
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="stylesheet" href="style.css" />
     <script src="ansi.js" defer></script>
@@ -18,6 +20,7 @@
     <script src="reader.js" defer></script>
     <script src="recall.js" defer></script>
     <script src="capabilities.js" defer></script>
+    <script src="push.js" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to terminal</a>
@@ -834,6 +837,17 @@
         Each browser has full access. To pair another, run
         <code>onibi web pair</code> on your Mac.
       </p>
+      <section class="notify-settings" aria-labelledby="notify-title">
+        <h3 id="notify-title">Notifications on this browser</h3>
+        <p class="muted" id="notify-status" role="status">Checking…</p>
+        <div class="notify-actions">
+          <button class="secondary" id="notify-toggle" type="button" hidden>
+            Turn on notifications</button
+          ><button class="quiet" id="notify-test" type="button" hidden>
+            Send a test
+          </button>
+        </div>
+      </section>
       <p id="devices-message" role="status"></p>
       <ul id="devices-list" class="health-checks"></ul>
       <button id="refresh-devices" class="secondary full" type="button">

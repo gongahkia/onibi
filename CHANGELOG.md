@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added opt-in push notifications, turned on per browser in Devices. A browser is notified when a persistent session starts needing input or rings the bell; the notification names the session and reason, never its output, and opens the session when tapped. Delivery uses Web Push with VAPID and RFC 8291 encryption implemented on the standard library, and only reaches browser vendors' push services. Revoking a browser removes its subscription. Onibi can now be added to an iPhone Home Screen with a proper icon, which iOS requires for notifications.
 - Added New session to the phone. It starts a shell or any program in a folder of an open pane or session, or in a typed absolute path, using a durable receipt, then selects the new session. The web login service now keeps the `PATH` from install time, like the daemon service, so programs in folders such as `~/.local/bin` are found.
 - Added quick replies. When a Ghostty pane or persistent session is waiting on a yes/no question, a key press or a numbered menu, the phone offers one-tap replies that send the same key a person would press. Prompt detection moved into a shared package, so the daemon and the web server recognise the same prompts.
 - Tightened the phone interface. Forget this browser moved from the header into Devices. Session and device expiry read as relative times, such as "expires in 12 hours". The footer and filler helper lines are gone, and Ghostty status no longer wraps in the header.

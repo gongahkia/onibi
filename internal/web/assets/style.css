@@ -602,6 +602,24 @@ main {
   font-size: 11px;
   color: var(--muted);
 }
+.notify-settings {
+  margin: 4px 0 18px;
+  padding: 14px 0;
+  border-block: 1px solid var(--line);
+}
+.notify-settings h3 {
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+.notify-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.notify-actions:not(:has(button:not([hidden]))) {
+  display: none;
+}
 .choice-row {
   display: flex;
   flex-wrap: wrap;
