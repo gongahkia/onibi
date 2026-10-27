@@ -50,7 +50,6 @@ const state = {
   pending: null,
   receiptTimer: null,
   closeTarget: null,
-  controls: [],
   drafts: new Map(),
   filter: "",
   modifier: "ctrl",
@@ -84,7 +83,6 @@ const actionButtons = [
   "close-tab",
   "focus-terminal",
   "split-right",
-  "controls-focus",
 ];
 const pendingStorageKey = "onibi.pending-action.v1";
 const rejectedActionCodes = new Set([
@@ -481,7 +479,7 @@ function updateControls() {
   const canType = canAct || canSession;
   const canCreate = Boolean(state.csrf && controlReady() && !state.pending);
   for (const id of actionButtons) byId(id).disabled = !canAct;
-  for (const id of ["new-window", "picker-new-window", "controls-new-window"])
+  for (const id of ["new-window", "picker-new-window"])
     byId(id).disabled = !canCreate;
   for (const id of ["new-session", "picker-new-session", "start-session"]) {
     byId(id).disabled = !canStartSession();
@@ -503,11 +501,7 @@ function updateControls() {
     "[data-key], [data-letter], [data-reply]",
   ))
     button.disabled = !canType;
-  for (const button of document.querySelectorAll(
-    "[data-split], [data-action], [data-close]",
-  ))
-    button.disabled = !canAct;
-  for (const id of ["new-tab", "split-right", "close-tab", "open-controls"])
+  for (const id of ["new-tab", "split-right", "close-tab"])
     byId(id).hidden = Boolean(session);
   for (const id of ["session-interrupt", "session-kill"]) {
     byId(id).hidden = !session;
@@ -518,22 +512,6 @@ function updateControls() {
   byId("reader-history").disabled =
     state.snapshotLoading ||
     state.sessionLines >= sessionHistorySteps[sessionHistorySteps.length - 1];
-  for (const button of document.querySelectorAll(
-    "[data-control], [data-rename]",
-  ))
-    button.disabled =
-      !canAct ||
-      !target?.focused ||
-      (button.hasAttribute("data-rename") &&
-        state.capabilities.known &&
-        !state.capabilities.rename);
-  byId("controls-focus").hidden = Boolean(target?.focused) || !target;
-  byId("control-focus-note").textContent = target?.focused
-    ? "These controls affect this focused pane on your Mac."
-    : "Focus this pane on your Mac to use layout, scrollback, display, and title controls.";
-  byId("title-capability").hidden = !(
-    state.capabilities.known && !state.capabilities.rename
-  );
   for (const id of [
     "reader-expand",
     "reader-copy",
@@ -579,37 +557,6 @@ function cancelSnapshot() {
   state.snapshotAbort = null;
   state.snapshotLoading = false;
   clearTimeout(state.followTimer);
-}
-function renderNativeControls() {
-  const root = byId("native-controls");
-  root.replaceChildren();
-  for (const group of [...new Set(state.controls.map((c) => c.group))]) {
-    const section = document.createElement("section");
-    section.className = "control-group";
-    const heading = document.createElement("h3");
-    heading.textContent = group;
-    const grid = document.createElement("div");
-    grid.className = "control-grid";
-    for (const control of state.controls.filter((c) => c.group === group)) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "secondary";
-      button.textContent = control.label;
-      button.dataset.control = control.id;
-      button.addEventListener("click", () => {
-        const target = selectedTarget();
-        if (target)
-          performAction({
-            kind: "control",
-            targetId: target.id,
-            control: control.id,
-          });
-      });
-      grid.append(button);
-    }
-    section.append(heading, grid);
-    root.append(section);
-  }
 }
 
 function authenticated(session) {
@@ -668,10 +615,7 @@ function requirePairing(text) {
   clearOutput();
   byId("snapshot-time").textContent = "";
   byId("snapshot-state").textContent = "No terminal selected";
-  showEmpty(
-    "Your next move starts here",
-    "Select a Ghostty pane to read its output and send input.",
-  );
+  showEmpty("", "");
   byId("pair-view").hidden = false;
   byId("workspace").hidden = true;
   byId("session-controls").hidden = true;
@@ -885,7 +829,6 @@ function renderSessionDestination(session) {
           (attention.reason || attentionLabels[attention.state]).toUpperCase()
       : "",
   );
-  byId("focus-hint").textContent = "";
   byId("keyboard-destination").textContent = `Keys go to ${name}`;
   setHeading("destination-title", name);
   setHeading(
@@ -910,12 +853,6 @@ function renderDestination() {
   if (!target) byId("reader-dialog").close();
   byId("focus-terminal").hidden = !target || Boolean(target.focused);
   setHeading("destination-context", "");
-  byId("focus-hint").textContent = target?.focused
-    ? ""
-    : "Focus & read brings this pane forward on your Mac.";
-  byId("control-destination").textContent = target
-    ? `${targetName(target)} · ${tabName(target)} · ${windowName(target)}`
-    : "No pane selected. You can still create a new Ghostty window.";
   byId("keyboard-destination").textContent = target
     ? `Keys go to ${targetName(target)} · ${tabName(target)}`
     : "Choose a pane before sending keys.";
@@ -1069,18 +1006,6 @@ async function refreshTargetsRequest() {
         target.tabId,
     );
     if (
-      Array.isArray(data.controls) &&
-      JSON.stringify(data.controls) !== JSON.stringify(state.controls)
-    ) {
-      state.controls = data.controls.filter(
-        (c) =>
-          typeof c.id === "string" &&
-          typeof c.label === "string" &&
-          typeof c.group === "string",
-      );
-      renderNativeControls();
-    }
-    if (
       state.selectedId &&
       !state.selectedId.startsWith(sessionPrefix) &&
       !selectedTarget()
@@ -1157,10 +1082,7 @@ function selectTarget(id) {
   byId("snapshot-time").textContent = "";
   byId("snapshot-state").textContent = "Reading…";
   byId("focus-terminal").hidden = true;
-  showEmpty(
-    "Reading this pane…",
-    "Fetching a fresh text snapshot from your Mac.",
-  );
+  showEmpty("", "");
   byId("target-picker").close();
   renderTargets();
   renderDestination();
@@ -1346,10 +1268,8 @@ async function readSnapshot() {
       : error.message;
     if (state.snapshotTarget !== target.id)
       showEmpty(
-        focusRequired
-          ? "Focus this pane to read it"
-          : "Output isn’t available yet",
-        description,
+        focusRequired ? "" : "Output isn’t available yet",
+        focusRequired ? "" : description,
       );
     // The recovery strip owns this explanation, including for retained output.
     // Do not repeat the same failure in a second adjacent alert.
@@ -1751,7 +1671,6 @@ function requestClose(kind) {
     }),
   );
   byId("confirm-close").textContent = `Close ${noun}`;
-  byId("controls-dialog").close();
   byId("close-confirmation").showModal();
   byId("cancel-close").focus();
 }
@@ -1868,10 +1787,9 @@ byId("retry-connection").addEventListener("click", () => {
   else refreshTargets({ force: true });
 });
 
-for (const id of ["new-window", "picker-new-window", "controls-new-window"])
+for (const id of ["new-window", "picker-new-window"])
   byId(id).addEventListener("click", () => {
     byId("target-picker").close();
-    byId("controls-dialog").close();
     performAction({ kind: "new_window" });
   });
 // Folders come from what is already open on the Mac; any other folder can be
@@ -1947,42 +1865,6 @@ byId("split-right").addEventListener("click", () => {
   const t = selectedTarget();
   if (t) performAction({ kind: "split", targetId: t.id, direction: "right" });
 });
-byId("open-controls").addEventListener("click", () => {
-  renderDestination();
-  byId("controls-dialog").showModal();
-});
-byId("close-controls").addEventListener("click", () =>
-  byId("controls-dialog").close(),
-);
-byId("controls-focus").addEventListener("click", () => {
-  const t = selectedTarget();
-  if (t) {
-    byId("controls-dialog").close();
-    performAction({ kind: "focus", targetId: t.id });
-  }
-});
-for (const button of document.querySelectorAll("[data-split]"))
-  button.addEventListener("click", () => {
-    const t = selectedTarget();
-    if (t) {
-      byId("controls-dialog").close();
-      performAction({
-        kind: "split",
-        targetId: t.id,
-        direction: button.dataset.split,
-      });
-    }
-  });
-for (const button of document.querySelectorAll("[data-action]"))
-  button.addEventListener("click", () => {
-    const t = selectedTarget();
-    if (t) {
-      byId("controls-dialog").close();
-      performAction({ kind: "new_tab", windowId: t.windowId });
-    }
-  });
-for (const button of document.querySelectorAll("[data-close]"))
-  button.addEventListener("click", () => requestClose(button.dataset.close));
 for (const id of ["target-search", "picker-search"])
   byId(id).addEventListener("input", () => {
     state.filter = byId(id).value;
@@ -1999,20 +1881,6 @@ byId("follow-output").addEventListener("click", () => {
     scheduleFollow();
   }
 });
-for (const button of document.querySelectorAll("[data-rename]"))
-  button.addEventListener("click", () => {
-    const t = selectedTarget();
-    if (!t || !t.focused || state.pending) return;
-    state.renameAction = { kind: button.dataset.rename, targetId: t.id };
-    byId("rename-title").textContent =
-      button.dataset.rename === "rename_tab" ? "Rename tab" : "Rename pane";
-    byId("rename-input").value =
-      button.dataset.rename === "rename_tab" ? t.tabTitle : t.title;
-    byId("rename-message").textContent = "Leave blank to clear the title.";
-    byId("controls-dialog").close();
-    byId("rename-dialog").showModal();
-    byId("rename-input").focus();
-  });
 byId("cancel-rename").addEventListener("click", () =>
   byId("rename-dialog").close(),
 );

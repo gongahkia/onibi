@@ -306,7 +306,6 @@ async function selectWork(page) {
   assert.doesNotMatch(await page.textContent("#terminal-output"), /\x1b/);
   assert.equal(await page.textContent("#snapshot-kind"), "Scrollback + screen");
   assert.equal(await page.locator("#new-tab").isHidden(), true);
-  assert.equal(await page.locator("#open-controls").isHidden(), true);
   assert.equal(await page.locator("#session-kill").isVisible(), true);
   const sessionAudit = await new AxeBuilder({ page })
     .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
@@ -475,13 +474,6 @@ async function selectWork(page) {
     () =>
       document.getElementById("connection-label").textContent === "Connected",
   );
-  await page.click("#open-controls");
-  assert.equal(
-    await page.locator('[data-rename="rename_tab"]').isDisabled(),
-    true,
-  );
-  assert.equal(await page.locator("#title-capability").isVisible(), true);
-  await page.click("#close-controls");
   const denied = await api(page, "/api/actions", {
     id: randomUUID(),
     action: { kind: "rename_tab", targetId: "pane-work", name: "old version" },

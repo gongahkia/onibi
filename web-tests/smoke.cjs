@@ -387,7 +387,7 @@ const server = http.createServer(async (req, res) => {
       .textContent.startsWith("Line 0:"),
   );
   const beforeReaderActions = actions.length;
-  await page.click("#reader-tools summary");
+  await page.click("#open-settings");
   await page.selectOption("#reader-size", "22");
   await page.click("#reader-wrap");
   assert.equal(
@@ -398,15 +398,16 @@ const server = http.createServer(async (req, res) => {
   );
   assert.equal(await page.textContent("#terminal-output"), text);
   await page.click("#reader-bottom");
+  assert.equal(await page.locator("#settings-dialog").isVisible(), false);
   assert(
     await page.locator("#terminal-output").evaluate((el) => el.scrollTop > 0),
   );
+  await page.click("#open-settings");
   await page.click("#reader-top");
   assert.equal(
     await page.locator("#terminal-output").evaluate((el) => el.scrollTop),
     0,
   );
-  await page.click("#reader-tools summary");
   await page.click("#reader-expand");
   await page.setViewportSize({ width: 320, height: 740 });
   await auditAccessibility("Expanded reader accessibility");
@@ -472,10 +473,10 @@ const server = http.createServer(async (req, res) => {
   );
   assert.deepEqual(prefs, { size: 22, wrap: true });
   await page.evaluate(() => getSelection().removeAllRanges());
-  await page.click("#reader-tools summary");
+  await page.click("#open-settings");
   await page.selectOption("#reader-size", "13");
   await page.click("#reader-wrap");
-  await page.click("#reader-tools summary");
+  await page.click("#close-settings");
   text = originalText;
   await page.click("#read-output");
   await page.waitForFunction(() =>
@@ -758,53 +759,19 @@ const server = http.createServer(async (req, res) => {
   await page.locator("#picker-list .target").click();
   assert.equal(await page.inputValue("#compose"), "");
   await page.fill("#compose", "notes draft");
-  await page.click("#open-controls");
-  assert.equal(await page.locator('[data-control="zoom"]').isDisabled(), true);
-  assert.equal(
-    await page.locator('[data-rename="rename_pane"]').isDisabled(),
-    true,
-  );
-  await page.click("#close-controls");
   await page.click("#open-picker");
   await page.fill("#picker-search", "New shell");
   await page.locator("#picker-list .target").click();
   assert.equal(await page.inputValue("#compose"), "preserve draft");
   await page.click("#open-picker");
   await page.fill("#picker-search", "");
-  await page.click("#close-picker");
-  await page.click("#open-controls");
   assert.equal(
     await page.isDisabled("#picker-new-session"),
     true,
     "new session needs the sessions daemon",
   );
-  await page.screenshot({
-    path: path.join(output, "controls-mobile.png"),
-    fullPage: false,
-  });
+  await page.click("#close-picker");
   const selected = receipts.get(createdId).result.targetId;
-  await page.locator('[data-control="zoom"]').click();
-  await page.waitForFunction(
-    () => !document.querySelector('[data-control="zoom"]').disabled,
-  );
-  assert.deepEqual(actions.at(-1).action, {
-    kind: "control",
-    targetId: selected,
-    control: "zoom",
-  });
-  await page.locator('[data-rename="rename_pane"]').click();
-  const title = 'Agent · review <literal> "quoted"';
-  await page.fill("#rename-input", title);
-  await page.locator('#rename-form button[type="submit"]').click();
-  await page.waitForFunction(
-    (t) => document.getElementById("destination-title").textContent === t,
-    title,
-  );
-  assert.deepEqual(actions.at(-1).action, {
-    kind: "rename_pane",
-    targetId: selected,
-    name: title,
-  });
   await page.click("#open-keyboard");
   await page.screenshot({
     path: path.join(output, "keyboard-mobile.png"),
@@ -932,7 +899,7 @@ const server = http.createServer(async (req, res) => {
   // Small-screen sheets retain 44px touch targets and never overflow horizontally.
   for (const [opener, dialog, closer] of [
     ["open-picker", "target-picker", "close-picker"],
-    ["open-controls", "controls-dialog", "close-controls"],
+    ["open-settings", "settings-dialog", "close-settings"],
     ["open-keyboard", "keyboard-dialog", "close-keyboard"],
     ["connection", "health-dialog", "close-health"],
   ]) {
@@ -1025,48 +992,35 @@ const server = http.createServer(async (req, res) => {
   );
   assert.deepEqual(actions.at(-1).action, { kind: "new_window" });
   let pane = receipts.get(actions.at(-1).id).result.targetId;
-  for (const direction of ["left", "right", "up", "down"]) {
-    await page.click("#open-controls");
-    await page.locator(`[data-split="${direction}"]`).click();
+  for (let split = 0; split < 4; split++) {
+    await page.click("#split-right");
     await page.waitForFunction(
       () => !document.getElementById("split-right").disabled,
     );
     assert.deepEqual(actions.at(-1).action, {
       kind: "split",
       targetId: pane,
-      direction,
+      direction: "right",
     });
     pane = receipts.get(actions.at(-1).id).result.targetId;
   }
-  for (const kind of ["close_pane", "close_window"]) {
-    await page.click("#open-controls");
-    await page.locator(`[data-close="${kind}"]`).click();
-    assert.equal(
-      await page.locator("#close-pane-list li").count(),
-      kind === "close_pane" ? 1 : 5,
-    );
-    assert.equal(
-      await page.evaluate(() => document.activeElement.id),
-      "cancel-close",
-    );
-    await page.click("#confirm-close");
-    await page.waitForFunction(
-      () => !document.getElementById("split-right").disabled,
-    );
-    assert.deepEqual(
-      actions.at(-1).action,
-      kind === "close_pane"
-        ? { kind, targetId: pane, expectedTargets: [pane] }
-        : {
-            kind,
-            windowId: "window-created",
-            expectedTargets: targets
-              .filter((t) => t.windowId === "window-created")
-              .map((t) => t.id)
-              .sort(),
-          },
-    );
-  }
+  const createdPanes = targets.filter((t) => t.windowId === "window-created");
+  await page.click("#close-tab");
+  assert.equal(await page.locator("#close-pane-list li").count(), 5);
+  assert.equal(
+    await page.evaluate(() => document.activeElement.id),
+    "cancel-close",
+  );
+  await page.click("#confirm-close");
+  await page.waitForFunction(
+    () => !document.getElementById("split-right").disabled,
+  );
+  assert.deepEqual(actions.at(-1).action, {
+    kind: "close_tab",
+    windowId: "window-created",
+    tabId: createdPanes[0].tabId,
+    expectedTargets: createdPanes.map((t) => t.id).sort(),
+  });
   // A canceled slow read cannot replace a newly selected pane's output.
   snapshotDelay = 1000;
   await page.click("#read-output");
@@ -1134,10 +1088,10 @@ const server = http.createServer(async (req, res) => {
         "reduced motion",
         "pane-specific in-memory drafts",
         "search and focus guards",
-        "literal renaming and Ctrl/Alt/function keys",
+        "Ctrl/Alt/function keys",
         "non-overlapping Follow and error pause",
         "new window with empty inventory",
-        "four split directions and close scopes",
+        "repeated splits and tab close",
         "canceled stale output",
         "44px sheet controls and landscape layout",
         "WCAG A/AA automated checks",

@@ -561,6 +561,14 @@ main {
   font-size: 13px;
   max-width: 350px;
 }
+.output-empty h3:empty,
+.output-empty p:empty,
+.output-empty:has(h3:empty) .empty-glyph {
+  display: none;
+}
+body:has(#pair-view:not([hidden])) .site-header {
+  display: none;
+}
 .output-empty .secondary {
   margin-top: 4px;
   font-size: 12px;
@@ -660,7 +668,7 @@ main {
   text-align: center;
   color: var(--muted);
 }
-.focus-row:has(#focus-hint:empty):has(#focus-terminal[hidden]) {
+.focus-row:has(#focus-terminal[hidden]) {
   display: none;
 }
 #devices-message {
@@ -971,36 +979,6 @@ dialog::backdrop {
 .picker-dialog .target {
   min-height: 66px;
 }
-.control-group {
-  margin-top: 22px;
-}
-.control-group h3 {
-  font-size: 13px;
-  margin-bottom: 11px;
-}
-.control-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-.control-grid button {
-  font-size: 12px;
-  padding-inline: 8px;
-}
-.control-focus-note {
-  color: var(--muted);
-  font-size: 12px;
-  margin: 20px 0 10px;
-}
-.danger-group {
-  padding-top: 20px;
-  border-top: 1px solid var(--line);
-}
-.danger-group > p {
-  font-size: 12px;
-  color: var(--muted);
-  margin-bottom: 13px;
-}
 .modifier-tabs {
   display: flex;
   padding: 4px;
@@ -1291,7 +1269,6 @@ dialog::backdrop {
     width: calc(100% - 20px);
     max-height: 88dvh;
   }
-  .controls-dialog,
   .keyboard-dialog,
   .picker-dialog {
     margin: auto auto 10px;
@@ -1352,13 +1329,12 @@ dialog::backdrop {
 }
 
 /* Keep an exit within reach when a long phone sheet scrolls. */
-.controls-dialog .dialog-heading,
-.keyboard-dialog .dialog-heading,
-.health-dialog .dialog-heading,
 .picker-dialog .dialog-heading .search-field {
   flex: 1;
   margin: 0;
 }
+.keyboard-dialog .dialog-heading,
+.health-dialog .dialog-heading,
 .picker-dialog .dialog-heading {
   position: sticky;
   top: -24px;
@@ -1367,7 +1343,6 @@ dialog::backdrop {
   padding-block: 10px;
 }
 @media (max-width: 760px) {
-  .controls-dialog .dialog-heading,
   .keyboard-dialog .dialog-heading,
   .health-dialog .dialog-heading,
   .picker-dialog .dialog-heading {
@@ -1473,26 +1448,16 @@ dialog::backdrop {
 
 .reader-bar {
   display: flex;
+  justify-content: flex-end;
   align-items: flex-start;
   gap: 4px;
   padding: 4px 10px;
   border-bottom: 1px solid var(--line);
 }
-.reader-bar details {
-  flex: 1;
-  min-width: 0;
-}
 .reader-bar > button {
   font-size: 12px;
   white-space: nowrap;
   padding-inline: 8px;
-}
-.reader-bar summary {
-  min-height: 44px;
-  padding: 12px 6px;
-  cursor: pointer;
-  font-size: 12px;
-  color: var(--muted);
 }
 .reader-settings {
   display: flex;
@@ -1718,10 +1683,6 @@ dialog::backdrop {
 #reader-mount #reader-expand {
   display: none;
 }
-#reader-mount .reader-settings {
-  max-height: 30dvh;
-  overflow-y: auto;
-}
 #reader-dialog .dialog-heading {
   position: sticky;
   top: 0;
@@ -1822,17 +1783,24 @@ dialog {
   width: fit-content;
   user-select: none;
 }
-.pair-logo {
+.pair-logo,
+.brand-logo {
   margin: 0;
+  font-family: inherit;
   font-size: 10px;
   line-height: 1.32;
   letter-spacing: 0;
   color: var(--text);
 }
-.pair-logo .shade {
+.brand-logo {
+  font-size: 4.5px;
+}
+.pair-logo .shade,
+.brand-logo .shade {
   color: #5a5a5a;
 }
-.pair-logo .solid {
+.pair-logo .solid,
+.brand-logo .solid {
   background: var(--text);
   color: transparent;
   padding-block: 0.08em;

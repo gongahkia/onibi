@@ -26,7 +26,17 @@
   <body>
     <a class="skip-link" href="#main">Skip to terminal</a>
     <header class="site-header">
-      <a class="brand" href="./" aria-label="Onibi home">onibi</a>
+      <a class="brand" href="./" aria-label="Onibi home">
+        <pre
+          class="brand-logo"
+          aria-hidden="true"
+        > <span class="solid">██████</span><span class="shade">╗</span> <span class="solid">███</span><span class="shade">╗</span>   <span class="solid">██</span><span class="shade">╗</span><span class="solid">██</span><span class="shade">╗</span><span class="solid">██████</span><span class="shade">╗</span> <span class="solid">██</span><span class="shade">╗</span>
+<span class="solid">██</span><span class="shade">╔═══</span><span class="solid">██</span><span class="shade">╗</span><span class="solid">████</span><span class="shade">╗</span>  <span class="solid">██</span><span class="shade">║</span><span class="solid">██</span><span class="shade">║</span><span class="solid">██</span><span class="shade">╔══</span><span class="solid">██</span><span class="shade">╗</span><span class="solid">██</span><span class="shade">║</span>
+<span class="solid">██</span><span class="shade">║</span>   <span class="solid">██</span><span class="shade">║</span><span class="solid">██</span><span class="shade">╔</span><span class="solid">██</span><span class="shade">╗</span> <span class="solid">██</span><span class="shade">║</span><span class="solid">██</span><span class="shade">║</span><span class="solid">██████</span><span class="shade">╔╝</span><span class="solid">██</span><span class="shade">║</span>
+<span class="solid">██</span><span class="shade">║</span>   <span class="solid">██</span><span class="shade">║</span><span class="solid">██</span><span class="shade">║╚</span><span class="solid">██</span><span class="shade">╗</span><span class="solid">██</span><span class="shade">║</span><span class="solid">██</span><span class="shade">║</span><span class="solid">██</span><span class="shade">╔══</span><span class="solid">██</span><span class="shade">╗</span><span class="solid">██</span><span class="shade">║</span>
+<span class="shade">╚</span><span class="solid">██████</span><span class="shade">╔╝</span><span class="solid">██</span><span class="shade">║</span> <span class="shade">╚</span><span class="solid">████</span><span class="shade">║</span><span class="solid">██</span><span class="shade">║</span><span class="solid">██████</span><span class="shade">╔╝</span><span class="solid">██</span><span class="shade">║</span>
+ <span class="shade">╚═════╝</span> <span class="shade">╚═╝</span>  <span class="shade">╚═══╝╚═╝╚═════╝</span> <span class="shade">╚═╝</span></pre>
+      </a>
       <div class="header-actions" id="session-controls" hidden>
         <button
           class="connection quiet"
@@ -37,7 +47,10 @@
           <span class="status-dot" aria-hidden="true"></span
           ><span id="connection-label">Connecting</span>
         </button>
-        <button class="quiet" id="open-devices" type="button">Devices</button>
+        <button class="quiet" id="open-devices" type="button">Devices</button
+        ><button class="quiet" id="open-settings" type="button">
+          Settings
+        </button>
       </div>
     </header>
     <main id="main" tabindex="-1">
@@ -161,9 +174,7 @@
                 class="secondary picker-button"
                 type="button"
               >
-                Terminals <span aria-hidden="true">⌄</span></button
-              ><button id="open-controls" class="secondary" type="button">
-                Controls <span aria-hidden="true">⊞</span>
+                Terminals <span aria-hidden="true">⌄</span>
               </button>
             </div>
           </div>
@@ -205,44 +216,6 @@
               </div>
             </div>
             <div class="reader-bar">
-              <details id="reader-tools">
-                <summary>View</summary>
-                <div class="reader-settings">
-                  <label for="reader-size">Text on this screen</label>
-                  <select id="reader-size">
-                    <option value="12">12 px</option>
-                    <option value="13" selected>13 px</option>
-                    <option value="14">14 px</option>
-                    <option value="16">16 px</option>
-                    <option value="18">18 px</option>
-                    <option value="20">20 px</option>
-                    <option value="22">22 px</option>
-                  </select>
-                  <button
-                    id="reader-wrap"
-                    class="quiet"
-                    type="button"
-                    aria-pressed="false"
-                  >
-                    Wrap lines
-                  </button>
-                  <button id="reader-top" class="quiet" type="button" disabled>
-                    Snapshot start
-                  </button>
-                  <button
-                    id="reader-bottom"
-                    class="quiet"
-                    type="button"
-                    disabled
-                  >
-                    Snapshot end
-                  </button>
-                  <p class="muted">
-                    These controls change this reader only. Mac display and
-                    scrollback controls are in Controls.
-                  </p>
-                </div>
-              </details>
               <button id="reader-history" class="quiet" type="button" hidden>
                 More history
               </button>
@@ -261,10 +234,8 @@
             ></p>
             <div class="output-empty" id="output-empty">
               <span class="empty-glyph" aria-hidden="true">⌁</span>
-              <h3 id="output-empty-title">Your next move starts here</h3>
-              <p id="output-empty-description">
-                Choose a pane. Check its output. Pick up the conversation.
-              </p>
+              <h3 id="output-empty-title"></h3>
+              <p id="output-empty-description"></p>
               <button class="secondary" id="choose-terminal" type="button">
                 Choose a terminal <span aria-hidden="true">↗</span>
               </button>
@@ -285,9 +256,7 @@
             </div>
           </section>
           <div class="focus-row">
-            <span id="focus-hint"
-              >Reading another pane may need a focus change on your Mac.</span
-            ><button id="focus-terminal" class="secondary" type="button" hidden>
+            <button id="focus-terminal" class="secondary" type="button" hidden>
               Focus &amp; read <span aria-hidden="true">↗</span>
             </button>
           </div>
@@ -454,92 +423,6 @@
         ><button class="primary" id="picker-new-window" type="button" disabled>
           ＋ New window
         </button>
-      </div>
-    </dialog>
-    <dialog
-      class="controls-dialog"
-      id="controls-dialog"
-      aria-labelledby="controls-title"
-    >
-      <div class="dialog-heading">
-        <div>
-          <span class="eyebrow">MAKE YOURSELF AT HOME</span>
-          <h2 id="controls-title">Ghostty controls</h2>
-        </div>
-        <button
-          class="icon-button"
-          id="close-controls"
-          type="button"
-          aria-label="Close controls"
-        >
-          ×
-        </button>
-      </div>
-      <p class="dialog-destination" id="control-destination">
-        Choose a pane to get started.
-      </p>
-      <div class="control-group">
-        <h3>Create some room</h3>
-        <div class="control-grid">
-          <button class="secondary" id="controls-new-window" type="button">
-            ＋ New window</button
-          ><button class="secondary" data-action="new_tab" type="button">
-            ＋ New tab</button
-          ><button class="secondary" data-split="left" type="button">
-            Split left ←</button
-          ><button class="secondary" data-split="right" type="button">
-            Split right →</button
-          ><button class="secondary" data-split="up" type="button">
-            Split above ↑</button
-          ><button class="secondary" data-split="down" type="button">
-            Split below ↓
-          </button>
-        </div>
-      </div>
-      <p class="control-focus-note" id="control-focus-note">
-        Layout, scrollback, and titles need this pane focused on your Mac.
-      </p>
-      <button class="primary full" id="controls-focus" type="button">
-        Focus selected pane on Mac
-      </button>
-      <div id="native-controls"></div>
-      <div class="control-group">
-        <h3>Put a name to it</h3>
-        <p id="title-capability" class="muted" hidden>
-          Renaming requires Ghostty 1.3.1 or later.
-        </p>
-        <div class="control-grid">
-          <button class="secondary" data-rename="rename_pane" type="button">
-            Rename pane</button
-          ><button class="secondary" data-rename="rename_tab" type="button">
-            Rename tab
-          </button>
-        </div>
-      </div>
-      <div class="control-group danger-group">
-        <h3>Close with care</h3>
-        <p>Closing a destination may stop everything running inside it.</p>
-        <div class="control-grid">
-          <button
-            class="secondary danger-text"
-            data-close="close_pane"
-            type="button"
-          >
-            Close pane</button
-          ><button
-            class="secondary danger-text"
-            data-close="close_tab"
-            type="button"
-          >
-            Close tab</button
-          ><button
-            class="secondary danger-text"
-            data-close="close_window"
-            type="button"
-          >
-            Close window
-          </button>
-        </div>
       </div>
     </dialog>
     <dialog
@@ -793,6 +676,49 @@
         <button id="reader-close" class="secondary" type="button">Done</button>
       </div>
       <div id="reader-mount"></div>
+    </dialog>
+    <dialog
+      id="settings-dialog"
+      class="health-dialog"
+      aria-labelledby="settings-title"
+    >
+      <div class="dialog-heading">
+        <h2 id="settings-title">Settings</h2>
+        <button
+          id="close-settings"
+          class="icon-button"
+          type="button"
+          aria-label="Close settings"
+        >
+          ×
+        </button>
+      </div>
+      <div class="reader-settings">
+        <label for="reader-size">Text size</label>
+        <select id="reader-size">
+          <option value="12">12 px</option>
+          <option value="13" selected>13 px</option>
+          <option value="14">14 px</option>
+          <option value="16">16 px</option>
+          <option value="18">18 px</option>
+          <option value="20">20 px</option>
+          <option value="22">22 px</option>
+        </select>
+        <button
+          id="reader-wrap"
+          class="secondary"
+          type="button"
+          aria-pressed="false"
+        >
+          Wrap lines
+        </button>
+        <button id="reader-top" class="secondary" type="button" disabled>
+          Snapshot start
+        </button>
+        <button id="reader-bottom" class="secondary" type="button" disabled>
+          Snapshot end
+        </button>
+      </div>
     </dialog>
     <dialog
       id="devices-dialog"

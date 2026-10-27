@@ -44,12 +44,20 @@ byId("reader-wrap").addEventListener("click", () => {
   applyReaderPreferences(true);
 });
 byId("reader-top").addEventListener("click", () => {
+  byId("settings-dialog").close();
   byId("terminal-output").scrollTop = 0;
 });
 byId("reader-bottom").addEventListener("click", () => {
+  byId("settings-dialog").close();
   const output = byId("terminal-output");
   output.scrollTop = output.scrollHeight;
 });
+byId("open-settings").addEventListener("click", () =>
+  byId("settings-dialog").showModal(),
+);
+byId("close-settings").addEventListener("click", () =>
+  byId("settings-dialog").close(),
+);
 const readerHome = document.createComment("output card location");
 byId("output-card").before(readerHome);
 byId("reader-expand").addEventListener("click", () => {
