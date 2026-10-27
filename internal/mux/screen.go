@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"strconv"
 	"strings"
 )
 
@@ -75,19 +74,6 @@ func (c *screenController) Capture(ctx context.Context, target Target, lines int
 		return "", err
 	}
 	return lastLines(string(b), lines), nil
-}
-
-func (c *screenController) Resize(ctx context.Context, target Target, cols, rows int) error {
-	if target.Session == "" || cols < 1 || rows < 1 {
-		return errors.New("GNU Screen target and dimensions required")
-	}
-	// `width cols lines` adjusts both dimensions of Screen's virtual terminal.
-	// Keeping this one command avoids briefly advertising a mismatched size to
-	// the child process between independent width and height changes.
-	if _, err := c.run(ctx, c.prefix("-S", target.Session, "-p", "0", "-X", "width", strconv.Itoa(cols), strconv.Itoa(rows))...); err != nil {
-		return gone(err)
-	}
-	return nil
 }
 
 func (c *screenController) SendText(ctx context.Context, target Target, text string, enter bool) error {

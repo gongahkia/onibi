@@ -92,13 +92,6 @@ func (c *zellijController) Capture(ctx context.Context, target Target, lines int
 	return lastLines(string(out), lines), nil
 }
 
-// Zellij can resize pane splits relatively but cannot set the terminal viewport
-// to an exact columns×rows preset, so Onibi intentionally refuses /size rather
-// than giving the user a misleading success response.
-func (c *zellijController) Resize(context.Context, Target, int, int) error {
-	return errors.New("Zellij does not support exact Onibi viewport presets")
-}
-
 // SendText types the text rather than pasting it, so it arrives as plain
 // keystrokes exactly as tmux and Screen deliver it; a pasted "1" or "y" can be
 // ignored by menus that wait for a key press.

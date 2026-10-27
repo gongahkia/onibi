@@ -5,7 +5,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"reflect"
 	"testing"
 	"time"
 
@@ -29,7 +28,6 @@ func (f *fakeMuxController) Has(context.Context, mux.Target) (bool, error) { ret
 func (f *fakeMuxController) Capture(context.Context, mux.Target, int) (string, error) {
 	return "ready", nil
 }
-func (f *fakeMuxController) Resize(context.Context, mux.Target, int, int) error { return nil }
 func (f *fakeMuxController) SendText(context.Context, mux.Target, string, bool) error {
 	return nil
 }
@@ -141,26 +139,6 @@ func TestStartTerminalSessionFailsClosedWhenPersistenceFails(t *testing.T) {
 	}
 }
 
-func TestResizeSessionUsesTmuxPreset(t *testing.T) {
-	d, runner := testDaemon(t)
-	s := NewSession("resize-1", "work", "shell")
-	s.TmuxTarget = "onibi-resize-1"
-	if err := d.Registry.Add(s); err != nil {
-		t.Fatal(err)
-	}
-	cols, rows, err := d.ResizeSession(t.Context(), s.ID, "large")
-	if err != nil || cols != 120 || rows != 40 {
-		t.Fatalf("size=%dx%d err=%v", cols, rows, err)
-	}
-	want := []string{"tmux", "resize-window", "-t", s.TmuxTarget, "-x", "120", "-y", "40"}
-	if len(runner.calls) != 1 || !reflect.DeepEqual(runner.calls[0], want) {
-		t.Fatalf("calls=%#v", runner.calls)
-	}
-	if _, _, err := d.ResizeSession(t.Context(), s.ID, "huge"); err == nil {
-		t.Fatal("accepted unsupported size")
-	}
-}
-
 func TestLivenessCheckEndsMissingTmuxSession(t *testing.T) {
 	state := t.TempDir()
 	db, err := store.Open(filepath.Join(state, "onibi.sqlite"))
@@ -252,9 +230,6 @@ func TestTmuxControlAndRestoreUseProjectConfiguration(t *testing.T) {
 	if err := d.SendSessionKey(ctx, s.ID, "up"); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := d.ResizeSession(ctx, s.ID, "large"); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := d.CaptureSessionTail(ctx, s.ID, 80); err != nil {
 		t.Fatal(err)
 	}
@@ -275,7 +250,7 @@ func TestTmuxControlAndRestoreUseProjectConfiguration(t *testing.T) {
 		}
 		seen[call[3]] = true
 	}
-	for _, verb := range []string{"has-session", "send-keys", "resize-window", "capture-pane", "kill-session"} {
+	for _, verb := range []string{"has-session", "send-keys", "capture-pane", "kill-session"} {
 		if !seen[verb] {
 			t.Fatalf("missing %s call: %#v", verb, calls)
 		}

@@ -35,10 +35,6 @@ func (c *tmuxController) Capture(ctx context.Context, target Target, lines int) 
 	return c.control.Capture(ctx, target.Session, lines)
 }
 
-func (c *tmuxController) Resize(ctx context.Context, target Target, cols, rows int) error {
-	return c.control.ResizeWindow(ctx, target.Session, cols, rows)
-}
-
 func (c *tmuxController) SendText(ctx context.Context, target Target, text string, enter bool) error {
 	return c.control.SendText(ctx, target.Session, text, enter)
 }

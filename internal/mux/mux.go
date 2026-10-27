@@ -74,7 +74,6 @@ type Controller interface {
 	Start(context.Context, string, StartOptions) (Target, error)
 	Has(context.Context, Target) (bool, error)
 	Capture(context.Context, Target, int) (string, error)
-	Resize(context.Context, Target, int, int) error
 	SendText(context.Context, Target, string, bool) error
 	SendKey(context.Context, Target, string) error
 	Kill(context.Context, Target) error

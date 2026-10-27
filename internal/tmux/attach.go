@@ -98,37 +98,6 @@ func (c *Controller) HasSession(ctx context.Context, target string) (bool, error
 	return false, err
 }
 
-func (c *Controller) PaneSize(ctx context.Context, target string) (int, int, error) {
-	if strings.TrimSpace(target) == "" {
-		return 0, 0, errors.New("tmux target required")
-	}
-	out, err := c.run(ctx, "display-message", "-p", "-t", target, "#{pane_width} #{pane_height}")
-	if err != nil {
-		return 0, 0, err
-	}
-	fields := strings.Fields(string(out))
-	if len(fields) != 2 {
-		return 0, 0, errors.New("tmux pane dimensions unavailable")
-	}
-	cols, err := strconv.Atoi(fields[0])
-	if err != nil || cols < 1 {
-		return 0, 0, errors.New("tmux pane width unavailable")
-	}
-	rows, err := strconv.Atoi(fields[1])
-	if err != nil || rows < 1 {
-		return 0, 0, errors.New("tmux pane height unavailable")
-	}
-	return cols, rows, nil
-}
-
-func (c *Controller) ResizeWindow(ctx context.Context, target string, cols, rows int) error {
-	if strings.TrimSpace(target) == "" || cols < 1 || rows < 1 {
-		return errors.New("tmux target and dimensions required")
-	}
-	_, err := c.run(ctx, "resize-window", "-t", target, "-x", strconv.Itoa(cols), "-y", strconv.Itoa(rows))
-	return err
-}
-
 func (c *Controller) Capture(ctx context.Context, target string, lines int) (string, error) {
 	if strings.TrimSpace(target) == "" {
 		return "", errors.New("tmux target required")

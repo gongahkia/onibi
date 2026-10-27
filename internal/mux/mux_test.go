@@ -83,12 +83,8 @@ func TestScreenCommandsUseConfiguredSession(t *testing.T) {
 	if _, err := ctrl.Start(context.Background(), "onibi-1", StartOptions{Command: "bash"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := ctrl.Resize(context.Background(), Target{Session: "onibi-1"}, 120, 40); err != nil {
-		t.Fatal(err)
-	}
 	want := [][]string{
 		{"-c", "/tmp/screenrc", "-dmS", "onibi-1", "sh", "-lc", "exec 'bash'"},
-		{"-c", "/tmp/screenrc", "-S", "onibi-1", "-p", "0", "-X", "width", "120", "40"},
 	}
 	for i := range want {
 		if !reflect.DeepEqual(runner.calls[i].args, want[i]) {

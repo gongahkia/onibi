@@ -1,12 +1,9 @@
 package daemon
 
 import (
-	"context"
 	"errors"
 	"strconv"
 	"strings"
-
-	"github.com/gongahkia/onibi/internal/mux"
 )
 
 var terminalKeys = map[string]string{
@@ -15,12 +12,6 @@ var terminalKeys = map[string]string{
 	"home": "home", "end": "end", "pgup": "pgup", "pgdn": "pgdn",
 	"esc": "esc", "enter": "enter", "ctrl-c": "ctrl-c", "ctrl-d": "ctrl-d",
 	"ctrl-z": "ctrl-z", "ctrl-l": "ctrl-l", "ctrl-r": "ctrl-r", "meta-enter": "meta-enter", "space": "space",
-}
-
-var terminalSizes = map[string][2]int{
-	"small":  {80, 24},
-	"medium": {100, 30},
-	"large":  {120, 40},
 }
 
 func terminalKey(input string) (string, error) {
@@ -49,35 +40,4 @@ func terminalKey(input string) (string, error) {
 		}
 	}
 	return "", errors.New("unsupported key; use /keys")
-}
-
-func (d *Daemon) ResizeSession(ctx context.Context, id, size string) (int, int, error) {
-	dimensions, ok := terminalSizes[strings.ToLower(strings.TrimSpace(size))]
-	if !ok {
-		return 0, 0, errors.New("size must be small, medium, or large")
-	}
-	s, err := d.sessionForRPCTarget(id)
-	if err != nil {
-		return 0, 0, err
-	}
-	if s.Transport != "tmux" {
-		ctrl, err := d.controllerForSession(s)
-		if err != nil {
-			return 0, 0, err
-		}
-		if err := ctrl.Resize(ctx, mux.ParseTarget(s.TmuxTarget), dimensions[0], dimensions[1]); err != nil {
-			return 0, 0, d.muxSessionError(ctx, s, err)
-		}
-		d.touchSession(ctx, s)
-		return dimensions[0], dimensions[1], nil
-	}
-	ctrl, err := d.tmuxControllerForCWD(s.CWD)
-	if err != nil {
-		return 0, 0, err
-	}
-	if err := ctrl.ResizeWindow(ctx, s.TmuxTarget, dimensions[0], dimensions[1]); err != nil {
-		return 0, 0, d.tmuxSessionError(ctx, s, err)
-	}
-	d.touchSession(ctx, s)
-	return dimensions[0], dimensions[1], nil
 }
