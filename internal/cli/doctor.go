@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
 
 	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/intake"
-	"github.com/gongahkia/onibi/internal/pi"
 	"github.com/gongahkia/onibi/internal/render"
 	"github.com/gongahkia/onibi/internal/tmux"
 	"github.com/spf13/cobra"
@@ -166,7 +166,7 @@ func doctorCheckPrivateDirectory(path string) error {
 // installed. It blocks Pi tool calls in every Onibi session because nothing
 // answers its requests any more.
 func doctorCheckPiExtension(report *doctorReport) {
-	path, err := pi.ExtensionPath()
+	path, err := piExtensionPath()
 	if err != nil {
 		return
 	}
@@ -175,6 +175,24 @@ func doctorCheckPiExtension(report *doctorReport) {
 		return
 	}
 	report.add(doctorFail, "pi extension", "remove "+path+"; Onibi no longer answers its approval requests, so Pi tool calls are blocked in Onibi sessions")
+}
+
+// piExtensionPath is where older releases installed the extension.
+func piExtensionPath() (string, error) {
+	if path := strings.TrimSpace(os.Getenv("ONIBI_PI_EXTENSION")); path != "" {
+		return filepath.Abs(path)
+	}
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("ONIBI_PI_SCOPE")), "project") {
+		return filepath.Abs(filepath.Join(".pi", "extensions", "onibi.ts"))
+	}
+	if dir := strings.TrimSpace(os.Getenv("PI_CODING_AGENT_DIR")); dir != "" {
+		return filepath.Abs(filepath.Join(dir, "extensions", "onibi.ts"))
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".pi", "agent", "extensions", "onibi.ts"), nil
 }
 
 func doctorCheckMultiplexer(report *doctorReport, cfg config.Config) {
