@@ -121,7 +121,7 @@ func validateSessionAction(action SessionAction) error {
 	if action.Kind == "new" {
 		return validateNewSession(action)
 	}
-	if action.Program != "" || action.Args != nil || action.CWD != "" || action.Name != "" {
+	if action.Program != "" || action.Args != nil || action.CWD != "" || (action.Name != "" && action.Kind != "rename") {
 		return errors.New("Only a new session takes a program, folder or name.")
 	}
 	if !validSessionID(action.SessionID) {
@@ -142,6 +142,10 @@ func validateSessionAction(action SessionAction) error {
 	case "interrupt", "kill":
 		if action.Text != "" || action.Key != "" || action.Enter {
 			return errors.New("This action takes no input.")
+		}
+	case "rename":
+		if action.Name == "" || !plainField(action.Name, maxNameBytes) || action.Text != "" || action.Key != "" || action.Enter {
+			return errors.New("Session names are plain text of at most 64 bytes.")
 		}
 	default:
 		return errors.New("Unsupported session action.")
@@ -270,12 +274,18 @@ func (s *Server) executeSession(ctx context.Context, r *http.Request, receipt Re
 	if _, err := s.managed.Execute(ctx, action); err != nil {
 		if intake.IsRejected(err) {
 			receipt.State, receipt.Error = "rejected", sessionRejection(err)
+			if action.Kind == "rename" {
+				receipt.Error = strings.Replace(receipt.Error, "No input was sent.", "The name was not changed.", 1)
+			}
 		} else {
 			receipt.State, receipt.Error = "uncertain", uncertainMessage
 		}
 		return receipt
 	}
 	receipt.State = "completed"
+	if action.Kind == "rename" {
+		receipt.Result = &ghostty.Result{TargetID: sessionTargetPrefix + action.SessionID, Message: "Renamed to " + action.Name + "."}
+	}
 	return receipt
 }
 
@@ -367,6 +377,8 @@ func (d DaemonSessions) Execute(_ context.Context, action SessionAction) (string
 		ev = intake.Event{Type: intake.TypeSessionKey, Session: action.SessionID, Key: action.Key}
 	case "interrupt", "kill":
 		ev = intake.Event{Type: intake.TypeSessionControl, Session: action.SessionID, Action: action.Kind, Exact: true}
+	case "rename":
+		ev = intake.Event{Type: intake.TypeSessionControl, Session: action.SessionID, Action: "rename", Name: action.Name, Exact: true}
 	default:
 		return "", intake.Reject(errors.New("unsupported session action"))
 	}

@@ -376,6 +376,8 @@
               Close tab</button
             ><button class="quiet" id="session-interrupt" type="button" hidden>
               Interrupt</button
+            ><button class="quiet" id="session-rename" type="button" hidden>
+              Rename</button
             ><button
               class="quiet danger-text"
               id="session-kill"
@@ -508,7 +510,7 @@
     >
       <form id="rename-form">
         <div class="dialog-heading">
-          <h2 id="rename-title">Rename tab</h2>
+          <h2 id="rename-title">Rename session</h2>
           <button
             class="icon-button"
             id="cancel-rename"
@@ -518,16 +520,18 @@
             ×
           </button>
         </div>
-        <label for="rename-input">A name you’ll recognize from anywhere</label
+        <label for="rename-input">Name</label
         ><input
           id="rename-input"
           type="text"
-          maxlength="256"
+          maxlength="64"
           autocomplete="off"
-          placeholder="Agent · review / server / notes"
+          autocapitalize="none"
+          spellcheck="false"
+          placeholder="review"
         />
-        <p class="muted" id="rename-message">Leave blank to clear the title.</p>
-        <button class="primary full" type="submit">Save title</button>
+        <p class="muted" id="rename-message" role="alert"></p>
+        <button class="primary full" type="submit">Rename</button>
       </form>
     </dialog>
     <dialog

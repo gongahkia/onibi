@@ -53,7 +53,6 @@ const state = {
   drafts: new Map(),
   filter: "",
   modifier: "ctrl",
-  renameAction: null,
   snapshotLoading: false,
   snapshotAbort: null,
   follow: false,
@@ -503,7 +502,7 @@ function updateControls() {
     button.disabled = !canType;
   for (const id of ["new-tab", "split-right", "close-tab"])
     byId(id).hidden = Boolean(session);
-  for (const id of ["session-interrupt", "session-kill"]) {
+  for (const id of ["session-interrupt", "session-rename", "session-kill"]) {
     byId(id).hidden = !session;
     byId(id).disabled = !canSession;
   }
@@ -1361,6 +1360,12 @@ async function applyReceipt(receipt) {
   } else if (pending.action.kind === "kill") {
     actionNotice("Session ended", "The session was stopped on your Mac.");
     await refreshSessions();
+  } else if (pending.action.kind === "rename") {
+    actionNotice(
+      "Session renamed",
+      receipt.result?.message || "Your Mac confirmed the new name.",
+    );
+    await refreshSessions();
   } else if (pending.action.kind === "new") {
     actionNotice(
       "Session started",
@@ -1607,6 +1612,14 @@ byId("session-interrupt").addEventListener("click", () => {
   const session = selectedSession();
   if (session)
     performSessionAction({ kind: "interrupt", sessionId: session.id });
+});
+byId("session-rename").addEventListener("click", () => {
+  const session = selectedSession();
+  if (!session || state.pending) return;
+  byId("rename-input").value = session.name || "";
+  byId("rename-message").textContent = "";
+  byId("rename-dialog").showModal();
+  byId("rename-input").select();
 });
 byId("session-kill").addEventListener("click", () => {
   const session = selectedSession();
@@ -1894,23 +1907,20 @@ byId("cancel-rename").addEventListener("click", () =>
 );
 byId("rename-form").addEventListener("submit", (event) => {
   event.preventDefault();
-  const action = state.renameAction;
-  const name = byId("rename-input").value;
-  if (
-    new TextEncoder().encode(name).length > 256 ||
-    /[\u0000-\u001f\u007f-\u009f]/.test(name)
-  ) {
+  const session = selectedSession();
+  const name = byId("rename-input").value.trim();
+  if (!/^[A-Za-z0-9._-]{1,64}$/.test(name)) {
     byId("rename-message").textContent =
-      "Use a shorter title without control characters (256 bytes maximum).";
+      "Use letters, digits, dot, underscore and hyphen (64 at most).";
     return;
   }
-  if (!action || !state.targets.some((t) => t.id === action.targetId)) {
-    byId("rename-message").textContent = "This pane is no longer available.";
+  if (!session) {
+    byId("rename-message").textContent = "This session is no longer available.";
     return;
   }
   byId("rename-dialog").close();
-  state.renameAction = null;
-  performAction({ ...action, name });
+  if (name !== session.name)
+    performSessionAction({ kind: "rename", sessionId: session.id, name });
 });
 const replyKeyLabels = { enter: "↵", esc: "Esc" };
 // Choices come from the latest snapshot. Each sends the key a person would

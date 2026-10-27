@@ -133,6 +133,10 @@ func TestSessionActionsUseReceiptsAndExactValidation(t *testing.T) {
 		{Kind: "input", SessionID: testSessionID},
 		{Kind: "key", SessionID: testSessionID, Key: "y", Enter: true},
 		{Kind: "kill", SessionID: testSessionID, Text: "x"},
+		{Kind: "kill", SessionID: testSessionID, Name: "x"},
+		{Kind: "rename", SessionID: testSessionID},
+		{Kind: "rename", SessionID: testSessionID, Name: strings.Repeat("a", 65)},
+		{Kind: "rename", SessionID: testSessionID, Name: "x", Text: "y"},
 		{Kind: "resize", SessionID: testSessionID},
 	} {
 		if response := request(s, b, http.MethodPost, "/api/actions", sessionRequest("session-action-0003", bad)); response.Code != http.StatusBadRequest {
@@ -231,8 +235,14 @@ func TestDaemonSessionsMapsIntakeResponses(t *testing.T) {
 	if id, err := d.Execute(t.Context(), SessionAction{Kind: "new", Program: "codex", Args: []string{"--model", "gpt-5"}, CWD: "/tmp", Name: "review"}); err != nil || id != "fedcba9876543210" {
 		t.Fatalf("new id=%q err=%v", id, err)
 	}
+	if _, err := d.Execute(t.Context(), SessionAction{Kind: "rename", SessionID: testSessionID, Name: "review"}); err == nil {
+		t.Fatal("rename should surface the control error")
+	}
 	mu.Lock()
 	defer mu.Unlock()
+	if ev := seen[5]; ev.Type != intake.TypeSessionControl || ev.Action != "rename" || ev.Name != "review" || !ev.Exact || ev.Session != testSessionID {
+		t.Fatalf("rename event=%#v", ev)
+	}
 	if !seen[1].Exact || seen[1].Type != intake.TypeSessionInput || !seen[3].Exact || seen[3].Action != "kill" {
 		t.Fatalf("events=%#v", seen)
 	}

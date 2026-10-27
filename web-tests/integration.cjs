@@ -365,11 +365,31 @@ async function selectWork(page) {
   );
   assert.equal((await fixture.command()).sessionActions.at(-1).key, "ctrl-c");
   await page.waitForFunction(
+    () => !document.getElementById("session-rename").disabled,
+  );
+  await page.click("#session-rename");
+  assert.equal(await page.inputValue("#rename-input"), "build");
+  await page.fill("#rename-input", "bad name");
+  await page.click('#rename-form button[type="submit"]');
+  assert.match(await page.textContent("#rename-message"), /letters, digits/);
+  await page.fill("#rename-input", "build-2");
+  await page.click('#rename-form button[type="submit"]');
+  await eventually(
+    () => fixture.command(),
+    (s) => s.sessions[0]?.name === "build-2",
+    "session rename",
+  );
+  assert.deepEqual((await fixture.command()).sessionActions.at(-1), {
+    kind: "rename",
+    sessionId: "0123456789abcdef",
+    name: "build-2",
+  });
+  await page.waitForFunction(
     () => !document.getElementById("session-kill").disabled,
   );
   await page.click("#session-kill");
   await page.locator("#close-confirmation").waitFor({ state: "visible" });
-  assert.match(await page.textContent("#close-title"), /End “build”/);
+  assert.match(await page.textContent("#close-title"), /End “build-2”/);
   await page.click("#confirm-close");
   await page
     .locator("#output-empty-title")
@@ -377,7 +397,7 @@ async function selectWork(page) {
     .waitFor();
   const afterKill = await fixture.command();
   assert.deepEqual(afterKill.sessions, []);
-  assert.equal(afterKill.sessionActions.length, 3);
+  assert.equal(afterKill.sessionActions.length, 4);
   assert.equal(afterKill.actions.length, 2, "no Ghostty action was sent");
   await page.click("#open-picker");
   await page.click("#picker-new-session");

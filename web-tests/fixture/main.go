@@ -175,6 +175,13 @@ func (s *sessions) Execute(_ context.Context, action web.SessionAction) (string,
 		s.list = append(s.list, intake.SessionInfo{ID: id, Name: action.Name, Agent: action.Program, Transport: "tmux", CWD: action.CWD, Attention: intake.Attention{State: "quiet"}})
 		return id, nil
 	}
+	if action.Kind == "rename" {
+		for i := range s.list {
+			if s.list[i].ID == action.SessionID {
+				s.list[i].Name = action.Name
+			}
+		}
+	}
 	if action.Kind == "kill" {
 		kept := s.list[:0]
 		for _, session := range s.list {
