@@ -1,3 +1,3 @@
-// Package store wraps SQLite for Telegram state, Pi approvals, audit records,
-// and sessions.
+// Package store wraps SQLite for agent approvals, Claude questions, audit
+// records, and managed sessions.
 package store

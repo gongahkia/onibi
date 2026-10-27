@@ -66,17 +66,15 @@ CREATE TABLE IF NOT EXISTS sessions (
  id TEXT PRIMARY KEY,name TEXT NOT NULL,agent TEXT NOT NULL,cwd TEXT,cmd TEXT,transport TEXT NOT NULL DEFAULT 'tmux',tmux_target TEXT,started_at INTEGER NOT NULL,last_activity INTEGER,ended_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_name ON sessions(name);
-CREATE TABLE IF NOT EXISTS telegram_cursor (
- id INTEGER PRIMARY KEY CHECK(id=1),next_offset INTEGER NOT NULL DEFAULT 0
-);
-CREATE TABLE IF NOT EXISTS telegram_updates (
- update_id INTEGER PRIMARY KEY,state TEXT NOT NULL,received_at INTEGER NOT NULL,completed_at INTEGER
-);
-CREATE INDEX IF NOT EXISTS idx_telegram_updates_state ON telegram_updates(state,received_at);
-CREATE TABLE IF NOT EXISTS telegram_outbox (
- id TEXT PRIMARY KEY,dedupe_key TEXT NOT NULL UNIQUE,kind TEXT NOT NULL,chat_id INTEGER NOT NULL,session_id TEXT,title TEXT NOT NULL,lines INTEGER NOT NULL DEFAULT 80,force_screen INTEGER NOT NULL DEFAULT 0,fallback_text TEXT,state TEXT NOT NULL,attempts INTEGER NOT NULL DEFAULT 0,next_attempt INTEGER NOT NULL,created_at INTEGER NOT NULL,expires_at INTEGER NOT NULL,last_error TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_telegram_outbox_ready ON telegram_outbox(state,next_attempt,created_at);
+`
+
+// retiredTelegramState removes chat bindings, queued terminal output and
+// update claims left by the retired Telegram transport.
+const retiredTelegramState = `
+DROP TABLE IF EXISTS telegram_outbox;
+DROP TABLE IF EXISTS telegram_updates;
+DROP TABLE IF EXISTS telegram_cursor;
+DELETE FROM kv WHERE key LIKE 'telegram.%';
 `
 
 func (d *DB) migrate() error {
@@ -85,13 +83,11 @@ func (d *DB) migrate() error {
 	if _, err := d.sql.ExecContext(ctx, schema); err != nil {
 		return fmt.Errorf("apply schema: %w", err)
 	}
-	for _, migration := range []string{"ALTER TABLE approvals ADD COLUMN reason TEXT", "ALTER TABLE approvals ADD COLUMN decided_by INTEGER", "ALTER TABLE sessions ADD COLUMN cmd TEXT", "ALTER TABLE sessions ADD COLUMN last_activity INTEGER", "ALTER TABLE telegram_outbox ADD COLUMN force_screen INTEGER NOT NULL DEFAULT 0", "ALTER TABLE telegram_outbox ADD COLUMN fallback_text TEXT"} {
+	for _, migration := range []string{"ALTER TABLE approvals ADD COLUMN reason TEXT", "ALTER TABLE approvals ADD COLUMN decided_by INTEGER", "ALTER TABLE sessions ADD COLUMN cmd TEXT", "ALTER TABLE sessions ADD COLUMN last_activity INTEGER"} {
 		_, _ = d.sql.ExecContext(ctx, migration)
 	}
-	// Preserve old retry schedules while allowing the 500ms screen debounce
-	// to survive persistence without rounding down to the current second.
-	if _, err := d.sql.ExecContext(ctx, `UPDATE telegram_outbox SET next_attempt=next_attempt*1000 WHERE next_attempt>0 AND next_attempt<100000000000`); err != nil {
-		return fmt.Errorf("migrate Telegram outbox timing: %w", err)
+	if _, err := d.sql.ExecContext(ctx, retiredTelegramState); err != nil {
+		return fmt.Errorf("remove retired Telegram state: %w", err)
 	}
 	_, err := d.sql.ExecContext(ctx, "INSERT OR IGNORE INTO schema_version(version) VALUES (1)")
 	return err

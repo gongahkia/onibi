@@ -116,9 +116,6 @@ func (d *Daemon) purgeTransientState(ctx context.Context, now time.Time) {
 		if err := d.DB.SensitivePayloadsPurge(ctx, now.Add(-24*time.Hour)); err != nil {
 			d.Log.Warn("purge resolved decision payloads", "err", err)
 		}
-		if err := d.DB.TelegramPurge(ctx, now.Add(-24*time.Hour)); err != nil {
-			d.Log.Warn("purge Telegram state", "err", err)
-		}
 	}
 }
 
