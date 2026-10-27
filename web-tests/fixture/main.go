@@ -14,6 +14,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"math/big"
@@ -26,6 +27,7 @@ import (
 	"time"
 
 	"github.com/gongahkia/onibi/internal/ghostty"
+	"github.com/gongahkia/onibi/internal/intake"
 	"github.com/gongahkia/onibi/internal/store"
 	"github.com/gongahkia/onibi/internal/web"
 	"golang.org/x/sys/unix"
@@ -133,6 +135,53 @@ func (b *backend) Execute(ctx context.Context, action ghostty.Action) (ghostty.R
 	return result, nil
 }
 
+// sessions simulates daemon-managed multiplexer sessions. No daemon or
+// multiplexer is contacted.
+type sessions struct {
+	mu      sync.Mutex
+	list    []intake.SessionInfo
+	actions []web.SessionAction
+	down    bool
+}
+
+func (s *sessions) Sessions(context.Context) ([]intake.SessionInfo, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.down {
+		return nil, errors.New("fixture daemon stopped")
+	}
+	return append([]intake.SessionInfo{}, s.list...), nil
+}
+
+func (s *sessions) Capture(_ context.Context, id string, lines int) (web.SessionCapture, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, session := range s.list {
+		if session.ID == id {
+			text := fmt.Sprintf("history line (%d requested)\n<img src=x onerror=alert(1)>\nApply changes? [y/N]", lines)
+			ansi := fmt.Sprintf("history line (%d requested)\n\x1b[31m<img src=x onerror=alert(1)>\x1b[0m\n\x1b[1;38;2;255;200;0mApply changes?\x1b[0m [y/N]", lines)
+			return web.SessionCapture{SessionID: id, Text: text, ANSI: ansi}, nil
+		}
+	}
+	return web.SessionCapture{}, intake.Reject(errors.New("session ended"))
+}
+
+func (s *sessions) Execute(_ context.Context, action web.SessionAction) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.actions = append(s.actions, action)
+	if action.Kind == "kill" {
+		kept := s.list[:0]
+		for _, session := range s.list {
+			if session.ID != action.SessionID {
+				kept = append(kept, session)
+			}
+		}
+		s.list = kept
+	}
+	return nil
+}
+
 func certificate() tls.Certificate {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	must(err)
@@ -173,9 +222,14 @@ func main() {
 		{ID: "pane-work", WindowID: "window-main", TabID: "tab-work", WindowTitle: "Fixture Mac", TabTitle: "Work", Title: "Work shell", Focused: true},
 		{ID: "pane-logs", WindowID: "window-main", TabID: "tab-logs", WindowTitle: "Fixture Mac", TabTitle: "Logs", Title: "Server logs"},
 	}}
+	managed := &sessions{list: []intake.SessionInfo{{
+		ID: "0123456789abcdef", Name: "build", Agent: "shell", Transport: "tmux", CWD: "/fixture/repo", Command: "make watch",
+		StartedAt: time.Now(), LastActivityAt: time.Now(),
+		Attention: intake.Attention{State: "input", Reason: "Yes/no prompt", Since: time.Now()},
+	}}}
 	var offset atomic.Int64
 	now := func() time.Time { return time.Now().Add(time.Duration(offset.Load()) * time.Second) }
-	app, err := web.New(web.Options{Backend: b, DB: db, PublicOrigin: origin, Assets: web.Assets(), Now: now, Diagnostics: func(context.Context) ghostty.Diagnostics {
+	app, err := web.New(web.Options{Backend: b, Sessions: managed, DB: db, PublicOrigin: origin, Assets: web.Assets(), Now: now, Diagnostics: func(context.Context) ghostty.Diagnostics {
 		return ghostty.Diagnostics{CheckedAt: now(), Capabilities: b.Capabilities(), Checks: []ghostty.Check{{ID: "process", State: "running", Detail: "Simulated Ghostty; no native automation."}}}
 	}})
 	must(err)
@@ -197,6 +251,7 @@ func main() {
 			Version       *string `json:"version"`
 			Hold          *bool   `json:"hold"`
 			Advance       int64   `json:"advance"`
+			SessionsDown  *bool   `json:"sessionsDown"`
 		}
 		must(json.Unmarshal(scanner.Bytes(), &command))
 		pairLink := ""
@@ -234,7 +289,12 @@ func main() {
 			}
 		}
 		offset.Add(command.Advance)
-		must(encoder.Encode(map[string]any{"id": command.ID, "pairingURL": pairLink, "actions": b.actions, "targets": b.targets, "inventories": b.inventories, "captures": b.captures}))
+		managed.mu.Lock()
+		if command.SessionsDown != nil {
+			managed.down = *command.SessionsDown
+		}
+		must(encoder.Encode(map[string]any{"id": command.ID, "pairingURL": pairLink, "actions": b.actions, "targets": b.targets, "inventories": b.inventories, "captures": b.captures, "sessionActions": managed.actions, "sessions": managed.list}))
+		managed.mu.Unlock()
 		b.mu.Unlock()
 	}
 	must(scanner.Err())

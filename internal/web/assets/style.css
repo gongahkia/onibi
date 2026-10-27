@@ -410,6 +410,23 @@ main {
   max-width: 32px;
   line-height: 1.5;
 }
+.target-attention {
+  font-size: 8px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 1px 4px;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.target-attention[data-state="input"],
+.target-attention[data-state="bell"] {
+  color: #1f1f1f;
+  background: var(--accent);
+  border-color: var(--accent);
+}
 .list-empty {
   color: var(--muted);
   font-size: 13px;
@@ -1428,6 +1445,11 @@ dialog::backdrop {
 .reader-bar details {
   flex: 1;
   min-width: 0;
+}
+.reader-bar > button {
+  font-size: 12px;
+  white-space: nowrap;
+  padding-inline: 8px;
 }
 .reader-bar summary {
   min-height: 44px;

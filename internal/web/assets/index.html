@@ -247,6 +247,9 @@
                   </p>
                 </div>
               </details>
+              <button id="reader-history" class="quiet" type="button" hidden>
+                More history
+              </button>
               <button id="reader-copy" class="quiet" type="button" disabled>
                 Copy text
               </button>
@@ -282,7 +285,7 @@
                 <span id="snapshot-state">No terminal selected</span>
                 <time id="snapshot-time"></time>
               </div>
-              <span class="snapshot-kind">Visible text</span>
+              <span class="snapshot-kind" id="snapshot-kind">Visible text</span>
             </div>
           </section>
           <div class="focus-row">
@@ -383,7 +386,16 @@
               type="button"
               disabled
             >
-              Close tab
+              Close tab</button
+            ><button class="quiet" id="session-interrupt" type="button" hidden>
+              Interrupt</button
+            ><button
+              class="quiet danger-text"
+              id="session-kill"
+              type="button"
+              hidden
+            >
+              End session
             </button>
           </div>
         </div>

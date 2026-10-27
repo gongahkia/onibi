@@ -270,6 +270,94 @@ async function selectWork(page) {
     "Passed real HTTPS pairing, secure cookies, origin/CSRF, literal input, and lost-response receipt recovery.",
   );
 
+  // Persistent sessions stay readable and controllable while Ghostty is down.
+  await fixture.command({ unavailable: true });
+  await page.click("#open-picker");
+  await page.click("#refresh-picker");
+  await page.waitForFunction(
+    () =>
+      document.getElementById("connection-label").textContent ===
+      "Ghostty unavailable",
+  );
+  await page.waitForFunction(() => document.title.startsWith("(1) "));
+  const sessionButton = page
+    .locator("#picker-list .target")
+    .filter({ hasText: "build" });
+  assert.match(await sessionButton.textContent(), /Needs input/);
+  await sessionButton.click();
+  await page
+    .locator("#terminal-output")
+    .filter({ hasText: "200 requested" })
+    .waitFor();
+  assert.equal(await page.locator("#terminal-output img").count(), 0);
+  assert.equal(await page.textContent("#snapshot-kind"), "Scrollback + screen");
+  assert.equal(await page.locator("#new-tab").isHidden(), true);
+  assert.equal(await page.locator("#open-controls").isHidden(), true);
+  assert.equal(await page.locator("#session-kill").isVisible(), true);
+  const sessionAudit = await new AxeBuilder({ page })
+    .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+    .analyze();
+  assert.deepEqual(sessionAudit.violations, [], "session accessibility");
+  await page.screenshot({
+    path: path.join(screenshotDir, "session.png"),
+    fullPage: true,
+  });
+  await page.click("#reader-history");
+  await page
+    .locator("#terminal-output")
+    .filter({ hasText: "1000 requested" })
+    .waitFor();
+  await page.fill("#compose", "y");
+  await page.click("#send-input");
+  await page.waitForFunction(
+    () => document.getElementById("compose").value === "",
+  );
+  assert.deepEqual((await fixture.command()).sessionActions.at(-1), {
+    kind: "input",
+    sessionId: "0123456789abcdef",
+    text: "y",
+    enter: true,
+  });
+  await page.locator("#send-input").waitFor({ state: "attached" });
+  await page.waitForFunction(
+    () => !document.querySelector('.key-strip [data-key="ctrl-c"]').disabled,
+  );
+  await page.click('.key-strip [data-key="ctrl-c"]');
+  await eventually(
+    () => fixture.command(),
+    (s) => s.sessionActions.at(-1).kind === "key",
+    "session key",
+  );
+  assert.equal((await fixture.command()).sessionActions.at(-1).key, "ctrl-c");
+  await page.waitForFunction(
+    () => !document.getElementById("session-kill").disabled,
+  );
+  await page.click("#session-kill");
+  await page.locator("#close-confirmation").waitFor({ state: "visible" });
+  assert.match(await page.textContent("#close-title"), /End “build”/);
+  await page.click("#confirm-close");
+  await page
+    .locator("#output-empty-title")
+    .filter({ hasText: "That session has ended" })
+    .waitFor();
+  const afterKill = await fixture.command();
+  assert.deepEqual(afterKill.sessions, []);
+  assert.equal(afterKill.sessionActions.length, 3);
+  assert.equal(afterKill.actions.length, 2, "no Ghostty action was sent");
+  await page.waitForFunction(() => !document.title.startsWith("("));
+  await fixture.command({ unavailable: false, advance: 61 });
+  await page.waitForFunction(
+    () =>
+      document.getElementById("connection-label").textContent === "Connected",
+    null,
+    { timeout: 30000 },
+  );
+  await selectWork(page);
+  await page.locator("#terminal-output").waitFor({ state: "visible" });
+  console.log(
+    "Passed persistent sessions without Ghostty: attention, unfocused history, input, keys, and confirmed kill.",
+  );
+
   await fixture.command({ captureDenied: true });
   await page.click("#read-output");
   await page.waitForFunction(
@@ -546,6 +634,7 @@ async function selectWork(page) {
         "literal send/paste",
         "durable deduplication",
         "lost response",
+        "persistent sessions without Ghostty",
         "independent readiness",
         "backoff",
         "version guard",

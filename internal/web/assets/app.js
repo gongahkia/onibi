@@ -48,7 +48,18 @@ const state = {
   lastCapturedAt: 0,
   snapshotStale: false,
   authGeneration: 0,
+  // Daemon-managed multiplexer sessions. Their selection IDs carry a
+  // "session:" prefix so they can never collide with Ghostty target IDs.
+  sessions: [],
+  sessionsAvailable: false,
+  sessionsTimer: null,
+  sessionLines: 200,
+  closeSession: null,
+  snapshotAnsi: "",
 };
+const sessionPrefix = "session:";
+const sessionPollMs = 5000;
+const sessionHistorySteps = [200, 1000, 2000];
 const actionButtons = [
   "send-input",
   "paste-input",
@@ -123,6 +134,8 @@ function restorePending() {
         "rename_tab",
         "rename_pane",
         "control",
+        "interrupt",
+        "kill",
       ].includes(saved.action.kind)
     )
       return;
@@ -215,6 +228,30 @@ async function api(path, options = {}) {
 
 function selectedTarget() {
   return state.targets.find((target) => target.id === state.selectedId);
+}
+function selectedSession() {
+  if (!state.selectedId.startsWith(sessionPrefix)) return undefined;
+  const id = state.selectedId.slice(sessionPrefix.length);
+  return state.sessions.find((session) => session.id === id);
+}
+function sessionName(session) {
+  return session.name || session.id;
+}
+function sessionDetail(session) {
+  return [session.transport, session.cwd].filter(Boolean).join(" · ");
+}
+const attentionLabels = {
+  input: "Needs input",
+  bell: "Bell",
+  active: "Active",
+  idle: "Idle",
+  quiet: "Quiet",
+};
+function needsAttention(session) {
+  return ["input", "bell"].includes(session.attention?.state);
+}
+function sessionReady() {
+  return state.transport === "reachable" && Boolean(selectedSession());
 }
 function targetName(target) {
   return target.title || target.tabTitle || "Untitled pane";
@@ -409,25 +446,44 @@ function pairMessage(text, error = false) {
 }
 function updateControls() {
   const target = selectedTarget();
+  const session = selectedSession();
   const canAct = Boolean(
     state.csrf && target && controlReady() && !state.pending,
   );
+  // Managed sessions run under the daemon, not Ghostty, so they stay usable
+  // whenever the Mac is reachable.
+  const canSession = Boolean(state.csrf && sessionReady() && !state.pending);
+  const canType = canAct || canSession;
   const canCreate = Boolean(state.csrf && controlReady() && !state.pending);
   for (const id of actionButtons) byId(id).disabled = !canAct;
   for (const id of ["new-window", "picker-new-window", "controls-new-window"])
     byId(id).disabled = !canCreate;
-  byId("send-input").disabled = !canAct || byId("compose").value.length === 0;
+  byId("send-input").disabled = !canType || byId("compose").value.length === 0;
   byId("paste-input").disabled = byId("send-input").disabled;
-  byId("compose").disabled = !state.csrf || !target;
+  byId("compose").disabled = !state.csrf || !(target || session);
   byId("read-output").disabled =
-    !state.csrf || !target || state.snapshotLoading;
-  byId("follow-output").disabled = !state.csrf || !target || !controlReady();
+    !state.csrf || !(target || session) || state.snapshotLoading;
+  byId("follow-output").disabled =
+    !state.csrf || !((target && controlReady()) || session);
   byId("follow-output").setAttribute("aria-pressed", String(state.follow));
   byId("logout").disabled = Boolean(state.pending);
+  for (const button of document.querySelectorAll("[data-key], [data-letter]"))
+    button.disabled = !canType;
   for (const button of document.querySelectorAll(
-    "[data-key], [data-letter], [data-split], [data-action], [data-close]",
+    "[data-split], [data-action], [data-close]",
   ))
     button.disabled = !canAct;
+  for (const id of ["new-tab", "split-right", "close-tab", "open-controls"])
+    byId(id).hidden = Boolean(session);
+  for (const id of ["session-interrupt", "session-kill"]) {
+    byId(id).hidden = !session;
+    byId(id).disabled = !canSession;
+  }
+  byId("reader-history").hidden =
+    !session || state.snapshotTarget !== state.selectedId;
+  byId("reader-history").disabled =
+    state.snapshotLoading ||
+    state.sessionLines >= sessionHistorySteps[sessionHistorySteps.length - 1];
   for (const button of document.querySelectorAll(
     "[data-control], [data-rename]",
   ))
@@ -476,9 +532,8 @@ function scheduleFollow() {
     !state.snapshotLoading &&
     !document.hidden &&
     state.csrf &&
-    controlReady() &&
     !state.pending &&
-    selectedTarget()
+    ((controlReady() && selectedTarget()) || sessionReady())
   ) {
     state.followTimer = setTimeout(() => readSnapshot(), 2500);
   }
@@ -541,6 +596,7 @@ function authenticated(session) {
   state.nativeState = "checking";
   setNetwork("reachable");
   refreshTargets();
+  refreshSessions();
   if (state.pending) {
     actionNotice(
       "Checking an earlier action",
@@ -559,10 +615,14 @@ function requirePairing(text) {
   state.device = null;
   state.expiresAt = 0;
   clearTimeout(state.targetTimer);
+  clearTimeout(state.sessionsTimer);
   state.captureState = "unknown";
   state.capabilities = { known: false };
   state.nativeState = "checking";
   state.targets = [];
+  state.sessions = [];
+  state.sessionsAvailable = false;
+  renderAttentionTitle();
   state.selectedId = "";
   byId("compose").value = "";
   state.snapshotVersion++;
@@ -610,6 +670,61 @@ async function pair(token) {
   }
 }
 
+function sessionGroup() {
+  const filter = state.filter.toLocaleLowerCase();
+  const visible = state.sessions.filter((session) =>
+    [session.name, session.cwd, session.transport, session.command]
+      .join(" ")
+      .toLocaleLowerCase()
+      .includes(filter),
+  );
+  if (!visible.length) return null;
+  const group = document.createElement("section");
+  group.className = "window-group";
+  const heading = document.createElement("h3");
+  heading.textContent = "Persistent sessions";
+  group.append(heading);
+  for (const session of visible) {
+    const id = sessionPrefix + session.id;
+    const attention = session.attention?.state || "";
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "target";
+    button.dataset.targetId = id;
+    button.setAttribute("aria-pressed", String(id === state.selectedId));
+    button.setAttribute(
+      "aria-label",
+      `${sessionName(session)} ${sessionDetail(session)}${attentionLabels[attention] ? ", " + attentionLabels[attention] : ""}${session.attention?.reason ? ": " + session.attention.reason : ""}`,
+    );
+    button.title = session.attention?.reason || session.cwd || sessionName(session);
+    const mark = document.createElement("span");
+    mark.className = "target-mark";
+    mark.textContent = id === state.selectedId ? "›" : "·";
+    mark.setAttribute("aria-hidden", "true");
+    const copy = document.createElement("span");
+    copy.className = "target-copy";
+    const name = document.createElement("span");
+    name.className = "target-name";
+    name.textContent = sessionName(session);
+    const detail = document.createElement("span");
+    detail.className = "target-cwd";
+    detail.textContent = sessionDetail(session) || "Managed session";
+    copy.append(name, detail);
+    button.append(mark, copy);
+    if (attentionLabels[attention] && attention !== "quiet") {
+      const badge = document.createElement("span");
+      badge.className = "target-attention";
+      badge.dataset.state = attention;
+      badge.textContent = attentionLabels[attention];
+      badge.setAttribute("aria-hidden", "true");
+      button.append(badge);
+    }
+    button.addEventListener("click", () => selectTarget(id));
+    group.append(button);
+  }
+  return group;
+}
+
 function renderTargets() {
   for (const containerId of ["target-list", "picker-list"]) {
     const container = byId(containerId);
@@ -617,6 +732,8 @@ function renderTargets() {
       ? document.activeElement.dataset.targetId
       : "";
     container.replaceChildren();
+    const sessions = sessionGroup();
+    if (sessions) container.append(sessions);
     if (!state.targets.length) {
       const empty = document.createElement("p");
       empty.className = "list-empty";
@@ -624,6 +741,7 @@ function renderTargets() {
         ? "Finding Ghostty terminals…"
         : "No panes yet. Create a Ghostty window to get started.";
       container.append(empty);
+      restoreListFocus(container, focusedId);
       continue;
     }
     const visible = state.targets.filter((target) =>
@@ -637,6 +755,7 @@ function renderTargets() {
       empty.className = "list-empty";
       empty.textContent = "No matching panes. Try another name or folder.";
       container.append(empty);
+      restoreListFocus(container, focusedId);
       continue;
     }
     const windows = new Map();
@@ -701,14 +820,42 @@ function renderTargets() {
       }
       container.append(group);
     }
-    if (focusedId)
-      Array.from(container.querySelectorAll(".target"))
-        .find((button) => button.dataset.targetId === focusedId)
-        ?.focus({ preventScroll: true });
+    restoreListFocus(container, focusedId);
   }
+}
+function restoreListFocus(container, focusedId) {
+  if (focusedId)
+    Array.from(container.querySelectorAll(".target"))
+      .find((button) => button.dataset.targetId === focusedId)
+      ?.focus({ preventScroll: true });
+}
+
+function renderSessionDestination(session) {
+  const name = sessionName(session);
+  const attention = session.attention || {};
+  byId("reader-destination").textContent = `${name} · ${sessionDetail(session)}`;
+  byId("focus-terminal").hidden = true;
+  byId("destination-context").textContent =
+    attention.state === "input" || attention.state === "bell"
+      ? "NEEDS YOU · " + (attention.reason || attentionLabels[attention.state]).toUpperCase()
+      : "PERSISTENT SESSION";
+  byId("focus-hint").textContent =
+    "Runs under the Onibi daemon. Reading never changes focus on your Mac.";
+  byId("keyboard-destination").textContent = `Keys go to ${name}`;
+  byId("destination-title").textContent = name;
+  byId("destination-detail").textContent =
+    sessionDetail(session) + (session.command ? " · " + session.command : "");
+  byId("compose-destination").textContent = name;
+  byId("compose-destination").title = `${session.transport} / ${session.id}`;
+  byId("snapshot-kind").textContent = "Scrollback + screen";
+  updateControls();
 }
 
 function renderDestination() {
+  renderFleetCount();
+  const session = selectedSession();
+  if (session) return renderSessionDestination(session);
+  byId("snapshot-kind").textContent = "Visible text";
   const target = selectedTarget();
   byId("reader-destination").textContent = target
     ? `${targetName(target)} · ${tabName(target)} · ${windowName(target)}`
@@ -729,8 +876,6 @@ function renderDestination() {
   byId("keyboard-destination").textContent = target
     ? `Keys go to ${targetName(target)} · ${tabName(target)}`
     : "Choose a pane before sending keys.";
-  byId("fleet-count").textContent =
-    `${new Set(state.targets.map((t) => t.windowId)).size} windows · ${new Set(state.targets.map((t) => t.tabId)).size} tabs · ${state.targets.length} panes`;
   byId("destination-title").textContent = target
     ? targetName(target)
     : "Choose a terminal";
@@ -747,6 +892,75 @@ function renderDestination() {
     ? `Create a tab in ${windowName(target)}`
     : "Choose a terminal first";
   updateControls();
+}
+
+function renderFleetCount() {
+  const waiting = state.sessions.filter(needsAttention).length;
+  byId("fleet-count").textContent =
+    `${new Set(state.targets.map((t) => t.windowId)).size} windows · ${new Set(state.targets.map((t) => t.tabId)).size} tabs · ${state.targets.length} panes` +
+    (state.sessions.length
+      ? ` · ${state.sessions.length} sessions${waiting ? ` (${waiting} waiting)` : ""}`
+      : "");
+}
+function renderAttentionTitle() {
+  const waiting = state.sessions.filter(needsAttention).length;
+  document.title = (waiting ? `(${waiting}) ` : "") + "Onibi · Your Ghostty cockpit";
+}
+
+// Session listing is independent of Ghostty: a daemon that is not running
+// only hides the group, and Ghostty failures never hide sessions.
+async function refreshSessions() {
+  clearTimeout(state.sessionsTimer);
+  if (!state.csrf) return;
+  const generation = state.authGeneration;
+  try {
+    const data = await api("/api/sessions");
+    if (generation !== state.authGeneration) return;
+    state.sessions = Array.isArray(data.sessions)
+      ? data.sessions.filter(
+          (s) => typeof s.id === "string" && /^[0-9a-f]{8,64}$/.test(s.id),
+        )
+      : [];
+    state.sessionsAvailable = true;
+  } catch (error) {
+    if (generation !== state.authGeneration) return;
+    if (error.status === 401) {
+      requirePairing(
+        "Your session expired. Reconnect with a fresh pairing link from your Mac.",
+      );
+      return;
+    }
+    state.sessions = [];
+    state.sessionsAvailable = false;
+  }
+  if (state.selectedId.startsWith(sessionPrefix) && !selectedSession())
+    clearSelection(
+      "That session has ended",
+      "It is no longer running under Onibi. Choose another destination.",
+    );
+  renderAttentionTitle();
+  renderTargets();
+  renderDestination();
+  if (!document.hidden)
+    state.sessionsTimer = setTimeout(refreshSessions, sessionPollMs);
+}
+
+function clearSelection(title, description) {
+  rememberDraft();
+  cancelSnapshot();
+  stopFollow();
+  state.selectedId = "";
+  state.captureState = "unknown";
+  state.captureDetail = "";
+  byId("compose").value = "";
+  state.snapshotVersion++;
+  state.snapshotTarget = "";
+  state.snapshotText = "";
+  byId("reader-message").hidden = true;
+  byId("terminal-output").textContent = "";
+  showEmpty(title, description);
+  byId("snapshot-state").textContent = "Destination unavailable";
+  byId("snapshot-time").textContent = "";
 }
 
 async function refreshTargets(options = {}) {
@@ -799,26 +1013,15 @@ async function refreshTargetsRequest() {
       );
       renderNativeControls();
     }
-    if (state.selectedId && !selectedTarget()) {
-      rememberDraft();
-      cancelSnapshot();
-      stopFollow();
-      state.selectedId = "";
-      state.captureState = "unknown";
-      state.captureDetail = "";
-      byId("compose").value = "";
-      state.snapshotVersion++;
-      state.snapshotTarget = "";
-      state.snapshotText = "";
-      byId("reader-message").hidden = true;
-      byId("terminal-output").textContent = "";
-      showEmpty(
+    if (
+      state.selectedId &&
+      !state.selectedId.startsWith(sessionPrefix) &&
+      !selectedTarget()
+    )
+      clearSelection(
         "That pane is no longer available",
         "Choose another destination. Its draft stays with the original pane.",
       );
-      byId("snapshot-state").textContent = "Destination unavailable";
-      byId("snapshot-time").textContent = "";
-    }
     state.targetFailures = 0;
     state.nextInventoryAt = 0;
     setNative("ready", "", evidence);
@@ -854,11 +1057,14 @@ function showEmpty(title, description) {
   byId("output-empty").hidden = false;
   byId("output-empty-title").textContent = title;
   byId("output-empty-description").textContent = description;
-  byId("choose-terminal").hidden = Boolean(selectedTarget());
+  byId("choose-terminal").hidden = Boolean(selectedTarget() || selectedSession());
 }
 
 function selectTarget(id) {
-  if (!state.targets.some((target) => target.id === id)) return;
+  const known = id.startsWith(sessionPrefix)
+    ? state.sessions.some((s) => sessionPrefix + s.id === id)
+    : state.targets.some((target) => target.id === id);
+  if (!known) return;
   if (state.selectedId === id) {
     byId("target-picker").close();
     return;
@@ -868,6 +1074,7 @@ function selectTarget(id) {
   stopFollow();
   byId("reader-dialog").close();
   state.selectedId = id;
+  state.sessionLines = sessionHistorySteps[0];
   state.captureState = "unknown";
   state.captureDetail = "";
   byId("compose").value = state.drafts.get(id) || "";
@@ -889,7 +1096,104 @@ function selectTarget(id) {
   readSnapshot();
 }
 
+function showCapturedText(text, capturedAt) {
+  const output = byId("terminal-output");
+  const atBottom =
+    output.scrollHeight - output.scrollTop - output.clientHeight < 32;
+  if (output.textContent !== (text || "(No visible output.)"))
+    output.textContent = text || "(No visible output.)";
+  if (state.follow && atBottom) output.scrollTop = output.scrollHeight;
+  output.hidden = false;
+  byId("output-empty").hidden = true;
+  state.lastCapturedAt = capturedAt.getTime();
+  byId("snapshot-time").textContent = Number.isNaN(capturedAt.getTime())
+    ? "Time unavailable"
+    : capturedAt.toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      });
+  byId("snapshot-time").dateTime = Number.isNaN(capturedAt.getTime())
+    ? ""
+    : capturedAt.toISOString();
+  byId("snapshot-time").title = Number.isNaN(capturedAt.getTime())
+    ? ""
+    : capturedAt.toLocaleString();
+  byId("snapshot-state").parentElement.parentElement.classList.remove("stale");
+}
+
+async function readSessionSnapshot(session) {
+  const id = sessionPrefix + session.id;
+  const version = ++state.snapshotVersion;
+  const generation = state.authGeneration;
+  state.snapshotLoading = true;
+  state.snapshotAbort = new AbortController();
+  const signal = state.snapshotAbort.signal;
+  byId("read-output").disabled = true;
+  try {
+    const snapshot = await api(
+      "/api/sessions/snapshot?sessionId=" +
+        encodeURIComponent(session.id) +
+        "&lines=" +
+        state.sessionLines,
+      { signal },
+    );
+    if (
+      version !== state.snapshotVersion ||
+      id !== state.selectedId ||
+      !state.csrf ||
+      generation !== state.authGeneration
+    )
+      return;
+    if (snapshot.sessionId !== session.id || typeof snapshot.text !== "string")
+      throw new APIError("The snapshot destination could not be verified.");
+    state.snapshotTarget = id;
+    state.snapshotText = snapshot.text;
+    state.snapshotAnsi = typeof snapshot.ansi === "string" ? snapshot.ansi : "";
+    state.snapshotStale = false;
+    showCapturedText(snapshot.text, new Date());
+    byId("snapshot-state").textContent = "Read without changing focus";
+    message("");
+  } catch (error) {
+    if (
+      signal.aborted ||
+      generation !== state.authGeneration ||
+      version !== state.snapshotVersion ||
+      id !== state.selectedId
+    )
+      return;
+    stopFollow();
+    if (error.status === 401) {
+      requirePairing(
+        "Your session expired. Your draft is kept; reconnect to continue.",
+      );
+      return;
+    }
+    state.snapshotStale = true;
+    byId("snapshot-state").textContent =
+      state.snapshotTarget === id ? "Last snapshot · not live" : "Output unavailable";
+    byId("snapshot-state").parentElement.parentElement.classList.add("stale");
+    if (state.snapshotTarget !== id)
+      showEmpty("Output isn’t available yet", error.message);
+    else message(error.message);
+    if (error.code === "session_gone") refreshSessions();
+  } finally {
+    if (version === state.snapshotVersion) {
+      state.snapshotLoading = false;
+      state.snapshotAbort = null;
+      updateControls();
+      scheduleFollow();
+    }
+  }
+}
+
 async function readSnapshot() {
+  const session = selectedSession();
+  if (session) {
+    if (state.csrf && !state.snapshotLoading && !document.hidden)
+      await readSessionSnapshot(session);
+    return;
+  }
   const target = selectedTarget();
   if (!state.csrf || !target || state.snapshotLoading || document.hidden)
     return;
@@ -918,35 +1222,11 @@ async function readSnapshot() {
     state.captureDetail = "";
     state.snapshotTarget = target.id;
     state.snapshotText = snapshot.text;
+    state.snapshotAnsi = "";
     state.snapshotStale = false;
-    const output = byId("terminal-output");
-    const atBottom =
-      output.scrollHeight - output.scrollTop - output.clientHeight < 32;
-    if (output.textContent !== (snapshot.text || "(No visible output.)"))
-      output.textContent = snapshot.text || "(No visible output.)";
-    if (state.follow && atBottom) output.scrollTop = output.scrollHeight;
-    byId("terminal-output").hidden = false;
-    byId("output-empty").hidden = true;
+    showCapturedText(snapshot.text, new Date(snapshot.capturedAt));
     byId("focus-terminal").hidden = true;
     byId("snapshot-state").textContent = "Read on your Mac";
-    const captured = new Date(snapshot.capturedAt);
-    state.lastCapturedAt = captured.getTime();
-    byId("snapshot-time").textContent = Number.isNaN(captured.getTime())
-      ? "Time unavailable"
-      : captured.toLocaleTimeString([], {
-          hour: "2-digit",
-          minute: "2-digit",
-          second: "2-digit",
-        });
-    byId("snapshot-time").dateTime = Number.isNaN(captured.getTime())
-      ? ""
-      : captured.toISOString();
-    byId("snapshot-time").title = Number.isNaN(captured.getTime())
-      ? ""
-      : captured.toLocaleString();
-    byId("snapshot-state").parentElement.parentElement.classList.remove(
-      "stale",
-    );
     message("");
     updateControls();
   } catch (error) {
@@ -1063,8 +1343,15 @@ async function applyReceipt(receipt) {
     );
     // A precondition can fail before the next scheduled poll (closed pane,
     // lost native connection, changed focus). Reconcile before offering input.
-    setNative("checking");
-    await refreshTargets({ force: true });
+    if (pending.action.targetId?.startsWith(sessionPrefix))
+      await refreshSessions();
+    else {
+      setNative("checking");
+      await refreshTargets({ force: true });
+    }
+  } else if (pending.action.kind === "kill") {
+    actionNotice("Session ended", "The session was stopped on your Mac.");
+    await refreshSessions();
   } else {
     if (pending.action.kind === "input") {
       if (
@@ -1086,6 +1373,7 @@ async function applyReceipt(receipt) {
         {
           input: "Input delivered",
           key: "Key delivered",
+          interrupt: "Interrupt sent",
           close_pane: "Close requested",
           close_tab: "Close requested",
           close_window: "Close requested",
@@ -1095,7 +1383,7 @@ async function applyReceipt(receipt) {
         ? receipt.result.message
         : "Your Mac confirmed the action.",
     );
-    if (["input", "key"].includes(pending.action.kind)) {
+    if (["input", "key", "interrupt"].includes(pending.action.kind)) {
       // Collapse post-input observation during repeated key taps. The server
       // still performs fresh destination checks before every mutation.
       if (state.selectedId === pending.action.targetId) {
@@ -1144,13 +1432,21 @@ async function checkReceipt() {
   }
 }
 
-async function performAction(action, draft = "") {
+function performSessionAction(session, draft = "") {
+  return performAction(
+    { kind: session.kind, targetId: sessionPrefix + session.sessionId },
+    draft,
+    session,
+  );
+}
+
+async function performAction(action, draft = "", session = null) {
   const target = selectedTarget();
+  if (!state.csrf || state.pending) return;
   if (
-    !state.csrf ||
-    !controlReady() ||
-    (action.kind !== "new_window" && !target) ||
-    state.pending
+    session
+      ? !sessionReady()
+      : !controlReady() || (action.kind !== "new_window" && !target)
   )
     return;
   if (!crypto.randomUUID) {
@@ -1164,8 +1460,9 @@ async function performAction(action, draft = "") {
   state.pending = pending;
   persistPending();
   updateControls();
-  const detail =
-    action.kind === "input"
+  const detail = session
+    ? `Destination: ${sessionName(selectedSession())}`
+    : action.kind === "input"
       ? `Destination: ${targetName(target)} · ${tabName(target)}`
       : "Waiting for the selected action to be confirmed.";
   actionNotice(
@@ -1178,7 +1475,9 @@ async function performAction(action, draft = "") {
   try {
     const receipt = await api("/api/actions", {
       method: "POST",
-      body: JSON.stringify({ id: pending.id, action }),
+      body: JSON.stringify(
+        session ? { id: pending.id, session } : { id: pending.id, action },
+      ),
     });
     if (!receipt || receipt.id !== pending.id)
       throw new APIError("The action receipt could not be verified.");
@@ -1212,15 +1511,21 @@ async function performAction(action, draft = "") {
 
 function sendInput(enter) {
   const target = selectedTarget();
+  const session = selectedSession();
   const text = byId("compose").value;
-  if (!target || !text) return;
+  if (!(target || session) || !text) return;
   if (new TextEncoder().encode(text).length > 16 * 1024) {
     message(
       "This draft exceeds the 16 KiB text limit. Shorten it before sending; nothing has been sent.",
     );
     return;
   }
-  performAction({ kind: "input", targetId: target.id, text, enter }, text);
+  if (session)
+    performSessionAction(
+      { kind: "input", sessionId: session.id, text, enter },
+      text,
+    );
+  else performAction({ kind: "input", targetId: target.id, text, enter }, text);
 }
 
 function openPicker() {
@@ -1257,8 +1562,11 @@ byId("choose-terminal").addEventListener("click", openPicker);
 byId("close-picker").addEventListener("click", () =>
   byId("target-picker").close(),
 );
-byId("refresh-targets").addEventListener("click", refreshTargets);
-byId("refresh-picker").addEventListener("click", refreshTargets);
+for (const id of ["refresh-targets", "refresh-picker"])
+  byId(id).addEventListener("click", () => {
+    refreshTargets();
+    refreshSessions();
+  });
 byId("check-receipt").addEventListener("click", checkReceipt);
 byId("acknowledge-action").addEventListener("click", () => {
   if (!state.pending || !state.pending.uncertain) return;
@@ -1271,15 +1579,36 @@ byId("acknowledge-action").addEventListener("click", () => {
   updateControls();
 });
 for (const button of document.querySelectorAll("[data-key]"))
-  button.addEventListener("click", () => {
-    const target = selectedTarget();
-    if (target)
-      performAction({
-        kind: "key",
-        targetId: target.id,
-        key: button.dataset.key,
-      });
+  button.addEventListener("click", () => sendKey(button.dataset.key));
+byId("session-interrupt").addEventListener("click", () => {
+  const session = selectedSession();
+  if (session)
+    performSessionAction({ kind: "interrupt", sessionId: session.id });
+});
+byId("session-kill").addEventListener("click", () => {
+  const session = selectedSession();
+  if (!session || state.pending) return;
+  state.closeTarget = null;
+  state.closeSession = session.id;
+  byId("close-title").textContent = `End “${sessionName(session)}”?`;
+  byId("close-description").textContent =
+    `This stops the ${session.transport} session and everything running inside it:`;
+  const item = document.createElement("li");
+  item.textContent = sessionDetail(session) || sessionName(session);
+  byId("close-pane-list").replaceChildren(item);
+  byId("confirm-close").textContent = "End session";
+  byId("close-confirmation").showModal();
+  byId("cancel-close").focus();
+});
+byId("reader-history").addEventListener("click", () => {
+  const next = sessionHistorySteps.find((n) => n > state.sessionLines);
+  if (!next || !selectedSession()) return;
+  state.sessionLines = next;
+  stopFollow();
+  readSnapshot().then(() => {
+    byId("terminal-output").scrollTop = 0;
   });
+});
 byId("new-tab").addEventListener("click", () => {
   const target = selectedTarget();
   if (target) performAction({ kind: "new_tab", windowId: target.windowId });
@@ -1302,6 +1631,7 @@ function requestClose(kind) {
       : kind === "close_tab"
         ? tabName(target)
         : targetName(target);
+  state.closeSession = null;
   state.closeTarget = {
     ...target,
     kind,
@@ -1328,8 +1658,18 @@ byId("cancel-close").addEventListener("click", () =>
 );
 byId("confirm-close").addEventListener("click", () => {
   const t = state.closeTarget;
+  const sessionId = state.closeSession;
   state.closeTarget = null;
+  state.closeSession = null;
   byId("close-confirmation").close();
+  if (sessionId) {
+    if (selectedSession()?.id !== sessionId) {
+      message("That session changed. Review it again.");
+      return;
+    }
+    performSessionAction({ kind: "kill", sessionId });
+    return;
+  }
   if (
     !t ||
     !state.targets.some(
@@ -1388,17 +1728,20 @@ window.addEventListener("hashchange", () => {
 window.addEventListener("online", () => {
   if (state.csrf) {
     refreshTargets();
+    refreshSessions();
     if (state.pending) checkReceipt();
   }
 });
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
     clearTimeout(state.targetTimer);
+    clearTimeout(state.sessionsTimer);
     cancelSnapshot();
     return;
   }
   if (!document.hidden && state.csrf) {
     refreshTargets();
+    refreshSessions();
     if (state.pending) checkReceipt();
     else readSnapshot();
   }
@@ -1519,6 +1862,11 @@ byId("rename-form").addEventListener("submit", (event) => {
   performAction({ ...action, name });
 });
 function sendKey(key) {
+  const session = selectedSession();
+  if (session) {
+    performSessionAction({ kind: "key", sessionId: session.id, key });
+    return;
+  }
   const t = selectedTarget();
   if (t) performAction({ kind: "key", targetId: t.id, key });
 }
@@ -1611,7 +1959,11 @@ setInterval(() => {
     byId("snapshot-time").textContent = age < 2 ? "just now" : `${age}s ago`;
     byId("snapshot-time").parentElement.parentElement.classList.toggle(
       "stale",
-      state.snapshotStale || age > 15 || !controlReady(),
+      state.snapshotStale ||
+        age > 15 ||
+        (state.snapshotTarget.startsWith(sessionPrefix)
+          ? state.transport !== "reachable"
+          : !controlReady()),
     );
   }
 }, 1000);
