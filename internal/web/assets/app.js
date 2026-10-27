@@ -95,6 +95,7 @@ const rejectedActionCodes = new Set([
   "body_too_large",
   "invalid_content_type",
   "action_id_conflict",
+  "auth_unavailable",
 ]);
 
 function persistPending() {
@@ -1513,8 +1514,8 @@ async function performAction(action, draft = "", session = null) {
   } catch (error) {
     if (!state.pending || state.pending.id !== pending.id) return;
     if (
-      error.status >= 400 &&
-      error.status < 500 &&
+      ((error.status >= 400 && error.status < 500) ||
+        error.code === "auth_unavailable") &&
       rejectedActionCodes.has(error.code)
     ) {
       forgetPending();

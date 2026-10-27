@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
+	"database/sql"
 	"errors"
 	"net/http"
 	"net/url"
@@ -194,31 +195,58 @@ func (s *Server) pair(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) authenticate(r *http.Request) (browserSession, [sha256.Size]byte, bool) {
+	session, key, err := s.checkSession(r)
+	return session, key, err == nil
+}
+
+// errAuthUnavailable means the grant could not be checked, not that it is
+// gone, so the browser must not be sent back to pairing.
+var errAuthUnavailable = errors.New("browser access could not be checked")
+
+func (s *Server) checkSession(r *http.Request) (browserSession, [sha256.Size]byte, error) {
 	cookie, err := r.Cookie(s.cookieName)
 	if err != nil || len(cookie.Value) != 43 {
-		return browserSession{}, [sha256.Size]byte{}, false
+		return browserSession{}, [sha256.Size]byte{}, errors.New("no session cookie")
 	}
 	key := sha256.Sum256([]byte(cookie.Value))
 	s.mu.Lock()
 	session, ok := s.sessions[key]
 	if ok && !s.now().Before(session.ExpiresAt) {
 		delete(s.sessions, key)
-		ok = false
+		s.mu.Unlock()
+		return session, key, s.authRejected(r, "session expired")
 	}
 	s.mu.Unlock()
-	if ok {
-		var exists int
-		err := s.db.SQL().QueryRowContext(r.Context(), `SELECT 1 FROM web_devices WHERE id=? AND origin=? AND expires_at>?`, session.Device.ID, s.origin, s.now().Unix()).Scan(&exists)
-		ok = err == nil
+	if !ok {
+		return session, key, s.authRejected(r, "unknown session")
 	}
-	return session, key, ok
+	var exists int
+	err = s.db.SQL().QueryRowContext(r.Context(), `SELECT 1 FROM web_devices WHERE id=? AND origin=? AND expires_at>?`, session.Device.ID, s.origin, s.now().Unix()).Scan(&exists)
+	if errors.Is(err, sql.ErrNoRows) {
+		return session, key, s.authRejected(r, "device revoked or expired")
+	}
+	if err != nil {
+		s.log.Warn("web.auth_unavailable", "path", r.URL.Path, "err", err)
+		return session, key, errAuthUnavailable
+	}
+	return session, key, nil
+}
+
+func (s *Server) authRejected(r *http.Request, reason string) error {
+	s.log.Info("web.auth_rejected", "path", r.URL.Path, "reason", reason)
+	return errors.New(reason)
 }
 
 // Only a GET to the session endpoint may exchange a remembered credential for
 // a fresh short session/CSRF token. An expired POST is rejected, never replayed.
 func (s *Server) resumeSession(w http.ResponseWriter, r *http.Request) {
-	if session, _, ok := s.authenticate(r); ok {
+	session, _, err := s.checkSession(r)
+	if err == nil {
 		writeJSON(w, 200, session)
+		return
+	}
+	if errors.Is(err, errAuthUnavailable) {
+		writeError(w, http.StatusServiceUnavailable, "auth_unavailable", "Onibi could not check this browser's access. Try again in a moment.")
 		return
 	}
 	cookie, err := r.Cookie(s.deviceCookieName())
@@ -249,7 +277,7 @@ func (s *Server) resumeSession(w http.ResponseWriter, r *http.Request) {
 	if expiry.After(d.ExpiresAt) {
 		expiry = d.ExpiresAt
 	}
-	session := browserSession{CSRF: csrf, ExpiresAt: expiry, Device: d}
+	session = browserSession{CSRF: csrf, ExpiresAt: expiry, Device: d}
 	s.mu.Lock()
 	for key, old := range s.sessions {
 		if !s.now().Before(old.ExpiresAt) {

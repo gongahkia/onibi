@@ -258,3 +258,28 @@ func TestRevocationDuringSlowPreflightPreventsDispatch(t *testing.T) {
 		t.Fatalf("revoked preflight reached dispatch: %s", response.Body)
 	}
 }
+
+func TestUncheckableAccessIsNotSentBackToPairing(t *testing.T) {
+	s, _ := testServer(t, "http://127.0.0.1:8787")
+	b := pairBrowser(t, s)
+	if _, err := s.db.SQL().Exec(`ALTER TABLE web_devices RENAME TO web_devices_away`); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/api/session", "/api/targets"} {
+		if got := request(s, b, http.MethodGet, path, nil); got.Code != http.StatusServiceUnavailable || !strings.Contains(got.Body.String(), "auth_unavailable") {
+			t.Fatalf("%s while the store fails: %d %s", path, got.Code, got.Body)
+		}
+	}
+	if _, err := s.db.SQL().Exec(`ALTER TABLE web_devices_away RENAME TO web_devices`); err != nil {
+		t.Fatal(err)
+	}
+	if got := request(s, b, http.MethodGet, "/api/targets", nil); got.Code != http.StatusOK {
+		t.Fatalf("after recovery: %d %s", got.Code, got.Body)
+	}
+	if _, err := s.db.SQL().Exec(`DELETE FROM web_devices`); err != nil {
+		t.Fatal(err)
+	}
+	if got := request(s, b, http.MethodGet, "/api/targets", nil); got.Code != http.StatusUnauthorized {
+		t.Fatalf("revoked device: %d %s", got.Code, got.Body)
+	}
+}

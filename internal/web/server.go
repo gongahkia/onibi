@@ -251,8 +251,12 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		s.resumeSession(w, r)
 		return
 	}
-	session, _, ok := s.authenticate(r)
-	if !ok {
+	session, _, err := s.checkSession(r)
+	if errors.Is(err, errAuthUnavailable) {
+		writeError(w, http.StatusServiceUnavailable, "auth_unavailable", "Onibi could not check this browser's access. Try again in a moment.")
+		return
+	}
+	if err != nil {
 		writeError(w, http.StatusUnauthorized, "unauthorized", "Pair this browser with Onibi to continue.")
 		return
 	}
