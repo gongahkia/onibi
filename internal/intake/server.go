@@ -180,7 +180,7 @@ func (s *Server) handleRPC(ctx context.Context, c net.Conn, ev Event) {
 	resp, err := s.rpc(ctx, ev)
 	if err != nil {
 		s.logger.Warn("rpc handler error", slog.String("type", ev.Type), slog.Any("err", err))
-		resp = Response{Reason: err.Error()}
+		resp = Response{Reason: err.Error(), Rejected: IsRejected(err)}
 	}
 	_ = c.SetWriteDeadline(time.Now().Add(5 * time.Second))
 	if werr := writeResponse(c, resp); werr != nil {
@@ -224,7 +224,11 @@ func (s *Server) handleQuestion(ctx context.Context, c net.Conn, ev Event) {
 }
 
 func isRPCType(typ string) bool {
-	return typ == TypeSessionInput || typ == TypeSessionPeek || typ == TypeSessionNew || typ == TypeSessionAdopt || typ == TypeSessionControl || typ == TypeAgentLifecycle || typ == TypePing
+	switch typ {
+	case TypeSessionInput, TypeSessionPeek, TypeSessionNew, TypeSessionAdopt, TypeSessionControl, TypeSessionList, TypeSessionCapture, TypeSessionKey, TypeAgentLifecycle, TypePing:
+		return true
+	}
+	return false
 }
 
 func writeResponse(c net.Conn, r Response) error {

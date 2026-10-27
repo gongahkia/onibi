@@ -10,6 +10,9 @@ const (
 	TypeSessionNew      = "session_new"
 	TypeSessionAdopt    = "session_adopt"
 	TypeSessionControl  = "session_control"
+	TypeSessionList     = "session_list"
+	TypeSessionCapture  = "session_capture"
+	TypeSessionKey      = "session_key"
 	TypeAgentLifecycle  = "agent_lifecycle"
 	TypePing            = "ping"
 )
@@ -28,6 +31,11 @@ type Event struct {
 	Name      string   `json:"name,omitempty"`
 	Mux       string   `json:"mux,omitempty"`
 	Args      []string `json:"args,omitempty"`
+	Key       string   `json:"key,omitempty"`
+	Lines     int      `json:"lines,omitempty"`
+	// Exact requires Session to be a full live session ID. Name and prefix
+	// matching remain available to the interactive CLI only.
+	Exact bool `json:"exact,omitempty"`
 
 	Tool      string            `json:"tool,omitempty"`
 	InputJSON string            `json:"input_json,omitempty"`

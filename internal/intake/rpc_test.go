@@ -3,6 +3,7 @@ package intake
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"path/filepath"
 	"testing"
@@ -148,5 +149,28 @@ func TestGenericRPCRoundtrip(t *testing.T) {
 	}
 	if resp.Text != "tail" {
 		t.Fatalf("text = %q", resp.Text)
+	}
+}
+
+func TestRPCErrorsReportWhetherTheyPrecededSideEffects(t *testing.T) {
+	sock := testSocket(t)
+	srv := New(sock, nil)
+	srv.SetRPCHandler(func(_ context.Context, ev Event) (Response, error) {
+		if ev.Key == "reject" {
+			return Response{}, Reject(errors.New("session not found"))
+		}
+		return Response{}, errors.New("send-keys failed")
+	})
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	go func() { _ = srv.Serve(ctx) }()
+	waitSocket(t, sock)
+	resp, err := Request(sock, Event{Type: TypeSessionKey, Session: "s1", Key: "reject", Exact: true}, 2*time.Second)
+	if err != nil || !resp.Rejected || resp.Reason != "session not found" {
+		t.Fatalf("resp=%#v err=%v", resp, err)
+	}
+	resp, err = Request(sock, Event{Type: TypeSessionKey, Session: "s1", Key: "up"}, 2*time.Second)
+	if err != nil || resp.Rejected || resp.Reason != "send-keys failed" {
+		t.Fatalf("resp=%#v err=%v", resp, err)
 	}
 }

@@ -14,7 +14,17 @@ func (d *Daemon) handleRPCRequest(ctx context.Context, ev intake.Event) (intake.
 	switch ev.Type {
 	case intake.TypePing:
 		return intake.Response{Text: d.pingText(ctx)}, nil
+	case intake.TypeSessionList:
+		return intake.Response{Sessions: d.SessionInfos()}, nil
+	case intake.TypeSessionCapture:
+		plain, ansi, err := d.CaptureSessionHistory(ctx, ev.Session, ev.Lines)
+		return intake.Response{SessionID: ev.Session, Text: plain, ANSI: ansi}, err
+	case intake.TypeSessionKey:
+		return intake.Response{SessionID: ev.Session}, d.sendExactSessionKey(ctx, ev.Session, ev.Key)
 	case intake.TypeSessionInput:
+		if ev.Exact {
+			return intake.Response{SessionID: ev.Session}, d.SendSessionInput(ctx, ev.Session, ev.Text, ev.Enter)
+		}
 		out, err := d.SendSessionTextAndCapture(ctx, ev.Session, ev.Text, ev.Enter)
 		return intake.Response{SessionID: ev.Session, Text: out}, err
 	case intake.TypeSessionPeek:
@@ -49,6 +59,14 @@ func (d *Daemon) handleRPCRequest(ctx context.Context, ev intake.Event) (intake.
 		}
 		return intake.Response{SessionID: s.ID, Text: "adopted " + s.Name}, nil
 	case intake.TypeSessionControl:
+		if ev.Exact {
+			if _, err := d.exactLiveSession(ev.Session); err != nil {
+				return intake.Response{}, err
+			}
+			if ev.Action != "interrupt" && ev.Action != "kill" {
+				return intake.Response{}, intake.Reject(errors.New("unsupported action"))
+			}
+		}
 		return intake.Response{SessionID: ev.Session, Text: ev.Action}, d.ControlSession(ctx, ev.Session, ev.Action)
 	case intake.TypeAgentLifecycle:
 		return d.handleAgentLifecycle(ctx, ev)
