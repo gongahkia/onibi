@@ -52,14 +52,6 @@ const schema = `
 CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY);
 CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY,value BLOB NOT NULL,expire INTEGER NOT NULL DEFAULT 0);
 CREATE INDEX IF NOT EXISTS idx_kv_expire ON kv(expire);
-CREATE TABLE IF NOT EXISTS approvals (
- id TEXT PRIMARY KEY,session_id TEXT NOT NULL,agent TEXT NOT NULL,tool TEXT NOT NULL,input_json TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending',reason TEXT,created_at INTEGER NOT NULL,decided_at INTEGER,decided_by INTEGER,expires_at INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_approvals_state ON approvals(state,expires_at);
-CREATE TABLE IF NOT EXISTS claude_questions (
- id TEXT PRIMARY KEY,session_id TEXT NOT NULL,input_json TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending',answers_json TEXT,reason TEXT,created_at INTEGER NOT NULL,decided_at INTEGER,decided_by INTEGER,expires_at INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_claude_questions_state ON claude_questions(state,expires_at);
 CREATE TABLE IF NOT EXISTS audit (id INTEGER PRIMARY KEY AUTOINCREMENT,ts INTEGER NOT NULL,action TEXT NOT NULL,session_id TEXT,payload_hash TEXT,decided_by_chat INTEGER,detail TEXT);
 CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit(ts);
 CREATE TABLE IF NOT EXISTS sessions (
@@ -77,17 +69,31 @@ DROP TABLE IF EXISTS telegram_cursor;
 DELETE FROM kv WHERE key LIKE 'telegram.%';
 `
 
+// retiredAgentState removes tool approvals, Claude questions and Codex App
+// Server thread IDs left by the retired agent integrations. Approval and
+// question rows may hold raw tool input and answers.
+const retiredAgentState = `
+DROP INDEX IF EXISTS idx_approvals_state;
+DROP TABLE IF EXISTS approvals;
+DROP INDEX IF EXISTS idx_claude_questions_state;
+DROP TABLE IF EXISTS claude_questions;
+DELETE FROM kv WHERE key LIKE 'codex.thread.%';
+`
+
 func (d *DB) migrate() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if _, err := d.sql.ExecContext(ctx, schema); err != nil {
 		return fmt.Errorf("apply schema: %w", err)
 	}
-	for _, migration := range []string{"ALTER TABLE approvals ADD COLUMN reason TEXT", "ALTER TABLE approvals ADD COLUMN decided_by INTEGER", "ALTER TABLE sessions ADD COLUMN cmd TEXT", "ALTER TABLE sessions ADD COLUMN last_activity INTEGER"} {
+	for _, migration := range []string{"ALTER TABLE sessions ADD COLUMN cmd TEXT", "ALTER TABLE sessions ADD COLUMN last_activity INTEGER"} {
 		_, _ = d.sql.ExecContext(ctx, migration)
 	}
 	if _, err := d.sql.ExecContext(ctx, retiredTelegramState); err != nil {
 		return fmt.Errorf("remove retired Telegram state: %w", err)
+	}
+	if _, err := d.sql.ExecContext(ctx, retiredAgentState); err != nil {
+		return fmt.Errorf("remove retired agent state: %w", err)
 	}
 	_, err := d.sql.ExecContext(ctx, "INSERT OR IGNORE INTO schema_version(version) VALUES (1)")
 	return err
@@ -128,17 +134,6 @@ func (d *DB) KVDel(ctx context.Context, key string) error {
 }
 func (d *DB) KVPurgeExpired(ctx context.Context) error {
 	_, err := d.sql.ExecContext(ctx, `DELETE FROM kv WHERE expire>0 AND expire<=?`, time.Now().Unix())
-	return err
-}
-
-// SensitivePayloadsPurge removes retained tool/question bodies once their
-// decisions no longer need to be replayed. Audit hashes and decision metadata
-// remain available without keeping raw prompts indefinitely.
-func (d *DB) SensitivePayloadsPurge(ctx context.Context, before time.Time) error {
-	if _, err := d.sql.ExecContext(ctx, `UPDATE approvals SET input_json='{}' WHERE state!='pending' AND decided_at<? AND input_json!='{}'`, before.Unix()); err != nil {
-		return err
-	}
-	_, err := d.sql.ExecContext(ctx, `UPDATE claude_questions SET input_json='{}',answers_json=NULL WHERE state!='pending' AND decided_at<? AND (input_json!='{}' OR answers_json IS NOT NULL)`, before.Unix())
 	return err
 }
 func (d *DB) KVKeysWithPrefix(ctx context.Context, prefix string) ([]string, error) {

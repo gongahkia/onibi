@@ -113,9 +113,6 @@ func (d *Daemon) purgeTransientState(ctx context.Context, now time.Time) {
 		if err := d.DB.KVPurgeExpired(ctx); err != nil {
 			d.Log.Warn("purge expired controls", "err", err)
 		}
-		if err := d.DB.SensitivePayloadsPurge(ctx, now.Add(-24*time.Hour)); err != nil {
-			d.Log.Warn("purge resolved decision payloads", "err", err)
-		}
 	}
 }
 
