@@ -15,6 +15,7 @@ import (
 
 type counters struct{ requests, active, errors, completed, rejected, uncertain atomic.Uint64 }
 type RuntimeStatus struct {
+	SessionsOnly   bool        `json:"sessionsOnly"`
 	PID            int         `json:"pid"`
 	Executable     string      `json:"executable"`
 	Version        string      `json:"version"`
@@ -46,7 +47,10 @@ func (s *Server) RuntimeStatus() RuntimeStatus {
 		capture.State = "unknown"
 	}
 	executable, _ := os.Executable()
-	return RuntimeStatus{PID: os.Getpid(), Executable: executable, Version: buildinfo.Version, Commit: buildinfo.Commit, Origin: s.origin, StartedAt: s.started, UptimeSeconds: int64(time.Since(s.started).Seconds()), Requests: s.metrics.requests.Load(), ActiveRequests: s.metrics.active.Load(), Errors: s.metrics.errors.Load(), Completed: s.metrics.completed.Load(), Rejected: s.metrics.rejected.Load(), Uncertain: s.metrics.uncertain.Load(), Inventory: inventory, Capture: capture}
+	if s.sessionsOnly {
+		inventory.State, capture.State = "not_applicable", "not_applicable"
+	}
+	return RuntimeStatus{SessionsOnly: s.sessionsOnly, PID: os.Getpid(), Executable: executable, Version: buildinfo.Version, Commit: buildinfo.Commit, Origin: s.origin, StartedAt: s.started, UptimeSeconds: int64(time.Since(s.started).Seconds()), Requests: s.metrics.requests.Load(), ActiveRequests: s.metrics.active.Load(), Errors: s.metrics.errors.Load(), Completed: s.metrics.completed.Load(), Rejected: s.metrics.rejected.Load(), Uncertain: s.metrics.uncertain.Load(), Inventory: inventory, Capture: capture}
 }
 
 type requestRecorder struct {

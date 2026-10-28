@@ -19,7 +19,7 @@ const (
 )
 
 // notification is everything a push message carries. It names the session
-// and the generic reason only; terminal text never leaves the Mac this way.
+// and the generic reason only; terminal text never leaves the computer this way.
 type notification struct {
 	Title string `json:"title"`
 	Body  string `json:"body"`
@@ -120,7 +120,7 @@ func (s *Server) pushTest(w http.ResponseWriter, r *http.Request, session browse
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
-	if err := s.deliver(ctx, subs[0], notification{Title: "Onibi notifications are on", Body: "You'll hear from your Mac when a session needs you.", Tag: "onibi-test", URL: "/"}); err != nil {
+	if err := s.deliver(ctx, subs[0], notification{Title: "Onibi notifications are on", Body: "You'll hear from your computer when a session needs you.", Tag: "onibi-test", URL: "/"}); err != nil {
 		writeError(w, http.StatusBadGateway, "push_failed", "The push service did not accept the test notification. Turn notifications off and on again.")
 		return
 	}

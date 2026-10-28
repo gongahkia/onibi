@@ -217,6 +217,7 @@ func main() {
 	port := flag.Int("port", 0, "loopback port, zero allocates one")
 	notify := flag.Bool("notify", false, "run the push notification watcher")
 	logs := flag.Bool("log", false, "write server logs to stderr")
+	sessionsOnly := flag.Bool("sessions-only", false, "disable native controls as on Linux/WSL")
 	flag.Parse()
 	if *state == "" {
 		panic("explicit isolated state directory required")
@@ -248,7 +249,7 @@ func main() {
 	if *logs {
 		logger = slog.New(slog.NewTextHandler(os.Stderr, nil))
 	}
-	app, err := web.New(web.Options{Backend: b, Sessions: managed, DB: db, PublicOrigin: origin, Assets: web.Assets(), Now: now, Logger: logger, Diagnostics: func(context.Context) ghostty.Diagnostics {
+	app, err := web.New(web.Options{Backend: b, SessionsOnly: *sessionsOnly, Sessions: managed, DB: db, PublicOrigin: origin, Assets: web.Assets(), Now: now, Logger: logger, Diagnostics: func(context.Context) ghostty.Diagnostics {
 		return ghostty.Diagnostics{CheckedAt: now(), Capabilities: b.Capabilities(), Checks: []ghostty.Check{{ID: "process", State: "running", Detail: "Simulated Ghostty; no native automation."}}}
 	}})
 	must(err)

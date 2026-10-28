@@ -52,7 +52,10 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 	if capture.State == "" {
 		capture.State = "unknown"
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"diagnostics": diagnostics, "inventory": inventory, "capture": capture, "retryAt": retry, "origin": s.origin})
+	if s.sessionsOnly {
+		inventory.State, capture.State = "not_applicable", "not_applicable"
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"diagnostics": diagnostics, "inventory": inventory, "capture": capture, "retryAt": retry, "origin": s.origin, "sessionsOnly": s.sessionsOnly})
 }
 
 func (s *Server) recordInventory(start time.Time, err error) {

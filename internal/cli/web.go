@@ -31,7 +31,7 @@ import (
 
 func webCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use: "web", Short: "Control existing Ghostty terminals from a private web interface",
+		Use: "web", Short: "Control persistent sessions and macOS Ghostty panes from a private web interface",
 		Args: cobra.NoArgs, RunE: runWeb,
 	}
 	cmd.AddCommand(webDoctorCmd(), webPairCmd(), webDevicesCmd(), webServiceCmd(), webStatusCmd(), webLogsCmd())
@@ -68,8 +68,8 @@ func lockWebState(path string) (*os.File, error) {
 }
 
 func runWeb(cmd *cobra.Command, _ []string) error {
-	if runtime.GOOS != "darwin" {
-		return errors.New("Ghostty web control requires macOS and Ghostty 1.3 or later")
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		return errors.New("Onibi supports macOS and Linux, including WSL; native Windows is not supported")
 	}
 	levelName, _ := cmd.Flags().GetString("log-level")
 	level := slog.LevelInfo
@@ -123,7 +123,11 @@ func runWeb(cmd *cobra.Command, _ []string) error {
 		console = activity
 	}
 	logger := logging.Web(logFile, console, level)
-	app, err := web.New(web.Options{Backend: ghostty.New(), Sessions: web.DaemonSessions{Socket: paths.Socket}, Diagnostics: ghostty.Inspect, DB: db, PublicOrigin: origin, ProxyHosts: []string{listener.Addr().String()}, Assets: web.Assets(), Logger: logger})
+	var backend web.Backend
+	if runtime.GOOS == "darwin" {
+		backend = ghostty.New()
+	}
+	app, err := web.New(web.Options{Backend: backend, SessionsOnly: runtime.GOOS == "linux", Sessions: web.DaemonSessions{Socket: paths.Socket}, Diagnostics: func(ctx context.Context) ghostty.Diagnostics { return inspectWebHost(ctx, paths, runtime.GOOS) }, DB: db, PublicOrigin: origin, ProxyHosts: []string{listener.Addr().String()}, Assets: web.Assets(), Logger: logger})
 	if err != nil {
 		return err
 	}
@@ -236,13 +240,17 @@ func writeWebWelcome(cmd *cobra.Command, pairingURL, address, origin, logPath, s
 
 	bannerShown, _ := cmd.Flags().GetBool("no-banner")
 	if !bannerShown {
-		ui.Banner("Control Ghostty wherever text renders")
+		ui.Banner("Your terminals, in your pocket")
 	}
 	ui.Field("Version", termui.Revision(buildinfo.Version, buildinfo.Commit))
 	ui.Field("Process", strconv.Itoa(os.Getpid()))
 	ui.Field("Listening", address)
 	ui.Field("Open", origin)
-	ui.Field("Native", "Not checked yet / select a terminal in the browser")
+	if runtime.GOOS == "darwin" {
+		ui.Field("Native", "Not checked yet / select a terminal in the browser")
+	} else {
+		ui.Field("Mode", "Persistent sessions / native Ghostty control is macOS-only")
+	}
 	ui.Field("Sessions", sessions)
 	ui.Field("Logs", termui.ShortPath(logPath))
 	ui.Line("")

@@ -105,6 +105,9 @@ func writeWebStatus(cmd *cobra.Command, s web.RuntimeStatus, asJSON bool) error 
 	ui.Field("Process", strconv.Itoa(s.PID)+" / "+(time.Duration(s.UptimeSeconds)*time.Second).String()+" uptime")
 	ui.Field("Executable", s.Executable)
 	ui.Field("Open", s.Origin)
+	if s.SessionsOnly {
+		ui.Field("Mode", "Persistent sessions / native Ghostty control is macOS-only")
+	}
 	for _, entry := range []struct {
 		name        string
 		observation web.Observation

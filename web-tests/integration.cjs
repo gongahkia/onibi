@@ -20,10 +20,16 @@ let fixture,
   browser,
   sequence = 0;
 
-async function start(port = 0) {
+async function start(port = 0, sessionsOnly = false) {
   const child = spawn(
     binary,
-    ["--state", path.join(temp, "state"), "--port", String(port)],
+    [
+      "--state",
+      path.join(temp, "state"),
+      "--port",
+      String(port),
+      ...(sessionsOnly ? ["--sessions-only"] : []),
+    ],
     { stdio: ["pipe", "pipe", "pipe"] },
   );
   const waiters = new Map();
@@ -764,6 +770,82 @@ async function selectWork(page) {
   console.log(
     "Passed named devices, opt-in remembrance, individual revocation, restart recovery, and fixed 30-day expiry.",
   );
+
+  // Linux/WSL mode must be a usable product, not a permanent Ghostty error.
+  await fixture.stop();
+  await start(port, true);
+  await page.goto(fixture.pairingURL);
+  await page.click("#pair-submit");
+  await page.locator("#workspace").waitFor({ state: "visible" });
+  await page.waitForFunction(
+    () =>
+      document.getElementById("connection-label").textContent === "Connected",
+  );
+  assert.equal(await page.locator("#readiness-strip").isHidden(), true);
+  assert.equal(await page.locator("#new-window").isHidden(), true);
+  assert.equal(await page.locator("#new-tab").isHidden(), true);
+  await page.click("#open-picker");
+  assert.equal(await page.locator("#picker-new-window").isHidden(), true);
+  await page
+    .locator('#picker-list [data-target-id="session:0123456789abcdef"]')
+    .click();
+  await page.fill("#compose", "Linux 日本語");
+  await page.click("#send-input");
+  await eventually(
+    () => fixture.command(),
+    (s) => s.sessionActions.some((a) => a.text === "Linux 日本語"),
+    "Linux input",
+  );
+  await page.click("#connection");
+  await page
+    .locator("#health-observation")
+    .filter({ hasText: "Persistent sessions mode" })
+    .waitFor();
+  await page.click("#close-health");
+  const linuxCapabilities = (await api(page, "/api/capabilities")).body;
+  assert.equal(linuxCapabilities.sessionsOnly, true);
+  assert.equal(linuxCapabilities.nativeBackend, false);
+  assert.equal(
+    linuxCapabilities.features.find((f) => f.id === "input").availability,
+    "unsupported_platform",
+  );
+  const nativeAttempt = await api(page, "/api/actions", {
+    id: randomUUID(),
+    action: { kind: "new_window" },
+  });
+  assert.equal(nativeAttempt.body.state, "rejected");
+  assert.equal(
+    (await fixture.command()).inventories,
+    0,
+    "Linux never probes Ghostty",
+  );
+  await api(page, "/api/actions", {
+    id: randomUUID(),
+    session: { kind: "kill", sessionId: "0123456789abcdef" },
+  });
+  await page.reload();
+  await page.locator("#workspace").waitFor({ state: "visible" });
+  await page.click("#open-picker");
+  await page
+    .locator("#picker-list")
+    .filter({ hasText: "No persistent sessions yet" })
+    .waitFor();
+  await page.click("#picker-new-session");
+  await page.fill("#new-session-command", "shell");
+  await page.fill("#new-session-cwd", "/fixture/repo");
+  await page.fill("#new-session-name", "linux-shell");
+  await page.click("#start-session");
+  await page
+    .locator("#destination-title")
+    .filter({ hasText: "linux-shell" })
+    .waitFor();
+  const linuxAudit = await new AxeBuilder({ page })
+    .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
+    .analyze();
+  assert.deepEqual(linuxAudit.violations, [], "Linux session accessibility");
+  console.log(
+    "Passed Linux/WSL sessions-only UI, empty-state creation, input, readiness and native-action rejection.",
+  );
   assert.deepEqual(errors, []);
   console.log(
     JSON.stringify({
@@ -778,6 +860,7 @@ async function selectWork(page) {
         "durable deduplication",
         "lost response",
         "persistent sessions without Ghostty",
+        "Linux/WSL sessions-only mode",
         "independent readiness",
         "backoff",
         "version guard",

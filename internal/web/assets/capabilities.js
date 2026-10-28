@@ -6,6 +6,7 @@ const capabilityAvailability = {
   version_unknown: "Ghostty version unknown",
   version_blocked: "Needs a newer Ghostty version",
   not_implemented: "Not implemented",
+  unsupported_platform: "macOS only · unavailable on this host",
 };
 async function loadCapabilities() {
   const generation = state.authGeneration;
@@ -14,12 +15,13 @@ async function loadCapabilities() {
   try {
     const report = await api("/api/capabilities");
     if (generation !== state.authGeneration) return;
-    byId("capability-summary").textContent =
-      "Ghostty " +
-      (report.version?.version || "version unknown") +
-      (report.nativeBackend
-        ? " · Your Mac’s native adapter"
-        : " · Simulated backend; native verification is unavailable");
+    byId("capability-summary").textContent = report.sessionsOnly
+      ? "Persistent sessions on Linux / WSL · Native Ghostty control is macOS-only."
+      : "Ghostty " +
+        (report.version?.version || "version unknown") +
+        (report.nativeBackend
+          ? " · Your computer’s native adapter"
+          : " · Simulated backend; native verification is unavailable");
     byId("capability-list").replaceChildren();
     const groups = new Map();
     for (const feature of report.features || []) {

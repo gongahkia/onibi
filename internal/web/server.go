@@ -51,7 +51,10 @@ type Options struct {
 	Backend Backend
 	// Sessions is optional. When set, daemon-managed multiplexer sessions
 	// appear alongside Ghostty targets and keep working without Ghostty.
-	Sessions     SessionBackend
+	Sessions SessionBackend
+	// SessionsOnly disables native Ghostty operations, not authentication or
+	// receipts. Linux/WSL use this mode with a real daemon session backend.
+	SessionsOnly bool
 	DB           *store.DB
 	PublicOrigin string
 	Assets       fs.FS
@@ -78,6 +81,7 @@ type Server struct {
 	featureObservations    map[string]FeatureObservation
 	backend                Backend
 	managed                SessionBackend
+	sessionsOnly           bool
 	db                     *store.DB
 	origin                 string
 	host                   string
@@ -110,8 +114,11 @@ type Server struct {
 // New creates a server. The caller must hold an exclusive process lock for the
 // supplied database while serving; startup marks interrupted claims uncertain.
 func New(opts Options) (*Server, error) {
-	if opts.Backend == nil || opts.DB == nil {
+	if (opts.Backend == nil && !opts.SessionsOnly) || opts.DB == nil {
 		return nil, errors.New("web backend and state database are required")
+	}
+	if opts.SessionsOnly && opts.Sessions == nil {
+		return nil, errors.New("sessions-only mode requires a sessions backend")
 	}
 	origin, err := parseOrigin(opts.PublicOrigin)
 	if err != nil {
@@ -127,7 +134,7 @@ func New(opts Options) (*Server, error) {
 	}
 	s := &Server{
 		log: opts.Logger, started: time.Now().UTC(),
-		backend: opts.Backend, managed: opts.Sessions, db: opts.DB, diagnostics: opts.Diagnostics, origin: origin.String(), host: origin.Host,
+		backend: opts.Backend, managed: opts.Sessions, sessionsOnly: opts.SessionsOnly, db: opts.DB, diagnostics: opts.Diagnostics, origin: origin.String(), host: origin.Host,
 		secure: origin.Scheme == "https", cookieName: "onibi_local_session",
 		proxyHosts: map[string]bool{}, sessions: map[[sha256.Size]byte]browserSession{},
 		execution: make(chan struct{}, 1), now: now,
@@ -367,6 +374,10 @@ func (s *Server) setCookie(w http.ResponseWriter, token string, expiry time.Time
 }
 
 func (s *Server) targets(w http.ResponseWriter, r *http.Request) {
+	if s.sessionsOnly {
+		writeJSON(w, http.StatusOK, map[string]any{"targets": []ghostty.Target{}, "controls": []ghostty.Control{}, "outputMode": "session-text", "sessionsOnly": true})
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
 	targets, err := s.observedTargets(ctx)
@@ -382,6 +393,10 @@ func (s *Server) targets(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) snapshot(w http.ResponseWriter, r *http.Request) {
+	if s.sessionsOnly {
+		writeError(w, http.StatusServiceUnavailable, "unsupported_platform", "Native Ghostty capture requires macOS. Select a persistent session instead.")
+		return
+	}
 	id := r.URL.Query().Get("targetId")
 	if !validTargetID(id) {
 		writeError(w, http.StatusBadRequest, "invalid_target", "An explicit target is required.")
@@ -523,6 +538,9 @@ func (s *Server) action(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) validateTarget(ctx context.Context, action ghostty.Action) error {
+	if s.sessionsOnly {
+		return errors.New("Native Ghostty control requires macOS. No action was sent; select a persistent session instead.")
+	}
 	started := s.now()
 	targets, err := s.backend.Targets(ctx)
 	s.recordInventory(started, err)

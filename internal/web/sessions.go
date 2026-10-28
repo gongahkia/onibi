@@ -109,7 +109,7 @@ func validateNewSession(action SessionAction) error {
 		}
 	}
 	if !(filepath.IsAbs(action.CWD) || action.CWD == "~" || strings.HasPrefix(action.CWD, "~/")) || !plainField(action.CWD, maxPathBytes) {
-		return errors.New("Choose a folder on your Mac as an absolute path.")
+		return errors.New("Choose a folder on your computer as an absolute path.")
 	}
 	if !plainField(action.Name, maxNameBytes) {
 		return errors.New("Session names are plain text of at most 64 bytes.")

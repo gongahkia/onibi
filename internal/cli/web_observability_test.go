@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"testing"
@@ -64,7 +65,11 @@ func TestWelcomeKeepsPairingLinkCopyableAndOutOfEventStream(t *testing.T) {
 	if events.Len() != 0 || strings.Contains(output.String(), "\x1b") {
 		t.Fatal("redirected output has escapes or secret events")
 	}
-	for _, want := range []string{"Version", "Process", "Listening", "Not checked yet", "web status", "web logs --follow", "10 minutes", "Ctrl-C"} {
+	native := "Not checked yet"
+	if runtime.GOOS != "darwin" {
+		native = "Persistent sessions / native Ghostty control is macOS-only"
+	}
+	for _, want := range []string{"Version", "Process", "Listening", native, "web status", "web logs --follow", "10 minutes", "Ctrl-C"} {
 		if !strings.Contains(output.String(), want) {
 			t.Fatalf("missing %s", want)
 		}

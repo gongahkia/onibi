@@ -27,6 +27,7 @@ type FeatureObservation struct {
 }
 type FeatureReport struct {
 	NativeBackend bool                 `json:"nativeBackend"`
+	SessionsOnly  bool                 `json:"sessionsOnly"`
 	Version       ghostty.Capabilities `json:"version"`
 	Features      []Feature            `json:"features"`
 }
@@ -40,7 +41,7 @@ func featureCatalog() []Feature {
 	add("snapshot", "Visible terminal text", "Find and read", "Bounded Accessibility snapshot of the focused pane. Follow polls snapshots; it is not a terminal stream.", "1.3.0", true)
 	add("input", "Send or paste literal text", "Input", "Send adds Enter. Paste does not. Delivery acknowledgement does not prove the program processed it.", "1.3.0", false)
 	add("key", "Keys and modifiers", "Input", "Navigation, editing, digits, plain and Ctrl/Alt letters, and function keys, each sent as a key press rather than a paste. The program decides what a key means.", "1.3.0", false)
-	add("focus", "Focus an exact pane", "Workspace", "Changes focus on your Mac before reading.", "1.3.0", false)
+	add("focus", "Focus an exact pane", "Workspace", "Changes focus on your computer before reading.", "1.3.0", false)
 	add("new_window", "Create a window", "Workspace", "Creates a native Ghostty window.", "1.3.0", false)
 	add("new_tab", "Create a tab", "Workspace", "Creates a tab in the explicitly chosen window.", "1.3.0", false)
 	add("split", "Split a pane", "Workspace", "Creates a split in any of four directions.", "1.3.0", false)
@@ -50,7 +51,7 @@ func featureCatalog() []Feature {
 	add("rename_tab", "Rename a tab", "Workspace", "Requires the selected pane to be focused. Blank restores the default title.", "1.3.1", true)
 	add("rename_pane", "Rename a pane", "Workspace", "Requires the selected pane to be focused. Titles are display metadata.", "1.3.1", true)
 	for _, control := range ghostty.Controls() {
-		detail := "Changes the focused pane on your Mac."
+		detail := "Changes the focused pane on your computer."
 		if control.ID == "prompt_previous" || control.ID == "prompt_next" {
 			detail += " Prompt navigation depends on Ghostty shell integration."
 		}
@@ -58,7 +59,7 @@ func featureCatalog() []Feature {
 	}
 	add("session_read", "Read persistent sessions", "Persistent sessions", "Scrollback plus screen of daemon-managed tmux, Zellij and Screen sessions, up to 2,000 lines, without changing focus. tmux colours are kept. Requires the sessions daemon, which onibi web starts.", "", false)
 	add("session_control", "Control persistent sessions", "Persistent sessions", "Text, keys, interrupt, rename and a confirmed end-session by exact session ID. Works while Ghostty is unavailable.", "", false)
-	add("session_new", "Start persistent sessions", "Persistent sessions", "A shell or any program on the Mac's PATH, in a folder of an open pane or session or a typed absolute path. Arguments follow shell quoting without expansion.", "", false)
+	add("session_new", "Start persistent sessions", "Persistent sessions", "A shell or any program on the computer's PATH, in a folder of an open pane or session or a typed absolute path. Arguments follow shell quoting without expansion.", "", false)
 	add("push", "Notifications", "This browser", "Opt-in Web Push when a persistent session starts needing input or rings the bell. Names the session and reason, never output. iPhone and iPad need Onibi added to the Home Screen.", "", false)
 	add("session_attention", "Session attention signals", "Persistent sessions", "Generic prompt patterns on the cursor line, terminal bells (tmux), and activity or idleness. Heuristics over screen text, not program state.", "", false)
 	add("reader", "Phone reader tools", "This browser", "Text size, wrap, expanded reading, snapshot navigation and copy. No native display change.", "", false)
@@ -76,7 +77,8 @@ func featureCatalog() []Feature {
 }
 func (s *Server) featureReport() FeatureReport {
 	_, native := s.backend.(*ghostty.Client)
-	report := FeatureReport{NativeBackend: native, Version: s.capabilities(), Features: featureCatalog()}
+	native = native && !s.sessionsOnly
+	report := FeatureReport{NativeBackend: native, SessionsOnly: s.sessionsOnly, Version: s.capabilities(), Features: featureCatalog()}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for i := range report.Features {
@@ -93,6 +95,11 @@ func (s *Server) featureReport() FeatureReport {
 			continue
 		}
 		f.Availability = "version_unknown"
+		if s.sessionsOnly {
+			f.Availability = "unsupported_platform"
+			f.NativeVerification = "not_applicable"
+			continue
+		}
 		if report.Version.Known {
 			f.Availability = "version_supported"
 			if !report.Version.Control || (f.MinimumVersion == "1.3.1" && !report.Version.Rename) {

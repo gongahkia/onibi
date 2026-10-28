@@ -65,6 +65,7 @@ const state = {
   // Daemon-managed multiplexer sessions. Their selection IDs carry a
   // "session:" prefix so they can never collide with Ghostty target IDs.
   sessions: [],
+  sessionsOnly: false,
   sessionsAvailable: false,
   sessionsTimer: null,
   sessionLines: 200,
@@ -213,7 +214,7 @@ async function api(path, options = {}) {
       body = await response.json();
     } catch (_) {
       throw new APIError(
-        "Your Mac returned an unreadable response.",
+        "Your computer returned an unreadable response.",
         response.status,
       );
     }
@@ -234,7 +235,7 @@ async function api(path, options = {}) {
     if (error instanceof APIError) throw error;
     if (!upstream?.aborted && generation === state.authGeneration)
       setNetwork("offline", networkVersion);
-    throw new APIError("Connection to your Mac was interrupted.");
+    throw new APIError("Connection to your computer was interrupted.");
   } finally {
     clearTimeout(timeout);
     upstream?.removeEventListener("abort", abort);
@@ -268,9 +269,9 @@ function needsAttention(session) {
 function canStartSession() {
   return Boolean(
     state.csrf &&
-    state.transport === "reachable" &&
-    state.sessionsAvailable &&
-    !state.pending,
+      state.transport === "reachable" &&
+      state.sessionsAvailable &&
+      !state.pending,
   );
 }
 function sessionReady() {
@@ -287,6 +288,7 @@ function windowName(target) {
 }
 function controlReady() {
   return (
+    !state.sessionsOnly &&
     state.transport === "reachable" &&
     state.nativeState === "ready" &&
     !(state.capabilities.known && !state.capabilities.control)
@@ -315,29 +317,38 @@ function setNative(value, code = "", version = ++state.checkVersion) {
 }
 function renderReadiness() {
   let label = "Connected",
-    detail = "Your Mac and Ghostty are responding.";
+    detail = "Your computer and Ghostty are responding.";
   if (state.transport === "offline") {
     label = "Disconnected";
     detail =
-      "The connection to your Mac was lost. Your pane drafts are kept in this page.";
+      "The connection to your computer was lost. Your pane drafts are kept in this page.";
+  } else if (state.sessionsOnly) {
+    label = state.sessionsAvailable ? "Connected" : "Sessions unavailable";
+    detail = state.sessionsAvailable
+      ? "Your computer and sessions daemon are responding. Native Ghostty control is macOS-only."
+      : "Your computer is reachable, but the sessions daemon is unavailable. Restart onibi web.";
+    if (state.sessionsAvailable && state.captureState === "unavailable") {
+      label = "Output unavailable";
+      detail = state.captureDetail || "The selected session could not be read.";
+    }
   } else if (state.nativeState === "checking") {
     label = "Checking Ghostty";
-    detail = "Checking the Mac’s native terminal inventory…";
+    detail = "Checking the computer’s native terminal inventory…";
   } else if (state.nativeState !== "ready") {
     label = "Ghostty unavailable";
     detail =
       {
         ghostty_not_running:
-          "Your Mac is reachable. Open Ghostty on the Mac to continue.",
+          "Your computer is reachable. Open Ghostty on the computer to continue.",
         automation_permission:
-          "Your Mac is reachable. Allow Automation access for the process launching Onibi.",
+          "Your computer is reachable. Allow Automation access for the process launching Onibi.",
         ghostty_timeout:
-          "Your Mac is reachable, but Ghostty did not respond in time. Automatic checks are slowing down.",
+          "Your computer is reachable, but Ghostty did not respond in time. Automatic checks are slowing down.",
         ghostty_communication:
-          "Your Mac is reachable, but communication with Ghostty failed. Check the app on your Mac; automatic checks will retry.",
+          "Your computer is reachable, but communication with Ghostty failed. Check the app on your computer; automatic checks will retry.",
         unsupported_platform: "Native Ghostty control requires macOS.",
       }[state.nativeCode] ||
-      "Your Mac is reachable, but Ghostty’s terminal inventory is unavailable.";
+      "Your computer is reachable, but Ghostty’s terminal inventory is unavailable.";
   } else if (state.capabilities.known && !state.capabilities.control) {
     label = "Update Ghostty";
     detail =
@@ -345,7 +356,7 @@ function renderReadiness() {
   } else if (state.captureState === "focus_required") {
     label = "Focus needed";
     detail =
-      "Input targets the selected pane. Focus it on your Mac to read output.";
+      "Input targets the selected pane. Focus it on your computer to read output.";
   } else if (state.captureState === "unavailable") {
     label = "Output unavailable";
     detail =
@@ -353,13 +364,21 @@ function renderReadiness() {
       "Terminal control is available, but output could not be read.";
   }
   byId("connection-label").textContent = label;
-  byId("connection").classList.toggle("disconnected", !controlReady());
-  byId("connection").setAttribute("aria-label", label + ". View Mac readiness");
+  byId("connection").classList.toggle(
+    "disconnected",
+    state.transport === "offline" ||
+      (state.sessionsOnly ? !state.sessionsAvailable : !controlReady()),
+  );
+  byId("connection").setAttribute(
+    "aria-label",
+    label + ". View host readiness",
+  );
   byId("readiness-strip").hidden = label === "Connected";
   byId("readiness-summary").textContent = detail;
   byId("health-summary").textContent = detail;
   const waiting = Date.now() < state.nextInventoryAt;
-  const retryCapture = controlReady() && state.captureState === "unavailable";
+  const retryCapture =
+    (controlReady() || sessionReady()) && state.captureState === "unavailable";
   byId("retry-connection").disabled =
     !state.csrf ||
     (retryCapture ? state.snapshotLoading : state.targetsLoading || waiting);
@@ -386,7 +405,7 @@ function renderReadiness() {
 }
 function scheduleInventory() {
   clearTimeout(state.targetTimer);
-  if (!state.csrf || document.hidden) return;
+  if (!state.csrf || document.hidden || state.sessionsOnly) return;
   const delay = Math.max(10000, state.nextInventoryAt - Date.now());
   state.targetTimer = setTimeout(() => {
     if (state.pending) scheduleInventory();
@@ -412,6 +431,10 @@ async function loadHealth() {
         process: "Ghostty process",
         automation: "Automation",
         capture: "Accessibility",
+        platform: "Host platform",
+        ghostty: "Native Ghostty control",
+        multiplexer: "Persistent session backend",
+        sessions_daemon: "Sessions daemon",
       };
       const checkStates = {
         ready: "Ready",
@@ -423,6 +446,7 @@ async function loadHealth() {
         ambiguous: "Multiple processes",
         unsupported: "Unsupported",
         unavailable: "Unavailable",
+        not_applicable: "Not required",
       };
       name.textContent =
         (checkNames[check.id] || check.id.replaceAll("_", " ")) +
@@ -437,22 +461,23 @@ async function loadHealth() {
       state.capabilities.version ||
       "unknown";
     const inventory = data.inventory;
-    byId("health-observation").textContent =
-      "Ghostty " +
-      version +
-      (inventory?.state && inventory.state !== "unknown"
-        ? " · Last inventory: " +
-          inventory.state +
-          " (" +
-          inventory.durationMs +
-          " ms)"
-        : " · Native inventory has not been verified.");
+    byId("health-observation").textContent = data.sessionsOnly
+      ? "Persistent sessions mode · Native Ghostty control is macOS-only."
+      : "Ghostty " +
+        version +
+        (inventory?.state && inventory.state !== "unknown"
+          ? " · Last inventory: " +
+            inventory.state +
+            " (" +
+            inventory.durationMs +
+            " ms)"
+          : " · Native inventory has not been verified.");
     byId("health-error").textContent = "";
   } catch (error) {
     if (generation !== state.authGeneration) return;
     if (error.status === 401)
       requirePairing(
-        "Your session expired. Use a fresh pairing link from your Mac.",
+        "Your session expired. Use a fresh pairing link from your computer.",
       );
     else byId("health-error").textContent = error.message;
   } finally {
@@ -474,18 +499,20 @@ function updateControls() {
     state.csrf && target && controlReady() && !state.pending,
   );
   // Managed sessions run under the daemon, not Ghostty, so they stay usable
-  // whenever the Mac is reachable.
+  // whenever the computer is reachable.
   const canSession = Boolean(state.csrf && sessionReady() && !state.pending);
   const canType = canAct || canSession;
   const canCreate = Boolean(state.csrf && controlReady() && !state.pending);
   for (const id of actionButtons) byId(id).disabled = !canAct;
-  for (const id of ["new-window", "picker-new-window"])
-    byId(id).disabled = !canCreate;
+  for (const id of ["new-window", "picker-new-window"]) {
+    byId(id).disabled = !canCreate || state.sessionsOnly;
+    byId(id).hidden = state.sessionsOnly;
+  }
   for (const id of ["new-session", "picker-new-session", "start-session"]) {
     byId(id).disabled = !canStartSession();
     byId(id).title =
       state.csrf && !state.sessionsAvailable
-        ? "Needs the sessions daemon on your Mac. Restart onibi web."
+        ? "Needs the sessions daemon on your computer. Restart onibi web."
         : "";
   }
   byId("send-input").disabled = !canType || byId("compose").value.length === 0;
@@ -502,7 +529,7 @@ function updateControls() {
   ))
     button.disabled = !canType;
   for (const id of ["new-tab", "split-right", "close-tab"])
-    byId(id).hidden = Boolean(session);
+    byId(id).hidden = Boolean(session) || state.sessionsOnly;
   for (const id of ["session-interrupt", "session-rename", "session-kill"]) {
     byId(id).hidden = !session;
     byId(id).disabled = !canSession;
@@ -575,6 +602,7 @@ function authenticated(session) {
   byId("workspace").hidden = false;
   byId("session-controls").hidden = false;
   state.nativeState = "checking";
+  state.sessionsOnly = false;
   setNetwork("reachable");
   refreshTargets();
   refreshSessions();
@@ -628,7 +656,7 @@ function requirePairing(text) {
 async function pair(token) {
   byId("pair-submit").disabled = true;
   byId("pair-token").value = "";
-  pairMessage("Connecting securely to your Mac…");
+  pairMessage("Connecting securely to your computer…");
   try {
     const session = await api("/api/pair", {
       method: "POST",
@@ -641,7 +669,7 @@ async function pair(token) {
     authenticated(session);
   } catch (error) {
     pairMessage(
-      error.message + " Use a fresh pairing link or token from your Mac.",
+      error.message + " Use a fresh pairing link or token from your computer.",
       true,
     );
   } finally {
@@ -718,9 +746,15 @@ function renderTargets() {
     if (!state.targets.length) {
       const empty = document.createElement("p");
       empty.className = "list-empty";
-      empty.textContent = state.targetsLoading
-        ? "Finding Ghostty terminals…"
-        : "No panes yet. Create a Ghostty window to get started.";
+      empty.textContent = state.sessionsOnly
+        ? state.sessions.length
+          ? ""
+          : state.sessionsAvailable
+            ? "No persistent sessions yet. Choose New session to get started."
+            : "Sessions are unavailable. Restart onibi web on your computer."
+        : state.targetsLoading
+          ? "Finding Ghostty terminals…"
+          : "No panes yet. Create a Ghostty window to get started.";
       container.append(empty);
       restoreListFocus(container, focusedId);
       continue;
@@ -771,7 +805,7 @@ function renderTargets() {
           );
           button.setAttribute(
             "aria-label",
-            `${targetName(target)} ${target.cwd || "Ghostty pane"}${target.focused ? " ON MAC" : ""}, ${tabName(target)}, ${windowName(target)}`,
+            `${targetName(target)} ${target.cwd || "Ghostty pane"}${target.focused ? " ON HOST" : ""}, ${tabName(target)}, ${windowName(target)}`,
           );
           button.title = target.cwd || targetName(target);
           const mark = document.createElement("span");
@@ -791,7 +825,7 @@ function renderTargets() {
           if (target.focused) {
             const focus = document.createElement("span");
             focus.className = "target-focus";
-            focus.textContent = "ON MAC";
+            focus.textContent = "ON HOST";
             button.append(focus);
           }
           button.addEventListener("click", () => selectTarget(target.id));
@@ -907,7 +941,7 @@ async function refreshSessions() {
     if (generation !== state.authGeneration) return;
     if (error.status === 401) {
       requirePairing(
-        "Your session expired. Reconnect with a fresh pairing link from your Mac.",
+        "Your session expired. Reconnect with a fresh pairing link from your computer.",
       );
       return;
     }
@@ -998,6 +1032,7 @@ async function refreshTargetsRequest() {
     if (!Array.isArray(data.targets))
       throw new APIError("The terminal list is unavailable.");
     state.capabilities = data.capabilities || { known: false };
+    state.sessionsOnly = data.sessionsOnly === true;
     state.targets = data.targets.filter(
       (target) =>
         typeof target.id === "string" &&
@@ -1022,7 +1057,7 @@ async function refreshTargetsRequest() {
     if (generation !== state.authGeneration) return;
     if (error.status === 401)
       requirePairing(
-        "Your session expired. Reconnect with a fresh pairing link from your Mac.",
+        "Your session expired. Reconnect with a fresh pairing link from your computer.",
       );
     else {
       state.targetFailures = Math.min(state.targetFailures + 1, 4);
@@ -1264,7 +1299,7 @@ async function readSnapshot() {
         : "Output unavailable";
     byId("snapshot-state").parentElement.parentElement.classList.add("stale");
     const description = focusRequired
-      ? "This pane needs to be focused on your Mac before its output can be read. Use Focus & read to switch the Mac’s active pane."
+      ? "This pane needs to be focused on your computer before its output can be read. Use Focus & read to switch the computer’s active pane."
       : error.message;
     if (state.snapshotTarget !== target.id)
       showEmpty(
@@ -1315,7 +1350,7 @@ function unresolved(detail) {
     "Delivery needs checking",
     detail +
       draftNote +
-      " Read the terminal or check your Mac before continuing; this action will not be sent again.",
+      " Read the terminal or check your computer before continuing; this action will not be sent again.",
     true,
   );
   updateControls();
@@ -1326,7 +1361,7 @@ async function applyReceipt(receipt) {
   if (!pending || receipt.id !== pending.id) return;
   if (receipt.state === "pending") {
     actionNotice(
-      "Waiting for your Mac",
+      "Waiting for your computer",
       "The action has a receipt. Waiting for its result without sending it again.",
     );
     state.receiptTimer = setTimeout(checkReceipt, 1500);
@@ -1335,7 +1370,7 @@ async function applyReceipt(receipt) {
   if (receipt.state === "uncertain") {
     unresolved(
       receipt.error ||
-        "The Mac could not confirm whether the action completed.",
+        "The computer could not confirm whether the action completed.",
     );
     return;
   }
@@ -1348,7 +1383,7 @@ async function applyReceipt(receipt) {
     actionNotice(
       "Action wasn’t sent",
       receipt.error ||
-        "Your Mac rejected this action. Your draft has been kept.",
+        "Your computer rejected this action. Your draft has been kept.",
     );
     // A precondition can fail before the next scheduled poll (closed pane,
     // lost native connection, changed focus). Reconcile before offering input.
@@ -1359,18 +1394,18 @@ async function applyReceipt(receipt) {
       await refreshTargets({ force: true });
     }
   } else if (pending.action.kind === "kill") {
-    actionNotice("Session ended", "The session was stopped on your Mac.");
+    actionNotice("Session ended", "The session was stopped on your computer.");
     await refreshSessions();
   } else if (pending.action.kind === "rename") {
     actionNotice(
       "Session renamed",
-      receipt.result?.message || "Your Mac confirmed the new name.",
+      receipt.result?.message || "Your computer confirmed the new name.",
     );
     await refreshSessions();
   } else if (pending.action.kind === "new") {
     actionNotice(
       "Session started",
-      receipt.result?.message || "Your Mac confirmed the session.",
+      receipt.result?.message || "Your computer confirmed the session.",
     );
     await refreshSessions();
     const id = receipt.result?.targetId;
@@ -1390,7 +1425,7 @@ async function applyReceipt(receipt) {
     }
     const closeTitle = {
       removed: "Close confirmed",
-      still_present: "Still open on your Mac",
+      still_present: "Still open on your computer",
       unverified: "Close outcome unverified",
     }[receipt.result?.closeState];
     actionNotice(
@@ -1406,7 +1441,7 @@ async function applyReceipt(receipt) {
         "Done",
       receipt.result && receipt.result.message
         ? receipt.result.message
-        : "Your Mac confirmed the action.",
+        : "Your computer confirmed the action.",
     );
     if (["input", "key", "interrupt"].includes(pending.action.kind)) {
       // Collapse post-input observation during repeated key taps. The server
@@ -1448,7 +1483,7 @@ async function checkReceipt() {
     } else {
       unresolved(
         error.status === 404
-          ? "No receipt was found. The action may have reached your Mac before the connection was lost."
+          ? "No receipt was found. The action may have reached your computer before the connection was lost."
           : error.message,
       );
     }
@@ -1495,7 +1530,7 @@ async function performAction(action, draft = "", session = null) {
       ? `Destination: ${targetName(target)} · ${tabName(target)}`
       : "Waiting for the selected action to be confirmed.";
   actionNotice(
-    "Sending to your Mac",
+    "Sending to your computer",
     detail +
       (pending.persisted
         ? ""
@@ -1734,7 +1769,7 @@ byId("logout").addEventListener("click", async () => {
     clearRecall();
     byId("action-notice").hidden = true;
     requirePairing(
-      "Disconnected. Open a new pairing link from your Mac to reconnect.",
+      "Disconnected. Open a new pairing link from your computer to reconnect.",
     );
   } catch (error) {
     byId("devices-message").textContent =
@@ -1795,10 +1830,18 @@ byId("close-health").addEventListener("click", () =>
 byId("health-refresh").addEventListener("click", () => {
   loadHealth();
   refreshTargets();
+  refreshSessions();
 });
 byId("retry-connection").addEventListener("click", () => {
-  if (controlReady() && state.captureState === "unavailable") readSnapshot();
-  else refreshTargets({ force: true });
+  if (
+    (controlReady() || sessionReady()) &&
+    state.captureState === "unavailable"
+  )
+    readSnapshot();
+  else {
+    refreshTargets({ force: true });
+    refreshSessions();
+  }
 });
 
 for (const id of ["new-window", "picker-new-window"])
@@ -1806,7 +1849,7 @@ for (const id of ["new-window", "picker-new-window"])
     byId("target-picker").close();
     performAction({ kind: "new_window" });
   });
-// Folders come from what is already open on the Mac; any other folder can be
+// Folders come from what is already open on the computer; any other folder can be
 // typed. The server checks the path and the daemon checks the program.
 function knownChoices(values, limit) {
   const seen = new Set();
@@ -2111,7 +2154,7 @@ setInterval(() => {
   }
 })();
 
-// Pairing always pauses for the access choice, including links from the Mac.
+// Pairing always pauses for the access choice, including links from the computer.
 // The fragment is already stripped; secrets never enter persistent JS storage.
 function presentPairingToken(token) {
   if (state.csrf)
@@ -2127,7 +2170,7 @@ byId("resume-browser").addEventListener("click", async () => {
   } catch (error) {
     pairMessage(
       error.status === 401
-        ? "This browser has no active remembered access. Run onibi web pair on your Mac for a fresh link."
+        ? "This browser has no active remembered access. Run onibi web pair on your computer for a fresh link."
         : error.message,
       true,
     );

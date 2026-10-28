@@ -4,15 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"runtime"
 	"time"
 
+	"github.com/gongahkia/onibi/internal/config"
 	"github.com/gongahkia/onibi/internal/ghostty"
 	"github.com/gongahkia/onibi/internal/web"
 	"github.com/spf13/cobra"
 )
 
 func webDoctorCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "doctor", Short: "Inspect Ghostty readiness without reading terminals or changing focus", Args: cobra.NoArgs, RunE: runWebDoctor}
+	cmd := &cobra.Command{Use: "doctor", Short: "Inspect host and terminal readiness without reading terminals or changing focus", Args: cobra.NoArgs, RunE: runWebDoctor}
 	cmd.Flags().Bool("json", false, "print structured diagnostics")
 	cmd.Flags().Bool("probe", false, "send a bounded read-only inventory request (may prompt for Automation permission)")
 	cmd.Flags().String("read-target", "", "with --probe, verify output capture for this exact pane without printing its text")
@@ -29,7 +31,11 @@ func runWebDoctor(cmd *cobra.Command, _ []string) error {
 	}
 	ctx, cancel := context.WithTimeout(contextOrBackground(cmd.Context()), 45*time.Second)
 	defer cancel()
-	report := ghostty.Inspect(ctx)
+	paths, err := config.DefaultPaths()
+	if err != nil {
+		return err
+	}
+	report := inspectWebHost(ctx, paths, runtime.GOOS)
 	listen, _ := cmd.Flags().GetString("listen")
 	if err := validateWebListen(listen); err != nil {
 		report.Checks = append(report.Checks, ghostty.Check{ID: "listener", State: "invalid", Detail: err.Error()})
@@ -44,7 +50,10 @@ func runWebDoctor(cmd *cobra.Command, _ []string) error {
 	} else {
 		report.Checks = append(report.Checks, ghostty.Check{ID: "origin", State: "configured", Detail: "Origin syntax is valid. HTTPS reachability and tailnet access are not tested."})
 	}
-	if probe {
+	if probe && runtime.GOOS != "darwin" {
+		report.Checks = append(report.Checks, ghostty.Check{ID: "native_probe", State: "unsupported", Detail: "--probe and --read-target test native Ghostty control on macOS only. Use onibi session list for persistent sessions."})
+	}
+	if probe && runtime.GOOS == "darwin" {
 		client := ghostty.New()
 		targets, err := client.Targets(ctx)
 		check := ghostty.Check{ID: "automation", State: "ready", Detail: fmt.Sprintf("Inventory responded with %d panes. No input was sent or focus changed.", len(targets))}
@@ -89,7 +98,7 @@ func writeWebDoctor(cmd *cobra.Command, report ghostty.Diagnostics, asJSON bool)
 		}
 	} else {
 		ui := terminalUI(cmd)
-		ui.Banner("Ghostty readiness")
+		ui.Banner("Host readiness")
 		if report.Capabilities.Version != "" {
 			ui.Field("Ghostty", report.Capabilities.Version)
 		}
@@ -102,9 +111,9 @@ func writeWebDoctor(cmd *cobra.Command, report ghostty.Diagnostics, asJSON bool)
 	}
 	for _, c := range report.Checks {
 		switch c.State {
-		case "ready", "configured", "running", "unknown":
+		case "ready", "configured", "running", "unknown", "not_applicable":
 		default:
-			return fmt.Errorf("Ghostty readiness needs attention; see diagnostics")
+			return fmt.Errorf("host readiness needs attention; see diagnostics")
 		}
 	}
 	return nil

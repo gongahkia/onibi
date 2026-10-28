@@ -11,9 +11,9 @@ func Root() *cobra.Command {
 	root := &cobra.Command{
 		Use:   "onibi",
 		Short: "Control Ghostty and persistent terminal sessions from your phone",
-		Long: `Onibi lets a paired phone read and drive your Mac's terminals: Ghostty
-windows, tabs and panes, and persistent tmux, Zellij or Screen sessions that
-keep running when Ghostty quits.`,
+		Long: `Onibi lets a paired phone read and drive persistent tmux, Zellij or Screen
+sessions on Linux (including WSL) and macOS. On macOS it also controls Ghostty
+windows, tabs and panes. Native Windows hosting is not supported.`,
 		Example: `  onibi web                      start the phone cockpit and print a pairing link
   onibi session new codex        run a program in a persistent session
   onibi session attach codex     attach this terminal to it
