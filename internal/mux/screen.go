@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"unicode/utf8"
 )
 
 type screenController struct {
@@ -80,8 +81,14 @@ func (c *screenController) SendText(ctx context.Context, target Target, text str
 	if target.Session == "" {
 		return errors.New("GNU Screen session target required")
 	}
-	if _, err := c.run(ctx, c.prefix("-S", target.Session, "-p", "0", "-X", "stuff", text)...); err != nil {
-		return gone(err)
+	// Screen reparses even argv passed to -X: $variables, ^control and
+	// backslash escapes are expanded. Octal bytes bypass that interpretation.
+	// Its remote-command buffer is small (768 bytes in Screen 5), so bound
+	// each command and never split a UTF-8 rune across writes.
+	for _, chunk := range screenTextChunks(text) {
+		if _, err := c.run(ctx, c.prefix("-S", target.Session, "-p", "0", "-X", "stuff", chunk)...); err != nil {
+			return gone(err)
+		}
 	}
 	if !enter {
 		return nil
@@ -94,8 +101,35 @@ func (c *screenController) SendKey(ctx context.Context, target Target, key strin
 	if target.Session == "" {
 		return errors.New("GNU Screen session target required")
 	}
-	_, err := c.run(ctx, c.prefix("-S", target.Session, "-p", "0", "-X", "stuff", screenKey(key))...)
-	return gone(err)
+	return c.SendText(ctx, target, screenKey(key), false)
+}
+
+func screenTextChunks(text string) []string {
+	const maxBytes = 128 // at most 512 encoded bytes plus the command framing
+	var chunks []string
+	for len(text) > 0 {
+		n := min(len(text), maxBytes)
+		if n < len(text) {
+			for n > 0 && !utf8.RuneStart(text[n]) {
+				n--
+			}
+			if n == 0 { // also make progress on malformed non-HTTP callers
+				n = min(len(text), maxBytes)
+			}
+		}
+		var encoded strings.Builder
+		encoded.Grow(4 * n)
+		for i := 0; i < n; i++ {
+			b := text[i]
+			encoded.WriteByte('\\')
+			encoded.WriteByte('0' + b>>6)
+			encoded.WriteByte('0' + (b>>3)&7)
+			encoded.WriteByte('0' + b&7)
+		}
+		chunks = append(chunks, encoded.String())
+		text = text[n:]
+	}
+	return chunks
 }
 
 func (c *screenController) Kill(ctx context.Context, target Target) error {
