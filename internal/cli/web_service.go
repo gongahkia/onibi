@@ -44,7 +44,7 @@ func webServiceCmd() *cobra.Command {
 				if err := terminalUI(cmd).Step("Install web login service", func(func(string)) error { return manager.Install(ctx, listen, origin) }); err != nil {
 					return err
 				}
-				cmd.Printf("Installed. Start: %s web service start\nThen pair: %s web pair\nIt also starts at your next graphical login and runs the sessions daemon, so %s system service is not needed.\n", commandHint(), commandHint(), commandHint())
+				cmd.Printf("Installed. Start: %s web service start\nThen pair: %s web pair\nIt also starts with your user login service manager and runs the sessions daemon, so %s system service is not needed.\n", commandHint(), commandHint(), commandHint())
 				return nil
 			case "start":
 				err = terminalUI(cmd).Step("Start web login service", func(func(string)) error { return manager.Start(ctx) })
@@ -75,7 +75,7 @@ func webServiceCmd() *cobra.Command {
 				case "remove":
 					cmd.Println("Login service removed. Browser grants, state and logs were preserved.")
 				case "stop":
-					cmd.Println("Stopped. The installed service starts again at your next graphical login.")
+					cmd.Println("Stopped. The installed service starts again with your next user login service manager.")
 				}
 			}
 			return err

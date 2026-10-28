@@ -130,8 +130,8 @@ func TestWebServiceRejectsUnsafeConfiguration(t *testing.T) {
 	if err := m.Install(context.Background(), "127.0.0.1:8787", "http://public.example"); err == nil {
 		t.Fatal("accepted public HTTP")
 	}
-	m.GOOS = "linux"
+	m.GOOS = "windows"
 	if err := m.Start(context.Background()); err == nil {
-		t.Fatal("accepted native web service on Linux")
+		t.Fatal("accepted native web service on Windows")
 	}
 }

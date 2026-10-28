@@ -221,6 +221,34 @@ func TestUninstallServiceFailureRetainsBinaries(t *testing.T) {
 	}
 }
 
+func TestSourceUninstallRecognizesLinuxWebUnit(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("Linux service ownership")
+	}
+	tool, _, _ := sourceTool(t)
+	tool.Prefix = filepath.Join(t.TempDir(), "tools %n $PATH")
+	home := t.TempDir()
+	exe := filepath.Join(tool.Prefix, "onibi")
+	path := filepath.Join(home, ".config", "systemd", "user", "onibi-web.service")
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		t.Fatal(err)
+	}
+	body := "[Service]\nExecStart=:" + strconv.Quote(strings.ReplaceAll(exe, "%", "%%")) + " web --background --listen localhost:8787\n"
+	if err := os.WriteFile(path, []byte(body), 0600); err != nil {
+		t.Fatal(err)
+	}
+	services, err := tool.services(home)
+	if err != nil || len(services) != 1 || strings.Join(services[0].args, " ") != "web service remove" {
+		t.Fatalf("Linux web unit unrecognized: %v %#v", err, services)
+	}
+	if err := os.WriteFile(path, []byte(strings.ReplaceAll(body, "ExecStart=", "# ExecStart=")), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tool.services(home); err == nil {
+		t.Fatal("comment mistaken for service ownership")
+	}
+}
+
 type pullRunner struct {
 	branch, status string
 	diverged       bool

@@ -361,12 +361,17 @@ type managedService struct {
 }
 
 func (t *Tool) services(home string) ([]managedService, error) {
+	configHome := ""
 	if home == "" {
 		var err error
 		home, err = os.UserHomeDir()
 		if err != nil {
 			return nil, err
 		}
+		configHome = os.Getenv("XDG_CONFIG_HOME")
+	}
+	if configHome == "" {
+		configHome = filepath.Join(home, ".config")
 	}
 	var candidates []managedService
 	if runtime.GOOS == "darwin" {
@@ -377,7 +382,10 @@ func (t *Tool) services(home string) ([]managedService, error) {
 			candidates = append(candidates, managedService{filepath.Join(home, "Library", "LaunchAgents", entry.label+".plist"), entry.args})
 		}
 	} else {
-		candidates = append(candidates, managedService{filepath.Join(home, ".config", "systemd", "user", "onibi.service"), []string{"system", "service", "remove"}})
+		candidates = append(candidates,
+			managedService{filepath.Join(configHome, "systemd", "user", "onibi-web.service"), []string{"web", "service", "remove"}},
+			managedService{filepath.Join(configHome, "systemd", "user", "onibi.service"), []string{"system", "service", "remove"}},
+		)
 	}
 	var owned []managedService
 	for _, candidate := range candidates {
@@ -400,7 +408,14 @@ func (t *Tool) services(home string) ([]managedService, error) {
 		if runtime.GOOS == "darwin" {
 			match = plistExecutable(raw) == exe
 		} else {
-			match = strings.Contains(string(raw), "ExecStart="+strconv.Quote(exe)+" start")
+			for _, line := range strings.Split(string(raw), "\n") {
+				if candidate.args[0] == "web" {
+					prefix := "ExecStart=:" + strconv.Quote(strings.ReplaceAll(exe, "%", "%%")) + " web --background "
+					match = match || strings.HasPrefix(line, prefix)
+				} else {
+					match = match || line == "ExecStart="+strconv.Quote(exe)+" start"
+				}
+			}
 		}
 		if !match {
 			return nil, fmt.Errorf("service %s belongs to another installation; remove it explicitly before uninstalling", candidate.path)

@@ -16,19 +16,24 @@ import (
 )
 
 const WebLabel = "sh.onibi.web"
+const WebUnitName = "onibi-web.service"
 
-// WebManager manages the native web cockpit in the user's graphical login
-// session, independently of the managed-session daemon. No system/root service exists.
+// WebManager manages the web cockpit as a per-user login service. It includes
+// the managed-session daemon unless one already runs. No root service exists.
 type WebManager struct{ *Manager }
 
 func (m WebManager) path() (string, error) {
 	if err := m.ensure(); err != nil {
 		return "", err
 	}
-	if m.GOOS != "darwin" {
-		return "", errors.New("the web service requires a macOS graphical login session")
+	switch m.GOOS {
+	case "darwin":
+		return filepath.Join(m.Home, "Library", "LaunchAgents", WebLabel+".plist"), nil
+	case "linux":
+		return m.userUnitPath(WebUnitName), nil
+	default:
+		return "", errors.New("the web service supports macOS and Linux/WSL; native Windows is not supported")
 	}
-	return filepath.Join(m.Home, "Library", "LaunchAgents", WebLabel+".plist"), nil
 }
 func (m WebManager) target() string { return fmt.Sprintf("gui/%d/%s", m.UID, WebLabel) }
 func (m WebManager) Install(ctx context.Context, listen, origin string) error {
@@ -54,6 +59,9 @@ func (m WebManager) Install(ctx context.Context, listen, origin string) error {
 		return errors.New("web service is already installed; remove it before changing its configuration")
 	} else if !os.IsNotExist(err) {
 		return err
+	}
+	if m.GOOS == "linux" {
+		return m.installWebSystemd(ctx, path, listen, origin)
 	}
 	vals := map[string]any{
 		"Label":            WebLabel,
@@ -82,6 +90,9 @@ func (m WebManager) Start(ctx context.Context) error {
 	if _, err := os.Stat(path); err != nil {
 		return fmt.Errorf("install the web service first: %w", err)
 	}
+	if m.GOOS == "linux" {
+		return m.webSystemctl(ctx, "start", WebUnitName)
+	}
 	if _, err := m.Runner.Run(ctx, "launchctl", "print", m.target()); err == nil {
 		out, err := m.Runner.Run(ctx, "launchctl", "kickstart", m.target())
 		return launchError("start", out, err)
@@ -92,6 +103,9 @@ func (m WebManager) Start(ctx context.Context) error {
 func (m WebManager) Stop(ctx context.Context) error {
 	if _, err := m.path(); err != nil {
 		return err
+	}
+	if m.GOOS == "linux" {
+		return m.webSystemctl(ctx, "stop", WebUnitName)
 	}
 	out, err := m.Runner.Run(ctx, "launchctl", "bootout", m.target())
 	// bootout unloads the job; a crash policy cannot respawn a deliberately
@@ -112,6 +126,21 @@ func (m WebManager) Remove(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if m.GOOS == "linux" {
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			return nil
+		} else if err != nil {
+			return err
+		}
+		// A failed stop or disable must retain the unit for recovery.
+		if err := m.webSystemctl(ctx, "disable", "--now", WebUnitName); err != nil {
+			return err
+		}
+		if err := os.Remove(path); err != nil {
+			return err
+		}
+		return m.webSystemctl(ctx, "daemon-reload")
+	}
 	if err := m.Stop(ctx); err != nil {
 		return err
 	}
@@ -130,6 +159,15 @@ func (m WebManager) Status(ctx context.Context) Status {
 		st.Installed = true
 	} else if !os.IsNotExist(err) {
 		st.Detail = err.Error()
+		return st
+	}
+	if m.GOOS == "linux" {
+		out, err := m.Runner.Run(ctx, "systemctl", "--user", "is-active", WebUnitName)
+		st.Detail = strings.TrimSpace(string(out))
+		st.Running = err == nil && st.Detail == "active"
+		if err != nil && st.Detail == "" {
+			st.Detail = err.Error()
+		}
 		return st
 	}
 	out, err := m.Runner.Run(ctx, "launchctl", "print", m.target())

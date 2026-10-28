@@ -39,6 +39,7 @@ type Manager struct {
 	Runner     Runner
 	GOOS       string
 	Home       string
+	ConfigHome string // Linux user-unit configuration root; empty uses Home/.config.
 	UID        int
 }
 
@@ -67,12 +68,14 @@ func NewManager(paths config.Paths, executable string) (*Manager, error) {
 	if err != nil {
 		return nil, err
 	}
+	configHome := os.Getenv("XDG_CONFIG_HOME")
 	return &Manager{
 		Paths:      paths,
 		Executable: abs,
 		Runner:     ExecRunner{},
 		GOOS:       runtime.GOOS,
 		Home:       home,
+		ConfigHome: configHome,
 		UID:        os.Getuid(),
 	}, nil
 }
@@ -153,10 +156,18 @@ func (m *Manager) ServicePath() (string, error) {
 	case "darwin":
 		return filepath.Join(m.Home, "Library", "LaunchAgents", Label+".plist"), nil
 	case "linux":
-		return filepath.Join(m.Home, ".config", "systemd", "user", UnitName), nil
+		return m.userUnitPath(UnitName), nil
 	default:
 		return "", fmt.Errorf("unsupported os: %s", m.GOOS)
 	}
+}
+
+func (m *Manager) userUnitPath(name string) string {
+	root := m.ConfigHome
+	if root == "" {
+		root = filepath.Join(m.Home, ".config")
+	}
+	return filepath.Join(root, "systemd", "user", name)
 }
 
 func (m *Manager) ensure() error {
