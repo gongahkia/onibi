@@ -32,7 +32,7 @@ builds:
       - -X github.com/gongahkia/onibi/internal/buildinfo.Date={{.Date}}
 archives:
   - formats: [tar.gz]
-    files: [LICENSE, SECURITY.md, THREAT-MODEL.md, THIRD_PARTY_NOTICES.md, third_party/rattles/LICENSE-MIT, third_party/fonts/*.txt, docs/web.md, docs/managed-sessions.md, docs/product-audit.md, docs/cockpit-review.md, docs/readiness-review.md]
+    files: [LICENSE, SECURITY.md, THREAT-MODEL.md, THIRD_PARTY_NOTICES.md, third_party/rattles/LICENSE-MIT, third_party/fonts/*.txt, docs/web.md, docs/managed-sessions.md, docs/linux-wsl.md, docs/product-audit.md, docs/cockpit-review.md, docs/readiness-review.md]
 
 checksum:
   name_template: checksums.txt

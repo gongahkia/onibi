@@ -1,12 +1,14 @@
-# Ghostty web control
+# Web cockpit
+
+The web cockpit supports persistent sessions on macOS and Linux/WSL. Linux uses sessions-only mode: no Ghostty installation, graphical login or macOS permissions are needed. See [Linux/WSL setup and testing](linux-wsl.md), including the systemd user service and native Windows limitations. The Ghostty-specific instructions below apply only to macOS.
 
 Onibi's web interface controls the Ghostty application already running in your Mac's graphical login session. It does not move processes into a new terminal, add hooks to running coding agents, or keep the Mac awake. The Mac, Ghostty, and the Onibi web process must remain available.
 
-The cockpit is served by the Mac over private Tailscale HTTPS. This repository does not use GitHub Pages: the former `/docs` publishing configuration was retired. Documentation stays in the repository and release archives; Pages is not part of deployment or CI verification.
+The cockpit is served by your computer over private Tailscale HTTPS. This repository does not use GitHub Pages: the former `/docs` publishing configuration was retired. Documentation stays in the repository and release archives; Pages is not part of deployment or CI verification.
 
 ## Build and run from source
 
-From this checkout, use the Go toolchain declared in `go.mod` and Apple's Command Line Tools (`xcode-select --install` if missing):
+From this checkout, use the Go toolchain declared in `go.mod`. On macOS also install Apple's Command Line Tools (`xcode-select --install` if missing):
 
 ```sh
 make build
@@ -97,7 +99,9 @@ The printed link contains a one-use pairing secret in its URL fragment. Open it 
 
 For local development, omit `--origin` and use the printed loopback HTTP link on the Mac. For phone access, use the configured HTTPS origin consistently; switching between the loopback and private addresses does not share a browser session.
 
-## Mac readiness
+## Host readiness
+
+On Linux, passive diagnostics check the configured multiplexer executable and daemon reachability; Ghostty is **not applicable**. The browser reports **Connected** when the sessions daemon responds, even with no sessions yet. Missing backends are actionable failures, not macOS permission errors. `--probe` and `--read-target` are explicitly unsupported on Linux because they test native Ghostty; use the live session tests in the Linux guide instead.
 
 Start with a passive check in the same launching environment as the web process:
 
@@ -110,9 +114,9 @@ This inspects the Ghostty app bundle/version, running-process count, and the cal
 
 When ready to test native responsiveness, explicitly run `onibi web doctor --probe`. This sends one bounded inventory request and can prompt for Automation permission. Adding `--read-target '<exact pane ID>'` verifies focused-pane capture and discards the captured text; it never focuses the pane for you. Do not add these options when you only want passive diagnostics.
 
-On the phone, tap the connection status to open **Mac readiness**. **Explore cockpit capabilities** lists implemented controls, automated contract coverage, version requirements, focus requirements, native observations, and unsupported features. The endpoint is passive: it does not probe Ghostty. A command acknowledgement is not proof that its program completed work; fake backends cannot acquire native-verification labels. Observation evidence lasts only for this Onibi run. The map explicitly excludes semantic agent/approval detection, mouse forwarding, full terminal emulation, and unfocused Ghostty pane capture. Persistent sessions provide unfocused scrollback and generic attention signals instead.
+On the phone, tap the connection status to open **Host readiness**. **Explore cockpit capabilities** lists implemented controls, automated contract coverage, version requirements, focus requirements, native observations, and unsupported features. The endpoint is passive: it does not probe Ghostty. A command acknowledgement is not proof that its program completed work; fake backends cannot acquire native-verification labels. Observation evidence lasts only for this Onibi run. The map explicitly excludes semantic agent/approval detection, mouse forwarding, full terminal emulation, and unfocused Ghostty pane capture. Persistent sessions provide unfocused scrollback and generic attention signals instead.
 
-Mac readiness shows passive permission/process details, the installed version, the last native inventory duration, and browser session expiry. **Check again** refreshes diagnostics and requests inventory when its retry delay permits. Observations describe the last completed request, not a guarantee about the next one.
+On macOS, host readiness shows passive permission/process details, the installed version, the last native inventory duration, and browser session expiry. **Check again** refreshes diagnostics and requests inventory when its retry delay permits. Observations describe the last completed request, not a guarantee about the next one. The native status details below apply to macOS.
 
 | Phone status | Meaning and next action |
 | --- | --- |
@@ -156,7 +160,7 @@ Receipts retain hashes and decision metadata, not command text. The browser keep
 
 ## Browsers and local recovery
 
-Run these commands on the Mac while the web server is running:
+Run these commands on the computer hosting Onibi while the web server is running:
 
 ```sh
 onibi web pair
@@ -175,6 +179,8 @@ Remembered access uses a separate Secure/HttpOnly/SameSite Strict cookie over HT
 `revoke-all` is local-only: it revokes all browsers for the configured origin and invalidates the unused pairing link. Restart alone does **not** revoke remembered access. Stop the foreground web process or its login service to cut off browser control while it is stopped. In-flight commands may finish during shutdown; existing Ghostty terminals continue running. Removing the service does not delete the state database or device grants; revoke them first if you want to retire access permanently.
 
 ## Background web service
+
+Linux uses a systemd user unit through the same commands; see the [Linux service guide](linux-wsl.md#linux-user-service). The launchd details below are macOS-specific.
 
 Use a stable installed binary, then configure the separate Mac login service:
 
@@ -196,6 +202,8 @@ Application events go to the continuously rotated `web.log`. Launchd retains boo
 The web login service includes the managed-session daemon, so `onibi system service install` is only for a daemon-only setup. If the daemon cannot start, the cockpit still controls Ghostty; see [managed sessions](managed-sessions.md). Tailscale Serve’s background setting keeps the proxy running; it does not start Onibi or keep the Mac awake. A graphical login, running Ghostty, and an awake reachable Mac remain necessary.
 
 ## Verification boundaries
+
+The opt-in [Linux live suite](linux-wsl.md#repeatable-verification) runs the production executable with real multiplexers, including graceful/crash restart recovery and a Chromium-to-real-session path. CI requires tmux, Zellij and Screen. An additional opt-in test exercises a real systemd user manager without touching the normal Onibi service. These checks complement, rather than replace, the simulated-backend suites below and do not verify native Windows, physical-phone or Tailscale behavior.
 
 Hermetic backend tests cover native command construction, targeting failures, focus guards, cancellable/coalesced inventory, failure backoff, capability versions, HTTP authentication, origin/CSRF enforcement, and action recovery. Eight Node VM tests execute the actual JXA bridge with a simulated native object model. Chromium and WebKit UI fixtures exercise phone layouts, scope confirmations, draft isolation, output cancellation, readiness/recovery, and receipt recovery; axe checks automatically detectable WCAG A/AA issues.
 

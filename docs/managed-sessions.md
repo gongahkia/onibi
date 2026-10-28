@@ -1,12 +1,12 @@
 # Managed sessions
 
-Managed sessions are tmux, Zellij or GNU Screen sessions owned by the Onibi daemon. They keep running when Ghostty quits, have a stable identity, and can be read without focusing anything on the Mac. The web cockpit shows them as **Persistent sessions** alongside Ghostty panes, so this part is not tied to any particular program.
+Managed sessions are tmux, Zellij or GNU Screen sessions owned by the Onibi daemon. They keep running when the browser, web server or terminal window closes, have a stable identity, and can be read without focusing anything. The web cockpit shows them as **Persistent sessions** on macOS and [Linux/WSL](linux-wsl.md), alongside Ghostty panes on macOS. This part is not tied to any particular program.
 
 Coding agents get no special treatment. `onibi session new codex`, `claude` or `pi` runs the program exactly as given, with no hooks, settings or flag checks, and the cockpit handles it like any other terminal program: its own prompts appear in the output and raise the generic attention signals. Onibi has no agent-specific approval or question handling; see [Removed integrations](#removed-integrations).
 
 ## In the web cockpit
 
-`onibi web` connects to the daemon over the same-user intake socket. If the daemon is not running, the cockpit hides the session group and Ghostty control is unaffected. If Ghostty is unavailable, sessions remain usable.
+`onibi web` connects to the daemon over the same-user intake socket and starts an embedded daemon when none is running. If daemon startup fails, session creation is unavailable and diagnostics explain the problem; macOS Ghostty control is independent. On Linux the cockpit is sessions-only and does not require Ghostty.
 
 | Capability | Behaviour |
 | --- | --- |
@@ -16,7 +16,7 @@ Coding agents get no special treatment. `onibi session new codex`, `claude` or `
 | Interrupt, rename and end | **Interrupt** sends Ctrl C. **Rename** changes the name Onibi shows, with the same rules as `onibi session rename`. **End session** kills the multiplexer session after a confirmation naming it. |
 | Delivery | Every action uses the durable web receipts. The server confirms the session in a fresh daemon listing before dispatch, and the daemon resolves only the full session ID, never a name or prefix. A failure before any byte reaches the daemon, or a daemon rejection before a side effect, is reported as **not sent**. Anything later is **uncertain** and is never replayed. |
 
-**New session** starts one from the phone: a program (the shell, a command on `PATH` or an absolute path, with optional arguments), a folder (from an open pane or session, or a typed absolute path) and an optional name. It uses the configured default multiplexer, like `onibi session new` without `--mux`. Adopting an existing tmux, Zellij or Screen session is not offered from the phone, because it reaches sessions Onibi did not start; use `onibi session adopt` on the Mac.
+**New session** starts one from the phone: a program (the shell, a command on `PATH` or an absolute path, with optional arguments), a folder (from an open pane or session, or a typed absolute path) and an optional name. It uses the configured default multiplexer, like `onibi session new` without `--mux`. Adopting an existing tmux, Zellij or Screen session is not offered from the phone, because it reaches sessions Onibi did not start; use `onibi session adopt` on the computer running Onibi.
 
 ## Attention signals
 

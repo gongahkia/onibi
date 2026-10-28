@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Enabled the web cockpit on Linux and WSL for persistent sessions, with native Ghostty controls hidden and rejected, host-neutral readiness, and no dependency on macOS automation.
+- Added `onibi web service` support through a Linux systemd user unit. Install enables but does not start it; web-service stop/restart leaves multiplexer sessions running. Source uninstall recognizes owned Linux web units and preserves state.
+- Added opt-in production CLI/HTTP/browser tests with real tmux, Zellij and GNU Screen, a Linux CI job requiring all three, and an isolated live systemd lifecycle test. See the [Linux/WSL guide](docs/linux-wsl.md) for setup, verification commands and native Windows boundaries.
+- Fixed Screen interpreting literal `$variables`, caret control notation and backslash escapes as commands. Input is now encoded byte-for-byte and split into bounded writes, with unit and live regressions for Unicode and long messages.
+
 ## 0.1.0 (2026-10-27)
 
 First tagged release.

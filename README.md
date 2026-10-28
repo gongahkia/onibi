@@ -45,13 +45,13 @@ install -m 755 onibi /usr/local/bin/onibi
 onibi --version
 ```
 
-Use `darwin_amd64` on an Intel Mac. Linux archives are published for the persistent-sessions daemon; the Ghostty cockpit is macOS only.
+Use `darwin_amd64` on an Intel Mac. Linux/WSL also supports the web cockpit for persistent sessions; native Ghostty controls remain macOS-only. Build from this checkout for the new Linux web support; see the [Linux/WSL guide](docs/linux-wsl.md).
 
 ### From source
 
 ```sh
 git clone https://github.com/gongahkia/onibi && cd onibi
-make build        # needs the Go version in go.mod and Xcode Command Line Tools
+make build        # needs Go from go.mod; macOS also needs Xcode Command Line Tools
 ./bin/onibi web
 ```
 
