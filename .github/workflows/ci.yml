@@ -61,6 +61,39 @@ jobs:
       - run: npx playwright install --with-deps ${{ matrix.engine }}
       - run: npm test
 
+  live-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      ONIBI_LIVE_MUX: tmux,zellij,screen
+      ONIBI_LIVE_BROWSER: "1"
+      ONIBI_LIVE_RACE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web-tests/package-lock.json
+      - name: Install real terminal backends
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes tmux screen
+          mux_download=$(mktemp -d)
+          curl --fail --location --retry 3 https://github.com/zellij-org/zellij/releases/download/v0.45.1/zellij-x86_64-unknown-linux-musl.tar.gz --output "$mux_download/zellij.tar.gz"
+          printf '%s  %s\n' '40bcc2e03f5d5ae8e054e39f676081fe12ab70871506996ba595834c3718eefc' "$mux_download/zellij.tar.gz" | sha256sum --check --status
+          tar -xzf "$mux_download/zellij.tar.gz" -C "$mux_download" zellij
+          sudo install -m 755 "$mux_download/zellij" /usr/local/bin/zellij
+      - run: npm ci --prefix web-tests
+      - run: npx playwright install --with-deps chromium
+        working-directory: web-tests
+      - name: Production CLI, HTTP, restart recovery and Chromium with real sessions
+        run: make test-live
+
   release-snapshot:
     runs-on: macos-latest
     steps:

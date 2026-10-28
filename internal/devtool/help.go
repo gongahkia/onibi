@@ -13,11 +13,11 @@ func (t *Tool) Help() {
 	originalWidth := ui.LabelWidth
 	ui.LabelWidth = 20
 	defer func() { ui.LabelWidth = originalWidth }()
-	ui.Banner("Control Ghostty wherever text renders")
+	ui.Banner("Your terminals, wherever text renders")
 	ui.Section("START HERE")
 	ui.Field("make run", "Build and start the web cockpit")
 	ui.Field("make build", "Native build with elapsed progress; bin/build.log")
-	ui.Field("make doctor", "Inspect passive Mac readiness")
+	ui.Field("make doctor", "Inspect passive host readiness")
 	ui.Note("Keep the web terminal open. Use a second terminal for status or logs.")
 	ui.Section("SOURCE INSTALLATION")
 	for _, entry := range [][2]string{{"make install", "Install into ~/.local/bin"}, {"make install-status", "Verify revision and checksums"}, {"make update", "Rebuild this checkout; preserve state"}, {"make uninstall", "Remove owned binaries and login services"}} {
@@ -30,4 +30,7 @@ func (t *Tool) Help() {
 	ui.Section("CHECKS")
 	ui.Field("make test", "Hermetic Go tests with race detection")
 	ui.Field("make test-browser", "Browser/HTTP integration (npm ci first)")
+	ui.Field("make test-live", "Linux/WSL: production server and installed multiplexers")
+	ui.Field("make test-live-browser", "Live suite plus Chromium against real sessions")
+	ui.Field("make test-systemd", "Linux: isolated live user-service lifecycle")
 }

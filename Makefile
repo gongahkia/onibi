@@ -1,4 +1,4 @@
-.PHONY: help build install update upgrade uninstall install-status setup doctor dogfood test unit test-browser vet tidy run clean
+.PHONY: help build install update upgrade uninstall install-status setup doctor dogfood test unit test-browser test-live test-live-browser test-systemd vet tidy run clean
 
 BINARY := onibi
 BUILD_DIR := bin
@@ -42,6 +42,16 @@ test: unit
 
 test-browser:
 	$(Q)npm test --prefix web-tests
+
+# Explicit opt-ins: these start isolated real processes, not mock backends.
+test-live:
+	$(Q)node web-tests/live.cjs
+
+test-live-browser:
+	$(Q)ONIBI_LIVE_BROWSER=1 node web-tests/live.cjs
+
+test-systemd:
+	$(Q)ONIBI_SYSTEMD_SMOKE=1 go test -count=1 -run TestWebSystemdLiveSessionSurvivesStop -v ./internal/service
 
 unit:
 	$(Q)go test -race -count=1 ./...

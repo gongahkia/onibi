@@ -6,6 +6,7 @@
   "scripts": {
     "test": "node --test native-bridge.test.cjs ansi.test.cjs words.test.cjs && node smoke.cjs && node integration.cjs",
     "test:integration": "node integration.cjs",
+    "test:live": "node live.cjs",
     "test:push-live": "node push-live.cjs"
   },
   "devDependencies": {
