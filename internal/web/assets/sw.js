@@ -1,7 +1,7 @@
 "use strict";
 
 // Push only: no fetch handler, so nothing is cached and every page load
-// still comes from the Mac.
+// still comes from the computer running Onibi.
 self.addEventListener("push", (event) => {
   let data = {};
   try {

@@ -132,7 +132,7 @@ func (s *Server) pair(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.pairUsed || !s.now().Before(s.pairExpires) || subtle.ConstantTimeCompare(hash[:], s.pairHash[:]) != 1 {
-		writeError(w, 401, "invalid_pairing", "This link is invalid, expired, or already used. Run onibi web pair on your Mac for a fresh link.")
+		writeError(w, 401, "invalid_pairing", "This link is invalid, expired, or already used. Run onibi web pair on the computer running Onibi for a fresh link.")
 		return
 	}
 	id, err := randomToken()
@@ -259,7 +259,7 @@ func (s *Server) resumeSession(w http.ResponseWriter, r *http.Request) {
 	var created, expires int64
 	err = s.db.SQL().QueryRowContext(r.Context(), `SELECT id,name,remembered,created_at,expires_at FROM web_devices WHERE token_hash=? AND origin=? AND remembered=1 AND expires_at>?`, hash[:], s.origin, s.now().Unix()).Scan(&d.ID, &d.Name, &d.Remembered, &created, &expires)
 	if err != nil {
-		writeError(w, 401, "unauthorized", "This browser is no longer remembered. Pair again using onibi web pair on your Mac.")
+		writeError(w, 401, "unauthorized", "This browser is no longer remembered. Pair again using onibi web pair on the computer running Onibi.")
 		return
 	}
 	d.CreatedAt, d.ExpiresAt = time.Unix(created, 0).UTC(), time.Unix(expires, 0).UTC()
@@ -304,7 +304,7 @@ func (s *Server) setDeviceCookie(w http.ResponseWriter, token string, expiry tim
 	http.SetCookie(w, c)
 }
 func deviceFailure(w http.ResponseWriter) {
-	writeError(w, 503, "device_unavailable", "Browser access could not be updated. Try again from your Mac.")
+	writeError(w, 503, "device_unavailable", "Browser access could not be updated. Try again from the computer running Onibi.")
 }
 func (s *Server) logout(w http.ResponseWriter, r *http.Request, session browserSession) {
 	if err := s.RevokeDevice(r.Context(), session.Device.ID); err != nil {

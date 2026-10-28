@@ -312,7 +312,7 @@ func (s *Server) startSession(ctx context.Context, r *http.Request, receipt Rece
 		return receipt
 	}
 	receipt.State = "completed"
-	receipt.Result = &ghostty.Result{TargetID: sessionTargetPrefix + id, Message: "It keeps running when Ghostty quits."}
+	receipt.Result = &ghostty.Result{TargetID: sessionTargetPrefix + id, Message: "It keeps running when the browser or web server closes."}
 	return receipt
 }
 
